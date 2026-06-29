@@ -1,0 +1,10 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.exe binary
+*.gz binary
+*.ico binary
+*.png binary
+*.zip filter=lfs diff=lfs merge=lfs -text
+assets/mihomo.exe filter=lfs diff=lfs merge=lfs -text
+assets/geoip.metadb.gz filter=lfs diff=lfs merge=lfs -text

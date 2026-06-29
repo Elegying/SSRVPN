@@ -1,0 +1,53 @@
+name: ssrvpn_client
+description: SSRVPN - 安全稳定的VPN客户端
+publish_to: 'none'
+version: 2.0.0+200
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  provider: ^6.1.0
+
+  # YAML parsing for Clash config
+  yaml: ^3.1.0
+
+  # HTTP client for subscription fetch and Clash API
+  http: ^1.0.0
+
+  # Shared preferences for settings persistence
+  shared_preferences: ^2.2.0
+
+  # App data directory (macOS)
+  path_provider: ^2.1.0
+
+  # Window management (size, hide, focus)
+  window_manager: ^0.5.1
+  screen_retriever: ^0.2.1
+
+  # Menu bar tray (macOS)
+  tray_manager: ^0.5.3
+
+  # Shared code across all SSRVPN platforms
+  ssrvpn_shared:
+    path: ../packages/ssrvpn_shared
+
+  # UUID generation
+  uuid: ^3.0.7
+
+  # Asset integrity checks
+  crypto: ^3.0.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/

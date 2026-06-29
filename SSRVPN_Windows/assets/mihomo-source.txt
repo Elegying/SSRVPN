@@ -1,0 +1,5 @@
+Mihomo version: v1.19.27
+Official asset: mihomo-windows-amd64-v1-go120-v1.19.27.zip
+Asset SHA256: e74f46b13d9876692a915a13d38b40b87205d5fb0c44f96b85a44d50a59bc5cc
+Executable SHA256: 68aef0861d0c7f6b9549b252ea952d5a304c405d8d343ce9c0bf20b32432eccc
+Source: https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.27

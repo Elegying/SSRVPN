@@ -1,0 +1,36 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+coverage/
+
+# Platform build outputs
+*.apk
+*.aab
+*.dmg
+*.zip
+*.sha256
+
+# Local signing and secrets
+android/key.properties
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+*.env
+
+# Runtime data and logs
+ssrvpn/
+logs/
+crashes/
+*.log
+*.dmp
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+

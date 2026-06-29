@@ -1,0 +1,68 @@
+import '../services/clash_service.dart';
+import '../services/notification_service.dart';
+import '../services/settings_service.dart';
+import '../services/subscription_service.dart';
+
+/// 连接编排器
+///
+/// 抽取 home_screen 中 generateClashConfig + writeConfig + start +
+/// updateVpnNotification + verify 的完整编排流程。
+class ConnectionOrchestrator {
+  final ClashService clashService;
+  final NotificationService notificationService;
+  final SettingsService settingsService;
+  final SubscriptionService subscriptionService;
+
+  ConnectionOrchestrator({
+    required this.clashService,
+    required this.notificationService,
+    required this.settingsService,
+    required this.subscriptionService,
+  });
+
+  /// 执行连接流程
+  ///
+  /// [nodeName] 可选的首选节点名，null 则自动选择。
+  /// 返回 null 表示连接成功；返回非 null 表示错误信息（UI 应显示给用户）。
+  Future<String?> connect(String? nodeName) async {
+    final rawYaml = subscriptionService.rawYaml;
+    if (rawYaml == null || rawYaml.isEmpty) {
+      return '请先添加并刷新订阅';
+    }
+
+    final settings = settingsService.settings;
+    clashService.updateSettings(settings);
+
+    // 生成配置
+    final config = clashService.generateClashConfig(
+      rawYaml,
+      settings,
+      preferredNodeName: nodeName,
+    );
+
+    // 写入配置
+    await clashService.writeConfig(config);
+
+    // 启动核心
+    final success = await clashService.start(nodeName: nodeName);
+
+    if (!success) {
+      return '连接失败: ${clashService.lastStartError ?? "无法启动VPN核心"}';
+    }
+
+    // 切换选中节点
+    if (nodeName != null && nodeName.isNotEmpty) {
+      await clashService.switchSelectedProxy(nodeName);
+    }
+
+    // 更新通知栏
+    await notificationService.showConnectedNotification(
+      nodeName: nodeName ?? '自动',
+      proxyMode: settings.proxyMode.name,
+    );
+
+    // 验证连通性
+    final connectivityWarning = await clashService.verifyUserConnectivity();
+    return connectivityWarning; // null = 完全成功
+  }
+}

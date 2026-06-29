@@ -1,0 +1,6 @@
+#include "../../Flutter/Flutter-Release.xcconfig"
+#include "Warnings.xcconfig"
+
+// 仅构建 Apple Silicon（内置的 AtlasCore 核心只有 arm64，Intel 上本就无法运行）
+ARCHS = arm64
+ONLY_ACTIVE_ARCH = NO

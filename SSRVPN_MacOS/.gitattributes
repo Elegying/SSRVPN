@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.dmg filter=lfs diff=lfs merge=lfs -text
+*.gz binary
+*.ico binary
+*.png binary
+assets/AtlasCore.gz filter=lfs diff=lfs merge=lfs -text
+assets/geoip.metadb.gz filter=lfs diff=lfs merge=lfs -text

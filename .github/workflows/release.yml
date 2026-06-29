@@ -1,0 +1,223 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.27'
+
+jobs:
+  # ── 共享包测试 ──
+  shared-test:
+    name: Shared package tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/ssrvpn_shared
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - run: dart analyze --fatal-infos
+      - run: dart test
+
+  # ── Android ──
+  build-android:
+    name: Android APK
+    needs: shared-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          cd packages/ssrvpn_shared && dart pub get
+          cd ../../SSRVPN_Android && flutter pub get
+
+      - name: Analyze
+        run: cd SSRVPN_Android && flutter analyze --no-fatal-infos
+
+      - name: Test
+        run: |
+          cd packages/ssrvpn_shared && dart test
+          cd ../../SSRVPN_Android && flutter test
+
+      - name: Build APK
+        run: |
+          cd SSRVPN_Android
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk
+
+      - name: Generate checksum
+        run: cd SSRVPN_Android && sha256sum SSRVPN.apk > SSRVPN.apk.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: |
+            SSRVPN_Android/SSRVPN.apk
+            SSRVPN_Android/SSRVPN.apk.sha256
+
+  # ── macOS ──
+  build-macos:
+    name: macOS DMG
+    needs: shared-test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          cd packages/ssrvpn_shared && dart pub get
+          cd ../../SSRVPN_MacOS && flutter pub get
+
+      - name: Analyze
+        run: cd SSRVPN_MacOS && flutter analyze --no-fatal-infos
+
+      - name: Test
+        run: |
+          cd packages/ssrvpn_shared && dart test
+          cd ../../SSRVPN_MacOS && flutter test
+
+      - name: Build & Package DMG
+        run: cd SSRVPN_MacOS && bash tool/package_macos.sh
+
+      - name: Generate checksum
+        run: cd SSRVPN_MacOS && shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            SSRVPN_MacOS/SSRVPN.dmg
+            SSRVPN_MacOS/SSRVPN.dmg.sha256
+
+  # ── Windows ──
+  build-windows:
+    name: Windows ZIP
+    needs: shared-test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          cd packages/ssrvpn_shared; dart pub get
+          cd ../../SSRVPN_Windows; flutter pub get
+
+      - name: Analyze
+        run: cd SSRVPN_Windows; flutter analyze --no-fatal-infos
+
+      - name: Test
+        run: |
+          cd packages/ssrvpn_shared; dart test
+          cd ../../SSRVPN_Windows; flutter test
+
+      - name: Build & Package ZIP
+        shell: powershell
+        run: |
+          cd SSRVPN_Windows
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
+
+      - name: Generate checksum
+        shell: powershell
+        run: |
+          cd SSRVPN_Windows
+          $hash = (Get-FileHash SSRVPN.zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  SSRVPN.zip" | Out-File -Encoding ascii SSRVPN.zip.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            SSRVPN_Windows/SSRVPN.zip
+            SSRVPN_Windows/SSRVPN.zip.sha256
+
+  # ── GitHub Release ──
+  publish:
+    name: Publish Release
+    needs: [build-android, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          PREV_TAG=$(git tag --sort=-creatordate | head -2 | tail -1)
+          if [ "$PREV_TAG" = "$TAG" ]; then
+            NOTES="Initial release."
+          else
+            NOTES=$(git log --pretty=format:"- %s" "$PREV_TAG".."$TAG" 2>/dev/null || echo "Release $TAG")
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.notes.outputs.tag }}
+          name: SSRVPN ${{ steps.notes.outputs.tag }}
+          body: |
+            ## SSRVPN ${{ steps.notes.outputs.tag }}
+
+            ${{ steps.notes.outputs.notes }}
+
+            ### Downloads
+            | Platform | File | Checksum |
+            |----------|------|----------|
+            | Android | `SSRVPN.apk` | `SSRVPN.apk.sha256` |
+            | macOS | `SSRVPN.dmg` | `SSRVPN.dmg.sha256` |
+            | Windows | `SSRVPN.zip` | `SSRVPN.zip.sha256` |
+
+            Verify checksums: `shasum -a 256 -c <file>.sha256`
+          files: |
+            artifacts/android/SSRVPN.apk
+            artifacts/android/SSRVPN.apk.sha256
+            artifacts/macos/SSRVPN.dmg
+            artifacts/macos/SSRVPN.dmg.sha256
+            artifacts/windows/SSRVPN.zip
+            artifacts/windows/SSRVPN.zip.sha256
+          generate_release_notes: false

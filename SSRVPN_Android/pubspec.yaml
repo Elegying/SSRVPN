@@ -1,0 +1,52 @@
+name: ssrvpn_client
+description: SSRVPN - 安全稳定的VPN客户端
+publish_to: 'none'
+version: 2.0.0+200
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  provider: ^6.1.0
+
+  # YAML parsing for Clash config
+  yaml: ^3.1.0
+
+  # HTTP client for subscription fetch and Clash API
+  http: ^1.0.0
+
+  # Shared preferences for settings persistence
+  shared_preferences: ^2.2.0
+
+  # Secure storage for apiSecret (Android Keystore / EncryptedSharedPreferences)
+  flutter_secure_storage: ^9.0.0
+
+  # Path provider for Android
+  path_provider: ^2.1.0
+
+  # Shared code across all SSRVPN platforms
+  ssrvpn_shared:
+    path: ../packages/ssrvpn_shared
+
+  # UUID generation
+  uuid: ^3.0.7
+
+  # URL launcher for update downloads
+  # url_launcher: ^6.2.0  # 已移除：AGP 版本冲突，改用 MethodChannel 调用原生 Intent 打开浏览器
+  #                       # 见 MainActivity.kt "openUrl" 和 update_service.dart
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  shaders:
+    - shaders/liquid_lens.frag
+  assets:
+    - assets/

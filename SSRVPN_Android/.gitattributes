@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.sh text eol=lf
+gradlew text eol=lf
+*.apk filter=lfs diff=lfs merge=lfs -text
+*.gz binary
+*.ico binary
+*.jar binary
+*.png binary
+*.so binary
+android/app/src/main/jniLibs/**/*.so filter=lfs diff=lfs merge=lfs -text
+assets/geoip.metadb.gz filter=lfs diff=lfs merge=lfs -text

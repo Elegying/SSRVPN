@@ -1,0 +1,61 @@
+name: SSRVPN CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  shared:
+    name: Shared package
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/ssrvpn_shared
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - run: dart pub get
+      - run: dart analyze
+      - run: dart test
+
+  flutter-app:
+    name: ${{ matrix.name }}
+    needs: shared
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Android
+            os: ubuntu-latest
+            directory: SSRVPN_Android
+          - name: macOS
+            os: macos-latest
+            directory: SSRVPN_MacOS
+          - name: Windows
+            os: windows-latest
+            directory: SSRVPN_Windows
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+        working-directory: ${{ matrix.directory }}
+
+      - run: flutter analyze --no-fatal-infos
+        working-directory: ${{ matrix.directory }}
+
+      - run: flutter test
+        working-directory: ${{ matrix.directory }}
