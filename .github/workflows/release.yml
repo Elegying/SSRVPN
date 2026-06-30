@@ -25,7 +25,7 @@ jobs:
       run:
         working-directory: packages/ssrvpn_shared
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -41,7 +41,7 @@ jobs:
     needs: shared-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: true
 
@@ -74,7 +74,7 @@ jobs:
         run: cd SSRVPN_Android && sha256sum SSRVPN.apk > SSRVPN.apk.sha256
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android
           path: |
@@ -87,7 +87,7 @@ jobs:
     needs: shared-test
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: true
 
@@ -117,7 +117,7 @@ jobs:
         run: cd SSRVPN_MacOS && shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos
           path: |
@@ -130,7 +130,7 @@ jobs:
     needs: shared-test
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: true
 
@@ -167,7 +167,7 @@ jobs:
           "$hash  SSRVPN.zip" | Out-File -Encoding ascii SSRVPN.zip.sha256
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows
           path: |
@@ -180,12 +180,12 @@ jobs:
     needs: [build-android, build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -205,7 +205,7 @@ jobs:
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.notes.outputs.tag }}
           name: SSRVPN ${{ steps.notes.outputs.tag }}
