@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:meta/meta.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:yaml/yaml.dart' show loadYaml;
@@ -47,6 +48,12 @@ abstract class ClashServiceBase {
 
   // ── 定时器 ──
   Timer? _statusTimer;
+
+  // ── Protected API ──
+
+  /// Subclasses can use this to make direct HTTP calls to the Clash API.
+  @protected
+  http.Client? get apiClient => _apiClient;
 
   // ── Getters ──
   bool get isRunning => _isRunning;
@@ -563,10 +570,15 @@ abstract class ClashServiceBase {
     final sanitized = LogRedactor.sanitize(message);
     _logBuffer = '$sanitized\n$_logBuffer';
     if (_logBuffer.length > 10000) _logBuffer = _logBuffer.substring(0, 10000);
+    onLog?.call(sanitized);
     if (!_kReleaseMode) {
-      onLog?.call(sanitized);
+      debugLog(sanitized);
     }
   }
+
+  /// Override for platform-specific debug output (debugPrint, file logging, etc.)
+  @protected
+  void debugLog(String message) {}
 
   // ── 状态管理 ──
 

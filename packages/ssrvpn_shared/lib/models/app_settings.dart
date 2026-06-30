@@ -1,9 +1,11 @@
 import '../utils/force_proxy_site_policy.dart';
 
-/// 应用设置数据模型 - 跨平台共享
+/// 应用设置数据模型 — 跨平台共享
 ///
-/// 包含所有平台通用的设置字段
-/// 平台特定的设置可以通过继承或组合方式扩展
+/// 所有平台共用此类。通过 re-export 暴露给各平台子项目。
+///
+/// 平台特有字段（如 autoConnectOnStartup）以可选方式存在于这里，
+/// 不需要的平台忽略即可（JSON 序列化自动处理）。
 class AppSettings {
   static const int forceProxySiteLimit = ForceProxySitePolicy.defaultLimit;
 
@@ -41,6 +43,10 @@ class AppSettings {
   // ── 强制代理站点 ──
   List<String> forceProxySites;
 
+  // ── Android 特有 ──
+  bool autoConnectOnStartup;
+  bool autoCheckUpdate;
+
   AppSettings({
     this.proxyPort = 7890,
     this.socksPort = 7891,
@@ -60,39 +66,79 @@ class AppSettings {
     this.lastSelectedNodeName,
     this.latencyTestTimeout = 5000,
     Iterable<Object?>? forceProxySites,
+    this.autoConnectOnStartup = false,
+    this.autoCheckUpdate = true,
   }) : forceProxySites = normalizeForceProxySites(forceProxySites);
 
-  /// 从 JSON 反序列化
-  factory AppSettings.fromJson(Map<String, dynamic> json) {
+  // ── 便捷 getter/setter ──
+
+  String? get lastSelectedNode => lastSelectedNodeName;
+  set lastSelectedNode(String? value) => lastSelectedNodeName = value;
+
+  bool get tunMode => enableTun;
+  set tunMode(bool value) => enableTun = value;
+
+  bool get enableSystemProxy => !enableTun;
+  set enableSystemProxy(bool value) => enableTun = !value;
+
+  /// macOS/Windows 别名（兼容旧存储）
+  bool get startWithWindows => startOnBoot;
+  set startWithWindows(bool value) => startOnBoot = value;
+
+  // ── copyWith ──
+
+  AppSettings copyWith({
+    int? proxyPort,
+    int? socksPort,
+    int? apiPort,
+    String? apiSecret,
+    ProxyMode? proxyMode,
+    bool? enableTun,
+    String? tunStack,
+    bool? minimizeToTray,
+    bool? startOnBoot,
+    bool? startWithWindows,
+    bool? startMinimized,
+    bool? closeToTray,
+    bool? darkMode,
+    bool? autoUpdateSubscription,
+    int? updateIntervalHours,
+    String? latencyTestUrl,
+    String? lastSelectedNodeName,
+    int? latencyTestTimeout,
+    Iterable<Object?>? forceProxySites,
+    bool? autoConnectOnStartup,
+    bool? autoCheckUpdate,
+  }) {
     return AppSettings(
-      proxyPort: json['proxyPort'] as int? ?? 7890,
-      socksPort: json['socksPort'] as int? ?? 7891,
-      apiPort: json['apiPort'] as int? ?? 9090,
-      apiSecret: json['apiSecret'] as String? ?? '',
-      proxyMode: ProxyMode.values.firstWhere(
-        (e) => e.name == json['proxyMode'],
-        orElse: () => ProxyMode.rule,
-      ),
-      enableTun: json['enableTun'] as bool? ?? false,
-      tunStack: json['tunStack'] as String? ?? 'gvisor',
-      minimizeToTray: json['minimizeToTray'] as bool? ?? true,
-      startOnBoot: json['startOnBoot'] as bool? ?? false,
-      startMinimized: json['startMinimized'] as bool? ?? false,
-      closeToTray: _parseBool(json['closeToTray'], false),
-      darkMode: _parseBool(json['darkMode'], true),
-      autoUpdateSubscription: _parseBool(json['autoUpdateSubscription'], true),
-      updateIntervalHours: json['updateIntervalHours'] as int? ?? 24,
-      latencyTestUrl: json['latencyTestUrl'] as String? ??
-          'http://www.gstatic.com/generate_204',
-      lastSelectedNodeName: json['lastSelectedNodeName'] as String?,
-      latencyTestTimeout: json['latencyTestTimeout'] as int? ?? 5000,
-      forceProxySites: json['forceProxySites'] is Iterable
-          ? json['forceProxySites'] as Iterable
-          : null,
+      proxyPort: proxyPort ?? this.proxyPort,
+      socksPort: socksPort ?? this.socksPort,
+      apiPort: apiPort ?? this.apiPort,
+      apiSecret: apiSecret ?? this.apiSecret,
+      proxyMode: proxyMode ?? this.proxyMode,
+      enableTun: enableTun ?? this.enableTun,
+      tunStack: tunStack ?? this.tunStack,
+      minimizeToTray: minimizeToTray ?? this.minimizeToTray,
+      startOnBoot: startOnBoot ?? startWithWindows ?? this.startOnBoot,
+      startMinimized: startMinimized ?? this.startMinimized,
+      closeToTray: closeToTray ?? this.closeToTray,
+      darkMode: darkMode ?? this.darkMode,
+      autoUpdateSubscription:
+          autoUpdateSubscription ?? this.autoUpdateSubscription,
+      updateIntervalHours: updateIntervalHours ?? this.updateIntervalHours,
+      latencyTestUrl: latencyTestUrl ?? this.latencyTestUrl,
+      lastSelectedNodeName:
+          lastSelectedNodeName ?? this.lastSelectedNodeName,
+      latencyTestTimeout: latencyTestTimeout ?? this.latencyTestTimeout,
+      forceProxySites: forceProxySites ?? this.forceProxySites,
+      autoConnectOnStartup:
+          autoConnectOnStartup ?? this.autoConnectOnStartup,
+      autoCheckUpdate: autoCheckUpdate ?? this.autoCheckUpdate,
     );
   }
 
-  /// 序列化为 JSON
+  // ── JSON 序列化 ──
+
   Map<String, dynamic> toJson() {
     return {
       'proxyPort': proxyPort,
@@ -113,52 +159,47 @@ class AppSettings {
       'lastSelectedNodeName': lastSelectedNodeName,
       'latencyTestTimeout': latencyTestTimeout,
       'forceProxySites': forceProxySites,
+      'autoConnectOnStartup': autoConnectOnStartup,
+      'autoCheckUpdate': autoCheckUpdate,
     };
   }
 
-  /// 复制并修改
-  AppSettings copyWith({
-    int? proxyPort,
-    int? socksPort,
-    int? apiPort,
-    String? apiSecret,
-    ProxyMode? proxyMode,
-    bool? enableTun,
-    String? tunStack,
-    bool? minimizeToTray,
-    bool? startOnBoot,
-    bool? startMinimized,
-    bool? closeToTray,
-    bool? darkMode,
-    bool? autoUpdateSubscription,
-    int? updateIntervalHours,
-    String? latencyTestUrl,
-    String? lastSelectedNodeName,
-    int? latencyTestTimeout,
-    Iterable<Object?>? forceProxySites,
-  }) {
+  factory AppSettings.fromJson(Map<String, dynamic> json) {
     return AppSettings(
-      proxyPort: proxyPort ?? this.proxyPort,
-      socksPort: socksPort ?? this.socksPort,
-      apiPort: apiPort ?? this.apiPort,
-      apiSecret: apiSecret ?? this.apiSecret,
-      proxyMode: proxyMode ?? this.proxyMode,
-      enableTun: enableTun ?? this.enableTun,
-      tunStack: tunStack ?? this.tunStack,
-      minimizeToTray: minimizeToTray ?? this.minimizeToTray,
-      startOnBoot: startOnBoot ?? this.startOnBoot,
-      startMinimized: startMinimized ?? this.startMinimized,
-      closeToTray: closeToTray ?? this.closeToTray,
-      darkMode: darkMode ?? this.darkMode,
+      proxyPort: _parsePort(json['proxyPort'], 7890),
+      socksPort: _parsePort(json['socksPort'], 7891),
+      apiPort: _parsePort(json['apiPort'], 9090),
+      apiSecret: json['apiSecret']?.toString() ?? '',
+      proxyMode: _parseProxyMode(json['proxyMode'] as String?),
+      enableTun: _parseBool(json['enableTun'], false),
+      tunStack: json['tunStack']?.toString() ?? 'gvisor',
+      minimizeToTray: _parseBool(json['minimizeToTray'], true),
+      startOnBoot: _parseBool(
+        json['startOnBoot'] ?? json['startWithWindows'],
+        false,
+      ),
+      startMinimized: _parseBool(json['startMinimized'], false),
+      closeToTray: _parseBool(json['closeToTray'], false),
+      darkMode: _parseBool(json['darkMode'], true),
       autoUpdateSubscription:
-          autoUpdateSubscription ?? this.autoUpdateSubscription,
-      updateIntervalHours: updateIntervalHours ?? this.updateIntervalHours,
-      latencyTestUrl: latencyTestUrl ?? this.latencyTestUrl,
-      lastSelectedNodeName: lastSelectedNodeName ?? this.lastSelectedNodeName,
-      latencyTestTimeout: latencyTestTimeout ?? this.latencyTestTimeout,
-      forceProxySites: forceProxySites ?? this.forceProxySites,
+          _parseBool(json['autoUpdateSubscription'], true),
+      updateIntervalHours:
+          _parsePositiveInt(json['updateIntervalHours'], 24, min: 1, max: 720),
+      latencyTestUrl: json['latencyTestUrl']?.toString() ??
+          'http://www.gstatic.com/generate_204',
+      lastSelectedNodeName: json['lastSelectedNodeName'] as String?,
+      latencyTestTimeout: _parseTimeout(json['latencyTestTimeout'], 5000),
+      forceProxySites: json['forceProxySites'] is Iterable
+          ? (json['forceProxySites'] as Iterable)
+              .map((e) => e?.toString() ?? '')
+          : null,
+      autoConnectOnStartup:
+          _parseBool(json['autoConnectOnStartup'], false),
+      autoCheckUpdate: _parseBool(json['autoCheckUpdate'], true),
     );
   }
+
+  // ── 比较 ──
 
   @override
   bool operator ==(Object other) {
@@ -181,6 +222,8 @@ class AppSettings {
         other.latencyTestUrl == latencyTestUrl &&
         other.lastSelectedNodeName == lastSelectedNodeName &&
         other.latencyTestTimeout == latencyTestTimeout &&
+        other.autoConnectOnStartup == autoConnectOnStartup &&
+        other.autoCheckUpdate == autoCheckUpdate &&
         _listEquals(other.forceProxySites, forceProxySites);
   }
 
@@ -204,6 +247,8 @@ class AppSettings {
       latencyTestUrl,
       lastSelectedNodeName,
       latencyTestTimeout,
+      autoConnectOnStartup,
+      autoCheckUpdate,
       Object.hashAll(forceProxySites),
     );
   }
@@ -216,6 +261,8 @@ class AppSettings {
     return true;
   }
 
+  // ── 静态工具方法 ──
+
   static List<String> normalizeForceProxySites(Iterable<Object?>? sites) {
     return ForceProxySitePolicy.normalize(
       sites,
@@ -227,12 +274,43 @@ class AppSettings {
     return ForceProxySitePolicy.extractHost(site);
   }
 
+  static int _parsePort(Object? value, int fallback) {
+    final port = int.tryParse(value?.toString() ?? '');
+    return port != null && port >= 1 && port <= 65535 ? port : fallback;
+  }
+
+  static int _parseTimeout(Object? value, int fallback) {
+    final timeout = int.tryParse(value?.toString() ?? '');
+    return timeout != null && timeout >= 500 && timeout <= 60000
+        ? timeout
+        : fallback;
+  }
+
+  static int _parsePositiveInt(
+    Object? value,
+    int fallback, {
+    required int min,
+    required int max,
+  }) {
+    final parsed = int.tryParse(value?.toString() ?? '');
+    return parsed != null && parsed >= min && parsed <= max ? parsed : fallback;
+  }
+
   static bool _parseBool(Object? value, bool fallback) {
     if (value == null) return fallback;
     if (value is bool) return value;
     if (value is String) return value == 'true';
     if (value is int) return value != 0;
     return fallback;
+  }
+
+  static ProxyMode _parseProxyMode(String? mode) {
+    switch (mode) {
+      case 'global':
+        return ProxyMode.global;
+      default:
+        return ProxyMode.rule;
+    }
   }
 }
 

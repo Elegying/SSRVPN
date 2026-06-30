@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:ssrvpn_shared/models/app_settings.dart' show ProxyMode;
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
