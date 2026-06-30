@@ -20,10 +20,10 @@ dependencies:
   http: ^1.0.0
 
   # Shared preferences for settings persistence
-  shared_preferences: ^2.2.0
+  shared_preferences: ^2.5.5
 
   # App data directory (macOS)
-  path_provider: ^2.1.0
+  path_provider: ^2.1.6
 
   # Window management (size, hide, focus)
   window_manager: ^0.5.1
@@ -37,7 +37,7 @@ dependencies:
     path: ../packages/ssrvpn_shared
 
   # UUID generation
-  uuid: ^3.0.7
+  uuid: ^4.5.3
 
   # Asset integrity checks
   crypto: ^3.0.7
@@ -45,7 +45,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
+  flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true
