@@ -37,7 +37,7 @@ dependencies:
     path: ../packages/ssrvpn_shared
 
   # UUID generation
-  uuid: ^3.0.7
+  uuid: ^4.5.3
 
   # Asset integrity checks
   crypto: ^3.0.7
