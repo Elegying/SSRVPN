@@ -4,6 +4,14 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore"
+      include: "scope"
     labels:
       - "dependencies"
       - "ci"
@@ -11,6 +19,14 @@ updates:
     directory: "/packages/ssrvpn_shared"
     schedule:
       interval: "weekly"
+    groups:
+      shared-pub:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore"
+      include: "scope"
     labels:
       - "dependencies"
       - "dart"
@@ -18,6 +34,14 @@ updates:
     directory: "/SSRVPN_Android"
     schedule:
       interval: "weekly"
+    groups:
+      android-pub:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore"
+      include: "scope"
     labels:
       - "dependencies"
       - "android"
@@ -25,6 +49,14 @@ updates:
     directory: "/SSRVPN_MacOS"
     schedule:
       interval: "weekly"
+    groups:
+      macos-pub:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore"
+      include: "scope"
     labels:
       - "dependencies"
       - "macos"
@@ -32,6 +64,14 @@ updates:
     directory: "/SSRVPN_Windows"
     schedule:
       interval: "weekly"
+    groups:
+      windows-pub:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore"
+      include: "scope"
     labels:
       - "dependencies"
       - "windows"
