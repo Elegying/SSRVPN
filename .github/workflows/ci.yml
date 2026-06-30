@@ -25,7 +25,7 @@ jobs:
       run:
         working-directory: packages/ssrvpn_shared
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: subosito/flutter-action@v2
         with:
@@ -55,7 +55,7 @@ jobs:
             os: windows-latest
             directory: SSRVPN_Windows
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: true
 
