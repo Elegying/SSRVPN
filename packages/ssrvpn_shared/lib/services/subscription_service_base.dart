@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:yaml/yaml.dart';
 
@@ -14,7 +15,7 @@ import '../services/subscription_parser.dart';
 ///
 /// 包含三端共享的订阅 CRUD、YAML 合并/解析、SSR 链接导入、磁盘持久化等逻辑。
 /// 各平台只需实现 [fetchSubscription] 提供平台特定的 HTTP 拉取策略。
-abstract class SubscriptionServiceBase {
+abstract class SubscriptionServiceBase extends ChangeNotifier {
   static const int maxSubscriptionBytes = 20 * 1024 * 1024;
   final Uuid _uuid = const Uuid();
 
@@ -50,7 +51,7 @@ abstract class SubscriptionServiceBase {
   }
 
   /// 通知监听器（子类实现，通常调用 ChangeNotifier.notifyListeners）
-  void notifyListeners();
+  // Subclasses should provide their own resetInstanceForTesting()
 
   Future<void> removeSubscription(String id) async {
     _subscriptions.removeWhere((s) => s.id == id);
@@ -127,6 +128,9 @@ abstract class SubscriptionServiceBase {
     final oldYaml = _rawYaml;
     _rawYaml = mergeYamlConfigs(allYamlBuffers);
     if (_rawYaml != oldYaml) _revision++;
+
+    // 子类可覆盖此方法添加合并后验证（如大小检查）
+    validateMergedYaml(_rawYaml);
 
     if (_rawYaml != null) {
       await cacheYaml(_rawYaml!);
@@ -389,6 +393,11 @@ abstract class SubscriptionServiceBase {
   }
 
   // ── YAML 解析 ──
+
+  /// 子类可覆盖此方法添加合并后验证（如大小检查）
+  void validateMergedYaml(String? yaml) {
+    // 默认不做验证
+  }
 
   void parseYaml() {
     _allNodes = [];
