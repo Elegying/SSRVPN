@@ -54,6 +54,7 @@ Analyzer warnings, infos, and errors should stay fixed before merging.
 - `docs/PROJECT_HEALTH.md`: current completeness, maintainability, release-readiness, and risk scorecard.
 - `docs/MAINTENANCE.md`: weekly maintenance, PR, release, and online/offline consistency checklist.
 - `docs/ROADMAP.md`: completed work plus near-term, medium-term, and long-term technical roadmap.
+- `docs/RELEASE_SIGNING.md`: Android, macOS, and Windows signing/notarization checklist.
 - `MIGRATION.md`: migration notes for the historical platform-only repositories.
 
 ## Release Builds

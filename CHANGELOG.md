@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub issue templates, pull request template, CODEOWNERS, and Dependabot configuration
 - Project health, maintenance, and roadmap documentation
 - Grouped Dependabot maintenance for GitHub Actions and platform Dart dependencies
+- Release signing and notarization checklist for Android, macOS, and Windows
 
 ### Changed
 - Improved project structure with monorepo approach
@@ -35,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Root audit notes were consolidated into maintained docs under `docs/`
 - GitHub Actions and platform Dart dependencies were updated through grouped Dependabot PRs
 - Platform analyzer checks now run in strict `flutter analyze` mode
+- macOS CI and release jobs now pin a stable macOS runner image
 
 ### Fixed
 - Unified error messages across platforms

@@ -85,7 +85,7 @@ jobs:
   build-macos:
     name: macOS DMG
     needs: shared-test
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
         with:

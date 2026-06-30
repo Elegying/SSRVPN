@@ -14,7 +14,7 @@ SSRVPN is now maintained from the `Elegying/SSRVPN` monorepo. The historical pla
 | Android | Functional | Analyze/test pass with strict analyzer settings. |
 | macOS | Functional | Analyze/test pass; Flutter warns that CocoaPods integration can be migrated to Swift Package Manager. |
 | Windows | Functional | Analyze/test pass; Mihomo integration test is skipped when the binary is unavailable in the test environment. |
-| Release automation | Good | Tag-driven release workflow builds all platforms and publishes checksums. |
+| Release automation | Good | Tag-driven release workflow builds all platforms, publishes checksums, pins the macOS runner, and documents signing requirements. |
 
 ## Remaining Risks
 
@@ -38,5 +38,5 @@ SSRVPN is now maintained from the `Elegying/SSRVPN` monorepo. The historical pla
 1. Extract a platform-neutral config assembly layer from `ClashService`.
 2. Keep strict analyzer checks green as dependencies and lints evolve.
 3. Migrate macOS away from CocoaPods if package compatibility remains stable.
-4. Add signed release documentation and repository secrets checklist.
+4. Wire signing and notarization secrets into the release workflow.
 5. Create the first monorepo tag and verify release artifacts end-to-end.

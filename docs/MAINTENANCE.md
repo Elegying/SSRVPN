@@ -42,6 +42,7 @@ This guide keeps local development, GitHub automation, and releases aligned.
    - Android keystore or documented debug fallback.
    - macOS signing/notarization credentials when shipping outside local testing.
    - Windows code signing certificate when public trust is required.
+   - See `docs/RELEASE_SIGNING.md` for expected secret names and workflow steps.
 4. Create and push a version tag:
 
    ```bash

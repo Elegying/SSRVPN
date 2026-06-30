@@ -49,7 +49,7 @@ jobs:
             os: ubuntu-latest
             directory: SSRVPN_Android
           - name: macOS
-            os: macos-latest
+            os: macos-15
             directory: SSRVPN_MacOS
           - name: Windows
             os: windows-latest
