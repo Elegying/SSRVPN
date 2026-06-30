@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ssrvpn_shared/models/app_settings.dart' show ProxyMode;
 import '../models/app_settings.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';

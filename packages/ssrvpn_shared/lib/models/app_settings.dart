@@ -238,6 +238,10 @@ class AppSettings {
 
 /// 代理模式枚举
 enum ProxyMode {
-  rule, // 规则模式
-  global, // 全局模式
+  global('全局模式', 'Global'),
+  rule('规则模式', 'Rule');
+
+  final String chineseName;
+  final String englishName;
+  const ProxyMode(this.chineseName, this.englishName);
 }

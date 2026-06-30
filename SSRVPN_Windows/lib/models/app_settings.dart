@@ -1,4 +1,5 @@
 import 'package:ssrvpn_shared/utils/force_proxy_site_policy.dart';
+import 'package:ssrvpn_shared/models/app_settings.dart' show ProxyMode;
 
 /// 应用设置模型
 ///
@@ -216,12 +217,4 @@ class AppSettings {
   }
 }
 
-/// 代理模式枚举
-enum ProxyMode {
-  global('全局模式', 'Global'),
-  rule('规则模式', 'Rule');
-
-  final String chineseName;
-  final String englishName;
-  const ProxyMode(this.chineseName, this.englishName);
-}
+// ProxyMode 枚举已移至 ssrvpn_shared，通过上方 import 导入
