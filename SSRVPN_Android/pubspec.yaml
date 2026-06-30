@@ -26,7 +26,7 @@ dependencies:
   flutter_secure_storage: ^9.0.0
 
   # Path provider for Android
-  path_provider: ^2.1.0
+  path_provider: ^2.1.6
 
   # Shared code across all SSRVPN platforms
   ssrvpn_shared:
