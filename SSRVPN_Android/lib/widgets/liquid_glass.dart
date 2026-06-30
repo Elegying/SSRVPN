@@ -227,8 +227,9 @@ class _LiquidGlassNavBarState extends State<LiquidGlassNavBar>
                                         _pressController.reverse(),
                                     onTap: () {
                                       _pressController.reverse();
-                                      if (i != widget.currentIndex)
+                                      if (i != widget.currentIndex) {
                                         widget.onTap(i);
+                                      }
                                     },
                                   ),
                                 ),

@@ -68,7 +68,7 @@ jobs:
       - run: flutter pub get
         working-directory: ${{ matrix.directory }}
 
-      - run: flutter analyze --no-fatal-infos
+      - run: flutter analyze
         working-directory: ${{ matrix.directory }}
 
       - run: flutter test

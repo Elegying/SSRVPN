@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';

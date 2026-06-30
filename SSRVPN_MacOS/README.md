@@ -21,7 +21,7 @@ SSRVPN macOS 版，基于 Flutter 和 Mihomo/Clash Meta 核心的桌面客户端
 
 ```bash
 flutter pub get
-flutter analyze --no-fatal-infos
+flutter analyze
 flutter test
 ```
 

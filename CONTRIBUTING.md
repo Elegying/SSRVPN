@@ -26,11 +26,11 @@ Run app checks from each app directory:
 
 ```bash
 flutter pub get
-flutter analyze --no-fatal-infos
+flutter analyze
 flutter test
 ```
 
-Use `flutter analyze --no-fatal-infos` until the existing UI-level const/style lint backlog is retired. Warnings and errors must still be fixed.
+Keep `flutter analyze` clean before opening or merging a PR.
 
 ## Issues
 

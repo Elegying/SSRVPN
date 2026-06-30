@@ -43,11 +43,11 @@ Each platform app:
 
 ```bash
 flutter pub get
-flutter analyze --no-fatal-infos
+flutter analyze
 flutter test
 ```
 
-Android still has an info-level UI lint backlog, mostly `prefer_const_*`. Warnings and errors should stay fixed.
+Analyzer warnings, infos, and errors should stay fixed before merging.
 
 ## Project Health
 

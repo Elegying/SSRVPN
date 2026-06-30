@@ -1,6 +1,6 @@
 /// 启动流程状态追踪
 class StartupStatus {
-  final List<_StepRecord> _steps = [];
+  final List<StartupStepRecord> _steps = [];
   DateTime? _startTime;
   DateTime? _endTime;
   bool _complete = false;
@@ -13,7 +13,7 @@ class StartupStatus {
   }
 
   void recordStep(String phase, String detail, {bool failed = false}) {
-    _steps.add(_StepRecord(
+    _steps.add(StartupStepRecord(
       phase: phase,
       detail: detail,
       timestamp: DateTime.now(),
@@ -46,7 +46,7 @@ class StartupStatus {
     return (_endTime ?? DateTime.now()).difference(_startTime!);
   }
 
-  List<_StepRecord> get steps => List.unmodifiable(_steps);
+  List<StartupStepRecord> get steps => List.unmodifiable(_steps);
 
   @override
   String toString() {
@@ -66,14 +66,14 @@ class StartupStatus {
   }
 }
 
-class _StepRecord {
+class StartupStepRecord {
   final String phase;
   final String detail;
   final DateTime timestamp;
   final bool failed;
   final int? elapsed;
 
-  const _StepRecord({
+  const StartupStepRecord({
     required this.phase,
     required this.detail,
     required this.timestamp,

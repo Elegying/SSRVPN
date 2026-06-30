@@ -30,7 +30,7 @@ dart test
 
 cd ../../SSRVPN_Android
 flutter pub get
-flutter analyze --no-fatal-infos
+flutter analyze
 flutter test
 ```
 

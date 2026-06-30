@@ -57,7 +57,7 @@ jobs:
           cd ../../SSRVPN_Android && flutter pub get
 
       - name: Analyze
-        run: cd SSRVPN_Android && flutter analyze --no-fatal-infos
+        run: cd SSRVPN_Android && flutter analyze
 
       - name: Test
         run: |
@@ -103,7 +103,7 @@ jobs:
           cd ../../SSRVPN_MacOS && flutter pub get
 
       - name: Analyze
-        run: cd SSRVPN_MacOS && flutter analyze --no-fatal-infos
+        run: cd SSRVPN_MacOS && flutter analyze
 
       - name: Test
         run: |
@@ -146,7 +146,7 @@ jobs:
           cd ../../SSRVPN_Windows; flutter pub get
 
       - name: Analyze
-        run: cd SSRVPN_Windows; flutter analyze --no-fatal-infos
+        run: cd SSRVPN_Windows; flutter analyze
 
       - name: Test
         run: |

@@ -430,7 +430,7 @@ class HomeScreenState extends State<HomeScreen>
           const SnackBar(
             margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
             content: Text('请先连接VPN'),
-            duration: const Duration(seconds: 4),
+            duration: Duration(seconds: 4),
           ),
         );
       }
@@ -1206,5 +1206,4 @@ class _TutorialStep extends StatelessWidget {
     );
   }
 }
-
 

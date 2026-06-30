@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repository-level `.gitattributes` for stable line endings
 - GitHub issue templates, pull request template, CODEOWNERS, and Dependabot configuration
 - Project health, maintenance, and roadmap documentation
+- Grouped Dependabot maintenance for GitHub Actions and platform Dart dependencies
 
 ### Changed
 - Improved project structure with monorepo approach
@@ -32,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release workflow fetches complete tag history before generating release notes
 - Shared package CI now uses the same pinned Flutter SDK as the platform apps
 - Root audit notes were consolidated into maintained docs under `docs/`
+- GitHub Actions and platform Dart dependencies were updated through grouped Dependabot PRs
+- Platform analyzer checks now run in strict `flutter analyze` mode
 
 ### Fixed
 - Unified error messages across platforms
@@ -44,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unknown proxy-group entries being added as fake nodes
 - API secret YAML quoting in generated Clash config
 - IPv6 force-proxy rule leakage in shared config generation
+- Android analyzer info backlog after Flutter lint and secure storage updates
 
 ## [1.0.0] - 2026-06-20
 

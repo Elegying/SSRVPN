@@ -10,11 +10,12 @@
 - Added shared subscription parser and wired it into all three platforms.
 - Added shared force-proxy rule generation and wired it into all three platforms.
 - Added GitHub issue templates, PR template, CODEOWNERS, Dependabot, security policy, and migration docs.
+- Cleared the Android analyzer info backlog and restored strict platform analyzer checks.
 
 ## Near Term
 
 1. Extract more `ClashService` configuration assembly into `packages/ssrvpn_shared`.
-2. Reduce Android analyzer info backlog or document a narrower lint policy.
+2. Keep platform dependency updates current through grouped Dependabot PRs.
 3. Add release signing documentation for Android, macOS, and Windows.
 4. Create the first monorepo release tag and verify artifacts from GitHub Actions.
 

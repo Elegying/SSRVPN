@@ -17,10 +17,8 @@ class SettingsService extends ChangeNotifier {
   static SettingsService? _instance;
   late AppSettings _settings;
 
-  /// EncryptedSharedPreferences 实例
-  static const _secureStorage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  /// Android Keystore backed secure storage.
+  static const _secureStorage = FlutterSecureStorage();
 
   /// 安全存储中的 key
   static const _secretKey = 'api_secret';
@@ -256,8 +254,4 @@ class SettingsService extends ChangeNotifier {
     _instance = null;
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
 }

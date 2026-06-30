@@ -19,7 +19,7 @@ This guide keeps local development, GitHub automation, and releases aligned.
    ```bash
    cd SSRVPN_Android
    flutter pub get
-   flutter analyze --no-fatal-infos
+   flutter analyze
    flutter test
    ```
 
