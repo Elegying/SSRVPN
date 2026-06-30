@@ -20,7 +20,7 @@ dependencies:
   http: ^1.0.0
 
   # Shared preferences for settings persistence
-  shared_preferences: ^2.2.0
+  shared_preferences: ^2.5.5
 
   # Secure storage for apiSecret (Android Keystore / EncryptedSharedPreferences)
   flutter_secure_storage: ^9.0.0
