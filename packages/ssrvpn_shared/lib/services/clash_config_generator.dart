@@ -1,12 +1,14 @@
+import 'dart:io';
+
 import '../models/app_settings.dart';
 import '../constants/app_constants.dart';
 
 /// Clash 配置生成器 - 跨平台共享的核心逻辑
-/// 
+///
 /// 生成通用的 Clash 配置，平台特定的配置可以通过继承或组合方式扩展
 class ClashConfigGenerator {
   /// 生成基础 Clash 配置
-  /// 
+  ///
   /// [rawYaml] 原始 YAML 配置（包含代理节点）
   /// [settings] 应用设置
   /// [preferredNodeName] 首选节点名称（可选）
@@ -35,10 +37,10 @@ class ClashConfigGenerator {
     }
 
     final result = StringBuffer();
-    
+
     // 平台头
     result.writeln(platformHeader ?? '# ===== SSRVPN 配置 =====');
-    
+
     // 基础配置
     result.writeln('mixed-port: ${settings.proxyPort}');
     result.writeln('socks-port: ${settings.socksPort}');
@@ -49,7 +51,7 @@ class ClashConfigGenerator {
     result.writeln('# SSRVPN 当前明确只支持 IPv4 节点与 IPv4 流量');
     result.writeln('ipv6: false');
     if (settings.apiSecret.isNotEmpty) {
-      result.writeln('secret: "${settings.apiSecret}"');
+      result.writeln('secret: ${_quote(settings.apiSecret)}');
     }
 
     // TUN 配置
@@ -167,7 +169,7 @@ class ClashConfigGenerator {
       final names = <String>[];
       bool inProxies = false;
       int proxiesIndent = 0;
-      
+
       for (final line in lines) {
         final trimmed = line.trim();
         if (trimmed == 'proxies:') {
@@ -175,19 +177,19 @@ class ClashConfigGenerator {
           proxiesIndent = line.indexOf('proxies:');
           continue;
         }
-        
+
         if (inProxies) {
           if (trimmed.isEmpty) {
             continue;
           }
-          
+
           final currentIndent = line.indexOf(trimmed);
           // 如果当前行的缩进小于等于 proxies 的缩进，说明遇到了新的顶级键
           if (currentIndent <= proxiesIndent && trimmed.isNotEmpty) {
             inProxies = false;
             continue;
           }
-          
+
           if (trimmed.startsWith('- name:')) {
             final name = trimmed.substring(7).trim();
             // 移除引号
@@ -201,7 +203,7 @@ class ClashConfigGenerator {
           }
         }
       }
-      
+
       return names;
     } catch (e) {
       return [];
@@ -215,7 +217,7 @@ class ClashConfigGenerator {
       final buffer = StringBuffer();
       bool inSection = false;
       int indentLevel = 0;
-      
+
       for (final line in lines) {
         final trimmed = line.trim();
         if (trimmed == '$sectionName:') {
@@ -223,22 +225,22 @@ class ClashConfigGenerator {
           indentLevel = line.indexOf(sectionName);
           continue;
         }
-        
+
         if (inSection) {
           if (trimmed.isEmpty) {
             continue;
           }
-          
+
           final currentIndent = line.indexOf(trimmed);
           if (currentIndent <= indentLevel && trimmed.isNotEmpty) {
             // 遇到同级或更高级的键，退出当前部分
             break;
           }
-          
+
           buffer.writeln(line);
         }
       }
-      
+
       return buffer.toString();
     } catch (e) {
       return '';
@@ -247,55 +249,41 @@ class ClashConfigGenerator {
 
   /// 构建强制代理规则
   static List<String> buildForceProxyRules(AppSettings settings) {
+    return buildForceProxyRulesFromSites(settings.forceProxySites);
+  }
+
+  /// 从用户输入的站点列表构建强制代理规则。
+  ///
+  /// 该入口不依赖平台 AppSettings 类型，三端可直接复用同一套
+  /// IPv4-only 主机规范化、去重和 Clash rule 生成逻辑。
+  static List<String> buildForceProxyRulesFromSites(
+    Iterable<Object?>? forceProxySites,
+  ) {
+    final hosts = <String>{};
     final rules = <String>[];
-    
-    for (final site in settings.forceProxySites) {
-      if (site.startsWith('DOMAIN-SUFFIX,')) {
-        rules.add('$site,PROXY');
-      } else if (site.startsWith('DOMAIN,')) {
-        rules.add('$site,PROXY');
-      } else if (site.startsWith('IP-CIDR,')) {
-        rules.add('$site,PROXY,no-resolve');
-      } else if (site.startsWith('IP-CIDR6,')) {
-        rules.add('$site,PROXY,no-resolve');
+
+    for (final site in forceProxySites ?? const <Object?>[]) {
+      final host = AppSettings.extractForceProxyHost(site?.toString() ?? '');
+      if (host == null || !hosts.add(host)) continue;
+
+      final address = InternetAddress.tryParse(host);
+      if (address == null) {
+        rules.add('DOMAIN-SUFFIX,$host,PROXY');
+      } else if (address.type == InternetAddressType.IPv4) {
+        rules.add('IP-CIDR,$host/32,PROXY,no-resolve');
       } else {
-        // 默认作为域名处理
-        rules.add('DOMAIN-SUFFIX,$site,PROXY');
+        continue;
       }
     }
-    
+
     return rules;
   }
 
   /// 为 YAML 字符串添加引号（如果需要）
   static String _quote(String value) {
-    // 如果包含特殊字符，添加引号
-    if (value.contains(':') || 
-        value.contains('#') || 
-        value.contains('{') || 
-        value.contains('}') || 
-        value.contains('[') || 
-        value.contains(']') || 
-        value.contains(',') || 
-        value.contains('&') || 
-        value.contains('*') || 
-        value.contains('?') || 
-        value.contains('|') || 
-        value.contains('-') || 
-        value.contains('<') || 
-        value.contains('>') || 
-        value.contains('=') || 
-        value.contains('!') || 
-        value.contains('%') || 
-        value.contains('@') || 
-        value.contains('`') ||
-        value.contains(' ') ||
-        value.contains("'") ||
-        value.contains('"')) {
-      // 使用双引号，并转义内部的双引号
-      return '"${value.replaceAll('"', '\\"')}"';
-    }
-    
-    return value;
+    final sanitized = value
+        .replaceAll('\\', '\\\\')
+        .replaceAll(RegExp(r'[\x00-\x1f\x7f]'), '');
+    return "'${sanitized.replaceAll("'", "''")}'";
   }
 }

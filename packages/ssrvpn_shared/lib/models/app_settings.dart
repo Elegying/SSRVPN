@@ -1,7 +1,7 @@
 import '../utils/force_proxy_site_policy.dart';
 
 /// 应用设置数据模型 - 跨平台共享
-/// 
+///
 /// 包含所有平台通用的设置字段
 /// 平台特定的设置可以通过继承或组合方式扩展
 class AppSettings {
@@ -52,15 +52,15 @@ class AppSettings {
     this.minimizeToTray = true,
     this.startOnBoot = false,
     this.startMinimized = false,
-    this.closeToTray = true,
-    this.darkMode = false,
-    this.autoUpdateSubscription = false,
+    this.closeToTray = false,
+    this.darkMode = true,
+    this.autoUpdateSubscription = true,
     this.updateIntervalHours = 24,
-    this.latencyTestUrl = 'https://www.gstatic.com/generate_204',
+    this.latencyTestUrl = 'http://www.gstatic.com/generate_204',
     this.lastSelectedNodeName,
     this.latencyTestTimeout = 5000,
-    List<String>? forceProxySites,
-  }) : forceProxySites = forceProxySites ?? [];
+    Iterable<Object?>? forceProxySites,
+  }) : forceProxySites = normalizeForceProxySites(forceProxySites);
 
   /// 从 JSON 反序列化
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -78,17 +78,17 @@ class AppSettings {
       minimizeToTray: json['minimizeToTray'] as bool? ?? true,
       startOnBoot: json['startOnBoot'] as bool? ?? false,
       startMinimized: json['startMinimized'] as bool? ?? false,
-      closeToTray: json['closeToTray'] as bool? ?? true,
-      darkMode: json['darkMode'] as bool? ?? false,
-      autoUpdateSubscription: json['autoUpdateSubscription'] as bool? ?? false,
+      closeToTray: _parseBool(json['closeToTray'], false),
+      darkMode: _parseBool(json['darkMode'], true),
+      autoUpdateSubscription: _parseBool(json['autoUpdateSubscription'], true),
       updateIntervalHours: json['updateIntervalHours'] as int? ?? 24,
-      latencyTestUrl: json['latencyTestUrl'] as String? ?? 'https://www.gstatic.com/generate_204',
+      latencyTestUrl: json['latencyTestUrl'] as String? ??
+          'http://www.gstatic.com/generate_204',
       lastSelectedNodeName: json['lastSelectedNodeName'] as String?,
       latencyTestTimeout: json['latencyTestTimeout'] as int? ?? 5000,
-      forceProxySites: (json['forceProxySites'] as List<dynamic>?)
-              ?.map((e) => e.toString())
-              .toList() ??
-          [],
+      forceProxySites: json['forceProxySites'] is Iterable
+          ? json['forceProxySites'] as Iterable
+          : null,
     );
   }
 
@@ -135,7 +135,7 @@ class AppSettings {
     String? latencyTestUrl,
     String? lastSelectedNodeName,
     int? latencyTestTimeout,
-    List<String>? forceProxySites,
+    Iterable<Object?>? forceProxySites,
   }) {
     return AppSettings(
       proxyPort: proxyPort ?? this.proxyPort,
@@ -150,7 +150,8 @@ class AppSettings {
       startMinimized: startMinimized ?? this.startMinimized,
       closeToTray: closeToTray ?? this.closeToTray,
       darkMode: darkMode ?? this.darkMode,
-      autoUpdateSubscription: autoUpdateSubscription ?? this.autoUpdateSubscription,
+      autoUpdateSubscription:
+          autoUpdateSubscription ?? this.autoUpdateSubscription,
       updateIntervalHours: updateIntervalHours ?? this.updateIntervalHours,
       latencyTestUrl: latencyTestUrl ?? this.latencyTestUrl,
       lastSelectedNodeName: lastSelectedNodeName ?? this.lastSelectedNodeName,
@@ -214,11 +215,29 @@ class AppSettings {
     }
     return true;
   }
+
+  static List<String> normalizeForceProxySites(Iterable<Object?>? sites) {
+    return ForceProxySitePolicy.normalize(
+      sites,
+      limit: forceProxySiteLimit,
+    );
+  }
+
+  static String? extractForceProxyHost(String site) {
+    return ForceProxySitePolicy.extractHost(site);
+  }
+
+  static bool _parseBool(Object? value, bool fallback) {
+    if (value == null) return fallback;
+    if (value is bool) return value;
+    if (value is String) return value == 'true';
+    if (value is int) return value != 0;
+    return fallback;
+  }
 }
 
 /// 代理模式枚举
 enum ProxyMode {
   rule, // 规则模式
   global, // 全局模式
-  direct, // 直连模式
 }

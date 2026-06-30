@@ -75,14 +75,18 @@ class SubscriptionParser {
     }
 
     final uri = Uri.tryParse(line);
-    if (uri == null || uri.host.isEmpty || uri.port <= 0) return null;
+    if (uri == null) return null;
     final scheme = uri.scheme.toLowerCase();
+
+    if (scheme == 'ss') {
+      return _parseSsUri(uri);
+    }
+
+    if (uri.host.isEmpty || uri.port <= 0) return null;
     final password = _decodeUriPart(uri.userInfo);
     if (password.isEmpty) return null;
 
-    final name = _decodeUriPart(uri.fragment).trim().isNotEmpty
-        ? _decodeUriPart(uri.fragment).trim()
-        : '${uri.host}:${uri.port}';
+    final name = _proxyNameFromUri(uri);
     final query = uri.queryParameters;
 
     if (scheme == 'anytls') {
@@ -96,8 +100,7 @@ class SubscriptionParser {
       };
       _putIfNotEmpty(proxy, 'sni', query['sni']);
       _putIfNotEmpty(proxy, 'client-fingerprint', query['fp']);
-      if (_isTruthy(query['insecure']) ||
-          _isTruthy(query['allowInsecure'])) {
+      if (_isTruthy(query['insecure']) || _isTruthy(query['allowInsecure'])) {
         proxy['skip-cert-verify'] = true;
       }
       return proxy;
@@ -113,24 +116,9 @@ class SubscriptionParser {
         'udp': true,
       };
       _putIfNotEmpty(proxy, 'sni', query['sni'] ?? query['peer']);
-      if (_isTruthy(query['allowInsecure']) ||
-          _isTruthy(query['insecure'])) {
+      if (_isTruthy(query['allowInsecure']) || _isTruthy(query['insecure'])) {
         proxy['skip-cert-verify'] = true;
       }
-      return proxy;
-    }
-
-    if (scheme == 'ss') {
-      final proxy = <String, dynamic>{
-        'name': name,
-        'type': 'ss',
-        'server': uri.host,
-        'port': uri.port,
-        'password': password,
-        'udp': true,
-      };
-      // ss://method:password@server:port#name 或 ss://base64@server:port#name
-      _putIfNotEmpty(proxy, 'cipher', query['encryption']);
       return proxy;
     }
 
@@ -256,15 +244,15 @@ class SubscriptionParser {
       if (proxies is List) {
         for (final proxy in proxies) {
           if (proxy is Map) {
-            final name = proxy['name'] as String? ?? 'Unknown';
-            nodes.add(ProxyNode(
-              name: name,
-              type: proxy['type'] as String? ?? 'ss',
-              server: proxy['server'] as String? ?? '',
-              port: proxy['port'] as int? ?? 0,
-              group: '全部节点',
-              extra: Map<String, dynamic>.from(proxy),
-            ));
+            final proxyMap = proxy.map(
+              (key, value) => MapEntry(key.toString(), value),
+            );
+            nodes.add(
+              ProxyNode.fromJson({
+                ...proxyMap,
+                'group': '全部节点',
+              }),
+            );
           }
         }
       }
@@ -282,20 +270,19 @@ class SubscriptionParser {
 
             final groupNodes = <ProxyNode>[];
             for (final proxyName in groupProxies) {
-              final node = nodes.firstWhere(
-                (n) => n.name == proxyName,
-                orElse: () => ProxyNode(
-                  name: proxyName,
-                  type: 'unknown',
-                  server: '',
-                  port: 0,
-                  group: groupName,
-                ),
-              );
-              if (node.name != 'unknown' ||
-                  proxyName == 'DIRECT' ||
-                  proxyName == 'REJECT') {
+              final node = _findNodeByName(nodes, proxyName);
+              if (node != null) {
                 groupNodes.add(node);
+              } else if (proxyName == 'DIRECT' || proxyName == 'REJECT') {
+                groupNodes.add(
+                  ProxyNode(
+                    name: proxyName,
+                    type: 'builtin',
+                    server: '',
+                    port: 0,
+                    group: groupName,
+                  ),
+                );
               }
             }
 
@@ -364,8 +351,7 @@ class SubscriptionParser {
     final seen = <String>{};
     final result = <Map<String, dynamic>>[];
     for (final proxy in proxies) {
-      final key =
-          '${proxy['name']}_${proxy['server']}_${proxy['port']}';
+      final key = '${proxy['name']}_${proxy['server']}_${proxy['port']}';
       if (seen.add(key)) {
         result.add(proxy);
       }
@@ -477,6 +463,62 @@ class SubscriptionParser {
     if (trimmed != null && trimmed.isNotEmpty) target[key] = trimmed;
   }
 
+  static ProxyNode? _findNodeByName(List<ProxyNode> nodes, String name) {
+    for (final node in nodes) {
+      if (node.name == name) return node;
+    }
+    return null;
+  }
+
+  static Map<String, dynamic>? _parseSsUri(Uri uri) {
+    if (uri.host.isEmpty || uri.port <= 0 || uri.userInfo.isEmpty) {
+      return null;
+    }
+
+    final credentials = _parseSsCredentials(uri.userInfo);
+    if (credentials == null) return null;
+
+    final proxy = <String, dynamic>{
+      'name': _proxyNameFromUri(uri),
+      'type': 'ss',
+      'server': uri.host,
+      'port': uri.port,
+      'cipher': credentials.cipher,
+      'password': credentials.password,
+      'udp': true,
+    };
+    _putIfNotEmpty(proxy, 'plugin', uri.queryParameters['plugin']);
+    return proxy;
+  }
+
+  static _SsCredentials? _parseSsCredentials(String rawUserInfo) {
+    final userInfo = _decodeUriPart(rawUserInfo);
+    final split = _splitCipherAndPassword(userInfo);
+    if (split != null) return split;
+
+    try {
+      return _splitCipherAndPassword(
+        _decodeBase64Text(userInfo, fieldName: 'SS认证信息'),
+      );
+    } on FormatException {
+      return null;
+    }
+  }
+
+  static _SsCredentials? _splitCipherAndPassword(String value) {
+    final separator = value.indexOf(':');
+    if (separator <= 0 || separator == value.length - 1) return null;
+    final cipher = value.substring(0, separator).trim();
+    final password = value.substring(separator + 1);
+    if (cipher.isEmpty || password.isEmpty) return null;
+    return _SsCredentials(cipher: cipher, password: password);
+  }
+
+  static String _proxyNameFromUri(Uri uri) {
+    final fragment = _decodeUriPart(uri.fragment).trim();
+    return fragment.isNotEmpty ? fragment : '${uri.host}:${uri.port}';
+  }
+
   static bool _isTruthy(String? value) {
     final normalized = value?.trim().toLowerCase();
     return normalized == '1' || normalized == 'true' || normalized == 'yes';
@@ -489,6 +531,16 @@ class SubscriptionParser {
       return value;
     }
   }
+}
+
+class _SsCredentials {
+  const _SsCredentials({
+    required this.cipher,
+    required this.password,
+  });
+
+  final String cipher;
+  final String password;
 }
 
 /// 解析后的订阅数据

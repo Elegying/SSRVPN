@@ -1,25 +1,32 @@
 # SSRVPN
 
-SSRVPN is a three-platform Flutter VPN client workspace built around a shared core package.
+[![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml)
+
+SSRVPN is the main monorepo for the Android, macOS, and Windows Flutter clients. It keeps platform-specific UI and native integration in separate app folders while moving shared business logic into one tested package.
+
+## Platforms
+
+- `SSRVPN_Android`: Android VPN client. Release artifact: `SSRVPN.apk`.
+- `SSRVPN_MacOS`: macOS desktop client. Release artifact: `SSRVPN.dmg`.
+- `SSRVPN_Windows`: Windows portable client. Release artifact: `SSRVPN.zip`.
+
+Older platform-only repositories are kept for history. Active development now happens in this monorepo.
 
 ## Repository Structure
 
-- `packages/ssrvpn_shared`: shared models, services, utilities, and constants
-  - `models/`: data structures for proxy nodes, groups, subscriptions, and settings
-  - `services/`: core business logic for subscription parsing and Clash config generation
-  - `utils/`: utility classes for logging, proxy policies, and latency handling
-  - `constants/`: application-wide constants and configuration values
-- `SSRVPN_Android`: Android VPN client. Release artifact: `SSRVPN_Android/SSRVPN.apk`.
-- `SSRVPN_MacOS`: macOS desktop client. Release artifact: `SSRVPN_MacOS/SSRVPN.dmg`.
-- `SSRVPN_Windows`: Windows portable client. Release artifact: `SSRVPN_Windows/SSRVPN.zip`.
-- `LICENSE`: MIT License
-- `CHANGELOG.md`: project update history
-- `CONTRIBUTING.md`: contribution guidelines
-- `SECURITY.md`: security policy
+- `packages/ssrvpn_shared`: shared models, services, policies, and tests.
+- `SSRVPN_Android`: Android UI, VPN service integration, packaging, and update flow.
+- `SSRVPN_MacOS`: macOS UI, system proxy/TUN integration, asset installation, and DMG packaging.
+- `SSRVPN_Windows`: Windows UI, system proxy/TUN integration, portable packaging, and startup diagnostics.
+- `.github/workflows`: monorepo CI and release automation.
 
-## Repository Layout
+## Requirements
 
-The recommended GitHub layout is a single monorepo rooted at this directory. The platform apps depend on `../packages/ssrvpn_shared`, so publishing each platform as a standalone repository requires either vendoring the shared package, using a Git submodule, or publishing `ssrvpn_shared` as a private package.
+- Flutter `3.44.1` stable, also recorded in `.fvmrc`.
+- Dart SDK compatible with the selected Flutter release.
+- Android SDK/NDK for Android builds.
+- Xcode command-line tools and `hdiutil` for macOS builds.
+- Visual Studio 2022 with C++ desktop workload for Windows builds.
 
 ## Local Verification
 
@@ -27,8 +34,9 @@ Shared package:
 
 ```bash
 cd packages/ssrvpn_shared
-dart test
+dart pub get
 dart analyze
+dart test
 ```
 
 Each platform app:
@@ -39,16 +47,17 @@ flutter analyze --no-fatal-infos
 flutter test
 ```
 
-Android currently has a UI-level lint backlog made mostly of `prefer_const_*` info diagnostics. Warnings and errors should remain fixed.
+Android still has an info-level UI lint backlog, mostly `prefer_const_*`. Warnings and errors should stay fixed.
 
 ## Release Builds
 
 Android:
 
-```powershell
+```bash
 cd SSRVPN_Android
 flutter build apk --release
-Copy-Item .\build\app\outputs\flutter-apk\app-release.apk .\SSRVPN.apk -Force
+cp build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk
+sha256sum SSRVPN.apk > SSRVPN.apk.sha256
 ```
 
 Windows portable ZIP:
@@ -63,6 +72,11 @@ macOS drag-install DMG:
 ```bash
 cd SSRVPN_MacOS
 bash tool/package_macos.sh
+shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
 ```
 
-macOS builds require a macOS machine with Xcode command-line tools and `hdiutil`.
+Tagged pushes matching `v*` run the GitHub release workflow and upload all three platform artifacts plus SHA256 checksums.
+
+## Security
+
+Do not log raw subscription URLs, API secrets, bearer tokens, proxy passwords, or credentials. See `SECURITY.md` for the supported security model and reporting process.

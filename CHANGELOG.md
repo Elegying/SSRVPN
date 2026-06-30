@@ -17,16 +17,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Barrel file `ssrvpn_shared.dart` for easy imports
 - MIT License
 - Changelog file
+- Monorepo CI badge and `.fvmrc` pinned to Flutter 3.44.1
+- Repository-level `.gitattributes` for stable line endings
 
 ### Changed
 - Improved project structure with monorepo approach
 - Enhanced CI/CD configuration with matrix builds
 - Updated documentation with contributing guidelines and security policy
+- Platform READMEs now point to the monorepo workflow
+- Android, macOS, and Windows subscription parsing now reuse shared parser logic
+- Android, macOS, and Windows force-proxy rule generation now reuses shared logic
+- Release workflow fetches complete tag history before generating release notes
 
 ### Fixed
 - Unified error messages across platforms
 - Standardized logging with `LogRedactor`
 - Consistent force proxy site policy
+- Android settings service syntax error that blocked `flutter analyze`
+- Android dependency lockfile drift after adding encrypted secure storage
+- Standard `ss://method:password@host:port` URI parsing
+- YAML string ports in parsed subscriptions
+- Unknown proxy-group entries being added as fake nodes
+- API secret YAML quoting in generated Clash config
+- IPv6 force-proxy rule leakage in shared config generation
 
 ## [1.0.0] - 2026-06-20
 

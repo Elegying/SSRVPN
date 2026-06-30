@@ -1,9 +1,11 @@
 # SSRVPN Windows
 
-[![CI](https://github.com/Elegying/SSRVPN_Windows/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN_Windows/actions/workflows/ci.yml)
+[![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml)
 
 
 SSRVPN Windows 版 - 绿色免安装 VPN 客户端
+
+> Active development has moved to the `Elegying/SSRVPN` monorepo. This directory contains the Windows app inside that workspace.
 
 ## 支持范围
 
@@ -25,7 +27,7 @@ SSRVPN Windows 版 - 绿色免安装 VPN 客户端
 
 ### 环境要求
 
-- Flutter SDK >= 3.0.0
+- Flutter SDK 3.44.1 or compatible stable version
 - Visual Studio 2022 (含 C++ 桌面开发工作负载)
 - Windows 10/11
 

@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:yaml/yaml.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
+import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/utils/log_redactor.dart';
 import 'package:ssrvpn_shared/utils/private_node_latency_policy.dart';
 import '../models/app_settings.dart';
@@ -374,20 +375,9 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
   }
 
   List<String> _buildForceProxyRules(AppSettings settings) {
-    final hosts = <String>{};
-    final rules = <String>[];
-    for (final site in settings.forceProxySites) {
-      final host = AppSettings.extractForceProxyHost(site);
-      if (host == null || !hosts.add(host)) continue;
-
-      final address = InternetAddress.tryParse(host);
-      if (address == null) {
-        rules.add('DOMAIN-SUFFIX,$host,PROXY');
-      } else if (address.type == InternetAddressType.IPv4) {
-        rules.add('IP-CIDR,$host/32,PROXY,no-resolve');
-      }
-    }
-    return rules;
+    return ClashConfigGenerator.buildForceProxyRulesFromSites(
+      settings.forceProxySites,
+    );
   }
 
   /// Resolves transient port conflicts without changing the user's saved

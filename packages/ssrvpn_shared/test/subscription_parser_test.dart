@@ -17,8 +17,7 @@ void main() {
     group('isLikelyBase64', () {
       test('detects Base64 strings', () {
         expect(
-          SubscriptionParser.isLikelyBase64(
-              'SGVsbG8gV29ybGQhSGVsbG8gV29ybGQh'),
+          SubscriptionParser.isLikelyBase64('SGVsbG8gV29ybGQhSGVsbG8gV29ybGQh'),
           isTrue,
         );
         expect(SubscriptionParser.isLikelyBase64('abc'), isFalse);
@@ -58,6 +57,31 @@ proxy-groups:
         expect(result.groups, hasLength(1));
         expect(result.groups.first.name, equals('Auto'));
       });
+
+      test('parses string ports and skips unknown group entries', () {
+        final yaml = '''
+proxies:
+  - name: "String Port"
+    type: trojan
+    server: example.com
+    port: "8443"
+    password: "secret"
+proxy-groups:
+  - name: "PROXY"
+    type: select
+    proxies:
+      - "String Port"
+      - "Missing Node"
+      - "DIRECT"
+''';
+        final result = SubscriptionParser.parseYaml(yaml);
+        expect(result.nodes, hasLength(1));
+        expect(result.nodes.first.port, equals(8443));
+        expect(
+          result.groups.first.nodes.map((node) => node.name),
+          equals(['String Port', 'DIRECT']),
+        );
+      });
     });
 
     group('importSsrLink', () {
@@ -71,8 +95,7 @@ proxy-groups:
         final passwordB64 =
             base64Url.encode(utf8.encode(password)).replaceAll('=', '');
 
-        final mainPart =
-            '$server:$port:$protocol:$method:$obfs:$passwordB64';
+        final mainPart = '$server:$port:$protocol:$method:$obfs:$passwordB64';
         final encoded =
             base64Url.encode(utf8.encode(mainPart)).replaceAll('=', '');
         final ssrLink = 'ssr://$encoded';
@@ -92,7 +115,8 @@ proxy-groups:
 
     group('proxyFromUri', () {
       test('parses trojan link', () {
-        final uri = 'trojan://password123@example.com:443?sni=sni.example.com#MyTrojan';
+        final uri =
+            'trojan://password123@example.com:443?sni=sni.example.com#MyTrojan';
         final proxy = SubscriptionParser.proxyFromUri(uri);
         expect(proxy, isNotNull);
         expect(proxy!['type'], equals('trojan'));
@@ -127,6 +151,19 @@ proxy-groups:
         expect(proxy!['type'], equals('ss'));
         expect(proxy['server'], equals('1.2.3.4'));
         expect(proxy['port'], equals(8388));
+        expect(proxy['cipher'], equals('aes-256-gcm'));
+        expect(proxy['password'], equals('pass123'));
+      });
+
+      test('parses ss link with Base64 user info', () {
+        final credentials = base64Url
+            .encode(utf8.encode('chacha20-ietf-poly1305:secret'))
+            .replaceAll('=', '');
+        final uri = 'ss://$credentials@example.com:8388#EncodedSS';
+        final proxy = SubscriptionParser.proxyFromUri(uri);
+        expect(proxy, isNotNull);
+        expect(proxy!['cipher'], equals('chacha20-ietf-poly1305'));
+        expect(proxy['password'], equals('secret'));
       });
 
       test('returns null for unsupported scheme', () {
@@ -203,8 +240,7 @@ trojan://pass@server2.com:443#N2
       });
 
       test('detects Base64-encoded URI list', () {
-        final uris =
-            'trojan://pass@s1.com:443#N1\ntrojan://pass@s2.com:443#N2';
+        final uris = 'trojan://pass@s1.com:443#N1\ntrojan://pass@s2.com:443#N2';
         final encoded = base64Encode(utf8.encode(uris));
         final result = SubscriptionParser.parseSubscriptionContent(encoded);
         expect(result, isNotNull);

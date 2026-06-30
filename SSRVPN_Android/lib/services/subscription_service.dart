@@ -9,6 +9,7 @@ import 'package:ssrvpn_shared/models/subscription.dart';
 import 'http_client_adapter.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/models/proxy_group.dart';
+import 'package:ssrvpn_shared/services/subscription_parser.dart';
 
 /// 订阅管理服务
 class SubscriptionService extends ChangeNotifier {
@@ -635,76 +636,7 @@ class SubscriptionService extends ChangeNotifier {
   }
 
   Map<String, dynamic>? _proxyFromUri(String line) {
-    if (isSsrLink(line)) {
-      final yaml = importSsrLink(line);
-      final proxiesText = yaml == null ? '' : _extractSection(yaml, 'proxies');
-      final items = _splitProxyItems(proxiesText);
-      return items.isEmpty ? null : _parseProxyItem(items.first);
-    }
-
-    final uri = Uri.tryParse(line);
-    if (uri == null || uri.host.isEmpty || uri.port <= 0) return null;
-    final scheme = uri.scheme.toLowerCase();
-    final password = _decodeUriPart(uri.userInfo);
-    if (password.isEmpty) return null;
-
-    final name = _decodeUriPart(uri.fragment).trim().isNotEmpty
-        ? _decodeUriPart(uri.fragment).trim()
-        : '${uri.host}:${uri.port}';
-    final query = uri.queryParameters;
-
-    if (scheme == 'anytls') {
-      final proxy = <String, dynamic>{
-        'name': name,
-        'type': 'anytls',
-        'server': uri.host,
-        'port': uri.port,
-        'password': password,
-        'udp': true,
-      };
-      _putIfNotEmpty(proxy, 'sni', query['sni']);
-      _putIfNotEmpty(proxy, 'client-fingerprint', query['fp']);
-      if (_isTruthy(query['insecure']) || _isTruthy(query['allowInsecure'])) {
-        proxy['skip-cert-verify'] = true;
-      }
-      return proxy;
-    }
-
-    if (scheme == 'trojan') {
-      final proxy = <String, dynamic>{
-        'name': name,
-        'type': 'trojan',
-        'server': uri.host,
-        'port': uri.port,
-        'password': password,
-        'udp': true,
-      };
-      _putIfNotEmpty(proxy, 'sni', query['sni'] ?? query['peer']);
-      if (_isTruthy(query['allowInsecure']) || _isTruthy(query['insecure'])) {
-        proxy['skip-cert-verify'] = true;
-      }
-      return proxy;
-    }
-
-    return null;
-  }
-
-  void _putIfNotEmpty(Map<String, dynamic> target, String key, String? value) {
-    final trimmed = value?.trim();
-    if (trimmed != null && trimmed.isNotEmpty) target[key] = trimmed;
-  }
-
-  bool _isTruthy(String? value) {
-    final normalized = value?.trim().toLowerCase();
-    return normalized == '1' || normalized == 'true' || normalized == 'yes';
-  }
-
-  String _decodeUriPart(String value) {
-    try {
-      return Uri.decodeComponent(value);
-    } catch (_) {
-      return value;
-    }
+    return SubscriptionParser.proxyFromUri(line);
   }
 
   String _uniqueProxyName(String baseName, Set<String> usedNames) {
@@ -748,71 +680,9 @@ class SubscriptionService extends ChangeNotifier {
     if (_rawYaml == null) return;
 
     try {
-      final doc = loadYaml(_rawYaml!);
-      if (doc is! Map) return;
-
-      _allNodes = [];
-      _allGroups = [];
-
-      // 解析代理节点
-      final proxies = doc['proxies'];
-      if (proxies is List) {
-        for (final proxy in proxies) {
-          if (proxy is Map) {
-            final name = proxy['name'] as String? ?? 'Unknown';
-            _allNodes.add(ProxyNode(
-              name: name,
-              type: proxy['type'] as String? ?? 'ss',
-              server: proxy['server'] as String? ?? '',
-              port: proxy['port'] as int? ?? 0,
-              group: '全部节点',
-              extra: Map<String, dynamic>.from(proxy),
-            ));
-          }
-        }
-      }
-
-      // 解析代理组
-      final proxyGroups = doc['proxy-groups'];
-      if (proxyGroups is List) {
-        for (final group in proxyGroups) {
-          if (group is Map) {
-            final groupName = group['name'] as String? ?? 'Unknown';
-            final groupType = group['type'] as String? ?? 'select';
-            final groupProxies = (group['proxies'] as List?)
-                    ?.map((e) => e.toString())
-                    .toList() ??
-                [];
-
-            // 查找组中的节点
-            final groupNodes = <ProxyNode>[];
-            for (final proxyName in groupProxies) {
-              // 在allNodes中查找
-              final node = _allNodes.firstWhere(
-                (n) => n.name == proxyName,
-                orElse: () => ProxyNode(
-                  name: proxyName,
-                  type: 'unknown',
-                  server: '',
-                  port: 0,
-                  group: groupName,
-                ),
-              );
-              if (node.name != 'unknown' ||
-                  proxyName == 'DIRECT' ||
-                  proxyName == 'REJECT') {
-                groupNodes.add(node);
-              }
-            }
-
-            _allGroups.add(ProxyGroup(
-              name: groupName,
-              type: groupType,
-              nodes: groupNodes,
-            ));
-          }
-        }
-      }
+      final parsed = SubscriptionParser.parseYaml(_rawYaml!);
+      _allNodes = parsed.nodes;
+      _allGroups = parsed.groups;
     } catch (e) {
       // YAML解析失败，保留订阅缓存中的原始数据
       debugPrint('[SubscriptionService] YAML解析失败: $e');

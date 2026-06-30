@@ -69,7 +69,8 @@ class SettingsService extends ChangeNotifier {
       if (legacy == null || legacy.isEmpty) return;
 
       // 解码旧值
-      String decoded;\n      if (legacy.startsWith(_legacyPrefix)) {
+      String decoded;
+      if (legacy.startsWith(_legacyPrefix)) {
         decoded = utf8.decode(
           base64Decode(legacy.substring(_legacyPrefix.length)),
         );
@@ -169,8 +170,8 @@ class SettingsService extends ChangeNotifier {
   /// ── 持久化 ──
 
   String get _configPath {
-    final home = Platform.environment['HOME'] ??
-        '/data/data/com.ssrvpn.app/files';
+    final home =
+        Platform.environment['HOME'] ?? '/data/data/com.ssrvpn.app/files';
     return '$home/.ssrvpn/settings.json';
   }
 

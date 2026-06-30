@@ -61,18 +61,20 @@ proxies:
     test('buildForceProxyRules builds rules from settings', () {
       final settings = AppSettings(
         forceProxySites: [
-          'DOMAIN-SUFFIX,google.com',
-          'DOMAIN,youtube.com',
-          'IP-CIDR,192.168.0.0/16',
+          'https://www.google.com/search?q=test',
+          '*.youtube.com',
+          '192.168.0.1',
+          '2001:db8::1',
+          'example.com',
           'example.com',
         ],
       );
-      
+
       final rules = ClashConfigGenerator.buildForceProxyRules(settings);
       expect(rules, hasLength(4));
-      expect(rules[0], equals('DOMAIN-SUFFIX,google.com,PROXY'));
-      expect(rules[1], equals('DOMAIN,youtube.com,PROXY'));
-      expect(rules[2], equals('IP-CIDR,192.168.0.0/16,PROXY,no-resolve'));
+      expect(rules[0], equals('DOMAIN-SUFFIX,www.google.com,PROXY'));
+      expect(rules[1], equals('DOMAIN-SUFFIX,youtube.com,PROXY'));
+      expect(rules[2], equals('IP-CIDR,192.168.0.1/32,PROXY,no-resolve'));
       expect(rules[3], equals('DOMAIN-SUFFIX,example.com,PROXY'));
     });
 
@@ -87,9 +89,9 @@ proxies:
     password: "test123"
 ''';
       final settings = AppSettings();
-      
+
       final config = ClashConfigGenerator.generateConfig(yaml, settings);
-      
+
       expect(config, contains('mixed-port: 7890'));
       expect(config, contains('socks-port: 7891'));
       expect(config, contains('allow-lan: false'));
@@ -101,12 +103,29 @@ proxies:
       expect(config, contains('Test Node'));
     });
 
+    test('generateConfig safely quotes API secret', () {
+      final yaml = '''
+proxies:
+  - name: "Test Node"
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+''';
+      final settings = AppSettings(apiSecret: 'a"b\\c\'d');
+
+      final config = ClashConfigGenerator.generateConfig(yaml, settings);
+
+      expect(config, contains("secret: 'a\"b\\\\c''d'"));
+    });
+
     test('generateConfig throws for empty proxies', () {
       final yaml = '''
 proxies:
 ''';
       final settings = AppSettings();
-      
+
       expect(
         () => ClashConfigGenerator.generateConfig(yaml, settings),
         throwsException,
@@ -126,21 +145,21 @@ proxies:
     port: 443
 ''';
       final settings = AppSettings();
-      
+
       final config = ClashConfigGenerator.generateConfig(
-        yaml, 
+        yaml,
         settings,
         preferredNodeName: 'Node 2',
       );
-      
+
       // Node 2 should be first in PROXY group
       final proxyGroupStart = config.indexOf('- name: PROXY');
       final proxyGroupEnd = config.indexOf('- name: GLOBAL');
       final proxyGroup = config.substring(proxyGroupStart, proxyGroupEnd);
-      
+
       final node2Index = proxyGroup.indexOf('Node 2');
       final node1Index = proxyGroup.indexOf('Node 1');
-      
+
       expect(node2Index, lessThan(node1Index));
     });
   });

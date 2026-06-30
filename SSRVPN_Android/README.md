@@ -1,9 +1,11 @@
 # SSRVPN Android
 
-[![CI](https://github.com/Elegying/SSRVPN_Android/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN_Android/actions/workflows/ci.yml)
+[![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml)
 
 
 SSRVPN Android 版 - 基于 Clash Meta 的 VPN 客户端
+
+> Active development has moved to the `Elegying/SSRVPN` monorepo. This directory contains the Android app inside that workspace.
 
 ## 支持范围
 
@@ -27,7 +29,7 @@ SSRVPN Android 版 - 基于 Clash Meta 的 VPN 客户端
 
 ### 环境要求
 
-- Flutter SDK >= 3.0.0
+- Flutter SDK 3.44.1 or compatible stable version
 - Android Studio / Android SDK
 - NDK 27.0.12077973
 - JDK 11
