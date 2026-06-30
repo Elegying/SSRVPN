@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changelog file
 - Monorepo CI badge and `.fvmrc` pinned to Flutter 3.44.1
 - Repository-level `.gitattributes` for stable line endings
+- GitHub issue templates, pull request template, CODEOWNERS, and Dependabot configuration
+- Project health, maintenance, and roadmap documentation
 
 ### Changed
 - Improved project structure with monorepo approach
@@ -28,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Android, macOS, and Windows subscription parsing now reuse shared parser logic
 - Android, macOS, and Windows force-proxy rule generation now reuses shared logic
 - Release workflow fetches complete tag history before generating release notes
+- Shared package CI now uses the same pinned Flutter SDK as the platform apps
+- Root audit notes were consolidated into maintained docs under `docs/`
 
 ### Fixed
 - Unified error messages across platforms

@@ -10,7 +10,7 @@ echo "=== 获取依赖 ==="
 flutter pub get
 
 echo "=== 静态分析 ==="
-flutter analyze
+flutter analyze --no-fatal-infos
 
 echo "=== 运行测试 ==="
 flutter test

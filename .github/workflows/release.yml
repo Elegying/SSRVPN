@@ -7,6 +7,11 @@ on:
 
 permissions:
   contents: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   FLUTTER_VERSION: '3.44.1'
@@ -21,9 +26,11 @@ jobs:
         working-directory: packages/ssrvpn_shared
     steps:
       - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
+      - uses: subosito/flutter-action@v2
         with:
-          sdk: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
       - run: dart pub get
       - run: dart analyze --fatal-infos
       - run: dart test

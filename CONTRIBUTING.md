@@ -32,6 +32,10 @@ flutter test
 
 Use `flutter analyze --no-fatal-infos` until the existing UI-level const/style lint backlog is retired. Warnings and errors must still be fixed.
 
+## Issues
+
+Use the GitHub issue templates for bugs, feature requests, and maintenance tasks. Security reports should follow `SECURITY.md` and should not be filed as public issues.
+
 ## Pull Requests
 
 Each PR should include:
@@ -42,3 +46,4 @@ Each PR should include:
 - Screenshots or recordings for UI changes.
 - Notes for release or migration risks.
 
+See `docs/MAINTENANCE.md` for the weekly maintenance rhythm, release checklist, and online/offline consistency rules.

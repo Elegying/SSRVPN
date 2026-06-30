@@ -21,7 +21,7 @@ SSRVPN macOS 版，基于 Flutter 和 Mihomo/Clash Meta 核心的桌面客户端
 
 ```bash
 flutter pub get
-flutter analyze
+flutter analyze --no-fatal-infos
 flutter test
 ```
 
@@ -39,4 +39,4 @@ bash tool/package_macos.sh
 
 ## 开发路线图
 
-详见 [REFACTOR_PLAN.md](../REFACTOR_PLAN.md) — 三平台代码去重分期计划。
+详见主仓 [Roadmap](../docs/ROADMAP.md) — 三平台代码去重和发布规划。

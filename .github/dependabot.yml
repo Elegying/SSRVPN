@@ -1,0 +1,37 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"
+  - package-ecosystem: "pub"
+    directory: "/packages/ssrvpn_shared"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "dart"
+  - package-ecosystem: "pub"
+    directory: "/SSRVPN_Android"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "android"
+  - package-ecosystem: "pub"
+    directory: "/SSRVPN_MacOS"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "macos"
+  - package-ecosystem: "pub"
+    directory: "/SSRVPN_Windows"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "windows"
