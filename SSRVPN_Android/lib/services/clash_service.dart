@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:ssrvpn_shared/models/app_settings.dart' show ProxyMode;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -372,7 +373,7 @@ class ClashService {
     result.writeln('# SSRVPN Android 当前明确只支持 IPv4 节点与 IPv4 流量');
     result.writeln('ipv6: false');
     if (settings.apiSecret.isNotEmpty) {
-      result.writeln('secret: "${settings.apiSecret}"');
+      result.writeln('secret: ${_quote(settings.apiSecret)}');
     }
 
     // TUN — Android 上 VpnService 总是 establish TUN 并把 fd 交给核心，

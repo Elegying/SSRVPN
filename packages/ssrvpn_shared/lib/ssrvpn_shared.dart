@@ -13,6 +13,8 @@ export 'models/app_settings.dart';
 export 'services/subscription_parser.dart';
 export 'services/unlock_test_service.dart';
 export 'services/clash_config_generator.dart';
+export 'services/clash_service_base.dart';
+export 'services/subscription_service_base.dart';
 
 // 工具类
 export 'utils/log_redactor.dart';

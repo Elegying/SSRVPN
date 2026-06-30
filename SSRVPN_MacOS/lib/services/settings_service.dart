@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:ssrvpn_shared/models/app_settings.dart' show ProxyMode;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
