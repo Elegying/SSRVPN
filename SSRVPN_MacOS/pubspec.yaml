@@ -23,7 +23,7 @@ dependencies:
   shared_preferences: ^2.2.0
 
   # App data directory (macOS)
-  path_provider: ^2.1.0
+  path_provider: ^2.1.6
 
   # Window management (size, hide, focus)
   window_manager: ^0.5.1
