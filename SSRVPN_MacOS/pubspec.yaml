@@ -20,7 +20,7 @@ dependencies:
   http: ^1.0.0
 
   # Shared preferences for settings persistence
-  shared_preferences: ^2.2.0
+  shared_preferences: ^2.5.5
 
   # App data directory (macOS)
   path_provider: ^2.1.0
