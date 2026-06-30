@@ -14,6 +14,7 @@ $zipHashPath = "$zipPath.sha256"
 
 $requiredFiles = @(
   'ssrvpn_windows.exe',
+  'SSRVPN_Diag.bat',
   'ssrvpn_safe_mode.bat',
   'SAFE_MODE_README.txt',
   'mihomo.exe',
@@ -35,6 +36,11 @@ $requiredFiles = @(
   'data\flutter_assets\assets\icon.ico'
 )
 
+# d3dcompiler_47.dll: Flutter ANGLE shader compiler — often missing on
+# fresh / N-edition / server Windows installs. Flutter copies this into
+# the build output when the build host has it; packaging must include it.
+$optionalD3DCompiler = 'd3dcompiler_47.dll'
+
 function Test-ReleaseContents {
   param([Parameter(Mandatory = $true)][string]$Root)
 
@@ -46,6 +52,16 @@ function Test-ReleaseContents {
     if ((Get-Item -LiteralPath $path).Length -le 0) {
       throw "Required release file is empty: $relativePath"
     }
+  }
+
+  $d3dPath = Join-Path $Root 'd3dcompiler_47.dll'
+  if (-not (Test-Path -LiteralPath $d3dPath -PathType Leaf)) {
+    Write-Host '[WARN] d3dcompiler_47.dll missing from release.' `
+      -ForegroundColor Yellow
+    Write-Host '       Flutter ANGLE rendering may fail on systems without' `
+      'DirectX runtime.' -ForegroundColor Yellow
+    Write-Host '       Run SSRVPN_Diag.bat on the target machine to diagnose.' `
+      -ForegroundColor Yellow
   }
 
   $core = Join-Path $Root 'mihomo.exe'
@@ -172,6 +188,21 @@ try {
   New-Item -ItemType Directory -Path $releaseDir | Out-Null
   Copy-Item -Path (Join-Path $buildDir '*') -Destination $releaseDir `
     -Recurse -Force
+
+  # d3dcompiler_47.dll: Flutter ANGLE shader compiler
+  # Often missing on fresh/N-edition/server Windows installs
+  $d3dInBuild = Join-Path $buildDir 'd3dcompiler_47.dll'
+  $d3dInRelease = Join-Path $releaseDir 'd3dcompiler_47.dll'
+  if (Test-Path -LiteralPath $d3dInBuild -PathType Leaf) {
+    if (-not (Test-Path -LiteralPath $d3dInRelease -PathType Leaf)) {
+      Copy-Item -LiteralPath $d3dInBuild -Destination $d3dInRelease
+      Write-Host '[PACKAGE] Copied d3dcompiler_47.dll from build output'
+    }
+  } else {
+    Write-Warning 'd3dcompiler_47.dll not in build output.'
+    Write-Warning 'ANGLE shader compilation may fail on clean Windows installs.'
+    Write-Warning 'Copy from: C:\Windows\System32\d3dcompiler_47.dll if needed.'
+  }
   $portableReadmeName = [string]::Concat(
     [char]0x4F7F,
     [char]0x7528,
@@ -179,6 +210,15 @@ try {
     [char]0x7A0B,
     '.txt'
   )
+  # Diagnostic launcher script
+  Copy-Item -LiteralPath (Join-Path $projectRoot 'SSRVPN_Diag.bat') `
+    -Destination (Join-Path $releaseDir 'SSRVPN_Diag.bat')
+  # Safe mode launcher
+  Copy-Item -LiteralPath (Join-Path $projectRoot 'ssrvpn_safe_mode.bat') `
+    -Destination (Join-Path $releaseDir 'ssrvpn_safe_mode.bat')
+  # Readme files
+  Copy-Item -LiteralPath (Join-Path $projectRoot 'SAFE_MODE_README.txt') `
+    -Destination (Join-Path $releaseDir 'SAFE_MODE_README.txt')
   Copy-Item -LiteralPath (Join-Path $projectRoot 'PORTABLE_README.txt') `
     -Destination (Join-Path $releaseDir $portableReadmeName)
 
