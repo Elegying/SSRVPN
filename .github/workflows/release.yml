@@ -64,11 +64,49 @@ jobs:
           cd packages/ssrvpn_shared && dart test
           cd ../../SSRVPN_Android && flutter test
 
+      - name: Prepare Android release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured. Generate a free self-signed Android keystore and add it as a repository secret."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          KEYSTORE_PATH="$RUNNER_TEMP/ssrvpn-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+          cat > SSRVPN_Android/android/key.properties <<EOF
+          storeFile=$KEYSTORE_PATH
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+
       - name: Build APK
         run: |
           cd SSRVPN_Android
           flutter build apk --release
           cp build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk
+
+      - name: Verify APK signature
+        run: |
+          set -euo pipefail
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found in Android SDK build-tools"
+            exit 1
+          fi
+          "$APKSIGNER" verify --print-certs SSRVPN_Android/SSRVPN.apk
 
       - name: Generate checksum
         run: cd SSRVPN_Android && sha256sum SSRVPN.apk > SSRVPN.apk.sha256
