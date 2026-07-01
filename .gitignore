@@ -5,6 +5,11 @@
 .flutter-plugins-dependencies
 build/
 coverage/
+**/android/app/.cxx/
+**/android/app/Users/
+**/macos/Flutter/ephemeral/
+**/macos/Pods/
+**/windows/flutter/ephemeral/
 
 # Platform build outputs
 *.apk
@@ -22,7 +27,7 @@ android/key.properties
 *.env
 
 # Runtime data and logs
-ssrvpn/
+/ssrvpn/
 logs/
 crashes/
 *.log
@@ -33,4 +38,3 @@ crashes/
 Thumbs.db
 .idea/
 .vscode/
-
