@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Owner-friendly project management scripts: `make status`, `make sync`, `make feature`, and `make verify`.
+- `docs/OWNER_GUIDE.zh-CN.md` and `docs/PROJECT_MANAGEMENT.md` for local/GitHub workflow, artifact policy, and release management.
 - Shared package `ssrvpn_shared` with cross-platform models and services
 - `SubscriptionParser` for YAML parsing and SSR link import
 - `ClashConfigGenerator` for Clash configuration generation

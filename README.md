@@ -51,11 +51,26 @@ Analyzer warnings, infos, and errors should stay fixed before merging.
 
 ## Project Health
 
+- `docs/OWNER_GUIDE.zh-CN.md`: owner-friendly Chinese guide for daily sync, feature requests, verification, and releases.
+- `docs/PROJECT_MANAGEMENT.md`: branch model, artifact policy, local workflow, and release policy.
 - `docs/PROJECT_HEALTH.md`: current completeness, maintainability, release-readiness, and risk scorecard.
 - `docs/MAINTENANCE.md`: weekly maintenance, PR, release, and online/offline consistency checklist.
 - `docs/ROADMAP.md`: completed work plus near-term, medium-term, and long-term technical roadmap.
 - `docs/RELEASE_SIGNING.md`: Android, macOS, and Windows signing/notarization checklist.
 - `MIGRATION.md`: migration notes for the historical platform-only repositories.
+
+## Maintainer Shortcuts
+
+Common local operations are wrapped in root-level `make` commands:
+
+```bash
+make status
+make sync
+make feature name=my-change
+make verify
+```
+
+`dist/` is reserved for local deliverables and is intentionally ignored by Git. Release artifacts should be published through GitHub Releases.
 
 ## Release Builds
 

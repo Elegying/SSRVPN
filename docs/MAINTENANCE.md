@@ -4,6 +4,13 @@ This guide keeps local development, GitHub automation, and releases aligned.
 
 ## Weekly Maintenance
 
+0. Start from a clean and synced local `main`:
+
+   ```bash
+   make status
+   make sync
+   ```
+
 1. Check Dependabot PRs and CI status.
 2. Run shared package verification:
 
@@ -28,11 +35,13 @@ This guide keeps local development, GitHub automation, and releases aligned.
 
 ## Pull Request Rules
 
+- Work from `feature/*`, `fix/*`, or `chore/*` branches; keep `main` stable.
 - Put reusable business logic in `packages/ssrvpn_shared` before duplicating platform code.
 - Keep platform services focused on native integration, process management, and OS-specific behavior.
 - Redact credentials and subscription data in logs.
 - Update tests when changing parsing, config generation, persistence, or release behavior.
 - Include the verification commands in the PR template.
+- Do not include local `dist/` files, signing material, or generated build caches.
 
 ## Release Checklist
 

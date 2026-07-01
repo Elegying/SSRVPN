@@ -1,0 +1,106 @@
+# SSRVPN 项目所有者手册
+
+这份文档是给不写代码的项目所有者看的。你不需要理解 Git 的全部细节，只要记住几个固定动作：同步、开需求、检查、发布。
+
+## 项目怎么管理
+
+专业项目一般这样管理：
+
+- `main` 分支只放稳定代码。
+- 新功能放到 `feature/功能名` 分支。
+- 修 bug 放到 `fix/问题名` 分支。
+- 发布产物不提交进源码仓库，放在本地 `dist/` 和 GitHub Releases。
+- 每次改动都要经过检查：共享包测试、三端 analyze/test、必要时构建安装包。
+- GitHub Release 是对外下载入口，本地 `dist/` 是你机器上的交付副本。
+
+## 你每天最常用的命令
+
+在项目根目录 `/Users/jared/Desktop/app/SSRVPN` 运行：
+
+```bash
+make status
+```
+
+作用：查看本地是否干净、是否和 GitHub 同步、交付包是否还在。
+
+```bash
+make sync
+```
+
+作用：把本地 `main` 同步到 GitHub 最新状态。只有本地没有未保存改动时才会执行。
+
+```bash
+make feature name=subscription-import
+```
+
+作用：开始一个新功能分支。`subscription-import` 换成简短英文名即可。
+
+```bash
+make verify
+```
+
+作用：跑完整检查。它会比较久，但能确认共享包、Android、macOS、Windows 的基础测试都没坏。
+
+## 你以后怎么让我改功能
+
+你可以直接用自然语言说：
+
+- “帮我新增一个功能：……”
+- “帮我修复 Windows 打不开的问题。”
+- “帮我发布 2.0.1。”
+- “帮我把当前功能改完并同步到 GitHub。”
+
+我会按专业流程处理：
+
+1. 从干净的 `main` 同步最新代码。
+2. 新建 feature/fix 分支。
+3. 修改代码和文档。
+4. 跑测试和必要构建。
+5. 提交到 GitHub。
+6. 需要发布时打 tag，让 GitHub Actions 生成三端产物。
+
+## 什么文件不要手动动
+
+不要手动删除或上传这些内容：
+
+- `SSRVPN_Android/android/signing/ssrvpn-release.jks`
+- `SSRVPN_Android/android/key.properties`
+- `dist/`
+- `.github/workflows/`
+- `packages/ssrvpn_shared/`
+
+其中 Android keystore 是以后 APK 覆盖安装的关键。同一个应用要能升级，必须继续使用同一个签名。
+
+## 本地和 GitHub 的关系
+
+- 本地项目：你电脑上的工作副本。
+- GitHub：云端源码仓库和自动构建平台。
+- GitHub Release：正式下载页面。
+- `dist/`：本地交付文件夹，不提交进 Git。
+
+专业做法是：源码进 GitHub，安装包进 Release，本地 `dist/` 只保留一份方便你使用。
+
+## 当前发布方式
+
+发布版本时使用标签，例如：
+
+```bash
+git tag -a v2.0.1 -m "SSRVPN v2.0.1"
+git push origin v2.0.1
+```
+
+推送 `v*` 标签后，GitHub 会自动构建：
+
+- Android APK
+- macOS DMG
+- Windows ZIP
+
+没有 Apple/Microsoft/Google 开发者证书时，安装包仍会遇到系统安全提示。这是分发证书问题，不是项目管理问题。
+
+## 当前备份分支
+
+我已把清理前本地未整理的旧改动保存到：
+
+`archive/local-unreviewed-20260702`
+
+这个分支是保险箱，不作为日常开发入口。日常开发从 `main` 或 `feature/*` 分支开始。

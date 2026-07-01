@@ -10,6 +10,7 @@ coverage/
 **/macos/Flutter/ephemeral/
 **/macos/Pods/
 **/windows/flutter/ephemeral/
+/dist/
 
 # Platform build outputs
 *.apk

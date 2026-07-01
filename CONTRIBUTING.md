@@ -7,10 +7,12 @@ SSRVPN is organized as a multi-platform Flutter workspace:
 
 ## Development Rules
 
+- Keep `main` stable and use `feature/*`, `fix/*`, or `chore/*` branches for new work.
 - Put reusable business logic in `packages/ssrvpn_shared` first.
 - Keep platform code focused on UI, native services, packaging, and OS-specific behavior.
 - Do not log raw subscription URLs, API secrets, passwords, bearer tokens, or proxy credentials.
 - Keep Android, macOS, and Windows behavior aligned unless a platform capability requires a difference.
+- Do not commit local deliverables from `dist/`, APK/DMG/ZIP files, signing keys, or generated build caches.
 
 ## Verification
 
@@ -47,3 +49,4 @@ Each PR should include:
 - Notes for release or migration risks.
 
 See `docs/MAINTENANCE.md` for the weekly maintenance rhythm, release checklist, and online/offline consistency rules.
+See `docs/PROJECT_MANAGEMENT.md` for the branch model and artifact policy.
