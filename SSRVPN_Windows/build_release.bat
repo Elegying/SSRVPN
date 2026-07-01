@@ -1,71 +1,115 @@
 @echo off
-chcp 65001 >nul
-setlocal enabledelayedexpansion
+setlocal EnableExtensions
 
-REM SSRVPN Windows 绿色便携版构建脚本
-REM 要求: Flutter SDK + Visual Studio（含"使用C++的桌面开发"）
-
-cd /d "%~dp0"
-set "PROJECT_ROOT=%~dp0"
-set "RELEASE_DIR=%PROJECT_ROOT%build\windows\x64\runner\Release"
-set "ZIP_NAME=SSRVPN_Windows_v2.0.0_portable.zip"
-set "ZIP_OUT=%PROJECT_ROOT%..\%ZIP_NAME%"
+cd /d "%~dp0" || (
+    echo [ERROR] Could not enter project directory.
+    pause
+    exit /b 1
+)
 
 echo ============================================
-echo   SSRVPN Windows 便携版构建
+echo   SSRVPN Windows Portable One-Click Build
 echo ============================================
 echo.
 
-echo [1/4] 清理旧构建...
-call flutter clean
-if %ERRORLEVEL% neq 0 (
-    echo [错误] flutter clean 失败
+set "SCRIPT=%~dp0tool\package_windows.ps1"
+set "ZIP=%~dp0SSRVPN.zip"
+set "HASH=%~dp0SSRVPN.zip.sha256"
+set "LOG=%~dp0build_release.log"
+set "RELEASE_DIR=%~dp0SSRVPN_Windows_Release"
+
+if not exist "%SCRIPT%" (
+    echo [ERROR] Packaging script not found:
+    echo         %SCRIPT%
     pause
     exit /b 1
 )
 
-echo [2/4] 获取依赖...
-call flutter pub get
-if %ERRORLEVEL% neq 0 (
-    echo [错误] flutter pub get 失败
+where powershell.exe >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] powershell.exe was not found.
+    echo         This build script requires Windows PowerShell.
     pause
     exit /b 1
 )
 
-echo [3/4] 构建 Release...
-call flutter build windows --release
-if %ERRORLEVEL% neq 0 (
-    echo [错误] flutter build windows --release 失败
+if exist "%LOG%" del /f /q "%LOG%" >nul 2>nul
+
+echo [1/3] Checking build entry...
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$PSVersionTable.PSVersion.ToString()" >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] PowerShell could not start.
     pause
     exit /b 1
 )
+echo [OK] PowerShell is available.
+echo.
 
+echo [2/3] Building release and collecting portable runtime files...
+echo       Log: %LOG%
+echo.
+
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass ^
+    -File "%SCRIPT%" -LogPath "%LOG%" %*
+set "BUILD_EXIT=%ERRORLEVEL%"
+
+if not "%BUILD_EXIT%"=="0" (
+    echo.
+    echo [ERROR] Build or packaging failed. Exit code: %BUILD_EXIT%
+    echo         Full log: %LOG%
+    echo.
+    echo Common fixes:
+    echo   1. Open build_release.log and look for the first [ERROR] or throw line.
+    echo   2. If pub.dev timed out, run this file again. It retries a China mirror.
+    echo   3. If your network uses a proxy, set HTTPS_PROXY/HTTP_PROXY first.
+    echo   4. If packages are already cached, try:
+    echo      build_release.bat -OfflinePub
+    echo   5. For build tool errors, install Flutter SDK and Visual Studio 2022 C++.
+    echo.
+    pause
+    exit /b %BUILD_EXIT%
+)
+
+echo.
+echo [3/3] Verifying output files...
+if not exist "%ZIP%" (
+    echo [ERROR] ZIP was not created:
+    echo         %ZIP%
+    echo         Full log: %LOG%
+    pause
+    exit /b 1
+)
+if not exist "%HASH%" (
+    echo [ERROR] SHA256 file was not created:
+    echo         %HASH%
+    echo         Full log: %LOG%
+    pause
+    exit /b 1
+)
 if not exist "%RELEASE_DIR%\ssrvpn_windows.exe" (
-    echo [错误] 构建产物不存在: %RELEASE_DIR%\ssrvpn_windows.exe
-    echo 请检查构建日志排查问题。
+    echo [ERROR] Release folder is missing ssrvpn_windows.exe:
+    echo         %RELEASE_DIR%
+    echo         Full log: %LOG%
     pause
     exit /b 1
 )
 
-echo [4/4] 打包便携版 ZIP...
-del "%ZIP_OUT%" 2>nul
-powershell -NoProfile -Command ^
-    "Compress-Archive -Path '%RELEASE_DIR%\*' -DestinationPath '%ZIP_OUT%' -Force"
-if %ERRORLEVEL% neq 0 (
-    echo [错误] ZIP 打包失败
-    pause
-    exit /b 1
-)
+for %%I in ("%ZIP%") do set "ZIP_SIZE=%%~zI"
 
+echo [OK] Portable package is ready.
 echo.
 echo ============================================
-echo   构建完成！
+echo   Build complete
 echo.
-echo   便携版 ZIP: %ZIP_OUT%
-echo.
-dir "%ZIP_OUT%" 2>nul
+echo   Portable ZIP: %ZIP%
+echo   ZIP size:     %ZIP_SIZE% bytes
+echo   SHA256:       %HASH%
+echo   Build log:    %LOG%
 echo ============================================
 echo.
-echo 解压后直接运行 ssrvpn_windows.exe 即可使用。
+echo Send SSRVPN.zip to users. They only need to:
+echo   1. Extract the ZIP completely.
+echo   2. Double-click ssrvpn_windows.exe.
 echo.
 pause

@@ -66,6 +66,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   startup_diagnostics::Log(L"window create start");
   if (!window.Create(L"SSRVPN", origin, size)) {
     startup_diagnostics::Log(L"window create failed");
+    startup_diagnostics::WriteDesktopFailureLog(L"window create failed");
     if (instance_mutex != nullptr) {
       ::CloseHandle(instance_mutex);
     }
@@ -82,6 +83,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     ::TranslateMessage(&msg);
     ::DispatchMessage(&msg);
   }
+  startup_diagnostics::Log(L"message loop ended");
 
   ::CoUninitialize();
   if (instance_mutex != nullptr && owns_instance_mutex) {

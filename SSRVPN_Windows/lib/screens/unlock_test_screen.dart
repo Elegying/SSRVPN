@@ -296,7 +296,7 @@ class _UnlockTestScreenState extends State<UnlockTestScreen> {
           ),
           const Spacer(),
           Text(
-            '$total/${_items.length}',
+            '已测 $total/${_items.length}',
             style: const TextStyle(fontSize: 11, color: AppTheme.textTertiary),
           ),
         ],

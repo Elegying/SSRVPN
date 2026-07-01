@@ -89,8 +89,7 @@ proxies:
   });
 
   test('converts base64 URI-list subscriptions with anytls nodes', () async {
-    final ssrPayload =
-        'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
+    final ssrPayload = 'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
         'tls1.2_ticket_auth:${base64Url.encode(utf8.encode('ssr-password')).replaceAll('=', '')}/?';
     const uriList = '''
 anytls://any-password@any.example.com:443/?type=tcp&insecure=1&fp=chrome&sni=stream.example.com#AnyTLS%20Node

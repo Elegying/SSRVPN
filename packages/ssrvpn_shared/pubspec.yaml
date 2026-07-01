@@ -10,7 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.0.0
-  uuid: ^4.5.0
+  uuid: '>=3.0.6 <5.0.0'
   yaml: ^3.1.0
 
 dev_dependencies:

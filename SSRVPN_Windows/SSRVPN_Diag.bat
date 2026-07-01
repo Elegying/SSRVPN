@@ -38,7 +38,7 @@ echo.
 echo [2/6] 检查必备 DLL 文件...
 
 set MISSING_DLLS=0
-set DLL_LIST=flutter_windows.dll mihomo.exe vcruntime140.dll msvcp140.dll d3dcompiler_47.dll
+set DLL_LIST=ssrvpn_windows_app.exe flutter_windows.dll screen_retriever_windows_plugin.dll system_tray_plugin.dll window_manager_plugin.dll mihomo.exe concrt140.dll msvcp140.dll msvcp140_1.dll msvcp140_2.dll msvcp140_atomic_wait.dll msvcp140_codecvt_ids.dll vcruntime140.dll vcruntime140_1.dll d3dcompiler_47.dll
 
 for %%d in (%DLL_LIST%) do (
     if exist "%~dp0%%d" (

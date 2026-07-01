@@ -290,6 +290,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
 
   Widget _buildStartupShell(StartupStatus status) {
     final failures = status.failures;
+    final startupFailed = status.completed && !status.servicesReady;
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
@@ -303,28 +304,37 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const SizedBox(
+                  SizedBox(
                     width: 42,
                     height: 42,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      color: AppTheme.primary,
-                    ),
+                    child: startupFailed
+                        ? const Icon(
+                            Icons.error_outline_rounded,
+                            color: AppTheme.error,
+                            size: 42,
+                          )
+                        : const CircularProgressIndicator(
+                            strokeWidth: 3,
+                            color: AppTheme.primary,
+                          ),
                   ),
                   const SizedBox(height: 24),
-                  const Text(
-                    'SSRVPN',
+                  Text(
+                    startupFailed ? '启动失败' : 'SSRVPN',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.w800,
-                      color: AppTheme.textPrimary,
+                      color:
+                          startupFailed ? AppTheme.error : AppTheme.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    status.currentStep == null
-                        ? '正在准备主窗口...'
-                        : '正在执行 ${status.currentStep}...',
+                    startupFailed
+                        ? '初始化服务失败，请查看下方启动日志。'
+                        : status.currentStep == null
+                            ? '正在准备主窗口...'
+                            : '正在执行 ${status.currentStep}...',
                     style: const TextStyle(
                       fontSize: 14,
                       color: AppTheme.textSecondary,
@@ -351,8 +361,6 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       ),
     );
   }
-
-
 }
 
 const _shellNavItems = [

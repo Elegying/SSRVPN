@@ -30,6 +30,7 @@ class StartupOrchestrator {
 
     status.markCompleted();
     StartupLogger.info('Startup orchestration completed');
+    _writeDesktopReportForCriticalFailures(status);
   }
 
   Future<void> runStep(
@@ -215,5 +216,19 @@ class StartupOrchestrator {
     } catch (error, stack) {
       StartupLogger.error('Tray quit action failed', error, stack);
     }
+  }
+
+  void _writeDesktopReportForCriticalFailures(StartupStatus status) {
+    final criticalFailures = status.failures.where((failure) {
+      return failure.step == 'window_manager' || failure.step == 'mihomo_core';
+    }).toList();
+    if (criticalFailures.isEmpty) return;
+
+    final reason = criticalFailures
+        .map((failure) => '${failure.step}: ${failure.message}')
+        .join('; ');
+    StartupLogger.writeDesktopFailureReportSync(
+      'Critical startup step failed: $reason',
+    );
   }
 }

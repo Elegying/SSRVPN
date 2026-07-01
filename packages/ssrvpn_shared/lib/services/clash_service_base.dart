@@ -213,8 +213,7 @@ abstract class ClashServiceBase {
               type == 'URLTest' ||
               type == 'Fallback' ||
               type == 'LoadBalance') {
-            final allNames =
-                (proxyData['all'] as List?)?.cast<String>() ?? [];
+            final allNames = (proxyData['all'] as List?)?.cast<String>() ?? [];
             final nodes = <ProxyNode>[];
             for (final name in allNames) {
               if (proxies.containsKey(name) &&
@@ -330,7 +329,7 @@ abstract class ClashServiceBase {
       final deadline = DateTime.now().add(const Duration(milliseconds: 250));
       while (DateTime.now().isBefore(deadline)) {
         final remaining = await _countActiveConnections();
-        if (remaining == 0) break;
+        if (remaining <= 0) break;
         await Future<void>.delayed(const Duration(milliseconds: 30));
       }
     }
@@ -439,8 +438,7 @@ abstract class ClashServiceBase {
     final client = IOClient(
       HttpClient()
         ..connectionTimeout = const Duration(seconds: 5)
-        ..findProxy =
-            (_) => 'PROXY 127.0.0.1:${_settings.proxyPort}; DIRECT',
+        ..findProxy = (_) => 'PROXY 127.0.0.1:${_settings.proxyPort}; DIRECT',
     );
     try {
       final response = await client
@@ -462,8 +460,7 @@ abstract class ClashServiceBase {
     final client = IOClient(
       HttpClient()
         ..connectionTimeout = const Duration(seconds: 5)
-        ..findProxy =
-            (_) => 'PROXY 127.0.0.1:${_settings.proxyPort}; DIRECT',
+        ..findProxy = (_) => 'PROXY 127.0.0.1:${_settings.proxyPort}; DIRECT',
     );
     const endpoints = [
       'http://ip-api.com/json/?fields=status,countryCode,query',
@@ -712,5 +709,3 @@ abstract class ClashServiceBase {
     _statusListeners.clear();
   }
 }
-
-

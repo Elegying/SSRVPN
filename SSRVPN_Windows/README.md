@@ -46,11 +46,31 @@ flutter build windows --release
 
 ### 打包为绿色免安装版
 
-推荐直接使用项目内的打包脚本。它会执行 Release 构建、清理旧产物、校验必需文件、附带 VC++ 运行库并生成 SHA256：
+推荐直接双击项目根目录的 `build_release.bat`。它会执行 Release 构建、清理旧产物、自动收集并校验绿色版必需文件、附带 VC++ 运行库和 `d3dcompiler_47.dll`，最后生成 ZIP 与 SHA256：
+
+```bat
+build_release.bat
+```
+
+也可以在 PowerShell 中手动调用底层打包脚本：
 
 ```powershell
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
   -File .\tool\package_windows.ps1
+```
+
+如果构建机访问 `pub.dev` 不稳定，脚本会自动重试 Flutter 中国镜像：
+
+```text
+PUB_HOSTED_URL=https://pub.flutter-io.cn
+FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
+```
+
+也可以手动指定：
+
+```bat
+build_release.bat -ChinaMirror
+build_release.bat -OfflinePub
 ```
 
 最终产物为项目根目录下的 `SSRVPN.zip`。构建完成后，ZIP 内包含：

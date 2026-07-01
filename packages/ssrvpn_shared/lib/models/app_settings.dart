@@ -53,7 +53,9 @@ class AppSettings {
     this.apiPort = 9090,
     this.apiSecret = '',
     this.proxyMode = ProxyMode.rule,
-    this.enableTun = false,
+    bool? enableTun,
+    bool? tunMode,
+    bool? enableSystemProxy,
     this.tunStack = 'gvisor',
     this.minimizeToTray = true,
     this.startOnBoot = false,
@@ -63,12 +65,17 @@ class AppSettings {
     this.autoUpdateSubscription = true,
     this.updateIntervalHours = 24,
     this.latencyTestUrl = 'http://www.gstatic.com/generate_204',
-    this.lastSelectedNodeName,
+    String? lastSelectedNodeName,
+    String? lastSelectedNode,
     this.latencyTestTimeout = 5000,
     Iterable<Object?>? forceProxySites,
     this.autoConnectOnStartup = false,
     this.autoCheckUpdate = true,
-  }) : forceProxySites = normalizeForceProxySites(forceProxySites);
+  })  : enableTun = enableTun ??
+            tunMode ??
+            (enableSystemProxy == null ? false : !enableSystemProxy),
+        lastSelectedNodeName = lastSelectedNodeName ?? lastSelectedNode,
+        forceProxySites = normalizeForceProxySites(forceProxySites);
 
   // ── 便捷 getter/setter ──
 
@@ -94,6 +101,8 @@ class AppSettings {
     String? apiSecret,
     ProxyMode? proxyMode,
     bool? enableTun,
+    bool? tunMode,
+    bool? enableSystemProxy,
     String? tunStack,
     bool? minimizeToTray,
     bool? startOnBoot,
@@ -105,6 +114,7 @@ class AppSettings {
     int? updateIntervalHours,
     String? latencyTestUrl,
     String? lastSelectedNodeName,
+    String? lastSelectedNode,
     int? latencyTestTimeout,
     Iterable<Object?>? forceProxySites,
     bool? autoConnectOnStartup,
@@ -116,7 +126,9 @@ class AppSettings {
       apiPort: apiPort ?? this.apiPort,
       apiSecret: apiSecret ?? this.apiSecret,
       proxyMode: proxyMode ?? this.proxyMode,
-      enableTun: enableTun ?? this.enableTun,
+      enableTun: enableTun ??
+          tunMode ??
+          (enableSystemProxy == null ? this.enableTun : !enableSystemProxy),
       tunStack: tunStack ?? this.tunStack,
       minimizeToTray: minimizeToTray ?? this.minimizeToTray,
       startOnBoot: startOnBoot ?? startWithWindows ?? this.startOnBoot,
@@ -128,11 +140,10 @@ class AppSettings {
       updateIntervalHours: updateIntervalHours ?? this.updateIntervalHours,
       latencyTestUrl: latencyTestUrl ?? this.latencyTestUrl,
       lastSelectedNodeName:
-          lastSelectedNodeName ?? this.lastSelectedNodeName,
+          lastSelectedNodeName ?? lastSelectedNode ?? this.lastSelectedNodeName,
       latencyTestTimeout: latencyTestTimeout ?? this.latencyTestTimeout,
       forceProxySites: forceProxySites ?? this.forceProxySites,
-      autoConnectOnStartup:
-          autoConnectOnStartup ?? this.autoConnectOnStartup,
+      autoConnectOnStartup: autoConnectOnStartup ?? this.autoConnectOnStartup,
       autoCheckUpdate: autoCheckUpdate ?? this.autoCheckUpdate,
     );
   }
@@ -171,7 +182,7 @@ class AppSettings {
       apiPort: _parsePort(json['apiPort'], 9090),
       apiSecret: json['apiSecret']?.toString() ?? '',
       proxyMode: _parseProxyMode(json['proxyMode'] as String?),
-      enableTun: _parseBool(json['enableTun'], false),
+      enableTun: _parseEnableTun(json),
       tunStack: json['tunStack']?.toString() ?? 'gvisor',
       minimizeToTray: _parseBool(json['minimizeToTray'], true),
       startOnBoot: _parseBool(
@@ -181,20 +192,19 @@ class AppSettings {
       startMinimized: _parseBool(json['startMinimized'], false),
       closeToTray: _parseBool(json['closeToTray'], false),
       darkMode: _parseBool(json['darkMode'], true),
-      autoUpdateSubscription:
-          _parseBool(json['autoUpdateSubscription'], true),
+      autoUpdateSubscription: _parseBool(json['autoUpdateSubscription'], true),
       updateIntervalHours:
           _parsePositiveInt(json['updateIntervalHours'], 24, min: 1, max: 720),
       latencyTestUrl: json['latencyTestUrl']?.toString() ??
           'http://www.gstatic.com/generate_204',
-      lastSelectedNodeName: json['lastSelectedNodeName'] as String?,
+      lastSelectedNodeName:
+          (json['lastSelectedNodeName'] ?? json['lastSelectedNode']) as String?,
       latencyTestTimeout: _parseTimeout(json['latencyTestTimeout'], 5000),
       forceProxySites: json['forceProxySites'] is Iterable
           ? (json['forceProxySites'] as Iterable)
               .map((e) => e?.toString() ?? '')
           : null,
-      autoConnectOnStartup:
-          _parseBool(json['autoConnectOnStartup'], false),
+      autoConnectOnStartup: _parseBool(json['autoConnectOnStartup'], false),
       autoCheckUpdate: _parseBool(json['autoCheckUpdate'], true),
     );
   }
@@ -302,6 +312,19 @@ class AppSettings {
     if (value is String) return value == 'true';
     if (value is int) return value != 0;
     return fallback;
+  }
+
+  static bool _parseEnableTun(Map<String, dynamic> json) {
+    if (json.containsKey('enableTun')) {
+      return _parseBool(json['enableTun'], false);
+    }
+    if (json.containsKey('tunMode')) {
+      return _parseBool(json['tunMode'], false);
+    }
+    if (json.containsKey('enableSystemProxy')) {
+      return !_parseBool(json['enableSystemProxy'], true);
+    }
+    return false;
   }
 
   static ProxyMode _parseProxyMode(String? mode) {

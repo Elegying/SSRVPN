@@ -24,7 +24,7 @@ dependencies:
     path: ../packages/ssrvpn_shared
 
   # UUID generation
-  uuid: ^4.5.3
+  uuid: ^3.0.7
 
   # System tray for Windows
   system_tray: ^2.0.3
@@ -35,11 +35,6 @@ dependencies:
 
   # Path utilities
   path: ^1.9.0
-
-# system_tray 2.0.3 transitively depends on uuid ^3.0.6 but ssrvpn_shared
-# requires uuid ^4.5.0. uuid 4.x is API-compatible with 3.x for internal use.
-dependency_overrides:
-  uuid: ^4.5.3
 
 dev_dependencies:
   flutter_test:

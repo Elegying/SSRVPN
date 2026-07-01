@@ -49,7 +49,8 @@ class SubscriptionService extends SubscriptionServiceBase {
               await request.close().timeout(Duration(seconds: 30 * attempt));
 
           if (response.statusCode == 200) {
-            if (response.contentLength > SubscriptionServiceBase.maxSubscriptionBytes) {
+            if (response.contentLength >
+                SubscriptionServiceBase.maxSubscriptionBytes) {
               throw Exception('订阅内容超过 20 MB 限制');
             }
             final bodyBytes = await _readLimitedResponse(response);

@@ -74,6 +74,14 @@ class ClashService extends ClashServiceBase {
   }
 
   @override
+  void updateSettings(AppSettings settings) {
+    if (apiClient == null) {
+      initHttpClient();
+    }
+    super.updateSettings(settings);
+  }
+
+  @override
   void log(String message) {
     super.log(message);
     if (!kReleaseMode) {
@@ -252,8 +260,7 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
       );
 
       final stdout = await stdoutFuture;
-      final stderr =
-          exitCode == 124 ? '电脑性能不足，请重新连接' : await stderrFuture;
+      final stderr = exitCode == 124 ? '电脑性能不足，请重新连接' : await stderrFuture;
       return ProcessResult(process.pid, exitCode, stdout, stderr);
     } catch (_) {
       process?.kill(ProcessSignal.sigkill);
@@ -571,8 +578,7 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
 
       if (!await _validateConfig(environment)) {
         setLastStartError(
-          lastStartError ??
-              'Mihomo 配置校验失败，请打开运行日志查看具体配置错误',
+          lastStartError ?? 'Mihomo 配置校验失败，请打开运行日志查看具体配置错误',
         );
         return false;
       }
@@ -664,8 +670,7 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
         return true;
       } else {
         if (startupExitCode != null) {
-          final detail =
-              startupOutput.isEmpty ? '' : ': ${startupOutput.last}';
+          final detail = startupOutput.isEmpty ? '' : ': ${startupOutput.last}';
           setLastStartError(
             'Mihomo 提前退出（退出码 $startupExitCode）$detail',
           );
@@ -786,8 +791,7 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
         lower.contains('拒绝访问')) {
       return '无法执行 Mihomo，文件可能被安全软件拦截或当前目录没有执行权限';
     }
-    if (lower.contains('not a valid win32') ||
-        lower.contains('不是有效的 win32')) {
+    if (lower.contains('not a valid win32') || lower.contains('不是有效的 win32')) {
       return 'Mihomo 与这台电脑的 Windows 架构不兼容，本版本仅支持 64 位 Windows';
     }
     return '启动 Mihomo 时发生异常: $message';

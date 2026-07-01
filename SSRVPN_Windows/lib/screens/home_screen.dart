@@ -1,5 +1,3 @@
-// ignore_for_file: prefer_const_constructors
-
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -9,7 +7,6 @@ import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/utils/private_node_latency_policy.dart';
 import '../models/app_settings.dart';
 import '../services/clash_service.dart';
-import '../services/ip_geo_service.dart';
 import '../services/subscription_service.dart';
 import '../services/settings_service.dart';
 import '../services/update_service.dart';
@@ -37,10 +34,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   ProxyNode? _selectedNode;
 
   final Map<String, int> _latencies = {};
+  final Map<String, String> _exitCountryCodes = {};
   Timer? _latencyBatchTimer;
   final Map<String, int> _pendingLatencies = {};
   int _lastRevision = -1;
   bool _disposed = false;
+  bool _isResolvingExitCountries = false;
+  bool _pendingExitCountryResolution = false;
+  int _exitCountryResolveGeneration = 0;
   bool _hasShownInitialSubscriptionDialog = false;
   ClashService? _clashService;
   Timer? _updateCheckTimer;
@@ -61,6 +62,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final isFirstSync = _lastRevision == -1;
     _lastRevision = subService.revision;
     _nodes = List.from(subService.allNodes);
+    final nodeNames = _nodes.map((node) => node.name).toSet();
+    _exitCountryCodes.removeWhere((name, _) => !nodeNames.contains(name));
     if (!isFirstSync && _isConnected && _nodes.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _reloadConfig());
     }
@@ -106,6 +109,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _nodes = nodes;
           _selectedNode = success ? preferredNode : null;
         });
+        if (success) _scheduleExitCountryResolution();
       }
     } catch (e) {
       if (mounted && !_disposed) {
@@ -191,9 +195,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (!running) {
         _latencies.clear();
         _selectedNode = null;
+        _exitCountryResolveGeneration++;
         _glowController.stop();
       } else {
         _glowController.repeat();
+        _scheduleExitCountryResolution();
       }
     });
   }
@@ -446,13 +452,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     clashService.updateSettings(settingsService.settings);
 
     if (!mounted || _disposed) return;
+    setState(() {
+      _isConnecting = false;
+      _isConnected = false;
+      _selectedNode = null;
+      _latencies.clear();
+    });
 
     if (wasConnected) {
-      await _reloadConfig();
-    } else {
-      setState(() {
-        _isConnecting = false;
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('网络设置已更新，请重新连接')),
+      );
     }
   }
 
@@ -700,6 +710,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _isConnected = false;
         _isConnecting = false;
         _latencies.clear();
+        _exitCountryResolveGeneration++;
         _glowController.stop();
       });
     } else {
@@ -748,6 +759,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             _selectedNode = autoSelect;
           });
           _glowController.repeat();
+          _scheduleExitCountryResolution();
           _autoTestAllNodes();
           _checkUpdateDelayed();
         } else {
@@ -830,11 +842,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
       return;
     }
+    _exitCountryResolveGeneration++;
     final ok =
         await context.read<ClashService>().switchSelectedProxy(node.name);
     if (ok) {
       await _rememberSelectedNode(node);
       if (mounted) setState(() => _selectedNode = node);
+      _scheduleExitCountryResolution();
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -930,6 +944,67 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  void _scheduleExitCountryResolution() {
+    if (!_isConnected || _nodes.isEmpty || !mounted || _disposed) return;
+    if (_isResolvingExitCountries) {
+      _pendingExitCountryResolution = true;
+      return;
+    }
+    unawaited(_resolveExitCountries());
+  }
+
+  Future<void> _resolveExitCountries() async {
+    if (_isResolvingExitCountries) return;
+    _isResolvingExitCountries = true;
+    _pendingExitCountryResolution = false;
+    final generation = ++_exitCountryResolveGeneration;
+    final clashService = context.read<ClashService>();
+
+    bool shouldContinue() {
+      return mounted &&
+          !_disposed &&
+          _isConnected &&
+          clashService.isRunning &&
+          generation == _exitCountryResolveGeneration;
+    }
+
+    try {
+      for (final node in List<ProxyNode>.from(_nodes)) {
+        if (!shouldContinue()) break;
+        if (_exitCountryCodes.containsKey(node.name)) continue;
+
+        final switched = await clashService.switchSelectedProxy(node.name);
+        if (!switched || !shouldContinue()) continue;
+
+        await Future<void>.delayed(const Duration(milliseconds: 260));
+        final country = await clashService.resolveCurrentExitCountryCode();
+        if (country == null || !shouldContinue()) continue;
+
+        setState(() {
+          _exitCountryCodes[node.name] = country;
+        });
+      }
+    } catch (e) {
+      debugPrint('[出口国家] 查询失败: $e');
+    } finally {
+      final restoreName = _selectedNode?.name;
+      if (mounted &&
+          !_disposed &&
+          _isConnected &&
+          clashService.isRunning &&
+          restoreName != null &&
+          restoreName.isNotEmpty) {
+        await clashService.switchSelectedProxy(restoreName);
+      }
+      _isResolvingExitCountries = false;
+
+      if (_pendingExitCountryResolution && mounted && !_disposed) {
+        _pendingExitCountryResolution = false;
+        _scheduleExitCountryResolution();
+      }
+    }
+  }
+
   void _showTutorial(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
@@ -944,10 +1019,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           child: ConstrainedBox(
             constraints: BoxConstraints(
               maxWidth: (MediaQuery.of(ctx).size.width * 0.88)
-                  .clamp(
-                    280.0,
-                    420.0,
-                  )
+                  .clamp(280.0, 420.0)
                   .toDouble(),
             ),
             child: Padding(
@@ -955,41 +1027,40 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                              colors: [AppTheme.primary, AppTheme.accentColor]),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.menu_book_rounded,
-                            color: Colors.white, size: 20),
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [AppTheme.primary, AppTheme.accentColor],
                       ),
-                      const SizedBox(width: 12),
-                      Text('使用教程',
-                          style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: isDark
-                                  ? AppTheme.textPrimary
-                                  : AppTheme.lightTextPrimary)),
-                    ],
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.menu_book_rounded,
+                      color: Colors.white,
+                      size: 28,
+                    ),
                   ),
-                  const SizedBox(height: 20),
-                  const _TutorialStep(step: '1', text: '点击底部「订阅」标签，进入订阅管理页面'),
+                  const SizedBox(height: 16),
+                  Text(
+                    '使用教程',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: isDark
+                          ? AppTheme.textPrimary
+                          : AppTheme.lightTextPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const _TutorialStep(step: '1', text: '进入订阅页面，粘贴 SSR 代码或订阅链接'),
                   const SizedBox(height: 12),
-                  const _TutorialStep(step: '2', text: '在输入框中粘贴订阅链接，点击「添加」'),
+                  const _TutorialStep(step: '2', text: '点击添加后刷新订阅，等待节点加载完成'),
                   const SizedBox(height: 12),
-                  const _TutorialStep(
-                      step: '3', text: '添加成功后点击「全部刷新」，等待节点加载完成'),
+                  const _TutorialStep(step: '3', text: '回到首页，选择节点后点击连接按钮'),
                   const SizedBox(height: 12),
-                  const _TutorialStep(step: '4', text: '返回主页，点击连接按钮即可使用'),
-                  const SizedBox(height: 12),
-                  const _TutorialStep(
-                      step: '5', text: '系统代理模式无需管理员权限，TUN 模式需以管理员身份运行'),
+                  const _TutorialStep(step: '4', text: '系统代理无需管理员权限，TUN 模式需授权'),
                   const SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
@@ -998,15 +1069,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                         backgroundColor: AppTheme.primary
                             .withValues(alpha: (isDark ? 25 : 15) / 255),
                       ),
-                      child: const Text('知道了',
-                          style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.primary)),
+                      child: const Text(
+                        '知道了',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.primary,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -1268,9 +1343,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 child: GestureDetector(
                   onTap: () => _showTutorial(context),
                   child: Container(
-                    height: 38,
                     padding: EdgeInsets.symmetric(
                       horizontal: compact ? 11 : 14,
+                      vertical: 8,
                     ),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
@@ -1278,13 +1353,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       ),
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.26),
+                        color: Colors.white.withValues(alpha: 0.18),
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: AppTheme.primary.withValues(alpha: 0.24),
+                          color: AppTheme.primary.withValues(alpha: 0.26),
                           blurRadius: 18,
-                          spreadRadius: -8,
                           offset: const Offset(0, 8),
                         ),
                       ],
@@ -1292,15 +1366,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.menu_book_rounded,
-                            size: 16, color: Colors.white),
+                        const Icon(
+                          Icons.menu_book_rounded,
+                          size: 15,
+                          color: Colors.white,
+                        ),
                         if (!compact) ...[
-                          const SizedBox(width: 7),
-                          Text('教程',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white)),
+                          const SizedBox(width: 6),
+                          const Text(
+                            '教程',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
                         ],
                       ],
                     ),
@@ -1783,9 +1863,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final isTesting = _testingNodeName == node.name;
         final isSelected = _selectedNode?.name == node.name;
         final isTimeout = latency != null && (latency <= 0 || latency >= 65535);
+        final countryCode =
+            _exitCountryCodes[node.name] ?? _countryCodeForNode(node);
 
         return _NodeCard(
           node: node,
+          countryCode: countryCode,
           latency: latency,
           isTesting: isTesting,
           isSelected: isSelected,
@@ -1900,6 +1983,7 @@ class _SmallButton extends StatelessWidget {
 
 class _NodeCard extends StatelessWidget {
   final ProxyNode node;
+  final String countryCode;
   final int? latency;
   final bool isTesting;
   final bool isSelected;
@@ -1914,6 +1998,7 @@ class _NodeCard extends StatelessWidget {
 
   const _NodeCard({
     required this.node,
+    required this.countryCode,
     required this.latency,
     required this.isTesting,
     required this.isSelected,
@@ -1967,11 +2052,10 @@ class _NodeCard extends StatelessWidget {
                 child: Row(
                   children: [
                     _NodeFlagBadge(
-                      node: node,
+                      countryCode: countryCode,
                       selected: isSelected,
                       timeout: isTimeout,
                       isDark: isDark,
-                      isConnected: isConnected,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -2090,97 +2174,60 @@ class _HoverableNodeCardState extends State<_HoverableNodeCard> {
   }
 }
 
-class _NodeFlagBadge extends StatefulWidget {
+class _NodeFlagBadge extends StatelessWidget {
   const _NodeFlagBadge({
-    required this.node,
+    required this.countryCode,
     required this.selected,
     required this.timeout,
     required this.isDark,
-    required this.isConnected,
   });
 
-  final ProxyNode node;
+  final String countryCode;
   final bool selected;
   final bool timeout;
   final bool isDark;
-  final bool isConnected;
-
-  @override
-  State<_NodeFlagBadge> createState() => _NodeFlagBadgeState();
-}
-
-class _NodeFlagBadgeState extends State<_NodeFlagBadge> {
-  late Future<String> _countryFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCountry();
-  }
-
-  @override
-  void didUpdateWidget(covariant _NodeFlagBadge oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.node.name != widget.node.name ||
-        oldWidget.node.server != widget.node.server ||
-        oldWidget.isConnected != widget.isConnected) {
-      _loadCountry();
-    }
-  }
-
-  void _loadCountry() {
-    _countryFuture = IpGeoService.instance.countryCodeForNode(
-      widget.node,
-      context.read<ClashService>(),
-      connected: widget.isConnected,
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
-    final cached = IpGeoService.instance.cachedCountryForNode(widget.node);
+    final flag = _flagEmoji(countryCode);
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        FutureBuilder<String>(
-          future: _countryFuture,
-          initialData: cached,
-          builder: (context, snapshot) {
-            final countryCode = _normalizeCountry(snapshot.data ?? 'UN');
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color:
-                    widget.isDark ? const Color(0xFF080E18) : AppTheme.lightBg,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: widget.selected
-                      ? AppTheme.success.withValues(alpha: 0.9)
-                      : AppTheme.borderLight.withValues(
-                          alpha: widget.isDark ? 0.9 : 0.45,
-                        ),
-                ),
-                boxShadow: [
-                  if (widget.selected)
-                    BoxShadow(
-                      color: AppTheme.success.withValues(alpha: 0.25),
-                      blurRadius: 14,
-                      spreadRadius: -8,
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF080E18) : AppTheme.lightBg,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: selected
+                  ? AppTheme.success.withValues(alpha: 0.9)
+                  : AppTheme.borderLight.withValues(
+                      alpha: isDark ? 0.9 : 0.45,
                     ),
-                ],
-              ),
-              child: ClipOval(
-                child: CustomPaint(
-                  painter: _CountryFlagPainter(countryCode),
-                  child: const SizedBox.expand(),
+            ),
+            boxShadow: [
+              if (selected)
+                BoxShadow(
+                  color: AppTheme.success.withValues(alpha: 0.25),
+                  blurRadius: 14,
+                  spreadRadius: -8,
                 ),
+            ],
+          ),
+          child: Center(
+            child: Text(
+              flag,
+              style: TextStyle(
+                fontSize: flag == countryCode ? 11 : 19,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.primary,
               ),
-            );
-          },
+            ),
+          ),
         ),
-        if (widget.selected)
+        if (selected)
           Positioned(
             right: -2,
             bottom: -2,
@@ -2198,7 +2245,7 @@ class _NodeFlagBadgeState extends State<_NodeFlagBadge> {
               ),
             ),
           ),
-        if (widget.timeout)
+        if (timeout)
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -2260,10 +2307,6 @@ String _countryCodeForNode(ProxyNode node) {
     }
   }
 
-  final tldMatch = RegExp(r'\.([a-z]{2})(?::\d+)?$', caseSensitive: false)
-      .firstMatch(node.server);
-  if (tldMatch != null) return _normalizeCountry(tldMatch.group(1) ?? 'UN');
-
   return 'UN';
 }
 
@@ -2274,258 +2317,16 @@ String _normalizeCountry(String code) {
   return upper;
 }
 
-class _CountryFlagPainter extends CustomPainter {
-  const _CountryFlagPainter(this.countryCode);
-
-  final String countryCode;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    canvas.save();
-    canvas.clipPath(Path()..addOval(rect));
-    switch (countryCode) {
-      case 'US':
-        _horizontalStripes(canvas, rect, const [
-          Color(0xFFB22234),
-          Colors.white,
-          Color(0xFFB22234),
-          Colors.white,
-          Color(0xFFB22234),
-          Colors.white,
-          Color(0xFFB22234),
-        ]);
-        _fill(
-            canvas,
-            Rect.fromLTWH(0, 0, size.width * 0.48, size.height * 0.48),
-            const Color(0xFF3C3B6E));
-        break;
-      case 'JP':
-        _fill(canvas, rect, Colors.white);
-        canvas.drawCircle(rect.center, size.shortestSide * 0.22,
-            Paint()..color = const Color(0xFFBC002D));
-        break;
-      case 'HK':
-      case 'CN':
-        _fill(canvas, rect, const Color(0xFFDE2910));
-        _star(canvas, Offset(size.width * 0.34, size.height * 0.32),
-            size.shortestSide * 0.12, const Color(0xFFFFDE00));
-        break;
-      case 'SG':
-        _horizontalStripes(canvas, rect, const [
-          Color(0xFFEF3340),
-          Colors.white,
-        ]);
-        _crescent(canvas, Offset(size.width * 0.34, size.height * 0.28),
-            size.shortestSide * 0.12);
-        break;
-      case 'TW':
-        _fill(canvas, rect, const Color(0xFFFE0000));
-        _fill(
-            canvas,
-            Rect.fromLTWH(0, 0, size.width * 0.52, size.height * 0.52),
-            const Color(0xFF000095));
-        _star(canvas, Offset(size.width * 0.26, size.height * 0.26),
-            size.shortestSide * 0.11, Colors.white);
-        break;
-      case 'GB':
-        _fill(canvas, rect, const Color(0xFF012169));
-        _diagonal(canvas, rect, Colors.white, size.shortestSide * 0.18);
-        _cross(canvas, rect, Colors.white, size.shortestSide * 0.2);
-        _diagonal(
-            canvas, rect, const Color(0xFFC8102E), size.shortestSide * 0.08);
-        _cross(canvas, rect, const Color(0xFFC8102E), size.shortestSide * 0.1);
-        break;
-      case 'DE':
-        _horizontalStripes(canvas, rect,
-            const [Colors.black, Color(0xFFDD0000), Color(0xFFFFCE00)]);
-        break;
-      case 'FR':
-        _verticalStripes(canvas, rect,
-            const [Color(0xFF0055A4), Colors.white, Color(0xFFEF4135)]);
-        break;
-      case 'NL':
-        _horizontalStripes(canvas, rect,
-            const [Color(0xFFAE1C28), Colors.white, Color(0xFF21468B)]);
-        break;
-      case 'RU':
-        _horizontalStripes(canvas, rect,
-            const [Colors.white, Color(0xFF0039A6), Color(0xFFD52B1E)]);
-        break;
-      case 'KR':
-        _fill(canvas, rect, Colors.white);
-        canvas.drawCircle(rect.center, size.shortestSide * 0.2,
-            Paint()..color = const Color(0xFFC60C30));
-        canvas.drawArc(
-          Rect.fromCircle(center: rect.center, radius: size.shortestSide * 0.2),
-          0,
-          math.pi,
-          true,
-          Paint()..color = const Color(0xFF003478),
-        );
-        break;
-      case 'CA':
-        _verticalStripes(canvas, rect,
-            const [Color(0xFFD80621), Colors.white, Color(0xFFD80621)]);
-        _star(canvas, rect.center, size.shortestSide * 0.1,
-            const Color(0xFFD80621));
-        break;
-      case 'AU':
-        _fill(canvas, rect, const Color(0xFF00008B));
-        _star(canvas, Offset(size.width * 0.68, size.height * 0.6),
-            size.shortestSide * 0.1, Colors.white);
-        break;
-      case 'IN':
-        _horizontalStripes(canvas, rect,
-            const [Color(0xFFFF9933), Colors.white, Color(0xFF138808)]);
-        canvas.drawCircle(rect.center, size.shortestSide * 0.08,
-            Paint()..color = const Color(0xFF000080));
-        break;
-      case 'TH':
-        _horizontalStripes(canvas, rect, const [
-          Color(0xFFA51931),
-          Colors.white,
-          Color(0xFF2D2A4A),
-          Color(0xFF2D2A4A),
-          Colors.white,
-          Color(0xFFA51931),
-        ]);
-        break;
-      case 'VN':
-        _fill(canvas, rect, const Color(0xFFDA251D));
-        _star(canvas, rect.center, size.shortestSide * 0.16,
-            const Color(0xFFFFFF00));
-        break;
-      case 'MY':
-        _horizontalStripes(canvas, rect, const [
-          Color(0xFFCC0001),
-          Colors.white,
-          Color(0xFFCC0001),
-          Colors.white
-        ]);
-        _fill(canvas, Rect.fromLTWH(0, 0, size.width * 0.5, size.height * 0.5),
-            const Color(0xFF010066));
-        break;
-      case 'ID':
-        _horizontalStripes(
-            canvas, rect, const [Color(0xFFFF0000), Colors.white]);
-        break;
-      case 'BR':
-        _fill(canvas, rect, const Color(0xFF009B3A));
-        _diamond(canvas, rect, const Color(0xFFFFDF00));
-        canvas.drawCircle(rect.center, size.shortestSide * 0.12,
-            Paint()..color = const Color(0xFF002776));
-        break;
-      default:
-        _fill(canvas, rect, const Color(0xFF111827));
-        _drawCode(canvas, rect, countryCode == 'UN' ? '--' : countryCode);
-        break;
-    }
-    canvas.restore();
-  }
-
-  void _fill(Canvas canvas, Rect rect, Color color) {
-    canvas.drawRect(rect, Paint()..color = color);
-  }
-
-  void _horizontalStripes(Canvas canvas, Rect rect, List<Color> colors) {
-    final stripeHeight = rect.height / colors.length;
-    for (var i = 0; i < colors.length; i++) {
-      _fill(
-        canvas,
-        Rect.fromLTWH(rect.left, rect.top + i * stripeHeight, rect.width,
-            stripeHeight + 0.5),
-        colors[i],
-      );
-    }
-  }
-
-  void _verticalStripes(Canvas canvas, Rect rect, List<Color> colors) {
-    final stripeWidth = rect.width / colors.length;
-    for (var i = 0; i < colors.length; i++) {
-      _fill(
-        canvas,
-        Rect.fromLTWH(rect.left + i * stripeWidth, rect.top, stripeWidth + 0.5,
-            rect.height),
-        colors[i],
-      );
-    }
-  }
-
-  void _cross(Canvas canvas, Rect rect, Color color, double width) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = width
-      ..strokeCap = StrokeCap.square;
-    canvas.drawLine(Offset(rect.left, rect.center.dy),
-        Offset(rect.right, rect.center.dy), paint);
-    canvas.drawLine(Offset(rect.center.dx, rect.top),
-        Offset(rect.center.dx, rect.bottom), paint);
-  }
-
-  void _diagonal(Canvas canvas, Rect rect, Color color, double width) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = width
-      ..strokeCap = StrokeCap.square;
-    canvas.drawLine(rect.topLeft, rect.bottomRight, paint);
-    canvas.drawLine(rect.topRight, rect.bottomLeft, paint);
-  }
-
-  void _diamond(Canvas canvas, Rect rect, Color color) {
-    final path = Path()
-      ..moveTo(rect.center.dx, rect.top + rect.height * 0.18)
-      ..lineTo(rect.right - rect.width * 0.16, rect.center.dy)
-      ..lineTo(rect.center.dx, rect.bottom - rect.height * 0.18)
-      ..lineTo(rect.left + rect.width * 0.16, rect.center.dy)
-      ..close();
-    canvas.drawPath(path, Paint()..color = color);
-  }
-
-  void _star(Canvas canvas, Offset center, double radius, Color color) {
-    final path = Path();
-    for (var i = 0; i < 10; i++) {
-      final angle = -math.pi / 2 + i * math.pi / 5;
-      final r = i.isEven ? radius : radius * 0.42;
-      final point = Offset(
-          center.dx + math.cos(angle) * r, center.dy + math.sin(angle) * r);
-      if (i == 0) {
-        path.moveTo(point.dx, point.dy);
-      } else {
-        path.lineTo(point.dx, point.dy);
-      }
-    }
-    path.close();
-    canvas.drawPath(path, Paint()..color = color);
-  }
-
-  void _crescent(Canvas canvas, Offset center, double radius) {
-    canvas.drawCircle(center, radius, Paint()..color = Colors.white);
-    canvas.drawCircle(Offset(center.dx + radius * 0.42, center.dy),
-        radius * 0.86, Paint()..color = const Color(0xFFEF3340));
-  }
-
-  void _drawCode(Canvas canvas, Rect rect, String code) {
-    final painter = TextPainter(
-      text: TextSpan(
-        text: code,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-      textAlign: TextAlign.center,
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: rect.width);
-    painter.paint(
-        canvas, rect.center - Offset(painter.width / 2, painter.height / 2));
-  }
-
-  @override
-  bool shouldRepaint(covariant _CountryFlagPainter oldDelegate) {
-    return oldDelegate.countryCode != countryCode;
-  }
+String _flagEmoji(String countryCode) {
+  final code = _normalizeCountry(countryCode);
+  if (code.length != 2 || code == 'UN') return '..';
+  final first = code.codeUnitAt(0);
+  final second = code.codeUnitAt(1);
+  if (first < 65 || first > 90 || second < 65 || second > 90) return code;
+  return String.fromCharCodes([
+    0x1F1E6 + first - 65,
+    0x1F1E6 + second - 65,
+  ]);
 }
 
 class _TypeBadge extends StatelessWidget {

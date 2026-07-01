@@ -9,6 +9,7 @@ namespace startup_diagnostics {
 
 void Initialize();
 void Log(const std::wstring& message);
+void WriteDesktopFailureLog(const std::wstring& context);
 std::wstring GetExecutablePath();
 int WriteDumpAndContinue(EXCEPTION_POINTERS* info,
                          const std::wstring& context);

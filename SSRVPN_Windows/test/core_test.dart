@@ -220,16 +220,20 @@ proxies:
       await server.close(force: true);
     }
 
-    expect(requests.map((request) => request['method']), [
+    expect(requests.map((request) => request['method']).take(3), [
       'PUT',
       'PUT',
       'DELETE',
     ]);
-    expect(requests.map((request) => request['path']), [
+    expect(requests.map((request) => request['path']).take(3), [
       '/proxies/PROXY',
       '/proxies/GLOBAL',
       '/connections',
     ]);
+    expect(
+      requests.skip(3).every((request) => request['path'] == '/connections'),
+      isTrue,
+    );
     expect(
       requests.map((request) => request['auth']).toSet(),
       {'Bearer secret'},

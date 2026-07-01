@@ -277,8 +277,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
-                        backgroundColor:
-                            AppTheme.primary.withValues(alpha: (isDark ? 25 : 15) / 255),
+                        backgroundColor: AppTheme.primary
+                            .withValues(alpha: (isDark ? 25 : 15) / 255),
                       ),
                       child: const Text('知道了',
                           style: TextStyle(
@@ -588,7 +588,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        backgroundColor: AppTheme.primary.withValues(alpha: (isDark ? 25 : 15) / 255),
+                        backgroundColor: AppTheme.primary
+                            .withValues(alpha: (isDark ? 25 : 15) / 255),
                       ),
                       child: const Text(
                         '知道了',
@@ -653,7 +654,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               onPressed: _isAdding ? null : _addSubscription,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primary,
-                disabledBackgroundColor: AppTheme.primary.withValues(alpha: 100 / 255),
+                disabledBackgroundColor:
+                    AppTheme.primary.withValues(alpha: 100 / 255),
                 foregroundColor: Colors.white,
                 shadowColor: AppTheme.primary.withValues(alpha: 60 / 255),
                 elevation: 4,
@@ -854,8 +856,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 sub.enabled ? '已启用' : '已禁用',
                 style: TextStyle(
                   fontSize: 12,
-                  color:
-                      sub.enabled ? AppTheme.success : AppTheme.error,
+                  color: sub.enabled ? AppTheme.success : AppTheme.error,
                 ),
               ),
               const SizedBox(width: 16),
@@ -978,7 +979,8 @@ class _AboutButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppTheme.primary.withValues(alpha: 20 / 255),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppTheme.primary.withValues(alpha: 55 / 255)),
+            border:
+                Border.all(color: AppTheme.primary.withValues(alpha: 55 / 255)),
           ),
           child: const Row(
             mainAxisSize: MainAxisSize.min,
@@ -1024,7 +1026,9 @@ class _AboutInfoPanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 5 / 255) : Colors.black.withValues(alpha: 5 / 255),
+        color: isDark
+            ? Colors.white.withValues(alpha: 5 / 255)
+            : Colors.black.withValues(alpha: 5 / 255),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
@@ -1035,8 +1039,7 @@ class _AboutInfoPanel extends StatelessWidget {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w700,
-              color:
-                  isDark ? AppTheme.textPrimary : AppTheme.lightTextPrimary,
+              color: isDark ? AppTheme.textPrimary : AppTheme.lightTextPrimary,
             ),
           ),
           const SizedBox(height: 4),

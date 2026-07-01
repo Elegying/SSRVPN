@@ -39,8 +39,8 @@ A: 很可能是 SmartScreen 拦截或缺少渲染组件
 
 Q: 提示缺少 DLL？
 A: 运行 SSRVPN_Diag.bat 会列出具体缺失的文件
-   常见缺失: d3dcompiler_47.dll（DirectX 着色器编译器）
-   可从正常 Win10/11 电脑 C:\Windows\System32\ 复制过来
+   正常发布包已自带 VC++ 运行库和 d3dcompiler_47.dll
+   如果缺失，通常是 ZIP 没有完整解压或文件被安全软件隔离
 
 Q: 杀毒软件报毒？
 A: SSRVPN 和 Mihomo 核心均未签名，部分杀软会误报

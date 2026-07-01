@@ -17,8 +17,7 @@ class StartupFlags {
       safeMode: safeMode,
       disableTray: normalized.contains('--disable-tray'),
       resetWindow: normalized.contains('--reset-window'),
-      disableCoreAutostart:
-          normalized.contains('--disable-core-autostart'),
+      disableCoreAutostart: normalized.contains('--disable-core-autostart'),
       verbose: normalized.contains('--verbose'),
       rawArgs: List.unmodifiable(args),
     );
