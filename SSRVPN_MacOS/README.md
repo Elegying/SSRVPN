@@ -5,7 +5,7 @@
 
 SSRVPN macOS 版，基于 Flutter 和 Mihomo/Clash Meta 核心的桌面客户端。
 
-> Active development has moved to the `Elegying/SSRVPN` monorepo. This directory contains the macOS app inside that workspace.
+> 主动开发已迁移到 `Elegying/SSRVPN` Monorepo。本目录是该工作区内的 macOS 应用。
 
 ## 支持范围
 
@@ -13,9 +13,9 @@ SSRVPN macOS 版，基于 Flutter 和 Mihomo/Clash Meta 核心的桌面客户端
 
 ## 构建要求
 
-- macOS with Xcode command-line tools
-- Flutter SDK 3.44.1 or compatible stable version
-- `hdiutil` for DMG packaging
+- 安装 Xcode Command Line Tools 的 macOS
+- Flutter SDK 3.44.1 或兼容的 stable 版本
+- 用于 DMG 打包的 `hdiutil`
 
 ## 验证
 

@@ -5,7 +5,7 @@
 
 SSRVPN Android 版 - 基于 Clash Meta 的 VPN 客户端
 
-> Active development has moved to the `Elegying/SSRVPN` monorepo. This directory contains the Android app inside that workspace.
+> 主动开发已迁移到 `Elegying/SSRVPN` Monorepo。本目录是该工作区内的 Android 应用。
 
 ## 支持范围
 
@@ -29,7 +29,7 @@ SSRVPN Android 版 - 基于 Clash Meta 的 VPN 客户端
 
 ### 环境要求
 
-- Flutter SDK 3.44.1 or compatible stable version
+- Flutter SDK 3.44.1 或兼容的 stable 版本
 - Android Studio / Android SDK
 - NDK 27.0.12077973
 - JDK 11
@@ -106,7 +106,7 @@ lib/
 - **Provider** - 状态管理
 - **Clash Meta** - 代理核心
 
-## License
+## 许可证
 
 MIT License
 

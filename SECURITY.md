@@ -1,62 +1,71 @@
-# Security Policy
+# 安全策略
 
-## Supported Versions
+## 支持版本
 
-Security fixes should target the current `2.x` line unless a release branch states otherwise.
+安全修复默认面向当前 `2.x` 版本线，除非单独的 release 分支另有说明。
 
-## Reporting a Vulnerability
+## 报告安全问题
 
-Do not open public issues for vulnerabilities involving credentials, proxy bypass, privilege escalation, update delivery, or crash dump leakage.
+涉及凭据泄露、代理绕过、权限提升、更新链路、崩溃转储泄露或签名密钥的问题，不要创建公开 Issue。
 
-Send a private report to the project maintainer with:
+请私下联系项目维护者，并提供：
 
-- Affected platform and version.
-- Reproduction steps.
-- Expected and actual behavior.
-- Relevant logs with secrets redacted.
+- 受影响的平台和版本。
+- 可复现步骤。
+- 预期行为和实际行为。
+- 已脱敏的相关日志、截图或崩溃信息。
 
-## Secret Handling
+## 敏感信息处理
 
-SSRVPN logs should redact:
+SSRVPN 日志必须脱敏或避免输出以下内容：
 
-- API secrets.
-- Password fields.
-- Bearer tokens.
-- Subscription or proxy credentials.
+- API secret。
+- 密码字段。
+- Bearer token。
+- 订阅 URL。
+- 代理节点账号、密码和服务端凭据。
+- 签名密钥、keystore、证书密码。
 
-When adding new logging, route sensitive text through shared redaction helpers or avoid logging the sensitive value entirely.
+新增日志时，请优先使用共享包中的脱敏工具；如果无法可靠脱敏，应完全避免记录敏感值。
 
-## macOS TUN Privilege Model
+## macOS TUN 权限模型
 
-macOS TUN mode requires the Clash core binary (`AtlasCore`) to run with root privileges to create a virtual network interface. SSRVPN uses setuid root:
+macOS TUN 模式需要 Clash/Mihomo 核心二进制文件以 root 权限创建虚拟网卡。SSRVPN 使用 setuid root 模型：
 
-1. On first TUN activation, SSRVPN prompts for administrator credentials via `osascript`.
-2. The core binary is chowned to `root:wheel` and given the setuid bit (`chmod u+s`).
-3. Subsequent TUN activations run without re-prompting, as long as the binary is unchanged.
+1. 首次启用 TUN 时，SSRVPN 通过 `osascript` 请求管理员授权。
+2. 核心二进制文件会被设置为 `root:wheel` 所有，并添加 setuid 位（`chmod u+s`）。
+3. 只要二进制文件没有变化，后续启用 TUN 不需要重复输入管理员密码。
 
-**Security implications:**
-- Any local user can execute the core with root privileges (setuid inheritance).
-- If the core binary is replaced (e.g. by an update), the setuid bit is lost and must be re-granted.
-- SSRVPN verifies the binary owner and setuid bit before each launch; mismatches trigger a re-authorization prompt.
-- The core binary is never writable by non-root users after authorization.
+安全影响：
 
-**If you suspect privilege tampering:**
+- 本机任意用户都可能执行带 root 权限的核心二进制文件。
+- 如果核心文件被更新或替换，setuid 位会丢失，需要重新授权。
+- SSRVPN 每次启动核心前都会检查文件所有者和 setuid 位，不匹配时重新请求授权。
+- 授权后核心二进制文件不应对非 root 用户可写。
+
+如果怀疑权限被篡改，可执行：
+
 ```bash
-# Check core ownership and permissions
 stat -f '%Su %Mp%Lp' /path/to/AtlasCore
-# Should show: root -rwsr-xr-x (owner=root, setuid bit set)
+```
 
-# Revoke if needed
+正常情况下应显示 root 所有并带 setuid 位，例如 `root -rwsr-xr-x`。
+
+如需撤销 setuid：
+
+```bash
 sudo chown root:wheel /path/to/AtlasCore
 sudo chmod u-s /path/to/AtlasCore
 ```
 
-## Android apiSecret Storage
+## Android apiSecret 存储
 
-Android stores the Clash API secret in `EncryptedSharedPreferences` (AES-256 via Android Keystore). Prior versions used Base64-encoded `SharedPreferences`, which is not secure. On upgrade, SSRVPN automatically migrates the secret to encrypted storage and deletes the old key.
+Android 使用 `EncryptedSharedPreferences` 存储 Clash API secret，底层通过 Android Keystore 提供 AES-256 加密。旧版本曾使用 Base64 编码的 `SharedPreferences`，这不是安全存储方式；升级时 SSRVPN 会自动迁移到加密存储并删除旧 key。
 
-**Never** store apiSecret in:
-- Plaintext files
-- Base64-encoded SharedPreferences (legacy, auto-migrated)
-- Build-time constants or source code
+严禁将 apiSecret 存放在：
 
+- 明文文件。
+- Base64 编码的 SharedPreferences。
+- 编译期常量。
+- 源代码。
+- 日志或崩溃报告。

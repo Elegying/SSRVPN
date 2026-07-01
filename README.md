@@ -2,35 +2,44 @@
 
 [![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml)
 
-SSRVPN is the main monorepo for the Android, macOS, and Windows Flutter clients. It keeps platform-specific UI and native integration in separate app folders while moving shared business logic into one tested package.
+SSRVPN 是一个跨平台 Flutter VPN 客户端 Monorepo，用同一套共享业务逻辑维护 Android、macOS 和 Windows 三端应用。平台相关的界面、原生能力和打包脚本分别放在独立目录，订阅解析、节点模型、路由策略、配置生成等通用能力统一放在共享包中。
 
-## Platforms
+历史上的平台独立仓库已停止作为主开发入口，后续功能开发、修复、测试和发布都以本仓库为准。
 
-- `SSRVPN_Android`: Android VPN client. Release artifact: `SSRVPN.apk`.
-- `SSRVPN_MacOS`: macOS desktop client. Release artifact: `SSRVPN.dmg`.
-- `SSRVPN_Windows`: Windows portable client. Release artifact: `SSRVPN.zip`.
+## 支持平台
 
-Older platform-only repositories are kept for history. Active development now happens in this monorepo.
+| 平台目录 | 说明 | 发布产物 |
+| --- | --- | --- |
+| `SSRVPN_Android` | Android VPN 客户端，包含 VPN Service、快捷磁贴、订阅导入和在线更新 | `SSRVPN.apk` |
+| `SSRVPN_MacOS` | macOS 桌面客户端，包含系统代理、TUN 集成、资源安装和 DMG 打包 | `SSRVPN.dmg` |
+| `SSRVPN_Windows` | Windows 绿色免安装客户端，包含系统代理、TUN、托盘和便携打包 | `SSRVPN.zip` |
 
-## Repository Structure
+当前节点与路由策略明确按 IPv4-only 设计，不支持 IPv6 节点、IPv6 强制代理 IP 或 IPv6 出口。
 
-- `packages/ssrvpn_shared`: shared models, services, policies, and tests.
-- `SSRVPN_Android`: Android UI, VPN service integration, packaging, and update flow.
-- `SSRVPN_MacOS`: macOS UI, system proxy/TUN integration, asset installation, and DMG packaging.
-- `SSRVPN_Windows`: Windows UI, system proxy/TUN integration, portable packaging, and startup diagnostics.
-- `.github/workflows`: monorepo CI and release automation.
+## 仓库结构
 
-## Requirements
+```text
+SSRVPN/
+├── packages/ssrvpn_shared/    # 三端共享模型、服务、策略和测试
+├── SSRVPN_Android/            # Android Flutter 应用和原生集成
+├── SSRVPN_MacOS/              # macOS Flutter 应用、TUN/代理集成和 DMG 打包
+├── SSRVPN_Windows/            # Windows Flutter 应用、系统代理、TUN 和便携打包
+├── docs/                      # 项目管理、维护、发布、路线图和仓库审计文档
+├── scripts/                   # 本地维护脚本
+└── dist/                      # 本地交付目录，已被 Git 忽略
+```
 
-- Flutter `3.44.1` stable, also recorded in `.fvmrc`.
-- Dart SDK compatible with the selected Flutter release.
-- Android SDK/NDK for Android builds.
-- Xcode command-line tools and `hdiutil` for macOS builds.
-- Visual Studio 2022 with C++ desktop workload for Windows builds.
+## 环境要求
 
-## Local Verification
+- Flutter `3.44.1` 或兼容的 stable 版本。
+- Dart SDK 版本需与 Flutter 匹配。
+- Android 构建需要 Android SDK、NDK 和 JDK。
+- macOS 构建需要 Xcode Command Line Tools 和 `hdiutil`。
+- Windows 构建需要 Visual Studio 2022，并安装“使用 C++ 的桌面开发”工作负载。
 
-Shared package:
+## 本地验证
+
+先验证共享包：
 
 ```bash
 cd packages/ssrvpn_shared
@@ -39,7 +48,7 @@ dart analyze
 dart test
 ```
 
-Each platform app:
+再分别进入三端应用目录执行：
 
 ```bash
 flutter pub get
@@ -47,22 +56,11 @@ flutter analyze
 flutter test
 ```
 
-Analyzer warnings, infos, and errors should stay fixed before merging.
+提交或合并前应保持 analyzer 没有 warning、info 和 error。
 
-## Project Health
+## 常用维护命令
 
-- `docs/OWNER_GUIDE.zh-CN.md`: owner-friendly Chinese guide for daily sync, feature requests, verification, and releases.
-- `docs/PROJECT_MANAGEMENT.md`: branch model, artifact policy, local workflow, and release policy.
-- `docs/GITHUB_REPOSITORY_AUDIT.zh-CN.md`: GitHub repository cleanup audit, keep/archive/delete recommendations, and Chinese explanations for required repositories.
-- `docs/PROJECT_HEALTH.md`: current completeness, maintainability, release-readiness, and risk scorecard.
-- `docs/MAINTENANCE.md`: weekly maintenance, PR, release, and online/offline consistency checklist.
-- `docs/ROADMAP.md`: completed work plus near-term, medium-term, and long-term technical roadmap.
-- `docs/RELEASE_SIGNING.md`: Android, macOS, and Windows signing/notarization checklist.
-- `MIGRATION.md`: migration notes for the historical platform-only repositories.
-
-## Maintainer Shortcuts
-
-Common local operations are wrapped in root-level `make` commands:
+仓库根目录的 `Makefile` 封装了常见操作：
 
 ```bash
 make status
@@ -71,11 +69,14 @@ make feature name=my-change
 make verify
 ```
 
-`dist/` is reserved for local deliverables and is intentionally ignored by Git. Release artifacts should be published through GitHub Releases.
+- `make status`：查看本地分支、远端同步状态和交付目录状态。
+- `make sync`：在工作区干净时同步远端 `main`。
+- `make feature name=...`：从稳定分支创建功能分支。
+- `make verify`：运行共享包和三端基础检查。
 
-## Release Builds
+## 发布构建
 
-Android:
+Android APK：
 
 ```bash
 cd SSRVPN_Android
@@ -84,14 +85,14 @@ cp build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk
 sha256sum SSRVPN.apk > SSRVPN.apk.sha256
 ```
 
-Windows portable ZIP:
+Windows 绿色版 ZIP：
 
 ```powershell
 cd SSRVPN_Windows
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\tool\package_windows.ps1
 ```
 
-macOS drag-install DMG:
+macOS 拖拽安装 DMG：
 
 ```bash
 cd SSRVPN_MacOS
@@ -99,8 +100,25 @@ bash tool/package_macos.sh
 shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
 ```
 
-Tagged pushes matching `v*` run the GitHub release workflow and upload all three platform artifacts plus SHA256 checksums.
+推送匹配 `v*` 的 tag 会触发 GitHub Actions 发布流程，自动上传三端产物和 SHA256 校验文件。
 
-## Security
+## 重要文档
 
-Do not log raw subscription URLs, API secrets, bearer tokens, proxy passwords, or credentials. See `SECURITY.md` for the supported security model and reporting process.
+- `docs/OWNER_GUIDE.zh-CN.md`：项目所有者日常维护手册。
+- `docs/PROJECT_MANAGEMENT.md`：分支模型、产物策略、本地流程和发布规则。
+- `docs/GITHUB_REPOSITORY_AUDIT.zh-CN.md`：GitHub 仓库清理审计和保留/归档建议。
+- `docs/PROJECT_HEALTH.md`：项目完整度、可维护性、发布准备度和风险评分。
+- `docs/MAINTENANCE.md`：每周维护、PR、发布和线上/本地一致性检查表。
+- `docs/ROADMAP.md`：已完成事项和后续技术路线。
+- `docs/RELEASE_SIGNING.md`：Android、macOS、Windows 签名和公证清单。
+- `MIGRATION.md`：从历史平台仓库迁移到本 Monorepo 的说明。
+
+## 安全说明
+
+不要在日志、Issue、PR、截图或崩溃报告中泄露订阅 URL、API secret、Bearer token、代理密码、服务端凭据或签名密钥。新增日志时应使用共享包里的脱敏工具，或完全避免输出敏感值。
+
+安全报告请按 `SECURITY.md` 的流程私下提交，不要创建公开 Issue。
+
+## 许可证
+
+MIT License

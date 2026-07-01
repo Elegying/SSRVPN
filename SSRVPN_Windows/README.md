@@ -5,7 +5,7 @@
 
 SSRVPN Windows 版 - 绿色免安装 VPN 客户端
 
-> Active development has moved to the `Elegying/SSRVPN` monorepo. This directory contains the Windows app inside that workspace.
+> 主动开发已迁移到 `Elegying/SSRVPN` Monorepo。本目录是该工作区内的 Windows 应用。
 
 ## 支持范围
 
@@ -27,7 +27,7 @@ SSRVPN Windows 版 - 绿色免安装 VPN 客户端
 
 ### 环境要求
 
-- Flutter SDK 3.44.1 or compatible stable version
+- Flutter SDK 3.44.1 或兼容的 stable 版本
 - Visual Studio 2022 (含 C++ 桌面开发工作负载)
 - Windows 10/11
 
@@ -183,33 +183,31 @@ lib/
 - **system_tray** - 系统托盘
 - **window_manager** - 窗口管理
 
-## Safe Mode And Startup Logs
+## 安全模式和启动日志
 
-If SSRVPN starts without a visible window or crashes immediately, run:
+如果 SSRVPN 启动后没有显示窗口，或启动后立刻崩溃，可以运行：
 
 ```bat
 ssrvpn_windows.exe --safe-mode --verbose
 ```
 
-The release package also includes `ssrvpn_safe_mode.bat`.
+发布包中也包含 `ssrvpn_safe_mode.bat`。
 
-Safe mode skips the tray, resets saved window placement, and disables Mihomo
-automatic initialization. Startup logs are written to:
+安全模式会跳过托盘初始化、重置已保存的窗口位置，并禁用 Mihomo 自动初始化。启动日志写入：
 
 ```text
 %LOCALAPPDATA%\SSRVPN\logs\startup.log
 ```
 
-Native crash dumps are written to:
+原生崩溃转储写入：
 
 ```text
 %LOCALAPPDATA%\SSRVPN\crashes\
 ```
 
-When reporting a startup crash, send `startup.log` and any `.dmp` files from
-the crashes directory.
+报告启动崩溃时，请提供 `startup.log` 以及崩溃目录中的 `.dmp` 文件，并先移除敏感信息。
 
-## License
+## 许可证
 
 MIT License
 
