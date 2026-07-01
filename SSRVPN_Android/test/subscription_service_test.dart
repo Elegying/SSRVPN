@@ -134,7 +134,7 @@ trojan://trojan-password@trojan.example.com:8443?allowInsecure=1&peer=peer.examp
     );
     await service.refreshAllSubscriptions();
 
-    expect(userAgent, 'SSRVPN/2.0.2');
+    expect(userAgent, 'SSRVPN/2.0.3');
     expect(service.allNodes.map((node) => node.name), [
       'AnyTLS Node',
       'Trojan Node',

@@ -261,7 +261,7 @@ class SubscriptionService extends SubscriptionServiceBase {
     try {
       final request = 'GET $pathWithQuery HTTP/1.1\r\n'
           'Host: $host\r\n'
-          'User-Agent: SSRVPN/2.0.2\r\n'
+          'User-Agent: SSRVPN/2.0.3\r\n'
           'Accept: text/yaml, application/x-yaml, */*\r\n'
           'Accept-Encoding: identity\r\n'
           'Connection: close\r\n'

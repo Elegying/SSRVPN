@@ -81,36 +81,29 @@ hdiutil create \
   "$RW_DMG_PATH"
 
 mkdir -p "$MOUNT_DIR"
-hdiutil attach "$RW_DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse
+hdiutil attach "$RW_DMG_PATH" -mountpoint "$MOUNT_DIR"
 
-if command -v osascript >/dev/null 2>&1; then
-  echo "Applying drag-to-Applications Finder layout..."
-  set +e
-  osascript <<EOF
+echo "Applying drag-to-Applications Finder layout..."
+command -v osascript >/dev/null
+osascript <<EOF
+set dmgFolder to POSIX file "$MOUNT_DIR" as alias
 tell application "Finder"
-  tell disk "$APP_NAME"
-    open
-    set current view of container window to icon view
-    set toolbar visible of container window to false
-    set statusbar visible of container window to false
-    set the bounds of container window to {100, 100, 640, 420}
-    set arrangement of icon view options of container window to not arranged
-    set icon size of icon view options of container window to 96
-    set position of item "$APP_NAME.app" of container window to {160, 180}
-    set position of item "Applications" of container window to {420, 180}
-    set position of item "INSTALL.txt" of container window to {290, 310}
-    update without registering applications
-    delay 2
-    close
-  end tell
+  open dmgFolder
+  set dmgWindow to container window of dmgFolder
+  set current view of dmgWindow to icon view
+  set toolbar visible of dmgWindow to false
+  set statusbar visible of dmgWindow to false
+  set the bounds of dmgWindow to {100, 100, 640, 420}
+  set arrangement of icon view options of dmgWindow to not arranged
+  set icon size of icon view options of dmgWindow to 96
+  set position of item "$APP_NAME.app" of dmgFolder to {160, 180}
+  set position of item "Applications" of dmgFolder to {420, 180}
+  set position of item "INSTALL.txt" of dmgFolder to {290, 310}
+  update dmgFolder without registering applications
+  delay 2
+  close dmgWindow
 end tell
 EOF
-  LAYOUT_STATUS=$?
-  set -e
-  if [[ "$LAYOUT_STATUS" -ne 0 ]]; then
-    echo "Finder layout could not be applied; the DMG still contains the app and Applications shortcut." >&2
-  fi
-fi
 
 sync
 for attempt in 1 2 3; do

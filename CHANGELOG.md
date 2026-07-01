@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-07-02
+
+### Fixed
+- macOS DMG Finder layout is applied through the mounted folder so drag-to-Applications presentation is enforced during release builds.
+
 ## [2.0.2] - 2026-07-02
 
 ### Changed

@@ -468,9 +468,9 @@
 			baseConfigurationReference = 282FF865FF172A278B9BB84E /* Pods-RunnerTests.debug.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				CURRENT_PROJECT_VERSION = 202;
+				CURRENT_PROJECT_VERSION = 203;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 2.0.2;
+				MARKETING_VERSION = 2.0.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ssrvpn.ssrvpnClient.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
@@ -483,9 +483,9 @@
 			baseConfigurationReference = 2F578C282825E52EC769D24F /* Pods-RunnerTests.release.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				CURRENT_PROJECT_VERSION = 202;
+				CURRENT_PROJECT_VERSION = 203;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 2.0.2;
+				MARKETING_VERSION = 2.0.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ssrvpn.ssrvpnClient.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
@@ -498,9 +498,9 @@
 			baseConfigurationReference = CB9422CD831134BAD05887C9 /* Pods-RunnerTests.profile.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
-				CURRENT_PROJECT_VERSION = 202;
+				CURRENT_PROJECT_VERSION = 203;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 2.0.2;
+				MARKETING_VERSION = 2.0.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ssrvpn.ssrvpnClient.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;

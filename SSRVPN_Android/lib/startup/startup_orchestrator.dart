@@ -79,7 +79,7 @@ class StartupOrchestrator {
 
   Future<void> _checkForUpdate() async {
     try {
-      await UpdateService.checkForUpdate("2.0.2");
+      await UpdateService.checkForUpdate("2.0.3");
     } catch (e) {
       StartupLogger.warn('更新检查失败: $e');
     }
