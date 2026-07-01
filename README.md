@@ -53,6 +53,7 @@ Analyzer warnings, infos, and errors should stay fixed before merging.
 
 - `docs/OWNER_GUIDE.zh-CN.md`: owner-friendly Chinese guide for daily sync, feature requests, verification, and releases.
 - `docs/PROJECT_MANAGEMENT.md`: branch model, artifact policy, local workflow, and release policy.
+- `docs/GITHUB_REPOSITORY_AUDIT.zh-CN.md`: GitHub repository cleanup audit, keep/archive/delete recommendations, and Chinese explanations for required repositories.
 - `docs/PROJECT_HEALTH.md`: current completeness, maintainability, release-readiness, and risk scorecard.
 - `docs/MAINTENANCE.md`: weekly maintenance, PR, release, and online/offline consistency checklist.
 - `docs/ROADMAP.md`: completed work plus near-term, medium-term, and long-term technical roadmap.

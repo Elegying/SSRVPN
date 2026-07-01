@@ -143,6 +143,26 @@ make verify
 - `docs/MAINTENANCE.md`
 - `CHANGELOG.md`
 
+## GitHub 仓库整理结论
+
+详细报告：
+
+`docs/GITHUB_REPOSITORY_AUDIT.zh-CN.md`
+
+当前建议：
+
+- 必须保留并活跃维护：`SSRVPN`、`SSR_Panel`。
+- 保留但不再活跃开发，继续 archived：`SSRVPN_Android`、`SSRVPN_MacOS`、`SSRVPN_Windows`。
+- 建议先归档，确认无外部引用后再删除：`SSRVPN-Windows`、`ssrvpn_shared`。
+
+原因：
+
+- `SSRVPN` 是唯一客户端 monorepo，包含三端源码、共享包、CI、Release workflow 和项目管理文档。
+- `SSR_Panel` 是服务端/面板/部署脚本仓库，raw GitHub 部署链接仍在使用。
+- 三个下划线平台仓库仍保留历史 Release，且当前三端 `UpdateService` 仍指向旧平台仓库。
+- `SSRVPN-Windows` 是重复 Windows 仓库，未归档、默认分支为 `master`、描述为空，最像临时/重复残留。
+- `ssrvpn_shared` 独立仓库已被 `SSRVPN/packages/ssrvpn_shared` 替代，没有 Release，继续活跃会造成维护入口混乱。
+
 ## 已推送的重要提交
 
 - `761c3ea`：准备三端发布产物，触发 `v2.0.0` 发布。
