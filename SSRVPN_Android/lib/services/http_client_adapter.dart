@@ -46,7 +46,7 @@ class RealHttpClientAdapter implements HttpClientAdapter {
 
     try {
       final request = await client.getUrl(uri);
-      request.headers.set('User-Agent', 'SSRVPN/2.0.0');
+      request.headers.set('User-Agent', 'SSRVPN/2.0.1');
       request.headers.set('Accept', 'text/yaml, application/x-yaml, */*');
       request.headers.set('Accept-Encoding', 'identity');
 

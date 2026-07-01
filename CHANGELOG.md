@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-07-02
+
+### Changed
+- Bumped Android, macOS, and Windows client versions to `2.0.1+201`.
+
+### Fixed
+- Release workflow now requires Android release signing secrets and verifies APK signatures before publishing.
+
 ### Added
 - Owner-friendly project management scripts: `make status`, `make sync`, `make feature`, and `make verify`.
 - `docs/OWNER_GUIDE.zh-CN.md` and `docs/PROJECT_MANAGEMENT.md` for local/GitHub workflow, artifact policy, and release management.

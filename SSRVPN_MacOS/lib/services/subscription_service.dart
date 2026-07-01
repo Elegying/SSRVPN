@@ -44,7 +44,7 @@ class SubscriptionService extends SubscriptionServiceBase {
         final body = await DirectFetcher.fetch(
           url,
           headers: const {
-            'User-Agent': 'SSRVPN/2.0.0',
+            'User-Agent': 'SSRVPN/2.0.1',
             'Accept': 'text/yaml, application/x-yaml, */*',
           },
         );
@@ -61,7 +61,7 @@ class SubscriptionService extends SubscriptionServiceBase {
         try {
           client.connectionTimeout = Duration(seconds: 15 * attempt);
           final request = await client.getUrl(uri);
-          request.headers.set('User-Agent', 'SSRVPN/2.0.0');
+          request.headers.set('User-Agent', 'SSRVPN/2.0.1');
           request.headers.set('Accept', 'text/yaml, application/x-yaml, */*');
 
           final response =
