@@ -6,11 +6,24 @@ APP_NAME="SSRVPN"
 APP_PATH="$PROJECT_ROOT/build/macos/Build/Products/Release/$APP_NAME.app"
 VERSION_RAW="$(awk '/^version:/ {print $2; exit}' "$PROJECT_ROOT/pubspec.yaml" | tr -d '\r')"
 VERSION_NAME="${VERSION_RAW%%+*}"
-STAGING_DIR="$PROJECT_ROOT/build/package_macos/staging"
+PACKAGE_DIR="$PROJECT_ROOT/build/package_macos"
+STAGING_DIR="$PACKAGE_DIR/staging"
+MOUNT_DIR="$PACKAGE_DIR/mount"
+RW_DMG_PATH="$PACKAGE_DIR/${APP_NAME}-rw.dmg"
 ARCH="$(uname -m)"
 VERSIONED_DMG_PATH="$PROJECT_ROOT/${APP_NAME}-macOS-${ARCH}-v${VERSION_NAME}.dmg"
 DMG_PATH="$PROJECT_ROOT/${APP_NAME}.dmg"
 DMG_HASH_PATH="$PROJECT_ROOT/${APP_NAME}.dmg.sha256"
+CORE_TMP=""
+
+cleanup() {
+  if [[ -d "$MOUNT_DIR" ]] && mount | grep -qF "$MOUNT_DIR"; then
+    hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true
+  fi
+  rm -f "$CORE_TMP"
+  rm -rf "$MOUNT_DIR"
+}
+trap cleanup EXIT
 
 cd "$PROJECT_ROOT"
 
@@ -40,31 +53,81 @@ lipo -info "$APP_BIN"
 
 echo "Bundled core:"
 CORE_TMP="$(mktemp)"
-trap 'rm -f "$CORE_TMP"' EXIT
 gzip -cd "$ASSET_DIR/AtlasCore.gz" > "$CORE_TMP"
 file "$CORE_TMP"
 
-rm -rf "$STAGING_DIR"
+rm -rf "$STAGING_DIR" "$MOUNT_DIR"
+rm -f "$VERSIONED_DMG_PATH" "$DMG_PATH" "$DMG_HASH_PATH" "$RW_DMG_PATH"
 mkdir -p "$STAGING_DIR"
+
 ditto "$APP_PATH" "$STAGING_DIR/$APP_NAME.app"
 ln -s /Applications "$STAGING_DIR/Applications"
-cat > "$STAGING_DIR/使用教程.txt" <<'EOF'
-【使用教程】
-拖拽软件到左边的 Applications文件夹里
-然后去应用程序里找到 SSRVPN 这个软件打开使用
+test -L "$STAGING_DIR/Applications"
 
-如果提示：无法打开"SSRVPN"，因为Apple无法检查其是否包含恶意软件。
-就右键软件图标，选择【打开】
+cat > "$STAGING_DIR/INSTALL.txt" <<'EOF'
+Install SSRVPN:
+1. Drag SSRVPN.app to Applications.
+2. Open SSRVPN from Applications.
+
+If macOS blocks the app, right-click SSRVPN.app and choose Open.
 EOF
 
-rm -f "$VERSIONED_DMG_PATH" "$DMG_PATH" "$DMG_HASH_PATH"
 hdiutil create \
   -volname "$APP_NAME" \
   -srcfolder "$STAGING_DIR" \
   -ov \
+  -fs HFS+ \
+  -format UDRW \
+  "$RW_DMG_PATH"
+
+mkdir -p "$MOUNT_DIR"
+hdiutil attach "$RW_DMG_PATH" -mountpoint "$MOUNT_DIR" -nobrowse
+
+if command -v osascript >/dev/null 2>&1; then
+  echo "Applying drag-to-Applications Finder layout..."
+  set +e
+  osascript <<EOF
+tell application "Finder"
+  tell disk "$APP_NAME"
+    open
+    set current view of container window to icon view
+    set toolbar visible of container window to false
+    set statusbar visible of container window to false
+    set the bounds of container window to {100, 100, 640, 420}
+    set arrangement of icon view options of container window to not arranged
+    set icon size of icon view options of container window to 96
+    set position of item "$APP_NAME.app" of container window to {160, 180}
+    set position of item "Applications" of container window to {420, 180}
+    set position of item "INSTALL.txt" of container window to {290, 310}
+    update without registering applications
+    delay 2
+    close
+  end tell
+end tell
+EOF
+  LAYOUT_STATUS=$?
+  set -e
+  if [[ "$LAYOUT_STATUS" -ne 0 ]]; then
+    echo "Finder layout could not be applied; the DMG still contains the app and Applications shortcut." >&2
+  fi
+fi
+
+sync
+for attempt in 1 2 3; do
+  if hdiutil detach "$MOUNT_DIR"; then
+    break
+  fi
+  sleep 2
+  if [[ "$attempt" -eq 3 ]]; then
+    hdiutil detach "$MOUNT_DIR" -force
+  fi
+done
+rm -rf "$MOUNT_DIR"
+
+hdiutil convert "$RW_DMG_PATH" \
   -format UDZO \
   -imagekey zlib-level=9 \
-  "$VERSIONED_DMG_PATH"
+  -o "$VERSIONED_DMG_PATH"
 
 hdiutil verify "$VERSIONED_DMG_PATH"
 ditto "$VERSIONED_DMG_PATH" "$DMG_PATH"

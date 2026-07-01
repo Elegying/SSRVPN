@@ -42,7 +42,7 @@ class SubscriptionService extends SubscriptionServiceBase {
         try {
           client.connectionTimeout = Duration(seconds: 15 * attempt);
           final request = await client.getUrl(uri);
-          request.headers.set('User-Agent', 'SSRVPN/2.0.1');
+          request.headers.set('User-Agent', 'SSRVPN/2.0.2');
           request.headers.set('Accept', 'text/yaml, application/x-yaml, */*');
 
           final response =

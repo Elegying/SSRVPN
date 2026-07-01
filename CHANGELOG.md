@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-07-02
+
+### Changed
+- Bumped Android, macOS, and Windows client versions to `2.0.2+202`.
+- macOS DMG packaging now uses a drag-to-Applications layout with an Applications shortcut.
+
 ## [2.0.1] - 2026-07-02
 
 ### Changed

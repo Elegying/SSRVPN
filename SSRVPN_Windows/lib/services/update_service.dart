@@ -6,7 +6,7 @@ import '../theme/app_theme.dart';
 
 /// 在线更新服务 - 基于 GitHub Releases
 class UpdateService {
-  static const String appVersion = '2.0.1';
+  static const String appVersion = '2.0.2';
   static const String _owner = 'Elegying';
   static const String _repo = 'SSRVPN_Windows';
 
