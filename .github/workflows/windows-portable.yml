@@ -2,6 +2,9 @@ name: Windows Portable ZIP
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'codex/**'
 
 permissions:
   contents: read
