@@ -37,8 +37,8 @@ class SettingsService extends ChangeNotifier {
   String? get storageNotice => _storageNotice;
 
   Future<String> _resolveDataDirectory() async {
-    final exeDir = File(Platform.resolvedExecutable).parent.path;
-    final portableDir = '$exeDir${Platform.pathSeparator}ssrvpn';
+    final portableDir =
+        '${_portableRootDir()}${Platform.pathSeparator}ssrvpn';
     try {
       await _verifyWritableDirectory(portableDir);
       return portableDir;
@@ -55,6 +55,14 @@ class SettingsService extends ChangeNotifier {
       _storageNotice = '程序目录不可写，数据已改存到 $fallbackDir（原因: $e）';
       return fallbackDir;
     }
+  }
+
+  String _portableRootDir() {
+    final exeDir = File(Platform.resolvedExecutable).parent;
+    if (exeDir.path.split(Platform.pathSeparator).last.toLowerCase() == 'app') {
+      return exeDir.parent.path;
+    }
+    return exeDir.path;
   }
 
   Future<void> _verifyWritableDirectory(String path) async {

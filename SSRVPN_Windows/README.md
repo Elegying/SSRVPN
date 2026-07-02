@@ -78,18 +78,20 @@ build_release.bat -OfflinePub
 ```
 SSRVPN_Windows_Release/
 ├── ssrvpn_windows.exe    # 主程序
-├── mihomo.exe            # Mihomo 核心
+├── app/                  # 运行时文件，用户无需打开
+│   ├── ssrvpn_windows_app.exe # 内部进程，不要直接运行
+│   ├── mihomo.exe        # Mihomo 核心
+│   ├── data/             # Flutter 运行时资源
+│   │   └── flutter_assets/
+│   │       └── assets/
+│   │           ├── geoip.metadb.gz
+│   │           └── icon.ico
+│   └── *.dll             # 依赖的动态库
 ├── ssrvpn/               # 配置目录 (首次运行自动创建)
 │   ├── settings.json     # 用户设置
 │   ├── config.yaml       # Clash 配置
 │   ├── subscriptions.json# 订阅列表
 │   └── geoip.metadb      # GeoIP 数据库
-├── data/                 # Flutter 运行时资源
-│   └── flutter_assets/
-│       └── assets/
-│           ├── geoip.metadb.gz
-│           └── icon.ico
-└── *.dll                 # 依赖的动态库
 ```
 
 ## Mihomo 核心
@@ -119,7 +121,11 @@ https://github.com/MetaCubeX/mihomo/releases
 ```
 SSRVPN_Windows_Portable/
 ├── ssrvpn_windows.exe      # 主程序
-├── mihomo.exe              # 代理核心
+├── app/                    # 运行时文件
+│   ├── ssrvpn_windows_app.exe # 内部进程，不要直接运行
+│   ├── mihomo.exe          # 代理核心
+│   ├── data/               # 应用资源
+│   └── *.dll               # 依赖库
 ├── ssrvpn/                 # 所有用户数据
 │   ├── settings.json       # 用户设置
 │   ├── subscriptions.json  # 订阅列表
@@ -127,8 +133,6 @@ SSRVPN_Windows_Portable/
 │   ├── tmp/                # 临时文件
 │   ├── geoip.metadb        # GeoIP 数据库
 │   └── country.mmdb        # MMDB 数据库
-├── data/                   # 应用资源
-└── *.dll                   # 依赖库
 ```
 
 你可以将整个文件夹复制到 U 盘随身携带，换电脑后直接使用，无需重新配置。

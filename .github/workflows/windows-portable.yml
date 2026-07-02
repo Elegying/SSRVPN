@@ -1,0 +1,43 @@
+name: Windows Portable ZIP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.44.1'
+
+jobs:
+  build-windows:
+    name: Windows portable ZIP
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build portable ZIP
+        shell: powershell
+        run: |
+          cd SSRVPN_Windows
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
+
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-portable
+          path: |
+            SSRVPN_Windows/SSRVPN.zip
+            SSRVPN_Windows/SSRVPN.zip.sha256

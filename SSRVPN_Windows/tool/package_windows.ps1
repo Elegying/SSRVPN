@@ -16,6 +16,7 @@ $projectRoot = [System.IO.Path]::GetFullPath(
 )
 $buildDir = Join-Path $projectRoot 'build\windows\x64\runner\Release'
 $releaseDir = Join-Path $projectRoot 'SSRVPN_Windows_Release'
+$appDir = Join-Path $releaseDir 'app'
 $zipPath = Join-Path $projectRoot 'SSRVPN.zip'
 $zipHashPath = "$zipPath.sha256"
 $defaultChinaPubHostedUrl = 'https://pub.flutter-io.cn'
@@ -36,21 +37,21 @@ $runtimeDlls = @(
 
 $requiredFiles = @(
   'ssrvpn_windows.exe',
-  'ssrvpn_windows_app.exe',
   'SSRVPN_Diag.bat',
   'ssrvpn_safe_mode.bat',
   'SAFE_MODE_README.txt',
-  'mihomo.exe',
-  'flutter_windows.dll',
-  'screen_retriever_windows_plugin.dll',
-  'system_tray_plugin.dll',
-  'window_manager_plugin.dll',
-  'd3dcompiler_47.dll',
-  'data\app.so',
-  'data\icudtl.dat',
-  'data\flutter_assets\assets\geoip.metadb.gz',
-  'data\flutter_assets\assets\icon.ico'
-) + $runtimeDlls
+  'app\ssrvpn_windows_app.exe',
+  'app\mihomo.exe',
+  'app\flutter_windows.dll',
+  'app\screen_retriever_windows_plugin.dll',
+  'app\system_tray_plugin.dll',
+  'app\window_manager_plugin.dll',
+  'app\d3dcompiler_47.dll',
+  'app\data\app.so',
+  'app\data\icudtl.dat',
+  'app\data\flutter_assets\assets\geoip.metadb.gz',
+  'app\data\flutter_assets\assets\icon.ico'
+) + ($runtimeDlls | ForEach-Object { "app\$_" })
 
 $transcriptStarted = $false
 if ($LogPath -and $LogPath.Trim().Length -gt 0) {
@@ -206,6 +207,7 @@ function Add-VisualStudioRedistDirectories {
 
 function Get-PortableRuntimeSearchDirectories {
   $directories = New-Object System.Collections.ArrayList
+  Add-CandidateDirectory -List $directories -Path $appDir
   Add-CandidateDirectory -List $directories -Path $releaseDir
   Add-CandidateDirectory -List $directories -Path $buildDir
   Add-CandidateDirectory -List $directories -Path (Join-Path $projectRoot 'runtime')
@@ -237,6 +239,7 @@ function Get-PortableRuntimeSearchDirectories {
 
 function Get-D3DCompilerSearchDirectories {
   $directories = New-Object System.Collections.ArrayList
+  Add-CandidateDirectory -List $directories -Path $appDir
   Add-CandidateDirectory -List $directories -Path $releaseDir
   Add-CandidateDirectory -List $directories -Path $buildDir
   Add-CandidateDirectory -List $directories -Path $projectRoot
@@ -326,19 +329,19 @@ function Add-PortableRuntimeFiles {
   $runtimeDirs = Get-PortableRuntimeSearchDirectories
   foreach ($dll in $runtimeDlls) {
     Copy-PortableDependency -Name $dll -Directories $runtimeDirs `
-      -DestinationDirectory $releaseDir -RequireX64 `
+      -DestinationDirectory $appDir -RequireX64 `
       -InstallHint 'Install Visual Studio 2022 with the C++ desktop workload, or install the Microsoft Visual C++ Redistributable 2015-2022 x64 on the build machine.'
   }
 
   $d3dDirs = Get-D3DCompilerSearchDirectories
   Copy-PortableDependency -Name 'd3dcompiler_47.dll' -Directories $d3dDirs `
-    -DestinationDirectory $releaseDir -RequireX64 `
+    -DestinationDirectory $appDir -RequireX64 `
     -InstallHint 'Install the Windows 10/11 SDK, or copy the x64 d3dcompiler_47.dll into this project runtime directory before packaging.'
 }
 
 function Install-CetLauncherLayout {
   $flutterExe = Join-Path $releaseDir 'ssrvpn_windows.exe'
-  $childExe = Join-Path $releaseDir 'ssrvpn_windows_app.exe'
+  $childExe = Join-Path $appDir 'ssrvpn_windows_app.exe'
   $launcherExe = Join-Path $releaseDir 'ssrvpn_windows_launcher.exe'
 
   if (-not (Test-Path -LiteralPath $flutterExe -PathType Leaf)) {
@@ -348,10 +351,26 @@ function Install-CetLauncherLayout {
     throw "Built CET launcher was not found: $launcherExe"
   }
 
+  New-Item -ItemType Directory -Path $appDir -Force | Out-Null
   if (Test-Path -LiteralPath $childExe -PathType Leaf) {
     Remove-Item -LiteralPath $childExe -Force
   }
   Move-Item -LiteralPath $flutterExe -Destination $childExe
+
+  $dataDir = Join-Path $releaseDir 'data'
+  if (Test-Path -LiteralPath $dataDir -PathType Container) {
+    Move-Item -LiteralPath $dataDir -Destination (Join-Path $appDir 'data') -Force
+  }
+  $coreExe = Join-Path $releaseDir 'mihomo.exe'
+  if (Test-Path -LiteralPath $coreExe -PathType Leaf) {
+    Move-Item -LiteralPath $coreExe -Destination $appDir -Force
+  }
+  Get-ChildItem -LiteralPath $releaseDir -File |
+    Where-Object { $_.Extension -ieq '.dll' } |
+    ForEach-Object {
+      Move-Item -LiteralPath $_.FullName -Destination $appDir -Force
+    }
+
   Copy-Item -LiteralPath $launcherExe -Destination $flutterExe -Force
   Remove-Item -LiteralPath $launcherExe -Force
   Write-Host '[LAUNCHER] Installed CET mitigation launcher.'
@@ -565,14 +584,14 @@ function Test-ReleaseContents {
 
   $peFiles = @(
     'ssrvpn_windows.exe',
-    'ssrvpn_windows_app.exe',
-    'mihomo.exe',
-    'flutter_windows.dll',
-    'screen_retriever_windows_plugin.dll',
-    'system_tray_plugin.dll',
-    'window_manager_plugin.dll',
-    'd3dcompiler_47.dll'
-  ) + $runtimeDlls
+    'app\ssrvpn_windows_app.exe',
+    'app\mihomo.exe',
+    'app\flutter_windows.dll',
+    'app\screen_retriever_windows_plugin.dll',
+    'app\system_tray_plugin.dll',
+    'app\window_manager_plugin.dll',
+    'app\d3dcompiler_47.dll'
+  ) + ($runtimeDlls | ForEach-Object { "app\$_" })
   foreach ($relativePath in $peFiles) {
     $path = Join-Path $Root $relativePath
     if (-not (Test-X64PeFile -Path $path)) {
@@ -580,7 +599,7 @@ function Test-ReleaseContents {
     }
   }
 
-  $core = Join-Path $Root 'mihomo.exe'
+  $core = Join-Path $Root 'app\mihomo.exe'
   $coreOutput = & $core -v 2>&1
   if ($LASTEXITCODE -ne 0) {
     throw "Bundled Mihomo failed to execute: $coreOutput"
@@ -760,6 +779,7 @@ try {
   if (Test-Path -LiteralPath $zipHashPath) {
     Remove-Item -LiteralPath $zipHashPath -Force
   }
+  Start-Sleep -Milliseconds 500
   Compress-Archive -LiteralPath $releaseDir -DestinationPath $zipPath `
     -CompressionLevel Optimal
 

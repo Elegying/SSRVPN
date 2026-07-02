@@ -576,13 +576,6 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
       await Directory(tmpDir).create(recursive: true);
       final environment = {'TMPDIR': tmpDir, 'TMP': tmpDir, 'TEMP': tmpDir};
 
-      if (!await _validateConfig(environment)) {
-        setLastStartError(
-          lastStartError ?? 'Mihomo 配置校验失败，请打开运行日志查看具体配置错误',
-        );
-        return false;
-      }
-
       // 启动 mihomo 子进程（所有数据都在便携目录内）
       final processStartWatch = Stopwatch()..start();
       final startedProcess = await Process.start(
@@ -809,63 +802,6 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
         return '程序或依赖 DLL 的 32/64 位架构不匹配';
       default:
         return null;
-    }
-  }
-
-  // ── Config validation ──
-
-  Future<bool> _validateConfig(Map<String, String> environment) async {
-    log('正在校验 Mihomo 配置...');
-    final watch = Stopwatch()..start();
-    Process? process;
-    try {
-      process = await Process.start(
-        _corePath,
-        ['-t', '-d', configDir, '-f', configPath],
-        includeParentEnvironment: true,
-        environment: environment,
-      );
-      final stdoutFuture = process.stdout.transform(utf8.decoder).join();
-      final stderrFuture = process.stderr.transform(utf8.decoder).join();
-      final exitCode = await process.exitCode.timeout(
-        const Duration(seconds: 40),
-        onTimeout: () {
-          process?.kill(ProcessSignal.sigkill);
-          return -1;
-        },
-      );
-      final stdout = (await stdoutFuture).trim();
-      final stderr = (await stderrFuture).trim();
-      if (stdout.isNotEmpty) log('[配置校验] $stdout');
-      if (stderr.isNotEmpty) log('[配置校验 stderr] $stderr');
-      if (exitCode == 0) {
-        log('✅ Mihomo 配置校验通过，耗时 ${watch.elapsedMilliseconds}ms');
-        return true;
-      }
-      if (exitCode == -1) {
-        setLastStartError('电脑性能不足，请重新连接');
-        log('❌ $lastStartError');
-        return false;
-      }
-      final reason = _describeWindowsExitCode(exitCode);
-      final detail = stderr.isNotEmpty ? stderr : stdout;
-      if (reason != null) {
-        setLastStartError('Mihomo 无法在此电脑运行: $reason');
-      } else if (detail.isNotEmpty) {
-        setLastStartError('Mihomo 配置校验失败: $detail');
-      }
-      log(
-        '❌ Mihomo 配置校验失败，退出码: $exitCode'
-        '${reason == null ? "" : "（$reason）"}',
-      );
-      if (lastStartError == null) {
-        setLastStartError('Mihomo 配置校验失败，请打开运行日志查看具体配置错误');
-      }
-      return false;
-    } catch (e) {
-      process?.kill(ProcessSignal.sigkill);
-      log('❌ 无法执行 Mihomo 配置校验: $e');
-      return false;
     }
   }
 

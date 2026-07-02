@@ -38,7 +38,7 @@ echo.
 echo [2/6] 检查必备 DLL 文件...
 
 set MISSING_DLLS=0
-set DLL_LIST=ssrvpn_windows_app.exe flutter_windows.dll screen_retriever_windows_plugin.dll system_tray_plugin.dll window_manager_plugin.dll mihomo.exe concrt140.dll msvcp140.dll msvcp140_1.dll msvcp140_2.dll msvcp140_atomic_wait.dll msvcp140_codecvt_ids.dll vcruntime140.dll vcruntime140_1.dll d3dcompiler_47.dll
+set DLL_LIST=app\ssrvpn_windows_app.exe app\flutter_windows.dll app\screen_retriever_windows_plugin.dll app\system_tray_plugin.dll app\window_manager_plugin.dll app\mihomo.exe app\concrt140.dll app\msvcp140.dll app\msvcp140_1.dll app\msvcp140_2.dll app\msvcp140_atomic_wait.dll app\msvcp140_codecvt_ids.dll app\vcruntime140.dll app\vcruntime140_1.dll app\d3dcompiler_47.dll
 
 for %%d in (%DLL_LIST%) do (
     if exist "%~dp0%%d" (
@@ -67,13 +67,13 @@ where d3dcompiler_47.dll >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
     echo [OK]  系统已有 d3dcompiler_47.dll
 ) else (
-    if exist "%~dp0d3dcompiler_47.dll" (
+    if exist "%~dp0app\d3dcompiler_47.dll" (
         echo [OK]  便携版自带 d3dcompiler_47.dll
     ) else (
         echo [ERR]  缺少 d3dcompiler_47.dll！这是 Flutter 渲染引擎的必需组件。
         echo           部分精简版/服务器版 Windows 默认不带此文件。
         echo           请从正常工作的 Windows 10/11 电脑复制
-        echo           C:\Windows\System32\d3dcompiler_47.dll 到本目录
+        echo           C:\Windows\System32\d3dcompiler_47.dll 到 app 目录
         set /a MISSING_DLLS+=1
     )
 )
@@ -81,8 +81,8 @@ if %ERRORLEVEL% EQU 0 (
 echo.
 echo [5/6] 检查 Mihomo 核心...
 
-if exist "%~dp0mihomo.exe" (
-    for /f "delims=" %%v in ('"%~dp0mihomo.exe" -v 2^>^&1') do (
+if exist "%~dp0app\mihomo.exe" (
+    for /f "delims=" %%v in ('"%~dp0app\mihomo.exe" -v 2^>^&1') do (
         echo [OK]  Mihomo 核心: %%v
     )
 ) else (
@@ -123,7 +123,7 @@ if %MISSING_DLLS% GTR 0 (
     echo   2. 右键 exe → 属性 → 勾选"解除锁定"
     echo   3. 安装 Visual C++ Redist 2015-2022:
     echo      https://aka.ms/vs/17/release/vc_redist.x64.exe
-    echo   4. 从正常 Win10/11 电脑复制 d3dcompiler_47.dll 到本目录
+    echo   4. 从正常 Win10/11 电脑复制 d3dcompiler_47.dll 到 app 目录
 ) else (
     echo 所有检查通过。如果软件仍无法打开，请将:
     echo   - ssrvpn_startup.log

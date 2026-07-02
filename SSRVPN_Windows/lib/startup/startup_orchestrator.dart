@@ -26,7 +26,7 @@ class StartupOrchestrator {
     await runStep('window_manager', initWindowManager);
     await runStep('screen_retriever', initScreenRetriever);
     await runStep('system_tray', initSystemTray);
-    await runStep('mihomo_core', initCoreService);
+    await runStep('mihomo_core', initCoreService, timeout: null);
 
     status.markCompleted();
     StartupLogger.info('Startup orchestration completed');
@@ -35,12 +35,18 @@ class StartupOrchestrator {
 
   Future<void> runStep(
     String name,
-    Future<void> Function() step,
-  ) async {
+    Future<void> Function() step, {
+    Duration? timeout = const Duration(seconds: 8),
+  }) async {
     StartupStatus.instance.markStepStarted(name);
     StartupLogger.info('START $name');
     try {
-      await step().timeout(const Duration(seconds: 8));
+      final operation = step();
+      if (timeout == null) {
+        await operation;
+      } else {
+        await operation.timeout(timeout);
+      }
       StartupLogger.info('OK $name');
       StartupStatus.instance.markStepOk(name);
     } catch (error, stack) {

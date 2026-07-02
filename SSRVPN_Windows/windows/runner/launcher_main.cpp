@@ -13,7 +13,7 @@ namespace {
 
 // ── Child executable name and CET mitigation flags ──
 
-constexpr wchar_t kChildExeName[] = L"ssrvpn_windows_app.exe";
+constexpr wchar_t kChildExeName[] = L"app\\ssrvpn_windows_app.exe";
 
 // Correct bit positions per Windows 11 SDK (10.0.22621+) winnt.h:
 //   PROCESS_CREATION_MITIGATION_POLICY2_USER_SHADOW_STACK_ALWAYS_OFF  = 0x02ull << 44
@@ -441,6 +441,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
   const std::wstring launcher_path = GetExecutablePath();
   const std::wstring launcher_directory = GetDirectoryName(launcher_path);
   const std::wstring child_path = JoinPath(launcher_directory, kChildExeName);
+  const std::wstring child_directory = GetDirectoryName(child_path);
 
   if (::GetFileAttributesW(child_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
     ShowError(L"SSRVPN",
@@ -467,17 +468,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
 
   if (need_cet_disable) {
     // Try with CET mitigation policy first.
-    created = CreateChildProcess(child_path, launcher_directory,
+    created = CreateChildProcess(child_path, child_directory,
                                  child_command_line, show_command,
                                  true, &process_information, &error);
     if (!created) {
       // Fallback: try without mitigation.
-      created = CreateChildProcess(child_path, launcher_directory,
+      created = CreateChildProcess(child_path, child_directory,
                                    child_command_line, show_command,
                                    false, &process_information, &error);
     }
   } else {
-    created = CreateChildProcess(child_path, launcher_directory,
+    created = CreateChildProcess(child_path, child_directory,
                                  child_command_line, show_command,
                                  false, &process_information, &error);
   }
