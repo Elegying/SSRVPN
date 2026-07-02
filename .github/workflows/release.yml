@@ -247,7 +247,11 @@ jobs:
         run: |
           cd SSRVPN_Windows
           $hash = (Get-FileHash SSRVPN.zip -Algorithm SHA256).Hash.ToLower()
-          "$hash  SSRVPN.zip" | Out-File -Encoding ascii SSRVPN.zip.sha256
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) 'SSRVPN.zip.sha256'),
+            "$hash  SSRVPN.zip`n",
+            [System.Text.Encoding]::ASCII
+          )
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
