@@ -559,6 +559,8 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
         return false;
       }
 
+      await _ensureMMDB();
+
       if (settings.enableTun) {
         final isAdministrator = await _isAdministrator();
         if (isAdministrator == false) {

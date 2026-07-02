@@ -50,7 +50,8 @@ $requiredFiles = @(
   'app\data\app.so',
   'app\data\icudtl.dat',
   'app\data\flutter_assets\assets\geoip.metadb.gz',
-  'app\data\flutter_assets\assets\icon.ico'
+  'app\data\flutter_assets\assets\icon.ico',
+  'ssrvpn\geoip.metadb'
 ) + ($runtimeDlls | ForEach-Object { "app\$_" })
 
 $transcriptStarted = $false
@@ -337,6 +338,37 @@ function Add-PortableRuntimeFiles {
   Copy-PortableDependency -Name 'd3dcompiler_47.dll' -Directories $d3dDirs `
     -DestinationDirectory $appDir -RequireX64 `
     -InstallHint 'Install the Windows 10/11 SDK, or copy the x64 d3dcompiler_47.dll into this project runtime directory before packaging.'
+}
+
+function Install-BundledGeoData {
+  $source = Join-Path $appDir 'data\flutter_assets\assets\geoip.metadb.gz'
+  $dataDir = Join-Path $releaseDir 'ssrvpn'
+  $target = Join-Path $dataDir 'geoip.metadb'
+
+  if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+    throw "Bundled GeoIP archive is missing: $source"
+  }
+
+  New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+  $inputStream = $null
+  $gzipStream = $null
+  $outputStream = $null
+  try {
+    $inputStream = [System.IO.File]::OpenRead($source)
+    $gzipStream = New-Object -TypeName System.IO.Compression.GzipStream `
+      -ArgumentList $inputStream, ([System.IO.Compression.CompressionMode]::Decompress)
+    $outputStream = [System.IO.File]::Create($target)
+    $gzipStream.CopyTo($outputStream)
+  } finally {
+    if ($outputStream -ne $null) { $outputStream.Dispose() }
+    if ($gzipStream -ne $null) { $gzipStream.Dispose() }
+    if ($inputStream -ne $null) { $inputStream.Dispose() }
+  }
+
+  if ((Get-Item -LiteralPath $target).Length -le 1MB) {
+    throw "Bundled GeoIP database is too small: $target"
+  }
+  Write-Host "[GEODATA] Bundled geoip.metadb into portable data directory."
 }
 
 function Install-CetLauncherLayout {
@@ -725,6 +757,7 @@ try {
 
   Install-CetLauncherLayout
   Add-PortableRuntimeFiles
+  Install-BundledGeoData
 
   $portableReadmeName = [string]::Concat(
     [char]0x4F7F,
