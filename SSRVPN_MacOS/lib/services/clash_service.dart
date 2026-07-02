@@ -7,10 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 
-import 'package:ssrvpn_shared/services/clash_config_generator.dart';
-import 'package:ssrvpn_shared/services/clash_service_base.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
-import '../models/app_settings.dart';
 import 'system_proxy_service.dart';
 
 /// macOS Clash Meta 核心管理服务

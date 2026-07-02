@@ -3,9 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:ssrvpn_shared/models/proxy_node.dart';
-import 'package:ssrvpn_shared/utils/private_node_latency_policy.dart';
-import '../models/app_settings.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/clash_service.dart';
 import '../services/subscription_service.dart';
 import '../services/settings_service.dart';
@@ -29,6 +27,14 @@ class HomeScreen extends StatefulWidget {
   @override
   State<HomeScreen> createState() => HomeScreenState();
 }
+
+const _homeTutorialSteps = [
+  _TutorialStepData('点击底部「订阅」标签，进入订阅管理页面'),
+  _TutorialStepData('在输入框中粘贴我给你的订阅代码，点击「添加」'),
+  _TutorialStepData('添加成功后点击「全部刷新」，等待节点加载完成'),
+  _TutorialStepData('返回主页，点击连接按钮即可使用'),
+  _TutorialStepData('首次连接会弹出系统权限弹窗，选择「确定」允许即可'),
+];
 
 class HomeScreenState extends State<HomeScreen>
     with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
@@ -107,6 +113,7 @@ class HomeScreenState extends State<HomeScreen>
         setState(() {
           _isConnected = false;
           _isConnecting = false;
+          _errorMessage = '连接重载失败: ${_userFriendlyError(e)}';
         });
       }
     }
@@ -578,15 +585,13 @@ class HomeScreenState extends State<HomeScreen>
                     ],
                   ),
                   SizedBox(height: 20),
-                  const _TutorialStep(step: '1', text: '点击底部「订阅」标签，进入订阅管理页面'),
-                  SizedBox(height: 12),
-                  const _TutorialStep(step: '2', text: '在输入框中粘贴我给你的订阅代码，点击「添加」'),
-                  SizedBox(height: 12),
-                  const _TutorialStep(step: '3', text: '添加成功后点击「全部刷新」，等待节点加载完成'),
-                  SizedBox(height: 12),
-                  const _TutorialStep(step: '4', text: '返回主页，点击连接按钮即可使用'),
-                  SizedBox(height: 12),
-                  const _TutorialStep(step: '5', text: '首次连接会弹出系统权限弹窗，选择「确定」允许即可'),
+                  for (var i = 0; i < _homeTutorialSteps.length; i++) ...[
+                    _TutorialStep(
+                      step: '${i + 1}',
+                      text: _homeTutorialSteps[i].text,
+                    ),
+                    if (i != _homeTutorialSteps.length - 1) SizedBox(height: 12),
+                  ],
                   SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
@@ -1170,6 +1175,11 @@ class _SmallButton extends StatelessWidget {
   }
 }
 
+class _TutorialStepData {
+  final String text;
+  const _TutorialStepData(this.text);
+}
+
 class _TutorialStep extends StatelessWidget {
   final String step;
   final String text;
@@ -1206,4 +1216,3 @@ class _TutorialStep extends StatelessWidget {
     );
   }
 }
-

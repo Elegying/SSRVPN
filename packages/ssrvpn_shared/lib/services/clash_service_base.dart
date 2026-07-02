@@ -6,11 +6,11 @@ import 'dart:math';
 import 'package:meta/meta.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
-import 'package:yaml/yaml.dart' show loadYaml;
 
 import '../models/app_settings.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
+import 'clash_config_generator.dart';
 import '../utils/log_redactor.dart';
 import '../utils/private_node_latency_policy.dart';
 
@@ -88,6 +88,10 @@ abstract class ClashServiceBase {
 
   /// 从原始 YAML 提取指定顶层段的原始内容
   String extractSection(String yaml, String sectionName) {
+    if (sectionName == 'proxies') {
+      return ClashConfigGenerator.buildProxiesText(yaml);
+    }
+
     final normalized = yaml.replaceAll('\t', '    ');
     final lines = normalized.split('\n');
     final sectionLines = <String>[];
@@ -133,23 +137,7 @@ abstract class ClashServiceBase {
 
   /// 提取代理名称列表（loadYaml 解析，失败时 fallback 纯文本）
   List<String> extractProxyNames(String rawYaml) {
-    // 优先用 loadYaml 解析（支持锚点、引用、多行字符串）
-    try {
-      final yaml = loadYaml(rawYaml);
-      if (yaml is Map) {
-        final proxies = yaml['proxies'];
-        if (proxies is List) {
-          return proxies
-              .whereType<Map>()
-              .map((p) => p['name']?.toString())
-              .where((n) => n != null && n.isNotEmpty)
-              .cast<String>()
-              .toList();
-        }
-      }
-    } catch (_) {}
-    // fallback: 纯文本提取（兼容格式不规范的订阅）
-    return extractProxyNamesFromText(rawYaml);
+    return ClashConfigGenerator.extractProxyNames(rawYaml);
   }
 
   /// 纯文本方式提取代理名称（fallback）
@@ -160,8 +148,9 @@ abstract class ClashServiceBase {
       for (final line in proxiesSection.split('\n')) {
         final trimmed = line.trim();
         if (!trimmed.startsWith('-')) continue;
-        final nameMatch =
-            RegExp(r'''name:\s*['"]?([^'"\n,]+)['"]?''').firstMatch(trimmed);
+        final nameMatch = RegExp(
+          r'''name:\s*['"]?([^'"\n,]+)['"]?''',
+        ).firstMatch(trimmed);
         if (nameMatch != null) names.add(nameMatch.group(1)!.trim());
       }
     } catch (_) {}
@@ -417,8 +406,9 @@ abstract class ClashServiceBase {
       if (!_isRunning) break;
       final batch = nodes.skip(i).take(concurrency).toList();
       final results = await Future.wait(
-        batch.map((node) =>
-            testLatency(node.server, node.port, timeoutMs: timeoutMs)),
+        batch.map(
+          (node) => testLatency(node.server, node.port, timeoutMs: timeoutMs),
+        ),
       );
       for (var j = 0; j < batch.length; j++) {
         final latency = PrivateNodeLatencyPolicy.displayLatencyForNode(
@@ -477,7 +467,8 @@ abstract class ClashServiceBase {
 
           final decoded = jsonDecode(response.body);
           if (decoded is! Map<String, dynamic>) continue;
-          final country = decoded['countryCode']?.toString() ??
+          final country =
+              decoded['countryCode']?.toString() ??
               decoded['country']?.toString();
           final normalized = normalizeCountryCode(country);
           if (normalized != null) return normalized;

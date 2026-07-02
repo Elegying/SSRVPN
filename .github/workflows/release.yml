@@ -31,6 +31,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      - run: bash ../../scripts/check-shared-barrel-imports.sh
       - run: dart pub get
       - run: dart analyze --fatal-infos
       - run: dart test
@@ -151,6 +152,25 @@ jobs:
       - name: Build & Package DMG
         run: cd SSRVPN_MacOS && bash tool/package_macos.sh
 
+      - name: Verify drag-install DMG
+        run: |
+          set -euo pipefail
+          test -f SSRVPN_MacOS/SSRVPN.dmg
+          hdiutil verify SSRVPN_MacOS/SSRVPN.dmg
+
+          MOUNT_DIR="$(mktemp -d)"
+          cleanup() {
+            if mount | grep -qF "$MOUNT_DIR"; then
+              hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true
+            fi
+            rm -rf "$MOUNT_DIR"
+          }
+          trap cleanup EXIT
+
+          hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_DIR" SSRVPN_MacOS/SSRVPN.dmg
+          test -d "$MOUNT_DIR/SSRVPN.app"
+          test -L "$MOUNT_DIR/Applications"
+
       - name: Generate checksum
         run: cd SSRVPN_MacOS && shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
 
@@ -196,6 +216,31 @@ jobs:
         run: |
           cd SSRVPN_Windows
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
+
+      - name: Verify portable ZIP
+        shell: powershell
+        run: |
+          $zip = 'SSRVPN_Windows\SSRVPN.zip'
+          if (-not (Test-Path -LiteralPath $zip -PathType Leaf)) {
+            throw "Windows ZIP was not created: $zip"
+          }
+
+          $verifyRoot = Join-Path $env:RUNNER_TEMP "ssrvpn-zip-$([Guid]::NewGuid().ToString('N'))"
+          Expand-Archive -LiteralPath $zip -DestinationPath $verifyRoot
+          $portableRoot = Join-Path $verifyRoot 'SSRVPN_Windows_Release'
+          foreach ($relativePath in @(
+            'ssrvpn_windows.exe',
+            'ssrvpn_windows_app.exe',
+            'mihomo.exe',
+            'SHA256SUMS.txt',
+            'data\flutter_assets\assets\geoip.metadb.gz'
+          )) {
+            $path = Join-Path $portableRoot $relativePath
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Portable ZIP is missing $relativePath"
+            }
+          }
+          Remove-Item -LiteralPath $verifyRoot -Recurse -Force
 
       - name: Generate checksum
         shell: powershell

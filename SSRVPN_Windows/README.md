@@ -100,7 +100,7 @@ SSRVPN_Windows_Release/
 https://github.com/MetaCubeX/mihomo/releases
 ```
 
-下载后解压，将其中的可执行文件重命名为 `mihomo.exe`，放到 `assets` 目录后重新构建。
+当前来源、版本和 SHA256 记录在 `assets/mihomo-source.txt`。下载后解压，将其中的可执行文件重命名为 `mihomo.exe`，放到 `assets` 目录后重新构建。
 
 ## 使用说明
 

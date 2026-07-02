@@ -111,6 +111,9 @@ shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
 - `docs/MAINTENANCE.md`：每周维护、PR、发布和线上/本地一致性检查表。
 - `docs/ROADMAP.md`：已完成事项和后续技术路线。
 - `docs/RELEASE_SIGNING.md`：Android、macOS、Windows 签名和公证清单。
+- `docs/UI_DESIGN_GUIDE.md`：三端 UI 色板、字号层级和组件规范。
+- `docs/CORE_ASSETS.md`：Mihomo/AtlasCore 二进制来源、版本和兼容性说明。
+- `docs/TESTING.md`：CI 覆盖率、平台依赖测试和本地验证策略。
 - `MIGRATION.md`：从历史平台仓库迁移到本 Monorepo 的说明。
 
 ## 安全说明

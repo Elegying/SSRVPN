@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:ssrvpn_shared/utils/log_redactor.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 /// 启动日志记录器
 ///

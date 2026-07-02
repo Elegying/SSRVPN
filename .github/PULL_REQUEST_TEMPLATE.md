@@ -12,10 +12,11 @@
 
 ## Verification
 
-- [ ] `cd packages/ssrvpn_shared && dart analyze && dart test`
-- [ ] `cd SSRVPN_Android && flutter analyze && flutter test`
-- [ ] `cd SSRVPN_MacOS && flutter analyze && flutter test`
-- [ ] `cd SSRVPN_Windows && flutter analyze && flutter test`
+- [ ] `scripts/check-shared-barrel-imports.sh`
+- [ ] `cd packages/ssrvpn_shared && dart analyze && dart test --coverage=coverage`
+- [ ] `cd SSRVPN_Android && flutter analyze && flutter test --coverage`
+- [ ] `cd SSRVPN_MacOS && flutter analyze && flutter test --coverage`
+- [ ] `cd SSRVPN_Windows && flutter analyze && flutter test --coverage`
 
 ## Release Notes
 

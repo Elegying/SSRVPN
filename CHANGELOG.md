@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.4] - 2026-07-02
+
+### Added
+- CI now collects coverage artifacts for the shared package and all three Flutter apps.
+- Added public UI design, testing strategy, and core binary source documentation.
+- Release workflow now verifies the macOS drag-install DMG shape and Windows portable ZIP contents.
+
+### Changed
+- Bumped Android, macOS, and Windows client versions to `2.0.4+204`.
+- Platform code and tests now import `ssrvpn_shared` through the package barrel.
+- Android tutorial steps are data-driven instead of hardcoded directly in the dialog widget tree.
+
+### Fixed
+- Generated Clash configs now rebuild subscription proxies from parsed YAML to avoid user-controlled YAML escaping through node fields.
+- Home screen config reload failures now surface an error instead of silently clearing connection state.
+- Desktop first-run subscription dialog is consumed once per app run, preventing resize/rebuild repeats.
+
 ## [2.0.3] - 2026-07-02
 
 ### Fixed

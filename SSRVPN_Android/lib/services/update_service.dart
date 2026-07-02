@@ -8,7 +8,7 @@ import '../theme/app_theme.dart';
 /// 在线更新服务 - 基于 GitHub Releases
 class UpdateService {
   /// 当前应用版本（发版时与 pubspec.yaml 的 version 同步修改）
-  static const String appVersion = '2.0.3';
+  static const String appVersion = '2.0.4';
 
   static const String _owner = 'Elegying';
   static const String _repo = 'SSRVPN_Android';

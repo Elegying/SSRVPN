@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
-import 'package:ssrvpn_shared/models/proxy_node.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import 'clash_service.dart';
 
