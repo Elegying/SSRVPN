@@ -6,8 +6,8 @@ import 'package:flutter/widgets.dart';
 import 'startup_logger.dart';
 
 class WindowStateStore {
-  static const Size defaultSize = Size(1180, 760);
-  static const Size minimumSize = Size(820, 560);
+  static const Size defaultSize = Size(900, 620);
+  static const Size minimumSize = Size(720, 520);
 
   static Future<void> clear() async {
     final file = File(_path());

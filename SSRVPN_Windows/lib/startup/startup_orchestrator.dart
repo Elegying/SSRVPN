@@ -68,7 +68,7 @@ class StartupOrchestrator {
     final savedBounds =
         flags.resetWindow ? null : await WindowStateStore.load();
     final useSavedBounds =
-        savedBounds != null && await _intersectsAnyDisplay(savedBounds);
+        savedBounds != null && await _fitsAnyDisplay(savedBounds);
 
     if (useSavedBounds) {
       await windowManager.setBounds(savedBounds);
@@ -79,7 +79,7 @@ class StartupOrchestrator {
           'Saved window bounds are outside current displays: $savedBounds',
         );
       }
-      await windowManager.setSize(WindowStateStore.defaultSize);
+      await windowManager.setSize(await _defaultWindowSize());
       try {
         await windowManager.center();
       } catch (error, stack) {
@@ -171,6 +171,7 @@ class StartupOrchestrator {
         settings.settings,
         dataDir: settings.dataDir,
         storageNotice: settings.storageNotice,
+        skipCoreProbes: true,
       );
       if (!core.coreExists) {
         coreFailure = StateError('mihomo.exe not found: ${core.corePath}');
@@ -189,15 +190,52 @@ class StartupOrchestrator {
     }
   }
 
-  Future<bool> _intersectsAnyDisplay(Rect rect) async {
+  Future<bool> _fitsAnyDisplay(Rect rect) async {
     try {
       final displays = await screenRetriever.getAllDisplays();
       if (displays.isEmpty) return false;
-      return displays.any((display) => rect.overlaps(_displayBounds(display)));
+      for (final display in displays) {
+        final bounds = _displayBounds(display);
+        if (!rect.overlaps(bounds)) continue;
+        if (rect.width <= bounds.width - 16 &&
+            rect.height <= bounds.height - 16) {
+          return true;
+        }
+      }
+      return false;
     } catch (error, stack) {
-      StartupLogger.error('Display lookup failed', error, stack);
+      StartupLogger.error('Display fit lookup failed', error, stack);
       return false;
     }
+  }
+
+  Future<Size> _defaultWindowSize() async {
+    try {
+      final displays = await screenRetriever.getAllDisplays();
+      if (displays.isEmpty) return WindowStateStore.defaultSize;
+      final bounds = _displayBounds(displays.first);
+      return Size(
+        _fitDimension(
+          WindowStateStore.defaultSize.width,
+          WindowStateStore.minimumSize.width,
+          bounds.width,
+        ),
+        _fitDimension(
+          WindowStateStore.defaultSize.height,
+          WindowStateStore.minimumSize.height,
+          bounds.height,
+        ),
+      );
+    } catch (error, stack) {
+      StartupLogger.error('Default window size lookup failed', error, stack);
+      return WindowStateStore.defaultSize;
+    }
+  }
+
+  double _fitDimension(double preferred, double minimum, double available) {
+    final max = available - 48;
+    if (max <= minimum) return minimum;
+    return preferred > max ? max : preferred;
   }
 
   Rect _displayBounds(Display display) {

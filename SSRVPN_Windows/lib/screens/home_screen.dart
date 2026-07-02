@@ -34,14 +34,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   ProxyNode? _selectedNode;
 
   final Map<String, int> _latencies = {};
-  final Map<String, String> _exitCountryCodes = {};
   Timer? _latencyBatchTimer;
   final Map<String, int> _pendingLatencies = {};
   int _lastRevision = -1;
   bool _disposed = false;
-  bool _isResolvingExitCountries = false;
-  bool _pendingExitCountryResolution = false;
-  int _exitCountryResolveGeneration = 0;
+  int _connectivityCheckGeneration = 0;
   bool _hasShownInitialSubscriptionDialog = false;
   ClashService? _clashService;
   Timer? _updateCheckTimer;
@@ -62,8 +59,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final isFirstSync = _lastRevision == -1;
     _lastRevision = subService.revision;
     _nodes = List.from(subService.allNodes);
-    final nodeNames = _nodes.map((node) => node.name).toSet();
-    _exitCountryCodes.removeWhere((name, _) => !nodeNames.contains(name));
     if (!isFirstSync && _isConnected && _nodes.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _reloadConfig());
     }
@@ -99,17 +94,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             await clashService.switchSelectedProxy(preferredNode.name);
         if (switched) await _rememberSelectedNode(preferredNode);
       }
-      final connectivityWarning =
-          success ? await clashService.verifyUserConnectivity() : null;
       if (mounted && !_disposed) {
         setState(() {
           _isConnected = success;
           _isConnecting = false;
-          _errorMessage = connectivityWarning;
+          _errorMessage = null;
           _nodes = nodes;
           _selectedNode = success ? preferredNode : null;
         });
-        if (success) _scheduleExitCountryResolution();
+        if (success) _scheduleConnectivityWarning(clashService);
       }
     } catch (e) {
       if (mounted && !_disposed) {
@@ -195,11 +188,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (!running) {
         _latencies.clear();
         _selectedNode = null;
-        _exitCountryResolveGeneration++;
+        _connectivityCheckGeneration++;
         _glowController.stop();
       } else {
         _glowController.repeat();
-        _scheduleExitCountryResolution();
       }
     });
   }
@@ -710,7 +702,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _isConnected = false;
         _isConnecting = false;
         _latencies.clear();
-        _exitCountryResolveGeneration++;
+        _connectivityCheckGeneration++;
         _glowController.stop();
       });
     } else {
@@ -749,18 +741,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 await clashService.switchSelectedProxy(autoSelect.name);
             if (switched) await _rememberSelectedNode(autoSelect);
           }
-          final connectivityWarning =
-              await clashService.verifyUserConnectivity();
           setState(() {
             _isConnected = true;
             _isConnecting = false;
-            _errorMessage = connectivityWarning;
+            _errorMessage = null;
             _nodes = nodes;
             _selectedNode = autoSelect;
           });
           _glowController.repeat();
-          _scheduleExitCountryResolution();
-          _autoTestAllNodes();
+          _scheduleConnectivityWarning(clashService);
           _checkUpdateDelayed();
         } else {
           setState(() {
@@ -842,13 +831,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
       return;
     }
-    _exitCountryResolveGeneration++;
     final ok =
         await context.read<ClashService>().switchSelectedProxy(node.name);
     if (ok) {
       await _rememberSelectedNode(node);
       if (mounted) setState(() => _selectedNode = node);
-      _scheduleExitCountryResolution();
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -910,23 +897,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     await settingsService.updateLastSelectedNodeName(node.name);
   }
 
-  Future<void> _autoTestAllNodes() async {
-    if (!_isConnected || _nodes.isEmpty) return;
-    final clashService = context.read<ClashService>();
-    final timeout = context.read<SettingsService>().settings.latencyTestTimeout;
-    setState(() => _isBatchTesting = true);
-    _pendingLatencies.clear();
-    await clashService.testAllLatencies(_nodes, (name, latency) {
-      _pendingLatencies[name] = latency;
-      _scheduleLatencyFlush();
-    }, timeoutMs: timeout);
-    _latencyBatchTimer?.cancel();
-    _flushPendingLatencies();
-    if (mounted && !_disposed) {
-      setState(() => _isBatchTesting = false);
-    }
-  }
-
   Future<void> _handleTestAllLatency() async {
     if (!_isConnected) return;
     final clashService = context.read<ClashService>();
@@ -944,65 +914,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
-  void _scheduleExitCountryResolution() {
-    if (!_isConnected || _nodes.isEmpty || !mounted || _disposed) return;
-    if (_isResolvingExitCountries) {
-      _pendingExitCountryResolution = true;
-      return;
-    }
-    unawaited(_resolveExitCountries());
-  }
-
-  Future<void> _resolveExitCountries() async {
-    if (_isResolvingExitCountries) return;
-    _isResolvingExitCountries = true;
-    _pendingExitCountryResolution = false;
-    final generation = ++_exitCountryResolveGeneration;
-    final clashService = context.read<ClashService>();
-
-    bool shouldContinue() {
-      return mounted &&
-          !_disposed &&
-          _isConnected &&
-          clashService.isRunning &&
-          generation == _exitCountryResolveGeneration;
-    }
-
-    try {
-      for (final node in List<ProxyNode>.from(_nodes)) {
-        if (!shouldContinue()) break;
-        if (_exitCountryCodes.containsKey(node.name)) continue;
-
-        final switched = await clashService.switchSelectedProxy(node.name);
-        if (!switched || !shouldContinue()) continue;
-
-        await Future<void>.delayed(const Duration(milliseconds: 260));
-        final country = await clashService.resolveCurrentExitCountryCode();
-        if (country == null || !shouldContinue()) continue;
-
-        setState(() {
-          _exitCountryCodes[node.name] = country;
-        });
+  void _scheduleConnectivityWarning(ClashService clashService) {
+    final generation = ++_connectivityCheckGeneration;
+    unawaited(() async {
+      final warning = await clashService.verifyUserConnectivity();
+      if (!mounted ||
+          _disposed ||
+          !_isConnected ||
+          generation != _connectivityCheckGeneration) {
+        return;
       }
-    } catch (e) {
-      debugPrint('[出口国家] 查询失败: $e');
-    } finally {
-      final restoreName = _selectedNode?.name;
-      if (mounted &&
-          !_disposed &&
-          _isConnected &&
-          clashService.isRunning &&
-          restoreName != null &&
-          restoreName.isNotEmpty) {
-        await clashService.switchSelectedProxy(restoreName);
+      if (warning != null) {
+        setState(() => _errorMessage = warning);
       }
-      _isResolvingExitCountries = false;
-
-      if (_pendingExitCountryResolution && mounted && !_disposed) {
-        _pendingExitCountryResolution = false;
-        _scheduleExitCountryResolution();
-      }
-    }
+    }());
   }
 
   void _showTutorial(BuildContext context) {
@@ -1863,8 +1788,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final isTesting = _testingNodeName == node.name;
         final isSelected = _selectedNode?.name == node.name;
         final isTimeout = latency != null && (latency <= 0 || latency >= 65535);
-        final countryCode =
-            _exitCountryCodes[node.name] ?? _countryCodeForNode(node);
+        final countryCode = _countryCodeForNode(node);
 
         return _NodeCard(
           node: node,
