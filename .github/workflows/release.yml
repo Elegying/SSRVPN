@@ -31,7 +31,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - run: bash scripts/check-shared-barrel-imports.sh
+      - run: bash ../../scripts/check-shared-barrel-imports.sh
       - run: dart pub get
       - run: dart analyze --fatal-infos
       - run: dart test
