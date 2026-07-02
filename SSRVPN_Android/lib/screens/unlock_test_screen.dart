@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/clash_service.dart';
 import '../services/settings_service.dart';
-import 'package:ssrvpn_shared/services/unlock_test_service.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../theme/app_theme.dart';
 import '../widgets/liquid_glass.dart';
 

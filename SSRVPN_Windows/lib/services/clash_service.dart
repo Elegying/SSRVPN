@@ -3,11 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:ssrvpn_shared/services/clash_config_generator.dart';
-import 'package:ssrvpn_shared/services/clash_service_base.dart';
-import 'package:ssrvpn_shared/utils/log_redactor.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
-import '../models/app_settings.dart';
 import '../services/system_proxy_service.dart';
 
 /// Clash Meta 核心管理服务 (Windows 版)

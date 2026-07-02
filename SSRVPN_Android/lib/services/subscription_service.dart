@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:ssrvpn_shared/services/subscription_service_base.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import 'http_client_adapter.dart';
 
@@ -261,7 +261,7 @@ class SubscriptionService extends SubscriptionServiceBase {
     try {
       final request = 'GET $pathWithQuery HTTP/1.1\r\n'
           'Host: $host\r\n'
-          'User-Agent: SSRVPN/2.0.3\r\n'
+          'User-Agent: SSRVPN/2.0.4\r\n'
           'Accept: text/yaml, application/x-yaml, */*\r\n'
           'Accept-Encoding: identity\r\n'
           'Connection: close\r\n'

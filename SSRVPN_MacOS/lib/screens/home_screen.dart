@@ -3,9 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:ssrvpn_shared/models/proxy_node.dart';
-import 'package:ssrvpn_shared/utils/private_node_latency_policy.dart';
-import '../models/app_settings.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/clash_service.dart';
 import '../services/subscription_service.dart';
 import '../services/settings_service.dart';
@@ -15,6 +13,8 @@ import '../widgets/connection_button.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/liquid_glass.dart';
 import 'node_edit_screen.dart';
+
+bool _initialSubscriptionDialogConsumed = false;
 
 /// 主屏幕 — macOS 桌面优化
 class HomeScreen extends StatefulWidget {
@@ -42,7 +42,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _isResolvingExitCountries = false;
   bool _pendingExitCountryResolution = false;
   int _exitCountryResolveGeneration = 0;
-  bool _hasShownInitialSubscriptionDialog = false;
   ClashService? _clashService;
   Timer? _updateCheckTimer;
   late AnimationController _glowController;
@@ -112,10 +111,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         if (success) _scheduleExitCountryResolution();
       }
     } catch (e) {
+      debugPrint('[连接] 重载配置失败: $e');
       if (mounted && !_disposed) {
+        final msg = e.toString().replaceFirst('Exception: ', '');
         setState(() {
           _isConnected = false;
           _isConnecting = false;
+          _errorMessage = '连接重载失败: $msg';
         });
       }
     }
@@ -178,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     clashService.addStatusListener(_handleClashStatusChanged);
 
-    if (subService.allNodes.isEmpty) {
+    if (subService.allNodes.isEmpty && !_initialSubscriptionDialogConsumed) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && !_disposed) _showInitialSubscriptionDialog();
       });
@@ -205,8 +207,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _showInitialSubscriptionDialog() async {
-    if (_hasShownInitialSubscriptionDialog) return;
-    _hasShownInitialSubscriptionDialog = true;
+    if (_initialSubscriptionDialogConsumed) return;
+    _initialSubscriptionDialogConsumed = true;
 
     final controller = TextEditingController();
     String? inputError;

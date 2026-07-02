@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
-import 'package:ssrvpn_shared/services/subscription_service_base.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 /// Windows 订阅管理服务
 ///
@@ -42,7 +42,7 @@ class SubscriptionService extends SubscriptionServiceBase {
         try {
           client.connectionTimeout = Duration(seconds: 15 * attempt);
           final request = await client.getUrl(uri);
-          request.headers.set('User-Agent', 'SSRVPN/2.0.3');
+          request.headers.set('User-Agent', 'SSRVPN/2.0.4');
           request.headers.set('Accept', 'text/yaml, application/x-yaml, */*');
 
           final response =

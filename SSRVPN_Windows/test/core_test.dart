@@ -4,8 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yaml/yaml.dart';
 
-import 'package:ssrvpn_windows/models/app_settings.dart';
-import 'package:ssrvpn_shared/models/proxy_node.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/services/clash_service.dart';
 
 void main() {

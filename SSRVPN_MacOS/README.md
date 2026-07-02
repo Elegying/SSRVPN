@@ -37,6 +37,21 @@ bash tool/package_macos.sh
 - `SSRVPN.dmg.sha256`
 - `SSRVPN-macOS-<arch>-v<version>.dmg`
 
+## Mihomo 核心
+
+应用内置 `assets/AtlasCore.gz`，当前为 MetaCubeX/mihomo `v1.19.27`
+darwin arm64 构建。来源、版本和 SHA256 记录在
+`assets/AtlasCore-source.txt`。
+
+自行更新时，从 GitHub Releases 下载同版本 darwin arm64 资产：
+
+```text
+https://github.com/MetaCubeX/mihomo/releases
+```
+
+下载后可保留官方 gzip，或将解压后的可执行文件重新压缩为
+`AtlasCore.gz`；验证时优先比对解压后的可执行文件 SHA256。
+
 ## 开发路线图
 
 详见主仓 [Roadmap](../docs/ROADMAP.md) — 三平台代码去重和发布规划。

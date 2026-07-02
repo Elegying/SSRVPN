@@ -33,9 +33,16 @@ jobs:
           channel: stable
           cache: true
 
+      - run: bash scripts/check-shared-barrel-imports.sh
       - run: dart pub get
       - run: dart analyze
-      - run: dart test
+      - run: dart test --coverage=coverage
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage-shared
+          path: packages/ssrvpn_shared/coverage
 
   flutter-app:
     name: ${{ matrix.name }}
@@ -71,5 +78,11 @@ jobs:
       - run: flutter analyze
         working-directory: ${{ matrix.directory }}
 
-      - run: flutter test
+      - run: flutter test --coverage
         working-directory: ${{ matrix.directory }}
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage-${{ matrix.directory }}
+          path: ${{ matrix.directory }}/coverage/lcov.info

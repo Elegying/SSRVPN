@@ -26,19 +26,22 @@ void main() {
 
   group('ForceProxySitePolicy.normalize', () {
     test('returns a fixed-length trimmed list', () {
-      final sites = ForceProxySitePolicy.normalize(
-        ['  a.com  ', null, 'c.com', 'd.com'],
-        limit: 3,
-      );
+      final sites = ForceProxySitePolicy.normalize([
+        '  a.com  ',
+        null,
+        'c.com',
+        'd.com',
+      ], limit: 3);
 
       expect(sites, ['a.com', '', 'c.com']);
     });
 
     test('pads missing values', () {
-      expect(
-        ForceProxySitePolicy.normalize(['a.com'], limit: 3),
-        ['a.com', '', ''],
-      );
+      expect(ForceProxySitePolicy.normalize(['a.com'], limit: 3), [
+        'a.com',
+        '',
+        '',
+      ]);
     });
   });
 }

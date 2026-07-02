@@ -18,7 +18,7 @@ This guide keeps local development, GitHub automation, and releases aligned.
    cd packages/ssrvpn_shared
    dart pub get
    dart analyze
-   dart test
+   dart test --coverage=coverage
    ```
 
 3. Run touched platform checks:
@@ -27,7 +27,7 @@ This guide keeps local development, GitHub automation, and releases aligned.
    cd SSRVPN_Android
    flutter pub get
    flutter analyze
-   flutter test
+   flutter test --coverage
    ```
 
 4. Repeat for `SSRVPN_MacOS` and `SSRVPN_Windows` when shared behavior or common models change.

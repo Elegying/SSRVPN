@@ -6,10 +6,7 @@ import 'package:test/test.dart';
 void main() {
   group('PrivateNodeLatencyPolicy', () {
     test('keeps normal node latency unchanged', () {
-      expect(
-        PrivateNodeLatencyPolicy.displayLatencyForNode('普通节点', 123),
-        123,
-      );
+      expect(PrivateNodeLatencyPolicy.displayLatencyForNode('普通节点', 123), 123);
     });
 
     test('maps private node success latency into 24-39ms', () {

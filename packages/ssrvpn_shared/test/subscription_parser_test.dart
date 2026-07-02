@@ -302,8 +302,9 @@ trojan://pass@server2.com:443#N2
 
     group('tryDecodeBase64', () {
       test('decodes Base64 content', () {
-        final encoded =
-            base64Encode(utf8.encode('Hello World, this is a test message'));
+        final encoded = base64Encode(
+          utf8.encode('Hello World, this is a test message'),
+        );
         final result = SubscriptionParser.tryDecodeBase64(encoded);
         expect(result, equals('Hello World, this is a test message'));
       });

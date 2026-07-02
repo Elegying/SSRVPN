@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:yaml/yaml.dart';
 
 import '../models/app_settings.dart';
 import '../constants/app_constants.dart';
@@ -24,7 +27,7 @@ class ClashConfigGenerator {
     String? dnsConfig,
   }) {
     final proxyNames = extractProxyNames(rawYaml);
-    final proxiesText = extractSection(rawYaml, 'proxies');
+    final proxiesText = buildProxiesText(rawYaml);
     if (proxyNames.isEmpty || proxiesText.isEmpty) {
       throw Exception('订阅中没有可用节点，请先刷新订阅');
     }
@@ -165,49 +168,37 @@ class ClashConfigGenerator {
   /// 从 YAML 中提取代理节点名称
   static List<String> extractProxyNames(String rawYaml) {
     try {
-      final lines = rawYaml.split('\n');
-      final names = <String>[];
-      bool inProxies = false;
-      int proxiesIndent = 0;
-
-      for (final line in lines) {
-        final trimmed = line.trim();
-        if (trimmed == 'proxies:') {
-          inProxies = true;
-          proxiesIndent = line.indexOf('proxies:');
-          continue;
-        }
-
-        if (inProxies) {
-          if (trimmed.isEmpty) {
-            continue;
-          }
-
-          final currentIndent = line.indexOf(trimmed);
-          // 如果当前行的缩进小于等于 proxies 的缩进，说明遇到了新的顶级键
-          if (currentIndent <= proxiesIndent && trimmed.isNotEmpty) {
-            inProxies = false;
-            continue;
-          }
-
-          if (trimmed.startsWith('- name:')) {
-            final name = trimmed.substring(7).trim();
-            // 移除引号
-            if (name.startsWith('"') && name.endsWith('"')) {
-              names.add(name.substring(1, name.length - 1));
-            } else if (name.startsWith("'") && name.endsWith("'")) {
-              names.add(name.substring(1, name.length - 1));
-            } else {
-              names.add(name);
-            }
-          }
-        }
+      final proxies = _parseProxyList(rawYaml);
+      if (proxies != null) {
+        return proxies
+            .whereType<Map>()
+            .map((proxy) => proxy['name']?.toString().trim() ?? '')
+            .where((name) => name.isNotEmpty)
+            .toList();
       }
+    } catch (_) {}
+    return _extractProxyNamesFromText(rawYaml);
+  }
 
-      return names;
-    } catch (e) {
-      return [];
-    }
+  /// 安全重建 `proxies` 段内容。
+  ///
+  /// 订阅里的节点字段先由 YAML parser 解析，再以 JSON flow map 写回；
+  /// JSON 是合法 YAML 子集，可避免节点名、密码等用户输入逃逸 YAML 结构。
+  static String buildProxiesText(String rawYaml) {
+    try {
+      final proxies = _parseProxyList(rawYaml);
+      if (proxies != null) {
+        final buffer = StringBuffer();
+        for (final proxy in proxies.whereType<Map>()) {
+          final name = proxy['name']?.toString().trim();
+          if (name == null || name.isEmpty) continue;
+          buffer.writeln('  - ${jsonEncode(_plainYamlValue(proxy))}');
+        }
+        final text = buffer.toString().trimRight();
+        if (text.isNotEmpty) return text;
+      }
+    } catch (_) {}
+    return extractSection(rawYaml, 'proxies').trimRight();
   }
 
   /// 从 YAML 中提取指定部分
@@ -246,6 +237,74 @@ class ClashConfigGenerator {
       return '';
     }
   }
+
+  static List<dynamic>? _parseProxyList(String rawYaml) {
+    final yaml = loadYaml(rawYaml);
+    if (yaml is! Map) return null;
+    final proxies = yaml['proxies'];
+    return proxies is List ? proxies : null;
+  }
+
+  static List<String> _extractProxyNamesFromText(String rawYaml) {
+    try {
+      final lines = rawYaml.split('\n');
+      final names = <String>[];
+      var inProxies = false;
+      var proxiesIndent = 0;
+
+      for (final line in lines) {
+        final trimmed = line.trim();
+        if (trimmed == 'proxies:') {
+          inProxies = true;
+          proxiesIndent = line.indexOf('proxies:');
+          continue;
+        }
+
+        if (!inProxies || trimmed.isEmpty || trimmed.startsWith('#')) {
+          continue;
+        }
+
+        final currentIndent = line.indexOf(trimmed);
+        if (currentIndent <= proxiesIndent && trimmed.isNotEmpty) {
+          inProxies = false;
+          continue;
+        }
+
+        if (trimmed.startsWith('- name:')) {
+          final name = trimmed.substring(7).trim();
+          if (name.startsWith('"') && name.endsWith('"')) {
+            names.add(name.substring(1, name.length - 1));
+          } else if (name.startsWith("'") && name.endsWith("'")) {
+            names.add(name.substring(1, name.length - 1));
+          } else {
+            names.add(name);
+          }
+        }
+      }
+
+      return names;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Object? _plainYamlValue(Object? value) {
+    if (value == null || value is num || value is bool) return value;
+    if (value is String) return _sanitizeScalar(value);
+    if (value is Map) {
+      return {
+        for (final entry in value.entries)
+          entry.key.toString(): _plainYamlValue(entry.value),
+      };
+    }
+    if (value is Iterable) {
+      return value.map(_plainYamlValue).toList();
+    }
+    return _sanitizeScalar(value.toString());
+  }
+
+  static String _sanitizeScalar(String value) =>
+      value.replaceAll(RegExp(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]'), '');
 
   /// 构建强制代理规则
   static List<String> buildForceProxyRules(AppSettings settings) {

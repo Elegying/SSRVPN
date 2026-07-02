@@ -18,14 +18,16 @@ run_in() {
   (cd "$dir" && "$@")
 }
 
+run_step "Shared barrel imports" scripts/check-shared-barrel-imports.sh
+
 run_step "Shared pub get" run_in packages/ssrvpn_shared dart pub get
 run_step "Shared analyze" run_in packages/ssrvpn_shared dart analyze
-run_step "Shared tests" run_in packages/ssrvpn_shared dart test
+run_step "Shared tests" run_in packages/ssrvpn_shared dart test --coverage=coverage
 
 for app in SSRVPN_Android SSRVPN_MacOS SSRVPN_Windows; do
   run_step "$app pub get" run_in "$app" flutter pub get
   run_step "$app analyze" run_in "$app" flutter analyze
-  run_step "$app tests" run_in "$app" flutter test
+  run_step "$app tests" run_in "$app" flutter test --coverage
 done
 
 echo

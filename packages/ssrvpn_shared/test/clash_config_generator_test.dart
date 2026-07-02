@@ -1,6 +1,7 @@
 import 'package:test/test.dart';
-import 'package:ssrvpn_shared/services/clash_config_generator.dart';
+import 'package:yaml/yaml.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
+import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 
 void main() {
   group('ClashConfigGenerator', () {
@@ -118,6 +119,58 @@ proxies:
       final config = ClashConfigGenerator.generateConfig(yaml, settings);
 
       expect(config, contains("secret: 'a\"b\\\\c''d'"));
+    });
+
+    test('generateConfig safely rebuilds user-controlled proxy fields', () {
+      final yaml = '''
+proxies:
+  # - name: "Commented Node"
+  #   type: ss
+  - name: "Node: one # primary"
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "p: a # b"
+  - name: "O'Brien"
+    type: trojan
+    server: example.org
+    port: 443
+    password: "sec'ret"
+proxy-groups:
+  - name: ignored
+    proxies:
+      - Commented Node
+''';
+      final config = ClashConfigGenerator.generateConfig(yaml, AppSettings());
+      final parsed = loadYaml(config) as YamlMap;
+
+      final proxies = (parsed['proxies'] as YamlList).cast<YamlMap>();
+      expect(proxies, hasLength(2));
+      expect(proxies[0]['name'], 'Node: one # primary');
+      expect(proxies[0]['password'], 'p: a # b');
+      expect(proxies[1]['name'], "O'Brien");
+      expect(proxies[1]['password'], "sec'ret");
+
+      final proxyGroup = (parsed['proxy-groups'] as YamlList).first as YamlMap;
+      expect((proxyGroup['proxies'] as YamlList).cast<String>(), [
+        'Node: one # primary',
+        "O'Brien",
+      ]);
+    });
+
+    test('extractProxyNames ignores commented YAML nodes', () {
+      final yaml = '''
+proxies:
+  # - name: "Commented Node"
+  #   type: ss
+  - name: "Active Node"
+    type: ss
+    server: example.com
+    port: 443
+''';
+
+      expect(ClashConfigGenerator.extractProxyNames(yaml), ['Active Node']);
     });
 
     test('generateConfig throws for empty proxies', () {

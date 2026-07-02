@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:ssrvpn_shared/models/proxy_node.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 
