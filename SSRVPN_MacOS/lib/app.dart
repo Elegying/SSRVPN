@@ -306,19 +306,12 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  SizedBox(
-                    width: 42,
-                    height: 42,
-                    child: startupFailed
-                        ? const Icon(
-                            Icons.error_outline_rounded,
-                            color: AppTheme.error,
-                            size: 42,
-                          )
-                        : const CircularProgressIndicator(
-                            strokeWidth: 3,
-                            color: AppTheme.primary,
-                          ),
+                  Icon(
+                    startupFailed
+                        ? Icons.error_outline_rounded
+                        : Icons.shield_outlined,
+                    color: startupFailed ? AppTheme.error : AppTheme.primary,
+                    size: 42,
                   ),
                   const SizedBox(height: 24),
                   Text(
@@ -332,29 +325,32 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    startupFailed
-                        ? '初始化服务失败，请查看下方启动日志。'
-                        : status.currentStep == null
-                            ? '正在准备主窗口...'
-                            : '正在执行 ${status.currentStep}...',
+                    startupFailed ? '初始化服务失败，请稍后查看诊断日志。' : '正在加载必要组件...',
                     style: const TextStyle(
                       fontSize: 14,
                       color: AppTheme.textSecondary,
                     ),
                   ),
+                  if (!startupFailed) ...[
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: 260,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          value: _startupProgress(status),
+                          minHeight: 6,
+                          backgroundColor:
+                              AppTheme.primary.withValues(alpha: 32 / 255),
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                    ),
+                  ],
                   if (failures.isNotEmpty) ...[
                     const SizedBox(height: 18),
                     _StartupProblemPanel(failures: failures),
                   ],
-                  const SizedBox(height: 14),
-                  SelectableText(
-                    '启动日志: ${StartupLogger.logPath}',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -395,9 +391,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
               icon: Icons.error_outline,
               color: AppTheme.error,
               title: '部分启动步骤失败',
-              message: failures
-                  .map((failure) => '${failure.step}: ${failure.message}')
-                  .join('\n'),
+              message: failures.map(_startupFailureSummary).join('\n'),
             ),
           Expanded(
             child: IndexedStack(
@@ -494,9 +488,7 @@ class _MainShell extends StatelessWidget {
                   icon: Icons.error_outline,
                   color: AppTheme.error,
                   title: '部分启动步骤失败',
-                  message: failures
-                      .map((failure) => '${failure.step}: ${failure.message}')
-                      .join('\n'),
+                  message: failures.map(_startupFailureSummary).join('\n'),
                 ),
               Expanded(
                 child: LayoutBuilder(
@@ -893,7 +885,7 @@ class _StartupProblemPanel extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                '${failure.step}: ${failure.message}',
+                _startupFailureSummary(failure),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -905,6 +897,33 @@ class _StartupProblemPanel extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+const _startupStepCount = 4;
+
+double? _startupProgress(StartupStatus status) {
+  if (status.completed) return 1;
+  final finishedSteps = status.stepStates.values
+      .where((state) => state == 'ok' || state == 'failed')
+      .length;
+  if (finishedSteps == 0 && status.currentStep == null) return null;
+  final runningStep = status.currentStep == null ? 0 : 0.35;
+  return ((finishedSteps + runningStep) / _startupStepCount).clamp(0.08, 0.95);
+}
+
+String _startupFailureSummary(StartupFailure failure) {
+  switch (failure.step) {
+    case 'window_manager':
+      return '窗口组件初始化失败，请尝试安全模式启动。';
+    case 'screen_retriever':
+      return '显示器信息读取失败，应用会继续尝试打开。';
+    case 'system_tray':
+      return '系统托盘初始化失败，应用会继续尝试打开。';
+    case 'mihomo_core':
+      return '核心服务初始化失败，请稍后查看诊断日志。';
+    default:
+      return '启动组件初始化失败，应用会继续尝试打开。';
   }
 }
 

@@ -193,7 +193,7 @@ class DirectFetcher {
     final request = StringBuffer()
       ..write('GET $path HTTP/1.1\r\n')
       ..write('Host: $host\r\n')
-      ..write('User-Agent: ${userAgent ?? 'SSRVPN/2.0.4'}\r\n')
+      ..write('User-Agent: ${userAgent ?? 'SSRVPN/2.0.5'}\r\n')
       ..write('Accept: $accept\r\n')
       ..write('Accept-Encoding: identity\r\n')
       ..write('Connection: close\r\n')
