@@ -284,8 +284,8 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
     return 'powershell';
   }
 
-  /// 预下载 MMDB 文件
-  Future<void> _ensureMMDB() async {
+  /// 准备本地 MMDB 文件
+  Future<bool> _ensureMMDB() async {
     final metadbPath = '$configDir${Platform.pathSeparator}geoip.metadb';
     final mmdbPath = '$configDir${Platform.pathSeparator}country.mmdb';
 
@@ -293,12 +293,12 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
       final m = File(metadbPath);
       if (await m.exists() && await m.length() > 1024 * 1024) {
         log('✅ MMDB 已存在');
-        return;
+        return true;
       }
       final g = File(mmdbPath);
       if (await g.exists() && await g.length() > 1024 * 1024) {
         log('✅ MMDB 已存在');
-        return;
+        return true;
       }
     } catch (_) {}
 
@@ -316,9 +316,11 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
       log(
         '✅ MMDB 已从内置资源解压 (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB)',
       );
+      return true;
     } catch (e) {
       log('⚠️ MMDB 资源复制失败: $e');
       log('❌ MMDB 不可用，GEOIP 规则将跳过');
+      return false;
     }
   }
 
@@ -559,7 +561,11 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
         return false;
       }
 
-      await _ensureMMDB();
+      if (!await _ensureMMDB()) {
+        setLastStartError('便携包缺少本地 GeoIP 数据，请重新下载完整压缩包');
+        log('❌ $lastStartError');
+        return false;
+      }
 
       if (settings.enableTun) {
         final isAdministrator = await _isAdministrator();
