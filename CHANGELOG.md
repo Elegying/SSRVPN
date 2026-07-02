@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.5] - 2026-07-02
+
+### Changed
+- Bumped Android, macOS, and Windows client versions to `2.0.5+205`.
+- Desktop startup screens now show a clean progress bar instead of internal startup step identifiers or log paths.
+
 ## [2.0.4] - 2026-07-02
 
 ### Added
