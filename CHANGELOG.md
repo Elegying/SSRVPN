@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.11] - 2026-07-04
+
+### Added
+- Added local secret scanning, conservative coverage gates, release artifact smoke checks, and a low-end-device performance baseline script.
+- Added a shared timed process runner with tests for bounded desktop process execution.
+
+### Changed
+- Shared the remaining duplicate macOS/Windows desktop screens through the shared package.
+- Unified common runtime logging behind a redacted shared logger.
+- Upgraded Android release tooling to Gradle 8.14.3, Android Gradle Plugin 8.11.1, and Kotlin Gradle Plugin 2.2.20.
+- Enhanced Lite crash reporting so copied reports include the GitHub issue submission entry.
+
 ## [2.0.10] - 2026-07-04
 
 ### Fixed

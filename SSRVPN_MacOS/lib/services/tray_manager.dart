@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:tray_manager/tray_manager.dart' as tm;
 
 typedef VoidCallback = void Function();
@@ -33,8 +33,7 @@ class TrayManager with tm.TrayListener {
       _initialized = true;
       return true;
     } catch (e, stack) {
-      debugPrint('[Tray] init failed: $e');
-      debugPrint('[Tray] stack: $stack');
+      AppLogger.error('Tray', 'init failed', error: e, stack: stack);
       _initialized = false;
       return false;
     }
@@ -59,8 +58,7 @@ class TrayManager with tm.TrayListener {
     try {
       await _buildMenu();
     } catch (e, stack) {
-      debugPrint('[Tray] refreshMenu failed: $e');
-      debugPrint('[Tray] stack: $stack');
+      AppLogger.error('Tray', 'refreshMenu failed', error: e, stack: stack);
     }
   }
 

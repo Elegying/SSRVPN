@@ -55,7 +55,7 @@ class ClashService extends ClashServiceBase {
 
   @override
   void debugLog(String message) {
-    debugPrint('[Clash] $message');
+    AppLogger.info('Clash', message);
   }
 
   // Windows prefers a shorter connection timeout for the Clash API client.
@@ -236,34 +236,19 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
   Future<ProcessResult> _runPowerShell(
     String script, {
     Duration timeout = const Duration(seconds: 10),
-  }) async {
-    Process? process;
-    try {
-      process = await Process.start(_powerShellExecutable(), [
-        '-NoLogo',
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        script,
-      ]);
-      final stdoutFuture = process.stdout.transform(utf8.decoder).join();
-      final stderrFuture = process.stderr.transform(utf8.decoder).join();
-      final exitCode = await process.exitCode.timeout(
-        timeout,
-        onTimeout: () {
-          process?.kill(ProcessSignal.sigkill);
-          return 124;
-        },
+  }) =>
+      TimedProcessRunner.run(
+        _powerShellExecutable(),
+        [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          script,
+        ],
+        timeout: timeout,
+        timeoutStderr: '电脑性能不足，请重新连接',
       );
-
-      final stdout = await stdoutFuture;
-      final stderr = exitCode == 124 ? '电脑性能不足，请重新连接' : await stderrFuture;
-      return ProcessResult(process.pid, exitCode, stdout, stderr);
-    } catch (_) {
-      process?.kill(ProcessSignal.sigkill);
-      rethrow;
-    }
-  }
 
   String _powerShellExecutable() {
     if (!Platform.isWindows) return 'powershell';

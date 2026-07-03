@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 /// Android 通知栏常驻服务
 ///
@@ -83,7 +83,7 @@ class NotificationService {
       // MethodChannel 实现时静默降级，避免每次连接都打印误导性的错误。
       _nativeNotificationsAvailable = false;
     } catch (e) {
-      debugPrint('[NotificationService] $label失败: $e');
+      AppLogger.warning('NotificationService', '$label失败: $e');
     }
   }
 

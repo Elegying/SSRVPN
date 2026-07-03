@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart' show AppLogger;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'services/settings_service.dart';
 import 'services/clash_service.dart' as clash;
@@ -87,7 +88,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
       _initRetryCount++;
       if (_initRetryCount < _maxInitRetries && mounted) {
         // 自动重试一次
-        debugPrint('[SSRVPN] 初始化失败，自动重试 (第$_initRetryCount次)');
+        AppLogger.warning('SSRVPN', '初始化失败，自动重试 (第$_initRetryCount次)');
         await Future.delayed(const Duration(seconds: 2));
         if (mounted) {
           setState(() {

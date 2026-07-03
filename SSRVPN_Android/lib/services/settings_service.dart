@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart' show AppLogger;
 import '../models/app_settings.dart';
 
 /// 设置管理服务 — Android 版本
@@ -93,9 +94,9 @@ class SettingsService extends ChangeNotifier {
 
       // 删除旧 key
       await prefs.remove('api_secret_enc');
-      debugPrint('[Settings] apiSecret 已迁移至 EncryptedSharedPreferences');
+      AppLogger.info('Settings', 'apiSecret 已迁移至 EncryptedSharedPreferences');
     } catch (e) {
-      debugPrint('[Settings] apiSecret 迁移失败: $e');
+      AppLogger.warning('Settings', 'apiSecret 迁移失败: $e');
     }
   }
 
@@ -219,7 +220,7 @@ class SettingsService extends ChangeNotifier {
         final json = jsonDecode(content) as Map<String, dynamic>;
         _settings = AppSettings.fromJson(json);
       } catch (e) {
-        debugPrint('[Settings] 加载失败: $e');
+        AppLogger.warning('Settings', '加载失败: $e');
         _settings = AppSettings();
       }
     } else {
@@ -258,10 +259,10 @@ class SettingsService extends ChangeNotifier {
       // 3) 从旧 JSON 明文迁移（首次安装后旧版本数据）
       if (_settings.apiSecret.isNotEmpty) {
         await _writeApiSecret(_settings.apiSecret);
-        debugPrint('[Settings] apiSecret 已迁移至 EncryptedSharedPreferences');
+        AppLogger.info('Settings', 'apiSecret 已迁移至 EncryptedSharedPreferences');
       }
     } catch (e) {
-      debugPrint('[Settings] apiSecret 迁移失败: $e');
+      AppLogger.warning('Settings', 'apiSecret 迁移失败: $e');
     }
   }
 
@@ -282,7 +283,7 @@ class SettingsService extends ChangeNotifier {
       // apiSecret 写入安全存储
       await _writeApiSecret(_settings.apiSecret);
     } catch (e) {
-      debugPrint('[Settings] 保存失败: $e');
+      AppLogger.warning('Settings', '保存失败: $e');
     }
   }
 

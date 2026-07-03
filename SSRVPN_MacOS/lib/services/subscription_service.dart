@@ -48,7 +48,7 @@ class SubscriptionService extends SubscriptionServiceBase {
         );
         return _normalizeFetchedBody(body);
       } catch (e) {
-        debugPrint('[订阅] 直连通道失败，降级到常规 HTTP: $e');
+        AppLogger.info('Subscription', '直连通道失败，降级到常规 HTTP: $e');
       }
     }
 

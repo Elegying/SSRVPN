@@ -11,11 +11,14 @@ class CrashReportPrompt extends StatefulWidget {
   const CrashReportPrompt({
     super.key,
     required this.child,
-    this.supportHint = '请粘贴给开发者。',
+    this.supportHint = '请到 GitHub Issues 新建崩溃报告并粘贴。',
+    this.supportUrl =
+        'https://github.com/Elegying/SSRVPN/issues/new?template=bug_report.yml',
   });
 
   final Widget child;
   final String supportHint;
+  final String? supportUrl;
 
   @override
   State<CrashReportPrompt> createState() => _CrashReportPromptState();
@@ -70,11 +73,15 @@ class _CrashReportPromptState extends State<CrashReportPrompt> {
     switch (action) {
       case _CrashReportAction.send:
         final content = await CrashReporter.readReports(reports);
-        await Clipboard.setData(ClipboardData(text: content));
+        final supportUrl = widget.supportUrl;
+        final clipboardText = supportUrl == null || supportUrl.isEmpty
+            ? content
+            : '提交入口: $supportUrl\n\n$content';
+        await Clipboard.setData(ClipboardData(text: clipboardText));
         await CrashReporter.deleteReports(reports);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('崩溃报告已复制到剪贴板')),
+          const SnackBar(content: Text('崩溃报告已复制到剪贴板，请打开提交入口')),
         );
         break;
       case _CrashReportAction.delete:

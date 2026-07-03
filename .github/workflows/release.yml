@@ -34,6 +34,7 @@ jobs:
       - run: bash ../../scripts/check-shared-barrel-imports.sh
       - run: bash ../../scripts/check-version-sync.sh
       - run: bash ../../scripts/check-android-native-bridge-guards.sh
+      - run: bash ../../scripts/check-secrets.sh
       - run: dart pub get
       - run: dart analyze --fatal-infos
       - run: dart test
@@ -103,6 +104,9 @@ jobs:
           cd SSRVPN_Android
           flutter build apk --release
           cp build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk
+
+      - name: Smoke release artifact
+        run: bash scripts/smoke-release-artifacts.sh --allow-missing
 
       - name: Verify APK signature
         run: |
@@ -178,6 +182,9 @@ jobs:
           hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_DIR" SSRVPN_MacOS/SSRVPN.dmg
           test -d "$MOUNT_DIR/SSRVPN.app"
           test -L "$MOUNT_DIR/Applications"
+
+      - name: Smoke release artifact
+        run: bash scripts/smoke-release-artifacts.sh --allow-missing
 
       - name: Generate checksum
         run: cd SSRVPN_MacOS && shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
@@ -257,6 +264,9 @@ jobs:
             throw "Portable ZIP root must contain exactly one user-facing exe: $names"
           }
           Remove-Item -LiteralPath $verifyRoot -Recurse -Force
+
+      - name: Smoke release artifact
+        run: bash scripts/smoke-release-artifacts.sh --allow-missing
 
       - name: Generate checksum
         shell: powershell

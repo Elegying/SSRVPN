@@ -24,7 +24,7 @@ class UpdateService {
       final uri = SharedUpdateService.validateDownloadUrl(url);
       await Process.start(_openPath, [uri.toString()]);
     } catch (e) {
-      debugPrint('[更新] 打开链接失败: $e');
+      AppLogger.warning('Update', '打开链接失败: $e');
     }
   }
 

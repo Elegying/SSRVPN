@@ -364,7 +364,7 @@ class HomeScreenState extends State<HomeScreen>
           );
         }
       } catch (e) {
-        debugPrint('[更新] 检查更新异常: $e');
+        AppLogger.warning('Update', '检查更新异常: $e');
       }
     });
   }
@@ -531,7 +531,7 @@ class HomeScreenState extends State<HomeScreen>
             node.name,
           );
     } catch (e) {
-      debugPrint('[磁贴] 更新默认节点配置失败: $e');
+      AppLogger.warning('Tile', '更新默认节点配置失败: $e');
     }
   }
 

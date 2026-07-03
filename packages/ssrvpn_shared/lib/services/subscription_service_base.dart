@@ -10,7 +10,7 @@ import '../models/subscription.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
 import '../services/subscription_parser.dart';
-import '../utils/log_redactor.dart';
+import '../utils/app_logger.dart';
 
 /// 订阅管理服务基类
 ///
@@ -410,9 +410,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
       _allNodes = parsed.nodes;
       _allGroups = parsed.groups;
     } catch (e) {
-      debugPrint(
-        LogRedactor.sanitize('[SubscriptionService] YAML解析失败: $e'),
-      );
+      AppLogger.warning('SubscriptionService', 'YAML解析失败: $e');
     }
   }
 

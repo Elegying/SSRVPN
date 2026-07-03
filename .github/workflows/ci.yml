@@ -36,6 +36,7 @@ jobs:
       - run: bash ../../scripts/check-shared-barrel-imports.sh
       - run: bash ../../scripts/check-version-sync.sh
       - run: bash ../../scripts/check-android-native-bridge-guards.sh
+      - run: bash ../../scripts/check-secrets.sh
       - run: dart pub get
       - run: dart analyze
       - run: dart test --coverage=coverage
@@ -84,6 +85,8 @@ jobs:
 
       - run: flutter test --coverage
         working-directory: ${{ matrix.directory }}
+
+      - run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
 
       - uses: actions/upload-artifact@v7
         if: always()

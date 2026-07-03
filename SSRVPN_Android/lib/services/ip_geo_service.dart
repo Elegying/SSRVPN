@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 /// IP 地理位置查询服务 — 用于节点国旗识别
 ///
@@ -101,7 +101,7 @@ class IpGeoService {
         }
       }
     } catch (e) {
-      debugPrint('[IpGeo] API 查询失败 $ipOrDomain: $e');
+      AppLogger.info('IpGeo', 'API 查询失败 $ipOrDomain: $e');
     }
     return null;
   }

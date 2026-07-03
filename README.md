@@ -68,6 +68,9 @@ make sync
 make feature name=my-change
 make verify
 make deps
+scripts/check-secrets.sh
+scripts/smoke-release-artifacts.sh --allow-missing
+scripts/performance-baseline.sh
 ```
 
 - `make status`：查看本地分支、远端同步状态和交付目录状态。
@@ -75,6 +78,9 @@ make deps
 - `make feature name=...`：从稳定分支创建功能分支。
 - `make verify`：运行共享包和三端基础检查。
 - `make deps`：查看共享包和三端依赖是否有可升级版本，建议按月运行。
+- `scripts/check-secrets.sh`：扫描明显高危密钥泄露模式。
+- `scripts/smoke-release-artifacts.sh --allow-missing`：本地有 APK/DMG/ZIP 时检查产物结构。
+- `scripts/performance-baseline.sh`：记录源码热点、关键测试耗时和可选 adb 启动/内存样本。
 
 ## 发布构建
 
@@ -103,6 +109,13 @@ shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
 ```
 
 推送匹配 `v*` 的 tag 会触发 GitHub Actions 发布流程，自动上传三端产物和 SHA256 校验文件。
+
+个人免费发布限制：
+
+- Android Release workflow 使用同一个自签名 keystore secret 时可覆盖升级。
+- macOS DMG 是拖拽安装形式，但未做 Apple Developer ID 签名和公证，首次打开可能需要右键打开。
+- Windows ZIP 是绿色便携版，根目录只保留一个用户可见 exe；未代码签名时可能出现 SmartScreen 提示。
+- Android 当前只随包提供 arm64 核心库；项目网络策略按 IPv4-only 设计。
 
 ## 重要文档
 

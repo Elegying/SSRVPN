@@ -16,6 +16,10 @@ class SubscriptionService extends SubscriptionServiceBase {
   static SubscriptionService? _instance;
   static const int _maxYamlBytes = 2 * 1024 * 1024;
 
+  static void _log(String message) {
+    AppLogger.info('Subscription', message);
+  }
+
   /// 可注入的 HTTP 客户端适配器（测试时可替换为 FakeHttpClientAdapter）
   static HttpClientAdapter? _httpClientOverride;
 
@@ -75,26 +79,22 @@ class SubscriptionService extends SubscriptionServiceBase {
         final result = await _fetchWithMultiIpFallback(uri, stopwatch, attempt);
         if (result != null) return result;
       } on SocketException catch (e) {
-        debugPrint(
-          '[订阅] Socket异常 (尝试$attempt/$maxRetries): ${e.message} (${stopwatch.elapsedMilliseconds}ms)',
-        );
+        _log(
+            'Socket异常 (尝试$attempt/$maxRetries): ${e.message} (${stopwatch.elapsedMilliseconds}ms)');
         lastException = Exception('网络连接失败: ${e.message}');
       } on TimeoutException catch (e) {
-        debugPrint(
-          '[订阅] 超时 (尝试$attempt/$maxRetries): ${e.duration} (${stopwatch.elapsedMilliseconds}ms)',
-        );
+        _log(
+            '超时 (尝试$attempt/$maxRetries): ${e.duration} (${stopwatch.elapsedMilliseconds}ms)');
         lastException = Exception(
           '连接超时: ${e.duration ?? Duration(seconds: attempt * 30)}',
         );
       } on HttpException catch (e) {
-        debugPrint(
-          '[订阅] HTTP错误 (尝试$attempt/$maxRetries): ${e.message} (${stopwatch.elapsedMilliseconds}ms)',
-        );
+        _log(
+            'HTTP错误 (尝试$attempt/$maxRetries): ${e.message} (${stopwatch.elapsedMilliseconds}ms)');
         lastException = Exception('HTTP错误: ${e.message}');
       } catch (e) {
-        debugPrint(
-          '[订阅] 未知异常 (尝试$attempt/$maxRetries): $e (${stopwatch.elapsedMilliseconds}ms)',
-        );
+        _log(
+            '未知异常 (尝试$attempt/$maxRetries): $e (${stopwatch.elapsedMilliseconds}ms)');
         lastException = Exception('获取订阅失败: $e');
       }
 
@@ -121,7 +121,7 @@ class SubscriptionService extends SubscriptionServiceBase {
           throw HttpException('HTTP ${resp.statusCode} 重定向缺少 Location 头');
         }
         current = current.resolve(location);
-        debugPrint('[订阅] 重定向 (${resp.statusCode}) -> $current');
+        _log('重定向 (${resp.statusCode}) -> $current');
         continue;
       }
 
@@ -182,16 +182,14 @@ class SubscriptionService extends SubscriptionServiceBase {
       ).timeout(const Duration(seconds: 10));
       addresses =
           addresses.where((addr) => !DirectFetcher.isFakeIp(addr)).toList();
-      debugPrint(
-        '[订阅] DNS 解析成功: ${uri.host} -> ${addresses.map((a) => a.address).join(", ")} (${stopwatch.elapsedMilliseconds}ms)',
-      );
+      _log(
+          'DNS 解析成功: ${uri.host} -> ${addresses.map((a) => a.address).join(", ")} (${stopwatch.elapsedMilliseconds}ms)');
     } on SocketException catch (e) {
-      debugPrint(
-        '[订阅] DNS 解析失败: ${uri.host} -> ${e.message} (${stopwatch.elapsedMilliseconds}ms)',
-      );
+      _log(
+          'DNS 解析失败: ${uri.host} -> ${e.message} (${stopwatch.elapsedMilliseconds}ms)');
       throw SocketException('DNS解析失败: ${e.message}');
     } on TimeoutException {
-      debugPrint('[订阅] DNS 解析超时: ${uri.host} (10s)');
+      _log('DNS 解析超时: ${uri.host} (10s)');
       throw TimeoutException('DNS解析超时', const Duration(seconds: 10));
     }
 
@@ -206,7 +204,7 @@ class SubscriptionService extends SubscriptionServiceBase {
     SocketException? lastSocketError;
 
     final ipsToTry = addresses.take(5).toList();
-    debugPrint('[订阅] 将尝试 ${ipsToTry.length} 个 IP 地址...');
+    _log('将尝试 ${ipsToTry.length} 个 IP 地址...');
 
     for (int i = 0; i < ipsToTry.length; i++) {
       final addr = ipsToTry[i];
@@ -246,20 +244,17 @@ class SubscriptionService extends SubscriptionServiceBase {
         }
       } on SocketException catch (e) {
         lastSocketError = e;
-        debugPrint(
-          '[订阅] IP ${addr.address} 失败: ${e.message} (${ipStopwatch.elapsedMilliseconds}ms)',
-        );
+        _log(
+            'IP ${addr.address} 失败: ${e.message} (${ipStopwatch.elapsedMilliseconds}ms)');
         continue;
       } on HandshakeException catch (e) {
-        debugPrint(
-          '[订阅] IP ${addr.address} TLS握手失败: ${e.message} (${ipStopwatch.elapsedMilliseconds}ms)',
-        );
+        _log(
+            'IP ${addr.address} TLS握手失败: ${e.message} (${ipStopwatch.elapsedMilliseconds}ms)');
         lastSocketError = SocketException('TLS握手失败: ${e.message}');
         continue;
       } catch (e) {
-        debugPrint(
-          '[订阅] IP ${addr.address} 异常: $e (${ipStopwatch.elapsedMilliseconds}ms)',
-        );
+        _log(
+            'IP ${addr.address} 异常: $e (${ipStopwatch.elapsedMilliseconds}ms)');
         lastSocketError = SocketException('连接异常: $e');
         continue;
       }
@@ -288,9 +283,7 @@ class SubscriptionService extends SubscriptionServiceBase {
       socket.write(request);
       await socket.flush();
 
-      debugPrint(
-        '[订阅] IP $ipAddress 请求已发送 (${ipStopwatch.elapsedMilliseconds}ms)',
-      );
+      _log('IP $ipAddress 请求已发送 (${ipStopwatch.elapsedMilliseconds}ms)');
 
       final responseBytes = <int>[];
       var totalBytes = 0;
@@ -302,9 +295,8 @@ class SubscriptionService extends SubscriptionServiceBase {
         responseBytes.addAll(chunk);
       }
 
-      debugPrint(
-        '[订阅] IP $ipAddress 收到 ${responseBytes.length} bytes (${ipStopwatch.elapsedMilliseconds}ms)',
-      );
+      _log(
+          'IP $ipAddress 收到 ${responseBytes.length} bytes (${ipStopwatch.elapsedMilliseconds}ms)');
 
       if (responseBytes.isEmpty) {
         throw HttpException('IP $ipAddress 返回空响应');
@@ -353,9 +345,8 @@ class SubscriptionService extends SubscriptionServiceBase {
         bodyBytes = _decodeChunked(bodyBytes);
       }
 
-      debugPrint(
-        '[订阅] IP $ipAddress HTTP $statusCode (总耗时 ${totalStopwatch.elapsedMilliseconds}ms)',
-      );
+      _log(
+          'IP $ipAddress HTTP $statusCode (总耗时 ${totalStopwatch.elapsedMilliseconds}ms)');
       return _RawHttpResponse(
         statusCode: statusCode,
         headers: headers,

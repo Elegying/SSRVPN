@@ -1,6 +1,7 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 /// macOS 系统代理服务。
 ///
@@ -240,27 +241,13 @@ class SystemProxyService {
     }
   }
 
-  Future<ProcessResult> _runNetworkSetup(List<String> args) async {
-    Process? process;
-    try {
-      process = await Process.start(_networkSetupPath, args);
-      final stdoutFuture = process.stdout.transform(utf8.decoder).join();
-      final stderrFuture = process.stderr.transform(utf8.decoder).join();
-      final exitCode = await process.exitCode.timeout(
-        _commandTimeout,
-        onTimeout: () {
-          process?.kill(ProcessSignal.sigkill);
-          return 124;
-        },
+  Future<ProcessResult> _runNetworkSetup(List<String> args) =>
+      TimedProcessRunner.run(
+        _networkSetupPath,
+        args,
+        timeout: _commandTimeout,
+        timeoutStderr: 'networksetup 命令超时',
       );
-      final stdout = await stdoutFuture;
-      final stderr = exitCode == 124 ? 'networksetup 命令超时' : await stderrFuture;
-      return ProcessResult(process.pid, exitCode, stdout, stderr);
-    } catch (_) {
-      process?.kill(ProcessSignal.sigkill);
-      rethrow;
-    }
-  }
 
   Future<void> _writeStringAtomically(File file, String content) async {
     await file.parent.create(recursive: true);

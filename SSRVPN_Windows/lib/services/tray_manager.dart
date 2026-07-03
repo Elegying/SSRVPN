@@ -1,6 +1,6 @@
 import 'dart:io';
-import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:system_tray/system_tray.dart';
 
 typedef VoidCallback = void Function();
@@ -33,11 +33,11 @@ class TrayManager {
       // 解析图标路径
       final iconAssetPath = _resolveIconAssetPath();
       if (iconAssetPath == null) {
-        debugPrint('[Tray] 找不到任何可用的托盘图标文件');
+        AppLogger.warning('Tray', '找不到任何可用的托盘图标文件');
         return false;
       }
 
-      debugPrint('[Tray] 使用图标资源: $iconAssetPath');
+      AppLogger.info('Tray', '使用图标资源: $iconAssetPath');
 
       // 初始化系统托盘
       final initialized = await _systemTray.initSystemTray(
@@ -46,7 +46,7 @@ class TrayManager {
         toolTip: 'SSRVPN',
       );
       if (!initialized) {
-        debugPrint('[Tray] 原生插件未能创建系统托盘图标');
+        AppLogger.warning('Tray', '原生插件未能创建系统托盘图标');
         return false;
       }
 
@@ -63,11 +63,10 @@ class TrayManager {
       });
 
       _initialized = true;
-      debugPrint('[Tray] ✅ 系统托盘初始化成功');
+      AppLogger.info('Tray', '系统托盘初始化成功');
       return true;
     } catch (e, stack) {
-      debugPrint('[Tray] ❌ 初始化异常: $e');
-      debugPrint('[Tray] 堆栈: $stack');
+      AppLogger.error('Tray', '初始化异常', error: e, stack: stack);
       _initialized = false;
       return false;
     }
@@ -123,8 +122,7 @@ class TrayManager {
     try {
       await _buildMenu();
     } catch (e, stack) {
-      debugPrint('[Tray] refreshMenu failed: $e');
-      debugPrint('[Tray] stack: $stack');
+      AppLogger.error('Tray', 'refreshMenu failed', error: e, stack: stack);
     }
   }
 

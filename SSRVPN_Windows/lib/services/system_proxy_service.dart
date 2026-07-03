@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+
 /// Manages the Windows system proxy while preserving the user's prior values.
 class SystemProxyService {
   static final SystemProxyService _instance = SystemProxyService._();
@@ -234,10 +236,7 @@ ${_notifyWinInetScript()}
     if (await backupFile.exists()) await backupFile.delete();
   }
 
-  Future<ProcessResult> _runPowerShell(String script) async {
-    Process? process;
-    try {
-      process = await Process.start(
+  Future<ProcessResult> _runPowerShell(String script) => TimedProcessRunner.run(
         _powerShellExecutable(),
         [
           '-NoLogo',
@@ -248,25 +247,9 @@ ${_notifyWinInetScript()}
           '-Command',
           script,
         ],
+        timeout: const Duration(seconds: 20),
+        timeoutStderr: '电脑性能不足，请重新连接',
       );
-      final stdoutFuture = process.stdout.transform(utf8.decoder).join();
-      final stderrFuture = process.stderr.transform(utf8.decoder).join();
-      final exitCode = await process.exitCode.timeout(
-        const Duration(seconds: 20),
-        onTimeout: () {
-          process?.kill(ProcessSignal.sigkill);
-          return 124;
-        },
-      );
-
-      final stdout = await stdoutFuture;
-      final stderr = exitCode == 124 ? '电脑性能不足，请重新连接' : await stderrFuture;
-      return ProcessResult(process.pid, exitCode, stdout, stderr);
-    } catch (e) {
-      process?.kill(ProcessSignal.sigkill);
-      rethrow;
-    }
-  }
 
   String _powerShellExecutable() {
     if (!Platform.isWindows) return 'powershell';

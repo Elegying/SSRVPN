@@ -86,7 +86,7 @@ class ClashService extends ClashServiceBase {
   @override
   @protected
   void debugLog(String message) {
-    debugPrint('[Clash] $message');
+    AppLogger.info('Clash', message);
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -884,38 +884,15 @@ class ClashService extends ClashServiceBase {
     bool includeParentEnvironment = true,
     Map<String, String>? environment,
     Duration timeout = const Duration(seconds: 10),
-  }) async {
-    Process? process;
-    try {
-      process = await Process.start(
+  }) =>
+      TimedProcessRunner.run(
         executable,
         arguments,
         workingDirectory: workingDirectory,
         includeParentEnvironment: includeParentEnvironment,
         environment: environment,
+        timeout: timeout,
       );
-      final stdoutFuture = process.stdout.transform(utf8.decoder).join();
-      final stderrFuture = process.stderr.transform(utf8.decoder).join();
-      final exitCode = await process.exitCode.timeout(
-        timeout,
-        onTimeout: () {
-          process?.kill(ProcessSignal.sigkill);
-          return 124;
-        },
-      );
-      final stdout = await stdoutFuture;
-      final stderr = exitCode == 124 ? '命令超时' : await stderrFuture;
-      return ProcessResult(
-        process.pid,
-        exitCode,
-        stdout,
-        stderr,
-      );
-    } catch (_) {
-      process?.kill(ProcessSignal.sigkill);
-      rethrow;
-    }
-  }
 
   /// 简单控制字符过滤（日志写入辅助）
   static String _stripControlChars(String input) {

@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 /// Android VPN Service 生命周期管理
 ///
@@ -76,7 +76,7 @@ class VpnService {
       _updateStatus(VpnStatus.disconnected);
       return false;
     } catch (e) {
-      debugPrint('[VpnService] 启动失败: $e');
+      AppLogger.warning('VpnService', '启动失败: $e');
       _updateStatus(VpnStatus.disconnected);
       return false;
     }
@@ -89,7 +89,7 @@ class VpnService {
     try {
       await _channel.invokeMethod('stop');
     } catch (e) {
-      debugPrint('[VpnService] 停止失败: $e');
+      AppLogger.warning('VpnService', '停止失败: $e');
     }
     _updateStatus(VpnStatus.disconnected);
   }
@@ -99,7 +99,7 @@ class VpnService {
     try {
       await _channel.invokeMethod('switchProxy', {'name': proxyName});
     } catch (e) {
-      debugPrint('[VpnService] 切换节点失败: $e');
+      AppLogger.warning('VpnService', '切换节点失败: $e');
     }
   }
 
@@ -112,7 +112,7 @@ class VpnService {
         _rxBytes = result['rx'] as int? ?? 0;
       }
     } catch (e) {
-      debugPrint('[VpnService] 获取流量统计失败: $e');
+      AppLogger.warning('VpnService', '获取流量统计失败: $e');
     }
     return (tx: _txBytes, rx: _rxBytes);
   }

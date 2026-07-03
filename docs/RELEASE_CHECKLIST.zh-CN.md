@@ -22,6 +22,22 @@
    ```bash
    scripts/verify-core-assets.sh
    ```
+6. 确认没有明显密钥泄露、覆盖率没有低于当前保守门槛：
+
+   ```bash
+   scripts/check-secrets.sh
+   make verify
+   ```
+7. 如本地已有安装包产物，做一次结构 smoke：
+
+   ```bash
+   scripts/smoke-release-artifacts.sh --allow-missing
+   ```
+8. 发布前后至少记录一次性能基准，用于对比低配设备体验是否退化：
+
+   ```bash
+   scripts/performance-baseline.sh
+   ```
 
 ## 发布
 
@@ -51,7 +67,14 @@
 2. 下载每个平台产物，至少做一次启动检查。
 3. 检查应用内更新是否能读到最新版本，并打开正确下载链接。
 4. 按 `docs/PRODUCT_REQUIREMENTS.zh-CN.md` 检查安装包、首次导入、节点排序和记忆节点行为。
-5. 检查用户会看到的系统提示是否符合预期：
+5. 检查 SHA256 校验文件可用：
+
+   ```bash
+   shasum -a 256 -c SSRVPN.dmg.sha256
+   sha256sum -c SSRVPN.apk.sha256
+   sha256sum -c SSRVPN.zip.sha256
+   ```
+6. 检查用户会看到的系统提示是否符合预期：
    - Android APK 使用同一个自签名 keystore，可覆盖安装升级。
    - macOS 未公证时可能需要右键打开。
    - Windows 未代码签名时可能出现 SmartScreen 未知发布者提示。

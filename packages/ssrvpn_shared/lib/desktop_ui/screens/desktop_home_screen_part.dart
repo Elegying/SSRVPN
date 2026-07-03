@@ -117,7 +117,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         if (success) _scheduleExitCountryResolution();
       }
     } catch (e) {
-      debugPrint('[连接] 重载配置失败: $e');
+      AppLogger.warning('Connection', '重载配置失败: $e');
       if (mounted && !_disposed) {
         final msg = e.toString().replaceFirst('Exception: ', '');
         setState(() {
@@ -826,7 +826,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           );
         }
       } catch (e) {
-        debugPrint('[更新] 检查更新异常: $e');
+        AppLogger.warning('Update', '检查更新异常: $e');
       }
     });
   }
@@ -1019,7 +1019,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         });
       }
     } catch (e) {
-      debugPrint('[出口国家] 查询失败: $e');
+      AppLogger.warning('ExitCountry', '查询失败: $e');
     } finally {
       final restoreName = _selectedNode?.name;
       if (mounted &&
