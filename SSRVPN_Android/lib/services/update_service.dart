@@ -11,7 +11,7 @@ class UpdateService {
   static const String appVersion = '2.0.5';
 
   static const String _owner = 'Elegying';
-  static const String _repo = 'SSRVPN_Android';
+  static const String _repo = 'SSRVPN';
 
   /// Android 原生通道（openUrl 注册在 MainActivity 的 com.ssrvpn/native 上）
   static const _channel = MethodChannel('com.ssrvpn/native');

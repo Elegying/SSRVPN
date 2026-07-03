@@ -8,7 +8,7 @@ import '../theme/app_theme.dart';
 class UpdateService {
   static const String appVersion = '2.0.5';
   static const String _owner = 'Elegying';
-  static const String _repo = 'SSRVPN_Windows';
+  static const String _repo = 'SSRVPN';
 
   /// 检查是否有新版本
   static Future<(String, String, String)?> checkForUpdate(
