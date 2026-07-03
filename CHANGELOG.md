@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.9] - 2026-07-04
+
+### Fixed
+- Silenced Android notification MethodChannel fallback when the native foreground VPN service already owns the persistent notification.
+
 ## [2.0.8] - 2026-07-04
 
 ### Added

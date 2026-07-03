@@ -13,6 +13,7 @@ class NotificationService {
   static const _channel = MethodChannel('com.ssrvpn/notification');
 
   bool _initialized = false;
+  bool _nativeNotificationsAvailable = true;
 
   NotificationService._();
 
@@ -24,12 +25,8 @@ class NotificationService {
   /// 初始化通知通道
   Future<void> initialize() async {
     if (_initialized) return;
-    try {
-      await _channel.invokeMethod('initialize');
-      _initialized = true;
-    } catch (e) {
-      debugPrint('[NotificationService] 初始化失败: $e');
-    }
+    await _invokeNative('initialize', label: '初始化');
+    _initialized = true;
   }
 
   /// 显示连接状态通知（前台 service 常驻）
@@ -39,45 +36,54 @@ class NotificationService {
     int? txBytes,
     int? rxBytes,
   }) async {
-    try {
-      await _channel.invokeMethod('showConnected', {
+    await _invokeNative(
+      'showConnected',
+      label: '显示连接通知',
+      arguments: {
         'nodeName': nodeName,
         'proxyMode': proxyMode,
         'txBytes': txBytes ?? 0,
         'rxBytes': rxBytes ?? 0,
-      });
-    } catch (e) {
-      debugPrint('[NotificationService] 显示连接通知失败: $e');
-    }
+      },
+    );
   }
 
   /// 更新流量信息
   Future<void> updateTraffic(int txBytes, int rxBytes) async {
-    try {
-      await _channel.invokeMethod('updateTraffic', {
+    await _invokeNative(
+      'updateTraffic',
+      label: '更新流量',
+      arguments: {
         'txBytes': txBytes,
         'rxBytes': rxBytes,
-      });
-    } catch (e) {
-      debugPrint('[NotificationService] 更新流量失败: $e');
-    }
+      },
+    );
   }
 
   /// 显示断开状态通知
   Future<void> showDisconnectedNotification() async {
-    try {
-      await _channel.invokeMethod('showDisconnected');
-    } catch (e) {
-      debugPrint('[NotificationService] 显示断开通知失败: $e');
-    }
+    await _invokeNative('showDisconnected', label: '显示断开通知');
   }
 
   /// 隐藏所有通知
   Future<void> dismissAll() async {
+    await _invokeNative('dismissAll', label: '关闭通知');
+  }
+
+  Future<void> _invokeNative(
+    String method, {
+    required String label,
+    Object? arguments,
+  }) async {
+    if (!_nativeNotificationsAvailable) return;
     try {
-      await _channel.invokeMethod('dismissAll');
+      await _channel.invokeMethod(method, arguments);
+    } on MissingPluginException {
+      // Android 的常驻通知由 SsrvpnVpnService 前台服务负责；没有额外
+      // MethodChannel 实现时静默降级，避免每次连接都打印误导性的错误。
+      _nativeNotificationsAvailable = false;
     } catch (e) {
-      debugPrint('[NotificationService] 关闭通知失败: $e');
+      debugPrint('[NotificationService] $label失败: $e');
     }
   }
 
