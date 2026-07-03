@@ -3,11 +3,20 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/SsrvpnVpnService.kt"
+MAIN_ACTIVITY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/MainActivity.kt"
 
 require_text() {
   local needle="$1"
   if ! grep -Fq "$needle" "$SERVICE"; then
     echo "Android native guard check failed: missing '$needle'" >&2
+    exit 1
+  fi
+}
+
+require_activity_text() {
+  local needle="$1"
+  if ! grep -Fq "$needle" "$MAIN_ACTIVITY"; then
+    echo "Android native MethodChannel check failed: missing '$needle'" >&2
     exit 1
   fi
 }
@@ -37,5 +46,9 @@ require_count "bridge.Bridge.init(configDir, \"config.yaml\")" 1
 require_count "bridge.Bridge.start(configPath, tunFd)" 1
 require_count "bridge.Bridge.stop()" 1
 require_count "bridge.Bridge.isRunning()" 1
+
+require_activity_text '"syncSettings"'
+require_activity_text '"flutter.proxyPort"'
+require_activity_text '"flutter.autoConnectOnStartup"'
 
 echo "Android native bridge guard check passed."

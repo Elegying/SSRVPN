@@ -76,6 +76,20 @@ class MainActivity : FlutterActivity() {
                     autoConnectPending = false
                     result.success(pending)
                 }
+                "syncSettings" -> {
+                    val args = call.arguments as? Map<*, *>
+                    val proxyPort = (args?.get("proxyPort") as? Number)?.toInt() ?: 7890
+                    val autoConnect = args?.get("autoConnect") as? Boolean ?: false
+
+                    getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                        .edit()
+                        .putLong("flutter.proxyPort", proxyPort.toLong())
+                        .putBoolean("flutter.autoConnect", autoConnect)
+                        .putBoolean("flutter.autoConnectOnStartup", autoConnect)
+                        .apply()
+
+                    result.success(true)
+                }
                 "notifyVpnStateChanged" -> {
                     // Flutter 通知原生状态变更，广播给磁贴和通知
                     SsrvpnVpnService.broadcastState(this)
