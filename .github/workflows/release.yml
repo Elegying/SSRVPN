@@ -33,6 +33,7 @@ jobs:
           cache: true
       - run: bash ../../scripts/check-shared-barrel-imports.sh
       - run: bash ../../scripts/check-version-sync.sh
+      - run: bash ../../scripts/check-android-native-bridge-guards.sh
       - run: dart pub get
       - run: dart analyze --fatal-infos
       - run: dart test

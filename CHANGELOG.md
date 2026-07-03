@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.8] - 2026-07-04
+
+### Added
+- Added a CI guard that verifies Android native bridge calls stay behind timeout-protected helpers.
+
+### Fixed
+- Moved Android Mihomo native start/init, stop, and running-state checks behind daemon workers with bounded waits to prevent UI-thread ANR during connect/disconnect cleanup.
+
 ## [2.0.6] - 2026-07-03
 
 ### Changed

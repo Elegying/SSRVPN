@@ -21,6 +21,7 @@ import java.io.FileInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 
 class SsrvpnVpnService : VpnService() {
@@ -84,6 +85,14 @@ class SsrvpnVpnService : VpnService() {
             intent.setPackage(context.packageName)
             context.sendBroadcast(intent)
         }
+
+        private const val BRIDGE_START_TIMEOUT_MS = 45_000L
+        private const val BRIDGE_STOP_TIMEOUT_MS = 5_000L
+        private const val BRIDGE_IS_RUNNING_TIMEOUT_MS = 2_000L
+        private val stopInProgress = AtomicBoolean(false)
+        private val bridgeStartInProgress = AtomicBoolean(false)
+        private val bridgeStopInProgress = AtomicBoolean(false)
+        private val bridgeRunningCheckInProgress = AtomicBoolean(false)
     }
 
     private val disconnectReceiver = object : BroadcastReceiver() {
@@ -169,9 +178,12 @@ class SsrvpnVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
-        Thread {
+        Thread({
             startCoreWithVpn(configDir, configPath, apiPort, apiSecret, selectedNodeName)
-        }.start()
+        }, "SSRVPN-start").apply {
+            isDaemon = true
+            start()
+        }
 
         return START_STICKY
     }
@@ -458,8 +470,13 @@ class SsrvpnVpnService : VpnService() {
 
             // Step 4: Initialize and start Mihomo
             Log.d(TAG, "Initializing Mihomo...")
-            bridge.Bridge.init(configDir, "config.yaml")
-            val startErr = bridge.Bridge.start(configPath, tunFd)
+            val startErr = startBridgeWithTimeout(configDir, configPath, tunFd)
+            if (startErr == null) {
+                Log.e(TAG, "Mihomo start timed out")
+                consumeStartResult(false, "设备性能不足，请重新连接")
+                stopAll()
+                return
+            }
             if (startErr.isNotEmpty()) {
                 Log.e(TAG, "Mihomo start failed: $startErr")
                 consumeStartResult(false, "Mihomo: $startErr")
@@ -491,21 +508,12 @@ class SsrvpnVpnService : VpnService() {
                 startNotificationUpdates()
                 consumeStartResult(true, "OK")
 
-                Thread {
-                    try {
-                        while (bridge.Bridge.isRunning()) {
-                            Thread.sleep(3000)
-                        }
-                        // 核心意外退出：必须关闭 VPN 接口并停止前台服务，
-                        // 否则全局流量仍被路由进无人读取的 TUN，导致整机断网
-                        if (isRunning) {
-                            Log.e(TAG, "Mihomo stopped unexpectedly, tearing down VPN")
-                            stopAll()
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Monitor error", e)
-                    }
-                }.start()
+                Thread({
+                    monitorCoreRunning()
+                }, "SSRVPN-core-monitor").apply {
+                    isDaemon = true
+                    start()
+                }
             } else {
                 Log.e(TAG, "Health check timeout")
                 consumeStartResult(false, "设备性能不足，请重新连接")
@@ -516,6 +524,97 @@ class SsrvpnVpnService : VpnService() {
             consumeStartResult(false, "Error: ${e.message}")
             stopAll()
         }
+    }
+
+    private fun startBridgeWithTimeout(
+        configDir: String,
+        configPath: String,
+        tunFd: Long
+    ): String? {
+        if (!bridgeStartInProgress.compareAndSet(false, true)) {
+            Log.w(TAG, "Bridge.start already in progress")
+            return "核心正在启动，请稍后重试"
+        }
+        var result: String? = null
+        var error: Exception? = null
+        val bridgeThread = Thread({
+            try {
+                bridge.Bridge.init(configDir, "config.yaml")
+                result = bridge.Bridge.start(configPath, tunFd)
+                Log.d(TAG, "Bridge.start returned")
+            } catch (e: Exception) {
+                error = e
+            } finally {
+                bridgeStartInProgress.set(false)
+            }
+        }, "SSRVPN-bridge-start").apply {
+            isDaemon = true
+            start()
+        }
+        try {
+            bridgeThread.join(BRIDGE_START_TIMEOUT_MS)
+            if (bridgeThread.isAlive) {
+                Log.e(TAG, "Bridge.start timed out after ${BRIDGE_START_TIMEOUT_MS}ms")
+                return null
+            }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            Log.e(TAG, "Interrupted while waiting for Bridge.start", e)
+            return "启动被中断"
+        }
+        error?.let { throw it }
+        return result ?: ""
+    }
+
+    private fun monitorCoreRunning() {
+        try {
+            while (isBridgeRunningWithTimeout()) {
+                Thread.sleep(3000)
+            }
+            // 核心意外退出：必须关闭 VPN 接口并停止前台服务，
+            // 否则全局流量仍被路由进无人读取的 TUN，导致整机断网
+            if (isRunning) {
+                Log.e(TAG, "Mihomo stopped unexpectedly, tearing down VPN")
+                stopAll()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Monitor error", e)
+        }
+    }
+
+    private fun isBridgeRunningWithTimeout(): Boolean {
+        if (!bridgeRunningCheckInProgress.compareAndSet(false, true)) {
+            Log.w(TAG, "Bridge.isRunning already in progress; assuming running")
+            return true
+        }
+        var result = true
+        var error: Exception? = null
+        val bridgeThread = Thread({
+            try {
+                result = bridge.Bridge.isRunning()
+            } catch (e: Exception) {
+                error = e
+                result = false
+            } finally {
+                bridgeRunningCheckInProgress.set(false)
+            }
+        }, "SSRVPN-bridge-is-running").apply {
+            isDaemon = true
+            start()
+        }
+        try {
+            bridgeThread.join(BRIDGE_IS_RUNNING_TIMEOUT_MS)
+            if (bridgeThread.isAlive) {
+                Log.e(TAG, "Bridge.isRunning timed out after ${BRIDGE_IS_RUNNING_TIMEOUT_MS}ms; assuming running")
+                return true
+            }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            Log.e(TAG, "Interrupted while waiting for Bridge.isRunning", e)
+            return true
+        }
+        error?.let { Log.e(TAG, "Bridge.isRunning error", it) }
+        return result
     }
 
     private fun applyProxySelection(apiPort: Int, apiSecret: String, nodeName: String?) {
@@ -591,30 +690,77 @@ class SsrvpnVpnService : VpnService() {
         }
     }
 
-    @Synchronized
     fun stopAll() {
+        if (!stopInProgress.compareAndSet(false, true)) {
+            Log.d(TAG, "Stop already in progress")
+            return
+        }
+        Thread({
+            try {
+                stopAllOnWorker()
+            } finally {
+                stopInProgress.set(false)
+            }
+        }, "SSRVPN-stop").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    private fun stopAllOnWorker() {
         Log.d(TAG, "Stopping...")
         stopNotificationUpdates()
         protectThread?.interrupt()
         protectThread = null
+        stopBridgeWithTimeout()
         try {
-            bridge.Bridge.stop()
-        } catch (e: Exception) {
-            Log.e(TAG, "Bridge stop error", e)
-        }
-        try { vpnFd?.close() } catch (_: Exception) {}
+            vpnFd?.close()
+        } catch (_: Exception) {}
         vpnFd = null
         isRunning = false
         broadcastState(this)
-        // 修复: 使用兼容 Android 13+ 的方式停止前台服务
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
+        try {
+            // 修复: 使用兼容 Android 13+ 的方式停止前台服务
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "stopForeground failed: ${e.message}")
         }
         stopSelf()
         Log.d(TAG, "Stopped")
+    }
+
+    private fun stopBridgeWithTimeout() {
+        if (!bridgeStopInProgress.compareAndSet(false, true)) {
+            Log.w(TAG, "Bridge.stop already in progress; skipping duplicate stop")
+            return
+        }
+        val bridgeThread = Thread({
+            try {
+                bridge.Bridge.stop()
+                Log.d(TAG, "Bridge.stop returned")
+            } catch (e: Exception) {
+                Log.e(TAG, "Bridge stop error", e)
+            } finally {
+                bridgeStopInProgress.set(false)
+            }
+        }, "SSRVPN-bridge-stop").apply {
+            isDaemon = true
+            start()
+        }
+        try {
+            bridgeThread.join(BRIDGE_STOP_TIMEOUT_MS)
+            if (bridgeThread.isAlive) {
+                Log.e(TAG, "Bridge.stop timed out after ${BRIDGE_STOP_TIMEOUT_MS}ms; continuing VPN cleanup")
+            }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            Log.e(TAG, "Interrupted while waiting for Bridge.stop", e)
+        }
     }
 
     override fun onDestroy() {
