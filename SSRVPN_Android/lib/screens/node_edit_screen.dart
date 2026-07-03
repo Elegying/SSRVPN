@@ -100,7 +100,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     List<TextInputFormatter>? inputFormatters,
   }) {
     return Padding(
-      padding:  EdgeInsets.only(bottom: 14),
+      padding: EdgeInsets.only(bottom: 14),
       child: TextFormField(
         controller: _controllers[key],
         obscureText: secret,
@@ -163,8 +163,8 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     final newName = result['name'] as String;
     final settingsService = context.read<SettingsService>();
     final subscriptionService = context.read<SubscriptionService>();
-    final renameRemembered =
-        originalName != newName && settingsService.settings.lastSelectedNodeName == originalName;
+    final renameRemembered = originalName != newName &&
+        settingsService.settings.lastSelectedNodeName == originalName;
 
     setState(() => _saving = true);
     try {
@@ -183,11 +183,11 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
         final friendlyMsg = msg.contains('备注名已存在')
             ? '节点名称重复，请使用不同的名称'
             : msg.contains('找不到')
-            ? '节点已被删除，请返回刷新'
-            : '保存失败，请稍后重试';
+                ? '节点已被删除，请返回刷新'
+                : '保存失败，请稍后重试';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            margin:  EdgeInsets.fromLTRB(16, 0, 16, 88),
+            margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
             content: Text(friendlyMsg),
             backgroundColor: AppTheme.errorColor,
           ),
@@ -201,22 +201,23 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
-        title:  Text('编辑节点'),
+        title: Text('编辑节点'),
         actions: [
           Padding(
-            padding:  EdgeInsets.only(right: 8),
+            padding: EdgeInsets.only(right: 8),
             child: TextButton.icon(
               onPressed: _saving ? null : _save,
               icon: _saving
-                  ?  SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  :  Icon(Icons.save_rounded, size: 18),
-              label:  Text('保存',
+                  : Icon(Icons.save_rounded, size: 18),
+              label: Text('保存',
                   style: TextStyle(
-                      color: AppTheme.primaryColor, fontWeight: FontWeight.w700)),
+                      color: AppTheme.primaryColor,
+                      fontWeight: FontWeight.w700)),
             ),
           ),
         ],
@@ -224,7 +225,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
       body: Form(
         key: _formKey,
         child: ListView(
-          padding:  EdgeInsets.all(20),
+          padding: EdgeInsets.all(20),
           children: [
             Text(
               '修改仅保存在本地，刷新订阅后会被订阅内容覆盖。',
@@ -234,7 +235,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                     : AppTheme.lightTextSecondary,
               ),
             ),
-             SizedBox(height: 20),
+            SizedBox(height: 20),
             _field('name', '备注名', required: true),
             _field('server', '服务器地址', required: true),
             _field(
@@ -245,7 +246,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             ),
             Padding(
-              padding:  EdgeInsets.only(bottom: 14),
+              padding: EdgeInsets.only(bottom: 14),
               child: DropdownButtonFormField<String>(
                 initialValue: _type,
                 decoration: const InputDecoration(labelText: '节点类型'),
@@ -279,24 +280,25 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
               _field('sni', 'SNI'),
             if (_hasField('servername', {}))
               _field('servername', 'Server Name'),
-             SizedBox(height: 4),
+            SizedBox(height: 4),
             TextFormField(
               controller: _extraController,
               minLines: 5,
               maxLines: 12,
-              style: TextStyle(fontFamily: 'monospace', fontSize: Responsive.sp(12)),
+              style: TextStyle(
+                  fontFamily: 'monospace', fontSize: Responsive.sp(12)),
               decoration: const InputDecoration(
                 labelText: '其他参数（JSON）',
                 alignLabelWithHint: true,
                 helperText: 'TLS、插件、WebSocket 等未列出的参数可在这里修改',
               ),
             ),
-             SizedBox(height: 24),
+            SizedBox(height: 24),
             SizedBox(
               height: 48,
               child: ElevatedButton(
                 onPressed: _save,
-                child:  Text('保存修改'),
+                child: Text('保存修改'),
               ),
             ),
           ],

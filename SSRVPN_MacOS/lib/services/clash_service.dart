@@ -69,8 +69,7 @@ class ClashService extends ClashServiceBase {
     final logFile = _logFile;
     if (logFile != null) {
       final sanitized = _stripControlChars(message);
-      final line =
-          '[${DateTime.now().toIso8601String()}] $sanitized\n';
+      final line = '[${DateTime.now().toIso8601String()}] $sanitized\n';
       _pendingLogWrite = _pendingLogWrite
           .then(
             (_) => logFile.writeAsString(
@@ -118,8 +117,7 @@ class ClashService extends ClashServiceBase {
       configDir = dataDir;
     } else {
       final supportDir = await getApplicationSupportDirectory();
-      configDir =
-          '${supportDir.path}${Platform.pathSeparator}SSRVPN';
+      configDir = '${supportDir.path}${Platform.pathSeparator}SSRVPN';
     }
     final configPath = '$configDir${Platform.pathSeparator}config.yaml';
     setPaths(configDir: configDir, configPath: configPath);
@@ -190,17 +188,16 @@ class ClashService extends ClashServiceBase {
       final marker = File('$destPath.rev');
       final data = await rootBundle.load(assetKey);
       final compressedBytes = data.buffer.asUint8List();
-      final assetRevision =
-          crypto.sha256.convert(compressedBytes).toString();
+      final assetRevision = crypto.sha256.convert(compressedBytes).toString();
 
       // marker 记录源资源 SHA256；一致则跳过昂贵的 gzip 解压
       if (await dest.exists() &&
           await marker.exists() &&
           (await marker.readAsString()) == assetRevision) {
         if (executable) {
-      await _chmodExec(destPath);
-    }
-    return;
+          await _chmodExec(destPath);
+        }
+        return;
       }
 
       var bytes = compressedBytes;
@@ -235,8 +232,7 @@ class ClashService extends ClashServiceBase {
   Future<bool> _fileContentMatches(File file, List<int> bytes) async {
     if (!await file.exists()) return false;
     if (await file.length() != bytes.length) return false;
-    final digest =
-        crypto.sha256.convert(await file.readAsBytes()).toString();
+    final digest = crypto.sha256.convert(await file.readAsBytes()).toString();
     final expected = crypto.sha256.convert(bytes).toString();
     return digest == expected;
   }
@@ -419,15 +415,14 @@ class ClashService extends ClashServiceBase {
     result.writeln('  - name: PROXY');
     result.writeln('    type: select');
     result.writeln('    proxies:');
-    final preferredNode =
-        preferredNodeName ?? settings.lastSelectedNodeName;
-    final proxySelectionOrder = preferredNode != null &&
-            proxyNames.contains(preferredNode)
-        ? [
-            preferredNode,
-            ...proxyNames.where((name) => name != preferredNode),
-          ]
-        : proxyNames;
+    final preferredNode = preferredNodeName ?? settings.lastSelectedNodeName;
+    final proxySelectionOrder =
+        preferredNode != null && proxyNames.contains(preferredNode)
+            ? [
+                preferredNode,
+                ...proxyNames.where((name) => name != preferredNode),
+              ]
+            : proxyNames;
     for (final name in proxySelectionOrder) {
       result.writeln("      - ${yamlQuote(name)}");
     }
@@ -554,8 +549,7 @@ class ClashService extends ClashServiceBase {
         return false;
       }
 
-      if (settings.enableTun &&
-          !await _coreHasRootPrivilege()) {
+      if (settings.enableTun && !await _coreHasRootPrivilege()) {
         final granted = await _grantRootPrivilege();
         if (!granted) {
           setLastStartError(
@@ -621,8 +615,7 @@ class ClashService extends ClashServiceBase {
 
       startedProcess.exitCode.then((code) {
         startupExitCode = code;
-        if (!identical(_clashProcess, startedProcess) ||
-            _stoppingCore) {
+        if (!identical(_clashProcess, startedProcess) || _stoppingCore) {
           return;
         }
 
@@ -637,10 +630,8 @@ class ClashService extends ClashServiceBase {
       });
 
       var healthy = false;
-      final deadline =
-          DateTime.now().add(const Duration(seconds: 15));
-      while (DateTime.now().isBefore(deadline) &&
-          startupExitCode == null) {
+      final deadline = DateTime.now().add(const Duration(seconds: 15));
+      while (DateTime.now().isBefore(deadline) && startupExitCode == null) {
         healthy = await healthCheck();
         if (healthy) break;
         await Future.delayed(const Duration(milliseconds: 250));
@@ -675,9 +666,7 @@ class ClashService extends ClashServiceBase {
       }
 
       if (startupExitCode != null) {
-        final detail = startupOutput.isEmpty
-            ? ''
-            : ': ${startupOutput.last}';
+        final detail = startupOutput.isEmpty ? '' : ': ${startupOutput.last}';
         setLastStartError(
           'Mihomo 提前退出（退出码 $startupExitCode）$detail',
         );
@@ -777,12 +766,10 @@ class ClashService extends ClashServiceBase {
         timeout: const Duration(seconds: 5),
       );
       if (result.exitCode != 0) return false;
-      final parts =
-          (result.stdout as String).trim().split(' ');
+      final parts = (result.stdout as String).trim().split(' ');
       if (parts.length != 2) return false;
       final isRoot = parts[0] == 'root';
-      final hasSetuid =
-          parts[1].length >= 4 && parts[1][0] == '4';
+      final hasSetuid = parts[1].length >= 4 && parts[1][0] == '4';
       return isRoot && hasSetuid;
     } catch (_) {
       return false;
@@ -812,9 +799,7 @@ class ClashService extends ClashServiceBase {
       if (result.exitCode != 0) {
         final stderr = result.stderr.toString().trim();
         setLastStartError(
-          stderr.isEmpty
-              ? 'TUN 模式需要管理员授权，已取消'
-              : 'TUN 授权失败: $stderr',
+          stderr.isEmpty ? 'TUN 模式需要管理员授权，已取消' : 'TUN 授权失败: $stderr',
         );
       }
       return result.exitCode == 0;
@@ -909,10 +894,8 @@ class ClashService extends ClashServiceBase {
         includeParentEnvironment: includeParentEnvironment,
         environment: environment,
       );
-      final stdoutFuture =
-          process.stdout.transform(utf8.decoder).join();
-      final stderrFuture =
-          process.stderr.transform(utf8.decoder).join();
+      final stdoutFuture = process.stdout.transform(utf8.decoder).join();
+      final stderrFuture = process.stderr.transform(utf8.decoder).join();
       final exitCode = await process.exitCode.timeout(
         timeout,
         onTimeout: () {
@@ -921,8 +904,7 @@ class ClashService extends ClashServiceBase {
         },
       );
       final stdout = await stdoutFuture;
-      final stderr =
-          exitCode == 124 ? '命令超时' : await stderrFuture;
+      final stderr = exitCode == 124 ? '命令超时' : await stderrFuture;
       return ProcessResult(
         process.pid,
         exitCode,
@@ -937,7 +919,6 @@ class ClashService extends ClashServiceBase {
 
   /// 简单控制字符过滤（日志写入辅助）
   static String _stripControlChars(String input) {
-    return input.replaceAll(RegExp(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]'),
-        '');
+    return input.replaceAll(RegExp(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]'), '');
   }
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'screens/home_screen.dart';
@@ -139,6 +140,12 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       );
       await core.writeConfig(config);
       final started = await core.start();
+      if (!started) {
+        StartupLogger.writeDesktopFailureReportSync(
+          'Tray connection failed: ${core.lastStartError ?? "unable to start core"}',
+        );
+        return;
+      }
       if (started && preferredNodeName != null) {
         final switched = await core.switchSelectedProxy(preferredNodeName);
         if (switched) {
@@ -147,6 +154,11 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       }
     } catch (error, stack) {
       StartupLogger.error('Tray connect toggle failed', error, stack);
+      StartupLogger.writeDesktopFailureReportSync(
+        'Tray connection failed',
+        error: error,
+        stack: stack,
+      );
     } finally {
       await _trayManager.refreshMenu();
     }
@@ -171,14 +183,19 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   Future<void> _quitApp() async {
     if (_isQuitting) return;
     _isQuitting = true;
-    await _settingsService?.flush();
-    await _clashService?.stop();
-    await _trayManager.destroy();
     try {
+      await _settingsService?.flush();
+      await _clashService?.stop();
+      await _trayManager.destroy();
       await windowManager.setPreventClose(false);
       await windowManager.destroy();
     } catch (error, stack) {
-      StartupLogger.error('Window destroy failed', error, stack);
+      StartupLogger.error('Quit failed', error, stack);
+      StartupLogger.writeDesktopFailureReportSync(
+        'Quit failed',
+        error: error,
+        stack: stack,
+      );
     }
   }
 
@@ -275,12 +292,15 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
             theme: AppTheme.light,
             darkTheme: AppTheme.dark,
             themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-            home: _MainShell(
-              isDark: isDark,
-              startupFlags: widget.startupFlags,
-              failures: StartupStatus.instance.failures,
-              currentIndex: _currentIndex,
-              onIndexChanged: (index) => setState(() => _currentIndex = index),
+            home: CrashReportPrompt(
+              child: _MainShell(
+                isDark: isDark,
+                startupFlags: widget.startupFlags,
+                failures: StartupStatus.instance.failures,
+                currentIndex: _currentIndex,
+                onIndexChanged: (index) =>
+                    setState(() => _currentIndex = index),
+              ),
             ),
           );
         },
@@ -294,62 +314,65 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
-      home: Scaffold(
-        backgroundColor: const Color(0xFF050508),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    startupFailed
-                        ? Icons.error_outline_rounded
-                        : Icons.shield_outlined,
-                    color: startupFailed ? AppTheme.error : AppTheme.primary,
-                    size: 42,
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    startupFailed ? '启动失败' : 'SSRVPN',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color:
-                          startupFailed ? AppTheme.error : AppTheme.textPrimary,
+      home: CrashReportPrompt(
+        child: Scaffold(
+          backgroundColor: const Color(0xFF050508),
+          body: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      startupFailed
+                          ? Icons.error_outline_rounded
+                          : Icons.shield_outlined,
+                      color: startupFailed ? AppTheme.error : AppTheme.primary,
+                      size: 42,
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    startupFailed ? '初始化服务失败，请稍后查看诊断日志。' : '正在加载必要组件...',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                  if (!startupFailed) ...[
-                    const SizedBox(height: 18),
-                    SizedBox(
-                      width: 260,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
-                        child: LinearProgressIndicator(
-                          value: _startupProgress(status),
-                          minHeight: 6,
-                          backgroundColor:
-                              AppTheme.primary.withValues(alpha: 32 / 255),
-                          color: AppTheme.primary,
-                        ),
+                    const SizedBox(height: 24),
+                    Text(
+                      startupFailed ? '启动失败' : 'SSRVPN',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        color: startupFailed
+                            ? AppTheme.error
+                            : AppTheme.textPrimary,
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    Text(
+                      startupFailed ? '初始化服务失败，请稍后查看诊断日志。' : '正在加载必要组件...',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                    if (!startupFailed) ...[
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: 260,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: _startupProgress(status),
+                            minHeight: 6,
+                            backgroundColor:
+                                AppTheme.primary.withValues(alpha: 32 / 255),
+                            color: AppTheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (failures.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      _StartupProblemPanel(failures: failures),
+                    ],
                   ],
-                  if (failures.isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    _StartupProblemPanel(failures: failures),
-                  ],
-                ],
+                ),
               ),
             ),
           ),

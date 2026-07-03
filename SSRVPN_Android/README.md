@@ -43,7 +43,7 @@ flutter pub get
 # 2. 构建 Debug 版本
 flutter build apk --debug
 
-# 3. 构建 Release 版本（需要 key.properties 配置签名）
+# 3. 构建本地 Release 验证包（正式发布由 GitHub Actions 签名）
 flutter build apk --release
 
 # 4. 构建产物位于
@@ -56,7 +56,18 @@ certutil -hashfile SSRVPN.apk SHA256
 
 ### 签名配置
 
-正式签名信息存放在 `android/key.properties`（已 gitignore）：
+推荐从仓库根目录生成免费自签名 keystore：
+
+```bash
+scripts/create-android-release-keystore.sh
+```
+
+正式发布由 GitHub Release workflow 在线构建并签名。仓库需要配置
+`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、
+`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 四个 secrets；workflow 会临时
+生成 `android/key.properties`。
+
+本地如果需要手动签名，可创建 `android/key.properties`（已 gitignore）：
 
 ```properties
 storeFile=路径/到/keystore.jks
@@ -65,7 +76,9 @@ keyAlias=别名
 keyPassword=密码
 ```
 
-没有 `key.properties` 时自动回退到 debug 签名，保证能在任何机器上构建。
+没有 `key.properties` 时本地构建会回退到 debug 签名；debug 包只用于验证，
+不能作为正式 Release 发布。GitHub Actions 中请求 release 构建时必须存在
+secrets 生成的临时 `key.properties`，否则构建会直接失败。
 
 ## 项目结构
 

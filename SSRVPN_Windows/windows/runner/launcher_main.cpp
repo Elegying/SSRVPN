@@ -440,7 +440,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
                       _In_ wchar_t* command_line, _In_ int show_command) {
   const std::wstring launcher_path = GetExecutablePath();
   const std::wstring launcher_directory = GetDirectoryName(launcher_path);
-  const std::wstring child_path = JoinPath(launcher_directory, kChildExeName);
+  const std::wstring child_directory = JoinPath(launcher_directory, L"bin");
+  const std::wstring child_path = JoinPath(child_directory, kChildExeName);
 
   if (::GetFileAttributesW(child_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
     ShowError(L"SSRVPN",
@@ -467,17 +468,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
 
   if (need_cet_disable) {
     // Try with CET mitigation policy first.
-    created = CreateChildProcess(child_path, launcher_directory,
+    created = CreateChildProcess(child_path, child_directory,
                                  child_command_line, show_command,
                                  true, &process_information, &error);
     if (!created) {
       // Fallback: try without mitigation.
-      created = CreateChildProcess(child_path, launcher_directory,
+      created = CreateChildProcess(child_path, child_directory,
                                    child_command_line, show_command,
                                    false, &process_information, &error);
     }
   } else {
-    created = CreateChildProcess(child_path, launcher_directory,
+    created = CreateChildProcess(child_path, child_directory,
                                  child_command_line, show_command,
                                  false, &process_information, &error);
   }

@@ -12,7 +12,13 @@ This guide keeps local development, GitHub automation, and releases aligned.
    ```
 
 1. Check Dependabot PRs and CI status.
-2. Run shared package verification:
+2. Check dependency drift once a month, not on release day:
+
+   ```bash
+   make deps
+   ```
+
+3. Run shared package verification:
 
    ```bash
    cd packages/ssrvpn_shared
@@ -21,7 +27,7 @@ This guide keeps local development, GitHub automation, and releases aligned.
    dart test --coverage=coverage
    ```
 
-3. Run touched platform checks:
+4. Run touched platform checks:
 
    ```bash
    cd SSRVPN_Android
@@ -30,8 +36,8 @@ This guide keeps local development, GitHub automation, and releases aligned.
    flutter test --coverage
    ```
 
-4. Repeat for `SSRVPN_MacOS` and `SSRVPN_Windows` when shared behavior or common models change.
-5. Keep `CHANGELOG.md` updated under `Unreleased`.
+5. Repeat for `SSRVPN_MacOS` and `SSRVPN_Windows` when shared behavior or common models change.
+6. Keep `CHANGELOG.md` updated under `Unreleased`.
 
 ## Pull Request Rules
 
@@ -47,21 +53,24 @@ This guide keeps local development, GitHub automation, and releases aligned.
 
 1. Confirm `main` CI is green.
 2. Review `CHANGELOG.md` and move relevant entries from `Unreleased` to the target version.
-3. Verify signing material is available:
-   - Android keystore or documented debug fallback.
-   - macOS signing/notarization credentials when shipping outside local testing.
-   - Windows code signing certificate when public trust is required.
-   - See `docs/RELEASE_SIGNING.md` for expected secret names and workflow steps.
-4. Create and push a version tag:
+3. Verify bundled core assets:
+
+   ```bash
+   scripts/verify-core-assets.sh
+   ```
+
+4. Verify the free Android self-signed keystore secrets are available. macOS notarization and Windows code signing are intentionally not required for the current personal release posture.
+   See `docs/RELEASE_SIGNING.md` for expected secret names and workflow steps.
+5. Create and push a version tag:
 
    ```bash
    git tag vX.Y.Z
    git push origin vX.Y.Z
    ```
 
-5. Watch the `Release` workflow.
-6. Download artifacts and verify checksums.
-7. Smoke test at least one install/run path per platform before announcing.
+6. Watch the `Release` workflow.
+7. Download artifacts, verify checksums, and optionally run `scripts/check-release-assets.sh vX.Y.Z`.
+8. Smoke test at least one install/run path per platform before announcing.
 
 ## Online/Offline Consistency
 

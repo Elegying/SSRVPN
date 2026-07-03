@@ -77,19 +77,24 @@ build_release.bat -OfflinePub
 
 ```
 SSRVPN_Windows_Release/
-├── ssrvpn_windows.exe    # 主程序
-├── mihomo.exe            # Mihomo 核心
-├── ssrvpn/               # 配置目录 (首次运行自动创建)
-│   ├── settings.json     # 用户设置
-│   ├── config.yaml       # Clash 配置
-│   ├── subscriptions.json# 订阅列表
-│   └── geoip.metadb      # GeoIP 数据库
-├── data/                 # Flutter 运行时资源
-│   └── flutter_assets/
-│       └── assets/
-│           ├── geoip.metadb.gz
-│           └── icon.ico
-└── *.dll                 # 依赖的动态库
+├── ssrvpn_windows.exe          # 主目录唯一启动程序
+├── 使用教程.txt
+├── SSRVPN_Diag.bat
+├── SAFE_MODE_README.txt
+└── bin/
+    ├── ssrvpn_windows_app.exe  # 内部 Flutter 程序
+    ├── mihomo.exe              # Mihomo 核心
+    ├── ssrvpn/                 # 配置目录 (首次运行自动创建)
+    │   ├── settings.json       # 用户设置
+    │   ├── config.yaml         # Clash 配置
+    │   ├── subscriptions.json  # 订阅列表
+    │   └── geoip.metadb        # GeoIP 数据库
+    ├── data/                   # Flutter 运行时资源
+    │   └── flutter_assets/
+    │       └── assets/
+    │           ├── geoip.metadb.gz
+    │           └── icon.ico
+    └── *.dll                   # 依赖的动态库
 ```
 
 ## Mihomo 核心
@@ -112,23 +117,28 @@ https://github.com/MetaCubeX/mihomo/releases
 
 ### 便携模式
 
-本软件为**绿色免安装版**，配置、订阅、缓存和日志默认存储在软件根目录的 `ssrvpn` 文件夹内。系统代理模式运行期间会临时修改当前用户的 Windows 代理设置，断开或退出时自动恢复原设置。
+本软件为**绿色免安装版**，解压后主目录只有一个面向用户的 `ssrvpn_windows.exe`。应用内部文件放在 `bin` 目录，配置、订阅、缓存和日志默认存储在 `bin\ssrvpn` 文件夹内。系统代理模式运行期间会临时修改当前用户的 Windows 代理设置，断开或退出时自动恢复原设置。
 
 如果程序目录不可写（例如放在受保护目录或只读介质），数据会自动回退到 `%LOCALAPPDATA%\SSRVPN\ssrvpn`。系统代理恢复快照属于当前电脑的运行状态，会单独保存在本机 LocalAppData 中，不会随便携目录复制到其他电脑。
 
 ```
 SSRVPN_Windows_Portable/
-├── ssrvpn_windows.exe      # 主程序
-├── mihomo.exe              # 代理核心
-├── ssrvpn/                 # 所有用户数据
-│   ├── settings.json       # 用户设置
-│   ├── subscriptions.json  # 订阅列表
-│   ├── config.yaml         # Clash 配置
-│   ├── tmp/                # 临时文件
-│   ├── geoip.metadb        # GeoIP 数据库
-│   └── country.mmdb        # MMDB 数据库
-├── data/                   # 应用资源
-└── *.dll                   # 依赖库
+├── ssrvpn_windows.exe          # 主目录唯一启动程序
+├── 使用教程.txt
+├── SSRVPN_Diag.bat
+├── SAFE_MODE_README.txt
+└── bin/
+    ├── ssrvpn_windows_app.exe  # 内部 Flutter 程序
+    ├── mihomo.exe              # 代理核心
+    ├── ssrvpn/                 # 所有用户数据
+    │   ├── settings.json       # 用户设置
+    │   ├── subscriptions.json  # 订阅列表
+    │   ├── config.yaml         # Clash 配置
+    │   ├── tmp/                # 临时文件
+    │   ├── geoip.metadb        # GeoIP 数据库
+    │   └── country.mmdb        # MMDB 数据库
+    ├── data/                   # 应用资源
+    └── *.dll                   # 依赖库
 ```
 
 你可以将整个文件夹复制到 U 盘随身携带，换电脑后直接使用，无需重新配置。

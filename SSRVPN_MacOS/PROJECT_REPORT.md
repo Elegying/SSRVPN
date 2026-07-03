@@ -57,5 +57,5 @@
 
 ## 非阻断说明
 
-- Flutter 仍提示项目保留 CocoaPods 集成，而插件均支持 Swift Package Manager。这是构建性能和工程结构建议，不影响当前构建结果。
+- macOS 已移除 CocoaPods 集成文件，改用 Flutter Swift Package Manager 集成；当前工程不再保留 `Podfile` / `Podfile.lock`。
 - 当前包为 ad-hoc 签名，未使用 Apple Developer ID 签名和 Apple 公证；`spctl` 会拒绝陌生机器上的普通双击打开。仓库没有可用的 Developer ID 证书配置，因此本轮已做到本地封签自洽和 DMG 可拖拽安装；正式公开分发仍建议接入 Developer ID + notarization 流程。

@@ -1,4 +1,4 @@
-.PHONY: status sync verify feature
+.PHONY: status sync verify deps feature
 
 status:
 	@scripts/project-status.sh
@@ -8,6 +8,9 @@ sync:
 
 verify:
 	@scripts/verify-all.sh
+
+deps:
+	@scripts/check-dependencies.sh
 
 feature:
 	@if [ -z "$(name)" ]; then \

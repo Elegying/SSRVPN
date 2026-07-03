@@ -56,7 +56,8 @@ class SubscriptionService extends SubscriptionServiceBase {
       final byteCount = utf8.encode(yaml).length;
       if (byteCount > _maxYamlBytes) {
         throw Exception(
-            '订阅内容过大 (${(byteCount / 1024 / 1024).toStringAsFixed(1)}MB)，超过 2MB 限制');
+          '订阅内容过大 (${(byteCount / 1024 / 1024).toStringAsFixed(1)}MB)，超过 2MB 限制',
+        );
       }
     }
   }
@@ -75,20 +76,25 @@ class SubscriptionService extends SubscriptionServiceBase {
         if (result != null) return result;
       } on SocketException catch (e) {
         debugPrint(
-            '[订阅] Socket异常 (尝试$attempt/$maxRetries): ${e.message} (${stopwatch.elapsedMilliseconds}ms)');
+          '[订阅] Socket异常 (尝试$attempt/$maxRetries): ${e.message} (${stopwatch.elapsedMilliseconds}ms)',
+        );
         lastException = Exception('网络连接失败: ${e.message}');
       } on TimeoutException catch (e) {
         debugPrint(
-            '[订阅] 超时 (尝试$attempt/$maxRetries): ${e.duration} (${stopwatch.elapsedMilliseconds}ms)');
-        lastException =
-            Exception('连接超时: ${e.duration ?? Duration(seconds: attempt * 30)}');
+          '[订阅] 超时 (尝试$attempt/$maxRetries): ${e.duration} (${stopwatch.elapsedMilliseconds}ms)',
+        );
+        lastException = Exception(
+          '连接超时: ${e.duration ?? Duration(seconds: attempt * 30)}',
+        );
       } on HttpException catch (e) {
         debugPrint(
-            '[订阅] HTTP错误 (尝试$attempt/$maxRetries): ${e.message} (${stopwatch.elapsedMilliseconds}ms)');
+          '[订阅] HTTP错误 (尝试$attempt/$maxRetries): ${e.message} (${stopwatch.elapsedMilliseconds}ms)',
+        );
         lastException = Exception('HTTP错误: ${e.message}');
       } catch (e) {
         debugPrint(
-            '[订阅] 未知异常 (尝试$attempt/$maxRetries): $e (${stopwatch.elapsedMilliseconds}ms)');
+          '[订阅] 未知异常 (尝试$attempt/$maxRetries): $e (${stopwatch.elapsedMilliseconds}ms)',
+        );
         lastException = Exception('获取订阅失败: $e');
       }
 
@@ -101,7 +107,10 @@ class SubscriptionService extends SubscriptionServiceBase {
   }
 
   Future<String?> _fetchWithMultiIpFallback(
-      Uri uri, Stopwatch stopwatch, int attempt) async {
+    Uri uri,
+    Stopwatch stopwatch,
+    int attempt,
+  ) async {
     var current = uri;
     for (var hop = 0; hop <= 4; hop++) {
       final resp = await _fetchOnce(current, stopwatch, attempt);
@@ -148,7 +157,10 @@ class SubscriptionService extends SubscriptionServiceBase {
   }
 
   Future<_RawHttpResponse> _fetchOnce(
-      Uri uri, Stopwatch stopwatch, int attempt) async {
+    Uri uri,
+    Stopwatch stopwatch,
+    int attempt,
+  ) async {
     final clientOverride = _httpClientOverride;
     if (clientOverride != null) {
       final response = await clientOverride.get(
@@ -168,11 +180,15 @@ class SubscriptionService extends SubscriptionServiceBase {
         uri.host,
         type: InternetAddressType.IPv4,
       ).timeout(const Duration(seconds: 10));
+      addresses =
+          addresses.where((addr) => !DirectFetcher.isFakeIp(addr)).toList();
       debugPrint(
-          '[订阅] DNS 解析成功: ${uri.host} -> ${addresses.map((a) => a.address).join(", ")} (${stopwatch.elapsedMilliseconds}ms)');
+        '[订阅] DNS 解析成功: ${uri.host} -> ${addresses.map((a) => a.address).join(", ")} (${stopwatch.elapsedMilliseconds}ms)',
+      );
     } on SocketException catch (e) {
       debugPrint(
-          '[订阅] DNS 解析失败: ${uri.host} -> ${e.message} (${stopwatch.elapsedMilliseconds}ms)');
+        '[订阅] DNS 解析失败: ${uri.host} -> ${e.message} (${stopwatch.elapsedMilliseconds}ms)',
+      );
       throw SocketException('DNS解析失败: ${e.message}');
     } on TimeoutException {
       debugPrint('[订阅] DNS 解析超时: ${uri.host} (10s)');
@@ -231,16 +247,19 @@ class SubscriptionService extends SubscriptionServiceBase {
       } on SocketException catch (e) {
         lastSocketError = e;
         debugPrint(
-            '[订阅] IP ${addr.address} 失败: ${e.message} (${ipStopwatch.elapsedMilliseconds}ms)');
+          '[订阅] IP ${addr.address} 失败: ${e.message} (${ipStopwatch.elapsedMilliseconds}ms)',
+        );
         continue;
       } on HandshakeException catch (e) {
         debugPrint(
-            '[订阅] IP ${addr.address} TLS握手失败: ${e.message} (${ipStopwatch.elapsedMilliseconds}ms)');
+          '[订阅] IP ${addr.address} TLS握手失败: ${e.message} (${ipStopwatch.elapsedMilliseconds}ms)',
+        );
         lastSocketError = SocketException('TLS握手失败: ${e.message}');
         continue;
       } catch (e) {
         debugPrint(
-            '[订阅] IP ${addr.address} 异常: $e (${ipStopwatch.elapsedMilliseconds}ms)');
+          '[订阅] IP ${addr.address} 异常: $e (${ipStopwatch.elapsedMilliseconds}ms)',
+        );
         lastSocketError = SocketException('连接异常: $e');
         continue;
       }
@@ -261,7 +280,7 @@ class SubscriptionService extends SubscriptionServiceBase {
     try {
       final request = 'GET $pathWithQuery HTTP/1.1\r\n'
           'Host: $host\r\n'
-          'User-Agent: SSRVPN/2.0.6\r\n'
+          'User-Agent: ${AppConstants.appUserAgent}\r\n'
           'Accept: text/yaml, application/x-yaml, */*\r\n'
           'Accept-Encoding: identity\r\n'
           'Connection: close\r\n'
@@ -270,7 +289,8 @@ class SubscriptionService extends SubscriptionServiceBase {
       await socket.flush();
 
       debugPrint(
-          '[订阅] IP $ipAddress 请求已发送 (${ipStopwatch.elapsedMilliseconds}ms)');
+        '[订阅] IP $ipAddress 请求已发送 (${ipStopwatch.elapsedMilliseconds}ms)',
+      );
 
       final responseBytes = <int>[];
       var totalBytes = 0;
@@ -283,7 +303,8 @@ class SubscriptionService extends SubscriptionServiceBase {
       }
 
       debugPrint(
-          '[订阅] IP $ipAddress 收到 ${responseBytes.length} bytes (${ipStopwatch.elapsedMilliseconds}ms)');
+        '[订阅] IP $ipAddress 收到 ${responseBytes.length} bytes (${ipStopwatch.elapsedMilliseconds}ms)',
+      );
 
       if (responseBytes.isEmpty) {
         throw HttpException('IP $ipAddress 返回空响应');
@@ -303,13 +324,16 @@ class SubscriptionService extends SubscriptionServiceBase {
         throw HttpException('IP $ipAddress 响应格式异常');
       }
 
-      final headerSection = utf8.decode(responseBytes.sublist(0, headerEnd),
-          allowMalformed: true);
+      final headerSection = utf8.decode(
+        responseBytes.sublist(0, headerEnd),
+        allowMalformed: true,
+      );
       var bodyBytes = responseBytes.sublist(headerEnd + 4);
 
       final headerLines = headerSection.split('\r\n');
-      final statusMatch =
-          RegExp(r'HTTP/\S+ (\d+)').firstMatch(headerLines.first);
+      final statusMatch = RegExp(
+        r'HTTP/\S+ (\d+)',
+      ).firstMatch(headerLines.first);
       if (statusMatch == null) {
         throw HttpException('IP $ipAddress 状态行异常: ${headerLines.first}');
       }
@@ -330,9 +354,13 @@ class SubscriptionService extends SubscriptionServiceBase {
       }
 
       debugPrint(
-          '[订阅] IP $ipAddress HTTP $statusCode (总耗时 ${totalStopwatch.elapsedMilliseconds}ms)');
+        '[订阅] IP $ipAddress HTTP $statusCode (总耗时 ${totalStopwatch.elapsedMilliseconds}ms)',
+      );
       return _RawHttpResponse(
-          statusCode: statusCode, headers: headers, bodyBytes: bodyBytes);
+        statusCode: statusCode,
+        headers: headers,
+        bodyBytes: bodyBytes,
+      );
     } finally {
       socket.destroy();
     }

@@ -67,12 +67,14 @@ make status
 make sync
 make feature name=my-change
 make verify
+make deps
 ```
 
 - `make status`：查看本地分支、远端同步状态和交付目录状态。
 - `make sync`：在工作区干净时同步远端 `main`。
 - `make feature name=...`：从稳定分支创建功能分支。
 - `make verify`：运行共享包和三端基础检查。
+- `make deps`：查看共享包和三端依赖是否有可升级版本，建议按月运行。
 
 ## 发布构建
 
@@ -106,11 +108,12 @@ shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
 
 - `docs/OWNER_GUIDE.zh-CN.md`：项目所有者日常维护手册。
 - `docs/PROJECT_MANAGEMENT.md`：分支模型、产物策略、本地流程和发布规则。
+- `docs/PRODUCT_REQUIREMENTS.zh-CN.md`：安装包、首次导入、节点排序和记忆节点行为要求。
 - `docs/GITHUB_REPOSITORY_AUDIT.zh-CN.md`：GitHub 仓库清理审计和保留/归档建议。
 - `docs/PROJECT_HEALTH.md`：项目完整度、可维护性、发布准备度和风险评分。
 - `docs/MAINTENANCE.md`：每周维护、PR、发布和线上/本地一致性检查表。
 - `docs/ROADMAP.md`：已完成事项和后续技术路线。
-- `docs/RELEASE_SIGNING.md`：Android、macOS、Windows 签名和公证清单。
+- `docs/RELEASE_SIGNING.md`：Android 自签名、macOS/Windows 免费发布和系统提示说明。
 - `docs/RELEASE_CHECKLIST.zh-CN.md`：个人维护者发布前后检查清单。
 - `docs/UI_DESIGN_GUIDE.md`：三端 UI 色板、字号层级和组件规范。
 - `docs/CORE_ASSETS.md`：Mihomo/AtlasCore 二进制来源、版本和兼容性说明。

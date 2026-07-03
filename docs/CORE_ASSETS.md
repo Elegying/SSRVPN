@@ -16,6 +16,15 @@ installations and older x86-64 CPUs. After downloading, extract the executable,
 rename it to `mihomo.exe`, place it in `SSRVPN_Windows/assets/`, and update
 `mihomo-source.txt` with the official asset URL and SHA256 values.
 
+## Android
+
+- Bundled file: `SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so`
+- Geo database: `SSRVPN_Android/assets/geoip.metadb.gz`
+- Current source: MetaCubeX/mihomo `v1.19.27`
+
+The Android native library is loaded by the VPN service, so it must be verified
+before CI tests and release packaging.
+
 ## macOS
 
 - Bundled file: `SSRVPN_MacOS/assets/AtlasCore.gz`
@@ -31,13 +40,12 @@ GitHub release asset.
 
 ```bash
 git lfs pull
-shasum -a 256 SSRVPN_Windows/assets/mihomo.exe
-shasum -a 256 SSRVPN_MacOS/assets/AtlasCore.gz
-
-gzip -cd SSRVPN_MacOS/assets/AtlasCore.gz > /tmp/AtlasCore
-chmod +x /tmp/AtlasCore
-/tmp/AtlasCore -v
+scripts/verify-core-assets.sh
 ```
 
-Windows executable verification is performed by `SSRVPN_Windows/tool/package_windows.ps1`
-when producing the portable ZIP.
+`scripts/verify-core-assets.sh` checks Git LFS pointer leakage, fixed SHA256
+hashes, macOS decompressed executable equivalence, and bundled geo databases.
+The same check runs in CI and before each platform release build.
+
+Windows executable verification is also performed by
+`SSRVPN_Windows/tool/package_windows.ps1` when producing the portable ZIP.

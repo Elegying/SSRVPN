@@ -102,8 +102,9 @@ class NodeListTile extends StatelessWidget {
                                 flagInfo.cleanName,
                                 style: TextStyle(
                                   fontSize: Responsive.sp(13),
-                                  fontWeight:
-                                      isSelected ? FontWeight.w700 : FontWeight.w500,
+                                  fontWeight: isSelected
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
                                   color: isSelected
                                       ? AppTheme.successColor
                                       : effectiveTextColor,
@@ -160,8 +161,8 @@ class NodeListTile extends StatelessWidget {
                             vertical: 3,
                           ),
                           decoration: BoxDecoration(
-                            color:
-                                AppTheme.primaryColor.withValues(alpha: 15 / 255),
+                            color: AppTheme.primaryColor
+                                .withValues(alpha: 15 / 255),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
@@ -189,11 +190,15 @@ class NodeListTile extends StatelessWidget {
     if (name.length >= 2) {
       final first = name.codeUnitAt(0);
       final second = name.codeUnitAt(1);
-      if (first >= 0x1F1E6 && first <= 0x1F1FF &&
-          second >= 0x1F1E6 && second <= 0x1F1FF) {
+      if (first >= 0x1F1E6 &&
+          first <= 0x1F1FF &&
+          second >= 0x1F1E6 &&
+          second <= 0x1F1FF) {
         final flag = name.substring(0, 2);
         var clean = name.substring(2).trimLeft();
-        if (clean.startsWith('-') || clean.startsWith('–') || clean.startsWith('—')) {
+        if (clean.startsWith('-') ||
+            clean.startsWith('–') ||
+            clean.startsWith('—')) {
           clean = clean.substring(1).trimLeft();
         }
         return _FlagInfo(flag: flag, cleanName: clean);
@@ -214,14 +219,46 @@ class NodeListTile extends StatelessWidget {
 
   static String _countryCodeToFlag(String code) {
     const map = {
-      'US': '🇺🇸', 'UK': '🇬🇧', 'GB': '🇬🇧', 'JP': '🇯🇵', 'KR': '🇰🇷',
-      'HK': '🇭🇰', 'TW': '🇨🇳', 'SG': '🇸🇬', 'DE': '🇩🇪', 'FR': '🇫🇷',
-      'NL': '🇳🇱', 'CA': '🇨🇦', 'AU': '🇦🇺', 'IN': '🇮🇳', 'TH': '🇹🇭',
-      'VN': '🇻🇳', 'ID': '🇮🇩', 'PH': '🇵🇭', 'MY': '🇲🇾', 'RU': '🇷🇺',
-      'TR': '🇹🇷', 'BR': '🇧🇷', 'AR': '🇦🇷', 'MX': '🇲🇽', 'ZA': '🇿🇦',
-      'IT': '🇮🇹', 'ES': '🇪🇸', 'SE': '🇸🇪', 'NO': '🇳🇴', 'FI': '🇫🇮',
-      'DK': '🇩🇰', 'IE': '🇮🇪', 'CH': '🇨🇭', 'AT': '🇦🇹', 'BE': '🇧🇪',
-      'PL': '🇵🇱', 'UA': '🇺🇦', 'CL': '🇨🇱', 'CO': '🇨🇴', 'PE': '🇵🇪',
+      'US': '🇺🇸',
+      'UK': '🇬🇧',
+      'GB': '🇬🇧',
+      'JP': '🇯🇵',
+      'KR': '🇰🇷',
+      'HK': '🇭🇰',
+      'TW': '🇨🇳',
+      'SG': '🇸🇬',
+      'DE': '🇩🇪',
+      'FR': '🇫🇷',
+      'NL': '🇳🇱',
+      'CA': '🇨🇦',
+      'AU': '🇦🇺',
+      'IN': '🇮🇳',
+      'TH': '🇹🇭',
+      'VN': '🇻🇳',
+      'ID': '🇮🇩',
+      'PH': '🇵🇭',
+      'MY': '🇲🇾',
+      'RU': '🇷🇺',
+      'TR': '🇹🇷',
+      'BR': '🇧🇷',
+      'AR': '🇦🇷',
+      'MX': '🇲🇽',
+      'ZA': '🇿🇦',
+      'IT': '🇮🇹',
+      'ES': '🇪🇸',
+      'SE': '🇸🇪',
+      'NO': '🇳🇴',
+      'FI': '🇫🇮',
+      'DK': '🇩🇰',
+      'IE': '🇮🇪',
+      'CH': '🇨🇭',
+      'AT': '🇦🇹',
+      'BE': '🇧🇪',
+      'PL': '🇵🇱',
+      'UA': '🇺🇦',
+      'CL': '🇨🇱',
+      'CO': '🇨🇴',
+      'PE': '🇵🇪',
     };
     return map[code] ?? '';
   }

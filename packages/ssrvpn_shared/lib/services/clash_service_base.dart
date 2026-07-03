@@ -403,7 +403,6 @@ abstract class ClashServiceBase {
   }) async {
     final random = Random();
     for (var i = 0; i < nodes.length; i += concurrency) {
-      if (!_isRunning) break;
       final batch = nodes.skip(i).take(concurrency).toList();
       final results = await Future.wait(
         batch.map(
@@ -467,8 +466,7 @@ abstract class ClashServiceBase {
 
           final decoded = jsonDecode(response.body);
           if (decoded is! Map<String, dynamic>) continue;
-          final country =
-              decoded['countryCode']?.toString() ??
+          final country = decoded['countryCode']?.toString() ??
               decoded['country']?.toString();
           final normalized = normalizeCountryCode(country);
           if (normalized != null) return normalized;

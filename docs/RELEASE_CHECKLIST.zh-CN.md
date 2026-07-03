@@ -5,10 +5,10 @@
 ## 发布前
 
 1. 确认版本号一致：
-   - `SSRVPN_Android/pubspec.yaml`
-   - `SSRVPN_MacOS/pubspec.yaml`
-   - `SSRVPN_Windows/pubspec.yaml`
-   - 三端 `UpdateService.appVersion`
+
+   ```bash
+   scripts/check-version-sync.sh
+   ```
 2. 确认本地或 GitHub CI 通过：
    - `packages/ssrvpn_shared`
    - `SSRVPN_Android`
@@ -16,7 +16,12 @@
    - `SSRVPN_Windows`
 3. 确认三端项目地址都指向：
    - `https://github.com/Elegying/SSRVPN`
-4. 确认 Release workflow 需要的 secrets 已配置，尤其是 Android 签名 secrets。
+4. 确认 Release workflow 需要的 Android 自签名 secrets 已配置。没有付费 Apple/Microsoft 证书时，不配置 macOS notarization 或 Windows code signing secrets。
+5. 确认核心二进制和 geo 数据库哈希：
+
+   ```bash
+   scripts/verify-core-assets.sh
+   ```
 
 ## 发布
 
@@ -38,9 +43,15 @@
    - `SSRVPN.dmg.sha256`
    - `SSRVPN.zip`
    - `SSRVPN.zip.sha256`
+   或直接运行：
+
+   ```bash
+   scripts/check-release-assets.sh vX.Y.Z
+   ```
 2. 下载每个平台产物，至少做一次启动检查。
 3. 检查应用内更新是否能读到最新版本，并打开正确下载链接。
-4. 如果公开分发，补做签名、公证和安全提示检查：
-   - Android APK 签名
-   - macOS notarization
-   - Windows code signing
+4. 按 `docs/PRODUCT_REQUIREMENTS.zh-CN.md` 检查安装包、首次导入、节点排序和记忆节点行为。
+5. 检查用户会看到的系统提示是否符合预期：
+   - Android APK 使用同一个自签名 keystore，可覆盖安装升级。
+   - macOS 未公证时可能需要右键打开。
+   - Windows 未代码签名时可能出现 SmartScreen 未知发布者提示。

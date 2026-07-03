@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_client/services/subscription_service.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 String _base64UrlWithoutPadding(String value) {
   return base64Url.encode(utf8.encode(value)).replaceAll('=', '');
@@ -107,8 +108,7 @@ proxies:
   });
 
   test('converts base64 URI-list subscriptions with anytls nodes', () async {
-    final ssrPayload =
-        'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
+    final ssrPayload = 'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
         'tls1.2_ticket_auth:${_base64UrlWithoutPadding('ssr-password')}/?';
     const uriList = '''
 anytls://any-password@any.example.com:443/?type=tcp&insecure=1&fp=chrome&sni=stream.example.com#AnyTLS%20Node
@@ -134,7 +134,7 @@ trojan://trojan-password@trojan.example.com:8443?allowInsecure=1&peer=peer.examp
     );
     await service.refreshAllSubscriptions();
 
-    expect(userAgent, 'SSRVPN/2.0.6');
+    expect(userAgent, AppConstants.appUserAgent);
     expect(service.allNodes.map((node) => node.name), [
       'AnyTLS Node',
       'Trojan Node',

@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+fail() {
+  echo "core asset check failed: $*" >&2
+  exit 1
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+sha256_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | awk '{print $1}'
+  else
+    shasum -a 256 | awk '{print $1}'
+  fi
+}
+
+source_hash() {
+  local source_file="$1"
+  local field="$2"
+  awk -F': ' -v field="$field" '$1 == field { print $2; exit }' "$source_file"
+}
+
+check_file() {
+  local path="$1"
+  local expected="$2"
+  local label="$3"
+
+  test -f "$path" || fail "$label missing: $path"
+  if head -n 1 "$path" | grep -q '^version https://git-lfs.github.com/spec/v1$'; then
+    fail "$label is a Git LFS pointer, run git lfs pull: $path"
+  fi
+
+  local actual
+  actual="$(sha256_file "$path")"
+  if [ "$actual" != "$expected" ]; then
+    fail "$label SHA256 mismatch: expected $expected got $actual"
+  fi
+  echo "ok $label"
+}
+
+check_gzip_payload() {
+  local path="$1"
+  local expected="$2"
+  local label="$3"
+  local actual
+  actual="$(gzip -cd "$path" | sha256_stdin)"
+  if [ "$actual" != "$expected" ]; then
+    fail "$label decompressed SHA256 mismatch: expected $expected got $actual"
+  fi
+  echo "ok $label decompressed"
+}
+
+check_file \
+  "SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so" \
+  "65f8921583a778e218a5e735752e33f9a1ba53c0b5b11c2a0f80c8f6dbac08a1" \
+  "Android libgojni.so"
+
+check_file \
+  "SSRVPN_Android/assets/geoip.metadb.gz" \
+  "84f5a8f154da5453af8be7fc4d6afbcb6e25d6d1da2d38909129106795c1035b" \
+  "Android geoip.metadb.gz"
+
+check_file \
+  "SSRVPN_MacOS/assets/AtlasCore.gz" \
+  "$(source_hash SSRVPN_MacOS/assets/AtlasCore-source.txt 'Bundled gzip SHA256')" \
+  "macOS AtlasCore.gz"
+
+check_gzip_payload \
+  "SSRVPN_MacOS/assets/AtlasCore.gz" \
+  "$(source_hash SSRVPN_MacOS/assets/AtlasCore-source.txt 'Executable SHA256')" \
+  "macOS AtlasCore"
+
+check_file \
+  "SSRVPN_MacOS/assets/geoip.metadb.gz" \
+  "26f87ad690c8b84dea7788294e1071bd5655b99b5a517ddbb2d41707248e6131" \
+  "macOS geoip.metadb.gz"
+
+check_file \
+  "SSRVPN_Windows/assets/mihomo.exe" \
+  "$(source_hash SSRVPN_Windows/assets/mihomo-source.txt 'Executable SHA256')" \
+  "Windows mihomo.exe"
+
+check_file \
+  "SSRVPN_Windows/assets/geoip.metadb.gz" \
+  "84f5a8f154da5453af8be7fc4d6afbcb6e25d6d1da2d38909129106795c1035b" \
+  "Windows geoip.metadb.gz"
+
+echo "Core asset verification passed."

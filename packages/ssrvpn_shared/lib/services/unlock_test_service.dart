@@ -36,8 +36,7 @@ class UnlockTestResult {
       status == 'Blocked' ||
       status == 'Unsupported Country/Region' ||
       status == 'Disallowed ISP';
-  bool get isFailed =>
-      status == 'Failed' || status.startsWith('Failed');
+  bool get isFailed => status == 'Failed' || status.startsWith('Failed');
   bool get isPending =>
       status == 'Pending' || status == 'Unknown' || status == 'Testing';
 
@@ -68,37 +67,142 @@ class UnlockTestResult {
 class UnlockTestService {
   static const defaultItems = <UnlockTestResult>[
     // ── 流媒体 ──
-    UnlockTestResult(id: 'netflix', name: 'Netflix', url: 'https://www.netflix.com/title/81215567', category: 'streaming'),
-    UnlockTestResult(id: 'disney', name: 'Disney+', url: 'https://www.disneyplus.com/', category: 'streaming'),
-    UnlockTestResult(id: 'youtube', name: 'YouTube Premium', url: 'https://www.youtube.com/premium', category: 'streaming'),
-    UnlockTestResult(id: 'prime', name: 'Amazon Prime Video', url: 'https://www.primevideo.com/', category: 'streaming'),
-    UnlockTestResult(id: 'max', name: 'HBO Max', url: 'https://www.max.com/', category: 'streaming'),
-    UnlockTestResult(id: 'hulu', name: 'Hulu', url: 'https://www.hulu.com/', category: 'streaming'),
-    UnlockTestResult(id: 'apple_tv', name: 'Apple TV+', url: 'https://tv.apple.com/', category: 'streaming'),
-    UnlockTestResult(id: 'spotify', name: 'Spotify', url: 'https://www.spotify.com/', category: 'streaming'),
-    UnlockTestResult(id: 'bbc', name: 'BBC iPlayer', url: 'https://www.bbc.co.uk/iplayer', category: 'streaming'),
-    UnlockTestResult(id: 'paramount', name: 'Paramount+', url: 'https://www.paramountplus.com/', category: 'streaming'),
-    UnlockTestResult(id: 'peacock', name: 'Peacock TV', url: 'https://www.peacocktv.com/', category: 'streaming'),
-    UnlockTestResult(id: 'discovery', name: 'Discovery+', url: 'https://www.discoveryplus.com/', category: 'streaming'),
-    UnlockTestResult(id: 'dazn', name: 'DAZN', url: 'https://www.dazn.com/', category: 'streaming'),
-    UnlockTestResult(id: 'tiktok', name: 'TikTok', url: 'https://www.tiktok.com/', category: 'streaming'),
-    UnlockTestResult(id: 'twitch', name: 'Twitch', url: 'https://www.twitch.tv/', category: 'streaming'),
+    UnlockTestResult(
+        id: 'netflix',
+        name: 'Netflix',
+        url: 'https://www.netflix.com/title/81215567',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'disney',
+        name: 'Disney+',
+        url: 'https://www.disneyplus.com/',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'youtube',
+        name: 'YouTube Premium',
+        url: 'https://www.youtube.com/premium',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'prime',
+        name: 'Amazon Prime Video',
+        url: 'https://www.primevideo.com/',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'max',
+        name: 'HBO Max',
+        url: 'https://www.max.com/',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'hulu',
+        name: 'Hulu',
+        url: 'https://www.hulu.com/',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'apple_tv',
+        name: 'Apple TV+',
+        url: 'https://tv.apple.com/',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'spotify',
+        name: 'Spotify',
+        url: 'https://www.spotify.com/',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'bbc',
+        name: 'BBC iPlayer',
+        url: 'https://www.bbc.co.uk/iplayer',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'paramount',
+        name: 'Paramount+',
+        url: 'https://www.paramountplus.com/',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'peacock',
+        name: 'Peacock TV',
+        url: 'https://www.peacocktv.com/',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'discovery',
+        name: 'Discovery+',
+        url: 'https://www.discoveryplus.com/',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'dazn',
+        name: 'DAZN',
+        url: 'https://www.dazn.com/',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'tiktok',
+        name: 'TikTok',
+        url: 'https://www.tiktok.com/',
+        category: 'streaming'),
+    UnlockTestResult(
+        id: 'twitch',
+        name: 'Twitch',
+        url: 'https://www.twitch.tv/',
+        category: 'streaming'),
 
     // ── AI 服务 ──
-    UnlockTestResult(id: 'openai', name: 'OpenAI / ChatGPT', url: 'https://api.openai.com/v1/models', category: 'ai'),
-    UnlockTestResult(id: 'chatgpt_web', name: 'ChatGPT', url: 'https://chat.openai.com/cdn-cgi/trace', category: 'ai'),
-    UnlockTestResult(id: 'claude', name: 'Claude', url: 'https://api.anthropic.com/v1/messages', category: 'ai'),
-    UnlockTestResult(id: 'gemini', name: 'Google Gemini', url: 'https://generativelanguage.googleapis.com/', category: 'ai'),
-    UnlockTestResult(id: 'copilot', name: 'Microsoft Copilot', url: 'https://copilot.microsoft.com/', category: 'ai'),
-    UnlockTestResult(id: 'perplexity', name: 'Perplexity', url: 'https://www.perplexity.ai/', category: 'ai'),
-    UnlockTestResult(id: 'deepseek', name: 'DeepSeek', url: 'https://chat.deepseek.com/', category: 'ai'),
-    UnlockTestResult(id: 'groq', name: 'Groq', url: 'https://api.groq.com/', category: 'ai'),
-    UnlockTestResult(id: 'mistral', name: 'Mistral', url: 'https://api.mistral.ai/', category: 'ai'),
-    UnlockTestResult(id: 'cohere', name: 'Cohere', url: 'https://api.cohere.ai/', category: 'ai'),
+    UnlockTestResult(
+        id: 'openai',
+        name: 'OpenAI / ChatGPT',
+        url: 'https://api.openai.com/v1/models',
+        category: 'ai'),
+    UnlockTestResult(
+        id: 'chatgpt_web',
+        name: 'ChatGPT',
+        url: 'https://chat.openai.com/cdn-cgi/trace',
+        category: 'ai'),
+    UnlockTestResult(
+        id: 'claude',
+        name: 'Claude',
+        url: 'https://api.anthropic.com/v1/messages',
+        category: 'ai'),
+    UnlockTestResult(
+        id: 'gemini',
+        name: 'Google Gemini',
+        url: 'https://generativelanguage.googleapis.com/',
+        category: 'ai'),
+    UnlockTestResult(
+        id: 'copilot',
+        name: 'Microsoft Copilot',
+        url: 'https://copilot.microsoft.com/',
+        category: 'ai'),
+    UnlockTestResult(
+        id: 'perplexity',
+        name: 'Perplexity',
+        url: 'https://www.perplexity.ai/',
+        category: 'ai'),
+    UnlockTestResult(
+        id: 'deepseek',
+        name: 'DeepSeek',
+        url: 'https://chat.deepseek.com/',
+        category: 'ai'),
+    UnlockTestResult(
+        id: 'groq', name: 'Groq', url: 'https://api.groq.com/', category: 'ai'),
+    UnlockTestResult(
+        id: 'mistral',
+        name: 'Mistral',
+        url: 'https://api.mistral.ai/',
+        category: 'ai'),
+    UnlockTestResult(
+        id: 'cohere',
+        name: 'Cohere',
+        url: 'https://api.cohere.ai/',
+        category: 'ai'),
 
     // ── 开发 / 其他 ──
-    UnlockTestResult(id: 'github', name: 'GitHub', url: 'https://github.com/', category: 'other'),
-    UnlockTestResult(id: 'huggingface', name: 'Hugging Face', url: 'https://huggingface.co/', category: 'other'),
+    UnlockTestResult(
+        id: 'github',
+        name: 'GitHub',
+        url: 'https://github.com/',
+        category: 'other'),
+    UnlockTestResult(
+        id: 'huggingface',
+        name: 'Hugging Face',
+        url: 'https://huggingface.co/',
+        category: 'other'),
   ];
 
   Future<List<UnlockTestResult>> checkAll({
@@ -120,7 +224,8 @@ class UnlockTestService {
   }) async {
     final item = defaultItems.firstWhere(
       (entry) => entry.id == id,
-      orElse: () => UnlockTestResult(id: id, name: id, url: id, category: 'other', status: 'Unknown'),
+      orElse: () => UnlockTestResult(
+          id: id, name: id, url: id, category: 'other', status: 'Unknown'),
     );
 
     final client = _proxyClient(proxyPort);
@@ -147,7 +252,9 @@ class UnlockTestService {
     } catch (e) {
       return item.copyWith(
         status: 'Failed',
-        detail: e.toString().length > 120 ? e.toString().substring(0, 120) : e.toString(),
+        detail: e.toString().length > 120
+            ? e.toString().substring(0, 120)
+            : e.toString(),
         checkedAt: DateTime.now(),
       );
     } finally {
@@ -156,12 +263,14 @@ class UnlockTestService {
   }
 
   bool _useHeadMethod(String id) {
-    return const {'prime', 'hulu', 'spotify', 'bbc', 'tiktok', 'twitch'}.contains(id);
+    return const {'prime', 'hulu', 'spotify', 'bbc', 'tiktok', 'twitch'}
+        .contains(id);
   }
 
   Map<String, String> _headers() {
     return const {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       'Accept': 'text/html,application/json,*/*',
       'Accept-Language': 'en-US,en;q=0.9',
     };

@@ -356,6 +356,21 @@ class ClashService extends ClashServiceBase {
     await writeStringAtomically(File(configPath), configContent);
   }
 
+  Future<void> writePreferredNodeConfig(
+    String rawYaml,
+    AppSettings settings,
+    String nodeName,
+  ) async {
+    updateSettings(settings);
+    final config = generateClashConfig(
+      rawYaml,
+      settings,
+      preferredNodeName: nodeName,
+    );
+    await writeConfig(config);
+    await _saveConfigForTile(nodeName);
+  }
+
   // ── 进程控制 ──
 
   Future<bool> start({String? nodeName}) async {
@@ -466,6 +481,8 @@ class ClashService extends ClashServiceBase {
       await prefs.setString('configDir', configDir);
       await prefs.setString('configPath', configPath);
       await prefs.setInt('apiPort', settings.apiPort);
+      // Keep apiSecret out of SharedPreferences. Tile cold starts use the
+      // generated config order; Flutter updates the proxy selection when open.
       await prefs.remove('apiSecret');
       if (nodeName != null && nodeName.isNotEmpty) {
         await prefs.setString('selectedNodeName', nodeName);

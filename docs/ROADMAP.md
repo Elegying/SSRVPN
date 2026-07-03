@@ -12,13 +12,18 @@
 - Added GitHub issue templates, PR template, CODEOWNERS, Dependabot, security policy, and migration docs.
 - Cleared the Android analyzer info backlog and restored strict platform analyzer checks.
 - Added release signing documentation and pinned macOS CI/release jobs to a stable runner image.
+- Migrated macOS from CocoaPods project files to Flutter Swift Package Manager integration.
+- Centralized app version and GitHub release update checks in `packages/ssrvpn_shared`.
+- Added deterministic verification for bundled core binaries and geo databases.
+- Added Android first-run apiSecret generation backed by encrypted storage.
+- Added a free Android release-keystore helper for personal distribution.
 
 ## Near Term
 
 1. Extract more `ClashService` configuration assembly into `packages/ssrvpn_shared`.
 2. Keep platform dependency updates current through grouped Dependabot PRs.
-3. Wire signing and notarization secrets into the release workflow.
-4. Keep release artifacts verified after each tag-driven GitHub Actions release.
+3. Keep release artifacts verified after each tag-driven GitHub Actions release.
+4. Document any user-facing macOS Gatekeeper and Windows SmartScreen prompts in release notes.
 
 ## Medium Term
 
@@ -30,6 +35,6 @@
 ## Long Term
 
 1. Move reusable UI components into shared packages where platform UX permits.
-2. Add signed and notarized production release pipelines.
+2. Revisit paid macOS notarization and Windows code signing only if the project needs broader public distribution.
 3. Add crash-safe diagnostics bundles with automatic secret redaction.
 4. Track coverage and regression metrics in CI.

@@ -1,6 +1,7 @@
 # SSRVPN 代码审查报告
 
 审查日期：2026-06-30
+更新日期：2026-07-03
 审查范围：全平台（macOS / Android / Windows）+ 共享包 `ssrvpn_shared`
 
 ---
@@ -61,6 +62,18 @@ result.writeln('secret: ${_quote(settings.apiSecret)}');
 **影响文件**：
 - `packages/ssrvpn_shared/lib/services/clash_service_base.dart`（新增，704 行）
 - `packages/ssrvpn_shared/lib/ssrvpn_shared.dart`（导出新服务）
+
+### 1.4 Android apiSecret 默认值与原生路径保护（安全修复）🟡
+
+Android 首次加载设置时会自动生成随机 apiSecret 并写入 `EncryptedSharedPreferences`。原生 VPN service 在没有从 Flutter 层拿到 secret 时，会跳过需要认证的代理选择请求，避免使用空 secret 调 Clash API。
+
+### 1.5 共享版本与更新检查（维护性优化）🟢
+
+三端 `UpdateService` 已改为读取 `AppConstants.appVersion`，GitHub Release 检查逻辑集中到 `packages/ssrvpn_shared`，避免三端重复维护版本比较、User-Agent 和 Release API 解析。
+
+### 1.6 核心资产校验与 macOS SPM（发布可靠性）🟢
+
+新增 `scripts/verify-core-assets.sh`，在 CI 和 Release workflow 中校验 Android/macOS/Windows 的核心二进制和 geo 数据库哈希。macOS 项目已移除 CocoaPods project 文件，使用 Flutter Swift Package Manager 集成。
 
 ---
 
@@ -125,13 +138,9 @@ result.writeln('secret: ${_quote(settings.apiSecret)}');
 
 **建议**：在 `ssrvpn_shared` 中创建 `AppSettingsBase`，各平台通过继承扩展平台特有字段。
 
-### 3.5 macOS CocoaPods 迁移（依赖管理）🟢
+### 3.5 发布签名策略（产品取舍）🟢
 
-macOS 项目仍使用 CocoaPods，建议迁移到 Swift Package Manager。
-
-### 3.6 签名和公证自动化（发布流程）🟢
-
-macOS/Windows 的签名和公证流程尚未自动化。
+Android 可以免费使用自签名 release keystore，并已提供生成脚本。macOS notarization 和 Windows code signing 需要付费证书，当前不作为个人开发者免费发布路线的一部分。
 
 ---
 
@@ -144,11 +153,9 @@ macOS/Windows 的签名和公证流程尚未自动化。
 - ✅ 原子文件写入避免数据损坏
 - ✅ 端口绑定检查避免冲突
 
-### 4.2 潜在风险
-- ⚠️ `apiSecret` 在 JSON 中明文存储（`settings.json`）
-- ⚠️ 订阅 URL 在 JSON 中明文存储
-
-**建议**：考虑使用平台原生的安全存储（macOS Keychain、Android Keystore、Windows Credential Manager）。
+### 4.2 已接受的产品取舍
+- macOS/Windows 的 `apiSecret`、订阅 URL 和缓存保留在本地配置/便携目录中，便于卸载或删除文件夹时同步清空数据。
+- 该取舍要求用户保护自己的系统账号、磁盘和便携目录，不要把配置目录打包发给他人。
 
 ---
 
@@ -167,5 +174,5 @@ macOS/Windows 的签名和公证流程尚未自动化。
 2. **高**：统一 `ProxyMode` 枚举（消除 4 处重复定义）
 3. **中**：`AppSettings` 基类提取（减少 ~500 行重复代码）
 4. **中**：`HomeScreen` 组件拆分（提升可维护性）
-5. **低**：CocoaPods → Swift Package Manager 迁移
-6. **低**：签名/公证自动化
+5. **低**：继续补平台集成烟测（TUN/VPN、系统代理、托盘、覆盖安装）
+6. **低**：如未来需要更广泛公开分发，再评估付费 macOS notarization / Windows code signing

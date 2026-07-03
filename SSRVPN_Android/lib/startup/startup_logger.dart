@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 /// 启动日志记录器
@@ -18,8 +19,8 @@ class StartupLogger {
   static Future<void> init({bool verbose = false}) async {
     _verbose = verbose;
     try {
-      // Android 内部存储路径
-      final dir = Directory('/data/data/com.ssrvpn.app/files/logs');
+      final supportDir = await getApplicationSupportDirectory();
+      final dir = Directory('${supportDir.path}${Platform.pathSeparator}logs');
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }

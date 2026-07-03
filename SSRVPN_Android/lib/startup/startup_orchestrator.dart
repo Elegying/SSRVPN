@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/clash_service.dart';
 import '../services/notification_service.dart';
 import '../services/settings_service.dart';
@@ -70,7 +71,9 @@ class StartupOrchestrator {
       await ns.initialize();
       if (_settings?.settings.autoConnectOnStartup == true) {
         await ns.showConnectedNotification(
-            nodeName: "SSRVPN", proxyMode: "rule");
+          nodeName: "SSRVPN",
+          proxyMode: "rule",
+        );
       }
     } catch (e) {
       StartupLogger.warn('通知服务初始化失败: $e');
@@ -79,7 +82,7 @@ class StartupOrchestrator {
 
   Future<void> _checkForUpdate() async {
     try {
-      await UpdateService.checkForUpdate("2.0.6");
+      await UpdateService.checkForUpdate(AppConstants.appVersion);
     } catch (e) {
       StartupLogger.warn('更新检查失败: $e');
     }

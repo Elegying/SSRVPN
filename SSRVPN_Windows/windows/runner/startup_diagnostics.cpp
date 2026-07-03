@@ -15,6 +15,7 @@ std::wstring g_root_dir;
 std::wstring g_log_path;
 std::wstring g_desktop_dir;
 std::wstring g_last_dump_path;
+bool g_normal_shutdown_started = false;
 
 std::wstring GetLocalAppData();
 
@@ -192,7 +193,11 @@ std::wstring DumpPath() {
 
 LONG WINAPI UnhandledFilter(EXCEPTION_POINTERS* info) {
   startup_diagnostics::WriteDumpAndContinue(info, L"unhandled exception");
-  startup_diagnostics::WriteDesktopFailureLog(L"unhandled exception");
+  if (g_normal_shutdown_started) {
+    AppendLine(L"desktop startup failure report skipped during normal shutdown");
+  } else {
+    startup_diagnostics::WriteDesktopFailureLog(L"unhandled exception");
+  }
   return EXCEPTION_EXECUTE_HANDLER;
 }
 
@@ -223,6 +228,11 @@ void Initialize() {
 
 void Log(const std::wstring& message) {
   AppendLine(L"[" + TimestampForLine() + L"] [native] " + message);
+}
+
+void MarkNormalShutdown() {
+  g_normal_shutdown_started = true;
+  Log(L"normal shutdown started");
 }
 
 void WriteDesktopFailureLog(const std::wstring& context) {

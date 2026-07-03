@@ -34,6 +34,7 @@ jobs:
           cache: true
 
       - run: bash ../../scripts/check-shared-barrel-imports.sh
+      - run: bash ../../scripts/check-version-sync.sh
       - run: dart pub get
       - run: dart analyze
       - run: dart test --coverage=coverage
@@ -71,6 +72,8 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+
+      - run: bash scripts/verify-core-assets.sh
 
       - run: flutter pub get
         working-directory: ${{ matrix.directory }}

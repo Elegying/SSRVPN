@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_settings.dart';
 
@@ -16,6 +18,7 @@ import '../models/app_settings.dart';
 class SettingsService extends ChangeNotifier {
   static SettingsService? _instance;
   late AppSettings _settings;
+  late String _configPath;
 
   /// Android Keystore backed secure storage.
   static const _secureStorage = FlutterSecureStorage();
@@ -33,9 +36,15 @@ class SettingsService extends ChangeNotifier {
   static Future<SettingsService> getInstance() async {
     if (_instance == null) {
       _instance = SettingsService._();
-      await _instance!._load();
+      await _instance!._init();
     }
     return _instance!;
+  }
+
+  Future<void> _init() async {
+    _configPath = await _resolveConfigPath();
+    await _migrateLegacySettingsFile();
+    await _load();
   }
 
   /// ── apiSecret 安全存储 ──
@@ -93,7 +102,12 @@ class SettingsService extends ChangeNotifier {
   /// ── 批量更新设置 ──
 
   Future<void> updateSettings(AppSettings newSettings) async {
-    _settings = newSettings;
+    final secret = newSettings.apiSecret.isNotEmpty
+        ? newSettings.apiSecret
+        : _settings.apiSecret;
+    _settings = newSettings.copyWith(
+      apiSecret: secret.isNotEmpty ? secret : _generateSecret(),
+    );
     await _save();
     notifyListeners();
   }
@@ -144,10 +158,7 @@ class SettingsService extends ChangeNotifier {
   }
 
   /// 重命名上次选择的节点
-  Future<void> renameLastSelectedNode(
-    String oldName,
-    String newName,
-  ) async {
+  Future<void> renameLastSelectedNode(String oldName, String newName) async {
     if (_settings.lastSelectedNodeName == oldName) {
       _settings = _settings.copyWith(lastSelectedNodeName: newName);
       await _save();
@@ -167,10 +178,37 @@ class SettingsService extends ChangeNotifier {
 
   /// ── 持久化 ──
 
-  String get _configPath {
-    final home =
-        Platform.environment['HOME'] ?? '/data/data/com.ssrvpn.app/files';
-    return '$home/.ssrvpn/settings.json';
+  Future<String> _resolveConfigPath() async {
+    final dir = await getApplicationSupportDirectory();
+    return '${dir.path}${Platform.pathSeparator}settings.json';
+  }
+
+  Future<void> _migrateLegacySettingsFile() async {
+    final target = File(_configPath);
+    if (await target.exists()) return;
+
+    for (final path in _legacyConfigPathCandidates()) {
+      final source = File(path);
+      if (!await source.exists()) continue;
+      try {
+        await target.parent.create(recursive: true);
+        await source.copy(target.path);
+        return;
+      } catch (_) {}
+    }
+  }
+
+  List<String> _legacyConfigPathCandidates() {
+    final candidates = <String>[];
+    final home = Platform.environment['HOME'];
+    if (home != null && home.isNotEmpty) {
+      candidates.add('$home/.ssrvpn/settings.json');
+    }
+    candidates.addAll(const [
+      '/data/data/com.ssrvpn.android/files/.ssrvpn/settings.json',
+      '/data/data/com.ssrvpn.app/files/.ssrvpn/settings.json',
+    ]);
+    return candidates;
   }
 
   Future<void> _load() async {
@@ -190,6 +228,18 @@ class SettingsService extends ChangeNotifier {
 
     // 迁移：从旧 JSON 明文读取 apiSecret 并写入安全存储
     await _migrateApiSecret();
+    if (_settings.apiSecret.isEmpty) {
+      _settings = _settings.copyWith(apiSecret: _generateSecret());
+      await _save();
+    }
+  }
+
+  String _generateSecret() {
+    final rand = Random.secure();
+    return List.generate(
+      16,
+      (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
   }
 
   /// 迁移：旧 Base64/明文 apiSecret → EncryptedSharedPreferences
@@ -224,9 +274,7 @@ class SettingsService extends ChangeNotifier {
       final jsonMap = _settings.toJson();
       jsonMap.remove('apiSecret');
 
-      final jsonStr = await Isolate.run(
-        () => jsonEncode(jsonMap),
-      );
+      final jsonStr = await Isolate.run(() => jsonEncode(jsonMap));
       final temp = File('${file.path}.tmp');
       await temp.writeAsString(jsonStr, flush: true);
       await temp.rename(file.path);
@@ -243,15 +291,15 @@ class SettingsService extends ChangeNotifier {
 
   /// apiSecret setter — 写入安全存储
   Future<void> setApiSecret(String value) async {
-    await _writeApiSecret(value);
-    // 同步更新内存中的值给 Clash 配置生成使用
-    // ClashService 在 generateClashConfig 中使用 _settings.apiSecret
-    // 因此需要保持内存值与安全存储一致
+    _settings = _settings.copyWith(
+      apiSecret: value.isNotEmpty ? value : _generateSecret(),
+    );
+    await _save();
+    notifyListeners();
   }
 
   @visibleForTesting
   static void resetInstanceForTesting() {
     _instance = null;
   }
-
 }

@@ -7,6 +7,8 @@ requiring every native integration in every unit test.
 
 The `SSRVPN CI` workflow runs:
 
+- `scripts/verify-core-assets.sh` to reject missing Git LFS binaries, pointer
+  files, or unexpected core/geo database hashes
 - `dart test --coverage=coverage` for `packages/ssrvpn_shared`
 - `flutter test --coverage` for Android, macOS, and Windows
 
@@ -29,6 +31,7 @@ enforced yet; add one only after the baseline is stable.
 
 ```bash
 scripts/check-shared-barrel-imports.sh
+scripts/verify-core-assets.sh
 
 cd packages/ssrvpn_shared
 dart test --coverage=coverage
@@ -41,7 +44,11 @@ flutter test --coverage
 
 cd ../SSRVPN_Windows
 flutter test --coverage
+
+scripts/check-release-assets.sh vX.Y.Z
 ```
 
 When changing process management, system proxy, TUN, MethodChannel, or packaging
 behavior, run the relevant platform build/package script in addition to tests.
+`scripts/check-release-assets.sh` is a post-release smoke check for GitHub
+Release assets and requires network access.

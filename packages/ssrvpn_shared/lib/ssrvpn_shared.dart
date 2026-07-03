@@ -1,5 +1,5 @@
 /// SSRVPN 共享包
-/// 
+///
 /// 包含跨平台共享的模型、服务和工具类
 library ssrvpn_shared;
 
@@ -10,16 +10,22 @@ export 'models/subscription.dart';
 export 'models/app_settings.dart';
 
 // 服务
+export 'controllers/home_node_controller.dart';
 export 'services/subscription_parser.dart';
 export 'services/unlock_test_service.dart';
 export 'services/clash_config_generator.dart';
 export 'services/clash_service_base.dart';
 export 'services/subscription_service_base.dart';
+export 'services/update_checker.dart';
+export 'services/update_service.dart';
+export 'services/direct_fetcher.dart';
+export 'services/crash_reporter.dart';
 
 // 工具类
 export 'utils/log_redactor.dart';
 export 'utils/force_proxy_site_policy.dart';
 export 'utils/private_node_latency_policy.dart';
+export 'utils/node_display_policy.dart';
 
 // 常量
 export 'constants/app_constants.dart';

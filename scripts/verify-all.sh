@@ -19,6 +19,8 @@ run_in() {
 }
 
 run_step "Shared barrel imports" scripts/check-shared-barrel-imports.sh
+run_step "Version sync" scripts/check-version-sync.sh
+run_step "Core binary assets" scripts/verify-core-assets.sh
 
 run_step "Shared pub get" run_in packages/ssrvpn_shared dart pub get
 run_step "Shared analyze" run_in packages/ssrvpn_shared dart analyze

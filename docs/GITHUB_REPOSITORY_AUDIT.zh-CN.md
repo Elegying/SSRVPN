@@ -35,5 +35,5 @@
 ## 后续检查
 
 - 每次发布后确认 Release assets 包含 `SSRVPN.apk`、`SSRVPN.dmg`、`SSRVPN.zip` 和对应 `.sha256` 文件。
-- 每次改版本号后确认三端 `pubspec.yaml` 与 `UpdateService.appVersion` 同步。
-- 如果公开分发给非自用用户，优先补齐 macOS notarization 和 Windows code signing。
+- 每次改版本号后确认三端 `pubspec.yaml` 与共享包 `AppConstants.appVersion` 同步。
+- 当前按个人免费发布维护：Android 使用自签名 keystore，macOS/Windows 不配置付费签名或公证；发布说明中要提示 Gatekeeper/SmartScreen 可能出现的系统提示。

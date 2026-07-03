@@ -32,6 +32,7 @@ jobs:
           channel: stable
           cache: true
       - run: bash ../../scripts/check-shared-barrel-imports.sh
+      - run: bash ../../scripts/check-version-sync.sh
       - run: dart pub get
       - run: dart analyze --fatal-infos
       - run: dart test
@@ -45,6 +46,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           lfs: true
+
+      - name: Verify core assets
+        run: bash scripts/verify-core-assets.sh
 
       - uses: subosito/flutter-action@v2
         with:
@@ -130,6 +134,9 @@ jobs:
         with:
           lfs: true
 
+      - name: Verify core assets
+        run: bash scripts/verify-core-assets.sh
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -192,6 +199,9 @@ jobs:
         with:
           lfs: true
 
+      - name: Verify core assets
+        run: bash scripts/verify-core-assets.sh
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -230,15 +240,20 @@ jobs:
           $portableRoot = Join-Path $verifyRoot 'SSRVPN_Windows_Release'
           foreach ($relativePath in @(
             'ssrvpn_windows.exe',
-            'ssrvpn_windows_app.exe',
-            'mihomo.exe',
+            'bin\ssrvpn_windows_app.exe',
+            'bin\mihomo.exe',
             'SHA256SUMS.txt',
-            'data\flutter_assets\assets\geoip.metadb.gz'
+            'bin\data\flutter_assets\assets\geoip.metadb.gz'
           )) {
             $path = Join-Path $portableRoot $relativePath
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
               throw "Portable ZIP is missing $relativePath"
             }
+          }
+          $rootExeFiles = @(Get-ChildItem -LiteralPath $portableRoot -File -Filter '*.exe')
+          if ($rootExeFiles.Count -ne 1 -or $rootExeFiles[0].Name -ne 'ssrvpn_windows.exe') {
+            $names = ($rootExeFiles | ForEach-Object { $_.Name }) -join ', '
+            throw "Portable ZIP root must contain exactly one user-facing exe: $names"
           }
           Remove-Item -LiteralPath $verifyRoot -Recurse -Force
 

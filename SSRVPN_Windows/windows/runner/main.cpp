@@ -83,6 +83,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     ::TranslateMessage(&msg);
     ::DispatchMessage(&msg);
   }
+  startup_diagnostics::MarkNormalShutdown();
   startup_diagnostics::Log(L"message loop ended");
 
   ::CoUninitialize();

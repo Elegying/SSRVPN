@@ -6,8 +6,8 @@ If SSRVPN opens with no window or crashes immediately, try safe mode:
 2. Or run this command from the release directory:
    ssrvpn_windows.exe --safe-mode --verbose
 
-Always start SSRVPN through ssrvpn_windows.exe. The
-ssrvpn_windows_app.exe file is an internal application process used by the
+Always start SSRVPN through the root ssrvpn_windows.exe. The
+bin\ssrvpn_windows_app.exe file is an internal application process used by the
 launcher.
 
 Safe mode skips:

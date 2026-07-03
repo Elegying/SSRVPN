@@ -73,6 +73,8 @@ class VpnTileService : TileService() {
             val configDir = prefs.getString("flutter.configDir", null)
             val configPath = prefs.getString("flutter.configPath", null)
             val apiPort = prefs.getLong("flutter.apiPort", 9090L).toInt()
+            // apiSecret is intentionally not persisted here. Direct tile starts
+            // rely on the generated config's preferred node order.
             val apiSecret = prefs.getString("flutter.apiSecret", "") ?: ""
             val nodeName = prefs.getString("flutter.selectedNodeName", null)
 

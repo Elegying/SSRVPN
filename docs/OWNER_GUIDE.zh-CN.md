@@ -61,15 +61,18 @@ make verify
 
 ## 什么文件不要手动动
 
-不要手动删除或上传这些内容：
+不要提交或公开这些内容：
 
-- `SSRVPN_Android/android/signing/ssrvpn-release.jks`
-- `SSRVPN_Android/android/key.properties`
+- Android release keystore 原文件
+- GitHub Actions 里的 Android 签名 secrets
+- 本地临时 `SSRVPN_Android/android/key.properties`
 - `dist/`
 - `.github/workflows/`
 - `packages/ssrvpn_shared/`
 
-其中 Android keystore 是以后 APK 覆盖安装的关键。同一个应用要能升级，必须继续使用同一个签名。
+其中 Android keystore 是以后 APK 覆盖安装的关键。同一个应用要能升级，
+GitHub Release workflow 必须继续使用同一套签名 secrets。本地可以没有
+`.jks` 和 `key.properties`。
 
 ## 本地和 GitHub 的关系
 
@@ -95,7 +98,7 @@ git push origin v2.0.1
 - macOS DMG
 - Windows ZIP
 
-没有 Apple/Microsoft/Google 开发者证书时，安装包仍会遇到系统安全提示。这是分发证书问题，不是项目管理问题。
+没有 Apple/Microsoft 开发者证书时，macOS 和 Windows 安装包仍会遇到系统安全提示。Android 可以用免费自签名 keystore，只要每次发布都使用同一个 keystore，用户就能覆盖安装升级。
 
 ## 当前备份分支
 

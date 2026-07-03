@@ -5,10 +5,10 @@ import 'package:flutter/material.dart';
 /// 配色对齐 macOS 桌面版，保留向后兼容的旧名称
 class AppTheme {
   // ─── 品牌色 ───
-  static const Color primaryColor = Color(0xFF2F6BFF);   // 对齐 macOS
+  static const Color primaryColor = Color(0xFF2F6BFF); // 对齐 macOS
   static const Color primaryLight = Color(0xFF5B8CFF);
   static const Color primaryDark = Color(0xFF1E49D8);
-  static const Color accentColor = Color(0xFF14B8A6);    // 对齐 macOS
+  static const Color accentColor = Color(0xFF14B8A6); // 对齐 macOS
 
   // macOS 别名
   static const Color primary = primaryColor;
@@ -16,11 +16,11 @@ class AppTheme {
   static const Color primaryMuted = primaryDark;
 
   // ─── 状态色 ───
-  static const Color successColor = Color(0xFF18A957);   // 对齐 macOS
+  static const Color successColor = Color(0xFF18A957); // 对齐 macOS
   static const Color successLight = Color(0xFF34D399);
   static const Color successMuted = Color(0xFF0E7A3E);
-  static const Color warningColor = Color(0xFFF59E0B);   // 对齐 macOS
-  static const Color errorColor = Color(0xFFEF4444);     // 对齐 macOS
+  static const Color warningColor = Color(0xFFF59E0B); // 对齐 macOS
+  static const Color errorColor = Color(0xFFEF4444); // 对齐 macOS
 
   // macOS 别名
   static const Color success = successColor;
@@ -28,11 +28,11 @@ class AppTheme {
   static const Color error = errorColor;
 
   // ─── 暗色主题 ───
-  static const Color darkBg = Color(0xFF08090B);        // 对齐 macOS bg
-  static const Color darkSurface = Color(0xFF101114);    // 对齐 macOS surface
-  static const Color darkCard = Color(0xFF15171B);       // 对齐 macOS card
+  static const Color darkBg = Color(0xFF08090B); // 对齐 macOS bg
+  static const Color darkSurface = Color(0xFF101114); // 对齐 macOS surface
+  static const Color darkCard = Color(0xFF15171B); // 对齐 macOS card
   static const Color darkCardHover = Color(0xFF1C2026);
-  static const Color darkBorder = Color(0xFF2A2E36);     // 对齐 macOS border
+  static const Color darkBorder = Color(0xFF2A2E36); // 对齐 macOS border
   static const Color darkBorderLight = Color(0xFF3A414D);
   static const Color darkTextPrimary = Color(0xFFF4F6F8);
   static const Color darkTextSecondary = Color(0xFFA4ACB8);
@@ -107,7 +107,8 @@ class AppTheme {
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: darkCard,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: darkBorder),
@@ -132,15 +133,18 @@ class AppTheme {
             backgroundColor: primaryColor,
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             elevation: 0,
-            textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: -0.1),
+            textStyle: const TextStyle(
+                fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: -0.1),
           ),
         ),
         textButtonTheme: TextButtonThemeData(
           style: TextButton.styleFrom(
             foregroundColor: primaryLight,
-            textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+            textStyle:
+                const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
           ),
         ),
         switchTheme: SwitchThemeData(
@@ -153,29 +157,54 @@ class AppTheme {
             return darkCard;
           }),
           trackOutlineColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) return Colors.transparent;
+            if (states.contains(WidgetState.selected)) {
+              return Colors.transparent;
+            }
             return darkBorderLight;
           }),
         ),
         snackBarTheme: SnackBarThemeData(
           backgroundColor: darkCard,
-          contentTextStyle: const TextStyle(color: darkTextPrimary, fontSize: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          contentTextStyle:
+              const TextStyle(color: darkTextPrimary, fontSize: 14),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           behavior: SnackBarBehavior.floating,
         ),
         dialogTheme: DialogThemeData(
           backgroundColor: darkSurface,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         ),
         textTheme: const TextTheme(
-          headlineLarge: TextStyle(color: darkTextPrimary, fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: -0.5),
-          headlineMedium: TextStyle(color: darkTextPrimary, fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.3),
-          titleLarge: TextStyle(color: darkTextPrimary, fontSize: 18, fontWeight: FontWeight.w600, letterSpacing: -0.2),
-          titleMedium: TextStyle(color: darkTextPrimary, fontSize: 16, fontWeight: FontWeight.w500, letterSpacing: -0.1),
-          bodyLarge: TextStyle(color: darkTextPrimary, fontSize: 15, letterSpacing: -0.1),
-          bodyMedium: TextStyle(color: darkTextSecondary, fontSize: 14, letterSpacing: -0.1),
-          bodySmall: TextStyle(color: darkTextHint, fontSize: 12, letterSpacing: 0),
-          labelLarge: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+          headlineLarge: TextStyle(
+              color: darkTextPrimary,
+              fontSize: 32,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.5),
+          headlineMedium: TextStyle(
+              color: darkTextPrimary,
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3),
+          titleLarge: TextStyle(
+              color: darkTextPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.2),
+          titleMedium: TextStyle(
+              color: darkTextPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              letterSpacing: -0.1),
+          bodyLarge: TextStyle(
+              color: darkTextPrimary, fontSize: 15, letterSpacing: -0.1),
+          bodyMedium: TextStyle(
+              color: darkTextSecondary, fontSize: 14, letterSpacing: -0.1),
+          bodySmall:
+              TextStyle(color: darkTextHint, fontSize: 12, letterSpacing: 0),
+          labelLarge: TextStyle(
+              color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
         ),
       );
 
@@ -228,7 +257,8 @@ class AppTheme {
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: lightBg,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: lightBorder),
@@ -249,7 +279,8 @@ class AppTheme {
             backgroundColor: primaryColor,
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             elevation: 0,
           ),
         ),
@@ -265,18 +296,39 @@ class AppTheme {
         ),
         snackBarTheme: SnackBarThemeData(
           backgroundColor: lightCard,
-          contentTextStyle: const TextStyle(color: lightTextPrimary, fontSize: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          contentTextStyle:
+              const TextStyle(color: lightTextPrimary, fontSize: 14),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           behavior: SnackBarBehavior.floating,
         ),
         textTheme: const TextTheme(
-          headlineLarge: TextStyle(color: lightTextPrimary, fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: -0.5),
-          headlineMedium: TextStyle(color: lightTextPrimary, fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: -0.3),
-          titleLarge: TextStyle(color: lightTextPrimary, fontSize: 18, fontWeight: FontWeight.w600, letterSpacing: -0.2),
-          titleMedium: TextStyle(color: lightTextPrimary, fontSize: 16, fontWeight: FontWeight.w500, letterSpacing: -0.1),
-          bodyLarge: TextStyle(color: lightTextPrimary, fontSize: 15, letterSpacing: -0.1),
-          bodyMedium: TextStyle(color: lightTextSecondary, fontSize: 14, letterSpacing: -0.1),
-          bodySmall: TextStyle(color: lightTextHint, fontSize: 12, letterSpacing: 0),
+          headlineLarge: TextStyle(
+              color: lightTextPrimary,
+              fontSize: 32,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.5),
+          headlineMedium: TextStyle(
+              color: lightTextPrimary,
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3),
+          titleLarge: TextStyle(
+              color: lightTextPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.2),
+          titleMedium: TextStyle(
+              color: lightTextPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              letterSpacing: -0.1),
+          bodyLarge: TextStyle(
+              color: lightTextPrimary, fontSize: 15, letterSpacing: -0.1),
+          bodyMedium: TextStyle(
+              color: lightTextSecondary, fontSize: 14, letterSpacing: -0.1),
+          bodySmall:
+              TextStyle(color: lightTextHint, fontSize: 12, letterSpacing: 0),
         ),
       );
 }
@@ -285,7 +337,8 @@ class AppTheme {
 extension SnackBarX on BuildContext {
   static const double _navBarClearance = 88; // 底栏 + 间距
 
-  void showSnack(String message, {
+  void showSnack(
+    String message, {
     Color? backgroundColor,
     Duration duration = const Duration(seconds: 2),
   }) {

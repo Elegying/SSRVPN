@@ -520,6 +520,10 @@ class SsrvpnVpnService : VpnService() {
 
     private fun applyProxySelection(apiPort: Int, apiSecret: String, nodeName: String?) {
         val selectedNode = nodeName?.takeIf { it.isNotBlank() && it != "SSRVPN" } ?: return
+        if (apiSecret.isBlank()) {
+            Log.d(TAG, "Skip proxy selection: API secret is only available from Flutter startup")
+            return
+        }
         val proxyOk = setProxyGroup(apiPort, apiSecret, "PROXY", selectedNode)
         val globalOk = setProxyGroup(apiPort, apiSecret, "GLOBAL", "PROXY") ||
             setProxyGroup(apiPort, apiSecret, "GLOBAL", selectedNode)

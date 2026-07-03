@@ -79,7 +79,8 @@ class _GlassContainerState extends State<GlassContainer>
         boxShadow: widget.enableShadow
             ? [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: (isDark ? 60 : 30) / 255),
+                  color:
+                      Colors.black.withValues(alpha: (isDark ? 60 : 30) / 255),
                   blurRadius: 30,
                   offset: const Offset(0, 10),
                   spreadRadius: -6,
@@ -91,8 +92,7 @@ class _GlassContainerState extends State<GlassContainer>
         borderRadius: BorderRadius.circular(widget.borderRadius),
         child: blurSigma > 0
             ? BackdropFilter(
-                filter: ImageFilter.blur(
-                    sigmaX: blurSigma, sigmaY: blurSigma),
+                filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
                 child: _buildGlass(isDark),
               )
             : _buildGlass(isDark),

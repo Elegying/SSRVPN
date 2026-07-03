@@ -53,6 +53,9 @@ class HomeScreenState extends State<HomeScreen>
   final Map<String, int> _pendingLatencies = {};
   int _lastRevision = -1;
   bool _disposed = false;
+  ClashService? _registeredClashService;
+  late final VoidCallback _onClashAutoConnect = _handleClashAutoConnect;
+  late final VoidCallback _onClashStatusChanged = _handleClashStatusChanged;
 
   late AnimationController _glowController;
 
@@ -67,13 +70,28 @@ class HomeScreenState extends State<HomeScreen>
   }
 
   void _onSubscriptionChanged(SubscriptionService subService) {
-    if (subService.revision == _lastRevision) return;
-    final isFirstSync = _lastRevision == -1;
-    _lastRevision = subService.revision;
-    _nodes = List.from(subService.allNodes);
-    if (!isFirstSync && _isConnected && _nodes.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _reloadConfig());
-    }
+    final controller = HomeNodeController(
+      nodes: _nodes,
+      latencies: _latencies,
+      lastRevision: _lastRevision,
+      selectedNode: _selectedNode,
+    );
+    final sync = controller.syncSubscriptionSnapshot(
+      revision: subService.revision,
+      allNodes: subService.allNodes,
+    );
+    if (!sync.changed) return;
+    _lastRevision = controller.lastRevision;
+    _nodes = controller.nodes;
+    if (sync.shouldPromptForImport) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _disposed) return;
+      if (!sync.isFirstSync && _isConnected) {
+        unawaited(_reloadConfig());
+      } else {
+        unawaited(_autoTestAllNodes());
+      }
+    });
   }
 
   Future<void> _reloadConfig() async {
@@ -130,14 +148,7 @@ class HomeScreenState extends State<HomeScreen>
     final batch = Map<String, int>.from(_pendingLatencies);
     _pendingLatencies.clear();
     setState(() {
-      _latencies.addAll(batch);
-      for (final node in _nodes) {
-        final latency = batch[node.name];
-        if (latency != null) {
-          node.latency = latency;
-          node.lastLatencyTest = DateTime.now();
-        }
-      }
+      HomeNodeController.applyLatenciesTo(_nodes, _latencies, batch);
     });
   }
 
@@ -171,6 +182,15 @@ class HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     _disposed = true;
+    final clashService = _registeredClashService;
+    if (clashService != null) {
+      if (identical(clashService.onAutoConnect, _onClashAutoConnect)) {
+        clashService.onAutoConnect = null;
+      }
+      if (identical(clashService.onStatusChanged, _onClashStatusChanged)) {
+        clashService.onStatusChanged = null;
+      }
+    }
     _latencyBatchTimer?.cancel();
     _glowController.dispose();
     super.dispose();
@@ -192,42 +212,49 @@ class HomeScreenState extends State<HomeScreen>
           );
         }
       });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_autoTestAllNodes());
+      });
     }
     if (clashService.isRunning) {
       setState(() => _isConnected = true);
       _glowController.repeat();
     }
 
-    clashService.onAutoConnect = () {
-      if (!_isConnected && mounted) {
-        _handleConnectToggle();
-      }
-    };
+    _registeredClashService = clashService;
+    clashService.onAutoConnect = _onClashAutoConnect;
 
     final pendingAutoConnect = await clashService.consumePendingAutoConnect();
     if (pendingAutoConnect && !_isConnected && mounted) {
-      _handleConnectToggle();
+      unawaited(_handleConnectToggle());
     }
 
-    clashService.onStatusChanged = () {
-      if (mounted && !_disposed) {
-        final running = clashService.isRunning;
-        if (_isConnected != running) {
-          setState(() {
-            _isConnected = running;
-            if (!running) {
-              _latencies.clear();
-              _selectedNode = null;
-            }
-          });
-          if (running) {
-            _glowController.repeat();
-          } else {
-            _glowController.stop();
-          }
-        }
+    clashService.onStatusChanged = _onClashStatusChanged;
+  }
+
+  void _handleClashAutoConnect() {
+    if (!_isConnected && mounted && !_disposed) {
+      unawaited(_handleConnectToggle());
+    }
+  }
+
+  void _handleClashStatusChanged() {
+    final clashService = _registeredClashService;
+    if (!mounted || _disposed || clashService == null) return;
+    final running = clashService.isRunning;
+    if (_isConnected == running) return;
+    setState(() {
+      _isConnected = running;
+      if (!running) {
+        _latencies.clear();
+        _selectedNode = null;
       }
-    };
+    });
+    if (running) {
+      _glowController.repeat();
+    } else {
+      _glowController.stop();
+    }
   }
 
   ConnectionOrchestrator get _orchestrator => ConnectionOrchestrator(
@@ -279,7 +306,7 @@ class HomeScreenState extends State<HomeScreen>
             _selectedNode = autoSelect;
           });
           _glowController.repeat();
-          _autoTestAllNodes();
+          unawaited(_autoTestAllNodes());
           _checkUpdateDelayed();
         } else {
           setState(() {
@@ -299,16 +326,22 @@ class HomeScreenState extends State<HomeScreen>
 
   String _userFriendlyError(Object error) {
     final msg = error.toString();
-    if (msg.contains('TimeoutException') || msg.contains('timeout') || msg.contains('超时')) {
+    if (msg.contains('TimeoutException') ||
+        msg.contains('timeout') ||
+        msg.contains('超时')) {
       return '连接超时，请检查网络后重试';
     }
-    if (msg.contains('SocketException') || msg.contains('Network') || msg.contains('Connection refused')) {
+    if (msg.contains('SocketException') ||
+        msg.contains('Network') ||
+        msg.contains('Connection refused')) {
       return '网络连接失败，请检查网络设置';
     }
     if (msg.contains('HttpException') || msg.contains('HTTP')) {
       return '服务器响应异常，请稍后重试';
     }
-    if (msg.contains('HandshakeException') || msg.contains('TLS') || msg.contains('Certificate')) {
+    if (msg.contains('HandshakeException') ||
+        msg.contains('TLS') ||
+        msg.contains('Certificate')) {
       return '安全连接失败，请检查网络环境';
     }
     return msg.replaceFirst('Exception: ', '');
@@ -339,7 +372,9 @@ class HomeScreenState extends State<HomeScreen>
   Future<void> _handleProxyModeChanged(String mode) async {
     final settingsService = context.read<SettingsService>();
     final targetMode = mode == 'global' ? ProxyMode.global : ProxyMode.rule;
-    if (_isConnecting || settingsService.settings.proxyMode == targetMode) return;
+    if (_isConnecting || settingsService.settings.proxyMode == targetMode) {
+      return;
+    }
 
     await settingsService.setProxyMode(mode);
     if (!mounted || _disposed) return;
@@ -373,10 +408,8 @@ class HomeScreenState extends State<HomeScreen>
     var reloadSucceeded = false;
     if (shouldReload) {
       await _reloadConfig();
-      reloadSucceeded = mounted &&
-          !_disposed &&
-          _isConnected &&
-          clashService.isRunning;
+      reloadSucceeded =
+          mounted && !_disposed && _isConnected && clashService.isRunning;
     }
     if (!mounted || _disposed) return;
 
@@ -402,7 +435,7 @@ class HomeScreenState extends State<HomeScreen>
     String server,
     int port,
   ) async {
-    if (!_isConnected || _testingNodeName == nodeName) return;
+    if (_testingNodeName == nodeName) return;
     setState(() => _testingNodeName = nodeName);
     final clashService = context.read<ClashService>();
     final settings = context.read<SettingsService>().settings;
@@ -418,19 +451,19 @@ class HomeScreenState extends State<HomeScreen>
     );
     if (mounted && !_disposed) {
       setState(() {
-        _latencies[nodeName] = latency;
         _testingNodeName = null;
-        for (final node in _nodes) {
-          if (node.name == nodeName) {
-            node.latency = latency;
-            node.lastLatencyTest = DateTime.now();
-          }
-        }
+        HomeNodeController.applyLatenciesTo(
+          _nodes,
+          _latencies,
+          {nodeName: latency},
+        );
       });
+      _sortNodesByLatency();
     }
   }
 
   Future<void> _handleSelectNode(ProxyNode node) async {
+    if (!HomeNodeController.canSelectNode(node, _latencies)) return;
     if (!_isConnected) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -443,9 +476,11 @@ class HomeScreenState extends State<HomeScreen>
       }
       return;
     }
-    final ok = await context.read<ClashService>().switchSelectedProxy(node.name);
+    final clashService = context.read<ClashService>();
+    final ok = await clashService.switchSelectedProxy(node.name);
     if (ok) {
       await _rememberSelectedNode(node);
+      await _writePreferredNodeConfigForTile(node);
       if (mounted) setState(() => _selectedNode = node);
     }
     if (mounted) {
@@ -473,13 +508,10 @@ class HomeScreenState extends State<HomeScreen>
     List<ProxyNode> nodes,
     String? rememberedNodeName,
   ) {
-    if (nodes.isEmpty) return null;
-    if (rememberedNodeName != null && rememberedNodeName.isNotEmpty) {
-      for (final node in nodes) {
-        if (node.name == rememberedNodeName) return node;
-      }
-    }
-    return nodes.first;
+    return HomeNodeController.resolveDefaultNodeFrom(
+      nodes,
+      rememberedNodeName,
+    );
   }
 
   Future<void> _rememberSelectedNode(ProxyNode node) async {
@@ -488,8 +520,23 @@ class HomeScreenState extends State<HomeScreen>
     await settingsService.setLastSelectedNodeName(node.name);
   }
 
+  Future<void> _writePreferredNodeConfigForTile(ProxyNode node) async {
+    final rawYaml = context.read<SubscriptionService>().rawYaml;
+    if (rawYaml == null || rawYaml.trim().isEmpty) return;
+    final settingsService = context.read<SettingsService>();
+    try {
+      await context.read<ClashService>().writePreferredNodeConfig(
+            rawYaml,
+            settingsService.settings,
+            node.name,
+          );
+    } catch (e) {
+      debugPrint('[磁贴] 更新默认节点配置失败: $e');
+    }
+  }
+
   Future<void> _autoTestAllNodes() async {
-    if (!_isConnected || _nodes.isEmpty) return;
+    if (_nodes.isEmpty) return;
     final clashService = context.read<ClashService>();
     setState(() => _isBatchTesting = true);
     _pendingLatencies.clear();
@@ -506,7 +553,7 @@ class HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _handleTestAllLatency() async {
-    if (!_isConnected) return;
+    if (_nodes.isEmpty) return;
     final clashService = context.read<ClashService>();
     setState(() => _isBatchTesting = true);
     _pendingLatencies.clear();
@@ -523,17 +570,8 @@ class HomeScreenState extends State<HomeScreen>
   }
 
   void _sortNodesByLatency() {
-    final originalOrder = List<ProxyNode>.from(_nodes);
     setState(() {
-      _nodes.sort((a, b) {
-        final la = _latencies[a.name] ?? a.latency ?? 0;
-        final lb = _latencies[b.name] ?? b.latency ?? 0;
-        final aTimeout = la <= 0 || la >= 65535;
-        final bTimeout = lb <= 0 || lb >= 65535;
-        if (aTimeout && !bTimeout) return 1;
-        if (!aTimeout && bTimeout) return -1;
-        return originalOrder.indexOf(a).compareTo(originalOrder.indexOf(b));
-      });
+      _nodes = HomeNodeController.timeoutLast(_nodes, _latencies);
     });
   }
 
@@ -564,10 +602,14 @@ class HomeScreenState extends State<HomeScreen>
                   Row(
                     children: [
                       Container(
-                        width: 36, height: 36,
+                        width: 36,
+                        height: 36,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [AppTheme.primaryColor, AppTheme.accentColor],
+                            colors: [
+                              AppTheme.primaryColor,
+                              AppTheme.accentColor
+                            ],
                           ),
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -590,7 +632,8 @@ class HomeScreenState extends State<HomeScreen>
                       step: '${i + 1}',
                       text: _homeTutorialSteps[i].text,
                     ),
-                    if (i != _homeTutorialSteps.length - 1) SizedBox(height: 12),
+                    if (i != _homeTutorialSteps.length - 1)
+                      SizedBox(height: 12),
                   ],
                   SizedBox(height: 20),
                   SizedBox(
@@ -643,7 +686,8 @@ class HomeScreenState extends State<HomeScreen>
               ),
               child: Row(
                 children: [
-                  Icon(Icons.bug_report, size: 18, color: AppTheme.warningColor),
+                  Icon(Icons.bug_report,
+                      size: 18, color: AppTheme.warningColor),
                   SizedBox(width: 8),
                   Text('运行日志',
                       style: TextStyle(
@@ -652,7 +696,8 @@ class HomeScreenState extends State<HomeScreen>
                           color: AppTheme.darkTextPrimary)),
                   const Spacer(),
                   IconButton(
-                    icon: Icon(Icons.copy, size: 18, color: AppTheme.darkTextSecondary),
+                    icon: Icon(Icons.copy,
+                        size: 18, color: AppTheme.darkTextSecondary),
                     onPressed: () async {
                       await Clipboard.setData(
                           ClipboardData(text: clashService.recentLogs));
@@ -667,7 +712,8 @@ class HomeScreenState extends State<HomeScreen>
                     },
                   ),
                   IconButton(
-                    icon: Icon(Icons.close, size: 18, color: AppTheme.darkTextSecondary),
+                    icon: Icon(Icons.close,
+                        size: 18, color: AppTheme.darkTextSecondary),
                     onPressed: () => Navigator.pop(ctx),
                   ),
                 ],
@@ -698,8 +744,10 @@ class HomeScreenState extends State<HomeScreen>
     super.build(context);
     final settings = context.watch<SettingsService>().settings;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final subColor = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final textColor =
+        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final subColor =
+        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
 
     final subService = context.watch<SubscriptionService>();
     _onSubscriptionChanged(subService);
@@ -724,13 +772,18 @@ class HomeScreenState extends State<HomeScreen>
                       ],
                     ),
                   ),
-                  VerticalDivider(width: 1, color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
+                  VerticalDivider(
+                      width: 1,
+                      color:
+                          isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
                   Expanded(
                     flex: 7,
                     child: Column(
                       children: [
                         _buildNodeListHeader(textColor, subColor, isDark),
-                        Expanded(child: _buildNodeListView(textColor, subColor, isDark)),
+                        Expanded(
+                            child: _buildNodeListView(
+                                textColor, subColor, isDark)),
                       ],
                     ),
                   ),
@@ -753,24 +806,31 @@ class HomeScreenState extends State<HomeScreen>
   Widget _buildTopBar(bool isDark, Color textColor) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        Responsive.gap(16), Responsive.gap(8),
-        Responsive.gap(16), Responsive.gap(4),
+        Responsive.gap(16),
+        Responsive.gap(8),
+        Responsive.gap(16),
+        Responsive.gap(4),
       ),
       child: Row(
         children: [
           Container(
-            width: Responsive.wp(32), height: Responsive.wp(32),
+            width: Responsive.wp(32),
+            height: Responsive.wp(32),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                   colors: [AppTheme.primaryColor, AppTheme.accentColor]),
               borderRadius: BorderRadius.circular(Responsive.radius(8)),
             ),
-            child: Icon(Icons.shield_rounded, color: Colors.white, size: Responsive.icon(18)),
+            child: Icon(Icons.shield_rounded,
+                color: Colors.white, size: Responsive.icon(18)),
           ),
           SizedBox(width: Responsive.gap(10)),
           Text('SSRVPN',
-              style: TextStyle(fontSize: Responsive.sp(18), fontWeight: FontWeight.w700,
-                  color: textColor, letterSpacing: 0.5)),
+              style: TextStyle(
+                  fontSize: Responsive.sp(18),
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                  letterSpacing: 0.5)),
           const Spacer(),
           if (_isConnected)
             Container(
@@ -783,11 +843,14 @@ class HomeScreenState extends State<HomeScreen>
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.check_circle, size: Responsive.icon(14), color: AppTheme.successColor),
+                  Icon(Icons.check_circle,
+                      size: Responsive.icon(14), color: AppTheme.successColor),
                   SizedBox(width: Responsive.gap(4)),
                   Text('已连接',
-                      style: TextStyle(fontSize: Responsive.sp(12),
-                          color: AppTheme.successColor, fontWeight: FontWeight.w600)),
+                      style: TextStyle(
+                          fontSize: Responsive.sp(12),
+                          color: AppTheme.successColor,
+                          fontWeight: FontWeight.w600)),
                 ],
               ),
             ),
@@ -800,31 +863,38 @@ class HomeScreenState extends State<HomeScreen>
               decoration: BoxDecoration(
                 color: isDark ? AppTheme.darkCard : AppTheme.lightBg,
                 borderRadius: BorderRadius.circular(Responsive.radius(8)),
-                border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
+                border: Border.all(
+                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.menu_book_rounded, size: Responsive.icon(14),
-                      color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary),
+                  Icon(Icons.menu_book_rounded,
+                      size: Responsive.icon(14),
+                      color: isDark
+                          ? AppTheme.darkTextSecondary
+                          : AppTheme.lightTextSecondary),
                   SizedBox(width: Responsive.gap(4)),
                   Text('使用教程',
-                      style: TextStyle(fontSize: Responsive.sp(12), fontWeight: FontWeight.w500,
-                          color: isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary)),
+                      style: TextStyle(
+                          fontSize: Responsive.sp(12),
+                          fontWeight: FontWeight.w500,
+                          color: isDark
+                              ? AppTheme.darkTextSecondary
+                              : AppTheme.lightTextSecondary)),
                 ],
               ),
             ),
           ),
-
         ],
       ),
     );
   }
 
-  Widget _buildStatusBar(bool isDark, Color textColor, Color subColor, AppSettings settings) {
+  Widget _buildStatusBar(
+      bool isDark, Color textColor, Color subColor, AppSettings settings) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-          Responsive.gap(16), Responsive.gap(8),
+      padding: EdgeInsets.fromLTRB(Responsive.gap(16), Responsive.gap(8),
           Responsive.gap(16), Responsive.gap(8)),
       child: AnimatedBuilder(
         animation: _glowController,
@@ -832,16 +902,20 @@ class HomeScreenState extends State<HomeScreen>
           final glowIntensity = _isConnected
               ? 0.25 + 0.15 * math.sin(_glowController.value * 2 * math.pi)
               : 0.0;
-          final glowColor = AppTheme.successColor.withValues(alpha: glowIntensity);
+          final glowColor =
+              AppTheme.successColor.withValues(alpha: glowIntensity);
           return Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(Responsive.radius(16)),
               boxShadow: _isConnected
                   ? [
-                      BoxShadow(color: glowColor, blurRadius: 24, spreadRadius: -2),
                       BoxShadow(
-                          color: AppTheme.accentColor.withValues(alpha: glowIntensity * 80 / 255),
-                          blurRadius: 40, spreadRadius: -8),
+                          color: glowColor, blurRadius: 24, spreadRadius: -2),
+                      BoxShadow(
+                          color: AppTheme.accentColor
+                              .withValues(alpha: glowIntensity * 80 / 255),
+                          blurRadius: 40,
+                          spreadRadius: -8),
                     ]
                   : null,
             ),
@@ -867,40 +941,61 @@ class HomeScreenState extends State<HomeScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _ForceProxyButton(
-                            onTap: _showForceProxySitesDialog, enabled: !_isConnecting),
+                            onTap: _showForceProxySitesDialog,
+                            enabled: !_isConnecting),
                         SizedBox(height: Responsive.gap(10)),
                         AnimatedSwitcher(
                           duration: const Duration(milliseconds: 300),
                           child: Text(
-                            _isConnecting ? '正在连接...' : _isConnected ? '已连接' : '未连接',
-                            key: ValueKey(_isConnecting ? 'c' : _isConnected ? 'y' : 'n'),
+                            _isConnecting
+                                ? '正在连接...'
+                                : _isConnected
+                                    ? '已连接'
+                                    : '未连接',
+                            key: ValueKey(_isConnecting
+                                ? 'c'
+                                : _isConnected
+                                    ? 'y'
+                                    : 'n'),
                             style: TextStyle(
-                                fontSize: Responsive.sp(18), fontWeight: FontWeight.w700,
-                                color: _isConnected ? AppTheme.successColor : textColor),
-                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                                fontSize: Responsive.sp(18),
+                                fontWeight: FontWeight.w700,
+                                color: _isConnected
+                                    ? AppTheme.successColor
+                                    : textColor),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         SizedBox(height: Responsive.gap(4)),
                         if (_isConnected)
                           Container(
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color: AppTheme.successColor.withValues(alpha: 15 / 255),
+                              color: AppTheme.successColor
+                                  .withValues(alpha: 15 / 255),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: Text('${settings.proxyMode.chineseName} · 端口 ${settings.proxyPort}',
-                                style: TextStyle(fontSize: Responsive.sp(11),
-                                    color: subColor, fontWeight: FontWeight.w500)),
+                            child: Text(
+                                '${settings.proxyMode.chineseName} · 端口 ${settings.proxyPort}',
+                                style: TextStyle(
+                                    fontSize: Responsive.sp(11),
+                                    color: subColor,
+                                    fontWeight: FontWeight.w500)),
                           ),
                         if (_errorMessage != null) ...[
                           SizedBox(height: 8),
                           Container(
-                            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
                             decoration: BoxDecoration(
-                              color: AppTheme.errorColor.withValues(alpha: 15 / 255),
+                              color: AppTheme.errorColor
+                                  .withValues(alpha: 15 / 255),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
-                                  color: AppTheme.errorColor.withValues(alpha: 40 / 255)),
+                                  color: AppTheme.errorColor
+                                      .withValues(alpha: 40 / 255)),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -908,11 +1003,13 @@ class HomeScreenState extends State<HomeScreen>
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(Icons.error_outline, size: 12, color: AppTheme.errorColor),
+                                    Icon(Icons.error_outline,
+                                        size: 12, color: AppTheme.errorColor),
                                     SizedBox(width: 6),
                                     Expanded(
                                       child: Text(_errorMessage!,
-                                          style: TextStyle(color: AppTheme.errorColor,
+                                          style: TextStyle(
+                                              color: AppTheme.errorColor,
                                               fontSize: Responsive.sp(11))),
                                     ),
                                   ],
@@ -925,12 +1022,18 @@ class HomeScreenState extends State<HomeScreen>
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Icon(Icons.bug_report, size: 12, color: AppTheme.warningColor),
+                                          Icon(Icons.bug_report,
+                                              size: 12,
+                                              color: AppTheme.warningColor),
                                           SizedBox(width: 4),
                                           Text('查看日志',
-                                              style: TextStyle(fontSize: Responsive.sp(10),
-                                                  color: AppTheme.warningColor.withValues(alpha: 200 / 255),
-                                                  decoration: TextDecoration.underline)),
+                                              style: TextStyle(
+                                                  fontSize: Responsive.sp(10),
+                                                  color: AppTheme.warningColor
+                                                      .withValues(
+                                                          alpha: 200 / 255),
+                                                  decoration: TextDecoration
+                                                      .underline)),
                                         ],
                                       ),
                                     ),
@@ -940,12 +1043,18 @@ class HomeScreenState extends State<HomeScreen>
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Icon(Icons.refresh, size: 12, color: AppTheme.primaryColor),
+                                          Icon(Icons.refresh,
+                                              size: 12,
+                                              color: AppTheme.primaryColor),
                                           SizedBox(width: 4),
                                           Text('重试',
-                                              style: TextStyle(fontSize: Responsive.sp(10),
-                                                  color: AppTheme.primaryColor.withValues(alpha: 200 / 255),
-                                                  decoration: TextDecoration.underline,
+                                              style: TextStyle(
+                                                  fontSize: Responsive.sp(10),
+                                                  color: AppTheme.primaryColor
+                                                      .withValues(
+                                                          alpha: 200 / 255),
+                                                  decoration:
+                                                      TextDecoration.underline,
                                                   fontWeight: FontWeight.w700)),
                                         ],
                                       ),
@@ -986,20 +1095,23 @@ class HomeScreenState extends State<HomeScreen>
 
   Widget _buildNodeListHeader(Color textColor, Color subColor, bool isDark) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-          Responsive.gap(16), Responsive.gap(4),
+      padding: EdgeInsets.fromLTRB(Responsive.gap(16), Responsive.gap(4),
           Responsive.gap(16), Responsive.gap(4)),
       child: Row(
         children: [
           Container(
-            width: Responsive.wp(3), height: Responsive.hp(14),
+            width: Responsive.wp(3),
+            height: Responsive.hp(14),
             decoration: BoxDecoration(
-                color: AppTheme.primaryColor, borderRadius: BorderRadius.circular(2)),
+                color: AppTheme.primaryColor,
+                borderRadius: BorderRadius.circular(2)),
           ),
           SizedBox(width: Responsive.gap(8)),
           Text('全部节点',
-              style: TextStyle(fontSize: Responsive.sp(15),
-                  fontWeight: FontWeight.w700, color: textColor)),
+              style: TextStyle(
+                  fontSize: Responsive.sp(15),
+                  fontWeight: FontWeight.w700,
+                  color: textColor)),
           SizedBox(width: Responsive.gap(6)),
           Container(
             padding: EdgeInsets.symmetric(
@@ -1009,17 +1121,22 @@ class HomeScreenState extends State<HomeScreen>
               borderRadius: BorderRadius.circular(Responsive.radius(8)),
             ),
             child: Text('${_nodes.length}',
-                style: TextStyle(fontSize: Responsive.sp(11),
-                    fontWeight: FontWeight.w600, color: AppTheme.primaryColor)),
+                style: TextStyle(
+                    fontSize: Responsive.sp(11),
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.primaryColor)),
           ),
           const Spacer(),
           if (_isBatchTesting)
             SizedBox(
-              width: Responsive.icon(14), height: Responsive.icon(14),
-              child: const CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryColor),
+              width: Responsive.icon(14),
+              height: Responsive.icon(14),
+              child: const CircularProgressIndicator(
+                  strokeWidth: 2, color: AppTheme.primaryColor),
             )
           else if (_isConnected)
-            _SmallButton(icon: Icons.speed, label: '测速', onTap: _handleTestAllLatency),
+            _SmallButton(
+                icon: Icons.speed, label: '测速', onTap: _handleTestAllLatency),
         ],
       ),
     );
@@ -1032,8 +1149,10 @@ class HomeScreenState extends State<HomeScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              width: 28, height: 28,
-              child: CircularProgressIndicator(strokeWidth: 2.5, color: AppTheme.primaryColor),
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2.5, color: AppTheme.primaryColor),
             ),
             SizedBox(height: 14),
             Text('正在启动VPN核心...',
@@ -1049,18 +1168,22 @@ class HomeScreenState extends State<HomeScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 64, height: 64,
+              width: 64,
+              height: 64,
               decoration: BoxDecoration(
                 color: AppTheme.primaryColor.withValues(alpha: 10 / 255),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.dns_outlined, size: 28,
+              child: Icon(Icons.dns_outlined,
+                  size: 28,
                   color: AppTheme.primaryColor.withValues(alpha: 100 / 255)),
             ),
             SizedBox(height: 16),
             Text('暂无节点',
-                style: TextStyle(fontSize: Responsive.sp(15),
-                    fontWeight: FontWeight.w600, color: textColor)),
+                style: TextStyle(
+                    fontSize: Responsive.sp(15),
+                    fontWeight: FontWeight.w600,
+                    color: textColor)),
             SizedBox(height: 6),
             Text('请先在订阅页面添加订阅链接',
                 style: TextStyle(fontSize: Responsive.sp(12), color: subColor)),
@@ -1070,8 +1193,13 @@ class HomeScreenState extends State<HomeScreen>
     }
 
     return ListView.builder(
-      padding: EdgeInsets.fromLTRB(12, 6, 12,
-          MediaQuery.of(context).padding.bottom + LiquidGlassNavBar.height + 20),
+      padding: EdgeInsets.fromLTRB(
+          12,
+          6,
+          12,
+          MediaQuery.of(context).padding.bottom +
+              LiquidGlassNavBar.height +
+              20),
       itemCount: _nodes.length,
       itemBuilder: (context, index) {
         final node = _nodes[index];
@@ -1087,7 +1215,8 @@ class HomeScreenState extends State<HomeScreen>
           isSelected: isSelected,
           isTimeout: isTimeout,
           isConnected: _isConnected,
-          onTestLatency: () => _handleTestLatency(node.name, node.server, node.port),
+          onTestLatency: () =>
+              _handleTestLatency(node.name, node.server, node.port),
           onTap: () => _handleSelectNode(node),
           onLongPress: () => _editNode(node),
           onEdit: () => _editNode(node),
@@ -1118,20 +1247,28 @@ class _ForceProxyButton extends StatelessWidget {
             padding: EdgeInsets.symmetric(
                 horizontal: Responsive.gap(8), vertical: Responsive.gap(6)),
             decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withValues(alpha: (isDark ? 24 : 16) / 255),
+              color: AppTheme.primaryColor
+                  .withValues(alpha: (isDark ? 24 : 16) / 255),
               borderRadius: BorderRadius.circular(Responsive.radius(10)),
               border: Border.all(
-                  color: AppTheme.primaryColor.withValues(alpha: (isDark ? 70 : 55) / 255)),
+                  color: AppTheme.primaryColor
+                      .withValues(alpha: (isDark ? 70 : 55) / 255)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.add_link_rounded, size: Responsive.icon(14), color: AppTheme.primaryColor),
+                Icon(Icons.add_link_rounded,
+                    size: Responsive.icon(14), color: AppTheme.primaryColor),
                 SizedBox(width: Responsive.gap(4)),
                 Flexible(
-                  child: Text('添加强制代理网站', maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: Responsive.sp(10), height: 1.2,
-                          fontWeight: FontWeight.w600, color: AppTheme.primaryColor)),
+                  child: Text('添加强制代理网站',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: Responsive.sp(10),
+                          height: 1.2,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.primaryColor)),
                 ),
               ],
             ),
@@ -1146,7 +1283,8 @@ class _SmallButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  const _SmallButton({required this.icon, required this.label, required this.onTap});
+  const _SmallButton(
+      {required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1158,7 +1296,8 @@ class _SmallButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: isDark ? AppTheme.darkCard : AppTheme.lightBg,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
+          border: Border.all(
+              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1166,8 +1305,10 @@ class _SmallButton extends StatelessWidget {
             Icon(icon, size: 13, color: AppTheme.primaryColor),
             SizedBox(width: 3),
             Text(label,
-                style: TextStyle(fontSize: Responsive.sp(11),
-                    fontWeight: FontWeight.w500, color: AppTheme.primaryColor)),
+                style: TextStyle(
+                    fontSize: Responsive.sp(11),
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.primaryColor)),
           ],
         ),
       ),
@@ -1192,15 +1333,19 @@ class _TutorialStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 24, height: 24,
+          width: 24,
+          height: 24,
           decoration: BoxDecoration(
-            color: AppTheme.primaryColor.withValues(alpha: (isDark ? 30 : 20) / 255),
+            color: AppTheme.primaryColor
+                .withValues(alpha: (isDark ? 30 : 20) / 255),
             shape: BoxShape.circle,
           ),
           child: Center(
             child: Text(step,
-                style: TextStyle(fontSize: Responsive.sp(12),
-                    fontWeight: FontWeight.w700, color: AppTheme.primaryColor)),
+                style: TextStyle(
+                    fontSize: Responsive.sp(12),
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.primaryColor)),
           ),
         ),
         SizedBox(width: 10),
@@ -1208,8 +1353,12 @@ class _TutorialStep extends StatelessWidget {
           child: Padding(
             padding: EdgeInsets.only(top: 2),
             child: Text(text,
-                style: TextStyle(fontSize: Responsive.sp(14), height: 1.5,
-                    color: isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary)),
+                style: TextStyle(
+                    fontSize: Responsive.sp(14),
+                    height: 1.5,
+                    color: isDark
+                        ? AppTheme.darkTextPrimary
+                        : AppTheme.lightTextPrimary)),
           ),
         ),
       ],

@@ -62,10 +62,12 @@ cd SSRVPN_Android && flutter analyze && flutter test
 5. Push the tag to trigger the release workflow.
 6. Download artifacts, verify checksums, and smoke test installation.
 
-Public production releases should use proper platform signing:
+Current personal releases use the free path:
 
-- Android release keystore,
-- Apple Developer ID signing and notarization,
-- Windows Authenticode signing.
+- Android self-signed release keystore,
+- macOS ad-hoc signing without notarization,
+- Windows unsigned portable ZIP.
+
+Paid Apple Developer ID notarization and Windows Authenticode signing are optional future upgrades if public distribution needs fewer system warnings.
 
 See `docs/RELEASE_SIGNING.md`.

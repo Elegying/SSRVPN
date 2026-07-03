@@ -215,6 +215,11 @@ class StartupOrchestrator {
       await windowManager.destroy();
     } catch (error, stack) {
       StartupLogger.error('Tray quit action failed', error, stack);
+      StartupLogger.writeDesktopFailureReportSync(
+        'Tray quit action failed',
+        error: error,
+        stack: stack,
+      );
     }
   }
 

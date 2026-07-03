@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'services/settings_service.dart';
 import 'services/clash_service.dart' as clash;
 import 'services/subscription_service.dart';
@@ -113,56 +114,58 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
-        home: Scaffold(
-          backgroundColor: const Color(0xFF0B0D14),
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      color: AppTheme.errorColor.withValues(alpha: 20 / 255),
-                      shape: BoxShape.circle,
+        home: CrashReportPrompt(
+          child: Scaffold(
+            backgroundColor: const Color(0xFF0B0D14),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: AppTheme.errorColor.withValues(alpha: 20 / 255),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.error_outline,
+                          size: 32, color: AppTheme.errorColor),
                     ),
-                    child: const Icon(Icons.error_outline,
-                        size: 32, color: AppTheme.errorColor),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text('初始化失败',
-                      style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.darkTextPrimary)),
-                  const SizedBox(height: 8),
-                  Text(_initErrorMsg,
-                      style: const TextStyle(
-                          fontSize: 13, color: AppTheme.darkTextSecondary),
-                      textAlign: TextAlign.center),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: 120,
-                    height: 44,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          _initError = false;
-                          _appInitialized = false;
-                        });
-                        _initApp();
-                      },
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryColor,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12))),
-                      child: const Text('重试',
-                          style: TextStyle(color: Colors.white)),
+                    const SizedBox(height: 20),
+                    const Text('初始化失败',
+                        style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.darkTextPrimary)),
+                    const SizedBox(height: 8),
+                    Text(_initErrorMsg,
+                        style: const TextStyle(
+                            fontSize: 13, color: AppTheme.darkTextSecondary),
+                        textAlign: TextAlign.center),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: 120,
+                      height: 44,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            _initError = false;
+                            _appInitialized = false;
+                          });
+                          _initApp();
+                        },
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryColor,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12))),
+                        child: const Text('重试',
+                            style: TextStyle(color: Colors.white)),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -174,29 +177,31 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
-        home: const Scaffold(
-          backgroundColor: Color(0xFF0B0D14),
-          body: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                    width: 36,
-                    height: 36,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2.5, color: AppTheme.primaryColor)),
-                SizedBox(height: 20),
-                Text('SSRVPN',
-                    style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.darkTextPrimary,
-                        letterSpacing: 1)),
-                SizedBox(height: 8),
-                Text('正在初始化...',
-                    style: TextStyle(
-                        fontSize: 14, color: AppTheme.darkTextSecondary)),
-              ],
+        home: const CrashReportPrompt(
+          child: Scaffold(
+            backgroundColor: Color(0xFF0B0D14),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.5, color: AppTheme.primaryColor)),
+                  SizedBox(height: 20),
+                  Text('SSRVPN',
+                      style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.darkTextPrimary,
+                          letterSpacing: 1)),
+                  SizedBox(height: 8),
+                  Text('正在初始化...',
+                      style: TextStyle(
+                          fontSize: 14, color: AppTheme.darkTextSecondary)),
+                ],
+              ),
             ),
           ),
         ),
@@ -218,7 +223,9 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-        home: _InitialSubscriptionPrompt(child: _buildMainScreen(isDark)),
+        home: CrashReportPrompt(
+          child: _InitialSubscriptionPrompt(child: _buildMainScreen(isDark)),
+        ),
       ),
     );
   }
@@ -311,7 +318,8 @@ class _InitialSubscriptionPrompt extends StatefulWidget {
 
 class _InitialSubscriptionPromptState
     extends State<_InitialSubscriptionPrompt> {
-  bool _promptStarted = false;
+  bool _promptInFlight = false;
+  int _lastPromptRevision = -1;
 
   @override
   void initState() {
@@ -319,12 +327,20 @@ class _InitialSubscriptionPromptState
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybePrompt());
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybePrompt());
+  }
+
   Future<void> _maybePrompt() async {
-    if (_promptStarted || !mounted) return;
+    if (_promptInFlight || !mounted) return;
     final subService = context.read<SubscriptionService>();
     if (subService.allNodes.isNotEmpty) return;
+    if (_lastPromptRevision == subService.revision) return;
 
-    _promptStarted = true;
+    _promptInFlight = true;
+    _lastPromptRevision = subService.revision;
     final input = await showDialog<String>(
       context: context,
       barrierDismissible: false,
@@ -332,6 +348,7 @@ class _InitialSubscriptionPromptState
         isValidInput: _isValidSubscriptionInput,
       ),
     );
+    _promptInFlight = false;
 
     if (input == null || input.trim().isEmpty || !mounted) return;
     await _addSubscriptionAndRefresh(input.trim());

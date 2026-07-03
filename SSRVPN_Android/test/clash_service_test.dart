@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yaml/yaml.dart';
+import 'dart:io';
 import 'package:ssrvpn_client/models/app_settings.dart';
 import 'package:ssrvpn_client/services/clash_service.dart';
 
@@ -74,6 +75,27 @@ void main() {
       final proxies = (proxyGroup['proxies'] as YamlList).cast<String>();
 
       expect(proxies, containsAll(['日本节点', '新加坡节点']));
+    });
+
+    test('preferred node config is persisted for tile cold starts', () async {
+      final dir = await Directory.systemTemp.createTemp('ssrvpn_config_test_');
+      addTearDown(() => dir.delete(recursive: true));
+      final configPath = '${dir.path}${Platform.pathSeparator}config.yaml';
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: configPath);
+
+      await service.writePreferredNodeConfig(
+        _testProxies,
+        AppSettings(),
+        '新加坡节点',
+      );
+
+      final parsed = loadYaml(await File(configPath).readAsString()) as YamlMap;
+      final proxyGroup = (parsed['proxy-groups'] as YamlList)
+          .firstWhere((g) => (g as YamlMap)['name'] == 'PROXY') as YamlMap;
+      final proxies = (proxyGroup['proxies'] as YamlList).cast<String>();
+
+      expect(proxies.first, '新加坡节点');
     });
 
     test('url-test group has correct ping URL and interval', () {

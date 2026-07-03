@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ssrvpn_windows/models/app_settings.dart';
 import 'package:ssrvpn_windows/services/clash_service.dart';
 import 'package:ssrvpn_windows/services/subscription_service.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:yaml/yaml.dart';
 
 void main() {
@@ -117,7 +117,7 @@ trojan://trojan-password@trojan.example.com:8443?allowInsecure=1&peer=peer.examp
     );
     await service.refreshAllSubscriptions();
 
-    expect(userAgent, 'SSRVPN/2.0.6');
+    expect(userAgent, AppConstants.appUserAgent);
     expect(service.allNodes.map((node) => node.name), [
       'AnyTLS Node',
       'Trojan Node',

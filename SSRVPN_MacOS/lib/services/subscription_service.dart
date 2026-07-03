@@ -5,8 +5,6 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
-import 'direct_fetcher.dart';
-
 /// macOS 订阅管理服务
 ///
 /// 继承 [SubscriptionServiceBase] 共享逻辑，仅实现 macOS 特有的 HTTP 拉取策略：
@@ -44,7 +42,7 @@ class SubscriptionService extends SubscriptionServiceBase {
         final body = await DirectFetcher.fetch(
           url,
           headers: const {
-            'User-Agent': 'SSRVPN/2.0.6',
+            'User-Agent': AppConstants.appUserAgent,
             'Accept': 'text/yaml, application/x-yaml, */*',
           },
         );
@@ -61,14 +59,15 @@ class SubscriptionService extends SubscriptionServiceBase {
         try {
           client.connectionTimeout = Duration(seconds: 15 * attempt);
           final request = await client.getUrl(uri);
-          request.headers.set('User-Agent', 'SSRVPN/2.0.6');
+          request.headers.set('User-Agent', AppConstants.appUserAgent);
           request.headers.set('Accept', 'text/yaml, application/x-yaml, */*');
 
           final response =
               await request.close().timeout(Duration(seconds: 30 * attempt));
 
           if (response.statusCode == 200) {
-            if (response.contentLength > SubscriptionServiceBase.maxSubscriptionBytes) {
+            if (response.contentLength >
+                SubscriptionServiceBase.maxSubscriptionBytes) {
               throw Exception('订阅内容超过 20 MB 限制');
             }
             final bodyBytes = await _readLimitedResponse(response);

@@ -7,10 +7,16 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// 正式签名信息存放在 android/key.properties（已 gitignore，与 keystore 一起备份）
+// Official releases are signed in GitHub Actions. The release workflow writes a
+// temporary android/key.properties from repository secrets before building.
 val keystoreProperties = Properties().apply {
     val f = rootProject.file("key.properties")
     if (f.exists()) f.inputStream().use { load(it) }
+}
+val hasReleaseKeystore = keystoreProperties.isNotEmpty()
+val isGitHubActions = providers.environmentVariable("GITHUB_ACTIONS").orNull == "true"
+val isReleaseBuildRequested = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true)
 }
 
 android {
@@ -48,7 +54,7 @@ android {
     }
 
     signingConfigs {
-        if (keystoreProperties.isNotEmpty()) {
+        if (hasReleaseKeystore) {
             create("release") {
                 keyAlias = keystoreProperties["keyAlias"] as String
                 keyPassword = keystoreProperties["keyPassword"] as String
@@ -60,9 +66,16 @@ android {
 
     buildTypes {
         release {
-            // 有 key.properties 用正式签名；没有（其他机器）回退 debug 签名保证能构建。
-            // 注意：Android 只允许同签名覆盖安装，对外发布必须用正式签名构建
-            signingConfig = if (keystoreProperties.isNotEmpty()) {
+            if (!hasReleaseKeystore && isGitHubActions && isReleaseBuildRequested) {
+                error(
+                    "Android release signing is missing. Configure the GitHub " +
+                        "Actions secrets and let the release workflow generate key.properties."
+                )
+            }
+
+            // Local machines may build an unsigned-official release for temporary
+            // verification, but GitHub release builds must use the secrets-backed key.
+            signingConfig = if (hasReleaseKeystore) {
                 signingConfigs.getByName("release")
             } else {
                 signingConfigs.getByName("debug")

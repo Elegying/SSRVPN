@@ -132,25 +132,25 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
         child: Column(
           children: [
             Padding(
-              padding:  EdgeInsets.fromLTRB(24, 18, 24, 10),
+              padding: EdgeInsets.fromLTRB(24, 18, 24, 10),
               child: Row(
                 children: [
                   Container(
                     width: 36,
                     height: 36,
                     decoration: BoxDecoration(
-                      gradient:  LinearGradient(
+                      gradient: LinearGradient(
                         colors: [AppTheme.primaryColor, AppTheme.accentColor],
                       ),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child:  Icon(
+                    child: Icon(
                       Icons.fact_check_rounded,
                       color: Colors.white,
                       size: 19,
                     ),
                   ),
-                   SizedBox(width: 12),
+                  SizedBox(width: 12),
                   Flexible(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -166,17 +166,18 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
                             color: textColor,
                           ),
                         ),
-                         SizedBox(height: 2),
+                        SizedBox(height: 2),
                         Text(
                           '使用当前节点出口检测流媒体和 AI 服务可用性',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: Responsive.sp(12), color: subColor),
+                          style: TextStyle(
+                              fontSize: Responsive.sp(12), color: subColor),
                         ),
                       ],
                     ),
                   ),
-                   SizedBox(width: 8),
+                  SizedBox(width: 8),
                   _HeaderActionButton(
                     icon: _isTestingAll
                         ? Icons.hourglass_top_rounded
@@ -189,7 +190,7 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
               ),
             ),
             Padding(
-              padding:  EdgeInsets.fromLTRB(24, 0, 24, 10),
+              padding: EdgeInsets.fromLTRB(24, 0, 24, 10),
               child: _InfoStrip(
                 isDark: isDark,
                 connected: clashService.isRunning,
@@ -201,15 +202,17 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
               height: 36,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                padding:  EdgeInsets.symmetric(horizontal: 24),
+                padding: EdgeInsets.symmetric(horizontal: 24),
                 itemCount: _categories.length,
-                separatorBuilder: (_, __) =>  SizedBox(width: 8),
+                separatorBuilder: (_, __) => SizedBox(width: 8),
                 itemBuilder: (context, index) {
                   final (cat, label, icon) = _categories[index];
                   final selected = _activeCategory == cat;
                   return FilterChip(
                     showCheckmark: false,
-                    avatar: Icon(icon, size: 14, color: selected ? Colors.white : AppTheme.primaryColor),
+                    avatar: Icon(icon,
+                        size: 14,
+                        color: selected ? Colors.white : AppTheme.primaryColor),
                     label: Text(
                       '$label (${_countUnlocked(cat)})',
                       style: TextStyle(
@@ -221,12 +224,12 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
                     selectedColor: AppTheme.primaryColor,
                     onSelected: (_) => setState(() => _activeCategory = cat),
                     visualDensity: VisualDensity.compact,
-                    padding:  EdgeInsets.symmetric(horizontal: 4),
+                    padding: EdgeInsets.symmetric(horizontal: 4),
                   );
                 },
               ),
             ),
-             SizedBox(height: 4),
+            SizedBox(height: 4),
             Expanded(
               child: GridView.builder(
                 padding: EdgeInsets.fromLTRB(
@@ -279,11 +282,12 @@ class _InfoStrip extends StatelessWidget {
     final color = connected ? AppTheme.successColor : AppTheme.warningColor;
     return Container(
       width: double.infinity,
-      padding:  EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: color.withValues(alpha: (isDark ? 16 : 20) / 255),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: (isDark ? 42 : 52) / 255)),
+        border: Border.all(
+            color: color.withValues(alpha: (isDark ? 42 : 52) / 255)),
       ),
       child: Row(
         children: [
@@ -292,7 +296,7 @@ class _InfoStrip extends StatelessWidget {
             color: color,
             size: 18,
           ),
-           SizedBox(width: 10),
+          SizedBox(width: 10),
           Expanded(
             child: Text(
               connected
@@ -339,7 +343,8 @@ class _UnlockCard extends StatelessWidget {
         color: isDark ? Colors.white.withValues(alpha: 6 / 255) : Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: statusColor.withValues(alpha: (item.isPending ? 38 : 90) / 255),
+          color:
+              statusColor.withValues(alpha: (item.isPending ? 38 : 90) / 255),
           width: item.isPending ? 1 : 1.2,
         ),
         boxShadow: [
@@ -352,7 +357,7 @@ class _UnlockCard extends StatelessWidget {
         ],
       ),
       child: Padding(
-        padding:  EdgeInsets.all(14),
+        padding: EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -367,7 +372,7 @@ class _UnlockCard extends StatelessWidget {
                   ),
                   child: Icon(_statusIcon(item), size: 17, color: statusColor),
                 ),
-                 SizedBox(width: 10),
+                SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     item.name,
@@ -390,14 +395,14 @@ class _UnlockCard extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                     child: isTesting
-                        ?  Padding(
+                        ? Padding(
                             padding: EdgeInsets.all(8),
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: AppTheme.primaryColor,
                             ),
                           )
-                        :  Icon(
+                        : Icon(
                             Icons.refresh_rounded,
                             size: 17,
                             color: AppTheme.primaryColor,
@@ -425,7 +430,7 @@ class _UnlockCard extends StatelessWidget {
                   ),
               ],
             ),
-             SizedBox(height: 10),
+            SizedBox(height: 10),
             Text(
               item.detail ?? checkedText,
               maxLines: 1,
@@ -507,7 +512,7 @@ class _Pill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding:  EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      padding: EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: (isDark ? 24 : 18) / 255),
         borderRadius: BorderRadius.circular(999),
@@ -545,17 +550,18 @@ class _HeaderActionButton extends StatelessWidget {
         onTap: enabled ? onTap : null,
         child: Container(
           height: 34,
-          padding:  EdgeInsets.symmetric(horizontal: 12),
+          padding: EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             color: AppTheme.primaryColor.withValues(alpha: 20 / 255),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 55 / 255)),
+            border: Border.all(
+                color: AppTheme.primaryColor.withValues(alpha: 55 / 255)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon, size: 16, color: AppTheme.primaryColor),
-               SizedBox(width: 6),
+              SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(

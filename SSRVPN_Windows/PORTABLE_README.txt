@@ -7,7 +7,7 @@ SSRVPN Windows 便携版 v2.0.6
 1. 完整解压 ZIP 到文件夹（⚠️ 不要在压缩包预览窗口中直接运行）
 2. 右键 ssrvpn_windows.exe → 属性 → 如果看到"解除锁定"，勾选后点确定
    这一步很重要！否则 Windows SmartScreen 可能静默拦截程序。
-3. 双击 ssrvpn_windows.exe 启动
+3. 双击主目录里唯一的 exe：ssrvpn_windows.exe 启动
 4. 粘贴你的订阅链接或节点配置
 5. 打开主页的连接开关
 

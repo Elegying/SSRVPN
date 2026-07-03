@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 /// HTTP 客户端抽象接口
 ///
@@ -46,13 +47,11 @@ class RealHttpClientAdapter implements HttpClientAdapter {
 
     try {
       final request = await client.getUrl(uri);
-      request.headers.set('User-Agent', 'SSRVPN/2.0.6');
+      request.headers.set('User-Agent', AppConstants.appUserAgent);
       request.headers.set('Accept', 'text/yaml, application/x-yaml, */*');
       request.headers.set('Accept-Encoding', 'identity');
 
-      final response = await request.close().timeout(
-            timeout ?? _readTimeout,
-          );
+      final response = await request.close().timeout(timeout ?? _readTimeout);
 
       final bodyBytes = await response.fold<List<int>>(
         <int>[],
