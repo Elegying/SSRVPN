@@ -1,12 +1,14 @@
 # 从历史平台仓库迁移到 Monorepo
 
-SSRVPN 的主动开发已经迁移到 `Elegying/SSRVPN` Monorepo。历史平台仓库只保留代码记录，不再作为日常开发入口。
+SSRVPN 的主动开发已经迁移到 `Elegying/SSRVPN` Monorepo。历史平台仓库已经删除，不再作为代码、发布或更新入口。
 
-历史仓库包括：
+已删除的历史仓库包括：
 
 - `Elegying/SSRVPN_Android`
 - `Elegying/SSRVPN_MacOS`
 - `Elegying/SSRVPN_Windows`
+- `Elegying/SSRVPN-Windows`
+- `Elegying/ssrvpn_shared`
 
 现在三端应用都通过 path 依赖使用 `packages/ssrvpn_shared`，因此推荐的开发布局就是本 Monorepo。
 
@@ -49,5 +51,5 @@ flutter test
 ## 给旧仓库使用者的说明
 
 - 新功能和修复请提交到 `Elegying/SSRVPN`。
-- 旧平台仓库可以保留归档状态，作为历史记录和跳转入口。
+- 旧平台仓库已经删除；所有开发、问题反馈、Release 和更新检查都应回到 `Elegying/SSRVPN`。
 - Release 下载应以 `Elegying/SSRVPN` 的 GitHub Releases 为准。

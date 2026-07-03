@@ -621,7 +621,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                         ),
                          SizedBox(height: 4),
                          Text(
-                          'https://github.com/Elegying/SSRVPN_Android',
+                          'https://github.com/Elegying/SSRVPN',
                           style: TextStyle(
                             fontSize: Responsive.sp(12),
                             height: 1.4,

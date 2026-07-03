@@ -556,7 +556,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   const SizedBox(height: 16),
                   _AboutInfoPanel(
                     title: '项目地址',
-                    body: 'https://github.com/Elegying/SSRVPN_MacOS',
+                    body: 'https://github.com/Elegying/SSRVPN',
                     isDark: isDark,
                     accent: true,
                   ),

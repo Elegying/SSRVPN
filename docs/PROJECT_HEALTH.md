@@ -1,10 +1,10 @@
 # Project Health
 
-Last reviewed: 2026-06-30
+Last reviewed: 2026-07-03
 
 ## Current Status
 
-SSRVPN is now maintained from the `Elegying/SSRVPN` monorepo. The historical platform-only repositories remain available for release history and point contributors back to this repository.
+SSRVPN is maintained from the `Elegying/SSRVPN` monorepo. The historical platform-only repositories have been deleted, so this repository is now the single source for code, issues, releases, and app update checks.
 
 | Area | Status | Notes |
 |------|--------|-------|
@@ -29,7 +29,7 @@ SSRVPN is now maintained from the `Elegying/SSRVPN` monorepo. The historical pla
 |-----------|-------|-----------|
 | Project completeness | 8/10 | Core app, docs, CI, release workflow, and migration story exist. |
 | Maintainability | 7/10 | Shared logic is improving, but service classes remain large. |
-| Professional GitHub presence | 8/10 | Templates, CI, Dependabot, security policy, migration docs, and old repo pointers are in place. |
+| Professional GitHub presence | 8/10 | Templates, CI, Dependabot, security policy, migration docs, and a single canonical repository are in place. |
 | Runtime reliability | 7/10 | Tests cover key parsing/config paths; platform integration and signing need more release validation. |
 | Release readiness | 7/10 | Artifacts build via workflow, but signing/notarization and first monorepo tag/release are still pending. |
 

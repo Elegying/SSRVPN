@@ -67,5 +67,5 @@ This guide keeps local development, GitHub automation, and releases aligned.
 
 - Local `main` should track `origin/main`.
 - Do not maintain platform-only repositories as active development roots.
-- The old platform repositories should keep migration notices and no active CI.
+- Historical platform repositories have been deleted; keep all maintenance work in this monorepo.
 - Any direct GitHub edit must be pulled locally before further local commits.

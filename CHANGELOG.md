@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.6] - 2026-07-03
+
+### Changed
+- Bumped Android, macOS, and Windows client versions to `2.0.6+206`.
+- Updated in-app project links to the canonical `Elegying/SSRVPN` monorepo.
+- Refreshed repository cleanup and release checklist documentation after deleting historical platform repositories.
+
 ## [2.0.5] - 2026-07-02
 
 ### Changed

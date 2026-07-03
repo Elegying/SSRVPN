@@ -3,7 +3,7 @@
 ## Completed
 
 - Consolidated Android, macOS, Windows, and shared package into one monorepo.
-- Migrated historical platform repositories to migration notices.
+- Deleted historical platform repositories after moving all development and updates to the monorepo.
 - Added monorepo CI and release workflows.
 - Added shared models for proxy nodes, proxy groups, and subscriptions.
 - Added shared policies for log redaction, private-node latency, and force-proxy site validation.
@@ -18,7 +18,7 @@
 1. Extract more `ClashService` configuration assembly into `packages/ssrvpn_shared`.
 2. Keep platform dependency updates current through grouped Dependabot PRs.
 3. Wire signing and notarization secrets into the release workflow.
-4. Create the first monorepo release tag and verify artifacts from GitHub Actions.
+4. Keep release artifacts verified after each tag-driven GitHub Actions release.
 
 ## Medium Term
 
