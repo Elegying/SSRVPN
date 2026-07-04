@@ -1,7 +1,7 @@
 name: ssrvpn_windows
 description: SSRVPN - 安全稳定的VPN客户端 (Windows 绿色免安装版)
 publish_to: 'none'
-version: 2.0.12+212
+version: 2.0.13+213
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

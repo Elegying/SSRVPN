@@ -109,6 +109,17 @@ class DirectFetcher {
   /// 直连下载订阅(带重定向跟随)
   static Future<String> fetch(String url,
       {Map<String, String> headers = const {}, int maxRedirects = 4}) async {
+    return (await fetchResponse(
+      url,
+      headers: headers,
+      maxRedirects: maxRedirects,
+    ))
+        .body;
+  }
+
+  /// 直连下载订阅并保留响应头(带重定向跟随)
+  static Future<DirectFetchResponse> fetchResponse(String url,
+      {Map<String, String> headers = const {}, int maxRedirects = 4}) async {
     final bindAddr = await _physicalInterfaceAddress();
     var current = Uri.parse(url);
 
@@ -178,7 +189,7 @@ class DirectFetcher {
       if (resp.statusCode != 200) {
         throw Exception('HTTP ${resp.statusCode}: 订阅获取失败(直连通道)');
       }
-      return resp.body;
+      return DirectFetchResponse(headers: resp.headers, body: resp.body);
     }
     throw Exception('重定向次数过多');
   }
@@ -283,6 +294,12 @@ class DirectFetcher {
     }
     return out;
   }
+}
+
+class DirectFetchResponse {
+  final Map<String, String> headers;
+  final String body;
+  DirectFetchResponse({required this.headers, required this.body});
 }
 
 class _HttpResponse {

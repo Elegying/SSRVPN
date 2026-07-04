@@ -126,6 +126,7 @@ class SubscriptionService extends SubscriptionServiceBase {
       }
 
       if (resp.statusCode == 200) {
+        recordSubscriptionResponseHeaders(uri.toString(), resp.headers);
         var bodyBytes = resp.bodyBytes;
         if (resp.headers['content-encoding']?.toLowerCase() == 'gzip') {
           bodyBytes = gzip.decode(bodyBytes);

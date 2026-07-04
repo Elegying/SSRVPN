@@ -127,6 +127,45 @@ proxies:
     expect(service.allNodes.single.extra['ws-opts']['path'], '/ws');
   });
 
+  test('uses subscription profile title instead of URL host', () async {
+    expect(
+      service.subscriptionNameFromHeaders({'profile-title': 'SSRVPN.VIP'}),
+      'SSRVPN.VIP',
+    );
+    expect(
+      service.subscriptionNameFromHeaders({
+        'profile-title': '"store-name=SSRVPN.VIP"',
+      }),
+      'SSRVPN.VIP',
+    );
+
+    const yaml = '''
+proxies:
+  - name: Remote
+    type: ss
+    server: remote.example.com
+    port: 8388
+    cipher: aes-128-gcm
+    password: remote-password
+''';
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) {
+      request.response
+        ..headers.contentType = ContentType.text
+        ..headers.set('profile-title', 'SSRVPN.VIP')
+        ..write(yaml)
+        ..close();
+    });
+
+    final url = 'http://${server.address.address}:${server.port}/subscription';
+    await service.addSubscription(service.defaultSubscriptionName(url), url);
+    await service.refreshAllSubscriptions();
+
+    expect(service.subscriptions.single.name, 'SSRVPN.VIP');
+    expect(service.allNodes.single.group, 'SSRVPN.VIP');
+  });
+
   test('converts base64 URI-list subscriptions with anytls nodes', () async {
     final ssrPayload = 'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
         'tls1.2_ticket_auth:${base64Url.encode(utf8.encode('ssr-password')).replaceAll('=', '')}/?';

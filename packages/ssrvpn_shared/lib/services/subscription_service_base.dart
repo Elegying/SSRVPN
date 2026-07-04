@@ -27,6 +27,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   String? _rawYaml;
   String? _cacheDir;
   int _revision = 0;
+  final Map<String, String> _fetchedProfileNames = {};
 
   List<ProxyNode> _allNodes = [];
   List<ProxyGroup> _allGroups = [];
@@ -107,6 +108,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
         }
         yaml = normalizeSubscriptionContent(yaml);
         if (yaml != null && yaml.isNotEmpty) {
+          _applyFetchedSubscriptionName(sub);
           allYamlBuffers.add(yaml);
           succeededSubs.add(sub);
         } else {
@@ -353,6 +355,36 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     return name.isNotEmpty ? name : defaultSubscriptionName(sub.url);
   }
 
+  @protected
+  void recordSubscriptionResponseHeaders(
+    String url,
+    Map<String, String> headers,
+  ) {
+    final name = subscriptionNameFromHeaders(headers);
+    if (name == null) {
+      _fetchedProfileNames.remove(url);
+    } else {
+      _fetchedProfileNames[url] = name;
+    }
+  }
+
+  @visibleForTesting
+  String? subscriptionNameFromHeaders(Map<String, String> headers) {
+    final profileTitle = _headerValue(headers, 'profile-title');
+    if (profileTitle != null) {
+      final parsed = _subscriptionHeaderName(profileTitle);
+      if (parsed != null) return parsed;
+    }
+
+    final disposition = _headerValue(headers, 'content-disposition');
+    if (disposition == null) return null;
+    final filename = RegExp(
+      "filename\\*?=(?:UTF-8'')?\"?([^\";]+)\"?",
+      caseSensitive: false,
+    ).firstMatch(disposition)?.group(1);
+    return filename == null ? null : _cleanSubscriptionHeaderName(filename);
+  }
+
   String defaultSubscriptionName(String input) {
     if (isSingleNodeLink(input)) {
       final node = SubscriptionParser.proxyFromUri(input.trim());
@@ -364,6 +396,57 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     final host = uri?.host.trim();
     if (host != null && host.isNotEmpty) return host;
     return '订阅 ${_subscriptions.length + 1}';
+  }
+
+  void _applyFetchedSubscriptionName(Subscription sub) {
+    final fetchedName = _fetchedProfileNames[sub.url]?.trim();
+    if (fetchedName == null || fetchedName.isEmpty) return;
+
+    final currentName = sub.name.trim();
+    if (currentName.isEmpty ||
+        currentName == defaultSubscriptionName(sub.url)) {
+      sub.name = fetchedName;
+    }
+  }
+
+  String? _headerValue(Map<String, String> headers, String name) {
+    for (final entry in headers.entries) {
+      if (entry.key.toLowerCase() == name) return entry.value;
+    }
+    return null;
+  }
+
+  String? _subscriptionHeaderName(String value) {
+    var text = value.trim();
+    if (text.length >= 2 &&
+        ((text.startsWith('"') && text.endsWith('"')) ||
+            (text.startsWith("'") && text.endsWith("'")))) {
+      text = text.substring(1, text.length - 1).trim();
+    }
+    final storeName = RegExp(
+      r'(?:^|[;,\s])store-name="?([^";,]+)"?',
+      caseSensitive: false,
+    ).firstMatch(text);
+    return _cleanSubscriptionHeaderName(storeName?.group(1) ?? text);
+  }
+
+  String? _cleanSubscriptionHeaderName(String value) {
+    var name = value.trim();
+    if (name.length >= 2 &&
+        ((name.startsWith('"') && name.endsWith('"')) ||
+            (name.startsWith("'") && name.endsWith("'")))) {
+      name = name.substring(1, name.length - 1).trim();
+    }
+    if (name.toLowerCase().startsWith('base64:')) {
+      try {
+        name = utf8.decode(base64Decode(name.substring(7))).trim();
+      } catch (_) {}
+    }
+    try {
+      name = Uri.decodeComponent(name).trim();
+    } catch (_) {}
+    name = name.replaceAll(RegExp(r'[\r\n]'), '').trim();
+    return name.isEmpty ? null : name;
   }
 
   String _uniqueSourceName(String sourceName, Set<String> usedNames) {

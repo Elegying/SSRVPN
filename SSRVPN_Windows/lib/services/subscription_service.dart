@@ -38,14 +38,15 @@ class SubscriptionService extends SubscriptionServiceBase {
 
     if (_shouldTryDirectFetch(uri)) {
       try {
-        final body = await DirectFetcher.fetch(
+        final response = await DirectFetcher.fetchResponse(
           url,
           headers: const {
             'User-Agent': AppConstants.appUserAgent,
             'Accept': 'text/yaml, application/x-yaml, */*',
           },
         );
-        return _normalizeFetchedBody(body);
+        recordSubscriptionResponseHeaders(url, response.headers);
+        return _normalizeFetchedBody(response.body);
       } catch (e) {
         AppLogger.info('Subscription', '直连通道失败，降级到常规 HTTP: $e');
       }
@@ -69,6 +70,11 @@ class SubscriptionService extends SubscriptionServiceBase {
                 SubscriptionServiceBase.maxSubscriptionBytes) {
               throw Exception('订阅内容超过 20 MB 限制');
             }
+            recordSubscriptionResponseHeaders(url, {
+              'profile-title': response.headers.value('profile-title') ?? '',
+              'content-disposition':
+                  response.headers.value('content-disposition') ?? '',
+            });
             final bodyBytes = await _readLimitedResponse(response);
             return _normalizeFetchedBody(
               utf8.decode(bodyBytes, allowMalformed: true),
