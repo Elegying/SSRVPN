@@ -10,6 +10,15 @@ import '../constants/app_constants.dart';
 ///
 /// 生成通用的 Clash 配置，平台特定的配置可以通过继承或组合方式扩展
 class ClashConfigGenerator {
+  static const _internalProxyKeys = {
+    'ssrvpn-subscription',
+    'group',
+    'latency',
+    'isOnline',
+    'lastLatencyTest',
+    'extra',
+  };
+
   /// 生成基础 Clash 配置
   ///
   /// [rawYaml] 原始 YAML 配置（包含代理节点）
@@ -294,7 +303,8 @@ class ClashConfigGenerator {
     if (value is Map) {
       return {
         for (final entry in value.entries)
-          entry.key.toString(): _plainYamlValue(entry.value),
+          if (!_internalProxyKeys.contains(entry.key.toString()))
+            entry.key.toString(): _plainYamlValue(entry.value),
       };
     }
     if (value is Iterable) {

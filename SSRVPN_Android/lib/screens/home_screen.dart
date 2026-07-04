@@ -47,6 +47,7 @@ class HomeScreenState extends State<HomeScreen>
   String? _errorMessage;
   String? _testingNodeName;
   ProxyNode? _selectedNode;
+  final Set<String> _expandedSubscriptionGroups = {};
 
   final Map<String, int> _latencies = {};
   Timer? _latencyBatchTimer;
@@ -1192,7 +1193,8 @@ class HomeScreenState extends State<HomeScreen>
       );
     }
 
-    return ListView.builder(
+    final sections = HomeNodeController.buildDisplaySections(_nodes);
+    return ListView(
       padding: EdgeInsets.fromLTRB(
           12,
           6,
@@ -1200,31 +1202,155 @@ class HomeScreenState extends State<HomeScreen>
           MediaQuery.of(context).padding.bottom +
               LiquidGlassNavBar.height +
               20),
-      itemCount: _nodes.length,
-      itemBuilder: (context, index) {
-        final node = _nodes[index];
-        final latency = _latencies[node.name] ?? node.latency;
-        final isTesting = _testingNodeName == node.name;
-        final isSelected = _selectedNode?.name == node.name;
-        final isTimeout = latency != null && (latency <= 0 || latency >= 65535);
+      children: [
+        for (final section in sections)
+          ..._buildNodeSection(section, textColor, subColor, isDark),
+      ],
+    );
+  }
 
-        return NodeListTile(
-          node: node,
-          latency: latency,
-          isTesting: isTesting,
-          isSelected: isSelected,
-          isTimeout: isTimeout,
-          isConnected: _isConnected,
-          onTestLatency: () =>
-              _handleTestLatency(node.name, node.server, node.port),
-          onTap: () => _handleSelectNode(node),
-          onLongPress: () => _editNode(node),
-          onEdit: () => _editNode(node),
-          textColor: textColor,
-          subColor: subColor,
-          isDark: isDark,
-        );
-      },
+  List<Widget> _buildNodeSection(
+    HomeNodeSection section,
+    Color textColor,
+    Color subColor,
+    bool isDark,
+  ) {
+    if (!section.collapsible) {
+      return [
+        for (final node in section.nodes)
+          _buildNodeTile(node, textColor, subColor, isDark),
+      ];
+    }
+
+    final title = section.title!;
+    final expanded = _expandedSubscriptionGroups.contains(title);
+    return [
+      _SubscriptionGroupHeader(
+        title: title,
+        count: section.nodes.length,
+        expanded: expanded,
+        textColor: textColor,
+        subColor: subColor,
+        isDark: isDark,
+        onTap: () {
+          setState(() {
+            if (!expanded) {
+              _expandedSubscriptionGroups.add(title);
+            } else {
+              _expandedSubscriptionGroups.remove(title);
+            }
+          });
+        },
+      ),
+      if (expanded)
+        for (final node in section.nodes)
+          _buildNodeTile(node, textColor, subColor, isDark),
+    ];
+  }
+
+  Widget _buildNodeTile(
+    ProxyNode node,
+    Color textColor,
+    Color subColor,
+    bool isDark,
+  ) {
+    final latency = _latencies[node.name] ?? node.latency;
+    final isTesting = _testingNodeName == node.name;
+    final isSelected = _selectedNode?.name == node.name;
+    final isTimeout = latency != null && (latency <= 0 || latency >= 65535);
+
+    return NodeListTile(
+      node: node,
+      latency: latency,
+      isTesting: isTesting,
+      isSelected: isSelected,
+      isTimeout: isTimeout,
+      isConnected: _isConnected,
+      onTestLatency: () =>
+          _handleTestLatency(node.name, node.server, node.port),
+      onTap: () => _handleSelectNode(node),
+      onLongPress: () => _editNode(node),
+      onEdit: () => _editNode(node),
+      textColor: textColor,
+      subColor: subColor,
+      isDark: isDark,
+    );
+  }
+}
+
+class _SubscriptionGroupHeader extends StatelessWidget {
+  final String title;
+  final int count;
+  final bool expanded;
+  final Color textColor;
+  final Color subColor;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _SubscriptionGroupHeader({
+    required this.title,
+    required this.count,
+    required this.expanded,
+    required this.textColor,
+    required this.subColor,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: Responsive.gap(6)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Responsive.radius(10)),
+        onTap: onTap,
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: Responsive.gap(12),
+            vertical: Responsive.gap(10),
+          ),
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.darkCard : AppTheme.lightBg,
+            borderRadius: BorderRadius.circular(Responsive.radius(10)),
+            border: Border.all(
+              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                expanded
+                    ? Icons.keyboard_arrow_down_rounded
+                    : Icons.keyboard_arrow_right_rounded,
+                size: Responsive.icon(20),
+                color: AppTheme.primaryColor,
+              ),
+              SizedBox(width: Responsive.gap(8)),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: Responsive.sp(13),
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+              ),
+              SizedBox(width: Responsive.gap(8)),
+              Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: Responsive.sp(11),
+                  fontWeight: FontWeight.w600,
+                  color: subColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

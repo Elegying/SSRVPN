@@ -358,17 +358,21 @@ class _InitialSubscriptionPromptState
   bool _isValidSubscriptionInput(String value) {
     if (value.isEmpty) return false;
     final subService = context.read<SubscriptionService>();
-    if (subService.isSsrLink(value)) return true;
+    if (subService.isSingleNodeLink(value)) return true;
     final uri = Uri.tryParse(value);
-    return uri != null && uri.hasScheme && uri.hasAuthority;
+    return uri != null &&
+        uri.hasAuthority &&
+        (uri.scheme == 'http' || uri.scheme == 'https');
   }
 
   Future<void> _addSubscriptionAndRefresh(String value) async {
     final subService = context.read<SubscriptionService>();
     try {
       if (!subService.subscriptions.any((sub) => sub.url == value)) {
-        final name = subService.isSsrLink(value) ? 'SSR节点' : 'SSRVPN.VIP';
-        await subService.addSubscription(name, value);
+        await subService.addSubscription(
+          subService.defaultSubscriptionName(value),
+          value,
+        );
       }
 
       final yaml = await subService.refreshAllSubscriptions();

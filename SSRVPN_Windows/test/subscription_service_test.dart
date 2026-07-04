@@ -34,9 +34,10 @@ void main() {
     expect(proxy['port'], 18899);
   });
 
-  test('keeps different same-name nodes and removes exact duplicates',
-      () async {
-    const firstYaml = '''
+  test(
+    'keeps different same-name nodes and removes exact duplicates',
+    () async {
+      const firstYaml = '''
 proxies:
   - name: Shared
     type: ss
@@ -51,7 +52,7 @@ proxies:
     cipher: aes-128-gcm
     password: exact
 ''';
-    const secondYaml = '''
+      const secondYaml = '''
 proxies:
   - name: Shared
     type: ss
@@ -67,25 +68,63 @@ proxies:
     password: exact
 ''';
 
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    addTearDown(() => server.close(force: true));
-    server.listen((request) {
-      request.response
-        ..headers.contentType = ContentType.text
-        ..write(request.uri.path == '/first' ? firstYaml : secondYaml)
-        ..close();
-    });
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) {
+        request.response
+          ..headers.contentType = ContentType.text
+          ..write(request.uri.path == '/first' ? firstYaml : secondYaml)
+          ..close();
+      });
 
-    final origin = 'http://${server.address.address}:${server.port}';
-    await service.addSubscription('First feed', '$origin/first');
-    await service.addSubscription('Second feed', '$origin/second');
+      final origin = 'http://${server.address.address}:${server.port}';
+      await service.addSubscription('First feed', '$origin/first');
+      await service.addSubscription('Second feed', '$origin/second');
+      await service.refreshAllSubscriptions();
+
+      expect(service.allNodes, hasLength(3));
+      expect(
+        service.allNodes.map((node) => node.name),
+        containsAll(['Shared', 'Shared (2)', 'Exact']),
+      );
+      expect(
+        service.allNodes.firstWhere((node) => node.name == 'Shared').group,
+        'First feed',
+      );
+      expect(
+        service.allNodes.firstWhere((node) => node.name == 'Shared (2)').group,
+        'Second feed',
+      );
+
+      final clashConfig = ClashService().generateClashConfig(
+        service.rawYaml!,
+        AppSettings(),
+      );
+      final generated = loadYaml(clashConfig) as YamlMap;
+      final generatedProxies =
+          (generated['proxies'] as YamlList).cast<YamlMap>();
+      expect(
+        generatedProxies.any(
+          (proxy) => proxy.containsKey(SubscriptionServiceBase.proxySourceKey),
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test('imports non-SSR single node links as standalone nodes', () async {
+    const link = 'vless://00000000-0000-0000-0000-000000000001@example.com:443'
+        '?type=ws&security=tls&host=cdn.example.com&path=%2Fws'
+        '#Direct%20VLESS';
+
+    await service.addSubscription(service.defaultSubscriptionName(link), link);
     await service.refreshAllSubscriptions();
 
-    expect(service.allNodes, hasLength(3));
-    expect(
-      service.allNodes.map((node) => node.name),
-      containsAll(['Shared', 'Shared (2)', 'Exact']),
-    );
+    expect(service.subscriptions.single.name, 'Direct VLESS');
+    expect(service.allNodes.single.name, 'Direct VLESS');
+    expect(service.allNodes.single.group,
+        SubscriptionServiceBase.standaloneGroupName);
+    expect(service.allNodes.single.extra['ws-opts']['path'], '/ws');
   });
 
   test('converts base64 URI-list subscriptions with anytls nodes', () async {
@@ -212,6 +251,69 @@ proxies:
     expect(service.allNodes.single.extra['uuid'], 'updated-uuid');
   });
 
+  test(
+    'local edits preserve all mainstream node types in generated config',
+    () async {
+      await service.setRawYaml(_mainstreamEditableYaml);
+
+      for (final node in service.allNodes) {
+        final updated = Map<String, dynamic>.from(node.extra)
+          ..['name'] = '${node.name} Edited'
+          ..['port'] = node.port.toString()
+          ..['udp'] = 'true'
+          ..['empty-field'] = '';
+        await service.updateNode(node.name, updated);
+      }
+
+      final cache = loadYaml(service.rawYaml!) as YamlMap;
+      final cachedProxies = (cache['proxies'] as YamlList).cast<YamlMap>();
+      expect(cachedProxies, hasLength(12));
+      expect(cachedProxies.map((proxy) => proxy['type']).toSet(), {
+        'ss',
+        'ssr',
+        'vmess',
+        'vless',
+        'trojan',
+        'anytls',
+        'hysteria',
+        'hysteria2',
+        'tuic',
+        'snell',
+        'socks5',
+        'http',
+      });
+      for (final proxy in cachedProxies) {
+        expect(proxy['name'], endsWith(' Edited'));
+        expect(proxy['port'], isA<int>());
+        expect(proxy.containsKey('group'), isFalse);
+        expect(proxy.containsKey('empty-field'), isFalse);
+      }
+
+      final clashConfig = ClashService().generateClashConfig(
+        service.rawYaml!,
+        AppSettings(),
+      );
+      final generated = loadYaml(clashConfig) as YamlMap;
+      final generatedProxies =
+          (generated['proxies'] as YamlList).cast<YamlMap>();
+      expect(generatedProxies, hasLength(12));
+      expect(
+        generatedProxies.firstWhere((proxy) => proxy['type'] == 'tuic')['uuid'],
+        'tuic-uuid',
+      );
+      expect(
+        generatedProxies.firstWhere(
+          (proxy) => proxy['type'] == 'hysteria2',
+        )['password'],
+        'hy2-password',
+      );
+      expect(
+        generatedProxies.firstWhere((proxy) => proxy['type'] == 'http')['tls'],
+        isTrue,
+      );
+    },
+  );
+
   test('renaming a node updates proxy group references', () async {
     await service.setRawYaml(_editableYaml);
     final updated = Map<String, dynamic>.from(service.allNodes.single.extra)
@@ -230,10 +332,14 @@ proxies:
     type: ss
     server: alpha.example.com
     port: 1001
+    cipher: aes-128-gcm
+    password: alpha
   - name: Beta
     type: ss
     server: beta.example.com
     port: 1002
+    cipher: aes-128-gcm
+    password: beta
 ''');
     final updated = Map<String, dynamic>.from(service.allNodes.first.extra)
       ..['name'] = 'Beta';
@@ -307,4 +413,93 @@ proxy-groups:
     proxies:
       - Alpha
       - DIRECT
+''';
+
+const _mainstreamEditableYaml = '''
+proxies:
+  - name: SS
+    type: ss
+    server: ss.example.com
+    port: 1001
+    cipher: aes-128-gcm
+    password: ss-password
+  - name: SSR
+    type: ssr
+    server: ssr.example.com
+    port: 1002
+    cipher: aes-256-cfb
+    password: ssr-password
+    protocol: auth_aes128_md5
+    obfs: tls1.2_ticket_auth
+  - name: VMess
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: vmess-uuid
+    alterId: 0
+    cipher: auto
+    network: ws
+    tls: true
+    ws-opts:
+      path: /ws
+      headers:
+        Host: cdn.example.com
+  - name: VLESS
+    type: vless
+    server: vless.example.com
+    port: 443
+    uuid: vless-uuid
+    network: ws
+    tls: true
+    servername: sni.example.com
+  - name: Trojan
+    type: trojan
+    server: trojan.example.com
+    port: 443
+    password: trojan-password
+    sni: trojan-sni.example.com
+  - name: AnyTLS
+    type: anytls
+    server: anytls.example.com
+    port: 443
+    password: anytls-password
+    sni: anytls-sni.example.com
+  - name: Hysteria
+    type: hysteria
+    server: hy.example.com
+    port: 443
+    auth-str: hy-auth
+    protocol: udp
+  - name: Hysteria2
+    type: hysteria2
+    server: hy2.example.com
+    port: 443
+    password: hy2-password
+    sni: hy2-sni.example.com
+  - name: TUIC
+    type: tuic
+    server: tuic.example.com
+    port: 10443
+    uuid: tuic-uuid
+    password: tuic-password
+    sni: tuic-sni.example.com
+  - name: Snell
+    type: snell
+    server: snell.example.com
+    port: 44046
+    psk: snell-psk
+    version: 4
+  - name: SOCKS
+    type: socks5
+    server: socks.example.com
+    port: 1080
+    username: socks-user
+    password: socks-password
+  - name: HTTP
+    type: http
+    server: http.example.com
+    port: 8443
+    username: http-user
+    password: http-password
+    tls: true
 ''';

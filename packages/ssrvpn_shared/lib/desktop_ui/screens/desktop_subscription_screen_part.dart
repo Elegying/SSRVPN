@@ -49,8 +49,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         return;
       }
 
-      if (subService.isSsrLink(url)) {
-        await subService.addSubscription('SSR节点', url);
+      if (subService.isSingleNodeLink(url)) {
+        await subService.addSubscription(
+          subService.defaultSubscriptionName(url),
+          url,
+        );
         _urlController.clear();
 
         try {
@@ -99,7 +102,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           return;
         }
 
-        await subService.addSubscription('SSRVPN.VIP', url);
+        await subService.addSubscription(
+          subService.defaultSubscriptionName(url),
+          url,
+        );
         _urlController.clear();
 
         try {

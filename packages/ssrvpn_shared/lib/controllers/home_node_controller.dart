@@ -1,5 +1,20 @@
+import 'dart:collection';
+
 import '../models/proxy_node.dart';
+import '../services/subscription_parser.dart';
 import '../utils/node_display_policy.dart';
+
+class HomeNodeSection {
+  const HomeNodeSection({
+    required this.title,
+    required this.nodes,
+    required this.collapsible,
+  });
+
+  final String? title;
+  final List<ProxyNode> nodes;
+  final bool collapsible;
+}
 
 class HomeNodeSyncResult {
   const HomeNodeSyncResult({
@@ -118,5 +133,70 @@ class HomeNodeController {
       nodes,
       latencyOf: (node) => latencies[node.name] ?? node.latency,
     );
+  }
+
+  static List<HomeNodeSection> buildDisplaySections(
+    Iterable<ProxyNode> nodes,
+  ) {
+    final standalone = <ProxyNode>[];
+    final regular = <ProxyNode>[];
+    final groups = LinkedHashMap<String, List<ProxyNode>>();
+
+    for (final node in nodes) {
+      final group = node.group.trim();
+      if (group == SubscriptionParser.standaloneGroupName) {
+        standalone.add(node);
+        continue;
+      }
+      regular.add(node);
+      if (_isSubscriptionGroup(group)) {
+        groups.putIfAbsent(group, () => <ProxyNode>[]).add(node);
+      }
+    }
+
+    final sections = <HomeNodeSection>[];
+    if (standalone.isNotEmpty) {
+      sections.add(
+        HomeNodeSection(
+          title: null,
+          nodes: standalone,
+          collapsible: false,
+        ),
+      );
+    }
+
+    if (groups.length < 2) {
+      if (regular.isNotEmpty) {
+        sections.add(
+          HomeNodeSection(title: null, nodes: regular, collapsible: false),
+        );
+      }
+      return sections;
+    }
+
+    for (final entry in groups.entries) {
+      sections.add(
+        HomeNodeSection(
+          title: entry.key,
+          nodes: entry.value,
+          collapsible: true,
+        ),
+      );
+    }
+
+    final groupedNodes = groups.values.expand((nodes) => nodes).toSet();
+    final ungrouped = regular
+        .where((node) => !groupedNodes.contains(node))
+        .toList(growable: false);
+    if (ungrouped.isNotEmpty) {
+      sections.add(
+        HomeNodeSection(title: null, nodes: ungrouped, collapsible: false),
+      );
+    }
+    return sections;
+  }
+
+  static bool _isSubscriptionGroup(String group) {
+    return group.isNotEmpty && group != '默认' && group != '全部节点';
   }
 }

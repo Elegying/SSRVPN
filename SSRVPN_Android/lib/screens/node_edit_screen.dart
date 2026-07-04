@@ -34,8 +34,12 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     'vless',
     'trojan',
     'anytls',
+    'hysteria',
+    'hysteria2',
+    'tuic',
+    'snell',
     'socks5',
-    'http'
+    'http',
   ];
   static const _commonKeys = {
     'name',
@@ -55,6 +59,14 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     'servername',
     'flow',
   };
+  static const _internalKeys = {
+    SubscriptionServiceBase.proxySourceKey,
+    'group',
+    'latency',
+    'isOnline',
+    'lastLatencyTest',
+    'extra',
+  };
 
   @override
   void initState() {
@@ -66,13 +78,16 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
       'name': TextEditingController(text: widget.node.name),
       'server': TextEditingController(text: widget.node.server),
       'port': TextEditingController(text: widget.node.port.toString()),
-      for (final key in _commonKeys
-          .where((key) => !{'name', 'type', 'server', 'port'}.contains(key)))
+      for (final key in _commonKeys.where(
+        (key) => !{'name', 'type', 'server', 'port'}.contains(key),
+      ))
         key: TextEditingController(text: config[key]?.toString() ?? ''),
     };
     final extras = <String, dynamic>{
       for (final entry in config.entries)
-        if (!_commonKeys.contains(entry.key)) entry.key: entry.value,
+        if (!_commonKeys.contains(entry.key) &&
+            !_internalKeys.contains(entry.key))
+          entry.key: entry.value,
     };
     _extraController = TextEditingController(
       text: const JsonEncoder.withIndent('  ').convert(extras),
@@ -131,7 +146,8 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     Map<String, dynamic> extras;
     try {
       final decoded = jsonDecode(
-          _extraController.text.trim().isEmpty ? '{}' : _extraController.text);
+        _extraController.text.trim().isEmpty ? '{}' : _extraController.text,
+      );
       if (decoded is! Map) throw const FormatException();
       extras = Map<String, dynamic>.from(decoded);
     } catch (_) {
@@ -145,6 +161,8 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     }
 
     final result = <String, dynamic>{
+      for (final entry in _editNode.extra.entries)
+        if (_internalKeys.contains(entry.key)) entry.key: entry.value,
       ...extras,
       'name': _controllers['name']!.text.trim(),
       'type': _type,
@@ -214,10 +232,13 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : Icon(Icons.save_rounded, size: 18),
-              label: Text('保存',
-                  style: TextStyle(
-                      color: AppTheme.primaryColor,
-                      fontWeight: FontWeight.w700)),
+              label: Text(
+                '保存',
+                style: TextStyle(
+                  color: AppTheme.primaryColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           ),
         ],
@@ -251,13 +272,24 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                 initialValue: _type,
                 decoration: const InputDecoration(labelText: '节点类型'),
                 items: ({..._types, _type}.toList()..sort())
-                    .map((type) =>
-                        DropdownMenuItem(value: type, child: Text(type)))
+                    .map(
+                      (type) =>
+                          DropdownMenuItem(value: type, child: Text(type)),
+                    )
                     .toList(),
                 onChanged: (value) => setState(() => _type = value ?? _type),
               ),
             ),
-            if (_hasField('password', {'ss', 'ssr', 'trojan', 'anytls'}))
+            if (_hasField('password', {
+              'ss',
+              'ssr',
+              'trojan',
+              'anytls',
+              'hysteria2',
+              'tuic',
+              'http',
+              'socks5',
+            }))
               _field('password', '密码', secret: true),
             if (_hasField('cipher', {'ss', 'ssr'})) _field('cipher', '加密方式'),
             if (_hasField('protocol', {'ssr'})) _field('protocol', '协议'),
@@ -265,7 +297,8 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
               _field('protocol-param', '协议参数'),
             if (_hasField('obfs', {'ssr'})) _field('obfs', '混淆'),
             if (_hasField('obfs-param', {'ssr'})) _field('obfs-param', '混淆参数'),
-            if (_hasField('uuid', {'vmess', 'vless'})) _field('uuid', 'UUID'),
+            if (_hasField('uuid', {'vmess', 'vless', 'tuic'}))
+              _field('uuid', 'UUID'),
             if (_hasField('alterId', {'vmess'}))
               _field(
                 'alterId',
@@ -276,7 +309,17 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
             if (_hasField('network', {'vmess', 'vless', 'trojan'}))
               _field('network', '传输协议'),
             if (_hasField('flow', {'vless'})) _field('flow', 'Flow'),
-            if (_hasField('sni', {'vmess', 'vless', 'trojan', 'anytls'}))
+            if (_hasField('sni', {
+              'vmess',
+              'vless',
+              'trojan',
+              'anytls',
+              'hysteria',
+              'hysteria2',
+              'tuic',
+              'http',
+              'socks5',
+            }))
               _field('sni', 'SNI'),
             if (_hasField('servername', {}))
               _field('servername', 'Server Name'),
@@ -286,7 +329,9 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
               minLines: 5,
               maxLines: 12,
               style: TextStyle(
-                  fontFamily: 'monospace', fontSize: Responsive.sp(12)),
+                fontFamily: 'monospace',
+                fontSize: Responsive.sp(12),
+              ),
               decoration: const InputDecoration(
                 labelText: '其他参数（JSON）',
                 alignLabelWithHint: true,
@@ -296,10 +341,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
             SizedBox(height: 24),
             SizedBox(
               height: 48,
-              child: ElevatedButton(
-                onPressed: _save,
-                child: Text('保存修改'),
-              ),
+              child: ElevatedButton(onPressed: _save, child: Text('保存修改')),
             ),
           ],
         ),

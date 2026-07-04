@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.12] - 2026-07-04
+
+### Added
+- Added mainstream URI subscription parsing for VLESS, Hysteria, Hysteria2, TUIC, Snell, SOCKS5, HTTP, and HTTPS proxy nodes.
+- Added subscription-source grouping on the home screen, with standalone imported nodes pinned above collapsible multi-subscription groups.
+
+### Changed
+- Subscription imports now use the subscription host or single-node name by default instead of forcing the `SSRVPN.VIP` name.
+- Node edits are normalized before writing cached YAML so common proxy types keep required fields and app-only metadata stays out of Mihomo config files.
+
+### Fixed
+- Fixed node editing for newer protocol types so password, UUID, and SNI fields are preserved where required.
+- Fixed force-proxy site rule normalization for full URLs, wildcard domains, duplicate hosts, and IPv4 addresses.
+
 ## [2.0.11] - 2026-07-04
 
 ### Added

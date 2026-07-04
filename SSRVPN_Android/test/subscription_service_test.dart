@@ -28,29 +28,33 @@ void main() {
     await tempDir.delete(recursive: true);
   });
 
-  test('recovers core fields when the outer SSR Base64 block is truncated',
-      () async {
-    final password = _base64UrlWithoutPadding('test-password');
-    final protocolParam = _base64UrlWithoutPadding('1000:test-user');
-    final payload = 'example.com:18899:auth_aes128_md5:aes-256-cfb:'
-        'tls1.2_ticket_auth:$password/?protoparam=$protocolParam';
-    final fullPayload = '$payload&remarks=optional-name';
-    final encoded = _base64UrlWithoutPadding(fullPayload);
-    final truncatedByteLength = utf8.encode('$payload&r').length;
-    final truncatedCharLength = (truncatedByteLength * 4 + 2) ~/ 3;
-    final link = 'ssr://${encoded.substring(0, truncatedCharLength)}';
+  test(
+    'recovers core fields when the outer SSR Base64 block is truncated',
+    () async {
+      final password = _base64UrlWithoutPadding('test-password');
+      final protocolParam = _base64UrlWithoutPadding('1000:test-user');
+      final payload =
+          'example.com:18899:auth_aes128_md5:aes-256-cfb:'
+          'tls1.2_ticket_auth:$password/?protoparam=$protocolParam';
+      final fullPayload = '$payload&remarks=optional-name';
+      final encoded = _base64UrlWithoutPadding(fullPayload);
+      final truncatedByteLength = utf8.encode('$payload&r').length;
+      final truncatedCharLength = (truncatedByteLength * 4 + 2) ~/ 3;
+      final link = 'ssr://${encoded.substring(0, truncatedCharLength)}';
 
-    await service.addSubscription('Truncated SSR node', link);
-    await service.refreshAllSubscriptions();
+      await service.addSubscription('Truncated SSR node', link);
+      await service.refreshAllSubscriptions();
 
-    expect(service.allNodes, hasLength(1));
-    expect(service.allNodes.single.server, 'example.com');
-    expect(service.allNodes.single.port, 18899);
-  });
+      expect(service.allNodes, hasLength(1));
+      expect(service.allNodes.single.server, 'example.com');
+      expect(service.allNodes.single.port, 18899);
+    },
+  );
 
-  test('keeps different same-name nodes when all input types are enabled',
-      () async {
-    const firstYaml = '''
+  test(
+    'keeps different same-name nodes when all input types are enabled',
+    () async {
+      const firstYaml = '''
 proxies:
   - name: Shared
     type: ss
@@ -65,7 +69,7 @@ proxies:
     cipher: aes-128-gcm
     password: exact
 ''';
-    const secondYaml = '''
+      const secondYaml = '''
 proxies:
   - name: Shared
     type: ss
@@ -80,42 +84,68 @@ proxies:
     cipher: aes-128-gcm
     password: exact
 ''';
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    addTearDown(() => server.close(force: true));
-    server.listen((request) {
-      request.response
-        ..headers.contentType = ContentType.text
-        ..write(request.uri.path == '/first' ? firstYaml : secondYaml)
-        ..close();
-    });
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) {
+        request.response
+          ..headers.contentType = ContentType.text
+          ..write(request.uri.path == '/first' ? firstYaml : secondYaml)
+          ..close();
+      });
 
-    final password = _base64UrlWithoutPadding('test-password');
-    final ssrPayload = 'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
-        'tls1.2_ticket_auth:$password/?';
-    final ssrLink = 'ssr://${_base64UrlWithoutPadding(ssrPayload)}';
-    final origin = 'http://${server.address.address}:${server.port}';
+      final password = _base64UrlWithoutPadding('test-password');
+      final ssrPayload =
+          'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
+          'tls1.2_ticket_auth:$password/?';
+      final ssrLink = 'ssr://${_base64UrlWithoutPadding(ssrPayload)}';
+      final origin = 'http://${server.address.address}:${server.port}';
 
-    await service.addSubscription('HTTPS-style feed', '$origin/first');
-    await service.addSubscription('HTTP-style feed', '$origin/second');
-    await service.addSubscription('SSR node', ssrLink);
-    await service.refreshAllSubscriptions();
+      await service.addSubscription('HTTPS-style feed', '$origin/first');
+      await service.addSubscription('HTTP-style feed', '$origin/second');
+      await service.addSubscription('SSR node', ssrLink);
+      await service.refreshAllSubscriptions();
 
-    expect(service.allNodes, hasLength(4));
-    expect(
-      service.allNodes.map((node) => node.name),
-      containsAll(['Shared', 'Shared (2)', 'Exact', 'ssr.example.com:18899']),
-    );
-  });
+      expect(service.allNodes, hasLength(4));
+      expect(
+        service.allNodes.map((node) => node.name),
+        containsAll(['Shared', 'Shared (2)', 'Exact', 'ssr.example.com:18899']),
+      );
+    },
+  );
 
-  test('converts base64 URI-list subscriptions with anytls nodes', () async {
-    final ssrPayload = 'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
+  test('converts base64 URI-list subscriptions with modern nodes', () async {
+    final ssrPayload =
+        'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
         'tls1.2_ticket_auth:${_base64UrlWithoutPadding('ssr-password')}/?';
+    final vmessPayload = base64Encode(
+      utf8.encode(
+        jsonEncode({
+          'v': '2',
+          'ps': 'VMess WS',
+          'add': 'vmess.example.com',
+          'port': '443',
+          'id': '00000000-0000-0000-0000-000000000001',
+          'aid': '0',
+          'net': 'ws',
+          'host': 'cdn.example.com',
+          'path': '/ws',
+          'tls': 'tls',
+        }),
+      ),
+    ).replaceAll('=', '');
     const uriList = '''
+vmess://VMESS_PLACEHOLDER
+vless://uuid-1234@vless.example.com:443?type=ws&security=tls&encryption=none&host=cdn.example.com&path=%2Fedge&sni=sni.example.com&fp=chrome#VLESS%20WS
+hysteria2://hy-pass@hy.example.com:443?mport=20000-30000&sni=hy-sni.example.com&insecure=1#HY2%20Node
+tuic://00000000-0000-0000-0000-000000000001:pass@tuic.example.com:10443?congestion_control=bbr&udp_relay_mode=native#TUIC%20Node
 anytls://any-password@any.example.com:443/?type=tcp&insecure=1&fp=chrome&sni=stream.example.com#AnyTLS%20Node
 trojan://trojan-password@trojan.example.com:8443?allowInsecure=1&peer=peer.example.com&sni=sni.example.com#Trojan%20Node
 ''';
     final encoded = base64Encode(
-      utf8.encode('$uriList\nssr://${_base64UrlWithoutPadding(ssrPayload)}\n'),
+      utf8.encode(
+        '${uriList.replaceFirst('VMESS_PLACEHOLDER', vmessPayload)}\n'
+        'ssr://${_base64UrlWithoutPadding(ssrPayload)}\n',
+      ),
     );
     String? userAgent;
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -136,15 +166,28 @@ trojan://trojan-password@trojan.example.com:8443?allowInsecure=1&peer=peer.examp
 
     expect(userAgent, AppConstants.appUserAgent);
     expect(service.allNodes.map((node) => node.name), [
+      'VMess WS',
+      'VLESS WS',
+      'HY2 Node',
+      'TUIC Node',
       'AnyTLS Node',
       'Trojan Node',
       'ssr.example.com:18899',
     ]);
-    expect(service.allNodes.first.type, 'anytls');
-    expect(service.allNodes.first.extra['client-fingerprint'], 'chrome');
-    expect(service.allNodes.first.extra['skip-cert-verify'], isTrue);
-    expect(service.allNodes[1].type, 'trojan');
-    expect(service.allNodes[1].extra['sni'], 'sni.example.com');
+    expect(service.allNodes.first.type, 'vmess');
+    expect(service.allNodes.first.extra['ws-opts']['path'], '/ws');
+    expect(service.allNodes[1].type, 'vless');
+    expect(service.allNodes[1].extra['network'], 'ws');
+    expect(service.allNodes[1].extra['ws-opts']['path'], '/edge');
+    expect(service.allNodes[2].type, 'hysteria2');
+    expect(service.allNodes[2].extra['ports'], '20000-30000');
+    expect(service.allNodes[3].type, 'tuic');
+    expect(service.allNodes[3].extra['congestion-controller'], 'bbr');
+    expect(service.allNodes[4].type, 'anytls');
+    expect(service.allNodes[4].extra['client-fingerprint'], 'chrome');
+    expect(service.allNodes[4].extra['skip-cert-verify'], isTrue);
+    expect(service.allNodes[5].type, 'trojan');
+    expect(service.allNodes[5].extra['sni'], 'sni.example.com');
     expect(service.allNodes.last.type, 'ssr');
   });
 
@@ -190,9 +233,10 @@ proxies:
     expect(service.allNodes.map((node) => node.name), ['SecondOnly']);
   });
 
-  test('local node edits are replaced by the next subscription refresh',
-      () async {
-    const yaml = '''
+  test(
+    'local node edits are replaced by the next subscription refresh',
+    () async {
+      const yaml = '''
 proxies:
   - name: Original
     type: ssr
@@ -203,36 +247,37 @@ proxies:
     protocol: auth_aes128_md5
     obfs: tls1.2_ticket_auth
 ''';
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    addTearDown(() => server.close(force: true));
-    server.listen((request) {
-      request.response
-        ..headers.contentType = ContentType.text
-        ..write(yaml)
-        ..close();
-    });
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) {
+        request.response
+          ..headers.contentType = ContentType.text
+          ..write(yaml)
+          ..close();
+      });
 
-    await service.addSubscription(
-      'Editable',
-      'http://${server.address.address}:${server.port}/subscription',
-    );
-    await service.refreshAllSubscriptions();
-    await service.updateNode('Original', {
-      ...service.allNodes.single.extra,
-      'name': 'Edited',
-      'server': 'edited.example.com',
-      'port': 2000,
-      'password': 'edited-password',
-    });
+      await service.addSubscription(
+        'Editable',
+        'http://${server.address.address}:${server.port}/subscription',
+      );
+      await service.refreshAllSubscriptions();
+      await service.updateNode('Original', {
+        ...service.allNodes.single.extra,
+        'name': 'Edited',
+        'server': 'edited.example.com',
+        'port': 2000,
+        'password': 'edited-password',
+      });
 
-    expect(service.allNodes.single.name, 'Edited');
-    expect(service.allNodes.single.server, 'edited.example.com');
-    expect(service.allNodes.single.extra['password'], 'edited-password');
+      expect(service.allNodes.single.name, 'Edited');
+      expect(service.allNodes.single.server, 'edited.example.com');
+      expect(service.allNodes.single.extra['password'], 'edited-password');
 
-    await service.refreshAllSubscriptions();
+      await service.refreshAllSubscriptions();
 
-    expect(service.allNodes.single.name, 'Original');
-    expect(service.allNodes.single.server, 'original.example.com');
-    expect(service.allNodes.single.extra['password'], 'original-password');
-  });
+      expect(service.allNodes.single.name, 'Original');
+      expect(service.allNodes.single.server, 'original.example.com');
+      expect(service.allNodes.single.extra['password'], 'original-password');
+    },
+  );
 }

@@ -79,6 +79,27 @@ proxies:
       expect(rules[3], equals('DOMAIN-SUFFIX,example.com,PROXY'));
     });
 
+    test(
+      'buildForceProxyRules normalizes full URLs and ignores bad entries',
+      () {
+        final rules = ClashConfigGenerator.buildForceProxyRulesFromSites([
+          'https://User:Pass@Example.com:8443/path?q=1',
+          'example.com',
+          '*.Video.Example.COM',
+          '1.2.3.4:443',
+          '1.2.3.4',
+          'bad_domain.example',
+          'one.com two.com',
+        ]);
+
+        expect(rules, [
+          'DOMAIN-SUFFIX,example.com,PROXY',
+          'DOMAIN-SUFFIX,video.example.com,PROXY',
+          'IP-CIDR,1.2.3.4/32,PROXY,no-resolve',
+        ]);
+      },
+    );
+
     test('generateConfig generates valid config', () {
       final yaml = '''
 proxies:
@@ -157,6 +178,27 @@ proxy-groups:
         'Node: one # primary',
         "O'Brien",
       ]);
+    });
+
+    test('generateConfig strips app-only proxy metadata', () {
+      final yaml = '''
+proxies:
+  - name: "Node 1"
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+    ssrvpn-subscription: "Feed A"
+    group: "Feed A"
+''';
+
+      final config = ClashConfigGenerator.generateConfig(yaml, AppSettings());
+      final parsed = loadYaml(config) as YamlMap;
+      final proxy = (parsed['proxies'] as YamlList).single as YamlMap;
+
+      expect(proxy.containsKey('ssrvpn-subscription'), isFalse);
+      expect(proxy.containsKey('group'), isFalse);
     });
 
     test('extractProxyNames ignores commented YAML nodes', () {

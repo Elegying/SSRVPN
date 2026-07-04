@@ -19,6 +19,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   String? _errorMessage;
   String? _testingNodeName;
   ProxyNode? _selectedNode;
+  final Set<String> _expandedSubscriptionGroups = {};
 
   final Map<String, int> _latencies = {};
   final Map<String, String> _exitCountryCodes = {};
@@ -254,7 +255,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 );
                 if (!exists) {
                   await subService.addSubscription(
-                    subService.isSsrLink(input) ? 'SSR节点' : 'SSRVPN.VIP',
+                    subService.defaultSubscriptionName(input),
                     input,
                   );
                 }
@@ -441,7 +442,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     SubscriptionService subService,
   ) {
     if (input.isEmpty) return '请粘贴你的SSR代码或订阅链接';
-    if (subService.isSsrLink(input)) return null;
+    if (subService.isSingleNodeLink(input)) return null;
 
     final uri = Uri.tryParse(input);
     if (uri == null ||
@@ -1987,35 +1988,157 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       );
     }
 
-    return ListView.builder(
+    final sections = HomeNodeController.buildDisplaySections(_nodes);
+    return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-      itemCount: _nodes.length,
-      itemBuilder: (context, index) {
-        final node = _nodes[index];
-        final latency = _latencies[node.name] ?? node.latency;
-        final isTesting = _testingNodeName == node.name;
-        final isSelected = _selectedNode?.name == node.name;
-        final isTimeout = latency != null && (latency <= 0 || latency >= 65535);
-        final countryCode =
-            _exitCountryCodes[node.name] ?? _countryCodeForNode(node);
+      children: [
+        for (final section in sections)
+          ..._buildNodeSection(section, textColor, subColor, isDark),
+      ],
+    );
+  }
 
-        return _NodeCard(
-          node: node,
-          countryCode: countryCode,
-          latency: latency,
-          isTesting: isTesting,
-          isSelected: isSelected,
-          isTimeout: isTimeout,
-          isConnected: _isConnected,
-          onTestLatency: () =>
-              _handleTestLatency(node.name, node.server, node.port),
-          onTap: () => _handleSelectNode(node),
-          onSecondaryTapDown: (details) => _showNodeContextMenu(node, details),
-          textColor: textColor,
-          subColor: subColor,
-          isDark: isDark,
-        );
-      },
+  List<Widget> _buildNodeSection(
+    HomeNodeSection section,
+    Color textColor,
+    Color subColor,
+    bool isDark,
+  ) {
+    if (!section.collapsible) {
+      return [
+        for (final node in section.nodes)
+          _buildNodeCard(node, textColor, subColor, isDark),
+      ];
+    }
+
+    final title = section.title!;
+    final expanded = _expandedSubscriptionGroups.contains(title);
+    return [
+      _SubscriptionGroupHeader(
+        title: title,
+        count: section.nodes.length,
+        expanded: expanded,
+        textColor: textColor,
+        subColor: subColor,
+        isDark: isDark,
+        onTap: () {
+          setState(() {
+            if (!expanded) {
+              _expandedSubscriptionGroups.add(title);
+            } else {
+              _expandedSubscriptionGroups.remove(title);
+            }
+          });
+        },
+      ),
+      if (expanded)
+        for (final node in section.nodes)
+          _buildNodeCard(node, textColor, subColor, isDark),
+    ];
+  }
+
+  Widget _buildNodeCard(
+    ProxyNode node,
+    Color textColor,
+    Color subColor,
+    bool isDark,
+  ) {
+    final latency = _latencies[node.name] ?? node.latency;
+    final isTesting = _testingNodeName == node.name;
+    final isSelected = _selectedNode?.name == node.name;
+    final isTimeout = latency != null && (latency <= 0 || latency >= 65535);
+    final countryCode =
+        _exitCountryCodes[node.name] ?? _countryCodeForNode(node);
+
+    return _NodeCard(
+      node: node,
+      countryCode: countryCode,
+      latency: latency,
+      isTesting: isTesting,
+      isSelected: isSelected,
+      isTimeout: isTimeout,
+      isConnected: _isConnected,
+      onTestLatency: () =>
+          _handleTestLatency(node.name, node.server, node.port),
+      onTap: () => _handleSelectNode(node),
+      onSecondaryTapDown: (details) => _showNodeContextMenu(node, details),
+      textColor: textColor,
+      subColor: subColor,
+      isDark: isDark,
+    );
+  }
+}
+
+class _SubscriptionGroupHeader extends StatelessWidget {
+  final String title;
+  final int count;
+  final bool expanded;
+  final Color textColor;
+  final Color subColor;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _SubscriptionGroupHeader({
+    required this.title,
+    required this.count,
+    required this.expanded,
+    required this.textColor,
+    required this.subColor,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.card : AppTheme.lightBg,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isDark ? AppTheme.border : AppTheme.lightBorder,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                expanded
+                    ? Icons.keyboard_arrow_down_rounded
+                    : Icons.keyboard_arrow_right_rounded,
+                size: 20,
+                color: AppTheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: subColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -82,6 +82,22 @@ proxy-groups:
           equals(['String Port', 'DIRECT']),
         );
       });
+
+      test('maps app-only subscription source to node group', () {
+        final yaml = '''
+proxies:
+  - name: "Node 1"
+    type: ss
+    server: example.com
+    port: 443
+    ssrvpn-subscription: "Feed A"
+''';
+
+        final result = SubscriptionParser.parseYaml(yaml);
+
+        expect(result.nodes.single.group, 'Feed A');
+        expect(result.nodes.single.extra['ssrvpn-subscription'], 'Feed A');
+      });
     });
 
     group('importSsrLink', () {
@@ -166,6 +182,172 @@ proxy-groups:
         expect(proxy['password'], equals('secret'));
       });
 
+      test('parses vless websocket tls link', () {
+        final uri = 'vless://uuid-1234@example.com:443'
+            '?type=ws&security=tls&encryption=none'
+            '&host=cdn.example.com&path=%2Fedge'
+            '&sni=sni.example.com&fp=chrome&insecure=1#VLESS%20WS';
+        final proxy = SubscriptionParser.proxyFromUri(uri);
+
+        expect(proxy, isNotNull);
+        expect(proxy!['type'], equals('vless'));
+        expect(proxy['uuid'], equals('uuid-1234'));
+        expect(proxy['network'], equals('ws'));
+        expect(proxy['tls'], isTrue);
+        expect(proxy['servername'], equals('sni.example.com'));
+        expect(proxy['client-fingerprint'], equals('chrome'));
+        expect(proxy['skip-cert-verify'], isTrue);
+        expect(proxy['ws-opts']['path'], equals('/edge'));
+        expect(proxy['ws-opts']['headers']['Host'], equals('cdn.example.com'));
+      });
+
+      test('parses vless reality link', () {
+        final uri = 'vless://uuid-5678@reality.example.com:443'
+            '?type=tcp&security=reality&flow=xtls-rprx-vision'
+            '&sni=www.microsoft.com&fp=chrome&pbk=public-key&sid=abcd'
+            '#VLESS%20Reality';
+        final proxy = SubscriptionParser.proxyFromUri(uri);
+
+        expect(proxy, isNotNull);
+        expect(proxy!['type'], equals('vless'));
+        expect(proxy['network'], equals('tcp'));
+        expect(proxy['tls'], isTrue);
+        expect(proxy['flow'], equals('xtls-rprx-vision'));
+        expect(proxy['servername'], equals('www.microsoft.com'));
+        expect(proxy['reality-opts']['public-key'], equals('public-key'));
+        expect(proxy['reality-opts']['short-id'], equals('abcd'));
+      });
+
+      test('parses hysteria2 link', () {
+        final uri = 'hysteria2://hy-pass@hy.example.com:443'
+            '?mport=20000-30000&sni=hy-sni.example.com'
+            '&insecure=1'
+            '&pinSHA256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+            '&alpn=h3#HY2%20Node';
+        final proxy = SubscriptionParser.proxyFromUri(uri);
+
+        expect(proxy, isNotNull);
+        expect(proxy!['type'], equals('hysteria2'));
+        expect(proxy['password'], equals('hy-pass'));
+        expect(proxy['ports'], equals('20000-30000'));
+        expect(proxy['sni'], equals('hy-sni.example.com'));
+        expect(proxy['skip-cert-verify'], isTrue);
+        expect(
+          proxy['fingerprint'],
+          equals(
+            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+          ),
+        );
+        expect(proxy['alpn'], equals(['h3']));
+      });
+
+      test('parses vmess json link', () {
+        final payload = base64Encode(
+          utf8.encode(
+            jsonEncode({
+              'v': '2',
+              'ps': 'VMess WS',
+              'add': 'vmess.example.com',
+              'port': '443',
+              'id': '00000000-0000-0000-0000-000000000001',
+              'aid': '0',
+              'scy': 'auto',
+              'net': 'ws',
+              'host': 'cdn.example.com',
+              'path': '/ws',
+              'tls': 'tls',
+              'sni': 'sni.example.com',
+              'fp': 'chrome',
+            }),
+          ),
+        ).replaceAll('=', '');
+        final proxy = SubscriptionParser.proxyFromUri('vmess://$payload');
+
+        expect(proxy, isNotNull);
+        expect(proxy!['type'], equals('vmess'));
+        expect(proxy['name'], equals('VMess WS'));
+        expect(proxy['server'], equals('vmess.example.com'));
+        expect(proxy['port'], equals(443));
+        expect(proxy['uuid'], equals('00000000-0000-0000-0000-000000000001'));
+        expect(proxy['network'], equals('ws'));
+        expect(proxy['tls'], isTrue);
+        expect(proxy['ws-opts']['path'], equals('/ws'));
+        expect(proxy['ws-opts']['headers']['Host'], equals('cdn.example.com'));
+      });
+
+      test('parses hysteria v1 link', () {
+        final uri = 'hysteria://hy.example.com:443'
+            '?auth=secret&protocol=udp&upmbps=20&downmbps=100'
+            '&peer=hy-sni.example.com&insecure=1#Hysteria%20V1';
+        final proxy = SubscriptionParser.proxyFromUri(uri);
+
+        expect(proxy, isNotNull);
+        expect(proxy!['type'], equals('hysteria'));
+        expect(proxy['auth-str'], equals('secret'));
+        expect(proxy['protocol'], equals('udp'));
+        expect(proxy['up'], equals('20 Mbps'));
+        expect(proxy['down'], equals('100 Mbps'));
+        expect(proxy['sni'], equals('hy-sni.example.com'));
+        expect(proxy['skip-cert-verify'], isTrue);
+      });
+
+      test('parses tuic link', () {
+        final uri = 'tuic://00000000-0000-0000-0000-000000000001:pass'
+            '@tuic.example.com:10443?congestion_control=bbr'
+            '&udp_relay_mode=native&sni=tuic-sni.example.com'
+            '&alpn=h3&allow_insecure=1#TUIC%20Node';
+        final proxy = SubscriptionParser.proxyFromUri(uri);
+
+        expect(proxy, isNotNull);
+        expect(proxy!['type'], equals('tuic'));
+        expect(proxy['uuid'], equals('00000000-0000-0000-0000-000000000001'));
+        expect(proxy['password'], equals('pass'));
+        expect(proxy['congestion-controller'], equals('bbr'));
+        expect(proxy['udp-relay-mode'], equals('native'));
+        expect(proxy['sni'], equals('tuic-sni.example.com'));
+        expect(proxy['alpn'], equals(['h3']));
+        expect(proxy['skip-cert-verify'], isTrue);
+      });
+
+      test('parses snell link', () {
+        final uri = 'snell://psk-value@snell.example.com:44046'
+            '?version=4&obfs=tls&host=bing.com&udp=1#Snell%20Node';
+        final proxy = SubscriptionParser.proxyFromUri(uri);
+
+        expect(proxy, isNotNull);
+        expect(proxy!['type'], equals('snell'));
+        expect(proxy['psk'], equals('psk-value'));
+        expect(proxy['version'], equals(4));
+        expect(proxy['udp'], isTrue);
+        expect(proxy['obfs-opts']['mode'], equals('tls'));
+        expect(proxy['obfs-opts']['host'], equals('bing.com'));
+      });
+
+      test('parses socks and http proxy links with explicit ports', () {
+        final socks = SubscriptionParser.proxyFromUri(
+          'socks5://user:pass@socks.example.com:1080#Socks%20Node',
+        );
+        final http = SubscriptionParser.proxyFromUri(
+          'https://user:pass@http.example.com:8443?insecure=1#HTTP%20Node',
+        );
+
+        expect(socks, isNotNull);
+        expect(socks!['type'], equals('socks5'));
+        expect(socks['username'], equals('user'));
+        expect(socks['password'], equals('pass'));
+        expect(http, isNotNull);
+        expect(http!['type'], equals('http'));
+        expect(http['tls'], isTrue);
+        expect(http['skip-cert-verify'], isTrue);
+      });
+
+      test('does not treat ordinary http urls as proxy nodes', () {
+        final proxy = SubscriptionParser.proxyFromUri(
+          'https://example.com/subscription',
+        );
+        expect(proxy, isNull);
+      });
+
       test('returns null for unsupported scheme', () {
         final proxy = SubscriptionParser.proxyFromUri('ftp://example.com');
         expect(proxy, isNull);
@@ -245,6 +427,44 @@ trojan://pass@server2.com:443#N2
         final result = SubscriptionParser.parseSubscriptionContent(encoded);
         expect(result, isNotNull);
         expect(result, contains('s1.com'));
+      });
+
+      test('detects Base64-encoded vless and hysteria2 URI list', () {
+        final vmessPayload = base64Encode(
+          utf8.encode(
+            jsonEncode({
+              'v': '2',
+              'ps': 'VMess WS',
+              'add': 'vmess.example.com',
+              'port': '443',
+              'id': '00000000-0000-0000-0000-000000000001',
+              'aid': '0',
+              'net': 'ws',
+              'host': 'cdn.example.com',
+              'path': '/ws',
+              'tls': 'tls',
+            }),
+          ),
+        ).replaceAll('=', '');
+        final uris = '''
+vmess://$vmessPayload
+vless://uuid-1234@vless.example.com:443?type=ws&security=tls&encryption=none&host=cdn.example.com&path=%2Fedge&sni=sni.example.com&fp=chrome#VLESS%20WS
+hysteria2://hy-pass@hy.example.com:443?mport=20000-30000&sni=hy-sni.example.com&insecure=1#HY2%20Node
+tuic://00000000-0000-0000-0000-000000000001:pass@tuic.example.com:10443?congestion_control=bbr&udp_relay_mode=native#TUIC%20Node
+''';
+        final encoded = base64Encode(utf8.encode(uris)).replaceAll('=', '');
+        final result = SubscriptionParser.parseSubscriptionContent(encoded);
+
+        expect(result, isNotNull);
+        final parsed = SubscriptionParser.parseYaml(result!);
+        expect(parsed.nodes.map((node) => node.type), [
+          'vmess',
+          'vless',
+          'hysteria2',
+          'tuic',
+        ]);
+        expect(parsed.nodes.first.name, 'VMess WS');
+        expect(parsed.nodes.last.name, 'TUIC Node');
       });
 
       test('returns null for garbage input', () {

@@ -18,6 +18,9 @@ import '../utils/app_logger.dart';
 /// 各平台只需实现 [fetchSubscription] 提供平台特定的 HTTP 拉取策略。
 abstract class SubscriptionServiceBase extends ChangeNotifier {
   static const int maxSubscriptionBytes = 20 * 1024 * 1024;
+  static const String proxySourceKey = SubscriptionParser.proxySourceKey;
+  static const String standaloneGroupName =
+      SubscriptionParser.standaloneGroupName;
   final Uuid _uuid = const Uuid();
 
   List<Subscription> _subscriptions = [];
@@ -40,11 +43,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   // ── 订阅 CRUD ──
 
   Future<Subscription> addSubscription(String name, String url) async {
-    final sub = Subscription(
-      id: _uuid.v4(),
-      name: name,
-      url: url,
-    );
+    final sub = Subscription(id: _uuid.v4(), name: name, url: url);
     _subscriptions.add(sub);
     await saveToDisk();
     notifyListeners();
@@ -100,11 +99,9 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     for (final sub in _subscriptions.where((s) => s.enabled)) {
       try {
         String? yaml;
-        if (isSsrLink(sub.url)) {
-          yaml = importSsrLink(sub.url);
-          if (yaml == null) {
-            throw const FormatException('SSR链接格式无效或内容不完整');
-          }
+        if (isSingleNodeLink(sub.url)) {
+          yaml = normalizeSubscriptionContent(sub.url);
+          if (yaml == null) throw const FormatException('节点链接格式无效');
         } else {
           yaml = await fetchSubscription(sub.url);
         }
@@ -127,7 +124,10 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     }
 
     final oldYaml = _rawYaml;
-    _rawYaml = mergeYamlConfigs(allYamlBuffers);
+    _rawYaml = mergeYamlConfigs(
+      allYamlBuffers,
+      sourceNames: succeededSubs.map(sourceNameForSubscription).toList(),
+    );
     if (_rawYaml != oldYaml) _revision++;
 
     // 子类可覆盖此方法添加合并后验证（如大小检查）
@@ -170,15 +170,17 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     );
     if (index < 0) throw StateError('找不到要修改的节点');
 
-    final newName = updatedConfig['name']?.toString().trim() ?? '';
-    if (newName.isEmpty) throw const FormatException('节点备注名不能为空');
-    final duplicate = proxies.asMap().entries.any((entry) =>
-        entry.key != index &&
-        entry.value is Map &&
-        (entry.value as Map)['name']?.toString() == newName);
+    final normalizedConfig = normalizeProxyConfig(updatedConfig);
+    final newName = normalizedConfig['name']?.toString().trim() ?? '';
+    final duplicate = proxies.asMap().entries.any(
+          (entry) =>
+              entry.key != index &&
+              entry.value is Map &&
+              (entry.value as Map)['name']?.toString() == newName,
+        );
     if (duplicate) throw const FormatException('节点备注名已存在');
 
-    proxies[index] = Map<String, dynamic>.from(updatedConfig);
+    proxies[index] = normalizedConfig;
 
     final groups = parsed['proxy-groups'];
     if (newName != originalName && groups is List) {
@@ -252,16 +254,21 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   }
 
   /// 合并多个 YAML 配置（只合并 proxies 节点）
-  String mergeYamlConfigs(List<String> yamls) {
+  String mergeYamlConfigs(List<String> yamls, {List<String>? sourceNames}) {
     if (yamls.isEmpty) return '';
 
     final usedNames = <String>{};
     final fingerprintsByName = <String, Set<String>>{};
+    final usedSourceNames = <String>{};
     final buffer = StringBuffer();
     buffer.writeln('proxies:');
     var hasAny = false;
 
-    for (final yaml in yamls) {
+    for (var yamlIndex = 0; yamlIndex < yamls.length; yamlIndex++) {
+      final yaml = yamls[yamlIndex];
+      final sourceName = yamlIndex < (sourceNames?.length ?? 0)
+          ? _uniqueSourceName(sourceNames![yamlIndex], usedSourceNames)
+          : null;
       final proxiesText = extractSection(yaml, 'proxies');
       if (proxiesText.isEmpty) continue;
       for (final item in splitProxyItems(proxiesText)) {
@@ -272,11 +279,16 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
         }
 
         final fingerprint = jsonEncode(canonicalJsonValue(proxy));
-        final fingerprints =
-            fingerprintsByName.putIfAbsent(originalName, () => <String>{});
+        final fingerprints = fingerprintsByName.putIfAbsent(
+          originalName,
+          () => <String>{},
+        );
         if (!fingerprints.add(fingerprint)) continue;
 
         proxy['name'] = uniqueProxyName(originalName, usedNames);
+        if (sourceName != null && sourceName.isNotEmpty) {
+          proxy[proxySourceKey] = sourceName;
+        }
         buffer.writeln('  - ${jsonEncode(proxy)}');
         hasAny = true;
       }
@@ -319,25 +331,11 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   String? normalizeSubscriptionContent(String? content) {
     final trimmed = content?.trim();
     if (trimmed == null || trimmed.isEmpty) return null;
-    if (extractSection(trimmed, 'proxies').isNotEmpty) return trimmed;
-    return uriListToYaml(trimmed) ?? trimmed;
+    return SubscriptionParser.parseSubscriptionContent(trimmed);
   }
 
   String? uriListToYaml(String content) {
-    final proxies = <Map<String, dynamic>>[];
-    for (final rawLine in content.split(RegExp(r'[\r\n]+'))) {
-      final line = rawLine.trim();
-      if (line.isEmpty || line.startsWith('#')) continue;
-      final proxy = SubscriptionParser.proxyFromUri(line);
-      if (proxy != null) proxies.add(proxy);
-    }
-    if (proxies.isEmpty) return null;
-
-    final buffer = StringBuffer()..writeln('proxies:');
-    for (final proxy in proxies) {
-      buffer.writeln('  - ${jsonEncode(proxy)}');
-    }
-    return buffer.toString();
+    return SubscriptionParser.uriListToYaml(content);
   }
 
   String uniqueProxyName(String baseName, Set<String> usedNames) {
@@ -347,6 +345,31 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
       suffix++;
     }
     return '$baseName ($suffix)';
+  }
+
+  String sourceNameForSubscription(Subscription sub) {
+    if (isSingleNodeLink(sub.url)) return standaloneGroupName;
+    final name = sub.name.trim();
+    return name.isNotEmpty ? name : defaultSubscriptionName(sub.url);
+  }
+
+  String defaultSubscriptionName(String input) {
+    if (isSingleNodeLink(input)) {
+      final node = SubscriptionParser.proxyFromUri(input.trim());
+      final nodeName = node?['name']?.toString().trim();
+      if (nodeName != null && nodeName.isNotEmpty) return nodeName;
+    }
+
+    final uri = Uri.tryParse(input.trim());
+    final host = uri?.host.trim();
+    if (host != null && host.isNotEmpty) return host;
+    return '订阅 ${_subscriptions.length + 1}';
+  }
+
+  String _uniqueSourceName(String sourceName, Set<String> usedNames) {
+    final base = sourceName.trim();
+    if (base.isEmpty || base == standaloneGroupName) return base;
+    return uniqueProxyName(base, usedNames);
   }
 
   // ── JSON/YAML 辅助 ──
@@ -393,6 +416,163 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     return buffer.toString();
   }
 
+  Map<String, dynamic> normalizeProxyConfig(Map<String, dynamic> config) {
+    final normalized = _cleanJsonMap(config);
+    for (final key in const [
+      'group',
+      'latency',
+      'isOnline',
+      'lastLatencyTest',
+      'extra',
+    ]) {
+      normalized.remove(key);
+    }
+
+    final name = _requiredText(normalized, 'name', '节点备注名不能为空');
+    final type = _requiredText(normalized, 'type', '节点类型不能为空').toLowerCase();
+    final server = _requiredText(normalized, 'server', '服务器地址不能为空');
+    final port = _parseRequiredPort(normalized['port']);
+
+    normalized['name'] = name;
+    normalized['type'] = type;
+    normalized['server'] = server;
+    normalized['port'] = port;
+
+    _normalizeIntField(normalized, 'alterId');
+    _normalizeIntField(normalized, 'alter-id');
+    _normalizeIntField(normalized, 'version');
+    for (final key in const [
+      'udp',
+      'tls',
+      'skip-cert-verify',
+      'disable-sni',
+      'reduce-rtt',
+      'reuse',
+      'fast-open',
+      'tfo',
+    ]) {
+      _normalizeBoolField(normalized, key);
+    }
+
+    switch (type) {
+      case 'ss':
+        _requireFields(normalized, ['cipher', 'password']);
+      case 'ssr':
+        _requireFields(normalized, ['cipher', 'password', 'protocol', 'obfs']);
+      case 'vmess':
+      case 'vless':
+        _requireFields(normalized, ['uuid']);
+        if (type == 'vmess') normalized.putIfAbsent('cipher', () => 'auto');
+      case 'trojan':
+      case 'anytls':
+      case 'hysteria2':
+        _requireFields(normalized, ['password']);
+      case 'tuic':
+        if (!_hasText(normalized, 'token')) {
+          _requireFields(normalized, ['uuid', 'password']);
+        }
+      case 'snell':
+        _requireFields(normalized, ['psk']);
+      case 'hysteria':
+        if (!_hasText(normalized, 'auth-str') &&
+            !_hasText(normalized, 'auth')) {
+          throw const FormatException('hysteria 节点缺少 auth-str');
+        }
+      case 'http':
+      case 'socks':
+      case 'socks5':
+        break;
+      default:
+        break;
+    }
+
+    return normalized;
+  }
+
+  Map<String, dynamic> _cleanJsonMap(Map<dynamic, dynamic> map) {
+    final result = <String, dynamic>{};
+    for (final entry in map.entries) {
+      final key = _sanitizeScalar(entry.key.toString()).trim();
+      if (key.isEmpty) continue;
+      final value = _cleanJsonValue(entry.value);
+      if (value != null) result[key] = value;
+    }
+    return result;
+  }
+
+  dynamic _cleanJsonValue(dynamic value) {
+    if (value == null) return null;
+    if (value is String) {
+      final clean = _sanitizeScalar(value);
+      return clean.trim().isEmpty ? null : clean;
+    }
+    if (value is num || value is bool) return value;
+    if (value is Map) {
+      final map = _cleanJsonMap(value);
+      return map.isEmpty ? null : map;
+    }
+    if (value is Iterable) {
+      final list = value.map(_cleanJsonValue).whereType<Object>().toList();
+      return list.isEmpty ? null : list;
+    }
+    final clean = _sanitizeScalar(value.toString());
+    return clean.trim().isEmpty ? null : clean;
+  }
+
+  String _sanitizeScalar(String value) {
+    return value.replaceAll(RegExp(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]'), '');
+  }
+
+  String _requiredText(
+    Map<String, dynamic> config,
+    String key,
+    String message,
+  ) {
+    final value = config[key]?.toString().trim() ?? '';
+    if (value.isEmpty) throw FormatException(message);
+    return value;
+  }
+
+  int _parseRequiredPort(Object? value) {
+    final port = int.tryParse(value?.toString() ?? '');
+    if (port == null || port < 1 || port > 65535) {
+      throw const FormatException('端口必须是 1-65535 之间的数字');
+    }
+    return port;
+  }
+
+  void _normalizeIntField(Map<String, dynamic> config, String key) {
+    final value = config[key];
+    if (value == null || value is int) return;
+    final parsed = int.tryParse(value.toString());
+    if (parsed != null) config[key] = parsed;
+  }
+
+  void _normalizeBoolField(Map<String, dynamic> config, String key) {
+    final value = config[key];
+    if (value is! String) return;
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'true' || normalized == '1' || normalized == 'yes') {
+      config[key] = true;
+    } else if (normalized == 'false' ||
+        normalized == '0' ||
+        normalized == 'no') {
+      config[key] = false;
+    }
+  }
+
+  bool _hasText(Map<String, dynamic> config, String key) {
+    return config[key]?.toString().trim().isNotEmpty == true;
+  }
+
+  void _requireFields(Map<String, dynamic> config, Iterable<String> keys) {
+    for (final key in keys) {
+      if (!_hasText(config, key)) {
+        throw FormatException('${config['type']} 节点缺少 $key');
+      }
+    }
+  }
+
   // ── YAML 解析 ──
 
   /// 子类可覆盖此方法添加合并后验证（如大小检查）
@@ -418,6 +598,17 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
 
   bool isSsrLink(String input) {
     return input.trim().toLowerCase().startsWith('ssr://');
+  }
+
+  bool isSingleNodeLink(String input) {
+    final value = input.trim();
+    final uri = Uri.tryParse(value);
+    final scheme = uri?.scheme.toLowerCase();
+    if (scheme == 'http' || scheme == 'https') {
+      final hasEndpointPath = uri!.path.isNotEmpty && uri.path != '/';
+      if (hasEndpointPath || uri.hasQuery) return false;
+    }
+    return SubscriptionParser.proxyFromUri(value) != null;
   }
 
   String? importSsrLink(String ssrLink) {
@@ -448,8 +639,9 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
         for (final param in params.split('&')) {
           final separator = param.indexOf('=');
           if (separator <= 0) continue;
-          paramMap[param.substring(0, separator)] =
-              param.substring(separator + 1);
+          paramMap[param.substring(0, separator)] = param.substring(
+            separator + 1,
+          );
         }
       }
 

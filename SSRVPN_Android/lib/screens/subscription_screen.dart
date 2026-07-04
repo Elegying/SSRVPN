@@ -65,9 +65,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         return;
       }
 
-      if (subService.isSsrLink(url)) {
-        // SSR链接作为订阅条目保存，刷新时自动解析
-        await subService.addSubscription('SSR节点', url);
+      if (subService.isSingleNodeLink(url)) {
+        // 单节点链接作为订阅条目保存，刷新时自动解析并在首页置顶。
+        await subService.addSubscription(
+          subService.defaultSubscriptionName(url),
+          url,
+        );
         _urlController.clear();
 
         try {
@@ -105,7 +108,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         }
       } else {
         final parsedUri = Uri.tryParse(url);
-        if (parsedUri == null || !parsedUri.hasScheme) {
+        if (parsedUri == null ||
+            !parsedUri.hasAuthority ||
+            (parsedUri.scheme != 'http' && parsedUri.scheme != 'https')) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -118,7 +123,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
           return;
         }
 
-        await subService.addSubscription('SSRVPN.VIP', url);
+        await subService.addSubscription(
+          subService.defaultSubscriptionName(url),
+          url,
+        );
         _urlController.clear();
 
         // 自动刷新订阅

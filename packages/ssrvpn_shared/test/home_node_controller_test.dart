@@ -3,11 +3,12 @@ import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:test/test.dart';
 
 void main() {
-  ProxyNode node(String name, {int? latency}) => ProxyNode(
+  ProxyNode node(String name, {int? latency, String group = '默认'}) => ProxyNode(
         name: name,
         type: 'ss',
         server: '127.0.0.1',
         port: 1000,
+        group: group,
         latency: latency,
       );
 
@@ -61,6 +62,44 @@ void main() {
       expect(controller.nodes.map((node) => node.name), ['A', 'C', 'B', 'D']);
       expect(controller.canSelect(controller.nodes[0]), isTrue);
       expect(controller.canSelect(controller.nodes[2]), isFalse);
+    });
+
+    test('builds collapsed subscription sections and keeps single nodes first',
+        () {
+      final sections = HomeNodeController.buildDisplaySections([
+        node('Sub A 1', group: 'Feed A'),
+        node('Single', group: '单独节点'),
+        node('Sub B 1', group: 'Feed B'),
+        node('Sub A 2', group: 'Feed A'),
+      ]);
+
+      expect(sections, hasLength(3));
+      expect(sections[0].title, isNull);
+      expect(sections[0].nodes.map((node) => node.name), ['Single']);
+      expect(sections[1].title, 'Feed A');
+      expect(sections[1].collapsible, isTrue);
+      expect(sections[1].nodes.map((node) => node.name), [
+        'Sub A 1',
+        'Sub A 2',
+      ]);
+      expect(sections[2].title, 'Feed B');
+    });
+
+    test('keeps a single subscription flat', () {
+      final sections = HomeNodeController.buildDisplaySections([
+        node('Single', group: '单独节点'),
+        node('Sub A 1', group: 'Feed A'),
+        node('Sub A 2', group: 'Feed A'),
+      ]);
+
+      expect(sections, hasLength(2));
+      expect(sections[0].nodes.map((node) => node.name), ['Single']);
+      expect(sections[1].title, isNull);
+      expect(sections[1].collapsible, isFalse);
+      expect(sections[1].nodes.map((node) => node.name), [
+        'Sub A 1',
+        'Sub A 2',
+      ]);
     });
   });
 }

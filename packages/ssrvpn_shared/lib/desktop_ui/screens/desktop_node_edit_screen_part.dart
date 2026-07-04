@@ -18,6 +18,12 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     'vless',
     'trojan',
     'anytls',
+    'hysteria',
+    'hysteria2',
+    'tuic',
+    'snell',
+    'socks5',
+    'http',
   ];
   static const _editableKeys = {
     'name',
@@ -37,6 +43,14 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     'sni',
     'servername',
     'flow',
+  };
+  static const _internalKeys = {
+    SubscriptionServiceBase.proxySourceKey,
+    'group',
+    'latency',
+    'isOnline',
+    'lastLatencyTest',
+    'extra',
   };
 
   final _formKey = GlobalKey<FormState>();
@@ -79,15 +93,17 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     _obfsController = _controller(config['obfs']);
     _obfsParamController = _controller(config['obfs-param']);
     _uuidController = _controller(config['uuid']);
-    _alterIdController =
-        _controller(config['alterId'] ?? config['alter-id'] ?? 0);
+    _alterIdController = _controller(
+      config['alterId'] ?? config['alter-id'] ?? 0,
+    );
     _networkController = _controller(config['network'] ?? 'tcp');
     _sniController = _controller(config['servername'] ?? config['sni']);
     _flowController = _controller(config['flow']);
 
     final advanced = <String, dynamic>{};
     for (final entry in config.entries) {
-      if (!_editableKeys.contains(entry.key)) {
+      if (!_editableKeys.contains(entry.key) &&
+          !_internalKeys.contains(entry.key)) {
         advanced[entry.key] = entry.value;
       }
     }
@@ -128,13 +144,32 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     return values.toList();
   }
 
-  bool get _usesPassword => {'ss', 'ssr', 'trojan', 'anytls'}.contains(_type);
+  bool get _usesPassword => {
+        'ss',
+        'ssr',
+        'trojan',
+        'anytls',
+        'hysteria2',
+        'tuic',
+        'http',
+        'socks5',
+      }.contains(_type);
   bool get _usesCipher => {'ss', 'ssr', 'vmess'}.contains(_type);
   bool get _usesSsr => _type == 'ssr';
-  bool get _usesUuid => {'vmess', 'vless'}.contains(_type);
+  bool get _usesUuid => {'vmess', 'vless', 'tuic'}.contains(_type);
   bool get _usesAlterId => _type == 'vmess';
   bool get _usesTransport => {'vmess', 'vless', 'trojan'}.contains(_type);
-  bool get _usesSni => {'vmess', 'vless', 'trojan', 'anytls'}.contains(_type);
+  bool get _usesSni => {
+        'vmess',
+        'vless',
+        'trojan',
+        'anytls',
+        'hysteria',
+        'hysteria2',
+        'tuic',
+        'http',
+        'socks5',
+      }.contains(_type);
   bool get _usesFlow => _type == 'vless';
 
   Future<void> _save() async {
@@ -146,15 +181,17 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
       if (decoded is! Map) {
         throw const FormatException('必须是 JSON 对象');
       }
-      advanced = decoded.map(
-        (key, value) => MapEntry(key.toString(), value),
-      );
+      advanced = decoded.map((key, value) => MapEntry(key.toString(), value));
     } on FormatException catch (e) {
       _showError('其他参数 JSON 格式错误：${e.message}');
       return;
     }
 
-    final config = <String, dynamic>{...advanced};
+    final config = <String, dynamic>{
+      for (final entry in _originalConfig.entries)
+        if (_internalKeys.contains(entry.key)) entry.key: entry.value,
+      ...advanced,
+    };
     config['name'] = _nameController.text.trim();
     config['type'] = _type;
     config['server'] = _serverController.text.trim();
@@ -180,8 +217,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
       _putOptional(config, 'network', _networkController.text.trim());
     }
     if (_usesSni) {
-      final sniKey =
-          _type == 'trojan' || _type == 'anytls' ? 'sni' : 'servername';
+      final sniKey = {'vmess', 'vless'}.contains(_type) ? 'servername' : 'sni';
       _putOptional(config, sniKey, _sniController.text.trim());
     }
     if (_usesFlow) {
@@ -197,19 +233,13 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
         settingsService.settings.lastSelectedNodeName == originalName;
     try {
       if (renameRememberedNode) {
-        await settingsService.renameLastSelectedNode(
-          originalName,
-          updatedName,
-        );
+        await settingsService.renameLastSelectedNode(originalName, updatedName);
       }
       await subscriptionService.updateNode(originalName, config);
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (renameRememberedNode) {
-        await settingsService.renameLastSelectedNode(
-          updatedName,
-          originalName,
-        );
+        await settingsService.renameLastSelectedNode(updatedName, originalName);
       }
       if (mounted) {
         setState(() => _saving = false);
@@ -218,11 +248,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     }
   }
 
-  void _putOptional(
-    Map<String, dynamic> config,
-    String key,
-    String value,
-  ) {
+  void _putOptional(Map<String, dynamic> config, String key, String value) {
     if (value.isNotEmpty) config[key] = value;
   }
 
@@ -328,9 +354,8 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                     label: '密码',
                     obscureText: _obscurePassword,
                     suffixIcon: IconButton(
-                      onPressed: () => setState(
-                        () => _obscurePassword = !_obscurePassword,
-                      ),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                       icon: Icon(
                         _obscurePassword
                             ? Icons.visibility_outlined
@@ -339,30 +364,15 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                     ),
                   ),
                 if (_usesCipher)
-                  _field(
-                    controller: _cipherController,
-                    label: '加密方式',
-                  ),
+                  _field(controller: _cipherController, label: '加密方式'),
                 if (_usesSsr) ...[
-                  _field(
-                    controller: _protocolController,
-                    label: 'SSR 协议',
-                  ),
-                  _field(
-                    controller: _protocolParamController,
-                    label: '协议参数',
-                  ),
+                  _field(controller: _protocolController, label: 'SSR 协议'),
+                  _field(controller: _protocolParamController, label: '协议参数'),
                   _field(controller: _obfsController, label: '混淆'),
-                  _field(
-                    controller: _obfsParamController,
-                    label: '混淆参数',
-                  ),
+                  _field(controller: _obfsParamController, label: '混淆参数'),
                 ],
                 if (_usesUuid)
-                  _field(
-                    controller: _uuidController,
-                    label: 'UUID',
-                  ),
+                  _field(controller: _uuidController, label: 'UUID'),
                 if (_usesAlterId)
                   _field(
                     controller: _alterIdController,
@@ -376,16 +386,9 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                     label: '传输协议',
                     hint: '例如 tcp、ws、grpc',
                   ),
-                if (_usesSni)
-                  _field(
-                    controller: _sniController,
-                    label: 'SNI',
-                  ),
+                if (_usesSni) _field(controller: _sniController, label: 'SNI'),
                 if (_usesFlow)
-                  _field(
-                    controller: _flowController,
-                    label: 'Flow',
-                  ),
+                  _field(controller: _flowController, label: 'Flow'),
                 if (!_usesPassword &&
                     !_usesCipher &&
                     !_usesSsr &&
@@ -436,11 +439,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
       child: const Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.info_outline_rounded,
-            color: AppTheme.warning,
-            size: 20,
-          ),
+          Icon(Icons.info_outline_rounded, color: AppTheme.warning, size: 20),
           SizedBox(width: 10),
           Expanded(
             child: Text(
