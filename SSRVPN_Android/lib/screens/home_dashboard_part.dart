@@ -484,45 +484,68 @@ class _AndroidPublicIpRow extends StatelessWidget {
           color: AppTheme.primaryColor.withValues(alpha: 28 / 255),
         ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.public_rounded,
-            size: Responsive.icon(14),
-            color: AppTheme.primaryColor,
-          ),
-          SizedBox(width: Responsive.gap(6)),
-          Expanded(
-            child: Text(
-              'IP地址：$display',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: Responsive.sp(11),
-                color: color,
-                fontWeight: FontWeight.w600,
+          Row(
+            children: [
+              Icon(
+                Icons.public_rounded,
+                size: Responsive.icon(14),
+                color: AppTheme.primaryColor,
               ),
-            ),
-          ),
-          SizedBox(width: Responsive.gap(4)),
-          GestureDetector(
-            onTap: isRefreshing ? null : onRefresh,
-            child: SizedBox(
-              width: Responsive.wp(28),
-              height: Responsive.wp(28),
-              child: Center(
-                child: isRefreshing
-                    ? SizedBox(
-                        width: Responsive.wp(14),
-                        height: Responsive.wp(14),
-                        child: const CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(
-                        Icons.refresh_rounded,
-                        size: Responsive.icon(16),
-                        color: AppTheme.primaryColor,
-                      ),
+              SizedBox(width: Responsive.gap(6)),
+              Expanded(
+                child: Text(
+                  'IP地址：',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: Responsive.sp(11),
+                    color: subColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
+              SizedBox(width: Responsive.gap(4)),
+              Semantics(
+                button: true,
+                label: '刷新出口 IP',
+                child: GestureDetector(
+                  onTap: isRefreshing ? null : onRefresh,
+                  child: SizedBox(
+                    width: Responsive.wp(28),
+                    height: Responsive.wp(28),
+                    child: Center(
+                      child: isRefreshing
+                          ? SizedBox(
+                              width: Responsive.wp(14),
+                              height: Responsive.wp(14),
+                              child: const CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : Icon(
+                              Icons.refresh_rounded,
+                              size: Responsive.icon(16),
+                              color: AppTheme.primaryColor,
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: Responsive.gap(2)),
+          Text(
+            display,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: Responsive.sp(12),
+              color: color,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0,
             ),
           ),
         ],

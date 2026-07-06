@@ -564,45 +564,71 @@ class _DesktopPublicIpRow extends StatelessWidget {
           color: AppTheme.primary.withValues(alpha: 28 / 255),
         ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.public_rounded, size: 16, color: AppTheme.primary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'IP地址：$display',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                color: color,
-                fontWeight: FontWeight.w600,
+          Row(
+            children: [
+              const Icon(
+                Icons.public_rounded,
+                size: 16,
+                color: AppTheme.primary,
               ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Tooltip(
-            message: '刷新出口 IP',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: isRefreshing ? null : onRefresh,
-              child: SizedBox(
-                width: 28,
-                height: 28,
-                child: Center(
-                  child: isRefreshing
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(
-                          Icons.refresh_rounded,
-                          size: 17,
-                          color: AppTheme.primary,
-                        ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'IP地址：',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: subColor,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
+              const SizedBox(width: 6),
+              Tooltip(
+                message: '刷新出口 IP',
+                child: Semantics(
+                  button: true,
+                  label: '刷新出口 IP',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: isRefreshing ? null : onRefresh,
+                    child: SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: Center(
+                        child: isRefreshing
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(
+                                Icons.refresh_rounded,
+                                size: 17,
+                                color: AppTheme.primary,
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            display,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              color: color,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0,
             ),
           ),
         ],

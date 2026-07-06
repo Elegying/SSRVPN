@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-07-07
+
+### Fixed
+- Improved the Home connection module public IP layout on small screens so the country code remains visible on Android, macOS, and Windows.
+
 ## [2.3.0] - 2026-07-06
 
 ### Added
