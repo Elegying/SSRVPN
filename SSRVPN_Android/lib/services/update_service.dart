@@ -21,7 +21,7 @@ class UpdateService {
     );
   }
 
-  static Future<void> openDownload(String url) async {
+  static Future<void> openExternalUrl(String url) async {
     try {
       final uri = SharedUpdateService.validateDownloadUrl(url);
       await _channel.invokeMethod('openUrl', {'url': uri.toString()});
@@ -29,6 +29,8 @@ class UpdateService {
       AppLogger.warning('Update', '打开链接失败: $e');
     }
   }
+
+  static Future<void> openDownload(String url) => openExternalUrl(url);
 
   static void showUpdateDialog(
     BuildContext context, {

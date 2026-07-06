@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/clash_service.dart';
 import '../services/settings_service.dart';
+import '../services/update_service.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../theme/app_theme.dart';
 import '../widgets/liquid_glass.dart';
@@ -110,6 +111,10 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
   ) {
     final byId = {for (final result in results) result.id: result};
     return current.map((item) => byId[item.id] ?? item).toList();
+  }
+
+  Future<void> _openOfficialUrl(UnlockTestResult item) {
+    return UpdateService.openExternalUrl(item.officialUrl);
   }
 
   @override
@@ -231,7 +236,7 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
             ),
             SizedBox(height: 4),
             Expanded(
-              child: GridView.builder(
+              child: ListView.separated(
                 padding: EdgeInsets.fromLTRB(
                     24,
                     4,
@@ -239,21 +244,17 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
                     MediaQuery.of(context).padding.bottom +
                         LiquidGlassNavBar.height +
                         20),
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 285,
-                  mainAxisExtent: 138,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                ),
                 itemCount: _filtered.length,
+                separatorBuilder: (_, __) => SizedBox(height: 8),
                 itemBuilder: (context, index) {
                   final item = _filtered[index];
-                  return _UnlockCard(
+                  return _UnlockListItem(
                     item: item,
                     isTesting: _testingIds.contains(item.id),
                     isDark: isDark,
                     textColor: textColor,
                     subColor: subColor,
+                    onOpen: () => _openOfficialUrl(item),
                     onTest: () => _testOne(item),
                   );
                 },
@@ -316,64 +317,63 @@ class _InfoStrip extends StatelessWidget {
   }
 }
 
-class _UnlockCard extends StatelessWidget {
+class _UnlockListItem extends StatelessWidget {
   final UnlockTestResult item;
   final bool isTesting;
   final bool isDark;
   final Color textColor;
   final Color subColor;
+  final Future<void> Function() onOpen;
   final VoidCallback onTest;
 
-  const _UnlockCard({
+  const _UnlockListItem({
     required this.item,
     required this.isTesting,
     required this.isDark,
     required this.textColor,
     required this.subColor,
+    required this.onOpen,
     required this.onTest,
   });
 
   @override
   Widget build(BuildContext context) {
     final statusColor = _statusColor(item);
-    final checkedText =
-        item.checkedAt == null ? '尚未测试' : _formatTime(item.checkedAt!);
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 6 / 255) : Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color:
-              statusColor.withValues(alpha: (item.isPending ? 38 : 90) / 255),
-          width: item.isPending ? 1 : 1.2,
-        ),
-        boxShadow: [
-          if (!isDark)
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 10 / 255),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-        ],
-      ),
-      child: Padding(
-        padding: EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 30,
-                  height: 30,
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 18 / 255),
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: Icon(_statusIcon(item), size: 17, color: statusColor),
+    final statusLabel = _statusLabel(item);
+    return Semantics(
+      button: true,
+      label: '打开 ${item.name} 官网',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            onOpen();
+          },
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 52),
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 6 / 255)
+                  : Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: statusColor.withValues(
+                  alpha: (item.isPending ? 34 : 70) / 255,
                 ),
-                SizedBox(width: 10),
+              ),
+              boxShadow: [
+                if (!isDark)
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 8 / 255),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+              ],
+            ),
+            child: Row(
+              children: [
                 Expanded(
                   child: Text(
                     item.name,
@@ -381,66 +381,51 @@ class _UnlockCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     softWrap: true,
                     style: TextStyle(
-                      fontSize: Responsive.sp(13),
+                      fontSize: Responsive.sp(14),
                       height: 1.18,
                       fontWeight: FontWeight.w800,
                       color: textColor,
                     ),
                   ),
                 ),
-                GestureDetector(
-                  onTap: isTesting ? null : onTest,
-                  child: Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: AppTheme.primaryColor.withValues(alpha: 18 / 255),
-                      shape: BoxShape.circle,
-                    ),
-                    child: isTesting
-                        ? Padding(
-                            padding: EdgeInsets.all(8),
+                SizedBox(width: 10),
+                SizedBox.square(
+                  dimension: 32,
+                  child: IconButton(
+                    tooltip: isTesting ? '测试中' : '重新测试',
+                    onPressed: isTesting ? null : onTest,
+                    padding: EdgeInsets.zero,
+                    iconSize: 17,
+                    color: AppTheme.primaryColor,
+                    icon: isTesting
+                        ? SizedBox.square(
+                            dimension: 16,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: AppTheme.primaryColor,
                             ),
                           )
-                        : Icon(
-                            Icons.refresh_rounded,
-                            size: 17,
-                            color: AppTheme.primaryColor,
-                          ),
+                        : Icon(Icons.refresh_rounded),
+                  ),
+                ),
+                SizedBox(width: 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 44),
+                  child: Text(
+                    statusLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      fontSize: Responsive.sp(13),
+                      fontWeight: FontWeight.w800,
+                      color: statusColor,
+                    ),
                   ),
                 ),
               ],
             ),
-            const Spacer(),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                _Pill(
-                  label: _statusLabel(item.status),
-                  color: statusColor,
-                  isDark: isDark,
-                ),
-                if (item.region != null)
-                  _Pill(
-                    label: item.region!,
-                    color: AppTheme.primaryColor,
-                    isDark: isDark,
-                  ),
-              ],
-            ),
-            SizedBox(height: 10),
-            Text(
-              item.detail ?? checkedText,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: Responsive.sp(11), color: subColor),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -449,86 +434,15 @@ class _UnlockCard extends StatelessWidget {
   Color _statusColor(UnlockTestResult item) {
     if (isTesting || item.status == 'Testing') return AppTheme.primaryColor;
     if (item.isUnlocked) return AppTheme.successColor;
-    if (item.isBlocked) return AppTheme.errorColor;
-    if (item.isFailed) return AppTheme.errorColor;
-    if (item.status == 'Originals Only') return AppTheme.warningColor;
     if (item.isPending) return subColor;
-    return AppTheme.warningColor;
+    return AppTheme.errorColor;
   }
 
-  IconData _statusIcon(UnlockTestResult item) {
-    if (isTesting || item.status == 'Testing') {
-      return Icons.hourglass_top_rounded;
-    }
-    if (item.isUnlocked) return Icons.check_circle_rounded;
-    if (item.isBlocked) return Icons.cancel_rounded;
-    if (item.isFailed) return Icons.help_rounded;
-    if (item.status == 'Originals Only') return Icons.warning_rounded;
-    return Icons.pending_rounded;
-  }
-
-  String _statusLabel(String status) {
-    switch (status) {
-      case 'Pending':
-        return '待测试';
-      case 'Testing':
-        return '测试中';
-      case 'Yes':
-        return '支持';
-      case 'No':
-        return '不支持';
-      case 'Failed':
-        return '失败';
-      case 'Originals Only':
-        return '仅自制剧';
-      case 'Unsupported Country/Region':
-        return '地区不支持';
-      case 'Disallowed ISP':
-        return 'ISP 受限';
-      case 'Blocked':
-        return '被阻止';
-      default:
-        if (status.startsWith('Failed')) return '失败';
-        if (status.startsWith('No')) return '不支持';
-        return status;
-    }
-  }
-
-  String _formatTime(DateTime time) {
-    final hour = time.hour.toString().padLeft(2, '0');
-    final minute = time.minute.toString().padLeft(2, '0');
-    return '测试时间 $hour:$minute';
-  }
-}
-
-class _Pill extends StatelessWidget {
-  final String label;
-  final Color color;
-  final bool isDark;
-
-  const _Pill({
-    required this.label,
-    required this.color,
-    required this.isDark,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: (isDark ? 24 : 18) / 255),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: Responsive.sp(11),
-          fontWeight: FontWeight.w700,
-          color: color,
-        ),
-      ),
-    );
+  String _statusLabel(UnlockTestResult item) {
+    if (isTesting || item.status == 'Testing') return '测试中';
+    if (item.isUnlocked) return '支持';
+    if (item.isPending) return '待测试';
+    return '不支持';
   }
 }
 

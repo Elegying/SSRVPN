@@ -21,17 +21,19 @@ class UnlockTestResult {
     required this.name,
     required this.url,
     required this.category,
+    String? officialUrl,
     this.method = UnlockTestHttpMethod.get,
     this.statusRule = UnlockStatusRule.standard,
     this.status = 'Unknown',
     this.detail,
     this.region,
     this.checkedAt,
-  });
+  }) : officialUrl = officialUrl ?? url;
 
   final String id;
   final String name;
   final String url;
+  final String officialUrl;
   final String category; // 'streaming' | 'ai' | 'other'
   final UnlockTestHttpMethod method;
   final UnlockStatusRule statusRule;
@@ -58,6 +60,7 @@ class UnlockTestResult {
     String? id,
     String? name,
     String? url,
+    String? officialUrl,
     String? category,
     UnlockTestHttpMethod? method,
     UnlockStatusRule? statusRule,
@@ -71,6 +74,7 @@ class UnlockTestResult {
       id: id ?? this.id,
       name: name ?? this.name,
       url: url ?? this.url,
+      officialUrl: officialUrl ?? this.officialUrl,
       category: category ?? this.category,
       method: method ?? this.method,
       statusRule: statusRule ?? this.statusRule,
@@ -141,12 +145,14 @@ class UnlockTestService {
         id: 'claude',
         name: 'Claude',
         url: 'https://api.anthropic.com/v1/messages',
+        officialUrl: 'https://claude.ai/',
         category: 'ai',
         statusRule: UnlockStatusRule.apiReachable),
     UnlockTestResult(
         id: 'gemini',
         name: 'Google Gemini',
         url: 'https://generativelanguage.googleapis.com/',
+        officialUrl: 'https://gemini.google.com/',
         category: 'ai',
         statusRule: UnlockStatusRule.googleApi),
     UnlockTestResult(

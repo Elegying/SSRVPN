@@ -57,4 +57,28 @@ void main() {
     expect(byId['claude']!.statusRule, UnlockStatusRule.apiReachable);
     expect(byId['gemini']!.statusRule, UnlockStatusRule.googleApi);
   });
+
+  test('default unlock items expose browser-friendly official URLs', () {
+    const defaultUrlItem = UnlockTestResult(
+      id: 'example',
+      name: 'Example',
+      url: 'https://example.com/check',
+      category: 'other',
+    );
+    expect(defaultUrlItem.officialUrl, defaultUrlItem.url);
+
+    for (final item in UnlockTestService.defaultItems) {
+      final uri = Uri.parse(item.officialUrl);
+      expect(uri.hasScheme, isTrue, reason: item.name);
+      expect(['https', 'http'], contains(uri.scheme), reason: item.name);
+      expect(uri.host, isNotEmpty, reason: item.name);
+    }
+
+    final byId = {
+      for (final item in UnlockTestService.defaultItems) item.id: item,
+    };
+
+    expect(byId['claude']!.officialUrl, 'https://claude.ai/');
+    expect(byId['gemini']!.officialUrl, 'https://gemini.google.com/');
+  });
 }
