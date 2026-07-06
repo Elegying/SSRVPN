@@ -31,6 +31,15 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def stable_gzip(data: bytes) -> bytes:
+    gzipped = gzip.compress(data, compresslevel=9, mtime=0)
+    if len(gzipped) < 10:
+        raise SystemExit("gzip output is unexpectedly short")
+    # Python 3.11 briefly delegated mtime=0 compression to zlib, which could
+    # write a platform-specific gzip OS byte. Pin it so CI and local sync agree.
+    return gzipped[:9] + b"\xff" + gzipped[10:]
+
+
 def request(url: str) -> urllib.request.Request:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -114,7 +123,7 @@ def sync(check: bool) -> int:
             f"{ASSET_NAME} SHA256 mismatch: expected {expected_hash}, got {actual_hash}",
         )
 
-    gzipped = gzip.compress(raw, compresslevel=9, mtime=0)
+    gzipped = stable_gzip(raw)
     gzip_hash = sha256(gzipped)
     source_record = build_source_record(release, asset, actual_hash, gzip_hash)
 
@@ -130,8 +139,17 @@ def sync(check: bool) -> int:
     if check:
         for path in mismatches:
             print(f"geoip sync: stale {path.relative_to(ROOT)}")
+            if path.exists():
+                print(f"geoip sync: local SHA256 {sha256(path.read_bytes())}")
+            else:
+                print("geoip sync: local file missing")
         if source_mismatch:
             print(f"geoip sync: stale {SOURCE_RECORD.relative_to(ROOT)}")
+        if mismatches or source_mismatch:
+            print(f"geoip sync: release tag {release.get('tag_name', '')}")
+            print(f"geoip sync: release name {release.get('name', '')}")
+            print(f"geoip sync: upstream {actual_hash}")
+            print(f"geoip sync: expected bundled gzip {gzip_hash}")
         return 1 if mismatches or source_mismatch else 0
 
     for path in ASSET_PATHS:
