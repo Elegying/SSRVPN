@@ -1,0 +1,239 @@
+part of desktop_home_screen;
+
+class _DesktopTutorialStep extends StatelessWidget {
+  final String step;
+  final String text;
+
+  const _DesktopTutorialStep({required this.step, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          decoration: BoxDecoration(
+            color: AppTheme.primary.withValues(alpha: (isDark ? 30 : 20) / 255),
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Text(
+              step,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.primary,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.5,
+                color:
+                    isDark ? AppTheme.textPrimary : AppTheme.lightTextPrimary,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+void _showDesktopHomeTutorialDialog(BuildContext context) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  showDialog(
+    context: context,
+    builder: (ctx) => Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: GlassContainer(
+        borderRadius: 16,
+        enablePress: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: (MediaQuery.of(ctx).size.width * 0.88)
+                .clamp(280.0, 420.0)
+                .toDouble(),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [AppTheme.primary, AppTheme.accentColor],
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.menu_book_rounded,
+                    color: Colors.white,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  '使用教程',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: isDark
+                        ? AppTheme.textPrimary
+                        : AppTheme.lightTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const _DesktopTutorialStep(
+                  step: '1',
+                  text: '进入订阅页面，粘贴 SSR 代码或订阅链接',
+                ),
+                const SizedBox(height: 12),
+                const _DesktopTutorialStep(
+                  step: '2',
+                  text: '点击添加后刷新订阅，等待节点加载完成',
+                ),
+                const SizedBox(height: 12),
+                const _DesktopTutorialStep(
+                  step: '3',
+                  text: '回到首页，选择节点后点击连接按钮',
+                ),
+                const SizedBox(height: 12),
+                const _DesktopTutorialStep(
+                  step: '4',
+                  text: '系统代理无需管理员权限，TUN 模式需授权',
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      backgroundColor: AppTheme.primary.withValues(
+                        alpha: (isDark ? 25 : 15) / 255,
+                      ),
+                    ),
+                    child: const Text(
+                      '知道了',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+void _showDesktopHomeLogsDialog(BuildContext context) {
+  final clashService = context.read<ClashService>();
+  final logs = clashService.recentLogs;
+  showDialog(
+    context: context,
+    builder: (ctx) => Dialog(
+      backgroundColor: const Color(0xFF0E1018),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.88,
+        ),
+        child: Container(
+          width: 600,
+          height: 500,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.bug_report,
+                    size: 18,
+                    color: AppTheme.warning,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    '运行日志',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.copy,
+                      size: 18,
+                      color: AppTheme.textSecondary,
+                    ),
+                    onPressed: () async {
+                      await Clipboard.setData(
+                        ClipboardData(text: clashService.recentLogs),
+                      );
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            margin: EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            content: Text('日志已复制'),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.close,
+                      size: 18,
+                      color: AppTheme.textSecondary,
+                    ),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const Divider(color: AppTheme.border),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    logs.isEmpty ? '暂无日志' : logs,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontFamily: 'Consolas',
+                      color: AppTheme.textSecondary,
+                      height: 1.6,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}

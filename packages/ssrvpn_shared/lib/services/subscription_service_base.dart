@@ -9,7 +9,9 @@ import 'package:yaml/yaml.dart';
 import '../models/subscription.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
+import '../services/desktop_subscription_fetcher.dart';
 import '../services/subscription_parser.dart';
+import '../services/subscription_yaml_merger.dart';
 import '../utils/app_logger.dart';
 
 /// 订阅管理服务基类
@@ -40,6 +42,21 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
 
   /// 平台特定的 HTTP 订阅拉取（含重试）
   Future<String?> fetchSubscription(String url, {int maxRetries = 3});
+
+  @protected
+  Future<String?> fetchDesktopSubscription(
+    String url, {
+    required bool allowDirectFetch,
+    int maxRetries = 3,
+  }) async {
+    final response = await DesktopSubscriptionFetcher.fetch(
+      url,
+      allowDirectFetch: allowDirectFetch,
+      maxRetries: maxRetries,
+    );
+    recordSubscriptionResponseHeaders(url, response.headers);
+    return response.body;
+  }
 
   // ── 订阅 CRUD ──
 
@@ -215,117 +232,27 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
 
   /// 从 YAML 文本中提取指定顶层段的原始内容
   String extractSection(String yaml, String sectionName) {
-    final lines = yaml.split('\n');
-    final sectionLines = <String>[];
-    bool inSection = false;
-
-    for (final line in lines) {
-      if (!line.startsWith(' ') && !line.startsWith('\t')) {
-        if (line.trim().startsWith('$sectionName:')) {
-          inSection = true;
-          continue;
-        } else if (inSection &&
-            line.trim().contains(':') &&
-            !line.trim().startsWith('#') &&
-            !line.trim().startsWith('-')) {
-          break;
-        }
-      }
-      if (inSection) {
-        sectionLines.add(line);
-      }
-    }
-
-    int minIndent = 999;
-    for (final line in sectionLines) {
-      final t = line.trimLeft();
-      if (t.isEmpty) continue;
-      final indent = line.length - t.length;
-      if (indent < minIndent) minIndent = indent;
-    }
-    if (minIndent == 999) minIndent = 0;
-
-    final buffer = StringBuffer();
-    for (final line in sectionLines) {
-      final trimmed = line.trimLeft();
-      if (trimmed.isEmpty) continue;
-      final delta = line.length - trimmed.length - minIndent;
-      buffer.writeln('${' ' * (delta + 2)}$trimmed');
-    }
-    return buffer.toString().trimRight();
+    return SubscriptionYamlMerger.extractSection(yaml, sectionName);
   }
 
   /// 合并多个 YAML 配置（只合并 proxies 节点）
   String mergeYamlConfigs(List<String> yamls, {List<String>? sourceNames}) {
-    if (yamls.isEmpty) return '';
-
-    final usedNames = <String>{};
-    final fingerprintsByName = <String, Set<String>>{};
-    final usedSourceNames = <String>{};
-    final buffer = StringBuffer();
-    buffer.writeln('proxies:');
-    var hasAny = false;
-
-    for (var yamlIndex = 0; yamlIndex < yamls.length; yamlIndex++) {
-      final yaml = yamls[yamlIndex];
-      final sourceName = yamlIndex < (sourceNames?.length ?? 0)
-          ? _uniqueSourceName(sourceNames![yamlIndex], usedSourceNames)
-          : null;
-      final proxiesText = extractSection(yaml, 'proxies');
-      if (proxiesText.isEmpty) continue;
-      for (final item in splitProxyItems(proxiesText)) {
-        final proxy = parseProxyItem(item);
-        final originalName = proxy?['name']?.toString().trim();
-        if (proxy == null || originalName == null || originalName.isEmpty) {
-          continue;
-        }
-
-        final fingerprint = jsonEncode(canonicalJsonValue(proxy));
-        final fingerprints = fingerprintsByName.putIfAbsent(
-          originalName,
-          () => <String>{},
-        );
-        if (!fingerprints.add(fingerprint)) continue;
-
-        proxy['name'] = uniqueProxyName(originalName, usedNames);
-        if (sourceName != null && sourceName.isNotEmpty) {
-          proxy[proxySourceKey] = sourceName;
-        }
-        buffer.writeln('  - ${jsonEncode(proxy)}');
-        hasAny = true;
-      }
-    }
-
-    return hasAny ? buffer.toString() : '';
+    return SubscriptionYamlMerger.mergeYamlConfigs(
+      yamls,
+      sourceNames: sourceNames,
+      proxySourceKey: proxySourceKey,
+      standaloneGroupName: standaloneGroupName,
+    );
   }
 
   /// 将 proxies 段文本按顶层列表项拆分
   List<String> splitProxyItems(String proxiesText) {
-    final items = <String>[];
-    StringBuffer? current;
-    for (final line in proxiesText.split('\n')) {
-      if (line.startsWith('  - ')) {
-        if (current != null) items.add(current.toString().trimRight());
-        current = StringBuffer()..writeln(line);
-      } else if (current != null) {
-        current.writeln(line);
-      }
-    }
-    if (current != null) items.add(current.toString().trimRight());
-    return items;
+    return SubscriptionYamlMerger.splitProxyItems(proxiesText);
   }
 
   /// 解析单个 proxy 列表项
   Map<String, dynamic>? parseProxyItem(String item) {
-    try {
-      final parsed = loadYaml('proxies:\n$item');
-      final list = (parsed as Map)['proxies'];
-      if (list is List && list.isNotEmpty && list.first is Map) {
-        final value = jsonValue(list.first);
-        if (value is Map<String, dynamic>) return value;
-      }
-    } catch (_) {}
-    return null;
+    return SubscriptionYamlMerger.parseProxyItem(item);
   }
 
   // ── 内容规范化 ──
@@ -341,12 +268,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   }
 
   String uniqueProxyName(String baseName, Set<String> usedNames) {
-    if (usedNames.add(baseName)) return baseName;
-    var suffix = 2;
-    while (!usedNames.add('$baseName ($suffix)')) {
-      suffix++;
-    }
-    return '$baseName ($suffix)';
+    return SubscriptionYamlMerger.uniqueProxyName(baseName, usedNames);
   }
 
   String sourceNameForSubscription(Subscription sub) {
@@ -447,12 +369,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     } catch (_) {}
     name = name.replaceAll(RegExp(r'[\r\n]'), '').trim();
     return name.isEmpty ? null : name;
-  }
-
-  String _uniqueSourceName(String sourceName, Set<String> usedNames) {
-    final base = sourceName.trim();
-    if (base.isEmpty || base == standaloneGroupName) return base;
-    return uniqueProxyName(base, usedNames);
   }
 
   // ── JSON/YAML 辅助 ──

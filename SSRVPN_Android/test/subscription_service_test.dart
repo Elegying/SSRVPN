@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ssrvpn_client/services/subscription_service.dart';
+import 'package:ssrvpn_android/services/subscription_service.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 String _base64UrlWithoutPadding(String value) {

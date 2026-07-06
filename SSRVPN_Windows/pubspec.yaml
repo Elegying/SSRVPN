@@ -1,10 +1,11 @@
 name: ssrvpn_windows
 description: SSRVPN - 安全稳定的VPN客户端 (Windows 绿色免安装版)
 publish_to: 'none'
-version: 2.0.13+213
+version: 2.1.0+214
+resolution: workspace
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.6.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -32,6 +33,9 @@ dependencies:
 
   # Path utilities
   path: ^1.9.0
+
+  # Asset integrity checks
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

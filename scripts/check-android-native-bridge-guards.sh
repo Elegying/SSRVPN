@@ -49,6 +49,5 @@ require_count "bridge.Bridge.isRunning()" 1
 
 require_activity_text '"syncSettings"'
 require_activity_text '"flutter.proxyPort"'
-require_activity_text '"flutter.autoConnectOnStartup"'
 
 echo "Android native bridge guard check passed."

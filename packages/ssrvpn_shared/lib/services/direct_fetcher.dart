@@ -22,6 +22,7 @@ class DirectFetcher {
   static const _dohHost = 'dns.alidns.com';
   static const _connectTimeout = Duration(seconds: 8);
   static const _readTimeout = Duration(seconds: 30);
+  static const _maxHeaderBytes = 64 * 1024;
 
   /// 判断 IP 是否落在 Clash fake-ip 常用网段 198.18.0.0/15
   static bool isFakeIp(InternetAddress addr) {
@@ -107,19 +108,28 @@ class DirectFetcher {
   }
 
   /// 直连下载订阅(带重定向跟随)
-  static Future<String> fetch(String url,
-      {Map<String, String> headers = const {}, int maxRedirects = 4}) async {
+  static Future<String> fetch(
+    String url, {
+    Map<String, String> headers = const {},
+    int maxRedirects = 4,
+    int maxBodyBytes = AppConstants.maxSubscriptionBytes,
+  }) async {
     return (await fetchResponse(
       url,
       headers: headers,
       maxRedirects: maxRedirects,
+      maxBodyBytes: maxBodyBytes,
     ))
         .body;
   }
 
   /// 直连下载订阅并保留响应头(带重定向跟随)
-  static Future<DirectFetchResponse> fetchResponse(String url,
-      {Map<String, String> headers = const {}, int maxRedirects = 4}) async {
+  static Future<DirectFetchResponse> fetchResponse(
+    String url, {
+    Map<String, String> headers = const {},
+    int maxRedirects = 4,
+    int maxBodyBytes = AppConstants.maxSubscriptionBytes,
+  }) async {
     final bindAddr = await _physicalInterfaceAddress();
     var current = Uri.parse(url);
 
@@ -130,7 +140,8 @@ class DirectFetcher {
 
       // 解析真实 IP:IP 直填则跳过;否则优先 DoH,失败回退系统 DNS(过滤 fake-ip)
       String connectIp;
-      if (InternetAddress.tryParse(host) != null) {
+      final hostAddress = InternetAddress.tryParse(host);
+      if (hostAddress != null) {
         connectIp = host;
       } else {
         List<String> ips = [];
@@ -151,8 +162,10 @@ class DirectFetcher {
         connectIp = ips.first;
       }
 
+      final sourceAddress =
+          _canBindSourceAddress(hostAddress) ? bindAddr : null;
       final socket = await Socket.connect(connectIp, port,
-          sourceAddress: bindAddr, timeout: _connectTimeout);
+          sourceAddress: sourceAddress, timeout: _connectTimeout);
       Socket stream = socket;
       if (isHttps) {
         try {
@@ -175,6 +188,7 @@ class DirectFetcher {
           path: pathAndQuery,
           accept: headers['Accept'] ?? '*/*',
           userAgent: headers['User-Agent'],
+          maxBodyBytes: maxBodyBytes,
         );
       } finally {
         stream.destroy();
@@ -194,6 +208,22 @@ class DirectFetcher {
     throw Exception('重定向次数过多');
   }
 
+  static bool _canBindSourceAddress(InternetAddress? address) {
+    if (address == null) return true;
+    if (address.isLoopback || address.isLinkLocal || address.isMulticast) {
+      return false;
+    }
+    final bytes = address.rawAddress;
+    if (address.type == InternetAddressType.IPv4 && bytes.length == 4) {
+      final first = bytes[0];
+      final second = bytes[1];
+      return !(first == 10 ||
+          (first == 172 && second >= 16 && second <= 31) ||
+          (first == 192 && second == 168));
+    }
+    return false;
+  }
+
   /// 在已建立的 socket 上执行一次 HTTP/1.1 GET(identity 编码 + chunked 解析)
   static Future<_HttpResponse> _httpGetOverSocket(
     Socket socket, {
@@ -201,6 +231,7 @@ class DirectFetcher {
     required String path,
     String accept = '*/*',
     String? userAgent,
+    int maxBodyBytes = AppConstants.maxSubscriptionBytes,
   }) async {
     final request = StringBuffer()
       ..write('GET $path HTTP/1.1\r\n')
@@ -214,23 +245,41 @@ class DirectFetcher {
     await socket.flush();
 
     final raw = <int>[];
+    var headerEnd = -1;
+    Map<String, String>? headers;
+    var isChunked = false;
     await for (final chunk
         in socket.timeout(_readTimeout, onTimeout: (sink) => sink.close())) {
       raw.addAll(chunk);
+      if (headerEnd < 0) {
+        headerEnd = _findHeaderEnd(raw);
+        if (headerEnd < 0 && raw.length > _maxHeaderBytes) {
+          throw Exception('HTTP 响应头过大');
+        }
+      }
+      if (headerEnd >= 0 && headers == null) {
+        final headerText =
+            utf8.decode(raw.sublist(0, headerEnd), allowMalformed: true);
+        headers = _parseHeaders(headerText.split('\r\n').skip(1));
+        final contentLength = headers['content-length'];
+        if (contentLength != null) {
+          final size = int.tryParse(contentLength);
+          if (size != null && size > maxBodyBytes) {
+            throw Exception('订阅内容超过 20 MB 限制');
+          }
+        }
+        isChunked = headers['transfer-encoding']?.toLowerCase() == 'chunked';
+      }
+      if (headerEnd >= 0 &&
+          !isChunked &&
+          raw.length - headerEnd - 4 > maxBodyBytes) {
+        throw Exception('订阅内容超过 20 MB 限制');
+      }
     }
     if (raw.isEmpty) throw Exception('服务器无响应(直连通道)');
 
     // 切分头与体
-    var headerEnd = -1;
-    for (var i = 0; i + 3 < raw.length; i++) {
-      if (raw[i] == 13 &&
-          raw[i + 1] == 10 &&
-          raw[i + 2] == 13 &&
-          raw[i + 3] == 10) {
-        headerEnd = i;
-        break;
-      }
-    }
+    headerEnd = headerEnd < 0 ? _findHeaderEnd(raw) : headerEnd;
     if (headerEnd < 0) throw Exception('HTTP 响应格式错误');
 
     final headerText =
@@ -241,32 +290,52 @@ class DirectFetcher {
     if (statusMatch == null) throw Exception('HTTP 状态行解析失败');
     final statusCode = int.parse(statusMatch.group(1)!);
 
-    final headers = <String, String>{};
-    for (final line in lines.skip(1)) {
-      final idx = line.indexOf(':');
-      if (idx > 0) {
-        headers[line.substring(0, idx).trim().toLowerCase()] =
-            line.substring(idx + 1).trim();
-      }
-    }
+    headers ??= _parseHeaders(lines.skip(1));
 
     var bodyBytes = raw.sublist(headerEnd + 4);
     // 提前检查 Content-Length，避免超大响应消耗流量
     final contentLength = headers['content-length'];
     if (contentLength != null) {
       final size = int.tryParse(contentLength);
-      if (size != null && size > 20 * 1024 * 1024) {
+      if (size != null && size > maxBodyBytes) {
         throw Exception('订阅内容超过 20 MB 限制');
       }
     }
     if (headers['transfer-encoding']?.toLowerCase() == 'chunked') {
       bodyBytes = _decodeChunked(bodyBytes);
+      if (bodyBytes.length > maxBodyBytes) {
+        throw Exception('订阅内容超过 20 MB 限制');
+      }
     }
     return _HttpResponse(
       statusCode: statusCode,
       headers: headers,
       body: utf8.decode(bodyBytes, allowMalformed: true),
     );
+  }
+
+  static Map<String, String> _parseHeaders(Iterable<String> lines) {
+    final headers = <String, String>{};
+    for (final line in lines) {
+      final idx = line.indexOf(':');
+      if (idx > 0) {
+        headers[line.substring(0, idx).trim().toLowerCase()] =
+            line.substring(idx + 1).trim();
+      }
+    }
+    return headers;
+  }
+
+  static int _findHeaderEnd(List<int> raw) {
+    for (var i = 0; i + 3 < raw.length; i++) {
+      if (raw[i] == 13 &&
+          raw[i + 1] == 10 &&
+          raw[i + 2] == 13 &&
+          raw[i + 3] == 10) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   /// 解析 chunked 传输编码

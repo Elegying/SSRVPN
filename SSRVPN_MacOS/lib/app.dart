@@ -187,8 +187,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
 
   @override
   void onWindowMinimize() async {
-    final minimizeToTray = _settingsService?.settings.minimizeToTray ?? true;
-    if (minimizeToTray && _trayManager.isReady) {
+    if (_trayManager.isReady) {
       try {
         await windowManager.hide();
       } catch (error, stack) {
@@ -200,8 +199,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   @override
   void onWindowClose() async {
     if (_isQuitting) return;
-    final minimizeToTray = _settingsService?.settings.minimizeToTray ?? true;
-    if (minimizeToTray && _trayManager.isReady) {
+    if (_trayManager.isReady) {
       try {
         await windowManager.hide();
       } catch (error, stack) {
@@ -269,27 +267,21 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
           value: _subscriptionService!,
         ),
       ],
-      child: Consumer<SettingsService>(
-        builder: (context, settingsService, _) {
-          final isDark = settingsService.settings.darkMode;
-          return MaterialApp(
-            debugShowCheckedModeBanner: false,
-            title: 'SSRVPN',
-            theme: AppTheme.light,
-            darkTheme: AppTheme.dark,
-            themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-            home: CrashReportPrompt(
-              child: _MainShell(
-                isDark: isDark,
-                startupFlags: widget.startupFlags,
-                failures: StartupStatus.instance.failures,
-                currentIndex: _currentIndex,
-                onIndexChanged: (index) =>
-                    setState(() => _currentIndex = index),
-              ),
-            ),
-          );
-        },
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'SSRVPN',
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: ThemeMode.dark,
+        home: CrashReportPrompt(
+          child: _MainShell(
+            isDark: true,
+            startupFlags: widget.startupFlags,
+            failures: StartupStatus.instance.failures,
+            currentIndex: _currentIndex,
+            onIndexChanged: (index) => setState(() => _currentIndex = index),
+          ),
+        ),
       ),
     );
   }
@@ -364,79 +356,6 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
           ),
         ),
       ),
-    );
-  }
-
-  // ignore: unused_element
-  Widget _buildMainScreen(bool isDark) {
-    final failures = StartupStatus.instance.failures;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: isDark
-              ? [
-                  const Color(0xFF050508),
-                  const Color(0xFF08080C),
-                  const Color(0xFF0A0A10),
-                ]
-              : [const Color(0xFFF8FAFC), const Color(0xFFF1F5F9)],
-        ),
-      ),
-      child: Column(
-        children: [
-          if (widget.startupFlags.safeMode)
-            const _StartupBanner(
-              icon: Icons.health_and_safety_outlined,
-              color: AppTheme.warning,
-              title: '安全模式已启用',
-              message: '托盘、旧窗口位置和 Mihomo 自动初始化已被跳过。',
-            ),
-          if (failures.isNotEmpty)
-            _StartupBanner(
-              icon: Icons.error_outline,
-              color: AppTheme.error,
-              title: '部分启动步骤失败',
-              message: failures.map(_startupFailureSummary).join('\n'),
-            ),
-          Expanded(
-            child: IndexedStack(
-              index: _currentIndex,
-              children: const [
-                HomeScreen(),
-                SubscriptionScreen(),
-                UnlockTestScreen(),
-              ],
-            ),
-          ),
-          _buildBottomNav(isDark),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBottomNav(bool isDark) {
-    return LiquidGlassNavBar(
-      currentIndex: _currentIndex,
-      onTap: (index) => setState(() => _currentIndex = index),
-      items: const [
-        NavItem(
-          icon: Icons.home_outlined,
-          activeIcon: Icons.home_rounded,
-          label: '主页',
-        ),
-        NavItem(
-          icon: Icons.rss_feed_outlined,
-          activeIcon: Icons.rss_feed_rounded,
-          label: '订阅',
-        ),
-        NavItem(
-          icon: Icons.fact_check_outlined,
-          activeIcon: Icons.fact_check_rounded,
-          label: '解锁',
-        ),
-      ],
     );
   }
 }

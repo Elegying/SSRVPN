@@ -22,7 +22,6 @@ void main() {
         apiSecret: 'secret',
         tunMode: true,
         proxyMode: ProxyMode.global,
-        darkMode: false,
         lastSelectedNode: '节点 B',
         forceProxySites: const ['https://example.com/path', 'youtube.com'],
       );
@@ -31,7 +30,6 @@ void main() {
       expect(restored.apiSecret, 'secret');
       expect(restored.tunMode, true);
       expect(restored.proxyMode, ProxyMode.global);
-      expect(restored.darkMode, false);
       expect(restored.lastSelectedNode, '节点 B');
       expect(restored.forceProxySites[0], 'https://example.com/path');
       expect(restored.forceProxySites[1], 'youtube.com');

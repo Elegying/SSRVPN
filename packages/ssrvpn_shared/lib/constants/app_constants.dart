@@ -59,7 +59,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '2.0.13';
+  static const String appVersion = '2.1.0';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 
@@ -87,7 +87,29 @@ class AppConstants {
   ];
 
   // ── 代理规则 ──
+  static const Duration ruleProviderStartupRefreshDelay = Duration(minutes: 10);
+  static const String ruleProviderDownloadProxy = 'PROXY';
+  static const String geositeCnRuleProviderName = 'ssrvpn-geosite-cn';
+  static const String geoipCnRuleProviderName = 'ssrvpn-geoip-cn';
+  static const List<String> ruleProviderNames = [
+    geositeCnRuleProviderName,
+    geoipCnRuleProviderName,
+  ];
+  static const String geositeCnRuleProviderPath =
+      './providers/ssrvpn-geosite-cn.mrs';
+  static const String geoipCnRuleProviderPath =
+      './providers/ssrvpn-geoip-cn.mrs';
+  static const String geositeCnRuleProviderUrl =
+      'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs';
+  static const String geoipCnRuleProviderUrl =
+      'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs';
+
   static const List<String> defaultDirectRules = ['DOMAIN-SUFFIX,cn,DIRECT'];
+
+  static const List<String> defaultRuleProviderDirectRules = [
+    'RULE-SET,$geositeCnRuleProviderName,DIRECT',
+    'RULE-SET,$geoipCnRuleProviderName,DIRECT,no-resolve',
+  ];
 
   static const List<String> defaultGeoipRules = [
     'GEOIP,CN,DIRECT',

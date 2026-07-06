@@ -101,5 +101,30 @@ void main() {
         'Sub A 2',
       ]);
     });
+
+    test('builds display rows from expanded subscription groups', () {
+      final nodes = [
+        node('Single', group: '单独节点'),
+        node('Sub A 1', group: 'Feed A'),
+        node('Sub B 1', group: 'Feed B'),
+        node('Sub A 2', group: 'Feed A'),
+      ];
+
+      final collapsed = HomeNodeController.buildDisplayRows(nodes, {});
+      expect(collapsed.map((row) => row.section?.title ?? row.node?.name), [
+        'Single',
+        'Feed A',
+        'Feed B',
+      ]);
+
+      final expanded = HomeNodeController.buildDisplayRows(nodes, {'Feed A'});
+      expect(expanded.map((row) => row.section?.title ?? row.node?.name), [
+        'Single',
+        'Feed A',
+        'Sub A 1',
+        'Sub A 2',
+        'Feed B',
+      ]);
+    });
   });
 }

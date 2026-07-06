@@ -261,27 +261,6 @@ class SettingsService extends ChangeNotifier {
     await save();
   }
 
-  Future<void> updateStartOnBoot(bool enabled) async {
-    _settings.startOnBoot = enabled;
-    _settings.startWithWindows = enabled;
-    await save();
-  }
-
-  Future<void> updateStartMinimized(bool enabled) async {
-    _settings.startMinimized = enabled;
-    await save();
-  }
-
-  Future<void> updateCloseToTray(bool enabled) async {
-    _settings.closeToTray = enabled;
-    await save();
-  }
-
-  Future<void> updateDarkMode(bool enabled) async {
-    _settings.darkMode = enabled;
-    await save();
-  }
-
   Future<void> updateLatencyTestUrl(String url) async {
     _settings.latencyTestUrl = url;
     await save();
@@ -297,11 +276,6 @@ class SettingsService extends ChangeNotifier {
     await save();
   }
 
-  Future<void> updateMinimizeToTray(bool minimize) async {
-    _settings.minimizeToTray = minimize;
-    await save();
-  }
-
   Future<void> updateLastSelectedNodeName(String nodeName) async {
     _settings.lastSelectedNodeName = nodeName;
     await save();
@@ -309,16 +283,6 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> updateLastSelectedNode(String nodeName) =>
       updateLastSelectedNodeName(nodeName);
-
-  Future<void> updateAutoUpdateSubscription(bool enabled) async {
-    _settings.autoUpdateSubscription = enabled;
-    await save();
-  }
-
-  Future<void> updateUpdateIntervalHours(int hours) async {
-    _settings.updateIntervalHours = hours;
-    await save();
-  }
 
   Future<void> renameLastSelectedNode(
     String originalName,

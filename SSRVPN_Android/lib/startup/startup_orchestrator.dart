@@ -41,15 +41,12 @@ class StartupOrchestrator {
       status.recordStep('通知服务', '初始化通知通道');
       await _initNotifications();
 
-      if (!flags.skipUpdateCheck &&
-          (_settings?.settings.autoCheckUpdate ?? true)) {
+      if (!flags.skipUpdateCheck) {
         status.recordStep('更新检查', '检查新版本');
         await _checkForUpdate();
       }
 
-      final autoConnect = flags.autoConnect ||
-          (_settings?.settings.autoConnectOnStartup ?? false);
-      if (autoConnect) {
+      if (flags.autoConnect) {
         status.recordStep('自动连接', '尝试自动连接 VPN');
         await _autoConnect();
       }
@@ -69,12 +66,6 @@ class StartupOrchestrator {
     try {
       final ns = NotificationService.instance;
       await ns.initialize();
-      if (_settings?.settings.autoConnectOnStartup == true) {
-        await ns.showConnectedNotification(
-          nodeName: "SSRVPN",
-          proxyMode: "rule",
-        );
-      }
     } catch (e) {
       StartupLogger.warn('通知服务初始化失败: $e');
     }
@@ -90,12 +81,13 @@ class StartupOrchestrator {
 
   Future<void> _autoConnect() async {
     try {
-      if (_clash == null) return;
+      final clash = _clash;
+      if (clash == null) return;
       final node = _settings?.settings.lastSelectedNodeName;
       if (node != null && node.isNotEmpty) {
-        await _clash!.switchSelectedProxy(node);
+        await clash.switchSelectedProxy(node);
       }
-      await _clash!.start();
+      await clash.start();
     } catch (e) {
       // 记录警告但不阻止启动流程
       // 节点列表可能为空或 switchSelectedProxy 因节点不存在而失败
@@ -110,7 +102,6 @@ class StartupOrchestrator {
       final s = _settings?.settings;
       await channel.invokeMethod('syncSettings', {
         'proxyPort': s?.proxyPort ?? 7890,
-        'autoConnect': s?.autoConnectOnStartup ?? false,
       });
     } catch (e) {
       StartupLogger.warn('原生同步失败: $e');

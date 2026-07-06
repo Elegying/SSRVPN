@@ -13,10 +13,9 @@
 ## Verification
 
 - [ ] `scripts/check-shared-barrel-imports.sh`
-- [ ] `cd packages/ssrvpn_shared && dart analyze && dart test --coverage=coverage`
-- [ ] `cd SSRVPN_Android && flutter analyze && flutter test --coverage`
-- [ ] `cd SSRVPN_MacOS && flutter analyze && flutter test --coverage`
-- [ ] `cd SSRVPN_Windows && flutter analyze && flutter test --coverage`
+- [ ] `scripts/workspace.sh analyze`
+- [ ] `scripts/workspace.sh test`
+- [ ] `scripts/workspace.sh verify` when coverage and release guards are relevant
 
 ## Release Notes
 

@@ -27,6 +27,11 @@ class ClashConfigGenerator {
   /// [platformHeader] 平台特定的配置头（可选）
   /// [tunConfig] 平台特定的 TUN 配置（可选）
   /// [dnsConfig] 平台特定的 DNS 配置（可选）
+  /// [latencyTestUrl] 自动选择/故障转移组使用的探测 URL
+  /// [includeFallbackGroup] 是否额外写入故障转移组
+  /// [extraSelectGroupNames] 额外的 select 代理组名称
+  /// [extraRulesBeforeDirect] 插入在内置直连规则前的平台规则
+  /// [includeGeoIpRules] 平台已确认 GEOIP 数据可用时写入 GEOIP 规则
   static String generateConfig(
     String rawYaml,
     AppSettings settings, {
@@ -34,6 +39,11 @@ class ClashConfigGenerator {
     String? platformHeader,
     String? tunConfig,
     String? dnsConfig,
+    String? latencyTestUrl,
+    bool includeFallbackGroup = false,
+    Iterable<String> extraSelectGroupNames = const [],
+    Iterable<String> extraRulesBeforeDirect = const [],
+    bool includeGeoIpRules = false,
   }) {
     final proxyNames = extractProxyNames(rawYaml);
     final proxiesText = buildProxiesText(rawYaml);
@@ -41,12 +51,12 @@ class ClashConfigGenerator {
       throw Exception('订阅中没有可用节点，请先刷新订阅');
     }
 
-    // 检查 MMDB 是否存在且有效（>1MB）
     final selectedProxyNames = List<String>.from(proxyNames);
     if (preferredNodeName != null &&
         selectedProxyNames.remove(preferredNodeName)) {
       selectedProxyNames.insert(0, preferredNodeName);
     }
+    final healthCheckUrl = latencyTestUrl ?? settings.latencyTestUrl;
 
     final result = StringBuffer();
 
@@ -62,6 +72,7 @@ class ClashConfigGenerator {
     result.writeln("external-controller: '127.0.0.1:${settings.apiPort}'");
     result.writeln('# SSRVPN 当前明确只支持 IPv4 节点与 IPv4 流量');
     result.writeln('ipv6: false');
+    result.writeln('etag-support: true');
     if (settings.apiSecret.isNotEmpty) {
       result.writeln('secret: ${_quote(settings.apiSecret)}');
     }
@@ -155,8 +166,46 @@ class ClashConfigGenerator {
     for (final name in proxyNames) {
       result.writeln("      - ${_quote(name)}");
     }
-    result.writeln("    url: '${AppConstants.defaultLatencyTestUrl}'");
+    result.writeln("    url: ${_quote(healthCheckUrl)}");
     result.writeln('    interval: ${AppConstants.latencyTestInterval}');
+    if (includeFallbackGroup) {
+      result.writeln('  - name: 故障转移');
+      result.writeln('    type: fallback');
+      result.writeln('    proxies:');
+      for (final name in proxyNames) {
+        result.writeln("      - ${_quote(name)}");
+      }
+      result.writeln("    url: ${_quote(healthCheckUrl)}");
+      result.writeln('    interval: ${AppConstants.latencyTestInterval}');
+    }
+    for (final groupName in extraSelectGroupNames.map((name) => name.trim())) {
+      if (groupName.isEmpty) continue;
+      result.writeln('  - name: ${_quote(groupName)}');
+      result.writeln('    type: select');
+      result.writeln('    proxies:');
+      for (final name in selectedProxyNames) {
+        result.writeln("      - ${_quote(name)}");
+      }
+    }
+
+    // 规则 Provider。下载路径为相对路径，确保 Mihomo 将缓存写在 HomeDir 内。
+    // Mihomo 核心启动后会通过 API 触发一次更新；这里不写 interval，避免周期刷新。
+    result.writeln();
+    result.writeln('rule-providers:');
+    _writeRuleProvider(
+      result,
+      name: AppConstants.geositeCnRuleProviderName,
+      behavior: 'domain',
+      path: AppConstants.geositeCnRuleProviderPath,
+      url: AppConstants.geositeCnRuleProviderUrl,
+    );
+    _writeRuleProvider(
+      result,
+      name: AppConstants.geoipCnRuleProviderName,
+      behavior: 'ipcidr',
+      path: AppConstants.geoipCnRuleProviderPath,
+      url: AppConstants.geoipCnRuleProviderUrl,
+    );
 
     // 规则
     result.writeln();
@@ -164,11 +213,21 @@ class ClashConfigGenerator {
     for (final rule in buildForceProxyRules(settings)) {
       result.writeln('  - ${_quote(rule)}');
     }
+    for (final rule in extraRulesBeforeDirect.map((rule) => rule.trim())) {
+      if (rule.isEmpty) continue;
+      result.writeln('  - ${_quote(rule)}');
+    }
+    for (final rule in AppConstants.defaultRuleProviderDirectRules) {
+      result.writeln('  - ${_quote(rule)}');
+    }
     for (final rule in AppConstants.defaultDirectRules) {
       result.writeln("  - '$rule'");
     }
-    // 注意：GEOIP 规则需要平台特定的 MMDB 文件检查
-    // 这里只添加基本规则，平台特定的规则由各平台添加
+    if (includeGeoIpRules) {
+      for (final rule in AppConstants.defaultGeoipRules) {
+        result.writeln("  - '$rule'");
+      }
+    }
     result.writeln("  - '${AppConstants.defaultMatchRule}'");
 
     return result.toString();
@@ -346,6 +405,22 @@ class ClashConfigGenerator {
     }
 
     return rules;
+  }
+
+  static void _writeRuleProvider(
+    StringBuffer result, {
+    required String name,
+    required String behavior,
+    required String path,
+    required String url,
+  }) {
+    result.writeln('  $name:');
+    result.writeln('    type: http');
+    result.writeln('    behavior: $behavior');
+    result.writeln('    format: mrs');
+    result.writeln('    path: ${_quote(path)}');
+    result.writeln('    url: ${_quote(url)}');
+    result.writeln('    proxy: ${AppConstants.ruleProviderDownloadProxy}');
   }
 
   /// 为 YAML 字符串添加引号（如果需要）

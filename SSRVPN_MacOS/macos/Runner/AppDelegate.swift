@@ -4,7 +4,7 @@ import FlutterMacOS
 @main
 class AppDelegate: FlutterAppDelegate {
   // 返回 false：退出由 Flutter 侧 _quitApp() 主动调用 SystemNavigator.pop() 控制，
-  // 避免系统在窗口关闭时自动终止应用导致 closeToTray 功能失效
+  // 避免系统在窗口关闭时自动终止应用，窗口关闭由 Flutter 层统一处理。
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return false
   }

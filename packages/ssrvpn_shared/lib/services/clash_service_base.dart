@@ -7,6 +7,7 @@ import 'package:meta/meta.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
+import '../constants/app_constants.dart';
 import '../models/app_settings.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
@@ -35,6 +36,8 @@ abstract class ClashServiceBase {
   String _configDir = '';
   String _configPath = '';
   String _logBuffer = '';
+  _ClashConfigCacheKey? _lastGeneratedConfigKey;
+  String? _lastGeneratedConfig;
 
   // ── HTTP 客户端 ──
   HttpClient? _directHttpClient;
@@ -48,12 +51,17 @@ abstract class ClashServiceBase {
 
   // ── 定时器 ──
   Timer? _statusTimer;
+  Timer? _ruleProviderRefreshTimer;
 
   // ── Protected API ──
 
   /// Subclasses can use this to make direct HTTP calls to the Clash API.
   @protected
   http.Client? get apiClient => _apiClient;
+
+  @protected
+  Duration get ruleProviderStartupRefreshDelay =>
+      AppConstants.ruleProviderStartupRefreshDelay;
 
   // ── Getters ──
   bool get isRunning => _isRunning;
@@ -82,6 +90,55 @@ abstract class ClashServiceBase {
   void setPaths({required String configDir, required String configPath}) {
     _configDir = configDir;
     _configPath = configPath;
+  }
+
+  @protected
+  String buildClashConfig(
+    String rawYaml,
+    AppSettings settings, {
+    required String platformHeader,
+    String? preferredNodeName,
+    String? tunConfig,
+    String? latencyTestUrl,
+    bool includeFallbackGroup = false,
+    bool includeGeoIpRules = false,
+    Iterable<String> extraSelectGroupNames = const [],
+    Iterable<String> extraRulesBeforeDirect = const [],
+  }) {
+    final preferredNode = preferredNodeName ?? settings.lastSelectedNodeName;
+    final extraGroups = List<String>.unmodifiable(extraSelectGroupNames);
+    final extraRules = List<String>.unmodifiable(extraRulesBeforeDirect);
+    final cacheKey = _ClashConfigCacheKey(
+      rawYaml: rawYaml,
+      settings: settings,
+      preferredNodeName: preferredNode,
+      platformHeader: platformHeader,
+      tunConfig: tunConfig,
+      latencyTestUrl: latencyTestUrl,
+      includeFallbackGroup: includeFallbackGroup,
+      includeGeoIpRules: includeGeoIpRules,
+      extraSelectGroupNames: extraGroups,
+      extraRulesBeforeDirect: extraRules,
+    );
+    if (_lastGeneratedConfigKey == cacheKey && _lastGeneratedConfig != null) {
+      return _lastGeneratedConfig!;
+    }
+
+    final output = ClashConfigGenerator.generateConfig(
+      rawYaml,
+      settings,
+      preferredNodeName: preferredNode,
+      platformHeader: platformHeader,
+      tunConfig: tunConfig,
+      latencyTestUrl: latencyTestUrl,
+      includeFallbackGroup: includeFallbackGroup,
+      includeGeoIpRules: includeGeoIpRules,
+      extraSelectGroupNames: extraGroups,
+      extraRulesBeforeDirect: extraRules,
+    );
+    _lastGeneratedConfigKey = cacheKey;
+    _lastGeneratedConfig = output;
+    return output;
   }
 
   // ── YAML 工具 ──
@@ -178,6 +235,35 @@ abstract class ClashServiceBase {
         'Authorization': 'Bearer ${_settings.apiSecret}',
       if (json) 'Content-Type': 'application/json',
     };
+  }
+
+  @protected
+  Future<void> refreshRuleProvidersOnce() async {
+    if (!_isRunning) return;
+    final client = _apiClient;
+    if (client == null) return;
+
+    for (final providerName in AppConstants.ruleProviderNames) {
+      if (!_isRunning) return;
+      try {
+        final response = await client
+            .put(
+              Uri.parse(
+                _apiUrl(
+                    '/providers/rules/${Uri.encodeComponent(providerName)}'),
+              ),
+              headers: apiHeaders(),
+            )
+            .timeout(AppConstants.apiTimeout);
+        if (response.statusCode == 200 || response.statusCode == 204) {
+          log('规则集已检查更新: $providerName');
+        } else {
+          log('规则集更新检查失败 $providerName: HTTP ${response.statusCode}');
+        }
+      } catch (e) {
+        log('规则集更新检查失败 $providerName: $e');
+      }
+    }
   }
 
   /// 获取代理节点列表
@@ -513,6 +599,7 @@ abstract class ClashServiceBase {
 
   void startStatusMonitor() {
     _statusTimer?.cancel();
+    _scheduleRuleProviderRefreshOnce();
     _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
       if (!_isRunning || _healthCheckInProgress) return;
       _healthCheckInProgress = true;
@@ -543,6 +630,18 @@ abstract class ClashServiceBase {
   void stopStatusMonitor() {
     _statusTimer?.cancel();
     _statusTimer = null;
+    _ruleProviderRefreshTimer?.cancel();
+    _ruleProviderRefreshTimer = null;
+  }
+
+  void _scheduleRuleProviderRefreshOnce() {
+    _ruleProviderRefreshTimer?.cancel();
+    if (!_isRunning) return;
+
+    _ruleProviderRefreshTimer = Timer(ruleProviderStartupRefreshDelay, () {
+      _ruleProviderRefreshTimer = null;
+      unawaited(refreshRuleProvidersOnce());
+    });
   }
 
   /// 子类实现：当健康检查连续失败时需要停止核心
@@ -697,4 +796,68 @@ abstract class ClashServiceBase {
     _apiClient?.close();
     _statusListeners.clear();
   }
+}
+
+class _ClashConfigCacheKey {
+  final String rawYaml;
+  final AppSettings settings;
+  final String? preferredNodeName;
+  final String platformHeader;
+  final String? tunConfig;
+  final String? latencyTestUrl;
+  final bool includeFallbackGroup;
+  final bool includeGeoIpRules;
+  final List<String> extraSelectGroupNames;
+  final List<String> extraRulesBeforeDirect;
+
+  const _ClashConfigCacheKey({
+    required this.rawYaml,
+    required this.settings,
+    required this.preferredNodeName,
+    required this.platformHeader,
+    required this.tunConfig,
+    required this.latencyTestUrl,
+    required this.includeFallbackGroup,
+    required this.includeGeoIpRules,
+    required this.extraSelectGroupNames,
+    required this.extraRulesBeforeDirect,
+  });
+
+  @override
+  bool operator ==(Object other) {
+    return other is _ClashConfigCacheKey &&
+        other.rawYaml == rawYaml &&
+        other.settings == settings &&
+        other.preferredNodeName == preferredNodeName &&
+        other.platformHeader == platformHeader &&
+        other.tunConfig == tunConfig &&
+        other.latencyTestUrl == latencyTestUrl &&
+        other.includeFallbackGroup == includeFallbackGroup &&
+        other.includeGeoIpRules == includeGeoIpRules &&
+        _stringListEquals(other.extraSelectGroupNames, extraSelectGroupNames) &&
+        _stringListEquals(other.extraRulesBeforeDirect, extraRulesBeforeDirect);
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        rawYaml,
+        settings,
+        preferredNodeName,
+        platformHeader,
+        tunConfig,
+        latencyTestUrl,
+        includeFallbackGroup,
+        includeGeoIpRules,
+        Object.hashAll(extraSelectGroupNames),
+        Object.hashAll(extraRulesBeforeDirect),
+      );
+}
+
+bool _stringListEquals(List<String> left, List<String> right) {
+  if (identical(left, right)) return true;
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
 }

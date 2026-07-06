@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ssrvpn_client/models/app_settings.dart';
+import 'package:ssrvpn_android/models/app_settings.dart';
 
 void main() {
   group('extractForceProxyHost', () {
@@ -115,25 +115,41 @@ void main() {
       expect(restored.socksPort, 7891);
       expect(restored.apiPort, 9090);
       expect(restored.proxyMode, ProxyMode.rule);
-      expect(restored.darkMode, true);
     });
 
     test('自定义值往返', () {
       final settings = AppSettings(
         proxyPort: 8080,
         proxyMode: ProxyMode.global,
-        darkMode: false,
-        autoConnectOnStartup: true,
+        lastSelectedNodeName: 'Node A',
         forceProxySites: ['test.com', 'proxy.org'],
       );
       final json = settings.toJson();
       final restored = AppSettings.fromJson(json);
       expect(restored.proxyPort, 8080);
       expect(restored.proxyMode, ProxyMode.global);
-      expect(restored.darkMode, false);
-      expect(restored.autoConnectOnStartup, true);
+      expect(restored.lastSelectedNodeName, 'Node A');
       expect(restored.forceProxySites[0], 'test.com');
       expect(restored.forceProxySites[1], 'proxy.org');
+    });
+
+    test('旧版软件设置字段会被忽略', () {
+      final restored = AppSettings.fromJson({
+        'proxyPort': 8080,
+        'darkMode': false,
+        'autoConnectOnStartup': true,
+        'autoUpdateSubscription': false,
+        'updateIntervalHours': 1,
+        'startOnBoot': true,
+      });
+      final json = restored.toJson();
+
+      expect(restored.proxyPort, 8080);
+      expect(json.containsKey('darkMode'), isFalse);
+      expect(json.containsKey('autoConnectOnStartup'), isFalse);
+      expect(json.containsKey('autoUpdateSubscription'), isFalse);
+      expect(json.containsKey('updateIntervalHours'), isFalse);
+      expect(json.containsKey('startOnBoot'), isFalse);
     });
 
     test('fromJson 健壮处理 null', () {
@@ -155,11 +171,11 @@ void main() {
     test('部分更新不影响其他字段', () {
       final original = AppSettings(
         proxyPort: 8080,
-        darkMode: false,
+        lastSelectedNodeName: 'Node A',
       );
       final updated = original.copyWith(proxyPort: 9090);
       expect(updated.proxyPort, 9090);
-      expect(updated.darkMode, false);
+      expect(updated.lastSelectedNodeName, 'Node A');
     });
   });
 }

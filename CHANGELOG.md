@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-07-06
+
+### Changed
+- Removed the obsolete settings screen and stopped persisting startup, theme, tray, and automatic subscription-update software preferences.
+- Shared Clash configuration generation caching through the common Clash service base.
+- Release workflow now generates GitHub release notes from `CHANGELOG.md`.
+- CI now prints and enforces shared and platform coverage thresholds aligned to
+  the current automated test baseline.
+- Release builds now fetch and SHA256-verify the latest `geoip.metadb` from
+  `MetaCubeX/meta-rules-dat`, then sync one deterministic gzip copy into all
+  three platform assets.
+- Generated Mihomo configs now use CN domain/IP rule providers and trigger one
+  silent provider update 10 minutes after the Mihomo core starts.
+
+### Fixed
+- Expanded log redaction for URL query credentials, URL userinfo, JSON credential fields, and non-Bearer authorization formats.
+
 ## [2.0.13] - 2026-07-04
 
 ### Fixed

@@ -152,7 +152,14 @@ proxies:
       expect(rules[2], 'DOMAIN,api.country.is,SSRVPN-GEO');
       expect(rules[3], 'DOMAIN,ipinfo.io,SSRVPN-GEO');
       expect(rules[4], 'DOMAIN,ifconfig.co,SSRVPN-GEO');
-      expect(rules[5], 'DOMAIN-SUFFIX,cn,DIRECT');
+      expect(
+        rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT'),
+        greaterThan(4),
+      );
+      expect(
+        rules.indexOf('DOMAIN-SUFFIX,cn,DIRECT'),
+        greaterThan(rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT')),
+      );
     });
 
     test('selects temporary ports when preferred ports are occupied', () async {

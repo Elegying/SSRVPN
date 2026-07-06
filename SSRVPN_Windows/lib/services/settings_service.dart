@@ -229,11 +229,6 @@ class SettingsService extends ChangeNotifier {
     await save();
   }
 
-  Future<void> updateDarkMode(bool enabled) async {
-    _settings.darkMode = enabled;
-    await save();
-  }
-
   Future<void> updateLatencyTestUrl(String url) async {
     _settings.latencyTestUrl = url;
     await save();
@@ -246,11 +241,6 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> updateForceProxySites(List<String> sites) async {
     _settings.forceProxySites = AppSettings.normalizeForceProxySites(sites);
-    await save();
-  }
-
-  Future<void> updateMinimizeToTray(bool minimize) async {
-    _settings.minimizeToTray = minimize;
     await save();
   }
 

@@ -1,4 +1,4 @@
-.PHONY: status sync verify deps feature
+.PHONY: status sync verify deps pub-get analyze test format feature
 
 status:
 	@scripts/project-status.sh
@@ -11,6 +11,18 @@ verify:
 
 deps:
 	@scripts/check-dependencies.sh
+
+pub-get:
+	@scripts/workspace.sh pub-get
+
+analyze:
+	@scripts/workspace.sh analyze
+
+test:
+	@scripts/workspace.sh test
+
+format:
+	@scripts/workspace.sh format
 
 feature:
 	@if [ -z "$(name)" ]; then \

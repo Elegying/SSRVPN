@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ssrvpn_client/screens/node_edit_screen.dart';
-import 'package:ssrvpn_client/theme/app_theme.dart';
+import 'package:ssrvpn_macos/screens/node_edit_screen.dart';
+import 'package:ssrvpn_macos/theme/app_theme.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {

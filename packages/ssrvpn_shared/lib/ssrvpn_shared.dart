@@ -11,7 +11,10 @@ export 'models/app_settings.dart';
 
 // 服务
 export 'controllers/home_node_controller.dart';
+export 'controllers/home_latency_controller.dart';
+export 'controllers/subscription_screen_controller.dart';
 export 'services/subscription_parser.dart';
+export 'services/subscription_yaml_merger.dart';
 export 'services/unlock_test_service.dart';
 export 'services/clash_config_generator.dart';
 export 'services/clash_service_base.dart';
@@ -26,6 +29,7 @@ export 'services/timed_process_runner.dart';
 export 'utils/log_redactor.dart';
 export 'utils/app_logger.dart';
 export 'utils/force_proxy_site_policy.dart';
+export 'utils/node_country_policy.dart';
 export 'utils/private_node_latency_policy.dart';
 export 'utils/node_display_policy.dart';
 

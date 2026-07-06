@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yaml/yaml.dart';
-import 'package:ssrvpn_client/models/app_settings.dart';
-import 'package:ssrvpn_client/services/clash_service.dart';
+import 'package:ssrvpn_android/models/app_settings.dart';
+import 'package:ssrvpn_android/services/clash_service.dart';
 
 const _testProxies = '''
 proxies:

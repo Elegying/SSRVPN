@@ -201,8 +201,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
 
   @override
   void onWindowMinimize() async {
-    final minimizeToTray = _settingsService?.settings.minimizeToTray ?? true;
-    if (minimizeToTray && _trayManager.isReady) {
+    if (_trayManager.isReady) {
       try {
         await windowManager.hide();
       } catch (error, stack) {
@@ -214,8 +213,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   @override
   void onWindowClose() async {
     if (_isQuitting) return;
-    final minimizeToTray = _settingsService?.settings.minimizeToTray ?? true;
-    if (minimizeToTray && _trayManager.isReady) {
+    if (_trayManager.isReady) {
       try {
         await windowManager.hide();
       } catch (error, stack) {
@@ -283,27 +281,21 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
           value: _subscriptionService!,
         ),
       ],
-      child: Consumer<SettingsService>(
-        builder: (context, settingsService, _) {
-          final isDark = settingsService.settings.darkMode;
-          return MaterialApp(
-            debugShowCheckedModeBanner: false,
-            title: 'SSRVPN',
-            theme: AppTheme.light,
-            darkTheme: AppTheme.dark,
-            themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-            home: CrashReportPrompt(
-              child: _MainShell(
-                isDark: isDark,
-                startupFlags: widget.startupFlags,
-                failures: StartupStatus.instance.failures,
-                currentIndex: _currentIndex,
-                onIndexChanged: (index) =>
-                    setState(() => _currentIndex = index),
-              ),
-            ),
-          );
-        },
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'SSRVPN',
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: ThemeMode.dark,
+        home: CrashReportPrompt(
+          child: _MainShell(
+            isDark: true,
+            startupFlags: widget.startupFlags,
+            failures: StartupStatus.instance.failures,
+            currentIndex: _currentIndex,
+            onIndexChanged: (index) => setState(() => _currentIndex = index),
+          ),
+        ),
       ),
     );
   }

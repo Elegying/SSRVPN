@@ -16,6 +16,16 @@ class HomeNodeSection {
   final bool collapsible;
 }
 
+class HomeNodeDisplayRow {
+  const HomeNodeDisplayRow.section(this.section) : node = null;
+  const HomeNodeDisplayRow.node(this.node) : section = null;
+
+  final HomeNodeSection? section;
+  final ProxyNode? node;
+
+  bool get isSection => section != null;
+}
+
 class HomeNodeSyncResult {
   const HomeNodeSyncResult({
     required this.changed,
@@ -194,6 +204,25 @@ class HomeNodeController {
       );
     }
     return sections;
+  }
+
+  static List<HomeNodeDisplayRow> buildDisplayRows(
+    Iterable<ProxyNode> nodes,
+    Set<String> expandedGroups,
+  ) {
+    final rows = <HomeNodeDisplayRow>[];
+    for (final section in buildDisplaySections(nodes)) {
+      if (!section.collapsible) {
+        rows.addAll(section.nodes.map(HomeNodeDisplayRow.node));
+        continue;
+      }
+
+      final title = section.title!;
+      rows.add(HomeNodeDisplayRow.section(section));
+      if (!expandedGroups.contains(title)) continue;
+      rows.addAll(section.nodes.map(HomeNodeDisplayRow.node));
+    }
+    return rows;
   }
 
   static bool _isSubscriptionGroup(String group) {

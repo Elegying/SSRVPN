@@ -5,12 +5,24 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
+enum UnlockTestHttpMethod { get, head }
+
+enum UnlockStatusRule {
+  standard,
+  netflix,
+  youtubePremium,
+  apiReachable,
+  googleApi,
+}
+
 class UnlockTestResult {
   const UnlockTestResult({
     required this.id,
     required this.name,
     required this.url,
     required this.category,
+    this.method = UnlockTestHttpMethod.get,
+    this.statusRule = UnlockStatusRule.standard,
     this.status = 'Unknown',
     this.detail,
     this.region,
@@ -21,6 +33,8 @@ class UnlockTestResult {
   final String name;
   final String url;
   final String category; // 'streaming' | 'ai' | 'other'
+  final UnlockTestHttpMethod method;
+  final UnlockStatusRule statusRule;
   final String status;
   final String? detail;
   final String? region;
@@ -45,6 +59,8 @@ class UnlockTestResult {
     String? name,
     String? url,
     String? category,
+    UnlockTestHttpMethod? method,
+    UnlockStatusRule? statusRule,
     String? status,
     String? detail,
     String? region,
@@ -56,6 +72,8 @@ class UnlockTestResult {
       name: name ?? this.name,
       url: url ?? this.url,
       category: category ?? this.category,
+      method: method ?? this.method,
+      statusRule: statusRule ?? this.statusRule,
       status: status ?? this.status,
       detail: clearDetail ? null : detail ?? this.detail,
       region: region ?? this.region,
@@ -71,7 +89,8 @@ class UnlockTestService {
         id: 'netflix',
         name: 'Netflix',
         url: 'https://www.netflix.com/title/81215567',
-        category: 'streaming'),
+        category: 'streaming',
+        statusRule: UnlockStatusRule.netflix),
     UnlockTestResult(
         id: 'disney',
         name: 'Disney+',
@@ -81,21 +100,18 @@ class UnlockTestService {
         id: 'youtube',
         name: 'YouTube Premium',
         url: 'https://www.youtube.com/premium',
-        category: 'streaming'),
+        category: 'streaming',
+        statusRule: UnlockStatusRule.youtubePremium),
     UnlockTestResult(
         id: 'prime',
         name: 'Amazon Prime Video',
         url: 'https://www.primevideo.com/',
-        category: 'streaming'),
+        category: 'streaming',
+        method: UnlockTestHttpMethod.head),
     UnlockTestResult(
         id: 'max',
         name: 'HBO Max',
         url: 'https://www.max.com/',
-        category: 'streaming'),
-    UnlockTestResult(
-        id: 'hulu',
-        name: 'Hulu',
-        url: 'https://www.hulu.com/',
         category: 'streaming'),
     UnlockTestResult(
         id: 'apple_tv',
@@ -106,90 +122,42 @@ class UnlockTestService {
         id: 'spotify',
         name: 'Spotify',
         url: 'https://www.spotify.com/',
-        category: 'streaming'),
-    UnlockTestResult(
-        id: 'bbc',
-        name: 'BBC iPlayer',
-        url: 'https://www.bbc.co.uk/iplayer',
-        category: 'streaming'),
-    UnlockTestResult(
-        id: 'paramount',
-        name: 'Paramount+',
-        url: 'https://www.paramountplus.com/',
-        category: 'streaming'),
-    UnlockTestResult(
-        id: 'peacock',
-        name: 'Peacock TV',
-        url: 'https://www.peacocktv.com/',
-        category: 'streaming'),
+        category: 'streaming',
+        method: UnlockTestHttpMethod.head),
     UnlockTestResult(
         id: 'discovery',
         name: 'Discovery+',
         url: 'https://www.discoveryplus.com/',
         category: 'streaming'),
     UnlockTestResult(
-        id: 'dazn',
-        name: 'DAZN',
-        url: 'https://www.dazn.com/',
-        category: 'streaming'),
-    UnlockTestResult(
         id: 'tiktok',
         name: 'TikTok',
         url: 'https://www.tiktok.com/',
-        category: 'streaming'),
-    UnlockTestResult(
-        id: 'twitch',
-        name: 'Twitch',
-        url: 'https://www.twitch.tv/',
-        category: 'streaming'),
+        category: 'streaming',
+        method: UnlockTestHttpMethod.head),
 
     // ── AI 服务 ──
-    UnlockTestResult(
-        id: 'openai',
-        name: 'OpenAI / ChatGPT',
-        url: 'https://api.openai.com/v1/models',
-        category: 'ai'),
-    UnlockTestResult(
-        id: 'chatgpt_web',
-        name: 'ChatGPT',
-        url: 'https://chat.openai.com/cdn-cgi/trace',
-        category: 'ai'),
     UnlockTestResult(
         id: 'claude',
         name: 'Claude',
         url: 'https://api.anthropic.com/v1/messages',
-        category: 'ai'),
+        category: 'ai',
+        statusRule: UnlockStatusRule.apiReachable),
     UnlockTestResult(
         id: 'gemini',
         name: 'Google Gemini',
         url: 'https://generativelanguage.googleapis.com/',
-        category: 'ai'),
+        category: 'ai',
+        statusRule: UnlockStatusRule.googleApi),
     UnlockTestResult(
         id: 'copilot',
         name: 'Microsoft Copilot',
         url: 'https://copilot.microsoft.com/',
         category: 'ai'),
     UnlockTestResult(
-        id: 'perplexity',
-        name: 'Perplexity',
-        url: 'https://www.perplexity.ai/',
-        category: 'ai'),
-    UnlockTestResult(
         id: 'deepseek',
         name: 'DeepSeek',
         url: 'https://chat.deepseek.com/',
-        category: 'ai'),
-    UnlockTestResult(
-        id: 'groq', name: 'Groq', url: 'https://api.groq.com/', category: 'ai'),
-    UnlockTestResult(
-        id: 'mistral',
-        name: 'Mistral',
-        url: 'https://api.mistral.ai/',
-        category: 'ai'),
-    UnlockTestResult(
-        id: 'cohere',
-        name: 'Cohere',
-        url: 'https://api.cohere.ai/',
         category: 'ai'),
 
     // ── 开发 / 其他 ──
@@ -197,11 +165,6 @@ class UnlockTestService {
         id: 'github',
         name: 'GitHub',
         url: 'https://github.com/',
-        category: 'other'),
-    UnlockTestResult(
-        id: 'huggingface',
-        name: 'Hugging Face',
-        url: 'https://huggingface.co/',
         category: 'other'),
   ];
 
@@ -231,15 +194,12 @@ class UnlockTestService {
     final client = _proxyClient(proxyPort);
     try {
       final uri = Uri.parse(item.url);
-      final useHead = _useHeadMethod(item.id);
-      final response = await (useHead
-          ? client.head(uri, headers: _headers()).timeout(timeout)
-          : client.get(uri, headers: _headers()).timeout(timeout));
+      final response = await _request(client, uri, item).timeout(timeout);
 
       final region = _extractRegion(response, uri.host);
       return item.copyWith(
-        status: _statusFor(item.id, response),
-        detail: _detailFor(response, item.id),
+        status: _statusFor(item, response),
+        detail: _detailFor(response, item),
         region: region,
         checkedAt: DateTime.now(),
       );
@@ -262,9 +222,17 @@ class UnlockTestService {
     }
   }
 
-  bool _useHeadMethod(String id) {
-    return const {'prime', 'hulu', 'spotify', 'bbc', 'tiktok', 'twitch'}
-        .contains(id);
+  Future<http.Response> _request(
+    http.Client client,
+    Uri uri,
+    UnlockTestResult item,
+  ) {
+    switch (item.method) {
+      case UnlockTestHttpMethod.head:
+        return client.head(uri, headers: _headers());
+      case UnlockTestHttpMethod.get:
+        return client.get(uri, headers: _headers());
+    }
   }
 
   Map<String, String> _headers() {
@@ -283,58 +251,36 @@ class UnlockTestService {
     return IOClient(httpClient);
   }
 
-  String _statusFor(String id, http.Response response) {
+  String _statusFor(UnlockTestResult item, http.Response response) {
     final code = response.statusCode;
     final body = response.body.toLowerCase();
 
-    // Netflix: check for redirect or region block
-    if (id == 'netflix') {
-      if (code == 200) return 'Available';
-      if (code == 403 || code == 451) return 'No';
-      if (code >= 300 && code < 400) {
-        final location = response.headers['location'] ?? '';
-        if (location.contains('title')) return 'Available';
-        return 'No';
-      }
+    switch (item.statusRule) {
+      case UnlockStatusRule.netflix:
+        if (code == 200) return 'Available';
+        if (code == 403 || code == 451) return 'No';
+        if (code >= 300 && code < 400) {
+          final location = response.headers['location'] ?? '';
+          if (location.contains('title')) return 'Available';
+          return 'No';
+        }
+        break;
+      case UnlockStatusRule.youtubePremium:
+        if (code == 200 && body.contains('premium')) return 'Available';
+        if (code == 200) return 'Yes';
+        break;
+      case UnlockStatusRule.apiReachable:
+        if (code == 200 || code == 401 || code == 405) return 'Yes';
+        if (code == 403) return 'No';
+        break;
+      case UnlockStatusRule.googleApi:
+        if (code == 200 || code == 403) return 'Yes';
+        if (code == 404) return 'No';
+        break;
+      case UnlockStatusRule.standard:
+        break;
     }
 
-    // YouTube Premium
-    if (id == 'youtube') {
-      if (code == 200 && body.contains('premium')) return 'Available';
-      if (code == 200) return 'Yes';
-    }
-
-    // OpenAI API
-    if (id == 'openai') {
-      if (code == 200 || code == 401) return 'Yes';
-      if (code == 403) return 'No';
-    }
-
-    // Anthropic API
-    if (id == 'claude') {
-      if (code == 200 || code == 401 || code == 405) return 'Yes';
-      if (code == 403) return 'No';
-    }
-
-    // Groq API
-    if (id == 'groq') {
-      if (code == 200 || code == 401) return 'Yes';
-      if (code == 403) return 'No';
-    }
-
-    // Google APIs
-    if (id == 'gemini') {
-      if (code == 200 || code == 403) return 'Yes';
-      if (code == 404) return 'No';
-    }
-
-    // BBC iPlayer
-    if (id == 'bbc') {
-      if (code == 200 && !body.contains('outside the uk')) return 'Yes';
-      if (body.contains('outside the uk')) return 'No';
-    }
-
-    // Default
     if (code >= 200 && code < 400) return 'Yes';
     if (code == 403 || code == 451) return 'No';
     if (code == 407) return 'No';
@@ -349,15 +295,12 @@ class UnlockTestService {
         headers['x-geo-country'];
   }
 
-  String _detailFor(http.Response response, String id) {
+  String _detailFor(http.Response response, UnlockTestResult item) {
     final code = response.statusCode;
     final body = response.body.trim();
 
-    // Try parse JSON for API services
-    if (id == 'openai' && code == 401) {
-      return 'HTTP 401 (API reachable)';
-    }
-    if (id == 'claude' && (code == 401 || code == 405)) {
+    if (item.statusRule == UnlockStatusRule.apiReachable &&
+        (code == 401 || code == 405)) {
       return 'HTTP $code (API reachable)';
     }
 

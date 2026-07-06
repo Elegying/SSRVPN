@@ -130,27 +130,6 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setAutoConnect(bool value) async {
-    if (_settings.autoConnectOnStartup == value) return;
-    _settings = _settings.copyWith(autoConnectOnStartup: value);
-    await _save();
-    notifyListeners();
-  }
-
-  Future<void> setAutoCheckUpdate(bool value) async {
-    if (_settings.autoCheckUpdate == value) return;
-    _settings = _settings.copyWith(autoCheckUpdate: value);
-    await _save();
-    notifyListeners();
-  }
-
-  Future<void> setDarkMode(bool value) async {
-    if (_settings.darkMode == value) return;
-    _settings = _settings.copyWith(darkMode: value);
-    await _save();
-    notifyListeners();
-  }
-
   Future<void> setLastSelectedNodeName(String name) async {
     if (_settings.lastSelectedNodeName == name) return;
     _settings = _settings.copyWith(lastSelectedNodeName: name);

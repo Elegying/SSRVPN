@@ -209,7 +209,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
       );
     }
 
-    final isDark = _settingsService!.settings.darkMode;
+    const isDark = true;
     return MultiProvider(
       providers: [
         // 只注册 ChangeNotifierProvider，避免重复注册
@@ -223,7 +223,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         title: 'SSRVPN',
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+        themeMode: ThemeMode.dark,
         home: CrashReportPrompt(
           child: _InitialSubscriptionPrompt(child: _buildMainScreen(isDark)),
         ),

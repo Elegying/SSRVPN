@@ -7,7 +7,9 @@ and hashes.
 ## Windows
 
 - Bundled file: `SSRVPN_Windows/assets/mihomo.exe`
+- Geo database: `SSRVPN_Windows/assets/geoip.metadb.gz`
 - Source record: `SSRVPN_Windows/assets/mihomo-source.txt`
+- Geo source record: `docs/GEOIP_SOURCE.txt`
 - Current source: MetaCubeX/mihomo `v1.19.27`
 - Required asset family: `mihomo-windows-amd64-v1-go120-*.zip`
 
@@ -20,7 +22,8 @@ rename it to `mihomo.exe`, place it in `SSRVPN_Windows/assets/`, and update
 
 - Bundled file: `SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so`
 - Geo database: `SSRVPN_Android/assets/geoip.metadb.gz`
-- Current source: MetaCubeX/mihomo `v1.19.27`
+- Current core source: MetaCubeX/mihomo `v1.19.27`
+- Geo source record: `docs/GEOIP_SOURCE.txt`
 
 The Android native library is loaded by the VPN service, so it must be verified
 before CI tests and release packaging.
@@ -28,7 +31,9 @@ before CI tests and release packaging.
 ## macOS
 
 - Bundled file: `SSRVPN_MacOS/assets/AtlasCore.gz`
+- Geo database: `SSRVPN_MacOS/assets/geoip.metadb.gz`
 - Source record: `SSRVPN_MacOS/assets/AtlasCore-source.txt`
+- Geo source record: `docs/GEOIP_SOURCE.txt`
 - Current source: MetaCubeX/mihomo `v1.19.27`
 - Required asset family: `mihomo-darwin-arm64-*.gz`
 
@@ -45,6 +50,8 @@ scripts/verify-core-assets.sh
 
 `scripts/verify-core-assets.sh` checks Git LFS pointer leakage, fixed SHA256
 hashes, macOS decompressed executable equivalence, and bundled geo databases.
+Geo database source and hashes are recorded in `docs/GEOIP_SOURCE.txt`; refresh
+them before release with `python3 scripts/sync-geoip-metadb.py`.
 The same check runs in CI and before each platform release build.
 
 Windows executable verification is also performed by

@@ -42,10 +42,6 @@ class ClashService extends ClashServiceBase {
   // ── macOS 系统代理 ──
   final SystemProxyService _proxyService = SystemProxyService();
 
-  // ── 配置缓存 ──
-  String? _lastConfigOutput;
-  String? _lastConfigInput;
-
   // ── Getters ──
   bool get isStartupDisabled => _startupDisabledReason != null;
   String? get startupDisabledReason => _startupDisabledReason;
@@ -68,7 +64,7 @@ class ClashService extends ClashServiceBase {
     // macOS: 写入文件日志
     final logFile = _logFile;
     if (logFile != null) {
-      final sanitized = _stripControlChars(message);
+      final sanitized = LogRedactor.sanitize(message);
       final line = '[${DateTime.now().toIso8601String()}] $sanitized\n';
       _pendingLogWrite = _pendingLogWrite
           .then(
@@ -123,6 +119,9 @@ class ClashService extends ClashServiceBase {
     setPaths(configDir: configDir, configPath: configPath);
 
     await Directory(configDir).create(recursive: true);
+    await Directory(
+      '$configDir${Platform.pathSeparator}providers',
+    ).create(recursive: true);
     _logFile = File('$configDir${Platform.pathSeparator}ssrvpn.log');
     await _rotateLogFile();
     await _proxyService.initialize(configDir);
@@ -305,177 +304,42 @@ class ClashService extends ClashServiceBase {
   // 配置生成（macOS 专用）
   // ═══════════════════════════════════════════════════════════
 
+  String _macosTunConfig(AppSettings settings) {
+    final buffer = StringBuffer()
+      ..writeln('tun:')
+      ..writeln('  enable: true')
+      ..writeln('  stack: ${settings.tunStack}')
+      ..writeln('  auto-route: true')
+      ..writeln('  auto-detect-interface: true')
+      ..writeln('  route-exclude-address:');
+    for (final address in AppConstants.routeExcludeAddresses) {
+      buffer.writeln('    - $address');
+    }
+    buffer
+      ..writeln('  dns-hijack:')
+      ..writeln('    - any:53')
+      ..writeln('  route-address-set:')
+      ..writeln('    - geoip-cn')
+      ..writeln('    - geosite-cn');
+    return buffer.toString().trimRight();
+  }
+
   /// 生成 Clash 配置（订阅只取节点，规则和分流完全内置）
   String generateClashConfig(
     String rawYaml,
     AppSettings settings, {
     String? preferredNodeName,
   }) {
-    // 简单缓存：输入内容和设置相同时直接返回缓存结果
-    final inputHash =
-        '${rawYaml.hashCode}_${settings.hashCode}_$preferredNodeName';
-    if (_lastConfigInput == inputHash && _lastConfigOutput != null) {
-      return _lastConfigOutput!;
-    }
-
-    // 只从订阅提取代理节点（使用继承自 base 的工具方法）
-    final proxyNames = extractProxyNames(rawYaml);
-    final proxiesText = extractSection(rawYaml, 'proxies');
-    if (proxyNames.isEmpty || proxiesText.isEmpty) {
-      throw Exception('订阅中没有可用节点，请先刷新订阅');
-    }
-
-    final result = StringBuffer();
-    result.writeln('# ===== SSRVPN 配置（规则内置，订阅仅加载节点） =====');
-    result.writeln('mixed-port: ${settings.proxyPort}');
-    result.writeln('socks-port: ${settings.socksPort}');
-    result.writeln('allow-lan: false');
-    result.writeln('mode: ${settings.proxyMode.name}');
-    result.writeln('log-level: info');
-    result.writeln(
-      "external-controller: '127.0.0.1:${settings.apiPort}'",
-    );
-    result.writeln('# SSRVPN 当前明确只支持 IPv4 节点与 IPv4 流量');
-    result.writeln('ipv6: false');
-    if (settings.apiSecret.isNotEmpty) {
-      result.writeln('secret: ${yamlQuote(settings.apiSecret)}');
-    }
-
-    // TUN 模式（虚拟网卡接管全部流量，核心需要 root 权限）
-    if (settings.enableTun) {
-      result.writeln();
-      result.writeln('tun:');
-      result.writeln('  enable: true');
-      result.writeln('  stack: ${settings.tunStack}');
-      result.writeln('  auto-route: true');
-      result.writeln('  auto-detect-interface: true');
-      result.writeln('  route-exclude-address:');
-      result.writeln('    - 192.168.0.0/16');
-      result.writeln('    - 10.0.0.0/8');
-      result.writeln('    - 172.16.0.0/12');
-      result.writeln('    - 100.64.0.0/10');
-      result.writeln('  dns-hijack:');
-      result.writeln('    - any:53');
-      result.writeln('  route-address-set:');
-      result.writeln('    - geoip-cn');
-      result.writeln('    - geosite-cn');
-    }
-
-    // DNS 配置
-    result.writeln();
-    result.writeln('dns:');
-    result.writeln('  enable: true');
-    result.writeln('  ipv6: false');
-    result.writeln('  enhanced-mode: fake-ip');
-    result.writeln('  fake-ip-range: 198.18.0.1/16');
-    result.writeln('  default-nameserver:');
-    result.writeln('    - 223.5.5.5');
-    result.writeln('    - 119.29.29.29');
-    result.writeln('  nameserver:');
-    result.writeln('    - https://dns.alidns.com/dns-query');
-    result.writeln('    - https://doh.pub/dns-query');
-    result.writeln('    - 223.5.5.5');
-    result.writeln('    - 119.29.29.29');
-    result.writeln('  fallback:');
-    result.writeln('    - https://dns.google/dns-query');
-    result.writeln('    - https://cloudflare-dns.com/dns-query');
-    result.writeln('    - 8.8.8.8');
-    result.writeln('    - 1.1.1.1');
-    result.writeln('  fallback-filter:');
-    result.writeln('    geoip: true');
-    result.writeln('    geoip-code: CN');
-    result.writeln('    ipcidr:');
-    result.writeln('      - 240.0.0.0/4');
-    result.writeln('    domain:');
-    result.writeln("      - '*.google.com'");
-    result.writeln("      - '*.googlevideo.com'");
-    result.writeln("      - '*.youtube.com'");
-    result.writeln("      - '*.ytimg.com'");
-    result.writeln("      - '*.ggpht.com'");
-    result.writeln('  fake-ip-filter:');
-    result.writeln("    - '*.lan'");
-    result.writeln("    - '*.local'");
-    result.writeln("    - '*.localhost'");
-    result.writeln("    - '*.googlevideo.com'");
-    result.writeln("    - '*.youtube.com'");
-    result.writeln("    - '*.ytimg.com'");
-    result.writeln("    - '*.ggpht.com'");
-    result.writeln("    - '*.googleapis.com'");
-    result.writeln("    - 'dns.google'");
-    result.writeln("    - 'www.google.com'");
-
-    // 代理节点
-    result.writeln();
-    result.writeln('proxies:');
-    result.writeln(proxiesText);
-
-    // 内置代理组
-    result.writeln();
-    result.writeln('proxy-groups:');
-    result.writeln('  - name: PROXY');
-    result.writeln('    type: select');
-    result.writeln('    proxies:');
-    final preferredNode = preferredNodeName ?? settings.lastSelectedNodeName;
-    final proxySelectionOrder =
-        preferredNode != null && proxyNames.contains(preferredNode)
-            ? [
-                preferredNode,
-                ...proxyNames.where((name) => name != preferredNode),
-              ]
-            : proxyNames;
-    for (final name in proxySelectionOrder) {
-      result.writeln("      - ${yamlQuote(name)}");
-    }
-    result.writeln('  - name: GLOBAL');
-    result.writeln('    type: select');
-    result.writeln('    proxies:');
-    result.writeln("      - 'PROXY'");
-    for (final name in proxySelectionOrder) {
-      result.writeln("      - ${yamlQuote(name)}");
-    }
-    result.writeln('  - name: 自动选择');
-    result.writeln('    type: url-test');
-    result.writeln('    proxies:');
-    for (final name in proxyNames) {
-      result.writeln("      - ${yamlQuote(name)}");
-    }
-    result.writeln(
-      "    url: 'http://www.gstatic.com/generate_204'",
-    );
-    result.writeln('    interval: 300');
-    result.writeln('  - name: 故障转移');
-    result.writeln('    type: fallback');
-    result.writeln('    proxies:');
-    for (final name in proxyNames) {
-      result.writeln("      - ${yamlQuote(name)}");
-    }
-    result.writeln(
-      "    url: 'http://www.gstatic.com/generate_204'",
-    );
-    result.writeln('    interval: 300');
-
-    // 内置分流规则
-    result.writeln();
-    result.writeln('rules:');
-    for (final rule in ClashConfigGenerator.buildForceProxyRules(
+    return buildClashConfig(
+      rawYaml,
       settings,
-    )) {
-      result.writeln('  - ${yamlQuote(rule)}');
-    }
-    result.writeln(_builtinRules());
-
-    final output = result.toString();
-    _lastConfigOutput = output;
-    _lastConfigInput = inputHash;
-    return output;
-  }
-
-  /// 内置分流规则（国内直连 + GEOIP 分流）
-  String _builtinRules() {
-    return "  - 'DOMAIN-SUFFIX,cn,DIRECT'\n"
-        "  - 'GEOIP,CN,DIRECT'\n"
-        "  - 'GEOIP,LAN,DIRECT,no-resolve'\n"
-        "  - 'MATCH,PROXY'\n";
+      preferredNodeName: preferredNodeName,
+      platformHeader: '# ===== SSRVPN 配置（规则内置，订阅仅加载节点） =====',
+      tunConfig: settings.enableTun ? _macosTunConfig(settings) : null,
+      latencyTestUrl: settings.latencyTestUrl,
+      includeFallbackGroup: true,
+      includeGeoIpRules: true,
+    );
   }
 
   /// 将配置写入文件
@@ -893,9 +757,4 @@ class ClashService extends ClashServiceBase {
         environment: environment,
         timeout: timeout,
       );
-
-  /// 简单控制字符过滤（日志写入辅助）
-  static String _stripControlChars(String input) {
-    return input.replaceAll(RegExp(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]'), '');
-  }
 }

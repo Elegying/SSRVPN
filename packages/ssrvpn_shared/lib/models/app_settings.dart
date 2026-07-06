@@ -3,9 +3,7 @@ import '../utils/force_proxy_site_policy.dart';
 /// 应用设置数据模型 — 跨平台共享
 ///
 /// 所有平台共用此类。通过 re-export 暴露给各平台子项目。
-///
-/// 平台特有字段（如 autoConnectOnStartup）以可选方式存在于这里，
-/// 不需要的平台忽略即可（JSON 序列化自动处理）。
+/// 这里只保留连接和运行时状态；用户可配置的软件设置不再持久化。
 class AppSettings {
   static const int forceProxySiteLimit = ForceProxySitePolicy.defaultLimit;
 
@@ -22,19 +20,6 @@ class AppSettings {
   bool enableTun;
   String tunStack; // gvisor / system / mixed
 
-  // ── 系统代理 / 托盘 ──
-  bool minimizeToTray;
-  bool startOnBoot;
-  bool startMinimized;
-  bool closeToTray;
-
-  // ── 外观 ──
-  bool darkMode;
-
-  // ── 订阅 ──
-  bool autoUpdateSubscription;
-  int updateIntervalHours;
-
   // ── 延迟测试 ──
   String latencyTestUrl;
   String? lastSelectedNodeName;
@@ -42,10 +27,6 @@ class AppSettings {
 
   // ── 强制代理站点 ──
   List<String> forceProxySites;
-
-  // ── Android 特有 ──
-  bool autoConnectOnStartup;
-  bool autoCheckUpdate;
 
   AppSettings({
     this.proxyPort = 7890,
@@ -57,20 +38,11 @@ class AppSettings {
     bool? tunMode,
     bool? enableSystemProxy,
     this.tunStack = 'gvisor',
-    this.minimizeToTray = true,
-    this.startOnBoot = false,
-    this.startMinimized = false,
-    this.closeToTray = false,
-    this.darkMode = true,
-    this.autoUpdateSubscription = true,
-    this.updateIntervalHours = 24,
     this.latencyTestUrl = 'http://www.gstatic.com/generate_204',
     String? lastSelectedNodeName,
     String? lastSelectedNode,
     this.latencyTestTimeout = 5000,
     Iterable<Object?>? forceProxySites,
-    this.autoConnectOnStartup = false,
-    this.autoCheckUpdate = true,
   })  : enableTun = enableTun ??
             tunMode ??
             (enableSystemProxy == null ? false : !enableSystemProxy),
@@ -88,10 +60,6 @@ class AppSettings {
   bool get enableSystemProxy => !enableTun;
   set enableSystemProxy(bool value) => enableTun = !value;
 
-  /// macOS/Windows 别名（兼容旧存储）
-  bool get startWithWindows => startOnBoot;
-  set startWithWindows(bool value) => startOnBoot = value;
-
   // ── copyWith ──
 
   AppSettings copyWith({
@@ -104,21 +72,11 @@ class AppSettings {
     bool? tunMode,
     bool? enableSystemProxy,
     String? tunStack,
-    bool? minimizeToTray,
-    bool? startOnBoot,
-    bool? startWithWindows,
-    bool? startMinimized,
-    bool? closeToTray,
-    bool? darkMode,
-    bool? autoUpdateSubscription,
-    int? updateIntervalHours,
     String? latencyTestUrl,
     String? lastSelectedNodeName,
     String? lastSelectedNode,
     int? latencyTestTimeout,
     Iterable<Object?>? forceProxySites,
-    bool? autoConnectOnStartup,
-    bool? autoCheckUpdate,
   }) {
     return AppSettings(
       proxyPort: proxyPort ?? this.proxyPort,
@@ -130,21 +88,11 @@ class AppSettings {
           tunMode ??
           (enableSystemProxy == null ? this.enableTun : !enableSystemProxy),
       tunStack: tunStack ?? this.tunStack,
-      minimizeToTray: minimizeToTray ?? this.minimizeToTray,
-      startOnBoot: startOnBoot ?? startWithWindows ?? this.startOnBoot,
-      startMinimized: startMinimized ?? this.startMinimized,
-      closeToTray: closeToTray ?? this.closeToTray,
-      darkMode: darkMode ?? this.darkMode,
-      autoUpdateSubscription:
-          autoUpdateSubscription ?? this.autoUpdateSubscription,
-      updateIntervalHours: updateIntervalHours ?? this.updateIntervalHours,
       latencyTestUrl: latencyTestUrl ?? this.latencyTestUrl,
       lastSelectedNodeName:
           lastSelectedNodeName ?? lastSelectedNode ?? this.lastSelectedNodeName,
       latencyTestTimeout: latencyTestTimeout ?? this.latencyTestTimeout,
       forceProxySites: forceProxySites ?? this.forceProxySites,
-      autoConnectOnStartup: autoConnectOnStartup ?? this.autoConnectOnStartup,
-      autoCheckUpdate: autoCheckUpdate ?? this.autoCheckUpdate,
     );
   }
 
@@ -159,19 +107,10 @@ class AppSettings {
       'proxyMode': proxyMode.name,
       'enableTun': enableTun,
       'tunStack': tunStack,
-      'minimizeToTray': minimizeToTray,
-      'startOnBoot': startOnBoot,
-      'startMinimized': startMinimized,
-      'closeToTray': closeToTray,
-      'darkMode': darkMode,
-      'autoUpdateSubscription': autoUpdateSubscription,
-      'updateIntervalHours': updateIntervalHours,
       'latencyTestUrl': latencyTestUrl,
       'lastSelectedNodeName': lastSelectedNodeName,
       'latencyTestTimeout': latencyTestTimeout,
       'forceProxySites': forceProxySites,
-      'autoConnectOnStartup': autoConnectOnStartup,
-      'autoCheckUpdate': autoCheckUpdate,
     };
   }
 
@@ -184,17 +123,6 @@ class AppSettings {
       proxyMode: _parseProxyMode(json['proxyMode'] as String?),
       enableTun: _parseEnableTun(json),
       tunStack: json['tunStack']?.toString() ?? 'gvisor',
-      minimizeToTray: _parseBool(json['minimizeToTray'], true),
-      startOnBoot: _parseBool(
-        json['startOnBoot'] ?? json['startWithWindows'],
-        false,
-      ),
-      startMinimized: _parseBool(json['startMinimized'], false),
-      closeToTray: _parseBool(json['closeToTray'], false),
-      darkMode: _parseBool(json['darkMode'], true),
-      autoUpdateSubscription: _parseBool(json['autoUpdateSubscription'], true),
-      updateIntervalHours:
-          _parsePositiveInt(json['updateIntervalHours'], 24, min: 1, max: 720),
       latencyTestUrl: json['latencyTestUrl']?.toString() ??
           'http://www.gstatic.com/generate_204',
       lastSelectedNodeName:
@@ -204,8 +132,6 @@ class AppSettings {
           ? (json['forceProxySites'] as Iterable)
               .map((e) => e?.toString() ?? '')
           : null,
-      autoConnectOnStartup: _parseBool(json['autoConnectOnStartup'], false),
-      autoCheckUpdate: _parseBool(json['autoCheckUpdate'], true),
     );
   }
 
@@ -222,18 +148,9 @@ class AppSettings {
         other.proxyMode == proxyMode &&
         other.enableTun == enableTun &&
         other.tunStack == tunStack &&
-        other.minimizeToTray == minimizeToTray &&
-        other.startOnBoot == startOnBoot &&
-        other.startMinimized == startMinimized &&
-        other.closeToTray == closeToTray &&
-        other.darkMode == darkMode &&
-        other.autoUpdateSubscription == autoUpdateSubscription &&
-        other.updateIntervalHours == updateIntervalHours &&
         other.latencyTestUrl == latencyTestUrl &&
         other.lastSelectedNodeName == lastSelectedNodeName &&
         other.latencyTestTimeout == latencyTestTimeout &&
-        other.autoConnectOnStartup == autoConnectOnStartup &&
-        other.autoCheckUpdate == autoCheckUpdate &&
         _listEquals(other.forceProxySites, forceProxySites);
   }
 
@@ -247,18 +164,9 @@ class AppSettings {
       proxyMode,
       enableTun,
       tunStack,
-      minimizeToTray,
-      startOnBoot,
-      startMinimized,
-      closeToTray,
-      darkMode,
-      autoUpdateSubscription,
-      updateIntervalHours,
       latencyTestUrl,
       lastSelectedNodeName,
       latencyTestTimeout,
-      autoConnectOnStartup,
-      autoCheckUpdate,
       Object.hashAll(forceProxySites),
     );
   }
@@ -294,16 +202,6 @@ class AppSettings {
     return timeout != null && timeout >= 500 && timeout <= 60000
         ? timeout
         : fallback;
-  }
-
-  static int _parsePositiveInt(
-    Object? value,
-    int fallback, {
-    required int min,
-    required int max,
-  }) {
-    final parsed = int.tryParse(value?.toString() ?? '');
-    return parsed != null && parsed >= min && parsed <= max ? parsed : fallback;
   }
 
   static bool _parseBool(Object? value, bool fallback) {

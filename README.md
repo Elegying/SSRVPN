@@ -39,21 +39,18 @@ SSRVPN/
 
 ## 本地验证
 
-先验证共享包：
+仓库使用 Flutter workspace，推荐在根目录执行统一入口：
 
 ```bash
-cd packages/ssrvpn_shared
-dart pub get
-dart analyze
-dart test
+scripts/workspace.sh pub-get
+scripts/workspace.sh analyze
+scripts/workspace.sh test
 ```
 
-再分别进入三端应用目录执行：
+完整合并前检查（含资源、测试覆盖率阈值和发布前守卫）可执行：
 
 ```bash
-flutter pub get
-flutter analyze
-flutter test
+scripts/workspace.sh verify
 ```
 
 提交或合并前应保持 analyzer 没有 warning、info 和 error。
@@ -76,7 +73,7 @@ scripts/performance-baseline.sh
 - `make status`：查看本地分支、远端同步状态和交付目录状态。
 - `make sync`：在工作区干净时同步远端 `main`。
 - `make feature name=...`：从稳定分支创建功能分支。
-- `make verify`：运行共享包和三端基础检查。
+- `make verify`：运行仓库级完整校验（含资源、analyze、测试和覆盖率阈值）。
 - `make deps`：查看共享包和三端依赖是否有可升级版本，建议按月运行。
 - `scripts/check-secrets.sh`：扫描明显高危密钥泄露模式。
 - `scripts/smoke-release-artifacts.sh --allow-missing`：本地有 APK/DMG/ZIP 时检查产物结构。

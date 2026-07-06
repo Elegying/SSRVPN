@@ -241,7 +241,7 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
                         20),
                 gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                   maxCrossAxisExtent: 285,
-                  mainAxisExtent: 126,
+                  mainAxisExtent: 138,
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 12,
                 ),
@@ -362,6 +362,7 @@ class _UnlockCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
                   width: 30,
@@ -378,8 +379,10 @@ class _UnlockCard extends StatelessWidget {
                     item.name,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
+                    softWrap: true,
                     style: TextStyle(
                       fontSize: Responsive.sp(13),
+                      height: 1.18,
                       fontWeight: FontWeight.w800,
                       color: textColor,
                     ),

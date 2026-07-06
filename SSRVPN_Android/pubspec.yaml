@@ -1,10 +1,11 @@
-name: ssrvpn_client
+name: ssrvpn_android
 description: SSRVPN - 安全稳定的VPN客户端
 publish_to: 'none'
-version: 2.0.13+213
+version: 2.1.0+214
+resolution: workspace
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.6.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -18,6 +19,9 @@ dependencies:
 
   # HTTP client for subscription fetch and Clash API
   http: ^1.0.0
+
+  # Asset integrity checks
+  crypto: ^3.0.7
 
   # Shared preferences for settings persistence
   shared_preferences: ^2.5.5
@@ -33,7 +37,7 @@ dependencies:
     path: ../packages/ssrvpn_shared
 
   # UUID generation
-  uuid: ^4.5.3
+  uuid: '>=3.0.6 <5.0.0'
 
   # URL launcher for update downloads
   # url_launcher: ^6.2.0  # 已移除：AGP 版本冲突，改用 MethodChannel 调用原生 Intent 打开浏览器

@@ -15,10 +15,12 @@ import '../utils/responsive.dart';
 import '../widgets/connection_button.dart';
 import '../widgets/force_proxy_sites_dialog.dart';
 import '../widgets/glass_container.dart';
-import '../widgets/liquid_glass.dart' hide GlassInputDecoration;
-import '../widgets/node_list_tile.dart';
+import '../widgets/home_node_list.dart';
 import '../widgets/proxy_mode_selector.dart';
 import 'node_edit_screen.dart';
+
+part 'home_dashboard_part.dart';
+part 'home_dialogs_part.dart';
 
 /// 主屏幕 — 移动端优化设计
 class HomeScreen extends StatefulWidget {
@@ -49,12 +51,12 @@ class HomeScreenState extends State<HomeScreen>
   ProxyNode? _selectedNode;
   final Set<String> _expandedSubscriptionGroups = {};
 
-  final Map<String, int> _latencies = {};
+  final HomeLatencyController _latencyController = HomeLatencyController();
   Timer? _latencyBatchTimer;
-  final Map<String, int> _pendingLatencies = {};
   int _lastRevision = -1;
   bool _disposed = false;
   ClashService? _registeredClashService;
+  SubscriptionService? _subscriptionService;
   late final VoidCallback _onClashAutoConnect = _handleClashAutoConnect;
   late final VoidCallback _onClashStatusChanged = _handleClashStatusChanged;
 
@@ -70,10 +72,29 @@ class HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadInitialData());
   }
 
-  void _onSubscriptionChanged(SubscriptionService subService) {
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final subService = context.read<SubscriptionService>();
+    if (identical(_subscriptionService, subService)) return;
+    _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
+    _subscriptionService = subService;
+    subService.addListener(_handleSubscriptionServiceChanged);
+    _onSubscriptionChanged(subService);
+  }
+
+  void _handleSubscriptionServiceChanged() {
+    final subService = _subscriptionService;
+    if (subService == null || !mounted || _disposed) return;
+    if (_onSubscriptionChanged(subService)) {
+      setState(() {});
+    }
+  }
+
+  bool _onSubscriptionChanged(SubscriptionService subService) {
     final controller = HomeNodeController(
       nodes: _nodes,
-      latencies: _latencies,
+      latencies: _latencyController.latencies,
       lastRevision: _lastRevision,
       selectedNode: _selectedNode,
     );
@@ -81,10 +102,10 @@ class HomeScreenState extends State<HomeScreen>
       revision: subService.revision,
       allNodes: subService.allNodes,
     );
-    if (!sync.changed) return;
+    if (!sync.changed) return false;
     _lastRevision = controller.lastRevision;
     _nodes = controller.nodes;
-    if (sync.shouldPromptForImport) return;
+    if (sync.shouldPromptForImport) return true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _disposed) return;
       if (!sync.isFirstSync && _isConnected) {
@@ -93,6 +114,7 @@ class HomeScreenState extends State<HomeScreen>
         unawaited(_autoTestAllNodes());
       }
     });
+    return true;
   }
 
   Future<void> _reloadConfig() async {
@@ -145,11 +167,9 @@ class HomeScreenState extends State<HomeScreen>
   }
 
   void _flushPendingLatencies() {
-    if (_pendingLatencies.isEmpty || !mounted || _disposed) return;
-    final batch = Map<String, int>.from(_pendingLatencies);
-    _pendingLatencies.clear();
+    if (!_latencyController.hasPending || !mounted || _disposed) return;
     setState(() {
-      HomeNodeController.applyLatenciesTo(_nodes, _latencies, batch);
+      _latencyController.flushTo(_nodes);
     });
   }
 
@@ -193,6 +213,7 @@ class HomeScreenState extends State<HomeScreen>
       }
     }
     _latencyBatchTimer?.cancel();
+    _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
     _glowController.dispose();
     super.dispose();
   }
@@ -247,7 +268,7 @@ class HomeScreenState extends State<HomeScreen>
     setState(() {
       _isConnected = running;
       if (!running) {
-        _latencies.clear();
+        _latencyController.clear();
         _selectedNode = null;
       }
     });
@@ -280,7 +301,7 @@ class HomeScreenState extends State<HomeScreen>
       setState(() {
         _isConnected = false;
         _isConnecting = false;
-        _latencies.clear();
+        _latencyController.clear();
       });
       _glowController.stop();
     } else {
@@ -453,18 +474,14 @@ class HomeScreenState extends State<HomeScreen>
     if (mounted && !_disposed) {
       setState(() {
         _testingNodeName = null;
-        HomeNodeController.applyLatenciesTo(
-          _nodes,
-          _latencies,
-          {nodeName: latency},
-        );
+        _latencyController.applyNow(_nodes, nodeName, latency);
       });
       _sortNodesByLatency();
     }
   }
 
   Future<void> _handleSelectNode(ProxyNode node) async {
-    if (!HomeNodeController.canSelectNode(node, _latencies)) return;
+    if (!_latencyController.canSelect(node)) return;
     if (!_isConnected) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -500,7 +517,7 @@ class HomeScreenState extends State<HomeScreen>
       MaterialPageRoute(builder: (_) => NodeEditScreen(node: node)),
     );
     if (success == true && mounted) {
-      _latencies.remove(node.name);
+      _latencyController.remove(node.name);
       _loadInitialData();
     }
   }
@@ -540,9 +557,9 @@ class HomeScreenState extends State<HomeScreen>
     if (_nodes.isEmpty) return;
     final clashService = context.read<ClashService>();
     setState(() => _isBatchTesting = true);
-    _pendingLatencies.clear();
+    _latencyController.clearPending();
     await clashService.testAllLatencies(_nodes, (name, latency) {
-      _pendingLatencies[name] = latency;
+      _latencyController.queue(name, latency);
       _scheduleLatencyFlush();
     });
     _latencyBatchTimer?.cancel();
@@ -557,9 +574,9 @@ class HomeScreenState extends State<HomeScreen>
     if (_nodes.isEmpty) return;
     final clashService = context.read<ClashService>();
     setState(() => _isBatchTesting = true);
-    _pendingLatencies.clear();
+    _latencyController.clearPending();
     await clashService.testAllLatencies(_nodes, (name, latency) {
-      _pendingLatencies[name] = latency;
+      _latencyController.queue(name, latency);
       _scheduleLatencyFlush();
     });
     _latencyBatchTimer?.cancel();
@@ -572,173 +589,11 @@ class HomeScreenState extends State<HomeScreen>
 
   void _sortNodesByLatency() {
     setState(() {
-      _nodes = HomeNodeController.timeoutLast(_nodes, _latencies);
+      _nodes = _latencyController.timeoutLast(_nodes);
     });
   }
 
   // ── 设置入口已移除，关键设置项融入首页 ──
-
-  void _showTutorial(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: GlassContainer(
-          borderRadius: 16,
-          enablePress: false,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(ctx).size.width * 0.88,
-            ),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(24, 24, 24, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              AppTheme.primaryColor,
-                              AppTheme.accentColor
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(Icons.menu_book_rounded,
-                            color: Colors.white, size: 20),
-                      ),
-                      SizedBox(width: 12),
-                      Text('使用教程',
-                          style: TextStyle(
-                              fontSize: Responsive.sp(18),
-                              fontWeight: FontWeight.w700,
-                              color: isDark
-                                  ? AppTheme.darkTextPrimary
-                                  : AppTheme.lightTextPrimary)),
-                    ],
-                  ),
-                  SizedBox(height: 20),
-                  for (var i = 0; i < _homeTutorialSteps.length; i++) ...[
-                    _TutorialStep(
-                      step: '${i + 1}',
-                      text: _homeTutorialSteps[i].text,
-                    ),
-                    if (i != _homeTutorialSteps.length - 1)
-                      SizedBox(height: 12),
-                  ],
-                  SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        backgroundColor: AppTheme.primaryColor
-                            .withValues(alpha: (isDark ? 25 : 15) / 255),
-                      ),
-                      child: Text('知道了',
-                          style: TextStyle(
-                              fontSize: Responsive.sp(14),
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.primaryColor)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showLogs(BuildContext context) {
-    final clashService = context.read<ClashService>();
-    final logs = clashService.recentLogs;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        height: MediaQuery.of(ctx).size.height * 0.7,
-        decoration: BoxDecoration(
-          color: const Color(0xFF0E1018),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-          border: Border.all(color: AppTheme.darkBorder),
-        ),
-        child: Column(
-          children: [
-            Container(
-              padding: EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                border: Border(bottom: BorderSide(color: AppTheme.darkBorder)),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.bug_report,
-                      size: 18, color: AppTheme.warningColor),
-                  SizedBox(width: 8),
-                  Text('运行日志',
-                      style: TextStyle(
-                          fontSize: Responsive.sp(16),
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.darkTextPrimary)),
-                  const Spacer(),
-                  IconButton(
-                    icon: Icon(Icons.copy,
-                        size: 18, color: AppTheme.darkTextSecondary),
-                    onPressed: () async {
-                      await Clipboard.setData(
-                          ClipboardData(text: clashService.recentLogs));
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
-                            content: Text('日志已复制'),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.close,
-                        size: 18, color: AppTheme.darkTextSecondary),
-                    onPressed: () => Navigator.pop(ctx),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.all(14),
-                child: SelectableText(
-                  logs.isEmpty ? '暂无日志' : logs,
-                  style: TextStyle(
-                    fontSize: Responsive.sp(12),
-                    fontFamily: 'monospace',
-                    color: AppTheme.darkTextSecondary,
-                    height: 1.6,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -750,694 +605,55 @@ class HomeScreenState extends State<HomeScreen>
     final subColor =
         isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
 
-    final subService = context.watch<SubscriptionService>();
-    _onSubscriptionChanged(subService);
-
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: SafeArea(
-        child: Builder(
-          builder: (context) {
-            Responsive.init(context);
-            // P2-4: 横屏时左右分栏
-            if (Responsive.isLandscape) {
-              return Row(
-                children: [
-                  Expanded(
-                    flex: 5,
-                    child: Column(
-                      children: [
-                        _buildTopBar(isDark, textColor),
-                        _buildStatusBar(isDark, textColor, subColor, settings),
-                        Expanded(child: SizedBox()),
-                      ],
-                    ),
-                  ),
-                  VerticalDivider(
-                      width: 1,
-                      color:
-                          isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
-                  Expanded(
-                    flex: 7,
-                    child: Column(
-                      children: [
-                        _buildNodeListHeader(textColor, subColor, isDark),
-                        Expanded(
-                            child: _buildNodeListView(
-                                textColor, subColor, isDark)),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            }
-            return Column(
-              children: [
-                _buildTopBar(isDark, textColor),
-                _buildStatusBar(isDark, textColor, subColor, settings),
-                Expanded(child: _buildNodeList(textColor, subColor, isDark)),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTopBar(bool isDark, Color textColor) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        Responsive.gap(16),
-        Responsive.gap(8),
-        Responsive.gap(16),
-        Responsive.gap(4),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: Responsive.wp(32),
-            height: Responsive.wp(32),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                  colors: [AppTheme.primaryColor, AppTheme.accentColor]),
-              borderRadius: BorderRadius.circular(Responsive.radius(8)),
-            ),
-            child: Icon(Icons.shield_rounded,
-                color: Colors.white, size: Responsive.icon(18)),
-          ),
-          SizedBox(width: Responsive.gap(10)),
-          Text('SSRVPN',
-              style: TextStyle(
-                  fontSize: Responsive.sp(18),
-                  fontWeight: FontWeight.w700,
-                  color: textColor,
-                  letterSpacing: 0.5)),
-          const Spacer(),
-          if (_isConnected)
-            Container(
-              padding: EdgeInsets.symmetric(
-                  horizontal: Responsive.gap(8), vertical: Responsive.gap(4)),
-              decoration: BoxDecoration(
-                color: AppTheme.successColor.withValues(alpha: 20 / 255),
-                borderRadius: BorderRadius.circular(Responsive.radius(8)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.check_circle,
-                      size: Responsive.icon(14), color: AppTheme.successColor),
-                  SizedBox(width: Responsive.gap(4)),
-                  Text('已连接',
-                      style: TextStyle(
-                          fontSize: Responsive.sp(12),
-                          color: AppTheme.successColor,
-                          fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
-          SizedBox(width: Responsive.gap(8)),
-          GestureDetector(
-            onTap: () => _showTutorial(context),
-            child: Container(
-              padding: EdgeInsets.symmetric(
-                  horizontal: Responsive.gap(10), vertical: Responsive.gap(6)),
-              decoration: BoxDecoration(
-                color: isDark ? AppTheme.darkCard : AppTheme.lightBg,
-                borderRadius: BorderRadius.circular(Responsive.radius(8)),
-                border: Border.all(
-                    color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.menu_book_rounded,
-                      size: Responsive.icon(14),
-                      color: isDark
-                          ? AppTheme.darkTextSecondary
-                          : AppTheme.lightTextSecondary),
-                  SizedBox(width: Responsive.gap(4)),
-                  Text('使用教程',
-                      style: TextStyle(
-                          fontSize: Responsive.sp(12),
-                          fontWeight: FontWeight.w500,
-                          color: isDark
-                              ? AppTheme.darkTextSecondary
-                              : AppTheme.lightTextSecondary)),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusBar(
-      bool isDark, Color textColor, Color subColor, AppSettings settings) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(Responsive.gap(16), Responsive.gap(8),
-          Responsive.gap(16), Responsive.gap(8)),
-      child: AnimatedBuilder(
-        animation: _glowController,
-        builder: (context, child) {
-          final glowIntensity = _isConnected
-              ? 0.25 + 0.15 * math.sin(_glowController.value * 2 * math.pi)
-              : 0.0;
-          final glowColor =
-              AppTheme.successColor.withValues(alpha: glowIntensity);
-          return Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(Responsive.radius(16)),
-              boxShadow: _isConnected
-                  ? [
-                      BoxShadow(
-                          color: glowColor, blurRadius: 24, spreadRadius: -2),
-                      BoxShadow(
-                          color: AppTheme.accentColor
-                              .withValues(alpha: glowIntensity * 80 / 255),
-                          blurRadius: 40,
-                          spreadRadius: -8),
-                    ]
-                  : null,
-            ),
-            child: child,
-          );
-        },
-        child: GlassContainer(
-          borderRadius: Responsive.radius(16),
-          padding: EdgeInsets.symmetric(
-              vertical: Responsive.gap(20), horizontal: Responsive.gap(16)),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  ConnectionButton(
-                    isConnected: _isConnected,
-                    isConnecting: _isConnecting,
-                    onTap: _handleConnectToggle,
-                  ),
-                  SizedBox(width: Responsive.gap(12)),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _ForceProxyButton(
-                            onTap: _showForceProxySitesDialog,
-                            enabled: !_isConnecting),
-                        SizedBox(height: Responsive.gap(10)),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 300),
-                          child: Text(
-                            _isConnecting
-                                ? '正在连接...'
-                                : _isConnected
-                                    ? '已连接'
-                                    : '未连接',
-                            key: ValueKey(_isConnecting
-                                ? 'c'
-                                : _isConnected
-                                    ? 'y'
-                                    : 'n'),
-                            style: TextStyle(
-                                fontSize: Responsive.sp(18),
-                                fontWeight: FontWeight.w700,
-                                color: _isConnected
-                                    ? AppTheme.successColor
-                                    : textColor),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        SizedBox(height: Responsive.gap(4)),
-                        if (_isConnected)
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: AppTheme.successColor
-                                  .withValues(alpha: 15 / 255),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                                '${settings.proxyMode.chineseName} · 端口 ${settings.proxyPort}',
-                                style: TextStyle(
-                                    fontSize: Responsive.sp(11),
-                                    color: subColor,
-                                    fontWeight: FontWeight.w500)),
-                          ),
-                        if (_errorMessage != null) ...[
-                          SizedBox(height: 8),
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppTheme.errorColor
-                                  .withValues(alpha: 15 / 255),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                  color: AppTheme.errorColor
-                                      .withValues(alpha: 40 / 255)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.error_outline,
-                                        size: 12, color: AppTheme.errorColor),
-                                    SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(_errorMessage!,
-                                          style: TextStyle(
-                                              color: AppTheme.errorColor,
-                                              fontSize: Responsive.sp(11))),
-                                    ),
-                                  ],
-                                ),
-                                SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    GestureDetector(
-                                      onTap: () => _showLogs(context),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.bug_report,
-                                              size: 12,
-                                              color: AppTheme.warningColor),
-                                          SizedBox(width: 4),
-                                          Text('查看日志',
-                                              style: TextStyle(
-                                                  fontSize: Responsive.sp(10),
-                                                  color: AppTheme.warningColor
-                                                      .withValues(
-                                                          alpha: 200 / 255),
-                                                  decoration: TextDecoration
-                                                      .underline)),
-                                        ],
-                                      ),
-                                    ),
-                                    SizedBox(width: 12),
-                                    GestureDetector(
-                                      onTap: () => _handleConnectToggle(),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.refresh,
-                                              size: 12,
-                                              color: AppTheme.primaryColor),
-                                          SizedBox(width: 4),
-                                          Text('重试',
-                                              style: TextStyle(
-                                                  fontSize: Responsive.sp(10),
-                                                  color: AppTheme.primaryColor
-                                                      .withValues(
-                                                          alpha: 200 / 255),
-                                                  decoration:
-                                                      TextDecoration.underline,
-                                                  fontWeight: FontWeight.w700)),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 14),
-              ProxyModeSelector(
-                isDark: isDark,
-                settings: settings,
-                enabled: !_isConnecting,
-                onChanged: _handleProxyModeChanged,
-              ),
-            ],
-          ),
-        ),
+      body: _AndroidHomeDashboard(
+        isDark: isDark,
+        textColor: textColor,
+        subColor: subColor,
+        settings: settings,
+        nodeList: _buildNodeList(textColor, subColor, isDark),
+        isConnected: _isConnected,
+        isConnecting: _isConnecting,
+        errorMessage: _errorMessage,
+        glowAnimation: _glowController,
+        onToggleConnection: _handleConnectToggle,
+        onShowTutorial: () => _showAndroidHomeTutorialDialog(context),
+        onShowForceProxySites: _showForceProxySitesDialog,
+        onShowLogs: () => _showAndroidHomeLogsSheet(context),
+        onProxyModeChanged: _handleProxyModeChanged,
       ),
     );
   }
 
   Widget _buildNodeList(Color textColor, Color subColor, bool isDark) {
-    return Column(
-      children: [
-        _buildNodeListHeader(textColor, subColor, isDark),
-        Expanded(child: _buildNodeListView(textColor, subColor, isDark)),
-      ],
-    );
-  }
-
-  Widget _buildNodeListHeader(Color textColor, Color subColor, bool isDark) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(Responsive.gap(16), Responsive.gap(4),
-          Responsive.gap(16), Responsive.gap(4)),
-      child: Row(
-        children: [
-          Container(
-            width: Responsive.wp(3),
-            height: Responsive.hp(14),
-            decoration: BoxDecoration(
-                color: AppTheme.primaryColor,
-                borderRadius: BorderRadius.circular(2)),
-          ),
-          SizedBox(width: Responsive.gap(8)),
-          Text('全部节点',
-              style: TextStyle(
-                  fontSize: Responsive.sp(15),
-                  fontWeight: FontWeight.w700,
-                  color: textColor)),
-          SizedBox(width: Responsive.gap(6)),
-          Container(
-            padding: EdgeInsets.symmetric(
-                horizontal: Responsive.gap(7), vertical: Responsive.gap(2)),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withValues(alpha: 20 / 255),
-              borderRadius: BorderRadius.circular(Responsive.radius(8)),
-            ),
-            child: Text('${_nodes.length}',
-                style: TextStyle(
-                    fontSize: Responsive.sp(11),
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.primaryColor)),
-          ),
-          const Spacer(),
-          if (_isBatchTesting)
-            SizedBox(
-              width: Responsive.icon(14),
-              height: Responsive.icon(14),
-              child: const CircularProgressIndicator(
-                  strokeWidth: 2, color: AppTheme.primaryColor),
-            )
-          else if (_isConnected)
-            _SmallButton(
-                icon: Icons.speed, label: '测速', onTap: _handleTestAllLatency),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNodeListView(Color textColor, Color subColor, bool isDark) {
-    if (_isConnecting) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2.5, color: AppTheme.primaryColor),
-            ),
-            SizedBox(height: 14),
-            Text('正在启动VPN核心...',
-                style: TextStyle(fontSize: Responsive.sp(13), color: subColor)),
-          ],
-        ),
-      );
-    }
-
-    if (_nodes.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: AppTheme.primaryColor.withValues(alpha: 10 / 255),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.dns_outlined,
-                  size: 28,
-                  color: AppTheme.primaryColor.withValues(alpha: 100 / 255)),
-            ),
-            SizedBox(height: 16),
-            Text('暂无节点',
-                style: TextStyle(
-                    fontSize: Responsive.sp(15),
-                    fontWeight: FontWeight.w600,
-                    color: textColor)),
-            SizedBox(height: 6),
-            Text('请先在订阅页面添加订阅链接',
-                style: TextStyle(fontSize: Responsive.sp(12), color: subColor)),
-          ],
-        ),
-      );
-    }
-
-    final sections = HomeNodeController.buildDisplaySections(_nodes);
-    return ListView(
-      padding: EdgeInsets.fromLTRB(
-          12,
-          6,
-          12,
-          MediaQuery.of(context).padding.bottom +
-              LiquidGlassNavBar.height +
-              20),
-      children: [
-        for (final section in sections)
-          ..._buildNodeSection(section, textColor, subColor, isDark),
-      ],
-    );
-  }
-
-  List<Widget> _buildNodeSection(
-    HomeNodeSection section,
-    Color textColor,
-    Color subColor,
-    bool isDark,
-  ) {
-    if (!section.collapsible) {
-      return [
-        for (final node in section.nodes)
-          _buildNodeTile(node, textColor, subColor, isDark),
-      ];
-    }
-
-    final title = section.title!;
-    final expanded = _expandedSubscriptionGroups.contains(title);
-    return [
-      _SubscriptionGroupHeader(
-        title: title,
-        count: section.nodes.length,
-        expanded: expanded,
-        textColor: textColor,
-        subColor: subColor,
-        isDark: isDark,
-        onTap: () {
-          setState(() {
-            if (!expanded) {
-              _expandedSubscriptionGroups.add(title);
-            } else {
-              _expandedSubscriptionGroups.remove(title);
-            }
-          });
-        },
-      ),
-      if (expanded)
-        for (final node in section.nodes)
-          _buildNodeTile(node, textColor, subColor, isDark),
-    ];
-  }
-
-  Widget _buildNodeTile(
-    ProxyNode node,
-    Color textColor,
-    Color subColor,
-    bool isDark,
-  ) {
-    final latency = _latencies[node.name] ?? node.latency;
-    final isTesting = _testingNodeName == node.name;
-    final isSelected = _selectedNode?.name == node.name;
-    final isTimeout = latency != null && (latency <= 0 || latency >= 65535);
-
-    return NodeListTile(
-      node: node,
-      latency: latency,
-      isTesting: isTesting,
-      isSelected: isSelected,
-      isTimeout: isTimeout,
+    return HomeNodeList(
+      nodes: _nodes,
+      latencyController: _latencyController,
+      expandedSubscriptionGroups: _expandedSubscriptionGroups,
+      selectedNode: _selectedNode,
+      testingNodeName: _testingNodeName,
+      isConnecting: _isConnecting,
+      isBatchTesting: _isBatchTesting,
       isConnected: _isConnected,
-      onTestLatency: () =>
-          _handleTestLatency(node.name, node.server, node.port),
-      onTap: () => _handleSelectNode(node),
-      onLongPress: () => _editNode(node),
-      onEdit: () => _editNode(node),
       textColor: textColor,
       subColor: subColor,
       isDark: isDark,
-    );
-  }
-}
-
-class _SubscriptionGroupHeader extends StatelessWidget {
-  final String title;
-  final int count;
-  final bool expanded;
-  final Color textColor;
-  final Color subColor;
-  final bool isDark;
-  final VoidCallback onTap;
-
-  const _SubscriptionGroupHeader({
-    required this.title,
-    required this.count,
-    required this.expanded,
-    required this.textColor,
-    required this.subColor,
-    required this.isDark,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: Responsive.gap(6)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(Responsive.radius(10)),
-        onTap: onTap,
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: Responsive.gap(12),
-            vertical: Responsive.gap(10),
-          ),
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.darkCard : AppTheme.lightBg,
-            borderRadius: BorderRadius.circular(Responsive.radius(10)),
-            border: Border.all(
-              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                expanded
-                    ? Icons.keyboard_arrow_down_rounded
-                    : Icons.keyboard_arrow_right_rounded,
-                size: Responsive.icon(20),
-                color: AppTheme.primaryColor,
-              ),
-              SizedBox(width: Responsive.gap(8)),
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: Responsive.sp(13),
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                  ),
-                ),
-              ),
-              SizedBox(width: Responsive.gap(8)),
-              Text(
-                '$count',
-                style: TextStyle(
-                  fontSize: Responsive.sp(11),
-                  fontWeight: FontWeight.w600,
-                  color: subColor,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ForceProxyButton extends StatelessWidget {
-  final VoidCallback onTap;
-  final bool enabled;
-  const _ForceProxyButton({required this.onTap, required this.enabled});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: Responsive.wp(170)),
-      child: Opacity(
-        opacity: enabled ? 1 : 0.55,
-        child: GestureDetector(
-          onTap: enabled ? onTap : null,
-          child: Container(
-            padding: EdgeInsets.symmetric(
-                horizontal: Responsive.gap(8), vertical: Responsive.gap(6)),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryColor
-                  .withValues(alpha: (isDark ? 24 : 16) / 255),
-              borderRadius: BorderRadius.circular(Responsive.radius(10)),
-              border: Border.all(
-                  color: AppTheme.primaryColor
-                      .withValues(alpha: (isDark ? 70 : 55) / 255)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.add_link_rounded,
-                    size: Responsive.icon(14), color: AppTheme.primaryColor),
-                SizedBox(width: Responsive.gap(4)),
-                Flexible(
-                  child: Text('添加强制代理网站',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: Responsive.sp(10),
-                          height: 1.2,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.primaryColor)),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SmallButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  const _SmallButton(
-      {required this.icon, required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.darkCard : AppTheme.lightBg,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 13, color: AppTheme.primaryColor),
-            SizedBox(width: 3),
-            Text(label,
-                style: TextStyle(
-                    fontSize: Responsive.sp(11),
-                    fontWeight: FontWeight.w500,
-                    color: AppTheme.primaryColor)),
-          ],
-        ),
-      ),
+      onTestAllLatency: _handleTestAllLatency,
+      onTestLatency: (node) =>
+          _handleTestLatency(node.name, node.server, node.port),
+      onSelectNode: _handleSelectNode,
+      onLongPressNode: _editNode,
+      onEditNode: _editNode,
+      onToggleSubscriptionGroup: (title, expanded) {
+        setState(() {
+          if (!expanded) {
+            _expandedSubscriptionGroups.add(title);
+          } else {
+            _expandedSubscriptionGroups.remove(title);
+          }
+        });
+      },
     );
   }
 }
@@ -1445,49 +661,4 @@ class _SmallButton extends StatelessWidget {
 class _TutorialStepData {
   final String text;
   const _TutorialStepData(this.text);
-}
-
-class _TutorialStep extends StatelessWidget {
-  final String step;
-  final String text;
-  const _TutorialStep({required this.step, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: AppTheme.primaryColor
-                .withValues(alpha: (isDark ? 30 : 20) / 255),
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: Text(step,
-                style: TextStyle(
-                    fontSize: Responsive.sp(12),
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.primaryColor)),
-          ),
-        ),
-        SizedBox(width: 10),
-        Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(top: 2),
-            child: Text(text,
-                style: TextStyle(
-                    fontSize: Responsive.sp(14),
-                    height: 1.5,
-                    color: isDark
-                        ? AppTheme.darkTextPrimary
-                        : AppTheme.lightTextPrimary)),
-          ),
-        ),
-      ],
-    );
-  }
 }

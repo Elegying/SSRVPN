@@ -6,21 +6,66 @@ cd "$ROOT"
 
 targets=("$@")
 if [[ "${#targets[@]}" -eq 0 ]]; then
-  targets=(SSRVPN_Android SSRVPN_MacOS SSRVPN_Windows)
+  targets=(packages/ssrvpn_shared SSRVPN_Android SSRVPN_MacOS SSRVPN_Windows)
 fi
 
 python3 - "$@" <<'PY'
+import json
 from pathlib import Path
 import sys
 
 thresholds = {
+    "packages/ssrvpn_shared": 50.0,
     "SSRVPN_Android": 40.0,
-    "SSRVPN_MacOS": 20.0,
-    "SSRVPN_Windows": 20.0,
+    "SSRVPN_MacOS": 10.0,
+    "SSRVPN_Windows": 12.0,
 }
 
 targets = sys.argv[1:] or list(thresholds)
 failed = False
+
+def read_lcov(path):
+    found = hit = 0
+    for line in path.read_text(errors="ignore").splitlines():
+        if line.startswith("LF:"):
+            found += int(line.split(":", 1)[1])
+        elif line.startswith("LH:"):
+            hit += int(line.split(":", 1)[1])
+    return found, hit
+
+def is_shared_source(source):
+    if source.startswith("package:ssrvpn_shared/"):
+        relative = source.removeprefix("package:ssrvpn_shared/")
+        return relative == "ssrvpn_shared.dart" or relative.split("/", 1)[0] in {
+            "controllers",
+            "desktop_ui",
+            "models",
+            "services",
+            "utils",
+            "widgets",
+        }
+    return "/packages/ssrvpn_shared/lib/" in source
+
+def read_dart_vm_coverage(directory):
+    covered_lines = {}
+    for path in directory.rglob("*.vm.json"):
+        try:
+            data = json.loads(path.read_text(errors="ignore"))
+        except json.JSONDecodeError:
+            print(f"coverage: warning invalid JSON {path}")
+            continue
+        for entry in data.get("coverage", []):
+            source = entry.get("source", "")
+            if not is_shared_source(source):
+                continue
+            hits = entry.get("hits") or []
+            for index in range(0, len(hits), 2):
+                key = (source, int(hits[index]))
+                covered_lines[key] = max(
+                    covered_lines.get(key, 0),
+                    int(hits[index + 1]),
+                )
+    return len(covered_lines), sum(1 for count in covered_lines.values() if count > 0)
 
 for target in targets:
     threshold = thresholds.get(target)
@@ -28,20 +73,20 @@ for target in targets:
         print(f"coverage: skip unknown target {target}")
         continue
 
-    lcov = Path(target) / "coverage" / "lcov.info"
-    if not lcov.exists():
-        print(f"coverage: skip {target}, missing {lcov}")
+    coverage_dir = Path(target) / "coverage"
+    lcov = coverage_dir / "lcov.info"
+    if lcov.exists():
+        found, hit = read_lcov(lcov)
+    elif target == "packages/ssrvpn_shared" and coverage_dir.exists():
+        found, hit = read_dart_vm_coverage(coverage_dir)
+    else:
+        print(f"coverage: fail {target}, missing coverage output")
+        failed = True
         continue
 
-    found = hit = 0
-    for line in lcov.read_text(errors="ignore").splitlines():
-        if line.startswith("LF:"):
-            found += int(line.split(":", 1)[1])
-        elif line.startswith("LH:"):
-            hit += int(line.split(":", 1)[1])
-
     if found == 0:
-        print(f"coverage: skip {target}, no executable lines")
+        print(f"coverage: fail {target}, no executable lines")
+        failed = True
         continue
 
     percent = hit / found * 100

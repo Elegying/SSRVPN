@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../services/system_proxy_service.dart';
@@ -56,18 +57,6 @@ class ClashService extends ClashServiceBase {
   @override
   void debugLog(String message) {
     AppLogger.info('Clash', message);
-  }
-
-  // Windows prefers a shorter connection timeout for the Clash API client.
-  // Because the base class manages the HttpClient internally, the subclass
-  // can't replace it; the 1 s difference is negligible in practice.
-  // Keeping _createDirectHttpClient as a reference if base API changes.
-  // ignore: unused_element
-  static HttpClient _createDirectHttpClient() {
-    final client = HttpClient();
-    client.findProxy = (_) => 'DIRECT';
-    client.connectionTimeout = const Duration(seconds: 2);
-    return client;
   }
 
   @override
@@ -127,6 +116,9 @@ class ClashService extends ClashServiceBase {
     );
     _corePath = '$exeDir${Platform.pathSeparator}mihomo.exe';
     await Directory(configDir).create(recursive: true);
+    await Directory(
+      '$configDir${Platform.pathSeparator}providers',
+    ).create(recursive: true);
     _logFile = File('$configDir${Platform.pathSeparator}ssrvpn.log');
     await _rotateLogFile();
     await _proxyService.initialize(configDir);
@@ -269,20 +261,6 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
   /// 预下载 MMDB 文件
   Future<void> _ensureMMDB() async {
     final metadbPath = '$configDir${Platform.pathSeparator}geoip.metadb';
-    final mmdbPath = '$configDir${Platform.pathSeparator}country.mmdb';
-
-    try {
-      final m = File(metadbPath);
-      if (await m.exists() && await m.length() > 1024 * 1024) {
-        log('✅ MMDB 已存在');
-        return;
-      }
-      final g = File(mmdbPath);
-      if (await g.exists() && await g.length() > 1024 * 1024) {
-        log('✅ MMDB 已存在');
-        return;
-      }
-    } catch (_) {}
 
     // 从内置资源复制（gzip 压缩）
     try {
@@ -290,11 +268,23 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
       final assetPath =
           '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}data${Platform.pathSeparator}flutter_assets${Platform.pathSeparator}assets${Platform.pathSeparator}geoip.metadb.gz';
       final compressed = await File(assetPath).readAsBytes();
-      final bytes = gzip.decode(compressed);
+      final assetRevision = crypto.sha256.convert(compressed).toString();
+      final marker = File('$metadbPath.rev');
       final file = File(metadbPath);
+
+      if (await file.exists() &&
+          await file.length() > 1024 * 1024 &&
+          await marker.exists() &&
+          (await marker.readAsString()) == assetRevision) {
+        log('✅ MMDB 已存在');
+        return;
+      }
+
+      final bytes = gzip.decode(compressed);
       final temp = File('$metadbPath.tmp');
       await temp.writeAsBytes(bytes, flush: true);
       await temp.rename(file.path);
+      await marker.writeAsString(assetRevision, flush: true);
       log(
         '✅ MMDB 已从内置资源解压 (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB)',
       );
@@ -307,164 +297,52 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
   // ── Config generation ──
 
   /// 生成 Clash 配置（Windows 专用：含 SSRVPN-GEO 组和 Windows 专用规则）
+  bool _geoipDatabaseExists() {
+    try {
+      final mmdb = File('$configDir${Platform.pathSeparator}country.mmdb');
+      if (mmdb.existsSync() && mmdb.lengthSync() > 1024 * 1024) return true;
+      final metadb = File('$configDir${Platform.pathSeparator}geoip.metadb');
+      if (metadb.existsSync() && metadb.lengthSync() > 1024 * 1024) {
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  String _windowsTunConfig(AppSettings settings) {
+    final buffer = StringBuffer()
+      ..writeln('tun:')
+      ..writeln('  enable: ${settings.enableTun}')
+      ..writeln('  stack: ${settings.tunStack}')
+      ..writeln('  dns-hijack:')
+      ..writeln('    - any:53')
+      ..writeln('  auto-route: true')
+      ..writeln('  auto-detect-interface: true')
+      ..writeln('  route-exclude-address:');
+    for (final address in AppConstants.routeExcludeAddresses) {
+      buffer.writeln('    - $address');
+    }
+    return buffer.toString().trimRight();
+  }
+
   String generateClashConfig(
     String rawYaml,
     AppSettings appSettings, {
     String? preferredNodeName,
   }) {
-    final proxyNames = extractProxyNames(rawYaml);
-    final proxiesText = extractSection(rawYaml, 'proxies');
-    if (proxyNames.isEmpty || proxiesText.isEmpty) {
-      throw Exception('订阅中没有可用节点，请先刷新订阅');
-    }
-
-    final selectedProxyNames = List<String>.from(proxyNames);
-    if (preferredNodeName != null &&
-        selectedProxyNames.remove(preferredNodeName)) {
-      selectedProxyNames.insert(0, preferredNodeName);
-    }
-
-    final mmdbExists = (() {
-      try {
-        final m = File('$configDir${Platform.pathSeparator}country.mmdb');
-        if (m.existsSync() && m.lengthSync() > 1024 * 1024) return true;
-        final g = File('$configDir${Platform.pathSeparator}geoip.metadb');
-        if (g.existsSync() && g.lengthSync() > 1024 * 1024) return true;
-      } catch (_) {}
-      return false;
-    })();
-
-    final result = StringBuffer();
-    result.writeln('# ===== SSRVPN Windows =====');
-    result.writeln('mixed-port: ${appSettings.proxyPort}');
-    result.writeln('socks-port: ${appSettings.socksPort}');
-    result.writeln('allow-lan: false');
-    result.writeln('mode: ${appSettings.proxyMode.name}');
-    result.writeln('log-level: info');
-    result.writeln(
-      "external-controller: '127.0.0.1:${appSettings.apiPort}'",
+    return buildClashConfig(
+      rawYaml,
+      appSettings,
+      preferredNodeName: preferredNodeName,
+      platformHeader: '# ===== SSRVPN Windows =====',
+      tunConfig: _windowsTunConfig(appSettings),
+      latencyTestUrl: appSettings.latencyTestUrl,
+      extraSelectGroupNames: const [_geoProxyGroupName],
+      extraRulesBeforeDirect: _geoLookupHosts.map(
+        (host) => 'DOMAIN,$host,$_geoProxyGroupName',
+      ),
+      includeGeoIpRules: _geoipDatabaseExists(),
     );
-    result.writeln('# SSRVPN 当前明确只支持 IPv4 节点与 IPv4 流量');
-    result.writeln('ipv6: false');
-    if (appSettings.apiSecret.isNotEmpty) {
-      result.writeln('secret: ${yamlQuote(appSettings.apiSecret)}');
-    }
-
-    // TUN 模式配置
-    result.writeln();
-    result.writeln('tun:');
-    result.writeln('  enable: ${appSettings.enableTun}');
-    result.writeln('  stack: ${appSettings.tunStack}');
-    result.writeln('  dns-hijack:');
-    result.writeln('    - any:53');
-    result.writeln('  auto-route: true');
-    result.writeln('  auto-detect-interface: true');
-    result.writeln('  route-exclude-address:');
-    result.writeln('    - 192.168.0.0/16');
-    result.writeln('    - 10.0.0.0/8');
-    result.writeln('    - 172.16.0.0/12');
-    result.writeln('    - 100.64.0.0/10');
-
-    // DNS
-    result.writeln();
-    result.writeln('dns:');
-    result.writeln('  enable: true');
-    result.writeln('  ipv6: false');
-    result.writeln('  enhanced-mode: fake-ip');
-    result.writeln('  fake-ip-range: 198.18.0.1/16');
-    result.writeln('  default-nameserver:');
-    result.writeln('    - 223.5.5.5');
-    result.writeln('    - 119.29.29.29');
-    result.writeln('  nameserver:');
-    result.writeln('    - https://dns.alidns.com/dns-query');
-    result.writeln('    - https://doh.pub/dns-query');
-    result.writeln('    - 223.5.5.5');
-    result.writeln('    - 119.29.29.29');
-    result.writeln('  fallback:');
-    result.writeln('    - https://dns.google/dns-query');
-    result.writeln('    - https://cloudflare-dns.com/dns-query');
-    result.writeln('    - 8.8.8.8');
-    result.writeln('    - 1.1.1.1');
-    result.writeln('  fallback-filter:');
-    result.writeln('    geoip: true');
-    result.writeln('    geoip-code: CN');
-    result.writeln('    ipcidr:');
-    result.writeln('      - 240.0.0.0/4');
-    result.writeln('    domain:');
-    result.writeln("      - '*.google.com'");
-    result.writeln("      - '*.googlevideo.com'");
-    result.writeln("      - '*.youtube.com'");
-    result.writeln("      - '*.ytimg.com'");
-    result.writeln("      - '*.ggpht.com'");
-    result.writeln('  fake-ip-filter:');
-    result.writeln("    - '*.lan'");
-    result.writeln("    - '*.local'");
-    result.writeln("    - '*.localhost'");
-    result.writeln("    - '*.googlevideo.com'");
-    result.writeln("    - '*.youtube.com'");
-    result.writeln("    - '*.ytimg.com'");
-    result.writeln("    - '*.ggpht.com'");
-    result.writeln("    - '*.googleapis.com'");
-    result.writeln("    - 'dns.google'");
-    result.writeln("    - 'www.google.com'");
-
-    // Proxies
-    result.writeln();
-    result.writeln('proxies:');
-    result.writeln(proxiesText);
-
-    // Proxy Groups
-    result.writeln();
-    result.writeln('proxy-groups:');
-    result.writeln('  - name: PROXY');
-    result.writeln('    type: select');
-    result.writeln('    proxies:');
-    for (final name in selectedProxyNames) {
-      result.writeln("      - ${yamlQuote(name)}");
-    }
-    result.writeln('  - name: GLOBAL');
-    result.writeln('    type: select');
-    result.writeln('    proxies:');
-    result.writeln("      - 'PROXY'");
-    for (final name in selectedProxyNames) {
-      result.writeln("      - ${yamlQuote(name)}");
-    }
-    result.writeln('  - name: 自动选择');
-    result.writeln('    type: url-test');
-    result.writeln('    proxies:');
-    for (final name in proxyNames) {
-      result.writeln("      - ${yamlQuote(name)}");
-    }
-    result.writeln(
-      '    url: ${yamlQuote(appSettings.latencyTestUrl)}',
-    );
-    result.writeln('    interval: 300');
-    result.writeln('  - name: $_geoProxyGroupName');
-    result.writeln('    type: select');
-    result.writeln('    proxies:');
-    for (final name in selectedProxyNames) {
-      result.writeln("      - ${yamlQuote(name)}");
-    }
-
-    // Rules
-    result.writeln();
-    result.writeln('rules:');
-    for (final rule in ClashConfigGenerator.buildForceProxyRulesFromSites(
-      appSettings.forceProxySites,
-    )) {
-      result.writeln('  - ${yamlQuote(rule)}');
-    }
-    for (final host in _geoLookupHosts) {
-      result.writeln("  - 'DOMAIN,$host,$_geoProxyGroupName'");
-    }
-    result.writeln("  - 'DOMAIN-SUFFIX,cn,DIRECT'");
-    if (mmdbExists) {
-      result.writeln("  - 'GEOIP,CN,DIRECT'");
-      result.writeln("  - 'GEOIP,LAN,DIRECT,no-resolve'");
-    }
-    result.writeln("  - 'MATCH,PROXY'");
-
-    return result.toString();
   }
 
   /// 写入配置

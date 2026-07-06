@@ -39,15 +39,47 @@ jobs:
       - run: dart analyze --fatal-infos
       - run: dart test
 
-  # ── Android ──
-  build-android:
-    name: Android APK
-    needs: shared-test
+  prepare-geoip:
+    name: Prepare latest GeoIP database
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           lfs: true
+
+      - name: Sync latest geoip.metadb
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/sync-geoip-metadb.py
+
+      - name: Verify synced GeoIP assets
+        run: bash scripts/verify-core-assets.sh
+
+      - name: Upload GeoIP assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: geoip-assets
+          path: |
+            SSRVPN_Android/assets/geoip.metadb.gz
+            SSRVPN_MacOS/assets/geoip.metadb.gz
+            SSRVPN_Windows/assets/geoip.metadb.gz
+            docs/GEOIP_SOURCE.txt
+
+  # ── Android ──
+  build-android:
+    name: Android APK
+    needs: [shared-test, prepare-geoip]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - name: Download latest GeoIP assets
+        uses: actions/download-artifact@v8
+        with:
+          name: geoip-assets
+          path: .
 
       - name: Verify core assets
         run: bash scripts/verify-core-assets.sh
@@ -132,12 +164,18 @@ jobs:
   # ── macOS ──
   build-macos:
     name: macOS DMG
-    needs: shared-test
+    needs: [shared-test, prepare-geoip]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
         with:
           lfs: true
+
+      - name: Download latest GeoIP assets
+        uses: actions/download-artifact@v8
+        with:
+          name: geoip-assets
+          path: .
 
       - name: Verify core assets
         run: bash scripts/verify-core-assets.sh
@@ -200,12 +238,18 @@ jobs:
   # ── Windows ──
   build-windows:
     name: Windows ZIP
-    needs: shared-test
+    needs: [shared-test, prepare-geoip]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
         with:
           lfs: true
+
+      - name: Download latest GeoIP assets
+        uses: actions/download-artifact@v8
+        with:
+          name: geoip-assets
+          path: .
 
       - name: Verify core assets
         run: bash scripts/verify-core-assets.sh
@@ -306,35 +350,18 @@ jobs:
         id: notes
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          PREV_TAG=$(git tag --sort=-creatordate | head -2 | tail -1)
-          if [ "$PREV_TAG" = "$TAG" ]; then
-            NOTES="Initial release."
-          else
-            NOTES=$(git log --pretty=format:"- %s" "$PREV_TAG".."$TAG" 2>/dev/null || echo "Release $TAG")
-          fi
+          python3 scripts/generate-release-notes.py \
+            --tag "$TAG" \
+            --output release-notes.md
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$NOTES" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "body_path=release-notes.md" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.notes.outputs.tag }}
           name: SSRVPN ${{ steps.notes.outputs.tag }}
-          body: |
-            ## SSRVPN ${{ steps.notes.outputs.tag }}
-
-            ${{ steps.notes.outputs.notes }}
-
-            ### Downloads
-            | Platform | File | Checksum |
-            |----------|------|----------|
-            | Android | `SSRVPN.apk` | `SSRVPN.apk.sha256` |
-            | macOS | `SSRVPN.dmg` | `SSRVPN.dmg.sha256` |
-            | Windows | `SSRVPN.zip` | `SSRVPN.zip.sha256` |
-
-            Verify checksums: `shasum -a 256 -c <file>.sha256`
+          body_path: ${{ steps.notes.outputs.body_path }}
           files: |
             artifacts/android/SSRVPN.apk
             artifacts/android/SSRVPN.apk.sha256

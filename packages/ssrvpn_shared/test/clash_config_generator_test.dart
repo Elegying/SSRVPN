@@ -125,6 +125,89 @@ proxies:
       expect(config, contains('Test Node'));
     });
 
+    test('generateConfig writes saved force proxy sites before direct rules',
+        () {
+      final yaml = '''
+proxies:
+  - name: "Test Node"
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+''';
+      final settings = AppSettings(
+        forceProxySites: [
+          'https://Blocked.Example/path',
+          '1.2.3.4:443',
+        ],
+      );
+
+      final parsed =
+          loadYaml(ClashConfigGenerator.generateConfig(yaml, settings))
+              as YamlMap;
+      final rules = (parsed['rules'] as YamlList).cast<String>();
+
+      expect(rules[0], 'DOMAIN-SUFFIX,blocked.example,PROXY');
+      expect(rules[1], 'IP-CIDR,1.2.3.4/32,PROXY,no-resolve');
+      expect(
+        rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT'),
+        greaterThan(1),
+      );
+      expect(
+        rules.indexOf('DOMAIN-SUFFIX,cn,DIRECT'),
+        greaterThan(rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT')),
+      );
+    });
+
+    test('generateConfig enables externally refreshed CN rule providers', () {
+      final yaml = '''
+proxies:
+  - name: "Test Node"
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+''';
+
+      final parsed =
+          loadYaml(ClashConfigGenerator.generateConfig(yaml, AppSettings()))
+              as YamlMap;
+      final providers = parsed['rule-providers'] as YamlMap;
+      final domainProvider = providers['ssrvpn-geosite-cn'] as YamlMap;
+      final ipProvider = providers['ssrvpn-geoip-cn'] as YamlMap;
+      final rules = (parsed['rules'] as YamlList).cast<String>();
+
+      expect(parsed['etag-support'], isTrue);
+      expect(domainProvider['type'], 'http');
+      expect(domainProvider['behavior'], 'domain');
+      expect(domainProvider['format'], 'mrs');
+      expect(domainProvider.containsKey('interval'), isFalse);
+      expect(domainProvider['proxy'], 'PROXY');
+      expect(
+        domainProvider['url'],
+        'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs',
+      );
+      expect(ipProvider['type'], 'http');
+      expect(ipProvider['behavior'], 'ipcidr');
+      expect(ipProvider['format'], 'mrs');
+      expect(ipProvider.containsKey('interval'), isFalse);
+      expect(ipProvider['proxy'], 'PROXY');
+      expect(
+        ipProvider['url'],
+        'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs',
+      );
+      expect(
+        rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT'),
+        lessThan(rules.indexOf('MATCH,PROXY')),
+      );
+      expect(
+        rules.indexOf('RULE-SET,ssrvpn-geoip-cn,DIRECT,no-resolve'),
+        lessThan(rules.indexOf('MATCH,PROXY')),
+      );
+    });
+
     test('generateConfig safely quotes API secret', () {
       final yaml = '''
 proxies:

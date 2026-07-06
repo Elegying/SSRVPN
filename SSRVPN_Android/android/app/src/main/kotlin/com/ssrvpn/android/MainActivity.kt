@@ -79,13 +79,10 @@ class MainActivity : FlutterActivity() {
                 "syncSettings" -> {
                     val args = call.arguments as? Map<*, *>
                     val proxyPort = (args?.get("proxyPort") as? Number)?.toInt() ?: 7890
-                    val autoConnect = args?.get("autoConnect") as? Boolean ?: false
 
                     getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
                         .edit()
                         .putLong("flutter.proxyPort", proxyPort.toLong())
-                        .putBoolean("flutter.autoConnect", autoConnect)
-                        .putBoolean("flutter.autoConnectOnStartup", autoConnect)
                         .apply()
 
                     result.success(true)

@@ -68,8 +68,13 @@ check_file \
 
 check_file \
   "SSRVPN_Android/assets/geoip.metadb.gz" \
-  "84f5a8f154da5453af8be7fc4d6afbcb6e25d6d1da2d38909129106795c1035b" \
+  "$(source_hash docs/GEOIP_SOURCE.txt 'Bundled gzip SHA256')" \
   "Android geoip.metadb.gz"
+
+check_gzip_payload \
+  "SSRVPN_Android/assets/geoip.metadb.gz" \
+  "$(source_hash docs/GEOIP_SOURCE.txt 'Upstream SHA256')" \
+  "Android geoip.metadb"
 
 check_file \
   "SSRVPN_MacOS/assets/AtlasCore.gz" \
@@ -83,8 +88,13 @@ check_gzip_payload \
 
 check_file \
   "SSRVPN_MacOS/assets/geoip.metadb.gz" \
-  "26f87ad690c8b84dea7788294e1071bd5655b99b5a517ddbb2d41707248e6131" \
+  "$(source_hash docs/GEOIP_SOURCE.txt 'Bundled gzip SHA256')" \
   "macOS geoip.metadb.gz"
+
+check_gzip_payload \
+  "SSRVPN_MacOS/assets/geoip.metadb.gz" \
+  "$(source_hash docs/GEOIP_SOURCE.txt 'Upstream SHA256')" \
+  "macOS geoip.metadb"
 
 check_file \
   "SSRVPN_Windows/assets/mihomo.exe" \
@@ -93,7 +103,12 @@ check_file \
 
 check_file \
   "SSRVPN_Windows/assets/geoip.metadb.gz" \
-  "84f5a8f154da5453af8be7fc4d6afbcb6e25d6d1da2d38909129106795c1035b" \
+  "$(source_hash docs/GEOIP_SOURCE.txt 'Bundled gzip SHA256')" \
   "Windows geoip.metadb.gz"
+
+check_gzip_payload \
+  "SSRVPN_Windows/assets/geoip.metadb.gz" \
+  "$(source_hash docs/GEOIP_SOURCE.txt 'Upstream SHA256')" \
+  "Windows geoip.metadb"
 
 echo "Core asset verification passed."
