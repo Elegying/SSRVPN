@@ -49,5 +49,11 @@ require_count "bridge.Bridge.isRunning()" 1
 
 require_activity_text '"syncSettings"'
 require_activity_text '"flutter.proxyPort"'
+require_activity_text '"installUpdate"'
+require_activity_text "Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES"
+require_activity_text "PENDING_UPDATE_APK_PATH"
+require_activity_text "continuePendingUpdateInstallIfAllowed"
+require_activity_text "override fun onResume()"
+require_activity_text "FileProvider.getUriForFile"
 
 echo "Android native bridge guard check passed."

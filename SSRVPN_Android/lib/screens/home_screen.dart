@@ -414,15 +414,15 @@ class HomeScreenState extends State<HomeScreen>
       if (!mounted || !_isConnected) return;
       try {
         const currentVersion = UpdateService.appVersion;
-        final result = await UpdateService.checkForUpdate(currentVersion);
-        if (result != null && mounted && _isConnected) {
-          final (latestVersion, downloadUrl, changelog) = result;
+        final update = await UpdateService.checkForUpdate(currentVersion);
+        if (update != null && mounted && _isConnected) {
           UpdateService.showUpdateDialog(
             context,
-            latestVersion: latestVersion,
+            latestVersion: update.version,
             currentVersion: currentVersion,
-            downloadUrl: downloadUrl,
-            changelog: changelog,
+            downloadUrl: update.downloadUrl,
+            changelog: update.changelog,
+            sha256: update.sha256,
           );
         }
       } catch (e) {

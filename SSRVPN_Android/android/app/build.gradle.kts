@@ -93,6 +93,10 @@ flutter {
     source = "../.."
 }
 
+dependencies {
+    implementation("androidx.core:core:1.18.0")
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11

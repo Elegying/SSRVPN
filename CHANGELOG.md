@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-07-07
+
+### Added
+- Added Android in-app updates that download the release APK inside SSRVPN, verify its SHA256 checksum, and then launch the Android system installer.
+- Android now resumes the APK installation automatically after the user grants "install unknown apps" permission for SSRVPN.
+
 ## [2.3.2] - 2026-07-07
 
 ### Fixed

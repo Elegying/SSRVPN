@@ -1,5 +1,11 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../theme/app_theme.dart';
@@ -12,10 +18,10 @@ class UpdateService {
   /// Android 原生通道（openUrl 注册在 MainActivity 的 com.ssrvpn/native 上）
   static const _channel = MethodChannel('com.ssrvpn/native');
 
-  static Future<(String, String, String)?> checkForUpdate(
+  static Future<AppUpdateInfo?> checkForUpdate(
     String currentVersion,
   ) {
-    return SharedUpdateService.checkForUpdate(
+    return UpdateChecker.checkLatest(
       currentVersion: currentVersion,
       assetExtension: '.apk',
     );
@@ -30,6 +36,86 @@ class UpdateService {
     }
   }
 
+  static Future<File> downloadUpdateApk(
+    AppUpdateInfo update, {
+    Directory? outputDirectory,
+    http.Client? client,
+    void Function(int receivedBytes, int? totalBytes)? onProgress,
+    Duration timeout = const Duration(minutes: 2),
+  }) async {
+    final expectedSha256 = update.sha256?.trim().toLowerCase();
+    if (expectedSha256 == null || expectedSha256.isEmpty) {
+      throw StateError('缺少 APK SHA256 校验文件，已取消更新');
+    }
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(expectedSha256)) {
+      throw StateError('APK SHA256 校验值格式无效，已取消更新');
+    }
+
+    final uri = SharedUpdateService.validateDownloadUrl(update.downloadUrl);
+    final ownsClient = client == null;
+    final httpClient = client ?? http.Client();
+    final baseDir = outputDirectory ?? await getTemporaryDirectory();
+    final updateDir = Directory('${baseDir.path}/ssrvpn_update');
+    if (!await updateDir.exists()) {
+      await updateDir.create(recursive: true);
+    }
+
+    final apkFile = File('${updateDir.path}/SSRVPN-${update.version}.apk');
+    final tempFile = File('${apkFile.path}.part');
+    if (await tempFile.exists()) await tempFile.delete();
+    if (await apkFile.exists()) await apkFile.delete();
+
+    try {
+      final request = http.Request('GET', uri)
+        ..headers['User-Agent'] = AppConstants.appUserAgent;
+      final response = await httpClient.send(request).timeout(timeout);
+      if (response.statusCode != HttpStatus.ok) {
+        throw StateError('下载更新失败: HTTP ${response.statusCode}');
+      }
+
+      var received = 0;
+      final total = response.contentLength;
+      final sink = tempFile.openWrite();
+      try {
+        await for (final chunk in response.stream.timeout(timeout)) {
+          received += chunk.length;
+          sink.add(chunk);
+          onProgress?.call(received, total);
+        }
+      } finally {
+        await sink.close();
+      }
+
+      final actualSha256 =
+          sha256.convert(await tempFile.readAsBytes()).toString();
+      if (actualSha256 != expectedSha256) {
+        await tempFile.delete();
+        throw StateError('APK SHA256 校验失败，已取消更新');
+      }
+
+      await tempFile.rename(apkFile.path);
+      return apkFile;
+    } catch (_) {
+      if (await tempFile.exists()) await tempFile.delete();
+      if (await apkFile.exists()) await apkFile.delete();
+      if (await updateDir.exists() && updateDir.listSync().isEmpty) {
+        await updateDir.delete();
+      }
+      rethrow;
+    } finally {
+      if (ownsClient) httpClient.close();
+    }
+  }
+
+  static Future<Map<Object?, Object?>> installDownloadedApk(
+      File apkFile) async {
+    final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'installUpdate',
+      {'apkPath': apkFile.path},
+    );
+    return result ?? const <Object?, Object?>{};
+  }
+
   static Future<void> openDownload(String url) => openExternalUrl(url);
 
   static void showUpdateDialog(
@@ -38,7 +124,15 @@ class UpdateService {
     required String currentVersion,
     required String downloadUrl,
     required String changelog,
+    String? sha256,
   }) {
+    final update = AppUpdateInfo(
+      version: latestVersion,
+      downloadUrl: downloadUrl,
+      changelog: changelog,
+      sha256: sha256,
+    );
+
     SharedUpdateService.showUpdateDialog(
       context,
       latestVersion: latestVersion,
@@ -51,7 +145,114 @@ class UpdateService {
       textSecondary: AppTheme.darkTextSecondary,
       lightTextPrimary: AppTheme.lightTextPrimary,
       lightTextSecondary: AppTheme.lightTextSecondary,
-      openDownload: openDownload,
+      openDownload: (_) => downloadAndInstallUpdate(context, update),
+    );
+  }
+
+  static Future<void> downloadAndInstallUpdate(
+    BuildContext context,
+    AppUpdateInfo update, {
+    http.Client? client,
+    Directory? outputDirectory,
+    Future<Map<Object?, Object?>> Function(File apkFile)? installApk,
+  }) async {
+    var receivedBytes = 0;
+    int? totalBytes;
+    StateSetter? updateDialogState;
+
+    if (!context.mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          updateDialogState = setDialogState;
+          final progress = totalBytes == null || totalBytes == 0
+              ? null
+              : receivedBytes / totalBytes!;
+          return PopScope(
+            canPop: false,
+            child: AlertDialog(
+              title: const Text('正在更新'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  LinearProgressIndicator(value: progress),
+                  const SizedBox(height: 12),
+                  Text(_formatDownloadProgress(receivedBytes, totalBytes)),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    try {
+      final apkFile = await downloadUpdateApk(
+        update,
+        client: client,
+        outputDirectory: outputDirectory,
+        onProgress: (received, total) {
+          receivedBytes = received;
+          totalBytes = total;
+          updateDialogState?.call(() {});
+        },
+      );
+
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      final installResult = await (installApk ?? installDownloadedApk)(apkFile);
+      final status = installResult['status']?.toString();
+      if (status == 'permissionRequired' && context.mounted) {
+        _showUpdateMessage(
+          context,
+          '请允许 SSRVPN 安装未知来源应用，返回后会自动继续安装。',
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        _showUpdateMessage(context, '更新失败: ${_cleanError(e)}');
+      }
+      AppLogger.warning('Update', '应用内更新失败: $e');
+    }
+  }
+
+  static String _formatDownloadProgress(int receivedBytes, int? totalBytes) {
+    final received = _formatBytes(receivedBytes);
+    if (totalBytes == null || totalBytes <= 0) {
+      return '已下载 $received';
+    }
+    return '已下载 $received / ${_formatBytes(totalBytes)}';
+  }
+
+  static String _formatBytes(int bytes) {
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '$bytes B';
+  }
+
+  static String _cleanError(Object error) =>
+      error.toString().replaceFirst('Bad state: ', '');
+
+  static void _showUpdateMessage(BuildContext context, String message) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('更新提示'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
     );
   }
 }

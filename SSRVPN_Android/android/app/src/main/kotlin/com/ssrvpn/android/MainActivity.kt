@@ -1,22 +1,30 @@
 package com.ssrvpn.android
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.ssrvpn/native"
     private val VPN_REQUEST_CODE = 100
+    private val UPDATE_PREFS = "ssrvpn_update"
+    private val PENDING_UPDATE_APK_PATH = "pending_update_apk_path"
     private var autoConnectPending = false
     // 记录本 Activity 注册的回调，便于 onDestroy 时精确清理，避免泄漏 Activity
     private var myResultCallback: ((Boolean, String) -> Unit)? = null
@@ -191,11 +199,104 @@ class MainActivity : FlutterActivity() {
                         result.error("INVALID_ARGS", "URL is required", null)
                     }
                 }
+                "installUpdate" -> {
+                    val apkPath = call.argument<String>("apkPath")
+                    if (apkPath.isNullOrBlank()) {
+                        result.error("INVALID_ARGS", "APK path is required", null)
+                    } else {
+                        try {
+                            result.success(mapOf("status" to requestUpdateInstall(apkPath)))
+                        } catch (e: Exception) {
+                            result.error("INSTALL_UPDATE_FAILED", e.message, null)
+                        }
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }
             }
         }
+    }
+
+    private fun requestUpdateInstall(apkPath: String): String {
+        val apkFile = File(apkPath)
+        require(apkFile.exists() && apkFile.isFile) { "APK file not found" }
+        require(apkFile.name.endsWith(".apk", ignoreCase = true)) { "Invalid APK file" }
+
+        if (!canRequestUpdateInstall()) {
+            savePendingUpdateInstall(apkFile.absolutePath)
+            openInstallSourceSettings()
+            return "permissionRequired"
+        }
+
+        clearPendingUpdateInstall()
+        launchPackageInstaller(apkFile)
+        return "started"
+    }
+
+    private fun canRequestUpdateInstall(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            packageManager.canRequestPackageInstalls()
+    }
+
+    private fun savePendingUpdateInstall(apkPath: String) {
+        getSharedPreferences(UPDATE_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(PENDING_UPDATE_APK_PATH, apkPath)
+            .apply()
+    }
+
+    private fun clearPendingUpdateInstall() {
+        getSharedPreferences(UPDATE_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .remove(PENDING_UPDATE_APK_PATH)
+            .apply()
+    }
+
+    private fun openInstallSourceSettings() {
+        val settingsIntent = Intent(
+            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+            Uri.parse("package:$packageName")
+        )
+        try {
+            startActivity(settingsIntent)
+        } catch (_: ActivityNotFoundException) {
+            startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
+        }
+    }
+
+    private fun continuePendingUpdateInstallIfAllowed() {
+        if (!canRequestUpdateInstall()) return
+        val prefs = getSharedPreferences(UPDATE_PREFS, Context.MODE_PRIVATE)
+        val apkPath = prefs.getString(PENDING_UPDATE_APK_PATH, null) ?: return
+        val apkFile = File(apkPath)
+        if (!apkFile.exists() || !apkFile.isFile) {
+            clearPendingUpdateInstall()
+            return
+        }
+
+        try {
+            clearPendingUpdateInstall()
+            launchPackageInstaller(apkFile)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Pending update install failed: ${e.message}", e)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun launchPackageInstaller(apkFile: File) {
+        val apkUri = FileProvider.getUriForFile(
+            this,
+            "$packageName.fileprovider",
+            apkFile
+        )
+        val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+            setDataAndType(apkUri, "application/vnd.android.package-archive")
+            clipData = ClipData.newUri(contentResolver, "SSRVPN update", apkUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            putExtra(Intent.EXTRA_RETURN_RESULT, false)
+        }
+        startActivity(installIntent)
     }
 
     private fun startVpnService() {
@@ -218,6 +319,11 @@ class MainActivity : FlutterActivity() {
                 SsrvpnVpnService.completeStartResult(false, "用户拒绝了 VPN 权限")
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        continuePendingUpdateInstallIfAllowed()
     }
 
     override fun onNewIntent(intent: Intent) {
