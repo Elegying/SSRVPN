@@ -23,7 +23,9 @@ class ConnectionOrchestrator {
   /// 执行连接流程
   ///
   /// [nodeName] 可选的首选节点名，null 则自动选择。
-  /// 返回 null 表示连接成功；返回非 null 表示错误信息（UI 应显示给用户）。
+  /// 返回 null 表示完全成功；返回非 null 可能是启动错误，也可能是
+  /// 核心已运行后的连通性提示。调用方应以 [clashService.isRunning]
+  /// 判断连接状态，以返回文本作为用户提示。
   Future<String?> connect(String? nodeName) async {
     final rawYaml = subscriptionService.rawYaml;
     if (rawYaml == null || rawYaml.isEmpty) {

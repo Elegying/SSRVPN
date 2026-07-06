@@ -140,13 +140,14 @@ class HomeScreenState extends State<HomeScreen>
       clashService.updateSettings(settings);
       await clashService.stop();
       final result = await orch.connect(preferredNode?.name);
+      final connected = clashService.isRunning;
       if (mounted && !_disposed) {
         setState(() {
-          _isConnected = result == null;
+          _isConnected = connected;
           _isConnecting = false;
-          _errorMessage = result;
+          _errorMessage = connected ? result : result ?? '连接重载失败: 无法启动VPN核心';
           _nodes = nodes;
-          _selectedNode = result == null ? preferredNode : null;
+          _selectedNode = connected ? preferredNode : null;
         });
       }
     } catch (e) {
@@ -317,13 +318,15 @@ class HomeScreenState extends State<HomeScreen>
         );
         final result = await _orchestrator.connect(autoSelect?.name);
         if (!mounted) return;
-        if (result == null) {
+        final connected = clashService.isRunning;
+        if (connected) {
           if (autoSelect != null) {
             await _rememberSelectedNode(autoSelect);
           }
           setState(() {
             _isConnected = true;
             _isConnecting = false;
+            _errorMessage = result;
             _nodes = nodes;
             _selectedNode = autoSelect;
           });
@@ -332,7 +335,7 @@ class HomeScreenState extends State<HomeScreen>
           _checkUpdateDelayed();
         } else {
           setState(() {
-            _errorMessage = result;
+            _errorMessage = result ?? '连接失败: 无法启动VPN核心';
             _isConnecting = false;
           });
         }

@@ -48,9 +48,6 @@ class AppConstants {
     'https://doh.pub/dns-query',
   ];
 
-  // ── 强制代理站点 ──
-  static const int defaultForceProxySiteLimit = 50;
-
   // ── 文件路径 ──
   static const String configFileName = 'config.yaml';
   static const String subscriptionCacheFileName = 'subscription_cache.yaml';
