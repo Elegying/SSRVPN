@@ -98,6 +98,43 @@ proxies:
         expect(result.nodes.single.group, 'Feed A');
         expect(result.nodes.single.extra['ssrvpn-subscription'], 'Feed A');
       });
+
+      test('ignores subscription info pseudo nodes', () {
+        final yaml = '''
+proxies:
+  - name: "套餐到期：长期有效"
+    type: trojan
+    server: expired.example.com
+    port: 443
+    password: "notice"
+  - name: "剩余流量：993.95 GB"
+    type: trojan
+    server: traffic.example.com
+    port: 443
+    password: "notice"
+  - name: "Real Node"
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+proxy-groups:
+  - name: "PROXY"
+    type: select
+    proxies:
+      - "套餐到期：长期有效"
+      - "剩余流量：993.95 GB"
+      - "Real Node"
+''';
+
+        final result = SubscriptionParser.parseYaml(yaml);
+
+        expect(result.nodes.map((node) => node.name), ['Real Node']);
+        expect(
+          result.groups.single.nodes.map((node) => node.name),
+          ['Real Node'],
+        );
+      });
     });
 
     group('importSsrLink', () {

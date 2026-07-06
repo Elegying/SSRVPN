@@ -19,12 +19,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   String? _errorMessage;
   String? _testingNodeName;
   ProxyNode? _selectedNode;
+  PublicIpInfo? _publicIpInfo;
+  bool _isRefreshingPublicIp = false;
+  String? _publicIpError;
   final Set<String> _expandedSubscriptionGroups = {};
 
   final HomeLatencyController _latencyController = HomeLatencyController();
   final Map<String, String> _exitCountryCodes = {};
   Timer? _latencyBatchTimer;
+  Timer? _publicIpTimer;
   int _lastRevision = -1;
+  int _publicIpGeneration = 0;
   bool _disposed = false;
   bool _isResolvingExitCountries = false;
   bool _pendingExitCountryResolution = false;
@@ -103,7 +108,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     setState(() => _isConnecting = true);
     try {
-      final nodes = List<ProxyNode>.from(subService.allNodes);
+      final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
+      if (nodes.isEmpty) throw Exception('未获取到可用节点');
       final preferredNode = _resolveDefaultNode(
         nodes,
         settingsService.settings.lastSelectedNodeName,
@@ -134,8 +140,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _errorMessage = connectivityWarning;
           _nodes = nodes;
           _selectedNode = success ? preferredNode : null;
+          if (!success) _resetPublicIpState();
         });
-        if (success) _scheduleExitCountryResolution();
+        if (success) {
+          _scheduleExitCountryResolution();
+          _schedulePublicIpRefresh();
+        }
       }
     } catch (e) {
       AppLogger.warning('Connection', '重载配置失败: $e');
@@ -145,6 +155,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _isConnected = false;
           _isConnecting = false;
           _errorMessage = '连接重载失败: $msg';
+          _resetPublicIpState();
         });
       }
     }
@@ -169,6 +180,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void dispose() {
     _disposed = true;
     _latencyBatchTimer?.cancel();
+    _publicIpTimer?.cancel();
     _updateCheckTimer?.cancel();
     _clashService?.removeStatusListener(_handleClashStatusChanged);
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
@@ -181,8 +193,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
     _clashService = clashService;
-    if (subService.allNodes.isNotEmpty) {
-      final nodes = List<ProxyNode>.from(subService.allNodes);
+    final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
+    if (nodes.isNotEmpty) {
       setState(() {
         _nodes = nodes;
         _lastRevision = subService.revision;
@@ -200,11 +212,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (clashService.isRunning) {
       setState(() => _isConnected = true);
       _glowController.repeat();
+      _schedulePublicIpRefresh();
     }
 
     clashService.addStatusListener(_handleClashStatusChanged);
 
-    if (subService.allNodes.isEmpty) {
+    if (nodes.isEmpty) {
       _maybeShowInitialSubscriptionDialog(subService);
     }
   }
@@ -219,11 +232,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (!running) {
         _latencyController.clear();
         _selectedNode = null;
+        _resetPublicIpState();
         _exitCountryResolveGeneration++;
         _glowController.stop();
       } else {
         _glowController.repeat();
         _scheduleExitCountryResolution();
+        _schedulePublicIpRefresh();
       }
     });
   }
@@ -280,14 +295,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 }
 
                 final yaml = await subService.refreshAllSubscriptions();
-                if (yaml == null ||
-                    yaml.trim().isEmpty ||
-                    subService.allNodes.isEmpty) {
+                final nodes = HomeNodeController.runnableNodesFrom(
+                  subService.allNodes,
+                );
+                if (yaml == null || yaml.trim().isEmpty || nodes.isEmpty) {
                   throw Exception('未获取到可用节点');
                 }
 
                 if (!mounted || _disposed) return;
-                final nodes = List<ProxyNode>.from(subService.allNodes);
                 setState(() {
                   _nodes = nodes;
                   _lastRevision = subService.revision;
@@ -446,7 +461,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _maybeShowInitialSubscriptionDialog(SubscriptionService subService) {
-    if (_initialSubscriptionDialogInFlight || subService.allNodes.isNotEmpty) {
+    final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
+    if (_initialSubscriptionDialogInFlight || nodes.isNotEmpty) {
       return;
     }
     if (_lastEmptySubscriptionPromptRevision == subService.revision) return;
@@ -486,6 +502,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _errorMessage = null;
       });
       await clashService.stop();
+      _resetPublicIpState();
     }
 
     await update(settingsService);
@@ -497,6 +514,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _isConnected = false;
       _selectedNode = null;
       _latencyController.clear();
+      _resetPublicIpState();
     });
 
     if (wasConnected) {
@@ -570,6 +588,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _isConnecting = false;
         _latencyController.clear();
         _exitCountryResolveGeneration++;
+        _resetPublicIpState();
         _glowController.stop();
       });
     } else {
@@ -582,11 +601,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         setState(() {
           _errorMessage = '请先添加并刷新订阅';
           _isConnecting = false;
+          _resetPublicIpState();
         });
         return;
       }
       try {
-        final nodes = List<ProxyNode>.from(subService.allNodes);
+        final nodes = HomeNodeController.runnableNodesFrom(
+          subService.allNodes,
+        );
+        if (nodes.isEmpty) {
+          setState(() {
+            _errorMessage = '订阅中没有可用节点，请刷新订阅';
+            _isConnecting = false;
+            _resetPublicIpState();
+          });
+          return;
+        }
         final autoSelect = _resolveDefaultNode(
           nodes,
           settingsService.settings.lastSelectedNodeName,
@@ -620,6 +650,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           });
           _glowController.repeat();
           _scheduleExitCountryResolution();
+          _schedulePublicIpRefresh();
           unawaited(_autoTestAllNodes());
           _checkUpdateDelayed();
         } else {
@@ -628,6 +659,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           setState(() {
             _errorMessage = '连接失败: $reason';
             _isConnecting = false;
+            _resetPublicIpState();
           });
         }
       } catch (e, stack) {
@@ -641,6 +673,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         setState(() {
           _errorMessage = '连接失败: $msg';
           _isConnecting = false;
+          _resetPublicIpState();
         });
       }
     }
@@ -667,6 +700,55 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         AppLogger.warning('Update', '检查更新异常: $e');
       }
     });
+  }
+
+  void _schedulePublicIpRefresh() {
+    _publicIpTimer?.cancel();
+    if (!_isConnected || _isConnecting || !mounted || _disposed) return;
+    final generation = ++_publicIpGeneration;
+    _publicIpTimer = Timer(const Duration(seconds: 2), () {
+      unawaited(_refreshPublicIpInfo(generation: generation));
+    });
+  }
+
+  Future<void> _refreshPublicIpInfo({int? generation}) async {
+    if (!_isConnected || _isConnecting || !mounted || _disposed) return;
+    final effectiveGeneration = generation ?? ++_publicIpGeneration;
+    _publicIpTimer?.cancel();
+    setState(() {
+      _isRefreshingPublicIp = true;
+      _publicIpError = null;
+    });
+
+    try {
+      final info =
+          await context.read<ClashService>().fetchCurrentPublicIpInfo();
+      if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
+        return;
+      }
+      setState(() {
+        _publicIpInfo = info;
+        _publicIpError = null;
+        _isRefreshingPublicIp = false;
+      });
+    } catch (e) {
+      AppLogger.warning('PublicIP', '获取公网 IP 失败: $e');
+      if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
+        return;
+      }
+      setState(() {
+        _publicIpError = '获取失败';
+        _isRefreshingPublicIp = false;
+      });
+    }
+  }
+
+  void _resetPublicIpState() {
+    _publicIpTimer?.cancel();
+    _publicIpGeneration++;
+    _publicIpInfo = null;
+    _isRefreshingPublicIp = false;
+    _publicIpError = null;
   }
 
   Future<void> _handleTestLatency(
@@ -718,6 +800,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       await _rememberSelectedNode(node);
       if (mounted) setState(() => _selectedNode = node);
       _scheduleExitCountryResolution();
+      _schedulePublicIpRefresh();
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -828,44 +911,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _isResolvingExitCountries = true;
     _pendingExitCountryResolution = false;
     final generation = ++_exitCountryResolveGeneration;
-    final clashService = context.read<ClashService>();
 
     bool shouldContinue() {
       return mounted &&
           !_disposed &&
-          _isConnected &&
-          clashService.isRunning &&
           generation == _exitCountryResolveGeneration;
     }
 
     try {
-      for (final node in List<ProxyNode>.from(_nodes)) {
-        if (!shouldContinue()) break;
-        if (_exitCountryCodes.containsKey(node.name)) continue;
-
-        final switched = await clashService.switchSelectedProxy(node.name);
-        if (!switched || !shouldContinue()) continue;
-
-        await Future<void>.delayed(const Duration(milliseconds: 260));
-        final country = await clashService.resolveCurrentExitCountryCode();
-        if (country == null || !shouldContinue()) continue;
-
+      final resolved = HomeExitCountryController.resolveMissingCountries(
+        List<ProxyNode>.from(_nodes),
+        _exitCountryCodes,
+      );
+      if (resolved.isNotEmpty && shouldContinue()) {
         setState(() {
-          _exitCountryCodes[node.name] = country;
+          _exitCountryCodes.addAll(resolved);
         });
       }
     } catch (e) {
       AppLogger.warning('ExitCountry', '查询失败: $e');
     } finally {
-      final restoreName = _selectedNode?.name;
-      if (mounted &&
-          !_disposed &&
-          _isConnected &&
-          clashService.isRunning &&
-          restoreName != null &&
-          restoreName.isNotEmpty) {
-        await clashService.switchSelectedProxy(restoreName);
-      }
       _isResolvingExitCountries = false;
 
       if (_pendingExitCountryResolution && mounted && !_disposed) {
@@ -894,11 +959,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         isConnected: _isConnected,
         isConnecting: _isConnecting,
         errorMessage: _errorMessage,
+        publicIpInfo: _publicIpInfo,
+        isRefreshingPublicIp: _isRefreshingPublicIp,
+        publicIpError: _publicIpError,
         glowAnimation: _glowController,
         onToggleConnection: _handleConnectToggle,
         onShowTutorial: () => _showDesktopHomeTutorialDialog(context),
         onShowForceProxySites: _showForceProxySitesDialog,
         onShowLogs: () => _showDesktopHomeLogsDialog(context),
+        onRefreshPublicIp: () => unawaited(_refreshPublicIpInfo()),
         onProxyModeChanged: (proxyMode) {
           _applyNetworkSetting(
             (service) => service.updateProxyMode(proxyMode),

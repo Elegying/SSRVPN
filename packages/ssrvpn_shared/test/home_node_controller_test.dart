@@ -3,11 +3,19 @@ import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:test/test.dart';
 
 void main() {
-  ProxyNode node(String name, {int? latency, String group = '默认'}) => ProxyNode(
+  ProxyNode node(
+    String name, {
+    String type = 'ss',
+    String server = '127.0.0.1',
+    int port = 1000,
+    int? latency,
+    String group = '默认',
+  }) =>
+      ProxyNode(
         name: name,
-        type: 'ss',
-        server: '127.0.0.1',
-        port: 1000,
+        type: type,
+        server: server,
+        port: port,
         group: group,
         latency: latency,
       );
@@ -46,6 +54,42 @@ void main() {
 
       expect(controller.resolveDefaultNode('A')?.name, 'B');
       expect(controller.resolveDefaultNode('B')?.name, 'B');
+    });
+
+    test('skips subscription info pseudo nodes for default selection', () {
+      final nodes = [
+        node('套餐到期：长期有效', latency: 30),
+        node('剩余流量：993.95 GB', latency: 40),
+        node('Real Node', latency: 50),
+      ];
+      final controller = HomeNodeController(nodes: nodes);
+
+      expect(controller.resolveDefaultNode('套餐到期：长期有效')?.name, 'Real Node');
+      expect(controller.nodes.map((node) => node.name), ['Real Node']);
+      expect(HomeNodeController.canSelectNode(nodes.first, const {}), isFalse);
+      expect(controller.canSelect(controller.nodes.single), isTrue);
+    });
+
+    test('returns only runnable nodes from subscription snapshots', () {
+      final nodes = [
+        node('套餐到期：长期有效'),
+        node('Missing Server', server: ''),
+        node('Missing Port', port: 0),
+        node('Built In', type: 'builtin'),
+        node('Real Node'),
+      ];
+      final controller = HomeNodeController();
+
+      final sync = controller.syncSubscriptionSnapshot(
+        revision: 1,
+        allNodes: nodes,
+      );
+
+      expect(sync.hasNodes, isTrue);
+      expect(
+          HomeNodeController.runnableNodesFrom(nodes).map((node) => node.name),
+          ['Real Node']);
+      expect(controller.nodes.map((node) => node.name), ['Real Node']);
     });
 
     test('applies latency batch and moves only timed-out nodes to bottom', () {

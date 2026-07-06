@@ -5,6 +5,7 @@ import 'package:yaml/yaml.dart';
 
 import '../models/app_settings.dart';
 import '../constants/app_constants.dart';
+import '../utils/proxy_node_usage_policy.dart';
 
 /// Clash 配置生成器 - 跨平台共享的核心逻辑
 ///
@@ -240,6 +241,7 @@ class ClashConfigGenerator {
       if (proxies != null) {
         return proxies
             .whereType<Map>()
+            .where(ProxyNodeUsagePolicy.isRunnableProxyMap)
             .map((proxy) => proxy['name']?.toString().trim() ?? '')
             .where((name) => name.isNotEmpty)
             .toList();
@@ -258,6 +260,7 @@ class ClashConfigGenerator {
       if (proxies != null) {
         final buffer = StringBuffer();
         for (final proxy in proxies.whereType<Map>()) {
+          if (!ProxyNodeUsagePolicy.isRunnableProxyMap(proxy)) continue;
           final name = proxy['name']?.toString().trim();
           if (name == null || name.isEmpty) continue;
           buffer.writeln('  - ${jsonEncode(_plainYamlValue(proxy))}');
@@ -340,13 +343,11 @@ class ClashConfigGenerator {
 
         if (trimmed.startsWith('- name:')) {
           final name = trimmed.substring(7).trim();
-          if (name.startsWith('"') && name.endsWith('"')) {
-            names.add(name.substring(1, name.length - 1));
-          } else if (name.startsWith("'") && name.endsWith("'")) {
-            names.add(name.substring(1, name.length - 1));
-          } else {
-            names.add(name);
+          final unquotedName = _unquoteName(name);
+          if (ProxyNodeUsagePolicy.isSubscriptionInfoName(unquotedName)) {
+            continue;
           }
+          names.add(unquotedName);
         }
       }
 
@@ -354,6 +355,16 @@ class ClashConfigGenerator {
     } catch (_) {
       return [];
     }
+  }
+
+  static String _unquoteName(String name) {
+    if (name.startsWith('"') && name.endsWith('"')) {
+      return name.substring(1, name.length - 1);
+    }
+    if (name.startsWith("'") && name.endsWith("'")) {
+      return name.substring(1, name.length - 1);
+    }
+    return name;
   }
 
   static Object? _plainYamlValue(Object? value) {

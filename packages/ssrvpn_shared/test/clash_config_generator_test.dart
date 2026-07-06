@@ -284,6 +284,47 @@ proxies:
       expect(proxy.containsKey('group'), isFalse);
     });
 
+    test('generateConfig excludes subscription info pseudo nodes', () {
+      final yaml = '''
+proxies:
+  - name: "套餐到期：长期有效"
+    type: trojan
+    server: expired.example.com
+    port: 443
+    password: "notice"
+  - name: "剩余流量：993.95 GB"
+    type: trojan
+    server: traffic.example.com
+    port: 443
+    password: "notice"
+  - name: "Japan 01"
+    type: ss
+    server: jp.example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+  - name: "US 01"
+    type: ss
+    server: us.example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+''';
+
+      final parsed =
+          loadYaml(ClashConfigGenerator.generateConfig(yaml, AppSettings()))
+              as YamlMap;
+      final proxies = (parsed['proxies'] as YamlList).cast<YamlMap>();
+      final proxyGroups = (parsed['proxy-groups'] as YamlList).cast<YamlMap>();
+
+      expect(proxies.map((proxy) => proxy['name']), ['Japan 01', 'US 01']);
+      for (final group in proxyGroups) {
+        final names = (group['proxies'] as YamlList).cast<String>();
+        expect(names, isNot(contains('套餐到期：长期有效')));
+        expect(names, isNot(contains('剩余流量：993.95 GB')));
+      }
+    });
+
     test('extractProxyNames ignores commented YAML nodes', () {
       final yaml = '''
 proxies:

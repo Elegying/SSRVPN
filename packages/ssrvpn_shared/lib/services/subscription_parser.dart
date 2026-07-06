@@ -4,6 +4,7 @@ import 'package:yaml/yaml.dart';
 
 import '../models/proxy_group.dart';
 import '../models/proxy_node.dart';
+import '../utils/proxy_node_usage_policy.dart';
 
 part 'subscription_parser_base64_part.dart';
 part 'subscription_parser_naming_part.dart';

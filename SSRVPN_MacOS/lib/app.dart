@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -156,14 +157,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
 
   String? _defaultNodeName() {
     final nodes = _subscriptionService?.allNodes ?? const [];
-    if (nodes.isEmpty) return null;
     final remembered = _settingsService?.settings.lastSelectedNodeName;
-    if (remembered != null &&
-        remembered.isNotEmpty &&
-        nodes.any((node) => node.name == remembered)) {
-      return remembered;
-    }
-    return nodes.first.name;
+    return HomeNodeController.resolveDefaultNodeFrom(nodes, remembered)?.name;
   }
 
   void _handleCoreStatusChanged() {

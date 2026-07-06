@@ -9,11 +9,15 @@ class _AndroidHomeDashboard extends StatelessWidget {
   final bool isConnected;
   final bool isConnecting;
   final String? errorMessage;
+  final PublicIpInfo? publicIpInfo;
+  final bool isRefreshingPublicIp;
+  final String? publicIpError;
   final Animation<double> glowAnimation;
   final VoidCallback onToggleConnection;
   final VoidCallback onShowTutorial;
   final VoidCallback onShowForceProxySites;
   final VoidCallback onShowLogs;
+  final VoidCallback onRefreshPublicIp;
   final ValueChanged<String> onProxyModeChanged;
 
   const _AndroidHomeDashboard({
@@ -25,11 +29,15 @@ class _AndroidHomeDashboard extends StatelessWidget {
     required this.isConnected,
     required this.isConnecting,
     required this.errorMessage,
+    required this.publicIpInfo,
+    required this.isRefreshingPublicIp,
+    required this.publicIpError,
     required this.glowAnimation,
     required this.onToggleConnection,
     required this.onShowTutorial,
     required this.onShowForceProxySites,
     required this.onShowLogs,
+    required this.onRefreshPublicIp,
     required this.onProxyModeChanged,
   });
 
@@ -53,10 +61,14 @@ class _AndroidHomeDashboard extends StatelessWidget {
             isConnected: isConnected,
             isConnecting: isConnecting,
             errorMessage: errorMessage,
+            publicIpInfo: publicIpInfo,
+            isRefreshingPublicIp: isRefreshingPublicIp,
+            publicIpError: publicIpError,
             glowAnimation: glowAnimation,
             onToggleConnection: onToggleConnection,
             onShowForceProxySites: onShowForceProxySites,
             onShowLogs: onShowLogs,
+            onRefreshPublicIp: onRefreshPublicIp,
             onProxyModeChanged: onProxyModeChanged,
           );
 
@@ -229,10 +241,14 @@ class _AndroidHomeStatusBar extends StatelessWidget {
   final bool isConnected;
   final bool isConnecting;
   final String? errorMessage;
+  final PublicIpInfo? publicIpInfo;
+  final bool isRefreshingPublicIp;
+  final String? publicIpError;
   final Animation<double> glowAnimation;
   final VoidCallback onToggleConnection;
   final VoidCallback onShowForceProxySites;
   final VoidCallback onShowLogs;
+  final VoidCallback onRefreshPublicIp;
   final ValueChanged<String> onProxyModeChanged;
 
   const _AndroidHomeStatusBar({
@@ -243,10 +259,14 @@ class _AndroidHomeStatusBar extends StatelessWidget {
     required this.isConnected,
     required this.isConnecting,
     required this.errorMessage,
+    required this.publicIpInfo,
+    required this.isRefreshingPublicIp,
+    required this.publicIpError,
     required this.glowAnimation,
     required this.onToggleConnection,
     required this.onShowForceProxySites,
     required this.onShowLogs,
+    required this.onRefreshPublicIp,
     required this.onProxyModeChanged,
   });
 
@@ -310,59 +330,67 @@ class _AndroidHomeStatusBar extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _AndroidForceProxyButton(
-                          onTap: onShowForceProxySites,
-                          enabled: !isConnecting,
-                        ),
-                        SizedBox(height: Responsive.gap(10)),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 300),
-                          child: Text(
-                            isConnecting
-                                ? '正在连接...'
-                                : isConnected
-                                    ? '已连接'
-                                    : '未连接',
-                            key: ValueKey(
-                              isConnecting
-                                  ? 'c'
-                                  : isConnected
-                                      ? 'y'
-                                      : 'n',
-                            ),
-                            style: TextStyle(
-                              fontSize: Responsive.sp(18),
-                              fontWeight: FontWeight.w700,
-                              color: isConnected
-                                  ? AppTheme.successColor
-                                  : textColor,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        SizedBox(height: Responsive.gap(4)),
-                        if (isConnected)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppTheme.successColor.withValues(
-                                alpha: 15 / 255,
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              '${settings.proxyMode.chineseName} · 端口 ${settings.proxyPort}',
-                              style: TextStyle(
-                                fontSize: Responsive.sp(11),
-                                color: subColor,
-                                fontWeight: FontWeight.w500,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 300),
+                                child: Text(
+                                  isConnecting
+                                      ? '正在连接...'
+                                      : isConnected
+                                          ? '已连接'
+                                          : '未连接',
+                                  key: ValueKey(
+                                    isConnecting
+                                        ? 'c'
+                                        : isConnected
+                                            ? 'y'
+                                            : 'n',
+                                  ),
+                                  style: TextStyle(
+                                    fontSize: Responsive.sp(18),
+                                    fontWeight: FontWeight.w700,
+                                    color: isConnected
+                                        ? AppTheme.successColor
+                                        : textColor,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ),
+                            SizedBox(width: Responsive.gap(8)),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                _AndroidForceProxyButton(
+                                  onTap: onShowForceProxySites,
+                                  enabled: !isConnecting,
+                                ),
+                                if (isConnected) ...[
+                                  SizedBox(height: Responsive.gap(6)),
+                                  _AndroidModeBadge(
+                                    text:
+                                        '${settings.proxyMode.chineseName} · 端口 ${settings.proxyPort}',
+                                    subColor: subColor,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ),
+                        if (isConnected) ...[
+                          SizedBox(height: Responsive.gap(10)),
+                          _AndroidPublicIpRow(
+                            info: publicIpInfo,
+                            isRefreshing: isRefreshingPublicIp,
+                            error: publicIpError,
+                            subColor: subColor,
+                            onRefresh: onRefreshPublicIp,
                           ),
+                        ],
                         if (errorMessage != null) ...[
                           const SizedBox(height: 8),
                           _AndroidConnectionError(
@@ -386,6 +414,118 @@ class _AndroidHomeStatusBar extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _AndroidModeBadge extends StatelessWidget {
+  final String text;
+  final Color subColor;
+
+  const _AndroidModeBadge({required this.text, required this.subColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppTheme.successColor.withValues(alpha: 15 / 255),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: Responsive.sp(11),
+          color: subColor,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+}
+
+class _AndroidPublicIpRow extends StatelessWidget {
+  final PublicIpInfo? info;
+  final bool isRefreshing;
+  final String? error;
+  final Color subColor;
+  final VoidCallback onRefresh;
+
+  const _AndroidPublicIpRow({
+    required this.info,
+    required this.isRefreshing,
+    required this.error,
+    required this.subColor,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final display = info?.displayText ??
+        (isRefreshing
+            ? '正在获取出口 IP...'
+            : error != null
+                ? '出口 IP $error'
+                : '出口 IP 待获取');
+    final color =
+        error != null && info == null ? AppTheme.warningColor : subColor;
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: Responsive.gap(10),
+        vertical: Responsive.gap(7),
+      ),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryColor.withValues(alpha: 10 / 255),
+        borderRadius: BorderRadius.circular(Responsive.radius(10)),
+        border: Border.all(
+          color: AppTheme.primaryColor.withValues(alpha: 28 / 255),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.public_rounded,
+            size: Responsive.icon(14),
+            color: AppTheme.primaryColor,
+          ),
+          SizedBox(width: Responsive.gap(6)),
+          Expanded(
+            child: Text(
+              'IP地址：$display',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: Responsive.sp(11),
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          SizedBox(width: Responsive.gap(4)),
+          GestureDetector(
+            onTap: isRefreshing ? null : onRefresh,
+            child: SizedBox(
+              width: Responsive.wp(28),
+              height: Responsive.wp(28),
+              child: Center(
+                child: isRefreshing
+                    ? SizedBox(
+                        width: Responsive.wp(14),
+                        height: Responsive.wp(14),
+                        child: const CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        Icons.refresh_rounded,
+                        size: Responsive.icon(16),
+                        color: AppTheme.primaryColor,
+                      ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

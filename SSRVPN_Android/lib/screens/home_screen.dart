@@ -49,11 +49,16 @@ class HomeScreenState extends State<HomeScreen>
   String? _errorMessage;
   String? _testingNodeName;
   ProxyNode? _selectedNode;
+  PublicIpInfo? _publicIpInfo;
+  bool _isRefreshingPublicIp = false;
+  String? _publicIpError;
   final Set<String> _expandedSubscriptionGroups = {};
 
   final HomeLatencyController _latencyController = HomeLatencyController();
   Timer? _latencyBatchTimer;
+  Timer? _publicIpTimer;
   int _lastRevision = -1;
+  int _publicIpGeneration = 0;
   bool _disposed = false;
   ClashService? _registeredClashService;
   SubscriptionService? _subscriptionService;
@@ -132,7 +137,16 @@ class HomeScreenState extends State<HomeScreen>
 
     setState(() => _isConnecting = true);
     try {
-      final nodes = List<ProxyNode>.from(subService.allNodes);
+      final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
+      if (nodes.isEmpty) {
+        setState(() {
+          _isConnected = false;
+          _isConnecting = false;
+          _errorMessage = '订阅中没有可用节点，请刷新订阅';
+          _resetPublicIpState();
+        });
+        return;
+      }
       final preferredNode = _resolveDefaultNode(
         nodes,
         settings.lastSelectedNodeName,
@@ -148,7 +162,9 @@ class HomeScreenState extends State<HomeScreen>
           _errorMessage = connected ? result : result ?? '连接重载失败: 无法启动VPN核心';
           _nodes = nodes;
           _selectedNode = connected ? preferredNode : null;
+          if (!connected) _resetPublicIpState();
         });
+        if (connected) _schedulePublicIpRefresh();
       }
     } catch (e) {
       if (mounted && !_disposed) {
@@ -156,6 +172,7 @@ class HomeScreenState extends State<HomeScreen>
           _isConnected = false;
           _isConnecting = false;
           _errorMessage = '连接重载失败: ${_userFriendlyError(e)}';
+          _resetPublicIpState();
         });
       }
     }
@@ -178,7 +195,8 @@ class HomeScreenState extends State<HomeScreen>
   void refreshNodes() {
     if (_disposed || !mounted) return;
     final subService = context.read<SubscriptionService>();
-    final latestNodes = List<ProxyNode>.from(subService.allNodes);
+    final latestNodes =
+        HomeNodeController.runnableNodesFrom(subService.allNodes);
     final revision = subService.revision;
     if (revision != _lastRevision || _nodes.length != latestNodes.length) {
       _lastRevision = revision;
@@ -214,6 +232,7 @@ class HomeScreenState extends State<HomeScreen>
       }
     }
     _latencyBatchTimer?.cancel();
+    _publicIpTimer?.cancel();
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
     _glowController.dispose();
     super.dispose();
@@ -223,8 +242,8 @@ class HomeScreenState extends State<HomeScreen>
     final subService = context.read<SubscriptionService>();
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
-    if (subService.allNodes.isNotEmpty) {
-      final nodes = List<ProxyNode>.from(subService.allNodes);
+    final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
+    if (nodes.isNotEmpty) {
       setState(() {
         _nodes = nodes;
         _lastRevision = subService.revision;
@@ -242,6 +261,7 @@ class HomeScreenState extends State<HomeScreen>
     if (clashService.isRunning) {
       setState(() => _isConnected = true);
       _glowController.repeat();
+      _schedulePublicIpRefresh();
     }
 
     _registeredClashService = clashService;
@@ -271,10 +291,12 @@ class HomeScreenState extends State<HomeScreen>
       if (!running) {
         _latencyController.clear();
         _selectedNode = null;
+        _resetPublicIpState();
       }
     });
     if (running) {
       _glowController.repeat();
+      _schedulePublicIpRefresh();
     } else {
       _glowController.stop();
     }
@@ -299,10 +321,12 @@ class HomeScreenState extends State<HomeScreen>
         _errorMessage = null;
       });
       await clashService.stop();
+      if (!mounted || _disposed) return;
       setState(() {
         _isConnected = false;
         _isConnecting = false;
         _latencyController.clear();
+        _resetPublicIpState();
       });
       _glowController.stop();
     } else {
@@ -311,7 +335,17 @@ class HomeScreenState extends State<HomeScreen>
         _errorMessage = null;
       });
       try {
-        final nodes = List<ProxyNode>.from(subService.allNodes);
+        final nodes = HomeNodeController.runnableNodesFrom(
+          subService.allNodes,
+        );
+        if (nodes.isEmpty) {
+          setState(() {
+            _errorMessage = '订阅中没有可用节点，请刷新订阅';
+            _isConnecting = false;
+            _resetPublicIpState();
+          });
+          return;
+        }
         final autoSelect = _resolveDefaultNode(
           nodes,
           settingsService.settings.lastSelectedNodeName,
@@ -331,12 +365,14 @@ class HomeScreenState extends State<HomeScreen>
             _selectedNode = autoSelect;
           });
           _glowController.repeat();
+          _schedulePublicIpRefresh();
           unawaited(_autoTestAllNodes());
           _checkUpdateDelayed();
         } else {
           setState(() {
             _errorMessage = result ?? '连接失败: 无法启动VPN核心';
             _isConnecting = false;
+            _resetPublicIpState();
           });
         }
       } catch (e) {
@@ -344,6 +380,7 @@ class HomeScreenState extends State<HomeScreen>
         setState(() {
           _errorMessage = '连接失败: ${_userFriendlyError(e)}';
           _isConnecting = false;
+          _resetPublicIpState();
         });
       }
     }
@@ -408,6 +445,55 @@ class HomeScreenState extends State<HomeScreen>
     if (_isConnected) {
       await _reloadConfig();
     }
+  }
+
+  void _schedulePublicIpRefresh() {
+    _publicIpTimer?.cancel();
+    if (!_isConnected || _isConnecting || !mounted || _disposed) return;
+    final generation = ++_publicIpGeneration;
+    _publicIpTimer = Timer(const Duration(seconds: 2), () {
+      unawaited(_refreshPublicIpInfo(generation: generation));
+    });
+  }
+
+  Future<void> _refreshPublicIpInfo({int? generation}) async {
+    if (!_isConnected || _isConnecting || !mounted || _disposed) return;
+    final effectiveGeneration = generation ?? ++_publicIpGeneration;
+    _publicIpTimer?.cancel();
+    setState(() {
+      _isRefreshingPublicIp = true;
+      _publicIpError = null;
+    });
+
+    try {
+      final info =
+          await context.read<ClashService>().fetchCurrentPublicIpInfo();
+      if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
+        return;
+      }
+      setState(() {
+        _publicIpInfo = info;
+        _publicIpError = null;
+        _isRefreshingPublicIp = false;
+      });
+    } catch (e) {
+      AppLogger.warning('PublicIP', '获取公网 IP 失败: $e');
+      if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
+        return;
+      }
+      setState(() {
+        _publicIpError = '获取失败';
+        _isRefreshingPublicIp = false;
+      });
+    }
+  }
+
+  void _resetPublicIpState() {
+    _publicIpTimer?.cancel();
+    _publicIpGeneration++;
+    _publicIpInfo = null;
+    _isRefreshingPublicIp = false;
+    _publicIpError = null;
   }
 
   Future<void> _showForceProxySitesDialog() async {
@@ -503,6 +589,7 @@ class HomeScreenState extends State<HomeScreen>
       await _rememberSelectedNode(node);
       await _writePreferredNodeConfigForTile(node);
       if (mounted) setState(() => _selectedNode = node);
+      _schedulePublicIpRefresh();
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -619,11 +706,15 @@ class HomeScreenState extends State<HomeScreen>
         isConnected: _isConnected,
         isConnecting: _isConnecting,
         errorMessage: _errorMessage,
+        publicIpInfo: _publicIpInfo,
+        isRefreshingPublicIp: _isRefreshingPublicIp,
+        publicIpError: _publicIpError,
         glowAnimation: _glowController,
         onToggleConnection: _handleConnectToggle,
         onShowTutorial: () => _showAndroidHomeTutorialDialog(context),
         onShowForceProxySites: _showForceProxySitesDialog,
         onShowLogs: () => _showAndroidHomeLogsSheet(context),
+        onRefreshPublicIp: () => unawaited(_refreshPublicIpInfo()),
         onProxyModeChanged: _handleProxyModeChanged,
       ),
     );

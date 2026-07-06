@@ -8,10 +8,12 @@ export 'models/proxy_node.dart';
 export 'models/proxy_group.dart';
 export 'models/subscription.dart';
 export 'models/app_settings.dart';
+export 'models/public_ip_info.dart';
 
 // 服务
 export 'controllers/home_node_controller.dart';
 export 'controllers/home_latency_controller.dart';
+export 'controllers/home_exit_country_controller.dart';
 export 'controllers/subscription_screen_controller.dart';
 export 'services/subscription_parser.dart';
 export 'services/subscription_yaml_merger.dart';
@@ -24,6 +26,7 @@ export 'services/update_service.dart';
 export 'services/direct_fetcher.dart';
 export 'services/crash_reporter.dart';
 export 'services/timed_process_runner.dart';
+export 'services/public_ip_info_service.dart';
 
 // 工具类
 export 'utils/log_redactor.dart';
@@ -32,6 +35,7 @@ export 'utils/force_proxy_site_policy.dart';
 export 'utils/node_country_policy.dart';
 export 'utils/private_node_latency_policy.dart';
 export 'utils/node_display_policy.dart';
+export 'utils/proxy_node_usage_policy.dart';
 
 // 常量
 export 'constants/app_constants.dart';

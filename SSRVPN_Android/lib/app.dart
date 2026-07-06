@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:ssrvpn_shared/ssrvpn_shared.dart' show AppLogger;
+import 'package:ssrvpn_shared/ssrvpn_shared.dart'
+    show AppLogger, HomeNodeController;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'services/settings_service.dart';
 import 'services/clash_service.dart' as clash;
@@ -337,7 +338,9 @@ class _InitialSubscriptionPromptState
   Future<void> _maybePrompt() async {
     if (_promptInFlight || !mounted) return;
     final subService = context.read<SubscriptionService>();
-    if (subService.allNodes.isNotEmpty) return;
+    if (HomeNodeController.runnableNodesFrom(subService.allNodes).isNotEmpty) {
+      return;
+    }
     if (_lastPromptRevision == subService.revision) return;
 
     _promptInFlight = true;
@@ -378,7 +381,8 @@ class _InitialSubscriptionPromptState
       final yaml = await subService.refreshAllSubscriptions();
       if (!mounted) return;
 
-      final nodeCount = subService.allNodes.length;
+      final nodeCount =
+          HomeNodeController.runnableNodesFrom(subService.allNodes).length;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),

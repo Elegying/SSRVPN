@@ -11,9 +11,11 @@ import '../constants/app_constants.dart';
 import '../models/app_settings.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
+import '../models/public_ip_info.dart';
 import 'clash_config_generator.dart';
 import '../utils/log_redactor.dart';
 import '../utils/private_node_latency_policy.dart';
+import 'public_ip_info_service.dart';
 
 /// Clash API 交互的公共逻辑基类
 ///
@@ -508,12 +510,14 @@ abstract class ClashServiceBase {
 
   // ── 连通性验证 ──
 
+  String _localHttpProxyConfig() => 'PROXY 127.0.0.1:${_settings.proxyPort}';
+
   /// 验证用户连通性（通过代理访问 generate_204）
   Future<String?> verifyUserConnectivity() async {
     final client = IOClient(
       HttpClient()
         ..connectionTimeout = const Duration(seconds: 5)
-        ..findProxy = (_) => 'PROXY 127.0.0.1:${_settings.proxyPort}; DIRECT',
+        ..findProxy = (_) => _localHttpProxyConfig(),
     );
     try {
       final response = await client
@@ -530,12 +534,25 @@ abstract class ClashServiceBase {
     }
   }
 
+  Future<PublicIpInfo> fetchCurrentPublicIpInfo() async {
+    final client = IOClient(
+      HttpClient()
+        ..connectionTimeout = const Duration(seconds: 5)
+        ..findProxy = (_) => _localHttpProxyConfig(),
+    );
+    try {
+      return await PublicIpInfoService(client: client).fetch();
+    } finally {
+      client.close();
+    }
+  }
+
   /// 解析当前出口国家代码
   Future<String?> resolveCurrentExitCountryCode() async {
     final client = IOClient(
       HttpClient()
         ..connectionTimeout = const Duration(seconds: 5)
-        ..findProxy = (_) => 'PROXY 127.0.0.1:${_settings.proxyPort}; DIRECT',
+        ..findProxy = (_) => _localHttpProxyConfig(),
     );
     const endpoints = [
       'http://ip-api.com/json/?fields=status,countryCode,query',

@@ -83,11 +83,14 @@ class StartupOrchestrator {
     try {
       final clash = _clash;
       if (clash == null) return;
-      final node = _settings?.settings.lastSelectedNodeName;
-      if (node != null && node.isNotEmpty) {
+      final node = HomeNodeController.resolveDefaultNodeFrom(
+        _subscription?.allNodes ?? const <ProxyNode>[],
+        _settings?.settings.lastSelectedNodeName,
+      )?.name;
+      final started = await clash.start(nodeName: node);
+      if (started && node != null && node.isNotEmpty) {
         await clash.switchSelectedProxy(node);
       }
-      await clash.start();
     } catch (e) {
       // 记录警告但不阻止启动流程
       // 节点列表可能为空或 switchSelectedProxy 因节点不存在而失败

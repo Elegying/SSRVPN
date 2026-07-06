@@ -9,11 +9,17 @@ import 'package:ssrvpn_shared/services/subscription_parser.dart';
 import 'package:test/test.dart';
 
 void main() {
-  ProxyNode node(String name) => ProxyNode(
+  ProxyNode node(
+    String name, {
+    String type = 'ss',
+    String server = '127.0.0.1',
+    int port = 1000,
+  }) =>
+      ProxyNode(
         name: name,
-        type: 'ss',
-        server: '127.0.0.1',
-        port: 1000,
+        type: type,
+        server: server,
+        port: port,
       );
 
   group('SubscriptionScreenController', () {
@@ -59,6 +65,27 @@ void main() {
       expect(result.nodeCount, 2);
       expect(result.clearInput, isTrue);
       expect(service.addedUrls, ['https://example.com/sub']);
+    });
+
+    test('reports only runnable nodes after subscription refresh', () async {
+      final service = _FakeSubscriptionService(
+        nodes: [
+          node('套餐到期：长期有效'),
+          node('Missing Server', server: ''),
+          node('Built In', type: 'builtin'),
+          node('A'),
+        ],
+        refreshResult: 'proxies: []',
+      );
+      final controller = SubscriptionScreenController(
+        subscriptionService: service,
+      );
+
+      final result =
+          await controller.addSubscription('https://example.com/sub');
+
+      expect(result.status, SubscriptionAddStatus.subscriptionAdded);
+      expect(result.nodeCount, 1);
     });
 
     test('imports single node subscriptions through refresh', () async {
@@ -138,6 +165,30 @@ void main() {
       expect(result.removed, isTrue);
       expect(result.stoppedClash, isFalse);
       expect(result.error.toString(), contains('stop failed'));
+    });
+
+    test('delete stops clash when only non-runnable nodes remain', () async {
+      final service = _FakeSubscriptionService(
+        subscriptions: [
+          Subscription(id: 'sub-1', name: 'A', url: 'https://a.example.com'),
+          Subscription(id: 'sub-2', name: 'B', url: 'https://b.example.com'),
+        ],
+        nodes: [node('套餐到期：长期有效')],
+      );
+      final controller = SubscriptionScreenController(
+        subscriptionService: service,
+      );
+      var stopped = false;
+
+      final result = await controller.deleteSubscription(
+        'sub-1',
+        clashRunning: true,
+        stopClash: () async => stopped = true,
+      );
+
+      expect(result.removed, isTrue);
+      expect(result.stoppedClash, isTrue);
+      expect(stopped, isTrue);
     });
 
     test('desktop-style delete can continue after refresh failure', () async {

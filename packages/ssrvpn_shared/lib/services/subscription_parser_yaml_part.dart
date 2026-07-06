@@ -18,6 +18,9 @@ class _SubscriptionYamlParser {
             final proxyMap = proxy.map(
               (key, value) => MapEntry(key.toString(), value),
             );
+            if (!ProxyNodeUsagePolicy.isRunnableProxyMap(proxyMap)) {
+              continue;
+            }
             final source =
                 proxyMap[SubscriptionParser.proxySourceKey]?.toString().trim();
             nodes.add(

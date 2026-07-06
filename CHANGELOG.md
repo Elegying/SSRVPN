@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-07-06
+
+### Added
+- Show the current public IP address and country code in the Home connection module after connecting, with a manual refresh action.
+
+### Changed
+- Public IP, connectivity, unlock, and exit-country checks now require the local proxy path instead of falling back to direct network access.
+- Home and startup node selection now ignore non-runnable subscription info rows when choosing or counting nodes.
+
+### Fixed
+- Prevent subscription info pseudo nodes from entering runtime proxy groups, and stop desktop exit-country resolution from switching the active proxy node in the background.
+
 ## [2.2.0] - 2026-07-06
 
 ### Changed

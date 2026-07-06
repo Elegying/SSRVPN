@@ -820,7 +820,7 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
   Future<String?> _queryExitCountry({required Duration timeout}) async {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 4)
-      ..findProxy = (_) => 'PROXY 127.0.0.1:${settings.proxyPort}; DIRECT';
+      ..findProxy = (_) => 'PROXY 127.0.0.1:${settings.proxyPort}';
     try {
       for (final uri in const [
         'https://api.country.is/',

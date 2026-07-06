@@ -3,6 +3,7 @@ import 'dart:collection';
 import '../models/proxy_node.dart';
 import '../services/subscription_parser.dart';
 import '../utils/node_display_policy.dart';
+import '../utils/proxy_node_usage_policy.dart';
 
 class HomeNodeSection {
   const HomeNodeSection({
@@ -47,7 +48,7 @@ class HomeNodeController {
     Map<String, int>? latencies,
     this.lastRevision = -1,
     this.selectedNode,
-  })  : nodes = List<ProxyNode>.from(nodes),
+  })  : nodes = runnableNodesFrom(nodes),
         latencies = latencies ?? <String, int>{};
 
   List<ProxyNode> nodes;
@@ -69,7 +70,7 @@ class HomeNodeController {
 
     final isFirstSync = lastRevision == -1;
     lastRevision = revision;
-    nodes = List<ProxyNode>.from(allNodes);
+    nodes = runnableNodesFrom(allNodes);
     return HomeNodeSyncResult(
       changed: true,
       isFirstSync: isFirstSync,
@@ -97,8 +98,10 @@ class HomeNodeController {
     Iterable<ProxyNode> nodes,
     String? rememberedNodeName,
   ) {
-    final selectable = nodes
-        .where((node) => NodeDisplayPolicy.isSelectableLatency(node.latency))
+    final selectable = runnableNodesFrom(nodes)
+        .where(
+          (node) => NodeDisplayPolicy.isSelectableLatency(node.latency),
+        )
         .toList();
     if (selectable.isEmpty) return null;
     if (rememberedNodeName != null && rememberedNodeName.isNotEmpty) {
@@ -107,6 +110,12 @@ class HomeNodeController {
       }
     }
     return selectable.first;
+  }
+
+  static List<ProxyNode> runnableNodesFrom(Iterable<ProxyNode> nodes) {
+    return nodes
+        .where(ProxyNodeUsagePolicy.isRunnableNode)
+        .toList(growable: false);
   }
 
   static void applyLatenciesTo(
@@ -131,8 +140,9 @@ class HomeNodeController {
     Map<String, int> latencies,
   ) {
     return NodeDisplayPolicy.isSelectableLatency(
-      latencies[node.name] ?? node.latency,
-    );
+          latencies[node.name] ?? node.latency,
+        ) &&
+        ProxyNodeUsagePolicy.isRunnableNode(node);
   }
 
   static List<ProxyNode> timeoutLast(
@@ -153,6 +163,7 @@ class HomeNodeController {
     final groups = LinkedHashMap<String, List<ProxyNode>>();
 
     for (final node in nodes) {
+      if (!ProxyNodeUsagePolicy.isRunnableNode(node)) continue;
       final group = node.group.trim();
       if (group == SubscriptionParser.standaloneGroupName) {
         standalone.add(node);

@@ -4,6 +4,7 @@ import 'dart:io';
 import '../models/proxy_group.dart';
 import '../models/proxy_node.dart';
 import '../models/subscription.dart';
+import '../utils/proxy_node_usage_policy.dart';
 
 abstract class SubscriptionScreenServicePort {
   List<Subscription> get subscriptions;
@@ -181,7 +182,7 @@ class SubscriptionScreenController {
     try {
       final yaml = await subscriptionService.refreshAllSubscriptions();
       if (yaml != null && yaml.isNotEmpty) {
-        final nodeCount = subscriptionService.allNodes.length;
+        final nodeCount = _runnableNodeCount();
         final groupCount = subscriptionService.allGroups.length;
         return SubscriptionRefreshResult(
           message: '成功: 获取到 $nodeCount 个节点, $groupCount 个分组',
@@ -264,7 +265,7 @@ class SubscriptionScreenController {
       if (yaml != null && yaml.isNotEmpty) {
         return SubscriptionAddResult(
           status: successStatus,
-          nodeCount: subscriptionService.allNodes.length,
+          nodeCount: _runnableNodeCount(),
           clearInput: true,
         );
       }
@@ -282,11 +283,19 @@ class SubscriptionScreenController {
     bool clashRunning,
     Future<void> Function()? stopClash,
   ) async {
-    if (subscriptionService.allNodes.isNotEmpty || !clashRunning) return false;
+    if (_hasRunnableNodes() || !clashRunning) return false;
     if (stopClash == null) return false;
     await stopClash();
     return true;
   }
+
+  int _runnableNodeCount() {
+    return subscriptionService.allNodes
+        .where(ProxyNodeUsagePolicy.isRunnableNode)
+        .length;
+  }
+
+  bool _hasRunnableNodes() => _runnableNodeCount() > 0;
 
   Future<SubscriptionDeleteResult> _deleteResultAfterOptionalStop({
     required bool removed,

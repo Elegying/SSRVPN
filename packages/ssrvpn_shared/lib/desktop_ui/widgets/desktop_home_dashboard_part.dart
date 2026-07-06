@@ -9,11 +9,15 @@ class _DesktopHomeDashboard extends StatelessWidget {
   final bool isConnected;
   final bool isConnecting;
   final String? errorMessage;
+  final PublicIpInfo? publicIpInfo;
+  final bool isRefreshingPublicIp;
+  final String? publicIpError;
   final Animation<double> glowAnimation;
   final VoidCallback onToggleConnection;
   final VoidCallback onShowTutorial;
   final VoidCallback onShowForceProxySites;
   final VoidCallback onShowLogs;
+  final VoidCallback onRefreshPublicIp;
   final ValueChanged<ProxyMode> onProxyModeChanged;
   final ValueChanged<bool> onEnableTunChanged;
 
@@ -26,11 +30,15 @@ class _DesktopHomeDashboard extends StatelessWidget {
     required this.isConnected,
     required this.isConnecting,
     required this.errorMessage,
+    required this.publicIpInfo,
+    required this.isRefreshingPublicIp,
+    required this.publicIpError,
     required this.glowAnimation,
     required this.onToggleConnection,
     required this.onShowTutorial,
     required this.onShowForceProxySites,
     required this.onShowLogs,
+    required this.onRefreshPublicIp,
     required this.onProxyModeChanged,
     required this.onEnableTunChanged,
   });
@@ -59,10 +67,14 @@ class _DesktopHomeDashboard extends StatelessWidget {
             isConnected: isConnected,
             isConnecting: isConnecting,
             errorMessage: errorMessage,
+            publicIpInfo: publicIpInfo,
+            isRefreshingPublicIp: isRefreshingPublicIp,
+            publicIpError: publicIpError,
             glowAnimation: glowAnimation,
             onToggleConnection: onToggleConnection,
             onShowForceProxySites: onShowForceProxySites,
             onShowLogs: onShowLogs,
+            onRefreshPublicIp: onRefreshPublicIp,
             onProxyModeChanged: onProxyModeChanged,
             onEnableTunChanged: onEnableTunChanged,
           );
@@ -305,10 +317,14 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
   final bool isConnected;
   final bool isConnecting;
   final String? errorMessage;
+  final PublicIpInfo? publicIpInfo;
+  final bool isRefreshingPublicIp;
+  final String? publicIpError;
   final Animation<double> glowAnimation;
   final VoidCallback onToggleConnection;
   final VoidCallback onShowForceProxySites;
   final VoidCallback onShowLogs;
+  final VoidCallback onRefreshPublicIp;
   final ValueChanged<ProxyMode> onProxyModeChanged;
   final ValueChanged<bool> onEnableTunChanged;
 
@@ -320,10 +336,14 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
     required this.isConnected,
     required this.isConnecting,
     required this.errorMessage,
+    required this.publicIpInfo,
+    required this.isRefreshingPublicIp,
+    required this.publicIpError,
     required this.glowAnimation,
     required this.onToggleConnection,
     required this.onShowForceProxySites,
     required this.onShowLogs,
+    required this.onRefreshPublicIp,
     required this.onProxyModeChanged,
     required this.onEnableTunChanged,
   });
@@ -386,59 +406,59 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _DesktopForceProxyButton(
-                                  onTap: onShowForceProxySites,
-                                  enabled: !isConnecting,
-                                ),
-                                const SizedBox(height: 12),
-                                AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 300),
-                                  child: Text(
-                                    isConnecting
-                                        ? '正在连接...'
-                                        : isConnected
-                                            ? '已连接'
-                                            : '未连接',
-                                    key: ValueKey(
-                                      isConnecting
-                                          ? 'c'
-                                          : isConnected
-                                              ? 'y'
-                                              : 'n',
-                                    ),
-                                    style: TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.w700,
-                                      color: isConnected
-                                          ? AppTheme.success
-                                          : textColor,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                if (isConnected)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.success.withValues(
-                                        alpha: 15 / 255,
-                                      ),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      '${settings.proxyMode.chineseName} · 端口 ${settings.proxyPort}${settings.enableTun ? " · TUN" : " · 代理"}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: subColor,
-                                        fontWeight: FontWeight.w500,
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: AnimatedSwitcher(
+                                        duration:
+                                            const Duration(milliseconds: 300),
+                                        child: Text(
+                                          isConnecting
+                                              ? '正在连接...'
+                                              : isConnected
+                                                  ? '已连接'
+                                                  : '未连接',
+                                          key: ValueKey(
+                                            isConnecting
+                                                ? 'c'
+                                                : isConnected
+                                                    ? 'y'
+                                                    : 'n',
+                                          ),
+                                          style: TextStyle(
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.w700,
+                                            color: isConnected
+                                                ? AppTheme.success
+                                                : textColor,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
                                     ),
-                                  ),
+                                    const SizedBox(width: 10),
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: [
+                                        _DesktopForceProxyButton(
+                                          onTap: onShowForceProxySites,
+                                          enabled: !isConnecting,
+                                        ),
+                                        if (isConnected) ...[
+                                          const SizedBox(height: 8),
+                                          _DesktopModeBadge(
+                                            text:
+                                                '${settings.proxyMode.chineseName} · 端口 ${settings.proxyPort}${settings.enableTun ? " · TUN" : " · 代理"}',
+                                            subColor: subColor,
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ],
+                                ),
                                 if (errorMessage != null) ...[
                                   const SizedBox(height: 10),
                                   _DesktopConnectionError(
@@ -452,6 +472,16 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 16),
+                      if (isConnected) ...[
+                        _DesktopPublicIpRow(
+                          info: publicIpInfo,
+                          isRefreshing: isRefreshingPublicIp,
+                          error: publicIpError,
+                          subColor: subColor,
+                          onRefresh: onRefreshPublicIp,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       _DesktopConnectionOptions(
                         isDark: isDark,
                         textColor: textColor,
@@ -469,6 +499,114 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _DesktopModeBadge extends StatelessWidget {
+  final String text;
+  final Color subColor;
+
+  const _DesktopModeBadge({required this.text, required this.subColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.success.withValues(alpha: 15 / 255),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          color: subColor,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopPublicIpRow extends StatelessWidget {
+  final PublicIpInfo? info;
+  final bool isRefreshing;
+  final String? error;
+  final Color subColor;
+  final VoidCallback onRefresh;
+
+  const _DesktopPublicIpRow({
+    required this.info,
+    required this.isRefreshing,
+    required this.error,
+    required this.subColor,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final display = info?.displayText ??
+        (isRefreshing
+            ? '正在获取出口 IP...'
+            : error != null
+                ? '出口 IP $error'
+                : '出口 IP 待获取');
+    final color = error != null && info == null ? AppTheme.warning : subColor;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withValues(alpha: 10 / 255),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppTheme.primary.withValues(alpha: 28 / 255),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.public_rounded, size: 16, color: AppTheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'IP地址：$display',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Tooltip(
+            message: '刷新出口 IP',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: isRefreshing ? null : onRefresh,
+              child: SizedBox(
+                width: 28,
+                height: 28,
+                child: Center(
+                  child: isRefreshing
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(
+                          Icons.refresh_rounded,
+                          size: 17,
+                          color: AppTheme.primary,
+                        ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

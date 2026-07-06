@@ -253,7 +253,7 @@ class UnlockTestService {
   http.Client _proxyClient(int proxyPort) {
     final httpClient = HttpClient()
       ..connectionTimeout = const Duration(seconds: 8)
-      ..findProxy = (_) => 'PROXY 127.0.0.1:$proxyPort; DIRECT';
+      ..findProxy = (_) => 'PROXY 127.0.0.1:$proxyPort';
     return IOClient(httpClient);
   }
 
