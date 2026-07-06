@@ -13,6 +13,33 @@ class AppDelegate: FlutterAppDelegate {
     return true
   }
 
+  override func applicationShouldHandleReopen(
+    _ sender: NSApplication,
+    hasVisibleWindows flag: Bool
+  ) -> Bool {
+    revealMainWindow(in: sender)
+    return true
+  }
+
+  @discardableResult
+  func revealMainWindow(in application: NSApplication = NSApp) -> Bool {
+    application.unhide(nil)
+    application.activate(ignoringOtherApps: true)
+    let window = application.windows.first(where: { $0 is MainFlutterWindow })
+      ?? application.windows.first(where: { $0.canBecomeKey || $0.canBecomeMain })
+    return revealWindow(window)
+  }
+
+  @discardableResult
+  func revealWindow(_ window: NSWindow?) -> Bool {
+    guard let window else { return false }
+    if window.isMiniaturized {
+      window.deminiaturize(nil)
+    }
+    window.makeKeyAndOrderFront(nil)
+    return true
+  }
+
   // Cmd+Q 等退出路径不经过 Flutter 侧的清理逻辑，
   // 在这里兜底：杀掉核心进程，并优先恢复 Dart 侧保存的系统代理备份。
   override func applicationWillTerminate(_ notification: Notification) {
