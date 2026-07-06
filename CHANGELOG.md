@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-07-07
+
+### Fixed
+- Fixed macOS and Windows Home node selection so the selected node is confirmed from Mihomo's runtime selector state instead of trusting the expected node after startup or switching.
+- Fixed proxy switching to report success only after Mihomo's `PROXY` and `GLOBAL` groups reflect the requested node, preventing the UI from showing a node that is not actually active.
+
 ## [2.3.1] - 2026-07-07
 
 ### Fixed

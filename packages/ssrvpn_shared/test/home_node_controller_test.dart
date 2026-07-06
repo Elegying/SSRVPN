@@ -56,6 +56,30 @@ void main() {
       expect(controller.resolveDefaultNode('B')?.name, 'B');
     });
 
+    test('resolves runtime selected node from Mihomo state', () {
+      final nodes = [
+        node('A'),
+        node('B'),
+        node('套餐到期：长期有效'),
+      ];
+
+      expect(
+        HomeNodeController.resolveRuntimeSelectedNodeFrom(nodes, ' B ')?.name,
+        'B',
+      );
+      expect(
+        HomeNodeController.resolveRuntimeSelectedNodeFrom(nodes, 'Missing'),
+        isNull,
+      );
+      expect(
+        HomeNodeController.resolveRuntimeSelectedNodeFrom(
+          nodes,
+          '套餐到期：长期有效',
+        ),
+        isNull,
+      );
+    });
+
     test('skips subscription info pseudo nodes for default selection', () {
       final nodes = [
         node('套餐到期：长期有效', latency: 30),

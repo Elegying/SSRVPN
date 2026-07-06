@@ -131,6 +131,8 @@ proxies:
 
   test('global mode selects the built-in GLOBAL group through PROXY', () async {
     final requests = <Map<String, String>>[];
+    var proxyNow = 'Initial';
+    var globalNow = 'DIRECT';
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final subscription = server.listen((request) async {
       final body = await utf8.decoder.bind(request).join();
@@ -140,6 +142,43 @@ proxies:
         'auth': request.headers.value(HttpHeaders.authorizationHeader) ?? '',
         'body': body,
       });
+
+      if (request.method == 'GET' &&
+          request.uri.pathSegments.length == 2 &&
+          request.uri.pathSegments.first == 'proxies') {
+        final now =
+            request.uri.pathSegments.last == 'GLOBAL' ? globalNow : proxyNow;
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentType = ContentType.json
+          ..write(jsonEncode({'now': now}));
+        await request.response.close();
+        return;
+      }
+
+      if (request.method == 'PUT' &&
+          request.uri.pathSegments.length == 2 &&
+          request.uri.pathSegments.first == 'proxies') {
+        final target = jsonDecode(body)['name']?.toString() ?? '';
+        if (request.uri.pathSegments.last == 'GLOBAL') {
+          globalNow = target;
+        } else {
+          proxyNow = target;
+        }
+        request.response.statusCode = HttpStatus.noContent;
+        await request.response.close();
+        return;
+      }
+
+      if (request.method == 'GET' && request.uri.path == '/connections') {
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentType = ContentType.json
+          ..write(jsonEncode({'connections': const []}));
+        await request.response.close();
+        return;
+      }
+
       request.response.statusCode = HttpStatus.noContent;
       await request.response.close();
     });
@@ -160,24 +199,35 @@ proxies:
       await server.close(force: true);
     }
 
-    expect(requests.map((request) => request['method']), [
-      'PUT',
-      'PUT',
-      'DELETE',
-      'GET',
-    ]);
-    expect(requests.map((request) => request['path']), [
-      '/proxies/PROXY',
-      '/proxies/GLOBAL',
-      '/connections',
-      '/connections',
-    ]);
     expect(
-      requests.map((request) => request['auth']).toSet(),
-      {'Bearer secret'},
+      requests.where((request) => request['method'] == 'PUT').map(
+            (request) => request['path'],
+          ),
+      ['/proxies/PROXY', '/proxies/GLOBAL'],
     );
-    expect(jsonDecode(requests[0]['body']!)['name'], 'First');
-    expect(jsonDecode(requests[1]['body']!)['name'], 'PROXY');
+    expect(
+      requests.where((request) => request['method'] == 'DELETE').map(
+            (request) => request['path'],
+          ),
+      ['/connections'],
+    );
+    expect(
+      requests
+          .where((request) => request['method'] == 'GET')
+          .map((request) => request['path'])
+          .toSet(),
+      {'/proxies/PROXY', '/proxies/GLOBAL', '/connections'},
+    );
+    expect(
+      requests.every((request) => request['auth'] == 'Bearer secret'),
+      isTrue,
+    );
+    final puts =
+        requests.where((request) => request['method'] == 'PUT').toList();
+    expect(jsonDecode(puts[0]['body']!)['name'], 'First');
+    expect(jsonDecode(puts[1]['body']!)['name'], 'PROXY');
+    expect(proxyNow, 'First');
+    expect(globalNow, 'PROXY');
   });
 
   test('custom force proxy sites are written before direct rules', () {

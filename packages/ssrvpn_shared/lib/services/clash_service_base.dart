@@ -331,18 +331,8 @@ abstract class ClashServiceBase {
   /// 切换代理节点
   Future<bool> switchProxy(String groupName, String nodeName) async {
     try {
-      final client = _apiClient;
-      if (client == null) return false;
-      final url = _apiUrl('/proxies/${Uri.encodeComponent(groupName)}');
-      final response = await client
-          .put(
-            Uri.parse(url),
-            headers: apiHeaders(json: true),
-            body: jsonEncode({'name': nodeName}),
-          )
-          .timeout(const Duration(seconds: 5));
-
-      if (response.statusCode == 200 || response.statusCode == 204) {
+      final switched = await _switchAndConfirmProxyGroup(groupName, nodeName);
+      if (switched) {
         await _closeConnections();
         return true;
       }
@@ -392,15 +382,17 @@ abstract class ClashServiceBase {
 
   /// 切换选中的代理节点（同时处理 PROXY 和 GLOBAL 组）
   Future<bool> switchSelectedProxy(String nodeName) async {
-    final proxyOk = await _switchProxyGroup('PROXY', nodeName);
+    final proxyOk = await _switchAndConfirmProxyGroup('PROXY', nodeName);
     var globalOk = true;
     if (_settings.proxyMode == ProxyMode.global) {
-      globalOk = await _switchProxyGroup('GLOBAL', 'PROXY');
+      globalOk = await _switchAndConfirmProxyGroup('GLOBAL', 'PROXY');
       if (!globalOk) {
-        globalOk = await _switchProxyGroup('GLOBAL', nodeName);
+        globalOk = await _switchAndConfirmProxyGroup('GLOBAL', nodeName);
       }
     }
-    if (proxyOk && globalOk) {
+    final effectiveOk =
+        proxyOk && globalOk && (await currentSelectedProxyName()) == nodeName;
+    if (effectiveOk) {
       await _closeConnections();
       // 轮询等待核心清空连接，最多等 250ms
       final deadline = DateTime.now().add(const Duration(milliseconds: 250));
@@ -410,7 +402,32 @@ abstract class ClashServiceBase {
         await Future<void>.delayed(const Duration(milliseconds: 30));
       }
     }
-    return proxyOk && globalOk;
+    return effectiveOk;
+  }
+
+  /// Returns the node that Mihomo is actually routing through right now.
+  ///
+  /// In global mode GLOBAL may point at PROXY, so the effective node is then
+  /// PROXY.now rather than GLOBAL.now itself.
+  Future<String?> currentSelectedProxyName() async {
+    final proxyNow = await _currentProxyGroupSelection('PROXY');
+    if (_settings.proxyMode != ProxyMode.global) return _nonEmpty(proxyNow);
+
+    final globalNow = await _currentProxyGroupSelection('GLOBAL');
+    if (globalNow == null || globalNow.isEmpty || globalNow == 'PROXY') {
+      return _nonEmpty(proxyNow);
+    }
+    if (globalNow == 'DIRECT' || globalNow == 'REJECT') return null;
+    return globalNow;
+  }
+
+  Future<bool> _switchAndConfirmProxyGroup(
+    String groupName,
+    String nodeName,
+  ) async {
+    final accepted = await _switchProxyGroup(groupName, nodeName);
+    if (!accepted) return false;
+    return _waitForProxyGroupSelection(groupName, nodeName);
   }
 
   Future<bool> _switchProxyGroup(String groupName, String nodeName) async {
@@ -430,6 +447,51 @@ abstract class ClashServiceBase {
       log('切换代理组失败 $groupName -> $nodeName: $e');
       return false;
     }
+  }
+
+  Future<String?> _currentProxyGroupSelection(String groupName) async {
+    try {
+      final client = _apiClient;
+      if (client == null) return null;
+      final response = await client
+          .get(
+            Uri.parse(_apiUrl('/proxies/${Uri.encodeComponent(groupName)}')),
+            headers: apiHeaders(),
+          )
+          .timeout(const Duration(seconds: 3));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return null;
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        return decoded['now']?.toString();
+      }
+    } catch (e) {
+      log('读取代理组状态失败 $groupName: $e');
+    }
+    return null;
+  }
+
+  Future<bool> _waitForProxyGroupSelection(
+    String groupName,
+    String expectedNodeName,
+  ) async {
+    String? lastSeen;
+    final deadline = DateTime.now().add(const Duration(milliseconds: 500));
+    while (DateTime.now().isBefore(deadline)) {
+      lastSeen = await _currentProxyGroupSelection(groupName);
+      if (lastSeen == expectedNodeName) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+    }
+    log(
+      '代理组状态未生效 $groupName: expected=$expectedNodeName, actual=$lastSeen',
+    );
+    return false;
+  }
+
+  String? _nonEmpty(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
   }
 
   Future<void> _closeConnections() async {

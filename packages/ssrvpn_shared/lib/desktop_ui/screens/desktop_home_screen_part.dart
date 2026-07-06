@@ -125,11 +125,23 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       );
       await clashService.writeConfig(config);
       final success = await clashService.start();
+      ProxyNode? runtimeSelectedNode;
       if (success && preferredNode != null) {
         final switched = await clashService.switchSelectedProxy(
           preferredNode.name,
         );
-        if (switched) await _rememberSelectedNode(preferredNode);
+        runtimeSelectedNode = await _resolveRuntimeSelectedNode(
+          clashService,
+          nodes,
+        );
+        if (switched && runtimeSelectedNode?.name == preferredNode.name) {
+          await _rememberSelectedNode(preferredNode);
+        }
+      } else if (success) {
+        runtimeSelectedNode = await _resolveRuntimeSelectedNode(
+          clashService,
+          nodes,
+        );
       }
       final connectivityWarning =
           success ? await clashService.verifyUserConnectivity() : null;
@@ -139,7 +151,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _isConnecting = false;
           _errorMessage = connectivityWarning;
           _nodes = nodes;
-          _selectedNode = success ? preferredNode : null;
+          _selectedNode = success ? runtimeSelectedNode : null;
           if (!success) _resetPublicIpState();
         });
         if (success) {
@@ -191,19 +203,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _loadInitialData() async {
     final subService = context.read<SubscriptionService>();
     final clashService = context.read<ClashService>();
-    final settingsService = context.read<SettingsService>();
     _clashService = clashService;
     final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
+    final runtimeSelectedNode = clashService.isRunning
+        ? await _resolveRuntimeSelectedNode(clashService, nodes)
+        : null;
     if (nodes.isNotEmpty) {
       setState(() {
         _nodes = nodes;
         _lastRevision = subService.revision;
-        if (clashService.isRunning) {
-          _selectedNode = _resolveDefaultNode(
-            nodes,
-            settingsService.settings.lastSelectedNodeName,
-          );
-        }
+        if (clashService.isRunning) _selectedNode = runtimeSelectedNode;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         unawaited(_autoTestAllNodes());
@@ -239,6 +248,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _glowController.repeat();
         _scheduleExitCountryResolution();
         _schedulePublicIpRefresh();
+        unawaited(_syncSelectedNodeFromRuntime());
       }
     });
   }
@@ -631,13 +641,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         );
         await clashService.writeConfig(config);
         final success = await clashService.start();
+        ProxyNode? runtimeSelectedNode;
         if (!mounted) return;
         if (success) {
           if (autoSelect != null) {
             final switched = await clashService.switchSelectedProxy(
               autoSelect.name,
             );
-            if (switched) await _rememberSelectedNode(autoSelect);
+            runtimeSelectedNode = await _resolveRuntimeSelectedNode(
+              clashService,
+              nodes,
+            );
+            if (switched && runtimeSelectedNode?.name == autoSelect.name) {
+              await _rememberSelectedNode(autoSelect);
+            }
+          } else {
+            runtimeSelectedNode = await _resolveRuntimeSelectedNode(
+              clashService,
+              nodes,
+            );
           }
           final connectivityWarning =
               await clashService.verifyUserConnectivity();
@@ -646,7 +668,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             _isConnecting = false;
             _errorMessage = connectivityWarning;
             _nodes = nodes;
-            _selectedNode = autoSelect;
+            _selectedNode = runtimeSelectedNode;
           });
           _glowController.repeat();
           _scheduleExitCountryResolution();
@@ -847,6 +869,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     String? rememberedNodeName,
   ) {
     return HomeNodeController.resolveDefaultNodeFrom(nodes, rememberedNodeName);
+  }
+
+  Future<ProxyNode?> _resolveRuntimeSelectedNode(
+    ClashService clashService,
+    List<ProxyNode> nodes,
+  ) async {
+    final runtimeNodeName = await clashService.currentSelectedProxyName();
+    return HomeNodeController.resolveRuntimeSelectedNodeFrom(
+      nodes,
+      runtimeNodeName,
+    );
+  }
+
+  Future<void> _syncSelectedNodeFromRuntime() async {
+    final clashService = _clashService;
+    if (clashService == null || !mounted || _disposed || !_isConnected) return;
+    final runtimeSelectedNode = await _resolveRuntimeSelectedNode(
+      clashService,
+      _nodes,
+    );
+    if (!mounted || _disposed || !_isConnected) return;
+    setState(() => _selectedNode = runtimeSelectedNode);
   }
 
   Future<void> _rememberSelectedNode(ProxyNode node) async {

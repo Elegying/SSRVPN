@@ -112,6 +112,18 @@ class HomeNodeController {
     return selectable.first;
   }
 
+  static ProxyNode? resolveRuntimeSelectedNodeFrom(
+    Iterable<ProxyNode> nodes,
+    String? runtimeNodeName,
+  ) {
+    final name = runtimeNodeName?.trim();
+    if (name == null || name.isEmpty) return null;
+    for (final node in runnableNodesFrom(nodes)) {
+      if (node.name == name) return node;
+    }
+    return null;
+  }
+
   static List<ProxyNode> runnableNodesFrom(Iterable<ProxyNode> nodes) {
     return nodes
         .where(ProxyNodeUsagePolicy.isRunnableNode)
