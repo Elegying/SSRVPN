@@ -70,6 +70,7 @@ class _DesktopHomeDashboard extends StatelessWidget {
             publicIpInfo: publicIpInfo,
             isRefreshingPublicIp: isRefreshingPublicIp,
             publicIpError: publicIpError,
+            denseLayout: !wide || constraints.maxHeight < 640,
             glowAnimation: glowAnimation,
             onToggleConnection: onToggleConnection,
             onShowForceProxySites: onShowForceProxySites,
@@ -320,6 +321,7 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
   final PublicIpInfo? publicIpInfo;
   final bool isRefreshingPublicIp;
   final String? publicIpError;
+  final bool denseLayout;
   final Animation<double> glowAnimation;
   final VoidCallback onToggleConnection;
   final VoidCallback onShowForceProxySites;
@@ -339,6 +341,7 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
     required this.publicIpInfo,
     required this.isRefreshingPublicIp,
     required this.publicIpError,
+    required this.denseLayout,
     required this.glowAnimation,
     required this.onToggleConnection,
     required this.onShowForceProxySites,
@@ -353,12 +356,23 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 430;
+        final shortHeight =
+            constraints.maxHeight.isFinite && constraints.maxHeight < 380;
+        final dense = denseLayout || compact || shortHeight;
+        final buttonSize = dense ? 108.0 : 140.0;
+        final outerHorizontalPadding = compact ? 16.0 : 28.0;
+        final outerVerticalPadding = dense ? 6.0 : 10.0;
+        final cardHorizontalPadding = compact ? 18.0 : 24.0;
+        final cardVerticalPadding = dense ? 18.0 : 28.0;
+        final buttonGap = dense ? 14.0 : 20.0;
+        final sectionGap = dense ? 12.0 : 16.0;
+        final connectedGap = dense ? 8.0 : 12.0;
         return Padding(
           padding: EdgeInsets.fromLTRB(
-            compact ? 20 : 28,
-            10,
-            compact ? 20 : 28,
-            10,
+            outerHorizontalPadding,
+            outerVerticalPadding,
+            outerHorizontalPadding,
+            outerVerticalPadding,
           ),
           child: AnimatedBuilder(
             animation: glowAnimation,
@@ -386,9 +400,9 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
                   blur: 34,
                   opacity: isDark ? 0.055 : 0.58,
                   borderRadius: const BorderRadius.all(Radius.circular(24)),
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 28,
-                    horizontal: 24,
+                  padding: EdgeInsets.symmetric(
+                    vertical: cardVerticalPadding,
+                    horizontal: cardHorizontalPadding,
                   ),
                   borderOpacity: isDark ? 0.17 : 0.72,
                   shadowOpacity: isDark ? 0.42 : 0.1,
@@ -400,8 +414,9 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
                             isConnected: isConnected,
                             isConnecting: isConnecting,
                             onTap: onToggleConnection,
+                            size: buttonSize,
                           ),
-                          const SizedBox(width: 20),
+                          SizedBox(width: buttonGap),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -471,7 +486,7 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16),
+                      SizedBox(height: sectionGap),
                       if (isConnected) ...[
                         _DesktopPublicIpRow(
                           info: publicIpInfo,
@@ -480,7 +495,7 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
                           subColor: subColor,
                           onRefresh: onRefreshPublicIp,
                         ),
-                        const SizedBox(height: 12),
+                        SizedBox(height: connectedGap),
                       ],
                       _DesktopConnectionOptions(
                         isDark: isDark,
@@ -731,7 +746,7 @@ class _DesktopConnectionOptions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: isDark
             ? Colors.white.withValues(alpha: 4 / 255)
@@ -817,7 +832,7 @@ class _DesktopConnectionOptions extends StatelessWidget {
             ],
           );
 
-          if (constraints.maxWidth < 520) {
+          if (constraints.maxWidth < 300) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [modeControl, const SizedBox(height: 12), tunControl],
@@ -830,7 +845,7 @@ class _DesktopConnectionOptions extends StatelessWidget {
               Container(
                 width: 1,
                 height: 52,
-                margin: const EdgeInsets.symmetric(horizontal: 16),
+                margin: const EdgeInsets.symmetric(horizontal: 12),
                 color: isDark ? AppTheme.border : AppTheme.lightBorder,
               ),
               Expanded(child: tunControl),
@@ -873,8 +888,8 @@ class _DesktopTunChoice extends StatelessWidget {
       onTap: disabled ? null : () => onChanged(enableTun),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        margin: const EdgeInsets.only(top: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        margin: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           color: selected
               ? AppTheme.primary.withValues(alpha: (isDark ? 28 : 18) / 255)
