@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.5] - 2026-07-07
+
+### 修复
+- 修复桌面端三栏布局下连接状态文字被右侧操作区挤压，导致“已连接”显示不全的问题。
+
+### 变更
+- 发布说明和检查更新弹窗中的固定更新日志文案改为中文。
+
 ## [2.4.4] - 2026-07-07
 
 ### Changed

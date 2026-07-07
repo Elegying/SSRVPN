@@ -421,58 +421,14 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: AnimatedSwitcher(
-                                        duration:
-                                            const Duration(milliseconds: 300),
-                                        child: Text(
-                                          isConnecting
-                                              ? '正在连接...'
-                                              : isConnected
-                                                  ? '已连接'
-                                                  : '未连接',
-                                          key: ValueKey(
-                                            isConnecting
-                                                ? 'c'
-                                                : isConnected
-                                                    ? 'y'
-                                                    : 'n',
-                                          ),
-                                          style: TextStyle(
-                                            fontSize: 22,
-                                            fontWeight: FontWeight.w700,
-                                            color: isConnected
-                                                ? AppTheme.success
-                                                : textColor,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                      children: [
-                                        _DesktopForceProxyButton(
-                                          onTap: onShowForceProxySites,
-                                          enabled: !isConnecting,
-                                        ),
-                                        if (isConnected) ...[
-                                          const SizedBox(height: 8),
-                                          _DesktopModeBadge(
-                                            text:
-                                                '${settings.proxyMode.chineseName} · 端口 ${settings.proxyPort}${settings.enableTun ? " · TUN" : " · 代理"}',
-                                            subColor: subColor,
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ],
+                                _DesktopConnectionSummary(
+                                  settings: settings,
+                                  isConnected: isConnected,
+                                  isConnecting: isConnecting,
+                                  textColor: textColor,
+                                  subColor: subColor,
+                                  onShowForceProxySites:
+                                      onShowForceProxySites,
                                 ),
                                 if (errorMessage != null) ...[
                                   const SizedBox(height: 10),
@@ -512,6 +468,95 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
               );
             },
           ),
+        );
+      },
+    );
+  }
+}
+
+class _DesktopConnectionSummary extends StatelessWidget {
+  final AppSettings settings;
+  final bool isConnected;
+  final bool isConnecting;
+  final Color textColor;
+  final Color subColor;
+  final VoidCallback onShowForceProxySites;
+
+  const _DesktopConnectionSummary({
+    required this.settings,
+    required this.isConnected,
+    required this.isConnecting,
+    required this.textColor,
+    required this.subColor,
+    required this.onShowForceProxySites,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final status = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      child: Text(
+        isConnecting
+            ? '正在连接...'
+            : isConnected
+                ? '已连接'
+                : '未连接',
+        key: ValueKey(
+          isConnecting
+              ? 'c'
+              : isConnected
+                  ? 'y'
+                  : 'n',
+        ),
+        style: TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
+          color: isConnected ? AppTheme.success : textColor,
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        softWrap: false,
+      ),
+    );
+
+    final actions = Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        _DesktopForceProxyButton(
+          onTap: onShowForceProxySites,
+          enabled: !isConnecting,
+        ),
+        if (isConnected) ...[
+          const SizedBox(height: 8),
+          _DesktopModeBadge(
+            text:
+                '${settings.proxyMode.chineseName} · 端口 ${settings.proxyPort}${settings.enableTun ? " · TUN" : " · 代理"}',
+            subColor: subColor,
+          ),
+        ],
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 320) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: double.infinity, child: status),
+              const SizedBox(height: 8),
+              Align(alignment: Alignment.centerLeft, child: actions),
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: status),
+            const SizedBox(width: 10),
+            actions,
+          ],
         );
       },
     );

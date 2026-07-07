@@ -172,7 +172,7 @@ class UpdateChecker {
     required String? sha256,
   }) {
     final lines = <String>[];
-    final trimmedBody = body.trim();
+    final trimmedBody = _normalizeReleaseNotes(body.trim());
     if (trimmedBody.isNotEmpty) lines.add(trimmedBody);
     if (sourceHost != null && sourceHost.isNotEmpty) {
       lines.add('下载来源: $sourceHost');
@@ -181,5 +181,25 @@ class UpdateChecker {
       lines.add('SHA256: $sha256');
     }
     return lines.join('\n\n');
+  }
+
+  static String _normalizeReleaseNotes(String body) {
+    if (body.isEmpty) return body;
+    final replacements = <String, String>{
+      '### Downloads': '### 下载',
+      '### Added': '### 新增',
+      '### Changed': '### 变更',
+      '### Deprecated': '### 废弃',
+      '### Removed': '### 移除',
+      '### Fixed': '### 修复',
+      '### Security': '### 安全',
+      '| Platform | File | Checksum |': '| 平台 | 文件 | 校验和 |',
+      'Verify checksums:': '校验 SHA256：',
+    };
+    var normalized = body;
+    for (final entry in replacements.entries) {
+      normalized = normalized.replaceAll(entry.key, entry.value);
+    }
+    return normalized;
   }
 }

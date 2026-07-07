@@ -81,6 +81,33 @@ void main() {
     );
   });
 
+  test('checkLatest localizes generated release note headings', () async {
+    final client = MockClient((request) async {
+      return http.Response('''
+{
+  "tag_name": "v2.0.7",
+  "body": "### Changed\\n- Desktop layout update\\n\\n### Downloads\\n| Platform | File | Checksum |\\n|----------|------|----------|\\n| Windows | `SSRVPN.zip` | `SSRVPN.zip.sha256` |\\n\\nVerify checksums: `shasum -a 256 -c <file>.sha256`",
+  "html_url": "https://github.com/Elegying/SSRVPN/releases/tag/v2.0.7",
+  "assets": [
+    {"name": "SSRVPN.zip", "browser_download_url": "https://example.test/app.zip"}
+  ]
+}
+''', 200);
+    });
+
+    final update = await UpdateChecker.checkLatest(
+      currentVersion: '2.0.6',
+      assetExtension: '.zip',
+      client: client,
+    );
+
+    expect(update, isNotNull);
+    expect(update!.changelog, contains('### 变更'));
+    expect(update.changelog, contains('### 下载'));
+    expect(update.changelog, contains('| 平台 | 文件 | 校验和 |'));
+    expect(update.changelog, contains('校验 SHA256：'));
+  });
+
   test('checkLatest returns null when current version is up to date', () async {
     final client = MockClient((_) async {
       return http.Response('{"tag_name":"v2.0.6","assets":[]}', 200);
