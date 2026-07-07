@@ -51,7 +51,7 @@ $requiredFiles = @(
   'bin\data\icudtl.dat',
   'bin\data\flutter_assets\assets\geoip.metadb.gz',
   'bin\data\flutter_assets\assets\icon.ico'
-) + ($runtimeDlls | ForEach-Object { "bin\$_" })
+) + $runtimeDlls + ($runtimeDlls | ForEach-Object { "bin\$_" })
 
 $transcriptStarted = $false
 if ($LogPath -and $LogPath.Trim().Length -gt 0) {
@@ -327,6 +327,9 @@ function Add-PortableRuntimeFiles {
   $runtimeDirs = Get-PortableRuntimeSearchDirectories
   foreach ($dll in $runtimeDlls) {
     Copy-PortableDependency -Name $dll -Directories $runtimeDirs `
+      -DestinationDirectory $releaseDir -RequireX64 `
+      -InstallHint 'Install Visual Studio 2022 with the C++ desktop workload, or install the Microsoft Visual C++ Redistributable 2015-2022 x64 on the build machine.'
+    Copy-PortableDependency -Name $dll -Directories $runtimeDirs `
       -DestinationDirectory $binDir -RequireX64 `
       -InstallHint 'Install Visual Studio 2022 with the C++ desktop workload, or install the Microsoft Visual C++ Redistributable 2015-2022 x64 on the build machine.'
   }
@@ -375,7 +378,7 @@ function Move-PortableInternalsToBin {
     'ssrvpn_cet_fix.ps1',
     'ssrvpn_cet_fix.bat',
     'SHA256SUMS.txt'
-  )
+  ) + $runtimeDlls
 
   Get-ChildItem -LiteralPath $releaseDir -Force | ForEach-Object {
     if ($_.Name -eq 'bin' -or $rootFilesToKeep -contains $_.Name) {
@@ -608,7 +611,7 @@ function Test-ReleaseContents {
     'bin\system_tray_plugin.dll',
     'bin\window_manager_plugin.dll',
     'bin\d3dcompiler_47.dll'
-  ) + ($runtimeDlls | ForEach-Object { "bin\$_" })
+  ) + $runtimeDlls + ($runtimeDlls | ForEach-Object { "bin\$_" })
   foreach ($relativePath in $peFiles) {
     $path = Join-Path $Root $relativePath
     if (-not (Test-X64PeFile -Path $path)) {

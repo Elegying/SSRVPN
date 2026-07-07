@@ -86,6 +86,22 @@ jobs:
 
       - run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
 
+      - name: Build Windows portable ZIP
+        if: matrix.directory == 'SSRVPN_Windows'
+        shell: powershell
+        run: |
+          cd SSRVPN_Windows
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
+
+      - name: Upload Windows portable ZIP
+        if: matrix.directory == 'SSRVPN_Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-portable-pr
+          path: |
+            SSRVPN_Windows/SSRVPN.zip
+            SSRVPN_Windows/SSRVPN.zip.sha256
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:

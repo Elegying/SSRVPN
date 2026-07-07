@@ -81,6 +81,7 @@ SSRVPN_Windows_Release/
 ├── 使用教程.txt
 ├── SSRVPN_Diag.bat
 ├── SAFE_MODE_README.txt
+├── *.dll                      # 主启动器需要的 VC++ 运行库
 └── bin/
     ├── ssrvpn_windows_app.exe  # 内部 Flutter 程序
     ├── mihomo.exe              # Mihomo 核心
@@ -117,7 +118,7 @@ https://github.com/MetaCubeX/mihomo/releases
 
 ### 便携模式
 
-本软件为**绿色免安装版**，解压后主目录只有一个面向用户的 `ssrvpn_windows.exe`。应用内部文件放在 `bin` 目录，配置、订阅、缓存和日志默认存储在 `bin\ssrvpn` 文件夹内。系统代理模式运行期间会临时修改当前用户的 Windows 代理设置，断开或退出时自动恢复原设置。
+本软件为**绿色免安装版**，解压后主目录只有一个面向用户的 `ssrvpn_windows.exe`，并保留启动器必需的 VC++ 运行库 DLL。应用内部文件放在 `bin` 目录，配置、订阅、缓存和日志默认存储在 `bin\ssrvpn` 文件夹内。系统代理模式运行期间会临时修改当前用户的 Windows 代理设置，断开或退出时自动恢复原设置。
 
 如果程序目录不可写（例如放在受保护目录或只读介质），数据会自动回退到 `%LOCALAPPDATA%\SSRVPN\ssrvpn`。系统代理恢复快照属于当前电脑的运行状态，会单独保存在本机 LocalAppData 中，不会随便携目录复制到其他电脑。
 
@@ -127,6 +128,7 @@ SSRVPN_Windows_Portable/
 ├── 使用教程.txt
 ├── SSRVPN_Diag.bat
 ├── SAFE_MODE_README.txt
+├── *.dll                      # 主启动器需要的 VC++ 运行库
 └── bin/
     ├── ssrvpn_windows_app.exe  # 内部 Flutter 程序
     ├── mihomo.exe              # 代理核心

@@ -1,6 +1,7 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -294,6 +295,14 @@ jobs:
           $portableRoot = Join-Path $verifyRoot 'SSRVPN_Windows_Release'
           foreach ($relativePath in @(
             'ssrvpn_windows.exe',
+            'concrt140.dll',
+            'msvcp140.dll',
+            'msvcp140_1.dll',
+            'msvcp140_2.dll',
+            'msvcp140_atomic_wait.dll',
+            'msvcp140_codecvt_ids.dll',
+            'vcruntime140.dll',
+            'vcruntime140_1.dll',
             'bin\ssrvpn_windows_app.exe',
             'bin\mihomo.exe',
             'SHA256SUMS.txt',
@@ -336,6 +345,7 @@ jobs:
   # ── GitHub Release ──
   publish:
     name: Publish Release
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [build-android, build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:

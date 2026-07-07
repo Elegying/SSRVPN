@@ -111,11 +111,24 @@ root_exes = [name for name in root_files if name.lower().endswith(".exe")]
 if root_exes != ["ssrvpn_windows.exe"]:
     raise SystemExit(f"ZIP root must contain one user-facing exe: {root_exes}")
 
+runtime_dlls = [
+    "concrt140.dll",
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "msvcp140_atomic_wait.dll",
+    "msvcp140_codecvt_ids.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+]
 required = {
     "SSRVPN_Windows_Release/bin/ssrvpn_windows_app.exe",
     "SSRVPN_Windows_Release/bin/mihomo.exe",
     "SSRVPN_Windows_Release/bin/data/flutter_assets/assets/geoip.metadb.gz",
 }
+for dll in runtime_dlls:
+    required.add(f"SSRVPN_Windows_Release/{dll}")
+    required.add(f"SSRVPN_Windows_Release/bin/{dll}")
 all_names = {path.as_posix() for path in names}
 missing = sorted(required - all_names)
 if missing:

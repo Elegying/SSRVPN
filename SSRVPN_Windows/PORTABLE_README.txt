@@ -33,13 +33,13 @@ SSRVPN Windows 便携版 v2.0.6
 ═══════════════════════════════════════
 
 Q: 双击后什么反应都没有？
-A: 很可能是 SmartScreen 拦截或缺少渲染组件
+A: 很可能是 SmartScreen 拦截、主目录运行库缺失或缺少渲染组件
    1. 右键 exe → 属性 → 勾选"解除锁定"
    2. 运行 SSRVPN_Diag.bat 查看完整诊断
 
 Q: 提示缺少 DLL？
 A: 运行 SSRVPN_Diag.bat 会列出具体缺失的文件
-   正常发布包已自带 VC++ 运行库和 d3dcompiler_47.dll
+   正常发布包会在主目录和 bin 自带 VC++ 运行库，并在 bin 自带 d3dcompiler_47.dll
    如果缺失，通常是 ZIP 没有完整解压或文件被安全软件隔离
 
 Q: 杀毒软件报毒？
