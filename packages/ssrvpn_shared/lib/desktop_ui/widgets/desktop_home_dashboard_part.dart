@@ -760,7 +760,7 @@ class _DesktopConnectionOptions extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final modeControl = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
                 '代理模式',
@@ -770,28 +770,27 @@ class _DesktopConnectionOptions extends StatelessWidget {
                   color: textColor,
                 ),
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: SegmentedButton<ProxyMode>(
-                  showSelectedIcon: false,
-                  segments: const [
-                    ButtonSegment<ProxyMode>(
-                      value: ProxyMode.rule,
-                      icon: Icon(Icons.route_rounded, size: 16),
-                      label: Text('规则'),
-                    ),
-                    ButtonSegment<ProxyMode>(
-                      value: ProxyMode.global,
-                      icon: Icon(Icons.public_rounded, size: 16),
-                      label: Text('全局'),
-                    ),
-                  ],
-                  selected: {settings.proxyMode},
-                  onSelectionChanged: isConnecting
-                      ? null
-                      : (selection) => onProxyModeChanged(selection.first),
-                ),
+              _DesktopOptionChoice<ProxyMode>(
+                selected: settings.proxyMode == ProxyMode.rule,
+                value: ProxyMode.rule,
+                enabled: !isConnecting,
+                icon: Icons.route_rounded,
+                label: '规则模式（默认）',
+                isDark: isDark,
+                textColor: textColor,
+                subColor: subColor,
+                onChanged: onProxyModeChanged,
+              ),
+              _DesktopOptionChoice<ProxyMode>(
+                selected: settings.proxyMode == ProxyMode.global,
+                value: ProxyMode.global,
+                enabled: !isConnecting,
+                icon: Icons.public_rounded,
+                label: '全局模式',
+                isDark: isDark,
+                textColor: textColor,
+                subColor: subColor,
+                onChanged: onProxyModeChanged,
               ),
             ],
           );
@@ -807,28 +806,27 @@ class _DesktopConnectionOptions extends StatelessWidget {
                   color: textColor,
                 ),
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: SegmentedButton<bool>(
-                  showSelectedIcon: false,
-                  segments: const [
-                    ButtonSegment<bool>(
-                      value: false,
-                      icon: Icon(Icons.language_rounded, size: 16),
-                      label: Text('系统代理'),
-                    ),
-                    ButtonSegment<bool>(
-                      value: true,
-                      icon: Icon(Icons.wifi_tethering_rounded, size: 16),
-                      label: Text('TUN'),
-                    ),
-                  ],
-                  selected: {settings.enableTun},
-                  onSelectionChanged: isConnecting
-                      ? null
-                      : (selection) => onEnableTunChanged(selection.first),
-                ),
+              _DesktopOptionChoice<bool>(
+                selected: !settings.enableTun,
+                value: false,
+                enabled: !isConnecting,
+                icon: Icons.language_rounded,
+                label: '系统代理（默认）',
+                isDark: isDark,
+                textColor: textColor,
+                subColor: subColor,
+                onChanged: onEnableTunChanged,
+              ),
+              _DesktopOptionChoice<bool>(
+                selected: settings.enableTun,
+                value: true,
+                enabled: !isConnecting,
+                icon: Icons.wifi_tethering_rounded,
+                label: 'TUN 模式（需管理员权限）',
+                isDark: isDark,
+                textColor: textColor,
+                subColor: subColor,
+                onChanged: onEnableTunChanged,
               ),
             ],
           );
@@ -853,6 +851,82 @@ class _DesktopConnectionOptions extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _DesktopOptionChoice<T> extends StatelessWidget {
+  final bool selected;
+  final T value;
+  final bool enabled;
+  final IconData icon;
+  final String label;
+  final bool isDark;
+  final Color textColor;
+  final Color subColor;
+  final ValueChanged<T> onChanged;
+
+  const _DesktopOptionChoice({
+    required this.selected,
+    required this.value,
+    required this.enabled,
+    required this.icon,
+    required this.label,
+    required this.isDark,
+    required this.textColor,
+    required this.subColor,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = !enabled || selected;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: disabled ? null : () => onChanged(value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        margin: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppTheme.primary.withValues(alpha: (isDark ? 28 : 18) / 255)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected
+                ? AppTheme.primary.withValues(alpha: 120 / 255)
+                : (isDark ? AppTheme.border : AppTheme.lightBorder),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: selected ? AppTheme.primary : subColor),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.25,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? AppTheme.primary : textColor,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              selected
+                  ? Icons.check_circle_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              size: 18,
+              color: selected ? AppTheme.primary : subColor,
+            ),
+          ],
+        ),
       ),
     );
   }

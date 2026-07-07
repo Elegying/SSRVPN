@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.4.4] - 2026-07-07
 
 ### Changed
-- Aligned the desktop Home proxy method selector with the proxy mode segmented layout on Windows and macOS.
+- Aligned the desktop Home proxy mode selector with the proxy method card layout on Windows and macOS.
 
 ## [2.4.3] - 2026-07-07
 
