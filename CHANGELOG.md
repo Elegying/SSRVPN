@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-07-07
+
+### Fixed
+- Fixed the Windows portable package so the root launcher includes the Visual C++ runtime DLLs it needs on clean Windows machines.
+- Improved the Windows Home connection module at 1280x720 and compact window sizes by using a denser connection panel and responsive power button sizing.
+
+### Changed
+- Added online CI validation and artifact upload for the Windows portable ZIP so release packaging regressions are caught before publishing.
+
 ## [2.4.1] - 2026-07-07
 
 ### Fixed
