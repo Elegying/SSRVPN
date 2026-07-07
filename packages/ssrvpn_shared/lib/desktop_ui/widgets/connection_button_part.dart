@@ -5,12 +5,14 @@ class ConnectionButton extends StatefulWidget {
   final bool isConnected;
   final bool isConnecting;
   final VoidCallback? onTap;
+  final double size;
 
   const ConnectionButton({
     super.key,
     required this.isConnected,
     this.isConnecting = false,
     this.onTap,
+    this.size = 140,
   });
 
   @override
@@ -72,11 +74,13 @@ class _ConnectionButtonState extends State<ConnectionButton>
 
   @override
   Widget build(BuildContext context) {
+    final scale = (widget.size / 140).clamp(0.68, 1.0).toDouble();
+
     return GestureDetector(
       onTap: widget.isConnecting ? null : widget.onTap,
       child: SizedBox(
-        width: 140,
-        height: 140,
+        width: widget.size,
+        height: widget.size,
         child: AnimatedBuilder(
           animation: Listenable.merge([_pulseCtrl, _ringCtrl, _breatheCtrl]),
           builder: (context, child) {
@@ -90,11 +94,11 @@ class _ConnectionButtonState extends State<ConnectionButton>
               ),
               child: Center(
                 child: widget.isConnecting
-                    ? const SizedBox(
-                        width: 36,
-                        height: 36,
+                    ? SizedBox(
+                        width: 36 * scale,
+                        height: 36 * scale,
                         child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
+                          strokeWidth: 2.5 * scale,
                           color: Colors.white,
                         ),
                       )
@@ -104,7 +108,7 @@ class _ConnectionButtonState extends State<ConnectionButton>
                           Icon(
                             Icons.power_settings_new_rounded,
                             color: Colors.white,
-                            size: 36,
+                            size: 36 * scale,
                             shadows: [
                               Shadow(
                                 color: Colors.black.withValues(alpha: 0.3),
@@ -113,14 +117,14 @@ class _ConnectionButtonState extends State<ConnectionButton>
                               ),
                             ],
                           ),
-                          const SizedBox(height: 10),
+                          SizedBox(height: 10 * scale),
                           Text(
                             widget.isConnected ? '断开' : '连接',
                             style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.9),
-                              fontSize: 13,
+                              fontSize: 13 * scale,
                               fontWeight: FontWeight.w700,
-                              letterSpacing: 3,
+                              letterSpacing: 3 * scale,
                             ),
                           ),
                         ],
