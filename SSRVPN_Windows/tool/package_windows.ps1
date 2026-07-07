@@ -24,6 +24,30 @@ $defaultChinaFlutterStorageBaseUrl = 'https://storage.flutter-io.cn'
 $originalPubHostedUrl = $env:PUB_HOSTED_URL
 $originalFlutterStorageBaseUrl = $env:FLUTTER_STORAGE_BASE_URL
 
+function Get-AppDisplayVersion {
+  $pubspecPath = Join-Path $projectRoot 'pubspec.yaml'
+  foreach ($line in Get-Content -LiteralPath $pubspecPath -Encoding UTF8) {
+    if ($line -match '^version:\s+([^\s]+)') {
+      $semanticVersion = ($matches[1] -split '\+')[0]
+      return "v$semanticVersion"
+    }
+  }
+  throw "Could not read version from $pubspecPath"
+}
+
+function Copy-PortableReadme {
+  param([Parameter(Mandatory = $true)][string]$Destination)
+
+  $source = Join-Path $projectRoot 'PORTABLE_README.txt'
+  $lines = @(Get-Content -LiteralPath $source -Encoding UTF8)
+  if ($lines.Count -eq 0) {
+    throw "Portable readme is empty: $source"
+  }
+  $lines[0] = "SSRVPN Windows 便携版 $(Get-AppDisplayVersion)"
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllLines($Destination, $lines, $utf8NoBom)
+}
+
 $runtimeDlls = @(
   'concrt140.dll',
   'msvcp140.dll',
@@ -762,8 +786,7 @@ try {
   # Readme files
   Copy-Item -LiteralPath (Join-Path $projectRoot 'SAFE_MODE_README.txt') `
     -Destination (Join-Path $releaseDir 'SAFE_MODE_README.txt')
-  Copy-Item -LiteralPath (Join-Path $projectRoot 'PORTABLE_README.txt') `
-    -Destination (Join-Path $releaseDir $portableReadmeName)
+  Copy-PortableReadme -Destination (Join-Path $releaseDir $portableReadmeName)
   # CET compatibility scripts (Windows 11 25H2+ crash fix)
   Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\ssrvpn_cet_fix.ps1') `
     -Destination (Join-Path $releaseDir 'ssrvpn_cet_fix.ps1')

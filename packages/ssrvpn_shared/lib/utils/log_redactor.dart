@@ -1,9 +1,28 @@
 class LogRedactor {
   static const _sensitiveKeyPattern =
       r'apiSecret|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|secret|password|token';
+  static const _proxyUriSchemes = {
+    'ss',
+    'ssr',
+    'trojan',
+    'vless',
+    'vmess',
+    'hysteria2',
+    'hy2',
+    'tuic',
+    'anytls',
+  };
 
   static String sanitize(Object? value) {
     var message = value?.toString() ?? '';
+
+    message = message.replaceAllMapped(
+      RegExp(
+        r"""\b(ss|ssr|trojan|vless|vmess|hysteria2|hy2|tuic|anytls)://[^\s<>"']+""",
+        caseSensitive: false,
+      ),
+      (match) => '${match[1]!.toLowerCase()}://***',
+    );
 
     message = message.replaceAllMapped(
       RegExp(
@@ -68,5 +87,21 @@ class LogRedactor {
       (match) => '${match[1]}${match[2]}: ***',
     );
     return message;
+  }
+
+  static String subscriptionUrlForDisplay(Object? value) {
+    final text = value?.toString().trim() ?? '';
+    final uri = Uri.tryParse(text);
+    if (uri != null && uri.hasScheme) {
+      final scheme = uri.scheme.toLowerCase();
+      if (_proxyUriSchemes.contains(scheme)) {
+        return '$scheme://***';
+      }
+      if (scheme == 'http' || scheme == 'https') {
+        final host = uri.host.isEmpty ? '***' : uri.host;
+        return '$scheme://$host/***';
+      }
+    }
+    return sanitize(text);
   }
 }

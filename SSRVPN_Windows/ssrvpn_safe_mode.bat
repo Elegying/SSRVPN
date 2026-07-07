@@ -1,7 +1,15 @@
 @echo off
+setlocal EnableExtensions
+chcp 65001 >nul
 cd /d "%~dp0"
 echo SSRVPN Safe Mode 启动中... 日志: ssrvpn_safe.log
 echo 启动时间: %date% %time% > "%~dp0ssrvpn_safe.log"
+if not exist "%~dp0ssrvpn_windows.exe" (
+    echo ssrvpn_windows.exe 不存在，请先完整解压 ZIP。>> "%~dp0ssrvpn_safe.log"
+    echo ssrvpn_windows.exe 不存在，请先完整解压 ZIP。
+    pause
+    exit /b 1
+)
 "%~dp0ssrvpn_windows.exe" --safe-mode --verbose >> "%~dp0ssrvpn_safe.log" 2>&1
 set EXITCODE=%ERRORLEVEL%
 echo 退出代码: %EXITCODE% >> "%~dp0ssrvpn_safe.log"

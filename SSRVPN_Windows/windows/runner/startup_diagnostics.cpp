@@ -284,6 +284,11 @@ int WriteDumpAndContinue(EXCEPTION_POINTERS* info,
   const DWORD code = info->ExceptionRecord->ExceptionCode;
   Log(context + L": code=" + ExceptionCodeToString(code));
 
+  if (g_normal_shutdown_started) {
+    Log(context + L": minidump skipped during normal shutdown");
+    return EXCEPTION_EXECUTE_HANDLER;
+  }
+
   const std::wstring dump_path = DumpPath();
   g_last_dump_path = dump_path;
   HANDLE file = ::CreateFileW(dump_path.c_str(), GENERIC_WRITE, 0, nullptr,

@@ -11,7 +11,7 @@ class CrashReportPrompt extends StatefulWidget {
   const CrashReportPrompt({
     super.key,
     required this.child,
-    this.supportHint = '请到 GitHub Issues 新建崩溃报告并粘贴。',
+    this.supportHint = '请到 GitHub Issues 新建崩溃报告并粘贴文本日志，不要公开 .dmp 或订阅链接。',
     this.supportUrl =
         'https://github.com/Elegying/SSRVPN/issues/new?template=bug_report.yml',
   });
@@ -47,7 +47,7 @@ class _CrashReportPromptState extends State<CrashReportPrompt> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('上次崩溃了'),
         content: Text(
-          '检测到 ${reports.length} 份崩溃报告。是否发送报告？报告会先复制到剪贴板，${widget.supportHint}',
+          '检测到 ${reports.length} 份崩溃报告。是否复制文本报告？复制前请确认内容不包含订阅凭据；不要公开发送 .dmp 文件。${widget.supportHint}',
         ),
         actions: [
           TextButton(

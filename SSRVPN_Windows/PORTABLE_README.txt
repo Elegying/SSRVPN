@@ -1,4 +1,4 @@
-SSRVPN Windows 便携版 v2.0.6
+SSRVPN Windows 便携版 v2.4.3
 
 ═══════════════════════════════════════
   使用方法
@@ -17,7 +17,7 @@ SSRVPN Windows 便携版 v2.0.6
 
 第一步：双击运行 SSRVPN_Diag.bat
   → 自动诊断缺失文件、SmartScreen 拦截等问题
-  → 生成详细诊断报告
+  → 生成 ssrvpn_diag.log、ssrvpn_startup.log、ssrvpn_startup.err.log
 
 第二步：如果诊断未解决，尝试安全模式
   → 双击运行 ssrvpn_safe_mode.bat
@@ -47,5 +47,6 @@ A: SSRVPN 和 Mihomo 核心均未签名，部分杀软会误报
    将程序目录加入杀软信任区即可
 
 Q: 连接后无法上网？
-A: 在设置里检查 TUN 模式和代理端口配置
-   如使用代理模式，需手动设置系统代理为 127.0.0.1:7890
+A: 在设置里检查 TUN 模式和代理端口配置。
+   使用系统代理模式时，SSRVPN 会在连接后设置 127.0.0.1:7890，
+   断开连接后恢复原系统代理设置。

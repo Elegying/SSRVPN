@@ -348,7 +348,7 @@ class _DesktopSubscriptionCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      subscription.url,
+                      LogRedactor.subscriptionUrlForDisplay(subscription.url),
                       style: TextStyle(
                         fontSize: 12,
                         color: isDark

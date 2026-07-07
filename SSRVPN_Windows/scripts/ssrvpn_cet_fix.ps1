@@ -87,12 +87,12 @@ foreach ($name in $targetNames) {
     try {
         $mitigation = Get-ProcessMitigation -Name $name -ErrorAction SilentlyContinue
         if ($mitigation -and $mitigation.UserShadowStack -eq "OFF") {
-            Write-Host "  [OK] $name: CET = OFF"
+            Write-Host "  [OK] ${name}: CET = OFF"
         } else {
-            Write-Host "  [INFO] $name: CET state unknown (will apply on next launch)"
+            Write-Host "  [INFO] ${name}: CET state unknown (will apply on next launch)"
         }
     } catch {
-        Write-Host "  [INFO] $name: cannot query (exe may not be running)"
+        Write-Host "  [INFO] ${name}: cannot query (exe may not be running)"
     }
 }
 
@@ -104,4 +104,7 @@ if ($allOk) {
     Write-Host "[SSRVPN CET Fix] Some steps failed. See above for details."
 }
 
-exit ($allOk ? 0 : 1)
+if ($allOk) {
+    exit 0
+}
+exit 1

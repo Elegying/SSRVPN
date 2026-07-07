@@ -21,7 +21,11 @@ Startup logs:
 Native crash dumps:
 %LOCALAPPDATA%\SSRVPN\crashes\
 
-When reporting a startup crash, please send:
+When reporting a startup crash, please send text logs first:
 - startup.log
-- all files in the crashes directory
+- ssrvpn_diag.log, if you ran SSRVPN_Diag.bat
 - the exact command line used to start SSRVPN
+
+Do not post .dmp files publicly. Crash dumps may include local paths,
+subscription URLs, or other private runtime data. Share them only through a
+private support channel if a developer explicitly asks for them.

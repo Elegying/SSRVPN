@@ -54,4 +54,30 @@ void main() {
     expect(sanitized, isNot(contains('"tok"')));
     expect(sanitized, isNot(contains('"refresh"')));
   });
+
+  test('redacts proxy node links', () {
+    final sanitized = LogRedactor.sanitize(
+      'ssr://encoded-secret trojan://password@example.com:443 anytls://token@host',
+    );
+
+    expect(sanitized, contains('ssr://***'));
+    expect(sanitized, contains('trojan://***'));
+    expect(sanitized, contains('anytls://***'));
+    expect(sanitized, isNot(contains('encoded-secret')));
+    expect(sanitized, isNot(contains('password@example.com')));
+    expect(sanitized, isNot(contains('token@host')));
+  });
+
+  test('formats subscription urls for display without credentials', () {
+    expect(
+      LogRedactor.subscriptionUrlForDisplay(
+        'https://sub.example.com/api/v1/client/subscribe?token=secret',
+      ),
+      'https://sub.example.com/***',
+    );
+    expect(
+      LogRedactor.subscriptionUrlForDisplay('ssr://encoded-secret'),
+      'ssr://***',
+    );
+  });
 }

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.3] - 2026-07-07
+
+### Fixed
+- Suppressed misleading Windows native crash dumps during normal shutdown.
+- Fixed Windows diagnostic and CET helper scripts for UTF-8 output and Windows PowerShell 5.1 compatibility.
+- Stopped showing full subscription and proxy node URLs in desktop subscription cards.
+- Updated Windows portable support text to avoid publicly sharing `.dmp` files.
+
 ## [2.4.2] - 2026-07-07
 
 ### Fixed
