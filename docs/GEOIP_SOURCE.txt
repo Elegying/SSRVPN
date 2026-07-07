@@ -1,6 +1,6 @@
 Repo: MetaCubeX/meta-rules-dat
 Release tag: latest
-Release name: Release 2026-07-06 07:33
+Release name: Release 2026-07-07 07:35
 Asset URL: https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb
-Upstream SHA256: 94bdc35c14af8b98fee3791baac26c54e87eea94ae2f57ec04e1b2f4541aa673
-Bundled gzip SHA256: e2a032929ec7f68f6cfd586cdb864e464fd46ee308863563f2d6110b711afc3a
+Upstream SHA256: 7fdcb786185fe40f957c34a7a14033953fbc7ecd171e30888007d9be15ffd689
+Bundled gzip SHA256: 91f7ac96b924fc2b498852b9ed546d9462f26014b8451e32100cdd2c8e3ebfe1
