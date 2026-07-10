@@ -867,7 +867,7 @@ class _DesktopConnectionOptions extends StatelessWidget {
                 enabled: !isConnecting && desktopPlatformLabel != 'MacOS',
                 icon: Icons.wifi_tethering_rounded,
                 label: desktopPlatformLabel == 'MacOS'
-                    ? 'TUN 模式（macOS 暂不可用）'
+                    ? 'TUN 模式（暂不可用）'
                     : 'TUN 模式（需管理员权限）',
                 isDark: isDark,
                 textColor: textColor,

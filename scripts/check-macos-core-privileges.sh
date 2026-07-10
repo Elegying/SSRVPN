@@ -74,7 +74,7 @@ PY
 
 for required in \
   "desktopPlatformLabel != 'MacOS'" \
-  'TUN 模式（macOS 暂不可用）'; do
+  'TUN 模式（暂不可用）'; do
   if ! rg -q --fixed-strings "$required" "$dashboard"; then
     echo "macOS TUN UI guard failed: missing $required" >&2
     exit 1
