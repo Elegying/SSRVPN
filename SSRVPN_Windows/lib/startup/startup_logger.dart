@@ -4,17 +4,26 @@ import 'package:flutter/foundation.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 class StartupLogger {
+  static const int _maxLogSizeBytes = 1024 * 1024;
   static File? _file;
   static bool _verbose = false;
   static bool _desktopFailureReportWritten = false;
 
   static String get logPath => _file?.path ?? _defaultLogPath();
 
-  static Future<void> init({required bool verbose}) async {
+  static Future<void> init({
+    required bool verbose,
+    @visibleForTesting File? fileOverride,
+  }) async {
     _verbose = verbose;
     try {
-      final file = File(_defaultLogPath());
+      final file = fileOverride ?? File(_defaultLogPath());
       await file.parent.create(recursive: true);
+      try {
+        await _rotateIfOversized(file);
+      } catch (_) {
+        // Rotation is best-effort; a diagnostics failure must not block launch.
+      }
       _file = file;
       info('Dart startup logger initialized');
     } catch (error) {
@@ -109,6 +118,15 @@ class StartupLogger {
     if (_verbose || level != 'INFO') {
       debugPrint('[Startup][$level] $safeMessage');
     }
+  }
+
+  static Future<void> _rotateIfOversized(File file) async {
+    if (!await file.exists() || await file.length() <= _maxLogSizeBytes) {
+      return;
+    }
+    final oldFile = File('${file.path}.old');
+    if (await oldFile.exists()) await oldFile.delete();
+    await file.rename(oldFile.path);
   }
 
   static String _defaultLogPath() {

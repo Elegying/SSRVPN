@@ -45,4 +45,22 @@ void main() {
     expect(consoleMessages,
         ['[Startup][WARN] console fallback remains available']);
   });
+
+  test('rotates an oversized startup log before appending', () async {
+    final tempDirectory =
+        await Directory.systemTemp.createTemp('ssrvpn_startup_logger_test_');
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final logFile = File('${tempDirectory.path}/startup.log');
+    await logFile.writeAsBytes(List.filled(1024 * 1024 + 1, 0x78));
+
+    await StartupLogger.init(
+      verbose: false,
+      fileOverride: logFile,
+    );
+
+    final oldFile = File('${logFile.path}.old');
+    expect(await oldFile.exists(), isTrue);
+    expect(await oldFile.length(), 1024 * 1024 + 1);
+    expect(await logFile.length(), lessThan(1024));
+  });
 }
