@@ -5,7 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ssrvpn_shared/utils/async_lazy.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart' show AsyncLazy;
 import '../models/app_settings.dart';
 
 /// 设置持久化服务。

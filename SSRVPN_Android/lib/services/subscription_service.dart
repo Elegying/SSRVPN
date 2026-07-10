@@ -4,8 +4,6 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
-import 'package:ssrvpn_shared/utils/async_lazy.dart';
-import 'package:ssrvpn_shared/utils/subscription_url_policy.dart';
 
 import 'http_client_adapter.dart';
 

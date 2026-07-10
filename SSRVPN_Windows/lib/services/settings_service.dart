@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'package:ssrvpn_shared/utils/async_lazy.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart' show AsyncLazy;
 import '../models/app_settings.dart';
 
 /// 设置持久化服务 (Windows 便携版)
