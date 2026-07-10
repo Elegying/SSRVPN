@@ -3,7 +3,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-runtime="SSRVPN_MacOS/lib/services/clash_service.dart"
+runtime=(
+  "SSRVPN_MacOS/lib/services/clash_service.dart"
+  "SSRVPN_MacOS/lib/services/clash_service_lifecycle.dart"
+)
 native="SSRVPN_MacOS/macos/Runner"
 dashboard="packages/ssrvpn_shared/lib/desktop_ui/widgets/desktop_home_dashboard_part.dart"
 
@@ -15,7 +18,7 @@ for forbidden in \
   'root:wheel' \
   'chmod u+s' \
   '/usr/bin/osascript'; do
-  if grep -R -n -F -- "$forbidden" "$runtime" "$native" >/dev/null; then
+  if grep -R -n -F -- "$forbidden" "${runtime[@]}" "$native" >/dev/null; then
     echo "macOS core privilege guard failed: found $forbidden" >&2
     exit 1
   fi
@@ -26,13 +29,16 @@ from pathlib import Path
 import re
 
 path = Path("SSRVPN_MacOS/lib/services/clash_service.dart")
-source = path.read_text(encoding="utf-8")
+lifecycle_path = Path("SSRVPN_MacOS/lib/services/clash_service_lifecycle.dart")
+main_source = path.read_text(encoding="utf-8")
+lifecycle_source = lifecycle_path.read_text(encoding="utf-8")
+source = f"{main_source}\n{lifecycle_source}"
 if re.search(r'''['"][2467][0-7]{3}['"]|[ug]\+s''', source):
     raise SystemExit(f"{path}: found a privileged chmod mode")
 
-start = source.index("Future<bool> _startInternal()")
-stop = source.index("Future<void> stop()", start)
-start_body = source[start:stop]
+start = lifecycle_source.index("Future<bool> _startInternal()")
+stop = lifecycle_source.index("Future<void> stop()", start)
+start_body = lifecycle_source[start:stop]
 tun_guard = start_body.index("if (settings.enableTun)")
 path_guard = start_body.index("if (_corePath.isEmpty")
 if tun_guard > path_guard:
@@ -44,9 +50,9 @@ for token in ("Network Extension", "系统代理模式"):
     if token not in source:
         raise SystemExit(f"{path}: TUN failure message is missing {token}")
 
-install = source.index("Future<void> _installCoreAsset")
-generic_install = source.index("Future<void> _installAsset", install)
-install_body = source[install:generic_install]
+install = main_source.index("Future<void> _installCoreAsset")
+generic_install = main_source.index("Future<void> _installAsset", install)
+install_body = main_source[install:generic_install]
 remove = install_body.index("_removeUntrustedPathEntry(destPath)")
 decompress = install_body.index("Isolate.run")
 if remove > decompress:
