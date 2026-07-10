@@ -7,7 +7,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 concurrency:
@@ -18,20 +18,15 @@ env:
   FLUTTER_VERSION: '3.44.1'
 
 jobs:
-  # ── 共享包测试 ──
-  shared-test:
-    name: Shared package tests
+  validate-source:
+    name: Validate release source
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/ssrvpn_shared
     steps:
       - uses: actions/checkout@v7
         with:
-          lfs: true
           fetch-depth: 0
 
-      - name: Validate release source
+      - name: Require release tags to come from main
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
@@ -42,11 +37,26 @@ jobs:
           fi
 
           expected_version="${GITHUB_REF_NAME#v}"
-          app_version="$(awk -F"'" '/appVersion = / { print $2; exit }' ../../packages/ssrvpn_shared/lib/constants/app_constants.dart)"
+          app_version="$(awk -F"'" '/appVersion = / { print $2; exit }' packages/ssrvpn_shared/lib/constants/app_constants.dart)"
           if [ "$expected_version" != "$app_version" ]; then
             echo "::error::Release tag $GITHUB_REF_NAME does not match app version $app_version."
             exit 1
           fi
+
+  # ── 共享包测试 ──
+  shared-test:
+    name: Shared package tests
+    needs: validate-source
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/ssrvpn_shared
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: true
+          fetch-depth: 0
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -62,6 +72,7 @@ jobs:
 
   prepare-geoip:
     name: Prepare latest GeoIP database
+    needs: validate-source
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -366,6 +377,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [build-android, build-macos, build-windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v7
         with:
