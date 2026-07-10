@@ -17,6 +17,7 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.net.TrafficStats
 import android.util.Log
+import androidx.core.content.ContextCompat
 import java.io.FileInputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -133,11 +134,12 @@ class SsrvpnVpnService : VpnService() {
         createNotificationChannel()
         // 注册断开广播
         val filter = IntentFilter(ACTION_DISCONNECT)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(disconnectReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(disconnectReceiver, filter)
-        }
+        ContextCompat.registerReceiver(
+            this,
+            disconnectReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

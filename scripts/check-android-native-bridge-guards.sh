@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/SsrvpnVpnService.kt"
 MAIN_ACTIVITY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/MainActivity.kt"
+TILE_SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnTileService.kt"
 
 require_text() {
   local needle="$1"
@@ -17,6 +18,14 @@ require_activity_text() {
   local needle="$1"
   if ! grep -Fq "$needle" "$MAIN_ACTIVITY"; then
     echo "Android native MethodChannel check failed: missing '$needle'" >&2
+    exit 1
+  fi
+}
+
+require_tile_text() {
+  local needle="$1"
+  if ! grep -Fq "$needle" "$TILE_SERVICE"; then
+    echo "Android native tile guard check failed: missing '$needle'" >&2
     exit 1
   fi
 }
@@ -55,5 +64,11 @@ require_activity_text "PENDING_UPDATE_APK_PATH"
 require_activity_text "continuePendingUpdateInstallIfAllowed"
 require_activity_text "override fun onResume()"
 require_activity_text "FileProvider.getUriForFile"
+require_text "ContextCompat.registerReceiver"
+require_activity_text "ContextCompat.registerReceiver"
+require_tile_text "ContextCompat.registerReceiver"
+require_text "ContextCompat.RECEIVER_NOT_EXPORTED"
+require_activity_text "ContextCompat.RECEIVER_NOT_EXPORTED"
+require_tile_text "ContextCompat.RECEIVER_NOT_EXPORTED"
 
 echo "Android native bridge guard check passed."

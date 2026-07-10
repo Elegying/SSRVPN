@@ -11,6 +11,7 @@ import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.util.Log
+import androidx.core.content.ContextCompat
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -38,11 +39,12 @@ class VpnTileService : TileService() {
     override fun onStartListening() {
         super.onStartListening()
         val filter = IntentFilter(ACTION_VPN_STATE_CHANGED)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(stateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(stateReceiver, filter)
-        }
+        ContextCompat.registerReceiver(
+            this,
+            stateReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
         isConnected = SsrvpnVpnService.isRunning
         updateTile()
         Log.d(TAG, "onStartListening: connected=$isConnected")
