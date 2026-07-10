@@ -1,12 +1,15 @@
-# Clash Boundaries and Conservative Unlock Probes
+# SSRVPN 3.0.0 Production Release
 
-- [x] Add and wire the service-boundary guard.
-- [x] Extract shared Clash configuration support.
-- [x] Extract macOS configuration support.
-- [x] Extract macOS core lifecycle and proxy coordination.
-- [x] Extract Windows configuration support.
-- [x] Extract Windows core lifecycle and proxy coordination.
-- [x] Make unknown Netflix evidence inconclusive.
-- [x] Make ambiguous YouTube evidence inconclusive.
-- [x] Run focused and full verification.
-- [x] Confirm private-node latency files remain unchanged.
+- [x] Confirm repository, GitHub access, clean branch, and free `v3.0.0` tag.
+- [x] Audit the full release delta across all five review axes.
+- [x] Trace startup, proxy cleanup, and configuration flows on all platforms.
+- [x] Audit dependencies, secrets, update flow, CI, and artifact packaging.
+- [x] Fix and regression-test all release blockers.
+- [x] Bump every version source to `3.0.0+300` and update the changelog.
+- [x] Run the complete local verification and coverage gates.
+- [x] Build and smoke macOS Release/DMG on this Mac.
+- [ ] Build, install, and smoke Android Release on the authorized phone.
+- [ ] Push the branch and require green Android/macOS/Windows CI.
+- [ ] Merge the verified PR to `main`.
+- [ ] Tag `v3.0.0` and monitor the online Release workflow.
+- [ ] Verify all six published assets and SHA256 checksums.

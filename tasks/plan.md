@@ -1,73 +1,85 @@
-# Implementation Plan: Clash Service Boundaries and Conservative Unlock Probes
+# Implementation Plan: SSRVPN 3.0.0 Production Release
 
 ## Overview
 
-Reduce the three remaining 900-line Clash service hotspots without changing
-their public API or runtime behavior. Split configuration generation from
-platform core lifecycle work, keep system-proxy ownership in the existing
-platform services, and harden unlock classification so unknown official-page
-content can never produce an `Available` result.
+Treat `v3.0.0` as a public production release for Android, macOS, and Windows.
+Re-audit the complete delta from `main`, validate startup, configuration,
+system-proxy ownership, packaging, update, and rollback paths, then merge the
+verified release commit to `main`, tag it, and monitor the tag-driven GitHub
+release until all signed/checksummed artifacts are published.
 
-## Architecture Decisions
+## Release Decisions
 
-- Use private Dart `part` files and private mixins. This preserves the existing
-  `ClashService` types and callers while making each responsibility readable.
-- Do not introduce new public interfaces or dependencies. macOS and Windows
-  already own dedicated `SystemProxyService` implementations.
-- Keep platform initialization and bundled-asset installation in the main
-  service files; move only configuration and core lifecycle/proxy coordination.
-- Unknown unlock evidence always maps to `Inconclusive`. Only explicit known
-  positive evidence may map to `Available`.
+- Version: `3.0.0+300` across shared constants and all platform pubspecs.
+- Source: only a commit already merged to `main` may receive `v3.0.0`.
+- Android/macOS get local release builds and real-machine checks where possible;
+  Windows receives local source/tests plus mandatory Windows GitHub runner build.
+- Existing `v3.0.0` tags/releases must never be overwritten.
+- Rollback is the immutable `v2.5.0` release; a blocking post-release defect is
+  handled by removing the new release from distribution and issuing a new tag,
+  never by moving `v3.0.0`.
 
 ## Task List
 
-### Phase 1: Structural Guard
+### Phase 1: Release Baseline
 
-- [x] Add a failing service-boundary guard for maximum main-file sizes,
-      required parts, and system-proxy call placement.
-- [x] Add the guard to the full verification pipeline.
+- [x] Confirm repository, branch cleanliness, remote, and authenticated GitHub access.
+- [x] Confirm `v3.0.0` is free locally and remotely.
+- [x] Record the exact `main...HEAD` release delta and public behavior changes.
 
-### Phase 2: Shared Configuration Boundary
+### Phase 2: Formal Three-Platform Audit
 
-- [x] Move shared config caching and YAML helpers into a private config-support
-      part without changing `ClashServiceBase` API.
-- [x] Run shared config/base tests and analyzer, then commit.
+- [x] Review tests first, then correctness, readability, architecture, security,
+      and performance for every release-delta file.
+- [x] Trace startup, core lifecycle, configuration generation, and system-proxy
+      cleanup paths for Android, macOS, and Windows.
+- [x] Audit dependencies, secrets, update verification, release workflows,
+      package contents, and known platform limitations.
+- [x] Resolve every release-blocking finding with a regression check.
 
-### Phase 3: macOS Boundary
+### Checkpoint: Release Candidate
 
-- [x] Move macOS config generation into a private config-support part.
-- [x] Move macOS process lifecycle and system-proxy coordination into a private
-      lifecycle part.
-- [x] Run macOS Clash tests and analyzer, then commit.
+- [x] No Critical or Required review findings remain.
+- [x] “Private car” latency policy remains unchanged.
+- [x] Windows-only validation gaps are explicitly delegated to required CI jobs.
 
-### Phase 4: Windows Boundary
+### Phase 3: Version and Release Notes
 
-- [x] Move Windows config generation into a private config-support part.
-- [x] Move Windows process lifecycle and system-proxy coordination into a
-      private lifecycle part.
-- [x] Run Windows Clash/config tests and analyzer, then commit.
+- [x] Set all version sources to `3.0.0+300`.
+- [x] Add a curated user-facing `3.0.0` changelog entry.
+- [x] Run version, guide, secret, and release-source checks.
 
-### Phase 5: Conservative Unlock Evidence
+### Phase 4: Local Production Validation
 
-- [x] Reproduce Netflix unknown-page and YouTube ambiguous-page false positives.
-- [x] Require known positive evidence; otherwise return `Inconclusive`.
-- [x] Run unlock tests and shared analyzer, then commit.
+- [x] Run `scripts/verify-all.sh` and all coverage gates.
+- [x] Build and validate the macOS Release app and DMG on this Mac.
+- [ ] Build the Android Release APK, verify identity/signature, install it on the
+      authorized Android device, and smoke startup/connection lifecycle.
+- [x] Run native macOS lifecycle tests and artifact smoke checks.
 
-### Checkpoint: Complete
+### Phase 5: Remote CI and Merge
 
-- [x] Structural guard passes and all three main service files are below limits.
-- [x] Full verification passes with no coverage regression.
-- [x] Private-node latency files and behavior remain unchanged.
+- [ ] Push the release candidate branch.
+- [ ] Create/update the PR to `main`; require all three platform jobs to pass.
+- [ ] Merge without bypassing failed checks, then verify remote `main` SHA.
+
+### Phase 6: Publish 3.0.0
+
+- [ ] Create and push annotated tag `v3.0.0` from the verified `main` commit.
+- [ ] Monitor the Release workflow through Android, macOS, Windows, and publish jobs.
+- [ ] Verify the public release and all six non-empty artifacts/checksums.
+- [ ] Run `scripts/check-release-assets.sh v3.0.0`.
 
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Private mixin member resolution changes behavior | Startup regression | Preserve code verbatim and run platform lifecycle tests after each move |
-| System proxy cleanup moves out of sight | Proxy left enabled | Guard call placement and retain existing ownership tests |
-| Refactor changes public surface | App compile failure | Keep the same `ClashService` and `ClashServiceBase` methods |
-| Official page markup changes | False unlock result | Unknown or ambiguous bodies return `Inconclusive` |
+| Windows cannot be executed locally on macOS | User-facing Windows regression | Mandatory Windows GitHub build/test/package job before tag |
+| Major version metadata diverges | Update/release failure | Existing version-sync guard plus tag/version check |
+| Desktop proxy remains enabled after failure | User loses normal networking | Ownership tests, startup ordering guard, lifecycle review |
+| Release artifact is unsigned or malformed | Installation failure or trust warning | APK signature check, macOS strict ad-hoc validation, package smoke checks |
+| Remote tag already exists | Immutable release collision | Local, remote tag, and GitHub release checks before tag creation |
 
 ## Open Questions
 
-- None. The user explicitly selected these two follow-up items.
+- Cross-model second opinion is optional and non-blocking unless the user requests it.
