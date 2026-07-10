@@ -27,8 +27,8 @@ class _UnlockTestScreenState extends State<UnlockTestScreen> {
 
   int _countByCategory(String cat) =>
       _items.where((i) => i.category == cat).length;
-  int _countUnlocked(String cat) => _items
-      .where((i) => i.isUnlocked && (cat == 'all' || i.category == cat))
+  int _countSuccessful(String cat) => _items
+      .where((i) => i.isSuccessful && (cat == 'all' || i.category == cat))
       .length;
   int _countBlocked(String cat) => _items
       .where((i) => i.isBlocked && (cat == 'all' || i.category == cat))
@@ -114,7 +114,7 @@ class _UnlockTestScreenState extends State<UnlockTestScreen> {
     final proxyPort = clashService.isRunning
         ? clashService.runtimeProxyPort
         : settings.proxyPort;
-    final hasAnyResult = _items.any((i) => i.status != 'Unknown');
+    final hasAnyResult = _items.any((i) => i.checkedAt != null);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -148,7 +148,7 @@ class _UnlockTestScreenState extends State<UnlockTestScreen> {
                                 fontWeight: FontWeight.w800,
                                 color: textColor)),
                         const SizedBox(height: 2),
-                        Text('流媒体 · AI 服务 · 开发工具 可用性检测',
+                        Text('区分“明确支持”“仅可访问”和“无法判断”',
                             style: TextStyle(fontSize: 12, color: subColor)),
                       ],
                     ),
@@ -272,21 +272,21 @@ class _UnlockTestScreenState extends State<UnlockTestScreen> {
   }
 
   Widget _buildSummaryBar(bool isDark) {
-    final unlocked = _countUnlocked('all');
+    final successful = _countSuccessful('all');
     final blocked = _countBlocked('all');
-    final total = _items.where((i) => i.status != 'Unknown').length;
+    final total = _items.where((i) => i.checkedAt != null).length;
     if (total == 0) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 2, 24, 2),
       child: Row(
         children: [
-          _SummaryChip(label: '解锁 $unlocked', color: AppTheme.success),
+          _SummaryChip(label: '通过 $successful', color: AppTheme.success),
           const SizedBox(width: 8),
-          _SummaryChip(label: '阻止 $blocked', color: AppTheme.error),
+          _SummaryChip(label: '不支持 $blocked', color: AppTheme.error),
           const SizedBox(width: 8),
           _SummaryChip(
-            label: '失败 ${total - unlocked - blocked}',
+            label: '未确认 ${total - successful - blocked}',
             color: AppTheme.warning,
           ),
           const Spacer(),
@@ -351,7 +351,7 @@ class _InfoStrip extends StatelessWidget {
         Expanded(
           child: Text(
             connected
-                ? '当前走 127.0.0.1:$proxyPort 代理，检测结果对应当前节点'
+                ? '当前走 127.0.0.1:$proxyPort；官网可访问不等于已解锁，详情会说明证据边界'
                 : '请先在主页连接 VPN',
             style: TextStyle(
                 fontSize: 11,
@@ -387,10 +387,13 @@ class _UnlockListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final statusColor = _statusColor(item);
-    final statusLabel = _statusLabel(item);
+    final detail = [
+      if (item.region?.isNotEmpty ?? false) '地区 ${item.region}',
+      if (item.detail?.isNotEmpty ?? false) item.detail!,
+    ].join(' · ');
     return Semantics(
       button: true,
-      label: '打开 ${item.name} 官网',
+      label: '打开 ${item.name} 官网，状态 ${item.displayStatusLabel}',
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -399,7 +402,7 @@ class _UnlockListItem extends StatelessWidget {
           },
           borderRadius: BorderRadius.circular(10),
           child: Container(
-            constraints: const BoxConstraints(minHeight: 52),
+            constraints: const BoxConstraints(minHeight: 60),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color:
@@ -422,17 +425,34 @@ class _UnlockListItem extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    item.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    softWrap: true,
-                    style: TextStyle(
-                      fontSize: 14,
-                      height: 1.18,
-                      fontWeight: FontWeight.w800,
-                      color: textColor,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.18,
+                          fontWeight: FontWeight.w800,
+                          color: textColor,
+                        ),
+                      ),
+                      if (detail.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          detail,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            height: 1.25,
+                            color: subColor,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -459,7 +479,7 @@ class _UnlockListItem extends StatelessWidget {
                 ConstrainedBox(
                   constraints: const BoxConstraints(minWidth: 44),
                   child: Text(
-                    statusLabel,
+                    item.displayStatusLabel,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.right,
@@ -480,16 +500,10 @@ class _UnlockListItem extends StatelessWidget {
 
   Color _statusColor(UnlockTestResult item) {
     if (isTesting || item.status == 'Testing') return AppTheme.primary;
-    if (item.isUnlocked) return AppTheme.success;
+    if (item.isSuccessful) return AppTheme.success;
     if (item.isPending) return subColor;
+    if (item.isInconclusive || item.isFailed) return AppTheme.warning;
     return AppTheme.error;
-  }
-
-  String _statusLabel(UnlockTestResult item) {
-    if (isTesting || item.status == 'Testing') return '测试中';
-    if (item.isUnlocked) return '支持';
-    if (item.isPending) return '待测试';
-    return '不支持';
   }
 }
 

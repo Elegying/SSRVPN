@@ -36,9 +36,9 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
       ? _items
       : _items.where((i) => i.category == _activeCategory).toList();
 
-  int _countUnlocked(String cat) => _items
-      .where((i) => i.isUnlocked && (cat == 'all' || i.category == cat))
-      .length;
+  int _countByCategory(String cat) => cat == 'all'
+      ? _items.length
+      : _items.where((i) => i.category == cat).length;
 
   Future<void> _testAll() async {
     if (_isTestingAll) return;
@@ -173,7 +173,7 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
                         ),
                         SizedBox(height: 2),
                         Text(
-                          '使用当前节点出口检测流媒体和 AI 服务可用性',
+                          '区分“明确支持”“仅可访问”和“无法判断”',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -219,7 +219,7 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
                         size: 14,
                         color: selected ? Colors.white : AppTheme.primaryColor),
                     label: Text(
-                      '$label (${_countUnlocked(cat)})',
+                      '$label (${_countByCategory(cat)})',
                       style: TextStyle(
                         fontSize: Responsive.sp(12),
                         color: selected ? Colors.white : null,
@@ -301,7 +301,7 @@ class _InfoStrip extends StatelessWidget {
           Expanded(
             child: Text(
               connected
-                  ? '当前会显式走 127.0.0.1:$proxyPort 代理端口，测试结果对应当前选中的节点。'
+                  ? '当前走 127.0.0.1:$proxyPort；官网可访问不等于已解锁，详情会说明证据边界。'
                   : '请先在主页连接 VPN；未连接时测试请求不会发出。',
               style: TextStyle(
                 fontSize: Responsive.sp(12),
@@ -339,10 +339,13 @@ class _UnlockListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final statusColor = _statusColor(item);
-    final statusLabel = _statusLabel(item);
+    final detail = [
+      if (item.region?.isNotEmpty ?? false) '地区 ${item.region}',
+      if (item.detail?.isNotEmpty ?? false) item.detail!,
+    ].join(' · ');
     return Semantics(
       button: true,
-      label: '打开 ${item.name} 官网',
+      label: '打开 ${item.name} 官网，状态 ${item.displayStatusLabel}',
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -351,7 +354,7 @@ class _UnlockListItem extends StatelessWidget {
           },
           borderRadius: BorderRadius.circular(10),
           child: Container(
-            constraints: const BoxConstraints(minHeight: 52),
+            constraints: const BoxConstraints(minHeight: 60),
             padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: isDark
@@ -375,17 +378,34 @@ class _UnlockListItem extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    item.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    softWrap: true,
-                    style: TextStyle(
-                      fontSize: Responsive.sp(14),
-                      height: 1.18,
-                      fontWeight: FontWeight.w800,
-                      color: textColor,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: Responsive.sp(14),
+                          height: 1.18,
+                          fontWeight: FontWeight.w800,
+                          color: textColor,
+                        ),
+                      ),
+                      if (detail.isNotEmpty) ...[
+                        SizedBox(height: 3),
+                        Text(
+                          detail,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: Responsive.sp(10.5),
+                            height: 1.25,
+                            color: subColor,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 SizedBox(width: 10),
@@ -412,7 +432,7 @@ class _UnlockListItem extends StatelessWidget {
                 ConstrainedBox(
                   constraints: const BoxConstraints(minWidth: 44),
                   child: Text(
-                    statusLabel,
+                    item.displayStatusLabel,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.right,
@@ -433,16 +453,10 @@ class _UnlockListItem extends StatelessWidget {
 
   Color _statusColor(UnlockTestResult item) {
     if (isTesting || item.status == 'Testing') return AppTheme.primaryColor;
-    if (item.isUnlocked) return AppTheme.successColor;
+    if (item.isSuccessful) return AppTheme.successColor;
     if (item.isPending) return subColor;
+    if (item.isInconclusive || item.isFailed) return AppTheme.warningColor;
     return AppTheme.errorColor;
-  }
-
-  String _statusLabel(UnlockTestResult item) {
-    if (isTesting || item.status == 'Testing') return '测试中';
-    if (item.isUnlocked) return '支持';
-    if (item.isPending) return '待测试';
-    return '不支持';
   }
 }
 

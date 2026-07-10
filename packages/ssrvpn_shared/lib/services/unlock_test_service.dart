@@ -5,15 +5,14 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
-enum UnlockTestHttpMethod { get, head }
-
 enum UnlockStatusRule {
   standard,
   netflix,
   youtubePremium,
   apiReachable,
-  googleApi,
 }
+
+typedef UnlockTestClientFactory = http.Client Function(int proxyPort);
 
 class UnlockTestResult {
   const UnlockTestResult({
@@ -22,7 +21,6 @@ class UnlockTestResult {
     required this.url,
     required this.category,
     String? officialUrl,
-    this.method = UnlockTestHttpMethod.get,
     this.statusRule = UnlockStatusRule.standard,
     this.status = 'Unknown',
     this.detail,
@@ -35,7 +33,6 @@ class UnlockTestResult {
   final String url;
   final String officialUrl;
   final String category; // 'streaming' | 'ai' | 'other'
-  final UnlockTestHttpMethod method;
   final UnlockStatusRule statusRule;
   final String status;
   final String? detail;
@@ -52,9 +49,22 @@ class UnlockTestResult {
       status == 'Blocked' ||
       status == 'Unsupported Country/Region' ||
       status == 'Disallowed ISP';
+  bool get isReachable => status == 'Reachable';
+  bool get isSuccessful => isUnlocked || isReachable;
+  bool get isInconclusive => status == 'Inconclusive';
   bool get isFailed => status == 'Failed' || status.startsWith('Failed');
   bool get isPending =>
       status == 'Pending' || status == 'Unknown' || status == 'Testing';
+
+  String get displayStatusLabel {
+    if (status == 'Testing') return '测试中';
+    if (isUnlocked) return '支持';
+    if (isReachable) return '可访问';
+    if (isBlocked) return '不支持';
+    if (isInconclusive) return '无法判断';
+    if (isFailed) return '检测失败';
+    return '待测试';
+  }
 
   UnlockTestResult copyWith({
     String? id,
@@ -62,7 +72,6 @@ class UnlockTestResult {
     String? url,
     String? officialUrl,
     String? category,
-    UnlockTestHttpMethod? method,
     UnlockStatusRule? statusRule,
     String? status,
     String? detail,
@@ -76,7 +85,6 @@ class UnlockTestResult {
       url: url ?? this.url,
       officialUrl: officialUrl ?? this.officialUrl,
       category: category ?? this.category,
-      method: method ?? this.method,
       statusRule: statusRule ?? this.statusRule,
       status: status ?? this.status,
       detail: clearDetail ? null : detail ?? this.detail,
@@ -87,6 +95,16 @@ class UnlockTestResult {
 }
 
 class UnlockTestService {
+  UnlockTestService({UnlockTestClientFactory? clientFactory})
+      : _clientFactory = clientFactory ?? _createProxyClient;
+
+  static const _maxConcurrentChecks = 4;
+  static const _maxRedirects = 5;
+  static const _maxResponseBytes = 768 * 1024;
+  static const _maxRedirectBodyBytes = 8 * 1024;
+
+  final UnlockTestClientFactory _clientFactory;
+
   static const defaultItems = <UnlockTestResult>[
     // ── 流媒体 ──
     UnlockTestResult(
@@ -110,8 +128,7 @@ class UnlockTestService {
         id: 'prime',
         name: 'Amazon Prime Video',
         url: 'https://www.primevideo.com/',
-        category: 'streaming',
-        method: UnlockTestHttpMethod.head),
+        category: 'streaming'),
     UnlockTestResult(
         id: 'max',
         name: 'HBO Max',
@@ -126,8 +143,7 @@ class UnlockTestService {
         id: 'spotify',
         name: 'Spotify',
         url: 'https://www.spotify.com/',
-        category: 'streaming',
-        method: UnlockTestHttpMethod.head),
+        category: 'streaming'),
     UnlockTestResult(
         id: 'discovery',
         name: 'Discovery+',
@@ -137,8 +153,7 @@ class UnlockTestService {
         id: 'tiktok',
         name: 'TikTok',
         url: 'https://www.tiktok.com/',
-        category: 'streaming',
-        method: UnlockTestHttpMethod.head),
+        category: 'streaming'),
 
     // ── AI 服务 ──
     UnlockTestResult(
@@ -151,10 +166,10 @@ class UnlockTestService {
     UnlockTestResult(
         id: 'gemini',
         name: 'Google Gemini',
-        url: 'https://generativelanguage.googleapis.com/',
+        url: 'https://generativelanguage.googleapis.com/v1beta/models',
         officialUrl: 'https://gemini.google.com/',
         category: 'ai',
-        statusRule: UnlockStatusRule.googleApi),
+        statusRule: UnlockStatusRule.apiReachable),
     UnlockTestResult(
         id: 'copilot',
         name: 'Microsoft Copilot',
@@ -178,11 +193,26 @@ class UnlockTestService {
     required int proxyPort,
     Duration timeout = const Duration(seconds: 12),
   }) async {
-    final results = await Future.wait(
-      defaultItems.map(
-        (item) => checkOne(id: item.id, proxyPort: proxyPort, timeout: timeout),
-      ),
-    );
+    final results = <UnlockTestResult>[];
+    for (var start = 0;
+        start < defaultItems.length;
+        start += _maxConcurrentChecks) {
+      final end = (start + _maxConcurrentChecks).clamp(
+        0,
+        defaultItems.length,
+      );
+      results.addAll(
+        await Future.wait(
+          defaultItems.sublist(start, end).map(
+                (item) => checkOne(
+                  id: item.id,
+                  proxyPort: proxyPort,
+                  timeout: timeout,
+                ),
+              ),
+        ),
+      );
+    }
     return results;
   }
 
@@ -191,22 +221,35 @@ class UnlockTestService {
     required int proxyPort,
     Duration timeout = const Duration(seconds: 12),
   }) async {
-    final item = defaultItems.firstWhere(
-      (entry) => entry.id == id,
-      orElse: () => UnlockTestResult(
-          id: id, name: id, url: id, category: 'other', status: 'Unknown'),
-    );
+    UnlockTestResult? item;
+    for (final candidate in defaultItems) {
+      if (candidate.id == id) {
+        item = candidate;
+        break;
+      }
+    }
+    if (item == null) {
+      return UnlockTestResult(
+        id: id,
+        name: id,
+        url: 'https://invalid.local/',
+        category: 'other',
+        status: 'Failed',
+        detail: '检测项目不存在',
+        checkedAt: DateTime.now(),
+      );
+    }
 
-    final client = _proxyClient(proxyPort);
+    final client = _clientFactory(proxyPort);
     try {
       final uri = Uri.parse(item.url);
-      final response = await _request(client, uri, item).timeout(timeout);
+      final result = await _request(client, uri).timeout(timeout);
+      final status = _statusFor(item, result);
 
-      final region = _extractRegion(response, uri.host);
       return item.copyWith(
-        status: _statusFor(item, response),
-        detail: _detailFor(response, item),
-        region: region,
+        status: status,
+        detail: _detailFor(result, item, status),
+        region: _extractRegion(result.response),
         checkedAt: DateTime.now(),
       );
     } on TimeoutException {
@@ -228,17 +271,75 @@ class UnlockTestService {
     }
   }
 
-  Future<http.Response> _request(
-    http.Client client,
-    Uri uri,
-    UnlockTestResult item,
-  ) {
-    switch (item.method) {
-      case UnlockTestHttpMethod.head:
-        return client.head(uri, headers: _headers());
-      case UnlockTestHttpMethod.get:
-        return client.get(uri, headers: _headers());
+  Future<_UnlockHttpResponse> _request(http.Client client, Uri uri) async {
+    var current = uri;
+    for (var redirectCount = 0;
+        redirectCount <= _maxRedirects;
+        redirectCount++) {
+      final request = http.Request('GET', current)
+        ..followRedirects = false
+        ..headers.addAll(_headers());
+      final streamed = await client.send(request);
+      final location = streamed.headers['location'];
+
+      if (_isRedirect(streamed.statusCode) && location != null) {
+        await _readBody(streamed, limit: _maxRedirectBodyBytes);
+        if (redirectCount == _maxRedirects) {
+          throw StateError('重定向次数过多');
+        }
+        final next = current.resolve(location);
+        if (next.scheme.toLowerCase() != 'https') {
+          throw StateError('拒绝非 HTTPS 重定向');
+        }
+        current = next;
+        continue;
+      }
+
+      final body = await _readBody(streamed, limit: _maxResponseBytes);
+      return _UnlockHttpResponse(
+        response: http.Response.bytes(
+          body.bytes,
+          streamed.statusCode,
+          headers: streamed.headers,
+          request: request,
+          isRedirect: streamed.isRedirect,
+          persistentConnection: streamed.persistentConnection,
+          reasonPhrase: streamed.reasonPhrase,
+        ),
+        finalUri: current,
+        bodyTruncated: body.truncated,
+      );
     }
+    throw StateError('重定向次数过多');
+  }
+
+  bool _isRedirect(int statusCode) =>
+      statusCode == 301 ||
+      statusCode == 302 ||
+      statusCode == 303 ||
+      statusCode == 307 ||
+      statusCode == 308;
+
+  Future<_BoundedBody> _readBody(
+    http.StreamedResponse response, {
+    required int limit,
+  }) async {
+    final bytes = <int>[];
+    var truncated = false;
+    await for (final chunk in response.stream) {
+      final remaining = limit - bytes.length;
+      if (remaining <= 0) {
+        truncated = true;
+        break;
+      }
+      if (chunk.length > remaining) {
+        bytes.addAll(chunk.take(remaining));
+        truncated = true;
+        break;
+      }
+      bytes.addAll(chunk);
+    }
+    return _BoundedBody(bytes, truncated);
   }
 
   Map<String, String> _headers() {
@@ -250,50 +351,91 @@ class UnlockTestService {
     };
   }
 
-  http.Client _proxyClient(int proxyPort) {
+  static http.Client _createProxyClient(int proxyPort) {
     final httpClient = HttpClient()
       ..connectionTimeout = const Duration(seconds: 8)
       ..findProxy = (_) => 'PROXY 127.0.0.1:$proxyPort';
     return IOClient(httpClient);
   }
 
-  String _statusFor(UnlockTestResult item, http.Response response) {
+  String _statusFor(UnlockTestResult item, _UnlockHttpResponse result) {
+    final response = result.response;
     final code = response.statusCode;
     final body = response.body.toLowerCase();
 
     switch (item.statusRule) {
       case UnlockStatusRule.netflix:
-        if (code == 200) return 'Available';
-        if (code == 403 || code == 451) return 'No';
-        if (code >= 300 && code < 400) {
-          final location = response.headers['location'] ?? '';
-          if (location.contains('title')) return 'Available';
+        if (code == 200 && result.finalUri.path.contains('/title/')) {
+          return 'Available';
+        }
+        if (_containsRegionDenial(body)) return 'No';
+        return _fallbackStatus(code);
+      case UnlockStatusRule.youtubePremium:
+        if (_containsAny(body, const [
+          'youtube premium is not available in your country',
+          'youtube premium is not available in your region',
+          'premium is not available in your country',
+          'premium is not available in your region',
+        ])) {
           return 'No';
         }
-        break;
-      case UnlockStatusRule.youtubePremium:
-        if (code == 200 && body.contains('premium')) return 'Available';
-        if (code == 200) return 'Yes';
-        break;
+        if (code == 200 &&
+            body.contains('youtube premium') &&
+            _containsAny(body, const [
+              'get youtube premium',
+              'try it free',
+              'start your trial',
+            ])) {
+          return 'Available';
+        }
+        return _fallbackStatus(code, successStatus: 'Inconclusive');
       case UnlockStatusRule.apiReachable:
-        if (code == 200 || code == 401 || code == 405) return 'Yes';
-        if (code == 403) return 'No';
-        break;
-      case UnlockStatusRule.googleApi:
-        if (code == 200 || code == 403) return 'Yes';
-        if (code == 404) return 'No';
-        break;
+        if (_containsRegionDenial(body)) return 'No';
+        if (code == 200 ||
+            code == 400 ||
+            code == 401 ||
+            code == 404 ||
+            code == 405) {
+          return 'Reachable';
+        }
+        if (code == 403 && _containsAuthenticationMarker(body)) {
+          return 'Reachable';
+        }
+        return _fallbackStatus(code, successStatus: 'Inconclusive');
       case UnlockStatusRule.standard:
-        break;
+        return _fallbackStatus(code, successStatus: 'Reachable');
     }
-
-    if (code >= 200 && code < 400) return 'Yes';
-    if (code == 403 || code == 451) return 'No';
-    if (code == 407) return 'No';
-    return 'Failed';
   }
 
-  String? _extractRegion(http.Response response, String host) {
+  String _fallbackStatus(int code, {String successStatus = 'Inconclusive'}) {
+    if (code >= 200 && code < 300) return successStatus;
+    if (code == 401 && successStatus == 'Reachable') return 'Reachable';
+    if (code >= 500 || code == 407) return 'Failed';
+    return 'Inconclusive';
+  }
+
+  bool _containsRegionDenial(String body) => _containsAny(body, const [
+        'not available in your country',
+        'not available in your region',
+        'country is not supported',
+        'region is not supported',
+        'location is not supported',
+        'unsupported country',
+        'unsupported region',
+      ]);
+
+  bool _containsAuthenticationMarker(String body) => _containsAny(body, const [
+        'api key',
+        'authentication',
+        'unauthorized',
+        'permission denied',
+        'missing x-api-key',
+      ]);
+
+  bool _containsAny(String value, List<String> markers) =>
+      markers.any(value.contains);
+
+  String? _extractRegion(http.Response response) {
     final headers = response.headers;
     return headers['cf-ipcountry'] ??
         headers['x-country-code'] ??
@@ -301,18 +443,34 @@ class UnlockTestService {
         headers['x-geo-country'];
   }
 
-  String _detailFor(http.Response response, UnlockTestResult item) {
+  String _detailFor(
+    _UnlockHttpResponse result,
+    UnlockTestResult item,
+    String status,
+  ) {
+    final response = result.response;
     final code = response.statusCode;
-    final body = response.body.trim();
+    final truncated = result.bodyTruncated ? '（响应已截断）' : '';
 
-    if (item.statusRule == UnlockStatusRule.apiReachable &&
-        (code == 401 || code == 405)) {
-      return 'HTTP $code (API reachable)';
+    if (status == 'Available') {
+      if (item.statusRule == UnlockStatusRule.netflix) {
+        return 'HTTP $code，测试片页可访问；不代表完整地区片库$truncated';
+      }
+      return 'HTTP $code，页面提供 Premium 开通入口$truncated';
     }
-
-    if (body.isEmpty) return 'HTTP $code';
-    if (body.length <= 120) return 'HTTP $code: $body';
-    return 'HTTP $code: ${body.substring(0, 120)}...';
+    if (status == 'Reachable') {
+      if (item.statusRule == UnlockStatusRule.apiReachable) {
+        return 'HTTP $code，API 端点可达；未验证账号和地区使用权限$truncated';
+      }
+      return 'HTTP $code，官网可访问；不代表账号、地区片库或播放权限$truncated';
+    }
+    if (status == 'No') {
+      return 'HTTP $code，页面明确提示当前国家或地区不可用$truncated';
+    }
+    if (status == 'Inconclusive') {
+      return 'HTTP $code，站点已响应，但现有证据不足以判断地区解锁$truncated';
+    }
+    return 'HTTP $code，检测请求失败$truncated';
   }
 
   Map<String, dynamic>? tryDecodeJson(String body) {
@@ -323,4 +481,23 @@ class UnlockTestService {
       return null;
     }
   }
+}
+
+class _UnlockHttpResponse {
+  const _UnlockHttpResponse({
+    required this.response,
+    required this.finalUri,
+    required this.bodyTruncated,
+  });
+
+  final http.Response response;
+  final Uri finalUri;
+  final bool bodyTruncated;
+}
+
+class _BoundedBody {
+  const _BoundedBody(this.bytes, this.truncated);
+
+  final List<int> bytes;
+  final bool truncated;
 }
