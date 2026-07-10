@@ -39,7 +39,7 @@ case "${1:-}" in
   test)
     run_in . flutter pub get
     for package in "${SHARED_PACKAGES[@]}"; do
-      run_in "$package" dart test
+      run_in "$package" flutter test
     done
     for app in "${FLUTTER_APPS[@]}"; do
       run_in "$app" flutter test

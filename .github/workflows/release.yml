@@ -69,8 +69,8 @@ jobs:
       - run: bash ../../scripts/check-desktop-startup-guards.sh
       - run: bash ../../scripts/check-secrets.sh
       - run: dart pub get
-      - run: dart analyze --fatal-infos
-      - run: dart test
+      - run: flutter analyze --fatal-infos
+      - run: flutter test
 
   prepare-geoip:
     name: Prepare latest GeoIP database
@@ -133,9 +133,7 @@ jobs:
         run: cd SSRVPN_Android && flutter analyze
 
       - name: Test
-        run: |
-          cd packages/ssrvpn_shared && dart test
-          cd ../../SSRVPN_Android && flutter test
+        run: cd SSRVPN_Android && flutter test
 
       - name: Prepare Android release signing
         env:
@@ -229,9 +227,7 @@ jobs:
         run: cd SSRVPN_MacOS && flutter analyze
 
       - name: Test
-        run: |
-          cd packages/ssrvpn_shared && dart test
-          cd ../../SSRVPN_MacOS && flutter test
+        run: cd SSRVPN_MacOS && flutter test
 
       - name: Build & Package DMG
         run: cd SSRVPN_MacOS && bash tool/package_macos.sh
@@ -303,9 +299,7 @@ jobs:
         run: cd SSRVPN_Windows; flutter analyze
 
       - name: Test
-        run: |
-          cd packages/ssrvpn_shared; dart test
-          cd ../../SSRVPN_Windows; flutter test
+        run: cd SSRVPN_Windows; flutter test
 
       - name: Build & Package ZIP
         shell: powershell
