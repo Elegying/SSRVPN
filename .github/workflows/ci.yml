@@ -36,7 +36,6 @@ jobs:
       - run: bash scripts/check-version-sync.sh
       - run: bash scripts/check-android-native-bridge-guards.sh
       - run: bash scripts/check-secrets.sh
-      - run: python3 scripts/sync-geoip-metadb.py --check
       - run: flutter pub get
       - run: flutter analyze
       - run: dart test --coverage=coverage

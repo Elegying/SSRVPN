@@ -19,6 +19,13 @@ conservative line coverage floors through `scripts/check-coverage-thresholds.sh`
 so obvious regressions fail quickly without pretending the current coverage is
 complete.
 
+Normal CI validates the GeoIP database against the hashes committed in
+`docs/GEOIP_SOURCE.txt`, keeping pull-request checks deterministic. The separate
+`GeoIP Freshness` scheduled/manual workflow runs
+`scripts/sync-geoip-metadb.py --check` daily to report upstream updates without
+making unrelated pull requests fail. Release builds still synchronize the
+latest verified upstream database before packaging.
+
 ## Platform Dependencies
 
 - Shared package tests avoid OS process and UI dependencies.
