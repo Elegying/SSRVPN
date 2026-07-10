@@ -11,11 +11,13 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import 'system_proxy_service.dart';
 
+part 'clash_service_config.dart';
+
 /// macOS Clash Meta 核心管理服务
 ///
 /// 继承 [ClashServiceBase] 复用公共 API、延迟测试、健康检查等逻辑，
 /// 仅保留 macOS 特有的进程管理、资源释放和系统代理集成。
-class ClashService extends ClashServiceBase {
+class ClashService extends ClashServiceBase with _MacosClashConfig {
   // ── macOS 静态路径 ──
   static const _chmodPath = '/bin/chmod';
   static const _filePath = '/usr/bin/file';
@@ -476,54 +478,6 @@ class ClashService extends ClashServiceBase {
     } catch (e) {
       log('清理遗留核心失败: $e');
     }
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // 配置生成（macOS 专用）
-  // ═══════════════════════════════════════════════════════════
-
-  String _macosTunConfig(AppSettings settings) {
-    final buffer = StringBuffer()
-      ..writeln('tun:')
-      ..writeln('  enable: true')
-      ..writeln('  stack: ${settings.tunStack}')
-      ..writeln('  auto-route: true')
-      ..writeln('  auto-detect-interface: true')
-      ..writeln('  route-exclude-address:');
-    for (final address in AppConstants.routeExcludeAddresses) {
-      buffer.writeln('    - $address');
-    }
-    buffer
-      ..writeln('  dns-hijack:')
-      ..writeln('    - any:53')
-      ..writeln('  route-address-set:')
-      ..writeln('    - geoip-cn')
-      ..writeln('    - geosite-cn');
-    return buffer.toString().trimRight();
-  }
-
-  /// 生成 Clash 配置（订阅只取节点，规则和分流完全内置）
-  String generateClashConfig(
-    String rawYaml,
-    AppSettings settings, {
-    String? preferredNodeName,
-  }) {
-    return buildClashConfig(
-      rawYaml,
-      settings,
-      preferredNodeName: preferredNodeName,
-      platformHeader: '# ===== SSRVPN 配置（规则内置，订阅仅加载节点） =====',
-      tunConfig: settings.enableTun ? _macosTunConfig(settings) : null,
-      latencyTestUrl: settings.latencyTestUrl,
-      includeFallbackGroup: true,
-      includeGeoIpRules: true,
-    );
-  }
-
-  /// 将配置写入文件
-  Future<void> writeConfig(String configContent) async {
-    final file = File(configPath);
-    await writeStringAtomically(file, configContent);
   }
 
   // ═══════════════════════════════════════════════════════════

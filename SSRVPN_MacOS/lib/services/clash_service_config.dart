@@ -1,0 +1,44 @@
+part of 'clash_service.dart';
+
+mixin _MacosClashConfig on ClashServiceBase {
+  String _macosTunConfig(AppSettings settings) {
+    final buffer = StringBuffer()
+      ..writeln('tun:')
+      ..writeln('  enable: true')
+      ..writeln('  stack: ${settings.tunStack}')
+      ..writeln('  auto-route: true')
+      ..writeln('  auto-detect-interface: true')
+      ..writeln('  route-exclude-address:');
+    for (final address in AppConstants.routeExcludeAddresses) {
+      buffer.writeln('    - $address');
+    }
+    buffer
+      ..writeln('  dns-hijack:')
+      ..writeln('    - any:53')
+      ..writeln('  route-address-set:')
+      ..writeln('    - geoip-cn')
+      ..writeln('    - geosite-cn');
+    return buffer.toString().trimRight();
+  }
+
+  String generateClashConfig(
+    String rawYaml,
+    AppSettings settings, {
+    String? preferredNodeName,
+  }) {
+    return buildClashConfig(
+      rawYaml,
+      settings,
+      preferredNodeName: preferredNodeName,
+      platformHeader: '# ===== SSRVPN 配置（规则内置，订阅仅加载节点） =====',
+      tunConfig: settings.enableTun ? _macosTunConfig(settings) : null,
+      latencyTestUrl: settings.latencyTestUrl,
+      includeFallbackGroup: true,
+      includeGeoIpRules: true,
+    );
+  }
+
+  Future<void> writeConfig(String configContent) async {
+    await writeStringAtomically(File(configPath), configContent);
+  }
+}
