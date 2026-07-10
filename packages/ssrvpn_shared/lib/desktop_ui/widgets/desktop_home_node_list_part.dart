@@ -427,7 +427,7 @@ class _NodeCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            node.name,
+                            nodeDisplayNameWithoutLeadingFlag(node.name),
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: isSelected

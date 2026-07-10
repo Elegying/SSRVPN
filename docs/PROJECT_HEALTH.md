@@ -9,11 +9,11 @@ SSRVPN is a single Flutter monorepo for Android, macOS, Windows, and `ssrvpn_sha
 | Area | Status | Notes |
 |---|---|---|
 | Repository shape | Good | One workspace, one release pipeline, shared services and policies. |
-| Local verification | Healthy | `make verify` passes, including analyzers, 329 Flutter tests, coverage gates, native guards, and Android JUnit. |
-| Shared package | Healthy | 182 tests, 59.30% line coverage; parsing, transactions, bounds, downloads, crashes, and controllers are covered. |
+| Local verification | Healthy | `make verify` passes, including analyzers, 344 Flutter tests, four coverage gates, native guards, package-guide checks, and Android JUnit. |
+| Shared package | Healthy | 194 tests, 62.77% line coverage; parsing, transactions, bounds, downloads, crashes, controllers, and unlock classification are covered. |
 | Android | Healthy | 83 Flutter tests and native APK identity tests pass; live VPN, notification, background, disconnect, and cleanup flows were verified on arm64 hardware. |
 | macOS | Proxy mode healthy | 34 tests, 32.21% coverage, Debug build passes. TUN intentionally fails closed until a safe privileged architecture exists. |
-| Windows | CI healthy | 30 tests pass and Windows CI validates the native launcher, mitigations, and portable ZIP; final real-device smoke testing remains a release follow-up. |
+| Windows | CI healthy | 33 tests pass and Windows CI validates SVG flags, the native launcher, mitigations, and portable ZIP; final real-device smoke testing remains a release follow-up. |
 | Release automation | Hardened | Source must be on `main`; checksums, versions, core assets, signing prerequisites, and artifact shape are checked. |
 | GitHub branch state | Ready to release | PR #21 is mergeable and its Android, macOS, Windows, workspace, and core-asset jobs are green. |
 
@@ -21,7 +21,7 @@ SSRVPN is a single Flutter monorepo for Android, macOS, Windows, and `ssrvpn_sha
 
 | Target | Verified | Gate |
 |---|---:|---:|
-| `ssrvpn_shared` | 59.30% | 50% |
+| `ssrvpn_shared` | 62.77% | 50% |
 | Android | 45.49% | 40% |
 | macOS | 32.21% | 10% |
 | Windows | 14.05% | 12% |

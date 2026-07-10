@@ -60,3 +60,16 @@ String normalizeNodeCountryCode(String code) {
   if (upper == 'EL') return 'GR';
   return upper;
 }
+
+String nodeDisplayNameWithoutLeadingFlag(String name) {
+  final runes = name.runes.toList(growable: false);
+  if (runes.length < 2 ||
+      !_isRegionalIndicator(runes[0]) ||
+      !_isRegionalIndicator(runes[1])) {
+    return name;
+  }
+  final withoutFlag = String.fromCharCodes(runes.skip(2)).trimLeft();
+  return withoutFlag.isEmpty ? name : withoutFlag;
+}
+
+bool _isRegionalIndicator(int rune) => rune >= 0x1F1E6 && rune <= 0x1F1FF;

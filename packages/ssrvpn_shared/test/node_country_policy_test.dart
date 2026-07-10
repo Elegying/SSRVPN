@@ -38,4 +38,19 @@ void main() {
       expect(countryCodeForProxyNode(node), 'UN');
     });
   });
+
+  group('nodeDisplayNameWithoutLeadingFlag', () {
+    test('removes a leading regional flag and following whitespace', () {
+      expect(
+        nodeDisplayNameWithoutLeadingFlag('🇭🇰 香港 | IEPL ①'),
+        '香港 | IEPL ①',
+      );
+    });
+
+    test('preserves names without a leading regional flag', () {
+      expect(nodeDisplayNameWithoutLeadingFlag('私家车-2025'), '私家车-2025');
+      expect(nodeDisplayNameWithoutLeadingFlag('🚀 高速节点'), '🚀 高速节点');
+      expect(nodeDisplayNameWithoutLeadingFlag('🇯🇵'), '🇯🇵');
+    });
+  });
 }

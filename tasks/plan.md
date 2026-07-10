@@ -22,32 +22,32 @@ three-platform quality review.
 
 ### Phase 1: Packaging
 
-- [ ] Add the specified Chinese four-step tutorial to the macOS DMG.
-- [ ] Add the specified Chinese four-step usage section to the Windows ZIP.
-- [ ] Guard source and built artifacts against missing or stale tutorials.
+- [x] Add the specified Chinese four-step tutorial to the macOS DMG.
+- [x] Add the specified Chinese four-step usage section to the Windows ZIP.
+- [x] Guard source and built artifacts against missing or stale tutorials.
 
 ### Phase 2: Windows Flags
 
-- [ ] Add a package-owned SVG flag widget with an explicit unknown fallback.
-- [ ] Use it in the shared desktop node list so Windows does not depend on
+- [x] Add a package-owned SVG flag widget with an explicit unknown fallback.
+- [x] Use it in the shared desktop node list so Windows does not depend on
       unsupported regional-indicator emoji rendering.
-- [ ] Add a Windows widget regression test.
+- [x] Add a Windows widget regression test.
 
 ### Phase 3: Unlock Accuracy
 
-- [ ] Reproduce current false positives/negatives with tests.
-- [ ] Separate `Available`, `Reachable`, `Unavailable`, `Inconclusive`, and
+- [x] Reproduce current false positives/negatives with tests.
+- [x] Separate `Available`, `Reachable`, `Unavailable`, `Inconclusive`, and
       `Failed` outcomes in the UI.
-- [ ] Bound redirects, response bytes, and all-test concurrency.
-- [ ] Show concise evidence/details so results are auditable by users.
+- [x] Bound redirects, response bytes, and all-test concurrency.
+- [x] Show concise evidence/details so results are auditable by users.
 
 ### Phase 4: Verification and Review
 
-- [ ] Run focused tests after each increment.
-- [ ] Run `make verify`, package smoke checks, macOS build, Android build/device
+- [x] Run focused tests after each increment.
+- [x] Run `make verify`, package smoke checks, macOS build, Android build/device
       smoke where relevant, and Windows CI-compatible tests.
-- [ ] Review correctness, readability, architecture, security, and performance.
-- [ ] Confirm private-node latency files are unchanged and their tests pass.
+- [x] Review correctness, readability, architecture, security, and performance.
+- [x] Confirm private-node latency files are unchanged and their tests pass.
 
 ## Risks and Mitigations
 
