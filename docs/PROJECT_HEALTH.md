@@ -4,18 +4,18 @@ Last reviewed: 2026-07-10
 
 ## Current Status
 
-SSRVPN is a single Flutter monorepo for Android, macOS, Windows, and `ssrvpn_shared`. The released baseline is `v2.4.5`; the comprehensive audit is implemented on `fix/comprehensive-audit-v2.4.5` and has not yet been pushed or validated by remote three-platform CI.
+SSRVPN is a single Flutter monorepo for Android, macOS, Windows, and `ssrvpn_shared`. The `v2.5.0` release candidate contains the comprehensive audit and has passed local verification, real-device Android and macOS smoke tests, and remote three-platform CI.
 
 | Area | Status | Notes |
 |---|---|---|
 | Repository shape | Good | One workspace, one release pipeline, shared services and policies. |
 | Local verification | Healthy | `make verify` passes, including analyzers, 329 Flutter tests, coverage gates, native guards, and Android JUnit. |
 | Shared package | Healthy | 182 tests, 59.30% line coverage; parsing, transactions, bounds, downloads, crashes, and controllers are covered. |
-| Android | Needs device QA | 83 Flutter tests plus native APK identity tests pass; live VPN/update flows still need arm64 hardware. |
+| Android | Healthy | 83 Flutter tests and native APK identity tests pass; live VPN, notification, background, disconnect, and cleanup flows were verified on arm64 hardware. |
 | macOS | Proxy mode healthy | 34 tests, 32.21% coverage, Debug build passes. TUN intentionally fails closed until a safe privileged architecture exists. |
-| Windows | Needs Windows CI | 30 tests pass on macOS; native launcher, mitigations, and portable packaging require Windows CI/VM. |
+| Windows | CI healthy | 30 tests pass and Windows CI validates the native launcher, mitigations, and portable ZIP; final real-device smoke testing remains a release follow-up. |
 | Release automation | Hardened | Source must be on `main`; checksums, versions, core assets, signing prerequisites, and artifact shape are checked. |
-| GitHub branch state | Needs cleanup | Remote `main` is still at `v2.4.3`, behind released `v2.4.5` and this audit branch. |
+| GitHub branch state | Ready to release | PR #21 is mergeable and its Android, macOS, Windows, workspace, and core-asset jobs are green. |
 
 ## Current Coverage Gates
 
@@ -31,11 +31,10 @@ The macOS and Windows gates remain deliberately conservative. Raising them shoul
 ## Remaining Risks
 
 - macOS TUN is unavailable; re-enabling the former setuid root model is prohibited.
-- Native lifecycle behavior still needs repeatable device/VM smoke tests before release.
+- Windows native lifecycle behavior still needs repeatable real-device or VM smoke tests after the online release build.
 - macOS and Windows are distributed without paid platform signing/notarization.
 - Desktop settings and subscription data remain in local app/portable storage by product choice.
 - Android's current Kotlin plugin works but Flutter reports that a future release will require Built-in Kotlin migration.
-- The audit branch has many reviewed commits but no remote PR/CI result yet.
 
 ## Recommended Scorecard
 
@@ -44,13 +43,13 @@ The macOS and Windows gates remain deliberately conservative. Raising them shoul
 | Correctness and recovery | 8/10 | Startup, proxy ownership, update, and subscription rollback paths are substantially stronger. |
 | Security | 8/10 | Unsafe macOS/Windows privilege mechanisms were removed and external data is bounded; signing remains incomplete. |
 | Maintainability | 8/10 | Shared boundaries, guards, transactional services, and focused tests are good; several platform files remain large. |
-| Automated verification | 8/10 | Local full gate is green; Windows native and real-device coverage are still missing. |
-| Release readiness | 6/10 | Code is ready for PR/CI, not for an immediate public tag because TUN behavior and native smoke tests need release planning. |
+| Automated verification | 8/10 | Local full gate and remote three-platform CI are green; Windows real-device coverage remains manual. |
+| Release readiness | 8/10 | Code and online builds are ready for `v2.5.0`; unsigned desktop distribution and intentionally unavailable macOS TUN are documented limitations. |
 
 ## Next Milestones
 
-1. Merge released history and audit changes back into `main` through a reviewed PR.
-2. Pass GitHub CI on Ubuntu, macOS, and Windows, then perform the documented device/VM matrix.
+1. Monitor the `v2.5.0` release and complete the documented Windows real-device smoke matrix.
+2. Add Developer ID/notarization and Windows Authenticode signing for trusted desktop distribution.
 3. Decide and document the macOS TUN architecture before implementation.
-4. Cut a `2.5.0` prerelease with explicit TUN and upgrade notes.
-5. Migrate Android to Built-in Kotlin before the next Flutter toolchain upgrade.
+4. Migrate Android to Built-in Kotlin before the next Flutter toolchain upgrade.
+5. Raise platform coverage gates with behavior-focused tests.
