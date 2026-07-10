@@ -33,6 +33,7 @@ jobs:
       - run: bash scripts/check-core-asset-bootstrap.sh
       - run: bash scripts/check-shared-barrel-imports.sh
       - run: bash scripts/check-version-sync.sh
+      - run: bash scripts/check-package-guides.sh
       - run: bash scripts/check-android-native-bridge-guards.sh
       - run: bash scripts/check-desktop-startup-guards.sh
       - run: bash scripts/check-macos-core-privileges.sh
@@ -125,6 +126,11 @@ jobs:
         run: |
           cd SSRVPN_Windows
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
+
+      - name: Smoke Windows portable ZIP
+        if: matrix.directory == 'SSRVPN_Windows'
+        shell: bash
+        run: bash scripts/smoke-release-artifacts.sh --allow-missing
 
       - name: Upload Windows portable ZIP
         if: matrix.directory == 'SSRVPN_Windows'

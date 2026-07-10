@@ -20,6 +20,7 @@ run_in() {
 
 run_step "Shared barrel imports" scripts/check-shared-barrel-imports.sh
 run_step "Version sync" scripts/check-version-sync.sh
+run_step "Package guides" scripts/check-package-guides.sh
 run_step "Core asset bootstrap model" scripts/check-core-asset-bootstrap.sh
 run_step "Core asset bootstrap" scripts/bootstrap-core-assets.sh
 run_step "Core binary assets" scripts/verify-core-assets.sh
