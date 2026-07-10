@@ -36,7 +36,7 @@ String countryCodeForProxyNode(ProxyNode node) {
   for (final key in _nodeCountryKeys) {
     final value = node.extra[key]?.toString().trim().toUpperCase();
     if (value != null && value.length == 2) {
-      return _normalizeNodeCountryCode(value);
+      return normalizeNodeCountryCode(value);
     }
   }
 
@@ -54,18 +54,22 @@ String countryCodeForProxyNode(ProxyNode node) {
   return 'UN';
 }
 
-String _normalizeNodeCountryCode(String code) {
+String normalizeNodeCountryCode(String code) {
   final upper = code.toUpperCase();
   if (upper == 'UK') return 'GB';
   if (upper == 'EL') return 'GR';
   return upper;
 }
 
-String flagEmojiForCountryCode(String countryCode) {
-  final code = _normalizeNodeCountryCode(countryCode);
-  if (code.length != 2 || code == 'UN') return '..';
-  final first = code.codeUnitAt(0);
-  final second = code.codeUnitAt(1);
-  if (first < 65 || first > 90 || second < 65 || second > 90) return code;
-  return String.fromCharCodes([0x1F1E6 + first - 65, 0x1F1E6 + second - 65]);
+String nodeDisplayNameWithoutLeadingFlag(String name) {
+  final runes = name.runes.toList(growable: false);
+  if (runes.length < 2 ||
+      !_isRegionalIndicator(runes[0]) ||
+      !_isRegionalIndicator(runes[1])) {
+    return name;
+  }
+  final withoutFlag = String.fromCharCodes(runes.skip(2)).trimLeft();
+  return withoutFlag.isEmpty ? name : withoutFlag;
 }
+
+bool _isRegionalIndicator(int rune) => rune >= 0x1F1E6 && rune <= 0x1F1FF;

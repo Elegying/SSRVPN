@@ -38,6 +38,7 @@ export 'utils/node_display_policy.dart';
 export 'utils/proxy_node_usage_policy.dart';
 export 'utils/async_lazy.dart';
 export 'utils/subscription_url_policy.dart';
+export 'widgets/country_flag_icon.dart';
 
 // 常量
 export 'constants/app_constants.dart';

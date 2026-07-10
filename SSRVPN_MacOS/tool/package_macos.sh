@@ -14,6 +14,8 @@ ARCH="$(uname -m)"
 VERSIONED_DMG_PATH="$PROJECT_ROOT/${APP_NAME}-macOS-${ARCH}-v${VERSION_NAME}.dmg"
 DMG_PATH="$PROJECT_ROOT/${APP_NAME}.dmg"
 DMG_HASH_PATH="$PROJECT_ROOT/${APP_NAME}.dmg.sha256"
+GUIDE_NAME="使用教程.txt"
+GUIDE_SOURCE="$PROJECT_ROOT/DMG_README.txt"
 CORE_TMP=""
 
 cleanup() {
@@ -42,6 +44,7 @@ test -x "$APP_BIN"
 test -f "$ASSET_DIR/AtlasCore.gz"
 test -f "$ASSET_DIR/geoip.metadb.gz"
 test -f "$ASSET_DIR/tray_icon.png"
+test -f "$GUIDE_SOURCE"
 
 echo "Refreshing ad-hoc code signature..."
 /usr/bin/codesign --force --deep --sign - "$APP_PATH"
@@ -64,13 +67,7 @@ ditto "$APP_PATH" "$STAGING_DIR/$APP_NAME.app"
 ln -s /Applications "$STAGING_DIR/Applications"
 test -L "$STAGING_DIR/Applications"
 
-cat > "$STAGING_DIR/INSTALL.txt" <<'EOF'
-Install SSRVPN:
-1. Drag SSRVPN.app to Applications.
-2. Open SSRVPN from Applications.
-
-If macOS blocks the app, right-click SSRVPN.app and choose Open.
-EOF
+ditto "$GUIDE_SOURCE" "$STAGING_DIR/$GUIDE_NAME"
 
 hdiutil create \
   -volname "$APP_NAME" \
@@ -98,7 +95,7 @@ tell application "Finder"
   set icon size of icon view options of dmgWindow to 96
   set position of item "$APP_NAME.app" of dmgFolder to {160, 180}
   set position of item "Applications" of dmgFolder to {420, 180}
-  set position of item "INSTALL.txt" of dmgFolder to {290, 310}
+  set position of item "$GUIDE_NAME" of dmgFolder to {290, 310}
   update dmgFolder without registering applications
   delay 2
   close dmgWindow
