@@ -1,64 +1,73 @@
-# Implementation Plan: Package Guides, Flags, and Unlock Accuracy
+# Implementation Plan: Clash Service Boundaries and Conservative Unlock Probes
 
 ## Overview
 
-Prepare the next SSRVPN maintenance change without altering the private-node
-latency display policy. The work covers Chinese package instructions, reliable
-Windows flag rendering, conservative unlock/reachability results, and a final
-three-platform quality review.
+Reduce the three remaining 900-line Clash service hotspots without changing
+their public API or runtime behavior. Split configuration generation from
+platform core lifecycle work, keep system-proxy ownership in the existing
+platform services, and harden unlock classification so unknown official-page
+content can never produce an `Available` result.
 
 ## Architecture Decisions
 
-- Keep package instructions as plain UTF-8 text inside each distributable and
-  verify both source text and built artifact contents.
-- Render desktop flags from packaged SVG assets instead of platform emoji so
-  Windows and macOS have deterministic output.
-- Distinguish actual service-availability evidence from simple website/API
-  reachability. Ambiguous responses must not be reported as supported.
-- Keep external live checks out of deterministic CI; unit-test response
-  classification and run a documented live audit during this task.
+- Use private Dart `part` files and private mixins. This preserves the existing
+  `ClashService` types and callers while making each responsibility readable.
+- Do not introduce new public interfaces or dependencies. macOS and Windows
+  already own dedicated `SystemProxyService` implementations.
+- Keep platform initialization and bundled-asset installation in the main
+  service files; move only configuration and core lifecycle/proxy coordination.
+- Unknown unlock evidence always maps to `Inconclusive`. Only explicit known
+  positive evidence may map to `Available`.
 
 ## Task List
 
-### Phase 1: Packaging
+### Phase 1: Structural Guard
 
-- [x] Add the specified Chinese four-step tutorial to the macOS DMG.
-- [x] Add the specified Chinese four-step usage section to the Windows ZIP.
-- [x] Guard source and built artifacts against missing or stale tutorials.
+- [x] Add a failing service-boundary guard for maximum main-file sizes,
+      required parts, and system-proxy call placement.
+- [x] Add the guard to the full verification pipeline.
 
-### Phase 2: Windows Flags
+### Phase 2: Shared Configuration Boundary
 
-- [x] Add a package-owned SVG flag widget with an explicit unknown fallback.
-- [x] Use it in the shared desktop node list so Windows does not depend on
-      unsupported regional-indicator emoji rendering.
-- [x] Add a Windows widget regression test.
+- [x] Move shared config caching and YAML helpers into a private config-support
+      part without changing `ClashServiceBase` API.
+- [x] Run shared config/base tests and analyzer, then commit.
 
-### Phase 3: Unlock Accuracy
+### Phase 3: macOS Boundary
 
-- [x] Reproduce current false positives/negatives with tests.
-- [x] Separate `Available`, `Reachable`, `Unavailable`, `Inconclusive`, and
-      `Failed` outcomes in the UI.
-- [x] Bound redirects, response bytes, and all-test concurrency.
-- [x] Show concise evidence/details so results are auditable by users.
+- [x] Move macOS config generation into a private config-support part.
+- [x] Move macOS process lifecycle and system-proxy coordination into a private
+      lifecycle part.
+- [x] Run macOS Clash tests and analyzer, then commit.
 
-### Phase 4: Verification and Review
+### Phase 4: Windows Boundary
 
-- [x] Run focused tests after each increment.
-- [x] Run `make verify`, package smoke checks, macOS build, Android build/device
-      smoke where relevant, and Windows CI-compatible tests.
-- [x] Review correctness, readability, architecture, security, and performance.
-- [x] Confirm private-node latency files are unchanged and their tests pass.
+- [x] Move Windows config generation into a private config-support part.
+- [x] Move Windows process lifecycle and system-proxy coordination into a
+      private lifecycle part.
+- [x] Run Windows Clash/config tests and analyzer, then commit.
+
+### Phase 5: Conservative Unlock Evidence
+
+- [x] Reproduce Netflix unknown-page and YouTube ambiguous-page false positives.
+- [x] Require known positive evidence; otherwise return `Inconclusive`.
+- [x] Run unlock tests and shared analyzer, then commit.
+
+### Checkpoint: Complete
+
+- [x] Structural guard passes and all three main service files are below limits.
+- [x] Full verification passes with no coverage regression.
+- [x] Private-node latency files and behavior remain unchanged.
 
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| External services change response text | Incorrect result | Use conservative fallback and explicit evidence strings |
-| SVG flag package increases assets | Larger bundles | Use one maintained package only; measure resulting builds |
-| Live checks are region-dependent | Flaky CI | Keep live audit manual and unit-test deterministic fixtures |
-| Package tutorial regresses later | User confusion | Verify source text and built artifact contents |
+| Private mixin member resolution changes behavior | Startup regression | Preserve code verbatim and run platform lifecycle tests after each move |
+| System proxy cleanup moves out of sight | Proxy left enabled | Guard call placement and retain existing ownership tests |
+| Refactor changes public surface | App compile failure | Keep the same `ClashService` and `ClashServiceBase` methods |
+| Official page markup changes | False unlock result | Unknown or ambiguous bodies return `Inconclusive` |
 
 ## Open Questions
 
-- None. The user explicitly approved completing all listed work; Windows
-  real-device validation remains a handoff item if no Windows host is available.
+- None. The user explicitly selected these two follow-up items.

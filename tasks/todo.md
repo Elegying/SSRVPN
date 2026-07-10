@@ -1,12 +1,12 @@
-# Package Guides, Flags, and Unlock Accuracy
+# Clash Boundaries and Conservative Unlock Probes
 
-- [x] macOS DMG contains the specified Chinese tutorial.
-- [x] Windows portable ZIP contains the specified Chinese usage steps.
-- [x] Windows node flags render from packaged SVG assets.
-- [x] Unlock checks distinguish availability from reachability.
-- [x] Ambiguous and network-failure responses are not shown as unsupported.
-- [x] Redirects, response bodies, and batch concurrency are bounded.
-- [x] Focused and full tests pass on all locally available platforms.
-- [x] macOS package contents are inspected; Windows inspection runs in CI.
-- [x] Private-node latency behavior and files remain unchanged.
-- [x] Final five-axis review and project score are documented.
+- [x] Add and wire the service-boundary guard.
+- [x] Extract shared Clash configuration support.
+- [x] Extract macOS configuration support.
+- [x] Extract macOS core lifecycle and proxy coordination.
+- [x] Extract Windows configuration support.
+- [x] Extract Windows core lifecycle and proxy coordination.
+- [x] Make unknown Netflix evidence inconclusive.
+- [x] Make ambiguous YouTube evidence inconclusive.
+- [x] Run focused and full verification.
+- [x] Confirm private-node latency files remain unchanged.
