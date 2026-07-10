@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:ssrvpn_macos/src/services/system_proxy_ownership.dart';
 
 /// macOS 系统代理服务。
 ///
@@ -15,10 +16,11 @@ class SystemProxyService {
 
   static const _networkSetupPath = '/usr/sbin/networksetup';
   static const _commandTimeout = Duration(seconds: 4);
-  static const _ownProxyHost = '127.0.0.1';
-
   File? _stateFile;
   bool _proxyEnabled = false;
+  bool _recoveryPending = false;
+  String? _ownedProxyHost;
+  int? _ownedProxyPort;
   String? _lastError;
 
   bool get isProxyEnabled => _proxyEnabled;
@@ -28,7 +30,7 @@ class SystemProxyService {
     _stateFile = File('$configDir${Platform.pathSeparator}system_proxy.json');
     final file = _stateFile;
     if (file != null && await file.exists()) {
-      await clearSystemProxy();
+      _recoveryPending = !await clearSystemProxy();
     }
   }
 
@@ -59,14 +61,28 @@ class SystemProxyService {
   Future<bool> setSystemProxy(String host, int port) async {
     if (!Platform.isMacOS) return false;
     _lastError = null;
+    if (host.trim().isEmpty || port < 1 || port > 65535) {
+      _lastError = '代理地址或端口无效: $host:$port';
+      return false;
+    }
+    if (_recoveryPending) {
+      _lastError = '系统代理仍有未恢复的旧状态，请查看运行日志';
+      return false;
+    }
     try {
+      if (_proxyEnabled &&
+          (_ownedProxyHost != host || _ownedProxyPort != port)) {
+        if (!await clearSystemProxy()) return false;
+        _lastError = null;
+      }
+
       final services = await _listNetworkServices();
       if (services.isEmpty) {
         _lastError ??= '没有找到可用的 macOS 网络服务';
         return false;
       }
 
-      await _saveCurrentStateIfNeeded(services);
+      await _saveCurrentStateIfNeeded(services, host, port);
 
       for (final svc in services) {
         await _checkedRun(['-setwebproxy', svc, host, '$port']);
@@ -77,6 +93,9 @@ class SystemProxyService {
         await _checkedRun(['-setsocksfirewallproxystate', svc, 'on']);
       }
       _proxyEnabled = true;
+      _recoveryPending = false;
+      _ownedProxyHost = host;
+      _ownedProxyPort = port;
       return true;
     } catch (e) {
       final originalError = '系统代理设置失败: $e';
@@ -90,63 +109,61 @@ class SystemProxyService {
     if (!Platform.isMacOS) return false;
     _lastError = null;
     try {
-      final restored = await _restoreSavedState();
-      if (restored) {
-        _proxyEnabled = false;
+      final file = _stateFile;
+      if (file == null || !await file.exists()) {
+        _forgetOwnership();
+        _recoveryPending = false;
         return true;
       }
 
-      final services = await _listNetworkServices();
-      for (final svc in services) {
-        if (_isOwnProxy(await _readProxyState(svc, '-getwebproxy'))) {
-          await _checkedRun(['-setwebproxystate', svc, 'off']);
-        }
-        if (_isOwnProxy(await _readProxyState(svc, '-getsecurewebproxy'))) {
-          await _checkedRun(['-setsecurewebproxystate', svc, 'off']);
-        }
-        if (_isOwnProxy(await _readProxyState(svc, '-getsocksfirewallproxy'))) {
-          await _checkedRun(['-setsocksfirewallproxystate', svc, 'off']);
-        }
+      final restored = await _restoreSavedState();
+      if (restored) {
+        _forgetOwnership();
+        _recoveryPending = false;
+        return true;
       }
-      _proxyEnabled = false;
-      return true;
+      _recoveryPending = true;
+      return false;
     } catch (e) {
+      _recoveryPending = true;
       _lastError = '系统代理恢复失败: $e';
       return false;
     }
   }
 
-  Future<void> _saveCurrentStateIfNeeded(List<String> services) async {
+  Future<void> _saveCurrentStateIfNeeded(
+    List<String> services,
+    String ownedHost,
+    int ownedPort,
+  ) async {
     final file = _stateFile;
-    if (file == null || await file.exists()) return;
+    if (file == null) {
+      throw StateError('SystemProxyService has not been initialized');
+    }
+    if (await file.exists()) {
+      _recoveryPending = true;
+      throw StateError('已有未恢复的系统代理备份');
+    }
 
-    final states = <String, dynamic>{};
+    final states = <String, dynamic>{
+      '_ownedProxyHost': ownedHost,
+      '_ownedProxyPort': ownedPort,
+      '_ownerPid': pid,
+    };
     for (final svc in services) {
       final webState = await _readProxyState(svc, '-getwebproxy');
       final secureWebState = await _readProxyState(svc, '-getsecurewebproxy');
       final socksState = await _readProxyState(svc, '-getsocksfirewallproxy');
 
-      // 如果当前代理是 SSRVPN 自己设置的（127.0.0.1），不要保存为“原始状态”
-      // 否则恢复时会恢复到我们自己的代理地址，导致网络中断
       states[svc] = {
-        'web': _isOwnProxy(webState)
-            ? {'enabled': false, 'server': '', 'port': 0}
-            : webState,
-        'secureWeb': _isOwnProxy(secureWebState)
-            ? {'enabled': false, 'server': '', 'port': 0}
-            : secureWebState,
-        'socks': _isOwnProxy(socksState)
-            ? {'enabled': false, 'server': '', 'port': 0}
-            : socksState,
+        'web': webState,
+        'secureWeb': secureWebState,
+        'socks': socksState,
       };
     }
     await _writeStringAtomically(file, jsonEncode(states));
-  }
-
-  /// 判断代理是否是 SSRVPN 自己设置的
-  bool _isOwnProxy(Map<String, dynamic> state) {
-    final server = state['server']?.toString() ?? '';
-    return server == _ownProxyHost;
+    _ownedProxyHost = ownedHost;
+    _ownedProxyPort = ownedPort;
   }
 
   Future<bool> _restoreSavedState() async {
@@ -157,25 +174,43 @@ class SystemProxyService {
       final raw = jsonDecode(await file.readAsString());
       if (raw is! Map) return false;
 
+      final ownedHost = raw['_ownedProxyHost']?.toString();
+      final ownedPort = int.tryParse(raw['_ownedProxyPort']?.toString() ?? '');
+      if (ownedHost == null || ownedHost.isEmpty || ownedPort == null) {
+        // Legacy state cannot prove ownership. Preserve current user settings.
+        await file.delete();
+        return true;
+      }
+
       for (final entry in raw.entries) {
         final service = entry.key.toString();
+        if (service.startsWith('_')) continue;
         final value = entry.value;
         if (value is! Map) continue;
-        await _restoreProxyState(
+        await _restoreProxyStateIfOwned(
           service,
           value['web'],
+          ownedHost: ownedHost,
+          ownedPort: ownedPort,
+          getCommand: '-getwebproxy',
           setCommand: '-setwebproxy',
           stateCommand: '-setwebproxystate',
         );
-        await _restoreProxyState(
+        await _restoreProxyStateIfOwned(
           service,
           value['secureWeb'],
+          ownedHost: ownedHost,
+          ownedPort: ownedPort,
+          getCommand: '-getsecurewebproxy',
           setCommand: '-setsecurewebproxy',
           stateCommand: '-setsecurewebproxystate',
         );
-        await _restoreProxyState(
+        await _restoreProxyStateIfOwned(
           service,
           value['socks'],
+          ownedHost: ownedHost,
+          ownedPort: ownedPort,
+          getCommand: '-getsocksfirewallproxy',
           setCommand: '-setsocksfirewallproxy',
           stateCommand: '-setsocksfirewallproxystate',
         );
@@ -193,12 +228,42 @@ class SystemProxyService {
     String command,
   ) async {
     final result = await _runNetworkSetup([command, service]);
+    if (result.exitCode != 0) {
+      throw Exception('读取 $service 代理状态失败: ${result.stderr}');
+    }
     final text = result.stdout.toString();
     return {
       'enabled': _readLineValue(text, 'Enabled').toLowerCase() == 'yes',
       'server': _readLineValue(text, 'Server'),
       'port': int.tryParse(_readLineValue(text, 'Port')) ?? 0,
     };
+  }
+
+  Future<void> _restoreProxyStateIfOwned(
+    String service,
+    Object? value, {
+    required String ownedHost,
+    required int ownedPort,
+    required String getCommand,
+    required String setCommand,
+    required String stateCommand,
+  }) async {
+    final current = await _readProxyState(service, getCommand);
+    if (!isOwnedMacProxy(
+      enabled: current['enabled'] == true,
+      server: current['server']?.toString() ?? '',
+      port: int.tryParse(current['port']?.toString() ?? '') ?? 0,
+      ownedHost: ownedHost,
+      ownedPort: ownedPort,
+    )) {
+      return;
+    }
+    await _restoreProxyState(
+      service,
+      value,
+      setCommand: setCommand,
+      stateCommand: stateCommand,
+    );
   }
 
   Future<void> _restoreProxyState(
@@ -256,5 +321,11 @@ class SystemProxyService {
     );
     await temp.writeAsString(content, flush: true);
     await temp.rename(file.path);
+  }
+
+  void _forgetOwnership() {
+    _proxyEnabled = false;
+    _ownedProxyHost = null;
+    _ownedProxyPort = null;
   }
 }
