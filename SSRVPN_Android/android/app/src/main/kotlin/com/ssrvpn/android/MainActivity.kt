@@ -236,6 +236,7 @@ class MainActivity : FlutterActivity() {
         val apkFile = File(apkPath)
         require(apkFile.exists() && apkFile.isFile) { "APK file not found" }
         require(apkFile.name.endsWith(".apk", ignoreCase = true)) { "Invalid APK file" }
+        UpdateApkVerifier.verify(packageManager, packageName, apkFile)
 
         if (!canRequestUpdateInstall()) {
             savePendingUpdateInstall(apkFile.absolutePath)
@@ -299,6 +300,9 @@ class MainActivity : FlutterActivity() {
 
     @Suppress("DEPRECATION")
     private fun launchPackageInstaller(apkFile: File) {
+        // Re-check immediately before handing the file to Android so a pending
+        // install cannot bypass package/signing identity validation.
+        UpdateApkVerifier.verify(packageManager, packageName, apkFile)
         val apkUri = FileProvider.getUriForFile(
             this,
             "$packageName.fileprovider",
