@@ -36,7 +36,6 @@ void main() {
       );
 
       expect(countryCodeForProxyNode(node), 'UN');
-      expect(flagEmojiForCountryCode('UN'), '..');
     });
   });
 }

@@ -569,7 +569,6 @@ class _NodeFlagBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final flag = flagEmojiForCountryCode(countryCode);
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -595,14 +594,7 @@ class _NodeFlagBadge extends StatelessWidget {
             ],
           ),
           child: Center(
-            child: Text(
-              flag,
-              style: TextStyle(
-                fontSize: flag == countryCode ? 11 : 19,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.primary,
-              ),
-            ),
+            child: CountryFlagIcon(countryCode: countryCode, size: 24),
           ),
         ),
         if (selected)

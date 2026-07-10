@@ -8,6 +8,7 @@ environment:
   sdk: '>=3.6.0 <4.0.0'
 
 dependencies:
+  country_flags: ^4.0.0
   flutter:
     sdk: flutter
   http: ^1.0.0
