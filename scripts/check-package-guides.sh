@@ -34,4 +34,10 @@ if [[ "$actual_windows" != "$expected_windows" ]]; then
   exit 1
 fi
 
+if ! grep -Fq '$lines[0] = "$($lines[0]) $(Get-AppDisplayVersion)"' \
+  "$ROOT/SSRVPN_Windows/tool/package_windows.ps1"; then
+  echo "package guide check failed: Windows package title must preserve the UTF-8 source line" >&2
+  exit 1
+fi
+
 echo "Package guide checks passed."
