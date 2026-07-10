@@ -7,6 +7,7 @@ cd "$ROOT"
 launcher="SSRVPN_Windows/windows/runner/launcher_main.cpp"
 package_script="SSRVPN_Windows/tool/package_windows.ps1"
 windows_cmake="SSRVPN_Windows/windows/CMakeLists.txt"
+runner_cmake="SSRVPN_Windows/windows/runner/CMakeLists.txt"
 cleanup_script="SSRVPN_Windows/scripts/remove_legacy_cet_exemption.ps1"
 
 for forbidden in \
@@ -21,6 +22,22 @@ for forbidden in \
     exit 1
   fi
 done
+
+for forbidden in \
+  'BitConverter]::ToUInt16' \
+  '-bor 0x1000' \
+  'Patching CET_COMPAT PE flag'; do
+  if rg -n --fixed-strings -- "$forbidden" "$runner_cmake" >/dev/null; then
+    echo "Windows launcher security guard failed: found invalid PE patch: $forbidden" >&2
+    exit 1
+  fi
+done
+
+rg -q --fixed-strings 'target_compile_options(${LAUNCHER_TARGET} PRIVATE "/guard:cf")' \
+  "$runner_cmake"
+rg -q --fixed-strings \
+  'target_link_options(${LAUNCHER_TARGET} PRIVATE "/CETCOMPAT" "/GUARD:CF")' \
+  "$runner_cmake"
 
 for obsolete in \
   SSRVPN_Windows/scripts/ssrvpn_cet_fix.ps1 \

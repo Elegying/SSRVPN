@@ -60,14 +60,8 @@ target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_PATCH=${F
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTTER_VERSION_BUILD}")
 target_link_libraries(${LAUNCHER_TARGET} PRIVATE "shell32.lib")
 
-# CET (Control-flow Enforcement Technology) compatibility.
-# /guard:cf generates CET-safe machine code.
-# Post-build: patch CET_COMPAT (0x1000) PE flag since the linker's
-# /CETCOMPAT silently drops when non-code inputs (Runner.res) lack CET metadata.
-# We inline the PowerShell rather than use -File to avoid CMake path-resolution
-# issues with relative paths across generator boundaries.
+# Use the MSVC compiler and linker switches for control-flow protection. Never
+# patch PE DllCharacteristics directly: 0x1000 in that field is AppContainer,
+# not CET compatibility, and can make a normal desktop launcher unloadable.
 target_compile_options(${LAUNCHER_TARGET} PRIVATE "/guard:cf")
-add_custom_command(TARGET ${LAUNCHER_TARGET} POST_BUILD
-  COMMAND powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass
-    -Command "$bytes=[IO.File]::ReadAllBytes('$<TARGET_FILE:${LAUNCHER_TARGET}>');$off=[BitConverter]::ToInt32($bytes,0x3C)+94;$c=[BitConverter]::ToUInt16($bytes,$off);$c=$c -bor 0x1000;[BitConverter]::GetBytes($c).CopyTo($bytes,$off);[IO.File]::WriteAllBytes('$<TARGET_FILE:${LAUNCHER_TARGET}>',$bytes);Write-Output ('CET_COMPAT: 0x{0:X3} -> 0x{1:X4}' -f ($c -bxor 0x1000),$c)"
-  COMMENT "Patching CET_COMPAT PE flag")
+target_link_options(${LAUNCHER_TARGET} PRIVATE "/CETCOMPAT" "/GUARD:CF")
