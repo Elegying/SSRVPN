@@ -26,7 +26,13 @@ class StartupOrchestrator {
     await runStep('window_manager', initWindowManager);
     await runStep('screen_retriever', initScreenRetriever);
     await runStep('system_tray', initSystemTray);
-    await runStep('mihomo_core', initCoreService);
+    await runStep(
+      'mihomo_core',
+      initCoreService,
+      // Future.timeout cannot cancel core initialization. Let the core's own
+      // bounded probes finish so a timed-out task cannot publish services late.
+      timeout: null,
+    );
 
     status.markCompleted();
     StartupLogger.info('Startup orchestration completed');
@@ -35,12 +41,18 @@ class StartupOrchestrator {
 
   Future<void> runStep(
     String name,
-    Future<void> Function() step,
-  ) async {
+    Future<void> Function() step, {
+    Duration? timeout = const Duration(seconds: 8),
+  }) async {
     StartupStatus.instance.markStepStarted(name);
     StartupLogger.info('START $name');
     try {
-      await step().timeout(const Duration(seconds: 8));
+      final operation = step();
+      if (timeout == null) {
+        await operation;
+      } else {
+        await operation.timeout(timeout);
+      }
       StartupLogger.info('OK $name');
       StartupStatus.instance.markStepOk(name);
     } catch (error, stack) {
@@ -141,18 +153,17 @@ class StartupOrchestrator {
       settings.dataDir,
     );
 
-    StartupStatus.instance.setServices(
-      settings: settings,
-      clash: core,
-      subscription: subscription,
-    );
-
     if (flags.disableCoreAutostart) {
       await core.init(
         settings.settings,
         dataDir: settings.dataDir,
         storageNotice: settings.storageNotice,
         skipCoreProbes: true,
+      );
+      StartupStatus.instance.setServices(
+        settings: settings,
+        clash: core,
+        subscription: subscription,
       );
       StartupLogger.info('Mihomo core probes skipped by startup flags');
       return;
@@ -174,6 +185,12 @@ class StartupOrchestrator {
       coreFailure = error;
       coreFailureStack = stack;
     }
+
+    StartupStatus.instance.setServices(
+      settings: settings,
+      clash: core,
+      subscription: subscription,
+    );
 
     if (coreFailure != null) {
       Error.throwWithStackTrace(

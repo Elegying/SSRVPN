@@ -39,4 +39,33 @@ for path in paths:
         )
 
 print("Desktop core startup ordering guards passed.")
+
+orchestrators = (
+    Path("SSRVPN_MacOS/lib/startup/startup_orchestrator.dart"),
+    Path("SSRVPN_Windows/lib/startup/startup_orchestrator.dart"),
+)
+
+for path in orchestrators:
+    source = path.read_text(encoding="utf-8")
+    start = source.index("Future<void> start()")
+    run_step = source.index("Future<void> runStep(", start)
+    start_body = source[start:run_step]
+    core_step = start_body.index("'mihomo_core'")
+    core_step_end = start_body.index(");", core_step)
+    if "timeout: null" not in start_body[core_step:core_step_end]:
+        raise SystemExit(
+            f"{path}: core initialization has a non-cancelling outer timeout"
+        )
+
+    init_start = source.index("Future<void> initCoreService()")
+    init_end = source.index("Future<bool> _intersectsAnyDisplay", init_start)
+    init_body = source[init_start:init_end]
+    if init_body.index("StartupStatus.instance.setServices") < init_body.index(
+        "await core.init"
+    ):
+        raise SystemExit(
+            f"{path}: services are published before core initialization completes"
+        )
+
+print("Desktop orchestration publication guards passed.")
 PY

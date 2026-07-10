@@ -29,7 +29,9 @@ class StartupOrchestrator {
     await runStep(
       'mihomo_core',
       initCoreService,
-      timeout: const Duration(seconds: 120),
+      // Future.timeout cannot cancel core initialization. Let the core's own
+      // bounded probes finish so a timed-out task cannot publish services late.
+      timeout: null,
     );
 
     status.markCompleted();
@@ -39,12 +41,17 @@ class StartupOrchestrator {
   Future<void> runStep(
     String name,
     Future<void> Function() step, {
-    Duration timeout = const Duration(seconds: 8),
+    Duration? timeout = const Duration(seconds: 8),
   }) async {
     StartupStatus.instance.markStepStarted(name);
     StartupLogger.info('START $name');
     try {
-      await step().timeout(timeout);
+      final operation = step();
+      if (timeout == null) {
+        await operation;
+      } else {
+        await operation.timeout(timeout);
+      }
       StartupLogger.info('OK $name');
       StartupStatus.instance.markStepOk(name);
     } catch (error, stack) {
