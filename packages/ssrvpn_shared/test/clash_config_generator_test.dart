@@ -12,14 +12,20 @@ proxies:
     type: ss
     server: example.com
     port: 443
+    cipher: aes-256-gcm
+    password: secret
   - name: 'Node 2'
     type: ss
     server: example2.com
     port: 443
+    cipher: aes-256-gcm
+    password: secret
   - name: Node 3
     type: ss
     server: example3.com
     port: 443
+    cipher: aes-256-gcm
+    password: secret
 ''';
       final names = ClashConfigGenerator.extractProxyNames(yaml);
       expect(names, hasLength(3));
@@ -334,6 +340,8 @@ proxies:
     type: ss
     server: example.com
     port: 443
+    cipher: aes-256-gcm
+    password: secret
 ''';
 
       expect(ClashConfigGenerator.extractProxyNames(yaml), ['Active Node']);
@@ -358,10 +366,14 @@ proxies:
     type: ss
     server: example1.com
     port: 443
+    cipher: aes-256-gcm
+    password: secret
   - name: "Node 2"
     type: ss
     server: example2.com
     port: 443
+    cipher: aes-256-gcm
+    password: secret
 ''';
       final settings = AppSettings();
 

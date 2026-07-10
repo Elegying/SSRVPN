@@ -136,6 +136,8 @@ proxies:
     type: ss
     server: example.com
     port: 443
+    cipher: aes-256-gcm
+    password: secret
 ${includeGroup ? '''proxy-groups:
   - name: Existing Group
     type: select
