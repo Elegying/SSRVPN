@@ -16,6 +16,7 @@ std::wstring g_log_path;
 std::wstring g_desktop_dir;
 std::wstring g_last_dump_path;
 bool g_normal_shutdown_started = false;
+constexpr size_t kMaxCrashDumps = 5;
 
 std::wstring GetLocalAppData();
 
@@ -34,6 +35,38 @@ void EnsureDirectory(const std::wstring& path) {
     return;
   }
   ::CreateDirectoryW(path.c_str(), nullptr);
+}
+
+std::wstring CrashDirectory() {
+  return JoinPath(g_root_dir, L"crashes");
+}
+
+void PruneCrashDumps() {
+  const std::wstring crash_dir = CrashDirectory();
+  EnsureDirectory(crash_dir);
+
+  WIN32_FIND_DATAW entry;
+  HANDLE search =
+      ::FindFirstFileW(JoinPath(crash_dir, L"ssrvpn_*.dmp").c_str(), &entry);
+  if (search == INVALID_HANDLE_VALUE) {
+    return;
+  }
+
+  std::vector<std::wstring> dumps;
+  do {
+    if ((entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+      dumps.push_back(entry.cFileName);
+    }
+  } while (::FindNextFileW(search, &entry));
+  ::FindClose(search);
+
+  std::sort(dumps.begin(), dumps.end(),
+            [](const std::wstring& left, const std::wstring& right) {
+              return left > right;
+            });
+  for (size_t index = kMaxCrashDumps; index < dumps.size(); ++index) {
+    ::DeleteFileW(JoinPath(crash_dir, dumps[index]).c_str());
+  }
 }
 
 std::wstring GetDesktopDirectory() {
@@ -182,7 +215,7 @@ std::wstring DesktopFailurePath() {
 }
 
 std::wstring DumpPath() {
-  const std::wstring crash_dir = JoinPath(g_root_dir, L"crashes");
+  const std::wstring crash_dir = CrashDirectory();
   EnsureDirectory(crash_dir);
 
   std::wstringstream name;
@@ -201,15 +234,6 @@ LONG WINAPI UnhandledFilter(EXCEPTION_POINTERS* info) {
   return EXCEPTION_EXECUTE_HANDLER;
 }
 
-LONG CALLBACK VectoredHandler(EXCEPTION_POINTERS* info) {
-  if (info != nullptr && info->ExceptionRecord != nullptr &&
-      info->ExceptionRecord->ExceptionCode == 0x406D1388) {
-    return EXCEPTION_CONTINUE_SEARCH;
-  }
-  startup_diagnostics::WriteDumpAndContinue(info, L"vectored exception");
-  return EXCEPTION_CONTINUE_SEARCH;
-}
-
 }  // namespace
 
 namespace startup_diagnostics {
@@ -219,11 +243,11 @@ void Initialize() {
   g_desktop_dir = GetDesktopDirectory();
   EnsureDirectory(g_root_dir);
   EnsureDirectory(JoinPath(g_root_dir, L"logs"));
-  EnsureDirectory(JoinPath(g_root_dir, L"crashes"));
+  EnsureDirectory(CrashDirectory());
+  PruneCrashDumps();
   g_log_path = JoinPath(JoinPath(g_root_dir, L"logs"), L"startup.log");
 
   ::SetUnhandledExceptionFilter(UnhandledFilter);
-  ::AddVectoredExceptionHandler(1, VectoredHandler);
 }
 
 void Log(const std::wstring& message) {
@@ -290,7 +314,6 @@ int WriteDumpAndContinue(EXCEPTION_POINTERS* info,
   }
 
   const std::wstring dump_path = DumpPath();
-  g_last_dump_path = dump_path;
   HANDLE file = ::CreateFileW(dump_path.c_str(), GENERIC_WRITE, 0, nullptr,
                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
   if (file == INVALID_HANDLE_VALUE) {
@@ -309,8 +332,11 @@ int WriteDumpAndContinue(EXCEPTION_POINTERS* info,
   ::CloseHandle(file);
 
   if (ok) {
+    g_last_dump_path = dump_path;
+    PruneCrashDumps();
     Log(L"minidump written: " + dump_path);
   } else {
+    ::DeleteFileW(dump_path.c_str());
     Log(L"minidump write failed: " + dump_path);
   }
   return EXCEPTION_EXECUTE_HANDLER;

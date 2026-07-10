@@ -12,6 +12,7 @@ cleanup_script="SSRVPN_Windows/scripts/remove_legacy_cet_exemption.ps1"
 cleanup_launcher="SSRVPN_Windows/scripts/remove_legacy_cet_exemption.bat"
 portable_readme="SSRVPN_Windows/PORTABLE_README.txt"
 diagnostic_launcher="SSRVPN_Windows/SSRVPN_Diag.bat"
+startup_diagnostics="SSRVPN_Windows/windows/runner/startup_diagnostics.cpp"
 
 for forbidden in \
   'Set-ProcessMitigation' \
@@ -79,4 +80,12 @@ rg -q --fixed-strings 'Launcher unexpectedly requires AppContainer' \
   "$package_script"
 rg -q --fixed-strings 'Launcher is missing the Guard CF PE flag' \
   "$package_script"
+if rg -n --fixed-strings 'AddVectoredExceptionHandler' \
+  "$startup_diagnostics" >/dev/null; then
+  echo "Windows launcher security guard failed: first-chance dump handler remains" >&2
+  exit 1
+fi
+rg -q --fixed-strings 'SetUnhandledExceptionFilter' "$startup_diagnostics"
+rg -q --fixed-strings 'kMaxCrashDumps = 5' "$startup_diagnostics"
+rg -q --fixed-strings 'PruneCrashDumps' "$startup_diagnostics"
 echo "Windows launcher security guards passed."
