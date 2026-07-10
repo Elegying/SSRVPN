@@ -11,6 +11,7 @@ import 'screens/home_screen.dart';
 import 'screens/subscription_screen.dart';
 import 'screens/unlock_test_screen.dart';
 
+import 'startup/initialization_task.dart';
 import 'startup/startup_flags.dart';
 import 'startup/startup_orchestrator.dart';
 import 'theme/app_theme.dart';
@@ -35,6 +36,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
   SettingsService? _settingsService;
   clash.ClashService? _clashService;
   SubscriptionService? _subscriptionService;
+  final InitializationTask _appInitialization = InitializationTask();
+  final InitializationTask _coreInitialization = InitializationTask();
 
   // 公开 getter 供 StartupOrchestrator 使用
   clash.ClashService? get clashService => _clashService;
@@ -47,65 +50,71 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
   void initState() {
     super.initState();
     _pageController = PageController();
-    _initApp();
+    unawaited(_initApp());
   }
 
   @override
   void dispose() {
     _pageController.dispose();
-    _clashService?.stop();
+    final clashService = _clashService;
+    if (clashService != null) unawaited(clashService.stop());
     super.dispose();
   }
 
   int _initRetryCount = 0;
   static const int _maxInitRetries = 2; // 首次 + 1次自动重试
 
-  Future<void> _initApp() async {
-    try {
-      _settingsService = await SettingsService.getInstance();
-      _clashService = clash.ClashService();
-      await _clashService!.init(_settingsService!.settings).timeout(
-            const Duration(seconds: 90),
-            onTimeout: () => throw TimeoutException('核心服务初始化超时（90秒）'),
-          );
-      final appDataDir = _clashService!.configDir;
-      _subscriptionService =
-          await SubscriptionService.getInstance(appDataDir).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => throw TimeoutException('订阅服务初始化超时（30秒）'),
-      );
-      _initRetryCount = 0; // 成功后重置
-      if (mounted) setState(() => _appInitialized = true);
-      // 启动后续流程
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(StartupOrchestrator(
-          settings: _settingsService,
-          clash: _clashService,
-          subscription: _subscriptionService,
-          flags: widget.startupFlags,
-        ).start());
-      });
-    } catch (e) {
-      _initRetryCount++;
-      if (_initRetryCount < _maxInitRetries && mounted) {
-        // 自动重试一次
-        AppLogger.warning('SSRVPN', '初始化失败，自动重试 (第$_initRetryCount次)');
-        await Future.delayed(const Duration(seconds: 2));
-        if (mounted) {
+  Future<void> _initApp() => _appInitialization.run(_performInitialization);
+
+  Future<void> _performInitialization() async {
+    while (mounted) {
+      try {
+        _settingsService ??= await SettingsService.getInstance();
+        _clashService ??= clash.ClashService();
+        await _coreInitialization
+            .run(() => _clashService!.init(_settingsService!.settings))
+            .timeout(
+              const Duration(seconds: 90),
+              onTimeout: () => throw TimeoutException('核心服务初始化超时（90秒）'),
+            );
+        final appDataDir = _clashService!.configDir;
+        _subscriptionService =
+            await SubscriptionService.getInstance(appDataDir).timeout(
+          const Duration(seconds: 30),
+          onTimeout: () => throw TimeoutException('订阅服务初始化超时（30秒）'),
+        );
+        _initRetryCount = 0;
+        if (!mounted) return;
+        setState(() => _appInitialized = true);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          unawaited(StartupOrchestrator(
+            settings: _settingsService,
+            clash: _clashService,
+            subscription: _subscriptionService,
+            flags: widget.startupFlags,
+          ).start());
+        });
+        return;
+      } catch (e) {
+        _initRetryCount++;
+        if (_initRetryCount < _maxInitRetries && mounted) {
+          AppLogger.warning('SSRVPN', '初始化失败，自动重试 (第$_initRetryCount次)');
+          await Future<void>.delayed(const Duration(seconds: 2));
+          if (!mounted) return;
           setState(() {
             _initError = false;
             _initErrorMsg = '';
           });
-          await _initApp();
-          return;
+          continue;
         }
-      }
-      if (mounted) {
-        setState(() {
-          _initError = true;
-          _initErrorMsg =
-              '${e.toString().replaceFirst("Exception: ", "")}\n\n自动重试 $_initRetryCount 次后仍失败';
-        });
+        if (mounted) {
+          setState(() {
+            _initError = true;
+            _initErrorMsg =
+                '${e.toString().replaceFirst("Exception: ", "")}\n\n自动重试 $_initRetryCount 次后仍失败';
+          });
+        }
+        return;
       }
     }
   }
@@ -153,10 +162,12 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                       child: ElevatedButton(
                         onPressed: () {
                           setState(() {
+                            _initRetryCount = 0;
                             _initError = false;
+                            _initErrorMsg = '';
                             _appInitialized = false;
                           });
-                          _initApp();
+                          unawaited(_initApp());
                         },
                         style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.primaryColor,

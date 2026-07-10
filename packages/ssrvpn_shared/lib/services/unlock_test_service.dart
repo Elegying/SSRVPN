@@ -367,6 +367,7 @@ class UnlockTestService {
       case UnlockStatusRule.netflix:
         if (_containsRegionDenial(body)) return 'No';
         if (code == 200 &&
+            _isExpectedServiceHost(result.finalUri, 'netflix.com') &&
             _containsNetflixTitleEvidence(result.finalUri, body)) {
           return 'Available';
         }
@@ -382,6 +383,7 @@ class UnlockTestService {
         }
         if (_containsAmbiguousUnavailability(body)) return 'Inconclusive';
         if (code == 200 &&
+            _isExpectedServiceHost(result.finalUri, 'youtube.com') &&
             body.contains('youtube premium') &&
             _containsAny(body, const [
               'get youtube premium',
@@ -407,6 +409,11 @@ class UnlockTestService {
       case UnlockStatusRule.standard:
         return _fallbackStatus(code, successStatus: 'Reachable');
     }
+  }
+
+  bool _isExpectedServiceHost(Uri uri, String rootDomain) {
+    final host = uri.host.toLowerCase();
+    return host == rootDomain || host.endsWith('.$rootDomain');
   }
 
   String _fallbackStatus(int code, {String successStatus = 'Inconclusive'}) {

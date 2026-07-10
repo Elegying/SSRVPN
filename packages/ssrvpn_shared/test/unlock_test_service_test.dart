@@ -202,6 +202,60 @@ void main() {
     expect(result.region, 'SG');
   });
 
+  test('Netflix evidence on a non-Netflix redirect stays inconclusive',
+      () async {
+    final service = UnlockTestService(
+      clientFactory: (_) => MockClient((request) async {
+        if (request.url.host == 'www.netflix.com') {
+          return http.Response(
+            '',
+            302,
+            headers: {
+              'location': 'https://example.com/title/81215567',
+            },
+            request: request,
+          );
+        }
+        return http.Response(
+          '<meta property="og:title" content="Netflix title 81215567">',
+          200,
+          request: request,
+        );
+      }),
+    );
+
+    final result = await service.checkOne(id: 'netflix', proxyPort: 7890);
+
+    expect(result.status, 'Inconclusive');
+    expect(result.isUnlocked, isFalse);
+  });
+
+  test('YouTube evidence on a non-YouTube redirect stays inconclusive',
+      () async {
+    final service = UnlockTestService(
+      clientFactory: (_) => MockClient((request) async {
+        if (request.url.host == 'www.youtube.com') {
+          return http.Response(
+            '',
+            302,
+            headers: {'location': 'https://example.com/premium'},
+            request: request,
+          );
+        }
+        return http.Response(
+          '<main>Get YouTube Premium. Start your trial.</main>',
+          200,
+          request: request,
+        );
+      }),
+    );
+
+    final result = await service.checkOne(id: 'youtube', proxyPort: 7890);
+
+    expect(result.status, 'Inconclusive');
+    expect(result.isUnlocked, isFalse);
+  });
+
   test('rejects redirects that downgrade HTTPS', () async {
     final service = UnlockTestService(
       clientFactory: (_) => MockClient(
