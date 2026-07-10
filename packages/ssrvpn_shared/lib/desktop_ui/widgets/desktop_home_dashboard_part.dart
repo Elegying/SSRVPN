@@ -427,8 +427,7 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
                                   isConnecting: isConnecting,
                                   textColor: textColor,
                                   subColor: subColor,
-                                  onShowForceProxySites:
-                                      onShowForceProxySites,
+                                  onShowForceProxySites: onShowForceProxySites,
                                 ),
                                 if (errorMessage != null) ...[
                                   const SizedBox(height: 10),
@@ -865,9 +864,11 @@ class _DesktopConnectionOptions extends StatelessWidget {
               _DesktopOptionChoice<bool>(
                 selected: settings.enableTun,
                 value: true,
-                enabled: !isConnecting,
+                enabled: !isConnecting && desktopPlatformLabel != 'MacOS',
                 icon: Icons.wifi_tethering_rounded,
-                label: 'TUN 模式（需管理员权限）',
+                label: desktopPlatformLabel == 'MacOS'
+                    ? 'TUN 模式（macOS 暂不可用）'
+                    : 'TUN 模式（需管理员权限）',
                 isDark: isDark,
                 textColor: textColor,
                 subColor: subColor,

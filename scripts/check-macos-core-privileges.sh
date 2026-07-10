@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 
 runtime="SSRVPN_MacOS/lib/services/clash_service.dart"
 native="SSRVPN_MacOS/macos/Runner"
+dashboard="packages/ssrvpn_shared/lib/desktop_ui/widgets/desktop_home_dashboard_part.dart"
 
 for forbidden in \
   '_grantRootPrivilege' \
@@ -70,3 +71,12 @@ if source.count("await _verifyCoreForExecution();") < 3:
 
 print("macOS core privilege guards passed.")
 PY
+
+for required in \
+  "desktopPlatformLabel != 'MacOS'" \
+  'TUN 模式（macOS 暂不可用）'; do
+  if ! rg -q --fixed-strings "$required" "$dashboard"; then
+    echo "macOS TUN UI guard failed: missing $required" >&2
+    exit 1
+  fi
+done

@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Removed the macOS setuid-root Mihomo model. macOS TUN now fails closed until a
   Network Extension or audited privileged helper is available; system proxy
-  mode continues to work with an unprivileged, SHA256-verified core.
+  mode continues to work with an unprivileged, SHA256-verified core, and the
+  macOS UI marks TUN as unavailable instead of requesting administrator access.
 - Removed the invalid Windows PE header patch that marked the portable launcher
   as AppContainer instead of CET-compatible, and now use the supported MSVC
   linker flags.
