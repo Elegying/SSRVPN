@@ -3,13 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:ssrvpn_shared/utils/async_lazy.dart';
 import '../models/app_settings.dart';
 
 /// 设置持久化服务 (Windows 便携版)
 ///
 /// 使用 JSON 文件存储设置，放在 exe 同级目录下，支持绿色免安装。
 class SettingsService extends ChangeNotifier {
-  static SettingsService? _instance;
+  static final _instance = AsyncLazy<SettingsService>();
   late AppSettings _settings;
   late String _settingsPath;
   late String _dataDir;
@@ -17,13 +18,11 @@ class SettingsService extends ChangeNotifier {
 
   SettingsService._();
 
-  static Future<SettingsService> getInstance() async {
-    if (_instance == null) {
-      _instance = SettingsService._();
-      await _instance!._init();
-    }
-    return _instance!;
-  }
+  static Future<SettingsService> getInstance() => _instance.get(() async {
+        final service = SettingsService._();
+        await service._init();
+        return service;
+      });
 
   Future<void> _init() async {
     _dataDir = await _resolveDataDirectory();

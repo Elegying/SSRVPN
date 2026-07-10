@@ -8,6 +8,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart' show AppLogger;
+import 'package:ssrvpn_shared/utils/async_lazy.dart';
 import '../models/app_settings.dart';
 
 /// 设置管理服务 — Android 版本
@@ -17,7 +18,7 @@ import '../models/app_settings.dart';
 /// apiSecret 使用 Android EncryptedSharedPreferences 存储（AES-256），
 /// 通过 flutter_secure_storage 封装。
 class SettingsService extends ChangeNotifier {
-  static SettingsService? _instance;
+  static final _instance = AsyncLazy<SettingsService>();
   late AppSettings _settings;
   late String _configPath;
 
@@ -34,13 +35,11 @@ class SettingsService extends ChangeNotifier {
 
   AppSettings get settings => _settings;
 
-  static Future<SettingsService> getInstance() async {
-    if (_instance == null) {
-      _instance = SettingsService._();
-      await _instance!._init();
-    }
-    return _instance!;
-  }
+  static Future<SettingsService> getInstance() => _instance.get(() async {
+        final service = SettingsService._();
+        await service._init();
+        return service;
+      });
 
   Future<void> _init() async {
     _configPath = await _resolveConfigPath();
@@ -280,6 +279,6 @@ class SettingsService extends ChangeNotifier {
 
   @visibleForTesting
   static void resetInstanceForTesting() {
-    _instance = null;
+    _instance.reset();
   }
 }
