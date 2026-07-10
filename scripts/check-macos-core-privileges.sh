@@ -15,7 +15,7 @@ for forbidden in \
   'root:wheel' \
   'chmod u+s' \
   '/usr/bin/osascript'; do
-  if rg -n --fixed-strings "$forbidden" "$runtime" "$native" >/dev/null; then
+  if grep -R -n -F -- "$forbidden" "$runtime" "$native" >/dev/null; then
     echo "macOS core privilege guard failed: found $forbidden" >&2
     exit 1
   fi
@@ -75,7 +75,7 @@ PY
 for required in \
   "desktopPlatformLabel != 'MacOS'" \
   'TUN 模式（暂不可用）'; do
-  if ! rg -q --fixed-strings "$required" "$dashboard"; then
+  if ! grep -Fq -- "$required" "$dashboard"; then
     echo "macOS TUN UI guard failed: missing $required" >&2
     exit 1
   fi

@@ -20,7 +20,7 @@ for forbidden in \
   'kCetDisableMask' \
   'PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY' \
   'ssrvpn_cet_fix'; do
-  if rg -n --fixed-strings "$forbidden" \
+  if grep -n -F -- "$forbidden" \
     "$launcher" "$package_script" "$windows_cmake" >/dev/null; then
     echo "Windows launcher security guard failed: found $forbidden" >&2
     exit 1
@@ -31,15 +31,15 @@ for forbidden in \
   'BitConverter]::ToUInt16' \
   '-bor 0x1000' \
   'Patching CET_COMPAT PE flag'; do
-  if rg -n --fixed-strings -- "$forbidden" "$runner_cmake" >/dev/null; then
+  if grep -n -F -- "$forbidden" "$runner_cmake" >/dev/null; then
     echo "Windows launcher security guard failed: found invalid PE patch: $forbidden" >&2
     exit 1
   fi
 done
 
-rg -q --fixed-strings 'target_compile_options(${LAUNCHER_TARGET} PRIVATE "/guard:cf")' \
+grep -Fq 'target_compile_options(${LAUNCHER_TARGET} PRIVATE "/guard:cf")' \
   "$runner_cmake"
-rg -q --fixed-strings \
+grep -Fq \
   'target_link_options(${LAUNCHER_TARGET} PRIVATE "/CETCOMPAT" "/GUARD:CF")' \
   "$runner_cmake"
 
@@ -54,38 +54,38 @@ for obsolete in \
   fi
 done
 
-rg -q --fixed-strings '::CreateProcessW(' "$launcher"
-rg -q --fixed-strings \
+grep -Fq '::CreateProcessW(' "$launcher"
+grep -Fq \
   'Set-ProcessMitigation -Name $name -Remove -Disable UserShadowStack' \
   "$cleanup_script"
-if rg -n 'New-Item(Property)?[^\n]*DisableUserShadowStack' \
+if grep -E -n 'New-Item(Property)?.*DisableUserShadowStack' \
   "$cleanup_script" >/dev/null; then
   echo "Windows launcher security guard failed: cleanup script writes an exemption" >&2
   exit 1
 fi
-if rg -n 'Remove-ItemProperty[^\n]*-ErrorAction SilentlyContinue' \
+if grep -E -n 'Remove-ItemProperty.*-ErrorAction SilentlyContinue' \
   "$cleanup_script" >/dev/null; then
   echo "Windows launcher security guard failed: cleanup hides registry errors" >&2
   exit 1
 fi
-rg -q --fixed-strings "Remove-ItemProperty -LiteralPath \$legacyPath" \
+grep -Fq "Remove-ItemProperty -LiteralPath \$legacyPath" \
   "$cleanup_script"
-rg -q --fixed-strings "Get-ItemProperty -LiteralPath \$legacyPath" \
+grep -Fq "Get-ItemProperty -LiteralPath \$legacyPath" \
   "$cleanup_script"
-rg -q --fixed-strings 'exit /b %EXIT_CODE%' "$cleanup_launcher"
-rg -q --fixed-strings 'remove_legacy_cet_exemption.bat' "$portable_readme"
-rg -q --fixed-strings 'remove_legacy_cet_exemption.bat' "$diagnostic_launcher"
-rg -q --fixed-strings 'function Get-PeDllCharacteristics' "$package_script"
-rg -q --fixed-strings 'Launcher unexpectedly requires AppContainer' \
+grep -Fq 'exit /b %EXIT_CODE%' "$cleanup_launcher"
+grep -Fq 'remove_legacy_cet_exemption.bat' "$portable_readme"
+grep -Fq 'remove_legacy_cet_exemption.bat' "$diagnostic_launcher"
+grep -Fq 'function Get-PeDllCharacteristics' "$package_script"
+grep -Fq 'Launcher unexpectedly requires AppContainer' \
   "$package_script"
-rg -q --fixed-strings 'Launcher is missing the Guard CF PE flag' \
+grep -Fq 'Launcher is missing the Guard CF PE flag' \
   "$package_script"
-if rg -n --fixed-strings 'AddVectoredExceptionHandler' \
+if grep -n -F 'AddVectoredExceptionHandler' \
   "$startup_diagnostics" >/dev/null; then
   echo "Windows launcher security guard failed: first-chance dump handler remains" >&2
   exit 1
 fi
-rg -q --fixed-strings 'SetUnhandledExceptionFilter' "$startup_diagnostics"
-rg -q --fixed-strings 'kMaxCrashDumps = 5' "$startup_diagnostics"
-rg -q --fixed-strings 'PruneCrashDumps' "$startup_diagnostics"
+grep -Fq 'SetUnhandledExceptionFilter' "$startup_diagnostics"
+grep -Fq 'kMaxCrashDumps = 5' "$startup_diagnostics"
+grep -Fq 'PruneCrashDumps' "$startup_diagnostics"
 echo "Windows launcher security guards passed."
