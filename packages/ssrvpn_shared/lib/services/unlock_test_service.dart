@@ -365,10 +365,11 @@ class UnlockTestService {
 
     switch (item.statusRule) {
       case UnlockStatusRule.netflix:
-        if (code == 200 && result.finalUri.path.contains('/title/')) {
+        if (_containsRegionDenial(body)) return 'No';
+        if (code == 200 &&
+            _containsNetflixTitleEvidence(result.finalUri, body)) {
           return 'Available';
         }
-        if (_containsRegionDenial(body)) return 'No';
         return _fallbackStatus(code);
       case UnlockStatusRule.youtubePremium:
         if (_containsAny(body, const [
@@ -379,6 +380,7 @@ class UnlockTestService {
         ])) {
           return 'No';
         }
+        if (_containsAmbiguousUnavailability(body)) return 'Inconclusive';
         if (code == 200 &&
             body.contains('youtube premium') &&
             _containsAny(body, const [
@@ -423,6 +425,26 @@ class UnlockTestService {
         'unsupported country',
         'unsupported region',
       ]);
+
+  bool _containsNetflixTitleEvidence(Uri finalUri, String body) {
+    final segments = finalUri.pathSegments;
+    final titleIndex = segments.indexOf('title');
+    if (titleIndex < 0 || titleIndex + 1 >= segments.length) return false;
+    final titleId = segments[titleIndex + 1];
+    final hasKnownMetadata = _containsAny(body, const [
+      'property="og:title"',
+      "property='og:title'",
+      'application/ld+json',
+      '"videoid"',
+      '"titleid"',
+    ]);
+    return RegExp(r'^\d+$').hasMatch(titleId) &&
+        body.contains(titleId) &&
+        hasKnownMetadata;
+  }
+
+  bool _containsAmbiguousUnavailability(String body) =>
+      body.contains('unavailable') || body.contains('not offered');
 
   bool _containsAuthenticationMarker(String body) => _containsAny(body, const [
         'api key',

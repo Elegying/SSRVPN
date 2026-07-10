@@ -108,6 +108,45 @@ void main() {
     expect(result.isBlocked, isTrue);
   });
 
+  test('YouTube ambiguous unavailability never reports Premium support',
+      () async {
+    final service = _serviceReturning(
+      statusCode: 200,
+      body:
+          '<main>Get YouTube Premium. This offer is temporarily unavailable.</main>',
+    );
+
+    final result = await service.checkOne(id: 'youtube', proxyPort: 7890);
+
+    expect(result.status, 'Inconclusive');
+    expect(result.isUnlocked, isFalse);
+  });
+
+  test('Netflix unknown title-page markup remains inconclusive', () async {
+    final service = _serviceReturning(
+      statusCode: 200,
+      body: '<html><main>Official page layout changed</main></html>',
+    );
+
+    final result = await service.checkOne(id: 'netflix', proxyPort: 7890);
+
+    expect(result.status, 'Inconclusive');
+    expect(result.isUnlocked, isFalse);
+  });
+
+  test('Netflix title id without known content metadata is inconclusive',
+      () async {
+    final service = _serviceReturning(
+      statusCode: 200,
+      body: '<html><main>81215567</main></html>',
+    );
+
+    final result = await service.checkOne(id: 'netflix', proxyPort: 7890);
+
+    expect(result.status, 'Inconclusive');
+    expect(result.isUnlocked, isFalse);
+  });
+
   test('generic forbidden response remains inconclusive', () async {
     final service = _serviceReturning(statusCode: 403, body: 'Forbidden');
 
@@ -148,7 +187,7 @@ void main() {
           );
         }
         return http.Response(
-          '<html>Netflix</html>',
+          '<html><meta property="og:title" content="Netflix title 81215567"></html>',
           200,
           headers: {'cf-ipcountry': 'SG'},
           request: request,
