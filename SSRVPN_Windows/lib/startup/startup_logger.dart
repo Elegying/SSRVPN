@@ -12,10 +12,15 @@ class StartupLogger {
 
   static Future<void> init({required bool verbose}) async {
     _verbose = verbose;
-    final file = File(_defaultLogPath());
-    await file.parent.create(recursive: true);
-    _file = file;
-    info('Dart startup logger initialized');
+    try {
+      final file = File(_defaultLogPath());
+      await file.parent.create(recursive: true);
+      _file = file;
+      info('Dart startup logger initialized');
+    } catch (error) {
+      _file = null;
+      warning('Dart startup logger unavailable: $error');
+    }
   }
 
   static void info(String message) {
