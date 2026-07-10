@@ -80,4 +80,16 @@ void main() {
       'ssr://***',
     );
   });
+
+  test('bounds hostile log lines before applying redaction regexes', () {
+    final sanitized = LogRedactor.sanitize(
+      '${'x' * (LogRedactor.maxInputCharacters * 2)} token=secret',
+    );
+
+    expect(
+      sanitized.length,
+      lessThanOrEqualTo(LogRedactor.maxInputCharacters + 32),
+    );
+    expect(sanitized, endsWith('... log entry truncated ...'));
+  });
 }
