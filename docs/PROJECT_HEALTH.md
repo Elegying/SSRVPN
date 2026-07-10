@@ -4,18 +4,18 @@ Last reviewed: 2026-07-11
 
 ## Current Status
 
-SSRVPN is a single Flutter monorepo for Android, macOS, Windows, and `ssrvpn_shared`. The `v3.0.1` release candidate combines the package-guide, Windows flag, conservative unlock, Android startup, and Clash responsibility-boundary work, plus a Windows PowerShell 5.1 UTF-8 guide-title fix discovered by downloading and inspecting the published `v3.0.0` artifacts. It passed the full local gate, Android debug packaging, macOS Release/DMG packaging, macOS UI startup, and native lifecycle tests; remote three-platform CI remains mandatory before tagging.
+SSRVPN is a single Flutter monorepo for Android, macOS, Windows, and `ssrvpn_shared`. The published `v3.0.1` release combines the package-guide, Windows flag, conservative unlock, Android startup, and Clash responsibility-boundary work, plus a Windows PowerShell 5.1 UTF-8 guide-title fix discovered by downloading and inspecting the published `v3.0.0` artifacts. It passed the full local gate, three-platform pull-request CI, tag-driven release builds, and a second verification pass against all six files downloaded from the public release page.
 
 | Area | Status | Notes |
 |---|---|---|
 | Repository shape | Good | One workspace, one release pipeline, shared services and policies. |
 | Local verification | Healthy | `scripts/verify-all.sh` passes, including analyzers, 352 Flutter tests, four coverage gates, native guards, package-guide checks, and Android JUnit. |
 | Shared package | Healthy | 199 tests, 63.02% line coverage; parsing, transactions, bounds, downloads, crashes, controllers, and conservative unlock classification are covered. |
-| Android | Healthy | 86 Flutter tests and native APK identity tests pass; debug APK metadata is `3.0.0+300`, and prior arm64 hardware tests covered VPN, notification, background, disconnect, and cleanup flows. |
+| Android | Healthy | 86 Flutter tests and native APK identity tests pass; the published APK is `com.ssrvpn.android` `3.0.1+301`, arm64, and retains the established release certificate. Prior arm64 hardware tests covered VPN, notification, background, disconnect, and cleanup flows; the current wireless ADB address was offline during final artifact QA. |
 | macOS | Proxy mode healthy | 34 tests, 32.33% coverage, arm64 Release/DMG packaging, strict ad-hoc validation, UI startup, and Dock lifecycle tests pass. TUN intentionally fails closed until a safe privileged architecture exists. |
-| Windows | CI healthy | 33 tests pass and Windows CI validates SVG flags, the native launcher, mitigations, and portable ZIP; final real-device smoke testing remains a release follow-up. |
-| Release automation | Hardened | Source must be on `main`; checksums, versions, core assets, signing prerequisites, and artifact shape are checked. |
-| Git branch state | Ready for CI | The local refactor branch is ahead of `main`; it must be pushed and pass remote CI before merge or release. |
+| Windows | CI healthy | 33 tests pass and Windows CI validates SVG flags, the native launcher, mitigations, and portable ZIP. The public ZIP passed checksum, structure, and exact UTF-8 tutorial checks; final real-device smoke testing remains a release follow-up. |
+| Release automation | Hardened | Source must be on `main`; checksums, versions, core assets, signing prerequisites, and artifact shape are checked. The `v3.0.1` release workflow and public-asset verification both passed. |
+| Release baseline | Published | The immutable `v3.0.1` tag points at the reviewed merge commit, and GitHub marks it as the latest non-draft, non-prerelease release. |
 
 ## Current Coverage Gates
 
@@ -44,11 +44,11 @@ The macOS and Windows gates remain deliberately conservative. Raising them shoul
 | Security | 8/10 | Unsafe macOS/Windows privilege mechanisms were removed and external data is bounded; signing remains incomplete. |
 | Maintainability | 9/10 | Shared config, platform config, and core lifecycle/proxy coordination now have enforced private boundaries; the remaining 900-line hotspots are UI composition files. |
 | Automated verification | 9/10 | The local full gate is green across shared, Android, macOS, Windows, Kotlin/JUnit, packaging, and native macOS lifecycle tests; Windows real-device coverage remains manual. |
-| Release readiness | 8/10 | The branch is locally ready for CI, not yet for release; unsigned desktop distribution and intentionally unavailable macOS TUN remain documented limitations. |
+| Release readiness | 8/10 | The three platform artifacts are published and independently rechecked; unsigned desktop distribution, Windows real-device coverage, and intentionally unavailable macOS TUN remain documented limitations. |
 
 ## Next Milestones
 
-1. Push the verified `v3.0.1` correction, require all remote CI jobs, then complete the documented Windows real-device smoke matrix.
+1. Complete the documented Windows 11 real-device or clean-VM smoke matrix for first launch, connection, exit, and proxy restoration.
 2. Add Developer ID/notarization and Windows Authenticode signing for trusted desktop distribution.
 3. Decide and document the macOS TUN architecture before implementation.
 4. Migrate Android to Built-in Kotlin before the next Flutter toolchain upgrade.
