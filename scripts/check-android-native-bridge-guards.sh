@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/SsrvpnVpnService.kt"
 MAIN_ACTIVITY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/MainActivity.kt"
+TILE_SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnTileService.kt"
+BUILD_GRADLE="$ROOT/SSRVPN_Android/android/app/build.gradle.kts"
+MANIFEST="$ROOT/SSRVPN_Android/android/app/src/main/AndroidManifest.xml"
 
 require_text() {
   local needle="$1"
@@ -17,6 +20,30 @@ require_activity_text() {
   local needle="$1"
   if ! grep -Fq "$needle" "$MAIN_ACTIVITY"; then
     echo "Android native MethodChannel check failed: missing '$needle'" >&2
+    exit 1
+  fi
+}
+
+require_tile_text() {
+  local needle="$1"
+  if ! grep -Fq "$needle" "$TILE_SERVICE"; then
+    echo "Android native tile guard check failed: missing '$needle'" >&2
+    exit 1
+  fi
+}
+
+require_build_text() {
+  local needle="$1"
+  if ! grep -Fq "$needle" "$BUILD_GRADLE"; then
+    echo "Android debug identity check failed: missing '$needle'" >&2
+    exit 1
+  fi
+}
+
+require_manifest_text() {
+  local needle="$1"
+  if ! grep -Fq "$needle" "$MANIFEST"; then
+    echo "Android manifest identity check failed: missing '$needle'" >&2
     exit 1
   fi
 }
@@ -55,5 +82,27 @@ require_activity_text "PENDING_UPDATE_APK_PATH"
 require_activity_text "continuePendingUpdateInstallIfAllowed"
 require_activity_text "override fun onResume()"
 require_activity_text "FileProvider.getUriForFile"
+require_text "ContextCompat.registerReceiver"
+require_activity_text "ContextCompat.registerReceiver"
+require_tile_text "ContextCompat.registerReceiver"
+require_text "ContextCompat.RECEIVER_NOT_EXPORTED"
+require_activity_text "ContextCompat.RECEIVER_NOT_EXPORTED"
+require_tile_text "ContextCompat.RECEIVER_NOT_EXPORTED"
+require_activity_text "vpnPermissionRequestPending"
+require_activity_text "startVpnServiceWithTimeout"
+require_activity_text "AtomicBoolean(false)"
+require_activity_text "Manifest.permission.POST_NOTIFICATIONS"
+require_activity_text "NOTIFICATION_PERMISSION_REQUESTED"
+require_activity_text "requestNotificationPermissionOnce"
+require_activity_text "Build.VERSION_CODES.TIRAMISU"
+require_text "Bridge.isRunning already in progress; treating as stopped"
+require_text "Bridge.isRunning timed out after"
+require_text "treating as stopped"
+
+require_build_text 'applicationIdSuffix = ".debug"'
+require_build_text 'versionNameSuffix = "-debug"'
+require_build_text 'manifestPlaceholders["appLabel"] = "SSRVPN Debug"'
+require_manifest_text 'android:label="${appLabel}"'
+require_manifest_text 'android:allowBackup="false"'
 
 echo "Android native bridge guard check passed."

@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-07-10
+
+### Security
+
+- Removed the macOS setuid-root Mihomo model. macOS TUN now fails closed until a
+  Network Extension or audited privileged helper is available; system proxy
+  mode continues to work with an unprivileged, SHA256-verified core, and the
+  macOS UI marks TUN as unavailable instead of requesting administrator access.
+- Removed the invalid Windows PE header patch that marked the portable launcher
+  as AppContainer instead of CET-compatible, and now use the supported MSVC
+  linker flags.
+- Added a reliable one-time cleanup path and upgrade guidance for Windows
+  mitigation exceptions created by older SSRVPN releases.
+- Android update installation now verifies package name, version code, and the
+  installed signing certificate or valid signing lineage immediately before
+  invoking the system installer.
+- Update downloads now require exact HTTPS GitHub assets, bounded streaming,
+  matching SHA256 checksums, and a secure final redirect URL on all platforms.
+- Subscription redirects reject HTTPS downgrades; response headers, bodies,
+  chunk metadata, read duration, and Android gzip expansion are bounded.
+- Android API secrets now fail safely on Keystore errors and remove legacy
+  copies only after secure persistence succeeds.
+- Disabled Android application backups so subscription credentials and
+  Keystore-backed storage artifacts are not copied outside the app sandbox.
+
+### Fixed
+
+- Serialized settings, subscription, desktop core, and system-proxy startup so
+  concurrent callers cannot observe partially initialized or conflicting state.
+- Invalidated stale Android VPN permission callbacks and made native bridge
+  health checks fail closed.
+- Restored desktop proxy settings only while the exact SSRVPN-owned endpoint is
+  still active, preserving later user or third-party changes.
+- Made subscription refresh transactional with rollback and bounded hostile
+  input, fixed proxy-node double escaping, and reduced duplicate-name merging
+  from quadratic behavior.
+- Bounded timed process cleanup, startup logs, log redaction, crash-report
+  storage, and Windows dump retention.
+- Fixed shared Flutter coverage generation and workspace barrel-import checks.
+- Android now requests notification permission once after the first successful
+  VPN connection so the ongoing status and disconnect action remain visible.
+
+### Changed
+
+- Replaced Git LFS build inputs with ignored, reproducibly bootstrapped core
+  assets from immutable GitHub Releases, verified before extraction by SHA256.
+- Release tags and manual release commits must already belong to `main`; Actions
+  are pinned to immutable commits and asset checks use authenticated GitHub API
+  requests.
+- CI now runs Android Kotlin/JUnit update identity tests and validates macOS core
+  privilege and Windows launcher security invariants.
+- Dependabot and dependency checks now operate once at the Flutter workspace
+  root, and GeoIP freshness is separated from deterministic pull-request checks.
+- Android debug builds now install beside release builds under a distinct
+  package name and `SSRVPN Debug` label, preserving release app data.
+
+## [2.4.5] - 2026-07-07
+
+### 修复
+- 修复桌面端三栏布局下连接状态文字被右侧操作区挤压，导致“已连接”显示不全的问题。
+
+### 变更
+- 发布说明和检查更新弹窗中的固定更新日志文案改为中文。
+
+## [2.4.4] - 2026-07-07
+
+### Changed
+- Aligned the desktop Home proxy mode selector with the proxy method card layout on Windows and macOS.
+
 ## [2.4.3] - 2026-07-07
 
 ### Fixed

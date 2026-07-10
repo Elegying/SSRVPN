@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart' show AsyncLazy;
 import '../models/app_settings.dart';
 
 /// 设置持久化服务。
@@ -12,7 +13,7 @@ import '../models/app_settings.dart';
 /// macOS 使用 Application Support 下的 JSON 文件，与 Windows 客户端保持同一
 /// 数据结构，方便 UI 和启动流程复用。
 class SettingsService extends ChangeNotifier {
-  static SettingsService? _instance;
+  static final _instance = AsyncLazy<SettingsService>();
   late AppSettings _settings;
   late String _settingsPath;
   late String _dataDir;
@@ -20,13 +21,11 @@ class SettingsService extends ChangeNotifier {
 
   SettingsService._();
 
-  static Future<SettingsService> getInstance() async {
-    if (_instance == null) {
-      _instance = SettingsService._();
-      await _instance!._init();
-    }
-    return _instance!;
-  }
+  static Future<SettingsService> getInstance() => _instance.get(() async {
+        final service = SettingsService._();
+        await service._init();
+        return service;
+      });
 
   Future<void> _init() async {
     _dataDir = await _resolveDataDirectory();

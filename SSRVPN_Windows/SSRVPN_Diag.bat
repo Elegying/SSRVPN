@@ -23,7 +23,7 @@ call :log " SSRVPN Windows 便携版启动诊断工具"
 call :log "============================================"
 call :log ""
 
-call :log "[1/6] 检查 Windows SmartScreen 拦截..."
+call :log "[1/7] 检查 Windows SmartScreen 拦截..."
 if not exist "%EXE_PATH%" (
     call :log "[ERROR] ssrvpn_windows.exe 不存在！"
     call :log "请确认已经完整解压 ZIP 包，不要在压缩包预览窗口中直接运行。"
@@ -44,7 +44,7 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 call :log ""
-call :log "[2/6] 检查必需 DLL 和程序文件..."
+call :log "[2/7] 检查必需 DLL 和程序文件..."
 set "ROOT_RUNTIME_DLL_LIST=concrt140.dll msvcp140.dll msvcp140_1.dll msvcp140_2.dll msvcp140_atomic_wait.dll msvcp140_codecvt_ids.dll vcruntime140.dll vcruntime140_1.dll"
 set "BIN_FILE_LIST=ssrvpn_windows_app.exe flutter_windows.dll screen_retriever_windows_plugin.dll system_tray_plugin.dll window_manager_plugin.dll mihomo.exe d3dcompiler_47.dll"
 set "BIN_RUNTIME_DLL_LIST=concrt140.dll msvcp140.dll msvcp140_1.dll msvcp140_2.dll msvcp140_atomic_wait.dll msvcp140_codecvt_ids.dll vcruntime140.dll vcruntime140_1.dll"
@@ -68,7 +68,7 @@ for %%d in (%BIN_FILE_LIST% %BIN_RUNTIME_DLL_LIST%) do (
 )
 
 call :log ""
-call :log "[3/6] 检查 VC++ 运行时..."
+call :log "[3/7] 检查 VC++ 运行时..."
 reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
     call :log "[OK]  系统已安装 VC++ 2015-2022 运行时"
@@ -77,7 +77,7 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 call :log ""
-call :log "[4/6] 检查 DirectX 渲染组件..."
+call :log "[4/7] 检查 DirectX 渲染组件..."
 where d3dcompiler_47.dll >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
     call :log "[OK]  系统已有 d3dcompiler_47.dll"
@@ -89,7 +89,7 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 call :log ""
-call :log "[5/6] 检查 Mihomo 核心..."
+call :log "[5/7] 检查 Mihomo 核心..."
 if exist "%BIN_DIR%mihomo.exe" (
     "%BIN_DIR%mihomo.exe" -v > "%TEMP_OUT%" 2>&1
     type "%TEMP_OUT%"
@@ -100,7 +100,23 @@ if exist "%BIN_DIR%mihomo.exe" (
 )
 
 call :log ""
-call :log "[6/6] 尝试启动 SSRVPN 并观察 10 秒..."
+call :log "[6/7] 检查旧版 SSRVPN 安全例外..."
+set "LEGACY_MITIGATION=0"
+for %%e in (ssrvpn_windows.exe ssrvpn_windows_app.exe) do (
+    reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\%%e" /v DisableUserShadowStack >nul 2>&1
+    if !ERRORLEVEL! EQU 0 set "LEGACY_MITIGATION=1"
+    reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\%%e" /v MitigationOptions >nul 2>&1
+    if !ERRORLEVEL! EQU 0 set "LEGACY_MITIGATION=1"
+)
+if "!LEGACY_MITIGATION!"=="1" (
+    call :log "[WARN] 检测到旧版可能留下的进程安全例外。"
+    call :log "       请右键 remove_legacy_cet_exemption.bat，以管理员身份运行一次。"
+) else (
+    call :log "[OK]  未检测到旧版注册表安全例外。"
+)
+
+call :log ""
+call :log "[7/7] 尝试启动 SSRVPN 并观察 10 秒..."
 call :log "启动日志: %STARTUP_LOG%"
 call :log "错误输出: %STARTUP_ERR_LOG%"
 del "%STARTUP_LOG%" "%STARTUP_ERR_LOG%" >nul 2>&1

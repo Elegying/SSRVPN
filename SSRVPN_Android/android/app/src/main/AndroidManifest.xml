@@ -8,9 +8,10 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     
     <application
-        android:label="SSRVPN"
+        android:label="${appLabel}"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
         android:extractNativeLibs="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="false">
@@ -66,7 +67,7 @@
             android:name=".VpnTileService"
             android:exported="true"
             android:icon="@drawable/ic_vpn_tile"
-            android:label="SSRVPN"
+            android:label="${appLabel}"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />

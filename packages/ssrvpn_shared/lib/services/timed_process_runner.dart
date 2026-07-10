@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 class TimedProcessRunner {
+  static const _outputDrainTimeout = Duration(milliseconds: 250);
+
   static Future<ProcessResult> run(
     String executable,
     List<String> arguments, {
@@ -13,6 +16,8 @@ class TimedProcessRunner {
     String timeoutStderr = '命令超时',
   }) async {
     Process? process;
+    _OutputCollector? stdoutCollector;
+    _OutputCollector? stderrCollector;
     try {
       process = await Process.start(
         executable,
@@ -21,22 +26,93 @@ class TimedProcessRunner {
         includeParentEnvironment: includeParentEnvironment,
         environment: environment,
       );
-      final stdoutFuture = process.stdout.transform(utf8.decoder).join();
-      final stderrFuture = process.stderr.transform(utf8.decoder).join();
-      final exitCode = await process.exitCode.timeout(
-        timeout,
-        onTimeout: () {
-          process?.kill(ProcessSignal.sigkill);
-          return timeoutExitCode;
-        },
-      );
-      final stdout = await stdoutFuture;
-      final stderr =
-          exitCode == timeoutExitCode ? timeoutStderr : await stderrFuture;
+      stdoutCollector = _OutputCollector(process.stdout);
+      stderrCollector = _OutputCollector(process.stderr);
+
+      var timedOut = false;
+      late final int exitCode;
+      try {
+        exitCode = await process.exitCode.timeout(timeout);
+      } on TimeoutException {
+        timedOut = true;
+        exitCode = timeoutExitCode;
+        await _terminateProcessTree(process);
+      }
+
+      final outputs = await Future.wait([
+        stdoutCollector.finish(
+          timeout: timedOut ? _outputDrainTimeout : null,
+        ),
+        stderrCollector.finish(
+          timeout: timedOut ? _outputDrainTimeout : null,
+        ),
+      ]);
+      final stdout = outputs[0];
+      final stderr = timedOut ? timeoutStderr : outputs[1];
       return ProcessResult(process.pid, exitCode, stdout, stderr);
     } catch (_) {
-      process?.kill(ProcessSignal.sigkill);
+      if (process != null) await _terminateProcessTree(process);
+      await stdoutCollector?.cancel();
+      await stderrCollector?.cancel();
       rethrow;
     }
+  }
+
+  static Future<void> _terminateProcessTree(Process process) async {
+    if (Platform.isWindows) {
+      try {
+        final killer = await Process.start(
+          'taskkill.exe',
+          ['/PID', '${process.pid}', '/T', '/F'],
+        );
+        try {
+          await Future.wait<dynamic>([
+            killer.stdout.drain<void>(),
+            killer.stderr.drain<void>(),
+            killer.exitCode,
+          ]).timeout(const Duration(seconds: 2));
+        } on TimeoutException {
+          killer.kill(ProcessSignal.sigkill);
+        }
+      } catch (_) {
+        // Fall through to the direct-process kill below.
+      }
+    }
+    process.kill(ProcessSignal.sigkill);
+  }
+}
+
+class _OutputCollector {
+  _OutputCollector(Stream<List<int>> stream) {
+    _subscription = stream.transform(utf8.decoder).listen(
+      _buffer.write,
+      onDone: _complete,
+      onError: (Object error, StackTrace stack) {
+        if (!_done.isCompleted) _done.completeError(error, stack);
+      },
+    );
+  }
+
+  final _buffer = StringBuffer();
+  final _done = Completer<String>();
+  late final StreamSubscription<String> _subscription;
+
+  Future<String> finish({Duration? timeout}) async {
+    if (timeout == null) return _done.future;
+    try {
+      return await _done.future.timeout(timeout);
+    } on TimeoutException {
+      await cancel();
+      return _buffer.toString();
+    }
+  }
+
+  Future<void> cancel() async {
+    await _subscription.cancel();
+    _complete();
+  }
+
+  void _complete() {
+    if (!_done.isCompleted) _done.complete(_buffer.toString());
   }
 }

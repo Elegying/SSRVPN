@@ -25,6 +25,7 @@ class ClashService extends ClashServiceBase {
   Process? _coreProcess;
   Future<bool>? _startOperation;
   Future<void>? _stopOperation;
+  Future<void>? _exitCleanupOperation;
   bool _stoppingCore = false;
 
   // ── Startup disabled ──
@@ -376,6 +377,8 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
   }
 
   Future<bool> _startInternal() async {
+    final exitCleanup = _exitCleanupOperation;
+    if (exitCleanup != null) await exitCleanup;
     final stopping = _stopOperation;
     if (stopping != null) await stopping;
     setLastStartError(null);
@@ -487,8 +490,10 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
         log('❌ Mihomo 进程已退出，退出码: $code');
         if (isRunning) {
           setRunning(false);
+          stopStatusMonitor();
+          _coreProcess = null;
           notifyStatusChanged();
-          _proxyService.clearSystemProxy();
+          _scheduleUnexpectedExitCleanup();
         }
       });
 
@@ -502,10 +507,6 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
       }
 
       if (healthy) {
-        setRunning(true);
-        resetHealthCheckFailures();
-        log('✅ Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');
-
         // 设置系统代理（非 TUN 模式时）
         if (!settings.enableTun) {
           final proxyWatch = Stopwatch()..start();
@@ -524,6 +525,25 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
             return false;
           }
         }
+
+        final processStillHealthy = await healthCheck();
+        final canCommitRunning = identical(_coreProcess, startedProcess) &&
+            startupExitCode == null &&
+            processStillHealthy;
+        if (!canCommitRunning) {
+          setLastStartError(
+            startupExitCode == null
+                ? 'Mihomo 在系统代理设置期间失去响应'
+                : 'Mihomo 在系统代理设置期间退出（退出码 $startupExitCode）',
+          );
+          log('❌ $lastStartError');
+          await _stopInternal();
+          return false;
+        }
+
+        setRunning(true);
+        resetHealthCheckFailures();
+        log('✅ Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');
 
         notifyStatusChanged();
         startStatusMonitor();
@@ -574,6 +594,8 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
   }
 
   Future<void> _stopInternal() async {
+    final exitCleanup = _exitCleanupOperation;
+    if (exitCleanup != null) await exitCleanup;
     stopStatusMonitor();
     resetHealthCheckFailures();
 
@@ -605,6 +627,27 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
     setRunning(false);
     notifyStatusChanged();
     log('核心已停止');
+  }
+
+  void _scheduleUnexpectedExitCleanup() {
+    final operation = _clearProxyAfterUnexpectedExit();
+    _exitCleanupOperation = operation;
+    operation.whenComplete(() {
+      if (identical(_exitCleanupOperation, operation)) {
+        _exitCleanupOperation = null;
+      }
+    });
+  }
+
+  Future<void> _clearProxyAfterUnexpectedExit() async {
+    try {
+      final cleared = await _proxyService.clearSystemProxy();
+      if (!cleared && _proxyService.lastError != null) {
+        log('⚠️ ${_proxyService.lastError}');
+      }
+    } catch (error) {
+      log('⚠️ 核心异常退出后清理系统代理失败: $error');
+    }
   }
 
   void _clearStartOperation(Future<bool> operation) {

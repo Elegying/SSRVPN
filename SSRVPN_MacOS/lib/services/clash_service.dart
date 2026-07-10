@@ -18,18 +18,21 @@ import 'system_proxy_service.dart';
 class ClashService extends ClashServiceBase {
   // ── macOS 静态路径 ──
   static const _chmodPath = '/bin/chmod';
-  static const _chownPath = '/usr/sbin/chown';
   static const _filePath = '/usr/bin/file';
-  static const _osascriptPath = '/usr/bin/osascript';
   static const _pkillPath = '/usr/bin/pkill';
-  static const _statPath = '/usr/bin/stat';
   static const _coreName = 'AtlasCore';
+  static const _coreManifestAsset = 'assets/AtlasCore-source.txt';
+  static const _privilegedModeBits = 0xc00;
+  static const _tunUnavailableMessage =
+      'macOS TUN 模式已暂时停用：当前版本没有安全的 Network Extension '
+      '或特权辅助程序，请切换到系统代理模式。';
 
   // ── macOS 进程管理 ──
   Process? _clashProcess;
   bool _stoppingCore = false;
   Future<bool>? _startOperation;
   Future<void>? _stopOperation;
+  Future<void>? _exitCleanupOperation;
 
   // ── macOS 文件与日志 ──
   String _corePath = '';
@@ -118,7 +121,7 @@ class ClashService extends ClashServiceBase {
     final configPath = '$configDir${Platform.pathSeparator}config.yaml';
     setPaths(configDir: configDir, configPath: configPath);
 
-    await Directory(configDir).create(recursive: true);
+    await _ensureRealDirectory(configDir);
     await Directory(
       '$configDir${Platform.pathSeparator}providers',
     ).create(recursive: true);
@@ -131,11 +134,10 @@ class ClashService extends ClashServiceBase {
     // 初始化 HTTP 客户端
     initHttpClient();
 
-    // 资源以 gzip 压缩形式打包以减小安装体积，首次运行时解压释放
-    await _installAsset(
+    // 核心是可执行文件：先移除不可信的旧路径项，再安装普通用户文件。
+    await _installCoreAsset(
       'assets/AtlasCore.gz',
       _corePath,
-      executable: true,
     );
     await _installAsset(
       'assets/geoip.metadb.gz',
@@ -175,13 +177,204 @@ class ClashService extends ClashServiceBase {
     await logFile.rename(oldFile.path);
   }
 
-  /// 从应用包内释放资源文件到目标路径（仅在不存在或资源更新时写入）
-  /// .gz 资源自动解压
-  Future<void> _installAsset(
-    String assetKey,
-    String destPath, {
+  Future<void> _ensureRealDirectory(String path) async {
+    final initialType = await FileSystemEntity.type(path, followLinks: false);
+    if (initialType == FileSystemEntityType.notFound) {
+      await Directory(path).create(recursive: true);
+    } else if (initialType != FileSystemEntityType.directory) {
+      throw FileSystemException(
+        'Refusing to use a linked or non-directory data path',
+        path,
+      );
+    }
+    if (await FileSystemEntity.type(path, followLinks: false) !=
+        FileSystemEntityType.directory) {
+      throw FileSystemException('Data directory changed during setup', path);
+    }
+  }
+
+  /// 安装可执行核心。目标和 revision 标记都按不可信路径处理，绝不跟随链接。
+  Future<void> _installCoreAsset(String assetKey, String destPath) async {
+    final data = await rootBundle.load(assetKey);
+    final compressedBytes = data.buffer.asUint8List();
+    final revision = crypto.sha256.convert(compressedBytes).toString();
+    final expectedExecutableDigest = await _loadExpectedCoreDigest();
+    final markerPath = '$destPath.rev';
+
+    if (await _canReuseInstalledCore(
+      destPath,
+      markerPath,
+      revision,
+      expectedExecutableDigest,
+    )) {
+      return;
+    }
+
+    // 先解除旧核心在固定路径上的可达性，之后才进行解压和写入。
+    await _removeUntrustedPathEntry(destPath);
+    await _removeUntrustedPathEntry(markerPath);
+
+    final compressed = compressedBytes;
+    final bytes = Uint8List.fromList(
+      await Isolate.run(() => gzip.decode(compressed)),
+    );
+    if (crypto.sha256.convert(bytes).toString() != expectedExecutableDigest) {
+      throw StateError('Bundled Mihomo core does not match its trusted digest');
+    }
+    await _replaceRegularFile(destPath, bytes, executable: true);
+    await _replaceRegularFile(markerPath, utf8.encode(revision));
+    log('已安全释放核心: $assetKey -> $destPath');
+  }
+
+  Future<bool> _canReuseInstalledCore(
+    String corePath,
+    String markerPath,
+    String revision,
+    String expectedExecutableDigest,
+  ) async {
+    if (!await _isRegularUnprivilegedFile(corePath)) return false;
+    if (await FileSystemEntity.type(markerPath, followLinks: false) !=
+        FileSystemEntityType.file) {
+      return false;
+    }
+    try {
+      final marker = File(markerPath);
+      if (await marker.length() != revision.length ||
+          await marker.readAsString() != revision) {
+        return false;
+      }
+      if (await _fileSha256(corePath) != expectedExecutableDigest ||
+          await FileSystemEntity.type(corePath, followLinks: false) !=
+              FileSystemEntityType.file) {
+        return false;
+      }
+      await _setExecutableMode(corePath);
+      return _isRegularUnprivilegedFile(corePath);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<String> _loadExpectedCoreDigest() async {
+    final manifest = await rootBundle.loadString(_coreManifestAsset);
+    final match = RegExp(
+      r'^Executable SHA256: ([0-9a-f]{64})$',
+      multiLine: true,
+    ).firstMatch(manifest);
+    if (match == null) {
+      throw const FormatException(
+        'AtlasCore source manifest is missing Executable SHA256',
+      );
+    }
+    return match[1]!;
+  }
+
+  Future<String> _fileSha256(String path) async {
+    final digest = await crypto.sha256.bind(File(path).openRead()).first;
+    return digest.toString();
+  }
+
+  Future<void> _replaceRegularFile(
+    String path,
+    List<int> bytes, {
     bool executable = false,
   }) async {
+    final temp = File(
+      '$path.tmp.$pid.${DateTime.now().microsecondsSinceEpoch}',
+    );
+    await temp.create(exclusive: true);
+    try {
+      final handle = await temp.open(mode: FileMode.writeOnly);
+      try {
+        await handle.writeFrom(bytes);
+        await handle.flush();
+      } finally {
+        await handle.close();
+      }
+      if (executable) {
+        await _setExecutableMode(temp.path);
+        if (!await _isRegularUnprivilegedFile(temp.path)) {
+          throw FileSystemException('Unsafe temporary core file', temp.path);
+        }
+      }
+
+      // Re-check immediately before rename in case the user-writable directory
+      // changed while bytes were being written.
+      await _removeUntrustedPathEntry(path);
+      await temp.rename(path);
+
+      if (await FileSystemEntity.type(path, followLinks: false) !=
+          FileSystemEntityType.file) {
+        throw FileSystemException('Installed path is not a regular file', path);
+      }
+      if (executable && !await _isRegularUnprivilegedFile(path)) {
+        throw FileSystemException('Installed core has unsafe mode bits', path);
+      }
+    } finally {
+      final type = await FileSystemEntity.type(temp.path, followLinks: false);
+      if (type == FileSystemEntityType.file ||
+          type == FileSystemEntityType.link) {
+        await temp.delete();
+      }
+    }
+  }
+
+  Future<void> _removeUntrustedPathEntry(String path) async {
+    final type = await FileSystemEntity.type(path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) return;
+    if (type == FileSystemEntityType.file ||
+        type == FileSystemEntityType.link) {
+      await File(path).delete();
+      return;
+    }
+    throw FileSystemException(
+      'Refusing to replace a non-file core path entry',
+      path,
+    );
+  }
+
+  Future<bool> _isRegularUnprivilegedFile(String path) async {
+    if (await FileSystemEntity.type(path, followLinks: false) !=
+        FileSystemEntityType.file) {
+      return false;
+    }
+    final stat = await File(path).stat();
+    if (stat.type != FileSystemEntityType.file ||
+        (stat.mode & _privilegedModeBits) != 0) {
+      return false;
+    }
+    return await FileSystemEntity.type(path, followLinks: false) ==
+        FileSystemEntityType.file;
+  }
+
+  Future<void> _setExecutableMode(String path) async {
+    final result = await _runProcess(
+      _chmodPath,
+      ['755', path],
+      timeout: const Duration(seconds: 5),
+    );
+    if (result.exitCode != 0) {
+      throw FileSystemException(
+        'Unable to set safe executable mode: ${result.stderr}'.trim(),
+        path,
+      );
+    }
+  }
+
+  Future<void> _verifyCoreForExecution() async {
+    if (!await _isRegularUnprivilegedFile(_corePath)) {
+      throw FileSystemException(
+        'Mihomo core is not a regular unprivileged file',
+        _corePath,
+      );
+    }
+  }
+
+  /// 从应用包内释放非可执行资源文件到目标路径。
+  Future<void> _installAsset(
+    String assetKey,
+    String destPath,
+  ) async {
     try {
       final dest = File(destPath);
       final marker = File('$destPath.rev');
@@ -193,9 +386,6 @@ class ClashService extends ClashServiceBase {
       if (await dest.exists() &&
           await marker.exists() &&
           (await marker.readAsString()) == assetRevision) {
-        if (executable) {
-          await _chmodExec(destPath);
-        }
         return;
       }
 
@@ -208,24 +398,14 @@ class ClashService extends ClashServiceBase {
         );
       }
       final existingMatches = await _fileContentMatches(dest, bytes);
-      // 核心被授予 setuid root 后可能无法覆盖写；内容未变时跳过即可。
       if (!existingMatches) {
         await writeBytesAtomically(dest, bytes);
         log('已释放资源: $assetKey -> $destPath');
       }
       await writeStringAtomically(marker, assetRevision);
-      if (executable) await _chmodExec(destPath);
     } catch (e) {
       log('释放资源失败 $assetKey: $e');
     }
-  }
-
-  Future<void> _chmodExec(String path) async {
-    try {
-      // 注意：核心被授予 setuid root 后此处会因权限失败，静默忽略即可
-      await _runProcess(_chmodPath, ['755', path],
-          timeout: const Duration(seconds: 5));
-    } catch (_) {}
   }
 
   Future<bool> _fileContentMatches(File file, List<int> bytes) async {
@@ -241,10 +421,7 @@ class ClashService extends ClashServiceBase {
   // ═══════════════════════════════════════════════════════════
 
   Future<void> _logCoreVersion() async {
-    if (!await File(_corePath).exists()) {
-      log('核心文件不存在: $_corePath');
-      return;
-    }
+    await _verifyCoreForExecution();
     try {
       final stat = await File(_corePath).stat();
       log(
@@ -265,6 +442,7 @@ class ClashService extends ClashServiceBase {
     } catch (_) {}
 
     try {
+      await _verifyCoreForExecution();
       final result = await _runProcess(
         _corePath,
         ['-v'],
@@ -372,6 +550,8 @@ class ClashService extends ClashServiceBase {
   }
 
   Future<bool> _startInternal() async {
+    final exitCleanup = _exitCleanupOperation;
+    if (exitCleanup != null) await exitCleanup;
     final stopping = _stopOperation;
     if (stopping != null) await stopping;
     setLastStartError(null);
@@ -379,6 +559,11 @@ class ClashService extends ClashServiceBase {
     if (_startupDisabledReason != null) {
       setLastStartError(_startupDisabledReason);
       log(_startupDisabledReason!);
+      return false;
+    }
+    if (settings.enableTun) {
+      setLastStartError(_tunUnavailableMessage);
+      log(lastStartError!);
       return false;
     }
     if (_corePath.isEmpty || configDir.isEmpty || configPath.isEmpty) {
@@ -413,17 +598,6 @@ class ClashService extends ClashServiceBase {
         return false;
       }
 
-      if (settings.enableTun && !await _coreHasRootPrivilege()) {
-        final granted = await _grantRootPrivilege();
-        if (!granted) {
-          setLastStartError(
-            lastStartError ?? 'TUN 模式需要管理员授权，已取消',
-          );
-          log(lastStartError!);
-          return false;
-        }
-      }
-
       final tmpDir = '$configDir${Platform.pathSeparator}tmp';
       await Directory(tmpDir).create(recursive: true);
       final environment = {
@@ -438,6 +612,8 @@ class ClashService extends ClashServiceBase {
         );
         return false;
       }
+
+      await _verifyCoreForExecution();
 
       final processStartWatch = Stopwatch()..start();
       final startedProcess = await Process.start(
@@ -486,11 +662,11 @@ class ClashService extends ClashServiceBase {
         log('Mihomo 进程已退出，退出码: $code');
         if (isRunning) {
           setRunning(false);
+          stopStatusMonitor();
+          _clashProcess = null;
           notifyStatusChanged();
+          _scheduleUnexpectedExitCleanup();
         }
-        // 通知外部进程异常退出（用于清除系统代理等）
-        _proxyService.clearSystemProxy();
-        onProcessExit?.call();
       });
 
       var healthy = false;
@@ -502,12 +678,6 @@ class ClashService extends ClashServiceBase {
       }
 
       if (healthy) {
-        setRunning(true);
-        resetHealthCheckFailures();
-        log(
-          'Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms',
-        );
-
         if (!settings.enableTun) {
           final proxySet = await _proxyService.setSystemProxy(
             '127.0.0.1',
@@ -523,6 +693,27 @@ class ClashService extends ClashServiceBase {
           }
           log('macOS 系统代理已设置');
         }
+
+        final processStillHealthy = await healthCheck();
+        final canCommitRunning = identical(_clashProcess, startedProcess) &&
+            startupExitCode == null &&
+            processStillHealthy;
+        if (!canCommitRunning) {
+          setLastStartError(
+            startupExitCode == null
+                ? 'Mihomo 在系统代理设置期间失去响应'
+                : 'Mihomo 在系统代理设置期间退出（退出码 $startupExitCode）',
+          );
+          log(lastStartError!);
+          await _stopInternal();
+          return false;
+        }
+
+        setRunning(true);
+        resetHealthCheckFailures();
+        log(
+          'Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms',
+        );
 
         notifyStatusChanged();
         startStatusMonitor();
@@ -572,6 +763,8 @@ class ClashService extends ClashServiceBase {
   }
 
   Future<void> _stopInternal() async {
+    final exitCleanup = _exitCleanupOperation;
+    if (exitCleanup != null) await exitCleanup;
     stopStatusMonitor();
     resetHealthCheckFailures();
 
@@ -605,6 +798,33 @@ class ClashService extends ClashServiceBase {
     log('Mihomo 核心已停止');
   }
 
+  void _scheduleUnexpectedExitCleanup() {
+    final operation = _clearProxyAfterUnexpectedExit();
+    _exitCleanupOperation = operation;
+    operation.whenComplete(() {
+      if (identical(_exitCleanupOperation, operation)) {
+        _exitCleanupOperation = null;
+      }
+    });
+  }
+
+  Future<void> _clearProxyAfterUnexpectedExit() async {
+    try {
+      final cleared = await _proxyService.clearSystemProxy();
+      if (!cleared && _proxyService.lastError != null) {
+        log(_proxyService.lastError!);
+      }
+    } catch (error) {
+      log('核心异常退出后清理系统代理失败: $error');
+    } finally {
+      try {
+        onProcessExit?.call();
+      } catch (error) {
+        log('核心退出回调失败: $error');
+      }
+    }
+  }
+
   void _clearStartOperation(Future<bool> operation) {
     if (identical(_startOperation, operation)) {
       _startOperation = null;
@@ -618,62 +838,6 @@ class ClashService extends ClashServiceBase {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // core 权限管理（macOS TUN 模式专用）
-  // ═══════════════════════════════════════════════════════════
-
-  /// 核心是否已具备 root 权限（owner=root 且 setuid 位）
-  Future<bool> _coreHasRootPrivilege() async {
-    try {
-      final result = await _runProcess(
-        _statPath,
-        ['-f', '%Su %Mp%Lp', _corePath],
-        timeout: const Duration(seconds: 5),
-      );
-      if (result.exitCode != 0) return false;
-      final parts = (result.stdout as String).trim().split(' ');
-      if (parts.length != 2) return false;
-      final isRoot = parts[0] == 'root';
-      final hasSetuid = parts[1].length >= 4 && parts[1][0] == '4';
-      return isRoot && hasSetuid;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// 弹出系统授权窗口，为核心设置 setuid root（仅首次开启 TUN 时需要）
-  Future<bool> _grantRootPrivilege() async {
-    try {
-      final escaped = _corePath.replaceAll('"', '\\"');
-      final script = 'do shell script '
-          '"$_chownPath root:wheel \\"$escaped\\"'
-          ' && $_chmodPath u+s \\"$escaped\\"" '
-          'with administrator privileges'
-          ' with prompt "SSRVPN 需要管理员权限以启用 TUN 模式"';
-      final result = await _runProcess(
-        _osascriptPath,
-        ['-e', script],
-        timeout: const Duration(minutes: 2),
-      );
-      if (result.exitCode == 124) {
-        setLastStartError(
-          'TUN 授权超时，请重新连接并在系统弹窗中完成管理员授权',
-        );
-        return false;
-      }
-      if (result.exitCode != 0) {
-        final stderr = result.stderr.toString().trim();
-        setLastStartError(
-          stderr.isEmpty ? 'TUN 模式需要管理员授权，已取消' : 'TUN 授权失败: $stderr',
-        );
-      }
-      return result.exitCode == 0;
-    } catch (_) {
-      setLastStartError('无法弹出 TUN 管理员授权窗口');
-      return false;
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════
   // 配置校验
   // ═══════════════════════════════════════════════════════════
 
@@ -683,6 +847,7 @@ class ClashService extends ClashServiceBase {
     log('正在校验 Mihomo 配置...');
     final watch = Stopwatch()..start();
     try {
+      await _verifyCoreForExecution();
       final result = await _runProcess(
         _corePath,
         ['-t', '-d', configDir, '-f', configPath],
@@ -731,7 +896,7 @@ class ClashService extends ClashServiceBase {
         lower.contains('operation not permitted') ||
         lower.contains('权限') ||
         lower.contains('拒绝')) {
-      return '无法执行 Mihomo，可能缺少权限或 TUN 授权未完成';
+      return '无法执行 Mihomo，核心文件权限异常';
     }
     if (lower.contains('bad cpu type') ||
         lower.contains('exec format') ||

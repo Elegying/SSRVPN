@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:ssrvpn_windows/src/services/system_proxy_ownership.dart';
 
 /// Manages the Windows system proxy while preserving the user's prior values.
 class SystemProxyService {
@@ -14,6 +15,7 @@ class SystemProxyService {
   bool _recoveryPending = false;
   String? _statePath;
   _ProxySnapshot? _previousProxy;
+  String? _ownedProxyServer;
   String? _lastError;
 
   bool get isProxyEnabled => _proxyEnabled;
@@ -38,20 +40,32 @@ class SystemProxyService {
     try {
       final data =
           jsonDecode(await backupFile.readAsString()) as Map<String, dynamic>;
-      // Staleness check: ignore backups older than 24 hours (likely from a
-      // different session or a forgotten backup from a long-ago crash).
-      final savedAt = data['_savedAt'] as int?;
-      if (savedAt != null) {
-        final age = DateTime.now().millisecondsSinceEpoch - savedAt;
-        if (age > 24 * 60 * 60 * 1000) {
-          await backupFile.delete();
-          _recoveryPending = false;
-          return;
-        }
-      }
       final snapshot = _ProxySnapshot.fromJson(data);
+      final rawOwnedProxyServer = data['_ownedProxyServer'];
+      final ownedProxyServer =
+          rawOwnedProxyServer is String ? rawOwnedProxyServer : null;
+      final current = await _readCurrentProxy();
+      if (current == null) {
+        _recoveryPending = true;
+        _lastError ??= '无法读取当前 Windows 系统代理设置，稍后重试恢复';
+        return;
+      }
+      if (!_isOwnedProxy(current, ownedProxyServer)) {
+        // The user or another app changed the proxy, or this is a legacy
+        // backup without ownership metadata. Never overwrite that state.
+        await backupFile.delete();
+        _forgetOwnership();
+        _recoveryPending = false;
+        return;
+      }
+
+      _previousProxy = snapshot;
+      _ownedProxyServer = ownedProxyServer;
+      _ownsProxy = true;
+      _proxyEnabled = true;
       if (await _restoreSnapshot(snapshot)) {
         await backupFile.delete();
+        _forgetOwnership();
         _recoveryPending = false;
       } else {
         _recoveryPending = true;
@@ -77,17 +91,24 @@ class SystemProxyService {
     }
 
     try {
+      final proxyServer = '$host:$port';
+      if (_ownsProxy && _ownedProxyServer != proxyServer) {
+        // Release the old endpoint before acquiring a different one so the
+        // recovery record always names the proxy that is actually installed.
+        if (!await clearSystemProxy()) return false;
+        _lastError = null;
+      }
       if (!_ownsProxy) {
         final snapshot = await _readCurrentProxy();
         if (snapshot == null) {
           _lastError ??= '无法读取当前 Windows 系统代理设置';
           return false;
         }
-        await _writeBackup(snapshot);
+        await _writeBackup(snapshot, proxyServer);
         _previousProxy = snapshot;
+        _ownedProxyServer = proxyServer;
       }
 
-      final proxyServer = '$host:$port';
       final script = '''
 \$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
 Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value 1
@@ -100,10 +121,19 @@ ${_notifyWinInetScript()}
 
       final result = await _runPowerShell(script);
       if (result.exitCode != 0) {
-        _lastError = _formatPowerShellError('写入 Windows 系统代理失败', result);
-        await _restoreSnapshot(_previousProxy!);
+        final setError = _formatPowerShellError('写入 Windows 系统代理失败', result);
+        _recoveryPending = true;
+        final restored = await _restoreSnapshot(_previousProxy!);
+        if (!restored) {
+          final restoreError = _lastError;
+          _lastError =
+              restoreError == null ? setError : '$setError；$restoreError';
+          return false;
+        }
         await _deleteBackup();
-        _previousProxy = null;
+        _forgetOwnership();
+        _recoveryPending = false;
+        _lastError = setError;
         return false;
       }
 
@@ -119,6 +149,7 @@ ${_notifyWinInetScript()}
   /// Restores the values captured before SSRVPN enabled its proxy.
   Future<bool> clearSystemProxy() async {
     if (!Platform.isWindows) return false;
+    _lastError = null;
     if (!_ownsProxy) {
       _proxyEnabled = false;
       return true;
@@ -128,16 +159,28 @@ ${_notifyWinInetScript()}
     if (snapshot == null) return false;
 
     try {
+      final current = await _readCurrentProxy();
+      if (current == null) {
+        _recoveryPending = true;
+        _lastError ??= '无法读取当前 Windows 系统代理设置，稍后重试恢复';
+        return false;
+      }
+      if (!_isOwnedProxy(current, _ownedProxyServer)) {
+        // Ownership was lost after SSRVPN enabled the proxy. Preserve the
+        // current settings and discard only SSRVPN's stale recovery record.
+        await _deleteBackup();
+        _forgetOwnership();
+        _recoveryPending = false;
+        return true;
+      }
+
       if (!await _restoreSnapshot(snapshot)) {
         _lastError ??= '恢复原 Windows 系统代理设置失败';
         return false;
       }
-      _ownsProxy = false;
-      _proxyEnabled = false;
-      _recoveryPending = false;
-      _previousProxy = null;
-
       await _deleteBackup();
+      _forgetOwnership();
+      _recoveryPending = false;
       return true;
     } catch (e) {
       _lastError = '恢复 Windows 系统代理异常: $e';
@@ -146,6 +189,21 @@ ${_notifyWinInetScript()}
   }
 
   bool _isValidHost(String host) => RegExp(r'^[A-Za-z0-9.-]+$').hasMatch(host);
+
+  bool _isOwnedProxy(_ProxySnapshot current, String? ownedProxyServer) =>
+      isOwnedWindowsProxy(
+        proxyEnable: current.proxyEnable,
+        hasProxyServer: current.hasProxyServer,
+        proxyServer: current.proxyServer,
+        ownedProxyServer: ownedProxyServer,
+      );
+
+  void _forgetOwnership() {
+    _ownsProxy = false;
+    _proxyEnabled = false;
+    _previousProxy = null;
+    _ownedProxyServer = null;
+  }
 
   Future<_ProxySnapshot?> _readCurrentProxy() async {
     const script = r'''
@@ -214,7 +272,10 @@ ${_notifyWinInetScript()}
     return result.exitCode == 0;
   }
 
-  Future<void> _writeBackup(_ProxySnapshot snapshot) async {
+  Future<void> _writeBackup(
+    _ProxySnapshot snapshot,
+    String ownedProxyServer,
+  ) async {
     final statePath = _statePath;
     if (statePath == null) {
       throw StateError('SystemProxyService has not been initialized');
@@ -222,6 +283,7 @@ ${_notifyWinInetScript()}
     final file = File(statePath);
     await file.parent.create(recursive: true);
     final json = snapshot.toJson();
+    json['_ownedProxyServer'] = ownedProxyServer;
     json['_savedAt'] = DateTime.now().millisecondsSinceEpoch;
     json['_pid'] = pid;
     final temp = File('$statePath.tmp');

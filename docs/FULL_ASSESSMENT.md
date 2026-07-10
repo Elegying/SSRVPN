@@ -1,5 +1,7 @@
 # SSRVPN 全面评估报告
 
+> 历史快照：本文保留 2026-07-03 当时的代码与线上服务观察，其中版本、测试数量、CI 状态、macOS setuid/TUN 模型和下载资产信息已经过时。当前代码审查结论以 [`AUDIT_REPORT.md`](AUDIT_REPORT.md) 和 [`PROJECT_HEALTH.md`](PROJECT_HEALTH.md) 为准。
+
 评估日期：2026-06-30 12:10 CST
 更新日期：2026-07-03
 评估范围：代码仓库 + 线上服务 + 基础设施
@@ -194,10 +196,10 @@ macOS 项目已移除 CocoaPods 集成文件，改用 Flutter Swift Package Mana
 | API 密钥 Bearer 认证 | ✅ |
 | 日志脱敏 (LogRedactor) | ✅ |
 | YAML 安全转义 (apiSecret) | ✅ 本次修复 |
-| Android 安全存储 (EncryptedSharedPreferences) | ✅ |
+| Android 安全存储 (`flutter_secure_storage` / Keystore) | ✅ 当前实现 |
 | Android 首次启动随机 apiSecret | ✅ |
 | 原子文件写入 | ✅ |
-| setuid root 验证 (macOS TUN) | ✅ |
+| macOS TUN 权限 | 当前安全停用，旧 setuid root 模型已删除 |
 | SECURITY.md 漏洞报告流程 | ✅ |
 | 核心二进制哈希校验 | ✅ |
 
@@ -207,7 +209,7 @@ macOS 项目已移除 CocoaPods 集成文件，改用 Flutter Swift Package Mana
 |------|--------|------|
 | 桌面端配置明文保存在本地目录 | ⚠️ 中 | 有意保留，便于卸载或删除便携目录时同步清空配置、订阅和缓存 |
 | 订阅 URL 明文存储 | ⚠️ 中 | 包含认证信息的 URL 保存在本地配置目录 |
-| setuid root 继承 | ⚠️ 中 | 任何本地用户可以 root 身份执行核心二进制 |
+| macOS TUN 暂不可用 | ⚠️ 中 | 等待 Network Extension 或受审计辅助程序方案 |
 | noindex meta tag | ℹ️ 低 | 网站不被搜索引擎收录（可能是有意为之） |
 
 ---

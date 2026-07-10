@@ -1,8 +1,8 @@
 # Core Binary Assets
 
-SSRVPN bundles Mihomo core binaries through Git LFS. Do not commit these files
-as plain Git blobs, and do not replace them without recording source, version,
-and hashes.
+SSRVPN downloads its large native assets from immutable GitHub Release URLs.
+The files are generated locally, ignored by Git, and accepted only after their
+container and extracted SHA256 values match the committed source records.
 
 ## Windows
 
@@ -22,7 +22,8 @@ rename it to `mihomo.exe`, place it in `SSRVPN_Windows/assets/`, and update
 
 - Bundled file: `SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so`
 - Geo database: `SSRVPN_Android/assets/geoip.metadb.gz`
-- Current core source: MetaCubeX/mihomo `v1.19.27`
+- Source record: `SSRVPN_Android/assets/libgojni-source.txt`
+- Bootstrap container: the signed SSRVPN `v2.4.5` APK
 - Geo source record: `docs/GEOIP_SOURCE.txt`
 
 The Android native library is loaded by the VPN service, so it must be verified
@@ -37,22 +38,27 @@ before CI tests and release packaging.
 - Current source: MetaCubeX/mihomo `v1.19.27`
 - Required asset family: `mihomo-darwin-arm64-*.gz`
 
-The stored gzip may be recompressed during local packaging; compare the
-decompressed executable SHA256 when verifying equivalence with an official
-GitHub release asset.
+The stored gzip is the official release asset. Verification checks both its
+compressed SHA256 and the decompressed executable SHA256.
 
 ## Verification
 
 ```bash
-git lfs pull
+make assets
 scripts/verify-core-assets.sh
 ```
 
-`scripts/verify-core-assets.sh` checks Git LFS pointer leakage, fixed SHA256
-hashes, macOS decompressed executable equivalence, and bundled geo databases.
-Geo database source and hashes are recorded in `docs/GEOIP_SOURCE.txt`; refresh
-them before release with `python3 scripts/sync-geoip-metadb.py`.
-The same check runs in CI and before each platform release build.
+`scripts/bootstrap-core-assets.sh` uses only allowlisted HTTPS GitHub URLs,
+downloads into a temporary directory, verifies SHA256 before extraction or
+installation, and atomically replaces stale local assets. The normal bootstrap
+GeoIP snapshot comes from the immutable `v2.4.5` APK so old commits remain
+reproducible. Release builds refresh it with
+`python3 scripts/sync-geoip-metadb.py` before packaging.
+
+`scripts/verify-core-assets.sh` checks fixed SHA256 hashes, macOS decompressed
+executable equivalence, and bundled GeoIP databases. The same checks run in CI
+and before each platform release build. CI prepares the verified assets once
+and shares them with platform jobs through GitHub Actions artifacts.
 
 Windows executable verification is also performed by
 `SSRVPN_Windows/tool/package_windows.ps1` when producing the portable ZIP.

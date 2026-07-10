@@ -1,43 +1,55 @@
 # Project Health
 
-Last reviewed: 2026-07-03
+Last reviewed: 2026-07-10
 
 ## Current Status
 
-SSRVPN is maintained from the `Elegying/SSRVPN` monorepo. The historical platform-only repositories have been deleted, so this repository is now the single source for code, issues, releases, and app update checks.
+SSRVPN is a single Flutter monorepo for Android, macOS, Windows, and `ssrvpn_shared`. The `v2.5.0` release candidate contains the comprehensive audit and has passed local verification, real-device Android and macOS smoke tests, and remote three-platform CI.
 
 | Area | Status | Notes |
-|------|--------|-------|
-| Repository shape | Healthy | Single monorepo with Android, macOS, Windows, and `ssrvpn_shared`. |
-| Online CI | Healthy | Main monorepo CI is green on `main`. |
-| Shared package | Healthy | Shared models, parser, force-proxy policy, log redaction, latency policy, unlock tests, and config helpers are covered by tests. |
-| Android | Functional | Analyze/test pass with strict analyzer settings. |
-| macOS | Functional | Analyze/test pass; Flutter Swift Package Manager integration is enabled and CocoaPods project files have been removed. |
-| Windows | Functional | Analyze/test pass; Mihomo integration test is skipped when the binary is unavailable in the test environment. |
-| Release automation | Good | Tag-driven release workflow builds all platforms, verifies bundled core assets, publishes checksums, and supports free Android self-signed release signing. |
+|---|---|---|
+| Repository shape | Good | One workspace, one release pipeline, shared services and policies. |
+| Local verification | Healthy | `make verify` passes, including analyzers, 329 Flutter tests, coverage gates, native guards, and Android JUnit. |
+| Shared package | Healthy | 182 tests, 59.30% line coverage; parsing, transactions, bounds, downloads, crashes, and controllers are covered. |
+| Android | Healthy | 83 Flutter tests and native APK identity tests pass; live VPN, notification, background, disconnect, and cleanup flows were verified on arm64 hardware. |
+| macOS | Proxy mode healthy | 34 tests, 32.21% coverage, Debug build passes. TUN intentionally fails closed until a safe privileged architecture exists. |
+| Windows | CI healthy | 30 tests pass and Windows CI validates the native launcher, mitigations, and portable ZIP; final real-device smoke testing remains a release follow-up. |
+| Release automation | Hardened | Source must be on `main`; checksums, versions, core assets, signing prerequisites, and artifact shape are checked. |
+| GitHub branch state | Ready to release | PR #21 is mergeable and its Android, macOS, Windows, workspace, and core-asset jobs are green. |
+
+## Current Coverage Gates
+
+| Target | Verified | Gate |
+|---|---:|---:|
+| `ssrvpn_shared` | 59.30% | 50% |
+| Android | 45.49% | 40% |
+| macOS | 32.21% | 10% |
+| Windows | 14.05% | 12% |
+
+The macOS and Windows gates remain deliberately conservative. Raising them should follow new behavior-focused tests, not exclude more source files from coverage.
 
 ## Remaining Risks
 
-- `ClashService` remains large on all three platforms. Platform-native behavior is still mixed with config assembly and API orchestration.
-- Platform `AppSettings` models are still separate because each app has different persisted fields.
-- macOS and Windows are intentionally distributed without paid platform certificates for now. Users may see Gatekeeper or SmartScreen warnings.
-- Desktop settings, subscription URLs, and caches intentionally stay in the app-local profile/config area so uninstalling or deleting the portable folder removes the app data.
-- Native integration paths still need manual smoke testing on real devices before each public release.
+- macOS TUN is unavailable; re-enabling the former setuid root model is prohibited.
+- Windows native lifecycle behavior still needs repeatable real-device or VM smoke tests after the online release build.
+- macOS and Windows are distributed without paid platform signing/notarization.
+- Desktop settings and subscription data remain in local app/portable storage by product choice.
+- Android's current Kotlin plugin works but Flutter reports that a future release will require Built-in Kotlin migration.
 
 ## Recommended Scorecard
 
-| Dimension | Score | Direction |
-|-----------|-------|-----------|
-| Project completeness | 8/10 | Core app, docs, CI, release workflow, and migration story exist. |
-| Maintainability | 7/10 | Shared logic is improving, but service classes remain large. |
-| Professional GitHub presence | 8/10 | Templates, CI, Dependabot, security policy, migration docs, and a single canonical repository are in place. |
-| Runtime reliability | 7/10 | Tests cover key parsing/config paths; platform integration needs more real-device release validation. |
-| Release readiness | 8/10 | Artifacts build via workflow, core assets and release assets are verifiable, and Android can be self-signed for free. |
+| Dimension | Score | Rationale |
+|---|---:|---|
+| Correctness and recovery | 8/10 | Startup, proxy ownership, update, and subscription rollback paths are substantially stronger. |
+| Security | 8/10 | Unsafe macOS/Windows privilege mechanisms were removed and external data is bounded; signing remains incomplete. |
+| Maintainability | 8/10 | Shared boundaries, guards, transactional services, and focused tests are good; several platform files remain large. |
+| Automated verification | 8/10 | Local full gate and remote three-platform CI are green; Windows real-device coverage remains manual. |
+| Release readiness | 8/10 | Code and online builds are ready for `v2.5.0`; unsigned desktop distribution and intentionally unavailable macOS TUN are documented limitations. |
 
-## Next Audit Focus
+## Next Milestones
 
-1. Extract a platform-neutral config assembly layer from `ClashService`.
-2. Keep strict analyzer checks green as dependencies and lints evolve.
-3. Continue reducing platform-specific duplication in update, subscription, and settings code.
-4. Keep the free-only release posture documented and visible to users.
-5. Verify release artifacts end-to-end after every tag.
+1. Monitor the `v2.5.0` release and complete the documented Windows real-device smoke matrix.
+2. Add Developer ID/notarization and Windows Authenticode signing for trusted desktop distribution.
+3. Decide and document the macOS TUN architecture before implementation.
+4. Migrate Android to Built-in Kotlin before the next Flutter toolchain upgrade.
+5. Raise platform coverage gates with behavior-focused tests.

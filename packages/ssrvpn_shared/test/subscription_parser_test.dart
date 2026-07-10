@@ -90,6 +90,8 @@ proxies:
     type: ss
     server: example.com
     port: 443
+    cipher: aes-256-gcm
+    password: secret
     ssrvpn-subscription: "Feed A"
 ''';
 
@@ -431,6 +433,24 @@ trojan://pass@host:443#Node
       test('returns null for empty content', () {
         expect(SubscriptionParser.uriListToYaml(''), isNull);
         expect(SubscriptionParser.uriListToYaml('# only comments'), isNull);
+      });
+
+      test('round-trips quoted backslash and newline values through YAML', () {
+        const password = 'pa"ss\\word\nnext';
+        const path = '/edge"\\branch\nnext';
+        final content = [
+          'trojan://${Uri.encodeComponent(password)}@trojan.example.com:443'
+              '#Trojan',
+          'vless://uuid-1234@vless.example.com:443?type=ws'
+              '&path=${Uri.encodeQueryComponent(path)}#VLESS',
+        ].join('\n');
+
+        final yaml = SubscriptionParser.uriListToYaml(content);
+        final parsed = SubscriptionParser.parseYaml(yaml!);
+
+        expect(parsed.nodes, hasLength(2));
+        expect(parsed.nodes.first.extra['password'], password);
+        expect(parsed.nodes.last.extra['ws-opts']['path'], path);
       });
     });
 

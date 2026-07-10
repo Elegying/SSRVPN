@@ -39,6 +39,25 @@
    scripts/performance-baseline.sh
    ```
 
+### Windows x64 实机冒烟
+
+在干净目录完整解压 `SSRVPN.zip` 后执行，测试前先记录系统代理原值：
+
+```bat
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyServer
+```
+
+1. 运行 `SSRVPN_Diag.bat`；必需文件必须齐全，Mihomo 能输出版本，程序 10 秒后仍在运行；完成后从托盘退出诊断启动的实例。
+2. 如果诊断报告旧版进程安全例外，以管理员身份运行一次 `remove_legacy_cet_exemption.bat`，然后重新诊断并确认警告消失。
+3. 正常启动 `ssrvpn_windows.exe`；确认主页、订阅、节点和已选节点恢复正常，`%LOCALAPPDATA%\SSRVPN\logs\startup.log` 没有启动失败。
+4. 先从托盘退出正常实例，再运行 `ssrvpn_safe_mode.bat`；确认安全模式提示可见，托盘、旧窗口位置和 Mihomo 自动初始化均被跳过。
+5. 使用系统代理模式连接；确认浏览器可联网、代理指向 `127.0.0.1` 的实际监听端口。正常断开后，`ProxyEnable` 和 `ProxyServer` 必须精确恢复为测试前的值。
+6. 再次连接后从任务管理器结束 `bin\mihomo.exe`；应用应退出连接状态并自动清理自己设置的系统代理，不得留下半连接状态。
+7. 再次连接后从托盘选择“退出 SSRVPN”；应用和 Mihomo 都应退出，系统代理必须恢复，`%LOCALAPPDATA%\SSRVPN\crashes` 不应新增转储。
+8. 分别用普通权限和管理员权限检查 TUN：普通权限必须明确失败且不残留代理；管理员权限下应能连接、断开并恢复网络。
+9. 检查应用内更新能打开当前版本对应的 GitHub Release。日志可提交排查，但不要公开发送 `.dmp` 文件。
+
 ## 发布
 
 1. 在 `main` 上创建版本 tag，例如：

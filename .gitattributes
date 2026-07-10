@@ -12,10 +12,3 @@
 *.webp binary
 *.zip binary
 *.dmg binary
-
-SSRVPN_Android/android/app/src/main/jniLibs/**/*.so filter=lfs diff=lfs merge=lfs -text
-SSRVPN_Android/assets/geoip.metadb.gz filter=lfs diff=lfs merge=lfs -text
-SSRVPN_MacOS/assets/AtlasCore.gz filter=lfs diff=lfs merge=lfs -text
-SSRVPN_MacOS/assets/geoip.metadb.gz filter=lfs diff=lfs merge=lfs -text
-SSRVPN_Windows/assets/mihomo.exe filter=lfs diff=lfs merge=lfs -text
-SSRVPN_Windows/assets/geoip.metadb.gz filter=lfs diff=lfs merge=lfs -text

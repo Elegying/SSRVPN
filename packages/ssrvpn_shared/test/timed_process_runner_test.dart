@@ -15,6 +15,25 @@ void main() {
     expect(result.exitCode, 124);
     expect(result.stderr, 'timeout');
   });
+
+  test(
+    'timeout does not wait for a descendant holding output pipes open',
+    () async {
+      final watch = Stopwatch()..start();
+
+      final result = await TimedProcessRunner.run(
+        '/bin/sh',
+        const ['-c', 'sleep 1 & wait'],
+        timeout: const Duration(milliseconds: 20),
+        timeoutStderr: 'timeout',
+      );
+
+      expect(result.exitCode, 124);
+      expect(result.stderr, 'timeout');
+      expect(watch.elapsed, lessThan(const Duration(milliseconds: 750)));
+    },
+    skip: Platform.isWindows ? 'uses POSIX child-process semantics' : false,
+  );
 }
 
 String get _shellExecutable => Platform.isWindows ? 'cmd.exe' : '/bin/sh';

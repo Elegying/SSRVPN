@@ -1,6 +1,26 @@
 import '../models/proxy_node.dart';
 
 class ProxyNodeUsagePolicy {
+  static const _supportedTypes = {
+    'ss',
+    'ssr',
+    'vmess',
+    'vless',
+    'trojan',
+    'anytls',
+    'hysteria',
+    'hysteria2',
+    'tuic',
+    'snell',
+    'socks',
+    'socks5',
+    'http',
+  };
+  static const _maxNameLength = 512;
+  static const _maxServerLength = 1024;
+  static const _maxRequiredValueLength = 8192;
+  static final _serverWhitespacePattern = RegExp(r'\s');
+
   static final RegExp _subscriptionInfoNamePattern = RegExp(
     [
       '套餐到期',
@@ -24,29 +44,87 @@ class ProxyNodeUsagePolicy {
   }
 
   static bool isRunnableProxyMap(Map proxy) {
-    final name = proxy['name']?.toString().trim() ?? '';
-    if (name.isEmpty || isSubscriptionInfoName(name)) return false;
+    final name = _boundedText(proxy['name'], _maxNameLength);
+    if (name == null || isSubscriptionInfoName(name)) return false;
 
-    final type = proxy['type']?.toString().trim().toLowerCase() ?? '';
-    if (type.isEmpty || type == 'builtin') return false;
+    final type = _boundedText(proxy['type'], 32)?.toLowerCase();
+    if (type == null || !_supportedTypes.contains(type)) return false;
 
-    final server = proxy['server']?.toString().trim() ?? '';
-    if (server.isEmpty) return false;
+    final server = _boundedText(proxy['server'], _maxServerLength);
+    if (server == null || _serverWhitespacePattern.hasMatch(server)) {
+      return false;
+    }
 
-    return _parsePort(proxy['port']) > 0;
+    final port = _parsePort(proxy['port']);
+    if (port < 1 || port > 65535) return false;
+
+    switch (type) {
+      case 'ss':
+        return _hasAll(proxy, const ['cipher', 'password']);
+      case 'ssr':
+        return _hasAll(
+          proxy,
+          const ['cipher', 'password', 'protocol', 'obfs'],
+        );
+      case 'vmess':
+      case 'vless':
+        return _hasRequiredValue(proxy['uuid']);
+      case 'trojan':
+      case 'anytls':
+      case 'hysteria2':
+        return _hasRequiredValue(proxy['password']);
+      case 'hysteria':
+        return _hasRequiredValue(proxy['auth-str']) ||
+            _hasRequiredValue(proxy['auth']);
+      case 'tuic':
+        return _hasRequiredValue(proxy['token']) ||
+            _hasAll(proxy, const ['uuid', 'password']);
+      case 'snell':
+        return _hasRequiredValue(proxy['psk']);
+      case 'http':
+      case 'socks':
+      case 'socks5':
+        return true;
+    }
+    return false;
   }
 
   static bool isRunnableNode(ProxyNode node) {
-    if (isSubscriptionInfoName(node.name)) return false;
-    if (node.type.trim().isEmpty || node.type.toLowerCase() == 'builtin') {
+    // Materialized nodes keep the base-only contract used by runtime/UI callers.
+    final name = _boundedText(node.name, _maxNameLength);
+    if (name == null || isSubscriptionInfoName(name)) return false;
+
+    final type = _boundedText(node.type, 32)?.toLowerCase();
+    if (type == null || !_supportedTypes.contains(type)) return false;
+
+    final server = _boundedText(node.server, _maxServerLength);
+    if (server == null || _serverWhitespacePattern.hasMatch(server)) {
       return false;
     }
-    if (node.server.trim().isEmpty) return false;
-    return node.port > 0;
+
+    return node.port >= 1 && node.port <= 65535;
   }
 
   static int _parsePort(Object? value) {
     final parsed = int.tryParse(value?.toString() ?? '');
-    return parsed == null || parsed < 0 ? 0 : parsed;
+    return parsed ?? 0;
+  }
+
+  static bool _hasAll(Map proxy, Iterable<String> keys) {
+    return keys.every((key) => _hasRequiredValue(proxy[key]));
+  }
+
+  static bool _hasRequiredValue(Object? value) {
+    if (value is! String && value is! num && value is! bool) return false;
+    if (value is String && value.length > _maxRequiredValueLength) return false;
+    final text = value.toString().trim();
+    return text.isNotEmpty && text.length <= _maxRequiredValueLength;
+  }
+
+  static String? _boundedText(Object? value, int maxLength) {
+    if (value is! String && value is! num) return null;
+    if (value is String && value.length > maxLength) return null;
+    final text = value.toString().trim();
+    return text.isEmpty || text.length > maxLength ? null : text;
   }
 }

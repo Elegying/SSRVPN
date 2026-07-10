@@ -44,9 +44,7 @@ class AppDelegate: FlutterAppDelegate {
   // 在这里兜底：杀掉核心进程，并优先恢复 Dart 侧保存的系统代理备份。
   override func applicationWillTerminate(_ notification: Notification) {
     _ = runProcess("/usr/bin/pkill", ["-f", "SSRVPN.*/AtlasCore"], timeout: 3)
-    if !restoreSavedProxyState() {
-      disableLocalhostProxyOnly()
-    }
+    _ = restoreSavedProxyState()
     super.applicationWillTerminate(notification)
   }
 
@@ -57,24 +55,45 @@ class AppDelegate: FlutterAppDelegate {
       guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return false
       }
+      guard
+        let ownedHost = root["_ownedProxyHost"] as? String,
+        !ownedHost.isEmpty,
+        let ownedPort = (root["_ownedProxyPort"] as? NSNumber)?.intValue,
+        ownedPort > 0
+      else {
+        // Legacy state cannot prove which localhost proxy SSRVPN installed.
+        // Preserve the user's current settings instead of guessing.
+        try? FileManager.default.removeItem(at: stateURL)
+        return true
+      }
       var restoredAll = true
       for (service, rawValue) in root {
+        if service.hasPrefix("_") { continue }
         guard let value = rawValue as? [String: Any] else { continue }
-        restoredAll = restoreProxyState(
+        restoredAll = restoreProxyStateIfOwned(
           service: service,
           value: value["web"],
+          ownedHost: ownedHost,
+          ownedPort: ownedPort,
+          getCommand: "-getwebproxy",
           setCommand: "-setwebproxy",
           stateCommand: "-setwebproxystate"
         ) && restoredAll
-        restoredAll = restoreProxyState(
+        restoredAll = restoreProxyStateIfOwned(
           service: service,
           value: value["secureWeb"],
+          ownedHost: ownedHost,
+          ownedPort: ownedPort,
+          getCommand: "-getsecurewebproxy",
           setCommand: "-setsecurewebproxy",
           stateCommand: "-setsecurewebproxystate"
         ) && restoredAll
-        restoredAll = restoreProxyState(
+        restoredAll = restoreProxyStateIfOwned(
           service: service,
           value: value["socks"],
+          ownedHost: ownedHost,
+          ownedPort: ownedPort,
+          getCommand: "-getsocksfirewallproxy",
           setCommand: "-setsocksfirewallproxy",
           stateCommand: "-setsocksfirewallproxystate"
         ) && restoredAll
@@ -87,6 +106,35 @@ class AppDelegate: FlutterAppDelegate {
       NSLog("[AppDelegate] Proxy restore failed: \(error)")
       return false
     }
+  }
+
+  private func restoreProxyStateIfOwned(
+    service: String,
+    value: Any?,
+    ownedHost: String,
+    ownedPort: Int,
+    getCommand: String,
+    setCommand: String,
+    stateCommand: String
+  ) -> Bool {
+    guard let isOwned = proxyMatchesOwnership(
+      service: service,
+      getCommand: getCommand,
+      ownedHost: ownedHost,
+      ownedPort: ownedPort
+    ) else {
+      // Keep the state file so the next launch can retry a transient read.
+      return false
+    }
+    guard isOwned else {
+      return true
+    }
+    return restoreProxyState(
+      service: service,
+      value: value,
+      setCommand: setCommand,
+      stateCommand: stateCommand
+    )
   }
 
   private func findProxyStateFile() -> URL? {
@@ -127,7 +175,7 @@ class AppDelegate: FlutterAppDelegate {
     stateCommand: String
   ) -> Bool {
     guard let state = value as? [String: Any] else {
-      return runProcess("/usr/sbin/networksetup", [stateCommand, service, "off"])
+      return true
     }
     let enabled = state["enabled"] as? Bool ?? false
     let server = state["server"] as? String ?? ""
@@ -155,41 +203,34 @@ class AppDelegate: FlutterAppDelegate {
     return runProcess("/usr/sbin/networksetup", [stateCommand, service, "off"])
   }
 
-  private func disableLocalhostProxyOnly() {
-    guard let services = listNetworkServices() else { return }
-    for service in services {
-      for item in [
-        ("-getwebproxy", "-setwebproxystate"),
-        ("-getsecurewebproxy", "-setsecurewebproxystate"),
-        ("-getsocksfirewallproxy", "-setsocksfirewallproxystate")
-      ] {
-        if let server = proxyServer(service: service, getCommand: item.0),
-           server == "127.0.0.1" || server == "localhost" {
-          _ = runProcess("/usr/sbin/networksetup", [item.1, service, "off"])
-        }
+  private func proxyMatchesOwnership(
+    service: String,
+    getCommand: String,
+    ownedHost: String,
+    ownedPort: Int
+  ) -> Bool? {
+    guard let output = runProcessOutput(
+      "/usr/sbin/networksetup",
+      [getCommand, service]
+    ) else {
+      return nil
+    }
+    let enabled = proxyLineValue(output, key: "Enabled").lowercased() == "yes"
+    let server = proxyLineValue(output, key: "Server")
+    let port = Int(proxyLineValue(output, key: "Port")) ?? 0
+    return enabled && server == ownedHost && port == ownedPort
+  }
+
+  private func proxyLineValue(_ output: String, key: String) -> String {
+    let prefix = "\(key):"
+    for line in output.split(separator: "\n") {
+      let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
+      if value.hasPrefix(prefix) {
+        return String(value.dropFirst(prefix.count))
+          .trimmingCharacters(in: .whitespacesAndNewlines)
       }
     }
-  }
-
-  private func listNetworkServices() -> [String]? {
-    let output = runProcessOutput(
-      "/usr/sbin/networksetup",
-      ["-listallnetworkservices"]
-    )
-    return output?
-      .split(separator: "\n")
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty && !$0.hasPrefix("An asterisk") && !$0.hasPrefix("*") }
-  }
-
-  private func proxyServer(service: String, getCommand: String) -> String? {
-    let output = runProcessOutput("/usr/sbin/networksetup", [getCommand, service])
-    return output?
-      .split(separator: "\n")
-      .first { $0.hasPrefix("Server:") }?
-      .split(separator: ":", maxSplits: 1)
-      .last?
-      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return ""
   }
 
   private func runProcess(

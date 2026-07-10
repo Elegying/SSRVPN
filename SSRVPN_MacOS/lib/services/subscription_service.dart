@@ -8,16 +8,16 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 /// - 先尝试 DirectFetcher 直连通道
 /// - 降级到 dart:io HttpClient（带重试）
 class SubscriptionService extends SubscriptionServiceBase {
-  static SubscriptionService? _instance;
+  static final _instance = AsyncLazy<SubscriptionService>();
 
   SubscriptionService._();
 
-  static Future<SubscriptionService> getInstance(String cacheDir) async {
-    if (_instance == null) {
-      _instance = SubscriptionService._();
-      await _instance!.init(cacheDir);
-    }
-    return _instance!;
+  static Future<SubscriptionService> getInstance(String cacheDir) {
+    return _instance.get(() async {
+      final service = SubscriptionService._();
+      await service.init(cacheDir);
+      return service;
+    });
   }
 
   @override
@@ -36,6 +36,6 @@ class SubscriptionService extends SubscriptionServiceBase {
 
   @visibleForTesting
   static void resetInstanceForTesting() {
-    _instance = null;
+    _instance.reset();
   }
 }

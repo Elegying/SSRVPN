@@ -93,8 +93,8 @@ install(FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/../SSRVPN_Diag.bat"
   "${CMAKE_CURRENT_SOURCE_DIR}/../ssrvpn_safe_mode.bat"
   "${CMAKE_CURRENT_SOURCE_DIR}/../SAFE_MODE_README.txt"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/ssrvpn_cet_fix.ps1"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/ssrvpn_cet_fix.bat"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/remove_legacy_cet_exemption.ps1"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/remove_legacy_cet_exemption.bat"
   DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 

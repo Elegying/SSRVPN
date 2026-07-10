@@ -1,10 +1,13 @@
-.PHONY: status sync verify deps pub-get analyze test format feature
+.PHONY: status sync assets verify deps pub-get analyze test format feature
 
 status:
 	@scripts/project-status.sh
 
 sync:
 	@scripts/sync-main.sh
+
+assets:
+	@scripts/bootstrap-core-assets.sh
 
 verify:
 	@scripts/verify-all.sh

@@ -14,20 +14,32 @@ if [ -z "$constant_version" ]; then
   exit 1
 fi
 
+workspace_version=""
 for pubspec in \
   SSRVPN_Android/pubspec.yaml \
   SSRVPN_MacOS/pubspec.yaml \
   SSRVPN_Windows/pubspec.yaml
 do
-  pubspec_version="$(
+  full_version="$(
     awk '/^version:/ { print $2; exit }' "$pubspec" |
-      tr -d '\r' |
-      cut -d+ -f1
+      tr -d '\r'
   )"
-  if [ "$pubspec_version" != "$constant_version" ]; then
-    echo "version check failed: $pubspec is $pubspec_version, AppConstants is $constant_version" >&2
+  if [ -z "$full_version" ]; then
+    echo "version check failed: $pubspec has no version" >&2
+    exit 1
+  fi
+  if [ -z "$workspace_version" ]; then
+    workspace_version="$full_version"
+  elif [ "$full_version" != "$workspace_version" ]; then
+    echo "version check failed: $pubspec is $full_version, expected $workspace_version" >&2
     exit 1
   fi
 done
 
-echo "Version sync check passed: $constant_version"
+base_version="${workspace_version%%+*}"
+if [ "$base_version" != "$constant_version" ]; then
+  echo "version check failed: pubspecs are $workspace_version, AppConstants is $constant_version" >&2
+  exit 1
+fi
+
+echo "Version sync check passed: $workspace_version"

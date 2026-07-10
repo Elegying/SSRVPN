@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -105,6 +107,121 @@ void main() {
       expect(tempDir.listSync(), isEmpty);
     });
 
+    test('rejects oversized Content-Length before writing the APK', () async {
+      final client = _StreamClient((_) async {
+        return http.StreamedResponse(
+          const Stream<List<int>>.empty(),
+          HttpStatus.ok,
+          contentLength: UpdateService.maxApkDownloadBytes + 1,
+        );
+      });
+
+      await expectLater(
+        UpdateService.downloadUpdateApk(
+          AppUpdateInfo(
+            version: '9.9.9',
+            downloadUrl: 'https://example.com/SSRVPN.apk',
+            changelog: '',
+            sha256: '0' * 64,
+          ),
+          outputDirectory: tempDir,
+          client: client,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('过大'),
+          ),
+        ),
+      );
+      expect(tempDir.listSync(), isEmpty);
+    });
+
+    test('rejects an insecure final URL after redirects', () async {
+      final bytes = utf8.encode('apk-bytes');
+      final client = _StreamClient((_) async {
+        return _StreamedResponseWithUrl(
+          Stream<List<int>>.value(bytes),
+          HttpStatus.ok,
+          url: Uri.parse('http://redirect.example/SSRVPN.apk'),
+          contentLength: bytes.length,
+        );
+      });
+
+      await expectLater(
+        UpdateService.downloadUpdateApk(
+          AppUpdateInfo(
+            version: '9.9.9',
+            downloadUrl: 'https://example.com/SSRVPN.apk',
+            changelog: '',
+            sha256: sha256.convert(bytes).toString(),
+          ),
+          outputDirectory: tempDir,
+          client: client,
+        ),
+        throwsFormatException,
+      );
+      expect(tempDir.listSync(), isEmpty);
+    });
+
+    test('rejects a stream that exceeds the APK byte limit', () async {
+      final client = _StreamClient((_) async {
+        return http.StreamedResponse(
+          Stream<List<int>>.value(
+            _OversizedByteList(UpdateService.maxApkDownloadBytes + 1),
+          ),
+          HttpStatus.ok,
+        );
+      });
+
+      await expectLater(
+        UpdateService.downloadUpdateApk(
+          AppUpdateInfo(
+            version: '9.9.9',
+            downloadUrl: 'https://example.com/SSRVPN.apk',
+            changelog: '',
+            sha256: '0' * 64,
+          ),
+          outputDirectory: tempDir,
+          client: client,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('过大'),
+          ),
+        ),
+      );
+      expect(tempDir.listSync(), isEmpty);
+    });
+
+    test('fails and removes temporary files when the stream times out',
+        () async {
+      final responseStream = StreamController<List<int>>();
+      addTearDown(responseStream.close);
+      final client = _StreamClient((_) async {
+        return http.StreamedResponse(responseStream.stream, HttpStatus.ok);
+      });
+
+      await expectLater(
+        UpdateService.downloadUpdateApk(
+          AppUpdateInfo(
+            version: '9.9.9',
+            downloadUrl: 'https://example.com/SSRVPN.apk',
+            changelog: '',
+            sha256: '0' * 64,
+          ),
+          outputDirectory: tempDir,
+          client: client,
+          timeout: const Duration(milliseconds: 20),
+        ),
+        throwsA(isA<TimeoutException>()),
+      );
+      expect(tempDir.listSync(), isEmpty);
+    });
+
     test('installDownloadedApk invokes native installer with apk path',
         () async {
       TestWidgetsFlutterBinding.ensureInitialized();
@@ -180,4 +297,47 @@ void main() {
       expect(find.text('正在更新'), findsNothing);
     });
   });
+}
+
+class _StreamClient extends http.BaseClient {
+  _StreamClient(this._handler);
+
+  final Future<http.StreamedResponse> Function(http.BaseRequest request)
+      _handler;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      _handler(request);
+}
+
+class _StreamedResponseWithUrl extends http.StreamedResponse
+    implements http.BaseResponseWithUrl {
+  _StreamedResponseWithUrl(
+    super.stream,
+    super.statusCode, {
+    required this.url,
+    super.contentLength,
+  });
+
+  @override
+  final Uri url;
+}
+
+class _OversizedByteList extends ListBase<int> {
+  _OversizedByteList(this._length);
+
+  final int _length;
+
+  @override
+  int get length => _length;
+
+  @override
+  set length(int value) => throw UnsupportedError('fixed length');
+
+  @override
+  int operator [](int index) => 0;
+
+  @override
+  void operator []=(int index, int value) =>
+      throw UnsupportedError('read only');
 }

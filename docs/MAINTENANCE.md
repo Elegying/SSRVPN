@@ -23,8 +23,8 @@ This guide keeps local development, GitHub automation, and releases aligned.
    ```bash
    cd packages/ssrvpn_shared
    dart pub get
-   dart analyze
-   dart test --coverage=coverage
+   flutter analyze
+   flutter test --coverage
    ```
 
 4. Run touched platform checks:

@@ -421,58 +421,13 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: AnimatedSwitcher(
-                                        duration:
-                                            const Duration(milliseconds: 300),
-                                        child: Text(
-                                          isConnecting
-                                              ? '正在连接...'
-                                              : isConnected
-                                                  ? '已连接'
-                                                  : '未连接',
-                                          key: ValueKey(
-                                            isConnecting
-                                                ? 'c'
-                                                : isConnected
-                                                    ? 'y'
-                                                    : 'n',
-                                          ),
-                                          style: TextStyle(
-                                            fontSize: 22,
-                                            fontWeight: FontWeight.w700,
-                                            color: isConnected
-                                                ? AppTheme.success
-                                                : textColor,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                      children: [
-                                        _DesktopForceProxyButton(
-                                          onTap: onShowForceProxySites,
-                                          enabled: !isConnecting,
-                                        ),
-                                        if (isConnected) ...[
-                                          const SizedBox(height: 8),
-                                          _DesktopModeBadge(
-                                            text:
-                                                '${settings.proxyMode.chineseName} · 端口 ${settings.proxyPort}${settings.enableTun ? " · TUN" : " · 代理"}',
-                                            subColor: subColor,
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ],
+                                _DesktopConnectionSummary(
+                                  settings: settings,
+                                  isConnected: isConnected,
+                                  isConnecting: isConnecting,
+                                  textColor: textColor,
+                                  subColor: subColor,
+                                  onShowForceProxySites: onShowForceProxySites,
                                 ),
                                 if (errorMessage != null) ...[
                                   const SizedBox(height: 10),
@@ -512,6 +467,95 @@ class _DesktopHomeStatusPanel extends StatelessWidget {
               );
             },
           ),
+        );
+      },
+    );
+  }
+}
+
+class _DesktopConnectionSummary extends StatelessWidget {
+  final AppSettings settings;
+  final bool isConnected;
+  final bool isConnecting;
+  final Color textColor;
+  final Color subColor;
+  final VoidCallback onShowForceProxySites;
+
+  const _DesktopConnectionSummary({
+    required this.settings,
+    required this.isConnected,
+    required this.isConnecting,
+    required this.textColor,
+    required this.subColor,
+    required this.onShowForceProxySites,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final status = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      child: Text(
+        isConnecting
+            ? '正在连接...'
+            : isConnected
+                ? '已连接'
+                : '未连接',
+        key: ValueKey(
+          isConnecting
+              ? 'c'
+              : isConnected
+                  ? 'y'
+                  : 'n',
+        ),
+        style: TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
+          color: isConnected ? AppTheme.success : textColor,
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        softWrap: false,
+      ),
+    );
+
+    final actions = Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        _DesktopForceProxyButton(
+          onTap: onShowForceProxySites,
+          enabled: !isConnecting,
+        ),
+        if (isConnected) ...[
+          const SizedBox(height: 8),
+          _DesktopModeBadge(
+            text:
+                '${settings.proxyMode.chineseName} · 端口 ${settings.proxyPort}${settings.enableTun ? " · TUN" : " · 代理"}',
+            subColor: subColor,
+          ),
+        ],
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 320) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: double.infinity, child: status),
+              const SizedBox(height: 8),
+              Align(alignment: Alignment.centerLeft, child: actions),
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: status),
+            const SizedBox(width: 10),
+            actions,
+          ],
         );
       },
     );
@@ -760,7 +804,7 @@ class _DesktopConnectionOptions extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final modeControl = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
                 '代理模式',
@@ -770,28 +814,27 @@ class _DesktopConnectionOptions extends StatelessWidget {
                   color: textColor,
                 ),
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: SegmentedButton<ProxyMode>(
-                  showSelectedIcon: false,
-                  segments: const [
-                    ButtonSegment<ProxyMode>(
-                      value: ProxyMode.rule,
-                      icon: Icon(Icons.route_rounded, size: 16),
-                      label: Text('规则'),
-                    ),
-                    ButtonSegment<ProxyMode>(
-                      value: ProxyMode.global,
-                      icon: Icon(Icons.public_rounded, size: 16),
-                      label: Text('全局'),
-                    ),
-                  ],
-                  selected: {settings.proxyMode},
-                  onSelectionChanged: isConnecting
-                      ? null
-                      : (selection) => onProxyModeChanged(selection.first),
-                ),
+              _DesktopOptionChoice<ProxyMode>(
+                selected: settings.proxyMode == ProxyMode.rule,
+                value: ProxyMode.rule,
+                enabled: !isConnecting,
+                icon: Icons.route_rounded,
+                label: '规则模式（默认）',
+                isDark: isDark,
+                textColor: textColor,
+                subColor: subColor,
+                onChanged: onProxyModeChanged,
+              ),
+              _DesktopOptionChoice<ProxyMode>(
+                selected: settings.proxyMode == ProxyMode.global,
+                value: ProxyMode.global,
+                enabled: !isConnecting,
+                icon: Icons.public_rounded,
+                label: '全局模式',
+                isDark: isDark,
+                textColor: textColor,
+                subColor: subColor,
+                onChanged: onProxyModeChanged,
               ),
             ],
           );
@@ -807,9 +850,9 @@ class _DesktopConnectionOptions extends StatelessWidget {
                   color: textColor,
                 ),
               ),
-              _DesktopTunChoice(
+              _DesktopOptionChoice<bool>(
                 selected: !settings.enableTun,
-                enableTun: false,
+                value: false,
                 enabled: !isConnecting,
                 icon: Icons.language_rounded,
                 label: '系统代理（默认）',
@@ -818,12 +861,14 @@ class _DesktopConnectionOptions extends StatelessWidget {
                 subColor: subColor,
                 onChanged: onEnableTunChanged,
               ),
-              _DesktopTunChoice(
+              _DesktopOptionChoice<bool>(
                 selected: settings.enableTun,
-                enableTun: true,
-                enabled: !isConnecting,
+                value: true,
+                enabled: !isConnecting && desktopPlatformLabel != 'MacOS',
                 icon: Icons.wifi_tethering_rounded,
-                label: 'TUN 模式（需管理员权限）',
+                label: desktopPlatformLabel == 'MacOS'
+                    ? 'TUN 模式（暂不可用）'
+                    : 'TUN 模式（需管理员权限）',
                 isDark: isDark,
                 textColor: textColor,
                 subColor: subColor,
@@ -857,20 +902,20 @@ class _DesktopConnectionOptions extends StatelessWidget {
   }
 }
 
-class _DesktopTunChoice extends StatelessWidget {
+class _DesktopOptionChoice<T> extends StatelessWidget {
   final bool selected;
-  final bool enableTun;
+  final T value;
   final bool enabled;
   final IconData icon;
   final String label;
   final bool isDark;
   final Color textColor;
   final Color subColor;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<T> onChanged;
 
-  const _DesktopTunChoice({
+  const _DesktopOptionChoice({
     required this.selected,
-    required this.enableTun,
+    required this.value,
     required this.enabled,
     required this.icon,
     required this.label,
@@ -885,7 +930,7 @@ class _DesktopTunChoice extends StatelessWidget {
     final disabled = !enabled || selected;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: disabled ? null : () => onChanged(enableTun),
+      onTap: disabled ? null : () => onChanged(value),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         margin: const EdgeInsets.only(top: 6),

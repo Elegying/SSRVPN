@@ -15,6 +15,9 @@ class UpdateService {
   /// 当前应用版本（发版时与 pubspec.yaml 的 version 同步修改）
   static const String appVersion = AppConstants.appVersion;
 
+  /// 防止异常或恶意响应耗尽设备存储与内存。
+  static const int maxApkDownloadBytes = 200 * 1024 * 1024;
+
   /// Android 原生通道（openUrl 注册在 MainActivity 的 com.ssrvpn/native 上）
   static const _channel = MethodChannel('com.ssrvpn/native');
 
@@ -69,25 +72,45 @@ class UpdateService {
       final request = http.Request('GET', uri)
         ..headers['User-Agent'] = AppConstants.appUserAgent;
       final response = await httpClient.send(request).timeout(timeout);
+      if (response case http.BaseResponseWithUrl(:final url)) {
+        if (url.scheme != 'https' || url.host.isEmpty) {
+          await response.stream.listen((_) {}).cancel();
+          throw const FormatException('Invalid download URL');
+        }
+      }
       if (response.statusCode != HttpStatus.ok) {
         throw StateError('下载更新失败: HTTP ${response.statusCode}');
       }
 
       var received = 0;
       final total = response.contentLength;
-      final sink = tempFile.openWrite();
+      if (total != null && total > maxApkDownloadBytes) {
+        await response.stream.listen((_) {}).cancel();
+        throw StateError('APK 文件过大，已取消更新');
+      }
+      final output = await tempFile.open(mode: FileMode.write);
+      final digestSink = _DigestSink();
+      final hashSink = sha256.startChunkedConversion(digestSink);
+      late final String actualSha256;
+      var hashClosed = false;
       try {
         await for (final chunk in response.stream.timeout(timeout)) {
           received += chunk.length;
-          sink.add(chunk);
+          if (received > maxApkDownloadBytes) {
+            throw StateError('APK 文件过大，已取消更新');
+          }
+          hashSink.add(chunk);
+          await output.writeFrom(chunk);
           onProgress?.call(received, total);
         }
+        hashClosed = true;
+        hashSink.close();
+        actualSha256 = digestSink.value.toString();
       } finally {
-        await sink.close();
+        if (!hashClosed) hashSink.close();
+        await output.close();
       }
 
-      final actualSha256 =
-          sha256.convert(await tempFile.readAsBytes()).toString();
       if (actualSha256 != expectedSha256) {
         await tempFile.delete();
         throw StateError('APK SHA256 校验失败，已取消更新');
@@ -255,4 +278,14 @@ class UpdateService {
       ),
     );
   }
+}
+
+class _DigestSink implements Sink<Digest> {
+  late Digest value;
+
+  @override
+  void add(Digest data) => value = data;
+
+  @override
+  void close() {}
 }

@@ -101,7 +101,7 @@ class SubscriptionParser {
   }
 }
 
-String _jsonEncode(Object? value) => jsonEncode(value).replaceAll(r'\', r'\\');
+String _jsonEncode(Object? value) => jsonEncode(value);
 
 bool _looksLikeYaml(String text) {
   final trimmed = text.trimLeft();

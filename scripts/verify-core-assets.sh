@@ -38,7 +38,7 @@ check_file() {
 
   test -f "$path" || fail "$label missing: $path"
   if head -n 1 "$path" | grep -q '^version https://git-lfs.github.com/spec/v1$'; then
-    fail "$label is a Git LFS pointer, run git lfs pull: $path"
+    fail "$label is a Git LFS pointer, run scripts/bootstrap-core-assets.sh: $path"
   fi
 
   local actual
@@ -63,7 +63,7 @@ check_gzip_payload() {
 
 check_file \
   "SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so" \
-  "65f8921583a778e218a5e735752e33f9a1ba53c0b5b11c2a0f80c8f6dbac08a1" \
+  "$(source_hash SSRVPN_Android/assets/libgojni-source.txt 'Library SHA256')" \
   "Android libgojni.so"
 
 check_file \

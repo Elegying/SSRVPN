@@ -125,7 +125,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
         }
         yaml = normalizeSubscriptionContent(yaml);
         if (yaml != null && yaml.isNotEmpty) {
-          _applyFetchedSubscriptionName(sub);
           allYamlBuffers.add(yaml);
           succeededSubs.add(sub);
         } else {
@@ -142,30 +141,70 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
       throw Exception('所有订阅刷新失败:\n$errorDetail');
     }
 
-    final oldYaml = _rawYaml;
-    _rawYaml = mergeYamlConfigs(
+    final candidateYaml = mergeYamlConfigs(
       allYamlBuffers,
-      sourceNames: succeededSubs.map(sourceNameForSubscription).toList(),
+      sourceNames:
+          succeededSubs.map(_sourceNameForFetchedSubscription).toList(),
     );
-    if (_rawYaml != oldYaml) _revision++;
-
-    // 子类可覆盖此方法添加合并后验证（如大小检查）
-    validateMergedYaml(_rawYaml);
-
-    if (_rawYaml != null) {
-      await cacheYaml(_rawYaml!);
+    if (candidateYaml.trim().isEmpty) {
+      throw const FormatException('合并后的订阅内容为空');
     }
 
-    parseYaml();
+    // 子类可覆盖此方法添加合并后验证（如大小检查）
+    validateMergedYaml(candidateYaml);
+
+    final candidate = SubscriptionParser.parseYaml(candidateYaml);
+    if (candidate.nodes.isEmpty) {
+      throw const FormatException('合并后的订阅不包含可运行节点');
+    }
+
+    // 磁盘缓存成功前不改变当前可用状态，避免写入失败后出现
+    // “新 YAML + 旧节点”或 revision/lastUpdate 被提前推进。
+    final previousYaml = _rawYaml;
+    final previousNodes = _allNodes;
+    final previousGroups = _allGroups;
+    final previousRevision = _revision;
+    final previousSubscriptionStates = {
+      for (final sub in succeededSubs)
+        sub: (name: sub.name, lastUpdate: sub.lastUpdate),
+    };
+    await cacheYaml(candidateYaml);
 
     final now = DateTime.now();
     for (final sub in succeededSubs) {
+      _applyFetchedSubscriptionName(sub);
       sub.lastUpdate = now;
     }
-    await saveToDisk();
+    if (candidateYaml != _rawYaml) _revision++;
+    _rawYaml = candidateYaml;
+    _allNodes = candidate.nodes;
+    _allGroups = candidate.groups;
+    try {
+      await saveToDisk();
+    } catch (error, stackTrace) {
+      _rawYaml = previousYaml;
+      _allNodes = previousNodes;
+      _allGroups = previousGroups;
+      _revision = previousRevision;
+      for (final entry in previousSubscriptionStates.entries) {
+        entry.key.name = entry.value.name;
+        entry.key.lastUpdate = entry.value.lastUpdate;
+      }
+      try {
+        await _restoreCachedYaml(previousYaml);
+      } catch (rollbackError) {
+        try {
+          AppLogger.warning(
+            'SubscriptionService',
+            '订阅元数据保存失败后回滚缓存失败: $rollbackError',
+          );
+        } catch (_) {}
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
     notifyListeners();
 
-    return _rawYaml;
+    return candidateYaml;
   }
 
   // ── 节点编辑 ──
@@ -275,6 +314,21 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     if (isSingleNodeLink(sub.url)) return standaloneGroupName;
     final name = sub.name.trim();
     return name.isNotEmpty ? name : defaultSubscriptionName(sub.url);
+  }
+
+  String _sourceNameForFetchedSubscription(Subscription sub) {
+    if (isSingleNodeLink(sub.url)) return standaloneGroupName;
+    final currentName = sub.name.trim();
+    final fetchedName = _fetchedProfileNames[sub.url]?.trim();
+    if ((currentName.isEmpty ||
+            currentName == defaultSubscriptionName(sub.url)) &&
+        fetchedName != null &&
+        fetchedName.isNotEmpty) {
+      return fetchedName;
+    }
+    return currentName.isNotEmpty
+        ? currentName
+        : defaultSubscriptionName(sub.url);
   }
 
   @protected
@@ -760,6 +814,16 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     if (_cacheDir == null) return;
     final file = File('$_cacheDir/subscription_cache.yaml');
     await writeStringAtomically(file, yaml);
+  }
+
+  Future<void> _restoreCachedYaml(String? yaml) async {
+    if (yaml != null) {
+      await cacheYaml(yaml);
+      return;
+    }
+    if (_cacheDir == null) return;
+    final file = File('$_cacheDir/subscription_cache.yaml');
+    if (await file.exists()) await file.delete();
   }
 
   Future<void> clearCachedNodes() async {

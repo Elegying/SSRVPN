@@ -2,11 +2,21 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_android/services/http_client_adapter.dart';
 import 'package:ssrvpn_android/services/subscription_service.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 String _base64UrlWithoutPadding(String value) {
   return base64Url.encode(utf8.encode(value)).replaceAll('=', '');
+}
+
+class _FakeHttpClientAdapter implements HttpClientAdapter {
+  _FakeHttpClientAdapter(this.response);
+
+  final AdapterResponse response;
+
+  @override
+  Future<AdapterResponse> get(Uri uri, {Duration? timeout}) async => response;
 }
 
 void main() {
@@ -19,6 +29,7 @@ void main() {
   });
 
   tearDown(() async {
+    SubscriptionService.resetHttpClientOverride();
     for (final subscription in service.subscriptions.toList()) {
       await service.removeSubscription(subscription.id);
     }
@@ -33,8 +44,7 @@ void main() {
     () async {
       final password = _base64UrlWithoutPadding('test-password');
       final protocolParam = _base64UrlWithoutPadding('1000:test-user');
-      final payload =
-          'example.com:18899:auth_aes128_md5:aes-256-cfb:'
+      final payload = 'example.com:18899:auth_aes128_md5:aes-256-cfb:'
           'tls1.2_ticket_auth:$password/?protoparam=$protocolParam';
       final fullPayload = '$payload&remarks=optional-name';
       final encoded = _base64UrlWithoutPadding(fullPayload);
@@ -50,6 +60,33 @@ void main() {
       expect(service.allNodes.single.port, 18899);
     },
   );
+
+  test('rejects gzip content that expands beyond the subscription limit',
+      () async {
+    final compressed = gzip.encode(
+      List<int>.filled(SubscriptionServiceBase.maxSubscriptionBytes + 1, 97),
+    );
+    SubscriptionService.overrideHttpClient(
+      _FakeHttpClientAdapter(
+        AdapterResponse(
+          statusCode: 200,
+          headers: const {'content-encoding': 'gzip'},
+          bodyBytes: compressed,
+        ),
+      ),
+    );
+
+    await expectLater(
+      service.fetchSubscription('https://example.com/feed', maxRetries: 1),
+      throwsA(
+        isA<Exception>().having(
+          (error) => error.toString(),
+          'message',
+          contains('20 MB'),
+        ),
+      ),
+    );
+  });
 
   test(
     'keeps different same-name nodes when all input types are enabled',
@@ -94,8 +131,7 @@ proxies:
       });
 
       final password = _base64UrlWithoutPadding('test-password');
-      final ssrPayload =
-          'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
+      final ssrPayload = 'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
           'tls1.2_ticket_auth:$password/?';
       final ssrLink = 'ssr://${_base64UrlWithoutPadding(ssrPayload)}';
       final origin = 'http://${server.address.address}:${server.port}';
@@ -114,8 +150,7 @@ proxies:
   );
 
   test('converts base64 URI-list subscriptions with modern nodes', () async {
-    final ssrPayload =
-        'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
+    final ssrPayload = 'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
         'tls1.2_ticket_auth:${_base64UrlWithoutPadding('ssr-password')}/?';
     final vmessPayload = base64Encode(
       utf8.encode(

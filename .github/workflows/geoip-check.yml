@@ -1,0 +1,26 @@
+name: GeoIP Freshness
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 1 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: geoip-freshness
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Compare bundled GeoIP with upstream
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - run: bash scripts/bootstrap-core-assets.sh
+
+      - run: python3 scripts/sync-geoip-metadb.py --check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

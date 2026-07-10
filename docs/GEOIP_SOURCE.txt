@@ -1,6 +1,6 @@
-Repo: MetaCubeX/meta-rules-dat
-Release tag: latest
-Release name: Release 2026-07-07 07:35
-Asset URL: https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb
+Repo: Elegying/SSRVPN
+Release tag: v2.4.5
+Release name: SSRVPN v2.4.5 bootstrap snapshot
+Asset URL: https://github.com/Elegying/SSRVPN/releases/download/v2.4.5/SSRVPN.apk
 Upstream SHA256: 7fdcb786185fe40f957c34a7a14033953fbc7ecd171e30888007d9be15ffd689
 Bundled gzip SHA256: 91f7ac96b924fc2b498852b9ed546d9462f26014b8451e32100cdd2c8e3ebfe1
