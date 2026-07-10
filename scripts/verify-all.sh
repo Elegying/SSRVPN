@@ -22,6 +22,7 @@ run_step "Shared barrel imports" scripts/check-shared-barrel-imports.sh
 run_step "Version sync" scripts/check-version-sync.sh
 run_step "Core binary assets" scripts/verify-core-assets.sh
 run_step "Android native bridge guards" scripts/check-android-native-bridge-guards.sh
+run_step "Desktop startup guards" scripts/check-desktop-startup-guards.sh
 run_step "Secret scan" scripts/check-secrets.sh
 
 run_step "Workspace pub get" flutter pub get

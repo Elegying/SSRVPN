@@ -30,6 +30,7 @@ class ClashService extends ClashServiceBase {
   bool _stoppingCore = false;
   Future<bool>? _startOperation;
   Future<void>? _stopOperation;
+  Future<void>? _exitCleanupOperation;
 
   // ── macOS 文件与日志 ──
   String _corePath = '';
@@ -372,6 +373,8 @@ class ClashService extends ClashServiceBase {
   }
 
   Future<bool> _startInternal() async {
+    final exitCleanup = _exitCleanupOperation;
+    if (exitCleanup != null) await exitCleanup;
     final stopping = _stopOperation;
     if (stopping != null) await stopping;
     setLastStartError(null);
@@ -486,11 +489,11 @@ class ClashService extends ClashServiceBase {
         log('Mihomo 进程已退出，退出码: $code');
         if (isRunning) {
           setRunning(false);
+          stopStatusMonitor();
+          _clashProcess = null;
           notifyStatusChanged();
+          _scheduleUnexpectedExitCleanup();
         }
-        // 通知外部进程异常退出（用于清除系统代理等）
-        _proxyService.clearSystemProxy();
-        onProcessExit?.call();
       });
 
       var healthy = false;
@@ -502,12 +505,6 @@ class ClashService extends ClashServiceBase {
       }
 
       if (healthy) {
-        setRunning(true);
-        resetHealthCheckFailures();
-        log(
-          'Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms',
-        );
-
         if (!settings.enableTun) {
           final proxySet = await _proxyService.setSystemProxy(
             '127.0.0.1',
@@ -523,6 +520,27 @@ class ClashService extends ClashServiceBase {
           }
           log('macOS 系统代理已设置');
         }
+
+        final processStillHealthy = await healthCheck();
+        final canCommitRunning = identical(_clashProcess, startedProcess) &&
+            startupExitCode == null &&
+            processStillHealthy;
+        if (!canCommitRunning) {
+          setLastStartError(
+            startupExitCode == null
+                ? 'Mihomo 在系统代理设置期间失去响应'
+                : 'Mihomo 在系统代理设置期间退出（退出码 $startupExitCode）',
+          );
+          log(lastStartError!);
+          await _stopInternal();
+          return false;
+        }
+
+        setRunning(true);
+        resetHealthCheckFailures();
+        log(
+          'Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms',
+        );
 
         notifyStatusChanged();
         startStatusMonitor();
@@ -572,6 +590,8 @@ class ClashService extends ClashServiceBase {
   }
 
   Future<void> _stopInternal() async {
+    final exitCleanup = _exitCleanupOperation;
+    if (exitCleanup != null) await exitCleanup;
     stopStatusMonitor();
     resetHealthCheckFailures();
 
@@ -603,6 +623,33 @@ class ClashService extends ClashServiceBase {
     setRunning(false);
     notifyStatusChanged();
     log('Mihomo 核心已停止');
+  }
+
+  void _scheduleUnexpectedExitCleanup() {
+    final operation = _clearProxyAfterUnexpectedExit();
+    _exitCleanupOperation = operation;
+    operation.whenComplete(() {
+      if (identical(_exitCleanupOperation, operation)) {
+        _exitCleanupOperation = null;
+      }
+    });
+  }
+
+  Future<void> _clearProxyAfterUnexpectedExit() async {
+    try {
+      final cleared = await _proxyService.clearSystemProxy();
+      if (!cleared && _proxyService.lastError != null) {
+        log(_proxyService.lastError!);
+      }
+    } catch (error) {
+      log('核心异常退出后清理系统代理失败: $error');
+    } finally {
+      try {
+        onProcessExit?.call();
+      } catch (error) {
+        log('核心退出回调失败: $error');
+      }
+    }
   }
 
   void _clearStartOperation(Future<bool> operation) {
