@@ -64,6 +64,8 @@ $requiredFiles = @(
   'SSRVPN_Diag.bat',
   'ssrvpn_safe_mode.bat',
   'SAFE_MODE_README.txt',
+  'remove_legacy_cet_exemption.ps1',
+  'remove_legacy_cet_exemption.bat',
   'bin\ssrvpn_windows_app.exe',
   'bin\mihomo.exe',
   'bin\flutter_windows.dll',
@@ -364,7 +366,7 @@ function Add-PortableRuntimeFiles {
     -InstallHint 'Install the Windows 10/11 SDK, or copy the x64 d3dcompiler_47.dll into this project runtime directory before packaging.'
 }
 
-function Install-CetLauncherLayout {
+function Install-LauncherLayout {
   $flutterExe = Join-Path $releaseDir 'ssrvpn_windows.exe'
   $childExe = Join-Path $binDir 'ssrvpn_windows_app.exe'
   $launcherExe = Join-Path $releaseDir 'ssrvpn_windows_launcher.exe'
@@ -373,7 +375,7 @@ function Install-CetLauncherLayout {
     throw "Built Flutter executable was not found: $flutterExe"
   }
   if (-not (Test-Path -LiteralPath $launcherExe -PathType Leaf)) {
-    throw "Built CET launcher was not found: $launcherExe"
+    throw "Built portable launcher was not found: $launcherExe"
   }
 
   if (-not (Test-Path -LiteralPath $binDir -PathType Container)) {
@@ -385,7 +387,7 @@ function Install-CetLauncherLayout {
   Move-Item -LiteralPath $flutterExe -Destination $childExe
   Copy-Item -LiteralPath $launcherExe -Destination $flutterExe -Force
   Remove-Item -LiteralPath $launcherExe -Force
-  Write-Host '[LAUNCHER] Installed CET mitigation launcher.'
+  Write-Host '[LAUNCHER] Installed portable launcher.'
 }
 
 function Move-PortableInternalsToBin {
@@ -399,8 +401,8 @@ function Move-PortableInternalsToBin {
     'ssrvpn_safe_mode.bat',
     'SAFE_MODE_README.txt',
     $portableReadmeName,
-    'ssrvpn_cet_fix.ps1',
-    'ssrvpn_cet_fix.bat',
+    'remove_legacy_cet_exemption.ps1',
+    'remove_legacy_cet_exemption.bat',
     'SHA256SUMS.txt'
   ) + $runtimeDlls
 
@@ -767,7 +769,7 @@ try {
   Copy-Item -Path (Join-Path $buildDir '*') -Destination $releaseDir `
     -Recurse -Force
 
-  Install-CetLauncherLayout
+  Install-LauncherLayout
   Add-PortableRuntimeFiles
 
   $portableReadmeName = [string]::Concat(
@@ -787,11 +789,11 @@ try {
   Copy-Item -LiteralPath (Join-Path $projectRoot 'SAFE_MODE_README.txt') `
     -Destination (Join-Path $releaseDir 'SAFE_MODE_README.txt')
   Copy-PortableReadme -Destination (Join-Path $releaseDir $portableReadmeName)
-  # CET compatibility scripts (Windows 11 25H2+ crash fix)
-  Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\ssrvpn_cet_fix.ps1') `
-    -Destination (Join-Path $releaseDir 'ssrvpn_cet_fix.ps1')
-  Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\ssrvpn_cet_fix.bat') `
-    -Destination (Join-Path $releaseDir 'ssrvpn_cet_fix.bat')
+  # One-time cleanup for security exceptions created by older releases.
+  Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\remove_legacy_cet_exemption.ps1') `
+    -Destination (Join-Path $releaseDir 'remove_legacy_cet_exemption.ps1')
+  Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\remove_legacy_cet_exemption.bat') `
+    -Destination (Join-Path $releaseDir 'remove_legacy_cet_exemption.bat')
 
   Move-PortableInternalsToBin
   Test-ReleaseContents -Root $releaseDir

@@ -42,10 +42,9 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
-# A tiny outer launcher starts the real Flutter executable with user-mode
-# shadow stacks disabled for the child process. It intentionally does not link
-# against Flutter, so flutter_windows.dll is not loaded before the mitigation is
-# applied.
+# A tiny outer launcher keeps the portable root stable while the Flutter
+# executable and its runtime dependencies live under bin/. It forwards the
+# command line and preserves the operating system's security mitigations.
 set(LAUNCHER_TARGET "${BINARY_NAME}_launcher")
 add_executable(${LAUNCHER_TARGET} WIN32
   "launcher_main.cpp"
@@ -60,7 +59,6 @@ target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_MINOR=${F
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_PATCH=${FLUTTER_VERSION_PATCH}")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTTER_VERSION_BUILD}")
 target_link_libraries(${LAUNCHER_TARGET} PRIVATE "shell32.lib")
-target_link_libraries(${LAUNCHER_TARGET} PRIVATE "advapi32.lib")
 
 # CET (Control-flow Enforcement Technology) compatibility.
 # /guard:cf generates CET-safe machine code.

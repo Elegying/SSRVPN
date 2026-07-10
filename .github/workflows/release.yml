@@ -67,6 +67,7 @@ jobs:
       - run: bash ../../scripts/check-version-sync.sh
       - run: bash ../../scripts/check-android-native-bridge-guards.sh
       - run: bash ../../scripts/check-desktop-startup-guards.sh
+      - run: bash ../../scripts/check-windows-launcher-security.sh
       - run: bash ../../scripts/check-secrets.sh
       - run: dart pub get
       - run: flutter analyze --fatal-infos
@@ -328,6 +329,8 @@ jobs:
             'msvcp140_codecvt_ids.dll',
             'vcruntime140.dll',
             'vcruntime140_1.dll',
+            'remove_legacy_cet_exemption.ps1',
+            'remove_legacy_cet_exemption.bat',
             'bin\ssrvpn_windows_app.exe',
             'bin\mihomo.exe',
             'SHA256SUMS.txt',
