@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Replaced Git LFS build inputs with ignored, reproducibly bootstrapped core
+  assets from immutable GitHub Releases, verified before extraction by SHA256.
 - Release tags and manual release commits must already belong to `main`; Actions
   are pinned to immutable commits and asset checks use authenticated GitHub API
   requests.

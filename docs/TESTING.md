@@ -7,8 +7,10 @@ requiring every native integration in every unit test.
 
 The `SSRVPN CI` workflow runs:
 
-- `scripts/verify-core-assets.sh` to reject missing Git LFS binaries, pointer
-  files, or unexpected core/geo database hashes
+- `scripts/check-core-asset-bootstrap.sh` to reject tracked binaries or a
+  reintroduced Git LFS dependency
+- `scripts/bootstrap-core-assets.sh` and `scripts/verify-core-assets.sh` to
+  obtain immutable release assets and reject unexpected core/GeoIP hashes
 - `flutter test --coverage` for `packages/ssrvpn_shared`
 - `flutter test --coverage` for Android, macOS, and Windows
 - `scripts/test-android-native.sh` for Kotlin/JUnit update-install identity tests
@@ -35,14 +37,14 @@ latest verified upstream database before packaging.
   changing system proxy state. They also verify that TUN fails closed and that
   legacy privileged/symlinked cores cannot cross the file boundary.
 - Windows tests include HTTP server mocks for Clash API calls and a Mihomo
-  integration smoke test. The integration test runs on Windows when the Git LFS
-  `assets/mihomo.exe` binary is available; otherwise it is skipped with an
-  explicit reason.
+  integration smoke test. CI bootstraps the verified `assets/mihomo.exe`
+  binary before the Windows job, so the integration test runs there.
 
 ## Local Commands
 
 ```bash
 make verify
+make assets
 
 scripts/check-shared-barrel-imports.sh
 scripts/verify-core-assets.sh

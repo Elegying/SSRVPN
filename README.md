@@ -62,6 +62,7 @@ scripts/workspace.sh verify
 ```bash
 make status
 make sync
+make assets
 make feature name=my-change
 make verify
 make deps
@@ -72,6 +73,7 @@ scripts/performance-baseline.sh
 
 - `make status`：查看本地分支、远端同步状态和交付目录状态。
 - `make sync`：在工作区干净时同步远端 `main`。
+- `make assets`：从固定 GitHub Release 下载并校验三端核心资产。
 - `make feature name=...`：从稳定分支创建功能分支。
 - `make verify`：运行仓库级完整校验（含资源、analyze、测试和覆盖率阈值）。
 - `make deps`：查看共享包和三端依赖是否有可升级版本，建议按月运行。

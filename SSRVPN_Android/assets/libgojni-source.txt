@@ -1,0 +1,7 @@
+Repo: Elegying/SSRVPN
+Release tag: v2.4.5
+Container URL: https://github.com/Elegying/SSRVPN/releases/download/v2.4.5/SSRVPN.apk
+Container SHA256: 8657050362b3ea37fc95f0bcb1bd04747f862d6d3a73aac57c725cd51de39910
+Library member: lib/arm64-v8a/libgojni.so
+Library SHA256: 65f8921583a778e218a5e735752e33f9a1ba53c0b5b11c2a0f80c8f6dbac08a1
+GeoIP member: assets/flutter_assets/assets/geoip.metadb.gz

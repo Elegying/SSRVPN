@@ -49,9 +49,8 @@ app.*.map.json
 # *.msi
 *.msi
 
-# Exclude exe except bundled assets
+# Exclude generated executables
 *.exe
-!assets/mihomo.exe
 
 # Flutter ephemeral
 flutter/ephemeral/
