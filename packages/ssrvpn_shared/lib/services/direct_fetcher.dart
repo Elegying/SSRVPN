@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import '../constants/app_constants.dart';
 
 /// 订阅“真·直连”下载器（桌面优先）
@@ -244,73 +245,106 @@ class DirectFetcher {
     socket.add(utf8.encode(request.toString()));
     await socket.flush();
 
-    final raw = <int>[];
-    var headerEnd = -1;
+    final headerBytes = <int>[];
+    final bodyBytes = BytesBuilder(copy: false);
+    var bodyLength = 0;
     Map<String, String>? headers;
-    var isChunked = false;
-    await for (final chunk
-        in socket.timeout(_readTimeout, onTimeout: (sink) => sink.close())) {
-      raw.addAll(chunk);
-      if (headerEnd < 0) {
-        headerEnd = _findHeaderEnd(raw);
-        if (headerEnd < 0 && raw.length > _maxHeaderBytes) {
+    int? statusCode;
+    int? expectedBodyBytes;
+    _ChunkedBodyDecoder? chunkedDecoder;
+    responseLoop:
+    await for (final chunk in socket.timeout(_readTimeout)) {
+      var offset = 0;
+      while (headers == null && offset < chunk.length) {
+        headerBytes.add(chunk[offset++]);
+        if (headerBytes.length > _maxHeaderBytes) {
           throw Exception('HTTP 响应头过大');
         }
-      }
-      if (headerEnd >= 0 && headers == null) {
-        final headerText =
-            utf8.decode(raw.sublist(0, headerEnd), allowMalformed: true);
-        headers = _parseHeaders(headerText.split('\r\n').skip(1));
-        final contentLength = headers['content-length'];
+
+        final length = headerBytes.length;
+        if (length < 4 ||
+            headerBytes[length - 4] != 13 ||
+            headerBytes[length - 3] != 10 ||
+            headerBytes[length - 2] != 13 ||
+            headerBytes[length - 1] != 10) {
+          continue;
+        }
+
+        final headerText = utf8.decode(
+          headerBytes.sublist(0, length - 4),
+          allowMalformed: true,
+        );
+        final lines = headerText.split('\r\n');
+        final statusMatch =
+            RegExp(r'^HTTP/\d\.\d\s+(\d{3})').firstMatch(lines.first);
+        if (statusMatch == null) throw Exception('HTTP 状态行解析失败');
+        statusCode = int.parse(statusMatch.group(1)!);
+        headers = _parseHeaders(lines.skip(1));
+
+        final contentLength = headers['content-length']?.trim();
         if (contentLength != null) {
           final size = int.tryParse(contentLength);
-          if (size != null && size > maxBodyBytes) {
+          if (!RegExp(r'^\d+$').hasMatch(contentLength) || size == null) {
+            throw Exception('HTTP Content-Length 格式错误');
+          }
+          if (size > maxBodyBytes) {
             throw Exception('订阅内容超过 20 MB 限制');
           }
+          expectedBodyBytes = size;
         }
-        isChunked = headers['transfer-encoding']?.toLowerCase() == 'chunked';
+
+        final transferEncodings = (headers['transfer-encoding'] ?? '')
+            .toLowerCase()
+            .split(',')
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toList(growable: false);
+        if (transferEncodings.isNotEmpty) {
+          if (transferEncodings.last != 'chunked') {
+            throw Exception('HTTP Transfer-Encoding 不受支持');
+          }
+          if (expectedBodyBytes != null) {
+            throw Exception('HTTP 响应长度声明冲突');
+          }
+          chunkedDecoder = _ChunkedBodyDecoder(maxBodyBytes);
+        } else if (expectedBodyBytes == 0) {
+          break responseLoop;
+        }
       }
-      if (headerEnd >= 0 &&
-          !isChunked &&
-          raw.length - headerEnd - 4 > maxBodyBytes) {
-        throw Exception('订阅内容超过 20 MB 限制');
+
+      if (headers == null || offset == chunk.length) continue;
+      if (chunkedDecoder != null) {
+        chunkedDecoder.add(chunk, offset);
+        if (chunkedDecoder.isComplete) break responseLoop;
+      } else {
+        final incoming = chunk.length - offset;
+        final nextLength = bodyLength + incoming;
+        if (nextLength > maxBodyBytes) {
+          throw Exception('订阅内容超过 20 MB 限制');
+        }
+        if (expectedBodyBytes != null && nextLength > expectedBodyBytes) {
+          throw Exception('HTTP 正文超过 Content-Length');
+        }
+        bodyBytes.add(chunk.sublist(offset));
+        bodyLength = nextLength;
+        if (expectedBodyBytes != null && bodyLength == expectedBodyBytes) {
+          break responseLoop;
+        }
       }
     }
-    if (raw.isEmpty) throw Exception('服务器无响应(直连通道)');
-
-    // 切分头与体
-    headerEnd = headerEnd < 0 ? _findHeaderEnd(raw) : headerEnd;
-    if (headerEnd < 0) throw Exception('HTTP 响应格式错误');
-
-    final headerText =
-        utf8.decode(raw.sublist(0, headerEnd), allowMalformed: true);
-    final lines = headerText.split('\r\n');
-    final statusMatch =
-        RegExp(r'^HTTP/\d\.\d\s+(\d{3})').firstMatch(lines.first);
-    if (statusMatch == null) throw Exception('HTTP 状态行解析失败');
-    final statusCode = int.parse(statusMatch.group(1)!);
-
-    headers ??= _parseHeaders(lines.skip(1));
-
-    var bodyBytes = raw.sublist(headerEnd + 4);
-    // 提前检查 Content-Length，避免超大响应消耗流量
-    final contentLength = headers['content-length'];
-    if (contentLength != null) {
-      final size = int.tryParse(contentLength);
-      if (size != null && size > maxBodyBytes) {
-        throw Exception('订阅内容超过 20 MB 限制');
-      }
+    if (headerBytes.isEmpty) throw Exception('服务器无响应(直连通道)');
+    if (headers == null || statusCode == null) {
+      throw Exception('HTTP 响应格式错误');
     }
-    if (headers['transfer-encoding']?.toLowerCase() == 'chunked') {
-      bodyBytes = _decodeChunked(bodyBytes);
-      if (bodyBytes.length > maxBodyBytes) {
-        throw Exception('订阅内容超过 20 MB 限制');
-      }
+
+    if (expectedBodyBytes != null && bodyLength != expectedBodyBytes) {
+      throw Exception('HTTP 正文短于 Content-Length');
     }
+    final decodedBody = chunkedDecoder?.finish() ?? bodyBytes.takeBytes();
     return _HttpResponse(
       statusCode: statusCode,
       headers: headers,
-      body: utf8.decode(bodyBytes, allowMalformed: true),
+      body: utf8.decode(decodedBody, allowMalformed: true),
     );
   }
 
@@ -325,43 +359,96 @@ class DirectFetcher {
     }
     return headers;
   }
+}
 
-  static int _findHeaderEnd(List<int> raw) {
-    for (var i = 0; i + 3 < raw.length; i++) {
-      if (raw[i] == 13 &&
-          raw[i + 1] == 10 &&
-          raw[i + 2] == 13 &&
-          raw[i + 3] == 10) {
-        return i;
+class _ChunkedBodyDecoder {
+  static const _maxMetadataBytes = 64 * 1024;
+
+  final int maxBodyBytes;
+  final BytesBuilder _body = BytesBuilder(copy: false);
+  final List<int> _line = <int>[];
+  int _bodyLength = 0;
+  int? _chunkBytesRemaining;
+  int _chunkTerminatorOffset = 0;
+  int _trailerBytes = 0;
+  bool _readingTrailers = false;
+  bool _complete = false;
+
+  _ChunkedBodyDecoder(this.maxBodyBytes);
+
+  bool get isComplete => _complete;
+
+  void add(List<int> data, [int offset = 0]) {
+    while (offset < data.length && !_complete) {
+      if (_readingTrailers) {
+        _trailerBytes++;
+        if (_trailerBytes > _maxMetadataBytes) {
+          throw Exception('HTTP chunked 尾部过大');
+        }
+        _line.add(data[offset++]);
+        if (_lineEndsWithCrlf()) {
+          if (_line.length == 2) _complete = true;
+          _line.clear();
+        }
+        continue;
+      }
+
+      if (_chunkBytesRemaining == null) {
+        _line.add(data[offset++]);
+        if (_line.length > _maxMetadataBytes) {
+          throw Exception('HTTP chunk 大小行过大');
+        }
+        if (!_lineEndsWithCrlf()) continue;
+
+        final sizeLine = String.fromCharCodes(_line.take(_line.length - 2));
+        _line.clear();
+        final size = int.tryParse(sizeLine.split(';').first.trim(), radix: 16);
+        if (size == null || size < 0) {
+          throw Exception('HTTP chunk 大小格式错误');
+        }
+        if (size == 0) {
+          _readingTrailers = true;
+          continue;
+        }
+        if (size > maxBodyBytes - _bodyLength) {
+          throw Exception('订阅内容超过 20 MB 限制');
+        }
+        _chunkBytesRemaining = size;
+        continue;
+      }
+
+      if (_chunkBytesRemaining! > 0) {
+        final available = data.length - offset;
+        final count = _chunkBytesRemaining! < available
+            ? _chunkBytesRemaining!
+            : available;
+        _body.add(data.sublist(offset, offset + count));
+        _bodyLength += count;
+        offset += count;
+        _chunkBytesRemaining = _chunkBytesRemaining! - count;
+        continue;
+      }
+
+      final expected = _chunkTerminatorOffset == 0 ? 13 : 10;
+      if (data[offset++] != expected) {
+        throw Exception('HTTP chunk 结束符格式错误');
+      }
+      _chunkTerminatorOffset++;
+      if (_chunkTerminatorOffset == 2) {
+        _chunkTerminatorOffset = 0;
+        _chunkBytesRemaining = null;
       }
     }
-    return -1;
   }
 
-  /// 解析 chunked 传输编码
-  static List<int> _decodeChunked(List<int> data) {
-    final out = <int>[];
-    var pos = 0;
-    while (pos < data.length) {
-      var lineEnd = pos;
-      while (lineEnd + 1 < data.length &&
-          !(data[lineEnd] == 13 && data[lineEnd + 1] == 10)) {
-        lineEnd++;
-      }
-      if (lineEnd + 1 >= data.length) break;
-      final sizeLine = String.fromCharCodes(data.sublist(pos, lineEnd));
-      final size = int.tryParse(sizeLine.split(';').first.trim(), radix: 16);
-      if (size == null || size == 0) break;
-      final chunkStart = lineEnd + 2;
-      final chunkEnd = chunkStart + size;
-      if (chunkEnd > data.length) {
-        out.addAll(data.sublist(chunkStart));
-        break;
-      }
-      out.addAll(data.sublist(chunkStart, chunkEnd));
-      pos = chunkEnd + 2; // 跳过块末尾的 \r\n
-    }
-    return out;
+  List<int> finish() {
+    if (!_complete) throw Exception('HTTP chunked 响应不完整');
+    return _body.takeBytes();
+  }
+
+  bool _lineEndsWithCrlf() {
+    final length = _line.length;
+    return length >= 2 && _line[length - 2] == 13 && _line[length - 1] == 10;
   }
 }
 
