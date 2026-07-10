@@ -33,6 +33,9 @@ run_step "Shared tests" run_in packages/ssrvpn_shared flutter test --coverage=co
 
 for app in SSRVPN_Android SSRVPN_MacOS SSRVPN_Windows; do
   run_step "$app tests" run_in "$app" flutter test --coverage
+  if [[ "$app" == "SSRVPN_Android" ]]; then
+    run_step "Android native unit tests" scripts/test-android-native.sh
+  fi
   run_step "$app coverage thresholds" scripts/check-coverage-thresholds.sh "$app"
 done
 

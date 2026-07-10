@@ -137,6 +137,9 @@ jobs:
       - name: Test
         run: cd SSRVPN_Android && flutter test
 
+      - name: Android native unit tests
+        run: bash scripts/test-android-native.sh
+
       - name: Prepare Android release signing
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

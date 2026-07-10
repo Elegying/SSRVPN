@@ -86,6 +86,11 @@ jobs:
       - run: flutter test --coverage
         working-directory: ${{ matrix.directory }}
 
+      - name: Android native unit tests
+        if: matrix.directory == 'SSRVPN_Android'
+        shell: bash
+        run: bash scripts/test-android-native.sh
+
       - run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
 
       - name: Build Windows portable ZIP
