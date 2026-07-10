@@ -43,7 +43,9 @@ function Copy-PortableReadme {
   if ($lines.Count -eq 0) {
     throw "Portable readme is empty: $source"
   }
-  $lines[0] = "SSRVPN Windows 便携版 $(Get-AppDisplayVersion)"
+  # Preserve the UTF-8 title read from the guide. Windows PowerShell 5.1 may
+  # decode non-ASCII literals in a BOM-less .ps1 file using the active codepage.
+  $lines[0] = "$($lines[0]) $(Get-AppDisplayVersion)"
   $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
   [System.IO.File]::WriteAllLines($Destination, $lines, $utf8NoBom)
 }

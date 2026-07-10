@@ -94,13 +94,19 @@ check_zip() {
   done
   [[ -n "$zip" ]] || { missing "Windows ZIP"; return; }
   python3 - "$zip" <<'PY'
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+import re
 import sys
 import zipfile
 
 zip_path = sys.argv[1]
 with zipfile.ZipFile(zip_path) as zf:
-    names = [PurePosixPath(name) for name in zf.namelist() if not name.endswith("/")]
+    raw_names = zf.namelist()
+names = [
+    PurePosixPath(name.replace("\\", "/"))
+    for name in raw_names
+    if not name.endswith(("/", "\\"))
+]
 
 roots = {path.parts[0] for path in names if path.parts}
 if "SSRVPN_Windows_Release" not in roots:
@@ -139,8 +145,20 @@ missing = sorted(required - all_names)
 if missing:
     raise SystemExit(f"ZIP missing required files: {missing}")
 
+guide_path = "SSRVPN_Windows_Release/使用教程.txt"
+guide_entry = next(
+    name for name in raw_names if name.replace("\\", "/") == guide_path
+)
 with zipfile.ZipFile(zip_path) as zf:
-    guide = zf.read("SSRVPN_Windows_Release/使用教程.txt").decode("utf-8-sig")
+    guide = zf.read(guide_entry).decode("utf-8-sig")
+first_line = guide.splitlines()[0] if guide.splitlines() else ""
+pubspec = Path("SSRVPN_Windows/pubspec.yaml").read_text(encoding="utf-8")
+version_match = re.search(r"^version:\s+([^+\s]+)", pubspec, re.MULTILINE)
+if version_match is None:
+    raise SystemExit("Windows pubspec version is missing")
+expected_title = f"SSRVPN Windows 便携版 v{version_match.group(1)}"
+if first_line != expected_title:
+    raise SystemExit(f"ZIP tutorial title is invalid: {first_line!r}")
 expected_steps = [
     "1、下载完 ZIP 后，使用解压软件解压出来。",
     "2、双击 ssrvpn_windows.exe 打开软件。",

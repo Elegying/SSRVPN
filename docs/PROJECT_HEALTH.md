@@ -4,7 +4,7 @@ Last reviewed: 2026-07-11
 
 ## Current Status
 
-SSRVPN is a single Flutter monorepo for Android, macOS, Windows, and `ssrvpn_shared`. The `v3.0.0` release candidate combines the package-guide, Windows flag, conservative unlock, Android startup, and Clash responsibility-boundary work. It passed the full local gate, Android debug packaging, macOS Release/DMG packaging, macOS UI startup, and native lifecycle tests; remote three-platform CI remains mandatory before tagging.
+SSRVPN is a single Flutter monorepo for Android, macOS, Windows, and `ssrvpn_shared`. The `v3.0.1` release candidate combines the package-guide, Windows flag, conservative unlock, Android startup, and Clash responsibility-boundary work, plus a Windows PowerShell 5.1 UTF-8 guide-title fix discovered by downloading and inspecting the published `v3.0.0` artifacts. It passed the full local gate, Android debug packaging, macOS Release/DMG packaging, macOS UI startup, and native lifecycle tests; remote three-platform CI remains mandatory before tagging.
 
 | Area | Status | Notes |
 |---|---|---|
@@ -48,7 +48,7 @@ The macOS and Windows gates remain deliberately conservative. Raising them shoul
 
 ## Next Milestones
 
-1. Push the verified `v3.0.0` candidate, require all remote CI jobs, then complete the documented Windows real-device smoke matrix.
+1. Push the verified `v3.0.1` correction, require all remote CI jobs, then complete the documented Windows real-device smoke matrix.
 2. Add Developer ID/notarization and Windows Authenticode signing for trusted desktop distribution.
 3. Decide and document the macOS TUN architecture before implementation.
 4. Migrate Android to Built-in Kotlin before the next Flutter toolchain upgrade.
