@@ -63,20 +63,16 @@ class UpdateChecker {
       if (compareVersions(latestVersion, currentVersion) <= 0) return null;
 
       final releaseAssets = _releaseAssets(data['assets']);
-      final selectedAsset = _assetFor(releaseAssets, assetExtension) ??
-          (releaseAssets.isEmpty ? null : releaseAssets.first);
-      final downloadUrl =
-          selectedAsset?.downloadUrl ?? data['html_url']?.toString();
-      if (downloadUrl == null || downloadUrl.isEmpty) return null;
-      final sha256 = selectedAsset == null
-          ? null
-          : await _sha256ForAsset(
-              releaseAssets,
-              selectedAsset,
-              httpClient,
-              timeout,
-            );
-      final sourceHost = Uri.tryParse(downloadUrl)?.host;
+      final selectedAsset = _assetFor(releaseAssets, assetExtension);
+      if (selectedAsset == null) return null;
+      final downloadUrl = selectedAsset.downloadUrl;
+      final sha256 = await _sha256ForAsset(
+        releaseAssets,
+        selectedAsset,
+        httpClient,
+        timeout,
+      );
+      final sourceHost = Uri.parse(downloadUrl).host;
 
       return AppUpdateInfo(
         version: latestVersion,
@@ -119,7 +115,7 @@ class UpdateChecker {
       if (name != null &&
           name.isNotEmpty &&
           candidate != null &&
-          candidate.isNotEmpty) {
+          _isSecureDownloadUrl(candidate)) {
         result.add(_ReleaseAsset(name: name, downloadUrl: candidate));
       }
     }
@@ -130,11 +126,17 @@ class UpdateChecker {
     List<_ReleaseAsset> assets,
     String assetExtension,
   ) {
-    final wanted = assetExtension.toLowerCase();
+    final wanted = assetExtension.trim().toLowerCase();
+    if (wanted.isEmpty) return null;
     for (final asset in assets) {
       if (asset.name.toLowerCase().endsWith(wanted)) return asset;
     }
     return null;
+  }
+
+  static bool _isSecureDownloadUrl(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null && uri.scheme == 'https' && uri.host.isNotEmpty;
   }
 
   static Future<String?> _sha256ForAsset(

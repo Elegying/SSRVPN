@@ -19,7 +19,7 @@ class SharedUpdateService {
 
   static Uri validateDownloadUrl(String url) {
     final uri = Uri.tryParse(url);
-    if (uri == null || (uri.scheme != 'https' && uri.scheme != 'http')) {
+    if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
       throw const FormatException('Invalid download URL');
     }
     return uri;
