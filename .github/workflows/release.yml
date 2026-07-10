@@ -67,6 +67,7 @@ jobs:
       - run: bash ../../scripts/check-version-sync.sh
       - run: bash ../../scripts/check-android-native-bridge-guards.sh
       - run: bash ../../scripts/check-desktop-startup-guards.sh
+      - run: bash ../../scripts/check-macos-core-privileges.sh
       - run: bash ../../scripts/check-windows-launcher-security.sh
       - run: bash ../../scripts/check-secrets.sh
       - run: dart pub get
