@@ -9,15 +9,14 @@ The `SSRVPN CI` workflow runs:
 
 - `scripts/verify-core-assets.sh` to reject missing Git LFS binaries, pointer
   files, or unexpected core/geo database hashes
-- `dart test --coverage=coverage` for `packages/ssrvpn_shared`
+- `flutter test --coverage` for `packages/ssrvpn_shared`
 - `flutter test --coverage` for Android, macOS, and Windows
+- `scripts/test-android-native.sh` for Kotlin/JUnit update-install identity tests
 
-Coverage output is uploaded as GitHub Actions artifacts. No minimum threshold is
-enforced for the shared package yet because `dart test --coverage` stores VM
-JSON snapshots instead of `lcov.info` here. Android, macOS, and Windows enforce
-conservative line coverage floors through `scripts/check-coverage-thresholds.sh`
-so obvious regressions fail quickly without pretending the current coverage is
-complete.
+Coverage output is uploaded as GitHub Actions artifacts. Conservative line
+coverage floors are enforced through `scripts/check-coverage-thresholds.sh`:
+shared 50%, Android 40%, macOS 10%, and Windows 12%. These thresholds catch
+obvious regressions without pretending the current coverage is complete.
 
 Normal CI validates the GeoIP database against the hashes committed in
 `docs/GEOIP_SOURCE.txt`, keeping pull-request checks deterministic. The separate
@@ -29,10 +28,12 @@ latest verified upstream database before packaging.
 ## Platform Dependencies
 
 - Shared package tests avoid OS process and UI dependencies.
-- Android tests cover config generation, subscription parsing, update logic, and
-  model behavior; native MethodChannel/VPN behavior is still integration-level.
+- Android tests cover config generation, subscription parsing, secure settings,
+  update logic, APK identity validation, and model behavior; live VPN behavior
+  is still integration-level.
 - macOS tests cover config generation and shared subscription behavior without
-  invoking root/TUN or system proxy changes.
+  changing system proxy state. They also verify that TUN fails closed and that
+  legacy privileged/symlinked cores cannot cross the file boundary.
 - Windows tests include HTTP server mocks for Clash API calls and a Mihomo
   integration smoke test. The integration test runs on Windows when the Git LFS
   `assets/mihomo.exe` binary is available; otherwise it is skipped with an
@@ -41,16 +42,20 @@ latest verified upstream database before packaging.
 ## Local Commands
 
 ```bash
+make verify
+
 scripts/check-shared-barrel-imports.sh
 scripts/verify-core-assets.sh
 scripts/check-secrets.sh
 
 cd packages/ssrvpn_shared
-dart test --coverage=coverage
+flutter test --coverage
+../../scripts/check-coverage-thresholds.sh packages/ssrvpn_shared
 
 cd ../../SSRVPN_Android
 flutter test --coverage
 ../scripts/check-coverage-thresholds.sh SSRVPN_Android
+../scripts/test-android-native.sh
 
 cd ../SSRVPN_MacOS
 flutter test --coverage

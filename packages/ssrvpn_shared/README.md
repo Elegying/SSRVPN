@@ -79,8 +79,7 @@ dart test
 如需覆盖率：
 
 ```bash
-dart test --coverage=coverage
-dart run coverage:format_coverage --lcov --in=coverage --out=coverage/lcov.info
+flutter test --coverage
 ```
 
 ## 开发约定

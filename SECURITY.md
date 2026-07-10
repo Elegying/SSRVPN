@@ -30,39 +30,20 @@ SSRVPN 日志必须脱敏或避免输出以下内容：
 
 ## macOS TUN 权限模型
 
-macOS TUN 模式需要 Clash/Mihomo 核心二进制文件以 root 权限创建虚拟网卡。SSRVPN 使用 setuid root 模型：
+SSRVPN 不再使用 setuid root 核心、`osascript` 管理员授权或持久化特权二进制。
+当前版本在 macOS 上会在触达核心启动链路前拒绝 TUN 模式，并提示用户切换到系统代理模式。
 
-1. 首次启用 TUN 时，SSRVPN 通过 `osascript` 请求管理员授权。
-2. 核心二进制文件会被设置为 `root:wheel` 所有，并添加 setuid 位（`chmod u+s`）。
-3. 只要二进制文件没有变化，后续启用 TUN 不需要重复输入管理员密码。
+核心资产以普通用户权限安装为 `0755` 文件。启动前会拒绝符号链接、非普通文件以及 setuid/setgid 位；安装和复用时会用应用包中的可信 SHA256 清单校验核心内容。旧版本遗留的链接或带特权位核心会被安全替换，而不会跟随链接修改其目标。
 
-安全影响：
-
-- 本机任意用户都可能执行带 root 权限的核心二进制文件。
-- 如果核心文件被更新或替换，setuid 位会丢失，需要重新授权。
-- SSRVPN 每次启动核心前都会检查文件所有者和 setuid 位，不匹配时重新请求授权。
-- 授权后核心二进制文件不应对非 root 用户可写。
-
-如果怀疑权限被篡改，可执行：
-
-```bash
-stat -f '%Su %Mp%Lp' /path/to/AtlasCore
-```
-
-正常情况下应显示 root 所有并带 setuid 位，例如 `root -rwsr-xr-x`。
-
-如需撤销 setuid：
-
-```bash
-sudo chown root:wheel /path/to/AtlasCore
-sudo chmod u-s /path/to/AtlasCore
-```
+恢复 macOS TUN 的前提是引入受审计的 Network Extension 或最小权限特权辅助程序，并完成相应签名、公证、IPC 认证和升级/卸载设计。在此之前，不应重新引入 setuid root 方案。
 
 ## Android apiSecret 存储
 
-Android 使用 `EncryptedSharedPreferences` 存储 Clash API secret，底层通过 Android Keystore 提供 AES-256 加密。旧版本曾使用 Base64 编码的 `SharedPreferences`，这不是安全存储方式；升级时 SSRVPN 会自动迁移到加密存储并删除旧 key。
+Android 使用 `flutter_secure_storage` 将 Clash API secret 保存到 Android Keystore 支持的安全存储。旧版本曾使用 Base64 编码的 `SharedPreferences` 或设置 JSON，这不是安全存储方式；升级时 SSRVPN 会先确认安全写入成功，再删除旧值并清理磁盘上的遗留副本。
 
 新安装首次加载设置时会生成随机 apiSecret 并保存到加密存储。VPN service 的原生重启路径不会把 secret 回写到普通 `SharedPreferences`；如果没有从 Flutter 层传入 secret，会跳过需要认证的代理组切换。
+
+安全存储读取或写入失败时，初始化/保存必须明确失败，不能静默轮换 secret 或留下内存、JSON 与 Keystore 三份状态不一致。
 
 严禁将 apiSecret 存放在：
 
