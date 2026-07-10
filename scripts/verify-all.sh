@@ -26,6 +26,7 @@ run_step "Core asset bootstrap" scripts/bootstrap-core-assets.sh
 run_step "Core binary assets" scripts/verify-core-assets.sh
 run_step "Android native bridge guards" scripts/check-android-native-bridge-guards.sh
 run_step "Desktop startup guards" scripts/check-desktop-startup-guards.sh
+run_step "Clash service boundaries" bash scripts/check-clash-service-boundaries.sh
 run_step "macOS core privilege guards" scripts/check-macos-core-privileges.sh
 run_step "Windows launcher security" scripts/check-windows-launcher-security.sh
 run_step "Secret scan" scripts/check-secrets.sh

@@ -7,8 +7,8 @@ python3 - <<'PY'
 from pathlib import Path
 
 paths = (
-    Path("SSRVPN_MacOS/lib/services/clash_service.dart"),
-    Path("SSRVPN_Windows/lib/services/clash_service.dart"),
+    Path("SSRVPN_MacOS/lib/services/clash_service_lifecycle.dart"),
+    Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart"),
 )
 
 for path in paths:
