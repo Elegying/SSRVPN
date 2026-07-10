@@ -586,10 +586,10 @@ class SsrvpnVpnService : VpnService() {
 
     private fun isBridgeRunningWithTimeout(): Boolean {
         if (!bridgeRunningCheckInProgress.compareAndSet(false, true)) {
-            Log.w(TAG, "Bridge.isRunning already in progress; assuming running")
-            return true
+            Log.w(TAG, "Bridge.isRunning already in progress; treating as stopped")
+            return false
         }
-        var result = true
+        var result = false
         var error: Exception? = null
         val bridgeThread = Thread({
             try {
@@ -607,13 +607,13 @@ class SsrvpnVpnService : VpnService() {
         try {
             bridgeThread.join(BRIDGE_IS_RUNNING_TIMEOUT_MS)
             if (bridgeThread.isAlive) {
-                Log.e(TAG, "Bridge.isRunning timed out after ${BRIDGE_IS_RUNNING_TIMEOUT_MS}ms; assuming running")
-                return true
+                Log.e(TAG, "Bridge.isRunning timed out after ${BRIDGE_IS_RUNNING_TIMEOUT_MS}ms; treating as stopped")
+                return false
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
             Log.e(TAG, "Interrupted while waiting for Bridge.isRunning", e)
-            return true
+            return false
         }
         error?.let { Log.e(TAG, "Bridge.isRunning error", it) }
         return result
