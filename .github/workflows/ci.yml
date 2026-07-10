@@ -41,7 +41,7 @@ jobs:
       - run: bash scripts/check-secrets.sh
       - run: flutter pub get
       - run: flutter analyze
-      - run: flutter test --coverage=coverage
+      - run: flutter test --coverage
         working-directory: packages/ssrvpn_shared
       - run: bash scripts/check-coverage-thresholds.sh packages/ssrvpn_shared
 
