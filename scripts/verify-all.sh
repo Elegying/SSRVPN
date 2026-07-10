@@ -33,6 +33,8 @@ run_step "Secret scan" scripts/check-secrets.sh
 run_step "Workspace pub get" flutter pub get
 run_step "Workspace analyze" flutter analyze
 run_step "Shared tests" run_in packages/ssrvpn_shared flutter test --coverage
+run_step "Shared coverage thresholds" \
+  scripts/check-coverage-thresholds.sh packages/ssrvpn_shared
 
 for app in SSRVPN_Android SSRVPN_MacOS SSRVPN_Windows; do
   run_step "$app tests" run_in "$app" flutter test --coverage
