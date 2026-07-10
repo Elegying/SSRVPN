@@ -6,6 +6,7 @@ REPO="${SSRVPN_REPO:-Elegying/SSRVPN}"
 
 python3 - "$REPO" "$TAG" <<'PY'
 import json
+import os
 import sys
 import urllib.request
 
@@ -14,13 +15,14 @@ url = f"https://api.github.com/repos/{repo}/releases/latest"
 if tag != "latest":
     url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
 
-request = urllib.request.Request(
-    url,
-    headers={
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "SSRVPN-release-check",
-    },
-)
+headers = {
+    "Accept": "application/vnd.github+json",
+    "User-Agent": "SSRVPN-release-check",
+}
+token = os.environ.get("GITHUB_TOKEN")
+if token:
+    headers["Authorization"] = f"Bearer {token}"
+request = urllib.request.Request(url, headers=headers)
 with urllib.request.urlopen(request, timeout=20) as response:
     release = json.load(response)
 
