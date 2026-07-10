@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Removed the invalid Windows PE header patch that marked the portable launcher
+  as AppContainer instead of CET-compatible, and now use the supported MSVC
+  linker flags.
+- Added a reliable one-time cleanup path and upgrade guidance for Windows
+  mitigation exceptions created by older SSRVPN releases.
+
 ## [2.4.5] - 2026-07-07
 
 ### 修复

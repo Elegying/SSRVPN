@@ -153,6 +153,51 @@ function Get-PeMachine {
   }
 }
 
+function Get-PeDllCharacteristics {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $stream = $null
+  $reader = $null
+  try {
+    $stream = [System.IO.File]::Open(
+      $Path,
+      [System.IO.FileMode]::Open,
+      [System.IO.FileAccess]::Read,
+      [System.IO.FileShare]::ReadWrite
+    )
+    if ($stream.Length -lt 0x40) {
+      return $null
+    }
+    $reader = New-Object System.IO.BinaryReader($stream)
+    [void]$stream.Seek(0x3c, [System.IO.SeekOrigin]::Begin)
+    $peOffset = $reader.ReadInt32()
+    $optionalHeaderOffset = $peOffset + 24
+    $dllCharacteristicsOffset = $optionalHeaderOffset + 0x46
+    if ($peOffset -le 0 -or $dllCharacteristicsOffset -gt ($stream.Length - 2)) {
+      return $null
+    }
+    [void]$stream.Seek($peOffset, [System.IO.SeekOrigin]::Begin)
+    if ($reader.ReadUInt32() -ne 0x00004550) {
+      return $null
+    }
+    [void]$stream.Seek($optionalHeaderOffset, [System.IO.SeekOrigin]::Begin)
+    $magic = $reader.ReadUInt16()
+    if ($magic -ne 0x010b -and $magic -ne 0x020b) {
+      return $null
+    }
+    [void]$stream.Seek($dllCharacteristicsOffset, [System.IO.SeekOrigin]::Begin)
+    return $reader.ReadUInt16()
+  } catch {
+    return $null
+  } finally {
+    if ($reader -ne $null) {
+      $reader.Close()
+    } elseif ($stream -ne $null) {
+      $stream.Close()
+    }
+  }
+}
+
 function Test-X64PeFile {
   param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -643,6 +688,18 @@ function Test-ReleaseContents {
     if (-not (Test-X64PeFile -Path $path)) {
       throw "Release file is not a valid x64 PE binary: $relativePath"
     }
+  }
+
+  $launcher = Join-Path $Root 'ssrvpn_windows.exe'
+  $launcherCharacteristics = Get-PeDllCharacteristics -Path $launcher
+  if ($null -eq $launcherCharacteristics) {
+    throw 'Could not read launcher PE security flags.'
+  }
+  if (($launcherCharacteristics -band 0x1000) -ne 0) {
+    throw 'Launcher unexpectedly requires AppContainer.'
+  }
+  if (($launcherCharacteristics -band 0x4000) -eq 0) {
+    throw 'Launcher is missing the Guard CF PE flag.'
   }
 
   $core = Join-Path $Root 'bin\mihomo.exe'
