@@ -1,5 +1,6 @@
 package com.ssrvpn.android
 
+import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
@@ -7,6 +8,7 @@ import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
@@ -25,6 +27,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.ssrvpn/native"
     private val VPN_REQUEST_CODE = 100
+    private val NOTIFICATION_PERMISSION_REQUEST_CODE = 101
+    private val NOTIFICATION_PERMISSION_PREFS = "ssrvpn_notification"
+    private val NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
     private val UPDATE_PREFS = "ssrvpn_update"
     private val PENDING_UPDATE_APK_PATH = "pending_update_apk_path"
     private var autoConnectPending = false
@@ -158,6 +163,7 @@ class MainActivity : FlutterActivity() {
                         myResultCallback = null
                         runOnUiThread {
                             if (success) {
+                                requestNotificationPermissionOnce()
                                 result.success(true)
                             } else {
                                 result.error("CORE_FAILED", message, null)
@@ -324,6 +330,26 @@ class MainActivity : FlutterActivity() {
         } else {
             startService(intent)
         }
+    }
+
+    private fun requestNotificationPermissionOnce() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
+        val prefs = getSharedPreferences(NOTIFICATION_PERMISSION_PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(NOTIFICATION_PERMISSION_REQUESTED, false)) return
+
+        prefs.edit().putBoolean(NOTIFICATION_PERMISSION_REQUESTED, true).apply()
+        requestPermissions(
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            NOTIFICATION_PERMISSION_REQUEST_CODE
+        )
     }
 
     private fun startVpnServiceWithTimeout() {

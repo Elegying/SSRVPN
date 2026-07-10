@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   chunk metadata, read duration, and Android gzip expansion are bounded.
 - Android API secrets now fail safely on Keystore errors and remove legacy
   copies only after secure persistence succeeds.
+- Disabled Android application backups so subscription credentials and
+  Keystore-backed storage artifacts are not copied outside the app sandbox.
 
 ### Fixed
 
@@ -42,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bounded timed process cleanup, startup logs, log redaction, crash-report
   storage, and Windows dump retention.
 - Fixed shared Flutter coverage generation and workspace barrel-import checks.
+- Android now requests notification permission once after the first successful
+  VPN connection so the ongoing status and disconnect action remain visible.
 
 ### Changed
 
@@ -54,6 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   privilege and Windows launcher security invariants.
 - Dependabot and dependency checks now operate once at the Flutter workspace
   root, and GeoIP freshness is separated from deterministic pull-request checks.
+- Android debug builds now install beside release builds under a distinct
+  package name and `SSRVPN Debug` label, preserving release app data.
 
 ## [2.4.5] - 2026-07-07
 
