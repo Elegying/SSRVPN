@@ -17,6 +17,8 @@ import '../utils/log_redactor.dart';
 import '../utils/private_node_latency_policy.dart';
 import 'public_ip_info_service.dart';
 
+part 'clash_service_config_support.dart';
+
 /// Clash API 交互的公共逻辑基类
 ///
 /// 各平台 ClashService 继承此类，只需实现：
@@ -25,7 +27,7 @@ import 'public_ip_info_service.dart';
 /// - 平台特定的文件路径和资源释放
 ///
 /// 公共能力（API 调用、延迟测试、日志、状态管理）全部在此实现。
-abstract class ClashServiceBase {
+abstract class ClashServiceBase with _ClashConfigSupport {
   // ── 状态 ──
   bool _isRunning = false;
   bool _healthCheckInProgress = false;
@@ -38,9 +40,6 @@ abstract class ClashServiceBase {
   String _configDir = '';
   String _configPath = '';
   String _logBuffer = '';
-  _ClashConfigCacheKey? _lastGeneratedConfigKey;
-  String? _lastGeneratedConfig;
-
   // ── HTTP 客户端 ──
   HttpClient? _directHttpClient;
   http.Client? _apiClient;
@@ -92,136 +91,6 @@ abstract class ClashServiceBase {
   void setPaths({required String configDir, required String configPath}) {
     _configDir = configDir;
     _configPath = configPath;
-  }
-
-  @protected
-  String buildClashConfig(
-    String rawYaml,
-    AppSettings settings, {
-    required String platformHeader,
-    String? preferredNodeName,
-    String? tunConfig,
-    String? latencyTestUrl,
-    bool includeFallbackGroup = false,
-    bool includeGeoIpRules = false,
-    Iterable<String> extraSelectGroupNames = const [],
-    Iterable<String> extraRulesBeforeDirect = const [],
-  }) {
-    final preferredNode = preferredNodeName ?? settings.lastSelectedNodeName;
-    final extraGroups = List<String>.unmodifiable(extraSelectGroupNames);
-    final extraRules = List<String>.unmodifiable(extraRulesBeforeDirect);
-    final cacheKey = _ClashConfigCacheKey(
-      rawYaml: rawYaml,
-      settings: settings,
-      preferredNodeName: preferredNode,
-      platformHeader: platformHeader,
-      tunConfig: tunConfig,
-      latencyTestUrl: latencyTestUrl,
-      includeFallbackGroup: includeFallbackGroup,
-      includeGeoIpRules: includeGeoIpRules,
-      extraSelectGroupNames: extraGroups,
-      extraRulesBeforeDirect: extraRules,
-    );
-    if (_lastGeneratedConfigKey == cacheKey && _lastGeneratedConfig != null) {
-      return _lastGeneratedConfig!;
-    }
-
-    final output = ClashConfigGenerator.generateConfig(
-      rawYaml,
-      settings,
-      preferredNodeName: preferredNode,
-      platformHeader: platformHeader,
-      tunConfig: tunConfig,
-      latencyTestUrl: latencyTestUrl,
-      includeFallbackGroup: includeFallbackGroup,
-      includeGeoIpRules: includeGeoIpRules,
-      extraSelectGroupNames: extraGroups,
-      extraRulesBeforeDirect: extraRules,
-    );
-    _lastGeneratedConfigKey = cacheKey;
-    _lastGeneratedConfig = output;
-    return output;
-  }
-
-  // ── YAML 工具 ──
-
-  /// 从原始 YAML 提取指定顶层段的原始内容
-  String extractSection(String yaml, String sectionName) {
-    if (sectionName == 'proxies') {
-      return ClashConfigGenerator.buildProxiesText(yaml);
-    }
-
-    final normalized = yaml.replaceAll('\t', '    ');
-    final lines = normalized.split('\n');
-    final sectionLines = <String>[];
-    bool inSection = false;
-
-    for (final line in lines) {
-      if (!line.startsWith(' ') && !line.startsWith('\t')) {
-        if (line.trim().startsWith('$sectionName:')) {
-          inSection = true;
-          continue;
-        } else if (inSection &&
-            line.trim().contains(':') &&
-            !line.trim().startsWith('#') &&
-            !line.trim().startsWith('-')) {
-          break;
-        }
-      }
-      if (inSection) {
-        sectionLines.add(line);
-      }
-    }
-
-    // 计算最小缩进（排除空行）
-    int minIndent = 999;
-    for (final line in sectionLines) {
-      final t = line.trimLeft();
-      if (t.isEmpty) continue;
-      final indent = line.length - t.length;
-      if (indent < minIndent) minIndent = indent;
-    }
-    if (minIndent == 999) minIndent = 0;
-
-    // 重建：保留相对缩进
-    final buffer = StringBuffer();
-    for (final line in sectionLines) {
-      final trimmed = line.trimLeft();
-      if (trimmed.isEmpty) continue;
-      final delta = line.length - trimmed.length - minIndent;
-      buffer.writeln('${' ' * (delta + 2)}$trimmed');
-    }
-    return buffer.toString().trimRight();
-  }
-
-  /// 提取代理名称列表（loadYaml 解析，失败时 fallback 纯文本）
-  List<String> extractProxyNames(String rawYaml) {
-    return ClashConfigGenerator.extractProxyNames(rawYaml);
-  }
-
-  /// 纯文本方式提取代理名称（fallback）
-  List<String> extractProxyNamesFromText(String rawYaml) {
-    final names = <String>[];
-    try {
-      final proxiesSection = extractSection(rawYaml, 'proxies');
-      for (final line in proxiesSection.split('\n')) {
-        final trimmed = line.trim();
-        if (!trimmed.startsWith('-')) continue;
-        final nameMatch = RegExp(
-          r'''name:\s*['"]?([^'"\n,]+)['"]?''',
-        ).firstMatch(trimmed);
-        if (nameMatch != null) names.add(nameMatch.group(1)!.trim());
-      }
-    } catch (_) {}
-    return names;
-  }
-
-  /// YAML 单引号字符串转义（过滤控制字符和反斜杠）
-  String yamlQuote(String name) {
-    final sanitized = name
-        .replaceAll('\\', '\\\\')
-        .replaceAll(RegExp(r'[\x00-\x1f\x7f]'), '');
-    return "'${sanitized.replaceAll("'", "''")}'";
   }
 
   // ── Clash API ──
@@ -875,68 +744,4 @@ abstract class ClashServiceBase {
     _apiClient?.close();
     _statusListeners.clear();
   }
-}
-
-class _ClashConfigCacheKey {
-  final String rawYaml;
-  final AppSettings settings;
-  final String? preferredNodeName;
-  final String platformHeader;
-  final String? tunConfig;
-  final String? latencyTestUrl;
-  final bool includeFallbackGroup;
-  final bool includeGeoIpRules;
-  final List<String> extraSelectGroupNames;
-  final List<String> extraRulesBeforeDirect;
-
-  const _ClashConfigCacheKey({
-    required this.rawYaml,
-    required this.settings,
-    required this.preferredNodeName,
-    required this.platformHeader,
-    required this.tunConfig,
-    required this.latencyTestUrl,
-    required this.includeFallbackGroup,
-    required this.includeGeoIpRules,
-    required this.extraSelectGroupNames,
-    required this.extraRulesBeforeDirect,
-  });
-
-  @override
-  bool operator ==(Object other) {
-    return other is _ClashConfigCacheKey &&
-        other.rawYaml == rawYaml &&
-        other.settings == settings &&
-        other.preferredNodeName == preferredNodeName &&
-        other.platformHeader == platformHeader &&
-        other.tunConfig == tunConfig &&
-        other.latencyTestUrl == latencyTestUrl &&
-        other.includeFallbackGroup == includeFallbackGroup &&
-        other.includeGeoIpRules == includeGeoIpRules &&
-        _stringListEquals(other.extraSelectGroupNames, extraSelectGroupNames) &&
-        _stringListEquals(other.extraRulesBeforeDirect, extraRulesBeforeDirect);
-  }
-
-  @override
-  int get hashCode => Object.hash(
-        rawYaml,
-        settings,
-        preferredNodeName,
-        platformHeader,
-        tunConfig,
-        latencyTestUrl,
-        includeFallbackGroup,
-        includeGeoIpRules,
-        Object.hashAll(extraSelectGroupNames),
-        Object.hashAll(extraRulesBeforeDirect),
-      );
-}
-
-bool _stringListEquals(List<String> left, List<String> right) {
-  if (identical(left, right)) return true;
-  if (left.length != right.length) return false;
-  for (var index = 0; index < left.length; index++) {
-    if (left[index] != right[index]) return false;
-  }
-  return true;
 }
