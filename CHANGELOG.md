@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-07-11
+
+### 修复
+
+- 修复 Windows 便携 ZIP 中文教程标题在 Windows PowerShell 5.1 下被错误代码页解码而显示乱码的问题。
+- 让 ZIP 产物冒烟检查兼容 Windows 路径分隔符，并校验教程标题和版本格式，防止同类编码回归。
+
 ## [3.0.0] - 2026-07-11
 
 ### 新增
