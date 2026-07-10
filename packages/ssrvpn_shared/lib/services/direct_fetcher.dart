@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import '../constants/app_constants.dart';
+import '../utils/subscription_url_policy.dart';
 
 /// 订阅“真·直连”下载器（桌面优先）
 ///
@@ -23,6 +24,7 @@ class DirectFetcher {
   static const _dohHost = 'dns.alidns.com';
   static const _connectTimeout = Duration(seconds: 8);
   static const _readTimeout = Duration(seconds: 30);
+  static const _requestTimeout = Duration(seconds: 60);
   static const _maxHeaderBytes = 64 * 1024;
 
   /// 判断 IP 是否落在 Clash fake-ip 常用网段 198.18.0.0/15
@@ -114,12 +116,14 @@ class DirectFetcher {
     Map<String, String> headers = const {},
     int maxRedirects = 4,
     int maxBodyBytes = AppConstants.maxSubscriptionBytes,
+    Duration requestTimeout = _requestTimeout,
   }) async {
     return (await fetchResponse(
       url,
       headers: headers,
       maxRedirects: maxRedirects,
       maxBodyBytes: maxBodyBytes,
+      requestTimeout: requestTimeout,
     ))
         .body;
   }
@@ -130,14 +134,16 @@ class DirectFetcher {
     Map<String, String> headers = const {},
     int maxRedirects = 4,
     int maxBodyBytes = AppConstants.maxSubscriptionBytes,
+    Duration requestTimeout = _requestTimeout,
   }) async {
     final bindAddr = await _physicalInterfaceAddress();
-    var current = Uri.parse(url);
+    var current = SubscriptionUrlPolicy.parse(url);
 
     for (var hop = 0; hop <= maxRedirects; hop++) {
       final host = current.host;
       final isHttps = current.scheme == 'https';
       final port = current.hasPort ? current.port : (isHttps ? 443 : 80);
+      final hostHeader = current.hasPort ? '$host:$port' : host;
 
       // 解析真实 IP:IP 直填则跳过;否则优先 DoH,失败回退系统 DNS(过滤 fake-ip)
       String connectIp;
@@ -185,20 +191,22 @@ class DirectFetcher {
             basePath + (current.hasQuery ? '?${current.query}' : '');
         resp = await _httpGetOverSocket(
           stream,
-          host: host,
+          host: hostHeader,
           path: pathAndQuery,
           accept: headers['Accept'] ?? '*/*',
           userAgent: headers['User-Agent'],
           maxBodyBytes: maxBodyBytes,
+          requestTimeout: requestTimeout,
         );
       } finally {
         stream.destroy();
       }
 
-      if (resp.statusCode >= 300 &&
-          resp.statusCode < 400 &&
-          resp.headers['location'] != null) {
-        current = current.resolve(resp.headers['location']!);
+      if (SubscriptionUrlPolicy.isRedirectStatus(resp.statusCode)) {
+        current = SubscriptionUrlPolicy.resolveRedirect(
+          current,
+          resp.headers['location'] ?? '',
+        );
         continue;
       }
       if (resp.statusCode != 200) {
@@ -233,6 +241,7 @@ class DirectFetcher {
     String accept = '*/*',
     String? userAgent,
     int maxBodyBytes = AppConstants.maxSubscriptionBytes,
+    Duration requestTimeout = _requestTimeout,
   }) async {
     final request = StringBuffer()
       ..write('GET $path HTTP/1.1\r\n')
@@ -252,85 +261,98 @@ class DirectFetcher {
     int? statusCode;
     int? expectedBodyBytes;
     _ChunkedBodyDecoder? chunkedDecoder;
+    var absoluteTimeoutExpired = false;
+    final absoluteTimer = Timer(requestTimeout, () {
+      absoluteTimeoutExpired = true;
+      socket.destroy();
+    });
     responseLoop:
-    await for (final chunk in socket.timeout(_readTimeout)) {
-      var offset = 0;
-      while (headers == null && offset < chunk.length) {
-        headerBytes.add(chunk[offset++]);
-        if (headerBytes.length > _maxHeaderBytes) {
-          throw Exception('HTTP 响应头过大');
-        }
-
-        final length = headerBytes.length;
-        if (length < 4 ||
-            headerBytes[length - 4] != 13 ||
-            headerBytes[length - 3] != 10 ||
-            headerBytes[length - 2] != 13 ||
-            headerBytes[length - 1] != 10) {
-          continue;
-        }
-
-        final headerText = utf8.decode(
-          headerBytes.sublist(0, length - 4),
-          allowMalformed: true,
-        );
-        final lines = headerText.split('\r\n');
-        final statusMatch =
-            RegExp(r'^HTTP/\d\.\d\s+(\d{3})').firstMatch(lines.first);
-        if (statusMatch == null) throw Exception('HTTP 状态行解析失败');
-        statusCode = int.parse(statusMatch.group(1)!);
-        headers = _parseHeaders(lines.skip(1));
-
-        final contentLength = headers['content-length']?.trim();
-        if (contentLength != null) {
-          final size = int.tryParse(contentLength);
-          if (!RegExp(r'^\d+$').hasMatch(contentLength) || size == null) {
-            throw Exception('HTTP Content-Length 格式错误');
+    try {
+      await for (final chunk in socket.timeout(_readTimeout)) {
+        var offset = 0;
+        while (headers == null && offset < chunk.length) {
+          headerBytes.add(chunk[offset++]);
+          if (headerBytes.length > _maxHeaderBytes) {
+            throw Exception('HTTP 响应头过大');
           }
-          if (size > maxBodyBytes) {
+
+          final length = headerBytes.length;
+          if (length < 4 ||
+              headerBytes[length - 4] != 13 ||
+              headerBytes[length - 3] != 10 ||
+              headerBytes[length - 2] != 13 ||
+              headerBytes[length - 1] != 10) {
+            continue;
+          }
+
+          final headerText = utf8.decode(
+            headerBytes.sublist(0, length - 4),
+            allowMalformed: true,
+          );
+          final lines = headerText.split('\r\n');
+          final statusMatch =
+              RegExp(r'^HTTP/\d\.\d\s+(\d{3})').firstMatch(lines.first);
+          if (statusMatch == null) throw Exception('HTTP 状态行解析失败');
+          statusCode = int.parse(statusMatch.group(1)!);
+          headers = _parseHeaders(lines.skip(1));
+
+          final contentLength = headers['content-length']?.trim();
+          if (contentLength != null) {
+            final size = int.tryParse(contentLength);
+            if (!RegExp(r'^\d+$').hasMatch(contentLength) || size == null) {
+              throw Exception('HTTP Content-Length 格式错误');
+            }
+            if (size > maxBodyBytes) {
+              throw Exception('订阅内容超过 20 MB 限制');
+            }
+            expectedBodyBytes = size;
+          }
+
+          final transferEncodings = (headers['transfer-encoding'] ?? '')
+              .toLowerCase()
+              .split(',')
+              .map((value) => value.trim())
+              .where((value) => value.isNotEmpty)
+              .toList(growable: false);
+          if (transferEncodings.isNotEmpty) {
+            if (transferEncodings.length != 1 ||
+                transferEncodings.single != 'chunked') {
+              throw Exception('HTTP Transfer-Encoding 不受支持');
+            }
+            if (expectedBodyBytes != null) {
+              throw Exception('HTTP 响应长度声明冲突');
+            }
+            chunkedDecoder = _ChunkedBodyDecoder(maxBodyBytes);
+          } else if (expectedBodyBytes == 0) {
+            break responseLoop;
+          }
+        }
+
+        if (headers == null || offset == chunk.length) continue;
+        if (chunkedDecoder != null) {
+          chunkedDecoder.add(chunk, offset);
+          if (chunkedDecoder.isComplete) break responseLoop;
+        } else {
+          final incoming = chunk.length - offset;
+          final nextLength = bodyLength + incoming;
+          if (nextLength > maxBodyBytes) {
             throw Exception('订阅内容超过 20 MB 限制');
           }
-          expectedBodyBytes = size;
-        }
-
-        final transferEncodings = (headers['transfer-encoding'] ?? '')
-            .toLowerCase()
-            .split(',')
-            .map((value) => value.trim())
-            .where((value) => value.isNotEmpty)
-            .toList(growable: false);
-        if (transferEncodings.isNotEmpty) {
-          if (transferEncodings.last != 'chunked') {
-            throw Exception('HTTP Transfer-Encoding 不受支持');
+          if (expectedBodyBytes != null && nextLength > expectedBodyBytes) {
+            throw Exception('HTTP 正文超过 Content-Length');
           }
-          if (expectedBodyBytes != null) {
-            throw Exception('HTTP 响应长度声明冲突');
+          bodyBytes.add(chunk.sublist(offset));
+          bodyLength = nextLength;
+          if (expectedBodyBytes != null && bodyLength == expectedBodyBytes) {
+            break responseLoop;
           }
-          chunkedDecoder = _ChunkedBodyDecoder(maxBodyBytes);
-        } else if (expectedBodyBytes == 0) {
-          break responseLoop;
         }
       }
-
-      if (headers == null || offset == chunk.length) continue;
-      if (chunkedDecoder != null) {
-        chunkedDecoder.add(chunk, offset);
-        if (chunkedDecoder.isComplete) break responseLoop;
-      } else {
-        final incoming = chunk.length - offset;
-        final nextLength = bodyLength + incoming;
-        if (nextLength > maxBodyBytes) {
-          throw Exception('订阅内容超过 20 MB 限制');
-        }
-        if (expectedBodyBytes != null && nextLength > expectedBodyBytes) {
-          throw Exception('HTTP 正文超过 Content-Length');
-        }
-        bodyBytes.add(chunk.sublist(offset));
-        bodyLength = nextLength;
-        if (expectedBodyBytes != null && bodyLength == expectedBodyBytes) {
-          break responseLoop;
-        }
-      }
+    } finally {
+      absoluteTimer.cancel();
+    }
+    if (absoluteTimeoutExpired) {
+      throw TimeoutException('HTTP 响应超过绝对时限', requestTimeout);
     }
     if (headerBytes.isEmpty) throw Exception('服务器无响应(直连通道)');
     if (headers == null || statusCode == null) {

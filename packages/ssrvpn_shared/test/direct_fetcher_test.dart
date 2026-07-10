@@ -175,6 +175,39 @@ void main() {
       keepOpen: true,
     );
   });
+
+  test('fetchResponse enforces an absolute response deadline', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    Socket? client;
+    Timer? dripTimer;
+    final subscription = server.listen((socket) {
+      client = socket;
+      socket.write(
+        'HTTP/1.1 200 OK\r\n'
+        'Transfer-Encoding: chunked\r\n'
+        'Connection: keep-alive\r\n'
+        '\r\n',
+      );
+      dripTimer = Timer.periodic(const Duration(milliseconds: 20), (_) {
+        socket.write('1\r\na\r\n');
+      });
+    });
+
+    try {
+      await expectLater(
+        DirectFetcher.fetchResponse(
+          'http://127.0.0.1:${server.port}/slow',
+          requestTimeout: const Duration(milliseconds: 80),
+        ),
+        throwsA(isA<TimeoutException>()),
+      );
+    } finally {
+      dripTimer?.cancel();
+      client?.destroy();
+      await subscription.cancel();
+      await server.close();
+    }
+  });
 }
 
 Future<void> _withRawResponse(

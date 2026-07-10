@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_shared/utils/async_lazy.dart';
+import 'package:ssrvpn_shared/utils/subscription_url_policy.dart';
 
 import 'http_client_adapter.dart';
 
@@ -16,6 +18,10 @@ import 'http_client_adapter.dart';
 class SubscriptionService extends SubscriptionServiceBase {
   static final _instance = AsyncLazy<SubscriptionService>();
   static const int _maxYamlBytes = 2 * 1024 * 1024;
+  static const int _maxHeaderBytes = 64 * 1024;
+  static const _tlsTimeout = Duration(seconds: 20);
+  static const _readInactivityTimeout = Duration(seconds: 30);
+  static const _requestTimeout = Duration(seconds: 60);
 
   static void _log(String message) {
     AppLogger.info('Subscription', message);
@@ -72,11 +78,11 @@ class SubscriptionService extends SubscriptionServiceBase {
   @override
   Future<String?> fetchSubscription(String url, {int maxRetries = 3}) async {
     Exception? lastException;
+    final uri = SubscriptionUrlPolicy.parse(url);
 
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       final stopwatch = Stopwatch()..start();
       try {
-        final uri = Uri.parse(url);
         final result = await _fetchWithMultiIpFallback(uri, stopwatch, attempt);
         if (result != null) return result;
       } on SocketException catch (e) {
@@ -116,12 +122,11 @@ class SubscriptionService extends SubscriptionServiceBase {
     for (var hop = 0; hop <= 4; hop++) {
       final resp = await _fetchOnce(current, stopwatch, attempt);
 
-      if (resp.statusCode >= 300 && resp.statusCode < 400) {
-        final location = resp.headers['location'];
-        if (location == null || location.isEmpty) {
-          throw HttpException('HTTP ${resp.statusCode} 重定向缺少 Location 头');
-        }
-        current = current.resolve(location);
+      if (SubscriptionUrlPolicy.isRedirectStatus(resp.statusCode)) {
+        current = SubscriptionUrlPolicy.resolveRedirect(
+          current,
+          resp.headers['location'] ?? '',
+        );
         _log('重定向 (${resp.statusCode}) -> $current');
         continue;
       }
@@ -129,8 +134,16 @@ class SubscriptionService extends SubscriptionServiceBase {
       if (resp.statusCode == 200) {
         recordSubscriptionResponseHeaders(uri.toString(), resp.headers);
         var bodyBytes = resp.bodyBytes;
-        if (resp.headers['content-encoding']?.toLowerCase() == 'gzip') {
-          bodyBytes = gzip.decode(bodyBytes);
+        if (bodyBytes.length > SubscriptionServiceBase.maxSubscriptionBytes) {
+          throw Exception('订阅内容超过 20 MB 限制');
+        }
+        final contentEncoding =
+            (resp.headers['content-encoding'] ?? '').trim().toLowerCase();
+        if (contentEncoding == 'gzip') {
+          bodyBytes = await _decodeGzipLimited(bodyBytes);
+        } else if (contentEncoding.isNotEmpty &&
+            contentEncoding != 'identity') {
+          throw Exception('不支持的 Content-Encoding: $contentEncoding');
         }
         String body = utf8.decode(bodyBytes, allowMalformed: true);
         if (body.trim().isEmpty) {
@@ -201,6 +214,7 @@ class SubscriptionService extends SubscriptionServiceBase {
 
     final isSecure = uri.scheme == 'https';
     final port = uri.port;
+    final hostHeader = uri.hasPort ? '${uri.host}:$port' : uri.host;
     final pathWithQuery = (uri.path.isEmpty ? '/' : uri.path) +
         (uri.hasQuery ? '?${uri.query}' : '');
     SocketException? lastSocketError;
@@ -211,22 +225,29 @@ class SubscriptionService extends SubscriptionServiceBase {
     for (int i = 0; i < ipsToTry.length; i++) {
       final addr = ipsToTry[i];
       final ipStopwatch = Stopwatch()..start();
+      Socket? socket;
       try {
-        final socket = await Socket.connect(
+        socket = await Socket.connect(
           addr,
           port,
           timeout: Duration(seconds: attempt == 1 ? 15 : 20),
         );
 
         if (isSecure) {
-          final secureSocket = await SecureSocket.secure(
-            socket,
-            host: uri.host,
-            onBadCertificate: (_) => false,
-          );
+          late final SecureSocket secureSocket;
+          try {
+            secureSocket = await SecureSocket.secure(
+              socket,
+              host: uri.host,
+              onBadCertificate: (_) => false,
+            ).timeout(_tlsTimeout);
+          } catch (_) {
+            socket.destroy();
+            rethrow;
+          }
           return await _sendHttpRequest(
             secureSocket,
-            uri.host,
+            hostHeader,
             pathWithQuery,
             stopwatch,
             ipStopwatch,
@@ -236,7 +257,7 @@ class SubscriptionService extends SubscriptionServiceBase {
         } else {
           return await _sendHttpRequest(
             socket,
-            uri.host,
+            hostHeader,
             pathWithQuery,
             stopwatch,
             ipStopwatch,
@@ -254,6 +275,9 @@ class SubscriptionService extends SubscriptionServiceBase {
             'IP ${addr.address} TLS握手失败: ${e.message} (${ipStopwatch.elapsedMilliseconds}ms)');
         lastSocketError = SocketException('TLS握手失败: ${e.message}');
         continue;
+      } on TimeoutException {
+        socket?.destroy();
+        rethrow;
       } catch (e) {
         _log(
             'IP ${addr.address} 异常: $e (${ipStopwatch.elapsedMilliseconds}ms)');
@@ -289,12 +313,42 @@ class SubscriptionService extends SubscriptionServiceBase {
 
       final responseBytes = <int>[];
       var totalBytes = 0;
-      await for (final chunk in socket.timeout(const Duration(seconds: 60))) {
-        totalBytes += chunk.length;
-        if (totalBytes > SubscriptionServiceBase.maxSubscriptionBytes) {
-          throw Exception('订阅内容超过 20 MB 限制');
+      var headerEnd = -1;
+      var absoluteTimeoutExpired = false;
+      final absoluteTimer = Timer(_requestTimeout, () {
+        absoluteTimeoutExpired = true;
+        socket.destroy();
+      });
+      try {
+        await for (final chunk in socket.timeout(_readInactivityTimeout)) {
+          final previousLength = responseBytes.length;
+          totalBytes += chunk.length;
+          if (totalBytes >
+              SubscriptionServiceBase.maxSubscriptionBytes + _maxHeaderBytes) {
+            throw Exception('订阅内容超过 20 MB 限制');
+          }
+          responseBytes.addAll(chunk);
+          if (headerEnd == -1) {
+            final scanStart = previousLength > 3 ? previousLength - 3 : 0;
+            for (var i = scanStart; i + 3 < responseBytes.length; i++) {
+              if (responseBytes[i] == 13 &&
+                  responseBytes[i + 1] == 10 &&
+                  responseBytes[i + 2] == 13 &&
+                  responseBytes[i + 3] == 10) {
+                headerEnd = i;
+                break;
+              }
+            }
+            if (headerEnd == -1 && responseBytes.length > _maxHeaderBytes) {
+              throw HttpException('IP $ipAddress 响应头超过 64 KB 限制');
+            }
+          }
         }
-        responseBytes.addAll(chunk);
+      } finally {
+        absoluteTimer.cancel();
+      }
+      if (absoluteTimeoutExpired) {
+        throw TimeoutException('订阅请求超过绝对时限', _requestTimeout);
       }
 
       _log(
@@ -304,16 +358,6 @@ class SubscriptionService extends SubscriptionServiceBase {
         throw HttpException('IP $ipAddress 返回空响应');
       }
 
-      var headerEnd = -1;
-      for (var i = 0; i + 3 < responseBytes.length; i++) {
-        if (responseBytes[i] == 13 &&
-            responseBytes[i + 1] == 10 &&
-            responseBytes[i + 2] == 13 &&
-            responseBytes[i + 3] == 10) {
-          headerEnd = i;
-          break;
-        }
-      }
       if (headerEnd == -1) {
         throw HttpException('IP $ipAddress 响应格式异常');
       }
@@ -342,9 +386,36 @@ class SubscriptionService extends SubscriptionServiceBase {
         }
       }
 
-      if (headers['transfer-encoding']?.toLowerCase().contains('chunked') ==
-          true) {
+      final contentLengthValue = headers['content-length']?.trim();
+      int? contentLength;
+      if (contentLengthValue != null) {
+        if (!RegExp(r'^\d+$').hasMatch(contentLengthValue)) {
+          throw HttpException('IP $ipAddress Content-Length 格式错误');
+        }
+        contentLength = int.parse(contentLengthValue);
+        if (contentLength > SubscriptionServiceBase.maxSubscriptionBytes) {
+          throw Exception('订阅内容超过 20 MB 限制');
+        }
+      }
+
+      final transferEncodings = (headers['transfer-encoding'] ?? '')
+          .toLowerCase()
+          .split(',')
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toList(growable: false);
+      if (transferEncodings.isNotEmpty) {
+        if (transferEncodings.length != 1 ||
+            transferEncodings.single != 'chunked' ||
+            contentLength != null) {
+          throw HttpException('IP $ipAddress 响应长度声明冲突或不受支持');
+        }
         bodyBytes = _decodeChunked(bodyBytes);
+      } else if (contentLength != null && bodyBytes.length != contentLength) {
+        throw HttpException('IP $ipAddress 响应正文长度与声明不一致');
+      }
+      if (bodyBytes.length > SubscriptionServiceBase.maxSubscriptionBytes) {
+        throw Exception('订阅内容超过 20 MB 限制');
       }
 
       _log(
@@ -360,28 +431,67 @@ class SubscriptionService extends SubscriptionServiceBase {
   }
 
   List<int> _decodeChunked(List<int> data) {
-    final out = <int>[];
+    final out = BytesBuilder(copy: false);
+    var outputLength = 0;
     var pos = 0;
-    while (pos < data.length) {
+    while (true) {
       var lineEnd = pos;
       while (lineEnd + 1 < data.length &&
           !(data[lineEnd] == 13 && data[lineEnd + 1] == 10)) {
         lineEnd++;
+        if (lineEnd - pos > _maxHeaderBytes) {
+          throw const FormatException('HTTP chunk 大小行过大');
+        }
       }
-      if (lineEnd + 1 >= data.length) break;
+      if (lineEnd + 1 >= data.length) {
+        throw const FormatException('HTTP chunk 大小行不完整');
+      }
       final sizeLine = String.fromCharCodes(data.sublist(pos, lineEnd));
       final size = int.tryParse(sizeLine.split(';').first.trim(), radix: 16);
-      if (size == null || size == 0) break;
-      final chunkStart = lineEnd + 2;
-      final chunkEnd = chunkStart + size;
-      if (chunkEnd > data.length) {
-        out.addAll(data.sublist(chunkStart));
-        break;
+      if (size == null || size < 0) {
+        throw const FormatException('HTTP chunk 大小格式错误');
       }
-      out.addAll(data.sublist(chunkStart, chunkEnd));
+      final chunkStart = lineEnd + 2;
+      if (size == 0) {
+        if (_hasCrlfAt(data, chunkStart)) return out.takeBytes();
+        for (var i = chunkStart; i + 3 < data.length; i++) {
+          if (_hasCrlfAt(data, i) && _hasCrlfAt(data, i + 2)) {
+            return out.takeBytes();
+          }
+        }
+        throw const FormatException('HTTP chunked 尾部不完整');
+      }
+      if (size > SubscriptionServiceBase.maxSubscriptionBytes - outputLength) {
+        throw Exception('订阅内容超过 20 MB 限制');
+      }
+      final chunkEnd = chunkStart + size;
+      if (chunkEnd + 2 > data.length || !_hasCrlfAt(data, chunkEnd)) {
+        throw const FormatException('HTTP chunk 正文不完整');
+      }
+      out.add(data.sublist(chunkStart, chunkEnd));
+      outputLength += size;
       pos = chunkEnd + 2;
     }
-    return out;
+  }
+
+  bool _hasCrlfAt(List<int> data, int offset) {
+    return offset + 1 < data.length &&
+        data[offset] == 13 &&
+        data[offset + 1] == 10;
+  }
+
+  Future<List<int>> _decodeGzipLimited(List<int> data) async {
+    final output = BytesBuilder(copy: false);
+    var total = 0;
+    await for (final chunk
+        in gzip.decoder.bind(Stream<List<int>>.value(data))) {
+      total += chunk.length;
+      if (total > SubscriptionServiceBase.maxSubscriptionBytes) {
+        throw Exception('订阅内容超过 20 MB 限制');
+      }
+      output.add(chunk);
+    }
+    return output.takeBytes();
   }
 }
 

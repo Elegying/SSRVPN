@@ -7,6 +7,7 @@ import '../constants/app_constants.dart';
 import '../services/direct_fetcher.dart';
 import '../services/subscription_parser.dart';
 import '../utils/app_logger.dart';
+import '../utils/subscription_url_policy.dart';
 
 class DesktopSubscriptionFetchResult {
   const DesktopSubscriptionFetchResult({
@@ -20,18 +21,17 @@ class DesktopSubscriptionFetchResult {
 
 class DesktopSubscriptionFetcher {
   static const int maxSubscriptionBytes = 20 * 1024 * 1024;
+  static const _maxRedirects = 4;
+  static const _readInactivityTimeout = Duration(seconds: 30);
+  static const _requestTimeout = Duration(seconds: 60);
 
   static Future<DesktopSubscriptionFetchResult> fetch(
     String url, {
     required bool allowDirectFetch,
     int maxRetries = 3,
+    Duration requestTimeout = _requestTimeout,
   }) async {
-    final uri = Uri.tryParse(url);
-    if (uri == null ||
-        !uri.hasAuthority ||
-        (uri.scheme != 'http' && uri.scheme != 'https')) {
-      throw Exception('订阅地址必须是有效的 HTTP 或 HTTPS URL');
-    }
+    final uri = SubscriptionUrlPolicy.parse(url);
 
     if (_shouldTryDirectFetch(uri, allowDirectFetch: allowDirectFetch)) {
       try {
@@ -42,6 +42,7 @@ class DesktopSubscriptionFetcher {
             'Accept': 'text/yaml, application/x-yaml, */*',
           },
           maxBodyBytes: maxSubscriptionBytes,
+          requestTimeout: requestTimeout,
         );
         return DesktopSubscriptionFetchResult(
           body: _normalizeFetchedBody(response.body),
@@ -53,56 +54,111 @@ class DesktopSubscriptionFetcher {
     }
 
     Exception? lastException;
-    final client = HttpClient();
-    try {
-      for (int attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          client.connectionTimeout = Duration(seconds: 15 * attempt);
-          final request = await client.getUrl(uri);
-          request.headers.set('User-Agent', AppConstants.appUserAgent);
-          request.headers.set('Accept', 'text/yaml, application/x-yaml, */*');
-
-          final response =
-              await request.close().timeout(Duration(seconds: 30 * attempt));
-
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        var current = uri;
+        for (var hop = 0; hop <= _maxRedirects; hop++) {
+          final response = await _fetchOnce(
+            current,
+            attempt: attempt,
+            requestTimeout: requestTimeout,
+          );
+          if (SubscriptionUrlPolicy.isRedirectStatus(response.statusCode)) {
+            current = SubscriptionUrlPolicy.resolveRedirect(
+              current,
+              response.headers['location'] ?? '',
+            );
+            continue;
+          }
           if (response.statusCode == 200) {
-            if (response.contentLength > maxSubscriptionBytes) {
-              throw Exception('订阅内容超过 20 MB 限制');
-            }
-            final bodyBytes = await _readLimitedResponse(response);
             return DesktopSubscriptionFetchResult(
               body: _normalizeFetchedBody(
-                utf8.decode(bodyBytes, allowMalformed: true),
+                utf8.decode(response.bodyBytes, allowMalformed: true),
               ),
               headers: {
-                'profile-title': response.headers.value('profile-title') ?? '',
+                'profile-title': response.headers['profile-title'] ?? '',
                 'content-disposition':
-                    response.headers.value('content-disposition') ?? '',
+                    response.headers['content-disposition'] ?? '',
               },
             );
-          } else if (response.statusCode == 429) {
-            throw Exception('请求过于频繁 (HTTP 429)');
-          } else if (response.statusCode == 403) {
-            throw Exception('访问被拒绝 (HTTP 403)');
-          } else {
-            throw Exception('HTTP ${response.statusCode}');
           }
-        } on SocketException catch (e) {
-          lastException = Exception('网络连接失败: ${e.message}');
-        } on TimeoutException catch (e) {
-          lastException = Exception('连接超时: ${e.duration}');
-        } on HttpException catch (e) {
-          lastException = Exception('HTTP错误: ${e.message}');
-        } catch (e) {
-          lastException = Exception('获取订阅失败: $e');
+          if (response.statusCode == 429) {
+            throw Exception('请求过于频繁 (HTTP 429)');
+          }
+          if (response.statusCode == 403) {
+            throw Exception('访问被拒绝 (HTTP 403)');
+          }
+          throw Exception('HTTP ${response.statusCode}');
         }
-
-        if (attempt < maxRetries) {
-          await Future.delayed(Duration(seconds: attempt * 2));
-        }
+        throw Exception('重定向次数过多');
+      } on SocketException catch (e) {
+        lastException = Exception('网络连接失败: ${e.message}');
+      } on TimeoutException catch (e) {
+        lastException = Exception('连接超时: ${e.duration}');
+      } on HttpException catch (e) {
+        lastException = Exception('HTTP错误: ${e.message}');
+      } catch (e) {
+        lastException = Exception('获取订阅失败: $e');
       }
 
-      throw lastException ?? Exception('获取订阅失败: 未知错误');
+      if (attempt < maxRetries) {
+        await Future.delayed(Duration(seconds: attempt * 2));
+      }
+    }
+
+    throw lastException ?? Exception('获取订阅失败: 未知错误');
+  }
+
+  static Future<_DesktopHttpResponse> _fetchOnce(
+    Uri uri, {
+    required int attempt,
+    required Duration requestTimeout,
+  }) async {
+    final stopwatch = Stopwatch()..start();
+    final client = HttpClient()
+      ..connectionTimeout = Duration(seconds: 15 * attempt);
+
+    Duration remaining() {
+      final value = requestTimeout - stopwatch.elapsed;
+      if (value <= Duration.zero) {
+        throw TimeoutException('订阅请求超过绝对时限', requestTimeout);
+      }
+      return value;
+    }
+
+    try {
+      final request = await client.getUrl(uri).timeout(remaining());
+      request
+        ..followRedirects = false
+        ..headers.set('User-Agent', AppConstants.appUserAgent)
+        ..headers.set('Accept', 'text/yaml, application/x-yaml, */*');
+
+      final response = await request.close().timeout(remaining());
+      final headers = <String, String>{};
+      response.headers.forEach((name, values) {
+        headers[name.toLowerCase()] = values.join(', ');
+      });
+
+      var bodyBytes = Uint8List(0);
+      if (response.statusCode == 200) {
+        if (response.contentLength > maxSubscriptionBytes) {
+          throw Exception('订阅内容超过 20 MB 限制');
+        }
+        bodyBytes = await _readLimitedResponse(
+          response.timeout(_readInactivityTimeout),
+        ).timeout(
+          remaining(),
+          onTimeout: () {
+            client.close(force: true);
+            throw TimeoutException('订阅请求超过绝对时限', requestTimeout);
+          },
+        );
+      }
+      return _DesktopHttpResponse(
+        statusCode: response.statusCode,
+        headers: headers,
+        bodyBytes: bodyBytes,
+      );
     } finally {
       client.close(force: true);
     }
@@ -139,7 +195,7 @@ class DesktopSubscriptionFetcher {
   }
 
   static Future<Uint8List> _readLimitedResponse(
-    HttpClientResponse response,
+    Stream<List<int>> response,
   ) async {
     final builder = BytesBuilder(copy: false);
     var total = 0;
@@ -152,4 +208,16 @@ class DesktopSubscriptionFetcher {
     }
     return builder.takeBytes();
   }
+}
+
+class _DesktopHttpResponse {
+  const _DesktopHttpResponse({
+    required this.statusCode,
+    required this.headers,
+    required this.bodyBytes,
+  });
+
+  final int statusCode;
+  final Map<String, String> headers;
+  final Uint8List bodyBytes;
 }
