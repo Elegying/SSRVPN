@@ -40,7 +40,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       startup_diagnostics::Log(L"existing instance window not found");
     }
     ::CloseHandle(instance_mutex);
-    instance_mutex = nullptr;
+    return EXIT_SUCCESS;
   }
 
   // Attach to console when present (e.g., 'flutter run') or create a

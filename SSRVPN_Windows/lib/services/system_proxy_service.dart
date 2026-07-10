@@ -38,17 +38,6 @@ class SystemProxyService {
     try {
       final data =
           jsonDecode(await backupFile.readAsString()) as Map<String, dynamic>;
-      // Staleness check: ignore backups older than 24 hours (likely from a
-      // different session or a forgotten backup from a long-ago crash).
-      final savedAt = data['_savedAt'] as int?;
-      if (savedAt != null) {
-        final age = DateTime.now().millisecondsSinceEpoch - savedAt;
-        if (age > 24 * 60 * 60 * 1000) {
-          await backupFile.delete();
-          _recoveryPending = false;
-          return;
-        }
-      }
       final snapshot = _ProxySnapshot.fromJson(data);
       if (await _restoreSnapshot(snapshot)) {
         await backupFile.delete();
@@ -100,10 +89,21 @@ ${_notifyWinInetScript()}
 
       final result = await _runPowerShell(script);
       if (result.exitCode != 0) {
-        _lastError = _formatPowerShellError('写入 Windows 系统代理失败', result);
-        await _restoreSnapshot(_previousProxy!);
+        final setError = _formatPowerShellError('写入 Windows 系统代理失败', result);
+        _recoveryPending = true;
+        final restored = await _restoreSnapshot(_previousProxy!);
+        if (!restored) {
+          final restoreError = _lastError;
+          _lastError =
+              restoreError == null ? setError : '$setError；$restoreError';
+          return false;
+        }
+        _ownsProxy = false;
+        _proxyEnabled = false;
         await _deleteBackup();
         _previousProxy = null;
+        _recoveryPending = false;
+        _lastError = setError;
         return false;
       }
 
