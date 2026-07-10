@@ -22,25 +22,26 @@ jobs:
     name: Validate release source
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
 
-      - name: Require release tags to come from main
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Require release source to come from main
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
           release_commit="$(git rev-list -n 1 "$GITHUB_SHA")"
           if ! git merge-base --is-ancestor "$release_commit" origin/main; then
-            echo "::error::Release tags must point to a commit already on main."
+            echo "::error::Release builds must use a commit already on main."
             exit 1
           fi
 
-          expected_version="${GITHUB_REF_NAME#v}"
-          app_version="$(awk -F"'" '/appVersion = / { print $2; exit }' packages/ssrvpn_shared/lib/constants/app_constants.dart)"
-          if [ "$expected_version" != "$app_version" ]; then
-            echo "::error::Release tag $GITHUB_REF_NAME does not match app version $app_version."
-            exit 1
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            expected_version="${GITHUB_REF_NAME#v}"
+            app_version="$(awk -F"'" '/appVersion = / { print $2; exit }' packages/ssrvpn_shared/lib/constants/app_constants.dart)"
+            if [ "$expected_version" != "$app_version" ]; then
+              echo "::error::Release tag $GITHUB_REF_NAME does not match app version $app_version."
+              exit 1
+            fi
           fi
 
   # ── 共享包测试 ──
@@ -52,12 +53,12 @@ jobs:
       run:
         working-directory: packages/ssrvpn_shared
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           lfs: true
           fetch-depth: 0
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -75,7 +76,7 @@ jobs:
     needs: validate-source
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           lfs: true
 
@@ -88,7 +89,7 @@ jobs:
         run: bash scripts/verify-core-assets.sh
 
       - name: Upload GeoIP assets
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: geoip-assets
           path: |
@@ -103,12 +104,12 @@ jobs:
     needs: [shared-test, prepare-geoip]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           lfs: true
 
       - name: Download latest GeoIP assets
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: geoip-assets
           path: .
@@ -116,7 +117,7 @@ jobs:
       - name: Verify core assets
         run: bash scripts/verify-core-assets.sh
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -186,7 +187,7 @@ jobs:
         run: cd SSRVPN_Android && sha256sum SSRVPN.apk > SSRVPN.apk.sha256
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: android
           path: |
@@ -199,12 +200,12 @@ jobs:
     needs: [shared-test, prepare-geoip]
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           lfs: true
 
       - name: Download latest GeoIP assets
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: geoip-assets
           path: .
@@ -212,7 +213,7 @@ jobs:
       - name: Verify core assets
         run: bash scripts/verify-core-assets.sh
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -260,7 +261,7 @@ jobs:
         run: cd SSRVPN_MacOS && shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: macos
           path: |
@@ -273,12 +274,12 @@ jobs:
     needs: [shared-test, prepare-geoip]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           lfs: true
 
       - name: Download latest GeoIP assets
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: geoip-assets
           path: .
@@ -286,7 +287,7 @@ jobs:
       - name: Verify core assets
         run: bash scripts/verify-core-assets.sh
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
@@ -364,7 +365,7 @@ jobs:
           )
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: windows
           path: |
@@ -381,12 +382,12 @@ jobs:
       contents: write
       actions: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           fetch-depth: 0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: artifacts
 
@@ -401,7 +402,7 @@ jobs:
           echo "body_path=release-notes.md" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
         with:
           tag_name: ${{ steps.notes.outputs.tag }}
           name: SSRVPN ${{ steps.notes.outputs.tag }}
