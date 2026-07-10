@@ -16,11 +16,11 @@ updates:
       - "dependencies"
       - "ci"
   - package-ecosystem: "pub"
-    directory: "/packages/ssrvpn_shared"
+    directory: "/"
     schedule:
       interval: "weekly"
     groups:
-      shared-pub:
+      pub-workspace:
         patterns:
           - "*"
     open-pull-requests-limit: 3
@@ -30,48 +30,3 @@ updates:
     labels:
       - "dependencies"
       - "dart"
-  - package-ecosystem: "pub"
-    directory: "/SSRVPN_Android"
-    schedule:
-      interval: "weekly"
-    groups:
-      android-pub:
-        patterns:
-          - "*"
-    open-pull-requests-limit: 3
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-    labels:
-      - "dependencies"
-      - "android"
-  - package-ecosystem: "pub"
-    directory: "/SSRVPN_MacOS"
-    schedule:
-      interval: "weekly"
-    groups:
-      macos-pub:
-        patterns:
-          - "*"
-    open-pull-requests-limit: 3
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-    labels:
-      - "dependencies"
-      - "macos"
-  - package-ecosystem: "pub"
-    directory: "/SSRVPN_Windows"
-    schedule:
-      interval: "weekly"
-    groups:
-      windows-pub:
-        patterns:
-          - "*"
-    open-pull-requests-limit: 3
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-    labels:
-      - "dependencies"
-      - "windows"
