@@ -29,6 +29,24 @@ jobs:
       - uses: actions/checkout@v7
         with:
           lfs: true
+          fetch-depth: 0
+
+      - name: Validate release source
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          release_commit="$(git rev-list -n 1 "$GITHUB_SHA")"
+          if ! git merge-base --is-ancestor "$release_commit" origin/main; then
+            echo "::error::Release tags must point to a commit already on main."
+            exit 1
+          fi
+
+          expected_version="${GITHUB_REF_NAME#v}"
+          app_version="$(awk -F"'" '/appVersion = / { print $2; exit }' ../../packages/ssrvpn_shared/lib/constants/app_constants.dart)"
+          if [ "$expected_version" != "$app_version" ]; then
+            echo "::error::Release tag $GITHUB_REF_NAME does not match app version $app_version."
+            exit 1
+          fi
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
