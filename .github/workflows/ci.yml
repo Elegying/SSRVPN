@@ -23,8 +23,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          lfs: true
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
@@ -32,6 +30,7 @@ jobs:
           channel: stable
           cache: true
 
+      - run: bash scripts/check-core-asset-bootstrap.sh
       - run: bash scripts/check-shared-barrel-imports.sh
       - run: bash scripts/check-version-sync.sh
       - run: bash scripts/check-android-native-bridge-guards.sh
@@ -51,9 +50,29 @@ jobs:
           name: coverage-shared
           path: packages/ssrvpn_shared/coverage
 
+  core-assets:
+    name: Prepare verified core assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - run: bash scripts/bootstrap-core-assets.sh
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: core-assets
+          retention-days: 1
+          path: |
+            SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so
+            SSRVPN_Android/assets/geoip.metadb.gz
+            SSRVPN_MacOS/assets/AtlasCore.gz
+            SSRVPN_MacOS/assets/geoip.metadb.gz
+            SSRVPN_Windows/assets/mihomo.exe
+            SSRVPN_Windows/assets/geoip.metadb.gz
+
   flutter-app:
     name: ${{ matrix.name }}
-    needs: shared
+    needs: [shared, core-assets]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -70,8 +89,11 @@ jobs:
             directory: SSRVPN_Windows
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          lfs: true
+          name: core-assets
+          path: .
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:

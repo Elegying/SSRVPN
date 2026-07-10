@@ -55,7 +55,6 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
-          lfs: true
           fetch-depth: 0
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
@@ -63,6 +62,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      - run: bash ../../scripts/check-core-asset-bootstrap.sh
       - run: bash ../../scripts/check-shared-barrel-imports.sh
       - run: bash ../../scripts/check-version-sync.sh
       - run: bash ../../scripts/check-android-native-bridge-guards.sh
@@ -75,13 +75,14 @@ jobs:
       - run: flutter test
 
   prepare-geoip:
-    name: Prepare latest GeoIP database
+    name: Prepare verified core assets
     needs: validate-source
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          lfs: true
+
+      - name: Bootstrap pinned core assets
+        run: bash scripts/bootstrap-core-assets.sh
 
       - name: Sync latest geoip.metadb
         env:
@@ -91,14 +92,20 @@ jobs:
       - name: Verify synced GeoIP assets
         run: bash scripts/verify-core-assets.sh
 
-      - name: Upload GeoIP assets
+      - name: Upload verified core assets
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: geoip-assets
+          name: core-assets
           path: |
+            SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so
             SSRVPN_Android/assets/geoip.metadb.gz
+            SSRVPN_Android/assets/libgojni-source.txt
+            SSRVPN_MacOS/assets/AtlasCore.gz
             SSRVPN_MacOS/assets/geoip.metadb.gz
+            SSRVPN_MacOS/assets/AtlasCore-source.txt
+            SSRVPN_Windows/assets/mihomo.exe
             SSRVPN_Windows/assets/geoip.metadb.gz
+            SSRVPN_Windows/assets/mihomo-source.txt
             docs/GEOIP_SOURCE.txt
 
   # ── Android ──
@@ -108,13 +115,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          lfs: true
 
-      - name: Download latest GeoIP assets
+      - name: Download verified core assets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: geoip-assets
+          name: core-assets
           path: .
 
       - name: Verify core assets
@@ -205,13 +210,11 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          lfs: true
 
-      - name: Download latest GeoIP assets
+      - name: Download verified core assets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: geoip-assets
+          name: core-assets
           path: .
 
       - name: Verify core assets
@@ -277,13 +280,11 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          lfs: true
 
-      - name: Download latest GeoIP assets
+      - name: Download verified core assets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: geoip-assets
+          name: core-assets
           path: .
 
       - name: Verify core assets

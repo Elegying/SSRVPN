@@ -32,4 +32,15 @@ for asset in "${assets[@]}"; do
   git check-ignore -q "$asset" || fail "generated core asset is not ignored: $asset"
 done
 
+if rg -n 'lfs:[[:space:]]*true' .github/workflows >/dev/null; then
+  fail "a GitHub Actions workflow still downloads Git LFS objects"
+fi
+
+for workflow in .github/workflows/ci.yml .github/workflows/release.yml; do
+  rg -q --fixed-strings 'scripts/bootstrap-core-assets.sh' "$workflow" ||
+    fail "$workflow does not bootstrap verified core assets"
+  rg -q --fixed-strings 'scripts/check-core-asset-bootstrap.sh' "$workflow" ||
+    fail "$workflow does not enforce the core asset bootstrap model"
+done
+
 echo "Core asset bootstrap guards passed."
