@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:ssrvpn_shared/utils/async_lazy.dart';
 
 import 'http_client_adapter.dart';
 
@@ -13,7 +14,7 @@ import 'http_client_adapter.dart';
 /// - 手写 HTTP 通道（绕过 dart:io HttpClient 限制）
 /// - 2MB YAML 大小限制
 class SubscriptionService extends SubscriptionServiceBase {
-  static SubscriptionService? _instance;
+  static final _instance = AsyncLazy<SubscriptionService>();
   static const int _maxYamlBytes = 2 * 1024 * 1024;
 
   static void _log(String message) {
@@ -25,12 +26,12 @@ class SubscriptionService extends SubscriptionServiceBase {
 
   SubscriptionService._();
 
-  static Future<SubscriptionService> getInstance(String cacheDir) async {
-    if (_instance == null) {
-      _instance = SubscriptionService._();
-      await _instance!.init(cacheDir);
-    }
-    return _instance!;
+  static Future<SubscriptionService> getInstance(String cacheDir) {
+    return _instance.get(() async {
+      final service = SubscriptionService._();
+      await service.init(cacheDir);
+      return service;
+    });
   }
 
   /// 设置自定义 HttpClientAdapter（仅用于测试）
@@ -46,7 +47,7 @@ class SubscriptionService extends SubscriptionServiceBase {
 
   @visibleForTesting
   static void resetInstanceForTesting() {
-    _instance = null;
+    _instance.reset();
   }
 
   @override
