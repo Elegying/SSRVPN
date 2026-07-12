@@ -101,7 +101,11 @@ class UpdateChecker {
       // upload fails. Let GitHub act as the backup detector in that case.
       if (compareVersions(version, currentVersion) <= 0) return null;
 
-      final asset = _manifestAssetFor(data['assets'], assetExtension);
+      final asset = _manifestAssetFor(
+        data['assets'],
+        assetExtension,
+        version,
+      );
       if (asset == null) return null;
       final sourceHost = Uri.parse(asset.downloadUrl).host;
       final fallbackUrl = Uri.https(
@@ -150,18 +154,28 @@ class UpdateChecker {
         RegExp(r'^v'),
         '',
       );
+      if (!_isValidVersion(latestVersion)) return null;
       if (compareVersions(latestVersion, currentVersion) <= 0) return null;
 
       final releaseAssets = _releaseAssets(data['assets']);
       final selectedAsset = _assetFor(releaseAssets, assetExtension);
       if (selectedAsset == null) return null;
       final downloadUrl = selectedAsset.downloadUrl;
+      if (!_isExpectedGitHubAssetUrl(
+        downloadUrl,
+        version: latestVersion,
+        assetName: selectedAsset.name,
+      )) {
+        return null;
+      }
       final sha256 = await _sha256ForAsset(
         releaseAssets,
         selectedAsset,
+        latestVersion,
         client,
         timeout,
       );
+      if (sha256 == null) return null;
       final sourceHost = Uri.parse(downloadUrl).host;
 
       return AppUpdateInfo(
@@ -186,21 +200,27 @@ class UpdateChecker {
   static _ReleaseAsset? _manifestAssetFor(
     Object? assets,
     String assetExtension,
+    String version,
   ) {
     if (assets is! List) return null;
-    final wanted = assetExtension.trim().toLowerCase();
-    if (wanted.isEmpty) return null;
+    final wantedName = _assetNameForExtension(assetExtension);
+    if (wantedName == null) return null;
+    final expectedPath = '/ssrvpn/releases/v$version/$wantedName';
     for (final asset in assets) {
       if (asset is! Map) continue;
       final name = asset['name']?.toString() ?? '';
       final downloadUrl = asset['url']?.toString() ?? '';
       final sha256 = asset['sha256']?.toString().trim().toLowerCase() ?? '';
       final uri = Uri.tryParse(downloadUrl);
-      if (name.toLowerCase().endsWith(wanted) &&
+      if (name == wantedName &&
           uri != null &&
           uri.scheme == 'https' &&
           uri.host == primaryManifestUrl.host &&
-          uri.path.startsWith('/ssrvpn/releases/') &&
+          uri.userInfo.isEmpty &&
+          !uri.hasPort &&
+          uri.path == expectedPath &&
+          !uri.hasQuery &&
+          !uri.hasFragment &&
           RegExp(r'^[a-f0-9]{64}$').hasMatch(sha256)) {
         return _ReleaseAsset(
           name: name,
@@ -246,12 +266,22 @@ class UpdateChecker {
     List<_ReleaseAsset> assets,
     String assetExtension,
   ) {
-    final wanted = assetExtension.trim().toLowerCase();
-    if (wanted.isEmpty) return null;
+    final wantedName = _assetNameForExtension(assetExtension);
+    if (wantedName == null) return null;
     for (final asset in assets) {
-      if (asset.name.toLowerCase().endsWith(wanted)) return asset;
+      if (asset.name == wantedName) return asset;
     }
     return null;
+  }
+
+  static String? _assetNameForExtension(String assetExtension) {
+    return switch (assetExtension.trim().toLowerCase()) {
+      '.apk' => 'SSRVPN.apk',
+      '.dmg' => 'SSRVPN.dmg',
+      '.exe' => 'SSRVPN_Setup.exe',
+      '.zip' => 'SSRVPN.zip',
+      _ => null,
+    };
   }
 
   static bool _isSecureDownloadUrl(String value) {
@@ -262,6 +292,7 @@ class UpdateChecker {
   static Future<String?> _sha256ForAsset(
     List<_ReleaseAsset> assets,
     _ReleaseAsset asset,
+    String version,
     http.Client client,
     Duration timeout,
   ) async {
@@ -274,18 +305,43 @@ class UpdateChecker {
       }
     }
     if (checksumAsset == null) return null;
+    if (!_isExpectedGitHubAssetUrl(
+      checksumAsset.downloadUrl,
+      version: version,
+      assetName: checksumAsset.name,
+    )) {
+      return null;
+    }
 
     try {
       final response = await client
           .get(Uri.parse(checksumAsset.downloadUrl))
           .timeout(timeout);
       if (response.statusCode != 200) return null;
-      return RegExp(
-        r'\b[a-fA-F0-9]{64}\b',
-      ).firstMatch(response.body)?.group(0)?.toLowerCase();
+      final checksumLine = RegExp(
+        '^\\s*([a-fA-F0-9]{64})\\s+\\*?${RegExp.escape(asset.name)}\\s*\$',
+        multiLine: true,
+      ).firstMatch(response.body);
+      return checksumLine?.group(1)?.toLowerCase();
     } catch (_) {
       return null;
     }
+  }
+
+  static bool _isExpectedGitHubAssetUrl(
+    String value, {
+    required String version,
+    required String assetName,
+  }) {
+    final uri = Uri.tryParse(value);
+    return uri != null &&
+        uri.scheme == 'https' &&
+        uri.host == 'github.com' &&
+        uri.userInfo.isEmpty &&
+        !uri.hasPort &&
+        !uri.hasQuery &&
+        !uri.hasFragment &&
+        uri.path == '/$owner/$repo/releases/download/v$version/$assetName';
   }
 
   static String _buildChangelog(
