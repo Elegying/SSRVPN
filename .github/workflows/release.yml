@@ -482,26 +482,42 @@ jobs:
           set -euo pipefail
           tag="${GITHUB_REF#refs/tags/}"
           release_prefix="$OSS_PREFIX/releases/$tag"
-          for file in \
-            artifacts/android/SSRVPN.apk \
-            artifacts/android/SSRVPN.apk.sha256 \
-            artifacts/macos/SSRVPN.dmg \
-            artifacts/macos/SSRVPN.dmg.sha256 \
-            artifacts/windows/SSRVPN_Setup.exe \
-            artifacts/windows/SSRVPN_Setup.exe.sha256 \
-            artifacts/windows/SSRVPN.zip \
-            artifacts/windows/SSRVPN.zip.sha256; do
+          files=(
+            artifacts/android/SSRVPN.apk
+            artifacts/android/SSRVPN.apk.sha256
+            artifacts/macos/SSRVPN.dmg
+            artifacts/macos/SSRVPN.dmg.sha256
+            artifacts/windows/SSRVPN_Setup.exe
+            artifacts/windows/SSRVPN_Setup.exe.sha256
+            artifacts/windows/SSRVPN.zip
+            artifacts/windows/SSRVPN.zip.sha256
+          )
+          for file in "${files[@]}"; do
             ossutil cp "$file" \
               "oss://$OSS_BUCKET/$release_prefix/$(basename "$file")" --force
           done
 
           ossutil cp artifacts/oss/latest.json \
             "oss://$OSS_BUCKET/$release_prefix/latest.json" --force
+
+          # Website links use these stable URLs. Replace them only with the
+          # already verified release files and force browsers to revalidate.
+          stable_prefix="$OSS_PREFIX/downloads"
+          public_base="https://$OSS_BUCKET.$OSS_ENDPOINT"
+          for file in "${files[@]}"; do
+            name="$(basename "$file")"
+            ossutil cp "$file" "oss://$OSS_BUCKET/$stable_prefix/$name" \
+              --force --cache-control "no-cache"
+            downloaded="$RUNNER_TEMP/stable-$name"
+            curl -fsSL --retry 3 "$public_base/$stable_prefix/$name" \
+              -o "$downloaded"
+            cmp "$file" "$downloaded"
+          done
+
           # Update the public pointer last so clients never see a partial release.
           ossutil cp artifacts/oss/latest.json \
             "oss://$OSS_BUCKET/$OSS_PREFIX/latest.json" --force
 
-          public_base="https://$OSS_BUCKET.$OSS_ENDPOINT"
           curl -fsSL --retry 3 "$public_base/$OSS_PREFIX/latest.json" \
             -o "$RUNNER_TEMP/public-latest.json"
           cmp artifacts/oss/latest.json "$RUNNER_TEMP/public-latest.json"

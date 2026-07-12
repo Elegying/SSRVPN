@@ -56,6 +56,22 @@ class GenerateOssReleaseManifestTest(unittest.TestCase):
                     assets=[asset],
                 )
 
+    def test_release_publishes_and_verifies_stable_download_aliases(self) -> None:
+        workflow = (
+            SCRIPT.parents[1] / ".github" / "workflows" / "release.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('stable_prefix="$OSS_PREFIX/downloads"', workflow)
+        self.assertIn('--cache-control "no-cache"', workflow)
+        self.assertIn('cmp "$file" "$downloaded"', workflow)
+        for name in (
+            "SSRVPN.apk",
+            "SSRVPN.dmg",
+            "SSRVPN_Setup.exe",
+            "SSRVPN.zip",
+        ):
+            self.assertIn(name, workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

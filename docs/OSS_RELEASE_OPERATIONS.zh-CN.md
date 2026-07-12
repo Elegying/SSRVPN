@@ -23,6 +23,11 @@ OSS 对象结构：
 ssrvpn/
 ├── latest.json
 ├── ops/health.json
+├── downloads/
+│   ├── SSRVPN.apk(.sha256)
+│   ├── SSRVPN.dmg(.sha256)
+│   ├── SSRVPN_Setup.exe(.sha256)
+│   └── SSRVPN.zip(.sha256)
 └── releases/
     └── vX.Y.Z/
         ├── SSRVPN.apk(.sha256)
@@ -36,6 +41,11 @@ ssrvpn/
 唯一最新版本指针。工作流总是先上传并验证所有产物，最后才替换这个指针，
 避免客户端看到半套发布文件。
 
+`ssrvpn/downloads/` 是网站和人工分享使用的固定下载地址。每次正式发布都会
+用已经校验过的同一批文件覆盖并重新下载比对，同时设置 `Cache-Control:
+no-cache`。因此网站不需要随版本号修改链接。GitHub 备用地址使用
+`https://github.com/Elegying/SSRVPN/releases/latest/download/<文件名>`。
+
 ## 正常发布
 
 1. 修改并同步三端版本号和 `CHANGELOG.md`。
@@ -47,6 +57,12 @@ ssrvpn/
 
    ```bash
    curl -fsSL https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/latest.json
+   ```
+
+7. 抽查固定下载地址，例如：
+
+   ```bash
+   curl -fsSI https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/downloads/SSRVPN_Setup.exe
    ```
 
 不需要手动进入 OSS 控制台上传版本文件。手工上传容易造成校验文件、清单和
