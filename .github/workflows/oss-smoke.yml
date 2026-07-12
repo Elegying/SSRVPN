@@ -1,0 +1,46 @@
+name: OSS Publish Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upload-smoke:
+    runs-on: ubuntu-latest
+    env:
+      OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+      OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+      OSS_REGION: cn-qingdao
+      OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+      OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Validate OSS configuration
+        run: |
+          set -euo pipefail
+          for name in OSS_ACCESS_KEY_ID OSS_ACCESS_KEY_SECRET OSS_ENDPOINT OSS_BUCKET OSS_PREFIX; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured"
+              exit 1
+            fi
+          done
+
+      - name: Install pinned ossutil
+        run: |
+          bash scripts/install-ossutil.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Upload and verify health object
+        run: |
+          set -euo pipefail
+          printf '{"repository":"%s","commit":"%s"}\n' \
+            "$GITHUB_REPOSITORY" "$GITHUB_SHA" > "$RUNNER_TEMP/health.json"
+          ossutil cp "$RUNNER_TEMP/health.json" \
+            "oss://$OSS_BUCKET/$OSS_PREFIX/ops/health.json" --force
+          public_url="https://$OSS_BUCKET.$OSS_ENDPOINT/$OSS_PREFIX/ops/health.json"
+          curl -fsSL --retry 3 "$public_url" -o "$RUNNER_TEMP/public-health.json"
+          cmp "$RUNNER_TEMP/health.json" "$RUNNER_TEMP/public-health.json"

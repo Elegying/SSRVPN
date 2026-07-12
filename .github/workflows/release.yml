@@ -72,6 +72,7 @@ jobs:
       - run: bash ../../scripts/check-macos-core-privileges.sh
       - run: bash ../../scripts/check-windows-launcher-security.sh
       - run: bash ../../scripts/check-secrets.sh
+      - run: python3 -m unittest ../../scripts/test_generate_oss_release_manifest.py
       - run: dart pub get
       - run: flutter analyze --fatal-infos
       - run: flutter test
@@ -420,3 +421,79 @@ jobs:
             artifacts/windows/SSRVPN.zip
             artifacts/windows/SSRVPN.zip.sha256
           generate_release_notes: false
+
+      - name: Validate OSS publishing configuration
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+          OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+        run: |
+          set -euo pipefail
+          for name in OSS_ACCESS_KEY_ID OSS_ACCESS_KEY_SECRET OSS_ENDPOINT OSS_BUCKET OSS_PREFIX; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured"
+              exit 1
+            fi
+          done
+
+      - name: Generate verified OSS update manifest
+        env:
+          OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+          OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          base_url="https://$OSS_BUCKET.$OSS_ENDPOINT/$OSS_PREFIX/releases/$tag"
+          python3 scripts/generate-oss-release-manifest.py \
+            --tag "$tag" \
+            --base-url "$base_url" \
+            --release-notes release-notes.md \
+            --asset artifacts/android/SSRVPN.apk \
+            --asset artifacts/macos/SSRVPN.dmg \
+            --asset artifacts/windows/SSRVPN.zip \
+            --output artifacts/oss/latest.json
+
+      - name: Install pinned ossutil
+        run: |
+          bash scripts/install-ossutil.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Publish release to OSS and update latest pointer
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+          OSS_REGION: cn-qingdao
+          OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+          OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          release_prefix="$OSS_PREFIX/releases/$tag"
+          for file in \
+            artifacts/android/SSRVPN.apk \
+            artifacts/android/SSRVPN.apk.sha256 \
+            artifacts/macos/SSRVPN.dmg \
+            artifacts/macos/SSRVPN.dmg.sha256 \
+            artifacts/windows/SSRVPN.zip \
+            artifacts/windows/SSRVPN.zip.sha256; do
+            ossutil cp "$file" \
+              "oss://$OSS_BUCKET/$release_prefix/$(basename "$file")" --force
+          done
+
+          ossutil cp artifacts/oss/latest.json \
+            "oss://$OSS_BUCKET/$release_prefix/latest.json" --force
+          # Update the public pointer last so clients never see a partial release.
+          ossutil cp artifacts/oss/latest.json \
+            "oss://$OSS_BUCKET/$OSS_PREFIX/latest.json" --force
+
+          public_base="https://$OSS_BUCKET.$OSS_ENDPOINT"
+          curl -fsSL --retry 3 "$public_base/$OSS_PREFIX/latest.json" \
+            -o "$RUNNER_TEMP/public-latest.json"
+          cmp artifacts/oss/latest.json "$RUNNER_TEMP/public-latest.json"
+          while IFS= read -r url; do
+            curl -fsSI --retry 3 "$url" >/dev/null
+          done < <(jq -r '.assets[].url' artifacts/oss/latest.json)
