@@ -5,11 +5,11 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../theme/app_theme.dart';
 
-/// 在线更新服务 - 基于 GitHub Releases
+/// 在线更新服务 - OSS 主源，GitHub Releases 备用。
 class UpdateService {
   static const String appVersion = AppConstants.appVersion;
 
-  static Future<(String, String, String)?> checkForUpdate(
+  static Future<(String, String, String, String?)?> checkForUpdate(
     String currentVersion,
   ) {
     return SharedUpdateService.checkForUpdate(
@@ -35,12 +35,14 @@ class UpdateService {
     required String currentVersion,
     required String downloadUrl,
     required String changelog,
+    String? fallbackDownloadUrl,
   }) {
     SharedUpdateService.showUpdateDialog(
       context,
       latestVersion: latestVersion,
       currentVersion: currentVersion,
       downloadUrl: downloadUrl,
+      fallbackDownloadUrl: fallbackDownloadUrl,
       changelog: changelog,
       primaryColor: AppTheme.primary,
       accentColor: AppTheme.accentColor,

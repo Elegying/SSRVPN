@@ -54,7 +54,14 @@ class UpdateService {
       throw StateError('APK SHA256 校验值格式无效，已取消更新');
     }
 
-    final uri = SharedUpdateService.validateDownloadUrl(update.downloadUrl);
+    final downloadUris = <Uri>[
+      SharedUpdateService.validateDownloadUrl(update.downloadUrl),
+    ];
+    final fallbackUrl = update.fallbackDownloadUrl?.trim();
+    if (fallbackUrl != null && fallbackUrl.isNotEmpty) {
+      final fallbackUri = SharedUpdateService.validateDownloadUrl(fallbackUrl);
+      if (fallbackUri != downloadUris.first) downloadUris.add(fallbackUri);
+    }
     final ownsClient = client == null;
     final httpClient = client ?? http.Client();
     final baseDir = outputDirectory ?? await getTemporaryDirectory();
@@ -69,55 +76,66 @@ class UpdateService {
     if (await apkFile.exists()) await apkFile.delete();
 
     try {
-      final request = http.Request('GET', uri)
-        ..headers['User-Agent'] = AppConstants.appUserAgent;
-      final response = await httpClient.send(request).timeout(timeout);
-      if (response case http.BaseResponseWithUrl(:final url)) {
-        if (url.scheme != 'https' || url.host.isEmpty) {
-          await response.stream.listen((_) {}).cancel();
-          throw const FormatException('Invalid download URL');
-        }
-      }
-      if (response.statusCode != HttpStatus.ok) {
-        throw StateError('下载更新失败: HTTP ${response.statusCode}');
-      }
+      for (var attempt = 0; attempt < downloadUris.length; attempt++) {
+        final uri = downloadUris[attempt];
+        try {
+          final request = http.Request('GET', uri)
+            ..headers['User-Agent'] = AppConstants.appUserAgent;
+          final response = await httpClient.send(request).timeout(timeout);
+          if (response case http.BaseResponseWithUrl(:final url)) {
+            if (url.scheme != 'https' || url.host.isEmpty) {
+              await response.stream.listen((_) {}).cancel();
+              throw const FormatException('Invalid download URL');
+            }
+          }
+          if (response.statusCode != HttpStatus.ok) {
+            await response.stream.listen((_) {}).cancel();
+            throw StateError('下载更新失败: HTTP ${response.statusCode}');
+          }
 
-      var received = 0;
-      final total = response.contentLength;
-      if (total != null && total > maxApkDownloadBytes) {
-        await response.stream.listen((_) {}).cancel();
-        throw StateError('APK 文件过大，已取消更新');
-      }
-      final output = await tempFile.open(mode: FileMode.write);
-      final digestSink = _DigestSink();
-      final hashSink = sha256.startChunkedConversion(digestSink);
-      late final String actualSha256;
-      var hashClosed = false;
-      try {
-        await for (final chunk in response.stream.timeout(timeout)) {
-          received += chunk.length;
-          if (received > maxApkDownloadBytes) {
+          var received = 0;
+          final total = response.contentLength;
+          if (total != null && total > maxApkDownloadBytes) {
+            await response.stream.listen((_) {}).cancel();
             throw StateError('APK 文件过大，已取消更新');
           }
-          hashSink.add(chunk);
-          await output.writeFrom(chunk);
-          onProgress?.call(received, total);
+          final output = await tempFile.open(mode: FileMode.write);
+          final digestSink = _DigestSink();
+          final hashSink = sha256.startChunkedConversion(digestSink);
+          late final String actualSha256;
+          var hashClosed = false;
+          try {
+            await for (final chunk in response.stream.timeout(timeout)) {
+              received += chunk.length;
+              if (received > maxApkDownloadBytes) {
+                throw StateError('APK 文件过大，已取消更新');
+              }
+              hashSink.add(chunk);
+              await output.writeFrom(chunk);
+              onProgress?.call(received, total);
+            }
+            hashClosed = true;
+            hashSink.close();
+            actualSha256 = digestSink.value.toString();
+          } finally {
+            if (!hashClosed) hashSink.close();
+            await output.close();
+          }
+
+          if (actualSha256 != expectedSha256) {
+            await tempFile.delete();
+            throw StateError('APK SHA256 校验失败，已取消更新');
+          }
+
+          await tempFile.rename(apkFile.path);
+          return apkFile;
+        } catch (_) {
+          if (await tempFile.exists()) await tempFile.delete();
+          if (await apkFile.exists()) await apkFile.delete();
+          if (attempt == downloadUris.length - 1) rethrow;
         }
-        hashClosed = true;
-        hashSink.close();
-        actualSha256 = digestSink.value.toString();
-      } finally {
-        if (!hashClosed) hashSink.close();
-        await output.close();
       }
-
-      if (actualSha256 != expectedSha256) {
-        await tempFile.delete();
-        throw StateError('APK SHA256 校验失败，已取消更新');
-      }
-
-      await tempFile.rename(apkFile.path);
-      return apkFile;
+      throw StateError('没有可用的 APK 下载地址');
     } catch (_) {
       if (await tempFile.exists()) await tempFile.delete();
       if (await apkFile.exists()) await apkFile.delete();
@@ -148,12 +166,14 @@ class UpdateService {
     required String downloadUrl,
     required String changelog,
     String? sha256,
+    String? fallbackDownloadUrl,
   }) {
     final update = AppUpdateInfo(
       version: latestVersion,
       downloadUrl: downloadUrl,
       changelog: changelog,
       sha256: sha256,
+      fallbackDownloadUrl: fallbackDownloadUrl,
     );
 
     SharedUpdateService.showUpdateDialog(
@@ -161,6 +181,7 @@ class UpdateService {
       latestVersion: latestVersion,
       currentVersion: currentVersion,
       downloadUrl: downloadUrl,
+      fallbackDownloadUrl: fallbackDownloadUrl,
       changelog: changelog,
       primaryColor: AppTheme.primaryColor,
       accentColor: AppTheme.accentColor,

@@ -5,7 +5,7 @@ import 'update_checker.dart';
 typedef DownloadOpener = Future<void> Function(String url);
 
 class SharedUpdateService {
-  static Future<(String, String, String)?> checkForUpdate({
+  static Future<(String, String, String, String?)?> checkForUpdate({
     required String currentVersion,
     required String assetExtension,
   }) async {
@@ -14,7 +14,12 @@ class SharedUpdateService {
       assetExtension: assetExtension,
     );
     if (update == null) return null;
-    return (update.version, update.downloadUrl, update.changelog);
+    return (
+      update.version,
+      update.downloadUrl,
+      update.changelog,
+      update.fallbackDownloadUrl,
+    );
   }
 
   static Uri validateDownloadUrl(String url) {
@@ -30,6 +35,7 @@ class SharedUpdateService {
     required String latestVersion,
     required String currentVersion,
     required String downloadUrl,
+    String? fallbackDownloadUrl,
     required String changelog,
     required Color primaryColor,
     required Color accentColor,
@@ -152,6 +158,17 @@ class SharedUpdateService {
                   ),
                 ],
               ),
+              if (fallbackDownloadUrl != null &&
+                  fallbackDownloadUrl.trim().isNotEmpty) ...[
+                const SizedBox(height: 6),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    openDownload(fallbackDownloadUrl);
+                  },
+                  child: const Text('OSS 下载异常？使用 GitHub 备用下载'),
+                ),
+              ],
             ],
           ),
         ),

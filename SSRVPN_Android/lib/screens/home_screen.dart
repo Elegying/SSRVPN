@@ -423,6 +423,7 @@ class HomeScreenState extends State<HomeScreen>
             downloadUrl: update.downloadUrl,
             changelog: update.changelog,
             sha256: update.sha256,
+            fallbackDownloadUrl: update.fallbackDownloadUrl,
           );
         }
       } catch (e) {

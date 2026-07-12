@@ -709,13 +709,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         const currentVersion = UpdateService.appVersion;
         final result = await UpdateService.checkForUpdate(currentVersion);
         if (result != null && mounted && _isConnected) {
-          final (latestVersion, downloadUrl, changelog) = result;
+          final (
+            latestVersion,
+            downloadUrl,
+            changelog,
+            fallbackDownloadUrl,
+          ) = result;
           UpdateService.showUpdateDialog(
             context,
             latestVersion: latestVersion,
             currentVersion: currentVersion,
             downloadUrl: downloadUrl,
             changelog: changelog,
+            fallbackDownloadUrl: fallbackDownloadUrl,
           );
         }
       } catch (e) {

@@ -11,6 +11,7 @@ class AppUpdateInfo {
     required this.changelog,
     this.sha256,
     this.sourceHost,
+    this.fallbackDownloadUrl,
   });
 
   final String version;
@@ -18,18 +19,30 @@ class AppUpdateInfo {
   final String changelog;
   final String? sha256;
   final String? sourceHost;
+  final String? fallbackDownloadUrl;
 }
 
 class _ReleaseAsset {
-  const _ReleaseAsset({required this.name, required this.downloadUrl});
+  const _ReleaseAsset({
+    required this.name,
+    required this.downloadUrl,
+    this.sha256,
+  });
 
   final String name;
   final String downloadUrl;
+  final String? sha256;
 }
 
 class UpdateChecker {
   static const String owner = 'Elegying';
   static const String repo = 'SSRVPN';
+  static final Uri primaryManifestUrl = Uri.parse(
+    'https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/latest.json',
+  );
+  static final Uri githubLatestReleaseUrl = Uri.parse(
+    'https://api.github.com/repos/$owner/$repo/releases/latest',
+  );
 
   static Future<AppUpdateInfo?> checkLatest({
     required String currentVersion,
@@ -40,11 +53,88 @@ class UpdateChecker {
     final ownsClient = client == null;
     final httpClient = client ?? http.Client();
     try {
-      final url = Uri.parse(
-        'https://api.github.com/repos/$owner/$repo/releases/latest',
+      final primary = await _checkPrimaryManifest(
+        currentVersion: currentVersion,
+        assetExtension: assetExtension,
+        client: httpClient,
+        timeout: timeout,
       );
-      final response = await httpClient.get(
-        url,
+      if (primary != null) return primary;
+
+      return await _checkGitHub(
+        currentVersion: currentVersion,
+        assetExtension: assetExtension,
+        client: httpClient,
+        timeout: timeout,
+      );
+    } catch (_) {
+      return null;
+    } finally {
+      if (ownsClient) httpClient.close();
+    }
+  }
+
+  static Future<AppUpdateInfo?> _checkPrimaryManifest({
+    required String currentVersion,
+    required String assetExtension,
+    required http.Client client,
+    required Duration timeout,
+  }) async {
+    try {
+      final response = await client.get(
+        primaryManifestUrl,
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': AppConstants.appUserAgent,
+        },
+      ).timeout(timeout);
+      if (response.statusCode != 200) return null;
+
+      final data = jsonDecode(response.body);
+      if (data is! Map<String, dynamic>) return null;
+
+      final version = (data['version']?.toString() ?? '')
+          .trim()
+          .replaceFirst(RegExp(r'^v'), '');
+      if (!_isValidVersion(version)) return null;
+      // A stale pointer can remain when GitHub publishing succeeds but the OSS
+      // upload fails. Let GitHub act as the backup detector in that case.
+      if (compareVersions(version, currentVersion) <= 0) return null;
+
+      final asset = _manifestAssetFor(data['assets'], assetExtension);
+      if (asset == null) return null;
+      final sourceHost = Uri.parse(asset.downloadUrl).host;
+      final fallbackUrl = Uri.https(
+        'github.com',
+        '/$owner/$repo/releases/download/v$version/${asset.name}',
+      ).toString();
+
+      return AppUpdateInfo(
+        version: version,
+        downloadUrl: asset.downloadUrl,
+        fallbackDownloadUrl: fallbackUrl,
+        changelog: _buildChangelog(
+          data['changelog']?.toString() ?? '',
+          sourceHost: sourceHost,
+          sha256: asset.sha256,
+        ),
+        sha256: asset.sha256,
+        sourceHost: sourceHost,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<AppUpdateInfo?> _checkGitHub({
+    required String currentVersion,
+    required String assetExtension,
+    required http.Client client,
+    required Duration timeout,
+  }) async {
+    try {
+      final response = await client.get(
+        githubLatestReleaseUrl,
         headers: {
           'Accept': 'application/vnd.github.v3+json',
           'User-Agent': AppConstants.appUserAgent,
@@ -69,7 +159,7 @@ class UpdateChecker {
       final sha256 = await _sha256ForAsset(
         releaseAssets,
         selectedAsset,
-        httpClient,
+        client,
         timeout,
       );
       final sourceHost = Uri.parse(downloadUrl).host;
@@ -87,9 +177,39 @@ class UpdateChecker {
       );
     } catch (_) {
       return null;
-    } finally {
-      if (ownsClient) httpClient.close();
     }
+  }
+
+  static bool _isValidVersion(String version) =>
+      RegExp(r'^\d+(?:\.\d+){1,3}$').hasMatch(version);
+
+  static _ReleaseAsset? _manifestAssetFor(
+    Object? assets,
+    String assetExtension,
+  ) {
+    if (assets is! List) return null;
+    final wanted = assetExtension.trim().toLowerCase();
+    if (wanted.isEmpty) return null;
+    for (final asset in assets) {
+      if (asset is! Map) continue;
+      final name = asset['name']?.toString() ?? '';
+      final downloadUrl = asset['url']?.toString() ?? '';
+      final sha256 = asset['sha256']?.toString().trim().toLowerCase() ?? '';
+      final uri = Uri.tryParse(downloadUrl);
+      if (name.toLowerCase().endsWith(wanted) &&
+          uri != null &&
+          uri.scheme == 'https' &&
+          uri.host == primaryManifestUrl.host &&
+          uri.path.startsWith('/ssrvpn/releases/') &&
+          RegExp(r'^[a-f0-9]{64}$').hasMatch(sha256)) {
+        return _ReleaseAsset(
+          name: name,
+          downloadUrl: downloadUrl,
+          sha256: sha256,
+        );
+      }
+    }
+    return null;
   }
 
   static int compareVersions(String a, String b) {
