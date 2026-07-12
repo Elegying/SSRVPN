@@ -45,6 +45,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#ProjectDir}\installer\migrate_portable_data.ps1"; Flags: dontcopy
 
 [Icons]
 Name: "{autoprograms}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
@@ -54,6 +55,29 @@ Name: "{autodesktop}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: 
 Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"; Flags: nowait
 
 [Code]
+procedure MigrateRunningPortableData;
+var
+  ResultCode: Integer;
+  PowerShellPath: String;
+  ScriptPath: String;
+  DestinationPath: String;
+  Parameters: String;
+begin
+  ExtractTemporaryFile('migrate_portable_data.ps1');
+  PowerShellPath := ExpandConstant(
+    '{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  ScriptPath := ExpandConstant('{tmp}\migrate_portable_data.ps1');
+  DestinationPath := ExpandConstant('{app}\bin\ssrvpn');
+  Parameters := '-NoLogo -NoProfile -NonInteractive ' +
+    '-ExecutionPolicy Bypass -File ' + AddQuotes(ScriptPath) +
+    ' -Destination ' + AddQuotes(DestinationPath);
+  if not Exec(PowerShellPath, Parameters, '', SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) then
+    Log('Could not start portable data migration helper')
+  else if ResultCode <> 0 then
+    Log(Format('Portable data migration helper returned %d', [ResultCode]));
+end;
+
 procedure StopSsrvpnProcesses;
 var
   ResultCode: Integer;
@@ -71,6 +95,7 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  MigrateRunningPortableData;
   StopSsrvpnProcesses;
   Result := '';
 end;

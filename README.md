@@ -128,6 +128,7 @@ shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
 - `docs/ROADMAP.md`：已完成事项和后续技术路线。
 - `docs/RELEASE_SIGNING.md`：Android 自签名、macOS/Windows 免费发布和系统提示说明。
 - `docs/RELEASE_CHECKLIST.zh-CN.md`：个人维护者发布前后检查清单。
+- `docs/OSS_RELEASE_OPERATIONS.zh-CN.md`：阿里云 OSS 正常发布、密钥轮换、故障恢复和回滚手册。
 - `docs/UI_DESIGN_GUIDE.md`：三端 UI 色板、字号层级和组件规范。
 - `docs/CORE_ASSETS.md`：Mihomo/AtlasCore 二进制来源、版本和兼容性说明。
 - `docs/TESTING.md`：CI 覆盖率、平台依赖测试和本地验证策略。

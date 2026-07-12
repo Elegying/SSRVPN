@@ -31,6 +31,7 @@ run_step "macOS core privilege guards" scripts/check-macos-core-privileges.sh
 run_step "Windows launcher security" scripts/check-windows-launcher-security.sh
 run_step "Secret scan" scripts/check-secrets.sh
 run_step "Release tooling tests" python3 -m unittest \
+  scripts/test_generate_release_notes.py \
   scripts/test_generate_oss_release_manifest.py \
   scripts/test_windows_installer_config.py
 

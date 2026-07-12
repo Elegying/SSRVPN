@@ -112,7 +112,9 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
 生成 `SSRVPN_Setup.exe` 和对应 SHA256 文件。安装或升级时，安装器先请求
 Windows Restart Manager 关闭旧版本；如果托盘驻留阻止正常退出，只兜底结束
 `ssrvpn_windows_app.exe` 与启动器进程，不会按名称结束其他软件的
-`mihomo.exe`。安装完成后自动启动新版本，以恢复并重新接管 SSRVPN 的系统代理状态。
+`mihomo.exe`。从便携版首次迁移到安装版时，请保持旧版 SSRVPN 正在运行并
+直接启动安装器；安装器会在结束旧进程前复制已有订阅和设置。安装完成后自动
+启动新版本，以恢复并重新接管 SSRVPN 的系统代理状态。
 
 ## Mihomo 核心
 

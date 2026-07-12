@@ -72,7 +72,7 @@ jobs:
       - run: bash ../../scripts/check-macos-core-privileges.sh
       - run: bash ../../scripts/check-windows-launcher-security.sh
       - run: bash ../../scripts/check-secrets.sh
-      - run: python3 -m unittest scripts/test_generate_oss_release_manifest.py scripts/test_windows_installer_config.py
+      - run: python3 -m unittest scripts/test_generate_release_notes.py scripts/test_generate_oss_release_manifest.py scripts/test_windows_installer_config.py
         working-directory: .
       - run: dart pub get
       - run: flutter analyze --fatal-infos
@@ -315,6 +315,7 @@ jobs:
         shell: powershell
         run: |
           cd SSRVPN_Windows
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\migrate_portable_data.ps1 -Destination "$env:RUNNER_TEMP\ssrvpn-migration-smoke"
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\build_installer.ps1
 

@@ -96,7 +96,12 @@ git push origin v2.0.1
 
 - Android APK
 - macOS DMG
-- Windows ZIP
+- Windows 安装版 EXE 和便携版 ZIP
+
+正式 tag 构建完成后，Release workflow 还会把同一批已校验产物上传到阿里云
+OSS，并在最后一步更新 `ssrvpn/latest.json`。客户端优先读取 OSS，GitHub
+Releases 是备用检测与下载源。详细操作见
+`docs/OSS_RELEASE_OPERATIONS.zh-CN.md`。
 
 没有 Apple/Microsoft 开发者证书时，macOS 和 Windows 安装包仍会遇到系统安全提示。Android 可以用免费自签名 keystore，只要每次发布都使用同一个 keystore，用户就能覆盖安装升级。
 

@@ -26,12 +26,32 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotIn("postinstall", run_entry)
         self.assertNotIn("skipifsilent", run_entry)
 
+    def test_installer_migrates_running_portable_data_before_stopping(self) -> None:
+        installer_root = ROOT / "SSRVPN_Windows" / "installer"
+        installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
+        migration = (installer_root / "migrate_portable_data.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        prepare = installer.split(
+            "function PrepareToInstall(var NeedsRestart: Boolean): String;", 1
+        )[1]
+        self.assertLess(
+            prepare.index("MigrateRunningPortableData"),
+            prepare.index("StopSsrvpnProcesses"),
+        )
+        self.assertIn("Name = 'ssrvpn_windows_app.exe'", migration)
+        self.assertIn("subscriptions.json", migration)
+        self.assertIn("-not (Test-Path -LiteralPath $destinationFile)", migration)
+        self.assertNotRegex(migration, r"Copy-Item[^\n]+\\\*")
+
     def test_release_pipeline_publishes_installer_and_checksum(self) -> None:
         release = (ROOT / ".github" / "workflows" / "release.yml").read_text(
             encoding="utf-8"
         )
         required = {
             "tool\\build_installer.ps1",
+            "installer\\migrate_portable_data.ps1",
             "SSRVPN_Windows/SSRVPN_Setup.exe",
             "SSRVPN_Windows/SSRVPN_Setup.exe.sha256",
         }

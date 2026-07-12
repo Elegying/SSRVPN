@@ -18,7 +18,7 @@ Commit source, tests, docs, and automation.
 Do not commit:
 
 - local `dist/` deliverables,
-- APK/DMG/ZIP files,
+- APK/DMG/EXE/ZIP files,
 - Android keystores or `key.properties`,
 - certificates, provisioning profiles, `.env` files,
 - Flutter/Gradle/Xcode/Visual Studio build caches.
@@ -66,7 +66,7 @@ Current personal releases use the free path:
 
 - Android self-signed release keystore,
 - macOS ad-hoc signing without notarization,
-- Windows unsigned portable ZIP.
+- Windows unsigned per-user installer and portable ZIP.
 
 Paid Apple Developer ID notarization and Windows Authenticode signing are optional future upgrades if public distribution needs fewer system warnings.
 

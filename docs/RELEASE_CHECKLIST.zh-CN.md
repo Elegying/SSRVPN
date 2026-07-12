@@ -41,7 +41,8 @@
 
 ### Windows x64 实机冒烟
 
-在干净目录完整解压 `SSRVPN.zip` 后执行，测试前先记录系统代理原值：
+先在干净目录完整解压 `SSRVPN.zip`，再用同一份用户数据测试
+`SSRVPN_Setup.exe` 覆盖升级。测试前先记录系统代理原值：
 
 ```bat
 reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable
@@ -56,7 +57,8 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 6. 再次连接后从任务管理器结束 `bin\mihomo.exe`；应用应退出连接状态并自动清理自己设置的系统代理，不得留下半连接状态。
 7. 再次连接后从托盘选择“退出 SSRVPN”；应用和 Mihomo 都应退出，系统代理必须恢复，`%LOCALAPPDATA%\SSRVPN\crashes` 不应新增转储。
 8. 分别用普通权限和管理员权限检查 TUN：普通权限必须明确失败且不残留代理；管理员权限下应能连接、断开并恢复网络。
-9. 检查应用内更新能打开当前版本对应的 GitHub Release。日志可提交排查，但不要公开发送 `.dmp` 文件。
+9. 保持便携版正在运行并启动 `SSRVPN_Setup.exe`；安装器必须自动结束旧进程、迁移订阅和设置、安装到 `%LOCALAPPDATA%\Programs\SSRVPN` 并自动启动新版本。
+10. 检查应用内更新优先打开 OSS 的 `SSRVPN_Setup.exe`，OSS 异常时能使用 GitHub 备用下载。日志可提交排查，但不要公开发送 `.dmp` 文件。
 
 ## 发布
 
@@ -76,6 +78,8 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    - `SSRVPN.apk.sha256`
    - `SSRVPN.dmg`
    - `SSRVPN.dmg.sha256`
+   - `SSRVPN_Setup.exe`
+   - `SSRVPN_Setup.exe.sha256`
    - `SSRVPN.zip`
    - `SSRVPN.zip.sha256`
    或直接运行：
@@ -91,6 +95,7 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    ```bash
    shasum -a 256 -c SSRVPN.dmg.sha256
    sha256sum -c SSRVPN.apk.sha256
+   sha256sum -c SSRVPN_Setup.exe.sha256
    sha256sum -c SSRVPN.zip.sha256
    ```
 6. 检查用户会看到的系统提示是否符合预期：
