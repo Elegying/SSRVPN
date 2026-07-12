@@ -82,14 +82,19 @@ hdiutil attach "$RW_DMG_PATH" -mountpoint "$MOUNT_DIR"
 
 echo "Applying drag-to-Applications Finder layout..."
 command -v osascript >/dev/null
-osascript <<EOF
+if ! python3 "$PROJECT_ROOT/../scripts/run-command-with-timeout.py" \
+  15 osascript <<EOF
 set dmgFolder to POSIX file "$MOUNT_DIR" as alias
 tell application "Finder"
   open dmgFolder
   set dmgWindow to container window of dmgFolder
   set current view of dmgWindow to icon view
-  set toolbar visible of dmgWindow to false
-  set statusbar visible of dmgWindow to false
+  try
+    set toolbar visible of dmgWindow to false
+  end try
+  try
+    set statusbar visible of dmgWindow to false
+  end try
   set the bounds of dmgWindow to {100, 100, 640, 420}
   set arrangement of icon view options of dmgWindow to not arranged
   set icon size of icon view options of dmgWindow to 96
@@ -98,9 +103,17 @@ tell application "Finder"
   set position of item "$GUIDE_NAME" of dmgFolder to {290, 310}
   update dmgFolder without registering applications
   delay 2
-  close dmgWindow
+  try
+    close dmgWindow
+  end try
 end tell
 EOF
+then
+  # Finder automation is cosmetic and can be denied or unavailable on a
+  # headless CI runner. The verified app, Applications symlink and Chinese
+  # guide are already staged, so keep producing a functional DMG.
+  echo "warning: Finder layout unavailable; continuing with a standard icon layout" >&2
+fi
 
 sync
 for attempt in 1 2 3; do

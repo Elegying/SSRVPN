@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:screen_retriever/screen_retriever.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart' show runBestEffortCleanup;
 import 'package:window_manager/window_manager.dart';
 
 import '../services/clash_service.dart' as clash;
@@ -223,15 +224,23 @@ class StartupOrchestrator {
 
   Future<void> _quitFromTray() async {
     final status = StartupStatus.instance;
-    try {
-      await status.settingsService?.flush();
-      await status.clashService?.stop();
-      await TrayManager().destroy();
-      await windowManager.setPreventClose(false);
-      await windowManager.destroy();
-      SystemNavigator.pop();
-    } catch (error, stack) {
-      StartupLogger.error('Tray quit action failed', error, stack);
+    final failures = await runBestEffortCleanup([
+      () async => status.settingsService?.flush(),
+      () async {
+        status.clashService?.requestConnectionIntent(false);
+        await status.clashService?.stop();
+      },
+      TrayManager().destroy,
+      () => windowManager.setPreventClose(false),
+      windowManager.destroy,
+    ]);
+    for (final failure in failures) {
+      StartupLogger.error(
+        'Tray quit cleanup step ${failure.step} failed',
+        failure.error,
+        failure.stackTrace,
+      );
     }
+    SystemNavigator.pop();
   }
 }

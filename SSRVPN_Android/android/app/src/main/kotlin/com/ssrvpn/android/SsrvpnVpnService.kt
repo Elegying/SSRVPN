@@ -24,8 +24,13 @@ import java.io.FileInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONObject
+
+private class StartCancelledException : Exception("VPN start cancelled")
 
 class SsrvpnVpnService : VpnService() {
     companion object {
@@ -36,6 +41,13 @@ class SsrvpnVpnService : VpnService() {
         const val ACTION_DISCONNECT = "com.ssrvpn.ACTION_DISCONNECT"
         const val ACTION_CONNECT = "com.ssrvpn.ACTION_CONNECT"
 
+        private const val EXTRA_CONFIG_DIR = "com.ssrvpn.extra.CONFIG_DIR"
+        private const val EXTRA_CONFIG_PATH = "com.ssrvpn.extra.CONFIG_PATH"
+        private const val EXTRA_API_PORT = "com.ssrvpn.extra.API_PORT"
+        private const val EXTRA_API_SECRET = "com.ssrvpn.extra.API_SECRET"
+        private const val EXTRA_NODE_NAME = "com.ssrvpn.extra.NODE_NAME"
+        private const val EXTRA_REQUEST_ID = "com.ssrvpn.extra.REQUEST_ID"
+
         @Volatile
         var isRunning = false
             private set
@@ -44,40 +56,45 @@ class SsrvpnVpnService : VpnService() {
         var instance: SsrvpnVpnService? = null
             private set
 
-        @Volatile
-        var pendingConfigDir: String? = null
-        @Volatile
-        var pendingConfigPath: String? = null
-        @Volatile
-        var pendingApiPort: Int = 9090
-        @Volatile
-        var pendingApiSecret: String? = null
-        @Volatile
-        var pendingNodeName: String? = null
-
-        // 一次性消费回调，避免持有 Activity 引用导致泄漏
-        @Volatile
-        private var _startResultCallback: ((Boolean, String) -> Unit)? = null
-
-        fun setStartResultCallback(callback: ((Boolean, String) -> Unit)?) {
-            _startResultCallback = callback
+        fun createStartIntent(
+            context: Context,
+            configDir: String,
+            configPath: String,
+            apiPort: Int,
+            apiSecret: String,
+            nodeName: String?,
+            requestId: String? = null
+        ): Intent = Intent(context, SsrvpnVpnService::class.java).apply {
+            putExtra(EXTRA_CONFIG_DIR, configDir)
+            putExtra(EXTRA_CONFIG_PATH, configPath)
+            putExtra(EXTRA_API_PORT, apiPort)
+            putExtra(EXTRA_API_SECRET, apiSecret)
+            putExtra(EXTRA_NODE_NAME, nodeName)
+            putExtra(EXTRA_REQUEST_ID, requestId)
         }
 
-        fun clearStartResultCallback(callback: ((Boolean, String) -> Unit)?) {
-            if (callback == null || _startResultCallback === callback) {
-                _startResultCallback = null
-            }
+        private val startResultCallbacks =
+            ConcurrentHashMap<String, (Boolean, String) -> Unit>()
+
+        fun registerStartResultCallback(callback: (Boolean, String) -> Unit): String {
+            val requestId = UUID.randomUUID().toString()
+            startResultCallbacks[requestId] = callback
+            return requestId
         }
 
-        fun completeStartResult(success: Boolean, message: String) {
-            consumeStartResult(success, message)
+        fun clearStartResultCallback(requestId: String?) {
+            if (requestId != null) startResultCallbacks.remove(requestId)
         }
 
         /** 消费回调（一次性，调用后自动置空） */
-        private fun consumeStartResult(success: Boolean, message: String) {
-            val cb = _startResultCallback
-            _startResultCallback = null
-            cb?.invoke(success, message)
+        private fun consumeStartResult(
+            requestId: String?,
+            success: Boolean,
+            message: String
+        ) {
+            if (requestId != null) {
+                startResultCallbacks.remove(requestId)?.invoke(success, message)
+            }
         }
 
         /** 广播 VPN 状态变更 */
@@ -90,12 +107,28 @@ class SsrvpnVpnService : VpnService() {
         }
 
         private const val BRIDGE_START_TIMEOUT_MS = 45_000L
+        private const val PENDING_START_CANCEL_GRACE_MS = 1_000L
         private const val BRIDGE_STOP_TIMEOUT_MS = 5_000L
         private const val BRIDGE_IS_RUNNING_TIMEOUT_MS = 2_000L
-        private val stopInProgress = AtomicBoolean(false)
+        private val stopOperation = CoalescedOperation()
+        private val serviceStartInProgress = AtomicBoolean(false)
         private val bridgeStartInProgress = AtomicBoolean(false)
         private val bridgeStopInProgress = AtomicBoolean(false)
         private val bridgeRunningCheckInProgress = AtomicBoolean(false)
+        private val processTerminationPending = AtomicBoolean(false)
+        private val startGeneration = AtomicLong(0)
+
+        fun isCoreOperationBusy(): Boolean =
+            stopOperation.isRunning ||
+                serviceStartInProgress.get() ||
+                bridgeStartInProgress.get() ||
+                bridgeStopInProgress.get() ||
+                processTerminationPending.get()
+
+        fun cancelPendingStart() {
+            startGeneration.incrementAndGet()
+            instance?.stopAll()
+        }
     }
 
     private val disconnectReceiver = object : BroadcastReceiver() {
@@ -111,6 +144,8 @@ class SsrvpnVpnService : VpnService() {
 
     private var vpnFd: ParcelFileDescriptor? = null
     private var protectThread: Thread? = null
+    @Volatile
+    private var serviceStartThread: Thread? = null
     private val notificationHandler = Handler(Looper.getMainLooper())
     private var currentNodeName = "SSRVPN"
     private var connectionStartedAt = 0L
@@ -134,7 +169,12 @@ class SsrvpnVpnService : VpnService() {
                     notificationUpdatePolicy.onScreenStateChanged(true)
                     if (isRunning && notificationConnected) {
                         notificationHandler.removeCallbacks(notificationUpdater)
-                        notificationHandler.post(notificationUpdater)
+                        resetTrafficSample()
+                        notifyCurrentState()
+                        notificationHandler.postDelayed(
+                            notificationUpdater,
+                            notificationUpdatePolicy.initialRefreshDelayMillis
+                        )
                     }
                 }
             }
@@ -155,7 +195,7 @@ class SsrvpnVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        createNotificationChannel()
+        VpnNotificationSupport.createChannel(this, CHANNEL_ID)
         // 注册断开广播
         val filter = IntentFilter(ACTION_DISCONNECT)
         ContextCompat.registerReceiver(
@@ -178,9 +218,22 @@ class SsrvpnVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "VPN Service starting...")
+        val requestId = intent?.getStringExtra(EXTRA_REQUEST_ID)
+
+        if (isRunning) {
+            Log.d(TAG, "VPN is already running; reusing the active session")
+            consumeStartResult(requestId, true, "Already running")
+            return START_STICKY
+        }
+        if (!serviceStartInProgress.compareAndSet(false, true)) {
+            Log.w(TAG, "VPN start already in progress")
+            consumeStartResult(requestId, false, "VPN 核心正在启动，请稍后重试")
+            return START_STICKY
+        }
+        val startToken = startGeneration.incrementAndGet()
 
         val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        currentNodeName = pendingNodeName
+        currentNodeName = intent?.getStringExtra(EXTRA_NODE_NAME)
             ?: prefs.getString("flutter.selectedNodeName", null)
             ?: "SSRVPN"
         connectionStartedAt = System.currentTimeMillis()
@@ -197,41 +250,52 @@ class SsrvpnVpnService : VpnService() {
         isRunning = false
 
         // 进程被系统杀掉后 START_STICKY 重启时，静态字段已丢失，回退读持久化配置
-        val configDir = pendingConfigDir ?: prefs.getString("flutter.configDir", null)
-        val configPath = pendingConfigPath ?: prefs.getString("flutter.configPath", null)
-        val apiPort = if (pendingConfigDir != null) pendingApiPort
-                      else prefs.getLong("flutter.apiPort", 9090L).toInt()
-        val apiSecret = if (pendingConfigDir != null) pendingApiSecret ?: ""
-                        else prefs.getString("flutter.apiSecret", "") ?: ""
+        val configDir = intent?.getStringExtra(EXTRA_CONFIG_DIR)
+            ?: prefs.getString("flutter.configDir", null)
+        val configPath = intent?.getStringExtra(EXTRA_CONFIG_PATH)
+            ?: prefs.getString("flutter.configPath", null)
+        val apiPort = if (intent?.hasExtra(EXTRA_API_PORT) == true) {
+            intent.getIntExtra(EXTRA_API_PORT, 9090)
+        } else {
+            prefs.getLong("flutter.apiPort", 9090L).toInt()
+        }
+        val apiSecret = intent?.getStringExtra(EXTRA_API_SECRET)
+            ?: prefs.getString("flutter.apiSecret", "")
+            ?: ""
         val selectedNodeName = currentNodeName
-        pendingApiSecret = null
-        pendingNodeName = null
 
         if (configDir == null || configPath == null) {
             Log.e(TAG, "Missing parameters!")
-            consumeStartResult(false, "Missing parameters")
+            consumeStartResult(requestId, false, "Missing parameters")
             stopAll()
+            serviceStartInProgress.set(false)
             return START_NOT_STICKY
         }
 
-        Thread({
-            startCoreWithVpn(configDir, configPath, apiPort, apiSecret, selectedNodeName)
+        val startThread = Thread({
+            try {
+                startCoreWithVpn(
+                    configDir,
+                    configPath,
+                    apiPort,
+                    apiSecret,
+                    selectedNodeName,
+                    startToken,
+                    requestId
+                )
+            } finally {
+                serviceStartInProgress.set(false)
+                if (serviceStartThread === Thread.currentThread()) {
+                    serviceStartThread = null
+                }
+            }
         }, "SSRVPN-start").apply {
             isDaemon = true
-            start()
         }
+        serviceStartThread = startThread
+        startThread.start()
 
         return START_STICKY
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "SSRVPN", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "VPN 连接状态"
-                setShowBadge(false)
-            }
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
     }
 
     private fun buildDynamicNotification(): Notification {
@@ -254,12 +318,14 @@ class SsrvpnVpnService : VpnService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val rateText = if (notificationConnected) {
-            "↑ ${formatBytes(uploadRate)}/s  ↓ ${formatBytes(downloadRate)}/s"
+            "↑ ${VpnNotificationSupport.formatBytes(uploadRate)}/s  " +
+                "↓ ${VpnNotificationSupport.formatBytes(downloadRate)}/s"
         } else {
             "正在连接 VPN..."
         }
         val detailText = if (notificationConnected) {
-            "$rateText\n上传 ${formatBytes(sessionUpload())}  下载 ${formatBytes(sessionDownload())}"
+            "$rateText\n上传 ${VpnNotificationSupport.formatBytes(sessionUpload())}  " +
+                "下载 ${VpnNotificationSupport.formatBytes(sessionDownload())}"
         } else {
             rateText
         }
@@ -301,6 +367,13 @@ class SsrvpnVpnService : VpnService() {
         val rx = TrafficStats.getUidRxBytes(applicationInfo.uid).coerceAtLeast(0L)
         trafficBaselineTx = tx
         trafficBaselineRx = rx
+        resetTrafficSample(tx, rx)
+    }
+
+    private fun resetTrafficSample(
+        tx: Long = TrafficStats.getUidTxBytes(applicationInfo.uid).coerceAtLeast(0L),
+        rx: Long = TrafficStats.getUidRxBytes(applicationInfo.uid).coerceAtLeast(0L)
+    ) {
         lastTrafficTx = tx
         lastTrafficRx = rx
         lastTrafficSampleAtMs = SystemClock.elapsedRealtime()
@@ -332,22 +405,6 @@ class SsrvpnVpnService : VpnService() {
     private fun sessionDownload(): Long =
         (lastTrafficRx - trafficBaselineRx).coerceAtLeast(0L)
 
-    private fun formatBytes(bytes: Long): String {
-        if (bytes < 1024) return "$bytes B"
-        val units = arrayOf("KB", "MB", "GB", "TB")
-        var value = bytes.toDouble() / 1024.0
-        var unitIndex = 0
-        while (value >= 1024 && unitIndex < units.lastIndex) {
-            value /= 1024.0
-            unitIndex++
-        }
-        return if (value >= 100) {
-            "${value.toInt()} ${units[unitIndex]}"
-        } else {
-            String.format(java.util.Locale.US, "%.1f %s", value, units[unitIndex])
-        }
-    }
-
     private fun startNotificationUpdates() {
         notificationConnected = true
         notificationHandler.removeCallbacks(notificationUpdater)
@@ -357,7 +414,7 @@ class SsrvpnVpnService : VpnService() {
             if (notificationUpdatePolicy.shouldScheduleTrafficRefresh()) {
                 notificationHandler.postDelayed(
                     notificationUpdater,
-                    notificationUpdatePolicy.refreshIntervalMillis
+                    notificationUpdatePolicy.initialRefreshDelayMillis
                 )
             }
         }
@@ -377,68 +434,9 @@ class SsrvpnVpnService : VpnService() {
      * 这样局域网流量（adb无线调试、投屏、局域网设备）走WiFi直连
      */
     private fun addPublicRoutes(builder: VpnService.Builder) {
-        // 0.0.0.0/1 + 128.0.0.0/1 = 整个 IPv4，然后逐个排除局域网段
-        // 由于 Android API 不支持 exclude，我们手动划分公网子网
-
-        // 1.0.0.0/8 ~ 9.255.255.255
-        builder.addRoute("1.0.0.0", 8)
-        // 11.0.0.0/8 ~ 126.255.255.255 (跳过 10.x.x.x)
-        builder.addRoute("11.0.0.0", 8)
-        builder.addRoute("12.0.0.0", 6)   // 12-15
-        builder.addRoute("16.0.0.0", 4)   // 16-31
-        builder.addRoute("32.0.0.0", 3)   // 32-63
-        builder.addRoute("64.0.0.0", 3)   // 64-95 (跳过 100.64.0.0/10)
-        // 96.0.0.0/6 = 96-99
-        builder.addRoute("96.0.0.0", 6)
-        // 100.0.0.0/10 = 100.0-100.63 (跳过 100.64.0.0/10)
-        builder.addRoute("100.0.0.0", 10)
-        // 100.128.0.0/9 = 100.128-100.255
-        builder.addRoute("100.128.0.0", 9)
-        // 101.0.0.0/8 ~ 171.255.255.255
-        builder.addRoute("101.0.0.0", 8)
-        builder.addRoute("102.0.0.0", 7)   // 102-103
-        builder.addRoute("104.0.0.0", 5)   // 104-111
-        builder.addRoute("112.0.0.0", 4)   // 112-127
-        builder.addRoute("128.0.0.0", 3)   // 128-159
-        builder.addRoute("160.0.0.0", 5)   // 160-167
-        builder.addRoute("168.0.0.0", 7)   // 168-169 (跳过 172.16.0.0/12)
-        // 172.0.0.0/12 = 172.0-172.15
-        builder.addRoute("172.0.0.0", 12)
-        // 172.32.0.0/11 = 172.32-172.63
-        builder.addRoute("172.32.0.0", 11)
-        // 172.64.0.0/10 = 172.64-172.127
-        builder.addRoute("172.64.0.0", 10)
-        // 172.128.0.0/9 = 172.128-172.255
-        builder.addRoute("172.128.0.0", 9)
-        // 173.0.0.0/8 ~ 191.255.255.255
-        builder.addRoute("173.0.0.0", 8)
-        builder.addRoute("174.0.0.0", 7)   // 174-175
-        builder.addRoute("176.0.0.0", 4)   // 176-191
-        // 192.0.0.0/16 = 192.0.0.0 ~ 192.0.255.255 (跳过 192.168.x.x)
-        builder.addRoute("192.0.0.0", 16)
-        // 192.1.0.0/16 ~ 192.167.255.255
-        builder.addRoute("192.1.0.0", 16)
-        builder.addRoute("192.2.0.0", 15)   // 192.2-192.3
-        builder.addRoute("192.4.0.0", 14)   // 192.4-192.7
-        builder.addRoute("192.8.0.0", 13)   // 192.8-192.15
-        builder.addRoute("192.16.0.0", 12)  // 192.16-192.31
-        builder.addRoute("192.32.0.0", 11)  // 192.32-192.63
-        builder.addRoute("192.64.0.0", 10)  // 192.64-192.127
-        builder.addRoute("192.128.0.0", 11) // 192.128-192.159
-        builder.addRoute("192.160.0.0", 13) // 192.160-192.167 (跳过 192.168.x.x)
-        builder.addRoute("192.169.0.0", 16)
-        builder.addRoute("192.170.0.0", 15) // 192.170-192.171
-        builder.addRoute("192.172.0.0", 14) // 192.172-192.175
-        builder.addRoute("192.176.0.0", 12) // 192.176-192.191
-        builder.addRoute("192.192.0.0", 10) // 192.192-192.255
-        // 193.0.0.0/8 ~ 223.255.255.255
-        builder.addRoute("193.0.0.0", 8)
-        builder.addRoute("194.0.0.0", 7)   // 194-195
-        builder.addRoute("196.0.0.0", 6)   // 196-199
-        builder.addRoute("200.0.0.0", 5)   // 200-207
-        builder.addRoute("208.0.0.0", 4)   // 208-223
-        // 224.0.0.0/4 = 组播，通常不需要
-        // 忽略
+        for (route in PublicIpv4Routes.routes) {
+            builder.addRoute(route.address, route.prefixLength)
+        }
     }
 
     private fun startCoreWithVpn(
@@ -446,10 +444,13 @@ class SsrvpnVpnService : VpnService() {
         configPath: String,
         apiPort: Int,
         apiSecret: String,
-        selectedNodeName: String?
+        selectedNodeName: String?,
+        startToken: Long,
+        requestId: String?
     ) {
         val packageName = packageName
         try {
+            ensureStartCurrent(startToken)
             // Step 1: Initialize protect pipe
             Log.d(TAG, "Initializing protect pipe...")
             val protectReadFd = bridge.Bridge.initProtect()
@@ -489,6 +490,7 @@ class SsrvpnVpnService : VpnService() {
             }
 
             // Step 3: Establish VPN
+            ensureStartCurrent(startToken)
             Log.d(TAG, "Establishing VPN...")
             val builder = Builder()
             builder.setSession("SSRVPN")
@@ -511,42 +513,46 @@ class SsrvpnVpnService : VpnService() {
             vpnFd = builder.establish()
             if (vpnFd == null) {
                 Log.e(TAG, "VPN establish returned null!")
-                consumeStartResult(false, "VPN establish failed")
+                consumeStartResult(requestId, false, "VPN establish failed")
                 stopAll()
                 return
             }
 
+            ensureStartCurrent(startToken)
             val tunFd = vpnFd!!.detachFd().toLong()
             Log.d(TAG, "VPN established! fd=$tunFd")
 
             if (tunFd <= 0) {
                 Log.e(TAG, "Invalid VPN fd")
-                consumeStartResult(false, "Invalid VPN fd")
+                consumeStartResult(requestId, false, "Invalid VPN fd")
                 stopAll()
                 return
             }
 
             // Step 4: Initialize and start Mihomo
+            ensureStartCurrent(startToken)
             Log.d(TAG, "Initializing Mihomo...")
             val startErr = startBridgeWithTimeout(configDir, configPath, tunFd)
             if (startErr == null) {
                 Log.e(TAG, "Mihomo start timed out")
-                consumeStartResult(false, "设备性能不足，请重新连接")
+                consumeStartResult(requestId, false, "设备性能不足，请重新连接")
                 stopAll()
                 return
             }
             if (startErr.isNotEmpty()) {
                 Log.e(TAG, "Mihomo start failed: $startErr")
-                consumeStartResult(false, "Mihomo: $startErr")
+                consumeStartResult(requestId, false, "Mihomo: $startErr")
                 stopAll()
                 return
             }
+            ensureStartCurrent(startToken)
             Log.d(TAG, "Mihomo started with TUN fd=$tunFd")
 
             // Step 5: Wait for API health (use dynamic port)
             Log.d(TAG, "Waiting for API on port $apiPort...")
             var healthy = false
             for (i in 0 until 80) {
+                ensureStartCurrent(startToken)
                 Thread.sleep(250)
                 try {
                     val socket = java.net.Socket()
@@ -559,28 +565,42 @@ class SsrvpnVpnService : VpnService() {
             }
 
             if (healthy) {
+                ensureStartCurrent(startToken)
                 Log.d(TAG, "Core started!")
                 applyProxySelection(apiPort, apiSecret, selectedNodeName)
                 isRunning = true
                 broadcastState(this)
                 startNotificationUpdates()
-                consumeStartResult(true, "OK")
+                consumeStartResult(requestId, true, "OK")
 
                 Thread({
-                    monitorCoreRunning()
+                    monitorCoreRunning(startToken)
                 }, "SSRVPN-core-monitor").apply {
                     isDaemon = true
                     start()
                 }
             } else {
                 Log.e(TAG, "Health check timeout")
-                consumeStartResult(false, "设备性能不足，请重新连接")
+                consumeStartResult(requestId, false, "设备性能不足，请重新连接")
                 stopAll()
             }
+        } catch (e: StartCancelledException) {
+            Log.d(TAG, "VPN start cancelled")
+            consumeStartResult(requestId, false, "连接已取消")
+            stopAll()
         } catch (e: Exception) {
             Log.e(TAG, "startCoreWithVpn error", e)
-            consumeStartResult(false, "Error: ${e.message}")
+            consumeStartResult(requestId, false, "Error: ${e.message}")
             stopAll()
+        }
+    }
+
+    private fun ensureStartCurrent(startToken: Long) {
+        if (startToken != startGeneration.get() ||
+            stopOperation.isRunning ||
+            processTerminationPending.get()
+        ) {
+            throw StartCancelledException()
         }
     }
 
@@ -624,14 +644,17 @@ class SsrvpnVpnService : VpnService() {
         return result ?: ""
     }
 
-    private fun monitorCoreRunning() {
+    private fun monitorCoreRunning(startToken: Long) {
         try {
-            while (isBridgeRunningWithTimeout()) {
+            while (startToken == startGeneration.get() && isRunning) {
+                val bridgeRunning = isBridgeRunningWithTimeout()
+                if (startToken != startGeneration.get()) return
+                if (!bridgeRunning) break
                 Thread.sleep(3000)
             }
             // 核心意外退出：必须关闭 VPN 接口并停止前台服务，
             // 否则全局流量仍被路由进无人读取的 TUN，导致整机断网
-            if (isRunning) {
+            if (startToken == startGeneration.get() && isRunning) {
                 Log.e(TAG, "Mihomo stopped unexpectedly, tearing down VPN")
                 stopAll()
             }
@@ -642,8 +665,8 @@ class SsrvpnVpnService : VpnService() {
 
     private fun isBridgeRunningWithTimeout(): Boolean {
         if (!bridgeRunningCheckInProgress.compareAndSet(false, true)) {
-            Log.w(TAG, "Bridge.isRunning already in progress; treating as stopped")
-            return false
+            Log.w(TAG, "Bridge.isRunning already in progress; deferring verdict")
+            return true
         }
         var result = false
         var error: Exception? = null
@@ -748,16 +771,29 @@ class SsrvpnVpnService : VpnService() {
         }
     }
 
-    fun stopAll() {
-        if (!stopInProgress.compareAndSet(false, true)) {
+    fun stopAll(onComplete: (() -> Unit)? = null) {
+        startGeneration.incrementAndGet()
+        serviceStartThread?.interrupt()
+        if (!stopOperation.joinOrBegin(onComplete)) {
             Log.d(TAG, "Stop already in progress")
             return
         }
         Thread({
+            var terminateProcess = false
             try {
-                stopAllOnWorker()
+                terminateProcess = stopAllOnWorker()
             } finally {
-                stopInProgress.set(false)
+                if (terminateProcess) processTerminationPending.set(true)
+                stopOperation.complete()
+            }
+            if (terminateProcess) {
+                Log.e(
+                    TAG,
+                    "Bridge.stop failed or timed out; terminating process to release the detached TUN fd"
+                )
+                notificationHandler.postDelayed({
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                }, 750L)
             }
         }, "SSRVPN-stop").apply {
             isDaemon = true
@@ -765,12 +801,13 @@ class SsrvpnVpnService : VpnService() {
         }
     }
 
-    private fun stopAllOnWorker() {
+    private fun stopAllOnWorker(): Boolean {
         Log.d(TAG, "Stopping...")
         stopNotificationUpdates()
         protectThread?.interrupt()
         protectThread = null
-        stopBridgeWithTimeout()
+        val pendingStartStopped = waitForPendingStart()
+        val bridgeStopped = pendingStartStopped && stopBridgeWithTimeout()
         try {
             vpnFd?.close()
         } catch (_: Exception) {}
@@ -790,16 +827,42 @@ class SsrvpnVpnService : VpnService() {
         }
         stopSelf()
         Log.d(TAG, "Stopped")
+        return !bridgeStopped
     }
 
-    private fun stopBridgeWithTimeout() {
+    private fun waitForPendingStart(): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + PENDING_START_CANCEL_GRACE_MS
+        serviceStartThread?.interrupt()
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val thread = serviceStartThread
+            if ((thread == null || !thread.isAlive) && !bridgeStartInProgress.get()) {
+                return true
+            }
+            try {
+                thread?.join(100L)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return false
+            }
+        }
+        Log.e(
+            TAG,
+            "Pending VPN start did not stop within ${PENDING_START_CANCEL_GRACE_MS}ms; " +
+                "forcing process cleanup"
+        )
+        return false
+    }
+
+    private fun stopBridgeWithTimeout(): Boolean {
         if (!bridgeStopInProgress.compareAndSet(false, true)) {
             Log.w(TAG, "Bridge.stop already in progress; skipping duplicate stop")
-            return
+            return false
         }
+        val bridgeStopSucceeded = AtomicBoolean(false)
         val bridgeThread = Thread({
             try {
                 bridge.Bridge.stop()
+                bridgeStopSucceeded.set(true)
                 Log.d(TAG, "Bridge.stop returned")
             } catch (e: Exception) {
                 Log.e(TAG, "Bridge stop error", e)
@@ -814,11 +877,14 @@ class SsrvpnVpnService : VpnService() {
             bridgeThread.join(BRIDGE_STOP_TIMEOUT_MS)
             if (bridgeThread.isAlive) {
                 Log.e(TAG, "Bridge.stop timed out after ${BRIDGE_STOP_TIMEOUT_MS}ms; continuing VPN cleanup")
+                return false
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
             Log.e(TAG, "Interrupted while waiting for Bridge.stop", e)
+            return false
         }
+        return bridgeStopSucceeded.get()
     }
 
     override fun onDestroy() {

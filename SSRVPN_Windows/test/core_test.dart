@@ -6,6 +6,7 @@ import 'package:yaml/yaml.dart';
 
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/services/clash_service.dart';
+import 'package:ssrvpn_windows/services/settings_service.dart';
 
 void main() {
   group('AppSettings', () {
@@ -193,6 +194,22 @@ proxies:
       'port': '443',
     });
     expect(node.port, 443);
+  });
+
+  test('failed settings write does not commit the in-memory update', () async {
+    final temp = await Directory.systemTemp.createTemp('ssrvpn_win_settings_');
+    addTearDown(() => temp.delete(recursive: true));
+    final blockedPath = '${temp.path}${Platform.pathSeparator}blocked';
+    await Directory(blockedPath).create();
+    final service = SettingsService.createForTesting(
+      settings: AppSettings(),
+      dataDir: temp.path,
+      settingsPath: blockedPath,
+    );
+
+    await expectLater(service.updateProxyPort(8890), throwsA(anything));
+
+    expect(service.settings.proxyPort, 7890);
   });
 
   test('global node switch updates PROXY and GLOBAL groups', () async {

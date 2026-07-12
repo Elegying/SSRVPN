@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -67,6 +68,26 @@ void main() {
       expect(api.globalNow, 'PROXY');
       expect(await service.currentSelectedProxyName(), 'Node B');
     });
+
+    test('concurrent node selections preserve the last requested node',
+        () async {
+      final api = await _ProxyApiServer.start(
+        proxyNow: 'Initial',
+        putDelayByTarget: {'Node A': const Duration(milliseconds: 80)},
+      );
+      addTearDown(api.close);
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      service.initHttpClient();
+      service.updateSettings(AppSettings(apiPort: api.port));
+
+      final first = service.switchSelectedProxy('Node A');
+      final second = service.switchSelectedProxy('Node B');
+      await Future.wait([first, second]);
+
+      expect(api.proxyNow, 'Node B');
+      expect(await service.currentSelectedProxyName(), 'Node B');
+    });
   });
 
   group('ClashServiceBase rule provider refresh', () {
@@ -124,6 +145,69 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 40));
       expect(service.refreshCalls, 0);
     });
+
+    test('can keep startup refresh while platform owns health monitoring',
+        () async {
+      final service = _NativeHealthClashService();
+      addTearDown(service.dispose);
+
+      service.setRunning(true);
+      service.startStatusMonitor();
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+
+      expect(service.refreshCalls, 1);
+      expect(service.healthCalls, 0);
+    });
+  });
+
+  test('config generation observes in-place settings mutations', () {
+    const yaml = '''
+proxies:
+  - name: Node A
+    type: ss
+    server: 1.2.3.4
+    port: 443
+    cipher: aes-128-gcm
+    password: secret
+''';
+    final settings = AppSettings(proxyPort: 7890, socksPort: 7891);
+    final service = _ApiClashService();
+
+    final first = service.buildConfig(yaml, settings);
+    settings.proxyPort = 8890;
+    settings.socksPort = 8891;
+    final second = service.buildConfig(yaml, settings);
+
+    expect(first, contains('mixed-port: 7890'));
+    expect(second, contains('mixed-port: 8890'));
+    expect(second, isNot(first));
+  });
+
+  test('unexpected core loss clears the desired connection intent', () {
+    final service = _TestClashService();
+    addTearDown(service.dispose);
+
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    service.simulateUnexpectedCoreLoss();
+
+    expect(service.isRunning, isFalse);
+    expect(service.connectionDesired, isFalse);
+  });
+
+  test('status monitor contains platform stop failures', () async {
+    final service = _FailingHealthClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    service.startStatusMonitor();
+    await service.stopRequested.future.timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(service.connectionDesired, isFalse);
+    expect(service.isRunning, isFalse);
   });
 }
 
@@ -133,6 +217,7 @@ class _ProxyApiServer {
     required this.proxyNow,
     required this.globalNow,
     required this.updateProxyOnPut,
+    required this.putDelayByTarget,
   }) {
     _server.listen(_handle);
   }
@@ -141,6 +226,7 @@ class _ProxyApiServer {
   String proxyNow;
   String globalNow;
   final bool updateProxyOnPut;
+  final Map<String, Duration> putDelayByTarget;
   int closeConnectionCalls = 0;
 
   int get port => _server.port;
@@ -149,6 +235,7 @@ class _ProxyApiServer {
     required String proxyNow,
     String globalNow = 'PROXY',
     bool updateProxyOnPut = true,
+    Map<String, Duration> putDelayByTarget = const {},
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     return _ProxyApiServer._(
@@ -156,6 +243,7 @@ class _ProxyApiServer {
       proxyNow: proxyNow,
       globalNow: globalNow,
       updateProxyOnPut: updateProxyOnPut,
+      putDelayByTarget: putDelayByTarget,
     );
   }
 
@@ -182,6 +270,8 @@ class _ProxyApiServer {
       final body = await utf8.decodeStream(request);
       final decoded = jsonDecode(body) as Map<String, dynamic>;
       final target = decoded['name']?.toString() ?? '';
+      final delay = putDelayByTarget[target];
+      if (delay != null) await Future<void>.delayed(delay);
       if (segments.last == 'PROXY') {
         if (updateProxyOnPut) proxyNow = target;
       } else if (segments.last == 'GLOBAL') {
@@ -232,6 +322,12 @@ Future<void> _recordRequests(
 class _ApiClashService extends ClashServiceBase {
   Future<void> runRuleProviderRefresh() => refreshRuleProvidersOnce();
 
+  String buildConfig(String yaml, AppSettings settings) => buildClashConfig(
+        yaml,
+        settings,
+        platformHeader: '# test',
+      );
+
   @override
   Future<void> onStopRequired() async {}
 }
@@ -250,4 +346,41 @@ class _TestClashService extends ClashServiceBase {
 
   @override
   Future<void> onStopRequired() async {}
+
+  void simulateUnexpectedCoreLoss() => markConnectionLost();
+}
+
+class _FailingHealthClashService extends ClashServiceBase {
+  final Completer<void> stopRequested = Completer<void>();
+
+  @override
+  Duration get statusMonitorInterval => const Duration(milliseconds: 1);
+
+  @override
+  int get maxConsecutiveHealthCheckFailures => 1;
+
+  @override
+  Future<bool> healthCheck() async => false;
+
+  @override
+  Future<void> onStopRequired() async {
+    if (!stopRequested.isCompleted) stopRequested.complete();
+    throw StateError('native stop failed');
+  }
+}
+
+class _NativeHealthClashService extends _TestClashService {
+  int healthCalls = 0;
+
+  @override
+  bool get enablePeriodicHealthMonitor => false;
+
+  @override
+  Duration get statusMonitorInterval => const Duration(milliseconds: 1);
+
+  @override
+  Future<bool> healthCheck() async {
+    healthCalls++;
+    return true;
+  }
 }

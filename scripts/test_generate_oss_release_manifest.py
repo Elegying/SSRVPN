@@ -60,10 +60,14 @@ class GenerateOssReleaseManifestTest(unittest.TestCase):
         workflow = (
             SCRIPT.parents[1] / ".github" / "workflows" / "release.yml"
         ).read_text(encoding="utf-8")
+        promoter = (
+            SCRIPT.parents[1] / "scripts" / "promote-oss-public-channel.sh"
+        ).read_text(encoding="utf-8")
 
-        self.assertIn('stable_prefix="$OSS_PREFIX/downloads"', workflow)
-        self.assertIn('--cache-control "no-cache"', workflow)
-        self.assertIn('cmp "$file" "$downloaded"', workflow)
+        self.assertIn("scripts/promote-oss-public-channel.sh", workflow)
+        self.assertIn('stable_prefix="$OSS_PREFIX/downloads"', promoter)
+        self.assertIn('--cache-control "no-cache"', promoter)
+        self.assertIn('cmp "$source" "$downloaded"', promoter)
         for name in (
             "SSRVPN.apk",
             "SSRVPN.dmg",

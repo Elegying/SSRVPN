@@ -1,0 +1,118 @@
+name: Roll back OSS public channel
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Immutable release tag to restore, for example v3.1.1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ssrvpn-public-release
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    env:
+      OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+      OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+      OSS_REGION: cn-qingdao
+      OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+      OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+      ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Validate rollback target and OSS configuration
+        env:
+          ROLLBACK_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ROLLBACK_TAG" =~ ^v[0-9]+(\.[0-9]+){1,3}$ ]]; then
+            echo "::error::Invalid rollback tag: $ROLLBACK_TAG"
+            exit 1
+          fi
+          for name in OSS_ACCESS_KEY_ID OSS_ACCESS_KEY_SECRET OSS_ENDPOINT OSS_BUCKET OSS_PREFIX ANDROID_RELEASE_CERT_SHA256; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured"
+              exit 1
+            fi
+          done
+
+      - name: Install pinned ossutil
+        run: |
+          bash scripts/install-ossutil.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Download and verify GitHub rollback release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROLLBACK_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          release_dir="$RUNNER_TEMP/rollback-release"
+          mkdir -p "$release_dir"
+          test "$(gh release view "$ROLLBACK_TAG" --json isDraft --jq '.isDraft')" = false
+          test "$(gh release view "$ROLLBACK_TAG" --json isPrerelease --jq '.isPrerelease')" = false
+          SSRVPN_REPO="$GITHUB_REPOSITORY" GITHUB_TOKEN="$GH_TOKEN" \
+            bash scripts/check-release-assets.sh "$ROLLBACK_TAG"
+          gh release download "$ROLLBACK_TAG" --dir "$release_dir" \
+            --pattern 'SSRVPN.apk' --pattern 'SSRVPN.apk.sha256' \
+            --pattern 'SSRVPN.dmg' --pattern 'SSRVPN.dmg.sha256' \
+            --pattern 'SSRVPN_Setup.exe' --pattern 'SSRVPN_Setup.exe.sha256' \
+            --pattern 'SSRVPN.zip' --pattern 'SSRVPN.zip.sha256'
+          for name in SSRVPN.apk SSRVPN.dmg SSRVPN_Setup.exe SSRVPN.zip; do
+            (cd "$release_dir" && sha256sum -c "$name.sha256")
+          done
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          test -n "$APKSIGNER"
+          cert_output="$("$APKSIGNER" verify --print-certs "$release_dir/SSRVPN.apk")"
+          actual="$(printf '%s\n' "$cert_output" |
+            sed -n 's/^.*certificate SHA-256 digest: //p' |
+            head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          expected="$(printf '%s' "$ANDROID_RELEASE_CERT_SHA256" |
+            tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test -n "$actual" && test "$actual" = "$expected"
+
+          gh release view "$ROLLBACK_TAG" --json body --jq '.body' \
+            > "$RUNNER_TEMP/rollback-release-notes.md"
+          base_url="https://$OSS_BUCKET.$OSS_ENDPOINT/$OSS_PREFIX/releases/$ROLLBACK_TAG"
+          python3 scripts/generate-oss-release-manifest.py \
+            --tag "$ROLLBACK_TAG" \
+            --base-url "$base_url" \
+            --release-notes "$RUNNER_TEMP/rollback-release-notes.md" \
+            --asset "$release_dir/SSRVPN.apk" \
+            --asset "$release_dir/SSRVPN.dmg" \
+            --asset "$release_dir/SSRVPN_Setup.exe" \
+            --asset "$release_dir/SSRVPN.zip" \
+            --output "$RUNNER_TEMP/rollback-latest.json"
+
+          for name in SSRVPN.apk SSRVPN.dmg SSRVPN_Setup.exe SSRVPN.zip; do
+            curl -fsSL --retry 3 --connect-timeout 10 --max-time 180 \
+              --max-filesize 314572800 "$base_url/$name" \
+              -o "$RUNNER_TEMP/oss-$name"
+            cmp "$release_dir/$name" "$RUNNER_TEMP/oss-$name"
+          done
+
+      - name: Promote OSS public channel
+        id: promote_oss
+        run: |
+          bash scripts/promote-oss-public-channel.sh \
+            "$RUNNER_TEMP/rollback-release" \
+            "$RUNNER_TEMP/rollback-latest.json"
+
+      - name: Preserve OSS recovery backup
+        if: always() && steps.promote_oss.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: oss-rollback-recovery-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ssrvpn-oss-backup.*
+          if-no-files-found: ignore
+          retention-days: 7

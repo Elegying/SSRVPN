@@ -99,80 +99,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return true;
   }
 
-  Future<void> _reloadConfig() async {
-    final subService = context.read<SubscriptionService>();
-    final clashService = context.read<ClashService>();
-    final settingsService = context.read<SettingsService>();
-    final rawYaml = subService.rawYaml;
-    if (rawYaml == null || rawYaml.isEmpty) return;
-
-    setState(() => _isConnecting = true);
-    try {
-      final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
-      if (nodes.isEmpty) throw Exception('未获取到可用节点');
-      final preferredNode = _resolveDefaultNode(
-        nodes,
-        settingsService.settings.lastSelectedNodeName,
-      );
-      await clashService.stop();
-      final runtimeSettings = await clashService.prepareForStart(
-        settingsService.settings,
-      );
-      final config = clashService.generateClashConfig(
-        rawYaml,
-        runtimeSettings,
-        preferredNodeName: preferredNode?.name,
-      );
-      await clashService.writeConfig(config);
-      final success = await clashService.start();
-      ProxyNode? runtimeSelectedNode;
-      if (success && preferredNode != null) {
-        final switched = await clashService.switchSelectedProxy(
-          preferredNode.name,
-        );
-        runtimeSelectedNode = await _resolveRuntimeSelectedNode(
-          clashService,
-          nodes,
-        );
-        if (switched && runtimeSelectedNode?.name == preferredNode.name) {
-          await _rememberSelectedNode(preferredNode);
-        }
-      } else if (success) {
-        runtimeSelectedNode = await _resolveRuntimeSelectedNode(
-          clashService,
-          nodes,
-        );
-      }
-      final connectivityWarning =
-          success ? await clashService.verifyUserConnectivity() : null;
-      if (mounted && !_disposed) {
-        setState(() {
-          _isConnected = success;
-          _isConnecting = false;
-          _errorMessage = connectivityWarning;
-          _nodes = nodes;
-          _selectedNode = success ? runtimeSelectedNode : null;
-          if (!success) _resetPublicIpState();
-        });
-        if (success) {
-          _scheduleExitCountryResolution();
-          _schedulePublicIpRefresh();
-        }
-      }
-    } catch (e) {
-      AppLogger.warning('Connection', '重载配置失败: $e');
-      if (mounted && !_disposed) {
-        final msg = e.toString().replaceFirst('Exception: ', '');
-        setState(() {
-          _isConnected = false;
-          _isConnecting = false;
-          _errorMessage = '连接重载失败: $msg';
-          _resetPublicIpState();
-        });
-      }
-    }
-  }
-
   void _scheduleLatencyFlush() {
     _latencyBatchTimer?.cancel();
     _latencyBatchTimer = Timer(
@@ -505,32 +431,50 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
     final wasConnected = clashService.isRunning || _isConnected;
-
-    if (wasConnected) {
-      setState(() {
-        _isConnecting = true;
-        _errorMessage = null;
-      });
-      await clashService.stop();
-      _resetPublicIpState();
-    }
-
-    await update(settingsService);
-    clashService.updateSettings(settingsService.settings);
-
-    if (!mounted || _disposed) return;
     setState(() {
-      _isConnecting = false;
-      _isConnected = false;
-      _selectedNode = null;
-      _latencyController.clear();
-      _resetPublicIpState();
+      _isConnecting = true;
+      _errorMessage = null;
     });
 
-    if (wasConnected) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('网络设置已更新，请重新连接')));
+    try {
+      if (wasConnected) {
+        clashService.requestConnectionIntent(false);
+        await clashService.stop();
+        _resetPublicIpState();
+      }
+
+      await update(settingsService);
+      clashService.updateSettings(settingsService.settings);
+
+      if (!mounted || _disposed) return;
+      setState(() {
+        _isConnected = false;
+        _selectedNode = null;
+        _latencyController.clear();
+        _resetPublicIpState();
+      });
+
+      if (wasConnected) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('网络设置已更新，请重新连接')),
+        );
+      }
+    } catch (error, stack) {
+      recordDesktopConnectionFailure(
+        '更新网络设置失败',
+        error: error,
+        stack: stack,
+      );
+      if (mounted && !_disposed) {
+        setState(() {
+          _isConnected = clashService.isRunning;
+          _errorMessage = '更新网络设置失败，请重试';
+        });
+      }
+    } finally {
+      if (mounted && !_disposed) {
+        setState(() => _isConnecting = false);
+      }
     }
   }
 
@@ -581,26 +525,77 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _handleConnectToggle() async {
-    if (_isConnecting) return;
     final clashService = context.read<ClashService>();
     final subService = context.read<SubscriptionService>();
     final settingsService = context.read<SettingsService>();
 
-    if (_isConnected) {
+    if (_isConnecting) {
+      clashService.requestConnectionIntent(false);
+      try {
+        await clashService.stop();
+      } catch (error, stack) {
+        recordDesktopConnectionFailure(
+          '取消连接失败',
+          error: error,
+          stack: stack,
+        );
+        if (mounted && !_disposed) {
+          setState(() {
+            _errorMessage =
+                '取消连接失败：${error.toString().replaceFirst('StateError: ', '')}';
+          });
+        }
+      } finally {
+        if (mounted && !_disposed) {
+          setState(() {
+            _isConnected = clashService.isRunning;
+            _isConnecting = false;
+            if (!_isConnected) {
+              _selectedNode = null;
+              _resetPublicIpState();
+              _glowController.stop();
+            }
+          });
+        }
+      }
+      return;
+    }
+
+    if (_isConnected || clashService.hasPendingSystemProxyRecovery) {
+      clashService.requestConnectionIntent(false);
       setState(() {
         _isConnecting = true;
         _errorMessage = null;
       });
-      await clashService.stop();
-      if (!mounted) return;
-      setState(() {
-        _isConnected = false;
-        _isConnecting = false;
-        _latencyController.clear();
-        _exitCountryResolveGeneration++;
-        _resetPublicIpState();
-        _glowController.stop();
-      });
+      try {
+        await clashService.stop();
+        if (!mounted || _disposed) return;
+        setState(() {
+          _isConnected = false;
+          _latencyController.clear();
+          _exitCountryResolveGeneration++;
+          _resetPublicIpState();
+          _glowController.stop();
+        });
+      } catch (error, stack) {
+        recordDesktopConnectionFailure(
+          '断开连接失败',
+          error: error,
+          stack: stack,
+        );
+        if (mounted && !_disposed) {
+          setState(() {
+            _isConnected = clashService.isRunning;
+            _errorMessage =
+                '断开连接失败：${error.toString().replaceFirst('StateError: ', '')}。'
+                '请再次点击连接按钮重试恢复系统代理';
+          });
+        }
+      } finally {
+        if (mounted && !_disposed) {
+          setState(() => _isConnecting = false);
+        }
+      }
     } else {
       setState(() {
         _isConnecting = true;
@@ -615,6 +610,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         });
         return;
       }
+      int? connectionGeneration;
       try {
         final nodes = HomeNodeController.runnableNodesFrom(
           subService.allNodes,
@@ -627,6 +623,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           });
           return;
         }
+        connectionGeneration = clashService.requestConnectionIntent(true);
         final autoSelect = _resolveDefaultNode(
           nodes,
           settingsService.settings.lastSelectedNodeName,
@@ -640,7 +637,36 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           preferredNodeName: autoSelect?.name,
         );
         await clashService.writeConfig(config);
+        if (!clashService.isConnectionIntentCurrent(
+          connectionGeneration,
+          connected: true,
+        )) {
+          if (mounted) {
+            setState(() {
+              _isConnected = false;
+              _isConnecting = false;
+              _selectedNode = null;
+              _resetPublicIpState();
+            });
+          }
+          return;
+        }
         final success = await clashService.start();
+        if (!clashService.isConnectionIntentCurrent(
+          connectionGeneration,
+          connected: true,
+        )) {
+          if (success) await clashService.stop();
+          if (mounted) {
+            setState(() {
+              _isConnected = false;
+              _isConnecting = false;
+              _selectedNode = null;
+              _resetPublicIpState();
+            });
+          }
+          return;
+        }
         ProxyNode? runtimeSelectedNode;
         if (!mounted) return;
         if (success) {
@@ -663,6 +689,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           }
           final connectivityWarning =
               await clashService.verifyUserConnectivity();
+          if (!clashService.isRunning ||
+              !clashService.isConnectionIntentCurrent(
+                connectionGeneration,
+                connected: true,
+              )) {
+            if (clashService.isRunning) await clashService.stop();
+            if (mounted && !_disposed) {
+              setState(() {
+                _isConnected = false;
+                _isConnecting = false;
+                _selectedNode = null;
+                _resetPublicIpState();
+              });
+            }
+            return;
+          }
           setState(() {
             _isConnected = true;
             _isConnecting = false;
@@ -676,6 +718,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           unawaited(_autoTestAllNodes());
           _checkUpdateDelayed();
         } else {
+          if (clashService.isConnectionIntentCurrent(
+            connectionGeneration,
+            connected: true,
+          )) {
+            clashService.requestConnectionIntent(false);
+          }
           final reason = clashService.lastStartError ?? '无法启动核心';
           recordDesktopConnectionFailure('Connection failed: $reason');
           setState(() {
@@ -685,6 +733,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           });
         }
       } catch (e, stack) {
+        if (connectionGeneration != null &&
+            clashService.isConnectionIntentCurrent(
+              connectionGeneration,
+              connected: true,
+            )) {
+          clashService.requestConnectionIntent(false);
+        }
         recordDesktopConnectionFailure(
           'Connection failed',
           error: e,
@@ -697,295 +752,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _isConnecting = false;
           _resetPublicIpState();
         });
-      }
-    }
-  }
-
-  void _checkUpdateDelayed() {
-    _updateCheckTimer?.cancel();
-    _updateCheckTimer = Timer(const Duration(seconds: 10), () async {
-      if (!mounted || !_isConnected) return;
-      try {
-        const currentVersion = UpdateService.appVersion;
-        final result = await UpdateService.checkForUpdate(currentVersion);
-        if (result != null && mounted && _isConnected) {
-          final (
-            latestVersion,
-            downloadUrl,
-            changelog,
-            fallbackDownloadUrl,
-          ) = result;
-          UpdateService.showUpdateDialog(
-            context,
-            latestVersion: latestVersion,
-            currentVersion: currentVersion,
-            downloadUrl: downloadUrl,
-            changelog: changelog,
-            fallbackDownloadUrl: fallbackDownloadUrl,
-          );
-        }
-      } catch (e) {
-        AppLogger.warning('Update', '检查更新异常: $e');
-      }
-    });
-  }
-
-  void _schedulePublicIpRefresh() {
-    _publicIpTimer?.cancel();
-    if (!_isConnected || _isConnecting || !mounted || _disposed) return;
-    final generation = ++_publicIpGeneration;
-    _publicIpTimer = Timer(const Duration(seconds: 2), () {
-      unawaited(_refreshPublicIpInfo(generation: generation));
-    });
-  }
-
-  Future<void> _refreshPublicIpInfo({int? generation}) async {
-    if (!_isConnected || _isConnecting || !mounted || _disposed) return;
-    final effectiveGeneration = generation ?? ++_publicIpGeneration;
-    _publicIpTimer?.cancel();
-    setState(() {
-      _isRefreshingPublicIp = true;
-      _publicIpError = null;
-    });
-
-    try {
-      final info =
-          await context.read<ClashService>().fetchCurrentPublicIpInfo();
-      if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
-        return;
-      }
-      setState(() {
-        _publicIpInfo = info;
-        _publicIpError = null;
-        _isRefreshingPublicIp = false;
-      });
-    } catch (e) {
-      AppLogger.warning('PublicIP', '获取公网 IP 失败: $e');
-      if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
-        return;
-      }
-      setState(() {
-        _publicIpError = '获取失败';
-        _isRefreshingPublicIp = false;
-      });
-    }
-  }
-
-  void _resetPublicIpState() {
-    _publicIpTimer?.cancel();
-    _publicIpGeneration++;
-    _publicIpInfo = null;
-    _isRefreshingPublicIp = false;
-    _publicIpError = null;
-  }
-
-  Future<void> _handleTestLatency(
-    String nodeName,
-    String server,
-    int port,
-  ) async {
-    if (_testingNodeName == nodeName) return;
-    setState(() => _testingNodeName = nodeName);
-    final clashService = context.read<ClashService>();
-    final settings = context.read<SettingsService>().settings;
-    final measuredLatency = await clashService.testLatency(
-      server,
-      port,
-      timeoutMs: settings.latencyTestTimeout,
-    );
-    final latency = PrivateNodeLatencyPolicy.displayLatencyForNode(
-      nodeName,
-      measuredLatency,
-      random: math.Random(),
-    );
-    if (mounted && !_disposed) {
-      setState(() {
-        _testingNodeName = null;
-        _latencyController.applyNow(_nodes, nodeName, latency);
-      });
-      _sortNodesByLatency();
-    }
-  }
-
-  Future<void> _handleSelectNode(ProxyNode node) async {
-    if (!_latencyController.canSelect(node)) return;
-    if (!_isConnected) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('请先连接VPN'),
-            duration: Duration(seconds: 1),
-          ),
-        );
-      }
-      return;
-    }
-    _exitCountryResolveGeneration++;
-    final ok = await context.read<ClashService>().switchSelectedProxy(
-          node.name,
-        );
-    if (ok) {
-      await _rememberSelectedNode(node);
-      if (mounted) setState(() => _selectedNode = node);
-      _scheduleExitCountryResolution();
-      _schedulePublicIpRefresh();
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(ok ? '已切换: ${node.name}' : '切换失败: ${node.name}'),
-          duration: const Duration(seconds: 1),
-        ),
-      );
-    }
-  }
-
-  Future<void> _showNodeContextMenu(
-    ProxyNode node,
-    TapDownDetails details,
-  ) async {
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    final selected = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(
-        details.globalPosition & const Size(1, 1),
-        Offset.zero & overlay.size,
-      ),
-      items: const [
-        PopupMenuItem<String>(
-          value: 'edit',
-          child: Row(
-            children: [
-              Icon(Icons.edit_outlined, size: 18),
-              SizedBox(width: 10),
-              Text('编辑'),
-            ],
-          ),
-        ),
-      ],
-    );
-    if (selected != 'edit' || !mounted) return;
-    await Navigator.of(
-      context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => NodeEditScreen(node: node)));
-  }
-
-  ProxyNode? _resolveDefaultNode(
-    List<ProxyNode> nodes,
-    String? rememberedNodeName,
-  ) {
-    return HomeNodeController.resolveDefaultNodeFrom(nodes, rememberedNodeName);
-  }
-
-  Future<ProxyNode?> _resolveRuntimeSelectedNode(
-    ClashService clashService,
-    List<ProxyNode> nodes,
-  ) async {
-    final runtimeNodeName = await clashService.currentSelectedProxyName();
-    return HomeNodeController.resolveRuntimeSelectedNodeFrom(
-      nodes,
-      runtimeNodeName,
-    );
-  }
-
-  Future<void> _syncSelectedNodeFromRuntime() async {
-    final clashService = _clashService;
-    if (clashService == null || !mounted || _disposed || !_isConnected) return;
-    final runtimeSelectedNode = await _resolveRuntimeSelectedNode(
-      clashService,
-      _nodes,
-    );
-    if (!mounted || _disposed || !_isConnected) return;
-    setState(() => _selectedNode = runtimeSelectedNode);
-  }
-
-  Future<void> _rememberSelectedNode(ProxyNode node) async {
-    final settingsService = context.read<SettingsService>();
-    if (settingsService.settings.lastSelectedNodeName == node.name) return;
-    await settingsService.updateLastSelectedNodeName(node.name);
-  }
-
-  Future<void> _autoTestAllNodes() async {
-    if (_nodes.isEmpty) return;
-    final clashService = context.read<ClashService>();
-    final timeout = context.read<SettingsService>().settings.latencyTestTimeout;
-    setState(() => _isBatchTesting = true);
-    _latencyController.clearPending();
-    await clashService.testAllLatencies(_nodes, (name, latency) {
-      _latencyController.queue(name, latency);
-      _scheduleLatencyFlush();
-    }, timeoutMs: timeout);
-    _latencyBatchTimer?.cancel();
-    _flushPendingLatencies();
-    if (mounted && !_disposed) {
-      _sortNodesByLatency();
-      setState(() => _isBatchTesting = false);
-    }
-  }
-
-  Future<void> _handleTestAllLatency() async {
-    if (_nodes.isEmpty) return;
-    final clashService = context.read<ClashService>();
-    final timeout = context.read<SettingsService>().settings.latencyTestTimeout;
-    setState(() => _isBatchTesting = true);
-    _latencyController.clearPending();
-    await clashService.testAllLatencies(_nodes, (name, latency) {
-      _latencyController.queue(name, latency);
-      _scheduleLatencyFlush();
-    }, timeoutMs: timeout);
-    _latencyBatchTimer?.cancel();
-    _flushPendingLatencies();
-    if (mounted && !_disposed) {
-      _sortNodesByLatency();
-      setState(() => _isBatchTesting = false);
-    }
-  }
-
-  void _sortNodesByLatency() {
-    setState(() {
-      _nodes = _latencyController.timeoutLast(_nodes);
-    });
-  }
-
-  void _scheduleExitCountryResolution() {
-    if (!_isConnected || _nodes.isEmpty || !mounted || _disposed) return;
-    if (_isResolvingExitCountries) {
-      _pendingExitCountryResolution = true;
-      return;
-    }
-    unawaited(_resolveExitCountries());
-  }
-
-  Future<void> _resolveExitCountries() async {
-    if (_isResolvingExitCountries) return;
-    _isResolvingExitCountries = true;
-    _pendingExitCountryResolution = false;
-    final generation = ++_exitCountryResolveGeneration;
-
-    bool shouldContinue() {
-      return mounted &&
-          !_disposed &&
-          generation == _exitCountryResolveGeneration;
-    }
-
-    try {
-      final resolved = HomeExitCountryController.resolveMissingCountries(
-        List<ProxyNode>.from(_nodes),
-        _exitCountryCodes,
-      );
-      if (resolved.isNotEmpty && shouldContinue()) {
-        setState(() {
-          _exitCountryCodes.addAll(resolved);
-        });
-      }
-    } catch (e) {
-      AppLogger.warning('ExitCountry', '查询失败: $e');
-    } finally {
-      _isResolvingExitCountries = false;
-
-      if (_pendingExitCountryResolution && mounted && !_disposed) {
-        _pendingExitCountryResolution = false;
-        _scheduleExitCountryResolution();
       }
     }
   }

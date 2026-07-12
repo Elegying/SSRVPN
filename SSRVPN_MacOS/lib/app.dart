@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart' show runBestEffortCleanup;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -59,7 +60,15 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       } catch (_) {}
     }
     _clashService?.removeStatusListener(_handleCoreStatusChanged);
-    _clashService?.stop();
+    final core = _clashService;
+    if (core != null) {
+      core.requestConnectionIntent(false);
+      unawaited(
+        core.stop().catchError((Object error, StackTrace stack) {
+          StartupLogger.error('Dispose core cleanup failed', error, stack);
+        }),
+      );
+    }
     _trayManager.destroy();
     super.dispose();
   }
@@ -119,8 +128,10 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     final settings = _settingsService;
     if (core == null || settings == null) return;
 
+    int? connectionGeneration;
     try {
-      if (core.isRunning) {
+      if (core.isRunning || core.connectionDesired) {
+        core.requestConnectionIntent(false);
         await core.stop();
         return;
       }
@@ -133,6 +144,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       final rawYaml = _subscriptionService?.rawYaml;
       if (rawYaml == null || rawYaml.trim().isEmpty) return;
 
+      connectionGeneration = core.requestConnectionIntent(true);
       final preferredNodeName = _defaultNodeName();
       final runtimeSettings = await core.prepareForStart(settings.settings);
       final config = core.generateClashConfig(
@@ -141,7 +153,24 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         preferredNodeName: preferredNodeName,
       );
       await core.writeConfig(config);
+      if (!core.isConnectionIntentCurrent(
+        connectionGeneration,
+        connected: true,
+      )) {
+        return;
+      }
       final started = await core.start();
+      if (!core.isConnectionIntentCurrent(
+        connectionGeneration,
+        connected: true,
+      )) {
+        if (started) await core.stop();
+        return;
+      }
+      if (!started) {
+        core.requestConnectionIntent(false);
+        return;
+      }
       if (started && preferredNodeName != null) {
         final switched = await core.switchSelectedProxy(preferredNodeName);
         if (switched) {
@@ -149,6 +178,13 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         }
       }
     } catch (error, stack) {
+      if (connectionGeneration != null &&
+          core.isConnectionIntentCurrent(
+            connectionGeneration,
+            connected: true,
+          )) {
+        core.requestConnectionIntent(false);
+      }
       StartupLogger.error('Tray connect toggle failed', error, stack);
     } finally {
       await _trayManager.refreshMenu();
@@ -168,14 +204,22 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   Future<void> _quitApp() async {
     if (_isQuitting) return;
     _isQuitting = true;
-    await _settingsService?.flush();
-    await _clashService?.stop();
-    await _trayManager.destroy();
-    try {
-      await windowManager.setPreventClose(false);
-      await windowManager.destroy();
-    } catch (error, stack) {
-      StartupLogger.error('Window destroy failed', error, stack);
+    final failures = await runBestEffortCleanup([
+      () async => _settingsService?.flush(),
+      () async {
+        _clashService?.requestConnectionIntent(false);
+        await _clashService?.stop();
+      },
+      _trayManager.destroy,
+      () => windowManager.setPreventClose(false),
+      windowManager.destroy,
+    ]);
+    for (final failure in failures) {
+      StartupLogger.error(
+        'Quit cleanup step ${failure.step} failed',
+        failure.error,
+        failure.stackTrace,
+      );
     }
     SystemNavigator.pop();
   }

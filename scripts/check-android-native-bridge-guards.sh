@@ -7,6 +7,9 @@ MAIN_ACTIVITY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/andro
 TILE_SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnTileService.kt"
 BUILD_GRADLE="$ROOT/SSRVPN_Android/android/app/build.gradle.kts"
 MANIFEST="$ROOT/SSRVPN_Android/android/app/src/main/AndroidManifest.xml"
+HOME_DART="$ROOT/SSRVPN_Android/lib/screens/home_screen.dart"
+PUBLIC_ROUTES="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/PublicIpv4Routes.kt"
+NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
 
 require_text() {
   local needle="$1"
@@ -48,6 +51,14 @@ require_manifest_text() {
   fi
 }
 
+require_home_text() {
+  local needle="$1"
+  if ! grep -Fq "$needle" "$HOME_DART"; then
+    echo "Android home lifecycle check failed: missing '$needle'" >&2
+    exit 1
+  fi
+}
+
 require_count() {
   local needle="$1"
   local expected="$2"
@@ -60,6 +71,16 @@ require_count() {
 }
 
 require_text "BRIDGE_START_TIMEOUT_MS"
+require_text "PENDING_START_CANCEL_GRACE_MS = 1_000L"
+require_text "serviceStartInProgress.compareAndSet(false, true)"
+require_text "processTerminationPending.get()"
+require_text "processTerminationPending.set(true)"
+require_text "startGeneration.incrementAndGet()"
+require_text "ensureStartCurrent(startToken)"
+require_text "waitForPendingStart()"
+require_text "VPN is already running; reusing the active session"
+require_text "createStartIntent"
+require_text "intent?.getStringExtra(EXTRA_CONFIG_DIR)"
 require_text "BRIDGE_STOP_TIMEOUT_MS"
 require_text "BRIDGE_IS_RUNNING_TIMEOUT_MS"
 require_text "startBridgeWithTimeout"
@@ -68,6 +89,8 @@ require_text "isBridgeRunningWithTimeout"
 require_text "SSRVPN-bridge-start"
 require_text "SSRVPN-bridge-stop"
 require_text "SSRVPN-bridge-is-running"
+require_text "monitorCoreRunning(startToken)"
+require_text "private fun monitorCoreRunning(startToken: Long)"
 
 require_count "bridge.Bridge.init(configDir, \"config.yaml\")" 1
 require_count "bridge.Bridge.start(configPath, tunFd)" 1
@@ -88,21 +111,89 @@ require_tile_text "ContextCompat.registerReceiver"
 require_text "ContextCompat.RECEIVER_NOT_EXPORTED"
 require_activity_text "ContextCompat.RECEIVER_NOT_EXPORTED"
 require_tile_text "ContextCompat.RECEIVER_NOT_EXPORTED"
+require_text "ConcurrentHashMap<String, (Boolean, String) -> Unit>()"
+require_tile_text "clearStartResultCallback(requestId)"
+require_activity_text "registerStartResultCallback(callback)"
+require_tile_text "SsrvpnVpnService.isCoreOperationBusy()"
+require_tile_text "SsrvpnVpnService.cancelPendingStart()"
+require_tile_text "service.stopAll {"
+require_tile_text "isConnected = SsrvpnVpnService.isRunning"
+require_tile_text "SsrvpnVpnService.createStartIntent"
 require_activity_text "vpnPermissionRequestPending"
 require_activity_text "startVpnServiceWithTimeout"
+require_activity_text "pendingVpnServiceIntent"
+require_activity_text "SsrvpnVpnService.createStartIntent"
 require_activity_text "AtomicBoolean(false)"
 require_activity_text "Manifest.permission.POST_NOTIFICATIONS"
 require_activity_text "NOTIFICATION_PERMISSION_REQUESTED"
 require_activity_text "requestNotificationPermissionOnce"
 require_activity_text "Build.VERSION_CODES.TIRAMISU"
-require_text "Bridge.isRunning already in progress; treating as stopped"
+require_text "Bridge.isRunning already in progress; deferring verdict"
 require_text "Bridge.isRunning timed out after"
 require_text "treating as stopped"
+require_text "Bridge.stop failed or timed out; terminating process to release the detached TUN fd"
+require_text "android.os.Process.killProcess(android.os.Process.myPid())"
+require_text "PublicIpv4Routes.routes"
+require_text "VpnNotificationSupport.createChannel(this, CHANNEL_ID)"
 
 require_build_text 'applicationIdSuffix = ".debug"'
 require_build_text 'versionNameSuffix = "-debug"'
 require_build_text 'manifestPlaceholders["appLabel"] = "SSRVPN Debug"'
 require_manifest_text 'android:label="${appLabel}"'
 require_manifest_text 'android:allowBackup="false"'
+require_home_text "clashService.requestConnectionIntent(false)"
+require_home_text "UpdateService.isUpdateUiBusy"
+require_home_text "_updateCheckTimer?.cancel()"
+
+python3 - "$SERVICE" "$PUBLIC_ROUTES" <<'PY'
+import ipaddress
+import re
+import sys
+
+source = open(sys.argv[1], encoding="utf-8").read()
+route_source = open(sys.argv[2], encoding="utf-8").read()
+wait_start = source.index("private fun waitForPendingStart(): Boolean")
+wait_end = source.index("private fun stopBridgeWithTimeout()", wait_start)
+if "BRIDGE_START_TIMEOUT_MS" in source[wait_start:wait_end]:
+    raise SystemExit("Android cancellation still waits for the full bridge start timeout")
+monitor_start = source.index("private fun monitorCoreRunning(startToken: Long)")
+monitor_end = source.index("private fun isBridgeRunningWithTimeout", monitor_start)
+monitor = source[monitor_start:monitor_end]
+if "startToken != startGeneration.get()" not in monitor:
+    raise SystemExit("Android core monitor is not scoped to its start generation")
+routes = [
+    ipaddress.ip_network(f"{address}/{prefix}")
+    for address, prefix in re.findall(
+        r'Ipv4Route\("([0-9.]+)",\s*([0-9]+)\)', route_source
+    )
+]
+if len(routes) != len(set(routes)):
+    raise SystemExit("Android route table contains duplicate entries")
+
+def routed(address: str) -> bool:
+    ip = ipaddress.ip_address(address)
+    return any(ip in route for route in routes)
+
+for address in ("1.1.1.1", "2.2.2.2", "8.8.8.8", "11.0.0.1", "102.1.2.3", "103.1.2.3", "170.1.2.3", "223.255.255.254"):
+    if not routed(address):
+        raise SystemExit(f"Android public route coverage is missing {address}")
+
+for address in ("10.1.2.3", "100.64.0.1", "172.16.0.1", "192.168.1.1"):
+    if routed(address):
+        raise SystemExit(f"Android local route exclusion is missing {address}")
+PY
+
+python3 - "$SERVICE" "$NOTIFICATION_SUPPORT" <<'PY'
+import sys
+from pathlib import Path
+
+service = Path(sys.argv[1])
+support = Path(sys.argv[2])
+line_count = len(service.read_text(encoding="utf-8").splitlines())
+if line_count > 900:
+    raise SystemExit(f"{service}: VPN service grew to {line_count} lines")
+if "fun formatBytes(bytes: Long)" not in support.read_text(encoding="utf-8"):
+    raise SystemExit(f"{support}: missing notification byte formatter")
+PY
 
 echo "Android native bridge guard check passed."

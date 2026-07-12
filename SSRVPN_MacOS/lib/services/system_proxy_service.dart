@@ -24,6 +24,7 @@ class SystemProxyService {
   String? _lastError;
 
   bool get isProxyEnabled => _proxyEnabled;
+  bool get recoveryPending => _recoveryPending;
   String? get lastError => _lastError;
 
   Future<void> initialize(String configDir) async {
@@ -42,16 +43,7 @@ class SystemProxyService {
         _lastError = '无法读取网络服务列表: ${result.stderr}'.trim();
         return [];
       }
-      final lines = result.stdout.toString().split('\n');
-      final services = <String>[];
-      for (final line in lines) {
-        final s = line.trim();
-        if (s.isEmpty) continue;
-        if (s.startsWith('An asterisk')) continue;
-        if (s.startsWith('*')) continue;
-        services.add(s);
-      }
-      return services;
+      return parseMacNetworkServiceList(result.stdout.toString());
     } catch (e) {
       _lastError = '读取网络服务列表失败: $e';
       return [];
@@ -182,38 +174,79 @@ class SystemProxyService {
         return true;
       }
 
-      for (final entry in raw.entries) {
-        final service = entry.key.toString();
-        if (service.startsWith('_')) continue;
-        final value = entry.value;
-        if (value is! Map) continue;
-        await _restoreProxyStateIfOwned(
-          service,
-          value['web'],
-          ownedHost: ownedHost,
-          ownedPort: ownedPort,
-          getCommand: '-getwebproxy',
-          setCommand: '-setwebproxy',
-          stateCommand: '-setwebproxystate',
-        );
-        await _restoreProxyStateIfOwned(
-          service,
-          value['secureWeb'],
-          ownedHost: ownedHost,
-          ownedPort: ownedPort,
-          getCommand: '-getsecurewebproxy',
-          setCommand: '-setsecurewebproxy',
-          stateCommand: '-setsecurewebproxystate',
-        );
-        await _restoreProxyStateIfOwned(
-          service,
-          value['socks'],
-          ownedHost: ownedHost,
-          ownedPort: ownedPort,
-          getCommand: '-getsocksfirewallproxy',
-          setCommand: '-setsocksfirewallproxy',
-          stateCommand: '-setsocksfirewallproxystate',
-        );
+      final savedServices = raw.keys
+          .map((key) => key.toString())
+          .where((service) => !service.startsWith('_'))
+          .toList(growable: false);
+      final currentServices = await _listNetworkServices();
+      if (savedServices.isNotEmpty && currentServices.isEmpty) {
+        _lastError ??= '无法确认当前 macOS 网络服务，稍后重试恢复';
+        return false;
+      }
+      final services = restorableMacNetworkServices(
+        savedServices: savedServices,
+        currentServices: currentServices,
+      );
+      final pendingServices = pendingMacNetworkServices(
+        savedServices: savedServices,
+        currentServices: currentServices,
+      );
+      final failures = <String>[];
+      final resolvedServices = <String>[];
+      for (final service in services) {
+        final value = raw[service];
+        if (value is! Map) {
+          failures.add('$service: 保存的代理状态格式无效');
+          continue;
+        }
+        try {
+          await _restoreProxyStateIfOwned(
+            service,
+            value['web'],
+            ownedHost: ownedHost,
+            ownedPort: ownedPort,
+            getCommand: '-getwebproxy',
+            setCommand: '-setwebproxy',
+            stateCommand: '-setwebproxystate',
+          );
+          await _restoreProxyStateIfOwned(
+            service,
+            value['secureWeb'],
+            ownedHost: ownedHost,
+            ownedPort: ownedPort,
+            getCommand: '-getsecurewebproxy',
+            setCommand: '-setsecurewebproxy',
+            stateCommand: '-setsecurewebproxystate',
+          );
+          await _restoreProxyStateIfOwned(
+            service,
+            value['socks'],
+            ownedHost: ownedHost,
+            ownedPort: ownedPort,
+            getCommand: '-getsocksfirewallproxy',
+            setCommand: '-setsocksfirewallproxy',
+            stateCommand: '-setsocksfirewallproxystate',
+          );
+          resolvedServices.add(service);
+        } catch (error) {
+          failures.add('$service: $error');
+        }
+      }
+      for (final service in resolvedServices) {
+        raw.remove(service);
+      }
+      final mustRetry = failures.isNotEmpty || pendingServices.isNotEmpty;
+      if (mustRetry) {
+        await _writeStringAtomically(file, jsonEncode(raw));
+      }
+      if (failures.isNotEmpty) {
+        _lastError = '部分 macOS 网络服务恢复失败: ${failures.join('；')}';
+        return false;
+      }
+      if (pendingServices.isNotEmpty) {
+        _lastError = '以下 macOS 网络服务暂不可用，将在下次启动时继续恢复: '
+            '${pendingServices.join('、')}';
+        return false;
       }
       await file.delete();
       return true;

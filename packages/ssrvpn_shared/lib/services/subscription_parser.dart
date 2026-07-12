@@ -104,10 +104,12 @@ class SubscriptionParser {
 String _jsonEncode(Object? value) => jsonEncode(value);
 
 bool _looksLikeYaml(String text) {
-  final trimmed = text.trimLeft();
-  return trimmed.startsWith('proxies:') ||
-      trimmed.startsWith('proxy-groups:') ||
-      trimmed.startsWith('---');
+  try {
+    final document = loadYaml(text);
+    return document is Map && document['proxies'] is List;
+  } catch (_) {
+    return false;
+  }
 }
 
 class _SsCredentials {

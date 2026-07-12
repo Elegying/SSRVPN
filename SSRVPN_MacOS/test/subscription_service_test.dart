@@ -12,18 +12,14 @@ void main() {
   late Directory tempDir;
   late SubscriptionService service;
 
-  setUpAll(() async {
+  setUp(() async {
+    SubscriptionService.resetInstanceForTesting();
     tempDir = await Directory.systemTemp.createTemp('ssrvpn-test-');
     service = await SubscriptionService.getInstance(tempDir.path);
   });
 
   tearDown(() async {
-    for (final subscription in service.subscriptions.toList()) {
-      await service.removeSubscription(subscription.id);
-    }
-  });
-
-  tearDownAll(() async {
+    SubscriptionService.resetInstanceForTesting();
     await tempDir.delete(recursive: true);
   });
 

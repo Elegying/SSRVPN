@@ -56,7 +56,7 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 5. 使用系统代理模式连接；确认浏览器可联网、代理指向 `127.0.0.1` 的实际监听端口。正常断开后，`ProxyEnable` 和 `ProxyServer` 必须精确恢复为测试前的值。
 6. 再次连接后从任务管理器结束 `bin\mihomo.exe`；应用应退出连接状态并自动清理自己设置的系统代理，不得留下半连接状态。
 7. 再次连接后从托盘选择“退出 SSRVPN”；应用和 Mihomo 都应退出，系统代理必须恢复，`%LOCALAPPDATA%\SSRVPN\crashes` 不应新增转储。
-8. 分别用普通权限和管理员权限检查 TUN：普通权限必须明确失败且不残留代理；管理员权限下应能连接、断开并恢复网络。
+8. Windows 分别用普通权限和管理员权限检查 TUN：普通权限必须明确失败且不残留代理；管理员权限下应能连接、断开并恢复网络。macOS TUN 当前必须保持禁用并明确提示暂不可用。
 9. 保持便携版正在运行并启动 `SSRVPN_Setup.exe`；安装器必须自动结束旧进程、迁移订阅和设置、安装到 `%LOCALAPPDATA%\Programs\SSRVPN` 并自动启动新版本。
 10. 检查应用内更新优先打开 OSS 的 `SSRVPN_Setup.exe`，OSS 异常时能使用 GitHub 备用下载。日志可提交排查，但不要公开发送 `.dmp` 文件。
 
@@ -82,6 +82,7 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    - `SSRVPN_Setup.exe.sha256`
    - `SSRVPN.zip`
    - `SSRVPN.zip.sha256`
+   - `SSRVPN-release-provenance.json`（绑定 tag、commit 与四个安装包 SHA256）
    或直接运行：
 
    ```bash

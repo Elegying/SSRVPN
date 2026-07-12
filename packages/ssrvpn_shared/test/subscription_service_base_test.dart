@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:ssrvpn_shared/services/subscription_service_base.dart';
+import 'package:ssrvpn_shared/models/subscription.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -127,6 +129,121 @@ proxies:
         isNot(originalLastUpdate),
       );
     });
+
+    test('partial fetch failure preserves the complete last valid state',
+        () async {
+      await service.addSubscription(
+        'Backup',
+        'https://backup.example.com/sub',
+      );
+      originalState = _ServiceSnapshot.capture(service);
+      service.responses = {
+        'https://feed.example.com/sub': _yamlFor('New Primary'),
+        'https://backup.example.com/sub': Exception('temporary timeout'),
+      };
+
+      await expectLater(
+        service.refreshAllSubscriptions(),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('Backup'),
+          ),
+        ),
+      );
+
+      originalState.expectUnchanged(service);
+      expect(service.cachedYaml, originalState.rawYaml);
+    });
+
+    test('concurrent refreshes commit in request order', () async {
+      final firstResponse = Completer<String?>();
+      service.queuedResponses = [
+        firstResponse.future,
+        Future<String?>.value(_yamlFor('Newest Node')),
+      ];
+
+      final first = service.refreshAllSubscriptions();
+      final second = service.refreshAllSubscriptions();
+      await Future<void>.delayed(Duration.zero);
+      firstResponse.complete(_yamlFor('Older Node'));
+
+      await Future.wait([first, second]);
+
+      expect(service.allNodes.map((node) => node.name), ['Newest Node']);
+    });
+
+    test('failed add does not leak an unsaved subscription into memory',
+        () async {
+      service.failMetadataWrites = true;
+
+      await expectLater(
+        service.addSubscription('Unsaved', 'https://unsaved.example/sub'),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      originalState.expectUnchanged(service);
+    });
+
+    test('failed update restores the previous subscription object', () async {
+      final original = service.subscriptions.single;
+      service.failMetadataWrites = true;
+
+      await expectLater(
+        service.updateSubscription(
+          Subscription(
+            id: original.id,
+            name: 'Unsaved name',
+            url: original.url,
+          ),
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      originalState.expectUnchanged(service);
+    });
+
+    test('failed remove restores the removed subscription', () async {
+      final id = service.subscriptions.single.id;
+      service.failMetadataWrites = true;
+
+      await expectLater(
+        service.removeSubscription(id),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      originalState.expectUnchanged(service);
+    });
+
+    test('failed edited-node cache write preserves live node state', () async {
+      service.failCacheWrites = true;
+
+      await expectLater(
+        service.updateNode('Old Node', {
+          'name': 'Edited Node',
+          'type': 'ss',
+          'server': 'edited.example.com',
+          'port': 443,
+          'cipher': 'aes-256-gcm',
+          'password': 'secret',
+        }),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      originalState.expectUnchanged(service);
+    });
+
+    test('failed raw YAML cache write preserves live node state', () async {
+      service.failCacheWrites = true;
+
+      await expectLater(
+        service.setRawYaml(_yamlFor('Unsaved Node')),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      originalState.expectUnchanged(service);
+    });
   });
 }
 
@@ -147,6 +264,8 @@ ${includeGroup ? '''proxy-groups:
 
 class _FakeSubscriptionService extends SubscriptionServiceBase {
   String? response;
+  Map<String, Object?>? responses;
+  List<Future<String?>>? queuedResponses;
   String? cachedYaml;
   String? fetchedProfileName;
   bool failCacheWrites = false;
@@ -159,6 +278,14 @@ class _FakeSubscriptionService extends SubscriptionServiceBase {
     if (profileName != null) {
       recordSubscriptionResponseHeaders(url, {'profile-title': profileName});
     }
+    final responseByUrl = responses;
+    if (responseByUrl != null && responseByUrl.containsKey(url)) {
+      final value = responseByUrl[url];
+      if (value is Exception) throw value;
+      return value as String?;
+    }
+    final queue = queuedResponses;
+    if (queue != null && queue.isNotEmpty) return await queue.removeAt(0);
     return response;
   }
 
@@ -185,8 +312,8 @@ class _ServiceSnapshot {
     required this.nodeNames,
     required this.groupNames,
     required this.revision,
-    required this.subscriptionName,
-    required this.lastUpdate,
+    required this.subscriptionNames,
+    required this.lastUpdates,
   });
 
   factory _ServiceSnapshot.capture(SubscriptionServiceBase service) {
@@ -195,8 +322,8 @@ class _ServiceSnapshot {
       nodeNames: service.allNodes.map((node) => node.name).toList(),
       groupNames: service.allGroups.map((group) => group.name).toList(),
       revision: service.revision,
-      subscriptionName: service.subscriptions.single.name,
-      lastUpdate: service.subscriptions.single.lastUpdate,
+      subscriptionNames: service.subscriptions.map((sub) => sub.name).toList(),
+      lastUpdates: service.subscriptions.map((sub) => sub.lastUpdate).toList(),
     );
   }
 
@@ -204,8 +331,8 @@ class _ServiceSnapshot {
   final List<String> nodeNames;
   final List<String> groupNames;
   final int revision;
-  final String subscriptionName;
-  final DateTime? lastUpdate;
+  final List<String> subscriptionNames;
+  final List<DateTime?> lastUpdates;
 
   void expectUnchanged(SubscriptionServiceBase service) {
     expect(service.rawYaml, rawYaml, reason: 'raw YAML changed');
@@ -221,14 +348,14 @@ class _ServiceSnapshot {
     );
     expect(service.revision, revision, reason: 'revision changed');
     expect(
-      service.subscriptions.single.name,
-      subscriptionName,
-      reason: 'subscription name changed',
+      service.subscriptions.map((sub) => sub.name),
+      subscriptionNames,
+      reason: 'subscription names changed',
     );
     expect(
-      service.subscriptions.single.lastUpdate,
-      lastUpdate,
-      reason: 'lastUpdate changed',
+      service.subscriptions.map((sub) => sub.lastUpdate),
+      lastUpdates,
+      reason: 'lastUpdate values changed',
     );
   }
 }

@@ -1,4 +1,5 @@
 import '../utils/force_proxy_site_policy.dart';
+import '../constants/app_constants.dart';
 
 /// 应用设置数据模型 — 跨平台共享
 ///
@@ -37,8 +38,8 @@ class AppSettings {
     bool? enableTun,
     bool? tunMode,
     bool? enableSystemProxy,
-    this.tunStack = 'gvisor',
-    this.latencyTestUrl = 'http://www.gstatic.com/generate_204',
+    String tunStack = 'gvisor',
+    this.latencyTestUrl = AppConstants.defaultLatencyTestUrl,
     String? lastSelectedNodeName,
     String? lastSelectedNode,
     this.latencyTestTimeout = 5000,
@@ -46,6 +47,7 @@ class AppSettings {
   })  : enableTun = enableTun ??
             tunMode ??
             (enableSystemProxy == null ? false : !enableSystemProxy),
+        tunStack = _parseTunStack(tunStack),
         lastSelectedNodeName = lastSelectedNodeName ?? lastSelectedNode,
         forceProxySites = normalizeForceProxySites(forceProxySites);
 
@@ -123,8 +125,7 @@ class AppSettings {
       proxyMode: _parseProxyMode(json['proxyMode'] as String?),
       enableTun: _parseEnableTun(json),
       tunStack: json['tunStack']?.toString() ?? 'gvisor',
-      latencyTestUrl: json['latencyTestUrl']?.toString() ??
-          'http://www.gstatic.com/generate_204',
+      latencyTestUrl: _parseLatencyTestUrl(json['latencyTestUrl']),
       lastSelectedNodeName:
           (json['lastSelectedNodeName'] ?? json['lastSelectedNode']) as String?,
       latencyTestTimeout: _parseTimeout(json['latencyTestTimeout'], 5000),
@@ -204,6 +205,14 @@ class AppSettings {
         : fallback;
   }
 
+  static String _parseTunStack(Object? value) {
+    final stack = value?.toString().trim().toLowerCase();
+    return switch (stack) {
+      'system' || 'mixed' || 'gvisor' => stack!,
+      _ => 'gvisor',
+    };
+  }
+
   static bool _parseBool(Object? value, bool fallback) {
     if (value == null) return fallback;
     if (value is bool) return value;
@@ -233,6 +242,16 @@ class AppSettings {
         return ProxyMode.rule;
     }
   }
+}
+
+String _parseLatencyTestUrl(Object? value) {
+  final url = value?.toString().trim();
+  if (url == null ||
+      url.isEmpty ||
+      url == 'http://www.gstatic.com/generate_204') {
+    return AppConstants.defaultLatencyTestUrl;
+  }
+  return url;
 }
 
 /// 代理模式枚举

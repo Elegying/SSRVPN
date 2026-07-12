@@ -30,6 +30,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   String? _cacheDir;
   int _revision = 0;
   final Map<String, String> _fetchedProfileNames = {};
+  Future<void> _refreshTail = Future<void>.value();
 
   List<ProxyNode> _allNodes = [];
   List<ProxyGroup> _allGroups = [];
@@ -63,7 +64,12 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   Future<Subscription> addSubscription(String name, String url) async {
     final sub = Subscription(id: _uuid.v4(), name: name, url: url);
     _subscriptions.add(sub);
-    await saveToDisk();
+    try {
+      await saveToDisk();
+    } catch (error, stackTrace) {
+      _subscriptions.remove(sub);
+      Error.throwWithStackTrace(error, stackTrace);
+    }
     notifyListeners();
     return sub;
   }
@@ -72,8 +78,16 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   // Subclasses should provide their own resetInstanceForTesting()
 
   Future<void> removeSubscription(String id) async {
-    _subscriptions.removeWhere((s) => s.id == id);
-    await saveToDisk();
+    final index =
+        _subscriptions.indexWhere((subscription) => subscription.id == id);
+    if (index < 0) return;
+    final removed = _subscriptions.removeAt(index);
+    try {
+      await saveToDisk();
+    } catch (error, stackTrace) {
+      _subscriptions.insert(index, removed);
+      Error.throwWithStackTrace(error, stackTrace);
+    }
 
     if (_subscriptions.isEmpty) {
       await clearCachedNodes();
@@ -93,8 +107,14 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   Future<void> updateSubscription(Subscription updated) async {
     final index = _subscriptions.indexWhere((s) => s.id == updated.id);
     if (index >= 0) {
+      final previous = _subscriptions[index];
       _subscriptions[index] = updated;
-      await saveToDisk();
+      try {
+        await saveToDisk();
+      } catch (error, stackTrace) {
+        _subscriptions[index] = previous;
+        Error.throwWithStackTrace(error, stackTrace);
+      }
       notifyListeners();
     }
   }
@@ -102,7 +122,13 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   // ── 刷新 ──
 
   /// 刷新所有订阅，返回合并后的 YAML；null 表示无订阅
-  Future<String?> refreshAllSubscriptions() async {
+  Future<String?> refreshAllSubscriptions() {
+    final operation = _refreshTail.then((_) => _refreshAllSubscriptions());
+    _refreshTail = operation.then<void>((_) {}, onError: (_, __) {});
+    return operation;
+  }
+
+  Future<String?> _refreshAllSubscriptions() async {
     if (_subscriptions.isEmpty) {
       _rawYaml = null;
       _allNodes = [];
@@ -139,6 +165,9 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     if (succeededSubs.isEmpty) {
       final errorDetail = errors.isNotEmpty ? errors.join('\n') : '无可用订阅';
       throw Exception('所有订阅刷新失败:\n$errorDetail');
+    }
+    if (errors.isNotEmpty) {
+      throw Exception('部分订阅刷新失败，已保留上次有效节点:\n${errors.join('\n')}');
     }
 
     final candidateYaml = mergeYamlConfigs(
@@ -252,18 +281,27 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     }
 
     final yaml = encodeConfig(parsed);
+    final candidate = SubscriptionParser.parseYaml(yaml);
+    if (candidate.nodes.isEmpty) {
+      throw const FormatException('修改后的订阅不包含可运行节点');
+    }
+    await cacheYaml(yaml);
+
     _rawYaml = yaml;
     _revision++;
-    parseYaml();
-    await cacheYaml(yaml);
+    _allNodes = candidate.nodes;
+    _allGroups = candidate.groups;
     notifyListeners();
   }
 
   Future<void> setRawYaml(String yaml) async {
+    final candidate = SubscriptionParser.parseYaml(yaml);
+    await cacheYaml(yaml);
+
     if (yaml != _rawYaml) _revision++;
     _rawYaml = yaml;
-    parseYaml();
-    await cacheYaml(yaml);
+    _allNodes = candidate.nodes;
+    _allGroups = candidate.groups;
     notifyListeners();
   }
 

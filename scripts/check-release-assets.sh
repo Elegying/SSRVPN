@@ -36,6 +36,7 @@ required = {
     "SSRVPN_Setup.exe.sha256",
     "SSRVPN.zip",
     "SSRVPN.zip.sha256",
+    "SSRVPN-release-provenance.json",
 }
 assets = {asset.get("name"): asset for asset in release.get("assets", [])}
 missing = sorted(required - set(assets))
@@ -45,6 +46,19 @@ if missing:
 empty = sorted(name for name in required if int(assets[name].get("size") or 0) <= 0)
 if empty:
     raise SystemExit(f"empty release assets: {', '.join(empty)}")
+
+oversized = sorted(
+    name
+    for name in required
+    if int(assets[name].get("size") or 0)
+    > (
+        64 * 1024
+        if name.endswith(".sha256") or name.endswith(".json")
+        else 300 * 1024 * 1024
+    )
+)
+if oversized:
+    raise SystemExit(f"oversized release assets: {', '.join(oversized)}")
 
 hash_pattern = re.compile(r"\b([0-9a-fA-F]{64})\b")
 for artifact_name in (
@@ -70,8 +84,33 @@ for artifact_name in (
     if checksum_match.group(1).lower() != digest[7:].lower():
         raise SystemExit(f"checksum does not match GitHub digest: {artifact_name}")
 
+provenance_request = urllib.request.Request(
+    str(assets["SSRVPN-release-provenance.json"]["browser_download_url"]),
+    headers=headers,
+)
+with urllib.request.urlopen(provenance_request, timeout=20) as response:
+    provenance = json.loads(response.read(64 * 1024 + 1))
+if provenance.get("schema") != 1 or provenance.get("tag") != release.get("tag_name"):
+    raise SystemExit("release provenance tag/schema mismatch")
+if re.fullmatch(r"[0-9a-f]{40}", str(provenance.get("commit") or "")) is None:
+    raise SystemExit("release provenance commit is invalid")
+provenance_assets = provenance.get("assets")
+if not isinstance(provenance_assets, dict):
+    raise SystemExit("release provenance asset map is missing")
+for artifact_name in (
+    "SSRVPN.apk",
+    "SSRVPN.dmg",
+    "SSRVPN_Setup.exe",
+    "SSRVPN.zip",
+):
+    api_digest = str(assets[artifact_name].get("digest") or "").removeprefix(
+        "sha256:"
+    )
+    if provenance_assets.get(artifact_name) != api_digest:
+        raise SystemExit(f"release provenance digest mismatch: {artifact_name}")
+
 print(
     f"Release {release.get('tag_name')} has all required SSRVPN assets "
-    "with matching SHA256 checksums."
+    "with matching SHA256 checksums and provenance."
 )
 PY

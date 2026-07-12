@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -35,6 +36,8 @@ class _ReleaseAsset {
 }
 
 class UpdateChecker {
+  static const int maxMetadataResponseBytes = 1024 * 1024;
+  static const int _maxChecksumResponseBytes = 4096;
   static const String owner = 'Elegying';
   static const String repo = 'SSRVPN';
   static final Uri primaryManifestUrl = Uri.parse(
@@ -81,13 +84,16 @@ class UpdateChecker {
     required Duration timeout,
   }) async {
     try {
-      final response = await client.get(
+      final response = await _boundedGet(
         primaryManifestUrl,
+        client: client,
+        timeout: timeout,
+        maxBytes: maxMetadataResponseBytes,
         headers: {
           'Accept': 'application/json',
           'User-Agent': AppConstants.appUserAgent,
         },
-      ).timeout(timeout);
+      );
       if (response.statusCode != 200) return null;
 
       final data = jsonDecode(response.body);
@@ -137,13 +143,16 @@ class UpdateChecker {
     required Duration timeout,
   }) async {
     try {
-      final response = await client.get(
+      final response = await _boundedGet(
         githubLatestReleaseUrl,
+        client: client,
+        timeout: timeout,
+        maxBytes: maxMetadataResponseBytes,
         headers: {
           'Accept': 'application/vnd.github.v3+json',
           'User-Agent': AppConstants.appUserAgent,
         },
-      ).timeout(timeout);
+      );
 
       if (response.statusCode != 200) return null;
 
@@ -314,9 +323,12 @@ class UpdateChecker {
     }
 
     try {
-      final response = await client
-          .get(Uri.parse(checksumAsset.downloadUrl))
-          .timeout(timeout);
+      final response = await _boundedGet(
+        Uri.parse(checksumAsset.downloadUrl),
+        client: client,
+        timeout: timeout,
+        maxBytes: _maxChecksumResponseBytes,
+      );
       if (response.statusCode != 200) return null;
       final checksumLine = RegExp(
         '^\\s*([a-fA-F0-9]{64})\\s+\\*?${RegExp.escape(asset.name)}\\s*\$',
@@ -326,6 +338,38 @@ class UpdateChecker {
     } catch (_) {
       return null;
     }
+  }
+
+  static Future<_BoundedTextResponse> _boundedGet(
+    Uri uri, {
+    required http.Client client,
+    required Duration timeout,
+    required int maxBytes,
+    Map<String, String>? headers,
+  }) {
+    return (() async {
+      final request = http.Request('GET', uri);
+      if (headers != null) request.headers.addAll(headers);
+      final response = await client.send(request);
+      final contentLength = response.contentLength;
+      if (contentLength != null && contentLength > maxBytes) {
+        throw StateError('update response exceeds $maxBytes bytes');
+      }
+      final bytes = BytesBuilder(copy: false);
+      var received = 0;
+      await for (final chunk in response.stream) {
+        received += chunk.length;
+        if (received > maxBytes) {
+          throw StateError('update response exceeds $maxBytes bytes');
+        }
+        bytes.add(chunk);
+      }
+      return _BoundedTextResponse(
+        statusCode: response.statusCode,
+        body: utf8.decode(bytes.takeBytes()),
+      );
+    })()
+        .timeout(timeout);
   }
 
   static bool _isExpectedGitHubAssetUrl(
@@ -380,4 +424,11 @@ class UpdateChecker {
     }
     return normalized;
   }
+}
+
+class _BoundedTextResponse {
+  const _BoundedTextResponse({required this.statusCode, required this.body});
+
+  final int statusCode;
+  final String body;
 }

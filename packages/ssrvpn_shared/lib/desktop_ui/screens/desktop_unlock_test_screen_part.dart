@@ -11,6 +11,7 @@ class _UnlockTestScreenState extends State<UnlockTestScreen> {
   final UnlockTestService _service = UnlockTestService();
   List<UnlockTestResult> _items = List.of(UnlockTestService.defaultItems);
   bool _isTestingAll = false;
+  UnlockTestCancellation? _allCancellation;
   final Set<String> _testingIds = {};
   String _activeCategory = 'all';
 
@@ -27,17 +28,26 @@ class _UnlockTestScreenState extends State<UnlockTestScreen> {
 
   int _countByCategory(String cat) =>
       _items.where((i) => i.category == cat).length;
-  int _countSuccessful(String cat) => _items
-      .where((i) => i.isSuccessful && (cat == 'all' || i.category == cat))
+  int _countUnlocked(String cat) => _items
+      .where((i) => i.isUnlocked && (cat == 'all' || i.category == cat))
+      .length;
+  int _countReachable(String cat) => _items
+      .where((i) => i.isReachable && (cat == 'all' || i.category == cat))
       .length;
   int _countBlocked(String cat) => _items
       .where((i) => i.isBlocked && (cat == 'all' || i.category == cat))
       .length;
 
   Future<void> _testAll() async {
-    if (_isTestingAll) return;
+    if (_isTestingAll) {
+      _allCancellation?.cancel();
+      return;
+    }
     final clashService = context.read<ClashService>();
     if (!_ensureConnected(clashService)) return;
+    final cancellation = UnlockTestCancellation();
+    final previousItems = List<UnlockTestResult>.of(_items);
+    _allCancellation = cancellation;
 
     setState(() {
       _isTestingAll = true;
@@ -48,14 +58,36 @@ class _UnlockTestScreenState extends State<UnlockTestScreen> {
           .toList();
     });
 
-    final proxyPort = clashService.runtimeProxyPort;
-    final results = await _service.checkAll(proxyPort: proxyPort);
-    if (!mounted) return;
+    List<UnlockTestResult>? results;
+    Object? failure;
+    try {
+      results = await _service.checkAll(
+        proxyPort: clashService.runtimeProxyPort,
+        cancellation: cancellation,
+      );
+    } on UnlockTestCancelled {
+      // The previous evidence remains authoritative after a user cancellation.
+    } catch (error) {
+      failure = error;
+    }
+    if (!mounted || !identical(_allCancellation, cancellation)) return;
     setState(() {
-      _items = _mergeResults(_items, results);
+      _items = results == null ? previousItems : _mergeResults(_items, results);
       _testingIds.clear();
       _isTestingAll = false;
+      _allCancellation = null;
     });
+    if (failure != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('批量解锁测试未完成，请稍后重试')),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _allCancellation?.cancel();
+    super.dispose();
   }
 
   Future<void> _testOne(UnlockTestResult item) async {
@@ -155,10 +187,10 @@ class _UnlockTestScreenState extends State<UnlockTestScreen> {
                   ),
                   _HeaderActionButton(
                     icon: _isTestingAll
-                        ? Icons.hourglass_top_rounded
+                        ? Icons.stop_circle_outlined
                         : Icons.playlist_play_rounded,
-                    label: _isTestingAll ? '测试中' : '全部测试',
-                    enabled: !_isTestingAll,
+                    label: _isTestingAll ? '取消测试' : '全部测试',
+                    enabled: true,
                     onTap: _testAll,
                   ),
                 ],
@@ -272,7 +304,8 @@ class _UnlockTestScreenState extends State<UnlockTestScreen> {
   }
 
   Widget _buildSummaryBar(bool isDark) {
-    final successful = _countSuccessful('all');
+    final unlocked = _countUnlocked('all');
+    final reachable = _countReachable('all');
     final blocked = _countBlocked('all');
     final total = _items.where((i) => i.checkedAt != null).length;
     if (total == 0) return const SizedBox.shrink();
@@ -281,15 +314,25 @@ class _UnlockTestScreenState extends State<UnlockTestScreen> {
       padding: const EdgeInsets.fromLTRB(24, 2, 24, 2),
       child: Row(
         children: [
-          _SummaryChip(label: '通过 $successful', color: AppTheme.success),
-          const SizedBox(width: 8),
-          _SummaryChip(label: '不支持 $blocked', color: AppTheme.error),
-          const SizedBox(width: 8),
-          _SummaryChip(
-            label: '未确认 ${total - successful - blocked}',
-            color: AppTheme.warning,
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                _SummaryChip(label: '支持 $unlocked', color: AppTheme.success),
+                _SummaryChip(
+                  label: '可访问 $reachable',
+                  color: AppTheme.primary,
+                ),
+                _SummaryChip(label: '不支持 $blocked', color: AppTheme.error),
+                _SummaryChip(
+                  label: '未确认 ${total - unlocked - reachable - blocked}',
+                  color: AppTheme.warning,
+                ),
+              ],
+            ),
           ),
-          const Spacer(),
+          const SizedBox(width: 8),
           Text(
             '已测 $total/${_items.length}',
             style: const TextStyle(fontSize: 11, color: AppTheme.textTertiary),
@@ -501,6 +544,7 @@ class _UnlockListItem extends StatelessWidget {
   Color _statusColor(UnlockTestResult item) {
     if (isTesting || item.status == 'Testing') return AppTheme.primary;
     if (item.isSuccessful) return AppTheme.success;
+    if (item.isReachable) return AppTheme.primary;
     if (item.isPending) return subColor;
     if (item.isInconclusive || item.isFailed) return AppTheme.warning;
     return AppTheme.error;

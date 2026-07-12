@@ -253,6 +253,32 @@ void main() {
     ]);
   });
 
+  test('oversized update metadata is rejected before JSON parsing', () async {
+    final requestedHosts = <String>[];
+    final client = MockClient((request) async {
+      requestedHosts.add(request.url.host);
+      if (request.url.host == 'nikuaimobi.oss-cn-qingdao.aliyuncs.com') {
+        return http.Response(
+          'x' * (UpdateChecker.maxMetadataResponseBytes + 1),
+          200,
+        );
+      }
+      return http.Response('{"tag_name":"v3.0.0","assets":[]}', 200);
+    });
+
+    final update = await UpdateChecker.checkLatest(
+      currentVersion: '3.0.0',
+      assetExtension: '.apk',
+      client: client,
+    );
+
+    expect(update, isNull);
+    expect(requestedHosts, [
+      'nikuaimobi.oss-cn-qingdao.aliyuncs.com',
+      'api.github.com',
+    ]);
+  });
+
   test('checkLatest selects the requested asset extension', () async {
     final client = MockClient((request) async {
       if (request.url.path.endsWith('.sha256')) {

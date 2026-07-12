@@ -35,12 +35,13 @@ jobs:
       - run: bash scripts/check-version-sync.sh
       - run: bash scripts/check-package-guides.sh
       - run: bash scripts/check-android-native-bridge-guards.sh
+      - run: bash scripts/check-unlock-test-guards.sh
       - run: bash scripts/check-desktop-startup-guards.sh
       - run: bash scripts/check-clash-service-boundaries.sh
       - run: bash scripts/check-macos-core-privileges.sh
       - run: bash scripts/check-windows-launcher-security.sh
       - run: bash scripts/check-secrets.sh
-      - run: python3 -m unittest scripts/test_generate_release_notes.py scripts/test_generate_oss_release_manifest.py scripts/test_windows_installer_config.py
+      - run: python3 -m unittest scripts/test_generate_release_notes.py scripts/test_generate_oss_release_manifest.py scripts/test_generate_release_provenance.py scripts/test_verify_release_transition.py scripts/test_promote_oss_public_channel.py scripts/test_reuse_github_release_assets.py scripts/test_validate_existing_release_retry.py scripts/test_run_command_with_timeout.py scripts/test_windows_installer_config.py scripts/test_windows_proxy_shutdown_recovery.py
       - run: flutter pub get
       - run: flutter analyze
         working-directory: packages/ssrvpn_shared
@@ -127,8 +128,16 @@ jobs:
         shell: powershell
         run: |
           cd SSRVPN_Windows
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\migrate_portable_data.ps1 -Destination "$env:RUNNER_TEMP\ssrvpn-migration-smoke"
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\stop_ssrvpn_processes.ps1 -InstalledCorePath "$env:RUNNER_TEMP\ssrvpn-process-smoke\mihomo.exe"
+          foreach ($file in @('installer\migrate_portable_data.ps1', 'installer\stop_ssrvpn_processes.ps1', '..\scripts\test_windows_installer_runtime.ps1')) {
+            $tokens = $null
+            $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors.Count -gt 0) { $parseErrors | ForEach-Object { Write-Error $_ }; exit 1 }
+          }
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_installer_runtime.ps1
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\migrate_portable_data.ps1 -Destination "$env:RUNNER_TEMP\ssrvpn-migration-smoke" -StateFile "$env:RUNNER_TEMP\ssrvpn-migration-source.txt" -DiscoverOnly
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\migrate_portable_data.ps1 -Destination "$env:RUNNER_TEMP\ssrvpn-migration-smoke" -StateFile "$env:RUNNER_TEMP\ssrvpn-migration-source.txt"
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\stop_ssrvpn_processes.ps1 -InstalledCorePath "$env:RUNNER_TEMP\ssrvpn-process-smoke\mihomo.exe" -InstalledCorePidPath "$env:RUNNER_TEMP\ssrvpn-process-smoke\mihomo.pid"
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\build_installer.ps1
 

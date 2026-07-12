@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yaml/yaml.dart';
 import 'dart:io';
 import 'package:ssrvpn_android/models/app_settings.dart';
@@ -21,6 +24,8 @@ proxies:
 ''';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('ClashService Android config generation', () {
     test('generates valid YAML with TUN enabled', () {
       final config = ClashService().generateClashConfig(
@@ -111,7 +116,7 @@ void main() {
       expect(autoGroup['type'], 'url-test');
       expect(
         autoGroup['url'],
-        'http://www.gstatic.com/generate_204',
+        'https://www.gstatic.com/generate_204',
       );
       expect(autoGroup['interval'], 300);
     });
@@ -155,5 +160,158 @@ void main() {
       expect(filters, contains('*.youtube.com'));
       expect(filters, contains('*.googleapis.com'));
     });
+  });
+
+  test('coalesces duplicate native start and stop operations', () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp('ssrvpn_lifecycle_test_');
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    SharedPreferences.setMockInitialValues({});
+
+    final startCompleter = Completer<bool>();
+    final stopCompleter = Completer<bool>();
+    final startInvoked = Completer<void>();
+    final stopInvoked = Completer<void>();
+    var starts = 0;
+    var stops = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+          starts += 1;
+          if (!startInvoked.isCompleted) startInvoked.complete();
+          return startCompleter.future;
+        case 'stopCore':
+          stops += 1;
+          if (!stopInvoked.isCompleted) stopInvoked.complete();
+          return stopCompleter.future;
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings());
+
+    final firstStart = service.start(nodeName: 'A');
+    final secondStart = service.start(nodeName: 'A');
+    await startInvoked.future;
+    await Future<void>.delayed(Duration.zero);
+    expect(starts, 1);
+    startCompleter.complete(true);
+    expect(await Future.wait([firstStart, secondStart]), everyElement(isTrue));
+
+    final firstStop = service.stop();
+    final secondStop = service.stop();
+    await stopInvoked.future;
+    await Future<void>.delayed(Duration.zero);
+    expect(stops, 1);
+    stopCompleter.complete(true);
+    await Future.wait([firstStop, secondStop]);
+  });
+
+  test('failed native stop preserves a still-running VPN state', () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'stopCore':
+          throw PlatformException(code: 'STOP_FAILED');
+        case 'isCoreRunning':
+          return true;
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final service = ClashService()..setRunning(true);
+
+    await expectLater(service.stop(), throwsStateError);
+
+    expect(service.isRunning, isTrue);
+  });
+
+  test('stop interrupts a pending native start', () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp('ssrvpn_cancel_test_');
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    SharedPreferences.setMockInitialValues({});
+
+    final startCompleter = Completer<bool>();
+    final startInvoked = Completer<void>();
+    final stopInvoked = Completer<void>();
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+          startInvoked.complete();
+          return startCompleter.future;
+        case 'stopCore':
+          stopInvoked.complete();
+          startCompleter.completeError(
+            PlatformException(code: 'CORE_FAILED', message: '连接已取消'),
+          );
+          return true;
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings());
+    final starting = service.start(nodeName: 'A');
+    await startInvoked.future;
+
+    final stopping = service.stop();
+    await expectLater(
+      stopInvoked.future.timeout(const Duration(milliseconds: 500)),
+      completes,
+    );
+    await stopping;
+
+    expect(await starting, isFalse);
+    expect(service.isRunning, isFalse);
+  });
+
+  test('native notification failure does not escape a successful stop',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'stopCore':
+          return true;
+        case 'notifyVpnStateChanged':
+          throw PlatformException(code: 'NOTIFY_FAILED');
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final service = ClashService()..setRunning(true);
+
+    await service.stop();
+
+    expect(service.isRunning, isFalse);
   });
 }

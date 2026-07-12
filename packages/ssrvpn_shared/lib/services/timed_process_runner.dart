@@ -14,10 +14,14 @@ class TimedProcessRunner {
     Duration timeout = const Duration(seconds: 10),
     int timeoutExitCode = 124,
     String timeoutStderr = '命令超时',
+    Future<void>? cancellation,
+    int cancellationExitCode = 125,
+    String cancellationStderr = '命令已取消',
   }) async {
     Process? process;
     _OutputCollector? stdoutCollector;
     _OutputCollector? stderrCollector;
+    Timer? timer;
     try {
       process = await Process.start(
         executable,
@@ -29,28 +33,43 @@ class TimedProcessRunner {
       stdoutCollector = _OutputCollector(process.stdout);
       stderrCollector = _OutputCollector(process.stderr);
 
-      var timedOut = false;
-      late final int exitCode;
-      try {
-        exitCode = await process.exitCode.timeout(timeout);
-      } on TimeoutException {
-        timedOut = true;
-        exitCode = timeoutExitCode;
+      final completion = Completer<_ProcessCompletion>();
+      process.exitCode.then((exitCode) {
+        if (!completion.isCompleted) {
+          completion.complete(_ProcessCompletion(exitCode, null));
+        }
+      });
+      timer = Timer(timeout, () {
+        if (!completion.isCompleted) {
+          completion.complete(
+            _ProcessCompletion(timeoutExitCode, timeoutStderr),
+          );
+        }
+      });
+      cancellation?.then((_) {
+        if (!completion.isCompleted) {
+          completion.complete(
+            _ProcessCompletion(cancellationExitCode, cancellationStderr),
+          );
+        }
+      });
+
+      final outcome = await completion.future;
+      timer.cancel();
+      final interrupted = outcome.stderrOverride != null;
+      if (interrupted) {
         await _terminateProcessTree(process);
       }
 
       final outputs = await Future.wait([
-        stdoutCollector.finish(
-          timeout: timedOut ? _outputDrainTimeout : null,
-        ),
-        stderrCollector.finish(
-          timeout: timedOut ? _outputDrainTimeout : null,
-        ),
+        stdoutCollector.finish(timeout: _outputDrainTimeout),
+        stderrCollector.finish(timeout: _outputDrainTimeout),
       ]);
       final stdout = outputs[0];
-      final stderr = timedOut ? timeoutStderr : outputs[1];
-      return ProcessResult(process.pid, exitCode, stdout, stderr);
+      final stderr = outcome.stderrOverride ?? outputs[1];
+      return ProcessResult(process.pid, outcome.exitCode, stdout, stderr);
     } catch (_) {
+      timer?.cancel();
       if (process != null) await _terminateProcessTree(process);
       await stdoutCollector?.cancel();
       await stderrCollector?.cancel();
@@ -80,6 +99,13 @@ class TimedProcessRunner {
     }
     process.kill(ProcessSignal.sigkill);
   }
+}
+
+class _ProcessCompletion {
+  const _ProcessCompletion(this.exitCode, this.stderrOverride);
+
+  final int exitCode;
+  final String? stderrOverride;
 }
 
 class _OutputCollector {

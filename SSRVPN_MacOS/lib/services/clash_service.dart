@@ -27,7 +27,7 @@ class ClashService extends ClashServiceBase
   static const _privilegedModeBits = 0xc00;
   // ── macOS 文件与日志 ──
   File? _logFile;
-  Future<void> _pendingLogWrite = Future<void>.value();
+  BoundedFileLogger? _fileLogger;
 
   // ── Getters ──
   String get logPath => _logFile?.path ?? '';
@@ -40,20 +40,11 @@ class ClashService extends ClashServiceBase
   void log(String message) {
     super.log(message);
     // macOS: 写入文件日志
-    final logFile = _logFile;
-    if (logFile != null) {
+    final fileLogger = _fileLogger;
+    if (fileLogger != null) {
       final sanitized = LogRedactor.sanitize(message);
       final line = '[${DateTime.now().toIso8601String()}] $sanitized\n';
-      _pendingLogWrite = _pendingLogWrite
-          .then(
-            (_) => logFile.writeAsString(
-              line,
-              mode: FileMode.append,
-              flush: true,
-            ),
-          )
-          .then<void>((_) {})
-          .catchError((Object _, StackTrace __) {});
+      fileLogger.add(line);
     }
   }
 
@@ -96,6 +87,7 @@ class ClashService extends ClashServiceBase
     ).create(recursive: true);
     _logFile = File('$configDir${Platform.pathSeparator}ssrvpn.log');
     await _rotateLogFile();
+    _fileLogger = BoundedFileLogger(_logFile!);
     await _proxyService.initialize(configDir);
 
     _corePath = '$configDir${Platform.pathSeparator}$_coreName';
@@ -385,5 +377,4 @@ class ClashService extends ClashServiceBase
     final expected = crypto.sha256.convert(bytes).toString();
     return digest == expected;
   }
-
 }

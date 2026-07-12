@@ -1,8 +1,10 @@
 # SSRVPN 阿里云 OSS 发布运维
 
 SSRVPN 的正式发布仍由 Git tag 触发。GitHub Actions 先构建并校验三端产物，
-随后发布 GitHub Release，再把同一批文件上传到阿里云 OSS。客户端优先读取
-OSS，只有 OSS 无有效更新时才回退 GitHub。
+创建暂不公开的 GitHub Draft Release，再把同一批文件上传到阿里云 OSS 的
+不可变版本目录。不可变文件验证完成后才公开 GitHub Release；最后更新网站
+固定下载文件和客户端 `latest.json` 指针。客户端优先读取 OSS，只有 OSS 无
+有效更新时才回退 GitHub。
 
 ## 当前配置
 
@@ -38,8 +40,10 @@ ssrvpn/
 ```
 
 `releases/vX.Y.Z/` 是不可变版本目录；`ssrvpn/latest.json` 是客户端读取的
-唯一最新版本指针。工作流总是先上传并验证所有产物，最后才替换这个指针，
-避免客户端看到半套发布文件。
+唯一最新版本指针。工作流总是先上传并验证不可变产物、公开对应 GitHub 正式
+Release，再替换网站固定下载文件，最后替换这个指针，避免客户端看到半套发布
+文件或引用尚未公开的 GitHub 版本。同一 tag 重跑时只接受字节完全相同的文件，
+禁止覆盖已存在但内容不同的版本对象。
 
 `ssrvpn/downloads/` 是网站和人工分享使用的固定下载地址。每次正式发布都会
 用已经校验过的同一批文件覆盖并重新下载比对，同时设置 `Cache-Control:
@@ -90,10 +94,13 @@ Bucket、Endpoint、公开读取和上传权限都可用。
 
 - Release workflow 在 OSS 步骤失败：不要手工改 `latest.json`；修复配置后
   重新运行失败任务。旧指针仍然有效，客户端会继续使用旧 OSS 版本或 GitHub
-  备用源。
-- 已发布版本确认有严重问题：把 GitHub Release 标记为 prerelease，并将上一
-  个稳定版本目录里的 `latest.json` 复制回 `ssrvpn/latest.json`。随后尽快发布
-  更高版本号的修复版；客户端不会自动降级已经安装的坏版本。
+  备用源。若固定下载文件推广阶段恢复失败，工作流会失败并上传保留 7 天的
+  `oss-public-channel-recovery-*` 备份 Artifact，按日志中对象清单恢复后再重跑。
+- 已发布版本确认有严重问题：先把 GitHub Release 标记为 prerelease，再在
+  GitHub Actions 手动运行 `Roll back OSS public channel`，输入上一个稳定 tag。
+  该工作流会先验证不可变版本目录，恢复网站使用的四个固定下载包及校验文件，
+  全部下载比对成功后才恢复 `ssrvpn/latest.json`。随后尽快发布更高版本号的
+  修复版；客户端不会自动降级已经安装的坏版本。
 - 某个版本目录文件损坏：不要原地替换不可变文件。发布一个更高补丁版本，保留
   原目录用于审计。
 - 怀疑 AccessKey 泄露：立即禁用该 Key，轮换 GitHub Secrets，检查 OSS 操作

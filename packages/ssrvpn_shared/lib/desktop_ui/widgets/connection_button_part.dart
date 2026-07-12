@@ -76,62 +76,93 @@ class _ConnectionButtonState extends State<ConnectionButton>
   Widget build(BuildContext context) {
     final scale = (widget.size / 140).clamp(0.68, 1.0).toDouble();
 
-    return GestureDetector(
-      onTap: widget.isConnecting ? null : widget.onTap,
-      child: SizedBox(
-        width: widget.size,
-        height: widget.size,
-        child: AnimatedBuilder(
-          animation: Listenable.merge([_pulseCtrl, _ringCtrl, _breatheCtrl]),
-          builder: (context, child) {
-            return CustomPaint(
-              painter: _Painter(
-                connected: widget.isConnected,
-                connecting: widget.isConnecting,
-                pulse: _pulseCtrl.value,
-                ring: _ringCtrl.value,
-                breathe: _breatheCtrl.value,
-              ),
-              child: Center(
-                child: widget.isConnecting
-                    ? SizedBox(
-                        width: 36 * scale,
-                        height: 36 * scale,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5 * scale,
-                          color: Colors.white,
-                        ),
-                      )
-                    : Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.power_settings_new_rounded,
-                            color: Colors.white,
-                            size: 36 * scale,
-                            shadows: [
-                              Shadow(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                blurRadius: 12,
-                                offset: const Offset(0, 2),
+    return Semantics(
+      button: true,
+      label: widget.isConnecting
+          ? '取消连接'
+          : widget.isConnected
+              ? '断开连接'
+              : '连接',
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: widget.onTap,
+          child: SizedBox(
+            width: widget.size,
+            height: widget.size,
+            child: AnimatedBuilder(
+              animation: Listenable.merge([
+                _pulseCtrl,
+                _ringCtrl,
+                _breatheCtrl,
+              ]),
+              builder: (context, child) {
+                return CustomPaint(
+                  painter: _Painter(
+                    connected: widget.isConnected,
+                    connecting: widget.isConnecting,
+                    pulse: _pulseCtrl.value,
+                    ring: _ringCtrl.value,
+                    breathe: _breatheCtrl.value,
+                  ),
+                  child: Center(
+                    child: widget.isConnecting
+                        ? Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 30 * scale,
+                                height: 30 * scale,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5 * scale,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              SizedBox(height: 8 * scale),
+                              Text(
+                                '取消',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13 * scale,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.power_settings_new_rounded,
+                                color: Colors.white,
+                                size: 36 * scale,
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black.withValues(alpha: 0.3),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: 10 * scale),
+                              Text(
+                                widget.isConnected ? '断开' : '连接',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                  fontSize: 13 * scale,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 3 * scale,
+                                ),
                               ),
                             ],
                           ),
-                          SizedBox(height: 10 * scale),
-                          Text(
-                            widget.isConnected ? '断开' : '连接',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.9),
-                              fontSize: 13 * scale,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 3 * scale,
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
-            );
-          },
+                  ),
+                );
+              },
+            ),
+          ),
         ),
       ),
     );

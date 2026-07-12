@@ -23,6 +23,7 @@ import 'node_edit_screen.dart';
 import '../startup/startup_logger.dart';
 
 part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_screen_part.dart';
+part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_runtime_actions_part.dart';
 part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_force_proxy_sites_dialog_part.dart';
 part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_home_dashboard_part.dart';
 part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_home_dialogs_part.dart';

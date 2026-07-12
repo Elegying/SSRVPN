@@ -26,7 +26,10 @@ class ConnectionOrchestrator {
   /// 返回 null 表示完全成功；返回非 null 可能是启动错误，也可能是
   /// 核心已运行后的连通性提示。调用方应以 [clashService.isRunning]
   /// 判断连接状态，以返回文本作为用户提示。
-  Future<String?> connect(String? nodeName) async {
+  Future<String?> connect(
+    String? nodeName, {
+    required int connectionGeneration,
+  }) async {
     final rawYaml = subscriptionService.rawYaml;
     if (rawYaml == null || rawYaml.isEmpty) {
       return '请先添加并刷新订阅';
@@ -44,9 +47,15 @@ class ConnectionOrchestrator {
 
     // 写入配置
     await clashService.writeConfig(config);
+    if (!_isCurrent(connectionGeneration)) return null;
 
     // 启动核心
     final success = await clashService.start(nodeName: nodeName);
+
+    if (!_isCurrent(connectionGeneration)) {
+      if (success && clashService.isRunning) await clashService.stop();
+      return null;
+    }
 
     if (!success) {
       return '连接失败: ${clashService.lastStartError ?? "无法启动VPN核心"}';
@@ -55,6 +64,10 @@ class ConnectionOrchestrator {
     // 切换选中节点
     if (nodeName != null && nodeName.isNotEmpty) {
       await clashService.switchSelectedProxy(nodeName);
+      if (!_isCurrent(connectionGeneration)) {
+        if (clashService.isRunning) await clashService.stop();
+        return null;
+      }
     }
 
     // 更新通知栏
@@ -62,9 +75,18 @@ class ConnectionOrchestrator {
       nodeName: nodeName ?? '自动',
       proxyMode: settings.proxyMode.name,
     );
+    if (!_isCurrent(connectionGeneration)) {
+      if (clashService.isRunning) await clashService.stop();
+      return null;
+    }
 
     // 验证连通性
     final connectivityWarning = await clashService.verifyUserConnectivity();
     return connectivityWarning; // null = 完全成功
   }
+
+  bool _isCurrent(int generation) => clashService.isConnectionIntentCurrent(
+        generation,
+        connected: true,
+      );
 }

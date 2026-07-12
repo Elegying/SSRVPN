@@ -8,6 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
+class _AndroidStartCancelled implements Exception {}
+
 /// Clash Meta 核心管理服务 (Android 版)
 ///
 /// 继承 [ClashServiceBase] 共享 API/延迟/健康检查/状态/端口，
@@ -18,6 +20,9 @@ class ClashService extends ClashServiceBase {
 
   String _corePath = '';
   String _nativeLibDir = '';
+  Future<bool>? _startOperation;
+  Future<void>? _stopOperation;
+  int _startGeneration = 0;
 
   /// 磁贴/通知触发的自动连接回调
   VoidCallback? onAutoConnect;
@@ -25,6 +30,11 @@ class ClashService extends ClashServiceBase {
   String get corePath => _corePath;
   bool get coreExists => File(_corePath).existsSync();
   void setCorePath(String path) => _corePath = path;
+
+  // The native VPN service owns the authoritative 3-second Bridge monitor and
+  // tears down the TUN fd when the core exits, including while Flutter sleeps.
+  @override
+  bool get enablePeriodicHealthMonitor => false;
 
   // ── onStopRequired ──
 
@@ -98,15 +108,22 @@ class ClashService extends ClashServiceBase {
   }
 
   Future<void> _syncNativeState() async {
+    final running = await _queryNativeRunningState();
+    if (running == true && !isRunning) {
+      setRunning(true);
+      log('检测到 VPN 已在运行（磁贴启动），同步状态');
+      startStatusMonitor();
+    }
+  }
+
+  Future<bool?> _queryNativeRunningState() async {
     try {
-      final running = await _channel.invokeMethod<bool>('isCoreRunning');
-      if (running == true && !isRunning) {
-        setRunning(true);
-        log('检测到 VPN 已在运行（磁贴启动），同步状态');
-        startStatusMonitor();
-      }
+      return await _channel
+          .invokeMethod<bool>('isCoreRunning')
+          .timeout(const Duration(seconds: 3));
     } catch (e) {
       log('查询原生 VPN 状态失败: $e');
+      return null;
     }
   }
 
@@ -273,7 +290,30 @@ class ClashService extends ClashServiceBase {
 
   // ── 进程控制 ──
 
-  Future<bool> start({String? nodeName}) async {
+  Future<bool> start({String? nodeName}) {
+    final current = _startOperation;
+    if (current != null) return current;
+
+    final startToken = ++_startGeneration;
+    final operation = _startInternal(
+      nodeName: nodeName,
+      startToken: startToken,
+    );
+    _startOperation = operation;
+    operation.then<void>(
+      (_) => _clearStartOperation(operation),
+      onError: (_, __) => _clearStartOperation(operation),
+    );
+    return operation;
+  }
+
+  Future<bool> _startInternal({
+    String? nodeName,
+    required int startToken,
+  }) async {
+    final stopping = _stopOperation;
+    if (stopping != null) await stopping;
+    _ensureStartCurrent(startToken);
     setLastStartError(null);
     if (isRunning) {
       try {
@@ -294,6 +334,7 @@ class ClashService extends ClashServiceBase {
       }
 
       await Directory('$configDir/tmp').create(recursive: true);
+      _ensureStartCurrent(startToken);
 
       final result = await _channel.invokeMethod('startCoreWithVpn', {
         'configDir': configDir,
@@ -310,17 +351,20 @@ class ClashService extends ClashServiceBase {
                 .timeout(const Duration(seconds: 5), onTimeout: () => null);
           } catch (_) {}
           setRunning(false);
-          _notifyNativeStateChange();
+          await _notifyNativeStateChange();
           throw TimeoutException('设备性能不足，请重新连接');
         },
       );
+      _ensureStartCurrent(startToken);
 
       if (result == true) {
         setRunning(true);
         log('✅ Mihomo 启动成功 (gomobile)');
         notifyStatusChanged();
-        _notifyNativeStateChange();
-        _saveConfigForTile(nodeName);
+        await _notifyNativeStateChange();
+        _ensureStartCurrent(startToken);
+        await _saveConfigForTile(nodeName);
+        _ensureStartCurrent(startToken);
         startStatusMonitor();
         return true;
       } else {
@@ -328,7 +372,16 @@ class ClashService extends ClashServiceBase {
         setLastStartError(result?.toString() ?? '无法启动VPN核心');
         return false;
       }
+    } on _AndroidStartCancelled {
+      setLastStartError('连接已取消');
+      log('连接已取消');
+      return false;
     } on PlatformException catch (e) {
+      if (startToken != _startGeneration) {
+        setLastStartError('连接已取消');
+        log('连接已取消');
+        return false;
+      }
       log('❌ 启动异常: ${e.message}');
       final msg = e.message ?? '无法启动VPN核心';
       if (e.code == 'PERMISSION_DENIED') {
@@ -353,26 +406,67 @@ class ClashService extends ClashServiceBase {
     }
   }
 
-  Future<void> stop() async {
+  Future<void> stop() {
+    _startGeneration++;
+    final current = _stopOperation;
+    if (current != null) return current;
+
+    final operation = _stopInternal();
+    _stopOperation = operation;
+    operation.then<void>(
+      (_) => _clearStopOperation(operation),
+      onError: (_, __) => _clearStopOperation(operation),
+    );
+    return operation;
+  }
+
+  Future<void> _stopInternal() async {
     stopStatusMonitor();
     resetHealthCheckFailures();
 
+    Object? stopError;
     try {
-      await _channel.invokeMethod('stopCore');
+      await _channel
+          .invokeMethod('stopCore')
+          .timeout(const Duration(seconds: 15));
       log('核心已停止');
     } catch (e) {
+      stopError = e;
       log('停止异常: $e');
     }
 
-    setRunning(false);
+    final runningAfterStop = stopError == null
+        ? false
+        : (await _queryNativeRunningState() ?? isRunning);
+    setRunning(runningAfterStop);
+    if (runningAfterStop) startStatusMonitor();
     notifyStatusChanged();
-    _notifyNativeStateChange();
+    await _notifyNativeStateChange();
+    if (runningAfterStop) {
+      throw StateError('VPN 核心仍在运行，请重试断开');
+    }
   }
 
-  void _notifyNativeStateChange() {
+  void _clearStartOperation(Future<bool> operation) {
+    if (identical(_startOperation, operation)) _startOperation = null;
+  }
+
+  void _ensureStartCurrent(int startToken) {
+    if (startToken != _startGeneration) throw _AndroidStartCancelled();
+  }
+
+  void _clearStopOperation(Future<void> operation) {
+    if (identical(_stopOperation, operation)) _stopOperation = null;
+  }
+
+  Future<void> _notifyNativeStateChange() async {
     try {
-      _channel.invokeMethod('notifyVpnStateChanged');
-    } catch (_) {}
+      await _channel
+          .invokeMethod('notifyVpnStateChanged')
+          .timeout(const Duration(seconds: 3));
+    } catch (e) {
+      log('通知原生 VPN 状态失败: $e');
+    }
   }
 
   Future<void> _saveConfigForTile(String? nodeName) async {
