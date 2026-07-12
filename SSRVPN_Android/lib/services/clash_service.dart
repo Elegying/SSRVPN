@@ -390,6 +390,13 @@ class ClashService extends ClashServiceBase {
     } catch (_) {}
   }
 
+  @override
+  Future<bool> switchSelectedProxy(String nodeName) async {
+    final switched = await super.switchSelectedProxy(nodeName);
+    if (switched) await updateVpnNotification(nodeName);
+    return switched;
+  }
+
   Future<void> updateVpnNotification(String nodeName) async {
     try {
       await _channel.invokeMethod('updateVpnNotification', {

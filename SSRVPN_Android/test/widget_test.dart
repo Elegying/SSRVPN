@@ -184,7 +184,7 @@ proxies:
     });
 
     try {
-      final service = ClashService()
+      final service = _RecordingClashService()
         ..updateSettings(
           AppSettings(
             apiPort: server.port,
@@ -194,6 +194,7 @@ proxies:
         );
 
       expect(await service.switchSelectedProxy('First'), isTrue);
+      expect(service.notificationNodes, ['First']);
     } finally {
       await subscription.cancel();
       await server.close(force: true);
@@ -256,4 +257,13 @@ proxies:
     expect(youtube, greaterThan(blocked));
     expect(youtube, lessThan(cnDirect));
   });
+}
+
+class _RecordingClashService extends ClashService {
+  final notificationNodes = <String>[];
+
+  @override
+  Future<void> updateVpnNotification(String nodeName) async {
+    notificationNodes.add(nodeName);
+  }
 }

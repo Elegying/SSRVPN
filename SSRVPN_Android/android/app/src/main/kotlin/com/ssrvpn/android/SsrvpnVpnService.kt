@@ -15,6 +15,8 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
+import android.os.SystemClock
 import android.net.TrafficStats
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -116,15 +118,37 @@ class SsrvpnVpnService : VpnService() {
     private var trafficBaselineRx = 0L
     private var lastTrafficTx = 0L
     private var lastTrafficRx = 0L
+    private var lastTrafficSampleAtMs = 0L
     private var uploadRate = 0L
     private var downloadRate = 0L
     private var notificationConnected = false
+    private val notificationUpdatePolicy = NotificationUpdatePolicy()
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    notificationUpdatePolicy.onScreenStateChanged(false)
+                    notificationHandler.removeCallbacks(notificationUpdater)
+                }
+                Intent.ACTION_SCREEN_ON -> {
+                    notificationUpdatePolicy.onScreenStateChanged(true)
+                    if (isRunning && notificationConnected) {
+                        notificationHandler.removeCallbacks(notificationUpdater)
+                        notificationHandler.post(notificationUpdater)
+                    }
+                }
+            }
+        }
+    }
     private val notificationUpdater = object : Runnable {
         override fun run() {
-            if (!isRunning) return
+            if (!isRunning || !notificationUpdatePolicy.shouldScheduleTrafficRefresh()) return
             updateTrafficStats()
             notifyCurrentState()
-            notificationHandler.postDelayed(this, 1000)
+            notificationHandler.postDelayed(
+                this,
+                notificationUpdatePolicy.refreshIntervalMillis
+            )
         }
     }
 
@@ -140,6 +164,16 @@ class SsrvpnVpnService : VpnService() {
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        ContextCompat.registerReceiver(
+            this,
+            screenStateReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        notificationUpdatePolicy.onScreenStateChanged(isScreenInteractive())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -269,17 +303,27 @@ class SsrvpnVpnService : VpnService() {
         trafficBaselineRx = rx
         lastTrafficTx = tx
         lastTrafficRx = rx
+        lastTrafficSampleAtMs = SystemClock.elapsedRealtime()
         uploadRate = 0L
         downloadRate = 0L
     }
 
     private fun updateTrafficStats() {
+        val now = SystemClock.elapsedRealtime()
         val tx = TrafficStats.getUidTxBytes(applicationInfo.uid).coerceAtLeast(0L)
         val rx = TrafficStats.getUidRxBytes(applicationInfo.uid).coerceAtLeast(0L)
-        uploadRate = (tx - lastTrafficTx).coerceAtLeast(0L)
-        downloadRate = (rx - lastTrafficRx).coerceAtLeast(0L)
+        val elapsedMillis = (now - lastTrafficSampleAtMs).coerceAtLeast(0L)
+        uploadRate = notificationUpdatePolicy.bytesPerSecond(
+            (tx - lastTrafficTx).coerceAtLeast(0L),
+            elapsedMillis
+        )
+        downloadRate = notificationUpdatePolicy.bytesPerSecond(
+            (rx - lastTrafficRx).coerceAtLeast(0L),
+            elapsedMillis
+        )
         lastTrafficTx = tx
         lastTrafficRx = rx
+        lastTrafficSampleAtMs = now
     }
 
     private fun sessionUpload(): Long =
@@ -307,13 +351,25 @@ class SsrvpnVpnService : VpnService() {
     private fun startNotificationUpdates() {
         notificationConnected = true
         notificationHandler.removeCallbacks(notificationUpdater)
-        notificationHandler.post(notificationUpdater)
+        notificationUpdatePolicy.onScreenStateChanged(isScreenInteractive())
+        notificationHandler.post {
+            notifyCurrentState()
+            if (notificationUpdatePolicy.shouldScheduleTrafficRefresh()) {
+                notificationHandler.postDelayed(
+                    notificationUpdater,
+                    notificationUpdatePolicy.refreshIntervalMillis
+                )
+            }
+        }
     }
 
     private fun stopNotificationUpdates() {
         notificationHandler.removeCallbacks(notificationUpdater)
         notificationConnected = false
     }
+
+    private fun isScreenInteractive(): Boolean =
+        (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
 
     /**
      * 添加公网路由，排除局域网网段：
@@ -768,6 +824,7 @@ class SsrvpnVpnService : VpnService() {
     override fun onDestroy() {
         super.onDestroy()
         try { unregisterReceiver(disconnectReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(screenStateReceiver) } catch (_: Exception) {}
         stopAll()
         instance = null
     }
