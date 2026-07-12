@@ -58,6 +58,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("/F", stopper)
         self.assertIn("/T", stopper)
         self.assertIn("ExecutablePath", stopper)
+        self.assertIn("SessionId", stopper)
         self.assertIn("remainingApps", stopper)
         self.assertIn("remainingCores", stopper)
         self.assertNotRegex(stopper, r"Stop-Process\s+-Name\s+['\"]?mihomo")

@@ -3,12 +3,14 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$currentSessionId = (Get-Process -Id $PID -ErrorAction Stop).SessionId
 
 function Get-ProcessesByName {
   param([Parameter(Mandatory = $true)][string]$Name)
 
   return @(
-    Get-CimInstance -ClassName Win32_Process -Filter "Name = '$Name'"
+    Get-CimInstance -ClassName Win32_Process -Filter "Name = '$Name'" |
+      Where-Object { $_.SessionId -eq $currentSessionId }
   )
 }
 
