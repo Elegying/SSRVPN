@@ -83,6 +83,18 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         for value in required:
             self.assertIn(value, ci)
 
+    def test_portable_checksum_uses_cross_platform_line_endings(self) -> None:
+        package_script = (
+            ROOT / "SSRVPN_Windows" / "tool" / "package_windows.ps1"
+        ).read_text(encoding="utf-8")
+        checksum_block = package_script.split(
+            "$zipHash = Get-FileHash -LiteralPath $zipPath -Algorithm SHA256", 1
+        )[1]
+
+        self.assertIn("[System.IO.File]::WriteAllText", checksum_block)
+        self.assertIn('"$($zipHash.Hash.ToLower())  SSRVPN.zip`n"', checksum_block)
+        self.assertNotIn("Set-Content -LiteralPath $zipHashPath", checksum_block)
+
     def test_windows_update_checker_selects_the_installer(self) -> None:
         service = (
             ROOT / "SSRVPN_Windows" / "lib" / "services" / "update_service.dart"

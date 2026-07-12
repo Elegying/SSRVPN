@@ -912,8 +912,11 @@ try {
   }
 
   $zipHash = Get-FileHash -LiteralPath $zipPath -Algorithm SHA256
-  "$($zipHash.Hash)  $([System.IO.Path]::GetFileName($zipPath))" |
-    Set-Content -LiteralPath $zipHashPath -Encoding ASCII
+  [System.IO.File]::WriteAllText(
+    $zipHashPath,
+    "$($zipHash.Hash.ToLower())  SSRVPN.zip`n",
+    [System.Text.Encoding]::ASCII
+  )
   Write-Host "Release: $releaseDir"
   Write-Host "ZIP:     $zipPath"
   Write-Host "ZIP hash:$zipHashPath"
