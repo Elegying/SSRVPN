@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-07-12
+
+### 修复
+
+- Windows 安装或升级会按当前用户会话结束 SSRVPN 主程序及其子进程树，并按完整路径清理自有 Mihomo；如果仍有 SSRVPN 进程残留则中止安装，避免旧、新核心并存，同时不影响其他软件的 Mihomo。
+- 正式发布会自动刷新 OSS 固定下载地址并重新下载比对，网站以后无需随版本号修改链接；GitHub 备用下载统一使用 `releases/latest/download` 固定地址。
+
 ## [3.1.0] - 2026-07-12
 
 ### 新增
