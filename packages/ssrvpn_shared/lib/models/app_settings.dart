@@ -38,7 +38,7 @@ class AppSettings {
     bool? enableTun,
     bool? tunMode,
     bool? enableSystemProxy,
-    this.tunStack = 'gvisor',
+    String tunStack = 'gvisor',
     this.latencyTestUrl = AppConstants.defaultLatencyTestUrl,
     String? lastSelectedNodeName,
     String? lastSelectedNode,
@@ -47,6 +47,7 @@ class AppSettings {
   })  : enableTun = enableTun ??
             tunMode ??
             (enableSystemProxy == null ? false : !enableSystemProxy),
+        tunStack = _parseTunStack(tunStack),
         lastSelectedNodeName = lastSelectedNodeName ?? lastSelectedNode,
         forceProxySites = normalizeForceProxySites(forceProxySites);
 
@@ -202,6 +203,14 @@ class AppSettings {
     return timeout != null && timeout >= 500 && timeout <= 60000
         ? timeout
         : fallback;
+  }
+
+  static String _parseTunStack(Object? value) {
+    final stack = value?.toString().trim().toLowerCase();
+    return switch (stack) {
+      'system' || 'mixed' || 'gvisor' => stack!,
+      _ => 'gvisor',
+    };
   }
 
   static bool _parseBool(Object? value, bool fallback) {

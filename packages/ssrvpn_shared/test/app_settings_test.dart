@@ -17,4 +17,12 @@ void main() {
       'https://custom.example/check',
     );
   });
+
+  test('rejects an invalid or injected TUN stack value', () {
+    final restored = AppSettings.fromJson({
+      'tunStack': 'gvisor\n  auto-route: false',
+    });
+
+    expect(restored.tunStack, 'gvisor');
+  });
 }

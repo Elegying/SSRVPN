@@ -62,12 +62,8 @@ class TimedProcessRunner {
       }
 
       final outputs = await Future.wait([
-        stdoutCollector.finish(
-          timeout: interrupted ? _outputDrainTimeout : null,
-        ),
-        stderrCollector.finish(
-          timeout: interrupted ? _outputDrainTimeout : null,
-        ),
+        stdoutCollector.finish(timeout: _outputDrainTimeout),
+        stderrCollector.finish(timeout: _outputDrainTimeout),
       ]);
       final stdout = outputs[0];
       final stderr = outcome.stderrOverride ?? outputs[1];

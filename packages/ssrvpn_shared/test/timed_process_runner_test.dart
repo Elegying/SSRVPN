@@ -53,6 +53,23 @@ void main() {
     },
     skip: Platform.isWindows ? 'uses POSIX child-process semantics' : false,
   );
+
+  test(
+    'normal exit does not wait for a descendant holding output pipes open',
+    () async {
+      final watch = Stopwatch()..start();
+
+      final result = await TimedProcessRunner.run(
+        '/bin/sh',
+        const ['-c', 'sleep 2 & exit 0'],
+        timeout: const Duration(seconds: 5),
+      );
+
+      expect(result.exitCode, 0);
+      expect(watch.elapsed, lessThan(const Duration(milliseconds: 750)));
+    },
+    skip: Platform.isWindows ? 'uses POSIX child-process semantics' : false,
+  );
 }
 
 String get _shellExecutable => Platform.isWindows ? 'cmd.exe' : '/bin/sh';

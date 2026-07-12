@@ -70,4 +70,34 @@ void main() {
     expect(text, startsWith('[log entry truncated]'));
     expect(await file.length(), lessThanOrEqualTo(1024));
   });
+
+  test('keeps a truncated multibyte entry within the pending byte limit',
+      () async {
+    final file = File('${temp.path}/ssrvpn.log');
+    final logger = BoundedFileLogger(
+      file,
+      maxFileBytes: 1024,
+      maxPendingBytes: 129,
+    );
+
+    logger.add('${'测试' * 500}\n');
+    await logger.flush();
+
+    expect(await file.length(), lessThanOrEqualTo(129));
+    expect(await file.readAsString(), startsWith('[log entry truncated]'));
+  });
+
+  test('supports a pending limit smaller than the truncation marker', () async {
+    final file = File('${temp.path}/ssrvpn.log');
+    final logger = BoundedFileLogger(
+      file,
+      maxFileBytes: 1024,
+      maxPendingBytes: 8,
+    );
+
+    expect(() => logger.add('x' * 100), returnsNormally);
+    await logger.flush();
+
+    expect(await file.length(), lessThanOrEqualTo(8));
+  });
 }
