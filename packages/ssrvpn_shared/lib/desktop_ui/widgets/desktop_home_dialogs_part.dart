@@ -52,6 +52,7 @@ class _DesktopTutorialStep extends StatelessWidget {
 
 void _showDesktopHomeTutorialDialog(BuildContext context) {
   final isDark = Theme.of(context).brightness == Brightness.dark;
+  final isMacOS = desktopPlatformLabel == 'MacOS';
   showDialog(
     context: context,
     builder: (ctx) => Dialog(
@@ -114,9 +115,11 @@ void _showDesktopHomeTutorialDialog(BuildContext context) {
                   text: '回到首页，选择节点后点击连接按钮',
                 ),
                 const SizedBox(height: 12),
-                const _DesktopTutorialStep(
+                _DesktopTutorialStep(
                   step: '4',
-                  text: '系统代理无需管理员权限，TUN 模式需授权',
+                  text: isMacOS
+                      ? 'macOS 当前仅支持系统代理，TUN 模式暂不可用'
+                      : '系统代理无需管理员权限，TUN 模式需管理员权限',
                 ),
                 const SizedBox(height: 20),
                 SizedBox(

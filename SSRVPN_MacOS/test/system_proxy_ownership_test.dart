@@ -65,4 +65,47 @@ void main() {
       );
     });
   });
+
+  group('restorableMacNetworkServices', () {
+    test('skips saved services that no longer exist', () {
+      expect(
+        restorableMacNetworkServices(
+          savedServices: const ['Wi-Fi', 'Removed Ethernet'],
+          currentServices: const ['Wi-Fi', 'USB 10/100/1000 LAN'],
+        ),
+        const ['Wi-Fi'],
+      );
+    });
+
+    test('preserves saved ordering for deterministic recovery', () {
+      expect(
+        restorableMacNetworkServices(
+          savedServices: const ['Ethernet', 'Wi-Fi'],
+          currentServices: const ['Wi-Fi', 'Ethernet'],
+        ),
+        const ['Ethernet', 'Wi-Fi'],
+      );
+    });
+
+    test('keeps temporarily absent services pending for a later restore', () {
+      expect(
+        pendingMacNetworkServices(
+          savedServices: const ['Wi-Fi', 'USB Ethernet'],
+          currentServices: const ['Wi-Fi'],
+        ),
+        const ['USB Ethernet'],
+      );
+    });
+  });
+
+  test('disabled macOS network services remain eligible for restoration', () {
+    expect(
+      parseMacNetworkServiceList('''
+An asterisk (*) denotes that a network service is disabled.
+Wi-Fi
+*USB Ethernet
+'''),
+      const ['Wi-Fi', 'USB Ethernet'],
+    );
+  });
 }

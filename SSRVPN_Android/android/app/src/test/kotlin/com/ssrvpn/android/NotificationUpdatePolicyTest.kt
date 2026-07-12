@@ -10,6 +10,7 @@ class NotificationUpdatePolicyTest {
     fun `traffic notifications are limited to sixty seconds`() {
         val policy = NotificationUpdatePolicy()
 
+        assertEquals(10_000L, policy.initialRefreshDelayMillis)
         assertEquals(60_000L, policy.refreshIntervalMillis)
         assertTrue(policy.shouldScheduleTrafficRefresh())
     }

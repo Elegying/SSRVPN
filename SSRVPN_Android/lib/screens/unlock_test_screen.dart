@@ -22,6 +22,7 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
   final UnlockTestService _service = UnlockTestService();
   List<UnlockTestResult> _items = List.of(UnlockTestService.defaultItems);
   bool _isTestingAll = false;
+  UnlockTestCancellation? _allCancellation;
   final Set<String> _testingIds = {};
   String _activeCategory = 'all';
 
@@ -41,9 +42,15 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
       : _items.where((i) => i.category == cat).length;
 
   Future<void> _testAll() async {
-    if (_isTestingAll) return;
+    if (_isTestingAll) {
+      _allCancellation?.cancel();
+      return;
+    }
     final clashService = context.read<ClashService>();
     if (!_ensureConnected(clashService)) return;
+    final cancellation = UnlockTestCancellation();
+    final previousItems = List<UnlockTestResult>.of(_items);
+    _allCancellation = cancellation;
 
     setState(() {
       _isTestingAll = true;
@@ -57,14 +64,36 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
           .toList();
     });
 
-    final proxyPort = clashService.runtimeProxyPort;
-    final results = await _service.checkAll(proxyPort: proxyPort);
-    if (!mounted) return;
+    List<UnlockTestResult>? results;
+    Object? failure;
+    try {
+      results = await _service.checkAll(
+        proxyPort: clashService.runtimeProxyPort,
+        cancellation: cancellation,
+      );
+    } on UnlockTestCancelled {
+      // Keep the last completed evidence when the user cancels.
+    } catch (error) {
+      failure = error;
+    }
+    if (!mounted || !identical(_allCancellation, cancellation)) return;
     setState(() {
-      _items = _mergeResults(_items, results);
+      _items = results == null ? previousItems : _mergeResults(_items, results);
       _testingIds.clear();
       _isTestingAll = false;
+      _allCancellation = null;
     });
+    if (failure != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('批量解锁测试未完成，请稍后重试')),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _allCancellation?.cancel();
+    super.dispose();
   }
 
   Future<void> _testOne(UnlockTestResult item) async {
@@ -185,10 +214,10 @@ class _UnlockTestScreenState extends State<UnlockTestScreen>
                   SizedBox(width: 8),
                   _HeaderActionButton(
                     icon: _isTestingAll
-                        ? Icons.hourglass_top_rounded
+                        ? Icons.stop_circle_outlined
                         : Icons.playlist_play_rounded,
-                    label: _isTestingAll ? '测试中' : '全部测试',
-                    enabled: !_isTestingAll,
+                    label: _isTestingAll ? '取消测试' : '全部测试',
+                    enabled: true,
                     onTap: _testAll,
                   ),
                 ],
@@ -454,6 +483,7 @@ class _UnlockListItem extends StatelessWidget {
   Color _statusColor(UnlockTestResult item) {
     if (isTesting || item.status == 'Testing') return AppTheme.primaryColor;
     if (item.isSuccessful) return AppTheme.successColor;
+    if (item.isReachable) return AppTheme.primaryColor;
     if (item.isPending) return subColor;
     if (item.isInconclusive || item.isFailed) return AppTheme.warningColor;
     return AppTheme.errorColor;

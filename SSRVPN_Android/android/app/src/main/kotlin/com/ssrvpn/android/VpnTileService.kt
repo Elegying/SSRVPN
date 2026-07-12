@@ -60,14 +60,7 @@ class VpnTileService : TileService() {
         Log.d(TAG, "onClick: current=$isConnected")
 
         if (isConnected) {
-            // 断开 VPN
-            SsrvpnVpnService.instance?.stopAll()
-            val intent = Intent(this, SsrvpnVpnService::class.java)
-            stopService(intent)
-            isConnected = false
-            updateTile()
-            // 通知 App 更新 UI
-            notifyStateChanged()
+            stopVpnAndUpdateTile(cancelPendingStart = false)
         } else {
             // 尝试直接启动 VPN（无需打开 App）
             val prefs = getPrefs()
@@ -116,12 +109,11 @@ class VpnTileService : TileService() {
         apiSecret: String,
         nodeName: String?
     ) {
-        SsrvpnVpnService.pendingConfigDir = configDir
-        SsrvpnVpnService.pendingConfigPath = configPath
-        SsrvpnVpnService.pendingApiPort = apiPort
-        SsrvpnVpnService.pendingApiSecret = apiSecret
-        SsrvpnVpnService.pendingNodeName = nodeName
-
+        if (SsrvpnVpnService.isCoreOperationBusy()) {
+            Log.d(TAG, "Cancelling VPN operation from tile")
+            stopVpnAndUpdateTile(cancelPendingStart = true)
+            return
+        }
         // 检查 VPN 权限
         val vpnIntent = VpnService.prepare(this)
         if (vpnIntent != null) {
@@ -134,7 +126,8 @@ class VpnTileService : TileService() {
         // 已有权限，直接启动
         Log.d(TAG, "Starting VPN directly from tile")
         val consumed = AtomicBoolean(false)
-        SsrvpnVpnService.setStartResultCallback { success, message ->
+        lateinit var callback: (Boolean, String) -> Unit
+        callback = { success, message ->
             if (consumed.compareAndSet(false, true)) {
                 Log.d(TAG, "VPN start result: $success, $message")
                 isConnected = success
@@ -142,7 +135,16 @@ class VpnTileService : TileService() {
                 notifyStateChanged()
             }
         }
-        val intent = Intent(this, SsrvpnVpnService::class.java)
+        val requestId = SsrvpnVpnService.registerStartResultCallback(callback)
+        val intent = SsrvpnVpnService.createStartIntent(
+            this,
+            configDir,
+            configPath,
+            apiPort,
+            apiSecret,
+            nodeName,
+            requestId
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
@@ -152,10 +154,29 @@ class VpnTileService : TileService() {
         android.os.Handler(mainLooper).postDelayed({
             if (consumed.compareAndSet(false, true)) {
                 Log.w(TAG, "VPN start callback timeout, clearing")
-                SsrvpnVpnService.setStartResultCallback(null)
+                SsrvpnVpnService.clearStartResultCallback(requestId)
             }
         }, 30_000L)
         // 不再提前设置 isConnected = true，等回调确认后再更新磁贴状态
+    }
+
+    private fun stopVpnAndUpdateTile(cancelPendingStart: Boolean) {
+        if (cancelPendingStart) SsrvpnVpnService.cancelPendingStart()
+        val service = SsrvpnVpnService.instance
+        if (service == null) {
+            stopService(Intent(this, SsrvpnVpnService::class.java))
+            isConnected = SsrvpnVpnService.isRunning
+            updateTile()
+            notifyStateChanged()
+            return
+        }
+        service.stopAll {
+            android.os.Handler(mainLooper).post {
+                isConnected = SsrvpnVpnService.isRunning
+                updateTile()
+                notifyStateChanged()
+            }
+        }
     }
 
     private fun notifyStateChanged() {

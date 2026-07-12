@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 python3 - <<'PY'
+import re
 from pathlib import Path
 
 paths = (
@@ -13,9 +14,22 @@ paths = (
 
 for path in paths:
     source = path.read_text(encoding="utf-8")
+    for token in (
+        "int _startGeneration = 0",
+        "_startInternal(startToken)",
+        "void _ensureStartCurrent(int startToken)",
+        "_startGeneration++",
+        "Completer<void>? _startCancellation",
+        "cancellation.complete()",
+        "cancellation: _startCancellation?.future",
+        "final proxyCleared = await _stopInternal()",
+        "if (!proxyCleared)",
+    ):
+        if token not in source:
+            raise SystemExit(f"{path}: missing cancellable-start guard {token}")
     if "Future<void>? _exitCleanupOperation" not in source:
         raise SystemExit(f"{path}: unexpected-exit proxy cleanup is not tracked")
-    start = source.index("Future<bool> _startInternal()")
+    start = source.index("Future<bool> _startInternal(int startToken)")
     end = source.index("Future<void> stop()", start)
     body = source[start:end]
     proxy_write = body.index("_proxyService.setSystemProxy")
@@ -68,4 +82,93 @@ for path in orchestrators:
         )
 
 print("Desktop orchestration publication guards passed.")
+
+home = Path(
+    "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_screen_part.dart"
+)
+runtime_actions = Path(
+    "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_runtime_actions_part.dart"
+)
+for path in (home, runtime_actions):
+    line_count = len(path.read_text(encoding="utf-8").splitlines())
+    if line_count > 900:
+        raise SystemExit(f"{path}: shared desktop screen part grew to {line_count} lines")
+
+aggregate_lines = sum(
+    len(path.read_text(encoding="utf-8").splitlines())
+    for path in (home, runtime_actions)
+)
+if aggregate_lines > 1250:
+    raise SystemExit(
+        f"desktop home state/runtime parts grew to {aggregate_lines} aggregate lines"
+    )
+
+for entrypoint in (
+    Path("SSRVPN_MacOS/lib/screens/home_screen.dart"),
+    Path("SSRVPN_Windows/lib/screens/home_screen.dart"),
+):
+    if "desktop_home_runtime_actions_part.dart" not in entrypoint.read_text(
+        encoding="utf-8"
+    ):
+        raise SystemExit(f"{entrypoint}: missing desktop runtime actions part")
+
+source = home.read_text(encoding="utf-8")
+start = source.index("Future<void> _applyNetworkSetting(")
+end = source.index("Future<void> _showForceProxySitesDialog", start)
+body = source[start:end]
+required = ("try {", "catch (", "finally {", "_isConnecting = false")
+missing = [token for token in required if token not in body]
+if missing:
+    raise SystemExit(
+        f"{home}: network-setting busy state is not exception-safe: "
+        + ", ".join(missing)
+    )
+
+print("Desktop network-setting recovery guard passed.")
+
+connect_start = source.index("Future<void> _handleConnectToggle()")
+connect_end = source.index("@override\n  Widget build", connect_start)
+connect = source[connect_start:connect_end]
+for token in ("断开连接失败", "finally {"):
+    if token not in connect:
+        raise SystemExit(f"{home}: disconnect UI is not recovery-safe: {token}")
+if "if (_isConnecting) return" in connect:
+    raise SystemExit(f"{home}: connecting state cannot be cancelled from the UI")
+for token in ("取消连接失败", "requestConnectionIntent(false)"):
+    if token not in connect:
+        raise SystemExit(f"{home}: missing desktop cancellation guard: {token}")
+verification = connect.index("verifyUserConnectivity")
+connected_commit = connect.index("_isConnected = true", verification)
+finalization = connect[verification:connected_commit]
+for token in ("!clashService.isRunning", "isConnectionIntentCurrent"):
+    if token not in finalization:
+        raise SystemExit(
+            f"{home}: desktop connect finalization lacks {token} guard"
+        )
+
+print("Desktop connect finalization guard passed.")
+
+runtime_source = runtime_actions.read_text(encoding="utf-8")
+if runtime_source.count("await clashService.testAllLatencies") != 1:
+    raise SystemExit(f"{runtime_actions}: batch latency workflow is duplicated")
+for token in (
+    "PrivateNodeLatencyPolicy.displayLatencyForNode(",
+    "random: math.Random(),",
+):
+    if token not in runtime_source:
+        raise SystemExit(f"{runtime_actions}: private-node latency policy changed: {token}")
+
+print("Desktop screen boundary and latency-policy guards passed.")
+
+for app in (
+    Path("SSRVPN_MacOS/lib/app.dart"),
+    Path("SSRVPN_Windows/lib/app.dart"),
+):
+    app_source = app.read_text(encoding="utf-8")
+    if re.search(r"(?m)^\s*_clashService\?\.stop\(\);\s*$", app_source):
+        raise SystemExit(f"{app}: dispose leaks asynchronous stop errors")
+    if "Dispose core cleanup failed" not in app_source:
+        raise SystemExit(f"{app}: dispose stop failure is not contained")
+
+print("Desktop dispose cleanup guard passed.")
 PY

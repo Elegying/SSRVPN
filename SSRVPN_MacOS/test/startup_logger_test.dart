@@ -63,4 +63,18 @@ void main() {
     expect(await oldFile.length(), 1024 * 1024 + 1);
     expect(await logFile.length(), lessThan(1024));
   });
+
+  test('rotates again when the log grows during the same run', () async {
+    final tempDirectory =
+        await Directory.systemTemp.createTemp('ssrvpn_startup_logger_test_');
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final logFile = File('${tempDirectory.path}/startup.log');
+    await StartupLogger.init(verbose: false, fileOverride: logFile);
+    await logFile.writeAsBytes(List.filled(1024 * 1024 - 32, 0x78));
+
+    StartupLogger.info('runtime rotation');
+
+    expect(await File('${logFile.path}.old').exists(), isTrue);
+    expect(await logFile.length(), lessThan(1024));
+  });
 }

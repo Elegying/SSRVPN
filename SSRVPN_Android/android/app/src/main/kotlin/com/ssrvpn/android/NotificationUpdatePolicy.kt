@@ -1,6 +1,7 @@
 package com.ssrvpn.android
 
 internal class NotificationUpdatePolicy(
+    val initialRefreshDelayMillis: Long = 10_000L,
     val refreshIntervalMillis: Long = 60_000L
 ) {
     private var screenInteractive = true

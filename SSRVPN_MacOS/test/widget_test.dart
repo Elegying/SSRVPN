@@ -1,8 +1,38 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:ssrvpn_macos/services/settings_service.dart';
+import 'package:ssrvpn_macos/widgets/connection_button.dart';
 
 void main() {
+  testWidgets('desktop connecting button is keyboard cancellable',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    var taps = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ConnectionButton(
+            isConnected: false,
+            isConnecting: true,
+            onTap: () => taps++,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('取消'), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('取消连接')), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    expect(taps, 1);
+    semantics.dispose();
+  });
+
   group('AppSettings', () {
     test('默认值', () {
       final s = AppSettings();
@@ -56,6 +86,15 @@ void main() {
       expect(restored.proxyMode, ProxyMode.rule);
     });
 
+    test('旧版本遗留的 TUN 设置迁移为系统代理', () {
+      final settings = AppSettings(tunMode: true);
+
+      expect(migrateUnsupportedMacTunSetting(settings), isTrue);
+      expect(settings.enableTun, isFalse);
+      expect(settings.enableSystemProxy, isTrue);
+      expect(migrateUnsupportedMacTunSetting(settings), isFalse);
+    });
+
     test('强制代理网站只接受有效主机名或 IP', () {
       expect(
         AppSettings.extractForceProxyHost('https://Blocked.Example/path'),
@@ -85,5 +124,21 @@ void main() {
       expect(restored.lastUpdate, DateTime(2026, 1, 2, 3, 4, 5));
       expect(restored.enabled, false);
     });
+  });
+
+  test('failed settings write does not commit the in-memory update', () async {
+    final temp = await Directory.systemTemp.createTemp('ssrvpn_mac_settings_');
+    addTearDown(() => temp.delete(recursive: true));
+    final blockedPath = '${temp.path}${Platform.pathSeparator}blocked';
+    await Directory(blockedPath).create();
+    final service = SettingsService.createForTesting(
+      settings: AppSettings(),
+      dataDir: temp.path,
+      settingsPath: blockedPath,
+    );
+
+    await expectLater(service.updateProxyPort(8890), throwsA(anything));
+
+    expect(service.settings.proxyPort, 7890);
   });
 }

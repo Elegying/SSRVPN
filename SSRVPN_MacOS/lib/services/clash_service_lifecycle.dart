@@ -1,8 +1,10 @@
 part of 'clash_service.dart';
 
+class _DesktopStartCancelled implements Exception {}
+
 mixin _MacosCoreLifecycle on ClashServiceBase {
   static const _filePath = '/usr/bin/file';
-  static const _pkillPath = '/usr/bin/pkill';
+  static const _psPath = '/bin/ps';
   static const _tunUnavailableMessage =
       'macOS TUN 模式已暂时停用：当前版本没有安全的 Network Extension '
       '或特权辅助程序，请切换到系统代理模式。';
@@ -10,8 +12,10 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   Process? _clashProcess;
   bool _stoppingCore = false;
   Future<bool>? _startOperation;
+  Completer<void>? _startCancellation;
   Future<void>? _stopOperation;
   Future<void>? _exitCleanupOperation;
+  int _startGeneration = 0;
   String _corePath = '';
   String? _startupDisabledReason;
   final SystemProxyService _proxyService = SystemProxyService();
@@ -20,6 +24,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   String? get startupDisabledReason => _startupDisabledReason;
   String get corePath => _corePath;
   bool get coreExists => File(_corePath).existsSync();
+  bool get hasPendingSystemProxyRecovery => _proxyService.recoveryPending;
 
   Future<void> _verifyCoreForExecution();
 
@@ -76,18 +81,66 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
   Future<void> _terminateOrphanedCores() async {
     if (_corePath.isEmpty || !Platform.isMacOS) return;
+    final pidFile = File(
+      '$configDir${Platform.pathSeparator}AtlasCore.pid',
+    );
+    if (!await pidFile.exists()) return;
     try {
+      final pid = int.tryParse((await pidFile.readAsString()).trim());
+      if (pid == null || pid <= 1) {
+        await _deleteCorePid();
+        return;
+      }
       final result = await _runProcess(
-        _pkillPath,
-        ['-f', _corePath],
+        _psPath,
+        ['-p', '$pid', '-o', 'command='],
         timeout: const Duration(seconds: 5),
       );
-      if (result.exitCode == 0) {
-        log('已清理遗留的 Mihomo 进程');
+      final command = result.stdout.toString().trim();
+      if (result.exitCode == 124) {
+        throw StateError('确认遗留核心归属超时');
       }
+      final owned = command == _corePath || command.startsWith('$_corePath ');
+      if (result.exitCode != 0 || command.isEmpty || !owned) {
+        await _deleteCorePid();
+        return;
+      }
+      if (!Process.killPid(pid, ProcessSignal.sigterm)) {
+        throw StateError('无法向遗留核心发送终止信号');
+      }
+      if (!await _waitForOwnedCoreExit(pid)) {
+        if (!Process.killPid(pid, ProcessSignal.sigkill) ||
+            !await _waitForOwnedCoreExit(pid)) {
+          throw StateError('遗留核心未能终止');
+        }
+      }
+      await _deleteCorePid();
+      log('已清理遗留的 Mihomo 进程');
     } catch (e) {
-      log('清理遗留核心失败: $e');
+      throw StateError('无法安全确认并清理遗留核心: $e');
     }
+  }
+
+  Future<bool> _waitForOwnedCoreExit(int pid) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (DateTime.now().isBefore(deadline)) {
+      final result = await _runProcess(
+        _psPath,
+        ['-p', '$pid', '-o', 'command='],
+        timeout: const Duration(seconds: 2),
+      );
+      final command = result.stdout.toString().trim();
+      if (result.exitCode == 124) {
+        throw StateError('等待遗留核心退出超时');
+      }
+      if (result.exitCode != 0 ||
+          command.isEmpty ||
+          (command != _corePath && !command.startsWith('$_corePath '))) {
+        return true;
+      }
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    return false;
   }
 
   void setCorePath(String path) {
@@ -98,7 +151,9 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     final current = _startOperation;
     if (current != null) return current;
 
-    final operation = _startInternal();
+    final startToken = ++_startGeneration;
+    _startCancellation = Completer<void>();
+    final operation = _startInternal(startToken);
     _startOperation = operation;
     operation.then<void>(
       (_) => _clearStartOperation(operation),
@@ -107,11 +162,13 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     return operation;
   }
 
-  Future<bool> _startInternal() async {
+  Future<bool> _startInternal(int startToken) async {
     final exitCleanup = _exitCleanupOperation;
     if (exitCleanup != null) await exitCleanup;
+    _ensureStartCurrent(startToken);
     final stopping = _stopOperation;
     if (stopping != null) await stopping;
+    _ensureStartCurrent(startToken);
     setLastStartError(null);
 
     if (_startupDisabledReason != null) {
@@ -134,6 +191,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       try {
         if (await healthCheck()) return true;
       } catch (_) {}
+      _ensureStartCurrent(startToken);
       setRunning(false);
       _clashProcess = null;
       stopStatusMonitor();
@@ -158,6 +216,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
       final tmpDir = '$configDir${Platform.pathSeparator}tmp';
       await Directory(tmpDir).create(recursive: true);
+      _ensureStartCurrent(startToken);
       final environment = {
         'TMPDIR': tmpDir,
         'TMP': tmpDir,
@@ -170,8 +229,10 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         );
         return false;
       }
+      _ensureStartCurrent(startToken);
 
       await _verifyCoreForExecution();
+      _ensureStartCurrent(startToken);
 
       final processStartWatch = Stopwatch()..start();
       final startedProcess = await Process.start(
@@ -186,6 +247,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         'Mihomo 进程已创建，耗时 ${processStartWatch.elapsedMilliseconds}ms',
       );
       _clashProcess = startedProcess;
+      await _writeCorePid(startedProcess.pid);
+      _ensureStartCurrent(startToken);
       int? startupExitCode;
       final startupOutput = <String>[];
 
@@ -218,11 +281,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         }
 
         log('Mihomo 进程已退出，退出码: $code');
+        unawaited(_deleteCorePid());
         if (isRunning) {
-          setRunning(false);
+          markConnectionLost();
           stopStatusMonitor();
           _clashProcess = null;
-          notifyStatusChanged();
           _scheduleUnexpectedExitCleanup();
         }
       });
@@ -230,12 +293,15 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       var healthy = false;
       final deadline = DateTime.now().add(const Duration(seconds: 15));
       while (DateTime.now().isBefore(deadline) && startupExitCode == null) {
+        _ensureStartCurrent(startToken);
         healthy = await healthCheck();
+        _ensureStartCurrent(startToken);
         if (healthy) break;
         await Future.delayed(const Duration(milliseconds: 250));
       }
 
       if (healthy) {
+        _ensureStartCurrent(startToken);
         final proxySet = await _proxyService.setSystemProxy(
           '127.0.0.1',
           settings.proxyPort,
@@ -248,9 +314,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
           await _stopInternal();
           return false;
         }
+        _ensureStartCurrent(startToken);
         log('macOS 系统代理已设置');
 
         final processStillHealthy = await healthCheck();
+        _ensureStartCurrent(startToken);
         final canCommitRunning = identical(_clashProcess, startedProcess) &&
             startupExitCode == null &&
             processStillHealthy;
@@ -287,6 +355,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       log('核心启动失败: $lastStartError');
       await _stopInternal();
       return false;
+    } on _DesktopStartCancelled {
+      setLastStartError('连接已取消');
+      log('Mihomo 启动已取消');
+      await _stopInternal();
+      return false;
     } catch (e, stack) {
       setLastStartError(_friendlyStartException(e));
       log('启动核心异常: $e');
@@ -297,6 +370,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   }
 
   Future<void> stop() {
+    _startGeneration++;
+    final cancellation = _startCancellation;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
+    }
     final current = _stopOperation;
     if (current != null) return current;
 
@@ -312,10 +390,15 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   Future<void> _stopAfterStart() async {
     final starting = _startOperation;
     if (starting != null) await starting;
-    await _stopInternal();
+    final proxyCleared = await _stopInternal();
+    if (!proxyCleared) {
+      throw StateError(
+        _proxyService.lastError ?? 'macOS 系统代理恢复失败，请再次尝试断开',
+      );
+    }
   }
 
-  Future<void> _stopInternal() async {
+  Future<bool> _stopInternal() async {
     final exitCleanup = _exitCleanupOperation;
     if (exitCleanup != null) await exitCleanup;
     stopStatusMonitor();
@@ -340,6 +423,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       }
       _clashProcess = null;
     }
+    await _deleteCorePid();
 
     final proxyCleared = await _proxyService.clearSystemProxy();
     if (!proxyCleared && _proxyService.lastError != null) {
@@ -349,6 +433,27 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     setRunning(false);
     notifyStatusChanged();
     log('Mihomo 核心已停止');
+    return proxyCleared;
+  }
+
+  void _ensureStartCurrent(int startToken) {
+    if (startToken != _startGeneration) throw _DesktopStartCancelled();
+  }
+
+  Future<void> _writeCorePid(int corePid) async {
+    final file = File('$configDir${Platform.pathSeparator}AtlasCore.pid');
+    final temp = File('${file.path}.tmp');
+    await temp.writeAsString('$corePid\n', flush: true);
+    await temp.rename(file.path);
+  }
+
+  Future<void> _deleteCorePid() async {
+    final file = File('$configDir${Platform.pathSeparator}AtlasCore.pid');
+    try {
+      if (await file.exists()) await file.delete();
+    } catch (error) {
+      log('删除核心 PID 文件失败: $error');
+    }
   }
 
   void _scheduleUnexpectedExitCleanup() {
@@ -381,6 +486,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   void _clearStartOperation(Future<bool> operation) {
     if (identical(_startOperation, operation)) {
       _startOperation = null;
+      _startCancellation = null;
     }
   }
 
@@ -402,6 +508,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         includeParentEnvironment: true,
         environment: environment,
         timeout: const Duration(seconds: 40),
+        cancellation: _startCancellation?.future,
       );
       final stdout = result.stdout.toString().trim();
       final stderr = result.stderr.toString().trim();
@@ -411,6 +518,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         log('Mihomo 配置校验通过，耗时 ${watch.elapsedMilliseconds}ms');
         return true;
       }
+      if (result.exitCode == 125) throw _DesktopStartCancelled();
       if (result.exitCode == 124) {
         setLastStartError('电脑性能不足或配置校验超时，请重新连接');
       } else if (stderr.isNotEmpty || stdout.isNotEmpty) {
@@ -420,6 +528,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       }
       log('Mihomo 配置校验失败，退出码: ${result.exitCode}');
       return false;
+    } on _DesktopStartCancelled {
+      rethrow;
     } catch (e) {
       setLastStartError(_friendlyStartException(e));
       log('无法执行 Mihomo 配置校验: $e');
@@ -451,6 +561,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     bool includeParentEnvironment = true,
     Map<String, String>? environment,
     Duration timeout = const Duration(seconds: 10),
+    Future<void>? cancellation,
   }) =>
       TimedProcessRunner.run(
         executable,
@@ -459,5 +570,6 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         includeParentEnvironment: includeParentEnvironment,
         environment: environment,
         timeout: timeout,
+        cancellation: cancellation,
       );
 }

@@ -11,7 +11,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Mutable public aliases and latest.json form one global release channel.
+  group: ssrvpn-public-release
   cancel-in-progress: false
 
 env:
@@ -27,12 +28,33 @@ jobs:
           fetch-depth: 0
 
       - name: Require release source to come from main
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
           release_commit="$(git rev-list -n 1 "$GITHUB_SHA")"
-          if ! git merge-base --is-ancestor "$release_commit" origin/main; then
-            echo "::error::Release builds must use a commit already on main."
-            exit 1
+          main_tip="$(git rev-parse origin/main)"
+          if [ "$release_commit" != "$main_tip" ]; then
+            retry_release="$RUNNER_TEMP/existing-release-retry.json"
+            retry_provenance_dir="$RUNNER_TEMP/existing-release-provenance"
+            if [[ "$GITHUB_REF" == refs/tags/* ]] &&
+              gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+                >"$retry_release" &&
+              mkdir -p "$retry_provenance_dir" &&
+              gh release download "$GITHUB_REF_NAME" \
+                --repo "$GITHUB_REPOSITORY" \
+                --dir "$retry_provenance_dir" \
+                --pattern 'SSRVPN-release-provenance.json' &&
+              python3 scripts/validate-existing-release-retry.py \
+                "$retry_release" \
+                "$retry_provenance_dir/SSRVPN-release-provenance.json" \
+                --expected-tag "$GITHUB_REF_NAME" \
+                --expected-commit "$release_commit"; then
+              echo "Retrying existing release $GITHUB_REF_NAME after main advanced."
+            else
+              echo "::error::New release builds must use the current tested main tip."
+              exit 1
+            fi
           fi
 
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
@@ -41,6 +63,22 @@ jobs:
             if [ "$expected_version" != "$app_version" ]; then
               echo "::error::Release tag $GITHUB_REF_NAME does not match app version $app_version."
               exit 1
+            fi
+
+            current_full="$(awk '/^version:/ { print $2; exit }' SSRVPN_Android/pubspec.yaml)"
+            current_code="${current_full##*+}"
+            previous_tag="$(git tag --list 'v*' --sort=-v:refname |
+              grep -E '^v[0-9]+(\.[0-9]+){1,3}$' |
+              grep -vx "$GITHUB_REF_NAME" | head -1 || true)"
+            if [ -n "$previous_tag" ]; then
+              previous_full="$(git show "$previous_tag:SSRVPN_Android/pubspec.yaml" |
+                awk '/^version:/ { print $2; exit }')"
+              previous_code="${previous_full##*+}"
+              python3 scripts/verify-release-transition.py \
+                --target "$expected_version" \
+                --current-version "${previous_tag#v}" \
+                --target-build-code "$current_code" \
+                --current-build-code "$previous_code"
             fi
           fi
 
@@ -67,16 +105,18 @@ jobs:
       - run: bash ../../scripts/check-version-sync.sh
       - run: bash ../../scripts/check-package-guides.sh
       - run: bash ../../scripts/check-android-native-bridge-guards.sh
+      - run: bash ../../scripts/check-unlock-test-guards.sh
       - run: bash ../../scripts/check-desktop-startup-guards.sh
       - run: bash ../../scripts/check-clash-service-boundaries.sh
       - run: bash ../../scripts/check-macos-core-privileges.sh
       - run: bash ../../scripts/check-windows-launcher-security.sh
       - run: bash ../../scripts/check-secrets.sh
-      - run: python3 -m unittest scripts/test_generate_release_notes.py scripts/test_generate_oss_release_manifest.py scripts/test_windows_installer_config.py
+      - run: python3 -m unittest scripts/test_generate_release_notes.py scripts/test_generate_oss_release_manifest.py scripts/test_generate_release_provenance.py scripts/test_verify_release_transition.py scripts/test_promote_oss_public_channel.py scripts/test_reuse_github_release_assets.py scripts/test_validate_existing_release_retry.py scripts/test_run_command_with_timeout.py scripts/test_windows_installer_config.py scripts/test_windows_proxy_shutdown_recovery.py
         working-directory: .
       - run: dart pub get
       - run: flutter analyze --fatal-infos
-      - run: flutter test
+      - run: flutter test --coverage
+      - run: bash ../../scripts/check-coverage-thresholds.sh packages/ssrvpn_shared
 
   prepare-geoip:
     name: Prepare verified core assets
@@ -88,12 +128,7 @@ jobs:
       - name: Bootstrap pinned core assets
         run: bash scripts/bootstrap-core-assets.sh
 
-      - name: Sync latest geoip.metadb
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python3 scripts/sync-geoip-metadb.py
-
-      - name: Verify synced GeoIP assets
+      - name: Verify pinned GeoIP assets
         run: bash scripts/verify-core-assets.sh
 
       - name: Upload verified core assets
@@ -144,7 +179,10 @@ jobs:
         run: cd SSRVPN_Android && flutter analyze
 
       - name: Test
-        run: cd SSRVPN_Android && flutter test
+        run: cd SSRVPN_Android && flutter test --coverage
+
+      - name: Enforce coverage threshold
+        run: bash scripts/check-coverage-thresholds.sh SSRVPN_Android
 
       - name: Android native unit tests
         run: bash scripts/test-android-native.sh
@@ -187,6 +225,8 @@ jobs:
         run: bash scripts/smoke-release-artifacts.sh --allow-missing
 
       - name: Verify APK signature
+        env:
+          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
         run: |
           set -euo pipefail
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
@@ -194,7 +234,21 @@ jobs:
             echo "::error::apksigner not found in Android SDK build-tools"
             exit 1
           fi
-          "$APKSIGNER" verify --print-certs SSRVPN_Android/SSRVPN.apk
+          if [ -z "${ANDROID_RELEASE_CERT_SHA256:-}" ]; then
+            echo "::error::ANDROID_RELEASE_CERT_SHA256 is not configured"
+            exit 1
+          fi
+          cert_output="$("$APKSIGNER" verify --print-certs SSRVPN_Android/SSRVPN.apk)"
+          printf '%s\n' "$cert_output"
+          actual="$(printf '%s\n' "$cert_output" |
+            sed -n 's/^.*certificate SHA-256 digest: //p' |
+            head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          expected="$(printf '%s' "$ANDROID_RELEASE_CERT_SHA256" |
+            tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          if [ -z "$actual" ] || [ "$actual" != "$expected" ]; then
+            echo "::error::APK signing certificate mismatch: expected $expected, got ${actual:-missing}"
+            exit 1
+          fi
 
       - name: Generate checksum
         run: cd SSRVPN_Android && sha256sum SSRVPN.apk > SSRVPN.apk.sha256
@@ -239,7 +293,10 @@ jobs:
         run: cd SSRVPN_MacOS && flutter analyze
 
       - name: Test
-        run: cd SSRVPN_MacOS && flutter test
+        run: cd SSRVPN_MacOS && flutter test --coverage
+
+      - name: Enforce coverage threshold
+        run: bash scripts/check-coverage-thresholds.sh SSRVPN_MacOS
 
       - name: Build & Package DMG
         run: cd SSRVPN_MacOS && bash tool/package_macos.sh
@@ -309,14 +366,26 @@ jobs:
         run: cd SSRVPN_Windows; flutter analyze
 
       - name: Test
-        run: cd SSRVPN_Windows; flutter test
+        run: cd SSRVPN_Windows; flutter test --coverage
+
+      - name: Enforce coverage threshold
+        shell: bash
+        run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows
 
       - name: Build Windows packages
         shell: powershell
         run: |
           cd SSRVPN_Windows
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\migrate_portable_data.ps1 -Destination "$env:RUNNER_TEMP\ssrvpn-migration-smoke"
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\stop_ssrvpn_processes.ps1 -InstalledCorePath "$env:RUNNER_TEMP\ssrvpn-process-smoke\mihomo.exe"
+          foreach ($file in @('installer\migrate_portable_data.ps1', 'installer\stop_ssrvpn_processes.ps1', '..\scripts\test_windows_installer_runtime.ps1')) {
+            $tokens = $null
+            $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors.Count -gt 0) { $parseErrors | ForEach-Object { Write-Error $_ }; exit 1 }
+          }
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_installer_runtime.ps1
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\migrate_portable_data.ps1 -Destination "$env:RUNNER_TEMP\ssrvpn-migration-smoke" -StateFile "$env:RUNNER_TEMP\ssrvpn-migration-source.txt" -DiscoverOnly
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\migrate_portable_data.ps1 -Destination "$env:RUNNER_TEMP\ssrvpn-migration-smoke" -StateFile "$env:RUNNER_TEMP\ssrvpn-migration-source.txt"
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\stop_ssrvpn_processes.ps1 -InstalledCorePath "$env:RUNNER_TEMP\ssrvpn-process-smoke\mihomo.exe" -InstalledCorePidPath "$env:RUNNER_TEMP\ssrvpn-process-smoke\mihomo.pid"
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\build_installer.ps1
 
@@ -413,23 +482,6 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "body_path=release-notes.md" >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
-        with:
-          tag_name: ${{ steps.notes.outputs.tag }}
-          name: SSRVPN ${{ steps.notes.outputs.tag }}
-          body_path: ${{ steps.notes.outputs.body_path }}
-          files: |
-            artifacts/android/SSRVPN.apk
-            artifacts/android/SSRVPN.apk.sha256
-            artifacts/macos/SSRVPN.dmg
-            artifacts/macos/SSRVPN.dmg.sha256
-            artifacts/windows/SSRVPN_Setup.exe
-            artifacts/windows/SSRVPN_Setup.exe.sha256
-            artifacts/windows/SSRVPN.zip
-            artifacts/windows/SSRVPN.zip.sha256
-          generate_release_notes: false
-
       - name: Validate OSS publishing configuration
         env:
           OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
@@ -445,6 +497,24 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Reuse an existing GitHub release on retry
+        id: existing_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+        run: bash scripts/reuse-github-release-assets.sh artifacts
+
+      - name: Generate release provenance
+        run: |
+          python3 scripts/generate-release-provenance.py \
+            --tag "${GITHUB_REF#refs/tags/}" \
+            --commit "$GITHUB_SHA" \
+            --asset artifacts/android/SSRVPN.apk \
+            --asset artifacts/macos/SSRVPN.dmg \
+            --asset artifacts/windows/SSRVPN_Setup.exe \
+            --asset artifacts/windows/SSRVPN.zip \
+            --output artifacts/SSRVPN-release-provenance.json
 
       - name: Generate verified OSS update manifest
         env:
@@ -465,12 +535,63 @@ jobs:
             --asset artifacts/windows/SSRVPN.zip \
             --output artifacts/oss/latest.json
 
+      - name: Reject a public-channel rollback
+        env:
+          OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+          OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+        run: |
+          set -euo pipefail
+          public_manifest="$RUNNER_TEMP/current-public-latest.json"
+          public_url="https://$OSS_BUCKET.$OSS_ENDPOINT/$OSS_PREFIX/latest.json"
+          status="$(curl -sS --retry 3 --connect-timeout 10 --max-time 30 \
+            --max-filesize 1048576 -o "$public_manifest" \
+            -w '%{http_code}' "$public_url" || true)"
+          case "$status" in
+            200)
+              python3 scripts/verify-release-transition.py \
+                --target "${GITHUB_REF#refs/tags/}" \
+                --current-manifest "$public_manifest"
+              ;;
+            404)
+              python3 scripts/verify-release-transition.py \
+                --target "${GITHUB_REF#refs/tags/}"
+              ;;
+            *)
+              echo "::error::Cannot verify current OSS release pointer (HTTP ${status:-network error})"
+              exit 1
+              ;;
+          esac
+
+      - name: Create GitHub Draft Release
+        if: steps.existing_release.outputs.exists != 'true'
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
+        with:
+          tag_name: ${{ steps.notes.outputs.tag }}
+          name: SSRVPN ${{ steps.notes.outputs.tag }}
+          body_path: ${{ steps.notes.outputs.body_path }}
+          files: |
+            artifacts/android/SSRVPN.apk
+            artifacts/android/SSRVPN.apk.sha256
+            artifacts/macos/SSRVPN.dmg
+            artifacts/macos/SSRVPN.dmg.sha256
+            artifacts/windows/SSRVPN_Setup.exe
+            artifacts/windows/SSRVPN_Setup.exe.sha256
+            artifacts/windows/SSRVPN.zip
+            artifacts/windows/SSRVPN.zip.sha256
+            artifacts/SSRVPN-release-provenance.json
+          generate_release_notes: false
+          draft: true
+          make_latest: false
+          overwrite_files: false
+          fail_on_unmatched_files: true
+
       - name: Install pinned ossutil
         run: |
           bash scripts/install-ossutil.sh "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
-      - name: Publish release to OSS and update latest pointer
+      - name: Publish immutable release to OSS
         env:
           OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
@@ -492,35 +613,69 @@ jobs:
             artifacts/windows/SSRVPN.zip
             artifacts/windows/SSRVPN.zip.sha256
           )
-          for file in "${files[@]}"; do
-            ossutil cp "$file" \
-              "oss://$OSS_BUCKET/$release_prefix/$(basename "$file")" --force
-          done
-
-          ossutil cp artifacts/oss/latest.json \
-            "oss://$OSS_BUCKET/$release_prefix/latest.json" --force
-
-          # Website links use these stable URLs. Replace them only with the
-          # already verified release files and force browsers to revalidate.
-          stable_prefix="$OSS_PREFIX/downloads"
           public_base="https://$OSS_BUCKET.$OSS_ENDPOINT"
-          for file in "${files[@]}"; do
+          versioned_files=("${files[@]}" artifacts/oss/latest.json)
+          for file in "${versioned_files[@]}"; do
             name="$(basename "$file")"
-            ossutil cp "$file" "oss://$OSS_BUCKET/$stable_prefix/$name" \
-              --force --cache-control "no-cache"
-            downloaded="$RUNNER_TEMP/stable-$name"
-            curl -fsSL --retry 3 "$public_base/$stable_prefix/$name" \
-              -o "$downloaded"
+            object_url="$public_base/$release_prefix/$name"
+            downloaded="$RUNNER_TEMP/versioned-$name"
+            status="$(curl -sS --retry 3 --connect-timeout 10 --max-time 180 \
+              --max-filesize 314572800 -o "$downloaded" \
+              -w '%{http_code}' "$object_url" || true)"
+            if [ "$status" = 200 ]; then
+              cmp "$file" "$downloaded"
+              continue
+            elif [ "$status" != 404 ]; then
+              echo "::error::Cannot inspect immutable OSS object $object_url (HTTP ${status:-network error})"
+              exit 1
+            fi
+            ossutil cp "$file" "oss://$OSS_BUCKET/$release_prefix/$name" \
+              --ignore-existing
+            curl -fsSL --retry 3 --connect-timeout 10 --max-time 180 \
+              --max-filesize 314572800 "$object_url" -o "$downloaded"
             cmp "$file" "$downloaded"
           done
 
-          # Update the public pointer last so clients never see a partial release.
-          ossutil cp artifacts/oss/latest.json \
-            "oss://$OSS_BUCKET/$OSS_PREFIX/latest.json" --force
+      - name: Finalize GitHub Release
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
+        with:
+          tag_name: ${{ steps.notes.outputs.tag }}
+          name: SSRVPN ${{ steps.notes.outputs.tag }}
+          body_path: ${{ steps.notes.outputs.body_path }}
+          generate_release_notes: false
+          draft: false
+          prerelease: false
+          make_latest: true
 
-          curl -fsSL --retry 3 "$public_base/$OSS_PREFIX/latest.json" \
-            -o "$RUNNER_TEMP/public-latest.json"
-          cmp artifacts/oss/latest.json "$RUNNER_TEMP/public-latest.json"
-          while IFS= read -r url; do
-            curl -fsSI --retry 3 "$url" >/dev/null
-          done < <(jq -r '.assets[].url' artifacts/oss/latest.json)
+      - name: Promote OSS public channel
+        id: promote_oss
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+          OSS_REGION: cn-qingdao
+          OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+          OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          test "$(gh release view "$tag" --json isDraft --jq '.isDraft')" = false
+          test "$(gh release view "$tag" --json isPrerelease --jq '.isPrerelease')" = false
+          public_assets="$RUNNER_TEMP/public-assets"
+          mkdir -p "$public_assets"
+          cp artifacts/android/SSRVPN.apk* "$public_assets/"
+          cp artifacts/macos/SSRVPN.dmg* "$public_assets/"
+          cp artifacts/windows/SSRVPN_Setup.exe* "$public_assets/"
+          cp artifacts/windows/SSRVPN.zip* "$public_assets/"
+          bash scripts/promote-oss-public-channel.sh \
+            "$public_assets" artifacts/oss/latest.json
+
+      - name: Preserve OSS recovery backup
+        if: always() && steps.promote_oss.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: oss-public-channel-recovery-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ssrvpn-oss-backup.*
+          if-no-files-found: ignore
+          retention-days: 7

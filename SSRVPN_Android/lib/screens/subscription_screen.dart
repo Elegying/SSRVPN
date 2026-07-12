@@ -308,6 +308,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
           id,
           clashRunning: clashService.isRunning,
           stopClash: clashService.stop,
+          continueAfterRefreshFailure: true,
         );
       } catch (e) {
         if (mounted) {
@@ -327,6 +328,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         _showSnack(
           '删除失败：${result.error.toString().replaceFirst("Exception: ", "")}',
           AppTheme.errorColor,
+        );
+      } else if (result.remainingRefreshFailed) {
+        _showSnack(
+          result.stoppedClash
+              ? '订阅已删除；剩余订阅刷新失败，VPN 已断开'
+              : '订阅已删除，但剩余订阅刷新失败，请稍后重试',
+          AppTheme.warningColor,
         );
       } else if (result.error != null) {
         _showSnack(

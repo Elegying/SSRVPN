@@ -1,4 +1,5 @@
 import Cocoa
+import Darwin
 import FlutterMacOS
 
 @main
@@ -41,11 +42,60 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   // Cmd+Q 等退出路径不经过 Flutter 侧的清理逻辑，
-  // 在这里兜底：杀掉核心进程，并优先恢复 Dart 侧保存的系统代理备份。
+  // 在这里兜底：先恢复代理；只有恢复成功后才终止已记录 PID 的自有核心。
   override func applicationWillTerminate(_ notification: Notification) {
-    _ = runProcess("/usr/bin/pkill", ["-f", "SSRVPN.*/AtlasCore"], timeout: 3)
-    _ = restoreSavedProxyState()
+    let proxyStateURL = findProxyStateFile()
+    let runtimeDirectory = runtimeDirectoryForTermination(proxyStateURL: proxyStateURL)
+    let hadProxyState = proxyStateURL != nil
+    let proxyRestored = restoreSavedProxyState()
+    if !hadProxyState || proxyRestored {
+      _ = terminateOwnedCore(in: runtimeDirectory)
+    } else {
+      NSLog("[AppDelegate] Keeping AtlasCore alive because proxy restore failed")
+    }
     super.applicationWillTerminate(notification)
+  }
+
+  @discardableResult
+  func terminateOwnedCore(in directory: URL?) -> Bool {
+    guard let directory else { return false }
+    let pidURL = directory.appendingPathComponent("AtlasCore.pid")
+    let corePath = directory.appendingPathComponent("AtlasCore").path
+    guard
+      let text = try? String(contentsOf: pidURL, encoding: .utf8),
+      let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+      pid > 1,
+      let command = runProcessOutput("/bin/ps", ["-p", "\(pid)", "-o", "command="]),
+      isOwnedCoreCommand(command, corePath: corePath)
+    else {
+      try? FileManager.default.removeItem(at: pidURL)
+      return false
+    }
+    let stopped = kill(pid, SIGTERM) == 0 || errno == ESRCH
+    if stopped { try? FileManager.default.removeItem(at: pidURL) }
+    return stopped
+  }
+
+  func runtimeDirectoryForTermination(proxyStateURL: URL?) -> URL? {
+    if let proxyStateURL {
+      return proxyStateURL.deletingLastPathComponent()
+    }
+    let fm = FileManager.default
+    guard let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+      return nil
+    }
+    var candidates = [support.appendingPathComponent("SSRVPN")]
+    if let bundleId = Bundle.main.bundleIdentifier {
+      candidates.append(support.appendingPathComponent("\(bundleId)/SSRVPN"))
+    }
+    return candidates.first {
+      fm.fileExists(atPath: $0.appendingPathComponent("AtlasCore.pid").path)
+    }
+  }
+
+  func isOwnedCoreCommand(_ command: String, corePath: String) -> Bool {
+    let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalized == corePath || normalized.hasPrefix(corePath + " ")
   }
 
   private func restoreSavedProxyState() -> Bool {

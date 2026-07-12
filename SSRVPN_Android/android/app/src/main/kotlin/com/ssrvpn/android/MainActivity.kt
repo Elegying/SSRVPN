@@ -36,12 +36,16 @@ class MainActivity : FlutterActivity() {
     // 记录本 Activity 注册的回调，便于 onDestroy 时精确清理，避免泄漏 Activity
     @Volatile
     private var myResultCallback: ((Boolean, String) -> Unit)? = null
+    @Volatile
+    private var myStartRequestId: String? = null
     private var methodChannel: MethodChannel? = null
     // 监听 VPN 状态广播（磁贴断开/连接），实时推送给 Flutter 更新 UI
     private var vpnStateReceiver: BroadcastReceiver? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile
     private var startTimeoutRunnable: Runnable? = null
+    @Volatile
+    private var pendingVpnServiceIntent: Intent? = null
     @Volatile
     private var vpnPermissionRequestPending = false
 
@@ -113,6 +117,14 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
                 "startCoreWithVpn" -> {
+                    if (SsrvpnVpnService.isCoreOperationBusy()) {
+                        result.error(
+                            "CORE_BUSY",
+                            "VPN 核心正在启动或停止，请稍后重试",
+                            null
+                        )
+                        return@setMethodCallHandler
+                    }
                     cancelPendingActivityStart("新的连接请求已替代旧请求")
                     val args = call.arguments as? Map<*, *>
                     val configDir = args?.get("configDir") as? String
@@ -128,15 +140,10 @@ class MainActivity : FlutterActivity() {
 
                     Log.d("MainActivity", "startCoreWithVpn: dir=$configDir, config=$configPath, apiPort=$apiPort")
 
-                    SsrvpnVpnService.pendingConfigDir = configDir
-                    SsrvpnVpnService.pendingConfigPath = configPath
-                    SsrvpnVpnService.pendingApiPort = apiPort
-                    SsrvpnVpnService.pendingApiSecret = apiSecret
-                    SsrvpnVpnService.pendingNodeName = nodeName
-
                     val completed = AtomicBoolean(false)
                     lateinit var callback: (Boolean, String) -> Unit
                     lateinit var timeoutRunnable: Runnable
+                    lateinit var requestId: String
                     timeoutRunnable = Runnable {
                         if (!completed.compareAndSet(false, true)) return@Runnable
                         vpnPermissionRequestPending = false
@@ -144,7 +151,8 @@ class MainActivity : FlutterActivity() {
                             startTimeoutRunnable = null
                         }
                         myResultCallback = null
-                        SsrvpnVpnService.clearStartResultCallback(callback)
+                        myStartRequestId = null
+                        SsrvpnVpnService.clearStartResultCallback(requestId)
                         try {
                             SsrvpnVpnService.instance?.stopAll()
                         } catch (_: Exception) {}
@@ -159,8 +167,9 @@ class MainActivity : FlutterActivity() {
                         if (startTimeoutRunnable === timeoutRunnable) {
                             startTimeoutRunnable = null
                         }
-                        SsrvpnVpnService.clearStartResultCallback(callback)
+                        SsrvpnVpnService.clearStartResultCallback(requestId)
                         myResultCallback = null
+                        myStartRequestId = null
                         runOnUiThread {
                             if (success) {
                                 requestNotificationPermissionOnce()
@@ -171,7 +180,17 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     myResultCallback = callback
-                    SsrvpnVpnService.setStartResultCallback(callback)
+                    requestId = SsrvpnVpnService.registerStartResultCallback(callback)
+                    myStartRequestId = requestId
+                    pendingVpnServiceIntent = SsrvpnVpnService.createStartIntent(
+                        this,
+                        configDir,
+                        configPath,
+                        apiPort,
+                        apiSecret,
+                        nodeName,
+                        requestId
+                    )
                     startTimeoutRunnable = timeoutRunnable
 
                     val vpnIntent = VpnService.prepare(this)
@@ -188,10 +207,15 @@ class MainActivity : FlutterActivity() {
                     Log.d("MainActivity", "Stopping core...")
                     try {
                         cancelPendingActivityStart("连接已取消")
-                        SsrvpnVpnService.instance?.stopAll()
-                        val intent = Intent(this, SsrvpnVpnService::class.java)
-                        stopService(intent)
-                        result.success(true)
+                        val service = SsrvpnVpnService.instance
+                        if (service == null) {
+                            stopService(Intent(this, SsrvpnVpnService::class.java))
+                            result.success(true)
+                        } else {
+                            service.stopAll {
+                                runOnUiThread { result.success(true) }
+                            }
+                        }
                     } catch (e: Exception) {
                         result.error("STOP_FAILED", e.message, null)
                     }
@@ -323,8 +347,7 @@ class MainActivity : FlutterActivity() {
         startActivity(installIntent)
     }
 
-    private fun startVpnService() {
-        val intent = Intent(this, SsrvpnVpnService::class.java)
+    private fun startVpnService(intent: Intent) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
@@ -354,15 +377,21 @@ class MainActivity : FlutterActivity() {
 
     private fun startVpnServiceWithTimeout() {
         val timeoutRunnable = startTimeoutRunnable ?: return
+        val serviceIntent = pendingVpnServiceIntent ?: run {
+            cancelPendingActivityStart("连接参数已失效，请重试")
+            return
+        }
+        pendingVpnServiceIntent = null
         mainHandler.removeCallbacks(timeoutRunnable)
         mainHandler.postDelayed(timeoutRunnable, 55000L)
-        startVpnService()
+        startVpnService(serviceIntent)
     }
 
     private fun cancelPendingActivityStart(message: String) {
         vpnPermissionRequestPending = false
         startTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         startTimeoutRunnable = null
+        pendingVpnServiceIntent = null
         myResultCallback?.invoke(false, message)
     }
 
@@ -405,9 +434,11 @@ class MainActivity : FlutterActivity() {
         vpnPermissionRequestPending = false
         startTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         startTimeoutRunnable = null
+        pendingVpnServiceIntent = null
         // 只清理本 Activity 注册的回调，避免静态引用泄漏 Activity；
         // 不影响磁贴等其他来源设置的回调
-        SsrvpnVpnService.clearStartResultCallback(myResultCallback)
+        SsrvpnVpnService.clearStartResultCallback(myStartRequestId)
+        myStartRequestId = null
         myResultCallback = null
         vpnStateReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
         vpnStateReceiver = null

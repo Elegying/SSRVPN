@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Validate metadata before allowing a release retry from an older main tip."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from pathlib import Path
+
+
+REQUIRED_ASSETS = {
+    "SSRVPN.apk",
+    "SSRVPN.apk.sha256",
+    "SSRVPN.dmg",
+    "SSRVPN.dmg.sha256",
+    "SSRVPN_Setup.exe",
+    "SSRVPN_Setup.exe.sha256",
+    "SSRVPN.zip",
+    "SSRVPN.zip.sha256",
+    "SSRVPN-release-provenance.json",
+}
+SHA256_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+CANONICAL_BINARIES = {
+    "SSRVPN.apk",
+    "SSRVPN.dmg",
+    "SSRVPN_Setup.exe",
+    "SSRVPN.zip",
+}
+
+
+def validate_release_metadata(
+    release: object,
+    provenance: object,
+    *,
+    expected_tag: str,
+    expected_commit: str,
+) -> None:
+    if not isinstance(release, dict):
+        raise ValueError("GitHub release response is not an object")
+    if release.get("draft") is not False:
+        raise ValueError("draft release cannot authorize a stale-source retry")
+    if release.get("prerelease") is True:
+        raise ValueError("prerelease cannot be retried into the stable channel")
+    raw_assets = release.get("assets")
+    if not isinstance(raw_assets, list):
+        raise ValueError("GitHub release has no asset list")
+    assets = {
+        item.get("name"): item
+        for item in raw_assets
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    missing = sorted(REQUIRED_ASSETS - set(assets))
+    if missing:
+        raise ValueError("GitHub release is incomplete: " + ", ".join(missing))
+    for name in sorted(REQUIRED_ASSETS):
+        asset = assets[name]
+        size = int(asset.get("size") or 0)
+        limit = (
+            64 * 1024
+            if name.endswith(".sha256") or name.endswith(".json")
+            else 300 * 1024 * 1024
+        )
+        if size <= 0 or size > limit:
+            raise ValueError(f"GitHub release asset has invalid size: {name}")
+        digest = str(asset.get("digest") or "")
+        if SHA256_DIGEST.fullmatch(digest) is None:
+            raise ValueError(f"GitHub release asset has no trusted digest: {name}")
+    if not isinstance(provenance, dict) or provenance.get("schema") != 1:
+        raise ValueError("release provenance is invalid")
+    if provenance.get("tag") != expected_tag:
+        raise ValueError("release provenance tag does not match the retry tag")
+    if provenance.get("commit") != expected_commit:
+        raise ValueError("release provenance commit does not match the tag commit")
+    provenance_assets = provenance.get("assets")
+    if not isinstance(provenance_assets, dict):
+        raise ValueError("release provenance has no asset digest map")
+    for name in CANONICAL_BINARIES:
+        expected_digest = str(assets[name].get("digest") or "").removeprefix(
+            "sha256:"
+        )
+        if provenance_assets.get(name) != expected_digest:
+            raise ValueError(f"release provenance digest mismatch: {name}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("release_json", type=Path)
+    parser.add_argument("provenance_json", type=Path)
+    parser.add_argument("--expected-tag", required=True)
+    parser.add_argument("--expected-commit", required=True)
+    args = parser.parse_args()
+    validate_release_metadata(
+        json.loads(args.release_json.read_text(encoding="utf-8")),
+        json.loads(args.provenance_json.read_text(encoding="utf-8")),
+        expected_tag=args.expected_tag,
+        expected_commit=args.expected_commit,
+    )
+
+
+if __name__ == "__main__":
+    main()

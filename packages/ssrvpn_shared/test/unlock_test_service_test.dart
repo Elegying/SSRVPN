@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:ssrvpn_shared/services/unlock_test_service.dart';
@@ -256,6 +258,51 @@ void main() {
     expect(result.isUnlocked, isFalse);
   });
 
+  test('API reachability on an unrelated redirect host is inconclusive',
+      () async {
+    final service = UnlockTestService(
+      clientFactory: (_) => MockClient((request) async {
+        if (request.url.host == 'api.anthropic.com') {
+          return http.Response(
+            '',
+            302,
+            headers: {'location': 'https://example.com/login'},
+            request: request,
+          );
+        }
+        return http.Response('OK', 200, request: request);
+      }),
+    );
+
+    final result = await service.checkOne(id: 'claude', proxyPort: 7890);
+
+    expect(result.status, 'Inconclusive');
+    expect(result.isReachable, isFalse);
+  });
+
+  test('Gemini API redirect to a googleapis sibling is inconclusive', () async {
+    final service = UnlockTestService(
+      clientFactory: (_) => MockClient((request) async {
+        if (request.url.host == 'generativelanguage.googleapis.com') {
+          return http.Response(
+            '',
+            302,
+            headers: {
+              'location': 'https://storage.googleapis.com/unrelated',
+            },
+            request: request,
+          );
+        }
+        return http.Response('OK', 200, request: request);
+      }),
+    );
+
+    final result = await service.checkOne(id: 'gemini', proxyPort: 7890);
+
+    expect(result.status, 'Inconclusive');
+    expect(result.isReachable, isFalse);
+  });
+
   test('rejects redirects that downgrade HTTPS', () async {
     final service = UnlockTestService(
       clientFactory: (_) => MockClient(
@@ -299,7 +346,9 @@ void main() {
     );
 
     expect(base.copyWith(status: 'Available').displayStatusLabel, '支持');
-    expect(base.copyWith(status: 'Reachable').displayStatusLabel, '可访问');
+    final reachable = base.copyWith(status: 'Reachable');
+    expect(reachable.displayStatusLabel, '可访问');
+    expect(reachable.isSuccessful, isFalse);
     expect(base.copyWith(status: 'No').displayStatusLabel, '不支持');
     expect(base.copyWith(status: 'Inconclusive').displayStatusLabel, '无法判断');
     expect(base.copyWith(status: 'Failed').displayStatusLabel, '检测失败');
@@ -316,6 +365,32 @@ void main() {
 
     expect(result.status, 'Reachable');
     expect(result.detail, contains('响应已截断'));
+  });
+
+  test('truncated Netflix evidence never reports support', () async {
+    final service = _serviceReturning(
+      statusCode: 200,
+      body: '<meta property="og:title" content="81215567">' +
+          List.filled(800 * 1024, 'x').join(),
+    );
+
+    final result = await service.checkOne(id: 'netflix', proxyPort: 7890);
+
+    expect(result.status, 'Inconclusive');
+    expect(result.isUnlocked, isFalse);
+  });
+
+  test('truncated YouTube CTA never reports Premium support', () async {
+    final service = _serviceReturning(
+      statusCode: 200,
+      body: '<main>Get YouTube Premium. Start your trial.</main>' +
+          List.filled(800 * 1024, 'x').join(),
+    );
+
+    final result = await service.checkOne(id: 'youtube', proxyPort: 7890);
+
+    expect(result.status, 'Inconclusive');
+    expect(result.isUnlocked, isFalse);
   });
 
   test('full audit limits concurrent requests', () async {
@@ -336,6 +411,47 @@ void main() {
     expect(results, hasLength(UnlockTestService.defaultItems.length));
     expect(maxActive, lessThanOrEqualTo(4));
   });
+
+  test('full audit cancellation closes active requests immediately', () async {
+    final clients = <_StalledClient>[];
+    final service = UnlockTestService(
+      clientFactory: (_) {
+        final client = _StalledClient();
+        clients.add(client);
+        return client;
+      },
+    );
+    final cancellation = UnlockTestCancellation();
+
+    final audit = service.checkAll(
+      proxyPort: 7890,
+      timeout: const Duration(minutes: 1),
+      cancellation: cancellation,
+    );
+    await Future<void>.delayed(Duration.zero);
+    cancellation.cancel();
+
+    await expectLater(audit, throwsA(isA<UnlockTestCancelled>()));
+    expect(clients, hasLength(4));
+    expect(clients.every((client) => client.closed), isTrue);
+  });
+}
+
+class _StalledClient extends http.BaseClient {
+  final Completer<http.StreamedResponse> _response = Completer();
+  bool closed = false;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      _response.future;
+
+  @override
+  void close() {
+    closed = true;
+    if (!_response.isCompleted) {
+      _response.completeError(const UnlockTestCancelled());
+    }
+  }
 }
 
 UnlockTestService _serviceReturning({

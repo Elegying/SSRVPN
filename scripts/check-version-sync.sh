@@ -28,6 +28,12 @@ do
     echo "version check failed: $pubspec has no version" >&2
     exit 1
   fi
+  if [[ "$full_version" != *+* ]] ||
+     ! [[ "${full_version##*+}" =~ ^[0-9]+$ ]] ||
+     [ "${full_version##*+}" -le 0 ]; then
+    echo "version check failed: $pubspec must include a positive numeric build code" >&2
+    exit 1
+  fi
   if [ -z "$workspace_version" ]; then
     workspace_version="$full_version"
   elif [ "$full_version" != "$workspace_version" ]; then

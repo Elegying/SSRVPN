@@ -14,6 +14,25 @@ enum UnlockStatusRule {
 
 typedef UnlockTestClientFactory = http.Client Function(int proxyPort);
 
+class UnlockTestCancelled implements Exception {
+  const UnlockTestCancelled();
+}
+
+class UnlockTestCancellation {
+  final Completer<void> _cancelled = Completer<void>();
+
+  bool get isCancelled => _cancelled.isCompleted;
+  Future<void> get whenCancelled => _cancelled.future;
+
+  void cancel() {
+    if (!_cancelled.isCompleted) _cancelled.complete();
+  }
+
+  void throwIfCancelled() {
+    if (isCancelled) throw const UnlockTestCancelled();
+  }
+}
+
 class UnlockTestResult {
   const UnlockTestResult({
     required this.id,
@@ -50,7 +69,7 @@ class UnlockTestResult {
       status == 'Unsupported Country/Region' ||
       status == 'Disallowed ISP';
   bool get isReachable => status == 'Reachable';
-  bool get isSuccessful => isUnlocked || isReachable;
+  bool get isSuccessful => isUnlocked;
   bool get isInconclusive => status == 'Inconclusive';
   bool get isFailed => status == 'Failed' || status.startsWith('Failed');
   bool get isPending =>
@@ -192,11 +211,13 @@ class UnlockTestService {
   Future<List<UnlockTestResult>> checkAll({
     required int proxyPort,
     Duration timeout = const Duration(seconds: 12),
+    UnlockTestCancellation? cancellation,
   }) async {
     final results = <UnlockTestResult>[];
     for (var start = 0;
         start < defaultItems.length;
         start += _maxConcurrentChecks) {
+      cancellation?.throwIfCancelled();
       final end = (start + _maxConcurrentChecks).clamp(
         0,
         defaultItems.length,
@@ -208,6 +229,7 @@ class UnlockTestService {
                   id: item.id,
                   proxyPort: proxyPort,
                   timeout: timeout,
+                  cancellation: cancellation,
                 ),
               ),
         ),
@@ -220,7 +242,9 @@ class UnlockTestService {
     required String id,
     required int proxyPort,
     Duration timeout = const Duration(seconds: 12),
+    UnlockTestCancellation? cancellation,
   }) async {
+    cancellation?.throwIfCancelled();
     UnlockTestResult? item;
     for (final candidate in defaultItems) {
       if (candidate.id == id) {
@@ -243,7 +267,16 @@ class UnlockTestService {
     final client = _clientFactory(proxyPort);
     try {
       final uri = Uri.parse(item.url);
-      final result = await _request(client, uri).timeout(timeout);
+      final request = _request(client, uri).timeout(timeout);
+      final result = cancellation == null
+          ? await request
+          : await Future.any([
+              request,
+              cancellation.whenCancelled.then<_UnlockHttpResponse>((_) {
+                client.close();
+                throw const UnlockTestCancelled();
+              }),
+            ]);
       final status = _statusFor(item, result);
 
       return item.copyWith(
@@ -258,6 +291,8 @@ class UnlockTestService {
         detail: '请求超时',
         checkedAt: DateTime.now(),
       );
+    } on UnlockTestCancelled {
+      rethrow;
     } catch (e) {
       return item.copyWith(
         status: 'Failed',
@@ -362,10 +397,18 @@ class UnlockTestService {
     final response = result.response;
     final code = response.statusCode;
     final body = response.body.toLowerCase();
+    final expectedHost = Uri.parse(item.url).host.toLowerCase();
+    final expectedHostMatched = item.statusRule == UnlockStatusRule.apiReachable
+        ? result.finalUri.host.toLowerCase() == expectedHost
+        : _isExpectedServiceHost(result.finalUri, _rootDomain(expectedHost));
+    if (!expectedHostMatched) {
+      return 'Inconclusive';
+    }
 
     switch (item.statusRule) {
       case UnlockStatusRule.netflix:
         if (_containsRegionDenial(body)) return 'No';
+        if (result.bodyTruncated) return 'Inconclusive';
         if (code == 200 &&
             _isExpectedServiceHost(result.finalUri, 'netflix.com') &&
             _containsNetflixTitleEvidence(result.finalUri, body)) {
@@ -382,6 +425,7 @@ class UnlockTestService {
           return 'No';
         }
         if (_containsAmbiguousUnavailability(body)) return 'Inconclusive';
+        if (result.bodyTruncated) return 'Inconclusive';
         if (code == 200 &&
             _isExpectedServiceHost(result.finalUri, 'youtube.com') &&
             body.contains('youtube premium') &&
@@ -414,6 +458,12 @@ class UnlockTestService {
   bool _isExpectedServiceHost(Uri uri, String rootDomain) {
     final host = uri.host.toLowerCase();
     return host == rootDomain || host.endsWith('.$rootDomain');
+  }
+
+  String _rootDomain(String host) {
+    final labels = host.toLowerCase().split('.');
+    if (labels.length < 2) return host.toLowerCase();
+    return labels.sublist(labels.length - 2).join('.');
   }
 
   String _fallbackStatus(int code, {String successStatus = 'Inconclusive'}) {

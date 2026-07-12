@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'package:ssrvpn_shared/ssrvpn_shared.dart' show AsyncLazy;
+import 'package:ssrvpn_shared/ssrvpn_shared.dart'
+    show AsyncLazy, RecoveringSerialQueue;
 import '../models/app_settings.dart';
 
 /// 设置持久化服务 (Windows 便携版)
@@ -17,6 +18,18 @@ class SettingsService extends ChangeNotifier {
   String? _storageNotice;
 
   SettingsService._();
+
+  @visibleForTesting
+  static SettingsService createForTesting({
+    required AppSettings settings,
+    required String dataDir,
+    required String settingsPath,
+  }) {
+    return SettingsService._()
+      .._settings = settings
+      .._dataDir = dataDir
+      .._settingsPath = settingsPath;
+  }
 
   static Future<SettingsService> getInstance() => _instance.get(() async {
         final service = SettingsService._();
@@ -140,27 +153,38 @@ class SettingsService extends ChangeNotifier {
         16, (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
   }
 
-  Future<void> _saveChain = Future<void>.value();
+  final RecoveringSerialQueue _saveQueue = RecoveringSerialQueue();
 
-  Future<void> save() async {
-    final settingsJson = jsonEncode(_settings.toJson());
-    _saveChain = _saveChain.then((_) async {
-      final file = File(_settingsPath);
-      await file.parent.create(recursive: true);
-      final temp = File(
-        '$_settingsPath.tmp.${DateTime.now().microsecondsSinceEpoch}',
-      );
-      await temp.writeAsString(settingsJson, flush: true);
-      await temp.rename(file.path);
-      notifyListeners();
-    }).catchError((_) {
-      // 单次保存失败后重置链，避免后续 save() 被挂接到 rejected future
-      _saveChain = Future<void>.value();
-    });
-    return _saveChain;
+  Future<void> _writeSettingsFile(AppSettings settings) async {
+    final settingsJson = jsonEncode(settings.toJson());
+    final file = File(_settingsPath);
+    await file.parent.create(recursive: true);
+    final temp = File(
+      '$_settingsPath.tmp.${DateTime.now().microsecondsSinceEpoch}',
+    );
+    await temp.writeAsString(settingsJson, flush: true);
+    await temp.rename(file.path);
   }
 
-  Future<void> flush() => _saveChain;
+  Future<void> save() {
+    final snapshot = AppSettings.fromJson(_settings.toJson());
+    return _saveQueue.add(() async {
+      await _writeSettingsFile(snapshot);
+      notifyListeners();
+    });
+  }
+
+  Future<void> _updateSettings(void Function(AppSettings) update) {
+    return _saveQueue.add(() async {
+      final candidate = AppSettings.fromJson(_settings.toJson());
+      update(candidate);
+      await _writeSettingsFile(candidate);
+      _settings = candidate;
+      notifyListeners();
+    });
+  }
+
+  Future<void> flush() => _saveQueue.flush();
 
   Future<void> resetAppData() async {
     await flush();
@@ -194,58 +218,52 @@ class SettingsService extends ChangeNotifier {
   }
 
   Future<void> updateProxyPort(int port) async {
-    _settings.proxyPort = port;
-    await save();
+    await _updateSettings((settings) => settings.proxyPort = port);
   }
 
   Future<void> updateSocksPort(int port) async {
-    _settings.socksPort = port;
-    await save();
+    await _updateSettings((settings) => settings.socksPort = port);
   }
 
   Future<void> updateApiPort(int port) async {
-    _settings.apiPort = port;
-    await save();
+    await _updateSettings((settings) => settings.apiPort = port);
   }
 
   Future<void> updateApiSecret(String secret) async {
-    _settings.apiSecret = secret;
-    await save();
+    await _updateSettings((settings) => settings.apiSecret = secret);
   }
 
   Future<void> updateProxyMode(ProxyMode mode) async {
-    _settings.proxyMode = mode;
-    await save();
+    await _updateSettings((settings) => settings.proxyMode = mode);
   }
 
   Future<void> updateTunStack(String stack) async {
-    _settings.tunStack = stack;
-    await save();
+    await _updateSettings((settings) => settings.tunStack = stack);
   }
 
   Future<void> updateEnableTun(bool enable) async {
-    _settings.enableTun = enable;
-    await save();
+    await _updateSettings((settings) => settings.enableTun = enable);
   }
 
   Future<void> updateLatencyTestUrl(String url) async {
-    _settings.latencyTestUrl = url;
-    await save();
+    await _updateSettings((settings) => settings.latencyTestUrl = url);
   }
 
   Future<void> updateLatencyTestTimeout(int ms) async {
-    _settings.latencyTestTimeout = ms;
-    await save();
+    await _updateSettings((settings) => settings.latencyTestTimeout = ms);
   }
 
   Future<void> updateForceProxySites(List<String> sites) async {
-    _settings.forceProxySites = AppSettings.normalizeForceProxySites(sites);
-    await save();
+    await _updateSettings(
+      (settings) => settings.forceProxySites =
+          AppSettings.normalizeForceProxySites(sites),
+    );
   }
 
   Future<void> updateLastSelectedNodeName(String nodeName) async {
-    _settings.lastSelectedNodeName = nodeName;
-    await save();
+    await _updateSettings(
+      (settings) => settings.lastSelectedNodeName = nodeName,
+    );
   }
 
   Future<void> renameLastSelectedNode(
@@ -253,7 +271,8 @@ class SettingsService extends ChangeNotifier {
     String updatedName,
   ) async {
     if (_settings.lastSelectedNodeName != originalName) return;
-    _settings.lastSelectedNodeName = updatedName;
-    await save();
+    await _updateSettings(
+      (settings) => settings.lastSelectedNodeName = updatedName,
+    );
   }
 }

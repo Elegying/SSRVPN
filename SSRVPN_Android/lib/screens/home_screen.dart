@@ -57,6 +57,8 @@ class HomeScreenState extends State<HomeScreen>
   final HomeLatencyController _latencyController = HomeLatencyController();
   Timer? _latencyBatchTimer;
   Timer? _publicIpTimer;
+  Timer? _updateCheckTimer;
+  bool _updateCheckInProgress = false;
   int _lastRevision = -1;
   int _publicIpGeneration = 0;
   bool _disposed = false;
@@ -127,6 +129,8 @@ class HomeScreenState extends State<HomeScreen>
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
     final settings = settingsService.settings;
+    final connectionGeneration = clashService.captureAutomaticRestartIntent();
+    if (connectionGeneration == null) return;
 
     final orch = ConnectionOrchestrator(
       clashService: clashService,
@@ -153,7 +157,17 @@ class HomeScreenState extends State<HomeScreen>
       );
       clashService.updateSettings(settings);
       await clashService.stop();
-      final result = await orch.connect(preferredNode?.name);
+      if (!clashService.isConnectionIntentCurrent(
+        connectionGeneration,
+        connected: true,
+      )) {
+        if (mounted && !_disposed) setState(() => _isConnecting = false);
+        return;
+      }
+      final result = await orch.connect(
+        preferredNode?.name,
+        connectionGeneration: connectionGeneration,
+      );
       final connected = clashService.isRunning;
       if (mounted && !_disposed) {
         setState(() {
@@ -168,11 +182,15 @@ class HomeScreenState extends State<HomeScreen>
       }
     } catch (e) {
       if (mounted && !_disposed) {
+        final cancelled = !clashService.isConnectionIntentCurrent(
+          connectionGeneration,
+          connected: true,
+        );
         setState(() {
-          _isConnected = false;
+          _isConnected = clashService.isRunning;
           _isConnecting = false;
-          _errorMessage = '连接重载失败: ${_userFriendlyError(e)}';
-          _resetPublicIpState();
+          _errorMessage = cancelled ? null : '连接重载失败: ${_userFriendlyError(e)}';
+          if (!_isConnected) _resetPublicIpState();
         });
       }
     }
@@ -233,6 +251,7 @@ class HomeScreenState extends State<HomeScreen>
     }
     _latencyBatchTimer?.cancel();
     _publicIpTimer?.cancel();
+    _updateCheckTimer?.cancel();
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
     _glowController.dispose();
     super.dispose();
@@ -310,30 +329,68 @@ class HomeScreenState extends State<HomeScreen>
       );
 
   Future<void> _handleConnectToggle() async {
-    if (_isConnecting) return;
     final clashService = context.read<ClashService>();
     final subService = context.read<SubscriptionService>();
     final settingsService = context.read<SettingsService>();
 
+    if (_isConnecting) {
+      clashService.requestConnectionIntent(false);
+      try {
+        await clashService.stop();
+      } catch (e) {
+        if (mounted && !_disposed) {
+          setState(() {
+            _errorMessage = '取消连接失败: ${_userFriendlyError(e)}';
+          });
+        }
+      } finally {
+        if (mounted && !_disposed) {
+          setState(() {
+            _isConnected = clashService.isRunning;
+            _isConnecting = false;
+            if (!_isConnected) {
+              _latencyController.clear();
+              _resetPublicIpState();
+            }
+          });
+        }
+      }
+      return;
+    }
+
     if (_isConnected) {
+      clashService.requestConnectionIntent(false);
       setState(() {
         _isConnecting = true;
         _errorMessage = null;
       });
-      await clashService.stop();
-      if (!mounted || _disposed) return;
-      setState(() {
-        _isConnected = false;
-        _isConnecting = false;
-        _latencyController.clear();
-        _resetPublicIpState();
-      });
-      _glowController.stop();
+      try {
+        await clashService.stop();
+        if (!mounted || _disposed) return;
+        setState(() {
+          _isConnected = false;
+          _latencyController.clear();
+          _resetPublicIpState();
+        });
+        _glowController.stop();
+      } catch (e) {
+        if (mounted && !_disposed) {
+          setState(() {
+            _isConnected = clashService.isRunning;
+            _errorMessage = '断开连接失败: ${_userFriendlyError(e)}';
+          });
+        }
+      } finally {
+        if (mounted && !_disposed) {
+          setState(() => _isConnecting = false);
+        }
+      }
     } else {
       setState(() {
         _isConnecting = true;
         _errorMessage = null;
       });
+      int? connectionGeneration;
       try {
         final nodes = HomeNodeController.runnableNodesFrom(
           subService.allNodes,
@@ -350,8 +407,24 @@ class HomeScreenState extends State<HomeScreen>
           nodes,
           settingsService.settings.lastSelectedNodeName,
         );
-        final result = await _orchestrator.connect(autoSelect?.name);
-        if (!mounted) return;
+        connectionGeneration = clashService.requestConnectionIntent(true);
+        final result = await _orchestrator.connect(
+          autoSelect?.name,
+          connectionGeneration: connectionGeneration,
+        );
+        if (!mounted || _disposed) return;
+        if (!clashService.isConnectionIntentCurrent(
+          connectionGeneration,
+          connected: true,
+        )) {
+          setState(() {
+            _isConnected = clashService.isRunning;
+            _isConnecting = false;
+            _errorMessage = null;
+            if (!_isConnected) _resetPublicIpState();
+          });
+          return;
+        }
         final connected = clashService.isRunning;
         if (connected) {
           if (autoSelect != null) {
@@ -376,11 +449,17 @@ class HomeScreenState extends State<HomeScreen>
           });
         }
       } catch (e) {
-        if (!mounted) return;
+        final cancelled = connectionGeneration != null &&
+            !clashService.isConnectionIntentCurrent(
+              connectionGeneration,
+              connected: true,
+            );
+        if (!mounted || _disposed) return;
         setState(() {
-          _errorMessage = '连接失败: ${_userFriendlyError(e)}';
+          _errorMessage = cancelled ? null : '连接失败: ${_userFriendlyError(e)}';
+          _isConnected = clashService.isRunning;
           _isConnecting = false;
-          _resetPublicIpState();
+          if (!_isConnected) _resetPublicIpState();
         });
       }
     }
@@ -410,13 +489,23 @@ class HomeScreenState extends State<HomeScreen>
   }
 
   void _checkUpdateDelayed() {
-    Future.delayed(const Duration(seconds: 10), () async {
-      if (!mounted || !_isConnected) return;
+    _updateCheckTimer?.cancel();
+    _updateCheckTimer = Timer(const Duration(seconds: 10), () async {
+      if (!mounted ||
+          !_isConnected ||
+          _updateCheckInProgress ||
+          UpdateService.isUpdateUiBusy) {
+        return;
+      }
+      _updateCheckInProgress = true;
       try {
         const currentVersion = UpdateService.appVersion;
         final update = await UpdateService.checkForUpdate(currentVersion);
-        if (update != null && mounted && _isConnected) {
-          UpdateService.showUpdateDialog(
+        if (update != null &&
+            mounted &&
+            _isConnected &&
+            !UpdateService.isUpdateUiBusy) {
+          await UpdateService.showUpdateDialog(
             context,
             latestVersion: update.version,
             currentVersion: currentVersion,
@@ -428,6 +517,8 @@ class HomeScreenState extends State<HomeScreen>
         }
       } catch (e) {
         AppLogger.warning('Update', '检查更新异常: $e');
+      } finally {
+        _updateCheckInProgress = false;
       }
     });
   }

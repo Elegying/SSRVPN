@@ -25,6 +25,7 @@ run_step "Core asset bootstrap model" scripts/check-core-asset-bootstrap.sh
 run_step "Core asset bootstrap" scripts/bootstrap-core-assets.sh
 run_step "Core binary assets" scripts/verify-core-assets.sh
 run_step "Android native bridge guards" scripts/check-android-native-bridge-guards.sh
+run_step "Unlock audit cancellation guards" scripts/check-unlock-test-guards.sh
 run_step "Desktop startup guards" scripts/check-desktop-startup-guards.sh
 run_step "Clash service boundaries" bash scripts/check-clash-service-boundaries.sh
 run_step "macOS core privilege guards" scripts/check-macos-core-privileges.sh
@@ -33,7 +34,14 @@ run_step "Secret scan" scripts/check-secrets.sh
 run_step "Release tooling tests" python3 -m unittest \
   scripts/test_generate_release_notes.py \
   scripts/test_generate_oss_release_manifest.py \
-  scripts/test_windows_installer_config.py
+  scripts/test_generate_release_provenance.py \
+  scripts/test_verify_release_transition.py \
+  scripts/test_promote_oss_public_channel.py \
+  scripts/test_reuse_github_release_assets.py \
+  scripts/test_validate_existing_release_retry.py \
+  scripts/test_run_command_with_timeout.py \
+  scripts/test_windows_installer_config.py \
+  scripts/test_windows_proxy_shutdown_recovery.py
 
 run_step "Workspace pub get" flutter pub get
 run_step "Workspace analyze" flutter analyze

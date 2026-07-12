@@ -9,6 +9,7 @@
 #include <string>
 
 #include "startup_diagnostics.h"
+#include "system_proxy_recovery.h"
 
 namespace {
 
@@ -138,6 +139,12 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  // Proxy recovery must run before plugins get a chance to consume the
+  // shutdown message and return early.
+  if (message == WM_ENDSESSION && wparam != FALSE) {
+    RestoreOwnedWindowsProxy();
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

@@ -15,9 +15,11 @@ import '../models/public_ip_info.dart';
 import 'clash_config_generator.dart';
 import '../utils/log_redactor.dart';
 import '../utils/private_node_latency_policy.dart';
+import '../utils/connection_intent_tracker.dart';
 import 'public_ip_info_service.dart';
 
 part 'clash_service_config_support.dart';
+part 'clash_service_runtime_support.dart';
 
 /// Clash API 交互的公共逻辑基类
 ///
@@ -27,14 +29,15 @@ part 'clash_service_config_support.dart';
 /// - 平台特定的文件路径和资源释放
 ///
 /// 公共能力（API 调用、延迟测试、日志、状态管理）全部在此实现。
-abstract class ClashServiceBase with _ClashConfigSupport {
+abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
   // ── 状态 ──
   bool _isRunning = false;
   bool _healthCheckInProgress = false;
   int _consecutiveHealthCheckFailures = 0;
-  static const int _maxConsecutiveHealthCheckFailures = 3;
   String? _lastHealthCheckError;
   String? _lastStartError;
+  final ConnectionIntentTracker _connectionIntent = ConnectionIntentTracker();
+  Future<void> _proxySelectionTail = Future<void>.value();
 
   AppSettings _settings = AppSettings();
   String _configDir = '';
@@ -64,6 +67,15 @@ abstract class ClashServiceBase with _ClashConfigSupport {
   Duration get ruleProviderStartupRefreshDelay =>
       AppConstants.ruleProviderStartupRefreshDelay;
 
+  @protected
+  Duration get statusMonitorInterval => const Duration(seconds: 5);
+
+  @protected
+  int get maxConsecutiveHealthCheckFailures => 3;
+
+  @protected
+  bool get enablePeriodicHealthMonitor => true;
+
   // ── Getters ──
   bool get isRunning => _isRunning;
   String? get lastStartError => _lastStartError;
@@ -72,8 +84,18 @@ abstract class ClashServiceBase with _ClashConfigSupport {
   int get runtimeSocksPort => _settings.socksPort;
   int get runtimeApiPort => _settings.apiPort;
   AppSettings get settings => _settings;
+  bool get connectionDesired => _connectionIntent.desired;
   String get configDir => _configDir;
   String get configPath => _configPath;
+
+  int requestConnectionIntent(bool connected) =>
+      _connectionIntent.request(connected);
+
+  int? captureAutomaticRestartIntent() =>
+      _connectionIntent.captureAutomaticRestart();
+
+  bool isConnectionIntentCurrent(int generation, {required bool connected}) =>
+      _connectionIntent.isCurrent(generation, desired: connected);
 
   // ── 初始化 ──
 
@@ -250,7 +272,15 @@ abstract class ClashServiceBase with _ClashConfigSupport {
   }
 
   /// 切换选中的代理节点（同时处理 PROXY 和 GLOBAL 组）
-  Future<bool> switchSelectedProxy(String nodeName) async {
+  Future<bool> switchSelectedProxy(String nodeName) {
+    final operation = _proxySelectionTail.then(
+      (_) => _switchSelectedProxy(nodeName),
+    );
+    _proxySelectionTail = operation.then<void>((_) {}, onError: (_, __) {});
+    return operation;
+  }
+
+  Future<bool> _switchSelectedProxy(String nodeName) async {
     final proxyOk = await _switchAndConfirmProxyGroup('PROXY', nodeName);
     var globalOk = true;
     if (_settings.proxyMode == ProxyMode.global) {
@@ -548,7 +578,11 @@ abstract class ClashServiceBase with _ClashConfigSupport {
   void startStatusMonitor() {
     _statusTimer?.cancel();
     _scheduleRuleProviderRefreshOnce();
-    _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+    if (!enablePeriodicHealthMonitor) {
+      _statusTimer = null;
+      return;
+    }
+    _statusTimer = Timer.periodic(statusMonitorInterval, (_) async {
       if (!_isRunning || _healthCheckInProgress) return;
       _healthCheckInProgress = true;
       try {
@@ -559,14 +593,17 @@ abstract class ClashServiceBase with _ClashConfigSupport {
           _consecutiveHealthCheckFailures++;
           log(
             'Mihomo 健康检查失败 ($_consecutiveHealthCheckFailures/'
-            '$_maxConsecutiveHealthCheckFailures): $_lastHealthCheckError',
+            '$maxConsecutiveHealthCheckFailures): $_lastHealthCheckError',
           );
           if (_consecutiveHealthCheckFailures >=
-              _maxConsecutiveHealthCheckFailures) {
-            _isRunning = false;
+              maxConsecutiveHealthCheckFailures) {
+            markConnectionLost();
             log('Mihomo 核心连接丢失');
-            _notifyStatusChanged();
-            await onStopRequired();
+            try {
+              await onStopRequired();
+            } catch (error) {
+              log('Mihomo 丢失后的清理失败: $error');
+            }
           }
         }
       } finally {
@@ -619,6 +656,16 @@ abstract class ClashServiceBase with _ClashConfigSupport {
     _isRunning = running;
   }
 
+  /// Records an unexpected core loss. Unlike an intentional stop during an
+  /// automatic reload, this must also cancel the user's previous connect
+  /// intent so tray/UI actions do not require a second disconnect click.
+  @protected
+  void markConnectionLost() {
+    _connectionIntent.request(false);
+    _isRunning = false;
+    _notifyStatusChanged();
+  }
+
   void setLastStartError(String? error) {
     _lastStartError = error;
   }
@@ -644,96 +691,6 @@ abstract class ClashServiceBase with _ClashConfigSupport {
 
   void notifyStatusChanged() {
     _notifyStatusChanged();
-  }
-
-  // ── 文件工具 ──
-
-  Future<void> writeStringAtomically(File file, String content) async {
-    await file.parent.create(recursive: true);
-    final temp = File(
-      '${file.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
-    );
-    await temp.writeAsString(content, flush: true);
-    await temp.rename(file.path);
-  }
-
-  Future<void> writeBytesAtomically(File file, List<int> bytes) async {
-    await file.parent.create(recursive: true);
-    final temp = File(
-      '${file.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
-    );
-    await temp.writeAsBytes(bytes, flush: true);
-    await temp.rename(file.path);
-  }
-
-  // ── 端口工具 ──
-
-  /// Resolves transient port conflicts without changing saved preferences.
-  Future<AppSettings> prepareForStart(AppSettings preferred) async {
-    final reserved = <int>{};
-    final proxyPort = await findAvailablePort(preferred.proxyPort, reserved);
-    reserved.add(proxyPort);
-    final socksPort = await findAvailablePort(preferred.socksPort, reserved);
-    reserved.add(socksPort);
-    final apiPort = await findAvailablePort(preferred.apiPort, reserved);
-
-    final runtime = preferred.copyWith(
-      proxyPort: proxyPort,
-      socksPort: socksPort,
-      apiPort: apiPort,
-    );
-    _settings = runtime;
-
-    if (proxyPort != preferred.proxyPort ||
-        socksPort != preferred.socksPort ||
-        apiPort != preferred.apiPort) {
-      log(
-        '检测到端口占用，已为本次连接自动调整: '
-        '代理 ${preferred.proxyPort}->$proxyPort, '
-        'SOCKS ${preferred.socksPort}->$socksPort, '
-        'API ${preferred.apiPort}->$apiPort',
-      );
-    } else {
-      log('端口检查通过: $proxyPort / $socksPort / $apiPort');
-    }
-    return runtime;
-  }
-
-  Future<int> findAvailablePort(int preferred, Set<int> reserved) async {
-    final candidates = <int>[
-      preferred,
-      for (var offset = 1; offset <= 50; offset++)
-        if (preferred + offset <= 65535) preferred + offset,
-    ];
-    for (final port in candidates) {
-      if (reserved.contains(port)) continue;
-      if (await _canBindPort(port)) return port;
-    }
-
-    while (true) {
-      final socket = await ServerSocket.bind(
-        InternetAddress.loopbackIPv4,
-        0,
-        shared: false,
-      );
-      final port = socket.port;
-      await socket.close();
-      if (!reserved.contains(port)) return port;
-    }
-  }
-
-  Future<bool> _canBindPort(int port) async {
-    try {
-      final socket = await ServerSocket.bind(
-        InternetAddress.loopbackIPv4,
-        port,
-        shared: false,
-      );
-      await socket.close();
-      return true;
-    } catch (_) {
-      return false;
-    }
   }
 
   // ── 资源释放 ──

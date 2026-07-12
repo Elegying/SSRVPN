@@ -9,7 +9,7 @@ import '../theme/app_theme.dart';
 class UpdateService {
   static const String appVersion = AppConstants.appVersion;
 
-  static Future<(String, String, String, String?)?> checkForUpdate(
+  static Future<AppUpdateInfo?> checkForUpdate(
     String currentVersion,
   ) {
     return SharedUpdateService.checkForUpdate(
@@ -29,15 +29,23 @@ class UpdateService {
 
   static Future<void> openDownload(String url) => openExternalUrl(url);
 
-  static void showUpdateDialog(
+  static Future<void> showUpdateDialog(
     BuildContext context, {
     required String latestVersion,
     required String currentVersion,
     required String downloadUrl,
     required String changelog,
+    required String? sha256,
     String? fallbackDownloadUrl,
-  }) {
-    SharedUpdateService.showUpdateDialog(
+  }) async {
+    final update = AppUpdateInfo(
+      version: latestVersion,
+      downloadUrl: downloadUrl,
+      fallbackDownloadUrl: fallbackDownloadUrl,
+      changelog: changelog,
+      sha256: sha256,
+    );
+    await SharedUpdateService.showUpdateDialog(
       context,
       latestVersion: latestVersion,
       currentVersion: currentVersion,
@@ -50,7 +58,14 @@ class UpdateService {
       textSecondary: AppTheme.textSecondary,
       lightTextPrimary: AppTheme.lightTextPrimary,
       lightTextSecondary: AppTheme.lightTextSecondary,
-      openDownload: openDownload,
+      openDownload: (_) => SharedUpdateService.downloadAndOpenVerifiedUpdate(
+        context,
+        update,
+        fileName: 'SSRVPN_Setup.exe',
+        openFile: (file) async {
+          await Process.start(file.path, const []);
+        },
+      ),
     );
   }
 }

@@ -36,7 +36,7 @@ source = f"{main_source}\n{lifecycle_source}"
 if re.search(r'''['"][2467][0-7]{3}['"]|[ug]\+s''', source):
     raise SystemExit(f"{path}: found a privileged chmod mode")
 
-start = lifecycle_source.index("Future<bool> _startInternal()")
+start = lifecycle_source.index("Future<bool> _startInternal(int startToken)")
 stop = lifecycle_source.index("Future<void> stop()", start)
 start_body = lifecycle_source[start:stop]
 tun_guard = start_body.index("if (settings.enableTun)")
@@ -74,6 +74,24 @@ if missing:
 
 if source.count("await _verifyCoreForExecution();") < 3:
     raise SystemExit(f"{path}: not every core execution path is guarded")
+
+if "/usr/bin/pkill" in lifecycle_source or "['-f', _corePath]" in lifecycle_source:
+    raise SystemExit(f"{lifecycle_path}: broad pkill core cleanup is forbidden")
+
+app_delegate = Path("SSRVPN_MacOS/macos/Runner/AppDelegate.swift").read_text(
+    encoding="utf-8"
+)
+required_native = (
+    "runtimeDirectoryForTermination(proxyStateURL:",
+    "terminateOwnedCore(in: runtimeDirectory)",
+    "isOwnedCoreCommand(command, corePath: corePath)",
+)
+missing_native = [token for token in required_native if token not in app_delegate]
+if missing_native:
+    raise SystemExit(
+        "AppDelegate.swift: missing exact owned-core termination guard(s): "
+        + ", ".join(missing_native)
+    )
 
 print("macOS core privilege guards passed.")
 PY

@@ -40,4 +40,10 @@ if ! grep -Fq '$lines[0] = "$($lines[0]) $(Get-AppDisplayVersion)"' \
   exit 1
 fi
 
+if ! grep -Fq 'run-command-with-timeout.py' \
+  "$ROOT/SSRVPN_MacOS/tool/package_macos.sh"; then
+  echo "package guide check failed: Finder layout must have a hard timeout" >&2
+  exit 1
+fi
+
 echo "Package guide checks passed."

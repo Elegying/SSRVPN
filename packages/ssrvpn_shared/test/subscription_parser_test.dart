@@ -139,6 +139,25 @@ proxy-groups:
       });
     });
 
+    test('accepts Clash YAML with comments and settings before proxies', () {
+      const yaml = '''
+# provider generated config
+mixed-port: 7890
+mode: rule
+proxies:
+  - name: Node A
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: secret
+''';
+
+      final parsed = SubscriptionParser.parseSubscriptionContent(yaml);
+
+      expect(parsed, yaml);
+    });
+
     group('importSsrLink', () {
       test('parses valid SSR link', () {
         final server = 'example.com';

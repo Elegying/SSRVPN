@@ -40,28 +40,43 @@ void main() {
 
     test('latencyLevel: <200ms = green (0)', () {
       final node = ProxyNode(
-        name: 'fast', type: 'ss', server: 's', port: 1, latency: 150,
+        name: 'fast',
+        type: 'ss',
+        server: 's',
+        port: 1,
+        latency: 150,
       );
       expect(node.latencyLevel, 0);
     });
 
     test('latencyLevel: 200-499ms = yellow (1)', () {
       final node = ProxyNode(
-        name: 'mid', type: 'ss', server: 's', port: 1, latency: 350,
+        name: 'mid',
+        type: 'ss',
+        server: 's',
+        port: 1,
+        latency: 350,
       );
       expect(node.latencyLevel, 1);
     });
 
     test('latencyLevel: >=500ms = red (2)', () {
       final node = ProxyNode(
-        name: 'slow', type: 'ss', server: 's', port: 1, latency: 800,
+        name: 'slow',
+        type: 'ss',
+        server: 's',
+        port: 1,
+        latency: 800,
       );
       expect(node.latencyLevel, 2);
     });
 
     test('latencyLevel: null = red (2)', () {
       final node = ProxyNode(
-        name: 'unknown', type: 'ss', server: 's', port: 1,
+        name: 'unknown',
+        type: 'ss',
+        server: 's',
+        port: 1,
       );
       expect(node.latencyLevel, 2);
     });
@@ -80,7 +95,10 @@ void main() {
 
     test('copyWith does not mutate original', () {
       final original = ProxyNode(
-        name: 'original', type: 'ss', server: 'srv', port: 1,
+        name: 'original',
+        type: 'ss',
+        server: 'srv',
+        port: 1,
         extra: {'key': 'value'},
       );
       final copy = original.copyWith(name: 'copy', latency: 100);

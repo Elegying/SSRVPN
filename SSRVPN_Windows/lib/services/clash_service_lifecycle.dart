@@ -1,11 +1,15 @@
 part of 'clash_service.dart';
 
+class _DesktopStartCancelled implements Exception {}
+
 mixin _WindowsCoreLifecycle on ClashServiceBase {
   // ── Process management ──
   Process? _coreProcess;
   Future<bool>? _startOperation;
+  Completer<void>? _startCancellation;
   Future<void>? _stopOperation;
   Future<void>? _exitCleanupOperation;
+  int _startGeneration = 0;
   bool _stoppingCore = false;
 
   // ── Startup disabled ──
@@ -23,6 +27,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
 
   bool get coreExists => File(_corePath).existsSync();
   String get corePath => _corePath;
+  bool get hasPendingSystemProxyRecovery => _proxyService.recoveryPending;
 
   // ── Lifecycle overrides ──
 
@@ -74,26 +79,36 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   /// Cleans up cores left behind if the previous app process was terminated.
   Future<void> _terminateOrphanedCores() async {
     if (!Platform.isWindows || _corePath.isEmpty) return;
+    final pidFile = File('$configDir${Platform.pathSeparator}mihomo.pid');
+    if (!await pidFile.exists()) return;
+    final pid = int.tryParse((await pidFile.readAsString()).trim());
+    if (pid == null || pid <= 1) {
+      await _deleteCorePid();
+      return;
+    }
     final encodedPath = base64Encode(utf8.encode(_corePath));
     final script = '''
 \$target = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encodedPath'))
-Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
-  Where-Object { \$_.ExecutablePath -eq \$target } |
-  ForEach-Object {
-    Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue
-    \$_.ProcessId
-  }
+\$process = Get-CimInstance Win32_Process -Filter "ProcessId=$pid"
+if (-not \$process) { exit 0 }
+if (-not \$process.ExecutablePath -or
+    -not \$process.ExecutablePath.Equals(
+      \$target, [System.StringComparison]::OrdinalIgnoreCase)) { exit 3 }
+Stop-Process -Id $pid -Force -ErrorAction Stop
 ''';
     try {
       final result = await _runPowerShell(
         script,
         timeout: const Duration(seconds: 8),
       );
-      if (result.exitCode == 0 && result.stdout.toString().trim().isNotEmpty) {
-        log('已清理遗留的 Mihomo 进程');
+      if (result.exitCode == 0 || result.exitCode == 3) {
+        await _deleteCorePid();
+        if (result.exitCode == 0) log('已清理遗留的 Mihomo 进程');
+        return;
       }
+      throw StateError('PowerShell 返回 ${result.exitCode}');
     } catch (e) {
-      log('清理遗留核心失败: $e');
+      throw StateError('无法安全确认并清理遗留核心: $e');
     }
   }
 
@@ -137,7 +152,9 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
     final current = _startOperation;
     if (current != null) return current;
 
-    final operation = _startInternal();
+    final startToken = ++_startGeneration;
+    _startCancellation = Completer<void>();
+    final operation = _startInternal(startToken);
     _startOperation = operation;
     operation.then<void>(
       (_) => _clearStartOperation(operation),
@@ -146,11 +163,13 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
     return operation;
   }
 
-  Future<bool> _startInternal() async {
+  Future<bool> _startInternal(int startToken) async {
     final exitCleanup = _exitCleanupOperation;
     if (exitCleanup != null) await exitCleanup;
+    _ensureStartCurrent(startToken);
     final stopping = _stopOperation;
     if (stopping != null) await stopping;
+    _ensureStartCurrent(startToken);
     setLastStartError(null);
 
     if (_startupDisabledReason != null) {
@@ -168,6 +187,7 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
       try {
         if (await healthCheck()) return true;
       } catch (_) {}
+      _ensureStartCurrent(startToken);
       setRunning(false);
       stopStatusMonitor();
     }
@@ -194,6 +214,7 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
 
       if (settings.enableTun) {
         final isAdministrator = await _isAdministrator();
+        _ensureStartCurrent(startToken);
         if (isAdministrator == false) {
           setLastStartError('TUN 模式需要以管理员身份运行 SSRVPN');
           log('❌ $lastStartError');
@@ -207,6 +228,7 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
       // 创建 tmp 目录
       final tmpDir = '$configDir${Platform.pathSeparator}tmp';
       await Directory(tmpDir).create(recursive: true);
+      _ensureStartCurrent(startToken);
       final environment = {'TMPDIR': tmpDir, 'TMP': tmpDir, 'TEMP': tmpDir};
 
       if (!await _validateConfig(environment)) {
@@ -215,6 +237,7 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
         );
         return false;
       }
+      _ensureStartCurrent(startToken);
 
       // 启动 mihomo 子进程（所有数据都在便携目录内）
       final processStartWatch = Stopwatch()..start();
@@ -227,6 +250,8 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
       );
       log('Mihomo 进程已创建，耗时 ${processStartWatch.elapsedMilliseconds}ms');
       _coreProcess = startedProcess;
+      await _writeCorePid(startedProcess.pid);
+      _ensureStartCurrent(startToken);
       int? startupExitCode;
       final startupOutput = <String>[];
 
@@ -258,11 +283,11 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
         if (!identical(_coreProcess, startedProcess) || _stoppingCore) return;
 
         log('❌ Mihomo 进程已退出，退出码: $code');
+        unawaited(_deleteCorePid());
         if (isRunning) {
-          setRunning(false);
+          markConnectionLost();
           stopStatusMonitor();
           _coreProcess = null;
-          notifyStatusChanged();
           _scheduleUnexpectedExitCleanup();
         }
       });
@@ -271,12 +296,15 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
       var healthy = false;
       final deadline = DateTime.now().add(const Duration(seconds: 15));
       while (DateTime.now().isBefore(deadline) && startupExitCode == null) {
+        _ensureStartCurrent(startToken);
         healthy = await healthCheck();
+        _ensureStartCurrent(startToken);
         if (healthy) break;
         await Future.delayed(const Duration(milliseconds: 250));
       }
 
       if (healthy) {
+        _ensureStartCurrent(startToken);
         // 设置系统代理（非 TUN 模式时）
         if (!settings.enableTun) {
           final proxyWatch = Stopwatch()..start();
@@ -284,6 +312,7 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
             '127.0.0.1',
             settings.proxyPort,
           );
+          _ensureStartCurrent(startToken);
           if (proxySet) {
             log('✅ 系统代理已设置，耗时 ${proxyWatch.elapsedMilliseconds}ms');
           } else {
@@ -297,6 +326,7 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
         }
 
         final processStillHealthy = await healthCheck();
+        _ensureStartCurrent(startToken);
         final canCommitRunning = identical(_coreProcess, startedProcess) &&
             startupExitCode == null &&
             processStillHealthy;
@@ -332,6 +362,11 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
         await _stopInternal();
         return false;
       }
+    } on _DesktopStartCancelled {
+      setLastStartError('连接已取消');
+      log('Mihomo 启动已取消');
+      await _stopInternal();
+      return false;
     } catch (e, stack) {
       setLastStartError(_friendlyStartException(e));
       log('❌ 启动异常: $e');
@@ -345,6 +380,11 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
 
   /// 停止核心
   Future<void> stop() {
+    _startGeneration++;
+    final cancellation = _startCancellation;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
+    }
     final current = _stopOperation;
     if (current != null) return current;
 
@@ -360,10 +400,15 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
   Future<void> _stopAfterStart() async {
     final starting = _startOperation;
     if (starting != null) await starting;
-    await _stopInternal();
+    final proxyCleared = await _stopInternal();
+    if (!proxyCleared) {
+      throw StateError(
+        _proxyService.lastError ?? 'Windows 系统代理恢复失败，请再次尝试断开',
+      );
+    }
   }
 
-  Future<void> _stopInternal() async {
+  Future<bool> _stopInternal() async {
     final exitCleanup = _exitCleanupOperation;
     if (exitCleanup != null) await exitCleanup;
     stopStatusMonitor();
@@ -387,6 +432,7 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
       }
       _coreProcess = null;
     }
+    await _deleteCorePid();
 
     // 清除系统代理（在进程停止后执行）
     final proxyCleared = await _proxyService.clearSystemProxy();
@@ -397,6 +443,27 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
     setRunning(false);
     notifyStatusChanged();
     log('核心已停止');
+    return proxyCleared;
+  }
+
+  void _ensureStartCurrent(int startToken) {
+    if (startToken != _startGeneration) throw _DesktopStartCancelled();
+  }
+
+  Future<void> _writeCorePid(int corePid) async {
+    final file = File('$configDir${Platform.pathSeparator}mihomo.pid');
+    final temp = File('${file.path}.tmp');
+    await temp.writeAsString('$corePid\n', flush: true);
+    await temp.rename(file.path);
+  }
+
+  Future<void> _deleteCorePid() async {
+    final file = File('$configDir${Platform.pathSeparator}mihomo.pid');
+    try {
+      if (await file.exists()) await file.delete();
+    } catch (error) {
+      log('删除核心 PID 文件失败: $error');
+    }
   }
 
   void _scheduleUnexpectedExitCleanup() {
@@ -423,6 +490,7 @@ Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" |
   void _clearStartOperation(Future<bool> operation) {
     if (identical(_startOperation, operation)) {
       _startOperation = null;
+      _startCancellation = null;
     }
   }
 
@@ -490,37 +558,31 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
   Future<bool> _validateConfig(Map<String, String> environment) async {
     log('正在校验 Mihomo 配置...');
     final watch = Stopwatch()..start();
-    Process? process;
     try {
-      process = await Process.start(
+      final result = await TimedProcessRunner.run(
         _corePath,
         ['-t', '-d', configDir, '-f', configPath],
         includeParentEnvironment: true,
         environment: environment,
+        timeout: const Duration(seconds: 40),
+        cancellation: _startCancellation?.future,
+        timeoutStderr: '电脑性能不足，请重新连接',
       );
-      final stdoutFuture = process.stdout.transform(utf8.decoder).join();
-      final stderrFuture = process.stderr.transform(utf8.decoder).join();
-      final exitCode = await process.exitCode.timeout(
-        const Duration(seconds: 40),
-        onTimeout: () {
-          process?.kill(ProcessSignal.sigkill);
-          return -1;
-        },
-      );
-      final stdout = (await stdoutFuture).trim();
-      final stderr = (await stderrFuture).trim();
+      final stdout = result.stdout.toString().trim();
+      final stderr = result.stderr.toString().trim();
       if (stdout.isNotEmpty) log('[配置校验] $stdout');
       if (stderr.isNotEmpty) log('[配置校验 stderr] $stderr');
-      if (exitCode == 0) {
+      if (result.exitCode == 0) {
         log('✅ Mihomo 配置校验通过，耗时 ${watch.elapsedMilliseconds}ms');
         return true;
       }
-      if (exitCode == -1) {
+      if (result.exitCode == 125) throw _DesktopStartCancelled();
+      if (result.exitCode == 124) {
         setLastStartError('电脑性能不足，请重新连接');
         log('❌ $lastStartError');
         return false;
       }
-      final reason = _describeWindowsExitCode(exitCode);
+      final reason = _describeWindowsExitCode(result.exitCode);
       final detail = stderr.isNotEmpty ? stderr : stdout;
       if (reason != null) {
         setLastStartError('Mihomo 无法在此电脑运行: $reason');
@@ -528,15 +590,16 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
         setLastStartError('Mihomo 配置校验失败: $detail');
       }
       log(
-        '❌ Mihomo 配置校验失败，退出码: $exitCode'
+        '❌ Mihomo 配置校验失败，退出码: ${result.exitCode}'
         '${reason == null ? "" : "（$reason）"}',
       );
       if (lastStartError == null) {
         setLastStartError('Mihomo 配置校验失败，请打开运行日志查看具体配置错误');
       }
       return false;
+    } on _DesktopStartCancelled {
+      rethrow;
     } catch (e) {
-      process?.kill(ProcessSignal.sigkill);
       log('❌ 无法执行 Mihomo 配置校验: $e');
       return false;
     }

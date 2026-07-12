@@ -11,7 +11,7 @@ SSRVPN 是一个跨平台 Flutter VPN 客户端 Monorepo，用同一套共享业
 | 平台目录 | 说明 | 发布产物 |
 | --- | --- | --- |
 | `SSRVPN_Android` | Android VPN 客户端，包含 VPN Service、快捷磁贴、订阅导入和在线更新 | `SSRVPN.apk` |
-| `SSRVPN_MacOS` | macOS 桌面客户端，包含系统代理、TUN 集成、资源安装和 DMG 打包 | `SSRVPN.dmg` |
+| `SSRVPN_MacOS` | macOS 桌面客户端，包含系统代理、资源安装和 DMG 打包；TUN 暂不可用 | `SSRVPN.dmg` |
 | `SSRVPN_Windows` | Windows 客户端，包含系统代理、TUN、托盘、安装版和便携版 | `SSRVPN_Setup.exe` / `SSRVPN.zip` |
 
 当前节点与路由策略明确按 IPv4-only 设计，不支持 IPv6 节点、IPv6 强制代理 IP 或 IPv6 出口。
@@ -22,7 +22,7 @@ SSRVPN 是一个跨平台 Flutter VPN 客户端 Monorepo，用同一套共享业
 SSRVPN/
 ├── packages/ssrvpn_shared/    # 三端共享模型、服务、策略和测试
 ├── SSRVPN_Android/            # Android Flutter 应用和原生集成
-├── SSRVPN_MacOS/              # macOS Flutter 应用、TUN/代理集成和 DMG 打包
+├── SSRVPN_MacOS/              # macOS Flutter 应用、系统代理和 DMG 打包（TUN 暂不可用）
 ├── SSRVPN_Windows/            # Windows Flutter 应用、系统代理、TUN 和便携打包
 ├── docs/                      # 项目管理、维护、发布、路线图和仓库审计文档
 ├── scripts/                   # 本地维护脚本

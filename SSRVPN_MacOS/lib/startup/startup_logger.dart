@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -5,6 +6,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 class StartupLogger {
   static const int _maxLogSizeBytes = 1024 * 1024;
+  static const int _maxEntryBytes = 64 * 1024;
   static File? _file;
   static bool _verbose = false;
 
@@ -47,11 +49,15 @@ class StartupLogger {
   }
 
   static void _write(String level, String message) {
-    final safeMessage = LogRedactor.sanitize(message);
+    final safeMessage = _boundedMessage(LogRedactor.sanitize(message));
     final line =
         '[${DateTime.now().toIso8601String()}] [$level] $safeMessage\r\n';
     try {
-      _file?.writeAsStringSync(line, mode: FileMode.append, flush: true);
+      final file = _file;
+      if (file != null) {
+        _rotateBeforeWriteSync(file, utf8.encode(line).length);
+        file.writeAsStringSync(line, mode: FileMode.append, flush: true);
+      }
     } catch (_) {
       // Startup logging must never become a startup dependency.
     }
@@ -67,6 +73,27 @@ class StartupLogger {
     final oldFile = File('${file.path}.old');
     if (await oldFile.exists()) await oldFile.delete();
     await file.rename(oldFile.path);
+  }
+
+  static void _rotateBeforeWriteSync(File file, int incomingBytes) {
+    if (!file.existsSync() ||
+        file.lengthSync() + incomingBytes <= _maxLogSizeBytes) {
+      return;
+    }
+    final oldFile = File('${file.path}.old');
+    if (oldFile.existsSync()) oldFile.deleteSync();
+    file.renameSync(oldFile.path);
+  }
+
+  static String _boundedMessage(String message) {
+    final encoded = utf8.encode(message);
+    if (encoded.length <= _maxEntryBytes) return message;
+    const marker = '[log entry truncated]\n';
+    final markerBytes = utf8.encode(marker);
+    return '$marker${utf8.decode(
+      encoded.sublist(encoded.length - (_maxEntryBytes - markerBytes.length)),
+      allowMalformed: true,
+    )}';
   }
 
   static String _defaultLogPath() {

@@ -1,9 +1,28 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:ssrvpn_shared/services/timed_process_runner.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('cancellation terminates a running process before its timeout',
+      () async {
+    final cancellation = Completer<void>();
+    final watch = Stopwatch()..start();
+    final task = TimedProcessRunner.run(
+      _shellExecutable,
+      _shellArguments(_sleepCommand),
+      timeout: const Duration(seconds: 5),
+      cancellation: cancellation.future,
+    );
+
+    cancellation.complete();
+    final result = await task;
+
+    expect(result.exitCode, 125);
+    expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+  });
+
   test('returns timeout result when a process hangs', () async {
     final result = await TimedProcessRunner.run(
       _shellExecutable,

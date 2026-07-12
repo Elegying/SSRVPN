@@ -1,4 +1,5 @@
 import '../utils/force_proxy_site_policy.dart';
+import '../constants/app_constants.dart';
 
 /// 应用设置数据模型 — 跨平台共享
 ///
@@ -38,7 +39,7 @@ class AppSettings {
     bool? tunMode,
     bool? enableSystemProxy,
     this.tunStack = 'gvisor',
-    this.latencyTestUrl = 'http://www.gstatic.com/generate_204',
+    this.latencyTestUrl = AppConstants.defaultLatencyTestUrl,
     String? lastSelectedNodeName,
     String? lastSelectedNode,
     this.latencyTestTimeout = 5000,
@@ -123,8 +124,7 @@ class AppSettings {
       proxyMode: _parseProxyMode(json['proxyMode'] as String?),
       enableTun: _parseEnableTun(json),
       tunStack: json['tunStack']?.toString() ?? 'gvisor',
-      latencyTestUrl: json['latencyTestUrl']?.toString() ??
-          'http://www.gstatic.com/generate_204',
+      latencyTestUrl: _parseLatencyTestUrl(json['latencyTestUrl']),
       lastSelectedNodeName:
           (json['lastSelectedNodeName'] ?? json['lastSelectedNode']) as String?,
       latencyTestTimeout: _parseTimeout(json['latencyTestTimeout'], 5000),
@@ -233,6 +233,16 @@ class AppSettings {
         return ProxyMode.rule;
     }
   }
+}
+
+String _parseLatencyTestUrl(Object? value) {
+  final url = value?.toString().trim();
+  if (url == null ||
+      url.isEmpty ||
+      url == 'http://www.gstatic.com/generate_204') {
+    return AppConstants.defaultLatencyTestUrl;
+  }
+  return url;
 }
 
 /// 代理模式枚举

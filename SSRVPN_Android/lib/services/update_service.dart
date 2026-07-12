@@ -10,6 +10,35 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../theme/app_theme.dart';
 
+class UpdateDownloadCancelled implements Exception {
+  @override
+  String toString() => '更新已取消';
+}
+
+class UpdateDownloadCancellation {
+  final Completer<void> _cancelled = Completer<void>();
+  void Function()? _abortRequest;
+
+  bool get isCancelled => _cancelled.isCompleted;
+  Future<void> get whenCancelled => _cancelled.future;
+
+  void cancel() {
+    if (!_cancelled.isCompleted) _cancelled.complete();
+    _abortRequest?.call();
+  }
+
+  void _attach(void Function() abortRequest) {
+    _abortRequest = abortRequest;
+    if (isCancelled) abortRequest();
+  }
+
+  void _detach() => _abortRequest = null;
+
+  void throwIfCancelled() {
+    if (isCancelled) throw UpdateDownloadCancelled();
+  }
+}
+
 /// 在线更新服务 - 基于 GitHub Releases
 class UpdateService {
   /// 当前应用版本（发版时与 pubspec.yaml 的 version 同步修改）
@@ -20,6 +49,10 @@ class UpdateService {
 
   /// Android 原生通道（openUrl 注册在 MainActivity 的 com.ssrvpn/native 上）
   static const _channel = MethodChannel('com.ssrvpn/native');
+  static bool _updatePromptVisible = false;
+  static bool _downloadInProgress = false;
+
+  static bool get isUpdateUiBusy => _updatePromptVisible || _downloadInProgress;
 
   static Future<AppUpdateInfo?> checkForUpdate(
     String currentVersion,
@@ -45,7 +78,9 @@ class UpdateService {
     http.Client? client,
     void Function(int receivedBytes, int? totalBytes)? onProgress,
     Duration timeout = const Duration(minutes: 2),
+    UpdateDownloadCancellation? cancellation,
   }) async {
+    cancellation?.throwIfCancelled();
     final expectedSha256 = update.sha256?.trim().toLowerCase();
     if (expectedSha256 == null || expectedSha256.isEmpty) {
       throw StateError('缺少 APK SHA256 校验文件，已取消更新');
@@ -64,7 +99,9 @@ class UpdateService {
     }
     final ownsClient = client == null;
     final httpClient = client ?? http.Client();
+    cancellation?._attach(httpClient.close);
     final baseDir = outputDirectory ?? await getTemporaryDirectory();
+    cancellation?.throwIfCancelled();
     final updateDir = Directory('${baseDir.path}/ssrvpn_update');
     if (!await updateDir.exists()) {
       await updateDir.create(recursive: true);
@@ -72,16 +109,21 @@ class UpdateService {
 
     final apkFile = File('${updateDir.path}/SSRVPN-${update.version}.apk');
     final tempFile = File('${apkFile.path}.part');
+    await _pruneOldUpdateFiles(updateDir, keep: {apkFile.path, tempFile.path});
     if (await tempFile.exists()) await tempFile.delete();
     if (await apkFile.exists()) await apkFile.delete();
 
     try {
       for (var attempt = 0; attempt < downloadUris.length; attempt++) {
+        cancellation?.throwIfCancelled();
         final uri = downloadUris[attempt];
         try {
           final request = http.Request('GET', uri)
             ..headers['User-Agent'] = AppConstants.appUserAgent;
-          final response = await httpClient.send(request).timeout(timeout);
+          final response = await _awaitWithCancellation(
+            httpClient.send(request).timeout(timeout),
+            cancellation,
+          );
           if (response case http.BaseResponseWithUrl(:final url)) {
             if (url.scheme != 'https' || url.host.isEmpty) {
               await response.stream.listen((_) {}).cancel();
@@ -105,7 +147,11 @@ class UpdateService {
           late final String actualSha256;
           var hashClosed = false;
           try {
-            await for (final chunk in response.stream.timeout(timeout)) {
+            await for (final chunk in _cancellableStream(
+              response.stream.timeout(timeout),
+              cancellation,
+            )) {
+              cancellation?.throwIfCancelled();
               received += chunk.length;
               if (received > maxApkDownloadBytes) {
                 throw StateError('APK 文件过大，已取消更新');
@@ -132,6 +178,7 @@ class UpdateService {
         } catch (_) {
           if (await tempFile.exists()) await tempFile.delete();
           if (await apkFile.exists()) await apkFile.delete();
+          cancellation?.throwIfCancelled();
           if (attempt == downloadUris.length - 1) rethrow;
         }
       }
@@ -144,7 +191,59 @@ class UpdateService {
       }
       rethrow;
     } finally {
+      cancellation?._detach();
       if (ownsClient) httpClient.close();
+    }
+  }
+
+  static Future<T> _awaitWithCancellation<T>(
+    Future<T> operation,
+    UpdateDownloadCancellation? cancellation,
+  ) {
+    if (cancellation == null) return operation;
+    return Future.any<T>([
+      operation,
+      cancellation.whenCancelled.then<T>(
+        (_) => throw UpdateDownloadCancelled(),
+      ),
+    ]);
+  }
+
+  static Future<void> _pruneOldUpdateFiles(
+    Directory directory, {
+    required Set<String> keep,
+  }) async {
+    await for (final entity in directory.list(followLinks: false)) {
+      if (entity is! File || keep.contains(entity.path)) continue;
+      final name = entity.uri.pathSegments.last;
+      if (RegExp(r'^SSRVPN-.+\.apk(?:\.part)?$').hasMatch(name)) {
+        try {
+          await entity.delete();
+        } catch (_) {
+          // Cache cleanup is best-effort and must not block a verified update.
+        }
+      }
+    }
+  }
+
+  static Stream<List<int>> _cancellableStream(
+    Stream<List<int>> source,
+    UpdateDownloadCancellation? cancellation,
+  ) async* {
+    if (cancellation == null) {
+      yield* source;
+      return;
+    }
+    final iterator = StreamIterator<List<int>>(source);
+    try {
+      while (await _awaitWithCancellation(
+        iterator.moveNext(),
+        cancellation,
+      )) {
+        yield iterator.current;
+      }
+    } finally {
+      await iterator.cancel();
     }
   }
 
@@ -159,7 +258,7 @@ class UpdateService {
 
   static Future<void> openDownload(String url) => openExternalUrl(url);
 
-  static void showUpdateDialog(
+  static Future<void> showUpdateDialog(
     BuildContext context, {
     required String latestVersion,
     required String currentVersion,
@@ -167,7 +266,9 @@ class UpdateService {
     required String changelog,
     String? sha256,
     String? fallbackDownloadUrl,
-  }) {
+  }) async {
+    if (isUpdateUiBusy) return;
+    _updatePromptVisible = true;
     final update = AppUpdateInfo(
       version: latestVersion,
       downloadUrl: downloadUrl,
@@ -176,21 +277,25 @@ class UpdateService {
       fallbackDownloadUrl: fallbackDownloadUrl,
     );
 
-    SharedUpdateService.showUpdateDialog(
-      context,
-      latestVersion: latestVersion,
-      currentVersion: currentVersion,
-      downloadUrl: downloadUrl,
-      fallbackDownloadUrl: fallbackDownloadUrl,
-      changelog: changelog,
-      primaryColor: AppTheme.primaryColor,
-      accentColor: AppTheme.accentColor,
-      textPrimary: AppTheme.darkTextPrimary,
-      textSecondary: AppTheme.darkTextSecondary,
-      lightTextPrimary: AppTheme.lightTextPrimary,
-      lightTextSecondary: AppTheme.lightTextSecondary,
-      openDownload: (_) => downloadAndInstallUpdate(context, update),
-    );
+    try {
+      await SharedUpdateService.showUpdateDialog(
+        context,
+        latestVersion: latestVersion,
+        currentVersion: currentVersion,
+        downloadUrl: downloadUrl,
+        fallbackDownloadUrl: fallbackDownloadUrl,
+        changelog: changelog,
+        primaryColor: AppTheme.primaryColor,
+        accentColor: AppTheme.accentColor,
+        textPrimary: AppTheme.darkTextPrimary,
+        textSecondary: AppTheme.darkTextSecondary,
+        lightTextPrimary: AppTheme.lightTextPrimary,
+        lightTextSecondary: AppTheme.lightTextSecondary,
+        openDownload: (_) => downloadAndInstallUpdate(context, update),
+      );
+    } finally {
+      _updatePromptVisible = false;
+    }
   }
 
   static Future<void> downloadAndInstallUpdate(
@@ -200,11 +305,19 @@ class UpdateService {
     Directory? outputDirectory,
     Future<Map<Object?, Object?>> Function(File apkFile)? installApk,
   }) async {
+    if (_downloadInProgress) return;
+    _downloadInProgress = true;
     var receivedBytes = 0;
     int? totalBytes;
     StateSetter? updateDialogState;
+    var progressDialogOpen = true;
+    var userCancelled = false;
+    final cancellation = UpdateDownloadCancellation();
 
-    if (!context.mounted) return;
+    if (!context.mounted) {
+      _downloadInProgress = false;
+      return;
+    }
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -227,6 +340,19 @@ class UpdateService {
                   Text(_formatDownloadProgress(receivedBytes, totalBytes)),
                 ],
               ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    userCancelled = true;
+                    cancellation.cancel();
+                    if (progressDialogOpen) {
+                      Navigator.of(dialogContext).pop();
+                      progressDialogOpen = false;
+                    }
+                  },
+                  child: const Text('取消更新'),
+                ),
+              ],
             ),
           );
         },
@@ -238,6 +364,7 @@ class UpdateService {
         update,
         client: client,
         outputDirectory: outputDirectory,
+        cancellation: cancellation,
         onProgress: (received, total) {
           receivedBytes = received;
           totalBytes = total;
@@ -245,7 +372,10 @@ class UpdateService {
         },
       );
 
-      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      if (context.mounted && progressDialogOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
+        progressDialogOpen = false;
+      }
       final installResult = await (installApk ?? installDownloadedApk)(apkFile);
       final status = installResult['status']?.toString();
       if (status == 'permissionRequired' && context.mounted) {
@@ -255,11 +385,23 @@ class UpdateService {
         );
       }
     } catch (e) {
+      final cancelled = userCancelled || e is UpdateDownloadCancelled;
       if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-        _showUpdateMessage(context, '更新失败: ${_cleanError(e)}');
+        if (progressDialogOpen) {
+          Navigator.of(context, rootNavigator: true).pop();
+          progressDialogOpen = false;
+        }
+        if (!cancelled) {
+          _showUpdateMessage(context, '更新失败: ${_cleanError(e)}');
+        }
       }
-      AppLogger.warning('Update', '应用内更新失败: $e');
+      if (!cancelled) AppLogger.warning('Update', '应用内更新失败: $e');
+    } finally {
+      if (context.mounted && progressDialogOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
+        progressDialogOpen = false;
+      }
+      _downloadInProgress = false;
     }
   }
 

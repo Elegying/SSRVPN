@@ -1,30 +1,30 @@
 # Project Health
 
-Last reviewed: 2026-07-12
+Last reviewed: 2026-07-13
 
 ## Current Status
 
-SSRVPN is a single Flutter monorepo for Android, macOS, Windows, and `ssrvpn_shared`. The published `v3.1.0` release adds an upgrade-friendly Windows installer, Android notification correctness and wakeup limiting, and OSS-first updates with an exact GitHub fallback. It passed three independent review passes covering behavior and lifecycle, security and update supply chain, and maintainability and release operations. The full local gate, untagged three-platform validation build, tag-driven release build, Android hardware upgrade test, macOS DMG mount test, and public OSS/GitHub artifact comparison all passed.
+SSRVPN is a single Flutter monorepo for Android, macOS, Windows, and `ssrvpn_shared`. The current reviewed worktree builds on the published `v3.1.1` baseline with an upgrade-friendly Windows installer, Android notification correctness and wakeup limiting, OSS-first updates with an exact GitHub fallback, and stricter release recovery. The full local gate, randomized test-order pass, Android native tests, macOS native lifecycle tests, arm64 DMG build/mount validation, and public download checks pass. Windows-native runtime validation remains a CI and real-Windows responsibility.
 
 | Area | Status | Notes |
 |---|---|---|
 | Repository shape | Good | One workspace, one release pipeline, shared services and policies. |
-| Local verification | Healthy | `scripts/verify-all.sh` passes, including analyzers, 361 Flutter tests, four coverage gates, native guards, release-tool tests, package-guide checks, and Android JUnit. |
-| Shared package | Healthy | 207 tests, 63.68% line coverage; parsing, transactions, bounds, canonical update assets, downloads, crashes, controllers, and conservative unlock classification are covered. |
-| Android | Healthy | 87 Flutter tests and Android native tests pass; the public APK is `com.ssrvpn.android` `3.1.0+310`, arm64, and retains the established release certificate. A real arm64 device upgraded from `3.0.1` without data loss, connected successfully, updated the notification immediately from Hong Kong to Singapore, stopped numeric refresh while dozing, and resumed it after wake. |
-| macOS | Proxy mode healthy | 34 tests, 32.33% coverage, arm64 Release/DMG packaging, strict ad-hoc validation, UI startup, and Dock lifecycle tests pass. TUN intentionally fails closed until a safe privileged architecture exists. |
-| Windows | CI healthy | 33 tests pass and Windows CI validates SVG flags, the native launcher, mitigations, portable-data migration, the per-user Inno installer, and the portable ZIP. The public EXE and ZIP passed checksum and artifact checks; final installer lifecycle testing on a real Windows machine remains a release follow-up. |
-| Release automation | Hardened | Source must be on `main`; checksums, versions, core assets, signing prerequisites, canonical asset names, and artifact shape are checked. The workflow publishes immutable OSS version paths and replaces `latest.json` only after all files verify. |
-| Release baseline | Published | The immutable `v3.1.0` tag points at reviewed commit `0f29a06`; GitHub marks it as the latest non-draft, non-prerelease release, and public OSS and GitHub downloads are byte-identical. |
+| Local verification | Healthy | `scripts/verify-all.sh` passes, including zero analyzer findings, 412 passing Flutter tests, one expected Windows-only integration skip on macOS, four coverage gates, 47 release-tool tests, native guards, package-guide checks, and Android JUnit. |
+| Shared package | Healthy | 234 tests, 68.29% line coverage; parsing, transactions, bounds, canonical update assets, downloads, crashes, controllers, and conservative unlock classification are covered. |
+| Android | Healthy | 96 Flutter tests and Android native tests pass; the public APK is `com.ssrvpn.android` `3.1.1+311`, arm64, and retains the established release certificate. Lifecycle coalescing, start cancellation, public IPv4 routes, notification selection updates, screen-aware refresh limiting, update cleanup, and Quick Tile state have explicit regression coverage. |
+| macOS | Proxy mode healthy | 44 Flutter tests, 33.89% coverage, four native lifecycle tests, arm64 Release/DMG packaging, strict ad-hoc validation, UI startup, and Dock lifecycle tests pass. TUN intentionally fails closed until a safe privileged architecture exists. |
+| Windows | CI healthy | 38 Flutter tests pass locally and one Windows-binary integration test skips on macOS. Windows CI validates SVG flags, the native launcher, mitigations, portable-data migration, the per-user Inno installer, and the portable ZIP. Final installer lifecycle testing on a real Windows machine remains a release follow-up. |
+| Release automation | Hardened | Source must be on `main`; checksums, versions, core assets, signing prerequisites, canonical asset names, provenance, and artifact shape are checked. A stale-source retry is limited to an already-public, complete stable release. The workflow publishes immutable OSS version paths and replaces `latest.json` only after all files verify. |
+| Release baseline | Published | The immutable `v3.1.1` tag points at reviewed commit `aac2cce`; GitHub marks it as the latest non-draft, non-prerelease release, and its three canonical backup download URLs resolve successfully. |
 
 ## Current Coverage Gates
 
 | Target | Verified | Gate |
 |---|---:|---:|
-| `ssrvpn_shared` | 63.68% | 50% |
-| Android | 46.82% | 40% |
-| macOS | 32.33% | 10% |
-| Windows | 14.05% | 12% |
+| `ssrvpn_shared` | 68.29% | 50% |
+| Android | 58.33% | 40% |
+| macOS | 33.89% | 10% |
+| Windows | 15.99% | 12% |
 
 The macOS and Windows gates remain deliberately conservative. Raising them should follow new behavior-focused tests, not exclude more source files from coverage.
 

@@ -70,7 +70,7 @@ class _ConnectionButtonState extends State<ConnectionButton>
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return GestureDetector(
-      onTap: widget.isConnecting ? null : widget.onTap,
+      onTap: widget.onTap,
       child: SizedBox(
         width: 120,
         height: 120,
@@ -87,13 +87,27 @@ class _ConnectionButtonState extends State<ConnectionButton>
               ),
               child: Center(
                 child: widget.isConnecting
-                    ? const SizedBox(
-                        width: 32,
-                        height: 32,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          color: Colors.white,
-                        ),
+                    ? const Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 26,
+                            height: 26,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: Colors.white,
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            '取消',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       )
                     : Column(
                         mainAxisSize: MainAxisSize.min,

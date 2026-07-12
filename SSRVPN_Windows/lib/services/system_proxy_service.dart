@@ -6,6 +6,12 @@ import 'package:ssrvpn_windows/src/services/system_proxy_ownership.dart';
 
 /// Manages the Windows system proxy while preserving the user's prior values.
 class SystemProxyService {
+  static const _nativeBackupRegistryPath =
+      r'HKCU:\Software\SSRVPN\RuntimeProxyBackup';
+  static const _ownedProxyOverride =
+      '<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;'
+      '172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;'
+      '172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*';
   static final SystemProxyService _instance = SystemProxyService._();
   factory SystemProxyService() => _instance;
   SystemProxyService._();
@@ -19,6 +25,7 @@ class SystemProxyService {
   String? _lastError;
 
   bool get isProxyEnabled => _proxyEnabled;
+  bool get recoveryPending => _recoveryPending;
   String? get lastError => _lastError;
 
   /// Restores proxy settings left behind by an abnormal previous shutdown.
@@ -44,16 +51,19 @@ class SystemProxyService {
       final rawOwnedProxyServer = data['_ownedProxyServer'];
       final ownedProxyServer =
           rawOwnedProxyServer is String ? rawOwnedProxyServer : null;
+      final activationInProgress = data['_activationInProgress'] == true;
       final current = await _readCurrentProxy();
       if (current == null) {
         _recoveryPending = true;
         _lastError ??= '无法读取当前 Windows 系统代理设置，稍后重试恢复';
         return;
       }
-      if (!_isOwnedProxy(current, ownedProxyServer)) {
+      final ownsFullFingerprint = _isOwnedProxy(current, ownedProxyServer);
+      final ownsEndpoint = _isOwnedEndpoint(current, ownedProxyServer);
+      if (!ownsFullFingerprint && !ownsEndpoint && !activationInProgress) {
         // The user or another app changed the proxy, or this is a legacy
         // backup without ownership metadata. Never overwrite that state.
-        await backupFile.delete();
+        await _deleteBackup();
         _forgetOwnership();
         _recoveryPending = false;
         return;
@@ -63,8 +73,11 @@ class SystemProxyService {
       _ownedProxyServer = ownedProxyServer;
       _ownsProxy = true;
       _proxyEnabled = true;
-      if (await _restoreSnapshot(snapshot)) {
-        await backupFile.delete();
+      final restored = ownsFullFingerprint || activationInProgress
+          ? await _restoreSnapshot(snapshot)
+          : await _restoreOwnedEndpoint(snapshot);
+      if (restored) {
+        await _deleteBackup();
         _forgetOwnership();
         _recoveryPending = false;
       } else {
@@ -111,30 +124,23 @@ class SystemProxyService {
 
       final script = '''
 \$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
-Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value 1
 Set-ItemProperty -Path \$regPath -Name ProxyServer -Type String -Value '$proxyServer'
-Set-ItemProperty -Path \$regPath -Name ProxyOverride -Type String -Value '<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*'
+Set-ItemProperty -Path \$regPath -Name ProxyOverride -Type String -Value '$_ownedProxyOverride'
 Set-ItemProperty -Path \$regPath -Name AutoDetect -Type DWord -Value 0
 Remove-ItemProperty -Path \$regPath -Name AutoConfigURL -ErrorAction SilentlyContinue
+Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value 1
 ${_notifyWinInetScript()}
 ''';
 
       final result = await _runPowerShell(script);
       if (result.exitCode != 0) {
         final setError = _formatPowerShellError('写入 Windows 系统代理失败', result);
-        _recoveryPending = true;
-        final restored = await _restoreSnapshot(_previousProxy!);
-        if (!restored) {
-          final restoreError = _lastError;
-          _lastError =
-              restoreError == null ? setError : '$setError；$restoreError';
-          return false;
-        }
-        await _deleteBackup();
-        _forgetOwnership();
-        _recoveryPending = false;
-        _lastError = setError;
-        return false;
+        return _rollbackFailedAcquisition(setError);
+      }
+      try {
+        await _markActivationComplete();
+      } catch (e) {
+        return _rollbackFailedAcquisition('提交 Windows 系统代理状态失败: $e');
       }
 
       _ownsProxy = true;
@@ -166,8 +172,14 @@ ${_notifyWinInetScript()}
         return false;
       }
       if (!_isOwnedProxy(current, _ownedProxyServer)) {
-        // Ownership was lost after SSRVPN enabled the proxy. Preserve the
-        // current settings and discard only SSRVPN's stale recovery record.
+        // If the endpoint is still ours, release only that endpoint while
+        // preserving PAC, bypass and auto-detect changes made after connect.
+        if (_isOwnedEndpoint(current, _ownedProxyServer) &&
+            !await _restoreOwnedEndpoint(snapshot)) {
+          _recoveryPending = true;
+          _lastError ??= '释放 SSRVPN 系统代理端点失败';
+          return false;
+        }
         await _deleteBackup();
         _forgetOwnership();
         _recoveryPending = false;
@@ -190,8 +202,39 @@ ${_notifyWinInetScript()}
 
   bool _isValidHost(String host) => RegExp(r'^[A-Za-z0-9.-]+$').hasMatch(host);
 
+  Future<bool> _rollbackFailedAcquisition(String setError) async {
+    _recoveryPending = true;
+    final snapshot = _previousProxy;
+    final restored = snapshot != null && await _restoreSnapshot(snapshot);
+    if (!restored) {
+      final restoreError = _lastError;
+      _lastError = restoreError == null ? setError : '$setError；$restoreError';
+      return false;
+    }
+    await _deleteBackup();
+    _forgetOwnership();
+    _recoveryPending = false;
+    _lastError = setError;
+    return false;
+  }
+
   bool _isOwnedProxy(_ProxySnapshot current, String? ownedProxyServer) =>
       isOwnedWindowsProxy(
+        proxyEnable: current.proxyEnable,
+        hasProxyServer: current.hasProxyServer,
+        proxyServer: current.proxyServer,
+        ownedProxyServer: ownedProxyServer,
+        hasProxyOverride: current.hasProxyOverride,
+        proxyOverride: current.proxyOverride,
+        ownedProxyOverride: _ownedProxyOverride,
+        hasAutoConfigUrl: current.hasAutoConfigUrl,
+        autoConfigUrl: current.autoConfigUrl,
+        hasAutoDetect: current.hasAutoDetect,
+        autoDetect: current.autoDetect,
+      );
+
+  bool _isOwnedEndpoint(_ProxySnapshot current, String? ownedProxyServer) =>
+      isOwnedWindowsProxyEndpoint(
         proxyEnable: current.proxyEnable,
         hasProxyServer: current.hasProxyServer,
         proxyServer: current.proxyServer,
@@ -239,7 +282,6 @@ $item = Get-ItemProperty -Path $regPath
     final override = base64Encode(utf8.encode(snapshot.proxyOverride));
     final script = '''
 \$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
-Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
 if (${snapshot.hasProxyServer ? r'$true' : r'$false'}) {
   \$value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$server'))
   Set-ItemProperty -Path \$regPath -Name ProxyServer -Type String -Value \$value
@@ -263,11 +305,32 @@ if (${snapshot.hasAutoDetect ? r'$true' : r'$false'}) {
 } else {
   Remove-ItemProperty -Path \$regPath -Name AutoDetect -ErrorAction SilentlyContinue
 }
+Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
 ${_notifyWinInetScript()}
 ''';
     final result = await _runPowerShell(script);
     if (result.exitCode != 0) {
       _lastError = _formatPowerShellError('恢复 Windows 系统代理失败', result);
+    }
+    return result.exitCode == 0;
+  }
+
+  Future<bool> _restoreOwnedEndpoint(_ProxySnapshot snapshot) async {
+    final server = base64Encode(utf8.encode(snapshot.proxyServer));
+    final script = '''
+\$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
+if (${snapshot.hasProxyServer ? r'$true' : r'$false'}) {
+  \$value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$server'))
+  Set-ItemProperty -Path \$regPath -Name ProxyServer -Type String -Value \$value
+} else {
+  Remove-ItemProperty -Path \$regPath -Name ProxyServer -ErrorAction SilentlyContinue
+}
+Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
+${_notifyWinInetScript()}
+''';
+    final result = await _runPowerShell(script);
+    if (result.exitCode != 0) {
+      _lastError = _formatPowerShellError('释放 Windows 系统代理端点失败', result);
     }
     return result.exitCode == 0;
   }
@@ -286,16 +349,89 @@ ${_notifyWinInetScript()}
     json['_ownedProxyServer'] = ownedProxyServer;
     json['_savedAt'] = DateTime.now().millisecondsSinceEpoch;
     json['_pid'] = pid;
+    json['_activationInProgress'] = true;
     final temp = File('$statePath.tmp');
     await temp.writeAsString(jsonEncode(json), flush: true);
     await temp.rename(statePath);
+    try {
+      await _writeNativeRecoveryBackup(snapshot, ownedProxyServer);
+    } catch (_) {
+      if (await file.exists()) await file.delete();
+      rethrow;
+    }
   }
 
   Future<void> _deleteBackup() async {
+    final result = await _runPowerShell('''
+\$backupPath = '$_nativeBackupRegistryPath'
+Remove-Item -Path \$backupPath -Recurse -Force -ErrorAction SilentlyContinue
+''');
+    if (result.exitCode != 0) {
+      throw StateError(
+        _formatPowerShellError('删除 Windows 原生代理恢复状态失败', result),
+      );
+    }
     final statePath = _statePath;
     if (statePath == null) return;
     final backupFile = File(statePath);
     if (await backupFile.exists()) await backupFile.delete();
+  }
+
+  Future<void> _writeNativeRecoveryBackup(
+    _ProxySnapshot snapshot,
+    String ownedProxyServer,
+  ) async {
+    String encoded(String value) => base64Encode(utf8.encode(value));
+    final script = '''
+\$backupPath = '$_nativeBackupRegistryPath'
+Remove-Item -Path \$backupPath -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -Path \$backupPath -Force | Out-Null
+Set-ItemProperty -Path \$backupPath -Name OriginalProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
+Set-ItemProperty -Path \$backupPath -Name HasProxyServer -Type DWord -Value ${snapshot.hasProxyServer ? 1 : 0}
+\$value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded(snapshot.proxyServer)}'))
+Set-ItemProperty -Path \$backupPath -Name OriginalProxyServer -Type String -Value \$value
+Set-ItemProperty -Path \$backupPath -Name HasProxyOverride -Type DWord -Value ${snapshot.hasProxyOverride ? 1 : 0}
+\$value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded(snapshot.proxyOverride)}'))
+Set-ItemProperty -Path \$backupPath -Name OriginalProxyOverride -Type String -Value \$value
+Set-ItemProperty -Path \$backupPath -Name HasAutoConfigURL -Type DWord -Value ${snapshot.hasAutoConfigUrl ? 1 : 0}
+\$value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded(snapshot.autoConfigUrl)}'))
+Set-ItemProperty -Path \$backupPath -Name OriginalAutoConfigURL -Type String -Value \$value
+Set-ItemProperty -Path \$backupPath -Name HasAutoDetect -Type DWord -Value ${snapshot.hasAutoDetect ? 1 : 0}
+Set-ItemProperty -Path \$backupPath -Name OriginalAutoDetect -Type DWord -Value ${snapshot.autoDetect}
+Set-ItemProperty -Path \$backupPath -Name OwnedProxyServer -Type String -Value '$ownedProxyServer'
+Set-ItemProperty -Path \$backupPath -Name OwnedProxyOverride -Type String -Value '$_ownedProxyOverride'
+Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Value 1
+Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 1
+''';
+    final result = await _runPowerShell(script);
+    if (result.exitCode != 0) {
+      throw StateError(
+        _formatPowerShellError('写入 Windows 原生代理恢复状态失败', result),
+      );
+    }
+  }
+
+  Future<void> _markActivationComplete() async {
+    final result = await _runPowerShell('''
+\$backupPath = '$_nativeBackupRegistryPath'
+Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Value 0
+''');
+    if (result.exitCode != 0) {
+      throw StateError(
+        _formatPowerShellError('更新 Windows 原生代理恢复状态失败', result),
+      );
+    }
+
+    final statePath = _statePath;
+    if (statePath == null) {
+      throw StateError('System proxy state path is missing');
+    }
+    final file = File(statePath);
+    final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    json['_activationInProgress'] = false;
+    final temp = File('$statePath.tmp');
+    await temp.writeAsString(jsonEncode(json), flush: true);
+    await temp.rename(statePath);
   }
 
   Future<ProcessResult> _runPowerShell(String script) => TimedProcessRunner.run(
