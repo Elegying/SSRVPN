@@ -72,8 +72,8 @@ jobs:
       - run: bash ../../scripts/check-macos-core-privileges.sh
       - run: bash ../../scripts/check-windows-launcher-security.sh
       - run: bash ../../scripts/check-secrets.sh
-      - run: python3 -m unittest ../../scripts/test_generate_oss_release_manifest.py
-      - run: python3 -m unittest ../../scripts/test_windows_installer_config.py
+      - run: python3 -m unittest scripts/test_generate_oss_release_manifest.py scripts/test_windows_installer_config.py
+        working-directory: .
       - run: dart pub get
       - run: flutter analyze --fatal-infos
       - run: flutter test
