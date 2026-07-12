@@ -16,6 +16,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("PrivilegesRequired=lowest", script)
         self.assertIn("CloseApplications=force", script)
         self.assertIn("RestartApplications=no", script)
+        self.assertNotIn("ChineseSimplified.isl", script)
         self.assertIn("ssrvpn_windows_app.exe", script)
         self.assertIn("ssrvpn_windows.exe", script)
         self.assertNotRegex(script, r"taskkill[^\n]+mihomo\.exe")
