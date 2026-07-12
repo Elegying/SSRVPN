@@ -3,7 +3,7 @@
 [![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml)
 
 
-SSRVPN Windows 版 - 绿色免安装 VPN 客户端
+SSRVPN Windows 版 - 安装版与绿色便携版 VPN 客户端
 
 > 主动开发已迁移到 `Elegying/SSRVPN` Monorepo。本目录是该工作区内的 Windows 应用。
 
@@ -21,7 +21,7 @@ SSRVPN Windows 版 - 绿色免安装 VPN 客户端
 - 🔧 TUN 模式（需管理员权限，全局代理）
 - 📌 系统托盘支持（最小化到托盘继续运行）
 - 🔄 在线更新检查
-- 📦 绿色免安装，解压即用
+- 📦 支持每用户安装版和解压即用的绿色便携版
 
 ## 构建说明
 
@@ -29,6 +29,7 @@ SSRVPN Windows 版 - 绿色免安装 VPN 客户端
 
 - Flutter SDK 3.44.1 或兼容的 stable 版本
 - Visual Studio 2022 (含 C++ 桌面开发工作负载)
+- Inno Setup 6（仅构建安装版需要）
 - Windows 10/11
 
 ### 构建步骤
@@ -75,7 +76,7 @@ build_release.bat -OfflinePub
 
 最终产物为项目根目录下的 `SSRVPN.zip`。构建完成后，ZIP 内包含：
 
-```
+```text
 SSRVPN_Windows_Release/
 ├── ssrvpn_windows.exe          # 主目录唯一启动程序
 ├── 使用教程.txt
@@ -97,6 +98,21 @@ SSRVPN_Windows_Release/
     │           └── icon.ico
     └── *.dll                   # 依赖的动态库
 ```
+
+### 打包为安装版
+
+安装版复用已经校验的便携目录，不需要管理员权限，默认安装到
+`%LOCALAPPDATA%\Programs\SSRVPN`。构建便携目录后运行：
+
+```powershell
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
+  -File .\tool\build_installer.ps1
+```
+
+生成 `SSRVPN_Setup.exe` 和对应 SHA256 文件。安装或升级时，安装器先请求
+Windows Restart Manager 关闭旧版本；如果托盘驻留阻止正常退出，只兜底结束
+`ssrvpn_windows_app.exe` 与启动器进程，不会按名称结束其他软件的
+`mihomo.exe`。安装完成后自动启动新版本，以恢复并重新接管 SSRVPN 的系统代理状态。
 
 ## Mihomo 核心
 

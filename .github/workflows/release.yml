@@ -73,6 +73,7 @@ jobs:
       - run: bash ../../scripts/check-windows-launcher-security.sh
       - run: bash ../../scripts/check-secrets.sh
       - run: python3 -m unittest ../../scripts/test_generate_oss_release_manifest.py
+      - run: python3 -m unittest ../../scripts/test_windows_installer_config.py
       - run: dart pub get
       - run: flutter analyze --fatal-infos
       - run: flutter test
@@ -278,7 +279,7 @@ jobs:
 
   # ── Windows ──
   build-windows:
-    name: Windows ZIP
+    name: Windows packages
     needs: [shared-test, prepare-geoip]
     runs-on: windows-latest
     steps:
@@ -310,11 +311,12 @@ jobs:
       - name: Test
         run: cd SSRVPN_Windows; flutter test
 
-      - name: Build & Package ZIP
+      - name: Build Windows packages
         shell: powershell
         run: |
           cd SSRVPN_Windows
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\build_installer.ps1
 
       - name: Verify portable ZIP
         shell: powershell
@@ -359,7 +361,7 @@ jobs:
       - name: Smoke release artifact
         run: bash scripts/smoke-release-artifacts.sh --allow-missing
 
-      - name: Generate checksum
+      - name: Generate portable ZIP checksum
         shell: powershell
         run: |
           cd SSRVPN_Windows
@@ -377,6 +379,8 @@ jobs:
           path: |
             SSRVPN_Windows/SSRVPN.zip
             SSRVPN_Windows/SSRVPN.zip.sha256
+            SSRVPN_Windows/SSRVPN_Setup.exe
+            SSRVPN_Windows/SSRVPN_Setup.exe.sha256
 
   # ── GitHub Release ──
   publish:
@@ -418,6 +422,8 @@ jobs:
             artifacts/android/SSRVPN.apk.sha256
             artifacts/macos/SSRVPN.dmg
             artifacts/macos/SSRVPN.dmg.sha256
+            artifacts/windows/SSRVPN_Setup.exe
+            artifacts/windows/SSRVPN_Setup.exe.sha256
             artifacts/windows/SSRVPN.zip
             artifacts/windows/SSRVPN.zip.sha256
           generate_release_notes: false
@@ -453,6 +459,7 @@ jobs:
             --release-notes release-notes.md \
             --asset artifacts/android/SSRVPN.apk \
             --asset artifacts/macos/SSRVPN.dmg \
+            --asset artifacts/windows/SSRVPN_Setup.exe \
             --asset artifacts/windows/SSRVPN.zip \
             --output artifacts/oss/latest.json
 
@@ -478,6 +485,8 @@ jobs:
             artifacts/android/SSRVPN.apk.sha256 \
             artifacts/macos/SSRVPN.dmg \
             artifacts/macos/SSRVPN.dmg.sha256 \
+            artifacts/windows/SSRVPN_Setup.exe \
+            artifacts/windows/SSRVPN_Setup.exe.sha256 \
             artifacts/windows/SSRVPN.zip \
             artifacts/windows/SSRVPN.zip.sha256; do
             ossutil cp "$file" \

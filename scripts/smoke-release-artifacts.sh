@@ -176,6 +176,44 @@ print(f"smoke: ZIP ok: {zip_path}")
 PY
 }
 
+check_installer() {
+  local installer=""
+  for candidate in \
+    SSRVPN_Windows/SSRVPN_Setup.exe \
+    SSRVPN_Windows/build/SSRVPN_Setup.exe; do
+    if [[ -f "$candidate" ]]; then
+      installer="$candidate"
+      break
+    fi
+  done
+  [[ -n "$installer" ]] || { missing "Windows installer"; return; }
+  python3 - "$installer" <<'PY'
+from pathlib import Path
+import hashlib
+import re
+import sys
+
+installer = Path(sys.argv[1])
+if installer.stat().st_size <= 1024 * 1024:
+    raise SystemExit(f"Installer too small: {installer}")
+with installer.open("rb") as stream:
+    if stream.read(2) != b"MZ":
+        raise SystemExit(f"Installer is not a Windows PE file: {installer}")
+
+checksum_path = installer.with_name(f"{installer.name}.sha256")
+if checksum_path.is_file():
+    checksum_text = checksum_path.read_text(encoding="ascii")
+    match = re.search(r"\b([0-9a-fA-F]{64})\b", checksum_text)
+    if match is None:
+        raise SystemExit(f"Invalid installer checksum: {checksum_path}")
+    digest = hashlib.sha256(installer.read_bytes()).hexdigest()
+    if match.group(1).lower() != digest:
+        raise SystemExit(f"Installer checksum mismatch: {checksum_path}")
+print(f"smoke: installer ok: {installer}")
+PY
+}
+
 check_apk
 check_dmg
 check_zip
+check_installer

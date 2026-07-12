@@ -40,6 +40,7 @@ jobs:
       - run: bash scripts/check-macos-core-privileges.sh
       - run: bash scripts/check-windows-launcher-security.sh
       - run: bash scripts/check-secrets.sh
+      - run: python3 -m unittest scripts/test_generate_oss_release_manifest.py scripts/test_windows_installer_config.py
       - run: flutter pub get
       - run: flutter analyze
         working-directory: packages/ssrvpn_shared
@@ -121,26 +122,29 @@ jobs:
 
       - run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
 
-      - name: Build Windows portable ZIP
+      - name: Build Windows packages
         if: matrix.directory == 'SSRVPN_Windows'
         shell: powershell
         run: |
           cd SSRVPN_Windows
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\build_installer.ps1
 
-      - name: Smoke Windows portable ZIP
+      - name: Smoke Windows packages
         if: matrix.directory == 'SSRVPN_Windows'
         shell: bash
         run: bash scripts/smoke-release-artifacts.sh --allow-missing
 
-      - name: Upload Windows portable ZIP
+      - name: Upload Windows packages
         if: matrix.directory == 'SSRVPN_Windows'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: windows-portable-pr
+          name: windows-packages-pr
           path: |
             SSRVPN_Windows/SSRVPN.zip
             SSRVPN_Windows/SSRVPN.zip.sha256
+            SSRVPN_Windows/SSRVPN_Setup.exe
+            SSRVPN_Windows/SSRVPN_Setup.exe.sha256
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()

@@ -32,6 +32,8 @@ required = {
     "SSRVPN.apk.sha256",
     "SSRVPN.dmg",
     "SSRVPN.dmg.sha256",
+    "SSRVPN_Setup.exe",
+    "SSRVPN_Setup.exe.sha256",
     "SSRVPN.zip",
     "SSRVPN.zip.sha256",
 }
@@ -45,7 +47,12 @@ if empty:
     raise SystemExit(f"empty release assets: {', '.join(empty)}")
 
 hash_pattern = re.compile(r"\b([0-9a-fA-F]{64})\b")
-for artifact_name in ("SSRVPN.apk", "SSRVPN.dmg", "SSRVPN.zip"):
+for artifact_name in (
+    "SSRVPN.apk",
+    "SSRVPN.dmg",
+    "SSRVPN_Setup.exe",
+    "SSRVPN.zip",
+):
     digest = str(assets[artifact_name].get("digest") or "")
     if not digest.startswith("sha256:") or not hash_pattern.fullmatch(digest[7:]):
         raise SystemExit(f"missing SHA256 API digest: {artifact_name}")

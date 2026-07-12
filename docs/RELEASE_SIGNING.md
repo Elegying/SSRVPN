@@ -57,9 +57,9 @@ Release workflow 会在构建前生成临时 `key.properties`。如果这些 sec
 
 不配置 Apple Developer ID 和 notarization secrets。若未来决定付费公开分发，再新增 Developer ID 签名和 notarization 流程。
 
-## Windows：免费绿色包
+## Windows：免费安装包与绿色包
 
-Windows ZIP 当前是绿色免安装包。没有代码签名证书时可以运行，但 SmartScreen 可能提示未知发布者。
+Windows 同时发布 Inno Setup 每用户安装包和绿色免安装 ZIP。没有代码签名证书时可以运行，但两种形式都可能触发 SmartScreen 未知发布者提示。
 
 不配置 Windows code signing secrets。若未来决定购买证书，再给 exe 和 native DLL 增加 Authenticode 签名。
 

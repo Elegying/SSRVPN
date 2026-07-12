@@ -12,7 +12,7 @@ SSRVPN 是一个跨平台 Flutter VPN 客户端 Monorepo，用同一套共享业
 | --- | --- | --- |
 | `SSRVPN_Android` | Android VPN 客户端，包含 VPN Service、快捷磁贴、订阅导入和在线更新 | `SSRVPN.apk` |
 | `SSRVPN_MacOS` | macOS 桌面客户端，包含系统代理、TUN 集成、资源安装和 DMG 打包 | `SSRVPN.dmg` |
-| `SSRVPN_Windows` | Windows 绿色免安装客户端，包含系统代理、TUN、托盘和便携打包 | `SSRVPN.zip` |
+| `SSRVPN_Windows` | Windows 客户端，包含系统代理、TUN、托盘、安装版和便携版 | `SSRVPN_Setup.exe` / `SSRVPN.zip` |
 
 当前节点与路由策略明确按 IPv4-only 设计，不支持 IPv6 节点、IPv6 强制代理 IP 或 IPv6 出口。
 
@@ -35,7 +35,7 @@ SSRVPN/
 - Dart SDK 版本需与 Flutter 匹配。
 - Android 构建需要 Android SDK、NDK 和 JDK。
 - macOS 构建需要 Xcode Command Line Tools 和 `hdiutil`。
-- Windows 构建需要 Visual Studio 2022，并安装“使用 C++ 的桌面开发”工作负载。
+- Windows 构建需要 Visual Studio 2022、“使用 C++ 的桌面开发”工作负载和 Inno Setup 6。
 
 ## 本地验证
 
@@ -78,7 +78,7 @@ scripts/performance-baseline.sh
 - `make verify`：运行仓库级完整校验（含资源、analyze、测试和覆盖率阈值）。
 - `make deps`：查看共享包和三端依赖是否有可升级版本，建议按月运行。
 - `scripts/check-secrets.sh`：扫描明显高危密钥泄露模式。
-- `scripts/smoke-release-artifacts.sh --allow-missing`：本地有 APK/DMG/ZIP 时检查产物结构。
+- `scripts/smoke-release-artifacts.sh --allow-missing`：本地有 APK/DMG/Windows 包时检查产物结构。
 - `scripts/performance-baseline.sh`：记录源码热点、关键测试耗时和可选 adb 启动/内存样本。
 
 ## 发布构建
@@ -92,11 +92,12 @@ cp build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk
 sha256sum SSRVPN.apk > SSRVPN.apk.sha256
 ```
 
-Windows 绿色版 ZIP：
+Windows 安装版和绿色版 ZIP：
 
 ```powershell
 cd SSRVPN_Windows
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\tool\package_windows.ps1
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\tool\build_installer.ps1
 ```
 
 macOS 拖拽安装 DMG：
@@ -113,7 +114,7 @@ shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
 
 - Android Release workflow 使用同一个自签名 keystore secret 时可覆盖升级。
 - macOS DMG 是拖拽安装形式，但未做 Apple Developer ID 签名和公证，首次打开可能需要右键打开。
-- Windows ZIP 是绿色便携版，根目录只保留一个用户可见 exe；未代码签名时可能出现 SmartScreen 提示。
+- Windows 默认更新产物为每用户安装版 `SSRVPN_Setup.exe`，同时保留绿色便携 ZIP；两者未代码签名时都可能出现 SmartScreen 提示。
 - Android 当前只随包提供 arm64 核心库；项目网络策略按 IPv4-only 设计。
 
 ## 重要文档

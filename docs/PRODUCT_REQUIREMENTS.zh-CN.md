@@ -5,7 +5,7 @@
 ## 安装包
 
 1. macOS 发布产物必须是可拖拽安装的 DMG：根目录包含 `SSRVPN.app` 和指向 `/Applications` 的 `Applications` 快捷方式。
-2. Windows 发布产物必须是解压即用的便携式 ZIP：解压后的主目录只能有一个面向用户的 `.exe`，即 `ssrvpn_windows.exe`。
+2. Windows 必须同时发布每用户安装版 `SSRVPN_Setup.exe` 和解压即用的便携式 ZIP。安装器升级时应自动关闭 SSRVPN 专属进程；便携包解压后的主目录只能有一个面向用户的 `.exe`，即 `ssrvpn_windows.exe`。
 
 ## 首次使用和订阅
 

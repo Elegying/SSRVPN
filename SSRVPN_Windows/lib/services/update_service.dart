@@ -14,7 +14,7 @@ class UpdateService {
   ) {
     return SharedUpdateService.checkForUpdate(
       currentVersion: currentVersion,
-      assetExtension: '.zip',
+      assetExtension: '.exe',
     );
   }
 

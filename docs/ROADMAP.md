@@ -17,6 +17,8 @@
 - Added deterministic verification for bundled core binaries and geo databases.
 - Added Android first-run apiSecret generation backed by encrypted storage.
 - Added a free Android release-keystore helper for personal distribution.
+- Kept the Android VPN notification synchronized with live node switching and limited traffic refreshes to once per minute while the screen is on.
+- Added a per-user Windows installer with running-process handoff while retaining the portable ZIP.
 
 ## Near Term
 
