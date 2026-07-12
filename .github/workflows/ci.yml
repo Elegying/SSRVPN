@@ -128,6 +128,7 @@ jobs:
         run: |
           cd SSRVPN_Windows
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\migrate_portable_data.ps1 -Destination "$env:RUNNER_TEMP\ssrvpn-migration-smoke"
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\stop_ssrvpn_processes.ps1 -InstalledCorePath "$env:RUNNER_TEMP\ssrvpn-process-smoke\mihomo.exe"
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\build_installer.ps1
 

@@ -45,6 +45,23 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("-not (Test-Path -LiteralPath $destinationFile)", migration)
         self.assertNotRegex(migration, r"Copy-Item[^\n]+\\\*")
 
+    def test_installer_blocks_upgrade_when_its_process_tree_survives(self) -> None:
+        installer_root = ROOT / "SSRVPN_Windows" / "installer"
+        installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
+        stopper = (installer_root / "stop_ssrvpn_processes.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("stop_ssrvpn_processes.ps1", installer)
+        self.assertIn("if not StopSsrvpnProcesses then", installer)
+        self.assertIn("Result :=", installer)
+        self.assertIn("/F", stopper)
+        self.assertIn("/T", stopper)
+        self.assertIn("ExecutablePath", stopper)
+        self.assertIn("remainingApps", stopper)
+        self.assertIn("remainingCores", stopper)
+        self.assertNotRegex(stopper, r"Stop-Process\s+-Name\s+['\"]?mihomo")
+
     def test_release_pipeline_publishes_installer_and_checksum(self) -> None:
         release = (ROOT / ".github" / "workflows" / "release.yml").read_text(
             encoding="utf-8"
@@ -52,6 +69,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         required = {
             "tool\\build_installer.ps1",
             "installer\\migrate_portable_data.ps1",
+            "installer\\stop_ssrvpn_processes.ps1",
             "SSRVPN_Windows/SSRVPN_Setup.exe",
             "SSRVPN_Windows/SSRVPN_Setup.exe.sha256",
         }

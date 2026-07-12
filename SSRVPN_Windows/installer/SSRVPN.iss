@@ -46,6 +46,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#ProjectDir}\installer\migrate_portable_data.ps1"; Flags: dontcopy
+Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; Flags: dontcopy
 
 [Icons]
 Name: "{autoprograms}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
@@ -78,24 +79,34 @@ begin
     Log(Format('Portable data migration helper returned %d', [ResultCode]));
 end;
 
-procedure StopSsrvpnProcesses;
+function StopSsrvpnProcesses: Boolean;
 var
   ResultCode: Integer;
+  PowerShellPath: String;
+  ScriptPath: String;
+  InstalledCorePath: String;
+  Parameters: String;
 begin
-  { The child name is unique to SSRVPN. /T also stops its mihomo child without }
-  { killing unrelated mihomo processes by image name. }
-  Exec(ExpandConstant('{sys}\taskkill.exe'),
-    '/F /T /IM ssrvpn_windows_app.exe', '', SW_HIDE,
-    ewWaitUntilTerminated, ResultCode);
-  Sleep(500);
-  Exec(ExpandConstant('{sys}\taskkill.exe'),
-    '/F /IM ssrvpn_windows.exe', '', SW_HIDE,
-    ewWaitUntilTerminated, ResultCode);
+  ExtractTemporaryFile('stop_ssrvpn_processes.ps1');
+  PowerShellPath := ExpandConstant(
+    '{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  ScriptPath := ExpandConstant('{tmp}\stop_ssrvpn_processes.ps1');
+  InstalledCorePath := ExpandConstant('{app}\bin\mihomo.exe');
+  Parameters := '-NoLogo -NoProfile -NonInteractive ' +
+    '-ExecutionPolicy Bypass -File ' + AddQuotes(ScriptPath) +
+    ' -InstalledCorePath ' + AddQuotes(InstalledCorePath);
+  Result := Exec(PowerShellPath, Parameters, '', SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  if not Result then
+    Log(Format('SSRVPN process cleanup failed with result %d', [ResultCode]));
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   MigrateRunningPortableData;
-  StopSsrvpnProcesses;
-  Result := '';
+  if not StopSsrvpnProcesses then
+    Result := '无法关闭正在运行的 SSRVPN。请先从托盘退出 SSRVPN，' +
+      '或在任务管理器中结束 SSRVPN 后重试。'
+  else
+    Result := '';
 end;
