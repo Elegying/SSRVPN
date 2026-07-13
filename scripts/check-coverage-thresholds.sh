@@ -15,10 +15,10 @@ from pathlib import Path
 import sys
 
 thresholds = {
-    "packages/ssrvpn_shared": 50.0,
-    "SSRVPN_Android": 40.0,
-    "SSRVPN_MacOS": 10.0,
-    "SSRVPN_Windows": 12.0,
+    "packages/ssrvpn_shared": 65.0,
+    "SSRVPN_Android": 50.0,
+    "SSRVPN_MacOS": 30.0,
+    "SSRVPN_Windows": 30.0,
 }
 
 targets = sys.argv[1:] or list(thresholds)

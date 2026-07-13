@@ -21,6 +21,7 @@ run_in() {
 run_step "Shared barrel imports" scripts/check-shared-barrel-imports.sh
 run_step "Version sync" scripts/check-version-sync.sh
 run_step "Package guides" scripts/check-package-guides.sh
+run_step "Documentation consistency" scripts/check-doc-consistency.sh
 run_step "Core asset bootstrap model" scripts/check-core-asset-bootstrap.sh
 run_step "Core asset bootstrap" scripts/bootstrap-core-assets.sh
 run_step "Core binary assets" scripts/verify-core-assets.sh
@@ -28,6 +29,7 @@ run_step "Android native bridge guards" scripts/check-android-native-bridge-guar
 run_step "Unlock audit cancellation guards" scripts/check-unlock-test-guards.sh
 run_step "Desktop startup guards" scripts/check-desktop-startup-guards.sh
 run_step "Clash service boundaries" bash scripts/check-clash-service-boundaries.sh
+run_step "Desktop secure storage guards" scripts/check-desktop-secure-storage.sh
 run_step "macOS core privilege guards" scripts/check-macos-core-privileges.sh
 run_step "Windows launcher security" scripts/check-windows-launcher-security.sh
 run_step "Secret scan" scripts/check-secrets.sh
