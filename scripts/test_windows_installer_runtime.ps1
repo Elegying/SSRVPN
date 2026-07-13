@@ -53,8 +53,16 @@ try {
     (Join-Path $dataDir 'subscriptions.json'),
     '["installed"]'
   )
+  [System.IO.File]::WriteAllBytes(
+    (Join-Path $dataDir '.api-secret.dpapi'),
+    [System.Text.Encoding]::UTF8.GetBytes('encrypted-dpapi-envelope')
+  )
   $settingsHash = (
     Get-FileHash -LiteralPath (Join-Path $dataDir 'settings.json') `
+      -Algorithm SHA256
+  ).Hash
+  $secretHash = (
+    Get-FileHash -LiteralPath (Join-Path $dataDir '.api-secret.dpapi') `
       -Algorithm SHA256
   ).Hash
 
@@ -99,9 +107,156 @@ try {
       $settingsHash) {
     throw 'Restored settings hash differs from the original.'
   }
+  $restoredSecret = Join-Path $dataDir '.api-secret.dpapi'
+  if (-not (Test-Path -LiteralPath $restoredSecret -PathType Leaf)) {
+    throw 'The current-user DPAPI API secret was not restored.'
+  }
+  if ((Get-FileHash -LiteralPath $restoredSecret -Algorithm SHA256).Hash -ne
+      $secretHash) {
+    throw 'Restored DPAPI API secret hash differs from the original.'
+  }
   if ((Get-Content -LiteralPath (Join-Path $unrelatedData 'settings.json') -Raw) `
       -ne '{"source":"unrelated"}') {
     throw 'An unrelated portable data directory was modified.'
+  }
+
+  # A post-install file that differs from the verified backup is a recovery
+  # conflict. Restoration must fail closed and retain both the state file and
+  # the verified backup so the operation can be retried without data loss.
+  $conflictInstallDir = Join-Path $testRoot 'conflict\Programs\SSRVPN'
+  $conflictDataDir = Join-Path $conflictInstallDir 'bin\ssrvpn'
+  $conflictRecoveryRoot = Join-Path $testRoot 'conflict\recovery'
+  $conflictStateFile = Join-Path $testRoot `
+    'conflict\installer\rebuild-state.json'
+  New-Item -ItemType Directory -Path $conflictDataDir -Force | Out-Null
+  [System.IO.File]::WriteAllText(
+    (Join-Path $conflictDataDir 'settings.json'),
+    '{"source":"preserved"}'
+  )
+  [System.IO.File]::WriteAllText(
+    (Join-Path $conflictDataDir 'subscriptions.json'),
+    '["preserved"]'
+  )
+  [System.IO.File]::WriteAllBytes(
+    (Join-Path $conflictDataDir '.api-secret.dpapi'),
+    [System.Text.Encoding]::UTF8.GetBytes('preserved-dpapi-envelope')
+  )
+  $conflictSettingsHash = (
+    Get-FileHash -LiteralPath (Join-Path $conflictDataDir 'settings.json') `
+      -Algorithm SHA256
+  ).Hash
+  $conflictSubscriptionsHash = (
+    Get-FileHash -LiteralPath (Join-Path $conflictDataDir 'subscriptions.json') `
+      -Algorithm SHA256
+  ).Hash
+  $conflictSecretHash = (
+    Get-FileHash -LiteralPath (Join-Path $conflictDataDir '.api-secret.dpapi') `
+      -Algorithm SHA256
+  ).Hash
+
+  $conflictPrepared = Invoke-PrepareDirectory `
+    -InstallDir $conflictInstallDir -DataDir $conflictDataDir `
+    -RecoveryRoot $conflictRecoveryRoot -StateFile $conflictStateFile `
+    -ForceRebuild
+  if ($conflictPrepared.ExitCode -ne 0) {
+    throw "Conflict fixture rebuild returned $($conflictPrepared.ExitCode)."
+  }
+  $conflictState = Get-Content -LiteralPath $conflictStateFile -Raw |
+    ConvertFrom-Json
+  $conflictBackup = [string]$conflictState.dataBackup
+  $conflictBackupRoot = [string]$conflictState.backupRoot
+  $backupSettings = Join-Path $conflictBackup 'settings.json'
+  $backupSubscriptions = Join-Path $conflictBackup 'subscriptions.json'
+  if (-not (Test-Path -LiteralPath $backupSettings -PathType Leaf)) {
+    throw 'Conflict fixture did not preserve the verified settings backup.'
+  }
+
+  # Missing and modified recovery sources must both fail before the new
+  # installation is touched, while retaining state and the archived app.
+  Remove-Item -LiteralPath $backupSubscriptions -Force
+  $missingSourceRestore = Invoke-PrepareDirectory `
+    -InstallDir $conflictInstallDir -DataDir $conflictDataDir `
+    -RecoveryRoot $conflictRecoveryRoot -StateFile $conflictStateFile -Restore
+  if ($missingSourceRestore.ExitCode -eq 0) {
+    throw 'A missing manifest source was silently accepted.'
+  }
+  if (-not (Test-Path -LiteralPath $conflictStateFile -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $conflictBackupRoot -PathType Container) -or
+      -not (Test-Path -LiteralPath (Join-Path $conflictBackupRoot 'app') `
+        -PathType Container)) {
+    throw 'Missing recovery source removed state or the archived app.'
+  }
+  [System.IO.File]::WriteAllText($backupSubscriptions, '["preserved"]')
+  if ((Get-FileHash -LiteralPath $backupSubscriptions -Algorithm SHA256).Hash -ne
+      $conflictSubscriptionsHash) {
+    throw 'Missing-source fixture repair did not restore the manifest hash.'
+  }
+
+  [System.IO.File]::WriteAllText(
+    $backupSettings,
+    '{"source":"tampered-backup"}'
+  )
+  $tamperedSourceRestore = Invoke-PrepareDirectory `
+    -InstallDir $conflictInstallDir -DataDir $conflictDataDir `
+    -RecoveryRoot $conflictRecoveryRoot -StateFile $conflictStateFile -Restore
+  if ($tamperedSourceRestore.ExitCode -eq 0) {
+    throw 'A modified manifest source was silently accepted.'
+  }
+  if (-not (Test-Path -LiteralPath $conflictStateFile -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $conflictBackupRoot -PathType Container)) {
+    throw 'Modified recovery source removed state or the verified backup.'
+  }
+  [System.IO.File]::WriteAllText($backupSettings, '{"source":"preserved"}')
+  if ((Get-FileHash -LiteralPath $backupSettings -Algorithm SHA256).Hash -ne
+      $conflictSettingsHash) {
+    throw 'Modified-source fixture repair did not restore the manifest hash.'
+  }
+
+  New-Item -ItemType Directory -Path $conflictDataDir -Force | Out-Null
+  $destinationSettings = Join-Path $conflictDataDir 'settings.json'
+  [System.IO.File]::WriteAllText(
+    $destinationSettings,
+    '{"source":"new-install-conflict"}'
+  )
+  $conflictedRestore = Invoke-PrepareDirectory `
+    -InstallDir $conflictInstallDir -DataDir $conflictDataDir `
+    -RecoveryRoot $conflictRecoveryRoot -StateFile $conflictStateFile -Restore
+  if ($conflictedRestore.ExitCode -eq 0) {
+    throw 'A mismatched recovery destination was silently accepted.'
+  }
+  if (-not (Test-Path -LiteralPath $conflictStateFile -PathType Leaf)) {
+    throw 'Recovery conflict removed the retry state.'
+  }
+  if (-not (Test-Path -LiteralPath $backupSettings -PathType Leaf)) {
+    throw 'Recovery conflict removed the verified backup.'
+  }
+  if ((Get-Content -LiteralPath $destinationSettings -Raw) -ne
+      '{"source":"new-install-conflict"}') {
+    throw 'Recovery conflict overwrote the destination settings.'
+  }
+
+  Remove-Item -LiteralPath $destinationSettings -Force
+  $retriedRestore = Invoke-PrepareDirectory `
+    -InstallDir $conflictInstallDir -DataDir $conflictDataDir `
+    -RecoveryRoot $conflictRecoveryRoot -StateFile $conflictStateFile -Restore
+  if ($retriedRestore.ExitCode -ne 0) {
+    throw "Recovery retry returned $($retriedRestore.ExitCode)."
+  }
+  if (Test-Path -LiteralPath $conflictStateFile) {
+    throw 'Successful recovery retry retained stale state.'
+  }
+  if (Test-Path -LiteralPath $conflictBackupRoot) {
+    throw 'Successful recovery retry retained the consumed backup.'
+  }
+  if ((Get-FileHash -LiteralPath (Join-Path $conflictDataDir 'settings.json') `
+        -Algorithm SHA256).Hash -ne $conflictSettingsHash -or
+      (Get-FileHash `
+        -LiteralPath (Join-Path $conflictDataDir 'subscriptions.json') `
+        -Algorithm SHA256).Hash -ne $conflictSubscriptionsHash -or
+      (Get-FileHash `
+        -LiteralPath (Join-Path $conflictDataDir '.api-secret.dpapi') `
+        -Algorithm SHA256).Hash -ne $conflictSecretHash) {
+    throw 'Recovery retry did not restore every critical file byte-for-byte.'
   }
 
   $processRoot = Join-Path $testRoot 'process\installed'

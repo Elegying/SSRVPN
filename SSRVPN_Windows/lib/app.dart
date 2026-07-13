@@ -409,6 +409,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   Widget _buildStartupShell(StartupStatus status) {
     final failures = status.failures;
     final startupFailed = status.completed && !status.servicesReady;
+    final requiresSecretRecovery =
+        failures.any((failure) => failure.requiresWindowsSecretRecovery);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
@@ -443,7 +445,11 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      startupFailed ? '初始化服务失败，请稍后查看诊断日志。' : '正在加载必要组件...',
+                      startupFailed
+                          ? (requiresSecretRecovery
+                              ? '本机密钥无法解密，请按下方步骤保留旧密文并恢复启动。'
+                              : '初始化服务失败，请稍后查看诊断日志。')
+                          : '正在加载必要组件...',
                       style: const TextStyle(
                         fontSize: 14,
                         color: AppTheme.textSecondary,
@@ -536,7 +542,8 @@ class _MainShell extends StatelessWidget {
                   icon: Icons.error_outline,
                   color: AppTheme.error,
                   title: '部分启动步骤失败',
-                  message: failures.map(_startupFailureSummary).join('\n'),
+                  message:
+                      failures.map((failure) => failure.userSummary).join('\n'),
                 ),
               if (runtimeNotice != null)
                 _StartupBanner(
@@ -939,10 +946,9 @@ class _StartupProblemPanel extends StatelessWidget {
           for (final failure in failures.take(3))
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                _startupFailureSummary(failure),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+              child: SelectableText(
+                failure.userSummary,
+                maxLines: failure.requiresWindowsSecretRecovery ? null : 2,
                 style: const TextStyle(
                   color: AppTheme.textSecondary,
                   fontSize: 12,
@@ -965,21 +971,6 @@ double? _startupProgress(StartupStatus status) {
   if (finishedSteps == 0 && status.currentStep == null) return null;
   final runningStep = status.currentStep == null ? 0 : 0.35;
   return ((finishedSteps + runningStep) / _startupStepCount).clamp(0.08, 0.95);
-}
-
-String _startupFailureSummary(StartupFailure failure) {
-  switch (failure.step) {
-    case 'window_manager':
-      return '窗口组件初始化失败，请尝试安全模式启动。';
-    case 'screen_retriever':
-      return '显示器信息读取失败，应用会继续尝试打开。';
-    case 'system_tray':
-      return '系统托盘初始化失败，应用会继续尝试打开。';
-    case 'mihomo_core':
-      return '核心服务初始化失败，请稍后查看诊断日志。';
-    default:
-      return '启动组件初始化失败，应用会继续尝试打开。';
-  }
 }
 
 class _StartupBanner extends StatelessWidget {

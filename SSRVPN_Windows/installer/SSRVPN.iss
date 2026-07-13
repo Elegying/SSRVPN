@@ -51,9 +51,17 @@ Name: "{autoprograms}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir:
 Name: "{autodesktop}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
 
 [Run]
-Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"; Flags: nowait
+Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"; Flags: nowait; Check: CanLaunchAfterRestore
 
 [Code]
+var
+  InstallDataRestoreSucceeded: Boolean;
+
+function CanLaunchAfterRestore: Boolean;
+begin
+  Result := InstallDataRestoreSucceeded;
+end;
+
 function RunInstallDirectoryHelper(Restore: Boolean): Integer;
 var
   ResultCode: Integer;
@@ -141,14 +149,16 @@ var
   StopResult: Integer;
   DirectoryResult: Integer;
 begin
+  InstallDataRestoreSucceeded := True;
   StopResult := StopSsrvpnProcesses;
   DirectoryResult := PrepareInstallDirectory;
   if StopResult <> 0 then
     Log(Format('Best-effort process cleanup returned %d', [StopResult]));
-  if DirectoryResult <> 0 then
-    Log(Format('Best-effort directory preparation returned %d', [DirectoryResult]));
-  { Custom preparation must never block the actual Inno installation. }
-  Result := '';
+  if DirectoryResult <> 0 then begin
+    Result := 'SSRVPN 无法安全备份或恢复现有数据。安装已停止；' +
+      '请保留 %LOCALAPPDATA%\SSRVPN\installer-recovery 后查看安装日志。';
+  end else
+    Result := '';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -157,7 +167,14 @@ var
 begin
   if CurStep = ssPostInstall then begin
     RestoreResult := RestoreInstallData;
-    if RestoreResult <> 0 then
+    InstallDataRestoreSucceeded := RestoreResult = 0;
+    if RestoreResult <> 0 then begin
       Log(Format('Best-effort installation data restore returned %d', [RestoreResult]));
+      MsgBox(
+        'SSRVPN 已安装，但旧数据尚未安全恢复，因此不会自动启动。' + #13#10 +
+        '恢复副本仍保留在 %LOCALAPPDATA%\SSRVPN\installer-recovery。' + #13#10 +
+        '请查看安装日志并重新运行安装器。',
+        mbError, MB_OK);
+    end;
   end;
 end;

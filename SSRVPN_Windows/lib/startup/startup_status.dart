@@ -3,18 +3,45 @@ import 'package:flutter/foundation.dart';
 import '../services/clash_service.dart';
 import '../services/settings_service.dart';
 import '../services/subscription_service.dart';
+import '../services/windows_dpapi_secret_store.dart';
 
 class StartupFailure {
   StartupFailure({
     required this.step,
     required Object error,
     DateTime? time,
-  })  : message = _formatError(error),
+  })  : requiresWindowsSecretRecovery =
+            error is WindowsApiSecretRecoveryRequired,
+        windowsSecretRecoveryPath =
+            error is WindowsApiSecretRecoveryRequired ? error.path : null,
+        message = _formatError(error),
         time = time ?? DateTime.now();
 
   final String step;
   final String message;
   final DateTime time;
+  final bool requiresWindowsSecretRecovery;
+  final String? windowsSecretRecoveryPath;
+
+  String get userSummary {
+    if (requiresWindowsSecretRecovery) {
+      return '当前 Windows 账户无法解密本机密钥。关闭 SSRVPN，将 '
+          '$windowsSecretRecoveryPath 重命名为 .api-secret.dpapi.unreadable '
+          '后再启动；旧密文不会被自动删除。';
+    }
+    switch (step) {
+      case 'window_manager':
+        return '窗口组件初始化失败，请尝试安全模式启动。';
+      case 'screen_retriever':
+        return '显示器信息读取失败，应用会继续尝试打开。';
+      case 'system_tray':
+        return '系统托盘初始化失败，应用会继续尝试打开。';
+      case 'mihomo_core':
+        return '核心服务初始化失败，请稍后查看诊断日志。';
+      default:
+        return '启动组件初始化失败，应用会继续尝试打开。';
+    }
+  }
 
   static String _formatError(Object error) {
     final message = error.toString().replaceFirst('Exception: ', '');

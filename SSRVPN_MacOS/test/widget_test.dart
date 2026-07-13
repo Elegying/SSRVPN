@@ -129,7 +129,7 @@ void main() {
     addTearDown(() => temp.delete(recursive: true));
     final blockedPath = '${temp.path}${Platform.pathSeparator}blocked';
     await Directory(blockedPath).create();
-    final service = SettingsService.createForTesting(
+    final service = await SettingsService.createForTesting(
       settings: AppSettings(),
       dataDir: temp.path,
       settingsPath: blockedPath,

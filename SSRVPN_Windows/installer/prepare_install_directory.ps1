@@ -18,6 +18,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $dataFiles = @(
+  '.api-secret.dpapi',
   'settings.json',
   'subscriptions.json',
   'subscription_cache.yaml',
@@ -76,7 +77,8 @@ function Test-DirectoryWritable {
 function Copy-VerifiedFile {
   param(
     [Parameter(Mandatory = $true)][string]$Source,
-    [Parameter(Mandatory = $true)][string]$Destination
+    [Parameter(Mandatory = $true)][string]$Destination,
+    [string]$ExpectedHash = ''
   )
 
   $destinationParent = Split-Path -LiteralPath $Destination -Parent
@@ -88,6 +90,12 @@ function Copy-VerifiedFile {
     $tempHash = (Get-FileHash -LiteralPath $temp -Algorithm SHA256).Hash
     if ($sourceHash -ne $tempHash) {
       throw "Backup hash mismatch for $Source."
+    }
+    if ($ExpectedHash -and -not $tempHash.Equals(
+        $ExpectedHash,
+        [System.StringComparison]::OrdinalIgnoreCase
+      )) {
+      throw "Copied file hash differs from the recovery manifest: $Source"
     }
     Move-Item -LiteralPath $temp -Destination $Destination -Force
   } finally {
@@ -115,31 +123,99 @@ function Restore-RebuildData {
   if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) { return }
 
   $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+  if (-not ($state.PSObject.Properties.Name -contains 'files')) {
+    throw 'The SSRVPN recovery manifest is missing.'
+  }
+  $recordedInstallPath = [System.IO.Path]::GetFullPath(
+    [string]$state.installDir
+  ).TrimEnd('\')
+  $recordedDataPath = [System.IO.Path]::GetFullPath(
+    [string]$state.dataDir
+  ).TrimEnd('\')
+  if (-not $recordedInstallPath.Equals(
+      $installPath,
+      [System.StringComparison]::OrdinalIgnoreCase
+    ) -or -not $recordedDataPath.Equals(
+      $dataPath,
+      [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+    throw 'The SSRVPN recovery state belongs to a different installation.'
+  }
+  $backupRoot = [System.IO.Path]::GetFullPath([string]$state.backupRoot)
   $backupPath = [System.IO.Path]::GetFullPath([string]$state.dataBackup)
-  if (-not (Test-ChildPath -Parent $recoveryPath -Child $backupPath)) {
+  if (-not (Test-ChildPath -Parent $recoveryPath -Child $backupRoot) -or
+      -not (Test-ChildPath -Parent $backupRoot -Child $backupPath)) {
     throw 'The recorded SSRVPN recovery directory is outside the recovery root.'
   }
-  if (Test-ReparsePoint -Path $backupPath) {
+  if (-not (Test-Path -LiteralPath $backupRoot -PathType Container) -or
+      -not (Test-Path -LiteralPath $backupPath -PathType Container)) {
+    throw 'The recorded SSRVPN recovery directory is missing.'
+  }
+  if ((Test-ReparsePoint -Path $backupRoot) -or
+      (Test-ReparsePoint -Path $backupPath)) {
     throw 'The recorded SSRVPN recovery directory is a reparse point.'
   }
 
-  New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
-  foreach ($name in $dataFiles) {
+  # Verify the complete manifest before touching the new installation. A
+  # missing or modified backup must retain the state and archived app so the
+  # failure stays recoverable.
+  $manifest = @($state.files)
+  $seenNames = @{}
+  foreach ($entry in $manifest) {
+    $name = [string]$entry.name
+    $expectedHash = [string]$entry.sha256
+    if (-not ($dataFiles -contains $name) -or $seenNames.ContainsKey($name)) {
+      throw "The SSRVPN recovery manifest contains an invalid file: $name"
+    }
+    if ($expectedHash -notmatch '^[0-9A-Fa-f]{64}$') {
+      throw "The SSRVPN recovery manifest contains an invalid hash: $name"
+    }
+    $seenNames[$name] = $true
     $source = Join-Path $backupPath $name
-    $destination = Join-Path $dataPath $name
-    if ((Test-Path -LiteralPath $source -PathType Leaf) -and
-        -not (Test-ReparsePoint -Path $source) -and
-        -not (Test-Path -LiteralPath $destination)) {
-      Copy-VerifiedFile -Source $source -Destination $destination
+    $sourceItem = Get-PathItem -Path $source
+    if ($null -eq $sourceItem -or $sourceItem.PSIsContainer -or
+        ($sourceItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+      throw "Recovery source is missing or not a regular file: $source"
+    }
+    $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+    if (-not $sourceHash.Equals(
+        $expectedHash,
+        [System.StringComparison]::OrdinalIgnoreCase
+      )) {
+      throw "Recovery source hash differs from the manifest: $source"
     }
   }
 
-  $backupRoot = [System.IO.Path]::GetFullPath([string]$state.backupRoot)
-  if (Test-ChildPath -Parent $recoveryPath -Child $backupRoot) {
-    Remove-Item -LiteralPath $backupRoot -Recurse -Force `
-      -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
+  foreach ($entry in $manifest) {
+    $name = [string]$entry.name
+    $expectedHash = [string]$entry.sha256
+    $source = Join-Path $backupPath $name
+    $destination = Join-Path $dataPath $name
+
+    $destinationItem = Get-PathItem -Path $destination
+    if ($null -eq $destinationItem) {
+      Copy-VerifiedFile -Source $source -Destination $destination `
+        -ExpectedHash $expectedHash
+      continue
+    }
+    if ($destinationItem.PSIsContainer -or
+        ($destinationItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+      throw "Recovery destination is not a regular file: $destination"
+    }
+    $destinationHash = (
+      Get-FileHash -LiteralPath $destination -Algorithm SHA256
+    ).Hash
+    if (-not $destinationHash.Equals(
+        $expectedHash,
+        [System.StringComparison]::OrdinalIgnoreCase
+      )) {
+      throw "Recovery conflict; preserved backup differs from $destination"
+    }
   }
-  Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+
+  Remove-Item -LiteralPath $backupRoot -Recurse -Force
+  Remove-Item -LiteralPath $statePath -Force
 }
 
 if ($Restore) {
@@ -151,12 +227,7 @@ if ($Restore) {
 try {
   Restore-RebuildData
 } catch {
-  Write-Warning "Prior SSRVPN recovery state could not be reused: $($_.Exception.Message)"
-  if (Test-Path -LiteralPath $statePath -PathType Leaf) {
-    $invalidState = "$statePath.invalid-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff'))"
-    Move-Item -LiteralPath $statePath -Destination $invalidState -Force `
-      -ErrorAction SilentlyContinue
-  }
+  throw "Prior SSRVPN recovery must be resolved before installation: $($_.Exception.Message)"
 }
 
 if ((Test-Path -LiteralPath $installPath -PathType Container) -and
@@ -172,14 +243,23 @@ $backupRoot = Join-Path $recoveryPath (
 )
 $dataBackup = Join-Path $backupRoot 'data'
 New-Item -ItemType Directory -Path $dataBackup -Force | Out-Null
+$backupManifest = @()
 
 if ((Test-Path -LiteralPath $dataPath -PathType Container) -and
     -not (Test-ReparsePoint -Path $dataPath)) {
   foreach ($name in $dataFiles) {
     $source = Join-Path $dataPath $name
-    if ((Test-Path -LiteralPath $source -PathType Leaf) -and
-        -not (Test-ReparsePoint -Path $source)) {
-      Copy-VerifiedFile -Source $source -Destination (Join-Path $dataBackup $name)
+    $sourceItem = Get-PathItem -Path $source
+    if ($null -eq $sourceItem) { continue }
+    if ($sourceItem.PSIsContainer -or
+        ($sourceItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+      throw "SSRVPN data source is not a regular file: $source"
+    }
+    $destination = Join-Path $dataBackup $name
+    Copy-VerifiedFile -Source $source -Destination $destination
+    $backupManifest += [ordered]@{
+      name = $name
+      sha256 = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
     }
   }
 }
@@ -191,12 +271,13 @@ $state = [ordered]@{
   dataDir = $dataPath
   backupRoot = $backupRoot
   dataBackup = $dataBackup
+  files = $backupManifest
 }
 $tempState = "$statePath.$PID.tmp"
 try {
   [System.IO.File]::WriteAllText(
     $tempState,
-    ($state | ConvertTo-Json -Compress),
+    ($state | ConvertTo-Json -Depth 4 -Compress),
     (New-Object System.Text.UTF8Encoding($false))
   )
   Move-Item -LiteralPath $tempState -Destination $statePath -Force

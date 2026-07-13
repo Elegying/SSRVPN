@@ -51,7 +51,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotIn("postinstall", run_entry)
         self.assertNotIn("skipifsilent", run_entry)
 
-    def test_installer_ignores_portable_copies_and_never_blocks_preinstall(self) -> None:
+    def test_installer_ignores_portable_copies_and_blocks_unsafe_rebuild(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
         installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
 
@@ -63,7 +63,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             prepare.index("PrepareInstallDirectory"),
         )
         self.assertIn("Result := '';", prepare)
-        self.assertNotIn("Exit;", prepare)
+        self.assertIn("无法安全备份或恢复现有数据", prepare)
+        self.assertIn("CanLaunchAfterRestore", installer)
+        self.assertIn("旧数据尚未安全恢复", installer)
         self.assertNotIn("DiscoverPortableData", installer)
         self.assertNotIn("MigratePortableData", installer)
         self.assertNotIn("migrate_portable_data.ps1", installer)
@@ -85,6 +87,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("-StateFile", installer)
         self.assertIn("-Restore", installer)
         self.assertIn("subscriptions.json", prepare)
+        self.assertIn("files = $backupManifest", prepare)
+        self.assertIn("ConvertTo-Json -Depth 4", prepare)
+        self.assertIn("recovery manifest is missing", prepare)
+        self.assertIn("source hash differs from the manifest", prepare)
         self.assertIn("Get-FileHash", prepare)
         self.assertIn("Test-ChildPath", prepare)
         self.assertIn("Get-PathItem", prepare)

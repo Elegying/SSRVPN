@@ -26,6 +26,9 @@ dependencies:
   # App data directory (macOS)
   path_provider: ^2.1.6
 
+  # Directory fsync after atomic secret/settings replacement
+  ffi: ^2.1.0
+
   # Window management (size, hide, focus)
   window_manager: ^0.5.1
   screen_retriever: ^0.2.1

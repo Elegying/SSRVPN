@@ -165,6 +165,45 @@ void main() {
 
       expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
     });
+
+    test('运行时配置仅允许当前用户读写', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_private_config_',
+      );
+      addTearDown(() => tempDir.delete(recursive: true));
+      final service = ClashService();
+      await service.init(
+        AppSettings(),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+
+      await service.writeConfig('secret: local-api-secret\n');
+
+      final mode = (await File(service.configPath).stat()).mode & 0x1ff;
+      expect(mode, 0x180, reason: 'config.yaml must use mode 0600');
+    });
+
+    test('原子写入在敏感内容落盘前执行权限保护', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_atomic_permissions_',
+      );
+      addTearDown(() => tempDir.delete(recursive: true));
+      final service = ClashService();
+      final output = File('${tempDir.path}/config.yaml');
+      var lengthBeforeWrite = -1;
+
+      await service.writeStringAtomically(
+        output,
+        'secret: local-api-secret\n',
+        beforeWrite: (temp) async {
+          lengthBeforeWrite = await temp.length();
+        },
+      );
+
+      expect(lengthBeforeWrite, 0);
+      expect(await output.readAsString(), contains('local-api-secret'));
+    });
   });
 
   group('macOS core privilege boundary', () {

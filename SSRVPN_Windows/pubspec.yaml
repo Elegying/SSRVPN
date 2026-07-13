@@ -20,6 +20,10 @@ dependencies:
   # HTTP client for subscription fetch and Clash API
   http: ^1.0.0
 
+  # Current-user DPAPI storage with same-directory atomic replacement
+  ffi: ^2.1.0
+  win32: ^6.3.0
+
   # Shared code across all SSRVPN platforms
   ssrvpn_shared:
     path: ../packages/ssrvpn_shared

@@ -41,6 +41,18 @@ mixin _MacosClashConfig on ClashServiceBase {
   }
 
   Future<void> writeConfig(String configContent) async {
-    await writeStringAtomically(File(configPath), configContent);
+    await writeStringAtomically(
+      File(configPath),
+      configContent,
+      beforeWrite: (temp) async {
+        final result = await Process.run('/bin/chmod', ['600', temp.path]);
+        if (result.exitCode != 0) {
+          throw FileSystemException(
+            'Unable to protect runtime configuration',
+            temp.path,
+          );
+        }
+      },
+    );
   }
 }

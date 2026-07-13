@@ -5,13 +5,23 @@ mixin _ClashRuntimeSupport {
   void updateSettings(AppSettings settings);
   void log(String message);
 
-  Future<void> writeStringAtomically(File file, String content) async {
+  Future<void> writeStringAtomically(
+    File file,
+    String content, {
+    Future<void> Function(File temp)? beforeWrite,
+  }) async {
     await file.parent.create(recursive: true);
     final temp = File(
       '${file.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
     );
-    await temp.writeAsString(content, flush: true);
-    await temp.rename(file.path);
+    try {
+      await temp.create(exclusive: true);
+      await beforeWrite?.call(temp);
+      await temp.writeAsString(content, flush: true);
+      await temp.rename(file.path);
+    } finally {
+      if (await temp.exists()) await temp.delete();
+    }
   }
 
   Future<void> writeBytesAtomically(File file, List<int> bytes) async {
