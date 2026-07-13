@@ -21,6 +21,7 @@ AppSupportURL=https://github.com/Elegying/SSRVPN/issues
 AppUpdatesURL=https://github.com/Elegying/SSRVPN/releases
 DefaultDirName={localappdata}\Programs\SSRVPN
 DefaultGroupName=SSRVPN
+DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -35,14 +36,14 @@ WizardStyle=modern
 CloseApplications=force
 CloseApplicationsFilter=ssrvpn_windows.exe,ssrvpn_windows_app.exe
 RestartApplications=no
-UsePreviousAppDir=yes
+UsePreviousAppDir=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#ProjectDir}\installer\migrate_portable_data.ps1"; Flags: dontcopy
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs overwritereadonly restartreplace
+Source: "{#ProjectDir}\installer\prepare_install_directory.ps1"; Flags: dontcopy
 Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; Flags: dontcopy
 
 [Icons]
@@ -53,60 +54,68 @@ Name: "{autodesktop}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: 
 Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"; Flags: nowait
 
 [Code]
-function RunPortableDataMigration(DiscoverOnly: Boolean): Integer;
+function RunInstallDirectoryHelper(Restore: Boolean): Integer;
 var
   ResultCode: Integer;
   Started: Boolean;
   PowerShellPath: String;
   ScriptPath: String;
-  DestinationPath: String;
+  InstallPath: String;
+  DataPath: String;
+  RecoveryPath: String;
   StatePath: String;
   Parameters: String;
 begin
-  ExtractTemporaryFile('migrate_portable_data.ps1');
+  ResultCode := -1;
+  ExtractTemporaryFile('prepare_install_directory.ps1');
   PowerShellPath := ExpandConstant(
     '{sys}\WindowsPowerShell\v1.0\powershell.exe');
-  ScriptPath := ExpandConstant('{tmp}\migrate_portable_data.ps1');
-  DestinationPath := ExpandConstant('{app}\bin\ssrvpn');
-  StatePath := ExpandConstant('{tmp}\portable_data_source.txt');
+  ScriptPath := ExpandConstant('{tmp}\prepare_install_directory.ps1');
+  InstallPath := ExpandConstant('{app}');
+  DataPath := ExpandConstant('{app}\bin\ssrvpn');
+  RecoveryPath := ExpandConstant('{localappdata}\SSRVPN\installer-recovery');
+  StatePath := ExpandConstant('{localappdata}\SSRVPN\installer\rebuild-state.json');
   Parameters := '-NoLogo -NoProfile -NonInteractive ' +
     '-ExecutionPolicy Bypass -File ' + AddQuotes(ScriptPath) +
-    ' -Destination ' + AddQuotes(DestinationPath) +
-    ' -StateFile ' + AddQuotes(StatePath) +
-    ' -SetupSource ' + AddQuotes(ExpandConstant('{src}'));
-  if DiscoverOnly then
-    Parameters := Parameters + ' -DiscoverOnly';
+    ' -InstallDir ' + AddQuotes(InstallPath) +
+    ' -DataDir ' + AddQuotes(DataPath) +
+    ' -RecoveryRoot ' + AddQuotes(RecoveryPath) +
+    ' -StateFile ' + AddQuotes(StatePath);
+  if Restore then
+    Parameters := Parameters + ' -Restore';
   Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
     ewWaitUntilTerminated, ResultCode);
   if not Started then begin
-    Log('Could not start portable data migration helper');
+    Log('Could not start installation-directory helper');
     Result := -1;
   end else begin
     Result := ResultCode;
   end;
   if Result <> 0 then
-    Log(Format('Portable data migration helper returned %d', [Result]));
+    Log(Format('Installation-directory helper returned %d', [Result]));
 end;
 
-function DiscoverPortableData: Integer;
+function PrepareInstallDirectory: Integer;
 begin
-  Result := RunPortableDataMigration(True);
+  Result := RunInstallDirectoryHelper(False);
 end;
 
-function MigratePortableData: Integer;
+function RestoreInstallData: Integer;
 begin
-  Result := RunPortableDataMigration(False);
+  Result := RunInstallDirectoryHelper(True);
 end;
 
-function StopSsrvpnProcesses: Boolean;
+function StopSsrvpnProcesses: Integer;
 var
   ResultCode: Integer;
+  Started: Boolean;
   PowerShellPath: String;
   ScriptPath: String;
   InstalledCorePath: String;
   InstalledCorePidPath: String;
   Parameters: String;
 begin
+  ResultCode := -1;
   ExtractTemporaryFile('stop_ssrvpn_processes.ps1');
   PowerShellPath := ExpandConstant(
     '{sys}\WindowsPowerShell\v1.0\powershell.exe');
@@ -117,43 +126,40 @@ begin
     '-ExecutionPolicy Bypass -File ' + AddQuotes(ScriptPath) +
     ' -InstalledCorePath ' + AddQuotes(InstalledCorePath) +
     ' -InstalledCorePidPath ' + AddQuotes(InstalledCorePidPath);
-  Result := Exec(PowerShellPath, Parameters, '', SW_HIDE,
-    ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
-  if not Result then
-    Log(Format('SSRVPN process cleanup failed with result %d', [ResultCode]));
+  Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
+    ewWaitUntilTerminated, ResultCode);
+  if Started then
+    Result := ResultCode
+  else
+    Result := -1;
+  if Result <> 0 then
+    Log(Format('SSRVPN process cleanup returned %d; install continues', [Result]));
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  DiscoveryResult: Integer;
-  MigrationResult: Integer;
+  StopResult: Integer;
+  DirectoryResult: Integer;
 begin
-  DiscoveryResult := DiscoverPortableData;
-  if DiscoveryResult = 10 then begin
-    Result := '检测到多个便携版 SSRVPN 数据目录，无法安全判断应迁移哪一个。' +
-      '请只保留需要迁移的便携版副本后重试。';
-    Exit;
-  end;
-  if DiscoveryResult <> 0 then begin
-    Log(Format('Portable data discovery failed with result %d; migration skipped',
-      [DiscoveryResult]));
-    MsgBox('旧版便携数据检测发生异常（错误码 ' + IntToStr(DiscoveryResult) +
-      '），自动迁移已跳过。安装将继续，旧版数据不会被删除；' +
-      '如新客户端中没有原订阅，请重新导入订阅。', mbInformation, MB_OK);
-  end;
-  if not StopSsrvpnProcesses then begin
-    Result := '无法关闭正在运行的 SSRVPN。请先从托盘退出 SSRVPN，' +
-      '或在任务管理器中结束 SSRVPN 后重试。';
-    Exit;
-  end;
-  if DiscoveryResult = 0 then begin
-    MigrationResult := MigratePortableData;
-    if MigrationResult <> 0 then begin
-      Result := '便携版数据迁移失败（错误码 ' + IntToStr(MigrationResult) +
-        '）。为避免丢失订阅和设置，安装已停止。请重试；' +
-        '如果仍然失败，请先备份旧版 ssrvpn 数据目录。';
-      Exit;
-    end;
-  end;
+  StopResult := StopSsrvpnProcesses;
+  DirectoryResult := PrepareInstallDirectory;
+  if StopResult <> 0 then
+    Log(Format('Best-effort process cleanup returned %d', [StopResult]));
+  if DirectoryResult <> 0 then
+    Log(Format('Best-effort directory preparation returned %d',
+      [DirectoryResult]));
+  { Custom preparation must never block the actual Inno installation. }
   Result := '';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  RestoreResult: Integer;
+begin
+  if CurStep = ssPostInstall then begin
+    RestoreResult := RestoreInstallData;
+    if RestoreResult <> 0 then
+      Log(Format('Best-effort installation data restore returned %d',
+        [RestoreResult]));
+  end;
 end;

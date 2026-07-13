@@ -57,7 +57,7 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 6. 再次连接后从任务管理器结束 `bin\mihomo.exe`；应用应退出连接状态并自动清理自己设置的系统代理，不得留下半连接状态。
 7. 再次连接后从托盘选择“退出 SSRVPN”；应用和 Mihomo 都应退出，系统代理必须恢复，`%LOCALAPPDATA%\SSRVPN\crashes` 不应新增转储。
 8. Windows 分别用普通权限和管理员权限检查 TUN：普通权限必须明确失败且不残留代理；管理员权限下应能连接、断开并恢复网络。macOS TUN 必须显示管理员授权框；取消授权、启动超时、正常断开和退出均不得遗留 root Mihomo、utun 默认路由、暂存目录或系统代理。
-9. 保持便携版正在运行并启动 `SSRVPN_Setup.exe`；安装器必须自动结束旧进程、迁移订阅和设置、安装到 `%LOCALAPPDATA%\Programs\SSRVPN` 并自动启动新版本。
+9. 创建两个带 `settings.json` 的便携副本，再启动 `SSRVPN_Setup.exe`；安装器必须忽略两个副本、安装到 `%LOCALAPPDATA%\Programs\SSRVPN` 并自动启动。随后覆盖安装一次，确认安装目录中的订阅和设置保留；模拟目录只读或损坏时，确认校验备份、目录重建和安装后恢复均成功。
 10. 检查应用内更新优先打开 OSS 的 `SSRVPN_Setup.exe`，OSS 异常时能使用 GitHub 备用下载。日志可提交排查，但不要公开发送 `.dmp` 文件。
 
 ## 发布

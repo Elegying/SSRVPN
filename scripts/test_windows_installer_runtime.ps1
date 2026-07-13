@@ -1,78 +1,113 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -LiteralPath $PSScriptRoot -Parent
-$migrationScript = Join-Path $root 'SSRVPN_Windows\installer\migrate_portable_data.ps1'
-$stopScript = Join-Path $root 'SSRVPN_Windows\installer\stop_ssrvpn_processes.ps1'
-$testRoot = Join-Path $env:RUNNER_TEMP "ssrvpn-installer-test-$([Guid]::NewGuid().ToString('N'))"
+$prepareScript = Join-Path $root `
+  'SSRVPN_Windows\installer\prepare_install_directory.ps1'
+$stopScript = Join-Path $root `
+  'SSRVPN_Windows\installer\stop_ssrvpn_processes.ps1'
+$tempRoot = if ($env:RUNNER_TEMP) {
+  $env:RUNNER_TEMP
+} else {
+  [System.IO.Path]::GetTempPath()
+}
+$testRoot = Join-Path $tempRoot `
+  "ssrvpn-installer-test-$([Guid]::NewGuid().ToString('N'))"
 
-function Invoke-Migration {
+function Invoke-PrepareDirectory {
   param(
-    [Parameter(Mandatory = $true)][string]$Destination,
+    [Parameter(Mandatory = $true)][string]$InstallDir,
+    [Parameter(Mandatory = $true)][string]$DataDir,
+    [Parameter(Mandatory = $true)][string]$RecoveryRoot,
     [Parameter(Mandatory = $true)][string]$StateFile,
-    [Parameter(Mandatory = $true)][string]$SetupSource,
-    [switch]$DiscoverOnly
+    [switch]$Restore,
+    [switch]$ForceRebuild
   )
 
   $arguments = @(
     '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-    '-File', $migrationScript,
-    '-Destination', $Destination,
-    '-StateFile', $StateFile,
-    '-SetupSource', $SetupSource
+    '-File', $prepareScript,
+    '-InstallDir', $InstallDir,
+    '-DataDir', $DataDir,
+    '-RecoveryRoot', $RecoveryRoot,
+    '-StateFile', $StateFile
   )
-  if ($DiscoverOnly) { $arguments += '-DiscoverOnly' }
-  $process = Start-Process powershell.exe -ArgumentList $arguments `
+  if ($Restore) { $arguments += '-Restore' }
+  if ($ForceRebuild) { $arguments += '-ForceRebuild' }
+  return Start-Process powershell.exe -ArgumentList $arguments `
     -Wait -PassThru -WindowStyle Hidden
-  return $process.ExitCode
 }
 
 try {
   New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
-  $sourceA = Join-Path $testRoot 'portable-a\bin'
-  $sourceB = Join-Path $testRoot 'portable-b\bin'
-  foreach ($source in @($sourceA, $sourceB)) {
-    New-Item -ItemType Directory -Path (Join-Path $source 'ssrvpn') -Force |
-      Out-Null
-    New-Item -ItemType File -Path (Join-Path $source 'ssrvpn_windows_app.exe') `
-      -Force | Out-Null
-    [System.IO.File]::WriteAllText(
-      (Join-Path $source 'ssrvpn\settings.json'),
-      "{`"source`":`"$source`"}"
-    )
-  }
-  $destination = Join-Path $testRoot 'installed\bin\ssrvpn'
-  $stateFile = Join-Path $testRoot 'portable-source.txt'
 
-  $ambiguousExitCode = Invoke-Migration -Destination $destination `
-    -StateFile $stateFile -SetupSource $testRoot -DiscoverOnly
-  if ($ambiguousExitCode -ne 10) {
-    throw "Ambiguous portable sources returned $ambiguousExitCode instead of 10."
-  }
+  $installDir = Join-Path $testRoot 'Programs\SSRVPN'
+  $dataDir = Join-Path $installDir 'bin\ssrvpn'
+  $recoveryRoot = Join-Path $testRoot 'recovery'
+  $stateFile = Join-Path $testRoot 'installer\rebuild-state.json'
+  New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+  [System.IO.File]::WriteAllText(
+    (Join-Path $dataDir 'settings.json'),
+    '{"source":"installed"}'
+  )
+  [System.IO.File]::WriteAllText(
+    (Join-Path $dataDir 'subscriptions.json'),
+    '["installed"]'
+  )
+  $settingsHash = (
+    Get-FileHash -LiteralPath (Join-Path $dataDir 'settings.json') `
+      -Algorithm SHA256
+  ).Hash
 
-  Remove-Item -LiteralPath (Join-Path $testRoot 'portable-b') -Recurse -Force
-  if ((Invoke-Migration -Destination $destination -StateFile $stateFile `
-      -SetupSource $testRoot -DiscoverOnly) -ne 0) {
-    throw 'A single portable source was not discovered.'
+  # A second valid-looking portable data directory must be completely ignored.
+  $unrelatedData = Join-Path $testRoot 'Downloads\SSRVPN\bin\ssrvpn'
+  New-Item -ItemType Directory -Path $unrelatedData -Force | Out-Null
+  [System.IO.File]::WriteAllText(
+    (Join-Path $unrelatedData 'settings.json'),
+    '{"source":"unrelated"}'
+  )
+
+  $prepared = Invoke-PrepareDirectory -InstallDir $installDir `
+    -DataDir $dataDir -RecoveryRoot $recoveryRoot -StateFile $stateFile `
+    -ForceRebuild
+  if ($prepared.ExitCode -ne 0) {
+    throw "Forced installation-directory rebuild returned $($prepared.ExitCode)."
   }
-  if ((Invoke-Migration -Destination $destination -StateFile $stateFile `
-      -SetupSource $testRoot) -ne 0) {
-    throw 'Portable data migration failed.'
+  if (-not (Test-Path -LiteralPath $installDir -PathType Container)) {
+    throw 'The active installation directory was not rebuilt.'
   }
-  $migrated = Join-Path $destination 'settings.json'
-  if (-not (Test-Path -LiteralPath $migrated -PathType Leaf)) {
-    throw 'Migrated settings.json is missing.'
-  }
-  if ((Get-FileHash -LiteralPath $migrated -Algorithm SHA256).Hash -ne
-      (Get-FileHash -LiteralPath (Join-Path $sourceA 'ssrvpn\settings.json') `
-        -Algorithm SHA256).Hash) {
-    throw 'Migrated settings.json hash differs from the source.'
-  }
-  if (Get-ChildItem -LiteralPath $destination -Filter '*.tmp') {
-    throw 'Portable migration left temporary files behind.'
+  if (-not (Test-Path -LiteralPath $stateFile -PathType Leaf)) {
+    throw 'The rebuild recovery state was not written.'
   }
 
-  $processRoot = Join-Path $testRoot 'process'
+  # Simulate the installer writing the new version before the post-install restore.
+  New-Item -ItemType Directory -Path (Join-Path $installDir 'bin') -Force |
+    Out-Null
+  [System.IO.File]::WriteAllText(
+    (Join-Path $installDir 'bin\ssrvpn_windows_app.exe'),
+    'new-version'
+  )
+  $restored = Invoke-PrepareDirectory -InstallDir $installDir `
+    -DataDir $dataDir -RecoveryRoot $recoveryRoot -StateFile $stateFile -Restore
+  if ($restored.ExitCode -ne 0) {
+    throw "Installation data restore returned $($restored.ExitCode)."
+  }
+  $restoredSettings = Join-Path $dataDir 'settings.json'
+  if (-not (Test-Path -LiteralPath $restoredSettings -PathType Leaf)) {
+    throw 'The active installation settings were not restored.'
+  }
+  if ((Get-FileHash -LiteralPath $restoredSettings -Algorithm SHA256).Hash -ne
+      $settingsHash) {
+    throw 'Restored settings hash differs from the original.'
+  }
+  if ((Get-Content -LiteralPath (Join-Path $unrelatedData 'settings.json') -Raw) `
+      -ne '{"source":"unrelated"}') {
+    throw 'An unrelated portable data directory was modified.'
+  }
+
+  $processRoot = Join-Path $testRoot 'process\installed'
+  $unrelatedRoot = Join-Path $testRoot 'process\other-product'
   New-Item -ItemType Directory -Path $processRoot -Force | Out-Null
+  New-Item -ItemType Directory -Path $unrelatedRoot -Force | Out-Null
   $corePath = Join-Path $processRoot 'mihomo.exe'
   Add-Type -TypeDefinition @'
 using System.Threading;
@@ -80,11 +115,15 @@ public static class Program {
   public static void Main() { Thread.Sleep(600000); }
 }
 '@ -Language CSharp -OutputAssembly $corePath -OutputType ConsoleApplication
-  $owned = Start-Process -FilePath $corePath -PassThru
-  $unowned = Start-Process -FilePath $corePath -PassThru
+  $unrelatedCorePath = Join-Path $unrelatedRoot 'mihomo.exe'
+  Copy-Item -LiteralPath $corePath -Destination $unrelatedCorePath
+
+  $ownedA = Start-Process -FilePath $corePath -PassThru
+  $ownedB = Start-Process -FilePath $corePath -PassThru
+  $unrelated = Start-Process -FilePath $unrelatedCorePath -PassThru
   Start-Sleep -Milliseconds 300
   $pidFile = Join-Path $processRoot 'mihomo.pid'
-  [System.IO.File]::WriteAllText($pidFile, "$($owned.Id)`n")
+  [System.IO.File]::WriteAllText($pidFile, "$($ownedA.Id)`n")
 
   $stop = Start-Process powershell.exe -ArgumentList @(
     '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
@@ -92,18 +131,19 @@ public static class Program {
     '-InstalledCorePath', $corePath,
     '-InstalledCorePidPath', $pidFile
   ) -Wait -PassThru -WindowStyle Hidden
-  $owned.Refresh()
-  $unowned.Refresh()
-  if (-not $owned.HasExited) {
-    throw 'The exact recorded core PID was not stopped.'
+  $ownedA.Refresh()
+  $ownedB.Refresh()
+  $unrelated.Refresh()
+  if (-not $ownedA.HasExited -or -not $ownedB.HasExited) {
+    throw 'A mihomo process from the exact active installation path survived.'
   }
-  if ($unowned.HasExited) {
-    throw 'An unrecorded mihomo process was incorrectly stopped.'
+  if ($unrelated.HasExited) {
+    throw 'An unrelated mihomo process was incorrectly stopped.'
   }
-  if ($stop.ExitCode -eq 0) {
-    throw 'The installer did not fail closed while an unowned core locked the path.'
+  if ($stop.ExitCode -ne 0) {
+    throw "Best-effort installer cleanup returned $($stop.ExitCode)."
   }
-  Stop-Process -Id $unowned.Id -Force -ErrorAction SilentlyContinue
+  Stop-Process -Id $unrelated.Id -Force -ErrorAction SilentlyContinue
 
   Write-Host 'Windows installer runtime tests passed.'
 } finally {

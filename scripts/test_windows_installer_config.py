@@ -26,6 +26,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
 
         self.assertIn(r"DefaultDirName={localappdata}\Programs\SSRVPN", script)
+        self.assertIn("DisableDirPage=yes", script)
+        self.assertIn("UsePreviousAppDir=no", script)
         self.assertIn("PrivilegesRequired=lowest", script)
         self.assertIn("CloseApplications=force", script)
         self.assertIn("RestartApplications=no", script)
@@ -39,70 +41,50 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotIn("postinstall", run_entry)
         self.assertNotIn("skipifsilent", run_entry)
 
-    def test_installer_discovers_then_stops_before_atomic_migration(self) -> None:
+    def test_installer_ignores_portable_copies_and_never_blocks_preinstall(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
         installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
-        migration = (installer_root / "migrate_portable_data.ps1").read_text(
-            encoding="utf-8"
-        )
 
         prepare = installer.split(
             "function PrepareToInstall(var NeedsRestart: Boolean): String;", 1
         )[1]
-        self.assertLess(prepare.index("DiscoverPortableData"), prepare.index("StopSsrvpnProcesses"))
-        self.assertLess(prepare.index("StopSsrvpnProcesses"), prepare.index("MigratePortableData"))
-        self.assertIn("function DiscoverPortableData: Integer;", installer)
-        self.assertIn("function MigratePortableData: Integer;", installer)
-        self.assertIn("DiscoveryResult := DiscoverPortableData", prepare)
-        self.assertIn("MigrationResult := MigratePortableData", prepare)
-        self.assertIn("便携版数据迁移失败", prepare)
-        self.assertIn("Name = 'ssrvpn_windows_app.exe'", migration)
-        self.assertIn("subscriptions.json", migration)
-        self.assertIn("-not (Test-Path -LiteralPath $destinationFile)", migration)
-        self.assertIn("[switch]$DiscoverOnly", migration)
-        self.assertIn("[string]$StateFile", migration)
-        self.assertIn("Get-FileHash", migration)
-        self.assertIn("Move-Item -LiteralPath $tempFile", migration)
-        self.assertNotRegex(migration, r"Copy-Item[^\n]+\\\*")
+        self.assertLess(
+            prepare.index("StopSsrvpnProcesses"),
+            prepare.index("PrepareInstallDirectory"),
+        )
+        self.assertIn("Result := '';", prepare)
+        self.assertNotIn("Exit;", prepare)
+        self.assertNotIn("DiscoverPortableData", installer)
+        self.assertNotIn("MigratePortableData", installer)
+        self.assertNotIn("migrate_portable_data.ps1", installer)
+        self.assertNotIn("多个便携", installer)
+        self.assertIn("restartreplace", installer)
+        self.assertIn("overwritereadonly", installer)
 
-    def test_installer_distinguishes_ambiguous_sources_from_helper_failure(self) -> None:
+    def test_installer_rebuilds_only_active_directory_and_restores_data(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
         installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
-        migration = (installer_root / "migrate_portable_data.ps1").read_text(
+        prepare = (installer_root / "prepare_install_directory.ps1").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn(
-            "function RunPortableDataMigration(DiscoverOnly: Boolean): Integer;",
-            installer,
-        )
-        self.assertIn("if DiscoveryResult = 10 then begin", installer)
-        self.assertIn("if DiscoveryResult <> 0 then begin", installer)
-        self.assertIn("自动迁移已跳过", installer)
-        self.assertIn("if DiscoveryResult = 0 then begin", installer)
-        self.assertIn("exit 10", migration)
-        self.assertRegex(
-            migration,
-            re.compile(r"try\s*\{.*?Get-CimInstance.*?\}\s*catch\s*\{", re.S),
-        )
+        self.assertIn("prepare_install_directory.ps1", installer)
+        self.assertIn("-InstallDir", installer)
+        self.assertIn("-DataDir", installer)
+        self.assertIn("-RecoveryRoot", installer)
+        self.assertIn("-StateFile", installer)
+        self.assertIn("-Restore", installer)
+        self.assertIn("subscriptions.json", prepare)
+        self.assertIn("Get-FileHash", prepare)
+        self.assertIn("Test-ChildPath", prepare)
+        self.assertIn("Get-PathItem", prepare)
+        self.assertIn("[System.IO.Directory]::Delete($installPath, $false)", prepare)
+        self.assertIn("Move-Item -LiteralPath $installPath", prepare)
+        self.assertIn("New-Item -ItemType Directory -Path $installPath", prepare)
+        self.assertNotIn("GetFolderPath('Desktop')", prepare)
+        self.assertNotIn("Join-Path $env:USERPROFILE 'Downloads'", prepare)
 
-    def test_installer_can_find_an_exited_portable_copy(self) -> None:
-        installer_root = ROOT / "SSRVPN_Windows" / "installer"
-        installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
-        migration = (installer_root / "migrate_portable_data.ps1").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn("-SetupSource", installer)
-        self.assertIn("[string]$SetupSource", migration)
-        self.assertIn("[Environment]::GetFolderPath('Desktop')", migration)
-        self.assertIn("[Environment]::GetFolderPath('UserProfile')", migration)
-        self.assertIn("Join-Path $userProfile 'Downloads'", migration)
-        self.assertIn("ssrvpn_windows_app.exe", migration)
-        self.assertIn("Multiple portable SSRVPN data directories", migration)
-        self.assertNotIn("Get-SourceScore", migration)
-
-    def test_installer_blocks_upgrade_when_its_process_tree_survives(self) -> None:
+    def test_installer_cleanup_is_path_exact_and_best_effort(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
         installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
         stopper = (installer_root / "stop_ssrvpn_processes.ps1").read_text(
@@ -110,8 +92,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
 
         self.assertIn("stop_ssrvpn_processes.ps1", installer)
-        self.assertIn("if not StopSsrvpnProcesses then", installer)
-        self.assertIn("Result :=", installer)
+        self.assertIn("StopResult := StopSsrvpnProcesses", installer)
+        self.assertIn("Result := '';", installer)
         self.assertIn("/F", stopper)
         self.assertIn("/T", stopper)
         self.assertIn("ExecutablePath", stopper)
@@ -128,14 +110,14 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("Write-NativeRestoreJournal", stopper)
         self.assertIn("RestoreInProgress", stopper)
         self.assertIn("ActivationInProgress", stopper)
-        self.assertIn("InstalledCorePidPath", stopper)
-        self.assertIn("Get-RecordedCore", stopper)
-        self.assertNotIn("$corePaths += [System.IO.Path]::GetFullPath($InstalledCorePath)", stopper)
+        self.assertIn("InstalledCorePath", stopper)
+        self.assertIn("Test-ExactPath", stopper)
+        self.assertIn("Stop-Process -Id $core.ProcessId", stopper)
         runtime_test = (
             ROOT / "scripts" / "test_windows_installer_runtime.ps1"
         ).read_text(encoding="utf-8")
-        self.assertIn("Ambiguous portable sources returned", runtime_test)
-        self.assertIn("unrecorded mihomo process was incorrectly stopped", runtime_test)
+        self.assertIn("ForceRebuild", runtime_test)
+        self.assertIn("unrelated mihomo process was incorrectly stopped", runtime_test)
         restore = stopper.split("function Restore-OwnedSystemProxy", 1)[1]
         self.assertLess(
             restore.index("Write-NativeRestoreJournal"),
@@ -149,7 +131,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         required = {
             "tool\\build_installer.ps1",
-            "installer\\migrate_portable_data.ps1",
+            "installer\\prepare_install_directory.ps1",
             "installer\\stop_ssrvpn_processes.ps1",
             "SSRVPN_Windows/SSRVPN_Setup.exe",
             "SSRVPN_Windows/SSRVPN_Setup.exe.sha256",

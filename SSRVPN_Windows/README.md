@@ -111,12 +111,12 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
 
 生成 `SSRVPN_Setup.exe` 和对应 SHA256 文件。安装或升级时，安装器先请求
 Windows Restart Manager 关闭旧版本；如果托盘驻留阻止正常退出，只兜底结束
-`ssrvpn_windows_app.exe` 与启动器进程，不会按名称结束其他软件的
-`mihomo.exe`。从便携版首次迁移到安装版时，请保持旧版 SSRVPN 正在运行并
-直接启动安装器；安装器会在结束旧进程前复制已有订阅和设置。安装完成后自动
-启动新版本，以恢复并重新接管 SSRVPN 的系统代理状态。进程查询不可用时会
-自动改用桌面、下载目录和安装包所在目录扫描；若检测工具仍发生异常，则跳过
-自动迁移并继续安装，不删除旧便携数据。
+`ssrvpn_windows_app.exe` 与启动器进程，并结束可执行路径精确等于当前安装目录
+`bin\mihomo.exe` 的核心，不会按名称结束其他软件的 `mihomo.exe`。安装版固定
+写入 `%LOCALAPPDATA%\Programs\SSRVPN`，不扫描、不修改桌面或下载目录中的
+便携副本；从便携版切换时请在新客户端中重新导入订阅。当前安装目录损坏或
+不可写时，安装器会校验备份其中的订阅和设置，重建目录后再恢复。所有辅助
+清理均为尽力执行，不会主动中止安装；仍被占用的文件会安排在重启时替换。
 
 ## Mihomo 核心
 
