@@ -7,6 +7,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsInstallerConfigTest(unittest.TestCase):
+    def test_installer_always_creates_desktop_shortcut(self) -> None:
+        script = (ROOT / "SSRVPN_Windows" / "installer" / "SSRVPN.iss").read_text(
+            encoding="utf-8"
+        )
+
+        desktop_icon = next(
+            line
+            for line in script.splitlines()
+            if line.startswith('Name: "{autodesktop}\\SSRVPN"')
+        )
+        self.assertNotIn("Tasks:", desktop_icon)
+        self.assertNotIn('Name: "desktopicon"', script)
+
     def test_installer_closes_ssrvpn_and_installs_per_user(self) -> None:
         script = (ROOT / "SSRVPN_Windows" / "installer" / "SSRVPN.iss").read_text(
             encoding="utf-8"
