@@ -430,6 +430,16 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       log('macOS TUN 授权会话已停止');
     }
 
+    final proxyCleared = await _proxyService.clearSystemProxy();
+    if (!proxyCleared) {
+      if (_proxyService.lastError != null) {
+        log(_proxyService.lastError!);
+      }
+      if (isRunning) startStatusMonitor();
+      notifyStatusChanged();
+      return false;
+    }
+
     final process = _clashProcess;
     if (process != null) {
       _stoppingCore = true;
@@ -451,15 +461,10 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     }
     await _deleteCorePid();
 
-    final proxyCleared = await _proxyService.clearSystemProxy();
-    if (!proxyCleared && _proxyService.lastError != null) {
-      log(_proxyService.lastError!);
-    }
-
     setRunning(false);
     notifyStatusChanged();
     log('Mihomo 核心已停止');
-    return proxyCleared;
+    return true;
   }
 
   Future<bool> _startTunCore(int startToken, Stopwatch startupWatch) async {

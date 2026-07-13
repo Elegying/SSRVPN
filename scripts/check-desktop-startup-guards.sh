@@ -52,6 +52,21 @@ for path in paths:
             f"{path}: missing post-proxy process guard(s): {', '.join(missing)}"
         )
 
+    stop_start = source.index("Future<bool> _stopInternal()")
+    stop_end = source.index("void _ensureStartCurrent", stop_start)
+    stop_body = source[stop_start:stop_end]
+    proxy_clear = stop_body.index("_proxyService.clearSystemProxy()")
+    process_kill = stop_body.index(".kill(")
+    if proxy_clear > process_kill:
+        raise SystemExit(
+            f"{path}: kills the core before restoring the system proxy"
+        )
+    before_kill = stop_body[proxy_clear:process_kill]
+    if "if (!proxyCleared)" not in before_kill or "return false" not in before_kill:
+        raise SystemExit(
+            f"{path}: proxy recovery failure does not keep the core alive"
+        )
+
 print("Desktop core startup ordering guards passed.")
 
 orchestrators = (
