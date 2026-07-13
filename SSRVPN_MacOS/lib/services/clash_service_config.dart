@@ -8,6 +8,8 @@ mixin _MacosClashConfig on ClashServiceBase {
       ..writeln('  stack: ${settings.tunStack}')
       ..writeln('  auto-route: true')
       ..writeln('  auto-detect-interface: true')
+      ..writeln('  inet6-address:')
+      ..writeln('    - ${AppConstants.tunInet6Address}')
       ..writeln('  route-exclude-address:');
     for (final address in AppConstants.routeExcludeAddresses) {
       buffer.writeln('    - $address');
@@ -16,8 +18,8 @@ mixin _MacosClashConfig on ClashServiceBase {
       ..writeln('  dns-hijack:')
       ..writeln('    - any:53')
       ..writeln('  route-address-set:')
-      ..writeln('    - geoip-cn')
-      ..writeln('    - geosite-cn');
+      ..writeln('    - ${AppConstants.geoipCnRuleProviderName}')
+      ..writeln('    - ${AppConstants.geositeCnRuleProviderName}');
     return buffer.toString().trimRight();
   }
 

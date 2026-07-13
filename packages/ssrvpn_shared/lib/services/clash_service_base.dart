@@ -79,6 +79,7 @@ abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
   // ── Getters ──
   bool get isRunning => _isRunning;
   String? get lastStartError => _lastStartError;
+  String? get lastHealthCheckError => _lastHealthCheckError;
   String get recentLogs => _logBuffer;
   int get runtimeProxyPort => _settings.proxyPort;
   int get runtimeSocksPort => _settings.socksPort;
@@ -473,25 +474,54 @@ abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
 
   String _localHttpProxyConfig() => 'PROXY 127.0.0.1:${_settings.proxyPort}';
 
-  /// 验证用户连通性（通过代理访问 generate_204）
-  Future<String?> verifyUserConnectivity() async {
-    final client = IOClient(
-      HttpClient()
-        ..connectionTimeout = const Duration(seconds: 5)
-        ..findProxy = (_) => _localHttpProxyConfig(),
-    );
+  /// 验证用户连通性（通过代理访问 generate_204）。
+  ///
+  /// 核心/TUN 刚启动时 DNS 和连接池仍可能预热，单次 5xx 或超时不能判定
+  /// 节点不可用；只有连续失败才返回非阻断提示。
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async {
+    IOClient? client;
+    if (request == null) {
+      client = IOClient(
+        HttpClient()
+          ..connectionTimeout = const Duration(seconds: 5)
+          ..findProxy = (_) => _localHttpProxyConfig(),
+      );
+    }
+    final send = request ??
+        (Uri uri) => client!.get(uri).timeout(const Duration(seconds: 6));
+    final attempts = maxAttempts.clamp(1, 5).toInt();
+    final endpoint = Uri.parse('https://www.gstatic.com/generate_204');
+    int? lastStatusCode;
     try {
-      final response = await client
-          .get(Uri.parse('http://www.gstatic.com/generate_204'))
-          .timeout(const Duration(seconds: 8));
-      if (response.statusCode == 204 || response.statusCode == 200) {
-        return null;
+      for (var attempt = 1; attempt <= attempts; attempt++) {
+        if (shouldContinue?.call() == false) return null;
+        try {
+          final response = await send(endpoint);
+          if (shouldContinue?.call() == false) return null;
+          if (response.statusCode == 204 || response.statusCode == 200) {
+            return null;
+          }
+          lastStatusCode = response.statusCode;
+        } catch (_) {
+          lastStatusCode = null;
+        }
+        if (attempt < attempts && retryDelay > Duration.zero) {
+          await Future<void>.delayed(retryDelay);
+        }
       }
-      return '已连接，但网络验证返回 HTTP ${response.statusCode}，请尝试切换节点';
-    } catch (_) {
-      return '已连接，但网络验证失败，请尝试切换节点或刷新订阅';
+      if (shouldContinue?.call() == false) return null;
+      if (lastStatusCode != null) {
+        return '已连接，但连续 $attempts 次网络验证返回 HTTP '
+            '$lastStatusCode，请尝试切换节点';
+      }
+      return '已连接，但连续 $attempts 次网络验证失败，请尝试切换节点或刷新订阅';
     } finally {
-      client.close();
+      client?.close();
     }
   }
 

@@ -97,6 +97,13 @@ void main() {
       expect(systemProxyConfig, isNot(contains('\ntun:\n')));
       expect(tunConfig, contains('\ntun:\n'));
       expect(tunConfig, contains('  enable: true'));
+      expect(tunConfig, contains('  inet6-address:'));
+      expect(tunConfig, contains('    - fc00::/7'));
+      expect(tunConfig, contains('    - fe80::/10'));
+      expect(tunConfig, contains('    - ssrvpn-geoip-cn'));
+      expect(tunConfig, contains('    - ssrvpn-geosite-cn'));
+      expect(tunConfig, isNot(contains('    - geoip-cn\n')));
+      expect(tunConfig, isNot(contains('    - geosite-cn\n')));
     });
 
     test('上次节点已失效时回退到第一个节点', () {
@@ -133,16 +140,40 @@ void main() {
       expect(youtube, greaterThan(blocked));
       expect(youtube, lessThan(cnDirect));
     });
+
+    test('内置 Mihomo 核心接受双栈 TUN 配置', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_ipv6_config_',
+      );
+      addTearDown(() => tempDir.delete(recursive: true));
+      final service = ClashService();
+      await service.init(
+        AppSettings(tunMode: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      final config = service.generateClashConfig(
+        _subscriptionYaml,
+        AppSettings(tunMode: true),
+      );
+      await service.writeConfig(config);
+
+      final result = await Process.run(
+        service.corePath,
+        ['-t', '-d', tempDir.path, '-f', service.configPath],
+      );
+
+      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+    });
   });
 
   group('macOS core privilege boundary', () {
-    test('TUN fails closed before any core process can start', () async {
+    test('TUN reaches the normal initialized-service boundary', () async {
       final service = ClashService()
         ..updateSettings(AppSettings(tunMode: true));
 
       expect(await service.start(), isFalse);
-      expect(service.lastStartError, contains('Network Extension'));
-      expect(service.lastStartError, contains('系统代理模式'));
+      expect(service.lastStartError, 'Mihomo service is not initialized');
     });
 
     test('system proxy mode keeps the normal startup path', () async {

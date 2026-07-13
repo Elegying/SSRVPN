@@ -149,7 +149,9 @@ class DesktopSubscriptionFetcher {
         ).timeout(
           remaining(),
           onTimeout: () {
-            client.close(force: true);
+            // Let the surrounding finally close the client. Closing it inside
+            // this callback can synchronously surface HttpException from the
+            // source stream before this stable TimeoutException is returned.
             throw TimeoutException('订阅请求超过绝对时限', requestTimeout);
           },
         );

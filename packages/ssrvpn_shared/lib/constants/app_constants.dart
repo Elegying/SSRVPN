@@ -56,7 +56,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '3.1.2';
+  static const String appVersion = '3.2.0';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 
@@ -66,10 +66,16 @@ class AppConstants {
     '10.0.0.0/8',
     '172.16.0.0/12',
     '100.64.0.0/10',
+    'fc00::/7',
+    'fe80::/10',
   ];
 
   // ── Fake IP 配置 ──
   static const String fakeIpRange = '198.18.0.1/16';
+  // Keep fake IPv6 answers outside fc00::/7. Desktop TUN configs deliberately
+  // exclude ULA LAN traffic, so a ULA fake range would bypass the tunnel.
+  static const String fakeIpRange6 = '2001:db8::1/64';
+  static const String tunInet6Address = 'fdfe:dcba:9876::1/126';
   static const List<String> fakeIpFilter = [
     '*.lan',
     '*.local',

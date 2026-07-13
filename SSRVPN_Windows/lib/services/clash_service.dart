@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
@@ -46,13 +45,11 @@ class ClashService extends ClashServiceBase
   @override
   void log(String message) {
     super.log(message);
-    if (!kReleaseMode) {
-      final fileLogger = _fileLogger;
-      if (fileLogger != null) {
-        final sanitized = LogRedactor.sanitize(message);
-        final line = '[${DateTime.now().toIso8601String()}] $sanitized\r\n';
-        fileLogger.add(line);
-      }
+    final fileLogger = _fileLogger;
+    if (fileLogger != null) {
+      final sanitized = LogRedactor.sanitize(message);
+      final line = '[${DateTime.now().toIso8601String()}] $sanitized\r\n';
+      fileLogger.add(line);
     }
   }
 

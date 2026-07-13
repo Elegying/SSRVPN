@@ -263,7 +263,12 @@ class _RecordingClashService extends ClashService {
   final notificationNodes = <String>[];
 
   @override
-  Future<void> updateVpnNotification(String nodeName) async {
+  Future<void> updateVpnNotification(
+    String nodeName, {
+    bool persistSelection = true,
+    bool Function()? shouldContinue,
+  }) async {
+    if (shouldContinue?.call() == false) return;
     notificationNodes.add(nodeName);
   }
 }

@@ -9,6 +9,7 @@ BUILD_GRADLE="$ROOT/SSRVPN_Android/android/app/build.gradle.kts"
 MANIFEST="$ROOT/SSRVPN_Android/android/app/src/main/AndroidManifest.xml"
 HOME_DART="$ROOT/SSRVPN_Android/lib/screens/home_screen.dart"
 PUBLIC_ROUTES="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/PublicIpv4Routes.kt"
+VPN_ROUTE_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnRouteInstaller.kt"
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
 
 require_text() {
@@ -59,6 +60,14 @@ require_home_text() {
   fi
 }
 
+require_route_text() {
+  local needle="$1"
+  if ! grep -Fq "$needle" "$VPN_ROUTE_INSTALLER"; then
+    echo "Android VPN route guard check failed: missing '$needle'" >&2
+    exit 1
+  fi
+}
+
 require_count() {
   local needle="$1"
   local expected="$2"
@@ -77,6 +86,18 @@ require_text "processTerminationPending.get()"
 require_text "processTerminationPending.set(true)"
 require_text "startGeneration.incrementAndGet()"
 require_text "ensureStartCurrent(startToken)"
+
+python3 - <<'PY'
+from pathlib import Path
+
+source = Path(
+    "SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/SsrvpnVpnService.kt"
+).read_text(encoding="utf-8")
+selection = source.index("applyProxySelection(apiPort, apiSecret, selectedNodeName)")
+publish = source.index("isRunning = true", selection)
+if "ensureStartCurrent(startToken)" not in source[selection:publish]:
+    raise SystemExit("Android VPN publishes connected state without post-selection generation guard")
+PY
 require_text "waitForPendingStart()"
 require_text "VPN is already running; reusing the active session"
 require_text "createStartIntent"
@@ -133,7 +154,13 @@ require_text "Bridge.isRunning timed out after"
 require_text "treating as stopped"
 require_text "Bridge.stop failed or timed out; terminating process to release the detached TUN fd"
 require_text "android.os.Process.killProcess(android.os.Process.myPid())"
-require_text "PublicIpv4Routes.routes"
+require_text "VpnRouteInstaller.configure(builder)"
+require_route_text "PublicIpv4Routes.routes"
+require_route_text "configure(builder::addAddress, builder::addRoute)"
+require_route_text 'addAddress("198.18.0.1", 32)'
+require_route_text "VpnIpv6Config.address"
+require_route_text "addRoute(route.address, route.prefixLength)"
+require_route_text "VpnIpv6Config.defaultRoute"
 require_text "VpnNotificationSupport.createChannel(this, CHANNEL_ID)"
 
 require_build_text 'applicationIdSuffix = ".debug"'

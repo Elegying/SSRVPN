@@ -28,7 +28,13 @@ void main() {
           maxRetries: 1,
           requestTimeout: const Duration(milliseconds: 80),
         ),
-        throwsA(isA<Exception>()),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('连接超时'),
+          ),
+        ),
       );
     } finally {
       await subscription.cancel();

@@ -29,6 +29,21 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   String get corePath => _corePath;
   bool get hasPendingSystemProxyRecovery => _proxyService.recoveryPending;
 
+  Future<bool> recoverPendingSystemProxy() async {
+    if (!_proxyService.recoveryPending) return true;
+    log('检测到上次异常退出留下的系统代理状态，正在重试恢复...');
+    final recovered = await _proxyService.retryPendingRecovery();
+    if (recovered) {
+      setLastStartError(null);
+      log('✅ 旧系统代理状态已恢复，本次连接继续');
+      return true;
+    }
+    final reason = _proxyService.lastError ?? '系统代理旧状态恢复失败';
+    setLastStartError(reason);
+    log('❌ $reason');
+    return false;
+  }
+
   // ── Lifecycle overrides ──
 
   @override
@@ -414,6 +429,20 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
     stopStatusMonitor();
     resetHealthCheckFailures();
 
+    // Restore Windows networking while the local proxy is still alive. If
+    // registry recovery fails, keep the core running and let the caller keep
+    // the app open for a retry; killing it first would strand all HTTP apps on
+    // an unreachable localhost proxy.
+    final proxyCleared = await _proxyService.clearSystemProxy();
+    if (!proxyCleared) {
+      if (_proxyService.lastError != null) {
+        log('⚠️ ${_proxyService.lastError}');
+      }
+      if (isRunning) startStatusMonitor();
+      notifyStatusChanged();
+      return false;
+    }
+
     if (_coreProcess != null) {
       _stoppingCore = true;
       try {
@@ -434,16 +463,10 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
     }
     await _deleteCorePid();
 
-    // 清除系统代理（在进程停止后执行）
-    final proxyCleared = await _proxyService.clearSystemProxy();
-    if (!proxyCleared && _proxyService.lastError != null) {
-      log('⚠️ ${_proxyService.lastError}');
-    }
-
     setRunning(false);
     notifyStatusChanged();
     log('核心已停止');
-    return proxyCleared;
+    return true;
   }
 
   void _ensureStartCurrent(int startToken) {

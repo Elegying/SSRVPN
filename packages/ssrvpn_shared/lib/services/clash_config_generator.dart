@@ -71,8 +71,8 @@ class ClashConfigGenerator {
     result.writeln('mode: ${settings.proxyMode.name}');
     result.writeln('log-level: info');
     result.writeln("external-controller: '127.0.0.1:${settings.apiPort}'");
-    result.writeln('# SSRVPN 当前明确只支持 IPv4 节点与 IPv4 流量');
-    result.writeln('ipv6: false');
+    result.writeln('# SSRVPN IPv4 / IPv6 双栈配置');
+    result.writeln('ipv6: true');
     result.writeln('etag-support: true');
     if (settings.apiSecret.isNotEmpty) {
       result.writeln('secret: ${_quote(settings.apiSecret)}');
@@ -89,6 +89,8 @@ class ClashConfigGenerator {
       result.writeln('  stack: ${settings.tunStack}');
       result.writeln('  auto-route: true');
       result.writeln('  auto-detect-interface: true');
+      result.writeln('  inet6-address:');
+      result.writeln('    - ${AppConstants.tunInet6Address}');
       result.writeln('  route-exclude-address:');
       for (final addr in AppConstants.routeExcludeAddresses) {
         result.writeln('    - $addr');
@@ -105,9 +107,10 @@ class ClashConfigGenerator {
       result.writeln();
       result.writeln('dns:');
       result.writeln('  enable: true');
-      result.writeln('  ipv6: false');
+      result.writeln('  ipv6: true');
       result.writeln('  enhanced-mode: fake-ip');
       result.writeln('  fake-ip-range: ${AppConstants.fakeIpRange}');
+      result.writeln('  fake-ip-range6: ${AppConstants.fakeIpRange6}');
       result.writeln('  default-nameserver:');
       for (final ns in AppConstants.defaultNameservers) {
         result.writeln('    - $ns');
@@ -394,7 +397,7 @@ class ClashConfigGenerator {
   /// 从用户输入的站点列表构建强制代理规则。
   ///
   /// 该入口不依赖平台 AppSettings 类型，三端可直接复用同一套
-  /// IPv4-only 主机规范化、去重和 Clash rule 生成逻辑。
+  /// IPv4/IPv6 主机规范化、去重和 Clash rule 生成逻辑。
   static List<String> buildForceProxyRulesFromSites(
     Iterable<Object?>? forceProxySites,
   ) {
@@ -411,7 +414,7 @@ class ClashConfigGenerator {
       } else if (address.type == InternetAddressType.IPv4) {
         rules.add('IP-CIDR,$host/32,PROXY,no-resolve');
       } else {
-        continue;
+        rules.add('IP-CIDR6,$host/128,PROXY,no-resolve');
       }
     }
 

@@ -13,7 +13,14 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     setState(() => _isConnecting = true);
     try {
       final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
-      if (nodes.isEmpty) throw Exception('未获取到可用节点');
+      if (nodes.isEmpty) {
+        setState(() {
+          _isConnected = clashService.isRunning;
+          _isConnecting = false;
+          _errorMessage = '订阅中没有可用节点，已保留当前连接';
+        });
+        return;
+      }
       final preferredNode = _resolveDefaultNode(
         nodes,
         settingsService.settings.lastSelectedNodeName,
@@ -23,14 +30,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         connectionGeneration,
         connected: true,
       )) {
-        if (mounted && !_disposed) {
-          setState(() {
-            _isConnected = false;
-            _isConnecting = false;
-            _selectedNode = null;
-            _resetPublicIpState();
-          });
-        }
         return;
       }
       final runtimeSettings = await clashService.prepareForStart(
@@ -46,14 +45,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         connectionGeneration,
         connected: true,
       )) {
-        if (mounted && !_disposed) {
-          setState(() {
-            _isConnected = false;
-            _isConnecting = false;
-            _selectedNode = null;
-            _resetPublicIpState();
-          });
-        }
         return;
       }
       final success = await clashService.start();
@@ -61,15 +52,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         connectionGeneration,
         connected: true,
       )) {
-        if (success) await clashService.stop();
-        if (mounted && !_disposed) {
-          setState(() {
-            _isConnected = false;
-            _isConnecting = false;
-            _selectedNode = null;
-            _resetPublicIpState();
-          });
-        }
         return;
       }
       ProxyNode? runtimeSelectedNode;
@@ -90,13 +72,18 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
           nodes,
         );
       }
-      final connectivityWarning =
-          success ? await clashService.verifyUserConnectivity() : null;
+      if (!clashService.isConnectionIntentCurrent(
+        connectionGeneration,
+        connected: true,
+      )) {
+        return;
+      }
       if (mounted && !_disposed) {
+        if (!success) clashService.requestConnectionIntent(false);
         setState(() {
           _isConnected = success;
           _isConnecting = false;
-          _errorMessage = connectivityWarning;
+          _errorMessage = null;
           _nodes = nodes;
           _selectedNode = success ? runtimeSelectedNode : null;
           if (!success) _resetPublicIpState();
@@ -106,21 +93,39 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
           _schedulePublicIpRefresh();
         }
       }
+      if (!success) return;
+
+      final connectivityWarning = await clashService.verifyUserConnectivity(
+        shouldContinue: () => clashService.isConnectionIntentCurrent(
+          connectionGeneration,
+          connected: true,
+        ),
+      );
+      if (mounted &&
+          !_disposed &&
+          clashService.isConnectionIntentCurrent(
+            connectionGeneration,
+            connected: true,
+          )) {
+        setState(() => _errorMessage = connectivityWarning);
+      }
     } catch (e) {
       AppLogger.warning('Connection', '重载配置失败: $e');
-      if (clashService.isConnectionIntentCurrent(
+      final isCurrent = clashService.isConnectionIntentCurrent(
         connectionGeneration,
         connected: true,
-      )) {
-        clashService.requestConnectionIntent(false);
-      }
+      );
+      if (!isCurrent) return;
+      final stillRunning = clashService.isRunning;
+      if (!stillRunning) clashService.requestConnectionIntent(false);
       if (mounted && !_disposed) {
         final msg = e.toString().replaceFirst('Exception: ', '');
         setState(() {
-          _isConnected = false;
+          _isConnected = stillRunning;
           _isConnecting = false;
-          _errorMessage = '连接重载失败: $msg';
-          _resetPublicIpState();
+          _errorMessage =
+              stillRunning ? '连接重载失败，已保留当前连接: $msg' : '连接重载失败: $msg';
+          if (!stillRunning) _resetPublicIpState();
         });
       }
     }
@@ -148,55 +153,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         AppLogger.warning('Update', '检查更新异常: $e');
       }
     });
-  }
-
-  void _schedulePublicIpRefresh() {
-    _publicIpTimer?.cancel();
-    if (!_isConnected || _isConnecting || !mounted || _disposed) return;
-    final generation = ++_publicIpGeneration;
-    _publicIpTimer = Timer(const Duration(seconds: 2), () {
-      unawaited(_refreshPublicIpInfo(generation: generation));
-    });
-  }
-
-  Future<void> _refreshPublicIpInfo({int? generation}) async {
-    if (!_isConnected || _isConnecting || !mounted || _disposed) return;
-    final effectiveGeneration = generation ?? ++_publicIpGeneration;
-    _publicIpTimer?.cancel();
-    setState(() {
-      _isRefreshingPublicIp = true;
-      _publicIpError = null;
-    });
-
-    try {
-      final info =
-          await context.read<ClashService>().fetchCurrentPublicIpInfo();
-      if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
-        return;
-      }
-      setState(() {
-        _publicIpInfo = info;
-        _publicIpError = null;
-        _isRefreshingPublicIp = false;
-      });
-    } catch (e) {
-      AppLogger.warning('PublicIP', '获取公网 IP 失败: $e');
-      if (!mounted || _disposed || effectiveGeneration != _publicIpGeneration) {
-        return;
-      }
-      setState(() {
-        _publicIpError = '获取失败';
-        _isRefreshingPublicIp = false;
-      });
-    }
-  }
-
-  void _resetPublicIpState() {
-    _publicIpTimer?.cancel();
-    _publicIpGeneration++;
-    _publicIpInfo = null;
-    _isRefreshingPublicIp = false;
-    _publicIpError = null;
   }
 
   Future<void> _handleTestLatency(

@@ -145,6 +145,92 @@ proxies:
     },
   );
 
+  test('fetches a subscription from an IPv6 literal address', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv6, 0);
+    String? hostHeader;
+    addTearDown(() => server.close(force: true));
+    server.listen((request) {
+      hostHeader = request.headers.value(HttpHeaders.hostHeader);
+      request.response
+        ..headers.contentType = ContentType.text
+        ..write('''
+proxies:
+  - name: IPv6 Feed
+    type: ss
+    server: 2001:db8::20
+    port: 443
+    cipher: aes-128-gcm
+    password: test
+''')
+        ..close();
+    });
+
+    final body = await service.fetchSubscription(
+      'http://[::1]:${server.port}/subscription',
+      maxRetries: 1,
+    );
+
+    expect(body, contains('IPv6 Feed'));
+    expect(hostHeader, '[::1]:${server.port}');
+  });
+
+  test('falls back to IPv6 when the first IPv4 response times out', () async {
+    final stalledIpv4 = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final ipv6 = await HttpServer.bind(
+      InternetAddress.loopbackIPv6,
+      stalledIpv4.port,
+      v6Only: true,
+    );
+    addTearDown(() => stalledIpv4.close(force: true));
+    addTearDown(() => ipv6.close(force: true));
+    stalledIpv4.listen((_) {
+      // Keep the response open until the client's per-address inactivity
+      // timeout expires.
+    });
+    ipv6.listen((request) {
+      request.response
+        ..headers.contentType = ContentType.text
+        ..write('''
+proxies:
+  - name: IPv6 Fallback
+    type: ss
+    server: 2001:db8::30
+    port: 443
+    cipher: aes-128-gcm
+    password: test
+''')
+        ..close();
+    });
+    SubscriptionService.overrideAddressLookup(
+      (_) async => [
+        InternetAddress.loopbackIPv4,
+        InternetAddress.loopbackIPv6,
+      ],
+      readInactivityTimeout: const Duration(milliseconds: 50),
+    );
+
+    final body = await service.fetchSubscription(
+      'http://dual-stack.test:${stalledIpv4.port}/subscription',
+      maxRetries: 1,
+    );
+
+    expect(body, contains('IPv6 Fallback'));
+  });
+
+  test('keeps IPv6 fallback when DNS returns more than five IPv4 addresses',
+      () async {
+    final selected = DirectFetcher.balancedAddresses([
+      for (var i = 1; i <= 8; i++) InternetAddress('192.0.2.$i'),
+      InternetAddress('2001:db8::1'),
+    ]);
+
+    expect(selected, hasLength(6));
+    expect(
+      selected.any((address) => address.type == InternetAddressType.IPv6),
+      isTrue,
+    );
+  });
+
   test('converts base64 URI-list subscriptions with modern nodes', () async {
     final ssrPayload = 'ssr.example.com:18899:auth_aes128_md5:aes-256-cfb:'
         'tls1.2_ticket_auth:${_base64UrlWithoutPadding('ssr-password')}/?';

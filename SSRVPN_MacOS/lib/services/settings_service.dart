@@ -9,12 +9,6 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show AsyncLazy, RecoveringSerialQueue;
 import '../models/app_settings.dart';
 
-bool migrateUnsupportedMacTunSetting(AppSettings settings) {
-  if (!settings.enableTun) return false;
-  settings.enableTun = false;
-  return true;
-}
-
 /// 设置持久化服务。
 ///
 /// macOS 使用 Application Support 下的 JSON 文件，与 Windows 客户端保持同一
@@ -148,11 +142,6 @@ class SettingsService extends ChangeNotifier {
     }
 
     var shouldSave = false;
-    if (migrateUnsupportedMacTunSetting(_settings)) {
-      _storageNotice = 'macOS TUN 模式当前不可用，已自动切换为系统代理模式';
-      shouldSave = true;
-    }
-
     // 首次启动生成随机 API secret
     if (_settings.apiSecret.isEmpty) {
       _settings.apiSecret = _generateSecret();

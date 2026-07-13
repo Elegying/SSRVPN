@@ -118,7 +118,7 @@ void _showDesktopHomeTutorialDialog(BuildContext context) {
                 _DesktopTutorialStep(
                   step: '4',
                   text: isMacOS
-                      ? 'macOS 当前仅支持系统代理，TUN 模式暂不可用'
+                      ? 'macOS 系统代理无需授权；TUN 模式每次连接都由系统请求管理员授权'
                       : '系统代理无需管理员权限，TUN 模式需管理员权限',
                 ),
                 const SizedBox(height: 20),

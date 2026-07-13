@@ -704,69 +704,8 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
 
   String? importSsrLink(String ssrLink) {
     try {
-      final link = ssrLink.trim();
-      if (!link.toLowerCase().startsWith('ssr://')) return null;
-
-      final encoded = link.substring(6);
-      final decoded = utf8.decode(base64Decode(fixBase64(encoded)));
-
-      final mainPart = decoded.split('/?').first;
-      final params = decoded.contains('/?') ? decoded.split('/?').last : '';
-
-      final parts = mainPart.split(':');
-      if (parts.length < 6) return null;
-
-      final server = parts[0];
-      final port = int.tryParse(parts[1]) ?? 0;
-      if (server.isEmpty || port < 1 || port > 65535) return null;
-      final protocol = parts[2];
-      final method = parts[3];
-      final obfs = parts[4];
-      final passwordB64 = parts.sublist(5).join(':');
-      final password = utf8.decode(base64Decode(fixBase64(passwordB64)));
-
-      final paramMap = <String, String>{};
-      if (params.isNotEmpty) {
-        for (final param in params.split('&')) {
-          final separator = param.indexOf('=');
-          if (separator <= 0) continue;
-          paramMap[param.substring(0, separator)] = param.substring(
-            separator + 1,
-          );
-        }
-      }
-
-      final remarks = paramMap['remarks'] != null
-          ? utf8.decode(base64Decode(fixBase64(paramMap['remarks']!)))
-          : '$server:$port';
-
-      final obfsparam = paramMap['obfsparam'] != null
-          ? utf8.decode(base64Decode(fixBase64(paramMap['obfsparam']!)))
-          : '';
-      final protoparam = paramMap['protoparam'] != null
-          ? utf8.decode(base64Decode(fixBase64(paramMap['protoparam']!)))
-          : '';
-
-      final buffer = StringBuffer();
-      buffer.writeln('proxies:');
-      buffer.writeln('  - name: ${jsonEncode(remarks)}');
-      buffer.writeln('    type: ssr');
-      buffer.writeln('    server: ${jsonEncode(server)}');
-      buffer.writeln('    port: $port');
-      buffer.writeln('    cipher: ${jsonEncode(method)}');
-      buffer.writeln('    password: ${jsonEncode(password)}');
-      buffer.writeln('    protocol: ${jsonEncode(protocol)}');
-      if (protoparam.isNotEmpty) {
-        buffer.writeln('    protocol-param: ${jsonEncode(protoparam)}');
-      }
-      buffer.writeln('    obfs: ${jsonEncode(obfs)}');
-      if (obfsparam.isNotEmpty) {
-        buffer.writeln('    obfs-param: ${jsonEncode(obfsparam)}');
-      }
-      buffer.writeln('    udp: true');
-
-      return buffer.toString();
-    } catch (e) {
+      return SubscriptionParser.importSsrLink(ssrLink);
+    } on FormatException {
       return null;
     }
   }

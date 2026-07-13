@@ -7,5 +7,5 @@ class PublicIpInfo {
   final String ip;
   final String countryCode;
 
-  String get displayText => '$ip $countryCode';
+  String get displayText => countryCode.isEmpty ? ip : '$ip $countryCode';
 }

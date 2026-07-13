@@ -86,13 +86,11 @@ void main() {
       expect(restored.proxyMode, ProxyMode.rule);
     });
 
-    test('旧版本遗留的 TUN 设置迁移为系统代理', () {
+    test('macOS 保留用户选择的 TUN 设置', () {
       final settings = AppSettings(tunMode: true);
 
-      expect(migrateUnsupportedMacTunSetting(settings), isTrue);
-      expect(settings.enableTun, isFalse);
-      expect(settings.enableSystemProxy, isTrue);
-      expect(migrateUnsupportedMacTunSetting(settings), isFalse);
+      expect(settings.enableTun, isTrue);
+      expect(settings.enableSystemProxy, isFalse);
     });
 
     test('强制代理网站只接受有效主机名或 IP', () {

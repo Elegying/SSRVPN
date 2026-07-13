@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../models/proxy_node.dart';
 
 class ProxyNodeUsagePolicy {
@@ -51,7 +53,7 @@ class ProxyNodeUsagePolicy {
     if (type == null || !_supportedTypes.contains(type)) return false;
 
     final server = _boundedText(proxy['server'], _maxServerLength);
-    if (server == null || _serverWhitespacePattern.hasMatch(server)) {
+    if (server == null || !isValidServerValue(server)) {
       return false;
     }
 
@@ -98,11 +100,26 @@ class ProxyNodeUsagePolicy {
     if (type == null || !_supportedTypes.contains(type)) return false;
 
     final server = _boundedText(node.server, _maxServerLength);
-    if (server == null || _serverWhitespacePattern.hasMatch(server)) {
+    if (server == null || !isValidServerValue(server)) {
       return false;
     }
 
     return node.port >= 1 && node.port <= 65535;
+  }
+
+  /// Rejects scoped/zone IPv6 and malformed bracket forms. Brackets are URI
+  /// syntax and must not survive into a Mihomo `server` value.
+  static bool isValidServerValue(String server) {
+    final value = server.trim();
+    if (value.isEmpty ||
+        _serverWhitespacePattern.hasMatch(value) ||
+        value.contains('%') ||
+        value.contains('[') ||
+        value.contains(']')) {
+      return false;
+    }
+    if (!value.contains(':')) return true;
+    return InternetAddress.tryParse(value)?.type == InternetAddressType.IPv6;
   }
 
   static int _parsePort(Object? value) {

@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:screen_retriever/screen_retriever.dart';
-import 'package:ssrvpn_shared/ssrvpn_shared.dart' show runBestEffortCleanup;
 import 'package:window_manager/window_manager.dart';
 
+import '../services/app_shutdown.dart';
 import '../services/clash_service.dart' as clash;
 import '../services/settings_service.dart';
 import '../services/subscription_service.dart';
@@ -225,16 +225,17 @@ class StartupOrchestrator {
 
   Future<void> _quitFromTray() async {
     final status = StartupStatus.instance;
-    final failures = await runBestEffortCleanup([
-      () async => status.settingsService?.flush(),
-      () async {
+    final failures = await runWindowsAppShutdown(
+      hideWindow: windowManager.hide,
+      flushSettings: () async => status.settingsService?.flush(),
+      stopCore: () async {
         status.clashService?.requestConnectionIntent(false);
         await status.clashService?.stop();
       },
-      TrayManager().destroy,
-      () => windowManager.setPreventClose(false),
-      windowManager.destroy,
-    ]);
+      destroyTray: TrayManager().destroy,
+      allowWindowClose: () => windowManager.setPreventClose(false),
+      destroyWindow: windowManager.destroy,
+    );
     for (final failure in failures) {
       StartupLogger.error(
         'Tray quit cleanup step ${failure.step} failed',
@@ -246,6 +247,19 @@ class StartupOrchestrator {
         error: failure.error,
         stack: failure.stackTrace,
       );
+    }
+    if (failures.any((failure) => failure.step == 2)) {
+      try {
+        await windowManager.show();
+        await windowManager.restore();
+        await windowManager.focus();
+      } catch (error, stack) {
+        StartupLogger.error(
+          'Show window after failed startup quit cleanup',
+          error,
+          stack,
+        );
+      }
     }
   }
 

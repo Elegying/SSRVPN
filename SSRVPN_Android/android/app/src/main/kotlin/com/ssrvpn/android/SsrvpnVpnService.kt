@@ -428,17 +428,6 @@ class SsrvpnVpnService : VpnService() {
     private fun isScreenInteractive(): Boolean =
         (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
 
-    /**
-     * 添加公网路由，排除局域网网段：
-     * 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10
-     * 这样局域网流量（adb无线调试、投屏、局域网设备）走WiFi直连
-     */
-    private fun addPublicRoutes(builder: VpnService.Builder) {
-        for (route in PublicIpv4Routes.routes) {
-            builder.addRoute(route.address, route.prefixLength)
-        }
-    }
-
     private fun startCoreWithVpn(
         configDir: String,
         configPath: String,
@@ -494,12 +483,8 @@ class SsrvpnVpnService : VpnService() {
             Log.d(TAG, "Establishing VPN...")
             val builder = Builder()
             builder.setSession("SSRVPN")
-            builder.addAddress("198.18.0.1", 32)
-            // 分段添加路由，排除局域网网段保持 adb 无线调试可达
-            // 公网 IPv4: 排除 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10
-            addPublicRoutes(builder)
-            // 节点与核心配置明确为 IPv4-only。不要添加 IPv6 默认路由，
-            // 否则 IPv6 流量会进入未处理的 TUN，表现为已连接但部分应用断网。
+            // IPv4 公网路由保留局域网直连；IPv6 全量进入 VPN，避免泄漏。
+            VpnRouteInstaller.configure(builder)
             builder.addDnsServer("223.5.5.5")
             builder.addDnsServer("8.8.8.8")
             builder.setMtu(1500)
@@ -568,6 +553,10 @@ class SsrvpnVpnService : VpnService() {
                 ensureStartCurrent(startToken)
                 Log.d(TAG, "Core started!")
                 applyProxySelection(apiPort, apiSecret, selectedNodeName)
+                // Selection can perform several bounded API requests. Recheck
+                // the generation so a concurrent disconnect cannot publish a
+                // stale connected state after those requests return.
+                ensureStartCurrent(startToken)
                 isRunning = true
                 broadcastState(this)
                 startNotificationUpdates()

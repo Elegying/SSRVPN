@@ -26,7 +26,7 @@ mode: direct
 log-level: warning
 external-controller: '127.0.0.1:${ports[2]}'
 secret: 'integration-test-secret'
-ipv6: false
+ipv6: true
 dns:
   enable: false
 tun:

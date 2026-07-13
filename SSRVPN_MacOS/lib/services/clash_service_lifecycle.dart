@@ -5,11 +5,9 @@ class _DesktopStartCancelled implements Exception {}
 mixin _MacosCoreLifecycle on ClashServiceBase {
   static const _filePath = '/usr/bin/file';
   static const _psPath = '/bin/ps';
-  static const _tunUnavailableMessage =
-      'macOS TUN 模式已暂时停用：当前版本没有安全的 Network Extension '
-      '或特权辅助程序，请切换到系统代理模式。';
 
   Process? _clashProcess;
+  MacosTunSession? _tunSession;
   bool _stoppingCore = false;
   Future<bool>? _startOperation;
   Completer<void>? _startCancellation;
@@ -25,6 +23,21 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   String get corePath => _corePath;
   bool get coreExists => File(_corePath).existsSync();
   bool get hasPendingSystemProxyRecovery => _proxyService.recoveryPending;
+
+  Future<bool> recoverPendingSystemProxy() async {
+    if (!_proxyService.recoveryPending) return true;
+    log('检测到上次异常退出留下的系统代理状态，正在重试恢复...');
+    final recovered = await _proxyService.clearSystemProxy();
+    if (recovered) {
+      setLastStartError(null);
+      log('✅ 旧系统代理状态已恢复，本次连接继续');
+      return true;
+    }
+    final reason = _proxyService.lastError ?? '系统代理旧状态恢复失败';
+    setLastStartError(reason);
+    log('❌ $reason');
+    return false;
+  }
 
   Future<void> _verifyCoreForExecution();
 
@@ -176,11 +189,6 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       log(_startupDisabledReason!);
       return false;
     }
-    if (settings.enableTun) {
-      setLastStartError(_tunUnavailableMessage);
-      log(lastStartError!);
-      return false;
-    }
     if (_corePath.isEmpty || configDir.isEmpty || configPath.isEmpty) {
       setLastStartError('Mihomo service is not initialized');
       log(lastStartError!);
@@ -230,6 +238,10 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         return false;
       }
       _ensureStartCurrent(startToken);
+
+      if (settings.enableTun) {
+        return await _startTunCore(startToken, startupWatch);
+      }
 
       await _verifyCoreForExecution();
       _ensureStartCurrent(startToken);
@@ -389,7 +401,10 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
   Future<void> _stopAfterStart() async {
     final starting = _startOperation;
-    if (starting != null) await starting;
+    if (starting != null) {
+      await _tunSession?.stop();
+      await starting;
+    }
     final proxyCleared = await _stopInternal();
     if (!proxyCleared) {
       throw StateError(
@@ -403,6 +418,17 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     if (exitCleanup != null) await exitCleanup;
     stopStatusMonitor();
     resetHealthCheckFailures();
+
+    final tunSession = _tunSession;
+    if (tunSession != null && tunSession.isRequested) {
+      await tunSession.stop();
+      final deadline = DateTime.now().add(const Duration(seconds: 4));
+      while (DateTime.now().isBefore(deadline)) {
+        if (!await healthCheck()) break;
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      log('macOS TUN 授权会话已停止');
+    }
 
     final process = _clashProcess;
     if (process != null) {
@@ -434,6 +460,59 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     notifyStatusChanged();
     log('Mihomo 核心已停止');
     return proxyCleared;
+  }
+
+  Future<bool> _startTunCore(int startToken, Stopwatch startupWatch) async {
+    final tunSession = _tunSession;
+    if (tunSession == null) {
+      setLastStartError('TUN 授权服务尚未初始化');
+      return false;
+    }
+
+    log('正在请求 macOS 管理员授权以启动本次 TUN 连接...');
+    if (!await tunSession.start()) {
+      setLastStartError(tunSession.lastError ?? 'TUN 管理员授权失败');
+      log(lastStartError!);
+      return false;
+    }
+
+    try {
+      _ensureStartCurrent(startToken);
+      final deadline = DateTime.now().add(const Duration(seconds: 20));
+      while (DateTime.now().isBefore(deadline)) {
+        _ensureStartCurrent(startToken);
+        if (await healthCheck()) {
+          setRunning(true);
+          resetHealthCheckFailures();
+          log('macOS TUN 核心已就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');
+          notifyStatusChanged();
+          startStatusMonitor();
+          return true;
+        }
+        if (await tunSession.startupState() == MacosTunStartupState.failed) {
+          setLastStartError(tunSession.lastError ?? 'TUN 核心启动失败');
+          log(lastStartError!);
+          await tunSession.stop();
+          return false;
+        }
+        await Future.delayed(const Duration(milliseconds: 250));
+      }
+      final healthDetail = lastHealthCheckError;
+      setLastStartError(
+        healthDetail == null
+            ? 'TUN 核心启动超时，请重试'
+            : 'TUN 核心未能通过健康检查：$healthDetail',
+      );
+      log(lastStartError!);
+      await tunSession.stop();
+      return false;
+    } on _DesktopStartCancelled {
+      await tunSession.stop();
+      rethrow;
+    } catch (error) {
+      await tunSession.stop();
+      rethrow;
+    }
   }
 
   void _ensureStartCurrent(int startToken) {

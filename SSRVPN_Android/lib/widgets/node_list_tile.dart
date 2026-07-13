@@ -122,7 +122,7 @@ class NodeListTile extends StatelessWidget {
                             SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                '${node.server}:${node.port}',
+                                '${node.server.contains(':') ? '[${node.server}]' : node.server}:${node.port}',
                                 style: TextStyle(
                                   fontSize: Responsive.sp(10),
                                   color: effectiveSubColor,

@@ -40,8 +40,8 @@ void main() {
       expect(AppSettings.extractForceProxyHost('[example]'), isNull);
     });
 
-    test('IPv6 地址返回 null', () {
-      expect(AppSettings.extractForceProxyHost('[::1]:8080'), isNull);
+    test('提取带端口的 IPv6 地址', () {
+      expect(AppSettings.extractForceProxyHost('[::1]:8080'), '::1');
     });
 
     test('只有顶级域名返回 null (至少 2 段)', () {

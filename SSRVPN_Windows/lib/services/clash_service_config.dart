@@ -25,6 +25,8 @@ mixin _WindowsClashConfig on ClashServiceBase {
       ..writeln('    - any:53')
       ..writeln('  auto-route: true')
       ..writeln('  auto-detect-interface: true')
+      ..writeln('  inet6-address:')
+      ..writeln('    - ${AppConstants.tunInet6Address}')
       ..writeln('  route-exclude-address:');
     for (final address in AppConstants.routeExcludeAddresses) {
       buffer.writeln('    - $address');

@@ -26,11 +26,22 @@ class _SsrSubscriptionParser {
       final parts = mainPart.split(':');
       if (parts.length < 6) return null;
 
-      final server = parts[0];
-      final port = int.tryParse(parts[1]) ?? 0;
-      final protocol = parts[2];
-      final method = parts[3];
-      final obfs = parts[4];
+      var server = parts.sublist(0, parts.length - 5).join(':');
+      final startsBracket = server.startsWith('[');
+      final endsBracket = server.endsWith(']');
+      if (startsBracket != endsBracket || server.contains('%')) return null;
+      if (startsBracket) {
+        server = server.substring(1, server.length - 1);
+      }
+      final serverAddress = InternetAddress.tryParse(server);
+      if ((startsBracket || server.contains(':')) &&
+          serverAddress?.type != InternetAddressType.IPv6) {
+        return null;
+      }
+      final port = int.tryParse(parts[parts.length - 5]) ?? 0;
+      final protocol = parts[parts.length - 4];
+      final method = parts[parts.length - 3];
+      final obfs = parts[parts.length - 2];
       if (server.isEmpty ||
           port < 1 ||
           port > 65535 ||
@@ -39,7 +50,7 @@ class _SsrSubscriptionParser {
           obfs.isEmpty) {
         return null;
       }
-      final passwordB64 = parts.sublist(5).join(':');
+      final passwordB64 = parts.last;
       if (passwordB64.isEmpty) return null;
       final password = _SubscriptionBase64.decodeText(
         passwordB64,
@@ -60,7 +71,7 @@ class _SsrSubscriptionParser {
       final remarks = paramMap['remarks'] != null
           ? _SubscriptionBase64.decodeText(paramMap['remarks']!,
               fieldName: '备注')
-          : '$server:$port';
+          : '${server.contains(':') ? '[$server]' : server}:$port';
 
       final obfsparam = paramMap['obfsparam'] != null
           ? _SubscriptionBase64.decodeText(

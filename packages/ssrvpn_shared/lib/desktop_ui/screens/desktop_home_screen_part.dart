@@ -161,9 +161,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final clashService = _clashService;
     if (clashService == null || !mounted || _disposed) return;
     final running = clashService.isRunning;
-    if (_isConnected == running) return;
+    final cancelledWhileConnecting =
+        _isConnecting && !clashService.connectionDesired;
+    if (_isConnected == running && !cancelledWhileConnecting) return;
     setState(() {
       _isConnected = running;
+      if (cancelledWhileConnecting) _isConnecting = false;
       if (!running) {
         _latencyController.clear();
         _selectedNode = null;
@@ -561,7 +564,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       return;
     }
 
-    if (_isConnected || clashService.hasPendingSystemProxyRecovery) {
+    if (_isConnected) {
       clashService.requestConnectionIntent(false);
       setState(() {
         _isConnecting = true;
@@ -601,21 +604,47 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _isConnecting = true;
         _errorMessage = null;
       });
-      final rawYaml = subService.rawYaml;
-      if (rawYaml == null || rawYaml.isEmpty) {
-        setState(() {
-          _errorMessage = '请先添加并刷新订阅';
-          _isConnecting = false;
-          _resetPublicIpState();
-        });
-        return;
-      }
-      int? connectionGeneration;
+      final connectionGeneration = clashService.requestConnectionIntent(true);
+      final requestedGeneration = connectionGeneration;
       try {
+        if (clashService.hasPendingSystemProxyRecovery) {
+          final recovered = await clashService.recoverPendingSystemProxy();
+          if (!mounted || _disposed) return;
+          if (!clashService.isConnectionIntentCurrent(
+            connectionGeneration,
+            connected: true,
+          )) {
+            return;
+          }
+          if (!recovered) {
+            clashService.requestConnectionIntent(false);
+            final reason = clashService.lastStartError ?? '系统代理旧状态恢复失败';
+            recordDesktopConnectionFailure(
+              'System proxy recovery failed: $reason',
+            );
+            setState(() {
+              _isConnecting = false;
+              _errorMessage = '连接失败: $reason';
+              _resetPublicIpState();
+            });
+            return;
+          }
+        }
+        final rawYaml = subService.rawYaml;
+        if (rawYaml == null || rawYaml.isEmpty) {
+          clashService.requestConnectionIntent(false);
+          setState(() {
+            _errorMessage = '请先添加并刷新订阅';
+            _isConnecting = false;
+            _resetPublicIpState();
+          });
+          return;
+        }
         final nodes = HomeNodeController.runnableNodesFrom(
           subService.allNodes,
         );
         if (nodes.isEmpty) {
+          clashService.requestConnectionIntent(false);
           setState(() {
             _errorMessage = '订阅中没有可用节点，请刷新订阅';
             _isConnecting = false;
@@ -623,7 +652,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           });
           return;
         }
-        connectionGeneration = clashService.requestConnectionIntent(true);
         final autoSelect = _resolveDefaultNode(
           nodes,
           settingsService.settings.lastSelectedNodeName,
@@ -641,14 +669,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           connectionGeneration,
           connected: true,
         )) {
-          if (mounted) {
-            setState(() {
-              _isConnected = false;
-              _isConnecting = false;
-              _selectedNode = null;
-              _resetPublicIpState();
-            });
-          }
           return;
         }
         final success = await clashService.start();
@@ -656,15 +676,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           connectionGeneration,
           connected: true,
         )) {
-          if (success) await clashService.stop();
-          if (mounted) {
-            setState(() {
-              _isConnected = false;
-              _isConnecting = false;
-              _selectedNode = null;
-              _resetPublicIpState();
-            });
-          }
           return;
         }
         ProxyNode? runtimeSelectedNode;
@@ -687,14 +698,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               nodes,
             );
           }
-          final connectivityWarning =
-              await clashService.verifyUserConnectivity();
           if (!clashService.isRunning ||
               !clashService.isConnectionIntentCurrent(
                 connectionGeneration,
                 connected: true,
               )) {
-            if (clashService.isRunning) await clashService.stop();
+            if (!clashService.isConnectionIntentCurrent(
+              connectionGeneration,
+              connected: true,
+            )) {
+              return;
+            }
             if (mounted && !_disposed) {
               setState(() {
                 _isConnected = false;
@@ -708,7 +722,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           setState(() {
             _isConnected = true;
             _isConnecting = false;
-            _errorMessage = connectivityWarning;
+            _errorMessage = null;
             _nodes = nodes;
             _selectedNode = runtimeSelectedNode;
           });
@@ -717,13 +731,33 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _schedulePublicIpRefresh();
           unawaited(_autoTestAllNodes());
           _checkUpdateDelayed();
+
+          // Core/API/system proxy success is the user-visible connection
+          // boundary. Connectivity probing is advisory and must not leave the
+          // UI looking stuck on slower or probe-blocking networks.
+          final connectivityWarning = await clashService.verifyUserConnectivity(
+            shouldContinue: () => clashService.isConnectionIntentCurrent(
+              connectionGeneration,
+              connected: true,
+            ),
+          );
+          if (!mounted ||
+              _disposed ||
+              !clashService.isRunning ||
+              !clashService.isConnectionIntentCurrent(
+                connectionGeneration,
+                connected: true,
+              )) {
+            return;
+          }
+          setState(() => _errorMessage = connectivityWarning);
         } else {
-          if (clashService.isConnectionIntentCurrent(
+          final isCurrent = clashService.isConnectionIntentCurrent(
             connectionGeneration,
             connected: true,
-          )) {
-            clashService.requestConnectionIntent(false);
-          }
+          );
+          if (!isCurrent) return;
+          clashService.requestConnectionIntent(false);
           final reason = clashService.lastStartError ?? '无法启动核心';
           recordDesktopConnectionFailure('Connection failed: $reason');
           setState(() {
@@ -733,13 +767,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           });
         }
       } catch (e, stack) {
-        if (connectionGeneration != null &&
-            clashService.isConnectionIntentCurrent(
-              connectionGeneration,
-              connected: true,
-            )) {
-          clashService.requestConnectionIntent(false);
-        }
+        final isCurrent = clashService.isConnectionIntentCurrent(
+          requestedGeneration,
+          connected: true,
+        );
+        if (!isCurrent) return;
+        clashService.requestConnectionIntent(false);
         recordDesktopConnectionFailure(
           'Connection failed',
           error: e,

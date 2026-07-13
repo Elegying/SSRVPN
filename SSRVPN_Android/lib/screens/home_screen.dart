@@ -144,10 +144,9 @@ class HomeScreenState extends State<HomeScreen>
       final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
       if (nodes.isEmpty) {
         setState(() {
-          _isConnected = false;
+          _isConnected = clashService.isRunning;
           _isConnecting = false;
-          _errorMessage = '订阅中没有可用节点，请刷新订阅';
-          _resetPublicIpState();
+          _errorMessage = '订阅中没有可用节点，已保留当前连接';
         });
         return;
       }
@@ -161,15 +160,21 @@ class HomeScreenState extends State<HomeScreen>
         connectionGeneration,
         connected: true,
       )) {
-        if (mounted && !_disposed) setState(() => _isConnecting = false);
         return;
       }
       final result = await orch.connect(
         preferredNode?.name,
         connectionGeneration: connectionGeneration,
       );
+      if (!clashService.isConnectionIntentCurrent(
+        connectionGeneration,
+        connected: true,
+      )) {
+        return;
+      }
       final connected = clashService.isRunning;
       if (mounted && !_disposed) {
+        if (!connected) clashService.requestConnectionIntent(false);
         setState(() {
           _isConnected = connected;
           _isConnecting = false;
@@ -186,10 +191,15 @@ class HomeScreenState extends State<HomeScreen>
           connectionGeneration,
           connected: true,
         );
+        if (cancelled) return;
+        final stillRunning = clashService.isRunning;
+        if (!stillRunning) clashService.requestConnectionIntent(false);
         setState(() {
-          _isConnected = clashService.isRunning;
+          _isConnected = stillRunning;
           _isConnecting = false;
-          _errorMessage = cancelled ? null : '连接重载失败: ${_userFriendlyError(e)}';
+          _errorMessage = stillRunning
+              ? '连接重载失败，已保留当前连接: ${_userFriendlyError(e)}'
+              : '连接重载失败: ${_userFriendlyError(e)}';
           if (!_isConnected) _resetPublicIpState();
         });
       }
@@ -417,12 +427,6 @@ class HomeScreenState extends State<HomeScreen>
           connectionGeneration,
           connected: true,
         )) {
-          setState(() {
-            _isConnected = clashService.isRunning;
-            _isConnecting = false;
-            _errorMessage = null;
-            if (!_isConnected) _resetPublicIpState();
-          });
           return;
         }
         final connected = clashService.isRunning;
@@ -455,8 +459,9 @@ class HomeScreenState extends State<HomeScreen>
               connected: true,
             );
         if (!mounted || _disposed) return;
+        if (cancelled) return;
         setState(() {
-          _errorMessage = cancelled ? null : '连接失败: ${_userFriendlyError(e)}';
+          _errorMessage = '连接失败: ${_userFriendlyError(e)}';
           _isConnected = clashService.isRunning;
           _isConnecting = false;
           if (!_isConnected) _resetPublicIpState();

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:ssrvpn_shared/services/direct_fetcher.dart';
@@ -10,6 +11,26 @@ void main() {
     expect(DirectFetcher.isFakeIp(InternetAddress('198.19.255.255')), isTrue);
     expect(DirectFetcher.isFakeIp(InternetAddress('198.20.0.1')), isFalse);
     expect(DirectFetcher.isFakeIp(InternetAddress('8.8.8.8')), isFalse);
+  });
+
+  test('balancedAddresses keeps both address families within the cap', () {
+    final addresses = [
+      for (var i = 1; i <= 8; i++) InternetAddress('192.0.2.$i'),
+      InternetAddress('2001:db8::1'),
+      InternetAddress('2001:db8::2'),
+    ];
+
+    final selected = DirectFetcher.balancedAddresses(addresses);
+
+    expect(selected, hasLength(6));
+    expect(
+        selected.where((address) => address.type == InternetAddressType.IPv4),
+        isNotEmpty);
+    expect(
+        selected.where((address) => address.type == InternetAddressType.IPv6),
+        isNotEmpty);
+    expect(selected[0].type, InternetAddressType.IPv4);
+    expect(selected[1].type, InternetAddressType.IPv6);
   });
 
   test('fetchResponse enforces body size while reading', () async {
@@ -30,6 +51,58 @@ void main() {
         DirectFetcher.fetchResponse(url, maxBodyBytes: 4),
         throwsA(isA<Exception>()),
       );
+    } finally {
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test('fetchResponse brackets an IPv6 literal in the Host header', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv6, 0);
+    String? requestHead;
+    final subscription = server.listen((socket) async {
+      requestHead = await utf8.decoder
+          .bind(socket)
+          .firstWhere((chunk) => chunk.contains('\r\n\r\n'));
+      socket.write(
+        'HTTP/1.1 200 OK\r\n'
+        'Content-Length: 2\r\n'
+        'Connection: close\r\n'
+        '\r\n'
+        'ok',
+      );
+      await socket.flush();
+      await socket.close();
+    });
+
+    try {
+      final response = await DirectFetcher.fetchResponse(
+        'http://[::1]:${server.port}/payload',
+      );
+      expect(response.body, 'ok');
+      expect(requestHead, contains('Host: [::1]:${server.port}\r\n'));
+    } finally {
+      await subscription.cancel();
+      await server.close();
+    }
+  });
+
+  test('fetchResponse falls back from an unreachable IPv4 to IPv6', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv6, 0);
+    final subscription = server.listen((request) async {
+      request.response.write('ok');
+      await request.response.close();
+    });
+
+    try {
+      final response = await DirectFetcher.fetchResponse(
+        'http://dual-stack.test:${server.port}/payload',
+        addressLookup: (_) async => [
+          InternetAddress.loopbackIPv4,
+          InternetAddress.loopbackIPv6,
+        ],
+      );
+      expect(response.body, 'ok');
     } finally {
       await subscription.cancel();
       await server.close(force: true);

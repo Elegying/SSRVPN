@@ -3,11 +3,72 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
+import 'package:http/http.dart' as http;
 import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
 
 void main() {
+  group('ClashServiceBase connectivity verification', () {
+    test('suppresses a transient HTTP failure after a successful retry',
+        () async {
+      final statuses = [502, 204];
+      var calls = 0;
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+
+      final warning = await service.verifyUserConnectivity(
+        maxAttempts: 3,
+        retryDelay: Duration.zero,
+        request: (_) async => http.Response('', statuses[calls++]),
+      );
+
+      expect(warning, isNull);
+      expect(calls, 2);
+    });
+
+    test('warns only after consecutive verification failures', () async {
+      var calls = 0;
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+
+      final warning = await service.verifyUserConnectivity(
+        maxAttempts: 3,
+        retryDelay: Duration.zero,
+        request: (_) async {
+          calls += 1;
+          return http.Response('', 502);
+        },
+      );
+
+      expect(calls, 3);
+      expect(warning, contains('连续 3 次'));
+      expect(warning, contains('HTTP 502'));
+    });
+
+    test('abandons an obsolete verification without showing a warning',
+        () async {
+      var calls = 0;
+      var current = true;
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+
+      final warning = await service.verifyUserConnectivity(
+        maxAttempts: 3,
+        retryDelay: Duration.zero,
+        shouldContinue: () => current,
+        request: (_) async {
+          calls += 1;
+          current = false;
+          return http.Response('', 502);
+        },
+      );
+
+      expect(calls, 1);
+      expect(warning, isNull);
+    });
+  });
+
   group('ClashServiceBase proxy selection', () {
     test('confirms PROXY now before reporting a selected-node switch',
         () async {

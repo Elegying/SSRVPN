@@ -53,7 +53,6 @@ class ConnectionOrchestrator {
     final success = await clashService.start(nodeName: nodeName);
 
     if (!_isCurrent(connectionGeneration)) {
-      if (success && clashService.isRunning) await clashService.stop();
       return null;
     }
 
@@ -63,9 +62,11 @@ class ConnectionOrchestrator {
 
     // 切换选中节点
     if (nodeName != null && nodeName.isNotEmpty) {
-      await clashService.switchSelectedProxy(nodeName);
+      await clashService.switchSelectedProxyForConnection(
+        nodeName,
+        connectionGeneration: connectionGeneration,
+      );
       if (!_isCurrent(connectionGeneration)) {
-        if (clashService.isRunning) await clashService.stop();
         return null;
       }
     }
@@ -76,12 +77,13 @@ class ConnectionOrchestrator {
       proxyMode: settings.proxyMode.name,
     );
     if (!_isCurrent(connectionGeneration)) {
-      if (clashService.isRunning) await clashService.stop();
       return null;
     }
 
     // 验证连通性
-    final connectivityWarning = await clashService.verifyUserConnectivity();
+    final connectivityWarning = await clashService.verifyUserConnectivity(
+      shouldContinue: () => _isCurrent(connectionGeneration),
+    );
     return connectivityWarning; // null = 完全成功
   }
 

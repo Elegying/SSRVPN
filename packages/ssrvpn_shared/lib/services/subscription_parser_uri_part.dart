@@ -40,6 +40,7 @@ class _SubscriptionUriParser {
 
     if (scheme == 'ss') return _parseSsUri(uri);
     if (scheme == 'vmess') return _parseVmessUri(line);
+    if (!ProxyNodeUsagePolicy.isValidServerValue(uri.host)) return null;
     if (scheme == 'vless') return _parseVlessUri(uri);
     if (scheme == 'hysteria' || scheme == 'hy') return _parseHysteriaUri(uri);
     if (scheme == 'hysteria2' || scheme == 'hy2') {
@@ -126,12 +127,14 @@ class _SubscriptionUriParser {
       final json = jsonDecode(decoded);
       if (json is! Map) return null;
 
-      final server = _stringFrom(json['add'] ?? json['server']);
+      final server =
+          _normalizeServer(_stringFrom(json['add'] ?? json['server']));
       final port = _intFrom(json['port']);
       final uuid = _stringFrom(json['id'] ?? json['uuid']);
       if (server == null || port == null || uuid == null) return null;
 
-      final name = _stringFrom(json['ps'] ?? json['name']) ?? '$server:$port';
+      final name = _stringFrom(json['ps'] ?? json['name']) ??
+          _formatHostPort(server, port);
       final proxy = <String, dynamic>{
         'name': name,
         'type': 'vmess',
@@ -607,7 +610,20 @@ class _SubscriptionUriParser {
 
   static String _proxyNameFromUri(Uri uri) {
     final fragment = _decodeUriPart(uri.fragment).trim();
-    return fragment.isNotEmpty ? fragment : '${uri.host}:${uri.port}';
+    return fragment.isNotEmpty ? fragment : _formatHostPort(uri.host, uri.port);
+  }
+
+  static String _formatHostPort(String host, int port) =>
+      '${host.contains(':') ? '[$host]' : host}:$port';
+
+  static String? _normalizeServer(String? raw) {
+    if (raw == null) return null;
+    var value = raw.trim();
+    final startsBracket = value.startsWith('[');
+    final endsBracket = value.endsWith(']');
+    if (startsBracket != endsBracket) return null;
+    if (startsBracket) value = value.substring(1, value.length - 1);
+    return ProxyNodeUsagePolicy.isValidServerValue(value) ? value : null;
   }
 
   static bool _isTruthy(String? value) {

@@ -181,6 +181,39 @@ proxies:
         expect(result, contains('port: 443'));
       });
 
+      test('parses SSR links whose server is an IPv6 literal', () {
+        final password =
+            base64Url.encode(utf8.encode('testpassword')).replaceAll('=', '');
+        final mainPart = '[2001:db8::10]:443:auth_aes128_md5:aes-256-cfb:'
+            'tls1.2_ticket_auth:$password';
+        final encoded =
+            base64Url.encode(utf8.encode(mainPart)).replaceAll('=', '');
+
+        final result = SubscriptionParser.importSsrLink('ssr://$encoded');
+
+        expect(result, isNotNull);
+        expect(result, contains('server: "2001:db8::10"'));
+        expect(result, contains('port: 443'));
+      });
+
+      test('rejects ambiguous or zone-qualified SSR IPv6 servers', () {
+        String encode(String value) =>
+            base64Url.encode(utf8.encode(value)).replaceAll('=', '');
+
+        for (final server in [
+          '[2001:db8::10',
+          'fe80::1%en0',
+          '[example.com]',
+        ]) {
+          final mainPart = '$server:443:origin:aes-256-cfb:plain:'
+              '${encode('password')}';
+          expect(
+            SubscriptionParser.importSsrLink('ssr://${encode(mainPart)}'),
+            isNull,
+          );
+        }
+      });
+
       test('rejects non-SSR links', () {
         expect(SubscriptionParser.importSsrLink('http://example.com'), isNull);
         expect(SubscriptionParser.importSsrLink(''), isNull);
@@ -188,6 +221,36 @@ proxies:
     });
 
     group('proxyFromUri', () {
+      test('rejects zone-qualified and ambiguous IPv6 servers for every input',
+          () {
+        String vmess(String server) => 'vmess://${base64Encode(utf8.encode(
+              jsonEncode({
+                'add': server,
+                'port': 443,
+                'id': '00000000-0000-0000-0000-000000000001',
+              }),
+            ))}';
+
+        for (final uri in [
+          'trojan://pass@[fe80::1%25en0]:443',
+          'vless://uuid@[fe80::1%25en0]:443',
+          vmess('fe80::1%en0'),
+          vmess('[2001:db8::1'),
+        ]) {
+          expect(SubscriptionParser.proxyFromUri(uri), isNull, reason: uri);
+        }
+      });
+
+      test('accepts and normalizes VMess IPv6 literals', () {
+        final uri = 'vmess://${base64Encode(utf8.encode(jsonEncode({
+              'add': '[2001:db8::20]',
+              'port': 443,
+              'id': '00000000-0000-0000-0000-000000000001',
+            })))}';
+
+        expect(SubscriptionParser.proxyFromUri(uri)?['server'], '2001:db8::20');
+      });
+
       test('parses trojan link', () {
         final uri =
             'trojan://password123@example.com:443?sni=sni.example.com#MyTrojan';
@@ -274,6 +337,17 @@ proxies:
         expect(proxy['servername'], equals('www.microsoft.com'));
         expect(proxy['reality-opts']['public-key'], equals('public-key'));
         expect(proxy['reality-opts']['short-id'], equals('abcd'));
+      });
+
+      test('parses a bracketed IPv6 node URI', () {
+        final proxy = SubscriptionParser.proxyFromUri(
+          'vless://uuid-1234@[2001:db8::50]:443?encryption=none',
+        );
+
+        expect(proxy, isNotNull);
+        expect(proxy!['server'], '2001:db8::50');
+        expect(proxy['port'], 443);
+        expect(proxy['name'], '[2001:db8::50]:443');
       });
 
       test('parses hysteria2 link', () {

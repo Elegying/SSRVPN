@@ -103,6 +103,62 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("await _markActivationComplete()", service)
         self.assertIn("Remove-Item -Path \\$backupPath", service)
 
+    def test_connect_retries_pending_proxy_recovery_in_the_same_action(self) -> None:
+        service = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "system_proxy_service.dart"
+        ).read_text(encoding="utf-8")
+        lifecycle = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "clash_service_lifecycle.dart"
+        ).read_text(encoding="utf-8")
+        app = (ROOT / "SSRVPN_Windows" / "lib" / "app.dart").read_text(
+            encoding="utf-8"
+        )
+        home = (
+            ROOT
+            / "packages"
+            / "ssrvpn_shared"
+            / "lib"
+            / "desktop_ui"
+            / "screens"
+            / "desktop_home_screen_part.dart"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Future<bool> retryPendingRecovery()", service)
+        self.assertIn("await initialize(dataDir)", service)
+        self.assertIn("Future<bool> recoverPendingSystemProxy()", lifecycle)
+        tray_connect = app[
+            app.index("Future<void> _handleTrayConnectToggle()") : app.index(
+                "String? _defaultNodeName()"
+            )
+        ]
+        tray_generation = tray_connect.index("requestConnectionIntent(true)")
+        tray_recovery = tray_connect.index("recoverPendingSystemProxy")
+        self.assertLess(tray_generation, tray_recovery)
+        self.assertIn(
+            "isConnectionIntentCurrent",
+            tray_connect[tray_recovery:],
+        )
+        home_connect = home[
+            home.index("Future<void> _handleConnectToggle()") : home.index(
+                "@override\n  Widget build"
+            )
+        ]
+        home_generation = home_connect.index("requestConnectionIntent(true)")
+        home_recovery = home_connect.index("recoverPendingSystemProxy")
+        self.assertLess(home_generation, home_recovery)
+        self.assertIn(
+            "isConnectionIntentCurrent",
+            home_connect[home_recovery:],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

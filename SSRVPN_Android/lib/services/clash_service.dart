@@ -246,8 +246,12 @@ class ClashService extends ClashServiceBase {
       ..writeln('    - any:53')
       ..writeln('  auto-route: true')
       ..writeln('  auto-detect-interface: true')
+      ..writeln('  inet6-address:')
+      ..writeln('    - ${AppConstants.tunInet6Address}')
       ..writeln('  route-exclude-address:');
     for (final address in AppConstants.routeExcludeAddresses) {
+      // Android 原生 VPN 接管 ::/0；不排除 IPv6，避免绕过或黑洞。
+      if (address.contains(':')) continue;
       buffer.writeln('    - $address');
     }
     return buffer.toString().trimRight();
@@ -491,12 +495,41 @@ class ClashService extends ClashServiceBase {
     return switched;
   }
 
-  Future<void> updateVpnNotification(String nodeName) async {
+  /// Initial/reload connection flows use this variant so an obsolete intent
+  /// cannot publish its node after a newer connect/disconnect request wins.
+  Future<bool> switchSelectedProxyForConnection(
+    String nodeName, {
+    required int connectionGeneration,
+  }) async {
+    final switched = await super.switchSelectedProxy(nodeName);
+    if (!switched ||
+        !isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+      return false;
+    }
+    await updateVpnNotification(
+      nodeName,
+      persistSelection: false,
+      shouldContinue: () => isConnectionIntentCurrent(
+        connectionGeneration,
+        connected: true,
+      ),
+    );
+    return isConnectionIntentCurrent(connectionGeneration, connected: true);
+  }
+
+  Future<void> updateVpnNotification(
+    String nodeName, {
+    bool persistSelection = true,
+    bool Function()? shouldContinue,
+  }) async {
     try {
+      if (shouldContinue?.call() == false) return;
       await _channel.invokeMethod('updateVpnNotification', {
         'nodeName': nodeName,
       });
+      if (!persistSelection || shouldContinue?.call() == false) return;
       final prefs = await SharedPreferences.getInstance();
+      if (shouldContinue?.call() == false) return;
       await prefs.setString('selectedNodeName', nodeName);
     } catch (e) {
       log('更新 VPN 通知失败: $e');

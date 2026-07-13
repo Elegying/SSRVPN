@@ -11,10 +11,12 @@ SSRVPN 是一个跨平台 Flutter VPN 客户端 Monorepo，用同一套共享业
 | 平台目录 | 说明 | 发布产物 |
 | --- | --- | --- |
 | `SSRVPN_Android` | Android VPN 客户端，包含 VPN Service、快捷磁贴、订阅导入和在线更新 | `SSRVPN.apk` |
-| `SSRVPN_MacOS` | macOS 桌面客户端，包含系统代理、资源安装和 DMG 打包；TUN 暂不可用 | `SSRVPN.dmg` |
+| `SSRVPN_MacOS` | macOS 桌面客户端，包含系统代理、需管理员授权的 TUN、资源安装和 DMG 打包 | `SSRVPN.dmg` |
 | `SSRVPN_Windows` | Windows 客户端，包含系统代理、TUN、托盘、安装版和便携版 | `SSRVPN_Setup.exe` / `SSRVPN.zip` |
 
-当前节点与路由策略明确按 IPv4-only 设计，不支持 IPv6 节点、IPv6 强制代理 IP 或 IPv6 出口。
+Android、macOS、Windows 均生成 IPv4/IPv6 双栈配置，支持 IPv6 节点、AAAA 解析、IPv6 强制代理规则与 TUN 流量；公网 IPv6 是否可用仍取决于本地网络和所选节点。
+
+macOS TUN 会在每次启动时显示系统管理员授权框。当前公开包尚未配置 Developer ID 与 notarization，因此授权只能证明本机用户明确同意本次提权，不能由 macOS 验证软件发布者身份；仅应从本仓库 Release 或官网固定下载地址获取，并在正式商用签名前把签名 helper/Network Extension 作为最高优先级安全升级。
 
 ## 仓库结构
 
@@ -22,7 +24,7 @@ SSRVPN 是一个跨平台 Flutter VPN 客户端 Monorepo，用同一套共享业
 SSRVPN/
 ├── packages/ssrvpn_shared/    # 三端共享模型、服务、策略和测试
 ├── SSRVPN_Android/            # Android Flutter 应用和原生集成
-├── SSRVPN_MacOS/              # macOS Flutter 应用、系统代理和 DMG 打包（TUN 暂不可用）
+├── SSRVPN_MacOS/              # macOS Flutter 应用、系统代理、授权 TUN 和 DMG 打包
 ├── SSRVPN_Windows/            # Windows Flutter 应用、系统代理、TUN 和便携打包
 ├── docs/                      # 项目管理、维护、发布、路线图和仓库审计文档
 ├── scripts/                   # 本地维护脚本
@@ -115,7 +117,7 @@ shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
 - Android Release workflow 使用同一个自签名 keystore secret 时可覆盖升级。
 - macOS DMG 是拖拽安装形式，但未做 Apple Developer ID 签名和公证，首次打开可能需要右键打开。
 - Windows 默认更新产物为每用户安装版 `SSRVPN_Setup.exe`，同时保留绿色便携 ZIP；两者未代码签名时都可能出现 SmartScreen 提示。
-- Android 当前只随包提供 arm64 核心库；项目网络策略按 IPv4-only 设计。
+- Android 当前只随包提供 arm64 核心库；三端网络策略均为 IPv4/IPv6 双栈。
 
 ## 重要文档
 

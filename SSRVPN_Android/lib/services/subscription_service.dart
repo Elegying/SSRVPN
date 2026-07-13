@@ -18,7 +18,7 @@ class SubscriptionService extends SubscriptionServiceBase {
   static const int _maxYamlBytes = 2 * 1024 * 1024;
   static const int _maxHeaderBytes = 64 * 1024;
   static const _tlsTimeout = Duration(seconds: 20);
-  static const _readInactivityTimeout = Duration(seconds: 30);
+  static const _defaultReadInactivityTimeout = Duration(seconds: 30);
   static const _requestTimeout = Duration(seconds: 60);
 
   static void _log(String message) {
@@ -27,6 +27,9 @@ class SubscriptionService extends SubscriptionServiceBase {
 
   /// 可注入的 HTTP 客户端适配器（测试时可替换为 FakeHttpClientAdapter）
   static HttpClientAdapter? _httpClientOverride;
+  static Future<List<InternetAddress>> Function(String host)?
+      _addressLookupOverride;
+  static Duration? _readInactivityTimeoutOverride;
 
   SubscriptionService._();
 
@@ -47,6 +50,17 @@ class SubscriptionService extends SubscriptionServiceBase {
   @visibleForTesting
   static void resetHttpClientOverride() {
     _httpClientOverride = null;
+    _addressLookupOverride = null;
+    _readInactivityTimeoutOverride = null;
+  }
+
+  @visibleForTesting
+  static void overrideAddressLookup(
+    Future<List<InternetAddress>> Function(String host) lookup, {
+    Duration? readInactivityTimeout,
+  }) {
+    _addressLookupOverride = lookup;
+    _readInactivityTimeoutOverride = readInactivityTimeout;
   }
 
   @visibleForTesting
@@ -189,10 +203,9 @@ class SubscriptionService extends SubscriptionServiceBase {
 
     List<InternetAddress> addresses;
     try {
-      addresses = await InternetAddress.lookup(
-        uri.host,
-        type: InternetAddressType.IPv4,
-      ).timeout(const Duration(seconds: 10));
+      addresses = await (_addressLookupOverride?.call(uri.host) ??
+              InternetAddress.lookup(uri.host))
+          .timeout(const Duration(seconds: 10));
       addresses =
           addresses.where((addr) => !DirectFetcher.isFakeIp(addr)).toList();
       _log(
@@ -212,12 +225,14 @@ class SubscriptionService extends SubscriptionServiceBase {
 
     final isSecure = uri.scheme == 'https';
     final port = uri.port;
-    final hostHeader = uri.hasPort ? '${uri.host}:$port' : uri.host;
+    final formattedHost = uri.host.contains(':') ? '[${uri.host}]' : uri.host;
+    final hostHeader = uri.hasPort ? '$formattedHost:$port' : formattedHost;
     final pathWithQuery = (uri.path.isEmpty ? '/' : uri.path) +
         (uri.hasQuery ? '?${uri.query}' : '');
     SocketException? lastSocketError;
+    TimeoutException? lastTimeoutError;
 
-    final ipsToTry = addresses.take(5).toList();
+    final ipsToTry = DirectFetcher.balancedAddresses(addresses);
     _log('将尝试 ${ipsToTry.length} 个 IP 地址...');
 
     for (int i = 0; i < ipsToTry.length; i++) {
@@ -273,9 +288,12 @@ class SubscriptionService extends SubscriptionServiceBase {
             'IP ${addr.address} TLS握手失败: ${e.message} (${ipStopwatch.elapsedMilliseconds}ms)');
         lastSocketError = SocketException('TLS握手失败: ${e.message}');
         continue;
-      } on TimeoutException {
+      } on TimeoutException catch (e) {
         socket?.destroy();
-        rethrow;
+        lastTimeoutError = e;
+        _log(
+            'IP ${addr.address} 超时: ${e.message ?? "请求超时"} (${ipStopwatch.elapsedMilliseconds}ms)');
+        continue;
       } catch (e) {
         _log(
             'IP ${addr.address} 异常: $e (${ipStopwatch.elapsedMilliseconds}ms)');
@@ -284,7 +302,9 @@ class SubscriptionService extends SubscriptionServiceBase {
       }
     }
 
-    throw lastSocketError ?? const SocketException('所有IP地址连接失败');
+    if (lastSocketError != null) throw lastSocketError;
+    if (lastTimeoutError != null) throw lastTimeoutError;
+    throw const SocketException('所有IP地址连接失败');
   }
 
   Future<_RawHttpResponse> _sendHttpRequest(
@@ -318,7 +338,9 @@ class SubscriptionService extends SubscriptionServiceBase {
         socket.destroy();
       });
       try {
-        await for (final chunk in socket.timeout(_readInactivityTimeout)) {
+        await for (final chunk in socket.timeout(
+          _readInactivityTimeoutOverride ?? _defaultReadInactivityTimeout,
+        )) {
           final previousLength = responseBytes.length;
           totalBytes += chunk.length;
           if (totalBytes >

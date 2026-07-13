@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/src/services/system_proxy_ownership.dart';
 
+typedef SystemProxyScriptRunner = Future<ProcessResult> Function(String script);
+
 /// Manages the Windows system proxy while preserving the user's prior values.
 class SystemProxyService {
   static const _nativeBackupRegistryPath =
@@ -14,11 +16,34 @@ class SystemProxyService {
       '172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*';
   static final SystemProxyService _instance = SystemProxyService._();
   factory SystemProxyService() => _instance;
-  SystemProxyService._();
+  SystemProxyService._({
+    bool? isWindows,
+    SystemProxyScriptRunner? scriptRunner,
+    String? localAppData,
+  })  : _isWindows = isWindows ?? Platform.isWindows,
+        _scriptRunner = scriptRunner,
+        _localAppDataOverride = localAppData;
+
+  factory SystemProxyService.forTesting({
+    required bool isWindows,
+    required SystemProxyScriptRunner scriptRunner,
+    String localAppData = '',
+  }) =>
+      SystemProxyService._(
+        isWindows: isWindows,
+        scriptRunner: scriptRunner,
+        localAppData: localAppData,
+      );
+
+  final bool _isWindows;
+  final SystemProxyScriptRunner? _scriptRunner;
+  final String? _localAppDataOverride;
 
   bool _proxyEnabled = false;
   bool _ownsProxy = false;
   bool _recoveryPending = false;
+  String? _dataDir;
+  Future<bool>? _recoveryOperation;
   String? _statePath;
   _ProxySnapshot? _previousProxy;
   String? _ownedProxyServer;
@@ -30,11 +55,13 @@ class SystemProxyService {
 
   /// Restores proxy settings left behind by an abnormal previous shutdown.
   Future<void> initialize(String dataDir) async {
-    if (!Platform.isWindows) return;
+    if (!_isWindows) return;
+    _dataDir = dataDir;
     _lastError = null;
     // This snapshot is machine-specific state. Keeping it outside the portable
     // directory prevents a copied folder from restoring another PC's proxy.
-    final localAppData = Platform.environment['LOCALAPPDATA'];
+    final localAppData =
+        _localAppDataOverride ?? Platform.environment['LOCALAPPDATA'];
     final runtimeDir = localAppData == null || localAppData.trim().isEmpty
         ? dataDir
         : '$localAppData${Platform.pathSeparator}SSRVPN'
@@ -91,8 +118,46 @@ class SystemProxyService {
     }
   }
 
+  /// Retries startup recovery after a transient registry/PowerShell failure.
+  /// The backup is never discarded merely to make a new connection possible.
+  Future<bool> retryPendingRecovery() {
+    if (!_recoveryPending) return Future<bool>.value(true);
+    final current = _recoveryOperation;
+    if (current != null) return current;
+
+    final operation = _retryPendingRecoveryInternal();
+    _recoveryOperation = operation;
+    operation.then<void>(
+      (_) => _clearRecoveryOperation(operation),
+      onError: (_, __) => _clearRecoveryOperation(operation),
+    );
+    return operation;
+  }
+
+  void _clearRecoveryOperation(Future<bool> operation) {
+    if (identical(_recoveryOperation, operation)) {
+      _recoveryOperation = null;
+    }
+  }
+
+  Future<bool> _retryPendingRecoveryInternal() async {
+    final dataDir = _dataDir;
+    final statePath = _statePath;
+    if (dataDir == null || statePath == null) {
+      _lastError = '系统代理恢复服务尚未初始化';
+      return false;
+    }
+    if (!await File(statePath).exists()) {
+      _lastError = '系统代理恢复文件缺失，无法安全恢复旧设置';
+      return false;
+    }
+
+    await initialize(dataDir);
+    return !_recoveryPending;
+  }
+
   Future<bool> setSystemProxy(String host, int port) async {
-    if (!Platform.isWindows) return false;
+    if (!_isWindows) return false;
     _lastError = null;
     if (_recoveryPending) {
       _lastError = '系统代理仍有未恢复的旧状态，请查看运行日志';
@@ -154,15 +219,33 @@ ${_notifyWinInetScript()}
 
   /// Restores the values captured before SSRVPN enabled its proxy.
   Future<bool> clearSystemProxy() async {
-    if (!Platform.isWindows) return false;
+    if (!_isWindows) return false;
+    final recovery = _recoveryOperation;
+    if (recovery != null) {
+      try {
+        await recovery;
+      } catch (e) {
+        _recoveryPending = true;
+        _lastError = '等待系统代理恢复任务失败: $e';
+        return false;
+      }
+    }
     _lastError = null;
     if (!_ownsProxy) {
+      if (_recoveryPending) {
+        _lastError = '系统代理仍有未恢复的旧状态，请重试';
+        return false;
+      }
       _proxyEnabled = false;
       return true;
     }
 
     final snapshot = _previousProxy;
-    if (snapshot == null) return false;
+    if (snapshot == null) {
+      _recoveryPending = true;
+      _lastError = '系统代理恢复快照缺失，无法安全恢复旧设置';
+      return false;
+    }
 
     try {
       final current = await _readCurrentProxy();
@@ -187,6 +270,7 @@ ${_notifyWinInetScript()}
       }
 
       if (!await _restoreSnapshot(snapshot)) {
+        _recoveryPending = true;
         _lastError ??= '恢复原 Windows 系统代理设置失败';
         return false;
       }
@@ -195,6 +279,7 @@ ${_notifyWinInetScript()}
       _recoveryPending = false;
       return true;
     } catch (e) {
+      _recoveryPending = true;
       _lastError = '恢复 Windows 系统代理异常: $e';
       return false;
     }
@@ -434,20 +519,24 @@ Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Valu
     await temp.rename(statePath);
   }
 
-  Future<ProcessResult> _runPowerShell(String script) => TimedProcessRunner.run(
-        _powerShellExecutable(),
-        [
-          '-NoLogo',
-          '-NoProfile',
-          '-NonInteractive',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-Command',
-          script,
-        ],
-        timeout: const Duration(seconds: 20),
-        timeoutStderr: '电脑性能不足，请重新连接',
-      );
+  Future<ProcessResult> _runPowerShell(String script) {
+    final override = _scriptRunner;
+    if (override != null) return override(script);
+    return TimedProcessRunner.run(
+      _powerShellExecutable(),
+      [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        script,
+      ],
+      timeout: const Duration(seconds: 20),
+      timeoutStderr: '电脑性能不足，请重新连接',
+    );
+  }
 
   String _powerShellExecutable() {
     if (!Platform.isWindows) return 'powershell';

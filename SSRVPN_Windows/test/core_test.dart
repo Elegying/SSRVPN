@@ -125,6 +125,13 @@ proxies:
 
       expect(disabled['tun']['enable'], isFalse);
       expect(enabled['tun']['enable'], isTrue);
+      expect(enabled['ipv6'], isTrue);
+      expect(enabled['dns']['ipv6'], isTrue);
+      expect(enabled['tun']['inet6-address'], isNotEmpty);
+      expect(
+        (enabled['tun']['route-exclude-address'] as YamlList).cast<String>(),
+        containsAll(['fc00::/7', 'fe80::/10']),
+      );
     });
 
     test('writes custom force proxy rules before direct rules', () {

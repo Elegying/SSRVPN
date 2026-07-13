@@ -89,7 +89,10 @@ home = Path(
 runtime_actions = Path(
     "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_runtime_actions_part.dart"
 )
-for path in (home, runtime_actions):
+public_ip_actions = Path(
+    "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_public_ip_part.dart"
+)
+for path in (home, runtime_actions, public_ip_actions):
     line_count = len(path.read_text(encoding="utf-8").splitlines())
     if line_count > 900:
         raise SystemExit(f"{path}: shared desktop screen part grew to {line_count} lines")
@@ -107,10 +110,13 @@ for entrypoint in (
     Path("SSRVPN_MacOS/lib/screens/home_screen.dart"),
     Path("SSRVPN_Windows/lib/screens/home_screen.dart"),
 ):
-    if "desktop_home_runtime_actions_part.dart" not in entrypoint.read_text(
-        encoding="utf-8"
+    entrypoint_source = entrypoint.read_text(encoding="utf-8")
+    for required_part in (
+        "desktop_home_runtime_actions_part.dart",
+        "desktop_home_public_ip_part.dart",
     ):
-        raise SystemExit(f"{entrypoint}: missing desktop runtime actions part")
+        if required_part not in entrypoint_source:
+            raise SystemExit(f"{entrypoint}: missing {required_part}")
 
 source = home.read_text(encoding="utf-8")
 start = source.index("Future<void> _applyNetworkSetting(")
@@ -138,8 +144,12 @@ for token in ("取消连接失败", "requestConnectionIntent(false)"):
     if token not in connect:
         raise SystemExit(f"{home}: missing desktop cancellation guard: {token}")
 verification = connect.index("verifyUserConnectivity")
-connected_commit = connect.index("_isConnected = true", verification)
-finalization = connect[verification:connected_commit]
+connected_commit = connect.index("_isConnected = true")
+if connected_commit > verification:
+    raise SystemExit(
+        f"{home}: successful connection remains hidden behind advisory validation"
+    )
+finalization = connect[verification:]
 for token in ("!clashService.isRunning", "isConnectionIntentCurrent"):
     if token not in finalization:
         raise SystemExit(

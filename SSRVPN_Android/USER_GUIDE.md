@@ -2,7 +2,7 @@
 
 SSRVPN 是一款基于 Clash.Meta 内核的安全 VPN 客户端，支持 Android / macOS / Windows 三平台。
 
-Android 版仅支持 arm64-v8a 设备。当前节点与路由策略明确为 IPv4-only，不支持 IPv6 节点、IPv6 强制代理 IP 或 IPv6 出口。
+Android 版仅支持 arm64-v8a 设备，并支持 IPv4/IPv6 双栈节点与流量。公网 IPv6 是否可用取决于当前网络和所选节点。
 
 ## 快速开始
 
@@ -50,7 +50,7 @@ Android 版仅支持 arm64-v8a 设备。当前节点与路由策略明确为 IPv
 - **后台运行**：VPN 连接后在通知栏常驻，不会被系统杀死
 - **TUN 模式**：默认开启，所有应用流量自动走代理
 - **设备范围**：Android 版仅支持 arm64-v8a 设备
-- **网络范围**：节点和代理规则仅支持 IPv4，不支持 IPv6 节点或 IPv6 地址
+- **网络范围**：支持 IPv4/IPv6 节点、DNS、代理规则与 TUN 流量
 
 ### macOS
 

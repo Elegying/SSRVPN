@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
@@ -78,11 +80,12 @@ proxies:
       );
 
       final rules = ClashConfigGenerator.buildForceProxyRules(settings);
-      expect(rules, hasLength(4));
+      expect(rules, hasLength(5));
       expect(rules[0], equals('DOMAIN-SUFFIX,www.google.com,PROXY'));
       expect(rules[1], equals('DOMAIN-SUFFIX,youtube.com,PROXY'));
       expect(rules[2], equals('IP-CIDR,192.168.0.1/32,PROXY,no-resolve'));
-      expect(rules[3], equals('DOMAIN-SUFFIX,example.com,PROXY'));
+      expect(rules[3], equals('IP-CIDR6,2001:db8::1/128,PROXY,no-resolve'));
+      expect(rules[4], equals('DOMAIN-SUFFIX,example.com,PROXY'));
     });
 
     test(
@@ -94,6 +97,8 @@ proxies:
           '*.Video.Example.COM',
           '1.2.3.4:443',
           '1.2.3.4',
+          'https://[2001:db8::2]:8443/path',
+          '[2001:db8::2]:443',
           'bad_domain.example',
           'one.com two.com',
         ]);
@@ -102,6 +107,7 @@ proxies:
           'DOMAIN-SUFFIX,example.com,PROXY',
           'DOMAIN-SUFFIX,video.example.com,PROXY',
           'IP-CIDR,1.2.3.4/32,PROXY,no-resolve',
+          'IP-CIDR6,2001:db8::2/128,PROXY,no-resolve',
         ]);
       },
     );
@@ -124,11 +130,51 @@ proxies:
       expect(config, contains('socks-port: 7891'));
       expect(config, contains('allow-lan: false'));
       expect(config, contains('mode: rule'));
-      expect(config, contains('ipv6: false'));
+      final parsed = loadYaml(config) as YamlMap;
+      final dns = parsed['dns'] as YamlMap;
+      expect(parsed['ipv6'], isTrue);
+      expect(dns['ipv6'], isTrue);
+      expect(dns['fake-ip-range6'], isNotEmpty);
       expect(config, contains('proxies:'));
       expect(config, contains('proxy-groups:'));
       expect(config, contains('rules:'));
       expect(config, contains('Test Node'));
+    });
+
+    test('generateConfig writes a dual-stack generic TUN configuration', () {
+      const yaml = '''
+proxies:
+  - name: Test Node
+    type: ss
+    server: 2001:db8::10
+    port: 443
+    cipher: aes-256-gcm
+    password: test123
+''';
+
+      final parsed = loadYaml(
+        ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(enableTun: true),
+        ),
+      ) as YamlMap;
+      final tun = parsed['tun'] as YamlMap;
+      final dns = parsed['dns'] as YamlMap;
+      final fakeIpv6 = (dns['fake-ip-range6'] as String).split('/').first;
+      final excludedRoutes =
+          (tun['route-exclude-address'] as YamlList).cast<String>();
+
+      expect(tun['inet6-address'], isNotEmpty);
+      expect(
+        excludedRoutes,
+        containsAll(['fc00::/7', 'fe80::/10']),
+      );
+      expect(
+        excludedRoutes.any((route) => _cidrContains(route, fakeIpv6)),
+        isFalse,
+        reason: 'fake IPv6 answers must route back into the TUN',
+      );
+      expect((parsed['proxies'] as YamlList).single['server'], '2001:db8::10');
     });
 
     test('generateConfig writes saved force proxy sites before direct rules',
@@ -394,4 +440,24 @@ proxies:
       expect(node2Index, lessThan(node1Index));
     });
   });
+}
+
+bool _cidrContains(String cidr, String address) {
+  final parts = cidr.split('/');
+  if (parts.length != 2) return false;
+  final network = InternetAddress.tryParse(parts[0]);
+  final target = InternetAddress.tryParse(address);
+  final prefix = int.tryParse(parts[1]);
+  if (network == null || target == null || prefix == null) return false;
+  if (network.type != target.type || prefix < 0) return false;
+  final maxBits = network.rawAddress.length * 8;
+  if (prefix > maxBits) return false;
+  for (var bit = 0; bit < prefix; bit++) {
+    final mask = 1 << (7 - (bit % 8));
+    if ((network.rawAddress[bit ~/ 8] & mask) !=
+        (target.rawAddress[bit ~/ 8] & mask)) {
+      return false;
+    }
+  }
+  return true;
 }

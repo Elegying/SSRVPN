@@ -44,6 +44,7 @@ class AppDelegate: FlutterAppDelegate {
   // Cmd+Q 等退出路径不经过 Flutter 侧的清理逻辑，
   // 在这里兜底：先恢复代理；只有恢复成功后才终止已记录 PID 的自有核心。
   override func applicationWillTerminate(_ notification: Notification) {
+    removeTunSessionRequests()
     let proxyStateURL = findProxyStateFile()
     let runtimeDirectory = runtimeDirectoryForTermination(proxyStateURL: proxyStateURL)
     let hadProxyState = proxyStateURL != nil
@@ -54,6 +55,28 @@ class AppDelegate: FlutterAppDelegate {
       NSLog("[AppDelegate] Keeping AtlasCore alive because proxy restore failed")
     }
     super.applicationWillTerminate(notification)
+  }
+
+  func tunRequestURLs(in support: URL) -> [URL] {
+    var urls = [
+      support.appendingPathComponent("SSRVPN/.tun-session-request")
+    ]
+    if let bundleId = Bundle.main.bundleIdentifier {
+      urls.append(
+        support.appendingPathComponent("\(bundleId)/SSRVPN/.tun-session-request")
+      )
+    }
+    return urls
+  }
+
+  private func removeTunSessionRequests() {
+    let fm = FileManager.default
+    guard let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+      return
+    }
+    for url in tunRequestURLs(in: support) {
+      try? fm.removeItem(at: url)
+    }
   }
 
   @discardableResult

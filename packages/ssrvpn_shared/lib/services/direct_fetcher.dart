@@ -34,6 +34,41 @@ class DirectFetcher {
     return b[0] == 198 && (b[1] == 18 || b[1] == 19);
   }
 
+  /// Caps DNS candidates while alternating address families so a long A or
+  /// AAAA list cannot starve the other family.
+  static List<InternetAddress> balancedAddresses(
+    Iterable<InternetAddress> addresses, {
+    int maxAddresses = 6,
+  }) {
+    if (maxAddresses <= 0) return const [];
+    final ipv4 = <InternetAddress>[];
+    final ipv6 = <InternetAddress>[];
+    final seen = <String>{};
+    for (final address in addresses) {
+      if (!seen.add('${address.type}:${address.address}')) continue;
+      (address.type == InternetAddressType.IPv6 ? ipv6 : ipv4).add(address);
+    }
+    final result = <InternetAddress>[];
+    var ipv4Index = 0;
+    var ipv6Index = 0;
+    final startWithIpv6 = ipv4.isEmpty;
+    while (result.length < maxAddresses &&
+        (ipv4Index < ipv4.length || ipv6Index < ipv6.length)) {
+      if (startWithIpv6) {
+        if (ipv6Index < ipv6.length) result.add(ipv6[ipv6Index++]);
+        if (result.length < maxAddresses && ipv4Index < ipv4.length) {
+          result.add(ipv4[ipv4Index++]);
+        }
+      } else {
+        if (ipv4Index < ipv4.length) result.add(ipv4[ipv4Index++]);
+        if (result.length < maxAddresses && ipv6Index < ipv6.length) {
+          result.add(ipv6[ipv6Index++]);
+        }
+      }
+    }
+    return result;
+  }
+
   /// 系统 DNS 是否已被 fake-ip 污染(用于决定是否提前走直连通道)
   static Future<bool> systemDnsPoisoned(String host) async {
     try {
@@ -46,12 +81,14 @@ class DirectFetcher {
     }
   }
 
-  /// 找到物理网卡的 IPv4 地址(跳过回环 / utun / fake-ip / 链路本地)
-  static Future<InternetAddress?> _physicalInterfaceAddress() async {
+  /// 找到物理网卡的双栈地址，用于按目标地址族绕开其他 TUN。
+  static Future<Map<InternetAddressType, InternetAddress>>
+      _physicalInterfaceAddresses() async {
+    final result = <InternetAddressType, InternetAddress>{};
     try {
       final interfaces = await NetworkInterface.list(
-        type: InternetAddressType.IPv4,
         includeLoopback: false,
+        includeLinkLocal: false,
       );
       // 优先 en0/en1(macOS 的 Wi-Fi / 以太网)
       interfaces.sort((a, b) {
@@ -69,19 +106,49 @@ class DirectFetcher {
           continue;
         }
         for (final addr in iface.addresses) {
-          if (isFakeIp(addr)) continue;
-          final b = addr.rawAddress;
-          if (b[0] == 169 && b[1] == 254) continue; // 链路本地
-          return addr;
+          if (isFakeIp(addr) ||
+              addr.isLoopback ||
+              addr.isLinkLocal ||
+              addr.isMulticast) {
+            continue;
+          }
+          result.putIfAbsent(addr.type, () => addr);
         }
+        if (result.length == 2) break;
       }
     } catch (_) {}
-    return null;
+    return result;
   }
 
-  /// 通过 DoH 解析域名的真实 A 记录(连接按 IP 直达,不依赖系统 DNS)
+  /// 通过 DoH 解析域名的真实 A/AAAA 记录(连接按 IP 直达,不依赖系统 DNS)
   static Future<List<String>> _resolveViaDoH(
       String host, InternetAddress? bindAddr) async {
+    Future<List<String>> resolve(String recordType, int answerType) async {
+      try {
+        return await _resolveRecordViaDoH(
+          host,
+          bindAddr,
+          recordType,
+          answerType,
+        );
+      } catch (_) {
+        return const [];
+      }
+    }
+
+    final answers = await Future.wait([
+      resolve('A', 1),
+      resolve('AAAA', 28),
+    ]);
+    return [...answers[0], ...answers[1]];
+  }
+
+  static Future<List<String>> _resolveRecordViaDoH(
+    String host,
+    InternetAddress? bindAddr,
+    String recordType,
+    int answerType,
+  ) async {
     final socket = await Socket.connect(_dohIp, 443,
         sourceAddress: bindAddr, timeout: _connectTimeout);
     SecureSocket tls;
@@ -96,13 +163,13 @@ class DirectFetcher {
       final body = await _httpGetOverSocket(
         tls,
         host: _dohHost,
-        path: '/resolve?name=${Uri.encodeComponent(host)}&type=A',
+        path: '/resolve?name=${Uri.encodeComponent(host)}&type=$recordType',
         accept: 'application/dns-json',
       );
       final json = jsonDecode(body.body) as Map<String, dynamic>;
       final answers = json['Answer'] as List? ?? [];
       return answers
-          .where((a) => a is Map && a['type'] == 1)
+          .where((a) => a is Map && a['type'] == answerType)
           .map((a) => (a as Map)['data'].toString())
           .toList();
     } finally {
@@ -135,53 +202,84 @@ class DirectFetcher {
     int maxRedirects = 4,
     int maxBodyBytes = AppConstants.maxSubscriptionBytes,
     Duration requestTimeout = _requestTimeout,
+    Future<List<InternetAddress>> Function(String host)? addressLookup,
   }) async {
-    final bindAddr = await _physicalInterfaceAddress();
+    final deadline = DateTime.now().add(requestTimeout);
+    Duration remaining({Duration? cap}) {
+      final value = deadline.difference(DateTime.now());
+      if (value <= Duration.zero) {
+        throw TimeoutException('订阅请求总超时', requestTimeout);
+      }
+      return cap != null && value > cap ? cap : value;
+    }
+
+    final physicalAddresses = await _physicalInterfaceAddresses();
+    final dohBindAddress = physicalAddresses[InternetAddressType.IPv4];
     var current = SubscriptionUrlPolicy.parse(url);
 
     for (var hop = 0; hop <= maxRedirects; hop++) {
       final host = current.host;
       final isHttps = current.scheme == 'https';
       final port = current.hasPort ? current.port : (isHttps ? 443 : 80);
-      final hostHeader = current.hasPort ? '$host:$port' : host;
+      final formattedHost = host.contains(':') ? '[$host]' : host;
+      final hostHeader =
+          current.hasPort ? '$formattedHost:$port' : formattedHost;
 
       // 解析真实 IP:IP 直填则跳过;否则优先 DoH,失败回退系统 DNS(过滤 fake-ip)
-      String connectIp;
+      List<InternetAddress> connectAddresses;
       final hostAddress = InternetAddress.tryParse(host);
       if (hostAddress != null) {
-        connectIp = host;
+        connectAddresses = [hostAddress];
+      } else if (addressLookup != null) {
+        connectAddresses = await addressLookup(host).timeout(remaining());
       } else {
         List<String> ips = [];
-        try {
-          ips = await _resolveViaDoH(host, bindAddr);
-        } catch (_) {}
+        ips = await _resolveViaDoH(host, dohBindAddress).timeout(remaining());
         if (ips.isEmpty) {
           final sys = await InternetAddress.lookup(host)
-              .timeout(const Duration(seconds: 5));
-          ips = sys
-              .where((a) => a.type == InternetAddressType.IPv4 && !isFakeIp(a))
-              .map((a) => a.address)
-              .toList();
+              .timeout(remaining(cap: const Duration(seconds: 5)));
+          ips = sys.where((a) => !isFakeIp(a)).map((a) => a.address).toList();
         }
-        if (ips.isEmpty) {
-          throw Exception('无法解析订阅服务器地址: $host');
-        }
-        connectIp = ips.first;
+        connectAddresses = ips
+            .map(InternetAddress.tryParse)
+            .whereType<InternetAddress>()
+            .toList();
       }
+      if (connectAddresses.isEmpty) {
+        throw Exception('无法解析订阅服务器地址: $host');
+      }
+      connectAddresses = balancedAddresses(
+        connectAddresses.where((address) => !isFakeIp(address)),
+      );
 
-      final sourceAddress =
-          _canBindSourceAddress(hostAddress) ? bindAddr : null;
-      final socket = await Socket.connect(connectIp, port,
-          sourceAddress: sourceAddress, timeout: _connectTimeout);
-      Socket stream = socket;
-      if (isHttps) {
+      Socket? stream;
+      Object? lastConnectError;
+      for (final connectAddress in connectAddresses) {
+        Socket? socket;
         try {
-          stream = await SecureSocket.secure(socket, host: host)
-              .timeout(_connectTimeout);
+          final physicalAddress = physicalAddresses[connectAddress.type];
+          final sourceAddress =
+              physicalAddress != null && _canBindSourceAddress(connectAddress)
+                  ? physicalAddress
+                  : null;
+          socket = await Socket.connect(
+            connectAddress,
+            port,
+            sourceAddress: sourceAddress,
+            timeout: remaining(cap: _connectTimeout),
+          );
+          stream = isHttps
+              ? await SecureSocket.secure(socket, host: host)
+                  .timeout(remaining(cap: _connectTimeout))
+              : socket;
+          break;
         } catch (e) {
-          socket.destroy();
-          rethrow;
+          lastConnectError = e;
+          socket?.destroy();
         }
+      }
+      if (stream == null) {
+        throw Exception('无法连接订阅服务器 $host: $lastConnectError');
       }
 
       _HttpResponse resp;
@@ -196,7 +294,7 @@ class DirectFetcher {
           accept: headers['Accept'] ?? '*/*',
           userAgent: headers['User-Agent'],
           maxBodyBytes: maxBodyBytes,
-          requestTimeout: requestTimeout,
+          requestTimeout: remaining(),
         );
       } finally {
         stream.destroy();
@@ -229,6 +327,12 @@ class DirectFetcher {
       return !(first == 10 ||
           (first == 172 && second >= 16 && second <= 31) ||
           (first == 192 && second == 168));
+    }
+    if (address.type == InternetAddressType.IPv6) {
+      return !address.isLoopback &&
+          !address.isLinkLocal &&
+          !address.isMulticast &&
+          !(bytes.isNotEmpty && (bytes[0] & 0xfe) == 0xfc);
     }
     return false;
   }

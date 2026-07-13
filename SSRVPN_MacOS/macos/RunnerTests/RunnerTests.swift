@@ -57,4 +57,17 @@ class RunnerTests: XCTestCase {
     )
   }
 
+  func testTerminationKnowsBothSupportedTunRequestLocations() {
+    let delegate = AppDelegate()
+    let support = URL(fileURLWithPath: "/Users/test/Library/Application Support")
+    let paths = delegate.tunRequestURLs(in: support).map(\.path)
+
+    XCTAssertTrue(paths.contains(
+      "/Users/test/Library/Application Support/SSRVPN/.tun-session-request"
+    ))
+    XCTAssertTrue(paths.contains(where: {
+      $0.hasSuffix("/SSRVPN/.tun-session-request") && $0.contains("com.ssrvpn")
+    }))
+  }
+
 }

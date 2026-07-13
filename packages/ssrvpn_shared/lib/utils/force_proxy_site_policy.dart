@@ -20,8 +20,16 @@ class ForceProxySitePolicy {
   static String? extractHost(String site) {
     var value = site.trim();
     if (value.isEmpty || RegExp(r'[\s,，;；]').hasMatch(value)) return null;
-    if (value.startsWith('[') && value.contains(']')) return null;
+    if (value.contains('%')) return null;
     if (value.startsWith('*.')) value = value.substring(2);
+
+    final literal = InternetAddress.tryParse(value);
+    if (literal != null) return literal.address.toLowerCase();
+
+    if (value.startsWith('[') &&
+        !RegExp(r'^\[[^\]]+\](?::\d+)?$').hasMatch(value)) {
+      return null;
+    }
 
     final hasScheme = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*://').hasMatch(value);
     final uri = Uri.tryParse(hasScheme ? value : 'https://$value');
@@ -37,7 +45,7 @@ class ForceProxySitePolicy {
 
   static bool isValidHost(String host) {
     final address = InternetAddress.tryParse(host);
-    if (address != null) return address.type == InternetAddressType.IPv4;
+    if (address != null) return true;
     if (host.contains(':')) return false;
     if (RegExp(r'^\d+(?:\.\d+){3}$').hasMatch(host)) return false;
 

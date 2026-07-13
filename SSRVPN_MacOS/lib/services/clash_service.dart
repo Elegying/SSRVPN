@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
+import 'macos_tun_session.dart';
 import 'system_proxy_service.dart';
 
 part 'clash_service_config.dart';
@@ -82,6 +83,8 @@ class ClashService extends ClashServiceBase
     setPaths(configDir: configDir, configPath: configPath);
 
     await _ensureRealDirectory(configDir);
+    _tunSession = MacosTunSession(dataDir: configDir);
+    await _tunSession!.clearStaleRequest();
     await Directory(
       '$configDir${Platform.pathSeparator}providers',
     ).create(recursive: true);

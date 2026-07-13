@@ -44,7 +44,10 @@ void main() {
       expect(parsed['mixed-port'], isA<int>());
       expect(parsed['socks-port'], isA<int>());
       expect(parsed['allow-lan'], isFalse);
-      expect(parsed['ipv6'], isFalse);
+      expect(parsed['ipv6'], isTrue);
+      expect(parsed['dns']['ipv6'], isTrue);
+      expect(parsed['dns']['fake-ip-range6'], isNotEmpty);
+      expect(parsed['tun']['inet6-address'], isNotEmpty);
       expect(parsed['external-controller'], contains('127.0.0.1'));
     });
 
@@ -144,6 +147,8 @@ void main() {
       expect(excludes, contains('192.168.0.0/16'));
       expect(excludes, contains('10.0.0.0/8'));
       expect(excludes, contains('172.16.0.0/12'));
+      expect(excludes, isNot(contains('fc00::/7')));
+      expect(excludes, isNot(contains('fe80::/10')));
     });
 
     test('fake-ip-filter excludes Google domains', () {
@@ -240,6 +245,36 @@ void main() {
     await expectLater(service.stop(), throwsStateError);
 
     expect(service.isRunning, isTrue);
+  });
+
+  test('obsolete connection cannot update native node notification or prefs',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    SharedPreferences.setMockInitialValues({});
+    var notificationUpdates = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'updateVpnNotification') notificationUpdates += 1;
+      return true;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final service = ClashService();
+    final generation = service.requestConnectionIntent(true);
+    service.requestConnectionIntent(false);
+
+    await service.updateVpnNotification(
+      'Obsolete Node',
+      shouldContinue: () => service.isConnectionIntentCurrent(
+        generation,
+        connected: true,
+      ),
+    );
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(notificationUpdates, 0);
+    expect(prefs.getString('selectedNodeName'), isNull);
   });
 
   test('stop interrupts a pending native start', () async {

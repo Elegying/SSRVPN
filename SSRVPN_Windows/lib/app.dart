@@ -3,13 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
-import 'package:ssrvpn_shared/ssrvpn_shared.dart' show runBestEffortCleanup;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'screens/home_screen.dart';
 import 'screens/subscription_screen.dart';
 import 'screens/unlock_test_screen.dart';
+import 'services/app_shutdown.dart';
 import 'services/clash_service.dart' as clash;
 import 'services/settings_service.dart';
 import 'services/subscription_service.dart';
@@ -35,6 +35,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
 
   int _currentIndex = 0;
   bool _isQuitting = false;
+  String? _runtimeNotice;
   bool _windowListenerAttached = false;
   Timer? _windowStateSaveDebounce;
 
@@ -125,10 +126,14 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   Future<void> _handleTrayConnectToggle() async {
     final core = _clashService;
     final settings = _settingsService;
-    if (core == null || settings == null) return;
+    if (core == null || settings == null) {
+      await _presentTrayFailure('客户端仍在初始化，请稍后重试');
+      return;
+    }
 
     int? connectionGeneration;
     try {
+      if (mounted) setState(() => _runtimeNotice = null);
       if (core.isRunning || core.connectionDesired) {
         core.requestConnectionIntent(false);
         await core.stop();
@@ -136,14 +141,38 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       }
 
       if (core.isStartupDisabled) {
-        StartupLogger.warning(core.startupDisabledReason ?? 'Core disabled');
+        final reason = core.startupDisabledReason ?? '核心初始化失败';
+        StartupLogger.warning(reason);
+        await _presentTrayFailure(reason);
         return;
       }
 
       final rawYaml = _subscriptionService?.rawYaml;
-      if (rawYaml == null || rawYaml.trim().isEmpty) return;
+      if (rawYaml == null || rawYaml.trim().isEmpty) {
+        await _presentTrayFailure('请先添加并刷新订阅');
+        return;
+      }
 
       connectionGeneration = core.requestConnectionIntent(true);
+      if (core.hasPendingSystemProxyRecovery) {
+        final recovered = await core.recoverPendingSystemProxy();
+        if (!core.isConnectionIntentCurrent(
+          connectionGeneration,
+          connected: true,
+        )) {
+          return;
+        }
+        if (!recovered) {
+          core.requestConnectionIntent(false);
+          final reason = core.lastStartError ?? '系统代理旧状态恢复失败';
+          StartupLogger.writeDesktopFailureReportSync(
+            'Tray connection failed: $reason',
+          );
+          await _presentTrayFailure(reason);
+          return;
+        }
+      }
+
       final preferredNodeName = _defaultNodeName();
       final runtimeSettings = await core.prepareForStart(settings.settings);
       final config = core.generateClashConfig(
@@ -163,19 +192,24 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         connectionGeneration,
         connected: true,
       )) {
-        if (started) await core.stop();
         return;
       }
       if (!started) {
         core.requestConnectionIntent(false);
+        final reason = core.lastStartError ?? '无法启动核心';
         StartupLogger.writeDesktopFailureReportSync(
-          'Tray connection failed: ${core.lastStartError ?? "unable to start core"}',
+          'Tray connection failed: $reason',
         );
+        await _presentTrayFailure(reason);
         return;
       }
       if (started && preferredNodeName != null) {
         final switched = await core.switchSelectedProxy(preferredNodeName);
-        if (switched) {
+        if (switched &&
+            core.isConnectionIntentCurrent(
+              connectionGeneration,
+              connected: true,
+            )) {
           await settings.updateLastSelectedNodeName(preferredNodeName);
         }
       }
@@ -188,6 +222,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         core.requestConnectionIntent(false);
       }
       StartupLogger.error('Tray connect toggle failed', error, stack);
+      await _presentTrayFailure('托盘连接失败，请重试或查看日志');
       StartupLogger.writeDesktopFailureReportSync(
         'Tray connection failed',
         error: error,
@@ -204,23 +239,48 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     return HomeNodeController.resolveDefaultNodeFrom(nodes, remembered)?.name;
   }
 
+  Future<void> _presentTrayFailure(String reason) =>
+      _presentRuntimeNotice('连接失败：$reason');
+
+  Future<void> _presentRuntimeNotice(String message) async {
+    if (mounted) {
+      setState(() {
+        _runtimeNotice = message;
+        _currentIndex = 0;
+      });
+    }
+    try {
+      await windowManager.show();
+      await windowManager.restore();
+      await windowManager.focus();
+    } catch (error, stack) {
+      StartupLogger.error('Present tray failure failed', error, stack);
+    }
+  }
+
   void _handleCoreStatusChanged() {
+    if (mounted &&
+        (_clashService?.isRunning ?? false) &&
+        _runtimeNotice != null) {
+      setState(() => _runtimeNotice = null);
+    }
     unawaited(_trayManager.refreshMenu());
   }
 
   Future<void> _quitApp() async {
     if (_isQuitting) return;
     _isQuitting = true;
-    final failures = await runBestEffortCleanup([
-      () async => _settingsService?.flush(),
-      () async {
+    final failures = await runWindowsAppShutdown(
+      hideWindow: windowManager.hide,
+      flushSettings: () async => _settingsService?.flush(),
+      stopCore: () async {
         _clashService?.requestConnectionIntent(false);
         await _clashService?.stop();
       },
-      _trayManager.destroy,
-      () => windowManager.setPreventClose(false),
-      windowManager.destroy,
-    ]);
+      destroyTray: _trayManager.destroy,
+      allowWindowClose: () => windowManager.setPreventClose(false),
+      destroyWindow: windowManager.destroy,
+    );
     for (final failure in failures) {
       StartupLogger.error(
         'Quit cleanup step ${failure.step} failed',
@@ -232,6 +292,15 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         error: failure.error,
         stack: failure.stackTrace,
       );
+    }
+    final criticalFailures = failures.where((failure) => failure.step == 2);
+    if (criticalFailures.isNotEmpty) {
+      _isQuitting = false;
+      final reason = criticalFailures.first.error
+          .toString()
+          .replaceFirst('Bad state: ', '')
+          .replaceFirst('StateError: ', '');
+      await _presentRuntimeNotice('退出未完成：$reason。请稍后再次退出');
     }
   }
 
@@ -328,6 +397,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
             isDark: true,
             startupFlags: widget.startupFlags,
             failures: StartupStatus.instance.failures,
+            runtimeNotice: _runtimeNotice,
             currentIndex: _currentIndex,
             onIndexChanged: (index) => setState(() => _currentIndex = index),
           ),
@@ -433,6 +503,7 @@ class _MainShell extends StatelessWidget {
     required this.isDark,
     required this.startupFlags,
     required this.failures,
+    required this.runtimeNotice,
     required this.currentIndex,
     required this.onIndexChanged,
   });
@@ -440,6 +511,7 @@ class _MainShell extends StatelessWidget {
   final bool isDark;
   final StartupFlags startupFlags;
   final List<StartupFailure> failures;
+  final String? runtimeNotice;
   final int currentIndex;
   final ValueChanged<int> onIndexChanged;
 
@@ -465,6 +537,13 @@ class _MainShell extends StatelessWidget {
                   color: AppTheme.error,
                   title: '部分启动步骤失败',
                   message: failures.map(_startupFailureSummary).join('\n'),
+                ),
+              if (runtimeNotice != null)
+                _StartupBanner(
+                  icon: Icons.error_outline,
+                  color: AppTheme.error,
+                  title: '连接未完成',
+                  message: runtimeNotice!,
                 ),
               Expanded(
                 child: LayoutBuilder(

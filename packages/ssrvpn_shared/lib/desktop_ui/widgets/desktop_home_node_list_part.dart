@@ -447,7 +447,7 @@ class _NodeCard extends StatelessWidget {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  '${node.server}:${node.port}',
+                                  '${node.server.contains(':') ? '[${node.server}]' : node.server}:${node.port}',
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: effectiveSubColor,

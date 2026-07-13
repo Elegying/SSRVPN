@@ -73,9 +73,11 @@ Windows 或 macOS 的人工操作与实机回归列为完成条件。
 1. Android Gradle 输出已提示当前显式 Kotlin Gradle Plugin 将在未来 Flutter
    版本中不再兼容；下次升级 Flutter/Gradle 时迁移到 Built-in Kotlin，并先在
    独立分支验证 native bridge。
-2. macOS TUN 继续安全关闭。正式实现需要 Apple Developer Program、Network
-   Extension/System Extension entitlement、Packet Tunnel Provider 或签名特权
-   helper，以及签名、notarization 和单独测试矩阵；不得恢复 setuid root 方案。
+2. macOS TUN 已改为每次连接显式请求管理员授权，并使用按次 root runner、固定
+   资源摘要、启动超时和退出清理；不使用 setuid 位。由于当前包仍为 ad-hoc
+   签名，这只能建立“本机用户同意本次提权”的边界，不能验证发布者身份。
+   Developer ID、notarization，以及最小签名 helper 或 Network Extension 仍是
+   正式商用分发前的最高优先级安全工作。
 3. Windows 和 macOS 正式公开分发前配置 Authenticode、Developer ID 与
    notarization，降低 SmartScreen/Gatekeeper 警告。
 4. 后续按屏幕区块继续拆分纯 UI 热点；核心生命周期、系统代理和配置边界保持

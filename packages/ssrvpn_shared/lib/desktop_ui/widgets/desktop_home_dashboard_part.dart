@@ -864,10 +864,10 @@ class _DesktopConnectionOptions extends StatelessWidget {
               _DesktopOptionChoice<bool>(
                 selected: settings.enableTun,
                 value: true,
-                enabled: !isConnecting && desktopPlatformLabel != 'MacOS',
+                enabled: !isConnecting,
                 icon: Icons.wifi_tethering_rounded,
                 label: desktopPlatformLabel == 'MacOS'
-                    ? 'TUN 模式（暂不可用）'
+                    ? 'TUN 模式（连接时需管理员授权）'
                     : 'TUN 模式（需管理员权限）',
                 isDark: isDark,
                 textColor: textColor,
