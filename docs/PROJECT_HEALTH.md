@@ -1,55 +1,68 @@
-# Project Health
+# 项目健康状态
 
-Last reviewed: 2026-07-13
+最近审查：2026-07-14<br>
+审查基线：`v3.2.2` / `b2972c2`，以及 `Unreleased` 中已通过本地验证的改动。
 
-## Current Status
+## 结论
 
-SSRVPN is a single Flutter monorepo for Android, macOS, Windows, and `ssrvpn_shared`. The current reviewed worktree builds on the published `v3.1.1` baseline with an upgrade-friendly Windows installer, Android notification correctness and wakeup limiting, OSS-first updates with an exact GitHub fallback, and stricter release recovery. The full local gate, randomized test-order pass, Android native tests, macOS native lifecycle tests, arm64 DMG build/mount validation, and public download checks pass. Windows-native runtime validation remains a CI and real-Windows responsibility.
+SSRVPN 已具备单一 Monorepo、三端发布链路、共享业务边界、失败回滚和完整本地门禁。当前主要短板不再是“基本功能缺失”，而是桌面签名、真实设备验收、无障碍证据与少数平台安全边界的继续收紧。
 
-| Area | Status | Notes |
-|---|---|---|
-| Repository shape | Good | One workspace, one release pipeline, shared services and policies. |
-| Local verification | Healthy | `scripts/verify-all.sh` passes, including zero analyzer findings, 412 passing Flutter tests, one expected Windows-only integration skip on macOS, four coverage gates, 47 release-tool tests, native guards, package-guide checks, and Android JUnit. |
-| Shared package | Healthy | 234 tests, 68.29% line coverage; parsing, transactions, bounds, canonical update assets, downloads, crashes, controllers, and conservative unlock classification are covered. |
-| Android | Healthy | 96 Flutter tests and Android native tests pass; the public APK is `com.ssrvpn.android` `3.1.1+311`, arm64, and retains the established release certificate. Lifecycle coalescing, start cancellation, public IPv4 routes, notification selection updates, screen-aware refresh limiting, update cleanup, and Quick Tile state have explicit regression coverage. |
-| macOS | Proxy mode healthy | 44 Flutter tests, 33.89% coverage, four native lifecycle tests, arm64 Release/DMG packaging, strict ad-hoc validation, UI startup, and Dock lifecycle tests pass. TUN intentionally fails closed until a safe privileged architecture exists. |
-| Windows | CI healthy | 38 Flutter tests pass locally and one Windows-binary integration test skips on macOS. Windows CI validates SVG flags, the native launcher, mitigations, exact-path process cleanup, canonical-directory rebuild and data restore, the per-user Inno installer, and the portable ZIP. Final installer lifecycle testing on a real Windows machine remains a release follow-up. |
-| Release automation | Hardened | Source must be on `main`; checksums, versions, core assets, signing prerequisites, canonical asset names, provenance, and artifact shape are checked. A stale-source retry is limited to an already-public, complete stable release. The workflow publishes immutable OSS version paths and replaces `latest.json` only after all files verify. |
-| Release baseline | Published | The immutable `v3.1.1` tag points at reviewed commit `aac2cce`; GitHub marks it as the latest non-draft, non-prerelease release, and its three canonical backup download URLs resolve successfully. |
+本文件使用固定 100 分量表，替代历史审查中互不兼容的 6.8/10、7.4/10、8.5/10 等结论。分数只代表当前仓库证据，不代表应用商店审核、第三方渗透测试或所有真实网络环境。
 
-## Current Coverage Gates
+## 当前评分：88 / 100
 
-| Target | Verified | Gate |
-|---|---:|---:|
-| `ssrvpn_shared` | 68.29% | 50% |
-| Android | 58.33% | 40% |
-| macOS | 33.89% | 10% |
-| Windows | 15.99% | 12% |
+| 维度 | 得分 | 当前证据 | 主要缺口 |
+| --- | ---: | --- | --- |
+| 正确性与恢复 | 18/20 | 连接代际、取消、核心退出、订阅事务、系统代理所有权和更新回滚均有测试或守卫 | 仍需扩大真实弱网和休眠/唤醒矩阵 |
+| 安全与信任边界 | 18/20 | 外部输入有界、日志脱敏、资产摘要、Android/Windows 系统凭据保护、桌面 secret 验证迁移与崩溃一致性、Windows 恢复清单、macOS 最小文件权限、TUN 临时授权边界 | macOS/Windows 未受信任签名；桌面运行时配置仍有同用户可读残余风险 |
+| 用户体验与状态可信度 | 17/20 | 首次导入、连接取消、通知/磁贴同步、桌面代理恢复、受认证的 Android 核心健康检查，以及 Windows 密钥异常的可复制路径和留证恢复提示 | 无障碍和多语言仍缺少真机证据；部分错误仍可进一步统一 |
+| 可维护性与自动验证 | 18/20 | workspace analyze、四套 Flutter 测试、Android 原生测试、发布工具测试、边界脚本和覆盖率门槛均纳入 `make verify` | 大型桌面 UI/服务文件仍需按行为切片，不能为重构而重构 |
+| 发布与文档 | 17/20 | 版本/资产/校验和/来源守卫、安装重建的可重试 SHA256 恢复、安装与便携包流程、当前文档索引和故障指南 | 真实 Windows 安装升级矩阵与付费平台签名尚未完成 |
 
-The macOS and Windows gates remain deliberately conservative. Raising them should follow new behavior-focused tests, not exclude more source files from coverage.
+评分调整规则：新增用户可见行为若没有回归测试，不能提升正确性或 UX 分；覆盖率提升若只靠排除源码，不能提升自动验证分；签名、公证和真机结果只有在产生可复核证据后才计分。
 
-## Remaining Risks
+## 验证状态
 
-- macOS TUN is unavailable; re-enabling the former setuid root model is prohibited.
-- Windows installer lifecycle, exact-path process closing, damaged-directory rebuild, and upgrade behavior still need the documented real-device or clean-VM smoke matrix; CI can build and inspect the EXE but this Mac cannot execute it.
-- macOS and Windows are distributed without paid platform signing/notarization.
-- Desktop settings and subscription data remain in local app/portable storage by product choice.
-- Android's current Kotlin plugin works but Flutter reports that a future release will require Built-in Kotlin migration.
+根门禁：
 
-## Recommended Scorecard
+```bash
+make verify
+```
 
-| Dimension | Score | Rationale |
-|---|---:|---|
-| Correctness and recovery | 8/10 | Startup, proxy ownership, update, and subscription rollback paths are substantially stronger. |
-| Security | 8/10 | Unsafe macOS/Windows privilege mechanisms were removed and external data is bounded; signing remains incomplete. |
-| Maintainability | 9/10 | Shared config, platform config, and core lifecycle/proxy coordination now have enforced private boundaries; the remaining 900-line hotspots are UI composition files. |
-| Automated verification | 9/10 | The local full gate is green across shared, Android, macOS, Windows, Kotlin/JUnit, packaging, and native macOS lifecycle tests; Windows real-device coverage remains manual. |
-| Release readiness | 9/10 | The four user-facing packages are published to OSS and GitHub and independently rechecked; unsigned desktop distribution, Windows real-device coverage, and intentionally unavailable macOS TUN remain documented limitations. |
+它覆盖版本与包内指南、核心资产、Android bridge、解锁取消、桌面启动、Clash 边界、macOS 特权边界、Windows launcher、密钥扫描、发布工具、workspace analyze、四套 Flutter 测试、Android 原生测试和覆盖率。
 
-## Next Milestones
+当前覆盖率门槛已从 `50/40/10/12` 收紧为：
 
-1. Complete the documented Windows 11 real-device or clean-VM smoke matrix for first launch, connection, exit, and proxy restoration.
-2. Add Developer ID/notarization and Windows Authenticode signing for trusted desktop distribution.
-3. Decide and document the macOS TUN architecture before implementation.
-4. Migrate Android to Built-in Kotlin before the next Flutter toolchain upgrade.
-5. Split the remaining desktop Home/app UI hotspots by screen sections and raise platform coverage gates with behavior-focused tests.
+| 目标 | 最近测量 | 门槛 |
+| --- | ---: | ---: |
+| `ssrvpn_shared` | 70.29% | 65% |
+| Android | 58.71% | 50% |
+| macOS | 48.28% | 30% |
+| Windows | 41.84% | 30% |
+
+2026-07-14 最近一次完整本地运行通过共享 262 项、Android Flutter 100 项、macOS
+73 项、Windows 64 项和发布工具 50 项；Windows 的真实 DPAPI/`MoveFileExW` 及 Mihomo
+集成测试因当前主机是 macOS 按条件跳过，已保留在 Windows CI 中执行。Android 原生
+JUnit/Gradle 门禁同时通过。测量值会随可执行行变化；是否健康以同一提交上的
+`make verify` 输出为准，不手工追求百分比。
+
+## 平台状态
+
+| 平台 | 状态 | 说明 |
+| --- | --- | --- |
+| Shared | 健康 | 订阅、配置、更新、脱敏、解锁检测和桌面控制器由共享包承载 |
+| Android | 健康，需真机回归 | VPN Service、快捷磁贴和通知有原生边界；健康检查要求受认证 Mihomo API 返回有效 HTTP 响应，TCP 端口占用不再视为就绪 |
+| macOS | 代理与 TUN 可用，分发信任受限 | TUN 每次连接请求管理员授权，并使用摘要校验、临时 root 目录、应用 PID 监视和退出清理；包仍是 ad-hoc、未公证 |
+| Windows | 代码与 CI 健康，需 Windows 验收 | 每用户安装版与便携版并存；macOS 只能验证 Dart/脚本，不能替代安装、升级、退出和代理恢复真机测试 |
+
+## 距离 90 分最近的工作
+
+1. 在干净 Windows 11 虚拟机完成安装版与便携版的首次启动、连接、断开、退出、升级、损坏目录恢复和卸载矩阵，并保存结果。
+2. 为 macOS 配置 Developer ID 与 notarization，随后把专用 secret 文件验证迁移到 Keychain；为 Windows 配置 Authenticode。若继续公开分发 macOS TUN，审计并收窄特权 helper/Network Extension 架构。
+3. 用 TalkBack、VoiceOver 和 Windows Narrator 验证连接主流程、订阅导入、错误恢复和动态状态播报，补齐键盘与焦点回归测试。
+4. 将桌面和 Android 的启动/连接错误映射为统一、可操作且可脱敏的错误类别，并让故障指南与 UI 文案共享同一语义。
+5. 按用户行为拆分仍然过大的 UI/服务热点，同时保持每次切片可独立测试和回滚。
+
+## 更新规则
+
+每次发布只记录已验证事实：版本、提交、命令、平台、产物和残余风险。历史审查保留作证据，但不得覆盖本文件、[安全策略](../SECURITY.md)、[测试策略](TESTING.md) 与 [文档索引](README.md) 的当前结论。

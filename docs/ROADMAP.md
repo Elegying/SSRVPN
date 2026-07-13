@@ -1,42 +1,57 @@
-# Roadmap
+# 路线图
 
-## Completed
+路线图只保留能提高用户结果且有明确验收证据的工作。已完成内容进入 `CHANGELOG.md`，不在这里重复堆积。
 
-- Consolidated Android, macOS, Windows, and shared package into one monorepo.
-- Deleted historical platform repositories after moving all development and updates to the monorepo.
-- Added monorepo CI and release workflows.
-- Added shared models for proxy nodes, proxy groups, and subscriptions.
-- Added shared policies for log redaction, private-node latency, and force-proxy site validation.
-- Added shared subscription parser and wired it into all three platforms.
-- Added shared force-proxy rule generation and wired it into all three platforms.
-- Added GitHub issue templates, PR template, CODEOWNERS, Dependabot, security policy, and migration docs.
-- Cleared the Android analyzer info backlog and restored strict platform analyzer checks.
-- Added release signing documentation and pinned macOS CI/release jobs to a stable runner image.
-- Migrated macOS from CocoaPods project files to Flutter Swift Package Manager integration.
-- Centralized app version and GitHub release update checks in `packages/ssrvpn_shared`.
-- Added deterministic verification for bundled core binaries and geo databases.
-- Added Android first-run apiSecret generation backed by encrypted storage.
-- Added a free Android release-keystore helper for personal distribution.
-- Kept the Android VPN notification synchronized with live node switching and limited traffic refreshes to once per minute while the screen is on.
-- Added a per-user Windows installer with running-process handoff while retaining the portable ZIP.
+## 当前目标：把 87 分提升到 90 分
 
-## Near Term
+### 1. 真实设备发布验收
 
-1. Extract more `ClashService` configuration assembly into `packages/ssrvpn_shared`.
-2. Keep platform dependency updates current through grouped Dependabot PRs.
-3. Keep release artifacts verified after each tag-driven GitHub Actions release.
-4. Document any user-facing macOS Gatekeeper and Windows SmartScreen prompts in release notes.
+- Windows 11 干净虚拟机：安装版和便携版分别完成首次启动、导入、连接、断开、退出、覆盖升级、损坏目录恢复与卸载。
+- Android 真机：验证首次授权、后台重启、快捷磁贴、通知断开、休眠/唤醒和弱网取消。
+- macOS：验证系统代理和 TUN 的授权取消、连接、异常退出、Dock 重开与网络设置恢复。
 
-## Medium Term
+完成标准：每个平台记录版本、提交、设备/系统、步骤和结果；阻断问题进入自动回归测试后才关闭。
 
-1. Introduce platform adapters for settings persistence and native process/system proxy behavior.
-2. Align `AppSettings` around a shared core model with platform-specific extension fields.
-3. Add integration smoke tests for generated Clash config and API group switching.
-4. Improve release notes generation from `CHANGELOG.md`.
+### 2. 无障碍与错误恢复
 
-## Long Term
+- 用 TalkBack、VoiceOver 和 Narrator 走完首次导入、节点选择、连接/取消、错误重试和断开。
+- 统一启动、订阅、权限、核心、端口、代理恢复和更新错误的用户语义；文案必须可操作且不泄露原值。
+- 动态连接状态、测速结果和下载进度提供适当的语义播报，键盘焦点不因刷新丢失。
 
-1. Move reusable UI components into shared packages where platform UX permits.
-2. Revisit paid macOS notarization and Windows code signing only if the project needs broader public distribution.
-3. Add crash-safe diagnostics bundles with automatic secret redaction.
-4. Track coverage and regression metrics in CI.
+完成标准：关键流程有平台测试或可复核真机清单，故障指南与 UI 使用同一组含义。
+
+### 3. 桌面分发信任
+
+- macOS：Developer ID 签名、notarization、stapling；获得稳定代码身份后，把 `0600`
+  专用 secret 文件按“写入 Keychain 并回读成功后再删除旧值”的规则迁移；同时审计 TUN
+  的最小特权架构。
+- Windows：对安装器、主程序和 native 组件进行 Authenticode 签名。
+
+完成标准：自动化验证签名链和公证/时间戳；在干净设备上不再显示未知发布者路径。
+
+## 后续改进
+
+### 可维护性
+
+- 只按可独立测试的用户行为拆分大型桌面 UI 和服务文件。
+- 保持共享领域逻辑单一来源，平台层只承载 OS 集成与差异文案。
+- Android 在下一次 Flutter 工具链升级前迁移到 Built-in Kotlin。
+
+完成标准：每个切片减少职责或重复，并保持 `make verify` 与目标平台构建通过；不接受只有行数变化的重构。
+
+### 可观测性与性能
+
+- 为启动、连接、取消和订阅解析记录不含敏感值的阶段耗时。
+- 在低端 Android、大订阅和桌面冷启动场景建立可重复基线，先测量再优化。
+- 诊断包必须默认脱敏、有大小上限并由用户主动导出。
+
+完成标准：基线脚本、样本条件和前后数据可复现，优化不牺牲取消与回滚语义。
+
+## 不作为当前目标
+
+- 不为追求目录一致而强行共享三端 UI。
+- 不在没有证据时替换 Mihomo、状态管理方案或发布系统。
+- 不用排除源码、无断言测试或大量模板文档制造“评分提升”。
+- 不恢复 setuid 核心，也不把 macOS TUN 提权变成持久 root 安装。
+
+当前评分与风险依据见 [项目健康状态](PROJECT_HEALTH.md)。

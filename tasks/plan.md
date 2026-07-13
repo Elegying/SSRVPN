@@ -1,5 +1,9 @@
 # Implementation Plan: SSRVPN 3.0.0 Production Release
 
+> Historical snapshot for the completed 3.0.0 release effort. It is not the
+> current release plan; use `docs/ROADMAP.md`, `docs/PROJECT_HEALTH.md`, and the
+> current root `CHANGELOG.md` before planning new work.
+
 ## Overview
 
 Treat `v3.0.0` as a public production release for Android, macOS, and Windows.

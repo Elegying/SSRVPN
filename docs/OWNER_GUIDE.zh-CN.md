@@ -47,7 +47,7 @@ make verify
 
 - “帮我新增一个功能：……”
 - “帮我修复 Windows 打不开的问题。”
-- “帮我发布 2.0.1。”
+- “帮我发布下一个版本。”
 - “帮我把当前功能改完并同步到 GitHub。”
 
 我会按专业流程处理：
@@ -85,11 +85,11 @@ GitHub Release workflow 必须继续使用同一套签名 secrets。本地可以
 
 ## 当前发布方式
 
-发布版本时使用标签，例如：
+发布版本时使用与当前源码版本一致的标签，例如：
 
 ```bash
-git tag -a v2.0.1 -m "SSRVPN v2.0.1"
-git push origin v2.0.1
+git tag -a vX.Y.Z -m "SSRVPN vX.Y.Z"
+git push origin vX.Y.Z
 ```
 
 推送 `v*` 标签后，GitHub 会自动构建：
@@ -105,10 +105,11 @@ Releases 是备用检测与下载源。详细操作见
 
 没有 Apple/Microsoft 开发者证书时，macOS 和 Windows 安装包仍会遇到系统安全提示。Android 可以用免费自签名 keystore，只要每次发布都使用同一个 keystore，用户就能覆盖安装升级。
 
-## 当前备份分支
+## 历史归档分支
 
-我已把清理前本地未整理的旧改动保存到：
+2026-07-02 清理前的本地旧改动曾保存到：
 
 `archive/local-unreviewed-20260702`
 
-这个分支是保险箱，不作为日常开发入口。日常开发从 `main` 或 `feature/*` 分支开始。
+该记录不保证远端分支仍存在，也不是当前备份状态。日常开发从 `main` 或
+`feature/*` 分支开始；需要依赖归档内容前先重新验证远端分支。

@@ -2,145 +2,81 @@
 
 [![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml)
 
-SSRVPN 是一个跨平台 Flutter VPN 客户端 Monorepo，用同一套共享业务逻辑维护 Android、macOS 和 Windows 三端应用。平台相关的界面、原生能力和打包脚本分别放在独立目录，订阅解析、节点模型、路由策略、配置生成等通用能力统一放在共享包中。
+SSRVPN 是一个面向 Android、macOS 和 Windows 的 Flutter VPN 客户端。三端共享订阅解析、节点模型、路由策略、配置生成和更新校验，原生 VPN、系统代理、托盘与安装流程各自留在平台目录。
 
-历史上的平台独立仓库已停止作为主开发入口，后续功能开发、修复、测试和发布都以本仓库为准。
+本 Monorepo 是唯一开发入口；历史平台仓库和旧审查报告只用于追溯，不代表当前能力。
 
-## 支持平台
+## 用户先看
 
-| 平台目录 | 说明 | 发布产物 |
-| --- | --- | --- |
-| `SSRVPN_Android` | Android VPN 客户端，包含 VPN Service、快捷磁贴、订阅导入和在线更新 | `SSRVPN.apk` |
-| `SSRVPN_MacOS` | macOS 桌面客户端，包含系统代理、需管理员授权的 TUN、资源安装和 DMG 打包 | `SSRVPN.dmg` |
-| `SSRVPN_Windows` | Windows 客户端，包含系统代理、TUN、托盘、安装版和便携版 | `SSRVPN_Setup.exe` / `SSRVPN.zip` |
+| 平台 | 发布产物 | 连接方式 | 当前分发限制 |
+| --- | --- | --- | --- |
+| Android | `SSRVPN.apk` | 系统 VPN | 当前正式包仅含 arm64 核心 |
+| macOS | `SSRVPN.dmg` | 系统代理；TUN 每次连接需管理员授权 | 未配置 Developer ID / notarization |
+| Windows | `SSRVPN_Setup.exe`、便携版 `SSRVPN.zip` | 系统代理、TUN | 未配置 Authenticode 签名 |
 
-Android、macOS、Windows 均生成 IPv4/IPv6 双栈配置，支持 IPv6 节点、AAAA 解析、IPv6 强制代理规则与 TUN 流量；公网 IPv6 是否可用仍取决于本地网络和所选节点。为保持识别一致，三端首页的公网 IP 信息固定只显示 IPv4，不作为 IPv6 连通性判断。
+首次使用：
 
-macOS TUN 会在每次启动时显示系统管理员授权框。当前公开包尚未配置 Developer ID 与 notarization，因此授权只能证明本机用户明确同意本次提权，不能由 macOS 验证软件发布者身份；仅应从本仓库 Release 或官网固定下载地址获取，并在正式商用签名前把签名 helper/Network Extension 作为最高优先级安全升级。
+1. 只从本仓库 Release 或官网固定下载地址获取安装包，并校验随包 SHA256。
+2. 安装并打开 SSRVPN，导入订阅链接或节点链接。
+3. 等待刷新与测速完成，选择可用节点后连接。
+4. 以首页连接状态和系统 VPN/代理状态为准；遇到问题先断开再重试，不要公开粘贴原始订阅或日志中的凭据。
+
+完整操作说明见 [公共用户指南](docs/USER_GUIDE.zh-CN.md)，平台安装与权限差异见：
+
+- [Android 指南](SSRVPN_Android/USER_GUIDE.md)
+- [macOS 指南](SSRVPN_MacOS/USER_GUIDE.md)
+- [Windows 指南](SSRVPN_Windows/USER_GUIDE.md)
+- [故障排查](docs/TROUBLESHOOTING.zh-CN.md)
+
+三端均生成 IPv4/IPv6 双栈配置；公网 IPv6 是否可用取决于本地网络与节点。首页公网 IP 固定显示 IPv4，它不是 IPv6 连通性检测结果。
+
+macOS TUN 的管理员授权只代表本机用户同意本次提权。当前 ad-hoc 包不能让 macOS 验证发布者身份；正式商用分发仍应采用 Developer ID、公证以及受审计的最小权限 helper 或 Network Extension。
 
 ## 仓库结构
 
 ```text
 SSRVPN/
-├── packages/ssrvpn_shared/    # 三端共享模型、服务、策略和测试
-├── SSRVPN_Android/            # Android Flutter 应用和原生集成
-├── SSRVPN_MacOS/              # macOS Flutter 应用、系统代理、授权 TUN 和 DMG 打包
-├── SSRVPN_Windows/            # Windows Flutter 应用、系统代理、TUN 和便携打包
-├── docs/                      # 项目管理、维护、发布、路线图和仓库审计文档
-├── scripts/                   # 本地维护脚本
-└── dist/                      # 本地交付目录，已被 Git 忽略
+├── packages/ssrvpn_shared/    # 三端共享模型、服务、策略与测试
+├── SSRVPN_Android/            # Flutter UI、Android VPN Service 与快捷磁贴
+├── SSRVPN_MacOS/              # Flutter UI、系统代理、授权 TUN 与 DMG 打包
+├── SSRVPN_Windows/            # Flutter UI、系统代理、TUN、安装版与便携版
+├── docs/                      # 当前文档、决策记录与历史审查材料
+└── scripts/                   # 验证、资源、发布与维护脚本
 ```
 
-## 环境要求
+## 开发与验证
 
-- Flutter `3.44.1` 或兼容的 stable 版本。
-- Dart SDK 版本需与 Flutter 匹配。
-- Android 构建需要 Android SDK、NDK 和 JDK。
-- macOS 构建需要 Xcode Command Line Tools 和 `hdiutil`。
-- Windows 构建需要 Visual Studio 2022、“使用 C++ 的桌面开发”工作负载和 Inno Setup 6。
+推荐使用 Flutter `3.44.1` 或兼容 stable 版本。Android 构建还需要 Android SDK、NDK 与 JDK；macOS 需要 Xcode；Windows 需要 Visual Studio 2022 的“使用 C++ 的桌面开发”工作负载，安装器还需要 Inno Setup 6。
 
-## 本地验证
+根目录统一入口：
 
-仓库使用 Flutter workspace，推荐在根目录执行统一入口：
+```bash
+make verify
+```
+
+它会检查版本与资源、边界守卫、密钥扫描、发布工具、依赖解析、静态分析、四套 Flutter 测试、Android 原生测试和覆盖率门槛。日常可按需执行：
 
 ```bash
 scripts/workspace.sh pub-get
 scripts/workspace.sh analyze
 scripts/workspace.sh test
-```
-
-完整合并前检查（含资源、测试覆盖率阈值和发布前守卫）可执行：
-
-```bash
-scripts/workspace.sh verify
-```
-
-提交或合并前应保持 analyzer 没有 warning、info 和 error。
-
-## 常用维护命令
-
-仓库根目录的 `Makefile` 封装了常见操作：
-
-```bash
-make status
-make sync
-make assets
-make feature name=my-change
-make verify
-make deps
 scripts/check-secrets.sh
-scripts/smoke-release-artifacts.sh --allow-missing
 scripts/performance-baseline.sh
 ```
 
-- `make status`：查看本地分支、远端同步状态和交付目录状态。
-- `make sync`：在工作区干净时同步远端 `main`。
-- `make assets`：从固定 GitHub Release 下载并校验三端核心资产。
-- `make feature name=...`：从稳定分支创建功能分支。
-- `make verify`：运行仓库级完整校验（含资源、analyze、测试和覆盖率阈值）。
-- `make deps`：查看共享包和三端依赖是否有可升级版本，建议按月运行。
-- `scripts/check-secrets.sh`：扫描明显高危密钥泄露模式。
-- `scripts/smoke-release-artifacts.sh --allow-missing`：本地有 APK/DMG/Windows 包时检查产物结构。
-- `scripts/performance-baseline.sh`：记录源码热点、关键测试耗时和可选 adb 启动/内存样本。
+行为、持久化、进程、系统代理、TUN 或打包发生变化时，还要在目标平台运行对应构建或安装冒烟；macOS 不能替代真实 Windows 的安装、升级和卸载验证。
 
-## 发布构建
+## 发布
 
-Android APK：
+匹配 `v*` 的 tag 会触发 GitHub Actions 构建并上传三端产物及 SHA256。发布前必须保持 `main`、版本号、CHANGELOG 与资产清单一致，并在发布后重新下载校验。
 
-```bash
-cd SSRVPN_Android
-flutter build apk --release
-cp build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk
-sha256sum SSRVPN.apk > SSRVPN.apk.sha256
-```
+详细流程见 [发布检查清单](docs/RELEASE_CHECKLIST.zh-CN.md)、[签名说明](docs/RELEASE_SIGNING.md) 与 [OSS 运维手册](docs/OSS_RELEASE_OPERATIONS.zh-CN.md)。
 
-Windows 安装版和绿色版 ZIP：
+## 文档与安全
 
-```powershell
-cd SSRVPN_Windows
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\tool\package_windows.ps1
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\tool\build_installer.ps1
-```
+[文档索引](docs/README.md) 区分当前规范、维护手册、架构决策与历史审查。项目状态以当前代码、自动验证和该索引中的有效文档为准。
 
-macOS 拖拽安装 DMG：
-
-```bash
-cd SSRVPN_MacOS
-bash tool/package_macos.sh
-shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
-```
-
-推送匹配 `v*` 的 tag 会触发 GitHub Actions 发布流程，自动上传三端产物和 SHA256 校验文件。
-
-个人免费发布限制：
-
-- Android Release workflow 使用同一个自签名 keystore secret 时可覆盖升级。
-- macOS DMG 是拖拽安装形式，但未做 Apple Developer ID 签名和公证，首次打开可能需要右键打开。
-- Windows 默认更新产物为每用户安装版 `SSRVPN_Setup.exe`，同时保留绿色便携 ZIP；两者未代码签名时都可能出现 SmartScreen 提示。
-- Android 当前只随包提供 arm64 核心库；三端网络策略均为 IPv4/IPv6 双栈。
-
-## 重要文档
-
-- `docs/OWNER_GUIDE.zh-CN.md`：项目所有者日常维护手册。
-- `docs/PROJECT_MANAGEMENT.md`：分支模型、产物策略、本地流程和发布规则。
-- `docs/PRODUCT_REQUIREMENTS.zh-CN.md`：安装包、首次导入、节点排序和记忆节点行为要求。
-- `docs/GITHUB_REPOSITORY_AUDIT.zh-CN.md`：GitHub 仓库清理审计和保留/归档建议。
-- `docs/PROJECT_HEALTH.md`：项目完整度、可维护性、发布准备度和风险评分。
-- `docs/MAINTENANCE.md`：每周维护、PR、发布和线上/本地一致性检查表。
-- `docs/ROADMAP.md`：已完成事项和后续技术路线。
-- `docs/RELEASE_SIGNING.md`：Android 自签名、macOS/Windows 免费发布和系统提示说明。
-- `docs/RELEASE_CHECKLIST.zh-CN.md`：个人维护者发布前后检查清单。
-- `docs/OSS_RELEASE_OPERATIONS.zh-CN.md`：阿里云 OSS 正常发布、密钥轮换、故障恢复和回滚手册。
-- `docs/UI_DESIGN_GUIDE.md`：三端 UI 色板、字号层级和组件规范。
-- `docs/CORE_ASSETS.md`：Mihomo/AtlasCore 二进制来源、版本和兼容性说明。
-- `docs/TESTING.md`：CI 覆盖率、平台依赖测试和本地验证策略。
-- `MIGRATION.md`：从历史平台仓库迁移到本 Monorepo 的说明。
-
-## 安全说明
-
-不要在日志、Issue、PR、截图或崩溃报告中泄露订阅 URL、API secret、Bearer token、代理密码、服务端凭据或签名密钥。新增日志时应使用共享包里的脱敏工具，或完全避免输出敏感值。
-
-安全报告请按 `SECURITY.md` 的流程私下提交，不要创建公开 Issue。
+不要在日志、Issue、PR、截图或崩溃报告中泄露订阅 URL、API secret、Bearer token、节点密码、服务端凭据或签名材料。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
 ## 许可证
 

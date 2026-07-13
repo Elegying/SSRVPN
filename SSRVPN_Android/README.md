@@ -32,7 +32,7 @@ SSRVPN Android 版 - 基于 Clash Meta 的 VPN 客户端
 - Flutter SDK 3.44.1 或兼容的 stable 版本
 - Android Studio / Android SDK
 - NDK 27.0.12077973
-- JDK 11
+- JDK 17（AGP 8.11 的运行要求；应用源码仍以 Java/Kotlin 11 为字节码目标）
 
 ### 构建步骤
 

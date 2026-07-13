@@ -1,4 +1,8 @@
-# SSRVPN macOS 当前审查结论
+# SSRVPN macOS 历史审查快照
+
+> 本文只记录 2026-07-10 当时的实现与验证，macOS TUN、覆盖率、测试数量和安全存储
+> 结论均可能已变化。当前状态以[项目健康文档](../docs/PROJECT_HEALTH.md)、
+> [安全策略](../SECURITY.md)和[路线图](../docs/ROADMAP.md)为准。
 
 更新时间：2026-07-10
 

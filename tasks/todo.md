@@ -1,5 +1,8 @@
 # SSRVPN 3.0.0 Production Release
 
+> Historical checklist snapshot. Open items below are not current commitments;
+> use `docs/ROADMAP.md` and `docs/PROJECT_HEALTH.md` for active priorities.
+
 - [x] Confirm repository, GitHub access, clean branch, and free `v3.0.0` tag.
 - [x] Audit the full release delta across all five review axes.
 - [x] Trace startup, proxy cleanup, and configuration flows on all platforms.
