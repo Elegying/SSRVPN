@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 修复
 
 - macOS 断开连接时先恢复系统代理，再终止本地 Mihomo；代理恢复失败会保留核心和状态监控供用户重试，避免应用流量被留在不可达的本地代理上。
-- 移除共享服务中未被调用的明文 HTTP 出口地区查询，不再保留 `ip-api.com` 非加密备用入口。
+- 移除共享服务中未被调用的明文 HTTP 出口地区查询及 Android 未接入界面的旧地理服务，不再保留 `ip-api.com` 非加密备用入口。
 
 ### 维护
 

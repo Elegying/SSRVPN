@@ -45,10 +45,15 @@ for platform in ("SSRVPN_MacOS", "SSRVPN_Windows"):
         if call not in lifecycle_source:
             raise SystemExit(f"{lifecycle}: missing system proxy call {call}")
 
-shared_service = Path("packages/ssrvpn_shared/lib/services/clash_service_base.dart")
-shared_source = shared_service.read_text(encoding="utf-8")
-if "http://ip-api.com" in shared_source:
-    raise SystemExit(f"{shared_service}: cleartext external Geo lookup remains")
+geo_sources = [
+    *Path("packages/ssrvpn_shared/lib").rglob("*.dart"),
+    *Path("SSRVPN_Android/lib").rglob("*.dart"),
+    *Path("SSRVPN_MacOS/lib").rglob("*.dart"),
+    *Path("SSRVPN_Windows/lib").rglob("*.dart"),
+]
+for source_path in geo_sources:
+    if "http://ip-api.com" in source_path.read_text(encoding="utf-8"):
+        raise SystemExit(f"{source_path}: cleartext external Geo lookup remains")
 
 print("Clash service responsibility boundaries passed.")
 PY
