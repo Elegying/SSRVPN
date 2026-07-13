@@ -146,14 +146,8 @@ class DesktopSubscriptionFetcher {
         }
         bodyBytes = await _readLimitedResponse(
           response.timeout(_readInactivityTimeout),
-        ).timeout(
-          remaining(),
-          onTimeout: () {
-            // Let the surrounding finally close the client. Closing it inside
-            // this callback can synchronously surface HttpException from the
-            // source stream before this stable TimeoutException is returned.
-            throw TimeoutException('订阅请求超过绝对时限', requestTimeout);
-          },
+          absoluteTimeout: remaining(),
+          requestTimeout: requestTimeout,
         );
       }
       return _DesktopHttpResponse(
@@ -197,18 +191,55 @@ class DesktopSubscriptionFetcher {
   }
 
   static Future<Uint8List> _readLimitedResponse(
-    Stream<List<int>> response,
-  ) async {
+    Stream<List<int>> response, {
+    required Duration absoluteTimeout,
+    required Duration requestTimeout,
+  }) async {
     final builder = BytesBuilder(copy: false);
     var total = 0;
-    await for (final chunk in response) {
-      total += chunk.length;
-      if (total > maxSubscriptionBytes) {
-        throw Exception('订阅内容超过 20 MB 限制');
-      }
-      builder.add(chunk);
+    final result = Completer<Uint8List>();
+    late final StreamSubscription<List<int>> subscription;
+
+    void fail(Object error, StackTrace stackTrace) {
+      if (result.isCompleted) return;
+      result.completeError(error, stackTrace);
+      unawaited(subscription.cancel());
     }
-    return builder.takeBytes();
+
+    subscription = response.listen(
+      (chunk) {
+        if (result.isCompleted) return;
+        total += chunk.length;
+        if (total > maxSubscriptionBytes) {
+          fail(
+            Exception('订阅内容超过 20 MB 限制'),
+            StackTrace.current,
+          );
+          return;
+        }
+        builder.add(chunk);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        fail(error, stackTrace);
+      },
+      onDone: () {
+        if (!result.isCompleted) result.complete(builder.takeBytes());
+      },
+      cancelOnError: true,
+    );
+    final deadline = Timer(absoluteTimeout, () {
+      fail(
+        TimeoutException('订阅请求超过绝对时限', requestTimeout),
+        StackTrace.current,
+      );
+    });
+
+    try {
+      return await result.future;
+    } finally {
+      deadline.cancel();
+      await subscription.cancel();
+    }
   }
 }
 
