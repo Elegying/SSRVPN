@@ -538,40 +538,6 @@ abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
     }
   }
 
-  /// 解析当前出口国家代码
-  Future<String?> resolveCurrentExitCountryCode() async {
-    final client = IOClient(
-      HttpClient()
-        ..connectionTimeout = const Duration(seconds: 5)
-        ..findProxy = (_) => _localHttpProxyConfig(),
-    );
-    const endpoints = [
-      'http://ip-api.com/json/?fields=status,countryCode,query',
-      'https://ipinfo.io/json',
-    ];
-
-    try {
-      for (final endpoint in endpoints) {
-        try {
-          final response = await client
-              .get(Uri.parse(endpoint))
-              .timeout(const Duration(seconds: 8));
-          if (response.statusCode != 200) continue;
-
-          final decoded = jsonDecode(response.body);
-          if (decoded is! Map<String, dynamic>) continue;
-          final country = decoded['countryCode']?.toString() ??
-              decoded['country']?.toString();
-          final normalized = normalizeCountryCode(country);
-          if (normalized != null) return normalized;
-        } catch (_) {}
-      }
-      return null;
-    } finally {
-      client.close();
-    }
-  }
-
   String? normalizeCountryCode(String? value) {
     final code = value?.trim().toUpperCase() ?? '';
     if (!RegExp(r'^[A-Z]{2}$').hasMatch(code)) return null;
