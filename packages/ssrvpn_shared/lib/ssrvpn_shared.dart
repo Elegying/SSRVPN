@@ -42,6 +42,8 @@ export 'utils/best_effort_cleanup.dart';
 export 'utils/bounded_file_logger.dart';
 export 'utils/connection_intent_tracker.dart';
 export 'utils/recovering_serial_queue.dart';
+export 'utils/desktop_window_state_store.dart';
+export 'utils/desktop_startup_file_logger.dart';
 export 'widgets/country_flag_icon.dart';
 
 // 常量
