@@ -146,8 +146,7 @@ begin
   if StopResult <> 0 then
     Log(Format('Best-effort process cleanup returned %d', [StopResult]));
   if DirectoryResult <> 0 then
-    Log(Format('Best-effort directory preparation returned %d',
-      [DirectoryResult]));
+    Log(Format('Best-effort directory preparation returned %d', [DirectoryResult]));
   { Custom preparation must never block the actual Inno installation. }
   Result := '';
 end;
@@ -159,7 +158,6 @@ begin
   if CurStep = ssPostInstall then begin
     RestoreResult := RestoreInstallData;
     if RestoreResult <> 0 then
-      Log(Format('Best-effort installation data restore returned %d',
-        [RestoreResult]));
+      Log(Format('Best-effort installation data restore returned %d', [RestoreResult]));
   end;
 end;

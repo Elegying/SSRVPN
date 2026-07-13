@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.2] - 2026-07-13
+
+### Fixed
+
+- 修复 Windows 安装器脚本在 Inno Setup 线上编译时将续行数组误判为节标签、导致安装包构建失败的问题。
+
 ## [3.2.1] - 2026-07-13
 
 ### 修复
