@@ -26,6 +26,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONObject
@@ -108,6 +109,8 @@ class SsrvpnVpnService : VpnService() {
 
         private const val BRIDGE_START_TIMEOUT_MS = 45_000L
         private const val PENDING_START_CANCEL_GRACE_MS = 1_000L
+        private const val API_HEALTH_TIMEOUT_MS = 20_000L
+        private const val API_HEALTH_POLL_INTERVAL_MS = 250L
         private const val BRIDGE_STOP_TIMEOUT_MS = 5_000L
         private const val BRIDGE_IS_RUNNING_TIMEOUT_MS = 2_000L
         private val stopOperation = CoalescedOperation()
@@ -535,19 +538,28 @@ class SsrvpnVpnService : VpnService() {
 
             // Step 5: Wait for API health (use dynamic port)
             Log.d(TAG, "Waiting for API on port $apiPort...")
+            val healthDeadlineNanos =
+                System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(API_HEALTH_TIMEOUT_MS)
             var healthy = false
-            for (i in 0 until 80) {
+            while (System.nanoTime() < healthDeadlineNanos) {
                 ensureStartCurrent(startToken)
-                Thread.sleep(250)
-                try {
-                    val socket = java.net.Socket()
-                    socket.connect(java.net.InetSocketAddress("127.0.0.1", apiPort), 250)
-                    socket.close()
-                    healthy = true
-                    Log.d(TAG, "API healthy after ${(i + 1) * 250}ms")
-                    break
-                } catch (_: Exception) {}
+                healthy = MihomoApiHealthProbe.isHealthy(
+                    apiPort,
+                    apiSecret,
+                    healthDeadlineNanos
+                )
+                ensureStartCurrent(startToken)
+                if (healthy) break
+                val remainingNanos =
+                    (healthDeadlineNanos - System.nanoTime()).coerceAtLeast(0L)
+                Thread.sleep(
+                    minOf(
+                        API_HEALTH_POLL_INTERVAL_MS,
+                        TimeUnit.NANOSECONDS.toMillis(remainingNanos)
+                    )
+                )
             }
+            if (healthy) Log.d(TAG, "Mihomo API /version is healthy")
 
             if (healthy) {
                 ensureStartCurrent(startToken)

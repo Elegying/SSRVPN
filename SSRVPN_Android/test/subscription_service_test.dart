@@ -206,7 +206,9 @@ proxies:
         InternetAddress.loopbackIPv4,
         InternetAddress.loopbackIPv6,
       ],
-      readInactivityTimeout: const Duration(milliseconds: 50),
+      // Keep the first address fast enough for the test while leaving ample
+      // scheduler headroom for the local IPv6 server under a loaded CI host.
+      readInactivityTimeout: const Duration(milliseconds: 500),
     );
 
     final body = await service.fetchSubscription(
