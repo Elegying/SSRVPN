@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-07-13
+
 ### 修复
 
 - Windows 安装版固定使用 `%LOCALAPPDATA%\Programs\SSRVPN`，不再扫描或选择桌面、下载目录中的便携副本，因此多个旧目录不会阻止安装。
