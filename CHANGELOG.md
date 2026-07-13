@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修复
+
+- Windows 安装器不再把便携数据检测脚本的任意故障误报为“多个目录”；进程查询不可用时降级为磁盘扫描，其他检测异常会安全跳过自动迁移并继续安装，旧便携数据保持不变。
+
 ## [3.2.0] - 2026-07-13
 
 ### 新增

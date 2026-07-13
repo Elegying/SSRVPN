@@ -43,9 +43,10 @@ try {
   $destination = Join-Path $testRoot 'installed\bin\ssrvpn'
   $stateFile = Join-Path $testRoot 'portable-source.txt'
 
-  if ((Invoke-Migration -Destination $destination -StateFile $stateFile `
-      -SetupSource $testRoot -DiscoverOnly) -eq 0) {
-    throw 'Ambiguous portable sources were not rejected.'
+  $ambiguousExitCode = Invoke-Migration -Destination $destination `
+    -StateFile $stateFile -SetupSource $testRoot -DiscoverOnly
+  if ($ambiguousExitCode -ne 10) {
+    throw "Ambiguous portable sources returned $ambiguousExitCode instead of 10."
   }
 
   Remove-Item -LiteralPath (Join-Path $testRoot 'portable-b') -Recurse -Force

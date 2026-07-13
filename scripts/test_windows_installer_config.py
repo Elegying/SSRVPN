@@ -51,10 +51,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )[1]
         self.assertLess(prepare.index("DiscoverPortableData"), prepare.index("StopSsrvpnProcesses"))
         self.assertLess(prepare.index("StopSsrvpnProcesses"), prepare.index("MigratePortableData"))
-        self.assertIn("function DiscoverPortableData: Boolean;", installer)
-        self.assertIn("function MigratePortableData: Boolean;", installer)
-        self.assertIn("if not DiscoverPortableData then", prepare)
-        self.assertIn("if not MigratePortableData then", prepare)
+        self.assertIn("function DiscoverPortableData: Integer;", installer)
+        self.assertIn("function MigratePortableData: Integer;", installer)
+        self.assertIn("DiscoveryResult := DiscoverPortableData", prepare)
+        self.assertIn("MigrationResult := MigratePortableData", prepare)
         self.assertIn("便携版数据迁移失败", prepare)
         self.assertIn("Name = 'ssrvpn_windows_app.exe'", migration)
         self.assertIn("subscriptions.json", migration)
@@ -64,6 +64,27 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("Get-FileHash", migration)
         self.assertIn("Move-Item -LiteralPath $tempFile", migration)
         self.assertNotRegex(migration, r"Copy-Item[^\n]+\\\*")
+
+    def test_installer_distinguishes_ambiguous_sources_from_helper_failure(self) -> None:
+        installer_root = ROOT / "SSRVPN_Windows" / "installer"
+        installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
+        migration = (installer_root / "migrate_portable_data.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "function RunPortableDataMigration(DiscoverOnly: Boolean): Integer;",
+            installer,
+        )
+        self.assertIn("if DiscoveryResult = 10 then begin", installer)
+        self.assertIn("if DiscoveryResult <> 0 then begin", installer)
+        self.assertIn("自动迁移已跳过", installer)
+        self.assertIn("if DiscoveryResult = 0 then begin", installer)
+        self.assertIn("exit 10", migration)
+        self.assertRegex(
+            migration,
+            re.compile(r"try\s*\{.*?Get-CimInstance.*?\}\s*catch\s*\{", re.S),
+        )
 
     def test_installer_can_find_an_exited_portable_copy(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
@@ -75,7 +96,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("-SetupSource", installer)
         self.assertIn("[string]$SetupSource", migration)
         self.assertIn("[Environment]::GetFolderPath('Desktop')", migration)
-        self.assertIn("Join-Path $HOME 'Downloads'", migration)
+        self.assertIn("[Environment]::GetFolderPath('UserProfile')", migration)
+        self.assertIn("Join-Path $userProfile 'Downloads'", migration)
         self.assertIn("ssrvpn_windows_app.exe", migration)
         self.assertIn("Multiple portable SSRVPN data directories", migration)
         self.assertNotIn("Get-SourceScore", migration)
@@ -112,7 +134,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         runtime_test = (
             ROOT / "scripts" / "test_windows_installer_runtime.ps1"
         ).read_text(encoding="utf-8")
-        self.assertIn("Ambiguous portable sources were not rejected", runtime_test)
+        self.assertIn("Ambiguous portable sources returned", runtime_test)
         self.assertIn("unrecorded mihomo process was incorrectly stopped", runtime_test)
         restore = stopper.split("function Restore-OwnedSystemProxy", 1)[1]
         self.assertLess(

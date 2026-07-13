@@ -15,17 +15,21 @@ $ErrorActionPreference = 'Stop'
 function Test-PortableDataDirectory {
   param([Parameter(Mandatory = $true)][string]$Path)
 
-  if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
-    return $false
-  }
-  $item = Get-Item -LiteralPath $Path
-  if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-    return $false
-  }
-  foreach ($name in @('settings.json', 'subscriptions.json')) {
-    if (Test-Path -LiteralPath (Join-Path $Path $name) -PathType Leaf) {
-      return $true
+  try {
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+      return $false
     }
+    $item = Get-Item -LiteralPath $Path
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+      return $false
+    }
+    foreach ($name in @('settings.json', 'subscriptions.json')) {
+      if (Test-Path -LiteralPath (Join-Path $Path $name) -PathType Leaf) {
+        return $true
+      }
+    }
+  } catch {
+    return $false
   }
   return $false
 }
@@ -59,19 +63,30 @@ $statePath = [System.IO.Path]::GetFullPath($StateFile)
 if ($DiscoverOnly) {
   $sources = @{}
   $runningSources = @{}
+  Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
 
-  Get-CimInstance -ClassName Win32_Process `
-    -Filter "Name = 'ssrvpn_windows_app.exe'" |
+  try {
+    $runningProcesses = @(Get-CimInstance -ClassName Win32_Process `
+      -Filter "Name = 'ssrvpn_windows_app.exe'" -ErrorAction Stop)
+  } catch {
+    $runningProcesses = @()
+    [Console]::Error.WriteLine(
+      "Portable process discovery unavailable; using filesystem scan: $($_.Exception.Message)"
+    )
+  }
+  $runningProcesses |
     Where-Object { $_.ExecutablePath } |
     ForEach-Object {
       Add-PortableSource -Table $runningSources -Path (Join-Path `
         (Split-Path -LiteralPath $_.ExecutablePath -Parent) 'ssrvpn')
     }
 
+  $userProfile = [Environment]::GetFolderPath('UserProfile')
+  $downloads = if ($userProfile) { Join-Path $userProfile 'Downloads' } else { $null }
   $roots = @(
     $SetupSource,
     [Environment]::GetFolderPath('Desktop'),
-    (Join-Path $HOME 'Downloads')
+    $downloads
   ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }
 
   foreach ($root in $roots) {
@@ -106,19 +121,24 @@ if ($DiscoverOnly) {
   })
 
   if ($runningCandidates.Count -gt 1) {
-    throw 'Multiple running portable SSRVPN data directories were found.'
+    [Console]::Error.WriteLine(
+      'Multiple running portable SSRVPN data directories were found.'
+    )
+    exit 10
   }
   if ($runningCandidates.Count -eq 1) {
     $sourcePath = [string]$runningCandidates[0]
   } elseif ($candidates.Count -gt 1) {
-    throw 'Multiple portable SSRVPN data directories were found.'
+    [Console]::Error.WriteLine(
+      'Multiple portable SSRVPN data directories were found.'
+    )
+    exit 10
   } elseif ($candidates.Count -eq 1) {
     $sourcePath = [string]$candidates[0]
   } else {
     $sourcePath = $null
   }
 
-  Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
   if ($sourcePath) {
     $stateDirectory = Split-Path -LiteralPath $statePath -Parent
     New-Item -ItemType Directory -Path $stateDirectory -Force | Out-Null

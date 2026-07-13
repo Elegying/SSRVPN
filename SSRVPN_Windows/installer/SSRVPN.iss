@@ -53,9 +53,10 @@ Name: "{autodesktop}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: 
 Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"; Flags: nowait
 
 [Code]
-function RunPortableDataMigration(DiscoverOnly: Boolean): Boolean;
+function RunPortableDataMigration(DiscoverOnly: Boolean): Integer;
 var
   ResultCode: Integer;
+  Started: Boolean;
   PowerShellPath: String;
   ScriptPath: String;
   DestinationPath: String;
@@ -75,22 +76,24 @@ begin
     ' -SetupSource ' + AddQuotes(ExpandConstant('{src}'));
   if DiscoverOnly then
     Parameters := Parameters + ' -DiscoverOnly';
-  Result := Exec(PowerShellPath, Parameters, '', SW_HIDE,
+  Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
     ewWaitUntilTerminated, ResultCode);
-  if not Result then
-    Log('Could not start portable data migration helper')
-  else if ResultCode <> 0 then begin
-    Log(Format('Portable data migration helper returned %d', [ResultCode]));
-    Result := False;
+  if not Started then begin
+    Log('Could not start portable data migration helper');
+    Result := -1;
+  end else begin
+    Result := ResultCode;
   end;
+  if Result <> 0 then
+    Log(Format('Portable data migration helper returned %d', [Result]));
 end;
 
-function DiscoverPortableData: Boolean;
+function DiscoverPortableData: Integer;
 begin
   Result := RunPortableDataMigration(True);
 end;
 
-function MigratePortableData: Boolean;
+function MigratePortableData: Integer;
 begin
   Result := RunPortableDataMigration(False);
 end;
@@ -121,21 +124,36 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  DiscoveryResult: Integer;
+  MigrationResult: Integer;
 begin
-  if not DiscoverPortableData then begin
+  DiscoveryResult := DiscoverPortableData;
+  if DiscoveryResult = 10 then begin
     Result := '检测到多个便携版 SSRVPN 数据目录，无法安全判断应迁移哪一个。' +
       '请只保留需要迁移的便携版副本后重试。';
     Exit;
+  end;
+  if DiscoveryResult <> 0 then begin
+    Log(Format('Portable data discovery failed with result %d; migration skipped',
+      [DiscoveryResult]));
+    MsgBox('旧版便携数据检测发生异常（错误码 ' + IntToStr(DiscoveryResult) +
+      '），自动迁移已跳过。安装将继续，旧版数据不会被删除；' +
+      '如新客户端中没有原订阅，请重新导入订阅。', mbInformation, MB_OK);
   end;
   if not StopSsrvpnProcesses then begin
     Result := '无法关闭正在运行的 SSRVPN。请先从托盘退出 SSRVPN，' +
       '或在任务管理器中结束 SSRVPN 后重试。';
     Exit;
   end;
-  if not MigratePortableData then begin
-    Result := '便携版数据迁移失败。为避免丢失订阅和设置，安装已停止。' +
-      '请重试；如果仍然失败，请先备份旧版 ssrvpn 数据目录。';
-    Exit;
+  if DiscoveryResult = 0 then begin
+    MigrationResult := MigratePortableData;
+    if MigrationResult <> 0 then begin
+      Result := '便携版数据迁移失败（错误码 ' + IntToStr(MigrationResult) +
+        '）。为避免丢失订阅和设置，安装已停止。请重试；' +
+        '如果仍然失败，请先备份旧版 ssrvpn 数据目录。';
+      Exit;
+    end;
   end;
   Result := '';
 end;
