@@ -30,7 +30,6 @@ void main() {
     }
     for (final name in const {
       'OpenAI / ChatGPT',
-      'ChatGPT',
       'Hugging Face',
       'Cohere',
       'Groq',
@@ -54,6 +53,11 @@ void main() {
 
     expect(byId['netflix']!.statusRule, UnlockStatusRule.netflix);
     expect(byId['youtube']!.statusRule, UnlockStatusRule.youtubePremium);
+    expect(
+      byId['chatgpt']!.statusRule,
+      UnlockStatusRule.openAiApiReachable,
+    );
+    expect(byId['chatgpt']!.url, 'https://api.openai.com/v1/models');
     expect(byId['claude']!.statusRule, UnlockStatusRule.apiReachable);
     expect(byId['gemini']!.statusRule, UnlockStatusRule.apiReachable);
     expect(
@@ -84,6 +88,115 @@ void main() {
 
     expect(byId['claude']!.officialUrl, 'https://claude.ai/');
     expect(byId['gemini']!.officialUrl, 'https://gemini.google.com/');
+    expect(byId['chatgpt']!.officialUrl, 'https://chatgpt.com/');
+  });
+
+  test('ChatGPT official authentication response proves reachability only',
+      () async {
+    final service = _serviceReturning(
+      statusCode: 401,
+      body: '''
+{"error":{"message":"Missing bearer authentication in header","type":"invalid_request_error"}}
+''',
+      headers: {'www-authenticate': 'Bearer realm="OpenAI API"'},
+    );
+
+    final result = await service.checkOne(id: 'chatgpt', proxyPort: 7890);
+
+    expect(result.status, 'Reachable');
+    expect(result.displayStatusLabel, '可访问');
+    expect(result.isUnlocked, isFalse);
+    expect(result.detail, contains('未验证 ChatGPT'));
+  });
+
+  test('ChatGPT ambiguous 401 response is never reported as reachable',
+      () async {
+    final service = _serviceReturning(
+      statusCode: 401,
+      body: 'Unauthorized',
+    );
+
+    final result = await service.checkOne(id: 'chatgpt', proxyPort: 7890);
+
+    expect(result.status, 'Inconclusive');
+    expect(result.isUnlocked, isFalse);
+    expect(result.isReachable, isFalse);
+  });
+
+  test('ChatGPT generic success and Cloudflare challenge stay inconclusive',
+      () async {
+    for (final response in const [
+      (200, '<html>ChatGPT</html>'),
+      (403, '<html>Cloudflare security challenge</html>'),
+    ]) {
+      final service = _serviceReturning(
+        statusCode: response.$1,
+        body: response.$2,
+      );
+
+      final result = await service.checkOne(id: 'chatgpt', proxyPort: 7890);
+
+      expect(result.status, 'Inconclusive', reason: 'HTTP ${response.$1}');
+      expect(result.isUnlocked, isFalse);
+      expect(result.isReachable, isFalse);
+    }
+  });
+
+  test('ChatGPT evidence on a non-OpenAI redirect stays inconclusive',
+      () async {
+    final service = UnlockTestService(
+      clientFactory: (_) => MockClient((request) async {
+        if (request.url.host == 'api.openai.com') {
+          return http.Response(
+            '',
+            302,
+            headers: {'location': 'https://example.com/v1/models'},
+            request: request,
+          );
+        }
+        return http.Response(
+          '{"error":{"message":"Missing bearer authentication in header"}}',
+          401,
+          headers: {'www-authenticate': 'Bearer realm="OpenAI API"'},
+          request: request,
+        );
+      }),
+    );
+
+    final result = await service.checkOne(id: 'chatgpt', proxyPort: 7890);
+
+    expect(result.status, 'Inconclusive');
+    expect(result.isReachable, isFalse);
+  });
+
+  test('truncated ChatGPT authentication evidence stays inconclusive',
+      () async {
+    final service = _serviceReturning(
+      statusCode: 401,
+      body: '{"error":{"message":"Missing bearer authentication in header"}}' +
+          List.filled(800 * 1024, 'x').join(),
+      headers: {'www-authenticate': 'Bearer realm="OpenAI API"'},
+    );
+
+    final result = await service.checkOne(id: 'chatgpt', proxyPort: 7890);
+
+    expect(result.status, 'Inconclusive');
+    expect(result.isReachable, isFalse);
+    expect(result.detail, contains('响应已截断'));
+  });
+
+  test('ChatGPT explicit unsupported-country response is blocked', () async {
+    final service = _serviceReturning(
+      statusCode: 403,
+      body: '''
+{"error":{"code":"unsupported_country_region_territory","message":"Country, region, or territory not supported"}}
+''',
+    );
+
+    final result = await service.checkOne(id: 'chatgpt', proxyPort: 7890);
+
+    expect(result.status, 'No');
+    expect(result.displayStatusLabel, '不支持');
   });
 
   test('generic website reachability is not reported as geo-unlocked',

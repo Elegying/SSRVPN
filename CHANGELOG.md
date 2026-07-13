@@ -11,8 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 新增
 
-- Android、macOS、Windows 配置与订阅链路升级为 IPv4/IPv6 双栈，支持 IPv6 节点、AAAA 解析、IPv6 TUN 路由和 IPv6 公网出口展示；无可用 IPv6 时自然回退 IPv4。
+- Android、macOS、Windows 配置与订阅链路升级为 IPv4/IPv6 双栈，支持 IPv6 节点、AAAA 解析、IPv6 TUN 路由与 IPv6 代理流量；无可用 IPv6 时自然回退 IPv4。
 - macOS TUN 改为连接时请求管理员密码，使用按次暂存、摘要校验、超时清理的 root runner 启动 Mihomo；断开或客户端退出会清理特权进程、路由和暂存文件。
+- 解锁检测新增 ChatGPT：仅凭 OpenAI 官方 API 的严格认证响应显示“可访问”，明确地区拒绝显示“不支持”，其余响应均保守显示“无法判断”。
 
 ### 修复
 
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 连接成功状态会在核心、API 与代理就绪后立即显示；联网验证改为多次保守探测，单次 HTTP 502 不再过早提示切换节点。
 - Android 自动重载、通知线路切换和原生启动代际增加过期结果保护；空订阅刷新不再让仍在运行的 VPN 与 UI 状态不一致。
 - 双栈订阅下载交替尝试 IPv4/IPv6 地址并执行总超时；所有节点入口拒绝区域标识或括号歧义的 IPv6 地址。
+- 首页公网 IP 改用 IPv4 专用端点，备用响应也强制校验地址族，不再因双栈出口显示 IPv6。
 
 ### 维护
 

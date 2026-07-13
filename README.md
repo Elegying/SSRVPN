@@ -14,7 +14,7 @@ SSRVPN 是一个跨平台 Flutter VPN 客户端 Monorepo，用同一套共享业
 | `SSRVPN_MacOS` | macOS 桌面客户端，包含系统代理、需管理员授权的 TUN、资源安装和 DMG 打包 | `SSRVPN.dmg` |
 | `SSRVPN_Windows` | Windows 客户端，包含系统代理、TUN、托盘、安装版和便携版 | `SSRVPN_Setup.exe` / `SSRVPN.zip` |
 
-Android、macOS、Windows 均生成 IPv4/IPv6 双栈配置，支持 IPv6 节点、AAAA 解析、IPv6 强制代理规则与 TUN 流量；公网 IPv6 是否可用仍取决于本地网络和所选节点。
+Android、macOS、Windows 均生成 IPv4/IPv6 双栈配置，支持 IPv6 节点、AAAA 解析、IPv6 强制代理规则与 TUN 流量；公网 IPv6 是否可用仍取决于本地网络和所选节点。为保持识别一致，三端首页的公网 IP 信息固定只显示 IPv4，不作为 IPv6 连通性判断。
 
 macOS TUN 会在每次启动时显示系统管理员授权框。当前公开包尚未配置 Developer ID 与 notarization，因此授权只能证明本机用户明确同意本次提权，不能由 macOS 验证软件发布者身份；仅应从本仓库 Release 或官网固定下载地址获取，并在正式商用签名前把签名 helper/Network Extension 作为最高优先级安全升级。
 

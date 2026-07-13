@@ -9,6 +9,7 @@ enum UnlockStatusRule {
   standard,
   netflix,
   youtubePremium,
+  openAiApiReachable,
   apiReachable,
 }
 
@@ -175,6 +176,13 @@ class UnlockTestService {
         category: 'streaming'),
 
     // ── AI 服务 ──
+    UnlockTestResult(
+        id: 'chatgpt',
+        name: 'ChatGPT',
+        url: 'https://api.openai.com/v1/models',
+        officialUrl: 'https://chatgpt.com/',
+        category: 'ai',
+        statusRule: UnlockStatusRule.openAiApiReachable),
     UnlockTestResult(
         id: 'claude',
         name: 'Claude',
@@ -398,7 +406,10 @@ class UnlockTestService {
     final code = response.statusCode;
     final body = response.body.toLowerCase();
     final expectedHost = Uri.parse(item.url).host.toLowerCase();
-    final expectedHostMatched = item.statusRule == UnlockStatusRule.apiReachable
+    final exactHostRequired =
+        item.statusRule == UnlockStatusRule.apiReachable ||
+            item.statusRule == UnlockStatusRule.openAiApiReachable;
+    final expectedHostMatched = exactHostRequired
         ? result.finalUri.host.toLowerCase() == expectedHost
         : _isExpectedServiceHost(result.finalUri, _rootDomain(expectedHost));
     if (!expectedHostMatched) {
@@ -435,6 +446,13 @@ class UnlockTestService {
               'start your trial',
             ])) {
           return 'Available';
+        }
+        return _fallbackStatus(code, successStatus: 'Inconclusive');
+      case UnlockStatusRule.openAiApiReachable:
+        if (_containsRegionDenial(body)) return 'No';
+        if (result.bodyTruncated) return 'Inconclusive';
+        if (code == 401 && _containsOpenAiAuthEvidence(response)) {
+          return 'Reachable';
         }
         return _fallbackStatus(code, successStatus: 'Inconclusive');
       case UnlockStatusRule.apiReachable:
@@ -481,7 +499,18 @@ class UnlockTestService {
         'location is not supported',
         'unsupported country',
         'unsupported region',
+        'unsupported_country_region_territory',
+        'country, region, or territory not supported',
       ]);
+
+  bool _containsOpenAiAuthEvidence(http.Response response) {
+    final authenticate =
+        response.headers['www-authenticate']?.toLowerCase() ?? '';
+    final body = response.body.toLowerCase();
+    return authenticate.contains('bearer') &&
+        authenticate.contains('openai') &&
+        body.contains('missing bearer authentication');
+  }
 
   bool _containsNetflixTitleEvidence(Uri finalUri, String body) {
     final segments = finalUri.pathSegments;
@@ -538,6 +567,9 @@ class UnlockTestService {
       return 'HTTP $code，页面提供 Premium 开通入口$truncated';
     }
     if (status == 'Reachable') {
+      if (item.statusRule == UnlockStatusRule.openAiApiReachable) {
+        return 'HTTP $code，OpenAI 官方 API 端点可达；未验证 ChatGPT 账号和地区使用权限$truncated';
+      }
       if (item.statusRule == UnlockStatusRule.apiReachable) {
         return 'HTTP $code，API 端点可达；未验证账号和地区使用权限$truncated';
       }

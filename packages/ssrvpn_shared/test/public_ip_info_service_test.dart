@@ -67,18 +67,18 @@ void main() {
       );
     });
 
-    test('prefers an IPv6-only endpoint and resolves its country', () async {
+    test('uses an IPv4-only endpoint and resolves its country', () async {
       final requests = <Uri>[];
       final service = PublicIpInfoService(
         client: MockClient((request) async {
           requests.add(request.url);
-          if (request.url == PublicIpInfoService.ipv6Endpoint) {
-            return http.Response('{"ip":"2001:db8::42"}', 200);
+          if (request.url == PublicIpInfoService.ipv4Endpoint) {
+            return http.Response('{"ip":"203.0.113.42"}', 200);
           }
           if (request.url ==
-              PublicIpInfoService.geoEndpointForIp('2001:db8::42')) {
+              PublicIpInfoService.geoEndpointForIp('203.0.113.42')) {
             return http.Response(
-              '{"ip":"2001:db8::42","country_code":"JP"}',
+              '{"ip":"203.0.113.42","country_code":"JP"}',
               200,
             );
           }
@@ -88,19 +88,19 @@ void main() {
 
       final info = await service.fetch(timeout: const Duration(seconds: 1));
 
-      expect(info.displayText, '2001:db8::42 JP');
+      expect(info.displayText, '203.0.113.42 JP');
       expect(requests, [
-        PublicIpInfoService.ipv6Endpoint,
-        PublicIpInfoService.geoEndpointForIp('2001:db8::42'),
+        PublicIpInfoService.ipv4Endpoint,
+        PublicIpInfoService.geoEndpointForIp('203.0.113.42'),
       ]);
     });
 
-    test('keeps a discovered IPv6 address when geolocation is unavailable',
+    test('keeps a discovered IPv4 address when geolocation is unavailable',
         () async {
       final service = PublicIpInfoService(
         client: MockClient((request) async {
-          if (request.url == PublicIpInfoService.ipv6Endpoint) {
-            return http.Response('{"ip":"2001:db8::99"}', 200);
+          if (request.url == PublicIpInfoService.ipv4Endpoint) {
+            return http.Response('{"ip":"203.0.113.99"}', 200);
           }
           return http.Response('', 503);
         }),
@@ -108,16 +108,17 @@ void main() {
 
       final info = await service.fetch(timeout: const Duration(seconds: 1));
 
-      expect(info.ip, '2001:db8::99');
+      expect(info.ip, '203.0.113.99');
       expect(info.countryCode, isEmpty);
-      expect(info.displayText, '2001:db8::99');
+      expect(info.displayText, '203.0.113.99');
     });
 
-    test('falls back to a dual-stack geo endpoint without IPv6', () async {
+    test('falls back to a geo endpoint when the IPv4 service is unavailable',
+        () async {
       final service = PublicIpInfoService(
         client: MockClient((request) async {
-          if (request.url == PublicIpInfoService.ipv6Endpoint) {
-            throw const SocketException('IPv6 unavailable');
+          if (request.url == PublicIpInfoService.ipv4Endpoint) {
+            throw const SocketException('IPv4 service unavailable');
           }
           return http.Response(
             '{"ip":"203.0.113.8","country_code":"US"}',
@@ -129,6 +130,31 @@ void main() {
       final info = await service.fetch(timeout: const Duration(seconds: 1));
 
       expect(info.displayText, '203.0.113.8 US');
+    });
+
+    test('never returns IPv6 from the fallback endpoint', () async {
+      final service = PublicIpInfoService(
+        client: MockClient((request) async {
+          if (request.url == PublicIpInfoService.ipv4Endpoint) {
+            throw const SocketException('IPv4 service unavailable');
+          }
+          return http.Response(
+            '{"ip":"2001:db8::8","country_code":"US"}',
+            200,
+          );
+        }),
+      );
+
+      expect(
+        () => service.fetch(timeout: const Duration(seconds: 1)),
+        throwsA(
+          isA<PublicIpInfoException>().having(
+            (error) => error.message,
+            'message',
+            contains('IPv4'),
+          ),
+        ),
+      );
     });
   });
 }

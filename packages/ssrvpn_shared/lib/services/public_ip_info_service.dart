@@ -9,11 +9,11 @@ import '../models/public_ip_info.dart';
 class PublicIpInfoService {
   PublicIpInfoService({required http.Client client}) : _client = client;
 
-  /// This hostname publishes only AAAA records, so a successful response proves
-  /// that the active tunnel has working IPv6 egress instead of merely parsing
-  /// an IPv6-looking string returned over IPv4.
-  static final Uri ipv6Endpoint =
-      Uri.parse('https://api6.ipify.org/?format=json');
+  /// This hostname publishes only IPv4 results. The clients support IPv6 for
+  /// traffic and nodes, but the home page intentionally presents a stable IPv4
+  /// public address.
+  static final Uri ipv4Endpoint =
+      Uri.parse('https://api4.ipify.org/?format=json');
   static final Uri fallbackEndpoint = Uri.parse('https://api.ip.sb/geoip');
 
   static Uri geoEndpointForIp(String ip) =>
@@ -24,23 +24,26 @@ class PublicIpInfoService {
   Future<PublicIpInfo> fetch({
     Duration timeout = const Duration(seconds: 8),
   }) async {
-    final ipv6Info = await _fetchIpv6(timeout);
-    if (ipv6Info != null) return ipv6Info;
+    final ipv4Info = await _fetchIpv4(timeout);
+    if (ipv4Info != null) return ipv4Info;
 
     final response = await _get(fallbackEndpoint, timeout);
     if (response.statusCode != 200) {
       throw PublicIpInfoException('HTTP ${response.statusCode}');
     }
-    return parse(response.body);
+    final info = parse(response.body);
+    if (!_isIpv4(info.ip)) {
+      throw const PublicIpInfoException('未获取到公网 IPv4 信息');
+    }
+    return info;
   }
 
-  Future<PublicIpInfo?> _fetchIpv6(Duration timeout) async {
+  Future<PublicIpInfo?> _fetchIpv4(Duration timeout) async {
     try {
-      final response = await _get(ipv6Endpoint, timeout);
+      final response = await _get(ipv4Endpoint, timeout);
       if (response.statusCode != 200) return null;
       final ip = _parseIpOnly(response.body);
-      final address = InternetAddress.tryParse(ip ?? '');
-      if (address?.type != InternetAddressType.IPv6) return null;
+      if (!_isIpv4(ip)) return null;
 
       try {
         final geoResponse = await _get(geoEndpointForIp(ip!), timeout);
@@ -49,7 +52,7 @@ class PublicIpInfoService {
           if (geo.ip == ip) return geo;
         }
       } catch (_) {
-        // The IPv6 address itself is still useful when the optional country
+        // The IPv4 address itself is still useful when the optional country
         // lookup is unavailable.
       }
       return PublicIpInfo(ip: ip!, countryCode: '');
@@ -107,6 +110,9 @@ class PublicIpInfoService {
       return InternetAddress.tryParse(value) == null ? null : value;
     }
   }
+
+  static bool _isIpv4(String? value) =>
+      InternetAddress.tryParse(value ?? '')?.type == InternetAddressType.IPv4;
 
   static PublicIpInfo? _parseJsonScript(String body) {
     final match = RegExp(

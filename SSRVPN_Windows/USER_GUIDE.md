@@ -36,11 +36,11 @@ SSRVPN 是一款基于 Clash.Meta 内核的安全 VPN 客户端，支持 Android
 - Netflix — 测试 Originals / 地区内容
 - Disney+ — 测试可用区域
 - YouTube Premium — 测试地区支持
-- ChatGPT Web / iOS — 测试 OpenAI 限制
+- ChatGPT — 严格检测 OpenAI 官方 API 可达性和明确的地区限制，不把可访问误报为已解锁
 - Gemini / Claude — 测试 AI 服务可用性
 - Prime Video / Spotify / TikTok — 测试流媒体
 
-点击「开始检测」按钮，约 10-30 秒出结果。✅ 绿色表示解锁，❌ 红色表示被屏蔽。
+点击「开始检测」按钮，约 10-30 秒出结果。结果会区分“支持”“不支持”“可访问”和“无法判断”；仅可访问不代表账号或地区功能已解锁。
 
 ## 各平台特性
 
