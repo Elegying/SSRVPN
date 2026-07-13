@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-07-14
+
 ### 新增
 
 - 新增统一的中文用户指南、按症状组织的故障排查、当前文档索引和桌面 API secret 存储决策记录，平台指南只保留各自安装、权限与行为差异。
