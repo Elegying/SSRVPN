@@ -1,7 +1,7 @@
 /// SSRVPN 共享包
 ///
 /// 包含跨平台共享的模型、服务和工具类
-library ssrvpn_shared;
+library;
 
 // 模型
 export 'models/proxy_node.dart';

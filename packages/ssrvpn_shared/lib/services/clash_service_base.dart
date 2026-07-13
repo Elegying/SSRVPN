@@ -107,6 +107,7 @@ abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
     _apiClient = IOClient(_directHttpClient!);
   }
 
+  @override
   void updateSettings(AppSettings settings) {
     _settings = settings;
   }
@@ -632,6 +633,7 @@ abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
 
   static const bool _kReleaseMode = bool.fromEnvironment('dart.vm.product');
 
+  @override
   void log(String message) {
     final sanitized = LogRedactor.sanitize(message);
     _logBuffer = '$sanitized\n$_logBuffer';

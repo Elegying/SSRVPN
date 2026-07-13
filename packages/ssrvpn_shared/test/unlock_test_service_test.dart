@@ -173,8 +173,8 @@ void main() {
       () async {
     final service = _serviceReturning(
       statusCode: 401,
-      body: '{"error":{"message":"Missing bearer authentication in header"}}' +
-          List.filled(800 * 1024, 'x').join(),
+      body: '{"error":{"message":"Missing bearer authentication in header"}}'
+          '${List.filled(800 * 1024, 'x').join()}',
       headers: {'www-authenticate': 'Bearer realm="OpenAI API"'},
     );
 
@@ -483,8 +483,8 @@ void main() {
   test('truncated Netflix evidence never reports support', () async {
     final service = _serviceReturning(
       statusCode: 200,
-      body: '<meta property="og:title" content="81215567">' +
-          List.filled(800 * 1024, 'x').join(),
+      body: '<meta property="og:title" content="81215567">'
+          '${List.filled(800 * 1024, 'x').join()}',
     );
 
     final result = await service.checkOne(id: 'netflix', proxyPort: 7890);
@@ -496,8 +496,8 @@ void main() {
   test('truncated YouTube CTA never reports Premium support', () async {
     final service = _serviceReturning(
       statusCode: 200,
-      body: '<main>Get YouTube Premium. Start your trial.</main>' +
-          List.filled(800 * 1024, 'x').join(),
+      body: '<main>Get YouTube Premium. Start your trial.</main>'
+          '${List.filled(800 * 1024, 'x').join()}',
     );
 
     final result = await service.checkOne(id: 'youtube', proxyPort: 7890);

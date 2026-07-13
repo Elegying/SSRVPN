@@ -366,5 +366,5 @@ class _ProxyValueBudget {
 }
 
 class _MergeLimitException extends FormatException {
-  const _MergeLimitException(String message) : super(message);
+  const _MergeLimitException(super.message);
 }

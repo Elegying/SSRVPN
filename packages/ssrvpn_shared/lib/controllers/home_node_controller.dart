@@ -1,5 +1,3 @@
-import 'dart:collection';
-
 import '../models/proxy_node.dart';
 import '../services/subscription_parser.dart';
 import '../utils/node_display_policy.dart';
@@ -172,7 +170,7 @@ class HomeNodeController {
   ) {
     final standalone = <ProxyNode>[];
     final regular = <ProxyNode>[];
-    final groups = LinkedHashMap<String, List<ProxyNode>>();
+    final groups = <String, List<ProxyNode>>{};
 
     for (final node in nodes) {
       if (!ProxyNodeUsagePolicy.isRunnableNode(node)) continue;

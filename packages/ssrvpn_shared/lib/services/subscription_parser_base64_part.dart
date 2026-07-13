@@ -42,7 +42,9 @@ class _SubscriptionBase64 {
             return utf8.decode(
               base64Decode(normalized.substring(0, completeLength)),
             );
-          } on FormatException {}
+          } on FormatException {
+            // The original decode failure below provides the field context.
+          }
         }
       }
       throw FormatException('$fieldName的Base64内容无效');

@@ -7,10 +7,9 @@ class ProxyNode {
     this.group = '默认',
     this.latency,
     this.isOnline = true,
-    DateTime? lastLatencyTest,
+    this.lastLatencyTest,
     Map<String, dynamic>? extra,
-  })  : lastLatencyTest = lastLatencyTest,
-        extra = Map<String, dynamic>.from(extra ?? const {});
+  }) : extra = Map<String, dynamic>.from(extra ?? const {});
 
   final String name;
   final String type;

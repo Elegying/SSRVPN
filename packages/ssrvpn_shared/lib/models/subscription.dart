@@ -3,10 +3,10 @@ class Subscription {
     required this.id,
     required this.name,
     required this.url,
-    DateTime? lastUpdate,
+    this.lastUpdate,
     this.enabled = true,
     this.autoUpdate = true,
-  }) : lastUpdate = lastUpdate;
+  });
 
   final String id;
   String name;
