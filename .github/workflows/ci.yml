@@ -40,7 +40,10 @@ jobs:
       - run: bash scripts/check-shared-barrel-imports.sh
       - run: bash scripts/check-version-sync.sh
       - run: bash scripts/check-package-guides.sh
-      - run: bash scripts/check-android-native-bridge-guards.sh
+      # Match the Release job's package working directory so guard scripts
+      # cannot accidentally depend on being launched from the repository root.
+      - run: bash ../../scripts/check-android-native-bridge-guards.sh
+        working-directory: packages/ssrvpn_shared
       - run: bash scripts/check-unlock-test-guards.sh
       - run: bash scripts/check-desktop-startup-guards.sh
       - run: bash scripts/check-clash-service-boundaries.sh

@@ -87,12 +87,11 @@ require_text "processTerminationPending.set(true)"
 require_text "startGeneration.incrementAndGet()"
 require_text "ensureStartCurrent(startToken)"
 
-python3 - <<'PY'
+python3 - "$SERVICE" <<'PY'
+import sys
 from pathlib import Path
 
-source = Path(
-    "SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/SsrvpnVpnService.kt"
-).read_text(encoding="utf-8")
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
 selection = source.index("applyProxySelection(apiPort, apiSecret, selectedNodeName)")
 publish = source.index("isRunning = true", selection)
 if "ensureStartCurrent(startToken)" not in source[selection:publish]:
