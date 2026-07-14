@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "system_proxy_recovery.h"
+
 namespace {
 
 constexpr wchar_t kChildExeName[] = L"ssrvpn_windows_app.exe";
@@ -216,5 +218,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
   }
   ::CloseHandle(process_information.hThread);
   ::CloseHandle(process_information.hProcess);
+  if (exit_code != ERROR_ALREADY_EXISTS) {
+    RestoreOwnedWindowsProxy();
+  } else {
+    // A short-lived secondary child only activated the existing window. Its
+    // launcher must not restore the proxy still owned by the primary process.
+    exit_code = EXIT_SUCCESS;
+  }
   return static_cast<int>(exit_code);
 }

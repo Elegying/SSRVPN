@@ -51,6 +51,7 @@ add_dependencies(${BINARY_NAME} flutter_assemble)
 set(LAUNCHER_TARGET "${BINARY_NAME}_launcher")
 add_executable(${LAUNCHER_TARGET} WIN32
   "launcher_main.cpp"
+  "system_proxy_recovery.cpp"
   "Runner.rc"
   "runner.exe.manifest"
 )
@@ -62,6 +63,8 @@ target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_MINOR=${F
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_PATCH=${FLUTTER_VERSION_PATCH}")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTTER_VERSION_BUILD}")
 target_link_libraries(${LAUNCHER_TARGET} PRIVATE "shell32.lib")
+target_link_libraries(${LAUNCHER_TARGET} PRIVATE "advapi32.lib")
+target_link_libraries(${LAUNCHER_TARGET} PRIVATE "wininet.lib")
 
 # Use the MSVC compiler and linker switches for control-flow protection. Never
 # patch PE DllCharacteristics directly: 0x1000 in that field is AppContainer,

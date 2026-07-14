@@ -4,6 +4,7 @@
 
 #include "flutter_window.h"
 #include "startup_diagnostics.h"
+#include "system_proxy_recovery.h"
 #include "utils.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
@@ -33,14 +34,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
         ::ShowWindow(existing_window, SW_RESTORE);
         ::SetForegroundWindow(existing_window);
         ::CloseHandle(instance_mutex);
-        return EXIT_SUCCESS;
+        return ERROR_ALREADY_EXISTS;
       }
       startup_diagnostics::Log(L"existing instance window is hung");
     } else {
       startup_diagnostics::Log(L"existing instance window not found");
     }
     ::CloseHandle(instance_mutex);
-    return EXIT_SUCCESS;
+    return ERROR_ALREADY_EXISTS;
   }
 
   // Attach to console when present (e.g., 'flutter run') or create a
@@ -67,6 +68,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!window.Create(L"SSRVPN", origin, size)) {
     startup_diagnostics::Log(L"window create failed");
     startup_diagnostics::WriteDesktopFailureLog(L"window create failed");
+    if (owns_instance_mutex) {
+      RestoreOwnedWindowsProxy();
+    }
     if (instance_mutex != nullptr) {
       ::CloseHandle(instance_mutex);
     }
@@ -82,6 +86,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   while (::GetMessage(&msg, nullptr, 0, 0)) {
     ::TranslateMessage(&msg);
     ::DispatchMessage(&msg);
+  }
+  if (owns_instance_mutex) {
+    RestoreOwnedWindowsProxy();
   }
   startup_diagnostics::MarkNormalShutdown();
   startup_diagnostics::Log(L"message loop ended");

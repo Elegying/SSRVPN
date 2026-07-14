@@ -84,6 +84,17 @@ bool RestorePreparedString(HKEY settings, DWORD present,
   return SetString(settings, target_name, value);
 }
 
+bool DisableOwnedProxyEndpoint(HKEY settings,
+                               const std::wstring& owned_server) {
+  DWORD proxy_enable = 0;
+  std::wstring proxy_server;
+  return ReadDword(settings, L"ProxyEnable", &proxy_enable) &&
+         proxy_enable == 1 &&
+         ReadString(settings, L"ProxyServer", &proxy_server) &&
+         proxy_server == owned_server &&
+         SetDword(settings, L"ProxyEnable", 0);
+}
+
 void NotifyWinInet() {
   InternetSetOptionW(nullptr, INTERNET_OPTION_SETTINGS_CHANGED, nullptr, 0);
   InternetSetOptionW(nullptr, INTERNET_OPTION_REFRESH, nullptr, 0);
@@ -158,9 +169,14 @@ bool RestoreOwnedWindowsProxy() noexcept {
         RestorePreparedString(settings, has_proxy_server,
                               original_proxy_server, L"ProxyServer") &&
         SetDword(settings, L"ProxyEnable", original_proxy_enable);
+    const bool endpoint_disabled =
+        !endpoint_restored && DisableOwnedProxyEndpoint(settings, owned_server);
     RegCloseKey(settings);
     RegCloseKey(backup);
-    if (!endpoint_restored) return false;
+    if (!endpoint_restored) {
+      if (endpoint_disabled) NotifyWinInet();
+      return false;
+    }
     if (RegDeleteTreeW(HKEY_CURRENT_USER, kBackupPath) != ERROR_SUCCESS) {
       return false;
     }
@@ -213,9 +229,12 @@ bool RestoreOwnedWindowsProxy() noexcept {
         SetDword(settings, L"ProxyEnable", original_proxy_enable);
   }
 
+  const bool endpoint_disabled =
+      !restored && DisableOwnedProxyEndpoint(settings, owned_server);
   RegCloseKey(settings);
   RegCloseKey(backup);
   if (!restored) {
+    if (endpoint_disabled) NotifyWinInet();
     return false;
   }
   if (RegDeleteTreeW(HKEY_CURRENT_USER, kBackupPath) != ERROR_SUCCESS) {

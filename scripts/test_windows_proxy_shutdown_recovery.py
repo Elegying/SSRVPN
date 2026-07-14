@@ -28,6 +28,8 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("AutoConfigURL", recovery)
         self.assertIn("InternetSetOptionW", recovery)
         self.assertIn("RegDeleteTreeW", recovery)
+        self.assertIn("DisableOwnedProxyEndpoint", recovery)
+        self.assertIn('SetDword(settings, L"ProxyEnable", 0)', recovery)
 
         restore_start = recovery.index("bool RestoreOwnedWindowsProxy()")
         restore_body = recovery[restore_start:]
@@ -77,6 +79,34 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         )
         self.assertLess(journal_write - full_snapshot, first_mutation)
         self.assertIn('restore_in_progress == 1', restore_body)
+
+    def test_launcher_restores_proxy_after_the_primary_app_exits(self) -> None:
+        runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
+        main = (runner / "main.cpp").read_text(encoding="utf-8")
+        launcher = (runner / "launcher_main.cpp").read_text(encoding="utf-8-sig")
+        cmake = (runner / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("return ERROR_ALREADY_EXISTS;", main)
+        self.assertGreaterEqual(cmake.count('"system_proxy_recovery.cpp"'), 2)
+        self.assertIn(
+            'target_link_libraries(${LAUNCHER_TARGET} PRIVATE "advapi32.lib")',
+            cmake,
+        )
+        self.assertIn(
+            'target_link_libraries(${LAUNCHER_TARGET} PRIVATE "wininet.lib")',
+            cmake,
+        )
+
+        exit_read = launcher.index("GetExitCodeProcess")
+        duplicate_guard = launcher.index("exit_code != ERROR_ALREADY_EXISTS")
+        restore = launcher.index("RestoreOwnedWindowsProxy()")
+        self.assertLess(exit_read, duplicate_guard)
+        self.assertLess(duplicate_guard, restore)
+        self.assertIn("exit_code = EXIT_SUCCESS", launcher[restore:])
+
+        message_loop_end = main.index("startup_diagnostics::MarkNormalShutdown()")
+        final_restore = main.index("RestoreOwnedWindowsProxy()", message_loop_end - 100)
+        self.assertLess(final_restore, message_loop_end)
 
     def test_dart_persists_native_backup_before_enabling_proxy(self) -> None:
         service = (
