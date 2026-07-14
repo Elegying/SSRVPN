@@ -190,10 +190,24 @@ for app in (
     Path("SSRVPN_Windows/lib/app.dart"),
 ):
     app_source = app.read_text(encoding="utf-8")
+    app_lines = len(app_source.splitlines())
+    if app_lines > 620:
+        raise SystemExit(f"{app}: application entrypoint grew to {app_lines} lines")
+    if "desktop_app_shell_part.dart" not in app_source:
+        raise SystemExit(f"{app}: missing shared desktop application shell part")
     if re.search(r"(?m)^\s*_clashService\?\.stop\(\);\s*$", app_source):
         raise SystemExit(f"{app}: dispose leaks asynchronous stop errors")
     if "Dispose core cleanup failed" not in app_source:
         raise SystemExit(f"{app}: dispose stop failure is not contained")
 
 print("Desktop dispose cleanup guard passed.")
+
+app_shell = Path(
+    "packages/ssrvpn_shared/lib/desktop_ui/desktop_app_shell_part.dart"
+)
+if not app_shell.is_file():
+    raise SystemExit(f"{app_shell}: shared desktop application shell is missing")
+if len(app_shell.read_text(encoding="utf-8").splitlines()) > 620:
+    raise SystemExit(f"{app_shell}: shared desktop application shell is oversized")
+print("Desktop application shell boundary guard passed.")
 PY
