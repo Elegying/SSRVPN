@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.3] - 2026-07-14
+
+### 变更
+
+- Windows 安装版改为每次全新覆盖：安装前清空固定安装目录、LocalAppData 回退配置、窗口状态和旧安装恢复状态，不再搜索、备份或恢复旧订阅与设置；升级后需要重新导入订阅。
+- Windows 安装版继续使用 `%LOCALAPPDATA%\Programs\SSRVPN` 与当前用户桌面/开始菜单，不写入 `Program Files`，安装和系统代理模式均无需管理员权限。
+
+### 修复
+
+- 删除会因旧数据备份或恢复失败而中止安装的辅助流程；进程和自有系统代理清理仍在覆盖前执行，即使清理脚本返回错误也不主动阻断安装。
+
 ## [3.3.2] - 2026-07-14
 
 ### 修复
