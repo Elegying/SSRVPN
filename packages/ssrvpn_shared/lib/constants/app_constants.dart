@@ -102,10 +102,16 @@ class AppConstants {
       './providers/ssrvpn-geosite-cn.mrs';
   static const String geoipCnRuleProviderPath =
       './providers/ssrvpn-geoip-cn.mrs';
+  // Pin the upstream commit so a mutable branch cannot silently change routing.
+  // The built-in DOMAIN-SUFFIX/CN GeoIP rules below remain the offline fallback.
+  static const String metaRulesCommit =
+      '200e6a86736cfab29aae7b07dc266e59f13bc13d';
   static const String geositeCnRuleProviderUrl =
-      'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs';
+      'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
+      '$metaRulesCommit/geo/geosite/cn.mrs';
   static const String geoipCnRuleProviderUrl =
-      'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs';
+      'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
+      '$metaRulesCommit/geo/geoip/cn.mrs';
 
   static const List<String> defaultDirectRules = ['DOMAIN-SUFFIX,cn,DIRECT'];
 

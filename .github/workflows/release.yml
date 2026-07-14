@@ -27,6 +27,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Scan full history for secrets
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+
       - name: Require release source to come from main
         env:
           GH_TOKEN: ${{ github.token }}
@@ -119,7 +122,7 @@ jobs:
       - run: bash ../../scripts/check-macos-core-privileges.sh
       - run: bash ../../scripts/check-windows-launcher-security.sh
       - run: bash ../../scripts/check-secrets.sh
-      - run: python3 -m unittest scripts/test_check_release_assets.py scripts/test_generate_release_notes.py scripts/test_generate_oss_release_manifest.py scripts/test_generate_release_provenance.py scripts/test_verify_release_transition.py scripts/test_promote_oss_public_channel.py scripts/test_reuse_github_release_assets.py scripts/test_validate_existing_release_retry.py scripts/test_run_command_with_timeout.py scripts/test_windows_installer_config.py scripts/test_windows_proxy_shutdown_recovery.py
+      - run: python3 -m unittest scripts/test_check_release_assets.py scripts/test_generate_release_notes.py scripts/test_generate_oss_release_manifest.py scripts/test_generate_release_provenance.py scripts/test_verify_release_transition.py scripts/test_promote_oss_public_channel.py scripts/test_reuse_github_release_assets.py scripts/test_validate_existing_release_retry.py scripts/test_run_command_with_timeout.py scripts/test_secret_scanning.py scripts/test_windows_installer_config.py scripts/test_windows_proxy_shutdown_recovery.py
         working-directory: .
       - run: dart pub get
       - run: flutter analyze --fatal-infos
@@ -644,18 +647,7 @@ jobs:
             cmp "$file" "$downloaded"
           done
 
-      - name: Finalize GitHub Release
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
-        with:
-          tag_name: ${{ steps.notes.outputs.tag }}
-          name: SSRVPN ${{ steps.notes.outputs.tag }}
-          body_path: ${{ steps.notes.outputs.body_path }}
-          generate_release_notes: false
-          draft: false
-          prerelease: false
-          make_latest: true
-
-      - name: Promote OSS public channel
+      - name: Promote OSS public channel and finalize GitHub Release
         id: promote_oss
         env:
           GH_TOKEN: ${{ github.token }}
@@ -668,16 +660,49 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF#refs/tags/}"
-          test "$(gh release view "$tag" --json isDraft --jq '.isDraft')" = false
-          test "$(gh release view "$tag" --json isPrerelease --jq '.isPrerelease')" = false
           public_assets="$RUNNER_TEMP/public-assets"
+          backup_dir="$RUNNER_TEMP/ssrvpn-oss-backup.$GITHUB_RUN_ATTEMPT"
           mkdir -p "$public_assets"
           cp artifacts/android/SSRVPN.apk* "$public_assets/"
           cp artifacts/macos/SSRVPN.dmg* "$public_assets/"
           cp artifacts/windows/SSRVPN_Setup.exe* "$public_assets/"
           cp artifacts/windows/SSRVPN.zip* "$public_assets/"
-          bash scripts/promote-oss-public-channel.sh \
+          OSS_BACKUP_DIR="$backup_dir" OSS_PRESERVE_BACKUP=1 \
+            bash scripts/promote-oss-public-channel.sh \
             "$public_assets" artifacts/oss/latest.json
+
+          finalize_status=0
+          gh release edit "$tag" --draft=false --prerelease=false --latest || \
+            finalize_status=$?
+
+          release_state=""
+          for attempt in 1 2 3; do
+            if release_state="$(gh release view "$tag" \
+              --json isDraft,isPrerelease \
+              --jq '[.isDraft, .isPrerelease] | @tsv' 2>/dev/null)"; then
+              break
+            fi
+            release_state=""
+            sleep "$attempt"
+          done
+
+          if [ "$release_state" = $'false\tfalse' ]; then
+            rm -rf "$backup_dir"
+            exit 0
+          fi
+
+          if [ -n "$release_state" ]; then
+            echo "::error::GitHub release did not become public; restoring OSS."
+            bash scripts/promote-oss-public-channel.sh --restore "$backup_dir"
+            if [ "$finalize_status" -eq 0 ]; then
+              finalize_status=1
+            fi
+            exit "$finalize_status"
+          fi
+
+          echo "::error::GitHub release state is ambiguous; OSS was not rolled back automatically."
+          echo "::error::Use the preserved backup only after confirming the GitHub release state."
+          exit 87
 
       - name: Preserve OSS recovery backup
         if: always() && steps.promote_oss.outcome == 'failure'

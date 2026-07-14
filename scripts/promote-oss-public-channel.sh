@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
+restore_mode=0
+if [ "$#" -eq 2 ] && [ "$1" = "--restore" ]; then
+  restore_mode=1
+  backup_dir="$2"
+elif [ "$#" -eq 2 ]; then
+  source_dir="$1"
+  manifest="$2"
+else
   echo "usage: $0 <asset-directory> <latest.json>" >&2
+  echo "       $0 --restore <backup-directory>" >&2
   exit 2
 fi
 
-source_dir="$1"
-manifest="$2"
 ossutil_bin="${OSSUTIL_BIN:-ossutil}"
 curl_bin="${CURL_BIN:-curl}"
 : "${OSS_BUCKET:?OSS_BUCKET is required}"
@@ -21,6 +27,7 @@ files=(
   SSRVPN.zip SSRVPN.zip.sha256
 )
 
+if [ "$restore_mode" -eq 0 ]; then
 python3 - "$source_dir" "$manifest" <<'PY'
 import hashlib
 import json
@@ -64,10 +71,10 @@ for name in ("SSRVPN.apk", "SSRVPN.dmg", "SSRVPN_Setup.exe", "SSRVPN.zip"):
     if not checksum.is_file() or actual not in checksum.read_text().lower().split():
         raise SystemExit(f"checksum file mismatch for {name}")
 PY
+fi
 
 public_base="https://$OSS_BUCKET.$OSS_ENDPOINT"
 stable_prefix="$OSS_PREFIX/downloads"
-backup_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/ssrvpn-oss-backup.XXXXXX")"
 committed=0
 
 object_key() {
@@ -97,32 +104,43 @@ fetch_object() {
     -w '%{http_code}' "$public_base/$key" || true
 }
 
-restore_previous_channel() {
-  local original_status="$?"
-  trap - EXIT
-  if [ "$committed" -eq 1 ]; then
-    rm -rf "$backup_dir"
-    exit "$original_status"
+restore_backup() {
+  local source_backup="$1"
+  if [ ! -f "$source_backup/.ssrvpn-oss-channel-backup" ]; then
+    echo "Invalid OSS public-channel backup: $source_backup" >&2
+    return 2
   fi
-  echo "OSS public promotion failed; restoring the previous channel" >&2
-  set +e
+
+  local name
+  for name in "${files[@]}" latest.json; do
+    if [ -f "$source_backup/$name.present" ] && [ -f "$source_backup/$name" ]; then
+      continue
+    fi
+    if [ -f "$source_backup/$name.absent" ] && [ ! -e "$source_backup/$name" ]; then
+      continue
+    fi
+    echo "Incomplete OSS public-channel backup entry: $name" >&2
+    return 2
+  done
+
   local restore_failed=0
+  local key restored attempt verify_status
   for name in "${files[@]}" latest.json; do
     key="$(object_key "$name")"
     restored=0
     for attempt in 1 2 3; do
-      if [ -f "$backup_dir/$name.present" ]; then
-        "$ossutil_bin" cp "$backup_dir/$name" "oss://$OSS_BUCKET/$key" \
+      if [ -f "$source_backup/$name.present" ]; then
+        "$ossutil_bin" cp "$source_backup/$name" "oss://$OSS_BUCKET/$key" \
           --force --cache-control "no-cache" >/dev/null 2>&1
-        verify_status="$(fetch_object "$name" "$backup_dir/restore-$name")"
+        verify_status="$(fetch_object "$name" "$source_backup/restore-$name")"
         if [ "$verify_status" = 200 ] && \
-          cmp -s "$backup_dir/$name" "$backup_dir/restore-$name"; then
+          cmp -s "$source_backup/$name" "$source_backup/restore-$name"; then
           restored=1
           break
         fi
       else
         "$ossutil_bin" rm "oss://$OSS_BUCKET/$key" --force >/dev/null 2>&1
-        verify_status="$(fetch_object "$name" "$backup_dir/restore-$name")"
+        verify_status="$(fetch_object "$name" "$source_backup/restore-$name")"
         if [ "$verify_status" = 404 ]; then
           restored=1
           break
@@ -136,10 +154,43 @@ restore_previous_channel() {
     fi
   done
   if [ "$restore_failed" -ne 0 ]; then
-    echo "::error::OSS public channel recovery is incomplete. Backups remain at $backup_dir" >&2
-    exit 86
+    echo "::error::OSS public channel recovery is incomplete. Backups remain at $source_backup" >&2
+    return 86
   fi
-  rm -rf "$backup_dir"
+  rm -rf "$source_backup"
+}
+
+if [ "$restore_mode" -eq 1 ]; then
+  restore_backup "$backup_dir"
+  exit $?
+fi
+
+if [ -n "${OSS_BACKUP_DIR:-}" ]; then
+  backup_dir="$OSS_BACKUP_DIR"
+  if [ -e "$backup_dir" ]; then
+    echo "OSS backup path already exists: $backup_dir" >&2
+    exit 2
+  fi
+  mkdir -m 700 "$backup_dir"
+else
+  backup_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/ssrvpn-oss-backup.XXXXXX")"
+fi
+touch "$backup_dir/.ssrvpn-oss-channel-backup"
+
+restore_previous_channel() {
+  local original_status="$?"
+  trap - EXIT
+  if [ "$committed" -eq 1 ]; then
+    rm -rf "$backup_dir"
+    exit "$original_status"
+  fi
+  echo "OSS public promotion failed; restoring the previous channel" >&2
+  set +e
+  restore_backup "$backup_dir"
+  local restore_status="$?"
+  if [ "$restore_status" -ne 0 ]; then
+    exit "$restore_status"
+  fi
   exit "${original_status:-1}"
 }
 # Until every previous object has been classified as present or absent, a
@@ -151,7 +202,10 @@ for name in "${files[@]}" latest.json; do
   status="$(fetch_object "$name" "$backup_dir/$name")"
   case "$status" in
     200) touch "$backup_dir/$name.present" ;;
-    404) rm -f "$backup_dir/$name" ;;
+    404)
+      rm -f "$backup_dir/$name"
+      touch "$backup_dir/$name.absent"
+      ;;
     *)
       echo "Cannot back up current OSS object $name (HTTP ${status:-network error})" >&2
       exit 1
@@ -188,5 +242,9 @@ fi
 cmp "$manifest" "$backup_dir/verify-latest.json"
 
 committed=1
-rm -rf "$backup_dir"
 trap - EXIT
+if [ "${OSS_PRESERVE_BACKUP:-0}" = 1 ]; then
+  echo "OSS public-channel backup preserved at $backup_dir"
+else
+  rm -rf "$backup_dir"
+fi

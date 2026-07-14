@@ -223,9 +223,13 @@ proxies:
     password: "test123"
 ''';
 
-      final parsed =
-          loadYaml(ClashConfigGenerator.generateConfig(yaml, AppSettings()))
-              as YamlMap;
+      final parsed = loadYaml(
+        ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(),
+          includeGeoIpRules: true,
+        ),
+      ) as YamlMap;
       final providers = parsed['rule-providers'] as YamlMap;
       final domainProvider = providers['ssrvpn-geosite-cn'] as YamlMap;
       final ipProvider = providers['ssrvpn-geoip-cn'] as YamlMap;
@@ -239,7 +243,9 @@ proxies:
       expect(domainProvider['proxy'], 'PROXY');
       expect(
         domainProvider['url'],
-        'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs',
+        'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
+        '200e6a86736cfab29aae7b07dc266e59f13bc13d/'
+        'geo/geosite/cn.mrs',
       );
       expect(ipProvider['type'], 'http');
       expect(ipProvider['behavior'], 'ipcidr');
@@ -248,8 +254,12 @@ proxies:
       expect(ipProvider['proxy'], 'PROXY');
       expect(
         ipProvider['url'],
-        'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs',
+        'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
+        '200e6a86736cfab29aae7b07dc266e59f13bc13d/'
+        'geo/geoip/cn.mrs',
       );
+      expect(domainProvider['url'], isNot(contains('/meta/')));
+      expect(ipProvider['url'], isNot(contains('/meta/')));
       expect(
         rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT'),
         lessThan(rules.indexOf('MATCH,PROXY')),
@@ -258,6 +268,8 @@ proxies:
         rules.indexOf('RULE-SET,ssrvpn-geoip-cn,DIRECT,no-resolve'),
         lessThan(rules.indexOf('MATCH,PROXY')),
       );
+      expect(rules, contains('DOMAIN-SUFFIX,cn,DIRECT'));
+      expect(rules, contains('GEOIP,CN,DIRECT'));
     });
 
     test('generateConfig safely quotes API secret', () {

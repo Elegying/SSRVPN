@@ -7,6 +7,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from typing import Optional
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,6 +77,25 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
             self.manifest.read_bytes(),
         )
 
+    def test_preserved_backup_can_restore_after_later_publish_failure(self) -> None:
+        backup = self.root / "transaction-backup"
+        result = self._run(backup=backup, preserve_backup=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(backup.is_dir())
+
+        restore = self._restore(backup)
+        self.assertEqual(restore.returncode, 0, restore.stderr)
+        self.assertFalse(backup.exists())
+        for name in FILES:
+            self.assertEqual(
+                (self.objects / "ssrvpn" / "downloads" / name).read_bytes(),
+                self.old[name],
+            )
+        self.assertEqual(
+            (self.objects / "ssrvpn" / "latest.json").read_bytes(),
+            self.old["latest.json"],
+        )
+
     def test_failure_restores_all_previous_objects(self) -> None:
         result = self._run(fail_on="SSRVPN.dmg")
         self.assertNotEqual(result.returncode, 0)
@@ -122,6 +142,8 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
         fail_on: str = "",
         restore_fail_on: str = "",
         backup_fail_on: str = "",
+        backup: Optional[Path] = None,
+        preserve_backup: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
@@ -137,10 +159,34 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                 "FAKE_BACKUP_FAIL_ON": backup_fail_on,
                 "FAKE_NEW_SOURCE": str(self.source),
                 "RUNNER_TEMP": str(self.root),
+                "OSS_PRESERVE_BACKUP": "1" if preserve_backup else "0",
+            }
+        )
+        if backup is not None:
+            env["OSS_BACKUP_DIR"] = str(backup)
+        return subprocess.run(
+            ["bash", str(SCRIPT), str(self.source), str(self.manifest)],
+            text=True,
+            capture_output=True,
+            env=env,
+            check=False,
+        )
+
+    def _restore(self, backup: Path) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env.update(
+            {
+                "OSS_BUCKET": "bucket",
+                "OSS_ENDPOINT": "example.invalid",
+                "OSS_PREFIX": "ssrvpn",
+                "OSSUTIL_BIN": str(self.bin / "ossutil"),
+                "CURL_BIN": str(self.bin / "curl"),
+                "FAKE_OSS_ROOT": str(self.objects),
+                "FAKE_NEW_SOURCE": str(self.source),
             }
         )
         return subprocess.run(
-            ["bash", str(SCRIPT), str(self.source), str(self.manifest)],
+            ["bash", str(SCRIPT), "--restore", str(backup)],
             text=True,
             capture_output=True,
             env=env,

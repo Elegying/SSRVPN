@@ -43,6 +43,7 @@ run_step "Release tooling tests" python3 -m unittest \
   scripts/test_reuse_github_release_assets.py \
   scripts/test_validate_existing_release_retry.py \
   scripts/test_run_command_with_timeout.py \
+  scripts/test_secret_scanning.py \
   scripts/test_windows_installer_config.py \
   scripts/test_windows_proxy_shutdown_recovery.py
 

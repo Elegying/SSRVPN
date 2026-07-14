@@ -1,0 +1,18 @@
+title = "SSRVPN secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "vpn-subscription-uri"
+description = "VPN node or subscription URI committed outside test fixtures"
+regex = '''(?i)\b(ss|ssr|vmess|vless|trojan|hysteria|hysteria2|hy2|tuic)://[A-Za-z0-9._~%/?#\[\]@!$&()*+,;=:-]{8,}'''
+keywords = ["ss://", "ssr://", "vmess://", "vless://", "trojan://", "hysteria://", "hysteria2://", "hy2://", "tuic://"]
+
+    [[rules.allowlists]]
+    description = "Synthetic VPN URI fixtures; default credential rules still scan these files"
+    paths = ['''(^|/)(test|tests)/''']
+
+[[allowlists]]
+description = "The scanner configuration contains detector examples"
+paths = ['''(^|/)\.gitleaks\.toml$''']
