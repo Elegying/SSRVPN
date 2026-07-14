@@ -1,4 +1,4 @@
-#ifndef AppVersion
+﻿#ifndef AppVersion
   #error AppVersion is required
 #endif
 #ifndef SourceDir
@@ -37,9 +37,10 @@ CloseApplications=force
 CloseApplicationsFilter=ssrvpn_windows.exe,ssrvpn_windows_app.exe
 RestartApplications=no
 UsePreviousAppDir=no
+InfoBeforeFile={#ProjectDir}\installer\overwrite_notice.zh-CN.txt
 
 [Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimp"; MessagesFile: "{#ProjectDir}\installer\languages\ChineseSimplified.isl"
 
 [InstallDelete]
 Type: filesandordirs; Name: "{app}\*"
@@ -50,8 +51,9 @@ Type: files; Name: "{localappdata}\SSRVPN\installer\rebuild-state.json"
 Type: dirifempty; Name: "{localappdata}\SSRVPN\installer"
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs overwritereadonly restartreplace
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs overwritereadonly
 Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; Flags: dontcopy
+Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
@@ -61,25 +63,28 @@ Name: "{autodesktop}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: 
 Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"; Flags: nowait
 
 [Code]
-function StopSsrvpnProcesses: Integer;
+function RunStopSsrvpnProcesses(ScriptPath: String): Integer;
 var
   ResultCode: Integer;
   Started: Boolean;
   PowerShellPath: String;
-  ScriptPath: String;
+  InstalledAppPath: String;
+  InstalledLauncherPath: String;
   InstalledCorePath: String;
   InstalledCorePidPath: String;
   Parameters: String;
 begin
   ResultCode := -1;
-  ExtractTemporaryFile('stop_ssrvpn_processes.ps1');
   PowerShellPath := ExpandConstant(
     '{sys}\WindowsPowerShell\v1.0\powershell.exe');
-  ScriptPath := ExpandConstant('{tmp}\stop_ssrvpn_processes.ps1');
+  InstalledAppPath := ExpandConstant('{app}\bin\ssrvpn_windows_app.exe');
+  InstalledLauncherPath := ExpandConstant('{app}\ssrvpn_windows.exe');
   InstalledCorePath := ExpandConstant('{app}\bin\mihomo.exe');
   InstalledCorePidPath := ExpandConstant('{app}\bin\ssrvpn\mihomo.pid');
   Parameters := '-NoLogo -NoProfile -NonInteractive ' +
     '-ExecutionPolicy Bypass -File ' + AddQuotes(ScriptPath) +
+    ' -InstalledAppPath ' + AddQuotes(InstalledAppPath) +
+    ' -InstalledLauncherPath ' + AddQuotes(InstalledLauncherPath) +
     ' -InstalledCorePath ' + AddQuotes(InstalledCorePath) +
     ' -InstalledCorePidPath ' + AddQuotes(InstalledCorePidPath);
   Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
@@ -89,7 +94,14 @@ begin
   else
     Result := -1;
   if Result <> 0 then
-    Log(Format('SSRVPN process cleanup returned %d; install continues', [Result]));
+    Log(Format('SSRVPN process cleanup returned %d', [Result]));
+end;
+
+function StopSsrvpnProcesses: Integer;
+begin
+  ExtractTemporaryFile('stop_ssrvpn_processes.ps1');
+  Result := RunStopSsrvpnProcesses(
+    ExpandConstant('{tmp}\stop_ssrvpn_processes.ps1'));
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -97,7 +109,22 @@ var
   StopResult: Integer;
 begin
   StopResult := StopSsrvpnProcesses;
-  if StopResult <> 0 then
-    Log(Format('Best-effort process cleanup returned %d', [StopResult]));
-  Result := '';
+  if StopResult = 0 then
+    Result := ''
+  else
+    Result := '无法关闭正在运行的 SSRVPN，安装尚未修改旧数据。' + #13#10 +
+      '请退出 SSRVPN 后重试；如果仍然失败，请重启 Windows 后再次安装。';
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  StopResult: Integer;
+begin
+  StopResult := RunStopSsrvpnProcesses(
+    ExpandConstant('{app}\installer\stop_ssrvpn_processes.ps1'));
+  Result := StopResult = 0;
+  if not Result then
+    MsgBox('无法关闭正在运行的 SSRVPN，卸载尚未删除程序文件。' + #13#10 +
+      '请退出 SSRVPN 后重试；如果仍然失败，请重启 Windows 后再次卸载。',
+      mbError, MB_OK);
 end;

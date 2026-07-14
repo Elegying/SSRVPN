@@ -55,6 +55,39 @@ foreach ($relativePath in $relativePaths) {
   }
 }
 
+$encodingTestRoot = Join-Path (
+  [System.IO.Path]::GetTempPath()
+) "SSRVPN-ps51-utf8-$([Guid]::NewGuid().ToString('N'))"
+try {
+  New-Item -ItemType Directory -Path $encodingTestRoot | Out-Null
+  $jsonPath = Join-Path $encodingTestRoot 'proxy-state.json'
+  $expected = [string]::Concat(
+    [char]0x4E2D,
+    [char]0x6587,
+    [char]0x4EE3,
+    [char]0x7406,
+    ';',
+    [char]0x4F8B,
+    [char]0x5B50,
+    '.example/proxy.pac'
+  )
+  $json = [pscustomobject]@{ value = $expected } | ConvertTo-Json -Compress
+  [System.IO.File]::WriteAllText(
+    $jsonPath,
+    $json,
+    [System.Text.UTF8Encoding]::new($false)
+  )
+  $decoded = Get-Content -LiteralPath $jsonPath -Encoding UTF8 -Raw |
+    ConvertFrom-Json
+  if ([string]$decoded.value -ne $expected) {
+    throw 'Windows PowerShell 5.1 UTF-8 JSON round trip failed.'
+  }
+} finally {
+  if (Test-Path -LiteralPath $encodingTestRoot) {
+    Remove-Item -LiteralPath $encodingTestRoot -Recurse -Force
+  }
+}
+
 Write-Host (
   "Windows PowerShell 5.1 compatibility passed for " +
   "$($relativePaths.Count) tracked scripts."

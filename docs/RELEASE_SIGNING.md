@@ -1,119 +1,82 @@
-# 发布签名说明
+# 免费分发与签名说明
 
-本项目按个人开发者、免费发布优先维护。Android 可以免费自签名；macOS 和 Windows 可以免费构建与分发，但没有付费证书时系统会显示安全提示。签名材料、证书、keystore、密码和 token 都不能提交进 Git。
+本项目按个人开发者、免费发布维护。2026-07-15 起，产品决策固定为：
+
+- Android 使用免费的自签名 release keystore。
+- macOS 使用 ad-hoc 签名，不购买 Developer ID，不做 Apple 公证。
+- Windows 不购买 Authenticode 证书，安装包和便携包保持未签名。
+- 三端发布都生成 SHA256，并只从正式 GitHub Release 或官网固定地址分发。
+
+仓库不保留 Apple/Microsoft 付费桌面签名自动化、启用变量或证书 secrets。除非维护者明确
+取代本决策，否则不要重新加入这些入口。SHA256 可以验证下载内容与发布产物一致，但不能
+证明操作系统信任的发布者身份；Gatekeeper 和 SmartScreen 提示属于已知产品边界。
 
 ## Android：免费自签名 keystore
 
-Android APK 不需要购买证书。个人开发者可以免费生成一个自签名 keystore，只要后续版本一直使用同一个 keystore，用户就可以覆盖安装升级。
+Android APK 不需要购买证书。只要后续版本始终使用同一个 keystore，用户就可以覆盖安装升级。
 
 正式发版全部走 GitHub Release workflow。本地可以没有 `.jks` 和
-`android/key.properties`；只要 GitHub Actions Secrets 已配置，workflow 会在
-runner 上生成临时 `key.properties` 并签名 APK。
+`android/key.properties`；GitHub Actions Secrets 配置完整时，workflow 会在 runner
+上生成临时 `key.properties` 并签名 APK。
 
-推荐使用脚本生成一次 keystore，并按输出提示添加 GitHub Actions Secrets：
+推荐用脚本生成一次 keystore，并按输出提示配置 GitHub Actions Secrets：
 
 ```bash
 scripts/create-android-release-keystore.sh
 ```
 
-手动生成命令示例：
+仓库需要以下 secrets：
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+- `ANDROID_RELEASE_CERT_SHA256`
+
+Release workflow 会核对实际 APK 证书摘要。缺少 secrets 或摘要不一致会直接失败，避免
+产出 debug 签名或错误签名谱系的 APK。keystore、密码和导出文件不得提交进 Git。
+
+## macOS：固定 ad-hoc、未公证
+
+`SSRVPN_MacOS/tool/package_macos.sh` 在打包时刷新并验证 ad-hoc 签名，然后生成 DMG 和
+SHA256。Release workflow 不导入 P12、不调用 `notarytool`，也不保存 Apple 证书配置。
+
+陌生机器首次运行可能被 Gatekeeper 阻止或提示无法验证开发者。用户应：
+
+1. 只从正式下载地址获取 DMG。
+2. 核对 `SSRVPN.dmg.sha256`。
+3. 把应用拖到“应用程序”，右键 SSRVPN 并选择“打开”。
+4. 不关闭 Gatekeeper，不执行来源不明的绕过命令。
+
+ad-hoc 身份不能跨构建稳定复用，因此 macOS 长期 API secret 保持在权限为 `0600` 的
+专用文件中，不迁移到依赖稳定代码身份的 Keychain ACL。该限制记录在 ADR-001。
+
+## Windows：固定未签名
+
+Windows 发布 Inno Setup 每用户安装包和绿色便携 ZIP，并分别生成 SHA256。Release workflow
+不导入 PFX、不调用 `signtool.exe`，打包脚本也不读取 Authenticode 环境变量。
+
+SmartScreen 或浏览器可能显示“未知发布者”。用户只有在正式来源和 SHA256 都匹配时才应
+选择保留并继续运行；任一条件不满足都不应绕过提示。
+
+安装版固定写入 `%LOCALAPPDATA%\\Programs\\SSRVPN`，无需管理员权限。TUN 连接本身仍
+需要以管理员身份运行应用，这与安装包是否签名是两个独立边界。
+
+## 自动化守卫
+
+以下测试防止付费桌面签名入口重新进入活跃构建链，同时保留 macOS ad-hoc 验证：
 
 ```bash
-keytool -genkeypair \
-  -v \
-  -keystore ssrvpn-release.jks \
-  -alias ssrvpn \
-  -keyalg RSA \
-  -keysize 2048 \
-  -validity 10000
+python3 -m unittest scripts/test_free_desktop_distribution.py
 ```
 
-把 keystore 转成 GitHub Secret：
+发布前还必须执行：
 
 ```bash
-base64 -w 0 ssrvpn-release.jks
+make verify
+scripts/check-release-assets.sh vX.Y.Z
 ```
 
-Windows PowerShell：
-
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("ssrvpn-release.jks"))
-```
-
-仓库需要配置这些 GitHub Actions Secrets：
-
-- `ANDROID_KEYSTORE_BASE64`：`ssrvpn-release.jks` 的 Base64 内容。
-- `ANDROID_KEYSTORE_PASSWORD`：keystore 密码。
-- `ANDROID_KEY_ALIAS`：key alias，例如 `ssrvpn`。
-- `ANDROID_KEY_PASSWORD`：key 密码。
-
-Release workflow 会在构建前生成临时 `key.properties`。如果这些 secrets
-缺失，发布会直接失败，避免产出 debug 签名 APK。以后三端发版以 GitHub
-线上构建产物为准，本地 release APK 只用于临时验证。
-
-## macOS：默认 ad-hoc，可选 Developer ID 与公证
-
-`SSRVPN_MacOS/tool/package_macos.sh` 默认继续使用 ad-hoc 签名，适合本地构建和自用分发。陌生机器第一次打开时可能被 Gatekeeper 拦截，需要右键打开。
-
-Release workflow 已准备可选的 Developer ID 分发路径。启用后会：
-
-1. 在 runner 临时 keychain 导入 P12，应用 hardened runtime 与可信时间戳。
-2. 验证 `.app` 和 `.dmg` 代码签名。
-3. 通过 `notarytool` 等待 Apple 公证，执行 stapling 与 `spctl` 验证。
-4. 最后生成 DMG SHA256，并在结束时删除 runner 上的 P12 和临时 keychain。
-
-先配置以下 GitHub Actions Secrets：
-
-- `MACOS_CERTIFICATE_P12_BASE64`：Developer ID Application P12 的 Base64。
-- `MACOS_CERTIFICATE_PASSWORD`：P12 导出密码。
-- `MACOS_SIGNING_IDENTITY`：完整签名身份，例如 `Developer ID Application: ...`。
-- `APPLE_NOTARY_APPLE_ID`：提交公证的 Apple ID。
-- `APPLE_NOTARY_TEAM_ID`：Apple Developer Team ID。
-- `APPLE_NOTARY_PASSWORD`：该 Apple ID 的 app-specific password。
-
-全部配置后，把 repository variable `ENABLE_MACOS_SIGNING` 设为小写
-`true`。变量未设置或为 `false` 时保持 ad-hoc；设为其他值、缺任一 secret、证书 Base64
-无效、签名或公证失败时，Release job 会停止，不会降级发布未签名产物。
-
-## Windows：默认未签名，可选 Authenticode
-
-Windows 同时发布 Inno Setup 每用户安装包和绿色免安装 ZIP。默认没有代码签名证书，两种
-形式都可能触发 SmartScreen 未知发布者提示。
-
-Release workflow 已准备可选 Authenticode：先对便携包的用户启动器和 Flutter 主程序签名
-并验证，再生成 `SHA256SUMS.txt` 和 ZIP；Inno Setup 完成后再签名并验证安装器，最后生成
-安装器 SHA256。时间戳默认使用 DigiCert HTTPS RFC 3161 服务，可通过
-`WINDOWS_SIGNING_TIMESTAMP_URL` 覆盖。
-
-先配置以下 GitHub Actions Secrets：
-
-- `WINDOWS_CERTIFICATE_PFX_BASE64`：代码签名 PFX 的 Base64。
-- `WINDOWS_CERTIFICATE_PASSWORD`：PFX 密码。
-
-全部配置后，把 repository variable `ENABLE_WINDOWS_SIGNING` 设为小写 `true`。变量未设置
-或为 `false` 时保持当前未签名发布；显式启用但配置不完整、Base64 无效、找不到 Windows
-SDK `signtool.exe`、签名或验证失败时，Release job 会停止。临时 PFX 在 job 结束时删除。
-
-签名第三方上游二进制会造成错误发布者归属，因此当前只签 SSRVPN 用户入口和安装器，
-不重新签名 Mihomo、Flutter runtime 或 VC runtime。
-
-## 本地验证配置
-
-验证器不会打印 secret 内容：
-
-```bash
-python3 scripts/validate_release_signing.py macos
-python3 scripts/validate_release_signing.py windows
-scripts/check-release-signing-automation.sh
-```
-
-默认输出 `disabled` 且返回成功；只有对应 enable 环境变量为小写 `true` 时才要求完整凭据。
-
-## 发布前检查
-
-1. 确认 `main` CI 通过。
-2. 确认 Android self-signed keystore secrets 已配置。
-3. 若启用桌面签名，先确认对应 enable variable 与全部 secrets；不得在发版当天临时猜测身份名称或证书密码。
-4. 从 `v*` tag 触发 Release workflow，并检查签名、公证/stapling 或 Authenticode 验证步骤。
-5. 下载 Release 产物，校验 SHA256，并独立检查实际签名身份、时间戳与公证票据。
-6. 在干净机器上安装、启动、连接、断开并覆盖安装下一版测试；自动化签名成功不能替代系统信任提示的真机验收。
+最后从公开 Release 重新下载 APK、DMG、EXE 和 ZIP，逐一校验随包 SHA256，并在目标平台
+检查系统提示、首次启动、连接、断开和退出。桌面免费分发决策不会降低运行稳定性、代理
+恢复、安装事务或来源校验的验收标准。

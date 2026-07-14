@@ -56,7 +56,6 @@ jobs:
       - run: bash ../../scripts/check-android-native-bridge-guards.sh
         working-directory: packages/ssrvpn_shared
       - run: bash scripts/check-android-built-in-kotlin.sh
-      - run: bash scripts/check-release-signing-automation.sh
       - run: bash scripts/check-unlock-test-guards.sh
       - run: bash scripts/check-desktop-startup-guards.sh
       - run: bash scripts/check-desktop-secure-storage.sh
@@ -64,7 +63,7 @@ jobs:
       - run: bash scripts/check-macos-core-privileges.sh
       - run: bash scripts/check-windows-launcher-security.sh
       - run: bash scripts/check-secrets.sh
-      - run: python3 -m unittest scripts/test_check_release_assets.py scripts/test_generate_release_notes.py scripts/test_generate_oss_release_manifest.py scripts/test_generate_release_provenance.py scripts/test_verify_release_transition.py scripts/test_promote_oss_public_channel.py scripts/test_reuse_github_release_assets.py scripts/test_validate_existing_release_retry.py scripts/test_run_command_with_timeout.py scripts/test_secret_scanning.py scripts/test_validate_release_signing.py scripts/test_windows_installer_config.py scripts/test_windows_proxy_shutdown_recovery.py
+      - run: python3 -m unittest scripts/test_check_release_assets.py scripts/test_generate_release_notes.py scripts/test_generate_oss_release_manifest.py scripts/test_generate_release_provenance.py scripts/test_verify_release_transition.py scripts/test_promote_oss_public_channel.py scripts/test_reuse_github_release_assets.py scripts/test_validate_existing_release_retry.py scripts/test_run_command_with_timeout.py scripts/test_secret_scanning.py scripts/test_free_desktop_distribution.py scripts/test_windows_installer_config.py scripts/test_windows_proxy_shutdown_recovery.py
       - run: flutter pub get
       - run: flutter analyze
         working-directory: packages/ssrvpn_shared
@@ -163,6 +162,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\build_installer.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_installer_package.ps1 -InstallerPath .\SSRVPN_Setup.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Windows installer smoke logs
+        if: failure() && matrix.directory == 'SSRVPN_Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-installer-smoke-logs
+          path: ${{ runner.temp }}/ssrvpn-installer-smoke/*.log
+          if-no-files-found: ignore
 
       - name: Smoke Windows packages
         if: matrix.directory == 'SSRVPN_Windows'

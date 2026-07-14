@@ -24,6 +24,23 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("RuntimeProxyBackup", recovery)
         self.assertIn("OwnedProxyServer", recovery)
         self.assertIn("OwnedProxyOverride", recovery)
+        self.assertIn("IsOwnedProxyServer", recovery)
+        self.assertIn("kOwnedProxyOverride", recovery)
+        self.assertIn("DisableOwnedProxyFingerprint", recovery)
+        backup_check = recovery[
+            recovery.index("const bool ownership_metadata_valid") : recovery.index(
+                "if (!backup_valid)"
+            )
+        ]
+        self.assertIn("IsOwnedProxyServer(owned_server)", backup_check)
+        self.assertIn("owned_override == kOwnedProxyOverride", backup_check)
+        invalid_backup = recovery[
+            recovery.index("if (!backup_valid)") : recovery.index(
+                "HKEY settings = nullptr"
+            )
+        ]
+        self.assertIn("ownership_metadata_valid", invalid_backup)
+        self.assertIn("DisableOwnedProxyFingerprint", invalid_backup)
         self.assertIn("ActivationInProgress", recovery)
         self.assertIn("AutoConfigURL", recovery)
         self.assertIn("InternetSetOptionW", recovery)
@@ -108,6 +125,79 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         final_restore = main.index("RestoreOwnedWindowsProxy()", message_loop_end - 100)
         self.assertLess(final_restore, message_loop_end)
 
+    def test_launcher_contains_and_cleans_up_the_primary_process_tree(self) -> None:
+        launcher = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "windows"
+            / "runner"
+            / "launcher_main.cpp"
+        ).read_text(encoding="utf-8-sig")
+
+        self.assertIn("CreateJobObjectW", launcher)
+        self.assertIn("CREATE_SUSPENDED", launcher)
+        self.assertIn("AssignProcessToJobObject", launcher)
+        self.assertIn("ResumeThread", launcher)
+        self.assertIn("TerminateJobObject", launcher)
+        restore = launcher.index("RestoreOwnedWindowsProxy()")
+        terminate = launcher.index("TerminateJobObject", restore)
+        self.assertLess(restore, terminate)
+        self.assertNotIn("JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE", launcher)
+
+    def test_windows_powershell_calls_force_utf8_output(self) -> None:
+        helper = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "src"
+            / "services"
+            / "windows_powershell.dart"
+        ).read_text(encoding="utf-8")
+        proxy_service = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "system_proxy_service.dart"
+        ).read_text(encoding="utf-8")
+        lifecycle = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "clash_service_lifecycle.dart"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("[Console]::OutputEncoding", helper)
+        self.assertIn("$OutputEncoding = [Console]::OutputEncoding", helper)
+        self.assertIn("$ErrorActionPreference = 'Stop'", helper)
+        self.assertIn("windowsPowerShellUtf8Script(script)", proxy_service)
+        self.assertIn("windowsPowerShellUtf8Script(script)", lifecycle)
+
+    def test_windows_process_logs_tolerate_malformed_utf8(self) -> None:
+        lifecycle = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "clash_service_lifecycle.dart"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn(".transform(utf8.decoder)", lifecycle)
+        self.assertGreaterEqual(
+            lifecycle.count("Utf8Decoder(allowMalformed: true)"),
+            4,
+        )
+
+    def test_native_chinese_sources_compile_as_utf8(self) -> None:
+        runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
+        cmake = (runner / "CMakeLists.txt").read_text(encoding="utf-8")
+        launcher = (runner / "launcher_main.cpp").read_bytes()
+
+        self.assertIn('target_compile_options(${BINARY_NAME} PRIVATE "/utf-8")', cmake)
+        self.assertIn('target_compile_options(${LAUNCHER_TARGET} PRIVATE "/utf-8")', cmake)
+        self.assertTrue(launcher.startswith(b"\xef\xbb\xbf"))
+
     def test_dart_persists_native_backup_before_enabling_proxy(self) -> None:
         service = (
             ROOT
@@ -132,6 +222,36 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("ActivationInProgress", service)
         self.assertIn("await _markActivationComplete()", service)
         self.assertIn("Remove-Item -Path \\$backupPath", service)
+
+    def test_dart_marks_proxy_restore_before_the_first_registry_write(
+        self,
+    ) -> None:
+        service = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "system_proxy_service.dart"
+        ).read_text(encoding="utf-8")
+
+        full_restore = service[
+            service.index("Future<bool> _restoreSnapshot") : service.index(
+                "Future<bool> _restoreOwnedEndpoint"
+            )
+        ]
+        endpoint_restore = service[
+            service.index("Future<bool> _restoreOwnedEndpoint") : service.index(
+                "Future<void> _writeBackup"
+            )
+        ]
+        self.assertLess(
+            full_restore.index("RestoreInProgress"),
+            full_restore.index("Set-ItemProperty -Path \\$regPath"),
+        )
+        self.assertLess(
+            endpoint_restore.index("EndpointRestoreInProgress"),
+            endpoint_restore.index("Set-ItemProperty -Path \\$regPath"),
+        )
 
     def test_connect_retries_pending_proxy_recovery_in_the_same_action(self) -> None:
         service = (
@@ -188,6 +308,57 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             "isConnectionIntentCurrent",
             home_connect[home_recovery:],
         )
+
+    def test_windows_surfaces_runtime_ports_and_recovers_one_core_exit(self) -> None:
+        lifecycle = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "clash_service_lifecycle.dart"
+        ).read_text(encoding="utf-8")
+        app = (ROOT / "SSRVPN_Windows" / "lib" / "app.dart").read_text(
+            encoding="utf-8"
+        )
+        summary = (
+            ROOT
+            / "packages"
+            / "ssrvpn_shared"
+            / "lib"
+            / "desktop_ui"
+            / "widgets"
+            / "desktop_home_status_widgets_part.dart"
+        ).read_text(encoding="utf-8")
+        tray = (
+            ROOT / "SSRVPN_Windows" / "lib" / "services" / "tray_manager.dart"
+        ).read_text(encoding="utf-8")
+
+        tray_connect = app[
+            app.index("Future<void> _handleTrayConnectToggle()") : app.index(
+                "String? _defaultNodeName()"
+            )
+        ]
+        self.assertIn("lastRuntimePortAdjustmentMessage", tray_connect)
+        self.assertIn("_presentRuntimeNotice", tray_connect)
+        self.assertIn("runtimeProxyPort", summary)
+        self.assertIn("runtimeProxyPort", tray)
+        self.assertIn("HTTP 代理：127.0.0.1:$port", tray)
+        self.assertIn("enabled: false", tray)
+        self.assertIn("HTTP 127.0.0.1:$port", app)
+        self.assertIn("CoreRecoveryPolicy(maxAttempts: 1)", lifecycle)
+        self.assertIn("Future<bool> start() => _start();", lifecycle)
+        self.assertIn("_start(automaticRecovery: true)", lifecycle)
+        self.assertLess(
+            lifecycle.index("_unexpectedExitRecoveryPolicy.reset()"),
+            lifecycle.index("final current = _startOperation"),
+        )
+        self.assertIn("captureAutomaticRestartIntent()", lifecycle)
+        self.assertIn("isConnectionIntentCurrent", lifecycle)
+        self.assertIn("核心异常退出，正在自动恢复", lifecycle)
+        self.assertIn("if (restarted && isRunning)", lifecycle)
+        self.assertIn("核心已自动恢复", lifecycle)
+        self.assertIn("自动恢复失败", lifecycle)
+        self.assertIn("onRuntimeNotice", app)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../services/system_proxy_service.dart';
+import '../src/services/windows_powershell.dart';
 
 part 'clash_service_config.dart';
 part 'clash_service_lifecycle.dart';

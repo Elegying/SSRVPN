@@ -21,6 +21,7 @@ add_executable(${BINARY_NAME} WIN32
 # Apply the standard set of build settings. This can be removed for applications
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
+target_compile_options(${BINARY_NAME} PRIVATE "/utf-8")
 
 # Add preprocessor definitions for the build version.
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
@@ -56,6 +57,7 @@ add_executable(${LAUNCHER_TARGET} WIN32
   "runner.exe.manifest"
 )
 apply_standard_settings(${LAUNCHER_TARGET})
+target_compile_options(${LAUNCHER_TARGET} PRIVATE "/utf-8")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "NOMINMAX")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")

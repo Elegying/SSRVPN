@@ -66,6 +66,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       } catch (_) {}
     }
     _clashService?.removeStatusListener(_handleCoreStatusChanged);
+    _clashService?.onRuntimeNotice = null;
     final core = _clashService;
     if (core != null) {
       core.requestConnectionIntent(false);
@@ -95,8 +96,12 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     if (nextClashService != null &&
         !identical(_clashService, nextClashService)) {
       _clashService?.removeStatusListener(_handleCoreStatusChanged);
+      _clashService?.onRuntimeNotice = null;
       _clashService = nextClashService;
       _clashService!.addStatusListener(_handleCoreStatusChanged);
+      _clashService!.onRuntimeNotice = (message) {
+        unawaited(_presentRuntimeNotice(message));
+      };
       _configureTrayCallbacks();
     }
 
@@ -126,7 +131,11 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     _trayManager.onQuit = _quitApp;
     _trayManager.onConnectToggle = _handleTrayConnectToggle;
     _trayManager.isConnected = () => _clashService?.isRunning ?? false;
-    unawaited(_trayManager.refreshMenu());
+    _trayManager.runtimeProxyPort = () =>
+        _clashService?.runtimeProxyPort ??
+        _settingsService?.settings.proxyPort ??
+        7890;
+    _refreshTrayStatus();
   }
 
   Future<void> _handleTrayConnectToggle() async {
@@ -181,6 +190,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
 
       final preferredNodeName = _defaultNodeName();
       final runtimeSettings = await core.prepareForStart(settings.settings);
+      final portAdjustmentNotice = core.lastRuntimePortAdjustmentMessage;
       final config = core.generateClashConfig(
         rawYaml,
         runtimeSettings,
@@ -218,6 +228,9 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
             )) {
           await settings.updateLastSelectedNodeName(preferredNodeName);
         }
+      }
+      if (portAdjustmentNotice != null && portAdjustmentNotice.isNotEmpty) {
+        await _presentRuntimeNotice(portAdjustmentNotice);
       }
     } catch (error, stack) {
       if (connectionGeneration != null &&
@@ -270,7 +283,20 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         _runtimeNotice != null) {
       setState(() => _runtimeNotice = null);
     }
+    _refreshTrayStatus();
+  }
+
+  void _refreshTrayStatus() {
+    final core = _clashService;
+    final connected = core?.isRunning ?? false;
+    final port =
+        core?.runtimeProxyPort ?? _settingsService?.settings.proxyPort ?? 7890;
     unawaited(_trayManager.refreshMenu());
+    unawaited(
+      _trayManager.setToolTip(
+        connected ? 'SSRVPN · 已连接 · HTTP 127.0.0.1:$port' : 'SSRVPN · 未连接',
+      ),
+    );
   }
 
   Future<void> _quitApp() async {

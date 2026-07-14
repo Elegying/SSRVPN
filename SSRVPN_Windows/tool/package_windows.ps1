@@ -747,7 +747,7 @@ function Repair-WindowsPluginLinks {
     throw "Flutter plugin metadata not found: $dependenciesPath"
   }
 
-  $metadata = Get-Content -LiteralPath $dependenciesPath -Raw |
+  $metadata = Get-Content -LiteralPath $dependenciesPath -Encoding UTF8 -Raw |
     ConvertFrom-Json
   $plugins = @($metadata.plugins.windows)
   $linksDir = [System.IO.Path]::GetFullPath(
@@ -856,17 +856,6 @@ try {
 
   Move-PortableInternalsToBin
   Test-ReleaseContents -Root $releaseDir
-
-  if ($env:WINDOWS_SIGNING_ENABLED -eq 'true') {
-    $signingScript = Join-Path $projectRoot '..\scripts\sign_windows_artifacts.ps1'
-    & $signingScript -FilePath @(
-      (Join-Path $releaseDir 'ssrvpn_windows.exe'),
-      (Join-Path $releaseDir 'bin\ssrvpn_windows_app.exe')
-    )
-    if ($LASTEXITCODE -ne 0) {
-      throw "Windows portable signing failed with exit code $LASTEXITCODE"
-    }
-  }
 
   $releasePrefix = [System.IO.Path]::GetFullPath($releaseDir).TrimEnd('\') + '\'
   $hashLines = Get-ChildItem -LiteralPath $releaseDir -Recurse -File |

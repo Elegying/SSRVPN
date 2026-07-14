@@ -11,6 +11,8 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   Future<void>? _exitCleanupOperation;
   int _startGeneration = 0;
   bool _stoppingCore = false;
+  final CoreRecoveryPolicy _unexpectedExitRecoveryPolicy =
+      CoreRecoveryPolicy(maxAttempts: 1);
 
   // ── Startup disabled ──
   String? _startupDisabledReason;
@@ -107,8 +109,12 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
     Process? process;
     try {
       process = await Process.start(_corePath, ['-v']);
-      final stdoutFuture = process.stdout.transform(utf8.decoder).join();
-      final stderrFuture = process.stderr.transform(utf8.decoder).join();
+      final stdoutFuture = process.stdout
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .join();
+      final stderrFuture = process.stderr
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .join();
       final exitCode = await process.exitCode.timeout(
         const Duration(seconds: 5),
         onTimeout: () {
@@ -176,38 +182,27 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
     Duration timeout = const Duration(seconds: 10),
   }) =>
       TimedProcessRunner.run(
-        _powerShellExecutable(),
+        windowsPowerShellExecutable(),
         [
           '-NoLogo',
           '-NoProfile',
           '-NonInteractive',
           '-Command',
-          script,
+          windowsPowerShellUtf8Script(script),
         ],
         timeout: timeout,
         timeoutStderr: '电脑性能不足，请重新连接',
       );
 
-  String _powerShellExecutable() {
-    if (!Platform.isWindows) return 'powershell';
-    final windowsDir =
-        Platform.environment['SystemRoot'] ?? Platform.environment['WINDIR'];
-    if (windowsDir != null && windowsDir.trim().isNotEmpty) {
-      final executable = File(
-        '$windowsDir${Platform.pathSeparator}System32'
-        '${Platform.pathSeparator}WindowsPowerShell'
-        '${Platform.pathSeparator}v1.0'
-        '${Platform.pathSeparator}powershell.exe',
-      );
-      if (executable.existsSync()) return executable.path;
-    }
-    return 'powershell';
-  }
-
   // ── clang-format off: Start / Stop ──
 
   /// 启动核心
-  Future<bool> start() {
+  Future<bool> start() => _start();
+
+  Future<bool> _start({bool automaticRecovery = false}) {
+    if (!automaticRecovery) {
+      _unexpectedExitRecoveryPolicy.reset();
+    }
     final current = _startOperation;
     if (current != null) return current;
 
@@ -316,7 +311,7 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
 
       // 监听子进程输出
       startedProcess.stdout
-          .transform(utf8.decoder)
+          .transform(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
           .listen((line) {
         final message = line.trim();
@@ -326,7 +321,7 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
         log('[mihomo] $message');
       });
       startedProcess.stderr
-          .transform(utf8.decoder)
+          .transform(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
           .listen((line) {
         final message = line.trim();
@@ -344,10 +339,12 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
         log('❌ Mihomo 进程已退出，退出码: $code');
         unawaited(_deleteCorePid());
         if (isRunning) {
-          markConnectionLost();
+          final restartGeneration = captureAutomaticRestartIntent();
+          setRunning(false);
+          notifyStatusChanged();
           stopStatusMonitor();
           _coreProcess = null;
-          _scheduleUnexpectedExitCleanup();
+          _scheduleUnexpectedExitRecovery(restartGeneration, code);
         }
       });
 
@@ -533,25 +530,69 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
     }
   }
 
-  void _scheduleUnexpectedExitCleanup() {
-    final operation = _clearProxyAfterUnexpectedExit();
+  void _scheduleUnexpectedExitRecovery(int? generation, int exitCode) {
+    final cleanup = _clearProxyAfterUnexpectedExit();
+    final operation = cleanup.then<void>((_) {});
     _exitCleanupOperation = operation;
-    operation.whenComplete(() {
+    cleanup.then((proxyCleared) {
       if (identical(_exitCleanupOperation, operation)) {
         _exitCleanupOperation = null;
       }
+      unawaited(
+        _recoverFromUnexpectedExit(generation, exitCode, proxyCleared),
+      );
     });
   }
 
-  Future<void> _clearProxyAfterUnexpectedExit() async {
+  Future<bool> _clearProxyAfterUnexpectedExit() async {
     try {
       final cleared = await _proxyService.clearSystemProxy();
       if (!cleared && _proxyService.lastError != null) {
         log('⚠️ ${_proxyService.lastError}');
       }
+      return cleared;
     } catch (error) {
       log('⚠️ 核心异常退出后清理系统代理失败: $error');
+      return false;
     }
+  }
+
+  Future<void> _recoverFromUnexpectedExit(
+    int? generation,
+    int exitCode,
+    bool proxyCleared,
+  ) async {
+    if (generation == null ||
+        !isConnectionIntentCurrent(generation, connected: true)) {
+      return;
+    }
+    if (!proxyCleared) {
+      markConnectionLost();
+      notifyRuntimeNotice(
+        '连接已断开：核心异常退出，且系统代理恢复失败，请使用“诊断”重试恢复',
+      );
+      return;
+    }
+    if (!_unexpectedExitRecoveryPolicy.tryAcquire()) {
+      markConnectionLost();
+      notifyRuntimeNotice(
+        '连接已断开：核心再次异常退出，自动恢复失败，请重新连接',
+      );
+      return;
+    }
+
+    notifyRuntimeNotice('核心异常退出，正在自动恢复（退出码 $exitCode）');
+    final restarted = await _start(automaticRecovery: true);
+
+    if (!isConnectionIntentCurrent(generation, connected: true)) return;
+    if (restarted && isRunning) {
+      notifyRuntimeNotice('核心已自动恢复');
+      return;
+    }
+
+    final reason = lastStartError ?? 'Mihomo 未能重新启动';
+    markConnectionLost();
+    notifyRuntimeNotice('连接已断开：核心自动恢复失败（$reason），请重新连接');
   }
 
   void _clearStartOperation(Future<bool> operation) {

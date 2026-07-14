@@ -11,6 +11,27 @@ namespace {
 constexpr wchar_t kBackupPath[] = L"Software\\SSRVPN\\RuntimeProxyBackup";
 constexpr wchar_t kInternetSettingsPath[] =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
+constexpr wchar_t kOwnedProxyOverride[] =
+    L"<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;"
+    L"172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;"
+    L"172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*";
+
+bool IsOwnedProxyServer(const std::wstring& value) {
+  constexpr wchar_t prefix[] = L"127.0.0.1:";
+  constexpr size_t prefix_length =
+      (sizeof(prefix) / sizeof(prefix[0])) - 1;
+  if (value.size() <= prefix_length || value.size() > prefix_length + 5 ||
+      value.compare(0, prefix_length, prefix) != 0) {
+    return false;
+  }
+  unsigned int port = 0;
+  for (size_t index = prefix_length; index < value.size(); ++index) {
+    const wchar_t digit = value[index];
+    if (digit < L'0' || digit > L'9') return false;
+    port = port * 10 + static_cast<unsigned int>(digit - L'0');
+  }
+  return port >= 1 && port <= 65535;
+}
 
 bool ReadDword(HKEY key, const wchar_t* name, DWORD* value) {
   DWORD type = 0;
@@ -95,6 +116,24 @@ bool DisableOwnedProxyEndpoint(HKEY settings,
          SetDword(settings, L"ProxyEnable", 0);
 }
 
+bool DisableOwnedProxyFingerprint(HKEY settings,
+                                  const std::wstring& owned_server,
+                                  const std::wstring& owned_override) {
+  DWORD proxy_enable = 0;
+  DWORD auto_detect = 0;
+  std::wstring proxy_server;
+  std::wstring proxy_override;
+  return ReadDword(settings, L"ProxyEnable", &proxy_enable) &&
+         proxy_enable == 1 &&
+         ReadString(settings, L"ProxyServer", &proxy_server) &&
+         proxy_server == owned_server &&
+         ReadString(settings, L"ProxyOverride", &proxy_override) &&
+         proxy_override == owned_override &&
+         ReadDword(settings, L"AutoDetect", &auto_detect) &&
+         auto_detect == 0 && !ValueExists(settings, L"AutoConfigURL") &&
+         SetDword(settings, L"ProxyEnable", 0);
+}
+
 void NotifyWinInet() {
   InternetSetOptionW(nullptr, INTERNET_OPTION_SETTINGS_CHANGED, nullptr, 0);
   InternetSetOptionW(nullptr, INTERNET_OPTION_REFRESH, nullptr, 0);
@@ -113,13 +152,26 @@ bool RestoreOwnedWindowsProxy() noexcept {
   DWORD valid = 0;
   std::wstring owned_server;
   std::wstring owned_override;
-  const bool backup_valid = ReadDword(backup, L"Valid", &valid) && valid == 1 &&
-                            ReadString(backup, L"OwnedProxyServer",
-                                       &owned_server) &&
-                            ReadString(backup, L"OwnedProxyOverride",
-                                       &owned_override);
+  const bool ownership_metadata_valid =
+      ReadString(backup, L"OwnedProxyServer", &owned_server) &&
+      ReadString(backup, L"OwnedProxyOverride", &owned_override) &&
+      IsOwnedProxyServer(owned_server) &&
+      owned_override == kOwnedProxyOverride;
+  const bool backup_valid = ownership_metadata_valid &&
+                            ReadDword(backup, L"Valid", &valid) && valid == 1;
   if (!backup_valid) {
+    bool disabled = false;
+    HKEY invalid_settings = nullptr;
+    if (ownership_metadata_valid &&
+        RegOpenKeyExW(HKEY_CURRENT_USER, kInternetSettingsPath, 0,
+                      KEY_QUERY_VALUE | KEY_SET_VALUE,
+                      &invalid_settings) == ERROR_SUCCESS) {
+      disabled = DisableOwnedProxyFingerprint(
+          invalid_settings, owned_server, owned_override);
+      RegCloseKey(invalid_settings);
+    }
     RegCloseKey(backup);
+    if (disabled) NotifyWinInet();
     return false;
   }
 

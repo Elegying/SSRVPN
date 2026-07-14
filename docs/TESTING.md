@@ -15,8 +15,8 @@ make verify
 - 共享包导入、版本同步、安装包内指南和当前文档一致性。
 - Mihomo/GeoIP 资源的可复现引导与 SHA256。
 - Android native bridge、AGP 9 应用模块内置 Kotlin、解锁取消、桌面启动、Clash/订阅/私有存储职责、macOS 特权和 Windows launcher 的静态边界。
-- 全部受版本控制 PowerShell 脚本的 Windows PowerShell 5.1 解析与已知参数集兼容性，以及 CI/Release 子进程退出码的逐次传播。
-- 明显密钥模式扫描、固定 commit 的 Gitleaks 全历史扫描、桌面可选签名配置/执行顺序守卫和发布工具单元测试；
+- 全部受版本控制 PowerShell 脚本的 ASCII 源码约束、显式 UTF-8 文件读取、Windows PowerShell 5.1 真实解析与已知参数集兼容性，以及 CI/Release 子进程退出码的逐次传播。
+- 明显密钥模式扫描、固定 commit 的 Gitleaks 全历史扫描、免费桌面分发策略守卫和发布工具单元测试；
   `.gitleaks.toml` 仅对测试目录中的合成 VPN URI 做单规则允许，默认凭据规则不跳过测试目录。
 - Flutter workspace 依赖解析与零 analyzer finding。
 - 订阅解析、合并与配置生成关键路径的可执行性能冒烟及结构校验。
@@ -59,11 +59,11 @@ scripts/check-coverage-thresholds.sh SSRVPN_MacOS
 
 - Android Kotlin/JUnit 覆盖 VPN Service 代际、更新安装身份和 Mihomo API 健康检查；静态门禁要求应用模块使用 AGP 9 内置 Kotlin、Gradle/JVM 17 和新原生库打包 DSL。第三方插件迁移完成前保留逐模块兼容开关，删除开关时必须重新跑 APK 构建和原生测试。涉及 Service、磁贴、通知或 MethodChannel 时还需真机回归。
 - macOS Swift/XCTest 覆盖窗口/Dock 生命周期等原生行为；TUN、管理员授权、系统代理和打包必须在 macOS 实际运行。
-- Windows launcher、安装器、代理恢复和进程路径需要 Windows CI。CI 必须用 `powershell.exe` 5.1 执行全部脚本兼容性测试，并在每个子进程后检查退出码，不能只看最后一条打包命令；首次安装、覆盖升级、异常退出、重启与卸载仍需干净 Windows 设备。
+- Windows launcher、安装器、代理恢复和进程路径需要 Windows CI。CI 必须用 `powershell.exe` 5.1 执行全部脚本兼容性测试，并在每个子进程后检查退出码，不能只看最后一条打包命令；生成安装包后还必须在隔离 runner 上按默认每用户路径真实静默安装、校验关键文件、安全停止已启动实例并卸载。首次交互安装、覆盖升级、连接、异常退出、重启与系统代理恢复仍需干净 Windows 设备。
 
 ### 发布与文档
 
-发布工具使用 Python 单元测试和资产冒烟；可选桌面签名验证覆盖“默认关闭不需要凭据”“显式开启缺凭据失败”“无效 Base64 失败”和“完整变量通过”，结构守卫确保签名先于内部哈希/压缩、公证先于最终校验和。真实证书的签名链、时间戳和 Gatekeeper/SmartScreen 结果仍必须由 Release runner 与干净设备证明。文档门禁只扫描当前有效文档，不因历史 CHANGELOG 或审查报告中的旧事实失败。发布后资产检查通过已认证的 GitHub CLI 下载元数据、SHA-256 文件与 provenance，并对瞬时失败有限重试；随后还要重新下载公开产物并校验随包 SHA256。
+发布工具使用 Python 单元测试和资产冒烟；免费桌面分发守卫要求 CI、Release 与打包脚本不含 Apple/Microsoft 付费签名入口，同时要求 macOS 继续执行 ad-hoc 签名验证。Gatekeeper/SmartScreen 提示仍必须由干净设备验收。文档门禁只扫描当前有效文档，不因历史 CHANGELOG 或审查报告中的旧事实失败。发布后资产检查通过已认证的 GitHub CLI 下载元数据、SHA-256 文件与 provenance，并对瞬时失败有限重试；随后还要重新下载公开产物并校验随包 SHA256。
 
 ## 常用命令
 
@@ -85,9 +85,8 @@ cd SSRVPN_Windows && flutter test --coverage
 scripts/test-android-native.sh
 scripts/check-android-built-in-kotlin.sh
 
-# 可选桌面签名配置与执行顺序
-scripts/check-release-signing-automation.sh
-python3 -m unittest scripts/test_validate_release_signing.py
+# 免费桌面分发策略
+python3 -m unittest scripts/test_free_desktop_distribution.py
 
 # 本地全历史密钥扫描（CI/Release 也会执行）
 gitleaks git --config .gitleaks.toml --redact --log-opts=--all
@@ -111,7 +110,7 @@ cd packages/ssrvpn_shared && dart run tool/benchmark_critical_paths.dart
 | 更新/发布 | 来源、版本、资产名、大小、SHA256、重定向和失败清理 |
 | UI/无障碍 | Widget 测试加目标平台键盘/读屏器检查 |
 | 诊断/修复 | 稳定错误码、脱敏与大小边界、所有权判断、连接中拒绝破坏性修复 |
-| 工具链/签名 | 目标构建、普通无凭据路径、显式启用失败关闭、签名后再哈希/压缩 |
+| 工具链/分发 | 目标构建、无付费签名入口、macOS ad-hoc 验证、Windows SHA256 |
 | 安装/升级 | 干净环境首次安装、全新覆盖、PowerShell 5.1、普通用户权限、异常退出/重启后的系统代理、卸载 |
 
 网络相关测试不得依赖开放公网稳定性；需要真实下载或发布验证时，应单独标注为集成/发布冒烟并记录时间与来源。

@@ -134,6 +134,10 @@ bool HasUsableStandardHandle(DWORD id) {
   return handle != nullptr && handle != INVALID_HANDLE_VALUE;
 }
 
+HANDLE CreateProcessJob() {
+  return ::CreateJobObjectW(nullptr, nullptr);
+}
+
 // ── UI helpers ──
 
 void ShowError(const std::wstring& title, const std::wstring& message) {
@@ -145,6 +149,7 @@ void ShowError(const std::wstring& title, const std::wstring& message) {
 bool CreateChildProcess(const std::wstring& child_path,
                         const std::wstring& working_directory,
                         std::wstring command_line, int show_command,
+                        HANDLE process_job, bool* assigned_to_job,
                         PROCESS_INFORMATION* process_information,
                         DWORD* error_code) {
   STARTUPINFOW startup_info = {};
@@ -163,10 +168,40 @@ bool CreateChildProcess(const std::wstring& child_path,
     startup_info.hStdError = ::GetStdHandle(STD_ERROR_HANDLE);
   }
 
+  const DWORD creation_flags =
+      process_job == nullptr ? 0 : CREATE_SUSPENDED;
   const BOOL created = ::CreateProcessW(
       child_path.c_str(), command_line.data(), nullptr, nullptr,
-      has_standard_handles ? TRUE : FALSE, 0, nullptr,
+      has_standard_handles ? TRUE : FALSE, creation_flags, nullptr,
       working_directory.c_str(), &startup_info, process_information);
+  if (assigned_to_job != nullptr) {
+    *assigned_to_job = false;
+  }
+  if (created && process_job != nullptr) {
+    if (::AssignProcessToJobObject(process_job,
+                                   process_information->hProcess)) {
+      if (assigned_to_job != nullptr) {
+        *assigned_to_job = true;
+      }
+    } else {
+      ::OutputDebugStringW(
+          L"SSRVPN launcher could not assign the app process to its job.\n");
+    }
+
+    if (::ResumeThread(process_information->hThread) ==
+        static_cast<DWORD>(-1)) {
+      const DWORD resume_error = ::GetLastError();
+      ::TerminateProcess(process_information->hProcess, resume_error);
+      ::WaitForSingleObject(process_information->hProcess, INFINITE);
+      ::CloseHandle(process_information->hThread);
+      ::CloseHandle(process_information->hProcess);
+      *process_information = {};
+      if (error_code != nullptr) {
+        *error_code = resume_error;
+      }
+      return false;
+    }
+  }
   if (error_code != nullptr) {
     *error_code = created ? ERROR_SUCCESS : ::GetLastError();
   }
@@ -197,13 +232,18 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
 
   const std::wstring child_command_line = BuildChildCommandLine(child_path);
 
+  HANDLE process_job = CreateProcessJob();
+  bool assigned_to_job = false;
   PROCESS_INFORMATION process_information = {};
   DWORD error = ERROR_SUCCESS;
   const bool created = CreateChildProcess(
       child_path, child_directory, child_command_line, show_command,
-      &process_information, &error);
+      process_job, &assigned_to_job, &process_information, &error);
 
   if (!created) {
+    if (process_job != nullptr) {
+      ::CloseHandle(process_job);
+    }
     ShowError(L"SSRVPN",
               L"无法启动 SSRVPN 主程序：\n\n" +
                   GetLastErrorMessage(error));
@@ -224,6 +264,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
     // A short-lived secondary child only activated the existing window. Its
     // launcher must not restore the proxy still owned by the primary process.
     exit_code = EXIT_SUCCESS;
+  }
+  // Restore networking before terminating any descendant that survived the
+  // UI process. This contains orphaned Mihomo processes without creating the
+  // offline state caused by killing the proxy first.
+  if (assigned_to_job) {
+    ::TerminateJobObject(process_job, EXIT_FAILURE);
+  }
+  if (process_job != nullptr) {
+    ::CloseHandle(process_job);
   }
   return static_cast<int>(exit_code);
 }

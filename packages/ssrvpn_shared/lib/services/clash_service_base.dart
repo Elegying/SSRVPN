@@ -54,6 +54,7 @@ abstract class ClashServiceBase
   // ── 回调 ──
   void Function()? onStatusChanged;
   void Function()? onProcessExit;
+  void Function(String message)? onRuntimeNotice;
   void Function(String message)? onLog;
   final Set<void Function()> _statusListeners = {};
 
@@ -708,12 +709,18 @@ abstract class ClashServiceBase
     _notifyStatusChanged();
   }
 
+  @protected
+  void notifyRuntimeNotice(String message) {
+    onRuntimeNotice?.call(message);
+  }
+
   // ── 资源释放 ──
 
   void dispose() {
     stopStatusMonitor();
     _directHttpClient?.close();
     _apiClient?.close();
+    onRuntimeNotice = null;
     _statusListeners.clear();
   }
 }

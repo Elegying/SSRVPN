@@ -157,7 +157,7 @@ class SubscriptionService extends SubscriptionServiceBase {
             contentEncoding != 'identity') {
           throw Exception('不支持的 Content-Encoding: $contentEncoding');
         }
-        String body = utf8.decode(bodyBytes, allowMalformed: true);
+        String body = decodeSubscriptionUtf8(bodyBytes);
         if (body.trim().isEmpty) {
           throw Exception('服务器返回空内容');
         }
@@ -382,9 +382,8 @@ class SubscriptionService extends SubscriptionServiceBase {
         throw HttpException('IP $ipAddress 响应格式异常');
       }
 
-      final headerSection = utf8.decode(
+      final headerSection = decodeHttp1HeaderBytes(
         responseBytes.sublist(0, headerEnd),
-        allowMalformed: true,
       );
       var bodyBytes = responseBytes.sublist(headerEnd + 4);
 

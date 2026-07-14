@@ -23,6 +23,7 @@ class TrayManager {
   void Function()? onQuit;
   void Function()? onConnectToggle;
   bool Function()? isConnected;
+  int Function()? runtimeProxyPort;
 
   /// 初始化系统托盘，返回是否成功
   Future<bool> init() async {
@@ -94,6 +95,7 @@ class TrayManager {
   /// 构建右键菜单
   Future<void> _buildMenu() async {
     final connected = isConnected?.call() ?? false;
+    final port = connected ? runtimeProxyPort?.call() : null;
 
     final menu = Menu();
     await menu.buildFrom([
@@ -102,6 +104,13 @@ class TrayManager {
         onClicked: (_) => onShowApp?.call(),
       ),
       MenuSeparator(),
+      if (port != null) ...[
+        MenuItemLabel(
+          label: 'HTTP 代理：127.0.0.1:$port',
+          enabled: false,
+        ),
+        MenuSeparator(),
+      ],
       MenuItemLabel(
         label: connected ? '断开连接' : '连接',
         onClicked: (_) => onConnectToggle?.call(),

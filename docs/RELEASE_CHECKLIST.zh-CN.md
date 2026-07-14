@@ -14,12 +14,12 @@
    - `SSRVPN_Android`
    - `SSRVPN_MacOS`
    - `SSRVPN_Windows`
-   - Windows 日志包含 PowerShell 5.1 全脚本兼容性通过记录；不得只依据 job 绿色，日志中任何脚本错误都必须对应失败步骤。
+   - Windows 日志包含 PowerShell 5.1 全脚本兼容性和新生成安装包真实安装/卸载通过记录；不得只依据 job 绿色，日志中任何脚本或安装器错误都必须对应失败步骤。
 3. 确认三端项目地址都指向：
    - `https://github.com/Elegying/SSRVPN`
-4. 确认 Release workflow 需要的 Android 自签名 secrets 已配置。没有付费 Apple/Microsoft
-   证书时，保持 `ENABLE_MACOS_SIGNING` 和 `ENABLE_WINDOWS_SIGNING` 未设置或为 `false`；
-   若启用，必须先按签名说明配置全部 secrets，并把对应 variable 精确设为小写 `true`。
+4. 确认 Release workflow 需要的 Android 自签名 secrets 已配置。桌面端固定走免费分发：
+   macOS ad-hoc、未公证，Windows 未签名；仓库和 GitHub 配置中不应出现 Apple/Microsoft
+   付费证书 secrets 或启用变量。
 5. 确认核心二进制和 geo 数据库哈希：
 
    ```bash
@@ -58,11 +58,19 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 3. 正常启动 `ssrvpn_windows.exe`；确认主页、订阅、节点和已选节点工作正常，`%LOCALAPPDATA%\SSRVPN\logs\startup.log` 没有启动失败。
 4. 先从托盘退出正常实例，再运行 `ssrvpn_safe_mode.bat`；确认安全模式提示可见，托盘、旧窗口位置和 Mihomo 自动初始化均被跳过。
 5. 使用系统代理模式连接；确认浏览器可联网、代理指向 `127.0.0.1` 的实际监听端口。正常断开后，`ProxyEnable` 和 `ProxyServer` 必须精确恢复为测试前的值。
-6. 再次连接后从任务管理器结束 `bin\mihomo.exe`；应用应退出连接状态并自动清理自己设置的系统代理，不得留下半连接状态。
+6. 再次连接后从任务管理器结束 `bin\mihomo.exe`；应用应立即提示核心异常退出，自动清理
+   自己设置的系统代理并只恢复一次。首次恢复成功应显示成功提示；再次结束核心后必须停止
+   重试、退出连接状态并提示最终失败，不得留下半连接或循环拉起。
 7. 再次连接后从托盘选择“退出 SSRVPN”；应用和 Mihomo 都应退出，系统代理必须恢复，`%LOCALAPPDATA%\SSRVPN\crashes` 不应新增转储。
 8. 再次连接后只从任务管理器结束 `bin\ssrvpn_windows_app.exe`，保留外层 `ssrvpn_windows.exe` 等待子进程退出；外层启动器必须自动恢复系统代理。随后重启 Windows，在未重新打开 SSRVPN 前确认浏览器可直接联网，系统代理不得仍指向 SSRVPN 的本地端口。
 9. Windows 分别用普通权限和管理员权限检查 TUN：普通权限必须明确失败且不残留代理；管理员权限下应能连接、断开并恢复网络。macOS TUN 必须显示管理员授权框；取消授权、启动超时、正常断开和退出均不得遗留 root Mihomo、utun 默认路由、暂存目录或系统代理。
-10. 在系统自带 Windows PowerShell 5.1 中确认 `$PSVersionTable.PSVersion` 后，创建两个带 `settings.json` 的便携副本，并在 `%LOCALAPPDATA%\Programs\SSRVPN\bin\ssrvpn` 与 `%LOCALAPPDATA%\SSRVPN\ssrvpn` 放置可识别旧配置，再启动 `SSRVPN_Setup.exe`。安装器必须忽略两个便携副本，以普通用户权限安装到固定目录并自动启动；固定目录、回退目录、窗口状态和旧安装恢复状态必须被清除，旧订阅与设置不得恢复，用户可重新导入订阅。
+10. 在系统自带 Windows PowerShell 5.1 中确认 `$PSVersionTable.PSVersion` 后，创建两个带
+   `settings.json` 的便携副本，并在 `%LOCALAPPDATA%\Programs\SSRVPN\bin\ssrvpn` 与
+   `%LOCALAPPDATA%\SSRVPN\ssrvpn` 放置可识别旧配置，再启动 `SSRVPN_Setup.exe`。安装向导
+   必须全程使用简体中文并在复制前展示清除提示；它必须忽略两个便携副本，以普通用户权限
+   安装到固定目录并自动启动。固定目录、回退目录、窗口状态和旧安装恢复状态必须被清除，
+   旧订阅与设置不得恢复，用户可重新导入订阅。另保持已安装实例占用文件，确认安装器会在
+   删除旧数据前阻断；退出实例后重新安装必须成功。
 11. 检查应用内更新优先打开 OSS 的 `SSRVPN_Setup.exe`，OSS 异常时能使用 GitHub 备用下载。日志可提交排查，但不要公开发送 `.dmp` 文件。
 
 ## 发布

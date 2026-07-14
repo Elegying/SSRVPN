@@ -104,12 +104,10 @@ and run both platform suites for shared desktop changes.
    scripts/verify-core-assets.sh
    ```
 
-4. Verify the free Android self-signed keystore secrets are available. macOS
-   notarization and Windows Authenticode remain optional: leave their enable
-   variables unset for the current personal release posture, or configure every
-   documented secret before setting the corresponding variable to exactly
-   `true`. Partial configuration intentionally fails the Release job.
-   See `docs/RELEASE_SIGNING.md` for names, order, and verification behavior.
+4. Verify the free Android self-signed keystore secrets are available. Desktop
+   releases always use the documented free path: macOS ad-hoc without
+   notarization and Windows without Authenticode. Do not add Apple/Microsoft
+   certificate secrets or paid-signing branches. See `docs/RELEASE_SIGNING.md`.
 5. Create and push a version tag:
 
    ```bash
@@ -119,7 +117,8 @@ and run both platform suites for shared desktop changes.
 
 6. Watch the `Release` workflow.
 7. Download artifacts, verify checksums, and optionally run `scripts/check-release-assets.sh vX.Y.Z`.
-8. Smoke test at least one install/run path per platform before announcing.
+8. Confirm the Windows build log includes the real `SSRVPN_Setup.exe` install/uninstall smoke test, not only packaging and static checks.
+9. Smoke test at least one install/run path per platform before announcing.
 
 ## Online/Offline Consistency
 

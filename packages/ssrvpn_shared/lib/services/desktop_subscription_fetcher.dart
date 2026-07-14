@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import '../constants/app_constants.dart';
 import '../services/direct_fetcher.dart';
 import '../services/subscription_parser.dart';
+import '../services/subscription_text_decoder.dart';
 import '../utils/app_logger.dart';
 import '../utils/subscription_url_policy.dart';
 
@@ -73,7 +73,7 @@ class DesktopSubscriptionFetcher {
           if (response.statusCode == 200) {
             return DesktopSubscriptionFetchResult(
               body: _normalizeFetchedBody(
-                utf8.decode(response.bodyBytes, allowMalformed: true),
+                decodeSubscriptionUtf8(response.bodyBytes),
               ),
               headers: {
                 'profile-title': response.headers['profile-title'] ?? '',

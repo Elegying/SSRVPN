@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/src/services/system_proxy_ownership.dart';
+import 'package:ssrvpn_windows/src/services/windows_powershell.dart';
 
 typedef SystemProxyScriptRunner = Future<ProcessResult> Function(String script);
 
@@ -366,6 +367,8 @@ $item = Get-ItemProperty -Path $regPath
     final server = base64Encode(utf8.encode(snapshot.proxyServer));
     final override = base64Encode(utf8.encode(snapshot.proxyOverride));
     final script = '''
+\$backupPath = '$_nativeBackupRegistryPath'
+Set-ItemProperty -Path \$backupPath -Name RestoreInProgress -Type DWord -Value 1
 \$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
 if (${snapshot.hasProxyServer ? r'$true' : r'$false'}) {
   \$value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$server'))
@@ -403,6 +406,8 @@ ${_notifyWinInetScript()}
   Future<bool> _restoreOwnedEndpoint(_ProxySnapshot snapshot) async {
     final server = base64Encode(utf8.encode(snapshot.proxyServer));
     final script = '''
+\$backupPath = '$_nativeBackupRegistryPath'
+Set-ItemProperty -Path \$backupPath -Name EndpointRestoreInProgress -Type DWord -Value 1
 \$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
 if (${snapshot.hasProxyServer ? r'$true' : r'$false'}) {
   \$value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$server'))
@@ -485,6 +490,8 @@ Set-ItemProperty -Path \$backupPath -Name HasAutoDetect -Type DWord -Value ${sna
 Set-ItemProperty -Path \$backupPath -Name OriginalAutoDetect -Type DWord -Value ${snapshot.autoDetect}
 Set-ItemProperty -Path \$backupPath -Name OwnedProxyServer -Type String -Value '$ownedProxyServer'
 Set-ItemProperty -Path \$backupPath -Name OwnedProxyOverride -Type String -Value '$_ownedProxyOverride'
+Set-ItemProperty -Path \$backupPath -Name RestoreInProgress -Type DWord -Value 0
+Set-ItemProperty -Path \$backupPath -Name EndpointRestoreInProgress -Type DWord -Value 0
 Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Value 1
 Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 1
 ''';
@@ -520,10 +527,11 @@ Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Valu
   }
 
   Future<ProcessResult> _runPowerShell(String script) {
+    final utf8Script = windowsPowerShellUtf8Script(script);
     final override = _scriptRunner;
-    if (override != null) return override(script);
+    if (override != null) return override(utf8Script);
     return TimedProcessRunner.run(
-      _powerShellExecutable(),
+      windowsPowerShellExecutable(),
       [
         '-NoLogo',
         '-NoProfile',
@@ -531,27 +539,11 @@ Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Valu
         '-ExecutionPolicy',
         'Bypass',
         '-Command',
-        script,
+        utf8Script,
       ],
       timeout: const Duration(seconds: 20),
       timeoutStderr: '电脑性能不足，请重新连接',
     );
-  }
-
-  String _powerShellExecutable() {
-    if (!Platform.isWindows) return 'powershell';
-    final windowsDir =
-        Platform.environment['SystemRoot'] ?? Platform.environment['WINDIR'];
-    if (windowsDir != null && windowsDir.trim().isNotEmpty) {
-      final executable = File(
-        '$windowsDir${Platform.pathSeparator}System32'
-        '${Platform.pathSeparator}WindowsPowerShell'
-        '${Platform.pathSeparator}v1.0'
-        '${Platform.pathSeparator}powershell.exe',
-      );
-      if (executable.existsSync()) return executable.path;
-    }
-    return 'powershell';
   }
 
   String _formatPowerShellError(String prefix, ProcessResult result) {

@@ -19,6 +19,7 @@ class _DesktopConnectionSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final runtimeProxyPort = context.watch<ClashService>().runtimeProxyPort;
     final status = AnimatedSwitcher(
       duration: const Duration(milliseconds: 300),
       child: Text(
@@ -56,7 +57,7 @@ class _DesktopConnectionSummary extends StatelessWidget {
           const SizedBox(height: 8),
           _DesktopModeBadge(
             text:
-                '${settings.proxyMode.chineseName} · 端口 ${settings.proxyPort}${settings.enableTun ? " · TUN" : " · 代理"}',
+                '${settings.proxyMode.chineseName} · 端口 $runtimeProxyPort${settings.enableTun ? " · TUN" : " · 代理"}',
             subColor: subColor,
           ),
         ],

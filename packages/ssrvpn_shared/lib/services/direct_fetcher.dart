@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import '../constants/app_constants.dart';
+import '../services/subscription_text_decoder.dart';
 import '../utils/subscription_url_policy.dart';
 
 /// 订阅“真·直连”下载器（桌面优先）
@@ -389,9 +390,8 @@ class DirectFetcher {
             continue;
           }
 
-          final headerText = utf8.decode(
+          final headerText = decodeHttp1HeaderBytes(
             headerBytes.sublist(0, length - 4),
-            allowMalformed: true,
           );
           final lines = headerText.split('\r\n');
           final statusMatch =
@@ -470,7 +470,7 @@ class DirectFetcher {
     return _HttpResponse(
       statusCode: statusCode,
       headers: headers,
-      body: utf8.decode(decodedBody, allowMalformed: true),
+      body: decodeSubscriptionUtf8(decodedBody),
     );
   }
 

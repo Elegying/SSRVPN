@@ -68,6 +68,6 @@ Current personal releases use the free path:
 - macOS ad-hoc signing without notarization,
 - Windows unsigned per-user installer and portable ZIP.
 
-Paid Apple Developer ID notarization and Windows Authenticode signing are optional future upgrades if public distribution needs fewer system warnings.
+Paid Apple Developer ID notarization and Windows Authenticode signing are intentionally out of scope. Do not add certificate secrets or optional paid-signing branches unless this product decision is explicitly replaced.
 
 See `docs/RELEASE_SIGNING.md`.

@@ -5,6 +5,51 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_windows/services/system_proxy_service.dart';
 
 void main() {
+  test('every PowerShell proxy operation forces UTF-8 output first', () async {
+    final temp = await Directory.systemTemp.createTemp('ssrvpn_proxy_utf8_');
+    addTearDown(() => temp.delete(recursive: true));
+    final scripts = <String>[];
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        scripts.add(script);
+        if (script.contains('ConvertTo-Json -Compress')) {
+          return ProcessResult(
+            1,
+            0,
+            jsonEncode({
+              'proxyEnable': 0,
+              'hasProxyServer': true,
+              'proxyServer': '代理.example:8080',
+              'hasProxyOverride': true,
+              'proxyOverride': '本地地址',
+              'hasAutoConfigUrl': true,
+              'autoConfigUrl': 'https://例子.example/proxy.pac',
+              'hasAutoDetect': true,
+              'autoDetect': 1,
+            }),
+            '',
+          );
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+
+    await service.initialize(temp.path);
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+
+    expect(scripts, isNotEmpty);
+    for (final script in scripts) {
+      expect(script, startsWith(r"$ErrorActionPreference = 'Stop'"));
+      expect(
+        script,
+        contains('[Console]::OutputEncoding = [Text.UTF8Encoding]::new'),
+      );
+      expect(script, contains(r'$OutputEncoding = [Console]::OutputEncoding'));
+    }
+  });
+
   test('a transient startup read failure is retried before connecting',
       () async {
     final temp = await Directory.systemTemp.createTemp('ssrvpn_proxy_retry_');

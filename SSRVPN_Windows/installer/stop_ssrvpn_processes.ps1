@@ -1,10 +1,16 @@
 param(
+  [string]$InstalledAppPath = '',
+  [string]$InstalledLauncherPath = '',
   [string]$InstalledCorePath = '',
   [string]$InstalledCorePidPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $currentSessionId = (Get-Process -Id $PID -ErrorAction Stop).SessionId
+$script:OwnedProxyOverride = '<local>;localhost;127.*;10.*;172.16.*;172.17.*;' +
+  '172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;' +
+  '172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;' +
+  '192.168.*'
 
 function Get-ProcessesByName {
   param([Parameter(Mandatory = $true)][string]$Name)
@@ -60,12 +66,113 @@ function Remove-ProxyRecoveryState {
   }
 }
 
+function Test-RequiredProperties {
+  param(
+    [AllowNull()]$Value,
+    [Parameter(Mandatory = $true)][string[]]$Names
+  )
+
+  if ($null -eq $Value) { return $false }
+  foreach ($name in $Names) {
+    if ($null -eq $Value.PSObject.Properties[$name]) { return $false }
+  }
+  return $true
+}
+
+function Test-OwnedProxyServer {
+  param([AllowNull()][string]$Value)
+
+  if (-not $Value -or $Value -notmatch '^127\.0\.0\.1:([0-9]{1,5})$') {
+    return $false
+  }
+  $port = [int]$matches[1]
+  return $port -ge 1 -and $port -le 65535
+}
+
+function Test-DwordFlag {
+  param([AllowNull()]$Value)
+
+  if ($null -eq $Value) { return $false }
+  $isInteger =
+    $Value -is [byte] -or $Value -is [sbyte] -or
+    $Value -is [int16] -or $Value -is [uint16] -or
+    $Value -is [int32] -or $Value -is [uint32] -or
+    $Value -is [int64] -or $Value -is [uint64]
+  if (-not $isInteger) { return $false }
+  return $Value -eq 0 -or $Value -eq 1
+}
+
+function Test-BooleanValue {
+  param([AllowNull()]$Value)
+
+  return $null -ne $Value -and $Value -is [bool]
+}
+
+function Test-RecoveryState {
+  param([AllowNull()]$Value)
+
+  try {
+    if (-not (Test-RequiredProperties -Value $Value -Names @(
+      'proxyEnable', 'hasProxyServer', 'proxyServer',
+      'hasProxyOverride', 'proxyOverride', 'hasAutoConfigUrl',
+      'autoConfigUrl', 'hasAutoDetect', 'autoDetect',
+      'ownedProxyServer', 'ownedProxyOverride', 'restoreInProgress',
+      'activationInProgress', 'endpointRestoreInProgress'
+    ))) { return $false }
+    if (-not (Test-OwnedProxyServer -Value $Value.ownedProxyServer)) {
+      return $false
+    }
+    if ([string]$Value.ownedProxyOverride -ne $script:OwnedProxyOverride) {
+      return $false
+    }
+    if (-not (Test-DwordFlag -Value $Value.proxyEnable) -or
+        -not (Test-DwordFlag -Value $Value.autoDetect)) {
+      return $false
+    }
+    foreach ($name in @(
+      'hasProxyServer', 'hasProxyOverride', 'hasAutoConfigUrl',
+      'hasAutoDetect', 'restoreInProgress', 'activationInProgress',
+      'endpointRestoreInProgress'
+    )) {
+      if (-not (Test-BooleanValue -Value $Value.$name)) { return $false }
+    }
+    return $true
+  } catch {
+    return $false
+  }
+}
+
 function Get-ProxyRecoveryState {
   $nativePath = 'HKCU:\Software\SSRVPN\RuntimeProxyBackup'
   if (Test-Path -Path $nativePath) {
     $native = Get-ItemProperty -Path $nativePath
-    if ([int]$native.Valid -eq 1) {
-      return [pscustomobject]@{
+    $hasNativeFields = Test-RequiredProperties -Value $native -Names @(
+      'Valid', 'OriginalProxyEnable', 'HasProxyServer',
+      'OriginalProxyServer', 'HasProxyOverride', 'OriginalProxyOverride',
+      'HasAutoConfigURL', 'OriginalAutoConfigURL', 'HasAutoDetect',
+      'OriginalAutoDetect', 'OwnedProxyServer', 'OwnedProxyOverride'
+    )
+    $nativeFlagNames = @(
+      'Valid', 'OriginalProxyEnable', 'HasProxyServer', 'HasProxyOverride',
+      'HasAutoConfigURL', 'HasAutoDetect', 'OriginalAutoDetect'
+    )
+    $nativeFlagsValid = $hasNativeFields
+    foreach ($name in $nativeFlagNames) {
+      if (-not (Test-DwordFlag -Value $native.$name)) {
+        $nativeFlagsValid = $false
+      }
+    }
+    foreach ($name in @(
+      'RestoreInProgress', 'ActivationInProgress',
+      'EndpointRestoreInProgress'
+    )) {
+      if ($null -ne $native.PSObject.Properties[$name] -and
+          -not (Test-DwordFlag -Value $native.$name)) {
+        $nativeFlagsValid = $false
+      }
+    }
+    if ($nativeFlagsValid -and [int]$native.Valid -eq 1) {
+      $candidate = [pscustomobject]@{
         proxyEnable = [int]$native.OriginalProxyEnable
         hasProxyServer = [int]$native.HasProxyServer -ne 0
         proxyServer = [string]$native.OriginalProxyServer
@@ -87,6 +194,7 @@ function Get-ProxyRecoveryState {
           $null -ne $native.PSObject.Properties['EndpointRestoreInProgress'] -and
           [int]$native.EndpointRestoreInProgress -eq 1
       }
+      if (Test-RecoveryState -Value $candidate) { return $candidate }
     }
   }
 
@@ -96,9 +204,30 @@ function Get-ProxyRecoveryState {
   if (-not (Test-Path -LiteralPath $jsonPath -PathType Leaf)) {
     return $null
   }
-  $json = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
-  if (-not $json._ownedProxyServer) { return $null }
-  return [pscustomobject]@{
+  try {
+    $json = Get-Content -LiteralPath $jsonPath -Encoding UTF8 -Raw |
+      ConvertFrom-Json
+  } catch {
+    return $null
+  }
+  if (-not (Test-RequiredProperties -Value $json -Names @(
+    'proxyEnable', 'hasProxyServer', 'proxyServer',
+    'hasProxyOverride', 'proxyOverride', 'hasAutoConfigUrl',
+    'autoConfigUrl', 'hasAutoDetect', 'autoDetect',
+    '_ownedProxyServer', '_activationInProgress'
+  ))) { return $null }
+  if (-not (Test-DwordFlag -Value $json.proxyEnable) -or
+      -not (Test-DwordFlag -Value $json.autoDetect)) {
+    return $null
+  }
+  $jsonBooleanNames = @(
+    'hasProxyServer', 'hasProxyOverride', 'hasAutoConfigUrl',
+    'hasAutoDetect', '_activationInProgress'
+  )
+  foreach ($name in $jsonBooleanNames) {
+    if (-not (Test-BooleanValue -Value $json.$name)) { return $null }
+  }
+  $candidate = [pscustomobject]@{
     proxyEnable = [int]$json.proxyEnable
     hasProxyServer = [bool]$json.hasProxyServer
     proxyServer = [string]$json.proxyServer
@@ -109,14 +238,13 @@ function Get-ProxyRecoveryState {
     hasAutoDetect = [bool]$json.hasAutoDetect
     autoDetect = [int]$json.autoDetect
     ownedProxyServer = [string]$json._ownedProxyServer
-    ownedProxyOverride = '<local>;localhost;127.*;10.*;172.16.*;172.17.*;' +
-      '172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;' +
-      '172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;' +
-      '192.168.*'
+    ownedProxyOverride = $script:OwnedProxyOverride
     restoreInProgress = $false
     activationInProgress = [bool]$json._activationInProgress
     endpointRestoreInProgress = $false
   }
+  if (Test-RecoveryState -Value $candidate) { return $candidate }
+  return $null
 }
 
 function Write-NativeRestoreJournal {
@@ -127,8 +255,8 @@ function Write-NativeRestoreJournal {
 
   $path = 'HKCU:\Software\SSRVPN\RuntimeProxyBackup'
   New-Item -Path $path -Force | Out-Null
+  Set-ItemProperty -Path $path -Name Valid -Type DWord -Value 0
   $values = @{
-    Valid = 1
     OriginalProxyEnable = [int]$Backup.proxyEnable
     HasProxyServer = [int][bool]$Backup.hasProxyServer
     OriginalProxyServer = [string]$Backup.proxyServer
@@ -149,6 +277,7 @@ function Write-NativeRestoreJournal {
     Set-ItemProperty -Path $path -Name $entry.Key -Type $type `
       -Value $entry.Value
   }
+  Set-ItemProperty -Path $path -Name Valid -Type DWord -Value 1
 }
 
 function Notify-WinInetProxyChange {
@@ -164,6 +293,37 @@ public static class SsrVpnInstallerWinInet {
     [IntPtr]::Zero, 39, [IntPtr]::Zero, 0) | Out-Null
   [SsrVpnInstallerWinInet]::InternetSetOption(
     [IntPtr]::Zero, 37, [IntPtr]::Zero, 0) | Out-Null
+}
+
+function Repair-InvalidProxyRecoveryState {
+  $nativePath = 'HKCU:\Software\SSRVPN\RuntimeProxyBackup'
+  $jsonPath = if ($env:LOCALAPPDATA) {
+    Join-Path $env:LOCALAPPDATA 'SSRVPN\runtime\system_proxy_backup.json'
+  } else {
+    $null
+  }
+  $hasRecoveryState = (Test-Path -Path $nativePath) -or
+    ($jsonPath -and (Test-Path -LiteralPath $jsonPath -PathType Leaf))
+  if (-not $hasRecoveryState) { return }
+
+  $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+  $current = Get-ItemProperty -Path $regPath
+  $hasProxyServer = $null -ne $current.PSObject.Properties['ProxyServer']
+  $hasProxyOverride = $null -ne $current.PSObject.Properties['ProxyOverride']
+  $hasAutoDetect = $null -ne $current.PSObject.Properties['AutoDetect']
+  $hasAutoConfigUrl = $null -ne $current.PSObject.Properties['AutoConfigURL']
+  $ownedFingerprint = [int]$current.ProxyEnable -eq 1 -and
+    $hasProxyServer -and
+    (Test-OwnedProxyServer -Value ([string]$current.ProxyServer)) -and
+    $hasProxyOverride -and
+    [string]$current.ProxyOverride -eq $script:OwnedProxyOverride -and
+    $hasAutoDetect -and [int]$current.AutoDetect -eq 0 -and
+    -not $hasAutoConfigUrl
+  if ($ownedFingerprint) {
+    Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord -Value 0
+    Notify-WinInetProxyChange
+  }
+  Remove-ProxyRecoveryState
 }
 
 function Set-OrRemoveRegistryValue {
@@ -184,7 +344,10 @@ function Set-OrRemoveRegistryValue {
 
 function Restore-OwnedSystemProxy {
   $backup = Get-ProxyRecoveryState
-  if (-not $backup) { return }
+  if (-not $backup) {
+    Repair-InvalidProxyRecoveryState
+    return
+  }
 
   $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
   $current = Get-ItemProperty -Path $regPath
@@ -280,12 +443,25 @@ try {
   }
 }
 
+$installedApps = @(
+  $apps |
+    Where-Object {
+      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledAppPath
+    }
+)
+$installedLaunchers = @(
+  $launchers |
+    Where-Object {
+      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledLauncherPath
+    }
+)
+
 $taskkill = if ($env:SystemRoot) {
   Join-Path $env:SystemRoot 'System32\taskkill.exe'
 } else {
   $null
 }
-foreach ($app in $apps) {
+foreach ($app in $installedApps) {
   try {
     if ($taskkill -and (Test-Path -LiteralPath $taskkill -PathType Leaf)) {
       & $taskkill /F /T /PID $app.ProcessId 2>$null | Out-Null
@@ -296,7 +472,7 @@ foreach ($app in $apps) {
     Write-Warning "Could not stop SSRVPN app PID $($app.ProcessId)."
   }
 }
-foreach ($launcher in $launchers) {
+foreach ($launcher in $installedLaunchers) {
   try {
     if ($taskkill -and (Test-Path -LiteralPath $taskkill -PathType Leaf)) {
       & $taskkill /F /PID $launcher.ProcessId 2>$null | Out-Null
@@ -330,8 +506,18 @@ foreach ($core in $installedCores) {
 
 Start-Sleep -Milliseconds 300
 
-$remainingApps = @(Get-ProcessesByName -Name 'ssrvpn_windows_app.exe')
-$remainingLaunchers = @(Get-ProcessesByName -Name 'ssrvpn_windows.exe')
+$remainingApps = @(
+  Get-ProcessesByName -Name 'ssrvpn_windows_app.exe' |
+    Where-Object {
+      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledAppPath
+    }
+)
+$remainingLaunchers = @(
+  Get-ProcessesByName -Name 'ssrvpn_windows.exe' |
+    Where-Object {
+      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledLauncherPath
+    }
+)
 $remainingCores = @(
   Get-ProcessesByName -Name 'mihomo.exe' |
     Where-Object {
@@ -341,13 +527,11 @@ $remainingCores = @(
 if ($remainingApps.Count -gt 0 -or
     $remainingLaunchers.Count -gt 0 -or
     $remainingCores.Count -gt 0) {
-  Write-Warning 'Some SSRVPN files may remain locked; Inno restart replacement will be used.'
+  Write-Warning 'SSRVPN files are still in use; refusing a partial overwrite.'
+  exit 2
 } elseif ($InstalledCorePidPath) {
   Remove-Item -LiteralPath $InstalledCorePidPath -Force `
     -ErrorAction SilentlyContinue
 }
 
-# Cleanup is deliberately best-effort. Inno Setup owns the final copy operation
-# and can schedule a locked binary for restart replacement; this helper must not
-# turn a recoverable process race into an installation failure.
 exit 0

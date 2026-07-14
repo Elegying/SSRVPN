@@ -124,6 +124,50 @@ void main() {
     );
   });
 
+  test('fetchResponse rejects a malformed UTF-8 body without replacement text',
+      () async {
+    await _withRawBytesResponse(
+      <int>[
+        ...ascii.encode(
+          'HTTP/1.1 200 OK\r\n'
+          'Content-Length: 2\r\n'
+          'Connection: close\r\n'
+          '\r\n',
+        ),
+        0xC3,
+        0x28,
+      ],
+      (url) => expectLater(
+        DirectFetcher.fetchResponse(url),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('订阅内容不是有效 UTF-8'),
+          ),
+        ),
+      ),
+    );
+  });
+
+  test('fetchResponse preserves non-UTF8 header octets without U+FFFD',
+      () async {
+    await _withRawBytesResponse(
+      <int>[
+        ...ascii.encode('HTTP/1.1 200 OK\r\nX-Test: '),
+        0xFF,
+        ...ascii.encode(
+          '\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok',
+        ),
+      ],
+      (url) async {
+        final response = await DirectFetcher.fetchResponse(url);
+        expect(response.headers['x-test'], 'ÿ');
+        expect(response.headers['x-test'], isNot(contains('\uFFFD')));
+      },
+    );
+  });
+
   test('fetchResponse completes after the terminating chunk on keep-alive',
       () async {
     await _withRawResponse(
@@ -298,6 +342,29 @@ Future<void> _withRawResponse(
     if (!keepOpen) {
       send = send!.then((_) => socket.close());
     }
+  });
+
+  try {
+    await verify('http://127.0.0.1:${server.port}/payload');
+  } finally {
+    await send?.catchError((_) {});
+    client?.destroy();
+    await subscription.cancel();
+    await server.close();
+  }
+}
+
+Future<void> _withRawBytesResponse(
+  List<int> response,
+  Future<void> Function(String url) verify,
+) async {
+  final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+  Socket? client;
+  Future<void>? send;
+  final subscription = server.listen((socket) {
+    client = socket;
+    socket.add(response);
+    send = socket.flush().then((_) => socket.close());
   });
 
   try {

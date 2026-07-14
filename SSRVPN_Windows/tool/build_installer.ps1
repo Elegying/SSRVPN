@@ -59,7 +59,20 @@ if (-not $compiler) {
   }
 }
 if (-not $compiler) {
-  throw 'Inno Setup 6 compiler (ISCC.exe) was not found.'
+  throw 'Inno Setup 6.5 or newer compiler (ISCC.exe) was not found.'
+}
+
+$minimumCompilerVersion = [version]'6.5.0'
+$productVersion = (Get-Item -LiteralPath $compiler).VersionInfo.ProductVersion
+$versionMatch = [regex]::Match([string]$productVersion, '\d+(?:\.\d+){1,3}')
+if (-not $versionMatch.Success) {
+  throw "Unable to determine Inno Setup compiler version: $compiler"
+}
+$compilerVersion = [version]$versionMatch.Value
+if ($compilerVersion -lt $minimumCompilerVersion) {
+  throw (
+    "Inno Setup 6.5 or newer is required; found $compilerVersion at $compiler"
+  )
 }
 
 $installerScript = Join-Path $projectRoot 'installer\SSRVPN.iss'
@@ -79,14 +92,6 @@ if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
 }
 if ((Get-Item -LiteralPath $installerPath).Length -le 1MB) {
   throw "Installer is unexpectedly small: $installerPath"
-}
-
-if ($env:WINDOWS_SIGNING_ENABLED -eq 'true') {
-  $signingScript = Join-Path $projectRoot '..\scripts\sign_windows_artifacts.ps1'
-  & $signingScript -FilePath $installerPath
-  if ($LASTEXITCODE -ne 0) {
-    throw "Windows installer signing failed with exit code $LASTEXITCODE"
-  }
 }
 
 $hash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLower()

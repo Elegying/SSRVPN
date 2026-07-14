@@ -32,7 +32,7 @@
 
 - [发布检查清单](RELEASE_CHECKLIST.zh-CN.md)：正式发版的唯一逐步检查入口。
 - [OSS 发布运维](OSS_RELEASE_OPERATIONS.zh-CN.md)：发布、密钥轮换、故障恢复和回滚。
-- [发布签名说明](RELEASE_SIGNING.md)：三端签名现状和系统警告。
+- [免费分发与签名说明](RELEASE_SIGNING.md)：固定分发策略、校验方式和系统警告。
 - [核心资产来源](CORE_ASSETS.md)：Mihomo、Android 原生核心与 GeoIP 来源。
 
 ## 安全与架构
