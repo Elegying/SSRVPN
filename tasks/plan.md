@@ -29,10 +29,10 @@ machine.
 ### Task 1: Shared error and diagnostic contract
 
 **Acceptance criteria:**
-- [ ] Known core, port, permission, proxy, subscription, update, and config
+- [x] Known core, port, permission, proxy, subscription, update, and config
       failures map to stable codes and actionable Chinese guidance.
-- [ ] Unknown errors remain safely redacted and never expose raw secrets.
-- [ ] Diagnostic reports have bounded text output and deterministic severity.
+- [x] Unknown errors remain safely redacted and never expose raw secrets.
+- [x] Diagnostic reports have bounded text output and deterministic severity.
 
 **Verification:** shared package tests and analyzer.
 
@@ -41,11 +41,11 @@ machine.
 ### Task 2: Cross-platform diagnostic and repair center
 
 **Acceptance criteria:**
-- [ ] Existing log entry opens diagnostics, current checks, and recent redacted
+- [x] Existing log entry opens diagnostics, current checks, and recent redacted
       logs on Android, macOS, and Windows.
-- [ ] Disconnected desktop users can retry recovery of SSRVPN-owned proxy state;
+- [x] Disconnected desktop users can retry recovery of SSRVPN-owned proxy state;
       connected users are never disconnected by the repair action.
-- [ ] Results can be copied as a bounded redacted report and rerun on demand.
+- [x] Results can be copied as a bounded redacted report and rerun on demand.
 
 **Verification:** shared widget tests, platform service tests, three analyzers.
 
@@ -53,16 +53,16 @@ machine.
 
 ### Checkpoint: Recovery UX
 
-- [ ] Error model tests fail before implementation and pass afterward.
-- [ ] Diagnostic UI exposes no raw subscription URLs or API secrets.
-- [ ] Existing connect, disconnect, and log flows remain green.
+- [x] Error model tests fail before implementation and pass afterward.
+- [x] Diagnostic UI exposes no raw subscription URLs or API secrets.
+- [x] Existing connect, disconnect, and log flows remain green.
 
 ### Task 3: Accessibility and keyboard behavior
 
 **Acceptance criteria:**
-- [ ] Connection/error/diagnostic status uses meaningful live semantics.
-- [ ] Icon-only actions have tooltips and semantic labels.
-- [ ] Desktop dialogs have deterministic initial focus and keyboard activation.
+- [x] Connection/error/diagnostic status uses meaningful live semantics.
+- [x] Icon-only actions have tooltips and semantic labels.
+- [x] Desktop dialogs have deterministic initial focus and keyboard activation.
 
 **Verification:** semantics widget tests for shared desktop and Android paths.
 
@@ -71,10 +71,10 @@ machine.
 ### Task 4: Reproducible performance baseline
 
 **Acceptance criteria:**
-- [ ] A deterministic tool measures large subscription parse, merge, and config
+- [x] A deterministic tool measures large subscription parse, merge, and config
       generation without network access or user data.
-- [ ] JSON output includes workload sizes, iterations, and elapsed samples.
-- [ ] Documentation explains how to compare results on the same machine.
+- [x] JSON output includes workload sizes, iterations, and elapsed samples.
+- [x] Documentation explains how to compare results on the same machine.
 
 **Verification:** tool self-check plus a smoke invocation from repository scripts.
 
@@ -83,11 +83,11 @@ machine.
 ### Task 5: Service responsibility splits
 
 **Acceptance criteria:**
-- [ ] `subscription_service_base.dart` separates refresh/persistence and node
+- [x] `subscription_service_base.dart` separates refresh/persistence and node
       editing/normalization while preserving its public API.
-- [ ] Platform settings persistence/secret handling is separated where it
+- [x] Platform settings persistence/secret handling is separated where it
       removes a distinct responsibility without cross-platform over-sharing.
-- [ ] Structure guards prevent the extracted responsibilities returning to the
+- [x] Structure guards prevent the extracted responsibilities returning to the
       original monoliths.
 
 **Verification:** existing subscription/settings suites, analyzer, structure guards.
@@ -97,11 +97,11 @@ machine.
 ### Task 6: Toolchain and signing readiness
 
 **Acceptance criteria:**
-- [ ] Android uses the supported built-in Kotlin plugin path and native tests
+- [x] Android uses the supported built-in Kotlin plugin path and native tests
       still pass.
-- [ ] Release automation can optionally sign/notarize macOS and sign Windows
+- [x] Release automation can optionally sign/notarize macOS and sign Windows
       artifacts using secrets, with testable configuration validation.
-- [ ] Missing credentials keep ordinary unsigned builds working; explicit
+- [x] Missing credentials keep ordinary unsigned builds working; explicit
       signing requests fail with a clear error.
 
 **Verification:** Android Gradle tests, release-tool unit tests, workflow guards.
@@ -110,7 +110,7 @@ machine.
 
 ### Checkpoint: Complete
 
-- [ ] `scripts/verify-all.sh` passes.
+- [x] `scripts/verify-all.sh` passes.
 - [ ] Final diff passes correctness, readability, architecture, security, and
       performance review.
 - [ ] Documentation and durable project memory reflect verified facts only.
@@ -133,4 +133,3 @@ machine.
   the user until a Windows system is available.
 - Actual Developer ID, Apple notarization, and Authenticode execution: blocked
   on external credentials, but the repository automation will be prepared.
-

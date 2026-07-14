@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 新增
 
+- 三端新增统一“诊断与运行日志”中心：按核心、端口、权限、系统代理、订阅、更新和配置输出稳定错误编号、可执行中文建议与安全修复；诊断报告可重新检查和复制，并统一限制大小、隐藏订阅、令牌、节点凭据和本机敏感路径。
+- 连接错误和诊断结果补齐读屏语义、动态状态播报、工具提示与键盘焦点测试；桌面系统代理修复只在未连接且能证明状态属于 SSRVPN 时执行，不会重置其他软件的代理。
 - 多订阅批量刷新现在返回结构化的成功、部分成功或空结果；任一来源失败时保留整批旧有效状态，并在 Android、macOS、Windows 界面显示黄色部分失败提示和失败来源，而不是把已成功下载的来源一起显示为全量失败。
 - Android Mihomo 运行中意外退出时最多执行一次受控恢复，恢复过程和最终失败均通过通知明确告知；用户主动断开会使排队中的恢复失效，避免 VPN 被意外重新拉起。
 - 桌面端自动避让被占用端口后，会列出代理、SOCKS、API 中实际发生变化的端口并显示黄色提示；未发生调整时会清除旧提示。
@@ -19,11 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 安全
 
+- Release workflow 新增默认关闭的 macOS Developer ID、公证与 stapling，以及 Windows Authenticode 签名路径；只有显式启用且凭据完整时才执行，凭据缺失、Base64 无效或签名验证失败都会阻断产物，普通 ad-hoc/未签名构建保持可用。
 - 运行时远程规则集从浮动 `meta` 分支改为固定的 MetaCubeX 提交，配置仍保留内置域名与 GEOIP fallback，避免上游分支内容无审查漂移。
 - CI 与正式发布接入固定 commit 的 Gitleaks 全历史扫描；VPN URI 仅在测试夹具目录按单条规则允许，默认凭据规则仍会扫描这些文件。
 
 ### 维护
 
+- Android 应用模块迁移到 AGP 9.0.1 内置 Kotlin、Gradle 9.1 和 JDK/JVM 17；第三方 Flutter 插件暂用 Android 官方逐模块兼容开关，新增门禁防止应用重新应用旧 KGP，并修复 AGP 9 原生库打包 DSL 变化。
+- 新增离线、确定性的订阅解析/合并/配置生成性能基线与结构冒烟，记录工作负载、迭代和样本但不把不稳定的墙钟阈值塞进单元测试。
+- 将订阅节点编解码、共享诊断编排和 macOS 私有文件存储从原服务提取为独立职责，保持公共接口不变，并用体量、委托和敏感存储守卫防止职责回流。
 - `AppSettings` 的 `tunMode`、`enableSystemProxy` 和 `lastSelectedNode` 兼容别名已标记弃用并保留迁移测试，新代码统一使用 `enableTun` 与 `lastSelectedNodeName`。
 - Android VPN Service 将核心存活监控、代理选择和通知构建拆分为可独立测试的支持模块，主 Service 继续受 900 行体量守卫约束。
 - macOS 与 Windows 的响应式导航、页面容器和启动提示外壳改为共享单一实现，平台 `app.dart` 只保留各自的启动、托盘、退出和错误恢复策略。

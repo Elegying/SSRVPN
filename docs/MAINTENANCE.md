@@ -68,6 +68,27 @@ Use these boundaries before adding or removing home-screen behavior:
 | `home_node_actions_part.dart` | Android node selection, editing, persistence, and latency actions |
 | `home_public_ip_part.dart` | Android public-IP refresh state |
 
+The existing log entry opens the shared diagnostics center. Keep stable failure
+codes and report redaction in `models/app_diagnostics.dart`; keep shared checks
+in `clash_service_diagnostics.dart`; platform services may add only native
+checks and safe repairs. A repair must require SSRVPN ownership and must not
+silently disconnect an active session.
+
+## Service Responsibility Map
+
+| Scope | Responsibility |
+| --- | --- |
+| `subscription_service_base.dart` | Refresh orchestration, source merge, persistence, and public subscription API |
+| `subscription_node_codec.dart` | Node URI decoding/encoding, JSON cleanup, and normalized node editing |
+| `clash_service_base.dart` | Shared lifecycle facade and platform contract |
+| `clash_service_diagnostics.dart` | Bounded diagnostic collection, stable failure mapping, and redacted reports |
+| `SSRVPN_MacOS/lib/services/settings_service.dart` | Settings migration and serialized persistence orchestration |
+| `macos_private_file_store.dart` | Atomic private-file writes, permissions, verification, and temporary-file cleanup |
+
+The boundary guard enforces these delegations and practical line limits. A new
+part must own a coherent behavior and have characterization tests; line count
+alone is not a reason to split.
+
 Keep a new behavior in the narrowest matching file. Add a new part only when it
 creates a distinct responsibility; do not split a short cohesive implementation
 only to reduce line count. When moving code, update the matching boundary guard
@@ -83,8 +104,12 @@ and run both platform suites for shared desktop changes.
    scripts/verify-core-assets.sh
    ```
 
-4. Verify the free Android self-signed keystore secrets are available. macOS notarization and Windows code signing are intentionally not required for the current personal release posture.
-   See `docs/RELEASE_SIGNING.md` for expected secret names and workflow steps.
+4. Verify the free Android self-signed keystore secrets are available. macOS
+   notarization and Windows Authenticode remain optional: leave their enable
+   variables unset for the current personal release posture, or configure every
+   documented secret before setting the corresponding variable to exactly
+   `true`. Partial configuration intentionally fails the Release job.
+   See `docs/RELEASE_SIGNING.md` for names, order, and verification behavior.
 5. Create and push a version tag:
 
    ```bash

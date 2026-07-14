@@ -17,7 +17,9 @@
    - Windows 日志包含 PowerShell 5.1 全脚本兼容性通过记录；不得只依据 job 绿色，日志中任何脚本错误都必须对应失败步骤。
 3. 确认三端项目地址都指向：
    - `https://github.com/Elegying/SSRVPN`
-4. 确认 Release workflow 需要的 Android 自签名 secrets 已配置。没有付费 Apple/Microsoft 证书时，不配置 macOS notarization 或 Windows code signing secrets。
+4. 确认 Release workflow 需要的 Android 自签名 secrets 已配置。没有付费 Apple/Microsoft
+   证书时，保持 `ENABLE_MACOS_SIGNING` 和 `ENABLE_WINDOWS_SIGNING` 未设置或为 `false`；
+   若启用，必须先按签名说明配置全部 secrets，并把对应 variable 精确设为小写 `true`。
 5. 确认核心二进制和 geo 数据库哈希：
 
    ```bash

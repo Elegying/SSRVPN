@@ -46,9 +46,10 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
             / "wrapper"
             / "gradle-wrapper.properties"
         ).read_text(encoding="utf-8")
+        self.assertIn("gradle-9.1.0-bin.zip", wrapper)
         self.assertIn(
             "distributionSha256Sum="
-            "bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531",
+            "a17ddd85a26b6a7f5ddb71ff8b05fc5104c0202c6e64782429790c933686c806",
             wrapper,
         )
 
