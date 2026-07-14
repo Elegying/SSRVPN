@@ -18,7 +18,9 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    id("com.android.application") version "8.11.1" apply false
+    id("com.android.application") version "9.0.1" apply false
+    id("com.android.built-in-kotlin") version "9.0.1" apply false
+    // Kept only for third-party Flutter plugins that have not migrated yet.
     id("org.jetbrains.kotlin.android") version "2.2.20" apply false
 }
 

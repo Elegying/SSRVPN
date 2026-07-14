@@ -26,6 +26,7 @@ run_step "Core asset bootstrap model" scripts/check-core-asset-bootstrap.sh
 run_step "Core asset bootstrap" scripts/bootstrap-core-assets.sh
 run_step "Core binary assets" scripts/verify-core-assets.sh
 run_step "Android native bridge guards" scripts/check-android-native-bridge-guards.sh
+run_step "Android built-in Kotlin guard" scripts/check-android-built-in-kotlin.sh
 run_step "Unlock audit cancellation guards" scripts/check-unlock-test-guards.sh
 run_step "Desktop startup guards" scripts/check-desktop-startup-guards.sh
 run_step "Clash service boundaries" bash scripts/check-clash-service-boundaries.sh
