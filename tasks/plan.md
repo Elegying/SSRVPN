@@ -49,7 +49,7 @@ and runtime changes land in smaller responsibility-focused files.
 
 ### Checkpoint: Complete
 
-- [ ] Run `scripts/verify-all.sh` successfully.
+- [x] Run `scripts/verify-all.sh` successfully.
 - [ ] Review the final diff for correctness, readability, architecture, security,
       and performance.
 - [ ] Commit each verified slice, push `main`, and require green SSRVPN CI.

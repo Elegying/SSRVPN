@@ -10,7 +10,7 @@ runtime=(
 )
 native="SSRVPN_MacOS/macos/Runner"
 runner="SSRVPN_MacOS/assets/macos_tun_runner.sh"
-dashboard="packages/ssrvpn_shared/lib/desktop_ui/widgets/desktop_home_dashboard_part.dart"
+connection_options="packages/ssrvpn_shared/lib/desktop_ui/widgets/desktop_home_connection_options_part.dart"
 
 for forbidden in \
   '_grantRootPrivilege' \
@@ -160,7 +160,7 @@ PY
 
 for required in \
   'TUN 模式（连接时需管理员授权）'; do
-  if ! grep -Fq -- "$required" "$dashboard"; then
+  if ! grep -Fq -- "$required" "$connection_options"; then
     echo "macOS TUN UI guard failed: missing $required" >&2
     exit 1
   fi

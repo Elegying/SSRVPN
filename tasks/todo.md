@@ -13,8 +13,8 @@
 - [x] Add RED guards for Android home-screen boundaries.
 - [x] Split Android public-IP and runtime actions.
 - [x] Verify the Android slice.
-- [ ] Commit the Android slice.
-- [ ] Run the complete repository verification suite.
+- [x] Commit the Android slice.
+- [x] Run the complete repository verification suite.
 - [ ] Perform final multi-axis code review.
 - [ ] Push refactor commits and require green SSRVPN CI.
 - [ ] Update project health documentation and durable memory.

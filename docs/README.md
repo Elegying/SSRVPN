@@ -21,6 +21,7 @@
 - [Monorepo 迁移说明](../MIGRATION.md)
 - [项目管理](PROJECT_MANAGEMENT.md)：分支、源码与产物边界。
 - [维护指南](MAINTENANCE.md)：日常维护和合并要求。
+- [当前实现计划](../tasks/plan.md)与[执行清单](../tasks/todo.md)：本轮可维护性拆分的边界、验收和进度。
 - [测试策略](TESTING.md)：本地、CI、原生与覆盖率验证。
 - [项目健康状态](PROJECT_HEALTH.md)：最近一次审查基线、证据与已知风险。
 - [路线图](ROADMAP.md)：尚未完成的优先事项。
@@ -51,7 +52,6 @@
 - [三端正式版本审查快照](FORMAL_REVIEW_2026-07-13.zh-CN.md)
 - [GitHub 仓库整理快照](GITHUB_REPOSITORY_AUDIT.zh-CN.md)
 - [macOS 旧审查结论](../SSRVPN_MacOS/PROJECT_REPORT.md)
-- [3.0.0 旧发布计划](../tasks/plan.md)与[待办快照](../tasks/todo.md)
 - [旧项目记忆](../MEMORY.md)
 
 这些历史材料不属于“当前有效状态”检查范围。需要引用结论时，应先在当前提交上

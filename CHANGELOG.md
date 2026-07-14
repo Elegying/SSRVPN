@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `AppSettings` 的 `tunMode`、`enableSystemProxy` 和 `lastSelectedNode` 兼容别名已标记弃用并保留迁移测试，新代码统一使用 `enableTun` 与 `lastSelectedNodeName`。
 - Android VPN Service 将核心存活监控、代理选择和通知构建拆分为可独立测试的支持模块，主 Service 继续受 900 行体量守卫约束。
+- macOS 与 Windows 的响应式导航、页面容器和启动提示外壳改为共享单一实现，平台 `app.dart` 只保留各自的启动、托盘、退出和错误恢复策略。
+- 共享桌面首页按页面编排、状态展示和连接选项拆分；Android 首页按生命周期、连接动作、节点动作和公网 IP 状态拆分，并加入文件体量与必需 part 守卫，后续修改不再集中到单个大文件。
 
 ## [3.3.5] - 2026-07-14
 
