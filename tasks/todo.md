@@ -1,20 +1,21 @@
-# SSRVPN Maintainability Refactor
+# SSRVPN Reliability and Operations Upgrade
 
-- [x] Push the five previously verified commits to `origin/main`.
-- [x] Confirm the new SSRVPN CI run started.
-- [x] Add RED guards for desktop app-shell boundaries.
-- [x] Consolidate the macOS/Windows shell into a shared part.
-- [x] Verify the desktop shell slice.
-- [x] Commit the desktop shell slice.
-- [x] Add RED guards for desktop dashboard boundaries.
-- [x] Split desktop dashboard responsibilities.
-- [x] Verify the dashboard slice.
-- [x] Commit the dashboard slice.
-- [x] Add RED guards for Android home-screen boundaries.
-- [x] Split Android public-IP and runtime actions.
-- [x] Verify the Android slice.
-- [x] Commit the Android slice.
-- [x] Run the complete repository verification suite.
-- [x] Perform final multi-axis code review.
-- [x] Push refactor commits and require green SSRVPN CI.
-- [x] Update project health documentation and durable memory.
+- [x] Confirm clean synchronized `main` and current graph index.
+- [x] Map existing error, log, proxy recovery, accessibility, and performance paths.
+- [ ] Add failing shared error-model and diagnostic-report tests.
+- [ ] Implement shared typed errors and bounded redacted reports.
+- [ ] Add failing platform repair and diagnostic UI tests.
+- [ ] Implement Android/macOS/Windows diagnostics and safe repair actions.
+- [ ] Add failing accessibility semantics and keyboard tests.
+- [ ] Implement live status, labels, tooltips, and focus behavior.
+- [ ] Add deterministic performance benchmark and smoke check.
+- [ ] Add service boundary guards in RED state.
+- [ ] Split subscription and settings responsibilities without behavior changes.
+- [ ] Migrate Android to built-in Kotlin plugin and run native tests.
+- [ ] Add optional desktop signing/notarization validation and workflow steps.
+- [ ] Update changelog, project health, maintenance, testing, and signing docs.
+- [ ] Run `scripts/verify-all.sh`.
+- [ ] Complete final five-axis review and dead-code check.
+- [ ] Commit and push all verified slices.
+- [ ] Require final GitHub CI to pass on Android, macOS, and Windows.
+- [ ] Update and read back durable SSRVPN project memory.
