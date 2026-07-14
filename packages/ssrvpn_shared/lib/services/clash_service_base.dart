@@ -36,6 +36,7 @@ abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
   int _consecutiveHealthCheckFailures = 0;
   String? _lastHealthCheckError;
   String? _lastStartError;
+  String? _lastRuntimePortAdjustmentMessage;
   final ConnectionIntentTracker _connectionIntent = ConnectionIntentTracker();
   Future<void> _proxySelectionTail = Future<void>.value();
 
@@ -79,6 +80,8 @@ abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
   // ── Getters ──
   bool get isRunning => _isRunning;
   String? get lastStartError => _lastStartError;
+  String? get lastRuntimePortAdjustmentMessage =>
+      _lastRuntimePortAdjustmentMessage;
   String? get lastHealthCheckError => _lastHealthCheckError;
   String get recentLogs => _logBuffer;
   int get runtimeProxyPort => _settings.proxyPort;
@@ -110,6 +113,11 @@ abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
   @override
   void updateSettings(AppSettings settings) {
     _settings = settings;
+  }
+
+  @override
+  void setRuntimePortAdjustmentMessage(String? message) {
+    _lastRuntimePortAdjustmentMessage = message;
   }
 
   void setPaths({required String configDir, required String configPath}) {

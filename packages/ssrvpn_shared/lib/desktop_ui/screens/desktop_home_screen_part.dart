@@ -659,6 +659,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final runtimeSettings = await clashService.prepareForStart(
           settingsService.settings,
         );
+        final portAdjustmentNotice =
+            clashService.lastRuntimePortAdjustmentMessage;
         final config = clashService.generateClashConfig(
           rawYaml,
           runtimeSettings,
@@ -727,6 +729,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             _selectedNode = runtimeSelectedNode;
           });
           _glowController.repeat();
+          _showRuntimePortAdjustmentNotice(portAdjustmentNotice);
           _scheduleExitCountryResolution();
           _schedulePublicIpRefresh();
           unawaited(_autoTestAllNodes());
@@ -787,6 +790,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         });
       }
     }
+  }
+
+  void _showRuntimePortAdjustmentNotice(String? message) {
+    if (message == null || message.isEmpty || !mounted || _disposed) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppTheme.warning,
+        duration: const Duration(seconds: 5),
+      ),
+    );
   }
 
   @override

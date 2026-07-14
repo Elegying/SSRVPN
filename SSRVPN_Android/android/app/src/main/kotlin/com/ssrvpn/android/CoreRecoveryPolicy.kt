@@ -1,0 +1,22 @@
+package com.ssrvpn.android
+
+internal data class CoreRecoveryRequest(
+    val configDir: String,
+    val configPath: String,
+    val apiPort: Int,
+    val apiSecret: String,
+    val selectedNodeName: String?,
+    val attempt: Int
+)
+
+internal object CoreRecoveryPolicy {
+    private const val MAX_ATTEMPTS = 1
+
+    fun nextAttempt(currentAttempt: Int): Int? =
+        (currentAttempt + 1).takeIf { it <= MAX_ATTEMPTS }
+
+    fun recoveringMessage(attempt: Int): String =
+        "核心异常，正在自动恢复（$attempt/$MAX_ATTEMPTS）"
+
+    const val failureMessage = "核心异常，自动恢复失败，请重新连接"
+}

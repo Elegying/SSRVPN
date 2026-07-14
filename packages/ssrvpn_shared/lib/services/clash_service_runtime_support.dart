@@ -4,6 +4,7 @@ part of 'clash_service_base.dart';
 mixin _ClashRuntimeSupport {
   void updateSettings(AppSettings settings);
   void log(String message);
+  void setRuntimePortAdjustmentMessage(String? message);
 
   Future<void> writeStringAtomically(
     File file,
@@ -49,16 +50,19 @@ mixin _ClashRuntimeSupport {
     );
     updateSettings(runtime);
 
-    if (proxyPort != preferred.proxyPort ||
-        socksPort != preferred.socksPort ||
-        apiPort != preferred.apiPort) {
-      log(
-        '检测到端口占用，已为本次连接自动调整: '
-        '代理 ${preferred.proxyPort}->$proxyPort, '
-        'SOCKS ${preferred.socksPort}->$socksPort, '
-        'API ${preferred.apiPort}->$apiPort',
-      );
+    final adjustments = <String>[
+      if (proxyPort != preferred.proxyPort)
+        '代理 ${preferred.proxyPort}→$proxyPort',
+      if (socksPort != preferred.socksPort)
+        'SOCKS ${preferred.socksPort}→$socksPort',
+      if (apiPort != preferred.apiPort) 'API ${preferred.apiPort}→$apiPort',
+    ];
+    if (adjustments.isNotEmpty) {
+      final message = '端口被占用，已临时调整：${adjustments.join('，')}';
+      setRuntimePortAdjustmentMessage(message);
+      log(message);
     } else {
+      setRuntimePortAdjustmentMessage(null);
       log('端口检查通过: $proxyPort / $socksPort / $apiPort');
     }
     return runtime;

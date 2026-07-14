@@ -35,6 +35,8 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       final runtimeSettings = await clashService.prepareForStart(
         settingsService.settings,
       );
+      final portAdjustmentNotice =
+          clashService.lastRuntimePortAdjustmentMessage;
       final config = clashService.generateClashConfig(
         rawYaml,
         runtimeSettings,
@@ -89,6 +91,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
           if (!success) _resetPublicIpState();
         });
         if (success) {
+          _showRuntimePortAdjustmentNotice(portAdjustmentNotice);
           _scheduleExitCountryResolution();
           _schedulePublicIpRefresh();
         }

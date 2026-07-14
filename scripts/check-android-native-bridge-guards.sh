@@ -11,6 +11,7 @@ HOME_DART="$ROOT/SSRVPN_Android/lib/screens/home_screen.dart"
 PUBLIC_ROUTES="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/PublicIpv4Routes.kt"
 VPN_ROUTE_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnRouteInstaller.kt"
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
+CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
 
 require_text() {
   local needle="$1"
@@ -86,6 +87,10 @@ require_text "processTerminationPending.get()"
 require_text "processTerminationPending.set(true)"
 require_text "startGeneration.incrementAndGet()"
 require_text "ensureStartCurrent(startToken)"
+require_text "CoreRecoveryPolicy.nextAttempt(request.attempt)"
+require_text "stopForRecovery"
+require_text "showCoreRecoveryFailedNotification"
+require_text "EXTRA_RECOVERY_ATTEMPT"
 
 python3 - "$SERVICE" <<'PY'
 import sys
@@ -109,8 +114,9 @@ require_text "isBridgeRunningWithTimeout"
 require_text "SSRVPN-bridge-start"
 require_text "SSRVPN-bridge-stop"
 require_text "SSRVPN-bridge-is-running"
-require_text "monitorCoreRunning(startToken)"
-require_text "private fun monitorCoreRunning(startToken: Long)"
+require_text "private fun monitorCoreRunning("
+require_text "recoverFromUnexpectedCoreExit("
+require_text "ContextCompat.startForegroundService(this, restartIntent)"
 
 require_count "bridge.Bridge.init(configDir, \"config.yaml\")" 1
 require_count "bridge.Bridge.start(configPath, tunFd)" 1
@@ -171,21 +177,24 @@ require_home_text "clashService.requestConnectionIntent(false)"
 require_home_text "UpdateService.isUpdateUiBusy"
 require_home_text "_updateCheckTimer?.cancel()"
 
-python3 - "$SERVICE" "$PUBLIC_ROUTES" <<'PY'
+python3 - "$SERVICE" "$PUBLIC_ROUTES" "$CORE_LIVENESS_MONITOR" <<'PY'
 import ipaddress
 import re
 import sys
 
 source = open(sys.argv[1], encoding="utf-8").read()
 route_source = open(sys.argv[2], encoding="utf-8").read()
+liveness_source = open(sys.argv[3], encoding="utf-8").read()
 wait_start = source.index("private fun waitForPendingStart(): Boolean")
 wait_end = source.index("private fun stopBridgeWithTimeout()", wait_start)
 if "BRIDGE_START_TIMEOUT_MS" in source[wait_start:wait_end]:
     raise SystemExit("Android cancellation still waits for the full bridge start timeout")
-monitor_start = source.index("private fun monitorCoreRunning(startToken: Long)")
+monitor_start = source.index("private fun monitorCoreRunning(")
 monitor_end = source.index("private fun isBridgeRunningWithTimeout", monitor_start)
 monitor = source[monitor_start:monitor_end]
-if "startToken != startGeneration.get()" not in monitor:
+if "CoreLivenessMonitor.waitForUnexpectedExit" not in monitor:
+    raise SystemExit("Android VPN service does not delegate core liveness monitoring")
+if "startToken != currentGeneration()" not in liveness_source:
     raise SystemExit("Android core monitor is not scoped to its start generation")
 routes = [
     ipaddress.ip_network(f"{address}/{prefix}")

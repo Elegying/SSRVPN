@@ -9,6 +9,42 @@ import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
 
 void main() {
+  group('ClashServiceBase runtime ports', () {
+    test('reports temporary port adjustments and clears stale notices',
+        () async {
+      final occupied = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+        shared: false,
+      );
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      addTearDown(occupied.close);
+
+      final runtime = await service.prepareForStart(
+        AppSettings(
+          proxyPort: occupied.port,
+          socksPort: occupied.port,
+          apiPort: occupied.port,
+        ),
+      );
+
+      expect(
+        service.lastRuntimePortAdjustmentMessage,
+        allOf(
+          contains('端口被占用，已临时调整'),
+          contains('代理 ${occupied.port}→${runtime.proxyPort}'),
+          contains('SOCKS ${occupied.port}→${runtime.socksPort}'),
+          contains('API ${occupied.port}→${runtime.apiPort}'),
+        ),
+      );
+
+      await occupied.close();
+      await service.prepareForStart(runtime);
+      expect(service.lastRuntimePortAdjustmentMessage, isNull);
+    });
+  });
+
   group('ClashServiceBase connectivity verification', () {
     test('suppresses a transient HTTP failure after a successful retry',
         () async {
