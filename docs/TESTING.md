@@ -19,6 +19,7 @@ make verify
 - 明显密钥模式扫描、固定 commit 的 Gitleaks 全历史扫描和发布工具单元测试；
   `.gitleaks.toml` 仅对测试目录中的合成 VPN URI 做单规则允许，默认凭据规则不跳过测试目录。
 - Flutter workspace 依赖解析与零 analyzer finding。
+- 订阅解析、合并与配置生成关键路径的可执行性能冒烟及结构校验。
 - `ssrvpn_shared`、Android、macOS、Windows 的覆盖率测试。
 - Android Kotlin/JUnit 原生测试。
 
@@ -88,7 +89,8 @@ gitleaks git --config .gitleaks.toml --redact --log-opts=--all
 
 # 产物与性能
 scripts/smoke-release-artifacts.sh --allow-missing
-scripts/performance-baseline.sh
+make performance
+cd packages/ssrvpn_shared && dart run tool/benchmark_critical_paths.dart
 ```
 
 从平台目录执行后续根脚本时注意恢复仓库根目录；CI 与交接记录必须写出实际执行命令、平台、退出码和跳过项。

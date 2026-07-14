@@ -1,4 +1,4 @@
-.PHONY: status sync assets verify deps pub-get analyze test format feature
+.PHONY: status sync assets verify deps pub-get analyze test performance format feature
 
 status:
 	@scripts/project-status.sh
@@ -23,6 +23,9 @@ analyze:
 
 test:
 	@scripts/workspace.sh test
+
+performance:
+	@scripts/check-performance-baseline.sh
 
 format:
 	@scripts/workspace.sh format

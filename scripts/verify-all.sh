@@ -48,6 +48,7 @@ run_step "Release tooling tests" python3 -m unittest \
   scripts/test_windows_proxy_shutdown_recovery.py
 
 run_step "Workspace pub get" flutter pub get
+run_step "Critical-path performance smoke" scripts/check-performance-baseline.sh
 run_step "Workspace analyze" flutter analyze
 run_step "Shared tests" run_in packages/ssrvpn_shared flutter test --coverage
 run_step "Shared coverage thresholds" \
