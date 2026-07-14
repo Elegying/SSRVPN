@@ -15,7 +15,7 @@
 - [x] Add optional desktop signing/notarization validation and workflow steps.
 - [x] Update changelog, project health, maintenance, testing, and signing docs.
 - [x] Run `scripts/verify-all.sh`.
-- [ ] Complete final five-axis review and dead-code check.
+- [x] Complete final five-axis review and dead-code check.
 - [ ] Commit and push all verified slices.
 - [ ] Require final GitHub CI to pass on Android, macOS, and Windows.
-- [ ] Update and read back durable SSRVPN project memory.
+- [x] Update and read back durable SSRVPN project memory.

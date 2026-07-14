@@ -111,9 +111,9 @@ machine.
 ### Checkpoint: Complete
 
 - [x] `scripts/verify-all.sh` passes.
-- [ ] Final diff passes correctness, readability, architecture, security, and
+- [x] Final diff passes correctness, readability, architecture, security, and
       performance review.
-- [ ] Documentation and durable project memory reflect verified facts only.
+- [x] Documentation and durable project memory reflect verified facts only.
 - [ ] `main` is pushed and final GitHub Android/macOS/Windows CI is green.
 
 ## Risks and Mitigations
