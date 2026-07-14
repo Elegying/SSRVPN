@@ -35,13 +35,13 @@ make verify
 
 | 目标 | 最近测量 | 门槛 |
 | --- | ---: | ---: |
-| `ssrvpn_shared` | 70.85% | 65% |
+| `ssrvpn_shared` | 72.12% | 65% |
 | Android | 58.71% | 50% |
 | macOS | 47.53% | 30% |
 | Windows | 41.06% | 30% |
 
-2026-07-14 最近一次完整本地运行通过共享 269 项、Android Flutter 100 项、macOS
-73 项、Windows 64 项和发布工具 55 项；Windows 的真实 DPAPI/`MoveFileExW` 及 Mihomo
+2026-07-14 最近一次完整本地运行通过共享 273 项、Android Flutter 100 项、macOS
+73 项、Windows 64 项和发布工具 58 项；Windows 的真实 DPAPI/`MoveFileExW` 及 Mihomo
 集成测试因当前主机是 macOS 按条件跳过，已保留在 Windows CI 中执行。Android 原生
 JUnit/Gradle 门禁同时通过。测量值会随可执行行变化；是否健康以同一提交上的
 `make verify` 输出为准，不手工追求百分比。
