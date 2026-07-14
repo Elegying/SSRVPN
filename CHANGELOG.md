@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 新增
+
+- 多订阅批量刷新现在返回结构化的成功、部分成功或空结果；任一来源失败时保留整批旧有效状态，并在 Android、macOS、Windows 界面显示黄色部分失败提示和失败来源，而不是把已成功下载的来源一起显示为全量失败。
+- Android Mihomo 运行中意外退出时最多执行一次受控恢复，恢复过程和最终失败均通过通知明确告知；用户主动断开会使排队中的恢复失效，避免 VPN 被意外重新拉起。
+- 桌面端自动避让被占用端口后，会列出代理、SOCKS、API 中实际发生变化的端口并显示黄色提示；未发生调整时会清除旧提示。
+
+### 修复
+
+- 正式发布先备份并推广 OSS 固定下载通道，再公开已校验的 GitHub Draft Release；若 GitHub 明确未转为正式 Release，会自动恢复 OSS，状态无法确认时保留恢复备份并停止流程，避免 GitHub 新版本已经公开而网站仍指向旧安装包。
+
+### 安全
+
+- 运行时远程规则集从浮动 `meta` 分支改为固定的 MetaCubeX 提交，配置仍保留内置域名与 GEOIP fallback，避免上游分支内容无审查漂移。
+- CI 与正式发布接入固定 commit 的 Gitleaks 全历史扫描；VPN URI 仅在测试夹具目录按单条规则允许，默认凭据规则仍会扫描这些文件。
+
+### 维护
+
+- `AppSettings` 的 `tunMode`、`enableSystemProxy` 和 `lastSelectedNode` 兼容别名已标记弃用并保留迁移测试，新代码统一使用 `enableTun` 与 `lastSelectedNodeName`。
+- Android VPN Service 将核心存活监控、代理选择和通知构建拆分为可独立测试的支持模块，主 Service 继续受 900 行体量守卫约束。
+
 ## [3.3.5] - 2026-07-14
 
 ### 修复

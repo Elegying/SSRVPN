@@ -36,12 +36,13 @@ class AppSettings {
     this.apiSecret = '',
     this.proxyMode = ProxyMode.rule,
     bool? enableTun,
-    bool? tunMode,
+    @Deprecated('Use enableTun instead.') bool? tunMode,
+    @Deprecated('Use enableTun with inverse meaning instead.')
     bool? enableSystemProxy,
     String tunStack = 'gvisor',
     this.latencyTestUrl = AppConstants.defaultLatencyTestUrl,
     String? lastSelectedNodeName,
-    String? lastSelectedNode,
+    @Deprecated('Use lastSelectedNodeName instead.') String? lastSelectedNode,
     this.latencyTestTimeout = 5000,
     Iterable<Object?>? forceProxySites,
   })  : enableTun = enableTun ??
@@ -53,13 +54,19 @@ class AppSettings {
 
   // ── 便捷 getter/setter ──
 
+  @Deprecated('Use lastSelectedNodeName instead.')
   String? get lastSelectedNode => lastSelectedNodeName;
+  @Deprecated('Use lastSelectedNodeName instead.')
   set lastSelectedNode(String? value) => lastSelectedNodeName = value;
 
+  @Deprecated('Use enableTun instead.')
   bool get tunMode => enableTun;
+  @Deprecated('Use enableTun instead.')
   set tunMode(bool value) => enableTun = value;
 
+  @Deprecated('Use enableTun with inverse meaning instead.')
   bool get enableSystemProxy => !enableTun;
+  @Deprecated('Use enableTun with inverse meaning instead.')
   set enableSystemProxy(bool value) => enableTun = !value;
 
   // ── copyWith ──
@@ -71,12 +78,13 @@ class AppSettings {
     String? apiSecret,
     ProxyMode? proxyMode,
     bool? enableTun,
-    bool? tunMode,
+    @Deprecated('Use enableTun instead.') bool? tunMode,
+    @Deprecated('Use enableTun with inverse meaning instead.')
     bool? enableSystemProxy,
     String? tunStack,
     String? latencyTestUrl,
     String? lastSelectedNodeName,
-    String? lastSelectedNode,
+    @Deprecated('Use lastSelectedNodeName instead.') String? lastSelectedNode,
     int? latencyTestTimeout,
     Iterable<Object?>? forceProxySites,
   }) {

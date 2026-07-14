@@ -62,3 +62,14 @@ and shares them with platform jobs through GitHub Actions artifacts.
 
 Windows executable verification is also performed by
 `SSRVPN_Windows/tool/package_windows.ps1` when producing the portable ZIP.
+
+## Runtime rule providers
+
+Generated Mihomo configurations use the MetaCubeX `geoip/cn.mrs` and
+`geosite/cn.mrs` rule providers pinned to commit
+`200e6a86736cfab29aae7b07dc266e59f13bc13d`; they do not follow the mutable
+`meta` branch. The generated rules also keep built-in `DOMAIN-SUFFIX,cn` and
+`GEOIP,CN` fallbacks, so a temporary provider download failure does not remove
+the baseline China-direct routing behavior. Updating the pinned commit requires
+reviewing both files and updating the configuration regression test in the same
+change.

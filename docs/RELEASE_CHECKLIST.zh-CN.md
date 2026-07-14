@@ -27,6 +27,7 @@
 
    ```bash
    scripts/check-secrets.sh
+   gitleaks git --config .gitleaks.toml --redact --log-opts=--all
    make verify
    ```
 7. 如本地已有安装包产物，做一次结构 smoke：
@@ -72,6 +73,9 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    ```
 
 2. 等待 GitHub Actions 的 `Release` workflow 完成。
+   工作流会先创建 Draft Release、上传并验证 OSS 不可变目录，然后备份并推广
+   OSS 固定下载通道，最后公开 GitHub Release。GitHub 未能明确转为正式 Release
+   时不得人工推进；按失败日志确认自动恢复结果或使用保留的恢复 Artifact。
 
 ## 发布后
 

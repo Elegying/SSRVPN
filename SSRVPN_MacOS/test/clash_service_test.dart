@@ -41,7 +41,7 @@ void main() {
     test('后续连接将上次使用的有效节点设为默认节点', () {
       final config = ClashService().generateClashConfig(
         _subscriptionYaml,
-        AppSettings(lastSelectedNode: '节点 B'),
+        AppSettings(lastSelectedNodeName: '节点 B'),
       );
 
       final proxyGroup = config.substring(
@@ -59,7 +59,7 @@ void main() {
         _subscriptionYaml,
         AppSettings(
           proxyMode: ProxyMode.global,
-          lastSelectedNode: '节点 B',
+          lastSelectedNodeName: '节点 B',
         ),
       );
 
@@ -87,11 +87,11 @@ void main() {
     test('TUN 配置只在开启 TUN 模式时写入', () {
       final systemProxyConfig = ClashService().generateClashConfig(
         _subscriptionYaml,
-        AppSettings(tunMode: false),
+        AppSettings(enableTun: false),
       );
       final tunConfig = ClashService().generateClashConfig(
         _subscriptionYaml,
-        AppSettings(tunMode: true),
+        AppSettings(enableTun: true),
       );
 
       expect(systemProxyConfig, isNot(contains('\ntun:\n')));
@@ -109,7 +109,7 @@ void main() {
     test('上次节点已失效时回退到第一个节点', () {
       final config = ClashService().generateClashConfig(
         _subscriptionYaml,
-        AppSettings(lastSelectedNode: '已删除节点'),
+        AppSettings(lastSelectedNodeName: '已删除节点'),
       );
 
       final proxyGroup = config.substring(
@@ -148,13 +148,13 @@ void main() {
       addTearDown(() => tempDir.delete(recursive: true));
       final service = ClashService();
       await service.init(
-        AppSettings(tunMode: true),
+        AppSettings(enableTun: true),
         dataDir: tempDir.path,
         skipCoreProbes: true,
       );
       final config = service.generateClashConfig(
         _subscriptionYaml,
-        AppSettings(tunMode: true),
+        AppSettings(enableTun: true),
       );
       await service.writeConfig(config);
 
@@ -209,7 +209,7 @@ void main() {
   group('macOS core privilege boundary', () {
     test('TUN reaches the normal initialized-service boundary', () async {
       final service = ClashService()
-        ..updateSettings(AppSettings(tunMode: true));
+        ..updateSettings(AppSettings(enableTun: true));
 
       expect(await service.start(), isFalse);
       expect(service.lastStartError, 'Mihomo service is not initialized');
@@ -217,7 +217,7 @@ void main() {
 
     test('system proxy mode keeps the normal startup path', () async {
       final service = ClashService()
-        ..updateSettings(AppSettings(tunMode: false));
+        ..updateSettings(AppSettings(enableTun: false));
 
       expect(await service.start(), isFalse);
       expect(service.lastStartError, 'Mihomo service is not initialized');

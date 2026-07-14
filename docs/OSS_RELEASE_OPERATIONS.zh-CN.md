@@ -2,9 +2,9 @@
 
 SSRVPN 的正式发布仍由 Git tag 触发。GitHub Actions 先构建并校验三端产物，
 创建暂不公开的 GitHub Draft Release，再把同一批文件上传到阿里云 OSS 的
-不可变版本目录。不可变文件验证完成后才公开 GitHub Release；最后更新网站
-固定下载文件和客户端 `latest.json` 指针。客户端优先读取 OSS，只有 OSS 无
-有效更新时才回退 GitHub。
+不可变版本目录。不可变文件验证完成后，工作流先备份并推广网站固定下载文件与
+客户端 `latest.json`，再立即公开 GitHub Release。这样 GitHub 新版本不会先于
+网站下载通道公开；客户端优先读取 OSS，只有 OSS 无有效更新时才回退 GitHub。
 
 ## 当前配置
 
@@ -40,10 +40,11 @@ ssrvpn/
 ```
 
 `releases/vX.Y.Z/` 是不可变版本目录；`ssrvpn/latest.json` 是客户端读取的
-唯一最新版本指针。工作流总是先上传并验证不可变产物、公开对应 GitHub 正式
-Release，再替换网站固定下载文件，最后替换这个指针，避免客户端看到半套发布
-文件或引用尚未公开的 GitHub 版本。同一 tag 重跑时只接受字节完全相同的文件，
-禁止覆盖已存在但内容不同的版本对象。
+唯一最新版本指针。工作流总是先上传并验证不可变产物，再以带备份的事务推广
+固定下载文件和指针，最后把对应 GitHub Draft Release 转为正式版本。若 GitHub
+明确仍是 draft 或 prerelease，工作流自动恢复 OSS；若 GitHub 状态无法确认，
+不会盲目回滚，而是失败并保留 7 天恢复 Artifact 等待人工核实。同一 tag 重跑时
+只接受字节完全相同的文件，禁止覆盖已存在但内容不同的版本对象。
 
 `ssrvpn/downloads/` 是网站和人工分享使用的固定下载地址。每次正式发布都会
 用已经校验过的同一批文件覆盖并重新下载比对，同时设置 `Cache-Control:
@@ -96,6 +97,9 @@ Bucket、Endpoint、公开读取和上传权限都可用。
   重新运行失败任务。旧指针仍然有效，客户端会继续使用旧 OSS 版本或 GitHub
   备用源。若固定下载文件推广阶段恢复失败，工作流会失败并上传保留 7 天的
   `oss-public-channel-recovery-*` 备份 Artifact，按日志中对象清单恢复后再重跑。
+- GitHub Release 最终状态无法读取：先在 GitHub 页面确认该 tag 是 draft、
+  prerelease 还是正式版本，再决定是否使用恢复 Artifact；不得在状态不明时直接
+  回滚，否则可能造成已公开 GitHub 版本再次指向旧 OSS 通道。
 - 已发布版本确认有严重问题：先把 GitHub Release 标记为 prerelease，再在
   GitHub Actions 手动运行 `Roll back OSS public channel`，输入上一个稳定 tag。
   该工作流会先验证不可变版本目录，恢复网站使用的四个固定下载包及校验文件，

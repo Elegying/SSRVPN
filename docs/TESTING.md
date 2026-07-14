@@ -16,7 +16,8 @@ make verify
 - Mihomo/GeoIP 资源的可复现引导与 SHA256。
 - Android native bridge、解锁取消、桌面启动、Clash 职责、macOS 特权和 Windows launcher 的静态边界。
 - 全部受版本控制 PowerShell 脚本的 Windows PowerShell 5.1 解析与已知参数集兼容性，以及 CI/Release 子进程退出码的逐次传播。
-- 明显密钥模式扫描和发布工具单元测试。
+- 明显密钥模式扫描、固定 commit 的 Gitleaks 全历史扫描和发布工具单元测试；
+  `.gitleaks.toml` 仅对测试目录中的合成 VPN URI 做单规则允许，默认凭据规则不跳过测试目录。
 - Flutter workspace 依赖解析与零 analyzer finding。
 - `ssrvpn_shared`、Android、macOS、Windows 的覆盖率测试。
 - Android Kotlin/JUnit 原生测试。
@@ -81,6 +82,9 @@ cd SSRVPN_Windows && flutter test --coverage
 
 # Android 原生
 scripts/test-android-native.sh
+
+# 本地全历史密钥扫描（CI/Release 也会执行）
+gitleaks git --config .gitleaks.toml --redact --log-opts=--all
 
 # 产物与性能
 scripts/smoke-release-artifacts.sh --allow-missing

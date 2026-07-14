@@ -38,10 +38,9 @@ void main() {
       final s = AppSettings();
       expect(s.proxyPort, 7890);
       expect(s.apiPort, 9090);
-      expect(s.tunMode, false);
-      expect(s.enableSystemProxy, true);
+      expect(s.enableTun, false);
       expect(s.proxyMode, ProxyMode.rule);
-      expect(s.lastSelectedNode, isNull);
+      expect(s.lastSelectedNodeName, isNull);
       expect(s.forceProxySites, hasLength(AppSettings.forceProxySiteLimit));
       expect(s.forceProxySites.every((site) => site.isEmpty), isTrue);
     });
@@ -50,34 +49,32 @@ void main() {
       final s = AppSettings(
         proxyPort: 8080,
         apiSecret: 'secret',
-        tunMode: true,
+        enableTun: true,
         proxyMode: ProxyMode.global,
-        lastSelectedNode: '节点 B',
+        lastSelectedNodeName: '节点 B',
         forceProxySites: const ['https://example.com/path', 'youtube.com'],
       );
       final restored = AppSettings.fromJson(s.toJson());
       expect(restored.proxyPort, 8080);
       expect(restored.apiSecret, 'secret');
-      expect(restored.tunMode, true);
+      expect(restored.enableTun, true);
       expect(restored.proxyMode, ProxyMode.global);
-      expect(restored.lastSelectedNode, '节点 B');
+      expect(restored.lastSelectedNodeName, '节点 B');
       expect(restored.forceProxySites[0], 'https://example.com/path');
       expect(restored.forceProxySites[1], 'youtube.com');
     });
 
-    test('enableSystemProxy 与 TUN 模式互为反向兼容字段', () {
+    test('旧 enableSystemProxy JSON 迁移为反向 TUN 字段', () {
       final disabledSystemProxy =
           AppSettings.fromJson({'enableSystemProxy': false});
       expect(disabledSystemProxy.enableTun, true);
-      expect(disabledSystemProxy.enableSystemProxy, false);
 
       final systemProxy = disabledSystemProxy.copyWith(
-        enableSystemProxy: true,
+        enableTun: false,
       );
       expect(systemProxy.enableTun, false);
-      expect(systemProxy.enableSystemProxy, true);
 
-      systemProxy.enableSystemProxy = false;
+      systemProxy.enableTun = true;
       expect(systemProxy.enableTun, true);
     });
 
@@ -87,10 +84,9 @@ void main() {
     });
 
     test('macOS 保留用户选择的 TUN 设置', () {
-      final settings = AppSettings(tunMode: true);
+      final settings = AppSettings(enableTun: true);
 
       expect(settings.enableTun, isTrue);
-      expect(settings.enableSystemProxy, isFalse);
     });
 
     test('强制代理网站只接受有效主机名或 IP', () {
