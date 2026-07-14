@@ -421,7 +421,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             package_script,
         )
         self.assertIn("[version]'6.5.0'", installer_script)
-        self.assertIn("VersionInfo.ProductVersion", installer_script)
+        self.assertIn("Compiler engine version:", installer_script)
+        self.assertIn("$versionInfo.FileVersion", installer_script)
+        self.assertIn("$versionInfo.ProductVersion", installer_script)
+        self.assertIn("-gt [version]'0.0.0.0'", installer_script)
         self.assertIn("Inno Setup 6.5", installer_script)
 
     def test_windows_update_checker_selects_the_installer(self) -> None:

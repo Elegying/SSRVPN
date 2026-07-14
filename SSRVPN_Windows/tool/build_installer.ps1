@@ -63,12 +63,31 @@ if (-not $compiler) {
 }
 
 $minimumCompilerVersion = [version]'6.5.0'
-$productVersion = (Get-Item -LiteralPath $compiler).VersionInfo.ProductVersion
-$versionMatch = [regex]::Match([string]$productVersion, '\d+(?:\.\d+){1,3}')
-if (-not $versionMatch.Success) {
+$versionInfo = (Get-Item -LiteralPath $compiler).VersionInfo
+$compilerBanner = @(& $compiler '/?' 2>&1)
+$compilerBannerText = ($compilerBanner | ForEach-Object { [string]$_ }) -join "`n"
+$versionMatch = [regex]::Match(
+  $compilerBannerText,
+  'Compiler engine version:\s*(?:Inno Setup\s+)?(\d+(?:\.\d+){1,3})'
+)
+$compilerVersionText = if ($versionMatch.Success) {
+  $versionMatch.Groups[1].Value
+} else {
+  $fileVersionText = @(
+    $versionInfo.FileVersion,
+    $versionInfo.ProductVersion
+  ) | Where-Object {
+    $_ -and $_ -match '\d+(?:\.\d+){1,3}' -and
+      [version]$matches[0] -gt [version]'0.0.0.0'
+  } | Select-Object -First 1
+  if ($fileVersionText) {
+    [regex]::Match([string]$fileVersionText, '\d+(?:\.\d+){1,3}').Value
+  }
+}
+if (-not $compilerVersionText) {
   throw "Unable to determine Inno Setup compiler version: $compiler"
 }
-$compilerVersion = [version]$versionMatch.Value
+$compilerVersion = [version]$compilerVersionText
 if ($compilerVersion -lt $minimumCompilerVersion) {
   throw (
     "Inno Setup 6.5 or newer is required; found $compilerVersion at $compiler"
