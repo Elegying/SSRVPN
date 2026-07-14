@@ -20,6 +20,7 @@ import '../utils/connection_intent_tracker.dart';
 import 'public_ip_info_service.dart';
 
 part 'clash_service_config_support.dart';
+part 'clash_service_diagnostics.dart';
 part 'clash_service_runtime_support.dart';
 
 /// Clash API 交互的公共逻辑基类
@@ -30,7 +31,8 @@ part 'clash_service_runtime_support.dart';
 /// - 平台特定的文件路径和资源释放
 ///
 /// 公共能力（API 调用、延迟测试、日志、状态管理）全部在此实现。
-abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
+abstract class ClashServiceBase
+    with _ClashConfigSupport, _ClashRuntimeSupport, _ClashDiagnosticsSupport {
   // ── 状态 ──
   bool _isRunning = false;
   bool _healthCheckInProgress = false;
@@ -78,21 +80,16 @@ abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
   @protected
   bool get enablePeriodicHealthMonitor => true;
 
-  /// Platforms override this with their trusted core-file check.
-  @protected
-  Future<bool> diagnosticCoreAvailable() async => true;
-
-  /// Platforms can append checks for state they exclusively own, such as the
-  /// system-proxy recovery journal. Diagnostics must not mutate that state.
-  @protected
-  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => const [];
-
   // ── Getters ──
+  @override
   bool get isRunning => _isRunning;
+  @override
   String? get lastStartError => _lastStartError;
+  @override
   String? get lastRuntimePortAdjustmentMessage =>
       _lastRuntimePortAdjustmentMessage;
   String? get lastHealthCheckError => _lastHealthCheckError;
+  @override
   String get recentLogs => _logBuffer;
   int get runtimeProxyPort => _settings.proxyPort;
   int get runtimeSocksPort => _settings.socksPort;
@@ -100,6 +97,7 @@ abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
   AppSettings get settings => _settings;
   bool get connectionDesired => _connectionIntent.desired;
   String get configDir => _configDir;
+  @override
   String get configPath => _configPath;
 
   int requestConnectionIntent(bool connected) =>
@@ -110,140 +108,6 @@ abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
 
   bool isConnectionIntentCurrent(int generation, {required bool connected}) =>
       _connectionIntent.isCurrent(generation, desired: connected);
-
-  /// Runs local, read-only checks and returns a bounded, redactable report.
-  Future<AppDiagnosticReport> runDiagnostics({
-    DateTime Function()? clock,
-  }) async {
-    final checks = <AppDiagnosticCheck>[];
-
-    var coreAvailable = false;
-    try {
-      coreAvailable = await diagnosticCoreAvailable();
-    } catch (_) {}
-    checks.add(
-      AppDiagnosticCheck(
-        id: 'core',
-        title: '运行核心',
-        status: coreAvailable
-            ? AppDiagnosticStatus.passed
-            : AppDiagnosticStatus.failed,
-        summary: coreAvailable ? '核心文件可用' : '核心文件缺失或未通过安全检查',
-        errorCode: coreAvailable ? null : AppErrorCode.coreMissing,
-      ),
-    );
-
-    final configuredPath = _configPath.trim();
-    if (configuredPath.isEmpty) {
-      checks.add(
-        const AppDiagnosticCheck(
-          id: 'config',
-          title: '运行配置',
-          status: AppDiagnosticStatus.skipped,
-          summary: '应用尚未完成初始化',
-        ),
-      );
-    } else {
-      var configAvailable = false;
-      try {
-        configAvailable =
-            await FileSystemEntity.type(configuredPath, followLinks: false) ==
-                FileSystemEntityType.file;
-      } catch (_) {}
-      checks.add(
-        AppDiagnosticCheck(
-          id: 'config',
-          title: '运行配置',
-          status: configAvailable
-              ? AppDiagnosticStatus.passed
-              : AppDiagnosticStatus.failed,
-          summary: configAvailable ? '配置文件可用' : '配置文件不存在或不是普通文件',
-          errorCode: configAvailable ? null : AppErrorCode.configInvalid,
-        ),
-      );
-    }
-
-    if (!_isRunning) {
-      checks.add(
-        const AppDiagnosticCheck(
-          id: 'runtime',
-          title: '核心通信',
-          status: AppDiagnosticStatus.skipped,
-          summary: '当前未连接，无需检查核心 API',
-        ),
-      );
-    } else {
-      var healthy = false;
-      try {
-        healthy = await healthCheck();
-      } catch (_) {}
-      checks.add(
-        AppDiagnosticCheck(
-          id: 'runtime',
-          title: '核心通信',
-          status:
-              healthy ? AppDiagnosticStatus.passed : AppDiagnosticStatus.failed,
-          summary: healthy ? '本地核心 API 响应正常' : '本地核心 API 无法访问',
-          errorCode: healthy ? null : AppErrorCode.coreUnavailable,
-        ),
-      );
-    }
-
-    final startError = _lastStartError?.trim();
-    if (startError != null && startError.isNotEmpty) {
-      final failure = AppFailure.fromMessage(startError);
-      checks.add(
-        AppDiagnosticCheck(
-          id: 'last_start',
-          title: '最近一次启动',
-          status: AppDiagnosticStatus.warning,
-          summary: '${failure.message} ${failure.recommendedAction}',
-          errorCode: failure.code,
-        ),
-      );
-    }
-
-    final portNotice = _lastRuntimePortAdjustmentMessage?.trim();
-    if (portNotice != null && portNotice.isNotEmpty) {
-      checks.add(
-        const AppDiagnosticCheck(
-          id: 'ports',
-          title: '运行端口',
-          status: AppDiagnosticStatus.warning,
-          summary: '启动时已自动改用可用的本地端口',
-          errorCode: AppErrorCode.portOccupied,
-        ),
-      );
-    }
-
-    try {
-      checks.addAll(await platformDiagnosticChecks());
-    } catch (_) {
-      checks.add(
-        const AppDiagnosticCheck(
-          id: 'platform',
-          title: '平台状态',
-          status: AppDiagnosticStatus.warning,
-          summary: '平台检查未能完成，未修改任何系统状态',
-          errorCode: AppErrorCode.unknown,
-        ),
-      );
-    }
-
-    return AppDiagnosticReport(
-      generatedAt: (clock ?? DateTime.now)(),
-      checks: checks,
-      recentLogs: _logBuffer,
-    );
-  }
-
-  /// Executes a narrowly scoped repair. Platforms opt in per owned state.
-  Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async {
-    return const AppRepairResult(
-      success: false,
-      message: '当前平台没有可执行的安全修复操作。',
-    );
-  }
 
   // ── 初始化 ──
 
@@ -702,6 +566,7 @@ abstract class ClashServiceBase with _ClashConfigSupport, _ClashRuntimeSupport {
   // ── 健康检查 ──
 
   /// 健康检查（HTTP 请求验证 API 可用性）
+  @override
   Future<bool> healthCheck() async {
     try {
       final client = _apiClient;

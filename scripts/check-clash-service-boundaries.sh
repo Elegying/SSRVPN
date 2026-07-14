@@ -10,7 +10,11 @@ from pathlib import Path
 services = {
     Path("packages/ssrvpn_shared/lib/services/clash_service_base.dart"): (
         750,
-        ("clash_service_config_support.dart", "clash_service_runtime_support.dart"),
+        (
+            "clash_service_config_support.dart",
+            "clash_service_diagnostics.dart",
+            "clash_service_runtime_support.dart",
+        ),
     ),
     Path("SSRVPN_MacOS/lib/services/clash_service.dart"): (
         550,
@@ -33,6 +37,27 @@ for path, (limit, parts) in services.items():
             raise SystemExit(f"{path}: missing responsibility part {part}")
         if f"part '{part}';" not in source:
             raise SystemExit(f"{path}: does not declare part '{part}'")
+
+subscription_base = Path(
+    "packages/ssrvpn_shared/lib/services/subscription_service_base.dart"
+)
+subscription_source = subscription_base.read_text(encoding="utf-8")
+if len(subscription_source.splitlines()) > 800:
+    raise SystemExit(f"{subscription_base}: subscription orchestration boundary regressed")
+if "subscription_node_codec.dart" not in subscription_source:
+    raise SystemExit(f"{subscription_base}: node codec responsibility is not delegated")
+if "_cleanJsonMap" in subscription_source:
+    raise SystemExit(f"{subscription_base}: node normalization leaked back into orchestration")
+
+macos_settings = Path("SSRVPN_MacOS/lib/services/settings_service.dart")
+macos_settings_source = macos_settings.read_text(encoding="utf-8")
+if len(macos_settings_source.splitlines()) > 680:
+    raise SystemExit(f"{macos_settings}: settings orchestration boundary regressed")
+macos_store = macos_settings.with_name("macos_private_file_store.dart")
+if not macos_store.is_file():
+    raise SystemExit(f"{macos_settings}: missing private file-store responsibility")
+if "part 'macos_private_file_store.dart';" not in macos_settings_source:
+    raise SystemExit(f"{macos_settings}: private file-store part is not declared")
 
 for platform in ("SSRVPN_MacOS", "SSRVPN_Windows"):
     service = Path(platform) / "lib/services/clash_service.dart"

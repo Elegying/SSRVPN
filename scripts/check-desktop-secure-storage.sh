@@ -21,10 +21,12 @@ for platform in SSRVPN_MacOS SSRVPN_Windows; do
 done
 
 macos_settings="SSRVPN_MacOS/lib/services/settings_service.dart"
-require_text "$macos_settings" ".api-secret"
-require_text "$macos_settings" "followLinks: false"
-require_text "$macos_settings" "_chmod('600'"
-require_text "$macos_settings" "_chmod('700'"
+macos_store="SSRVPN_MacOS/lib/services/macos_private_file_store.dart"
+require_text "$macos_settings" "part 'macos_private_file_store.dart'"
+require_text "$macos_store" ".api-secret"
+require_text "$macos_store" "followLinks: false"
+require_text "$macos_store" "_chmod('600'"
+require_text "$macos_store" "_chmod('700'"
 require_text "$macos_settings" "_ensurePrivateDataDirectory"
 require_text "$macos_settings" "_removeLegacySharedPreferences"
 require_text "$macos_settings" "_syncDataDirectory"

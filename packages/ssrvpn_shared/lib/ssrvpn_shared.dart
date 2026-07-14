@@ -17,6 +17,7 @@ export 'controllers/home_latency_controller.dart';
 export 'controllers/home_exit_country_controller.dart';
 export 'controllers/subscription_screen_controller.dart';
 export 'services/subscription_parser.dart';
+export 'services/subscription_node_codec.dart';
 export 'services/subscription_yaml_merger.dart';
 export 'services/unlock_test_service.dart';
 export 'services/clash_config_generator.dart';
