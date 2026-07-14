@@ -15,6 +15,7 @@ make verify
 - 共享包导入、版本同步、安装包内指南和当前文档一致性。
 - Mihomo/GeoIP 资源的可复现引导与 SHA256。
 - Android native bridge、解锁取消、桌面启动、Clash 职责、macOS 特权和 Windows launcher 的静态边界。
+- 全部受版本控制 PowerShell 脚本的 Windows PowerShell 5.1 解析与已知参数集兼容性，以及 CI/Release 子进程退出码的逐次传播。
 - 明显密钥模式扫描和发布工具单元测试。
 - Flutter workspace 依赖解析与零 analyzer finding。
 - `ssrvpn_shared`、Android、macOS、Windows 的覆盖率测试。
@@ -56,7 +57,7 @@ scripts/check-coverage-thresholds.sh SSRVPN_MacOS
 
 - Android Kotlin/JUnit 覆盖 VPN Service 代际、更新安装身份和 Mihomo API 健康检查；涉及 Service、磁贴、通知或 MethodChannel 时还需真机回归。
 - macOS Swift/XCTest 覆盖窗口/Dock 生命周期等原生行为；TUN、管理员授权、系统代理和打包必须在 macOS 实际运行。
-- Windows launcher、安装器、代理恢复和进程路径需要 Windows CI；首次安装、覆盖升级、退出与卸载仍需干净 Windows 设备。
+- Windows launcher、安装器、代理恢复和进程路径需要 Windows CI。CI 必须用 `powershell.exe` 5.1 执行全部脚本兼容性测试，并在每个子进程后检查退出码，不能只看最后一条打包命令；首次安装、覆盖升级、异常退出、重启与卸载仍需干净 Windows 设备。
 
 ### 发布与文档
 
@@ -98,6 +99,6 @@ scripts/performance-baseline.sh
 | 凭据存储 | 旧数据迁移、写失败回滚、并发重置、普通保存不回写、目标 OS 权限/构建 |
 | 更新/发布 | 来源、版本、资产名、大小、SHA256、重定向和失败清理 |
 | UI/无障碍 | Widget 测试加目标平台键盘/读屏器检查 |
-| 安装/升级 | 干净环境首次安装、覆盖升级、设置/订阅/DPAPI 密文保留、退出和卸载 |
+| 安装/升级 | 干净环境首次安装、全新覆盖、PowerShell 5.1、普通用户权限、异常退出/重启后的系统代理、卸载 |
 
 网络相关测试不得依赖开放公网稳定性；需要真实下载或发布验证时，应单独标注为集成/发布冒烟并记录时间与来源。

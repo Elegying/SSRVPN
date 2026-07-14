@@ -156,21 +156,69 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotRegex(stopper, r"Stop-Process\s+-Name\s+['\"]?mihomo")
 
     def test_windows_installer_scripts_are_powershell_51_compatible(self) -> None:
-        scripts = [
-            ROOT / "SSRVPN_Windows" / "installer" / "stop_ssrvpn_processes.ps1",
-            ROOT / "scripts" / "test_windows_installer_runtime.ps1",
-        ]
+        scripts = sorted((ROOT / "SSRVPN_Windows").rglob("*.ps1"))
+        scripts.extend(sorted((ROOT / "scripts").glob("*.ps1")))
         incompatible_split_path = re.compile(
-            r"Split-Path\s+-LiteralPath\s+[^\r\n]+\s+-Parent",
-            re.I,
+            r"\bSplit-Path\b(?=[^\r\n]*-LiteralPath\b)"
+            r"(?=[^\r\n]*-Parent\b)[^\r\n]*",
+            re.I | re.M,
         )
 
+        self.assertTrue(scripts)
         for script_path in scripts:
             with self.subTest(script=script_path.name):
                 self.assertNotRegex(
                     script_path.read_text(encoding="utf-8"),
                     incompatible_split_path,
                 )
+
+    def test_windows_workflows_fail_fast_after_each_powershell_51_process(
+        self,
+    ) -> None:
+        workflows = [
+            ROOT / ".github" / "workflows" / "ci.yml",
+            ROOT / ".github" / "workflows" / "release.yml",
+        ]
+        invocation = re.compile(r"(?m)^\s*powershell\.exe\b[^\r\n]*$")
+        exit_check = "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }"
+
+        for workflow_path in workflows:
+            workflow = workflow_path.read_text(encoding="utf-8")
+            matches = list(invocation.finditer(workflow))
+            self.assertTrue(matches, workflow_path.name)
+            for match in matches:
+                following_lines = workflow[match.end() :].splitlines()
+                next_command = next(
+                    (line.strip() for line in following_lines if line.strip()), ""
+                )
+                with self.subTest(
+                    workflow=workflow_path.name,
+                    command=match.group(0).strip(),
+                ):
+                    self.assertEqual(exit_check, next_command)
+
+    def test_windows_workflows_run_repo_wide_powershell_51_validation(
+        self,
+    ) -> None:
+        compatibility_test = (
+            ROOT / "scripts" / "test_windows_powershell51_compatibility.ps1"
+        )
+        self.assertTrue(compatibility_test.is_file())
+
+        command = (
+            "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass "
+            "-File ..\\scripts\\test_windows_powershell51_compatibility.ps1"
+        )
+        for workflow_name in ("ci.yml", "release.yml"):
+            workflow = (
+                ROOT / ".github" / "workflows" / workflow_name
+            ).read_text(encoding="utf-8")
+            build_step = workflow.split("- name: Build Windows packages", 1)[1]
+            build_step = build_step.split("\n      - name:", 1)[0]
+            with self.subTest(workflow=workflow_name):
+                self.assertIn("shell: powershell", build_step)
+                self.assertIn(command, build_step)
+                self.assertNotIn("continue-on-error", build_step)
 
     def test_release_pipeline_publishes_installer_and_checksum(self) -> None:
         release = (ROOT / ".github" / "workflows" / "release.yml").read_text(
