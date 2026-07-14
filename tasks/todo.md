@@ -16,6 +16,6 @@
 - [x] Update changelog, project health, maintenance, testing, and signing docs.
 - [x] Run `scripts/verify-all.sh`.
 - [x] Complete final five-axis review and dead-code check.
-- [ ] Commit and push all verified slices.
-- [ ] Require final GitHub CI to pass on Android, macOS, and Windows.
+- [x] Commit and push all verified slices.
+- [x] Require final GitHub CI to pass on Android, macOS, and Windows.
 - [x] Update and read back durable SSRVPN project memory.

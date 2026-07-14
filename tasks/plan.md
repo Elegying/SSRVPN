@@ -114,7 +114,7 @@ machine.
 - [x] Final diff passes correctness, readability, architecture, security, and
       performance review.
 - [x] Documentation and durable project memory reflect verified facts only.
-- [ ] `main` is pushed and final GitHub Android/macOS/Windows CI is green.
+- [x] `main` is pushed and final GitHub Android/macOS/Windows CI is green.
 
 ## Risks and Mitigations
 
