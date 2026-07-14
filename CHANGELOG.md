@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.4] - 2026-07-14
+
+### 修复
+
+- Windows CI 和正式发布构建现在会逐次检查 Windows PowerShell 5.1 子进程退出码；安装测试、清理测试、便携包或安装器任一步失败都会立即阻断，后续成功命令不能再把失败覆盖成绿色。
+
+### 维护
+
+- Windows runner 会用真实 Windows PowerShell 5.1 解析全部受版本控制的 PowerShell 脚本，并拒绝 `Split-Path` 的不兼容参数组合；本地跨平台门禁同步扫描全部脚本与 CI/Release 的退出码传播结构。
+- 复核 PowerShell、Bash 与 OSS 发布脚本中的错误抑制点，只保留无结果探测、清理和带显式状态判断的回滚路径。
+
 ## [3.3.3] - 2026-07-14
 
 ### 变更
