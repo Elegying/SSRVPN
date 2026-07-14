@@ -9,10 +9,11 @@
 - [x] Add RED guards for desktop dashboard boundaries.
 - [x] Split desktop dashboard responsibilities.
 - [x] Verify the dashboard slice.
-- [ ] Commit the dashboard slice.
-- [ ] Add RED guards for Android home-screen boundaries.
-- [ ] Split Android public-IP and runtime actions.
-- [ ] Verify and commit the Android slice.
+- [x] Commit the dashboard slice.
+- [x] Add RED guards for Android home-screen boundaries.
+- [x] Split Android public-IP and runtime actions.
+- [x] Verify the Android slice.
+- [ ] Commit the Android slice.
 - [ ] Run the complete repository verification suite.
 - [ ] Perform final multi-axis code review.
 - [ ] Push refactor commits and require green SSRVPN CI.

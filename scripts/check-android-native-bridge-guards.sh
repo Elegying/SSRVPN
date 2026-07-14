@@ -8,6 +8,9 @@ TILE_SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/androi
 BUILD_GRADLE="$ROOT/SSRVPN_Android/android/app/build.gradle.kts"
 MANIFEST="$ROOT/SSRVPN_Android/android/app/src/main/AndroidManifest.xml"
 HOME_DART="$ROOT/SSRVPN_Android/lib/screens/home_screen.dart"
+HOME_CONNECTION_ACTIONS="$ROOT/SSRVPN_Android/lib/screens/home_connection_actions_part.dart"
+HOME_NODE_ACTIONS="$ROOT/SSRVPN_Android/lib/screens/home_node_actions_part.dart"
+HOME_PUBLIC_IP_ACTIONS="$ROOT/SSRVPN_Android/lib/screens/home_public_ip_part.dart"
 PUBLIC_ROUTES="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/PublicIpv4Routes.kt"
 VPN_ROUTE_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnRouteInstaller.kt"
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
@@ -55,7 +58,11 @@ require_manifest_text() {
 
 require_home_text() {
   local needle="$1"
-  if ! grep -Fq "$needle" "$HOME_DART"; then
+  if ! grep -Fq "$needle" \
+    "$HOME_DART" \
+    "$HOME_CONNECTION_ACTIONS" \
+    "$HOME_NODE_ACTIONS" \
+    "$HOME_PUBLIC_IP_ACTIONS"; then
     echo "Android home lifecycle check failed: missing '$needle'" >&2
     exit 1
   fi
@@ -173,6 +180,32 @@ require_build_text 'versionNameSuffix = "-debug"'
 require_build_text 'manifestPlaceholders["appLabel"] = "SSRVPN Debug"'
 require_manifest_text 'android:label="${appLabel}"'
 require_manifest_text 'android:allowBackup="false"'
+
+home_lines="$(wc -l < "$HOME_DART" | tr -d '[:space:]')"
+if [ "$home_lines" -gt 500 ]; then
+  echo "Android home boundary check failed: home_screen.dart grew to $home_lines lines" >&2
+  exit 1
+fi
+for home_part in \
+  "$HOME_CONNECTION_ACTIONS" \
+  "$HOME_NODE_ACTIONS" \
+  "$HOME_PUBLIC_IP_ACTIONS"; do
+  if [ ! -f "$home_part" ]; then
+    echo "Android home boundary check failed: missing $home_part" >&2
+    exit 1
+  fi
+  part_lines="$(wc -l < "$home_part" | tr -d '[:space:]')"
+  if [ "$part_lines" -gt 500 ]; then
+    echo "Android home boundary check failed: $home_part grew to $part_lines lines" >&2
+    exit 1
+  fi
+  part_name="$(basename "$home_part")"
+  if ! grep -Fq "part '$part_name';" "$HOME_DART"; then
+    echo "Android home boundary check failed: home_screen.dart does not declare $part_name" >&2
+    exit 1
+  fi
+done
+
 require_home_text "clashService.requestConnectionIntent(false)"
 require_home_text "UpdateService.isUpdateUiBusy"
 require_home_text "_updateCheckTimer?.cancel()"
