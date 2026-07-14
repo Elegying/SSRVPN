@@ -81,6 +81,14 @@ if ((Get-Item -LiteralPath $installerPath).Length -le 1MB) {
   throw "Installer is unexpectedly small: $installerPath"
 }
 
+if ($env:WINDOWS_SIGNING_ENABLED -eq 'true') {
+  $signingScript = Join-Path $projectRoot '..\scripts\sign_windows_artifacts.ps1'
+  & $signingScript -FilePath $installerPath
+  if ($LASTEXITCODE -ne 0) {
+    throw "Windows installer signing failed with exit code $LASTEXITCODE"
+  }
+}
+
 $hash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLower()
 $hashPath = "$installerPath.sha256"
 [System.IO.File]::WriteAllText(

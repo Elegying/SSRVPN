@@ -17,6 +17,22 @@ DMG_HASH_PATH="$PROJECT_ROOT/${APP_NAME}.dmg.sha256"
 GUIDE_NAME="使用教程.txt"
 GUIDE_SOURCE="$PROJECT_ROOT/DMG_README.txt"
 CORE_TMP=""
+SIGNING_ENABLED="${MACOS_SIGNING_ENABLED:-false}"
+SIGNING_IDENTITY="${MACOS_SIGNING_IDENTITY:-}"
+
+case "$SIGNING_ENABLED" in
+  true)
+    test -n "$SIGNING_IDENTITY" || {
+      echo "MACOS_SIGNING_IDENTITY is required when macOS signing is enabled." >&2
+      exit 1
+    }
+    ;;
+  false|"") SIGNING_ENABLED=false ;;
+  *)
+    echo "MACOS_SIGNING_ENABLED must be true or false." >&2
+    exit 1
+    ;;
+esac
 
 cleanup() {
   if [[ -d "$MOUNT_DIR" ]] && mount | grep -qF "$MOUNT_DIR"; then
@@ -46,8 +62,14 @@ test -f "$ASSET_DIR/geoip.metadb.gz"
 test -f "$ASSET_DIR/tray_icon.png"
 test -f "$GUIDE_SOURCE"
 
-echo "Refreshing ad-hoc code signature..."
-/usr/bin/codesign --force --deep --sign - "$APP_PATH"
+if [[ "$SIGNING_ENABLED" == true ]]; then
+  echo "Applying Developer ID signature..."
+  /usr/bin/codesign --force --deep --options runtime --timestamp \
+    --sign "$SIGNING_IDENTITY" "$APP_PATH"
+else
+  echo "Refreshing ad-hoc code signature..."
+  /usr/bin/codesign --force --deep --sign - "$APP_PATH"
+fi
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 echo "App binary:"
@@ -133,6 +155,12 @@ hdiutil convert "$RW_DMG_PATH" \
   -o "$VERSIONED_DMG_PATH"
 
 hdiutil verify "$VERSIONED_DMG_PATH"
+if [[ "$SIGNING_ENABLED" == true ]]; then
+  echo "Signing DMG..."
+  /usr/bin/codesign --force --timestamp --sign "$SIGNING_IDENTITY" \
+    "$VERSIONED_DMG_PATH"
+  /usr/bin/codesign --verify --verbose=2 "$VERSIONED_DMG_PATH"
+fi
 ditto "$VERSIONED_DMG_PATH" "$DMG_PATH"
 
 echo "DMG: $DMG_PATH"
