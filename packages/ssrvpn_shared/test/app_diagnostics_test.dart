@@ -36,6 +36,10 @@ void main() {
         AppFailure.fromMessage('core startup timeout').code,
         AppErrorCode.coreStartTimeout,
       );
+      expect(
+        AppFailure.fromMessage('network request timed out').code,
+        AppErrorCode.unknown,
+      );
     });
 
     test('unknown failures do not expose raw internal details', () {
@@ -69,6 +73,12 @@ void main() {
             errorCode: AppErrorCode.proxyRecoveryPending,
             repairAction: AppRepairAction.retryOwnedProxyRecovery,
           ),
+          AppDiagnosticCheck(
+            id: 'hostile_platform_check',
+            title: 'secret=platform-title-secret',
+            status: AppDiagnosticStatus.warning,
+            summary: 'trojan://user:platform-password@example.com:443',
+          ),
         ],
         recentLogs: 'fetch ss://method:password@example.com:443\n'
             'url=https://example.com/sub?token=secret-value\n'
@@ -82,6 +92,8 @@ void main() {
       expect(text, contains('PROXY_RECOVERY_PENDING'));
       expect(text, isNot(contains('password')));
       expect(text, isNot(contains('secret-value')));
+      expect(text, isNot(contains('platform-title-secret')));
+      expect(text, isNot(contains('platform-password')));
       expect(report.hasFailures, isTrue);
     });
 

@@ -148,7 +148,8 @@ class AppFailure {
         hasAny(const ['not found', 'missing', '不存在', '缺失', '完整性'])) {
       return AppErrorCode.coreMissing;
     }
-    if (hasAny(const ['timeout', 'timed out', '超时'])) {
+    if (hasAny(const ['timeout', 'timed out', '超时']) &&
+        hasAny(const ['core', 'mihomo', 'atlas', '核心', '启动', 'start'])) {
       return AppErrorCode.coreStartTimeout;
     }
     if (hasAny(const ['mihomo api', '核心连接', 'core unavailable', '核心退出'])) {
@@ -201,9 +202,11 @@ class AppDiagnosticReport {
       ..writeln('生成时间: ${generatedAt.toUtc().toIso8601String()}');
     for (final check in checks) {
       final code = check.errorCode?.wireName;
+      final title = _safeField(check.title);
+      final summary = _safeField(check.summary);
       buffer.writeln(
-        '[${check.status.name.toUpperCase()}] ${check.title}'
-        '${code == null ? '' : ' ($code)'}: ${check.summary}',
+        '[${check.status.name.toUpperCase()}] $title'
+        '${code == null ? '' : ' ($code)'}: $summary',
       );
     }
     final logs = LogRedactor.sanitize(recentLogs).trim();
@@ -219,6 +222,10 @@ class AppDiagnosticReport {
     if (maxLength <= marker.length) return text.substring(0, maxLength);
     return '${text.substring(0, maxLength - marker.length)}$marker';
   }
+
+  static String _safeField(String value) => LogRedactor.sanitize(
+        value,
+      ).replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
 }
 
 class AppRepairResult {
