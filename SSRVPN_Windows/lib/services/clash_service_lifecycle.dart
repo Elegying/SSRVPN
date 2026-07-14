@@ -29,6 +29,50 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   String get corePath => _corePath;
   bool get hasPendingSystemProxyRecovery => _proxyService.recoveryPending;
 
+  @override
+  Future<bool> diagnosticCoreAvailable() async =>
+      _corePath.isNotEmpty &&
+      await FileSystemEntity.type(_corePath, followLinks: false) ==
+          FileSystemEntityType.file;
+
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => [
+        AppDiagnosticCheck(
+          id: 'system_proxy',
+          title: '系统代理恢复',
+          status: _proxyService.recoveryPending
+              ? AppDiagnosticStatus.warning
+              : AppDiagnosticStatus.passed,
+          summary: _proxyService.recoveryPending
+              ? '检测到 SSRVPN 自有的待恢复代理状态'
+              : '没有待恢复的 SSRVPN 系统代理状态',
+          errorCode: _proxyService.recoveryPending
+              ? AppErrorCode.proxyRecoveryPending
+              : null,
+          repairAction: _proxyService.recoveryPending
+              ? AppRepairAction.retryOwnedProxyRecovery
+              : null,
+        ),
+      ];
+
+  @override
+  Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async {
+    if (action != AppRepairAction.retryOwnedProxyRecovery) {
+      return super.repairDiagnosticIssue(action);
+    }
+    if (isRunning) {
+      return const AppRepairResult(
+        success: false,
+        message: '请先断开连接，再修复 SSRVPN 自有的系统代理状态。',
+      );
+    }
+    final recovered = await recoverPendingSystemProxy();
+    return AppRepairResult(
+      success: recovered,
+      message: recovered ? 'SSRVPN 自有的系统代理状态已恢复。' : '系统代理恢复未完成，请复制诊断报告后重试。',
+    );
+  }
+
   Future<bool> recoverPendingSystemProxy() async {
     if (!_proxyService.recoveryPending) return true;
     log('检测到上次异常退出留下的系统代理状态，正在重试恢复...');

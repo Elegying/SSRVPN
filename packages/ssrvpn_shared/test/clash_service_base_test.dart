@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:http/http.dart' as http;
 import 'package:ssrvpn_shared/constants/app_constants.dart';
+import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
 
@@ -306,6 +307,78 @@ proxies:
     expect(service.connectionDesired, isFalse);
     expect(service.isRunning, isFalse);
   });
+
+  group('ClashServiceBase diagnostics', () {
+    test('reports missing core and config with stable error codes', () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('ssrvpn-diagnostics');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final service = _DiagnosticClashService(coreAvailable: false);
+      addTearDown(service.dispose);
+      service.setPaths(
+        configDir: tempDir.path,
+        configPath: '${tempDir.path}/missing.yaml',
+      );
+
+      final report = await service.runDiagnostics(
+        clock: () => DateTime.utc(2026, 7, 14),
+      );
+
+      expect(report.generatedAt, DateTime.utc(2026, 7, 14));
+      expect(
+        report.checks.singleWhere((check) => check.id == 'core').errorCode,
+        AppErrorCode.coreMissing,
+      );
+      expect(
+        report.checks.singleWhere((check) => check.id == 'config').errorCode,
+        AppErrorCode.configInvalid,
+      );
+      expect(report.hasFailures, isTrue);
+    });
+
+    test('checks runtime health only while connected', () async {
+      final service = _DiagnosticClashService(healthHealthy: false);
+      addTearDown(service.dispose);
+
+      var report = await service.runDiagnostics();
+      expect(
+        report.checks.singleWhere((check) => check.id == 'runtime').status,
+        AppDiagnosticStatus.skipped,
+      );
+
+      service.setRunning(true);
+      report = await service.runDiagnostics();
+      final runtime =
+          report.checks.singleWhere((check) => check.id == 'runtime');
+      expect(runtime.status, AppDiagnosticStatus.failed);
+      expect(runtime.errorCode, AppErrorCode.coreUnavailable);
+      expect(service.healthCalls, 1);
+    });
+
+    test('redacts recent logs and includes platform-owned checks', () async {
+      final service = _DiagnosticClashService(
+        platformChecks: const [
+          AppDiagnosticCheck(
+            id: 'proxy',
+            title: '系统代理恢复',
+            status: AppDiagnosticStatus.warning,
+            summary: '存在 SSRVPN 自有待恢复状态',
+            errorCode: AppErrorCode.proxyRecoveryPending,
+            repairAction: AppRepairAction.retryOwnedProxyRecovery,
+          ),
+        ],
+      );
+      addTearDown(service.dispose);
+      service.log('request token=top-secret');
+
+      final report = await service.runDiagnostics();
+      final text = report.toText();
+
+      expect(report.checks.any((check) => check.id == 'proxy'), isTrue);
+      expect(text, contains('PROXY_RECOVERY_PENDING'));
+      expect(text, isNot(contains('top-secret')));
+    });
+  });
 }
 
 class _ProxyApiServer {
@@ -445,6 +518,32 @@ class _TestClashService extends ClashServiceBase {
   Future<void> onStopRequired() async {}
 
   void simulateUnexpectedCoreLoss() => markConnectionLost();
+}
+
+class _DiagnosticClashService extends _TestClashService {
+  _DiagnosticClashService({
+    this.coreAvailable = true,
+    this.healthHealthy = true,
+    this.platformChecks = const [],
+  });
+
+  final bool coreAvailable;
+  final bool healthHealthy;
+  final List<AppDiagnosticCheck> platformChecks;
+  int healthCalls = 0;
+
+  @override
+  Future<bool> diagnosticCoreAvailable() async => coreAvailable;
+
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async =>
+      platformChecks;
+
+  @override
+  Future<bool> healthCheck() async {
+    healthCalls++;
+    return healthHealthy;
+  }
 }
 
 class _FailingHealthClashService extends ClashServiceBase {

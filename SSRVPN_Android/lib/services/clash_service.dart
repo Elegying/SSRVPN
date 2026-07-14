@@ -36,6 +36,12 @@ class ClashService extends ClashServiceBase {
   @override
   bool get enablePeriodicHealthMonitor => false;
 
+  @override
+  Future<bool> diagnosticCoreAvailable() async =>
+      _corePath.isNotEmpty &&
+      await FileSystemEntity.type(_corePath, followLinks: false) ==
+          FileSystemEntityType.file;
+
   // ── onStopRequired ──
 
   @override

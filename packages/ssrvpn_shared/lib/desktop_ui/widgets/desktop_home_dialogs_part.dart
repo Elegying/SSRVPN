@@ -156,7 +156,6 @@ void _showDesktopHomeTutorialDialog(BuildContext context) {
 
 void _showDesktopHomeLogsDialog(BuildContext context) {
   final clashService = context.read<ClashService>();
-  final logs = clashService.recentLogs;
   showDialog(
     context: context,
     builder: (ctx) => Dialog(
@@ -167,8 +166,8 @@ void _showDesktopHomeLogsDialog(BuildContext context) {
           maxWidth: MediaQuery.of(context).size.width * 0.88,
         ),
         child: Container(
-          width: 600,
-          height: 500,
+          width: 640,
+          height: 560,
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
@@ -181,7 +180,7 @@ void _showDesktopHomeLogsDialog(BuildContext context) {
                   ),
                   const SizedBox(width: 8),
                   const Text(
-                    '运行日志',
+                    '诊断与运行日志',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -190,26 +189,7 @@ void _showDesktopHomeLogsDialog(BuildContext context) {
                   ),
                   const Spacer(),
                   IconButton(
-                    icon: const Icon(
-                      Icons.copy,
-                      size: 18,
-                      color: AppTheme.textSecondary,
-                    ),
-                    onPressed: () async {
-                      await Clipboard.setData(
-                        ClipboardData(text: clashService.recentLogs),
-                      );
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            margin: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            content: Text('日志已复制'),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                  IconButton(
+                    tooltip: '关闭诊断中心',
                     icon: const Icon(
                       Icons.close,
                       size: 18,
@@ -221,16 +201,18 @@ void _showDesktopHomeLogsDialog(BuildContext context) {
               ),
               const Divider(color: AppTheme.border),
               Expanded(
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    logs.isEmpty ? '暂无日志' : logs,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontFamily: 'Consolas',
-                      color: AppTheme.textSecondary,
-                      height: 1.6,
-                    ),
-                  ),
+                child: AppDiagnosticsView(
+                  runDiagnostics: clashService.runDiagnostics,
+                  repair: clashService.repairDiagnosticIssue,
+                  onMessage: (message) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        content: Text(message),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],

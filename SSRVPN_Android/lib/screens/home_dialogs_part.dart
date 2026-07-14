@@ -152,7 +152,6 @@ void _showAndroidHomeTutorialDialog(BuildContext context) {
 
 void _showAndroidHomeLogsSheet(BuildContext context) {
   final clashService = context.read<ClashService>();
-  final logs = clashService.recentLogs;
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -176,7 +175,7 @@ void _showAndroidHomeLogsSheet(BuildContext context) {
                 Icon(Icons.bug_report, size: 18, color: AppTheme.warningColor),
                 const SizedBox(width: 8),
                 Text(
-                  '运行日志',
+                  '诊断与运行日志',
                   style: TextStyle(
                     fontSize: Responsive.sp(16),
                     fontWeight: FontWeight.w600,
@@ -185,26 +184,7 @@ void _showAndroidHomeLogsSheet(BuildContext context) {
                 ),
                 const Spacer(),
                 IconButton(
-                  icon: Icon(
-                    Icons.copy,
-                    size: 18,
-                    color: AppTheme.darkTextSecondary,
-                  ),
-                  onPressed: () async {
-                    await Clipboard.setData(
-                      ClipboardData(text: clashService.recentLogs),
-                    );
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
-                          content: Text('日志已复制'),
-                        ),
-                      );
-                    }
-                  },
-                ),
-                IconButton(
+                  tooltip: '关闭诊断中心',
                   icon: Icon(
                     Icons.close,
                     size: 18,
@@ -216,16 +196,20 @@ void _showAndroidHomeLogsSheet(BuildContext context) {
             ),
           ),
           Expanded(
-            child: SingleChildScrollView(
+            child: Padding(
               padding: const EdgeInsets.all(14),
-              child: SelectableText(
-                logs.isEmpty ? '暂无日志' : logs,
-                style: TextStyle(
-                  fontSize: Responsive.sp(12),
-                  fontFamily: 'monospace',
-                  color: AppTheme.darkTextSecondary,
-                  height: 1.6,
-                ),
+              child: AppDiagnosticsView(
+                runDiagnostics: clashService.runDiagnostics,
+                repair: clashService.repairDiagnosticIssue,
+                onMessage: (message) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+                      content: Text(message),
+                    ),
+                  );
+                },
               ),
             ),
           ),

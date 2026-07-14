@@ -234,62 +234,79 @@ class _DesktopConnectionError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppTheme.error.withValues(alpha: 15 / 255),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: AppTheme.error.withValues(alpha: 40 / 255),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.error_outline,
-                size: 14,
-                color: AppTheme.error,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  message,
-                  style: const TextStyle(
-                    color: AppTheme.error,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
+    final failure = AppFailure.fromMessage(message);
+    return Semantics(
+      liveRegion: true,
+      label: '${failure.title}，${failure.message}，${failure.recommendedAction}',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppTheme.error.withValues(alpha: 15 / 255),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: AppTheme.error.withValues(alpha: 40 / 255),
           ),
-          const SizedBox(height: 6),
-          GestureDetector(
-            onTap: onShowLogs,
-            child: Row(
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(
-                  Icons.bug_report,
-                  size: 12,
-                  color: AppTheme.warning,
+                const ExcludeSemantics(
+                  child: Icon(
+                    Icons.error_outline,
+                    size: 14,
+                    color: AppTheme.error,
+                  ),
                 ),
-                const SizedBox(width: 4),
-                Text(
-                  '查看日志',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppTheme.warning.withValues(alpha: 200 / 255),
-                    decoration: TextDecoration.underline,
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    failure.title,
+                    style: const TextStyle(
+                      color: AppTheme.error,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],
             ),
-          ),
-        ],
+            const SizedBox(height: 4),
+            Text(
+              '${failure.message} ${failure.recommendedAction}',
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 11,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              failure.code.wireName,
+              style: TextStyle(
+                color: AppTheme.error.withValues(alpha: 190 / 255),
+                fontSize: 10,
+                fontFamily: 'monospace',
+              ),
+            ),
+            const SizedBox(height: 4),
+            TextButton.icon(
+              onPressed: onShowLogs,
+              icon: const Icon(Icons.bug_report, size: 13),
+              label: const Text('运行诊断'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppTheme.warning,
+                minimumSize: const Size(44, 36),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                textStyle: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

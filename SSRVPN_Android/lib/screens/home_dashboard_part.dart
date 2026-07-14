@@ -567,90 +567,80 @@ class _AndroidConnectionError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppTheme.errorColor.withValues(alpha: 15 / 255),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: AppTheme.errorColor.withValues(alpha: 40 / 255),
+    final failure = AppFailure.fromMessage(message);
+    return Semantics(
+      liveRegion: true,
+      label: '${failure.title}，${failure.message}，${failure.recommendedAction}',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppTheme.errorColor.withValues(alpha: 15 / 255),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: AppTheme.errorColor.withValues(alpha: 40 / 255),
+          ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.error_outline,
-                size: 12,
-                color: AppTheme.errorColor,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  message,
-                  style: TextStyle(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ExcludeSemantics(
+                  child: Icon(
+                    Icons.error_outline,
+                    size: 12,
                     color: AppTheme.errorColor,
-                    fontSize: Responsive.sp(11),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              GestureDetector(
-                onTap: onShowLogs,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.bug_report,
-                      size: 12,
-                      color: AppTheme.warningColor,
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    failure.title,
+                    style: TextStyle(
+                      color: AppTheme.errorColor,
+                      fontSize: Responsive.sp(11),
+                      fontWeight: FontWeight.w600,
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '查看日志',
-                      style: TextStyle(
-                        fontSize: Responsive.sp(10),
-                        color: AppTheme.warningColor.withValues(
-                          alpha: 200 / 255,
-                        ),
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${failure.message} ${failure.recommendedAction}',
+              style: TextStyle(
+                color: AppTheme.darkTextSecondary,
+                fontSize: Responsive.sp(10),
               ),
-              const SizedBox(width: 12),
-              GestureDetector(
-                onTap: onRetry,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.refresh, size: 12, color: AppTheme.primaryColor),
-                    const SizedBox(width: 4),
-                    Text(
-                      '重试',
-                      style: TextStyle(
-                        fontSize: Responsive.sp(10),
-                        color: AppTheme.primaryColor.withValues(
-                          alpha: 200 / 255,
-                        ),
-                        decoration: TextDecoration.underline,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              failure.code.wireName,
+              style: TextStyle(
+                color: AppTheme.errorColor.withValues(alpha: 190 / 255),
+                fontSize: Responsive.sp(9),
+                fontFamily: 'monospace',
+              ),
+            ),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 6,
+              children: [
+                TextButton.icon(
+                  onPressed: onShowLogs,
+                  icon: const Icon(Icons.bug_report, size: 13),
+                  label: const Text('运行诊断'),
                 ),
-              ),
-            ],
-          ),
-        ],
+                TextButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh, size: 13),
+                  label: const Text('重试'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

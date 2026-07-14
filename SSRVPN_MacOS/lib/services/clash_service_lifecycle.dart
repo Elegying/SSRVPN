@@ -24,6 +24,60 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   bool get coreExists => File(_corePath).existsSync();
   bool get hasPendingSystemProxyRecovery => _proxyService.recoveryPending;
 
+  @override
+  Future<bool> diagnosticCoreAvailable() async =>
+      _corePath.isNotEmpty && await _isRegularUnprivilegedCoreFile();
+
+  Future<bool> _isRegularUnprivilegedCoreFile() async {
+    try {
+      final type = await FileSystemEntity.type(_corePath, followLinks: false);
+      if (type != FileSystemEntityType.file) return false;
+      final stat = await File(_corePath).stat();
+      return stat.type == FileSystemEntityType.file &&
+          (stat.mode & ClashService._privilegedModeBits) == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => [
+        AppDiagnosticCheck(
+          id: 'system_proxy',
+          title: '系统代理恢复',
+          status: _proxyService.recoveryPending
+              ? AppDiagnosticStatus.warning
+              : AppDiagnosticStatus.passed,
+          summary: _proxyService.recoveryPending
+              ? '检测到 SSRVPN 自有的待恢复代理状态'
+              : '没有待恢复的 SSRVPN 系统代理状态',
+          errorCode: _proxyService.recoveryPending
+              ? AppErrorCode.proxyRecoveryPending
+              : null,
+          repairAction: _proxyService.recoveryPending
+              ? AppRepairAction.retryOwnedProxyRecovery
+              : null,
+        ),
+      ];
+
+  @override
+  Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async {
+    if (action != AppRepairAction.retryOwnedProxyRecovery) {
+      return super.repairDiagnosticIssue(action);
+    }
+    if (isRunning) {
+      return const AppRepairResult(
+        success: false,
+        message: '请先断开连接，再修复 SSRVPN 自有的系统代理状态。',
+      );
+    }
+    final recovered = await recoverPendingSystemProxy();
+    return AppRepairResult(
+      success: recovered,
+      message: recovered ? 'SSRVPN 自有的系统代理状态已恢复。' : '系统代理恢复未完成，请复制诊断报告后重试。',
+    );
+  }
+
   Future<bool> recoverPendingSystemProxy() async {
     if (!_proxyService.recoveryPending) return true;
     log('检测到上次异常退出留下的系统代理状态，正在重试恢复...');
