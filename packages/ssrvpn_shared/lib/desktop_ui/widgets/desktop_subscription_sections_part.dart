@@ -164,7 +164,7 @@ class _DesktopSubscriptionListSection extends StatelessWidget {
   final List<Subscription> subscriptions;
   final bool isDark;
   final bool isRefreshing;
-  final String? refreshResult;
+  final SubscriptionRefreshResult? refreshResult;
   final VoidCallback onRefresh;
   final ValueChanged<String> onDelete;
 
@@ -228,7 +228,7 @@ class _DesktopSubscriptionListSection extends StatelessWidget {
         const SizedBox(height: 12),
         if (refreshResult != null)
           _DesktopSubscriptionRefreshResult(
-            message: refreshResult!,
+            result: refreshResult!,
             isDark: isDark,
           ),
         ...subscriptions.map(
@@ -244,45 +244,50 @@ class _DesktopSubscriptionListSection extends StatelessWidget {
 }
 
 class _DesktopSubscriptionRefreshResult extends StatelessWidget {
-  final String message;
+  final SubscriptionRefreshResult result;
   final bool isDark;
 
   const _DesktopSubscriptionRefreshResult({
-    required this.message,
+    required this.result,
     required this.isDark,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isSuccess = message.startsWith('成功');
+    final color = switch (result.status) {
+      SubscriptionRefreshStatus.success => AppTheme.success,
+      SubscriptionRefreshStatus.partialSuccess => AppTheme.warning,
+      SubscriptionRefreshStatus.failure => AppTheme.error,
+    };
+    final icon = switch (result.status) {
+      SubscriptionRefreshStatus.success => Icons.check_circle,
+      SubscriptionRefreshStatus.partialSuccess => Icons.warning_amber_rounded,
+      SubscriptionRefreshStatus.failure => Icons.error_outline,
+    };
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: isSuccess
-            ? AppTheme.success.withValues(alpha: (isDark ? 15 : 20) / 255)
-            : AppTheme.error.withValues(alpha: (isDark ? 15 : 20) / 255),
+        color: color.withValues(alpha: (isDark ? 15 : 20) / 255),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isSuccess
-              ? AppTheme.success.withValues(alpha: 40 / 255)
-              : AppTheme.error.withValues(alpha: 40 / 255),
+          color: color.withValues(alpha: 40 / 255),
         ),
       ),
       child: Row(
         children: [
           Icon(
-            isSuccess ? Icons.check_circle : Icons.error_outline,
-            color: isSuccess ? AppTheme.success : AppTheme.error,
+            icon,
+            color: color,
             size: 18,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              message,
+              result.message,
               style: TextStyle(
                 fontSize: 13,
-                color: isSuccess ? AppTheme.success : AppTheme.error,
+                color: color,
               ),
             ),
           ),

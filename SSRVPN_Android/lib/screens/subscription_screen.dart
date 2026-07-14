@@ -26,7 +26,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
   bool _isAdding = false;
   bool _isRefreshing = false;
   bool _isDeleting = false;
-  String? _refreshResult;
+  SubscriptionRefreshResult? _refreshResult;
 
   @override
   void dispose() {
@@ -60,7 +60,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     if (!mounted) return;
 
     setState(() {
-      _refreshResult = result.message;
+      _refreshResult = result;
       _isRefreshing = false;
     });
     if (result.shouldShowNetworkHelp) {
@@ -79,7 +79,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         isSingleNodeLinkOf: subService.isSingleNodeLink,
         defaultSubscriptionNameOf: subService.defaultSubscriptionName,
         addSubscriptionWith: subService.addSubscription,
-        refreshAllSubscriptionsWith: subService.refreshAllSubscriptions,
+        refreshAllSubscriptionsDetailedWith:
+            subService.refreshAllSubscriptionsDetailed,
         removeSubscriptionWith: subService.removeSubscription,
       ),
     );

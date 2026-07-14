@@ -200,7 +200,7 @@ class SubscriptionListSection extends StatelessWidget {
   final bool isDark;
   final bool isRefreshing;
   final bool isDeleting;
-  final String? refreshResult;
+  final SubscriptionRefreshResult? refreshResult;
   final VoidCallback onRefresh;
   final ValueChanged<String> onDelete;
 
@@ -254,7 +254,7 @@ class SubscriptionListSection extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         if (refreshResult != null)
-          _SubscriptionRefreshResult(message: refreshResult!, isDark: isDark),
+          _SubscriptionRefreshResult(result: refreshResult!, isDark: isDark),
         ...subscriptions.map(
           (sub) => _SubscriptionCard(
             subscription: sub,
@@ -328,44 +328,49 @@ class SubscriptionEmptyState extends StatelessWidget {
 
 class _SubscriptionRefreshResult extends StatelessWidget {
   const _SubscriptionRefreshResult({
-    required this.message,
+    required this.result,
     required this.isDark,
   });
 
-  final String message;
+  final SubscriptionRefreshResult result;
   final bool isDark;
 
   @override
   Widget build(BuildContext context) {
-    final isSuccess = message.startsWith('成功');
+    final color = switch (result.status) {
+      SubscriptionRefreshStatus.success => AppTheme.successColor,
+      SubscriptionRefreshStatus.partialSuccess => AppTheme.warningColor,
+      SubscriptionRefreshStatus.failure => AppTheme.errorColor,
+    };
+    final icon = switch (result.status) {
+      SubscriptionRefreshStatus.success => Icons.check_circle,
+      SubscriptionRefreshStatus.partialSuccess => Icons.warning_amber_rounded,
+      SubscriptionRefreshStatus.failure => Icons.error_outline,
+    };
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isSuccess
-            ? AppTheme.successColor.withValues(alpha: (isDark ? 15 : 20) / 255)
-            : AppTheme.errorColor.withValues(alpha: (isDark ? 15 : 20) / 255),
+        color: color.withValues(alpha: (isDark ? 15 : 20) / 255),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isSuccess
-              ? AppTheme.successColor.withValues(alpha: 40 / 255)
-              : AppTheme.errorColor.withValues(alpha: 40 / 255),
+          color: color.withValues(alpha: 40 / 255),
         ),
       ),
       child: Row(
         children: [
           Icon(
-            isSuccess ? Icons.check_circle : Icons.error_outline,
-            color: isSuccess ? AppTheme.successColor : AppTheme.errorColor,
+            icon,
+            color: color,
             size: 18,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              message,
+              result.message,
               style: TextStyle(
                 fontSize: Responsive.sp(12),
-                color: isSuccess ? AppTheme.successColor : AppTheme.errorColor,
+                color: color,
               ),
             ),
           ),

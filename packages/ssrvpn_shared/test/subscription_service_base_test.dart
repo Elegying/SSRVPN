@@ -130,7 +130,7 @@ proxies:
       );
     });
 
-    test('partial fetch failure preserves the complete last valid state',
+    test('partial fetch returns details and preserves the last valid state',
         () async {
       await service.addSubscription(
         'Backup',
@@ -142,19 +142,38 @@ proxies:
         'https://backup.example.com/sub': Exception('temporary timeout'),
       };
 
+      final result = await service.refreshAllSubscriptionsDetailed();
+
+      expect(result.status, SubscriptionBatchRefreshStatus.partialSuccess);
+      expect(result.yaml, originalState.rawYaml);
+      expect(result.successfulSubscriptionNames, ['Primary']);
+      expect(result.failures, hasLength(1));
+      expect(result.failures.single.subscriptionName, 'Backup');
+      expect(result.failures.single.message, contains('temporary timeout'));
+      originalState.expectUnchanged(service);
+      expect(service.cachedYaml, originalState.rawYaml);
+    });
+
+    test('legacy refresh API still throws on a partial fetch', () async {
+      await service.addSubscription(
+        'Backup',
+        'https://backup.example.com/sub',
+      );
+      service.responses = {
+        'https://feed.example.com/sub': _yamlFor('New Primary'),
+        'https://backup.example.com/sub': Exception('temporary timeout'),
+      };
+
       await expectLater(
         service.refreshAllSubscriptions(),
         throwsA(
-          isA<Exception>().having(
-            (error) => error.toString(),
-            'message',
-            contains('Backup'),
+          isA<SubscriptionPartialRefreshException>().having(
+            (error) => error.outcome.failures.single.subscriptionName,
+            'failed subscription',
+            'Backup',
           ),
         ),
       );
-
-      originalState.expectUnchanged(service);
-      expect(service.cachedYaml, originalState.rawYaml);
     });
 
     test('concurrent refreshes commit in request order', () async {

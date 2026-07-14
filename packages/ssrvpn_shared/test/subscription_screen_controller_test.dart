@@ -6,6 +6,7 @@ import 'package:ssrvpn_shared/models/proxy_group.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/models/subscription.dart';
 import 'package:ssrvpn_shared/services/subscription_parser.dart';
+import 'package:ssrvpn_shared/services/subscription_service_base.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -122,6 +123,35 @@ void main() {
       expect(result.shouldShowNetworkHelp, isTrue);
     });
 
+    test('refresh reports structured partial success as a warning', () async {
+      final controller = SubscriptionScreenController(
+        subscriptionService: _FakeSubscriptionService(
+          nodes: [node('Cached')],
+          refreshOutcome: const SubscriptionBatchRefreshResult(
+            status: SubscriptionBatchRefreshStatus.partialSuccess,
+            yaml: 'cached yaml',
+            successfulSubscriptionNames: ['Primary'],
+            failures: [
+              SubscriptionRefreshFailure(
+                subscriptionName: 'Backup',
+                message: 'temporary timeout',
+              ),
+            ],
+          ),
+        ),
+      );
+
+      final result = await controller.refreshAll();
+
+      expect(result.status, SubscriptionRefreshStatus.partialSuccess);
+      expect(result.success, isFalse);
+      expect(result.isPartialSuccess, isTrue);
+      expect(result.failureDetails, ['Backup: temporary timeout']);
+      expect(result.message, contains('已保留上次有效节点'));
+      expect(result.message, contains('Backup'));
+      expect(result.shouldShowNetworkHelp, isFalse);
+    });
+
     test('delete stops clash when no nodes remain', () async {
       final service = _FakeSubscriptionService(
         subscriptions: [
@@ -222,6 +252,7 @@ class _FakeSubscriptionService implements SubscriptionScreenServicePort {
     List<ProxyNode>? nodes,
     List<ProxyGroup>? groups,
     this.refreshResult,
+    this.refreshOutcome,
     this.refreshError,
     this.removeError,
   })  : _subscriptions = subscriptions ?? <Subscription>[],
@@ -232,6 +263,7 @@ class _FakeSubscriptionService implements SubscriptionScreenServicePort {
   List<ProxyNode> _nodes;
   final List<ProxyGroup> _groups;
   String? refreshResult;
+  SubscriptionBatchRefreshResult? refreshOutcome;
   Object? refreshError;
   Object? removeError;
   final addedUrls = <String>[];
@@ -288,8 +320,17 @@ class _FakeSubscriptionService implements SubscriptionScreenServicePort {
   }
 
   @override
-  Future<String?> refreshAllSubscriptions() async {
+  Future<SubscriptionBatchRefreshResult>
+      refreshAllSubscriptionsDetailed() async {
     if (refreshError != null) throw refreshError!;
-    return refreshResult;
+    return refreshOutcome ??
+        SubscriptionBatchRefreshResult(
+          status: refreshResult == null
+              ? SubscriptionBatchRefreshStatus.empty
+              : SubscriptionBatchRefreshStatus.success,
+          yaml: refreshResult,
+          successfulSubscriptionNames:
+              refreshResult == null ? const [] : const ['Test'],
+        );
   }
 }

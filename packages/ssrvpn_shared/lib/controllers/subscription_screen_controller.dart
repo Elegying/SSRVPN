@@ -4,6 +4,7 @@ import 'dart:io';
 import '../models/proxy_group.dart';
 import '../models/proxy_node.dart';
 import '../models/subscription.dart';
+import '../services/subscription_service_base.dart';
 import '../utils/proxy_node_usage_policy.dart';
 
 abstract class SubscriptionScreenServicePort {
@@ -13,7 +14,7 @@ abstract class SubscriptionScreenServicePort {
   bool isSingleNodeLink(String input);
   String defaultSubscriptionName(String input);
   Future<Subscription> addSubscription(String name, String url);
-  Future<String?> refreshAllSubscriptions();
+  Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed();
   Future<void> removeSubscription(String id);
 }
 
@@ -26,7 +27,7 @@ class CallbackSubscriptionScreenService
     required this.isSingleNodeLinkOf,
     required this.defaultSubscriptionNameOf,
     required this.addSubscriptionWith,
-    required this.refreshAllSubscriptionsWith,
+    required this.refreshAllSubscriptionsDetailedWith,
     required this.removeSubscriptionWith,
   });
 
@@ -37,7 +38,8 @@ class CallbackSubscriptionScreenService
   final String Function(String input) defaultSubscriptionNameOf;
   final Future<Subscription> Function(String name, String url)
       addSubscriptionWith;
-  final Future<String?> Function() refreshAllSubscriptionsWith;
+  final Future<SubscriptionBatchRefreshResult> Function()
+      refreshAllSubscriptionsDetailedWith;
   final Future<void> Function(String id) removeSubscriptionWith;
 
   @override
@@ -62,8 +64,8 @@ class CallbackSubscriptionScreenService
   }
 
   @override
-  Future<String?> refreshAllSubscriptions() {
-    return refreshAllSubscriptionsWith();
+  Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed() {
+    return refreshAllSubscriptionsDetailedWith();
   }
 
   @override
@@ -103,17 +105,24 @@ class SubscriptionAddResult {
       status == SubscriptionAddStatus.subscriptionAdded;
 }
 
+enum SubscriptionRefreshStatus { success, partialSuccess, failure }
+
 class SubscriptionRefreshResult {
   const SubscriptionRefreshResult({
     required this.message,
-    required this.success,
+    required this.status,
     this.networkErrorDetail,
+    this.failureDetails = const [],
   });
 
   final String message;
-  final bool success;
+  final SubscriptionRefreshStatus status;
   final String? networkErrorDetail;
+  final List<String> failureDetails;
 
+  bool get success => status == SubscriptionRefreshStatus.success;
+  bool get isPartialSuccess =>
+      status == SubscriptionRefreshStatus.partialSuccess;
   bool get shouldShowNetworkHelp => networkErrorDetail != null;
 }
 
@@ -180,36 +189,53 @@ class SubscriptionScreenController {
 
   Future<SubscriptionRefreshResult> refreshAll() async {
     try {
-      final yaml = await subscriptionService.refreshAllSubscriptions();
+      final outcome =
+          await subscriptionService.refreshAllSubscriptionsDetailed();
+      if (outcome.isPartialSuccess) {
+        final failedNames = outcome.failures
+            .map((failure) => failure.subscriptionName)
+            .join('、');
+        final retained =
+            outcome.yaml?.isNotEmpty == true ? '已保留上次有效节点' : '当前没有可用的旧节点';
+        return SubscriptionRefreshResult(
+          message:
+              '部分成功: 已获取 ${outcome.successfulSubscriptionNames.length} 个订阅，'
+              '${outcome.failures.length} 个失败；$retained。失败项: $failedNames',
+          status: SubscriptionRefreshStatus.partialSuccess,
+          failureDetails:
+              outcome.failures.map((failure) => failure.detail).toList(),
+        );
+      }
+      final yaml = outcome.yaml;
       if (yaml != null && yaml.isNotEmpty) {
         final nodeCount = _runnableNodeCount();
         final groupCount = subscriptionService.allGroups.length;
         return SubscriptionRefreshResult(
           message: '成功: 获取到 $nodeCount 个节点, $groupCount 个分组',
-          success: true,
+          status: SubscriptionRefreshStatus.success,
         );
       }
       return const SubscriptionRefreshResult(
         message: '刷新失败: 没有可用的订阅',
-        success: false,
+        status: SubscriptionRefreshStatus.failure,
       );
     } on SocketException catch (e) {
       return SubscriptionRefreshResult(
         message: '刷新失败: 网络连接异常',
-        success: false,
+        status: SubscriptionRefreshStatus.failure,
         networkErrorDetail: e.message,
       );
     } on TimeoutException {
       return const SubscriptionRefreshResult(
         message: '刷新失败: 连接超时',
-        success: false,
+        status: SubscriptionRefreshStatus.failure,
         networkErrorDetail: '连接超时，请检查网络',
       );
     } catch (e) {
       final message = e.toString().replaceFirst('Exception: ', '');
       return SubscriptionRefreshResult(
         message: '刷新失败: $message',
-        success: false,
+        status: SubscriptionRefreshStatus.failure,
         networkErrorDetail: _isNetworkErrorMessage(message) ? message : null,
       );
     }
@@ -261,7 +287,16 @@ class SubscriptionScreenController {
     required SubscriptionAddStatus failureStatus,
   }) async {
     try {
-      final yaml = await subscriptionService.refreshAllSubscriptions();
+      final outcome =
+          await subscriptionService.refreshAllSubscriptionsDetailed();
+      if (outcome.isPartialSuccess) {
+        return SubscriptionAddResult(
+          status: failureStatus,
+          error: SubscriptionPartialRefreshException(outcome),
+          clearInput: true,
+        );
+      }
+      final yaml = outcome.yaml;
       if (yaml != null && yaml.isNotEmpty) {
         return SubscriptionAddResult(
           status: successStatus,

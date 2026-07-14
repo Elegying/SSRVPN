@@ -14,6 +14,47 @@ import '../services/subscription_parser.dart';
 import '../services/subscription_yaml_merger.dart';
 import '../utils/app_logger.dart';
 
+enum SubscriptionBatchRefreshStatus { empty, success, partialSuccess }
+
+class SubscriptionRefreshFailure {
+  const SubscriptionRefreshFailure({
+    required this.subscriptionName,
+    required this.message,
+  });
+
+  final String subscriptionName;
+  final String message;
+
+  String get detail => '$subscriptionName: $message';
+}
+
+class SubscriptionBatchRefreshResult {
+  const SubscriptionBatchRefreshResult({
+    required this.status,
+    required this.yaml,
+    this.successfulSubscriptionNames = const [],
+    this.failures = const [],
+  });
+
+  final SubscriptionBatchRefreshStatus status;
+  final String? yaml;
+  final List<String> successfulSubscriptionNames;
+  final List<SubscriptionRefreshFailure> failures;
+
+  bool get isPartialSuccess =>
+      status == SubscriptionBatchRefreshStatus.partialSuccess;
+}
+
+class SubscriptionPartialRefreshException implements Exception {
+  const SubscriptionPartialRefreshException(this.outcome);
+
+  final SubscriptionBatchRefreshResult outcome;
+
+  @override
+  String toString() => '部分订阅刷新失败，已保留上次有效节点:\n'
+      '${outcome.failures.map((failure) => failure.detail).join('\n')}';
+}
+
 /// 订阅管理服务基类
 ///
 /// 包含三端共享的订阅 CRUD、YAML 合并/解析、SSR 链接导入、磁盘持久化等逻辑。
@@ -122,23 +163,35 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   // ── 刷新 ──
 
   /// 刷新所有订阅，返回合并后的 YAML；null 表示无订阅
-  Future<String?> refreshAllSubscriptions() {
+  Future<String?> refreshAllSubscriptions() async {
+    final result = await refreshAllSubscriptionsDetailed();
+    if (result.isPartialSuccess) {
+      throw SubscriptionPartialRefreshException(result);
+    }
+    return result.yaml;
+  }
+
+  /// 刷新所有订阅并返回可区分成功、部分成功和空订阅的结构化结果。
+  Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed() {
     final operation = _refreshTail.then((_) => _refreshAllSubscriptions());
     _refreshTail = operation.then<void>((_) {}, onError: (_, __) {});
     return operation;
   }
 
-  Future<String?> _refreshAllSubscriptions() async {
+  Future<SubscriptionBatchRefreshResult> _refreshAllSubscriptions() async {
     if (_subscriptions.isEmpty) {
       _rawYaml = null;
       _allNodes = [];
       _allGroups = [];
-      return null;
+      return const SubscriptionBatchRefreshResult(
+        status: SubscriptionBatchRefreshStatus.empty,
+        yaml: null,
+      );
     }
 
     final allYamlBuffers = <String>[];
     final succeededSubs = <Subscription>[];
-    final errors = <String>[];
+    final failures = <SubscriptionRefreshFailure>[];
 
     for (final sub in _subscriptions.where((s) => s.enabled)) {
       try {
@@ -154,20 +207,38 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
           allYamlBuffers.add(yaml);
           succeededSubs.add(sub);
         } else {
-          errors.add('${sub.name}: 返回内容为空');
+          failures.add(
+            SubscriptionRefreshFailure(
+              subscriptionName: sub.name,
+              message: '返回内容为空',
+            ),
+          );
         }
       } catch (e) {
-        errors.add('${sub.name}: $e');
+        failures.add(
+          SubscriptionRefreshFailure(
+            subscriptionName: sub.name,
+            message: e.toString().replaceFirst('Exception: ', ''),
+          ),
+        );
         continue;
       }
     }
 
     if (succeededSubs.isEmpty) {
-      final errorDetail = errors.isNotEmpty ? errors.join('\n') : '无可用订阅';
+      final errorDetail = failures.isNotEmpty
+          ? failures.map((failure) => failure.detail).join('\n')
+          : '无可用订阅';
       throw Exception('所有订阅刷新失败:\n$errorDetail');
     }
-    if (errors.isNotEmpty) {
-      throw Exception('部分订阅刷新失败，已保留上次有效节点:\n${errors.join('\n')}');
+    if (failures.isNotEmpty) {
+      return SubscriptionBatchRefreshResult(
+        status: SubscriptionBatchRefreshStatus.partialSuccess,
+        yaml: _rawYaml,
+        successfulSubscriptionNames:
+            succeededSubs.map((subscription) => subscription.name).toList(),
+        failures: List.unmodifiable(failures),
+      );
     }
 
     final candidateYaml = mergeYamlConfigs(
@@ -233,7 +304,12 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     }
     notifyListeners();
 
-    return candidateYaml;
+    return SubscriptionBatchRefreshResult(
+      status: SubscriptionBatchRefreshStatus.success,
+      yaml: candidateYaml,
+      successfulSubscriptionNames:
+          succeededSubs.map((subscription) => subscription.name).toList(),
+    );
   }
 
   // ── 节点编辑 ──
