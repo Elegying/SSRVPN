@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GITLEAKS_ACTION = (
     "gitleaks/gitleaks-action@"
-    "ff98106e4c7b2bc287b24eaf42907196329070c7"
+    "e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e"
 )
 
 
