@@ -42,7 +42,7 @@ and runtime changes land in smaller responsibility-focused files.
 
 ### Phase 3: Split oversized feature files
 
-- [ ] Split shared desktop dashboard composition/status from connection options.
+- [x] Split shared desktop dashboard composition/status from connection options.
 - [ ] Split Android home public-IP and runtime actions from lifecycle/state setup.
 - [ ] Add required-part and line-count guards for both boundaries.
 - [ ] Run focused guards, analyzer, shared tests, and Android tests.

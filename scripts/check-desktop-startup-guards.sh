@@ -107,10 +107,31 @@ runtime_actions = Path(
 public_ip_actions = Path(
     "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_public_ip_part.dart"
 )
-for path in (home, runtime_actions, public_ip_actions):
+dashboard = Path(
+    "packages/ssrvpn_shared/lib/desktop_ui/widgets/desktop_home_dashboard_part.dart"
+)
+status_widgets = Path(
+    "packages/ssrvpn_shared/lib/desktop_ui/widgets/desktop_home_status_widgets_part.dart"
+)
+connection_options = Path(
+    "packages/ssrvpn_shared/lib/desktop_ui/widgets/desktop_home_connection_options_part.dart"
+)
+part_limits = {
+    home: 900,
+    runtime_actions: 600,
+    public_ip_actions: 600,
+    dashboard: 600,
+    status_widgets: 600,
+    connection_options: 600,
+}
+for path, limit in part_limits.items():
+    if not path.is_file():
+        raise SystemExit(f"{path}: shared desktop screen part is missing")
     line_count = len(path.read_text(encoding="utf-8").splitlines())
-    if line_count > 900:
-        raise SystemExit(f"{path}: shared desktop screen part grew to {line_count} lines")
+    if line_count > limit:
+        raise SystemExit(
+            f"{path}: shared desktop screen part grew to {line_count} lines"
+        )
 
 aggregate_lines = sum(
     len(path.read_text(encoding="utf-8").splitlines())
@@ -129,6 +150,8 @@ for entrypoint in (
     for required_part in (
         "desktop_home_runtime_actions_part.dart",
         "desktop_home_public_ip_part.dart",
+        "desktop_home_status_widgets_part.dart",
+        "desktop_home_connection_options_part.dart",
     ):
         if required_part not in entrypoint_source:
             raise SystemExit(f"{entrypoint}: missing {required_part}")

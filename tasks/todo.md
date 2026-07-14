@@ -5,10 +5,11 @@
 - [x] Add RED guards for desktop app-shell boundaries.
 - [x] Consolidate the macOS/Windows shell into a shared part.
 - [x] Verify the desktop shell slice.
-- [ ] Commit the desktop shell slice.
-- [ ] Add RED guards for desktop dashboard boundaries.
-- [ ] Split desktop dashboard responsibilities.
-- [ ] Verify and commit the dashboard slice.
+- [x] Commit the desktop shell slice.
+- [x] Add RED guards for desktop dashboard boundaries.
+- [x] Split desktop dashboard responsibilities.
+- [x] Verify the dashboard slice.
+- [ ] Commit the dashboard slice.
 - [ ] Add RED guards for Android home-screen boundaries.
 - [ ] Split Android public-IP and runtime actions.
 - [ ] Verify and commit the Android slice.
