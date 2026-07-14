@@ -50,10 +50,10 @@ and runtime changes land in smaller responsibility-focused files.
 ### Checkpoint: Complete
 
 - [x] Run `scripts/verify-all.sh` successfully.
-- [ ] Review the final diff for correctness, readability, architecture, security,
+- [x] Review the final diff for correctness, readability, architecture, security,
       and performance.
-- [ ] Commit each verified slice, push `main`, and require green SSRVPN CI.
-- [ ] Update project health documentation and durable project memory.
+- [x] Commit each verified slice, push `main`, and require green SSRVPN CI.
+- [x] Update project health documentation and durable project memory.
 
 ## Risks and Mitigations
 
