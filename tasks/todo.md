@@ -32,7 +32,7 @@
 - [x] Run repository-wide verification and coverage thresholds
 - [x] Complete final five-axis and adversarial diff review
 - [x] Update version/changelog/docs/audit report to `3.4.0`
-- [ ] Commit and push `main`; require CI green
+- [x] Commit and push `main`; require CI green
 - [ ] Tag and publish `v3.4.0`; require Release green
 - [ ] Verify GitHub, OSS, website, checksums, and provenance
 - [ ] Update and read back durable SSRVPN project memory

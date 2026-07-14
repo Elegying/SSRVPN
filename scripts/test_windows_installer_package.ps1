@@ -47,6 +47,8 @@ function Invoke-SmokeProcess {
   )
 
   Write-Host "$Phase started. Log: $LogPath"
+  # Start-Process -Wait follows the whole descendant tree on Windows. Setup
+  # intentionally launches SSRVPN, so wait only for the installer process.
   $process = Start-Process -FilePath $FilePath -PassThru `
     -ArgumentList $ArgumentList
   try {

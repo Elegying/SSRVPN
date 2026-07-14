@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 正式发布先备份并推广 OSS 固定下载通道，再公开已校验的 GitHub Draft Release；若 GitHub 明确未转为正式 Release，会自动恢复 OSS，状态无法确认时保留恢复备份并停止流程，避免 GitHub 新版本已经公开而网站仍指向旧安装包。
 - Windows 每用户安装不再使用无管理员权限时无效的 `restartreplace`；若旧进程无法关闭，安装在删除旧数据前停止并显示中文恢复建议，避免半覆盖。
 - 安装前代理恢复只接受字段完整、端点合法且所有权旁路值匹配的日志；原生恢复日志按无效标记、完整写入、最终有效标记的顺序提交。
-- Windows PowerShell 调用统一强制无 BOM UTF-8 输入输出，脚本文件读取显式指定 UTF-8；构建门禁禁止 PowerShell 5.1 会误解码的非 ASCII 脚本源码，并要求 Inno Setup 6.5 或更高版本。
+- Windows PowerShell 调用统一强制无 BOM UTF-8 输入输出，脚本文件读取显式指定 UTF-8；构建门禁禁止 PowerShell 5.1 会误解码的非 ASCII 脚本源码，并通过无产物编译探针读取真实 Inno 引擎版本，避免 `ISCC.exe` 的 `0.0.0.0` 文件资源误判，同时要求 Inno Setup 6.5 或更高版本。
 - 订阅正文改为严格 UTF-8，损坏编码会显示明确错误且不污染现有订阅；HTTP/1 响应头在严格 UTF-8 失败时按协议字节映射回退，不再静默产生替换字符。
 - Windows 外层启动器用 Job Object 收口主程序启动的进程树；主程序退出后先恢复系统代理，再清理由 SSRVPN 启动但仍存活的核心进程，降低孤儿核心和死代理风险。
 
@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 明确个人免费分发决策：删除 macOS Developer ID/公证和 Windows Authenticode 自动化、凭据入口与失效测试；macOS 保留 ad-hoc 验证，Windows 保留 SHA256，文档不再把购买证书列为项目欠债。
 - 运行时远程规则集从浮动 `meta` 分支改为固定的 MetaCubeX 提交，配置仍保留内置域名与 GEOIP fallback，避免上游分支内容无审查漂移。
-- CI 与正式发布接入固定 commit 的 Gitleaks 全历史扫描；VPN URI 仅在测试夹具目录按单条规则允许，默认凭据规则仍会扫描这些文件。
+- CI 与正式发布接入固定 commit、Node 24 运行时的 Gitleaks v3 全历史扫描；VPN URI 仅在测试夹具目录按单条规则允许，默认凭据规则仍会扫描这些文件。
 
 ### 维护
 
@@ -44,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Android VPN Service 将核心存活监控、代理选择和通知构建拆分为可独立测试的支持模块，主 Service 继续受 900 行体量守卫约束。
 - macOS 与 Windows 的响应式导航、页面容器和启动提示外壳改为共享单一实现，平台 `app.dart` 只保留各自的启动、托盘、退出和错误恢复策略。
 - 共享桌面首页按页面编排、状态展示和连接选项拆分；Android 首页按生命周期、连接动作、节点动作和公网 IP 状态拆分，并加入文件体量与必需 part 守卫，后续修改不再集中到单个大文件。
-- Windows CI 和 Release 在生成安装器后，会在隔离 runner 上按默认每用户路径真实静默安装、校验启动文件、安全停止实例并卸载，安装失败不再只靠静态脚本测试发现。
+- Windows CI 和 Release 在生成安装器后，会在隔离 runner 上按默认每用户路径真实静默安装、校验启动文件、安全停止实例并卸载；安装与卸载只等待目标进程并分别限制为 120 秒，完整打包限制为 15 分钟，日志无论成功或失败都保留，安装问题不再只靠静态脚本测试发现或无限等待。
 
 ## [3.3.5] - 2026-07-14
 
