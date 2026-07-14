@@ -4,28 +4,80 @@ set -euo pipefail
 TAG="${1:-latest}"
 REPO="${SSRVPN_REPO:-Elegying/SSRVPN}"
 
-python3 - "$REPO" "$TAG" <<'PY'
+if ! command -v gh >/dev/null 2>&1; then
+  echo "gh is required to verify release assets" >&2
+  exit 1
+fi
+
+work_dir="$(mktemp -d "${TMPDIR:-/tmp}/ssrvpn-release-check.XXXXXX")"
+cleanup() {
+  rm -r "$work_dir"
+}
+trap cleanup EXIT
+
+release_endpoint="repos/$REPO/releases/latest"
+if [ "$TAG" != latest ]; then
+  release_endpoint="repos/$REPO/releases/tags/$TAG"
+fi
+
+fetch_release_metadata() {
+  local attempt
+  for attempt in 1 2 3; do
+    if gh api "$release_endpoint" > "$work_dir/release.json"; then
+      return 0
+    fi
+    if [ "$attempt" -lt 3 ]; then
+      sleep "$attempt"
+    fi
+  done
+  return 1
+}
+
+fetch_release_metadata
+release_tag="$(python3 - "$work_dir/release.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as release_file:
+    release = json.load(release_file)
+print(release.get("tag_name") or "")
+PY
+)"
+if [ -z "$release_tag" ]; then
+  echo "release metadata has no tag_name" >&2
+  exit 1
+fi
+
+download_verification_assets() {
+  local attempt
+  for attempt in 1 2 3; do
+    if gh release download "$release_tag" \
+      --repo "$REPO" \
+      --dir "$work_dir/assets" \
+      --pattern '*.sha256' \
+      --pattern 'SSRVPN-release-provenance.json' \
+      --clobber; then
+      return 0
+    fi
+    if [ "$attempt" -lt 3 ]; then
+      sleep "$attempt"
+    fi
+  done
+  return 1
+}
+
+mkdir "$work_dir/assets"
+download_verification_assets
+
+python3 - "$work_dir/release.json" "$work_dir/assets" <<'PY'
 import json
 import os
 import re
 import sys
-import urllib.request
 
-repo, tag = sys.argv[1], sys.argv[2]
-url = f"https://api.github.com/repos/{repo}/releases/latest"
-if tag != "latest":
-    url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
-
-headers = {
-    "Accept": "application/vnd.github+json",
-    "User-Agent": "SSRVPN-release-check",
-}
-token = os.environ.get("GITHUB_TOKEN")
-if token:
-    headers["Authorization"] = f"Bearer {token}"
-request = urllib.request.Request(url, headers=headers)
-with urllib.request.urlopen(request, timeout=20) as response:
-    release = json.load(response)
+release_path, asset_directory = sys.argv[1], sys.argv[2]
+with open(release_path, encoding="utf-8") as release_file:
+    release = json.load(release_file)
 
 required = {
     "SSRVPN.apk",
@@ -71,25 +123,24 @@ for artifact_name in (
     if not digest.startswith("sha256:") or not hash_pattern.fullmatch(digest[7:]):
         raise SystemExit(f"missing SHA256 API digest: {artifact_name}")
 
-    checksum_asset = assets[f"{artifact_name}.sha256"]
-    checksum_request = urllib.request.Request(
-        str(checksum_asset["browser_download_url"]),
-        headers=headers,
+    checksum_path = os.path.join(
+        asset_directory,
+        f"{artifact_name}.sha256",
     )
-    with urllib.request.urlopen(checksum_request, timeout=20) as response:
-        checksum_text = response.read(4096).decode("ascii", errors="replace")
+    with open(checksum_path, encoding="ascii", errors="replace") as checksum_file:
+        checksum_text = checksum_file.read(4096)
     checksum_match = hash_pattern.search(checksum_text)
     if checksum_match is None:
         raise SystemExit(f"invalid checksum file: {artifact_name}.sha256")
     if checksum_match.group(1).lower() != digest[7:].lower():
         raise SystemExit(f"checksum does not match GitHub digest: {artifact_name}")
 
-provenance_request = urllib.request.Request(
-    str(assets["SSRVPN-release-provenance.json"]["browser_download_url"]),
-    headers=headers,
+provenance_path = os.path.join(
+    asset_directory,
+    "SSRVPN-release-provenance.json",
 )
-with urllib.request.urlopen(provenance_request, timeout=20) as response:
-    provenance = json.loads(response.read(64 * 1024 + 1))
+with open(provenance_path, encoding="utf-8") as provenance_file:
+    provenance = json.load(provenance_file)
 if provenance.get("schema") != 1 or provenance.get("tag") != release.get("tag_name"):
     raise SystemExit("release provenance tag/schema mismatch")
 if re.fullmatch(r"[0-9a-f]{40}", str(provenance.get("commit") or "")) is None:

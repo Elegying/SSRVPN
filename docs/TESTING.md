@@ -61,7 +61,7 @@ scripts/check-coverage-thresholds.sh SSRVPN_MacOS
 
 ### 发布与文档
 
-发布工具使用 Python 单元测试和资产冒烟；文档门禁只扫描当前有效文档，不因历史 CHANGELOG 或审查报告中的旧事实失败。发布后要重新下载产物并校验随包 SHA256。
+发布工具使用 Python 单元测试和资产冒烟；文档门禁只扫描当前有效文档，不因历史 CHANGELOG 或审查报告中的旧事实失败。发布后资产检查通过已认证的 GitHub CLI 下载元数据、SHA-256 文件与 provenance，并对瞬时失败有限重试；随后还要重新下载公开产物并校验随包 SHA256。
 
 ## 常用命令
 

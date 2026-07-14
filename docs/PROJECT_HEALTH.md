@@ -1,7 +1,7 @@
 # 项目健康状态
 
 最近审查：2026-07-14<br>
-审查基线：`v3.3.4`，包含 Windows 无提权全新覆盖安装、主进程退出后原生代理兜底，以及 Windows PowerShell 5.1 假绿防护的完整质量门禁证据。
+审查基线：`v3.3.5`，包含 Windows 无提权全新覆盖安装、主进程退出后原生代理兜底、Windows PowerShell 5.1 假绿防护，以及可重试的发布后资产校验门禁证据。
 
 ## 结论
 
@@ -41,7 +41,7 @@ make verify
 | Windows | 41.06% | 30% |
 
 2026-07-14 最近一次完整本地运行通过共享 269 项、Android Flutter 100 项、macOS
-73 项、Windows 64 项和发布工具 54 项；Windows 的真实 DPAPI/`MoveFileExW` 及 Mihomo
+73 项、Windows 64 项和发布工具 55 项；Windows 的真实 DPAPI/`MoveFileExW` 及 Mihomo
 集成测试因当前主机是 macOS 按条件跳过，已保留在 Windows CI 中执行。Android 原生
 JUnit/Gradle 门禁同时通过。测量值会随可执行行变化；是否健康以同一提交上的
 `make verify` 输出为准，不手工追求百分比。

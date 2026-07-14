@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.5] - 2026-07-14
+
+### 修复
+
+- 发布后资产校验改为通过已认证的 GitHub CLI 获取元数据和小型校验资产，并对瞬时请求失败进行有限重试，避免 macOS `urllib` 分块读取不完整导致真实发布被误报失败。
+
+### 维护
+
+- 新增离线回归测试，模拟 GitHub 元数据与资产下载首次失败后恢复，持续校验 Release digest、SHA-256 文件和 provenance 的一致性；该测试同时进入主 CI 与正式 Release CI。
+
 ## [3.3.4] - 2026-07-14
 
 ### 修复
