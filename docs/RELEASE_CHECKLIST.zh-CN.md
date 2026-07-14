@@ -41,8 +41,8 @@
 
 ### Windows x64 实机冒烟
 
-先在干净目录完整解压 `SSRVPN.zip`，再用同一份用户数据测试
-`SSRVPN_Setup.exe` 覆盖升级。测试前先记录系统代理原值：
+先在干净目录完整解压 `SSRVPN.zip`，再准备带有可识别旧订阅与设置的安装版目录，
+测试 `SSRVPN_Setup.exe` 全新覆盖。测试前先记录系统代理原值：
 
 ```bat
 reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable
@@ -51,13 +51,13 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 
 1. 运行 `SSRVPN_Diag.bat`；必需文件必须齐全，Mihomo 能输出版本，程序 10 秒后仍在运行；完成后从托盘退出诊断启动的实例。
 2. 如果诊断报告旧版进程安全例外，以管理员身份运行一次 `remove_legacy_cet_exemption.bat`，然后重新诊断并确认警告消失。
-3. 正常启动 `ssrvpn_windows.exe`；确认主页、订阅、节点和已选节点恢复正常，`%LOCALAPPDATA%\SSRVPN\logs\startup.log` 没有启动失败。
+3. 正常启动 `ssrvpn_windows.exe`；确认主页、订阅、节点和已选节点工作正常，`%LOCALAPPDATA%\SSRVPN\logs\startup.log` 没有启动失败。
 4. 先从托盘退出正常实例，再运行 `ssrvpn_safe_mode.bat`；确认安全模式提示可见，托盘、旧窗口位置和 Mihomo 自动初始化均被跳过。
 5. 使用系统代理模式连接；确认浏览器可联网、代理指向 `127.0.0.1` 的实际监听端口。正常断开后，`ProxyEnable` 和 `ProxyServer` 必须精确恢复为测试前的值。
 6. 再次连接后从任务管理器结束 `bin\mihomo.exe`；应用应退出连接状态并自动清理自己设置的系统代理，不得留下半连接状态。
 7. 再次连接后从托盘选择“退出 SSRVPN”；应用和 Mihomo 都应退出，系统代理必须恢复，`%LOCALAPPDATA%\SSRVPN\crashes` 不应新增转储。
 8. Windows 分别用普通权限和管理员权限检查 TUN：普通权限必须明确失败且不残留代理；管理员权限下应能连接、断开并恢复网络。macOS TUN 必须显示管理员授权框；取消授权、启动超时、正常断开和退出均不得遗留 root Mihomo、utun 默认路由、暂存目录或系统代理。
-9. 创建两个带 `settings.json` 的便携副本，再启动 `SSRVPN_Setup.exe`；安装器必须忽略两个副本、安装到 `%LOCALAPPDATA%\Programs\SSRVPN` 并自动启动。随后覆盖安装一次，确认安装目录中的订阅和设置保留；模拟目录只读或损坏时，确认校验备份、目录重建和安装后恢复均成功。
+9. 创建两个带 `settings.json` 的便携副本，并在 `%LOCALAPPDATA%\Programs\SSRVPN\bin\ssrvpn` 与 `%LOCALAPPDATA%\SSRVPN\ssrvpn` 放置可识别旧配置，再启动 `SSRVPN_Setup.exe`。安装器必须忽略两个便携副本，以普通用户权限安装到固定目录并自动启动；固定目录、回退目录、窗口状态和旧安装恢复状态必须被清除，旧订阅与设置不得恢复，用户可重新导入订阅。
 10. 检查应用内更新优先打开 OSS 的 `SSRVPN_Setup.exe`，OSS 异常时能使用 GitHub 备用下载。日志可提交排查，但不要公开发送 `.dmp` 文件。
 
 ## 发布

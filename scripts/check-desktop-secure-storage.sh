@@ -48,11 +48,6 @@ require_text "$windows_store" "followLinks: false"
 require_text "$windows_store" "_removeTemporaryFiles"
 require_text SSRVPN_Windows/lib/services/settings_service.dart \
   "_apiSecretFileName"
-require_text SSRVPN_Windows/installer/prepare_install_directory.ps1 \
-  ".api-secret.dpapi"
-require_text scripts/test_windows_installer_runtime.ps1 \
-  ".api-secret.dpapi"
-
 if grep -Fq 'flutter_secure_storage:' SSRVPN_Windows/pubspec.yaml; then
   echo "desktop secure storage guard failed: Windows secret writes must remain crash-consistent" >&2
   exit 1

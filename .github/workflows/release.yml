@@ -384,7 +384,7 @@ jobs:
         shell: powershell
         run: |
           cd SSRVPN_Windows
-          foreach ($file in @('installer\prepare_install_directory.ps1', 'installer\stop_ssrvpn_processes.ps1', '..\scripts\test_windows_installer_runtime.ps1')) {
+          foreach ($file in @('installer\stop_ssrvpn_processes.ps1', '..\scripts\test_windows_installer_runtime.ps1')) {
             $tokens = $null
             $parseErrors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$parseErrors)

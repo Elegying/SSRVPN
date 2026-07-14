@@ -41,9 +41,16 @@ UsePreviousAppDir=no
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\*"
+Type: filesandordirs; Name: "{localappdata}\SSRVPN\ssrvpn"
+Type: files; Name: "{localappdata}\SSRVPN\window_state.json"
+Type: filesandordirs; Name: "{localappdata}\SSRVPN\installer-recovery"
+Type: files; Name: "{localappdata}\SSRVPN\installer\rebuild-state.json"
+Type: dirifempty; Name: "{localappdata}\SSRVPN\installer"
+
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs overwritereadonly restartreplace
-Source: "{#ProjectDir}\installer\prepare_install_directory.ps1"; Flags: dontcopy
 Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; Flags: dontcopy
 
 [Icons]
@@ -51,69 +58,9 @@ Name: "{autoprograms}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir:
 Name: "{autodesktop}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
 
 [Run]
-Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"; Flags: nowait; Check: CanLaunchAfterRestore
+Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"; Flags: nowait
 
 [Code]
-var
-  InstallDataRestoreSucceeded: Boolean;
-  InstallDataRestoreRequired: Boolean;
-
-function CanLaunchAfterRestore: Boolean;
-begin
-  Result := InstallDataRestoreSucceeded;
-end;
-
-function RunInstallDirectoryHelper(Restore: Boolean): Integer;
-var
-  ResultCode: Integer;
-  Started: Boolean;
-  PowerShellPath: String;
-  ScriptPath: String;
-  InstallPath: String;
-  DataPath: String;
-  RecoveryPath: String;
-  StatePath: String;
-  Parameters: String;
-begin
-  ResultCode := -1;
-  ExtractTemporaryFile('prepare_install_directory.ps1');
-  PowerShellPath := ExpandConstant(
-    '{sys}\WindowsPowerShell\v1.0\powershell.exe');
-  ScriptPath := ExpandConstant('{tmp}\prepare_install_directory.ps1');
-  InstallPath := ExpandConstant('{app}');
-  DataPath := ExpandConstant('{app}\bin\ssrvpn');
-  RecoveryPath := ExpandConstant('{localappdata}\SSRVPN\installer-recovery');
-  StatePath := ExpandConstant('{localappdata}\SSRVPN\installer\rebuild-state.json');
-  Parameters := '-NoLogo -NoProfile -NonInteractive ' +
-    '-ExecutionPolicy Bypass -File ' + AddQuotes(ScriptPath) +
-    ' -InstallDir ' + AddQuotes(InstallPath) +
-    ' -DataDir ' + AddQuotes(DataPath) +
-    ' -RecoveryRoot ' + AddQuotes(RecoveryPath) +
-    ' -StateFile ' + AddQuotes(StatePath);
-  if Restore then
-    Parameters := Parameters + ' -Restore';
-  Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
-    ewWaitUntilTerminated, ResultCode);
-  if not Started then begin
-    Log('Could not start installation-directory helper');
-    Result := -1;
-  end else begin
-    Result := ResultCode;
-  end;
-  if Result <> 0 then
-    Log(Format('Installation-directory helper returned %d', [Result]));
-end;
-
-function PrepareInstallDirectory: Integer;
-begin
-  Result := RunInstallDirectoryHelper(False);
-end;
-
-function RestoreInstallData: Integer;
-begin
-  Result := RunInstallDirectoryHelper(True);
-end;
-
 function StopSsrvpnProcesses: Integer;
 var
   ResultCode: Integer;
@@ -148,40 +95,9 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   StopResult: Integer;
-  DirectoryResult: Integer;
 begin
-  InstallDataRestoreSucceeded := True;
-  InstallDataRestoreRequired := False;
   StopResult := StopSsrvpnProcesses;
-  DirectoryResult := PrepareInstallDirectory;
   if StopResult <> 0 then
     Log(Format('Best-effort process cleanup returned %d', [StopResult]));
-  if DirectoryResult = 10 then begin
-    InstallDataRestoreRequired := True;
-    Result := '';
-  end else if DirectoryResult <> 0 then begin
-    Result := 'SSRVPN 无法安全备份或恢复现有数据。安装已停止；' +
-      '请保留 %LOCALAPPDATA%\SSRVPN\installer-recovery 后查看安装日志。';
-  end else
-    Result := '';
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  RestoreResult: Integer;
-begin
-  if CurStep = ssPostInstall then begin
-    if InstallDataRestoreRequired then begin
-      RestoreResult := RestoreInstallData;
-      InstallDataRestoreSucceeded := RestoreResult = 0;
-      if RestoreResult <> 0 then begin
-        Log(Format('Best-effort installation data restore returned %d', [RestoreResult]));
-        MsgBox(
-          'SSRVPN 已安装，但旧数据尚未安全恢复，因此不会自动启动。' + #13#10 +
-          '恢复副本仍保留在 %LOCALAPPDATA%\SSRVPN\installer-recovery。' + #13#10 +
-          '请查看安装日志并重新运行安装器。',
-          mbError, MB_OK);
-      end;
-    end;
-  end;
+  Result := '';
 end;

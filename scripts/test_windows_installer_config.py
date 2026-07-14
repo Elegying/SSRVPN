@@ -39,6 +39,11 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("DisableDirPage=yes", script)
         self.assertIn("UsePreviousAppDir=no", script)
         self.assertIn("PrivilegesRequired=lowest", script)
+        self.assertNotIn("PrivilegesRequired=admin", script)
+        self.assertNotRegex(
+            script,
+            re.compile(r"DefaultDirName=\{pf(?:32|64)?\}", re.I),
+        )
         self.assertIn("CloseApplications=force", script)
         self.assertIn("RestartApplications=no", script)
         self.assertNotIn("ChineseSimplified.isl", script)
@@ -51,21 +56,21 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotIn("postinstall", run_entry)
         self.assertNotIn("skipifsilent", run_entry)
 
-    def test_installer_ignores_portable_copies_and_blocks_unsafe_rebuild(self) -> None:
+    def test_installer_ignores_portable_copies_and_never_blocks_for_old_data(
+        self,
+    ) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
         installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
 
         prepare = installer.split(
             "function PrepareToInstall(var NeedsRestart: Boolean): String;", 1
         )[1]
-        self.assertLess(
-            prepare.index("StopSsrvpnProcesses"),
-            prepare.index("PrepareInstallDirectory"),
-        )
+        self.assertIn("StopResult := StopSsrvpnProcesses", prepare)
         self.assertIn("Result := '';", prepare)
-        self.assertIn("无法安全备份或恢复现有数据", prepare)
-        self.assertIn("CanLaunchAfterRestore", installer)
-        self.assertIn("旧数据尚未安全恢复", installer)
+        self.assertNotIn("PrepareInstallDirectory", installer)
+        self.assertNotIn("CanLaunchAfterRestore", installer)
+        self.assertNotIn("无法安全备份或恢复现有数据", installer)
+        self.assertNotIn("旧数据尚未安全恢复", installer)
         self.assertNotIn("DiscoverPortableData", installer)
         self.assertNotIn("MigratePortableData", installer)
         self.assertNotIn("migrate_portable_data.ps1", installer)
@@ -73,44 +78,41 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("restartreplace", installer)
         self.assertIn("overwritereadonly", installer)
 
-    def test_installer_rebuilds_only_active_directory_and_restores_data(self) -> None:
+    def test_installer_discards_all_previous_state_before_copying_files(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
         installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
-        prepare = (installer_root / "prepare_install_directory.ps1").read_text(
-            encoding="utf-8"
-        )
 
-        self.assertIn("prepare_install_directory.ps1", installer)
-        self.assertIn("-InstallDir", installer)
-        self.assertIn("-DataDir", installer)
-        self.assertIn("-RecoveryRoot", installer)
-        self.assertIn("-StateFile", installer)
-        self.assertIn("-Restore", installer)
-        self.assertIn("InstallDataRestoreRequired", installer)
-        self.assertIn("DirectoryResult = 10", installer)
-        self.assertIn("if InstallDataRestoreRequired then", installer)
-        self.assertIn("subscriptions.json", prepare)
-        self.assertIn("files = $backupManifest", prepare)
-        self.assertIn("ConvertTo-Json -Depth 4", prepare)
-        self.assertIn("recovery manifest is missing", prepare)
-        self.assertIn("source hash differs from the manifest", prepare)
-        self.assertIn("Get-FileHash", prepare)
-        self.assertIn("Test-ChildPath", prepare)
-        self.assertIn("Get-PathItem", prepare)
-        self.assertIn("[System.IO.Directory]::Delete($installPath, $false)", prepare)
-        self.assertIn("Move-Item -LiteralPath $installPath", prepare)
-        self.assertIn("New-Item -ItemType Directory -Path $installPath", prepare)
-        self.assertIn("exit 10", prepare)
-        self.assertNotIn("GetFolderPath('Desktop')", prepare)
-        self.assertNotIn("Join-Path $env:USERPROFILE 'Downloads'", prepare)
-
-        writable_upgrade = prepare.index(
-            "if ((Test-Path -LiteralPath $installPath -PathType Container)"
+        self.assertIn("[InstallDelete]", installer)
+        self.assertLess(installer.index("[InstallDelete]"), installer.index("[Files]"))
+        self.assertIn('Type: filesandordirs; Name: "{app}\\*"', installer)
+        self.assertIn(
+            'Type: filesandordirs; '
+            'Name: "{localappdata}\\SSRVPN\\ssrvpn"',
+            installer,
         )
-        prior_recovery = prepare.index(
-            "# Finish a recoverable prior attempt before evaluating the current directory."
+        self.assertIn(
+            'Type: files; '
+            'Name: "{localappdata}\\SSRVPN\\window_state.json"',
+            installer,
         )
-        self.assertLess(writable_upgrade, prior_recovery)
+        self.assertIn(
+            'Type: filesandordirs; '
+            'Name: "{localappdata}\\SSRVPN\\installer-recovery"',
+            installer,
+        )
+        self.assertIn(
+            'Type: files; '
+            'Name: "{localappdata}\\SSRVPN\\installer\\rebuild-state.json"',
+            installer,
+        )
+        self.assertIn(
+            'Type: dirifempty; Name: "{localappdata}\\SSRVPN\\installer"',
+            installer,
+        )
+        self.assertFalse((installer_root / "prepare_install_directory.ps1").exists())
+        self.assertNotIn("prepare_install_directory.ps1", installer)
+        self.assertNotIn("InstallDataRestore", installer)
+        self.assertNotIn("RestoreInstallData", installer)
 
     def test_installer_cleanup_is_path_exact_and_best_effort(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
@@ -144,7 +146,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         runtime_test = (
             ROOT / "scripts" / "test_windows_installer_runtime.ps1"
         ).read_text(encoding="utf-8")
-        self.assertIn("ForceRebuild", runtime_test)
+        self.assertNotIn("prepare_install_directory.ps1", runtime_test)
         self.assertIn("unrelated mihomo process was incorrectly stopped", runtime_test)
         restore = stopper.split("function Restore-OwnedSystemProxy", 1)[1]
         self.assertLess(
@@ -153,13 +155,29 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertNotRegex(stopper, r"Stop-Process\s+-Name\s+['\"]?mihomo")
 
+    def test_windows_installer_scripts_are_powershell_51_compatible(self) -> None:
+        scripts = [
+            ROOT / "SSRVPN_Windows" / "installer" / "stop_ssrvpn_processes.ps1",
+            ROOT / "scripts" / "test_windows_installer_runtime.ps1",
+        ]
+        incompatible_split_path = re.compile(
+            r"Split-Path\s+-LiteralPath\s+[^\r\n]+\s+-Parent",
+            re.I,
+        )
+
+        for script_path in scripts:
+            with self.subTest(script=script_path.name):
+                self.assertNotRegex(
+                    script_path.read_text(encoding="utf-8"),
+                    incompatible_split_path,
+                )
+
     def test_release_pipeline_publishes_installer_and_checksum(self) -> None:
         release = (ROOT / ".github" / "workflows" / "release.yml").read_text(
             encoding="utf-8"
         )
         required = {
             "tool\\build_installer.ps1",
-            "installer\\prepare_install_directory.ps1",
             "installer\\stop_ssrvpn_processes.ps1",
             "SSRVPN_Windows/SSRVPN_Setup.exe",
             "SSRVPN_Windows/SSRVPN_Setup.exe.sha256",
