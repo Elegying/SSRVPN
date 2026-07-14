@@ -74,6 +74,23 @@ function Test-DirectoryWritable {
   }
 }
 
+function Test-ActiveUserDataPresent {
+  foreach ($name in @(
+      '.api-secret.dpapi',
+      'settings.json',
+      'subscriptions.json',
+      'subscription_cache.yaml',
+      'config.yaml'
+    )) {
+    $item = Get-PathItem -Path (Join-Path $dataPath $name)
+    if ($null -ne $item -and -not $item.PSIsContainer -and
+        -not ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+      return $true
+    }
+  }
+  return $false
+}
+
 function Copy-VerifiedFile {
   param(
     [Parameter(Mandatory = $true)][string]$Source,
@@ -223,6 +240,18 @@ if ($Restore) {
   return
 }
 
+# A complete writable installation with current user data is authoritative.
+# Do not let stale recovery metadata from an older failed installer attempt
+# permanently block an ordinary in-place upgrade. The old evidence remains on
+# disk and is reconsidered if the active installation ever needs rebuilding.
+if ((Test-Path -LiteralPath $installPath -PathType Container) -and
+    -not (Test-ReparsePoint -Path $installPath) -and
+    -not $ForceRebuild -and
+    (Test-DirectoryWritable -Path $installPath) -and
+    (Test-ActiveUserDataPresent)) {
+  return
+}
+
 # Finish a recoverable prior attempt before evaluating the current directory.
 try {
   Restore-RebuildData
@@ -310,3 +339,7 @@ New-Item -ItemType Directory -Path $installPath -Force | Out-Null
 if (-not (Test-DirectoryWritable -Path $installPath)) {
   throw "The active SSRVPN installation directory is still not writable: $installPath"
 }
+
+# Inno Setup uses this successful non-zero code to remember that post-install
+# data restoration is required. Other non-zero codes remain real failures.
+exit 10

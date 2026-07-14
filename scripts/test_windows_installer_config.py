@@ -86,6 +86,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("-RecoveryRoot", installer)
         self.assertIn("-StateFile", installer)
         self.assertIn("-Restore", installer)
+        self.assertIn("InstallDataRestoreRequired", installer)
+        self.assertIn("DirectoryResult = 10", installer)
+        self.assertIn("if InstallDataRestoreRequired then", installer)
         self.assertIn("subscriptions.json", prepare)
         self.assertIn("files = $backupManifest", prepare)
         self.assertIn("ConvertTo-Json -Depth 4", prepare)
@@ -97,8 +100,17 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("[System.IO.Directory]::Delete($installPath, $false)", prepare)
         self.assertIn("Move-Item -LiteralPath $installPath", prepare)
         self.assertIn("New-Item -ItemType Directory -Path $installPath", prepare)
+        self.assertIn("exit 10", prepare)
         self.assertNotIn("GetFolderPath('Desktop')", prepare)
         self.assertNotIn("Join-Path $env:USERPROFILE 'Downloads'", prepare)
+
+        writable_upgrade = prepare.index(
+            "if ((Test-Path -LiteralPath $installPath -PathType Container)"
+        )
+        prior_recovery = prepare.index(
+            "# Finish a recoverable prior attempt before evaluating the current directory."
+        )
+        self.assertLess(writable_upgrade, prior_recovery)
 
     def test_installer_cleanup_is_path_exact_and_best_effort(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"

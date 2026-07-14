@@ -77,7 +77,7 @@ try {
   $prepared = Invoke-PrepareDirectory -InstallDir $installDir `
     -DataDir $dataDir -RecoveryRoot $recoveryRoot -StateFile $stateFile `
     -ForceRebuild
-  if ($prepared.ExitCode -ne 0) {
+  if ($prepared.ExitCode -ne 10) {
     throw "Forced installation-directory rebuild returned $($prepared.ExitCode)."
   }
   if (-not (Test-Path -LiteralPath $installDir -PathType Container)) {
@@ -120,6 +120,35 @@ try {
     throw 'An unrelated portable data directory was modified.'
   }
 
+  # A stale or malformed recovery state from an older installer attempt must
+  # not permanently block a healthy, writable in-place upgrade. The active
+  # data remains authoritative and the old recovery evidence stays untouched.
+  $staleInstallDir = Join-Path $testRoot 'stale\Programs\SSRVPN'
+  $staleDataDir = Join-Path $staleInstallDir 'bin\ssrvpn'
+  $staleRecoveryRoot = Join-Path $testRoot 'stale\recovery'
+  $staleStateFile = Join-Path $testRoot 'stale\installer\rebuild-state.json'
+  New-Item -ItemType Directory -Path $staleDataDir -Force | Out-Null
+  New-Item -ItemType Directory -Path $staleRecoveryRoot -Force | Out-Null
+  New-Item -ItemType Directory `
+    -Path (Split-Path -LiteralPath $staleStateFile -Parent) -Force | Out-Null
+  $staleSettings = Join-Path $staleDataDir 'settings.json'
+  [System.IO.File]::WriteAllText($staleSettings, '{"source":"active"}')
+  [System.IO.File]::WriteAllText($staleStateFile, '{"incomplete":true}')
+
+  $stalePrepared = Invoke-PrepareDirectory `
+    -InstallDir $staleInstallDir -DataDir $staleDataDir `
+    -RecoveryRoot $staleRecoveryRoot -StateFile $staleStateFile
+  if ($stalePrepared.ExitCode -ne 0) {
+    throw "Healthy in-place upgrade was blocked by stale recovery state."
+  }
+  if ((Get-Content -LiteralPath $staleSettings -Raw) -ne
+      '{"source":"active"}') {
+    throw 'Stale recovery handling modified active installation data.'
+  }
+  if (-not (Test-Path -LiteralPath $staleStateFile -PathType Leaf)) {
+    throw 'Stale recovery evidence was discarded during in-place upgrade.'
+  }
+
   # A post-install file that differs from the verified backup is a recovery
   # conflict. Restoration must fail closed and retain both the state file and
   # the verified backup so the operation can be retried without data loss.
@@ -158,7 +187,7 @@ try {
     -InstallDir $conflictInstallDir -DataDir $conflictDataDir `
     -RecoveryRoot $conflictRecoveryRoot -StateFile $conflictStateFile `
     -ForceRebuild
-  if ($conflictPrepared.ExitCode -ne 0) {
+  if ($conflictPrepared.ExitCode -ne 10) {
     throw "Conflict fixture rebuild returned $($conflictPrepared.ExitCode)."
   }
   $conflictState = Get-Content -LiteralPath $conflictStateFile -Raw |
