@@ -421,6 +421,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             package_script,
         )
         self.assertIn("[version]'6.5.0'", installer_script)
+        self.assertIn("AppName=SSRVPN Compiler Probe", installer_script)
+        self.assertIn("Output=no", installer_script)
+        self.assertIn("$probeExitCode", installer_script)
+        self.assertIn("Remove-Item -LiteralPath $probePath", installer_script)
         self.assertIn("Compiler engine version:", installer_script)
         self.assertIn("$versionInfo.FileVersion", installer_script)
         self.assertIn("$versionInfo.ProductVersion", installer_script)

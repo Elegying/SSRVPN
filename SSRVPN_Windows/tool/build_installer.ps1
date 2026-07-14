@@ -64,7 +64,32 @@ if (-not $compiler) {
 
 $minimumCompilerVersion = [version]'6.5.0'
 $versionInfo = (Get-Item -LiteralPath $compiler).VersionInfo
-$compilerBanner = @(& $compiler '/?' 2>&1)
+$probePath = Join-Path (
+  [System.IO.Path]::GetTempPath()
+) "ssrvpn-inno-version-$([Guid]::NewGuid().ToString('N')).iss"
+$probeSource = @(
+  '[Setup]',
+  'AppName=SSRVPN Compiler Probe',
+  'AppVersion=0.0',
+  'DefaultDirName={tmp}\SSRVPN-Compiler-Probe',
+  'Uninstallable=no',
+  'Output=no',
+  'PrivilegesRequired=lowest'
+) -join "`r`n"
+[System.IO.File]::WriteAllText(
+  $probePath,
+  "$probeSource`r`n",
+  [System.Text.Encoding]::ASCII
+)
+try {
+  $compilerBanner = @(& $compiler $probePath 2>&1)
+  $probeExitCode = $LASTEXITCODE
+} finally {
+  Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
+}
+if ($probeExitCode -ne 0) {
+  throw "Unable to run the Inno Setup compiler version probe (exit $probeExitCode)."
+}
 $compilerBannerText = ($compilerBanner | ForEach-Object { [string]$_ }) -join "`n"
 $versionMatch = [regex]::Match(
   $compilerBannerText,
