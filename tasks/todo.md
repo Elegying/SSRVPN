@@ -33,6 +33,6 @@
 - [x] Complete final five-axis and adversarial diff review
 - [x] Update version/changelog/docs/audit report to `3.4.0`
 - [x] Commit and push `main`; require CI green
-- [ ] Tag and publish `v3.4.0`; require Release green
-- [ ] Verify GitHub, OSS, website, checksums, and provenance
-- [ ] Update and read back durable SSRVPN project memory
+- [x] Tag and publish `v3.4.0`; require Release green
+- [x] Verify GitHub, OSS, website, checksums, and provenance
+- [x] Update and read back durable SSRVPN project memory

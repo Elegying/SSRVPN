@@ -83,5 +83,8 @@ Android 原生测试仅在验证命令中临时改用镜像，仓库源配置未
 关闭：Windows job `87180433029` 使用 PowerShell 5.1，通过 Inno Setup 6.7.1 编译，随后在
 `%LOCALAPPDATA%\Programs\SSRVPN` 安装并启动客户端；安装器 12.9 秒返回 0，直接卸载器
 2.5 秒返回 0，日志资产为 `8322229205`，安装目录中的两个可执行文件均被删除。
-正式 Release 会在 tag 上复跑同一门禁。L4 Windows 11 交互安装、连接、断开、重启与
-隔夜验证仍是明确缺口，不能由 CI 替代。
+正式 [Release `29362047198`](https://github.com/Elegying/SSRVPN/actions/runs/29362047198)
+已在 tag 上复跑同一门禁：Windows job `87184803539` 安装约 9.1 秒、直接卸载约 2.4 秒，
+两者均返回 0，日志资产为 `8322743677`。GitHub 9 个资产、provenance、OSS 清单、四个
+官网固定入口与 SHA-256 均完成发布后重下载复核。L4 Windows 11 交互安装、连接、断开、
+重启与隔夜验证仍是明确缺口，不能由 CI 替代。

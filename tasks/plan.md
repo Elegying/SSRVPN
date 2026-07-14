@@ -56,6 +56,6 @@ verify a formal free-distribution release. The critical outcomes are:
 - [x] All twenty review rows are closed with evidence and no unresolved P0-P2.
 - [x] Local verification is green apart from explicitly documented OS-only skips.
 - [x] `main` CI is green on Android, macOS, and Windows.
-- [ ] `v3.4.0` Release is public and all assets/checksums/provenance verify.
-- [ ] OSS fixed aliases and website paths download the same `v3.4.0` artifacts.
-- [ ] Rollback to `v3.3.5` remains operational if release validation fails.
+- [x] `v3.4.0` Release is public and all assets/checksums/provenance verify.
+- [x] OSS fixed aliases and website paths download the same `v3.4.0` artifacts.
+- [x] Rollback to `v3.3.5` remains operational if release validation fails.
