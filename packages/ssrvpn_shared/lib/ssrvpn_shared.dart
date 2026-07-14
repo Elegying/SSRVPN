@@ -9,6 +9,7 @@ export 'models/proxy_group.dart';
 export 'models/subscription.dart';
 export 'models/app_settings.dart';
 export 'models/public_ip_info.dart';
+export 'models/app_diagnostics.dart';
 
 // 服务
 export 'controllers/home_node_controller.dart';
