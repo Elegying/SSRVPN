@@ -386,6 +386,7 @@ jobs:
 
       - name: Build Windows packages
         shell: powershell
+        timeout-minutes: 15
         run: |
           cd SSRVPN_Windows
           # Windows PowerShell does not stop when a child process returns non-zero.
@@ -404,7 +405,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows installer smoke logs
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: windows-installer-smoke-logs

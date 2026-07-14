@@ -354,6 +354,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         smoke = smoke_script.read_text(encoding="utf-8")
         self.assertIn("$env:GITHUB_ACTIONS -ne 'true'", smoke)
         self.assertIn("Start-Process", smoke)
+        self.assertIn("WaitForExit", smoke)
+        self.assertIn("TimeoutSeconds = 120", smoke)
+        self.assertIn("taskkill.exe", smoke)
+        self.assertNotIn("Start-Process -FilePath $installer -Wait", smoke)
         self.assertIn("SSRVPN_Setup.exe", smoke)
         self.assertIn("unins000.exe", smoke)
         self.assertIn("ssrvpn_windows.exe", smoke)
@@ -372,10 +376,15 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             build_step = build_step.split("\n      - name:", 1)[0]
             with self.subTest(workflow=workflow_name):
                 self.assertIn(invocation, build_step)
+                self.assertIn("timeout-minutes: 15", build_step)
                 self.assertIn(
                     "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
                     build_step,
                 )
+                log_step = workflow.split(
+                    "- name: Upload Windows installer smoke logs", 1
+                )[1].split("\n      - name:", 1)[0]
+                self.assertIn("if: always()", log_step)
 
     def test_release_pipeline_publishes_installer_and_checksum(self) -> None:
         release = (ROOT / ".github" / "workflows" / "release.yml").read_text(

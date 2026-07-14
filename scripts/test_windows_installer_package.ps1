@@ -37,16 +37,46 @@ $uninstaller = Join-Path $installDir 'unins000.exe'
 $uninstallFailure = $null
 $installedAppProcessId = $null
 
-try {
-  $install = Start-Process -FilePath $installer -Wait -PassThru -ArgumentList @(
-    '/VERYSILENT',
-    '/SUPPRESSMSGBOXES',
-    '/NORESTART',
-    '/SP-',
-    "/LOG=$installLog"
+function Invoke-SmokeProcess {
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string[]]$ArgumentList,
+    [Parameter(Mandatory = $true)][string]$Phase,
+    [Parameter(Mandatory = $true)][string]$LogPath,
+    [int]$TimeoutSeconds = 120
   )
-  if ($install.ExitCode -ne 0) {
-    throw "SSRVPN installer exited with code $($install.ExitCode). Log: $installLog"
+
+  Write-Host "$Phase started. Log: $LogPath"
+  $process = Start-Process -FilePath $FilePath -PassThru `
+    -ArgumentList $ArgumentList
+  try {
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+      $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+      & $taskkill /F /T /PID $process.Id 2>$null | Out-Null
+      throw "$Phase timed out after $TimeoutSeconds seconds. Log: $LogPath"
+    }
+    $process.Refresh()
+    Write-Host "$Phase completed with exit code $($process.ExitCode)."
+    return [int]$process.ExitCode
+  } finally {
+    $process.Dispose()
+  }
+}
+
+try {
+  $installExitCode = Invoke-SmokeProcess `
+    -FilePath $installer `
+    -Phase 'SSRVPN installer' `
+    -LogPath $installLog `
+    -ArgumentList @(
+      '/VERYSILENT',
+      '/SUPPRESSMSGBOXES',
+      '/NORESTART',
+      '/SP-',
+      "/LOG=$installLog"
+  )
+  if ($installExitCode -ne 0) {
+    throw "SSRVPN installer exited with code $installExitCode. Log: $installLog"
   }
 
   foreach ($relativePath in @(
@@ -82,17 +112,24 @@ try {
   $installedAppProcessId = [int]$runningInstalledApp.Id
 } finally {
   if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
-    $uninstall = Start-Process -FilePath $uninstaller -Wait -PassThru `
-      -ArgumentList @(
-        '/VERYSILENT',
-        '/SUPPRESSMSGBOXES',
-        '/NORESTART',
-        "/LOG=$uninstallLog"
-      )
-    if ($uninstall.ExitCode -ne 0) {
-      $uninstallFailure =
-        "SSRVPN uninstaller exited with code $($uninstall.ExitCode). " +
-        "Log: $uninstallLog"
+    try {
+      $uninstallExitCode = Invoke-SmokeProcess `
+        -FilePath $uninstaller `
+        -Phase 'SSRVPN uninstaller' `
+        -LogPath $uninstallLog `
+        -ArgumentList @(
+          '/VERYSILENT',
+          '/SUPPRESSMSGBOXES',
+          '/NORESTART',
+          "/LOG=$uninstallLog"
+        )
+      if ($uninstallExitCode -ne 0) {
+        $uninstallFailure =
+          "SSRVPN uninstaller exited with code $uninstallExitCode. " +
+          "Log: $uninstallLog"
+      }
+    } catch {
+      $uninstallFailure = $_.Exception.Message
     }
   }
 }
