@@ -25,6 +25,15 @@ class SecretScanningTest(unittest.TestCase):
             )
             self.assertIn(GITLEAKS_ACTION, workflow)
             self.assertIn("fetch-depth: 0", workflow)
+            self.assertIn(
+                "GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+                workflow,
+            )
+
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("pull-requests: read", ci)
 
 
 if __name__ == "__main__":
