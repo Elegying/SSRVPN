@@ -75,16 +75,18 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         notice = (installer_root / "overwrite_notice.zh-CN.txt").read_text(
             encoding="utf-8-sig"
         )
-        self.assertIn("永久删除当前 Windows 用户的 SSRVPN 旧数据", notice)
-        self.assertIn("不会搜索、备份或恢复", notice)
+        self.assertIn("覆盖升级会保留安装版的设置、订阅", notice)
+        self.assertIn("便携副本不会被搜索或修改", notice)
+        self.assertNotIn("永久删除当前 Windows 用户的 SSRVPN 旧数据", notice)
         self.assertIn("ssrvpn_windows_app.exe", script)
         self.assertIn("ssrvpn_windows.exe", script)
         self.assertNotRegex(script, r"taskkill[^\n]+mihomo\.exe")
         run_entry = next(
             line for line in script.splitlines() if line.startswith('Filename: "{app}')
         )
-        self.assertNotIn("postinstall", run_entry)
-        self.assertNotIn("skipifsilent", run_entry)
+        self.assertIn('Description: "{cm:LaunchProgram,SSRVPN}"', run_entry)
+        self.assertIn("postinstall", run_entry)
+        self.assertIn("skipifsilent", run_entry)
 
     def test_installer_ignores_portable_data_and_blocks_before_destructive_copy(
         self,
@@ -109,22 +111,32 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotIn("restartreplace", installer)
         self.assertIn("overwritereadonly", installer)
 
-    def test_installer_discards_all_previous_state_before_copying_files(self) -> None:
+    def test_installer_preserves_user_state_and_replaces_only_program_files(
+        self,
+    ) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
         installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
 
         self.assertIn("[InstallDelete]", installer)
         self.assertLess(installer.index("[InstallDelete]"), installer.index("[Files]"))
-        self.assertIn('Type: filesandordirs; Name: "{app}\\*"', installer)
+        install_delete = installer.split("[InstallDelete]", 1)[1].split(
+            "[UninstallDelete]", 1
+        )[0]
+        self.assertIn('Type: files; Name: "{app}\\*"', install_delete)
+        self.assertIn('Type: files; Name: "{app}\\bin\\*"', install_delete)
         self.assertIn(
-            'Type: filesandordirs; '
-            'Name: "{localappdata}\\SSRVPN\\ssrvpn"',
-            installer,
+            'Type: filesandordirs; Name: "{app}\\bin\\data"', install_delete
         )
         self.assertIn(
-            'Type: files; '
-            'Name: "{localappdata}\\SSRVPN\\window_state.json"',
-            installer,
+            'Type: filesandordirs; Name: "{app}\\installer"', install_delete
+        )
+        self.assertNotIn('Type: filesandordirs; Name: "{app}\\*"', install_delete)
+        self.assertNotIn('Name: "{app}\\bin\\ssrvpn"', install_delete)
+        self.assertNotIn(
+            'Name: "{localappdata}\\SSRVPN\\ssrvpn"', install_delete
+        )
+        self.assertNotIn(
+            'Name: "{localappdata}\\SSRVPN\\window_state.json"', install_delete
         )
         self.assertIn(
             'Type: filesandordirs; '
@@ -140,6 +152,27 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             'Type: dirifempty; Name: "{localappdata}\\SSRVPN\\installer"',
             installer,
         )
+        for cache_path in (
+            r"{userappdata}\SSRVPN.exe\EBWebView",
+            r"{localappdata}\vip.ssrvpn.windows\EBWebView",
+        ):
+            with self.subTest(cache_path=cache_path):
+                cleanup_entry = (
+                    f'Type: filesandordirs; Name: "{cache_path}"'
+                )
+                self.assertIn(cleanup_entry, installer.split("[UninstallDelete]", 1)[0])
+                self.assertIn(
+                    cleanup_entry,
+                    installer.split("[UninstallDelete]", 1)[1].split("[Files]", 1)[0],
+                )
+        uninstall_cleanup = [
+            line
+            for line in installer.split("[UninstallDelete]", 1)[1]
+            .split("[Files]", 1)[0]
+            .splitlines()
+            if line.startswith("Type:")
+        ]
+        self.assertEqual(2, len(uninstall_cleanup))
         self.assertFalse((installer_root / "prepare_install_directory.ps1").exists())
         self.assertNotIn("prepare_install_directory.ps1", installer)
         self.assertNotIn("InstallDataRestore", installer)
@@ -183,6 +216,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("$script:OwnedProxyOverride", invalid_repair)
         self.assertIn("ProxyEnable -Type DWord -Value 0", invalid_repair)
         self.assertIn("Remove-ProxyRecoveryState", invalid_repair)
+        self.assertIn("$autoDetectDisabled", invalid_repair)
         restore = stopper.split("function Restore-OwnedSystemProxy", 1)[1]
         self.assertLess(
             restore.index("Repair-InvalidProxyRecoveryState"),
@@ -196,6 +230,59 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("InstalledCorePath", stopper)
         self.assertIn("InstalledAppPath", stopper)
         self.assertIn("InstalledLauncherPath", stopper)
+        process_lookup = stopper.split("function Get-ProcessesByName", 1)[1]
+        process_lookup = process_lookup.split("function Test-ExactPath", 1)[0]
+        self.assertNotIn("ErrorAction SilentlyContinue", process_lookup)
+        self.assertIn("Get-Process -ErrorAction Stop", process_lookup)
+        self.assertIn("Executable path is unavailable", process_lookup)
+        remove_state = stopper.split("function Remove-ProxyRecoveryState", 1)[1]
+        remove_state = remove_state.split("function Test-RequiredProperties", 1)[0]
+        self.assertIn("if (Test-Path -Path $nativePath)", remove_state)
+        self.assertIn(
+            "if (Test-Path -LiteralPath $jsonPath -PathType Leaf)",
+            remove_state,
+        )
+        self.assertNotIn("ErrorAction SilentlyContinue", remove_state)
+        set_or_remove = stopper.split("function Set-OrRemoveRegistryValue", 1)[1]
+        set_or_remove = set_or_remove.split("function Restore-OwnedSystemProxy", 1)[0]
+        self.assertIn("$current.PSObject.Properties[$Name]", set_or_remove)
+        self.assertNotIn("ErrorAction SilentlyContinue", set_or_remove)
+        self.assertIn("function Test-SystemProxySafeToStop", stopper)
+        self.assertGreaterEqual(stopper.count("$autoDetectDisabled"), 6)
+        proxy_gate = stopper.index("if ($proxyRecoveryFailed -or")
+        self.assertLess(proxy_gate, stopper.index("foreach ($app in $installedApps)"))
+        self.assertIn("Test-SystemProxySafeToStop -Backup $proxyBackup", stopper)
+        self.assertIn("$installedApps.Count -gt 0", stopper)
+        self.assertIn("$installedLaunchers.Count -gt 0", stopper)
+        self.assertIn("$installedCoresBefore.Count -gt 0", stopper)
+        self.assertIn("[bool]$InstalledProcessRunning", stopper)
+        self.assertIn(
+            "-not $Backup -and $InstalledProcessRunning -and\n"
+            "        (Test-OwnedProxyServer -Value $proxyServer)",
+            stopper,
+        )
+        enumeration = stopper.index("$apps = @()")
+        self.assertLess(enumeration, stopper.index("$proxyBackup = Get-ProxyRecoveryState"))
+        self.assertGreaterEqual(
+            stopper[enumeration:proxy_gate].count("exit 3"),
+            2,
+        )
+        self.assertIn("$proxyServer -eq [string]$Backup.ownedProxyServer", stopper)
+        self.assertIn("$ownedFingerprint", stopper)
+        self.assertIn("exit 3", stopper[proxy_gate:])
+        self.assertIn("$Value -isnot [int32]", stopper)
+        self.assertIn("$Value -isnot [uint32]", stopper)
+        self.assertGreaterEqual(
+            stopper.count("Test-DwordFlag -Value $current.ProxyEnable"),
+            4,
+        )
+        proxy_service = (
+            ROOT / "SSRVPN_Windows" / "lib" / "services" /
+            "system_proxy_service.dart"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GetValueKind('ProxyEnable')", proxy_service)
+        self.assertIn("GetValueKind('AutoDetect')", proxy_service)
+        self.assertIn("[Microsoft.Win32.RegistryValueKind]::DWord", proxy_service)
         self.assertIn(
             "Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledAppPath",
             stopper,
@@ -364,6 +451,20 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("unins000.exe", smoke)
         self.assertIn("ssrvpn_windows.exe", smoke)
         self.assertIn("bin\\ssrvpn_windows_app.exe", smoke)
+        self.assertIn("SSRVPN upgrade", smoke)
+        self.assertIn("upgrade-preserve.sentinel", smoke)
+        self.assertIn("SSRVPN\\ssrvpn\\upgrade-preserve.sentinel", smoke)
+        self.assertIn("SSRVPN\\window_state.json", smoke)
+        self.assertIn("SSRVPN.exe\\EBWebView", smoke)
+        self.assertIn("vip.ssrvpn.windows\\EBWebView", smoke)
+        self.assertIn("upgrade deleted preserved data", smoke)
+        self.assertIn("upgrade left WebView cache behind", smoke)
+        self.assertGreaterEqual(smoke.count("New-CacheSentinels"), 3)
+        self.assertIn(
+            "Start-Process -FilePath (Join-Path $installDir "
+            "'ssrvpn_windows.exe')",
+            smoke,
+        )
 
         invocation = (
             "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass "

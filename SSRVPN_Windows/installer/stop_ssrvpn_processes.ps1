@@ -22,20 +22,30 @@ function Get-ProcessesByName {
         Where-Object { $_.SessionId -eq $currentSessionId }
     )
   } catch {
+    $cimError = $_.Exception.Message
     $processName = [System.IO.Path]::GetFileNameWithoutExtension($Name)
-    return @(
-      Get-Process -Name $processName -ErrorAction SilentlyContinue |
-        Where-Object { $_.SessionId -eq $currentSessionId } |
-        ForEach-Object {
-          $executablePath = $null
-          try { $executablePath = $_.Path } catch { $executablePath = $null }
-          [pscustomobject]@{
-            ProcessId = [int]$_.Id
-            ExecutablePath = $executablePath
-            SessionId = [int]$_.SessionId
+    try {
+      return @(
+        Get-Process -ErrorAction Stop |
+          Where-Object {
+            $_.ProcessName -ieq $processName -and
+            $_.SessionId -eq $currentSessionId
+          } |
+          ForEach-Object {
+            $executablePath = $_.Path
+            if (-not $executablePath) {
+              throw "Executable path is unavailable for PID $($_.Id)."
+            }
+            [pscustomobject]@{
+              ProcessId = [int]$_.Id
+              ExecutablePath = $executablePath
+              SessionId = [int]$_.SessionId
+            }
           }
-        }
-    )
+      )
+    } catch {
+      throw "CIM enumeration failed ($cimError); Get-Process fallback failed: $($_.Exception.Message)"
+    }
   }
 }
 
@@ -58,11 +68,15 @@ function Test-ExactPath {
 
 function Remove-ProxyRecoveryState {
   $nativePath = 'HKCU:\Software\SSRVPN\RuntimeProxyBackup'
-  Remove-Item -Path $nativePath -Recurse -Force -ErrorAction SilentlyContinue
+  if (Test-Path -Path $nativePath) {
+    Remove-Item -Path $nativePath -Recurse -Force
+  }
   if ($env:LOCALAPPDATA) {
     $jsonPath = Join-Path $env:LOCALAPPDATA `
       'SSRVPN\runtime\system_proxy_backup.json'
-    Remove-Item -LiteralPath $jsonPath -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $jsonPath -PathType Leaf) {
+      Remove-Item -LiteralPath $jsonPath -Force
+    }
   }
 }
 
@@ -93,12 +107,7 @@ function Test-DwordFlag {
   param([AllowNull()]$Value)
 
   if ($null -eq $Value) { return $false }
-  $isInteger =
-    $Value -is [byte] -or $Value -is [sbyte] -or
-    $Value -is [int16] -or $Value -is [uint16] -or
-    $Value -is [int32] -or $Value -is [uint32] -or
-    $Value -is [int64] -or $Value -is [uint64]
-  if (-not $isInteger) { return $false }
+  if ($Value -isnot [int32] -and $Value -isnot [uint32]) { return $false }
   return $Value -eq 0 -or $Value -eq 1
 }
 
@@ -312,12 +321,17 @@ function Repair-InvalidProxyRecoveryState {
   $hasProxyOverride = $null -ne $current.PSObject.Properties['ProxyOverride']
   $hasAutoDetect = $null -ne $current.PSObject.Properties['AutoDetect']
   $hasAutoConfigUrl = $null -ne $current.PSObject.Properties['AutoConfigURL']
-  $ownedFingerprint = [int]$current.ProxyEnable -eq 1 -and
+  $autoDetectDisabled = -not $hasAutoDetect -or
+    ((Test-DwordFlag -Value $current.AutoDetect) -and
+      [int]$current.AutoDetect -eq 0)
+  $proxyEnabled = (Test-DwordFlag -Value $current.ProxyEnable) -and
+    [int]$current.ProxyEnable -eq 1
+  $ownedFingerprint = $proxyEnabled -and
     $hasProxyServer -and
     (Test-OwnedProxyServer -Value ([string]$current.ProxyServer)) -and
     $hasProxyOverride -and
     [string]$current.ProxyOverride -eq $script:OwnedProxyOverride -and
-    $hasAutoDetect -and [int]$current.AutoDetect -eq 0 -and
+    $autoDetectDisabled -and
     -not $hasAutoConfigUrl
   if ($ownedFingerprint) {
     Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord -Value 0
@@ -338,7 +352,10 @@ function Set-OrRemoveRegistryValue {
   if ($Present) {
     Set-ItemProperty -Path $Path -Name $Name -Type $Type -Value $Value
   } else {
-    Remove-ItemProperty -Path $Path -Name $Name -ErrorAction SilentlyContinue
+    $current = Get-ItemProperty -Path $Path
+    if ($null -ne $current.PSObject.Properties[$Name]) {
+      Remove-ItemProperty -Path $Path -Name $Name
+    }
   }
 }
 
@@ -355,12 +372,17 @@ function Restore-OwnedSystemProxy {
   $hasProxyOverride = $null -ne $current.PSObject.Properties['ProxyOverride']
   $hasAutoDetect = $null -ne $current.PSObject.Properties['AutoDetect']
   $hasAutoConfigUrl = $null -ne $current.PSObject.Properties['AutoConfigURL']
-  $owned = [int]$current.ProxyEnable -eq 1 -and
+  $autoDetectDisabled = -not $hasAutoDetect -or
+    ((Test-DwordFlag -Value $current.AutoDetect) -and
+      [int]$current.AutoDetect -eq 0)
+  $proxyEnabled = (Test-DwordFlag -Value $current.ProxyEnable) -and
+    [int]$current.ProxyEnable -eq 1
+  $owned = $proxyEnabled -and
     $hasProxyServer -and [string]$current.ProxyServer -eq $backup.ownedProxyServer -and
     $hasProxyOverride -and [string]$current.ProxyOverride -eq $backup.ownedProxyOverride -and
-    $hasAutoDetect -and [int]$current.AutoDetect -eq 0 -and
+    $autoDetectDisabled -and
     -not $hasAutoConfigUrl
-  $endpointOwned = [int]$current.ProxyEnable -eq 1 -and
+  $endpointOwned = $proxyEnabled -and
     $hasProxyServer -and
     [string]$current.ProxyServer -eq $backup.ownedProxyServer
   if (-not $owned -and
@@ -412,7 +434,9 @@ function Disable-OwnedSystemProxyEndpoint {
   $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
   $current = Get-ItemProperty -Path $regPath
   $hasProxyServer = $null -ne $current.PSObject.Properties['ProxyServer']
-  if ([int]$current.ProxyEnable -eq 1 -and
+  $proxyEnabled = (Test-DwordFlag -Value $current.ProxyEnable) -and
+    [int]$current.ProxyEnable -eq 1
+  if ($proxyEnabled -and
       $hasProxyServer -and
       [string]$current.ProxyServer -eq [string]$backup.ownedProxyServer) {
     # Keep the recovery journal so the next SSRVPN launch can still restore the
@@ -423,24 +447,64 @@ function Disable-OwnedSystemProxyEndpoint {
   }
 }
 
+function Test-SystemProxySafeToStop {
+  param(
+    [AllowNull()]$Backup,
+    [bool]$InstalledProcessRunning
+  )
+
+  try {
+    $regPath =
+      'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+    $current = Get-ItemProperty -Path $regPath
+    if ($null -eq $current.PSObject.Properties['ProxyEnable'] -or
+        -not (Test-DwordFlag -Value $current.ProxyEnable)) {
+      return $false
+    }
+    if ([int]$current.ProxyEnable -eq 0) { return $true }
+
+    $hasProxyServer = $null -ne $current.PSObject.Properties['ProxyServer']
+    if (-not $hasProxyServer) { return $true }
+    $proxyServer = [string]$current.ProxyServer
+    if ($Backup -and $proxyServer -eq [string]$Backup.ownedProxyServer) {
+      return $false
+    }
+    if (-not $Backup -and $InstalledProcessRunning -and
+        (Test-OwnedProxyServer -Value $proxyServer)) {
+      return $false
+    }
+
+    $hasProxyOverride =
+      $null -ne $current.PSObject.Properties['ProxyOverride']
+    $hasAutoDetect = $null -ne $current.PSObject.Properties['AutoDetect']
+    $hasAutoConfigUrl =
+      $null -ne $current.PSObject.Properties['AutoConfigURL']
+    $autoDetectDisabled =
+      -not $hasAutoDetect -or
+      ((Test-DwordFlag -Value $current.AutoDetect) -and
+        [int]$current.AutoDetect -eq 0)
+    $ownedFingerprint =
+      (Test-OwnedProxyServer -Value $proxyServer) -and
+      $hasProxyOverride -and
+      [string]$current.ProxyOverride -eq $script:OwnedProxyOverride -and
+      $autoDetectDisabled -and
+      -not $hasAutoConfigUrl
+    return -not $ownedFingerprint
+  } catch {
+    Write-Warning "Could not verify the current system proxy: $($_.Exception.Message)"
+    return $false
+  }
+}
+
 $apps = @()
 $launchers = @()
+$proxyRecoveryFailed = $false
 try {
   $apps = @(Get-ProcessesByName -Name 'ssrvpn_windows_app.exe')
   $launchers = @(Get-ProcessesByName -Name 'ssrvpn_windows.exe')
 } catch {
-  Write-Warning "Could not enumerate all SSRVPN processes: $($_.Exception.Message)"
-}
-
-try {
-  Restore-OwnedSystemProxy
-} catch {
-  Write-Warning "Exact system-proxy restore failed: $($_.Exception.Message)"
-  try {
-    Disable-OwnedSystemProxyEndpoint
-  } catch {
-    Write-Warning "Could not disable the owned proxy endpoint: $($_.Exception.Message)"
-  }
+  Write-Warning "Could not enumerate SSRVPN app processes: $($_.Exception.Message)"
+  exit 3
 }
 
 $installedApps = @(
@@ -455,6 +519,42 @@ $installedLaunchers = @(
       Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledLauncherPath
     }
 )
+
+try {
+  $installedCoresBefore = @(
+    Get-ProcessesByName -Name 'mihomo.exe' |
+      Where-Object {
+        Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledCorePath
+      }
+  )
+} catch {
+  Write-Warning "Could not enumerate SSRVPN core processes: $($_.Exception.Message)"
+  exit 3
+}
+
+$installedProcessRunning =
+  $installedApps.Count -gt 0 -or
+  $installedLaunchers.Count -gt 0 -or
+  $installedCoresBefore.Count -gt 0
+$proxyBackup = Get-ProxyRecoveryState
+try {
+  Restore-OwnedSystemProxy
+} catch {
+  Write-Warning "Exact system-proxy restore failed: $($_.Exception.Message)"
+  try {
+    Disable-OwnedSystemProxyEndpoint
+  } catch {
+    Write-Warning "Could not disable the owned proxy endpoint: $($_.Exception.Message)"
+    $proxyRecoveryFailed = $true
+  }
+}
+
+if ($proxyRecoveryFailed -or
+    -not (Test-SystemProxySafeToStop -Backup $proxyBackup `
+      -InstalledProcessRunning $installedProcessRunning)) {
+  Write-Warning 'Proxy recovery failed; refusing to stop SSRVPN processes.'
+  exit 3
+}
 
 $taskkill = if ($env:SystemRoot) {
   Join-Path $env:SystemRoot 'System32\taskkill.exe'

@@ -136,7 +136,7 @@ void main() {
       );
     });
 
-    test('rejects changes to PAC, autodetect, or proxy bypass settings', () {
+    test('rejects changes to PAC, enabled autodetect, or proxy bypass', () {
       bool owned({
         bool hasOverride = true,
         String override = _ownedOverride,
@@ -163,7 +163,7 @@ void main() {
       expect(
           owned(hasPac: true, pac: 'https://example.com/proxy.pac'), isFalse);
       expect(owned(autoDetect: 1), isFalse);
-      expect(owned(hasAutoDetect: false), isFalse);
+      expect(owned(hasAutoDetect: false), isTrue);
     });
   });
 }

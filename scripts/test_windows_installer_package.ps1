@@ -12,6 +12,9 @@ if ($env:GITHUB_ACTIONS -ne 'true') {
 if (-not $env:LOCALAPPDATA) {
   throw 'LOCALAPPDATA is required for the per-user installer smoke test.'
 }
+if (-not $env:APPDATA) {
+  throw 'APPDATA is required for the per-user installer smoke test.'
+}
 
 $installer = [System.IO.Path]::GetFullPath($InstallerPath)
 if ([System.IO.Path]::GetFileName($installer) -ne 'SSRVPN_Setup.exe' -or
@@ -32,10 +35,30 @@ $tempRoot = if ($env:RUNNER_TEMP) {
 $logDir = Join-Path $tempRoot 'ssrvpn-installer-smoke'
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $installLog = Join-Path $logDir 'install.log'
+$upgradeLog = Join-Path $logDir 'upgrade.log'
 $uninstallLog = Join-Path $logDir 'uninstall.log'
 $uninstaller = Join-Path $installDir 'unins000.exe'
 $uninstallFailure = $null
 $installedAppProcessId = $null
+$preservedSentinels = @(
+  (Join-Path $installDir 'bin\ssrvpn\upgrade-preserve.sentinel'),
+  (Join-Path $env:LOCALAPPDATA 'SSRVPN\ssrvpn\upgrade-preserve.sentinel'),
+  (Join-Path $env:LOCALAPPDATA 'SSRVPN\window_state.json')
+)
+$cacheRoots = @(
+  (Join-Path $env:APPDATA 'SSRVPN.exe\EBWebView'),
+  (Join-Path $env:LOCALAPPDATA 'vip.ssrvpn.windows\EBWebView')
+)
+
+function New-CacheSentinels {
+  foreach ($cacheRoot in $cacheRoots) {
+    New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+    [System.IO.File]::WriteAllText(
+      (Join-Path $cacheRoot 'upgrade-delete.sentinel'),
+      'ssrvpn-upgrade-delete'
+    )
+  }
+}
 
 function Invoke-SmokeProcess {
   param(
@@ -47,8 +70,8 @@ function Invoke-SmokeProcess {
   )
 
   Write-Host "$Phase started. Log: $LogPath"
-  # Start-Process -Wait follows the whole descendant tree on Windows. Setup
-  # intentionally launches SSRVPN, so wait only for the installer process.
+  # Start-Process -Wait follows the whole descendant tree on Windows, so wait
+  # only for the installer process.
   $process = Start-Process -FilePath $FilePath -PassThru `
     -ArgumentList $ArgumentList
   try {
@@ -92,6 +115,41 @@ try {
     }
   }
 
+  foreach ($sentinel in $preservedSentinels) {
+    New-Item -ItemType Directory -Path (Split-Path -Path $sentinel -Parent) `
+      -Force | Out-Null
+    [System.IO.File]::WriteAllText($sentinel, 'ssrvpn-upgrade-preserve')
+  }
+  New-CacheSentinels
+
+  $upgradeExitCode = Invoke-SmokeProcess `
+    -FilePath $installer `
+    -Phase 'SSRVPN upgrade' `
+    -LogPath $upgradeLog `
+    -ArgumentList @(
+      '/VERYSILENT',
+      '/SUPPRESSMSGBOXES',
+      '/NORESTART',
+      '/SP-',
+      "/LOG=$upgradeLog"
+  )
+  if ($upgradeExitCode -ne 0) {
+    throw "SSRVPN upgrade exited with code $upgradeExitCode. Log: $upgradeLog"
+  }
+  foreach ($sentinel in $preservedSentinels) {
+    if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) {
+      throw "SSRVPN upgrade deleted preserved data: $sentinel"
+    }
+  }
+  foreach ($cacheRoot in $cacheRoots) {
+    if (Test-Path -LiteralPath $cacheRoot) {
+      throw "SSRVPN upgrade left WebView cache behind: $cacheRoot"
+    }
+  }
+
+  Start-Process -FilePath (Join-Path $installDir 'ssrvpn_windows.exe') `
+    -WorkingDirectory $installDir | Out-Null
+
   $installedAppPath = [System.IO.Path]::GetFullPath(
     (Join-Path $installDir 'bin\ssrvpn_windows_app.exe')
   )
@@ -115,6 +173,7 @@ try {
 } finally {
   if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
     try {
+      New-CacheSentinels
       $uninstallExitCode = Invoke-SmokeProcess `
         -FilePath $uninstaller `
         -Phase 'SSRVPN uninstaller' `
@@ -134,6 +193,9 @@ try {
       $uninstallFailure = $_.Exception.Message
     }
   }
+  foreach ($sentinel in $preservedSentinels) {
+    Remove-Item -LiteralPath $sentinel -Force -ErrorAction SilentlyContinue
+  }
 }
 
 if ($uninstallFailure) {
@@ -146,6 +208,11 @@ if ($installedAppProcessId -and
 foreach ($relativePath in @('ssrvpn_windows.exe', 'bin\ssrvpn_windows_app.exe')) {
   if (Test-Path -LiteralPath (Join-Path $installDir $relativePath)) {
     throw "Uninstaller left an installed executable behind: $relativePath"
+  }
+}
+foreach ($cacheRoot in $cacheRoots) {
+  if (Test-Path -LiteralPath $cacheRoot) {
+    throw "Uninstaller left WebView cache behind: $cacheRoot"
   }
 }
 

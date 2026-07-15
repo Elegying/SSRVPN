@@ -90,10 +90,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (owns_instance_mutex) {
     RestoreOwnedWindowsProxy();
   }
-  startup_diagnostics::MarkNormalShutdown();
   startup_diagnostics::Log(L"message loop ended");
-
+  window.Destroy();
   ::CoUninitialize();
+  startup_diagnostics::MarkNormalShutdown();
   if (instance_mutex != nullptr && owns_instance_mutex) {
     ::ReleaseMutex(instance_mutex);
     ::CloseHandle(instance_mutex);

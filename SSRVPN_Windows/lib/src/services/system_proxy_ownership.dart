@@ -32,5 +32,4 @@ bool isOwnedWindowsProxy({
     proxyOverride == ownedProxyOverride &&
     !hasAutoConfigUrl &&
     autoConfigUrl.isEmpty &&
-    hasAutoDetect &&
-    autoDetect == 0;
+    (!hasAutoDetect || autoDetect == 0);

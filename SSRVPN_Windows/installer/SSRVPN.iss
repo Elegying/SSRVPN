@@ -43,12 +43,19 @@ InfoBeforeFile={#ProjectDir}\installer\overwrite_notice.zh-CN.txt
 Name: "chinesesimp"; MessagesFile: "{#ProjectDir}\installer\languages\ChineseSimplified.isl"
 
 [InstallDelete]
-Type: filesandordirs; Name: "{app}\*"
-Type: filesandordirs; Name: "{localappdata}\SSRVPN\ssrvpn"
-Type: files; Name: "{localappdata}\SSRVPN\window_state.json"
+Type: files; Name: "{app}\*"
+Type: files; Name: "{app}\bin\*"
+Type: filesandordirs; Name: "{app}\bin\data"
+Type: filesandordirs; Name: "{app}\installer"
 Type: filesandordirs; Name: "{localappdata}\SSRVPN\installer-recovery"
 Type: files; Name: "{localappdata}\SSRVPN\installer\rebuild-state.json"
 Type: dirifempty; Name: "{localappdata}\SSRVPN\installer"
+Type: filesandordirs; Name: "{userappdata}\SSRVPN.exe\EBWebView"
+Type: filesandordirs; Name: "{localappdata}\vip.ssrvpn.windows\EBWebView"
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{userappdata}\SSRVPN.exe\EBWebView"
+Type: filesandordirs; Name: "{localappdata}\vip.ssrvpn.windows\EBWebView"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs overwritereadonly
@@ -60,7 +67,7 @@ Name: "{autoprograms}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir:
 Name: "{autodesktop}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
 
 [Run]
-Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"; Flags: nowait
+Filename: "{app}\ssrvpn_windows.exe"; Description: "{cm:LaunchProgram,SSRVPN}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 function RunStopSsrvpnProcesses(ScriptPath: String): Integer;

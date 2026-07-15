@@ -66,6 +66,17 @@ bool ValueExists(HKEY key, const wchar_t* name) {
   return status == ERROR_SUCCESS || status == ERROR_MORE_DATA;
 }
 
+bool IsDwordZeroOrAbsent(HKEY key, const wchar_t* name) {
+  DWORD type = 0;
+  DWORD value = 0;
+  DWORD size = sizeof(value);
+  const LSTATUS status = RegQueryValueExW(
+      key, name, nullptr, &type, reinterpret_cast<BYTE*>(&value), &size);
+  return status == ERROR_FILE_NOT_FOUND ||
+         (status == ERROR_SUCCESS && type == REG_DWORD &&
+          size == sizeof(value) && value == 0);
+}
+
 bool SetDword(HKEY key, const wchar_t* name, DWORD value) {
   return RegSetValueExW(key, name, 0, REG_DWORD,
                         reinterpret_cast<const BYTE*>(&value),
@@ -120,7 +131,6 @@ bool DisableOwnedProxyFingerprint(HKEY settings,
                                   const std::wstring& owned_server,
                                   const std::wstring& owned_override) {
   DWORD proxy_enable = 0;
-  DWORD auto_detect = 0;
   std::wstring proxy_server;
   std::wstring proxy_override;
   return ReadDword(settings, L"ProxyEnable", &proxy_enable) &&
@@ -129,8 +139,8 @@ bool DisableOwnedProxyFingerprint(HKEY settings,
          proxy_server == owned_server &&
          ReadString(settings, L"ProxyOverride", &proxy_override) &&
          proxy_override == owned_override &&
-         ReadDword(settings, L"AutoDetect", &auto_detect) &&
-         auto_detect == 0 && !ValueExists(settings, L"AutoConfigURL") &&
+         IsDwordZeroOrAbsent(settings, L"AutoDetect") &&
+         !ValueExists(settings, L"AutoConfigURL") &&
          SetDword(settings, L"ProxyEnable", 0);
 }
 
@@ -184,7 +194,6 @@ bool RestoreOwnedWindowsProxy() noexcept {
   }
 
   DWORD proxy_enable = 0;
-  DWORD auto_detect = 0;
   DWORD restore_in_progress = 0;
   DWORD activation_in_progress = 0;
   DWORD endpoint_restore_in_progress = 0;
@@ -202,8 +211,7 @@ bool RestoreOwnedWindowsProxy() noexcept {
   const bool owned = endpoint_owned &&
                      ReadString(settings, L"ProxyOverride", &proxy_override) &&
                      proxy_override == owned_override &&
-                     ReadDword(settings, L"AutoDetect", &auto_detect) &&
-                     auto_detect == 0 &&
+                     IsDwordZeroOrAbsent(settings, L"AutoDetect") &&
                      !ValueExists(settings, L"AutoConfigURL");
   const bool full_restore_pending =
       restore_in_progress == 1 || activation_in_progress == 1;

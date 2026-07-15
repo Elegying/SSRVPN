@@ -27,6 +27,10 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("IsOwnedProxyServer", recovery)
         self.assertIn("kOwnedProxyOverride", recovery)
         self.assertIn("DisableOwnedProxyFingerprint", recovery)
+        self.assertGreaterEqual(
+            recovery.count('IsDwordZeroOrAbsent(settings, L"AutoDetect")'),
+            2,
+        )
         backup_check = recovery[
             recovery.index("const bool ownership_metadata_valid") : recovery.index(
                 "if (!backup_valid)"
@@ -121,9 +125,19 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertLess(duplicate_guard, restore)
         self.assertIn("exit_code = EXIT_SUCCESS", launcher[restore:])
 
-        message_loop_end = main.index("startup_diagnostics::MarkNormalShutdown()")
+        message_loop_end = main.index(
+            'startup_diagnostics::Log(L"message loop ended")'
+        )
         final_restore = main.index("RestoreOwnedWindowsProxy()", message_loop_end - 100)
+        window_destroy = main.index("window.Destroy()", message_loop_end)
+        com_uninitialize = main.index("::CoUninitialize()", window_destroy)
+        normal_shutdown = main.index(
+            "startup_diagnostics::MarkNormalShutdown()", com_uninitialize
+        )
         self.assertLess(final_restore, message_loop_end)
+        self.assertLess(message_loop_end, window_destroy)
+        self.assertLess(window_destroy, com_uninitialize)
+        self.assertLess(com_uninitialize, normal_shutdown)
 
     def test_launcher_contains_and_cleans_up_the_primary_process_tree(self) -> None:
         launcher = (
@@ -143,6 +157,21 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         terminate = launcher.index("TerminateJobObject", restore)
         self.assertLess(restore, terminate)
         self.assertNotIn("JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE", launcher)
+
+    def test_in_app_installer_handoff_cannot_fall_back_into_the_job(self) -> None:
+        handoff = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "windows_detached_installer_launcher.dart"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("WindowsProcessCommand('explorer.exe', [path])", handoff)
+        self.assertIn("GetShellWindow", handoff)
+        self.assertIn("if (!shellAvailable())", handoff)
+        self.assertNotIn("powershell.exe", handoff.lower())
+        self.assertNotIn("Start-Process", handoff)
 
     def test_windows_powershell_calls_force_utf8_output(self) -> None:
         helper = (
@@ -221,7 +250,39 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("RuntimeProxyBackup", service)
         self.assertIn("ActivationInProgress", service)
         self.assertIn("await _markActivationComplete()", service)
-        self.assertIn("Remove-Item -Path \\$backupPath", service)
+        self.assertIn("Remove-Item -LiteralPath \\$backupPath", service)
+
+    def test_dart_native_backup_cleanup_is_idempotent_when_missing(self) -> None:
+        service = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "system_proxy_service.dart"
+        ).read_text(encoding="utf-8")
+        delete_cleanup = service[
+            service.index("Future<void> _deleteBackup") : service.index(
+                "Future<void> _writeNativeRecoveryBackup"
+            )
+        ]
+        write_cleanup = service[
+            service.index("Future<void> _writeNativeRecoveryBackup") : service.index(
+                "Future<void> _markActivationComplete"
+            )
+        ]
+
+        guard = "if (Test-Path -LiteralPath \\$backupPath)"
+        for operation, cleanup in (
+            ("delete", delete_cleanup),
+            ("write", write_cleanup),
+        ):
+            with self.subTest(operation=operation):
+                self.assertIn(guard, cleanup)
+                self.assertLess(cleanup.index(guard), cleanup.index("Remove-Item"))
+        self.assertLess(
+            write_cleanup.index("Remove-Item"),
+            write_cleanup.index("New-Item"),
+        )
 
     def test_dart_marks_proxy_restore_before_the_first_registry_write(
         self,

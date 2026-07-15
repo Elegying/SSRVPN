@@ -337,7 +337,17 @@ ${_notifyWinInetScript()}
   Future<_ProxySnapshot?> _readCurrentProxy() async {
     const script = r'''
 $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+$key = Get-Item -Path $regPath
 $item = Get-ItemProperty -Path $regPath
+$dword = [Microsoft.Win32.RegistryValueKind]::DWord
+if ($null -ne $item.PSObject.Properties['ProxyEnable'] -and
+    $key.GetValueKind('ProxyEnable') -ne $dword) {
+  throw 'ProxyEnable must be a REG_DWORD value.'
+}
+if ($null -ne $item.PSObject.Properties['AutoDetect'] -and
+    $key.GetValueKind('AutoDetect') -ne $dword) {
+  throw 'AutoDetect must be a REG_DWORD value.'
+}
 [pscustomobject]@{
   proxyEnable = if ($null -eq $item.ProxyEnable) { 0 } else { [int]$item.ProxyEnable }
   hasProxyServer = $null -ne $item.PSObject.Properties['ProxyServer']
@@ -454,7 +464,9 @@ ${_notifyWinInetScript()}
   Future<void> _deleteBackup() async {
     final result = await _runPowerShell('''
 \$backupPath = '$_nativeBackupRegistryPath'
-Remove-Item -Path \$backupPath -Recurse -Force -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath \$backupPath) {
+  Remove-Item -LiteralPath \$backupPath -Recurse -Force
+}
 ''');
     if (result.exitCode != 0) {
       throw StateError(
@@ -474,7 +486,9 @@ Remove-Item -Path \$backupPath -Recurse -Force -ErrorAction SilentlyContinue
     String encoded(String value) => base64Encode(utf8.encode(value));
     final script = '''
 \$backupPath = '$_nativeBackupRegistryPath'
-Remove-Item -Path \$backupPath -Recurse -Force -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath \$backupPath) {
+  Remove-Item -LiteralPath \$backupPath -Recurse -Force
+}
 New-Item -Path \$backupPath -Force | Out-Null
 Set-ItemProperty -Path \$backupPath -Name OriginalProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
 Set-ItemProperty -Path \$backupPath -Name HasProxyServer -Type DWord -Value ${snapshot.hasProxyServer ? 1 : 0}

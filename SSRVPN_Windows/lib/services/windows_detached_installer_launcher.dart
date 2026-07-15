@@ -1,3 +1,4 @@
+import 'dart:ffi';
 import 'dart:io';
 
 class WindowsProcessCommand {
@@ -10,49 +11,54 @@ class WindowsProcessCommand {
 typedef WindowsProcessStarter = Future<void> Function(
   WindowsProcessCommand command,
 );
+typedef WindowsShellAvailability = bool Function();
+
+typedef _GetShellWindowNative = IntPtr Function();
+typedef _GetShellWindowDart = int Function();
 
 class WindowsDetachedInstallerLauncher {
   const WindowsDetachedInstallerLauncher._();
 
-  static List<WindowsProcessCommand> buildLaunchPlan(String installerPath) {
+  static WindowsProcessCommand buildLaunchCommand(String installerPath) {
     final path = File(installerPath).absolute.path;
-    return [
-      WindowsProcessCommand('explorer.exe', [path]),
-      WindowsProcessCommand('powershell.exe', [
-        '-NoLogo',
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-Command',
-        'Start-Process -LiteralPath \$args[0]',
-        path,
-      ]),
-    ];
+    return WindowsProcessCommand('explorer.exe', [path]);
   }
 
   static Future<void> launch(
     File installer, {
     WindowsProcessStarter? start,
+    WindowsShellAvailability? hasShellWindow,
   }) async {
-    final starter = start ?? _startDetached;
-    Object? lastError;
-    StackTrace? lastStackTrace;
-
-    for (final command in buildLaunchPlan(installer.path)) {
-      try {
-        await starter(command);
-        return;
-      } catch (error, stackTrace) {
-        lastError = error;
-        lastStackTrace = stackTrace;
-      }
+    final path = installer.absolute.path;
+    final shellAvailable = hasShellWindow ?? _hasDesktopShell;
+    if (!shellAvailable()) {
+      throw StateError(
+        'Windows 桌面 Shell 当前不可用，无法安全交接更新安装包：$path\n'
+        '请退出 SSRVPN，并手动运行该安装包。',
+      );
     }
+    final starter = start ?? _startDetached;
+    try {
+      await starter(buildLaunchCommand(path));
+    } catch (error, stackTrace) {
+      Error.throwWithStackTrace(
+        StateError(
+          '无法启动已验证的更新安装包：$path\n'
+          '$error\n'
+          '请退出 SSRVPN，并手动运行该安装包。',
+        ),
+        stackTrace,
+      );
+    }
+  }
 
-    Error.throwWithStackTrace(
-      StateError('Could not start installer: $lastError'),
-      lastStackTrace ?? StackTrace.current,
+  static bool _hasDesktopShell() {
+    if (!Platform.isWindows) return false;
+    final getShellWindow = DynamicLibrary.open('user32.dll')
+        .lookupFunction<_GetShellWindowNative, _GetShellWindowDart>(
+      'GetShellWindow',
     );
+    return getShellWindow() != 0;
   }
 
   static Future<void> _startDetached(WindowsProcessCommand command) async {

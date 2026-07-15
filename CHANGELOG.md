@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.2] - 2026-07-15
+
+### 修复
+
+- Windows 正常退出时先显式销毁 Flutter 窗口和插件，再卸载 COM 并记录正常关闭，修复托盘退出阶段稳定触发的访问冲突。
+- Windows 系统代理恢复记录的创建与删除改为幂等操作，修复 launcher 已恢复代理但 JSON 记录仍存在时，PowerShell 5.1 因原生注册表键缺失而永久阻塞后续连接的问题。
+- Windows 安装器不再在完成页结束前隐式启动客户端；交互安装改为可选启动，静默安装不启动 GUI。
+- Windows 安装和卸载会精确清理两个历史 WebView2 缓存目录，不扩大删除到其父目录。
+- Windows 覆盖升级只替换程序文件，保留订阅、设置、DPAPI 密钥、LocalAppData 回退数据和窗口状态。
+- Windows 内置更新只通过系统 Explorer 交接安装包，移除可能随旧进程 Job Object 一起终止的 PowerShell 回退；交接失败时显示已校验安装包路径供手动运行。
+- Windows 安装或卸载在停止进程前重新验证系统代理；代理仍指向 SSRVPN、恢复失败或注册表状态无法确认时直接阻断，避免核心退出后留下死代理。
+
+### 测试
+
+- 新增 Windows 正常退出顺序、代理恢复幂等性、覆盖升级数据保留、安装器启动行为及缓存清理回归；在 Windows 11 25H2 实机完成连续连接、取消连接、核心崩溃和应用强制退出验证。
+
 ## [3.4.1] - 2026-07-15
 
 ### 修复
