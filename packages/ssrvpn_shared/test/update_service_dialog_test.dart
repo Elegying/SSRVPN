@@ -64,5 +64,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(openedUrls, ['https://example.com/SSRVPN_Setup.exe']);
+
+    await tester.tap(find.text('show'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OSS 下载异常？使用 GitHub 备用下载'));
+    await tester.pumpAndSettle();
+
+    expect(openedUrls, [
+      'https://example.com/SSRVPN_Setup.exe',
+      'https://github.com/Elegying/SSRVPN/releases/download/v9.9.9/SSRVPN_Setup.exe',
+    ]);
   });
 }

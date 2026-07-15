@@ -90,6 +90,36 @@ void main() {
     expect(hosts, ['oss.example', 'github.com']);
   });
 
+  test('selected fallback download is attempted before the primary', () async {
+    final bytes = utf8.encode('github-installer');
+    const fallback =
+        'https://github.com/Elegying/SSRVPN/releases/download/v9.9.9/SSRVPN_Setup.exe';
+    final hosts = <String>[];
+    final update = SharedUpdateService.preferDownloadUrl(
+      AppUpdateInfo(
+        version: '9.9.9',
+        downloadUrl: 'https://oss.example/SSRVPN_Setup.exe',
+        fallbackDownloadUrl: fallback,
+        changelog: '',
+        sha256: sha256.convert(bytes).toString(),
+      ),
+      fallback,
+    );
+
+    await SharedUpdateService.downloadVerifiedUpdate(
+      update,
+      outputDirectory: tempDir,
+      fileName: 'SSRVPN_Setup.exe',
+      client: MockClient((request) async {
+        hosts.add(request.url.host);
+        return http.Response.bytes(bytes, HttpStatus.ok);
+      }),
+    );
+
+    expect(hosts, ['github.com']);
+    expect(update.fallbackDownloadUrl, 'https://oss.example/SSRVPN_Setup.exe');
+  });
+
   test('verified desktop download cancellation interrupts a stalled request',
       () async {
     final response = Completer<http.StreamedResponse>();

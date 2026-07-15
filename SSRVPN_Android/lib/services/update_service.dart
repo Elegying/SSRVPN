@@ -291,7 +291,10 @@ class UpdateService {
         textSecondary: AppTheme.darkTextSecondary,
         lightTextPrimary: AppTheme.lightTextPrimary,
         lightTextSecondary: AppTheme.lightTextSecondary,
-        openDownload: (_) => downloadAndInstallUpdate(context, update),
+        openDownload: (url) => downloadAndInstallUpdate(
+          context,
+          SharedUpdateService.preferDownloadUrl(update, url),
+        ),
       );
     } finally {
       _updatePromptVisible = false;

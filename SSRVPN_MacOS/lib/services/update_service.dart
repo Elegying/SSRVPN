@@ -59,9 +59,9 @@ class UpdateService {
       textSecondary: AppTheme.textSecondary,
       lightTextPrimary: AppTheme.lightTextPrimary,
       lightTextSecondary: AppTheme.lightTextSecondary,
-      openDownload: (_) => SharedUpdateService.downloadAndOpenVerifiedUpdate(
+      openDownload: (url) => SharedUpdateService.downloadAndOpenVerifiedUpdate(
         context,
-        update,
+        SharedUpdateService.preferDownloadUrl(update, url),
         fileName: 'SSRVPN.dmg',
         openFile: (file) async {
           await Process.start(_openPath, [file.path]);

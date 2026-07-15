@@ -60,9 +60,9 @@ class UpdateService {
       textSecondary: AppTheme.textSecondary,
       lightTextPrimary: AppTheme.lightTextPrimary,
       lightTextSecondary: AppTheme.lightTextSecondary,
-      openDownload: (_) => SharedUpdateService.downloadAndOpenVerifiedUpdate(
+      openDownload: (url) => SharedUpdateService.downloadAndOpenVerifiedUpdate(
         context,
-        update,
+        SharedUpdateService.preferDownloadUrl(update, url),
         fileName: 'SSRVPN_Setup.exe',
         openFile: installVerifiedUpdate,
       ),
