@@ -125,7 +125,7 @@ jobs:
       - run: bash ../../scripts/check-macos-core-privileges.sh
       - run: bash ../../scripts/check-windows-launcher-security.sh
       - run: bash ../../scripts/check-secrets.sh
-      - run: python3 -m unittest scripts/test_check_release_assets.py scripts/test_generate_release_notes.py scripts/test_generate_oss_release_manifest.py scripts/test_generate_release_provenance.py scripts/test_verify_release_transition.py scripts/test_promote_oss_public_channel.py scripts/test_reuse_github_release_assets.py scripts/test_validate_existing_release_retry.py scripts/test_run_command_with_timeout.py scripts/test_secret_scanning.py scripts/test_free_desktop_distribution.py scripts/test_windows_installer_config.py scripts/test_windows_proxy_shutdown_recovery.py
+      - run: python3 -m unittest scripts/test_check_release_assets.py scripts/test_generate_release_notes.py scripts/test_generate_oss_release_manifest.py scripts/test_generate_release_provenance.py scripts/test_verify_release_transition.py scripts/test_promote_oss_public_channel.py scripts/test_reuse_github_release_assets.py scripts/test_validate_existing_release_retry.py scripts/test_run_command_with_timeout.py scripts/test_secret_scanning.py scripts/test_free_desktop_distribution.py scripts/test_windows_installer_config.py scripts/test_windows_proxy_shutdown_recovery.py scripts/test_windows_runonce_proxy_recovery.py
         working-directory: .
       - run: dart pub get
       - run: flutter analyze --fatal-infos
@@ -397,7 +397,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_installer_runtime.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\stop_ssrvpn_processes.ps1 -InstalledCorePath "$env:RUNNER_TEMP\ssrvpn-process-smoke\mihomo.exe" -InstalledCorePidPath "$env:RUNNER_TEMP\ssrvpn-process-smoke\mihomo.pid"
+          $smokeRoot = Join-Path $env:RUNNER_TEMP 'ssrvpn-process-smoke'
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\stop_ssrvpn_processes.ps1 -InstalledAppPath "$smokeRoot\bin\ssrvpn_windows_app.exe" -InstalledLauncherPath "$smokeRoot\ssrvpn_windows.exe" -InstalledCorePath "$smokeRoot\bin\mihomo.exe" -InstalledCorePidPath "$smokeRoot\mihomo.pid"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -522,6 +523,30 @@ jobs:
               exit 1
             fi
           done
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          source = Path(
+              "packages/ssrvpn_shared/lib/services/update_checker.dart"
+          ).read_text(encoding="utf-8")
+          match = re.search(
+              r"primaryManifestUrl\s*=\s*Uri\.parse\(\s*['\"]([^'\"]+)['\"]",
+              source,
+          )
+          if match is None:
+              raise SystemExit("cannot find the client's primary update manifest URL")
+          configured_url = (
+              f"https://{os.environ['OSS_BUCKET']}.{os.environ['OSS_ENDPOINT']}/"
+              f"{os.environ['OSS_PREFIX']}/latest.json"
+          )
+          if configured_url != match.group(1):
+              raise SystemExit(
+                  "OSS workflow variables do not match the client's primary "
+                  "update manifest URL"
+              )
+          PY
 
       - name: Reuse an existing GitHub release on retry
         id: existing_release
@@ -717,6 +742,173 @@ jobs:
           echo "::error::GitHub release state is ambiguous; OSS was not rolled back automatically."
           echo "::error::Use the preserved backup only after confirming the GitHub release state."
           exit 87
+
+      - name: Verify published GitHub and OSS channels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SSRVPN_REPO: ${{ github.repository }}
+          OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+          OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          release_json="$RUNNER_TEMP/published-release.json"
+          latest_release_json="$RUNNER_TEMP/latest-release.json"
+          manifest_json="$RUNNER_TEMP/published-latest.json"
+          public_manifest_url="https://$OSS_BUCKET.$OSS_ENDPOINT/$OSS_PREFIX/latest.json"
+
+          bash scripts/check-release-assets.sh "$tag"
+          for attempt in 1 2 3; do
+            if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" >"$release_json"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Cannot read the published GitHub release."
+              exit 1
+            fi
+            sleep "$attempt"
+          done
+
+          is_prerelease="$(python3 - "$release_json" "$tag" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as source:
+              release = json.load(source)
+          if release.get("tag_name") != sys.argv[2] or release.get("draft") is not False:
+              raise SystemExit("published GitHub release tag/state mismatch")
+          if not isinstance(release.get("prerelease"), bool):
+              raise SystemExit("published GitHub release prerelease state is invalid")
+          print("true" if release["prerelease"] else "false")
+          PY
+          )"
+
+          if [ "$is_prerelease" != true ]; then
+            latest_matches=false
+            for attempt in 1 2 3 4 5; do
+              if gh api "repos/$GITHUB_REPOSITORY/releases/latest" \
+                  >"$latest_release_json" &&
+                python3 - "$latest_release_json" "$release_json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as source:
+              latest = json.load(source)
+          with open(sys.argv[2], encoding="utf-8") as source:
+              release = json.load(source)
+          if (
+              latest.get("id") != release.get("id")
+              or latest.get("tag_name") != release.get("tag_name")
+              or latest.get("draft") is not False
+              or latest.get("prerelease") is not False
+          ):
+              raise SystemExit(1)
+          PY
+              then
+                latest_matches=true
+                break
+              fi
+              sleep "$attempt"
+            done
+            if [ "$latest_matches" != true ]; then
+              echo "::error::GitHub latest does not point to the published stable release."
+              exit 1
+            fi
+          fi
+
+          manifest_matches=false
+          for attempt in 1 2 3 4 5; do
+            manifest_request_url="${public_manifest_url}?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}"
+            if curl -fsSL --retry 3 --connect-timeout 10 --max-time 30 \
+                --max-filesize 1048576 \
+                -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
+                "$manifest_request_url" -o "$manifest_json" &&
+              python3 - "$manifest_json" "${tag#v}" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as source:
+              manifest = json.load(source)
+          if manifest.get("version") != sys.argv[2]:
+              raise SystemExit(1)
+          PY
+            then
+              manifest_matches=true
+              break
+            fi
+            sleep "$attempt"
+          done
+          if [ "$manifest_matches" != true ]; then
+            echo "::error::OSS latest.json does not point to the published version."
+            exit 1
+          fi
+
+          python3 - "$release_json" "$manifest_json" "$tag" \
+            "https://$OSS_BUCKET.$OSS_ENDPOINT/$OSS_PREFIX/releases/$tag" <<'PY'
+          import json
+          import re
+          import sys
+
+          release_path, manifest_path, tag, release_base_url = sys.argv[1:]
+          with open(release_path, encoding="utf-8") as source:
+              release = json.load(source)
+          with open(manifest_path, encoding="utf-8") as source:
+              manifest = json.load(source)
+
+          binaries = {
+              "SSRVPN.apk",
+              "SSRVPN.dmg",
+              "SSRVPN_Setup.exe",
+              "SSRVPN.zip",
+          }
+          expected_release_assets = binaries | {
+              f"{name}.sha256" for name in binaries
+          } | {"SSRVPN-release-provenance.json"}
+          release_assets = release.get("assets")
+          if not isinstance(release_assets, list):
+              raise SystemExit("GitHub release assets are missing")
+          release_by_name = {
+              asset.get("name"): asset
+              for asset in release_assets
+              if isinstance(asset, dict)
+          }
+          if (
+              len(release_by_name) != len(release_assets)
+              or set(release_by_name) != expected_release_assets
+          ):
+              raise SystemExit("GitHub release assets are not canonical")
+
+          manifest_assets = manifest.get("assets")
+          if not isinstance(manifest_assets, list):
+              raise SystemExit("OSS manifest assets are missing")
+          manifest_by_name = {
+              asset.get("name"): asset
+              for asset in manifest_assets
+              if isinstance(asset, dict)
+          }
+          if (
+              len(manifest_by_name) != len(manifest_assets)
+              or set(manifest_by_name) != binaries
+          ):
+              raise SystemExit("OSS manifest assets are not canonical")
+          if manifest.get("version") != tag.removeprefix("v"):
+              raise SystemExit("OSS manifest version does not match the release tag")
+
+          digest_pattern = re.compile(r"[0-9a-f]{64}")
+          for name in binaries:
+              github_digest = str(release_by_name[name].get("digest") or "")
+              if not github_digest.startswith("sha256:"):
+                  raise SystemExit(f"GitHub asset digest is missing: {name}")
+              github_digest = github_digest.removeprefix("sha256:").lower()
+              manifest_asset = manifest_by_name[name]
+              if (
+                  digest_pattern.fullmatch(github_digest) is None
+                  or manifest_asset.get("sha256") != github_digest
+                  or manifest_asset.get("url") != f"{release_base_url}/{name}"
+              ):
+                  raise SystemExit(f"GitHub/OSS asset mismatch: {name}")
+          PY
 
       - name: Preserve OSS recovery backup
         if: always() && steps.promote_oss.outcome == 'failure'

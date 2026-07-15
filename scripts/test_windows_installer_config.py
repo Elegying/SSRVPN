@@ -99,6 +99,11 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )[1]
         self.assertIn("StopResult := StopSsrvpnProcesses", prepare)
         self.assertIn("if StopResult = 0 then", prepare)
+        self.assertIn("else if StopResult = 3 then", prepare)
+        self.assertIn(
+            "无法确认 SSRVPN 进程归属或安全恢复系统代理，安装尚未修改程序文件",
+            prepare,
+        )
         self.assertIn("无法关闭正在运行的 SSRVPN", prepare)
         self.assertNotIn("PrepareInstallDirectory", installer)
         self.assertNotIn("CanLaunchAfterRestore", installer)
@@ -110,6 +115,154 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotIn("多个便携", installer)
         self.assertNotIn("restartreplace", installer)
         self.assertIn("overwritereadonly", installer)
+
+    def test_installer_holds_app_and_launcher_gates_only_during_file_changes(
+        self,
+    ) -> None:
+        installer = (
+            ROOT / "SSRVPN_Windows" / "installer" / "SSRVPN.iss"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "AppInstanceMutexName = 'Local\\SSRVPN_Windows_SingleInstance'",
+            installer,
+        )
+        self.assertIn(
+            "LauncherMutexName = 'Local\\SSRVPN_Windows_Launcher'", installer
+        )
+        for api in (
+            "CreateMutexW@kernel32.dll stdcall",
+            "OpenMutexW@kernel32.dll stdcall",
+            "WaitForSingleObject@kernel32.dll stdcall",
+            "ReleaseMutex@kernel32.dll stdcall",
+            "CloseHandle@kernel32.dll stdcall",
+        ):
+            with self.subTest(api=api):
+                self.assertIn(api, installer)
+        self.assertIn(
+            "function WinCreateMutex(Attributes: Cardinal;", installer
+        )
+        self.assertIn(
+            "function WinOpenMutex(DesiredAccess: Cardinal;", installer
+        )
+        self.assertNotIn("NativeUInt", installer)
+
+        create_or_open = installer.split(
+            "function CreateOrOpenGateMutex(Name: String): THandle;", 1
+        )[1].split("function HoldInstallGateHandles", 1)[0]
+        self.assertLess(
+            create_or_open.index("WinCreateMutex(0, False, Name)"),
+            create_or_open.index("if Result = 0 then"),
+        )
+        self.assertLess(
+            create_or_open.index("if Result = 0 then"),
+            create_or_open.index(
+                "WinOpenMutex(SynchronizeAccess, False, Name)"
+            ),
+        )
+        hold_gates = installer.split(
+            "function HoldInstallGateHandles: Boolean;", 1
+        )[1].split("function AcquireLauncherGate", 1)[0]
+        self.assertEqual(hold_gates.count("CreateOrOpenGateMutex("), 2)
+        self.assertNotIn("WinCreateMutex(", hold_gates)
+
+        prepare = installer.split(
+            "function PrepareToInstall(var NeedsRestart: Boolean): String;", 1
+        )[1].split("procedure CurStepChanged", 1)[0]
+        self.assertLess(
+            prepare.index("HoldInstallGateHandles"),
+            prepare.index("if UpdateHandoffDetected then"),
+        )
+        handoff = prepare.split("if UpdateHandoffDetected then", 1)[1].split(
+            "else\n  begin\n    StopResult := StopSsrvpnProcesses", 1
+        )[0]
+        self.assertLess(
+            handoff.index("'ready:' + UpdateHandoffToken"),
+            handoff.index("AcquireLauncherGate(UpdateHandoffWaitMilliseconds)"),
+        )
+        self.assertLess(
+            handoff.index("AcquireLauncherGate(UpdateHandoffWaitMilliseconds)"),
+            handoff.index("StopResult := StopSsrvpnProcesses"),
+        )
+        normal = prepare[
+            prepare.index("else\n  begin\n    StopResult := StopSsrvpnProcesses") :
+        ]
+        self.assertLess(
+            normal.index("StopResult := StopSsrvpnProcesses"),
+            normal.index("AcquireLauncherGate(GateWaitMilliseconds)"),
+        )
+        self.assertIn("ReleaseInstallGates", prepare)
+
+        cur_step = installer.split("procedure CurStepChanged", 1)[1].split(
+            "procedure DeinitializeSetup", 1
+        )[0]
+        self.assertIn("CurStep = ssPostInstall", cur_step)
+        self.assertIn("ReleaseInstallGates", cur_step)
+        deinitialize = installer.split("procedure DeinitializeSetup;", 1)[1].split(
+            "function InitializeUninstall", 1
+        )[0]
+        self.assertIn("ReleaseInstallGates", deinitialize)
+
+        uninstall = installer.split("function InitializeUninstall(): Boolean;", 1)[1]
+        self.assertLess(
+            uninstall.index("HoldInstallGateHandles"),
+            uninstall.index("StopResult := RunStopSsrvpnProcesses"),
+        )
+        self.assertLess(
+            uninstall.index("StopResult := RunStopSsrvpnProcesses"),
+            uninstall.index("AcquireLauncherGate"),
+        )
+        self.assertIn(
+            "procedure DeinitializeUninstall;\nbegin\n  ReleaseInstallGates;",
+            installer,
+        )
+        self.assertIn("nowait postinstall skipifsilent", installer)
+
+    def test_verified_update_handoff_waits_for_elevated_launcher_exit(self) -> None:
+        installer = (
+            ROOT / "SSRVPN_Windows" / "installer" / "SSRVPN.iss"
+        ).read_text(encoding="utf-8")
+
+        initialize = installer.split("function InitializeSetup(): Boolean;", 1)[
+            1
+        ].split("procedure ReleaseInstallGates", 1)[0]
+        self.assertIn("LoadStringFromFile(RequestPath, Token)", initialize)
+        self.assertIn("IsValidUpdateHandoffToken(Token)", initialize)
+        self.assertIn("OpenEventW@kernel32.dll stdcall", installer)
+        self.assertLess(
+            initialize.index("HandoffEvent := WinOpenEvent"),
+            initialize.index("UpdateHandoffDetected := True"),
+        )
+        self.assertIn("Length(Token) = 32", installer)
+        self.assertIn("UpdateHandoffEventPrefix + String(Token)", initialize)
+
+        prepare = installer.split(
+            "function PrepareToInstall(var NeedsRestart: Boolean): String;", 1
+        )[1].split("procedure CurStepChanged", 1)[0]
+        handoff = prepare.split("if UpdateHandoffDetected then", 1)[1].split(
+            "else\n  begin\n    StopResult := StopSsrvpnProcesses", 1
+        )[0]
+        self.assertLess(
+            handoff.index("IsUpdateHandoffLive"),
+            handoff.index("SaveStringToFile"),
+        )
+        self.assertLess(
+            handoff.index("SaveStringToFile"),
+            handoff.index("AcquireLauncherGate(UpdateHandoffWaitMilliseconds)"),
+        )
+        self.assertLess(
+            handoff.index("AcquireLauncherGate(UpdateHandoffWaitMilliseconds)"),
+            handoff.index("StopResult := StopSsrvpnProcesses"),
+        )
+        self.assertIn("'ready:' + UpdateHandoffToken", handoff)
+        self.assertIn("更新安装器交接已过期，安装尚未修改程序文件", handoff)
+        self.assertIn("等待 SSRVPN 安全退出超时，安装尚未修改程序文件", handoff)
+
+        deinitialize = installer.split("procedure DeinitializeSetup;", 1)[1].split(
+            "function InitializeUninstall", 1
+        )[0]
+        self.assertIn("UpdateHandoffDetected and (not UpdateHandoffReady)", deinitialize)
+        self.assertIn("'cancelled:' + UpdateHandoffToken", deinitialize)
 
     def test_installer_preserves_user_state_and_replaces_only_program_files(
         self,
@@ -188,19 +341,108 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("stop_ssrvpn_processes.ps1", installer)
         self.assertIn("StopResult := StopSsrvpnProcesses", installer)
         self.assertIn("if StopResult = 0 then", installer)
-        self.assertIn("/F", stopper)
-        self.assertIn("& $taskkill /F /PID $app.ProcessId", stopper)
-        self.assertIn("& $taskkill /F /PID $launcher.ProcessId", stopper)
-        self.assertNotIn("& $taskkill /F /T /PID $app.ProcessId", stopper)
+        lock_acquire = stopper.index(
+            "$script:ProxyTransactionLockStream = Enter-ProxyTransactionLock"
+        )
+        instance_gate = stopper.index(
+            "$script:AppInstanceMutex = New-Object System.Threading.Mutex"
+        )
+        self.assertLess(lock_acquire, stopper.index("$currentSessionId ="))
+        self.assertLess(lock_acquire, instance_gate)
+        self.assertLess(instance_gate, stopper.index("$currentSessionId ="))
+        self.assertLess(lock_acquire, stopper.index("$apps = @()"))
+        self.assertLess(lock_acquire, stopper.index("$proxyBackup = Get-ProxyRecoveryState"))
+        lock_function = stopper.split("function Enter-ProxyTransactionLock", 1)[1]
+        lock_function = lock_function.split(
+            "$script:ProxyTransactionLockStream = $null", 1
+        )[0]
+        self.assertIn("system_proxy_transaction.lock", lock_function)
+        self.assertIn("[System.IO.FileMode]::OpenOrCreate", lock_function)
+        self.assertIn("[System.IO.FileAccess]::ReadWrite", lock_function)
+        self.assertIn("[System.IO.FileShare]::ReadWrite", lock_function)
+        self.assertIn("[System.IO.FileShare]::Delete", lock_function)
+        self.assertIn("$stream.Lock(0, 1)", lock_function)
+        self.assertIn("AddMilliseconds($TimeoutMilliseconds)", lock_function)
+        self.assertIn("Start-Sleep -Milliseconds 100", lock_function)
+        self.assertIn(
+            "$ProxyTransactionLockTimeoutMilliseconds = 10000", stopper
+        )
+        lock_failure = stopper[lock_acquire:stopper.index("$currentSessionId =")]
+        self.assertIn("exit 3", lock_failure)
+        self.assertIn("Local\\SSRVPN_Windows_SingleInstance", lock_failure)
+        proxy_service = (
+            ROOT / "SSRVPN_Windows" / "lib" / "services" /
+            "system_proxy_service.dart"
+        ).read_text(encoding="utf-8")
+        native_recovery = (
+            ROOT / "SSRVPN_Windows" / "windows" / "runner" /
+            "system_proxy_recovery.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("system_proxy_transaction.lock", proxy_service)
+        self.assertIn('L"system_proxy_transaction.lock"', native_recovery)
+        self.assertNotIn("taskkill", stopper.lower())
+        for stale_pid_termination in (
+            "Stop-Process -Id $app.ProcessId",
+            "Stop-Process -Id $launcher.ProcessId",
+            "Stop-Process -Id $core.ProcessId",
+        ):
+            self.assertNotIn(stale_pid_termination, stopper)
+        self.assertIn("SsrvpnVerifiedProcessTerminator", stopper)
+        self.assertIn(
+            "ProcessQueryLimitedInformation | ProcessTerminate | Synchronize",
+            stopper,
+        )
+        verified_termination = stopper.split(
+            "public static int Terminate(", 1
+        )[1].split("\n  }\n}\n'@", 1)[0]
+        for api in (
+            "OpenProcess(",
+            "GetProcessId(process)",
+            "ProcessIdToSessionId(liveProcessId",
+            "QueryFullProcessImageNameW(",
+            "TerminateProcess(process, 1)",
+            "WaitForSingleObject(process, 8000)",
+        ):
+            self.assertIn(api, verified_termination)
+        self.assertEqual(1, verified_termination.count("OpenProcess("))
+        self.assertLess(
+            verified_termination.index("OpenProcess("),
+            verified_termination.index("GetProcessId(process)"),
+        )
+        self.assertLess(
+            verified_termination.index("GetProcessId(process)"),
+            verified_termination.index("QueryFullProcessImageNameW("),
+        )
+        self.assertLess(
+            verified_termination.index("QueryFullProcessImageNameW("),
+            verified_termination.index("TerminateProcess(process, 1)"),
+        )
+        self.assertLess(
+            verified_termination.index("TerminateProcess(process, 1)"),
+            verified_termination.index("WaitForSingleObject(process, 8000)"),
+        )
+        self.assertLess(
+            verified_termination.index("WaitForSingleObject(process, 8000)"),
+            verified_termination.index("CloseHandle(process)"),
+        )
+        self.assertIn("WaitTimeout", verified_termination)
+        self.assertIn("TimeoutException", verified_termination)
         self.assertIn("ExecutablePath", stopper)
         self.assertIn("SessionId", stopper)
         self.assertIn("remainingApps", stopper)
         self.assertIn("remainingCores", stopper)
         self.assertIn("exit 2", stopper)
         self.assertIn("Restore-OwnedSystemProxy", stopper)
+        runtime_flow = stopper.split("$proxyBackup = Get-ProxyRecoveryState", 1)[1]
         self.assertLess(
-            stopper.index("Restore-OwnedSystemProxy"),
-            stopper.index("& $taskkill /F /PID $app.ProcessId"),
+            runtime_flow.index(
+                "Stop-VerifiedProcess -ProcessId ([int]$app.ProcessId)"
+            ),
+            runtime_flow.index("try {\n  Restore-OwnedSystemProxy"),
+        )
+        self.assertLess(
+            runtime_flow.index("$appsBeforeRecovery = @("),
+            runtime_flow.index("try {\n  Restore-OwnedSystemProxy"),
         )
         self.assertIn("system_proxy_backup.json", stopper)
         self.assertIn("RuntimeProxyBackup", stopper)
@@ -235,23 +477,84 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotIn("ErrorAction SilentlyContinue", process_lookup)
         self.assertIn("Get-Process -ErrorAction Stop", process_lookup)
         self.assertIn("Executable path is unavailable", process_lookup)
+        self.assertIn("Get-Process -Id $processId -ErrorAction Stop", process_lookup)
+        self.assertIn("Process identity changed while verifying PID", process_lookup)
+        self.assertIn("$live.ProcessName -ine $expectedProcessName", process_lookup)
+        self.assertIn("$live.SessionId -ne $currentSessionId", process_lookup)
+        self.assertIn("[int]$candidate.SessionId -ne $currentSessionId", process_lookup)
+        self.assertNotIn(
+            "Where-Object { $_.SessionId -eq $currentSessionId }", process_lookup
+        )
         remove_state = stopper.split("function Remove-ProxyRecoveryState", 1)[1]
         remove_state = remove_state.split("function Test-RequiredProperties", 1)[0]
-        self.assertIn("if (Test-Path -Path $nativePath)", remove_state)
+        self.assertIn("$nativeExists = Test-Path -Path $nativePath", remove_state)
         self.assertIn(
             "if (Test-Path -LiteralPath $jsonPath -PathType Leaf)",
             remove_state,
         )
         self.assertNotIn("ErrorAction SilentlyContinue", remove_state)
+        self.assertIn("$json._activationInProgress = $false", remove_state)
+        self.assertIn("-Name 'Valid' -Type DWord -Value 0", remove_state)
+        for terminal_flag in (
+            "ActivationInProgress",
+            "RestoreInProgress",
+            "EndpointRestoreInProgress",
+        ):
+            self.assertIn(f"@{{ Name = '{terminal_flag}'; Value = 0 }}", remove_state)
+        self.assertIn("$flagsTerminal = $true", remove_state)
+        self.assertIn("if ($flagsTerminal) { $nativeTerminal = $true }", remove_state)
+        json_terminal = remove_state.index("$json._activationInProgress = $false")
+        json_gate = remove_state.index("if (-not $jsonTerminal)")
+        invalidate = remove_state.index("-Name 'Valid' -Type DWord -Value 0")
+        native_delete = remove_state.index(
+            "Remove-Item -Path $nativePath -Recurse -Force"
+        )
+        native_gate = remove_state.index("if (-not $nativeTerminal)")
+        json_delete = remove_state.rindex(
+            "Remove-Item -LiteralPath $jsonPath -Force"
+        )
+        runonce_delete = remove_state.rindex("Remove-ProxyRecoveryRunOnce")
+        self.assertLess(json_terminal, json_gate)
+        self.assertLess(json_gate, invalidate)
+        self.assertLess(invalidate, native_delete)
+        self.assertLess(native_delete, native_gate)
+        self.assertLess(native_gate, json_delete)
+        self.assertLess(json_delete, runonce_delete)
+        self.assertIn("$cleanupErrors +=", remove_state)
+        self.assertIn("throw ($cleanupErrors -join '; ')", remove_state)
         set_or_remove = stopper.split("function Set-OrRemoveRegistryValue", 1)[1]
         set_or_remove = set_or_remove.split("function Restore-OwnedSystemProxy", 1)[0]
         self.assertIn("$current.PSObject.Properties[$Name]", set_or_remove)
         self.assertNotIn("ErrorAction SilentlyContinue", set_or_remove)
         self.assertIn("function Test-SystemProxySafeToStop", stopper)
+        safe_to_stop = stopper.split("function Test-SystemProxySafeToStop", 1)[1]
+        safe_to_stop = safe_to_stop.split("$apps = @()", 1)[0]
+        self.assertIn(
+            "if ($null -eq $current.PSObject.Properties['ProxyEnable']) {\n"
+            "      return $true",
+            safe_to_stop,
+        )
+        self.assertIn("ProxyEnable -ne 1) { return $false }", safe_to_stop)
+        self.assertIn("if (-not $hasProxyServer) { return $false }", safe_to_stop)
         self.assertGreaterEqual(stopper.count("$autoDetectDisabled"), 6)
-        proxy_gate = stopper.index("if ($proxyRecoveryFailed -or")
-        self.assertLess(proxy_gate, stopper.index("foreach ($app in $installedApps)"))
+        proxy_gate = runtime_flow.index(
+            "if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup"
+        )
+        self.assertLess(
+            runtime_flow.index("foreach ($app in $installedApps)"), proxy_gate
+        )
+        restore_attempt = runtime_flow[
+            runtime_flow.index("try {\n  Restore-OwnedSystemProxy"):proxy_gate
+        ]
+        self.assertLess(
+            restore_attempt.index("$proxyRecoveryFailed = $true"),
+            restore_attempt.index("Disable-OwnedSystemProxyEndpoint"),
+        )
         self.assertIn("Test-SystemProxySafeToStop -Backup $proxyBackup", stopper)
+        self.assertGreater(
+            runtime_flow.rindex("if ($proxyRecoveryFailed)"),
+            runtime_flow.index("$remainingApps = @("),
+        )
         self.assertIn("$installedApps.Count -gt 0", stopper)
         self.assertIn("$installedLaunchers.Count -gt 0", stopper)
         self.assertIn("$installedCoresBefore.Count -gt 0", stopper)
@@ -263,10 +566,27 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         enumeration = stopper.index("$apps = @()")
         self.assertLess(enumeration, stopper.index("$proxyBackup = Get-ProxyRecoveryState"))
-        self.assertGreaterEqual(
-            stopper[enumeration:proxy_gate].count("exit 3"),
-            2,
+        expected_path_gate = stopper.index(
+            "$InstalledAppPath = Get-ValidatedExpectedPath"
         )
+        foreign_gate = stopper.index("if ($foreignApps.Count -gt 0")
+        proxy_state_read = stopper.index("$proxyBackup = Get-ProxyRecoveryState")
+        self.assertLess(expected_path_gate, enumeration + stopper[enumeration:].index(
+            "$apps = @(Get-ProcessesByName"
+        ))
+        self.assertLess(foreign_gate, proxy_state_read)
+        self.assertLess(foreign_gate, stopper.index("foreach ($app in $installedApps)"))
+        self.assertIn("$foreignLaunchers.Count -gt 0", stopper[foreign_gate:proxy_state_read])
+        self.assertIn("$foreignCores.Count -gt 0", stopper[foreign_gate:proxy_state_read])
+        self.assertIn("exit 3", stopper[foreign_gate:proxy_state_read])
+        self.assertIn("[string]::IsNullOrWhiteSpace($Path)", stopper)
+        self.assertIn("[System.IO.Path]::IsPathRooted($Path)", stopper)
+        self.assertIn(
+            "Installed executable paths do not describe one SSRVPN installation",
+            stopper,
+        )
+        self.assertNotIn("function Test-LiveProcessIdentity", stopper)
+        self.assertIn("function Stop-VerifiedProcess", stopper)
         self.assertIn("$proxyServer -eq [string]$Backup.ownedProxyServer", stopper)
         self.assertIn("$ownedFingerprint", stopper)
         self.assertIn("exit 3", stopper[proxy_gate:])
@@ -292,12 +612,25 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             stopper,
         )
         self.assertIn("Test-ExactPath", stopper)
-        self.assertIn("Stop-Process -Id $core.ProcessId", stopper)
+        self.assertIn(
+            "Stop-VerifiedProcess -ProcessId ([int]$core.ProcessId)",
+            stopper,
+        )
         runtime_test = (
             ROOT / "scripts" / "test_windows_installer_runtime.ps1"
         ).read_text(encoding="utf-8")
         self.assertNotIn("prepare_install_directory.ps1", runtime_test)
-        self.assertIn("unrelated mihomo process was incorrectly stopped", runtime_test)
+        self.assertIn("Foreign-instance ownership gate returned", runtime_test)
+        self.assertIn("expected 3", runtime_test)
+        self.assertIn("stopped a portable process", runtime_test)
+        self.assertIn("modified installed runtime files", runtime_test)
+        self.assertIn("Verified installer cleanup returned", runtime_test)
+        self.assertIn("$heldTransactionLock.Lock(0, 1)", runtime_test)
+        self.assertIn(
+            "'-ProxyTransactionLockTimeoutMilliseconds', 500", runtime_test
+        )
+        self.assertIn("Contended proxy transaction lock returned", runtime_test)
+        self.assertIn("$heldTransactionLock.Unlock(0, 1)", runtime_test)
         restore = stopper.split("function Restore-OwnedSystemProxy", 1)[1]
         self.assertLess(
             restore.index("Write-NativeRestoreJournal"),
@@ -307,6 +640,102 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn(
             "Get-Content -LiteralPath $jsonPath -Encoding UTF8 -Raw",
             stopper,
+        )
+
+    def test_installer_terminalizes_restores_and_rejects_stale_journals(
+        self,
+    ) -> None:
+        stopper = (
+            ROOT / "SSRVPN_Windows" / "installer" / "stop_ssrvpn_processes.ps1"
+        ).read_text(encoding="utf-8")
+
+        corroboration = stopper[
+            stopper.index("function Test-JsonActivationCorroboratedByNative") : stopper.index(
+                "function Test-RecoveryState"
+            )
+        ]
+        for token in (
+            "Valid",
+            "RestoreInProgress",
+            "ActivationInProgress",
+            "EndpointRestoreInProgress",
+            "OwnedProxyServer",
+            "OwnedProxyOverride",
+            "$script:OwnedProxyOverride",
+        ):
+            self.assertIn(token, corroboration)
+        self.assertIn(
+            "[string]$Native.OwnedProxyServer -ne "
+            "[string]$Json._ownedProxyServer",
+            corroboration,
+        )
+
+        state_reader = stopper[
+            stopper.index("function Get-ProxyRecoveryState") : stopper.index(
+                "function Write-NativeRestoreJournal"
+            )
+        ]
+        self.assertIn(
+            "activationInProgress = (Test-JsonActivationCorroboratedByNative",
+            state_reader,
+        )
+        self.assertNotIn(
+            "activationInProgress = [bool]$json._activationInProgress",
+            state_reader,
+        )
+
+        terminalizer = stopper[
+            stopper.index("function Complete-NativeRestoreJournal") : stopper.index(
+                "function Notify-WinInetProxyChange"
+            )
+        ]
+        valid_zero = terminalizer.index(
+            "Set-ItemProperty -Path $path -Name Valid -Type DWord -Value 0"
+        )
+        first_flag_zero = terminalizer.index("'RestoreInProgress'")
+        native_delete = terminalizer.index(
+            "Remove-Item -Path $path -Recurse -Force"
+        )
+        self.assertLess(valid_zero, first_flag_zero)
+        self.assertLess(first_flag_zero, native_delete)
+        self.assertIn("if ($flagsTerminal) { $terminal = $true }", terminalizer)
+        self.assertIn("if (-not ($terminal -or $removed))", terminalizer)
+
+        restore = stopper[
+            stopper.index("function Restore-OwnedSystemProxy") : stopper.index(
+                "function Disable-OwnedSystemProxyEndpoint"
+            )
+        ]
+        endpoint_start = restore.index(
+            "Write-NativeRestoreJournal -Backup $backup -EndpointOnly"
+        )
+        endpoint_end = restore.index("    return", endpoint_start)
+        endpoint_restore = restore[endpoint_start:endpoint_end]
+        full_start = restore.index(
+            "Write-NativeRestoreJournal -Backup $backup", endpoint_end
+        )
+        full_restore = restore[full_start:]
+        for restore_path in (endpoint_restore, full_restore):
+            proxy_enable_commit = restore_path.index(
+                "Set-ItemProperty -Path $regPath -Name ProxyEnable"
+            )
+            terminalize = restore_path.index("Complete-NativeRestoreJournal")
+            self.assertLess(proxy_enable_commit, terminalize)
+            self.assertLess(
+                terminalize, restore_path.index("Notify-WinInetProxyChange")
+            )
+            self.assertLess(
+                terminalize, restore_path.index("Remove-ProxyRecoveryState")
+            )
+
+        safe_to_stop = stopper[
+            stopper.index("function Test-SystemProxySafeToStop") : stopper.index(
+                "$apps = @()"
+            )
+        ]
+        self.assertLess(
+            safe_to_stop.index("Test-NativeRecoveryJournalNonReplayable"),
+            safe_to_stop.index("$regPath"),
         )
 
     def test_uninstaller_restores_proxy_and_stops_only_its_installation(
@@ -327,8 +756,24 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("InstalledLauncherPath", installer)
         uninstall = installer.split("function InitializeUninstall(): Boolean;", 1)[1]
         self.assertIn("StopSsrvpnProcesses", uninstall)
-        self.assertIn("Result := StopResult = 0", uninstall)
+        self.assertIn(
+            "Result := (StopResult = 0) and\n"
+            "    AcquireLauncherGate(GateWaitMilliseconds)",
+            uninstall,
+        )
+        self.assertIn("if StopResult = 3 then", uninstall)
+        self.assertIn(
+            "无法确认 SSRVPN 进程归属或安全恢复系统代理，卸载尚未删除程序文件",
+            uninstall,
+        )
         self.assertIn("卸载尚未删除程序文件", uninstall)
+        messages = installer.split("[Messages]", 1)[1].split("[InstallDelete]", 1)[0]
+        self.assertIn("chinesesimp.ConfirmUninstall=", messages)
+        self.assertIn("卸载程序仅删除程序文件", messages)
+        for preserved_state in ("设置", "订阅", "节点", "本机加密密钥"):
+            with self.subTest(preserved_state=preserved_state):
+                self.assertIn(preserved_state, messages)
+        self.assertIn("供以后重装使用", messages)
 
         self.assertNotIn("-File $stopper", smoke)
         self.assertIn("uninstaller must stop the running installed app", smoke)
@@ -480,6 +925,17 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             with self.subTest(workflow=workflow_name):
                 self.assertIn(invocation, build_step)
                 self.assertIn("timeout-minutes: 15", build_step)
+                self.assertIn(
+                    "$smokeRoot = Join-Path $env:RUNNER_TEMP "
+                    "'ssrvpn-process-smoke'",
+                    build_step,
+                )
+                for expected_path_argument in (
+                    '-InstalledAppPath "$smokeRoot\\bin\\ssrvpn_windows_app.exe"',
+                    '-InstalledLauncherPath "$smokeRoot\\ssrvpn_windows.exe"',
+                    '-InstalledCorePath "$smokeRoot\\bin\\mihomo.exe"',
+                ):
+                    self.assertIn(expected_path_argument, build_step)
                 self.assertIn(
                     "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
                     build_step,

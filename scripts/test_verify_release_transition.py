@@ -87,6 +87,16 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         validate = workflow.index("Validate OSS publishing configuration")
         github_release = workflow.index("Create GitHub Draft Release")
         self.assertLess(validate, github_release)
+        validation_step = workflow[validate:github_release]
+        self.assertIn(
+            "packages/ssrvpn_shared/lib/services/update_checker.dart",
+            validation_step,
+        )
+        self.assertIn("primaryManifestUrl", validation_step)
+        self.assertIn("os.environ['OSS_BUCKET']", validation_step)
+        self.assertIn("os.environ['OSS_ENDPOINT']", validation_step)
+        self.assertIn("os.environ['OSS_PREFIX']", validation_step)
+        self.assertIn("configured_url != match.group(1)", validation_step)
         retry_reuse = workflow.index("Reuse an existing GitHub release on retry")
         self.assertLess(validate, retry_reuse)
         self.assertLess(retry_reuse, github_release)
@@ -104,6 +114,40 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         self.assertIn("--prerelease=false --latest", workflow)
         self.assertIn("--json isDraft,isPrerelease", workflow)
         self.assertIn("Preserve OSS recovery backup", workflow)
+
+        published_verify = workflow.index(
+            "Verify published GitHub and OSS channels"
+        )
+        self.assertLess(github_finalize, published_verify)
+        verify_step = workflow[published_verify:]
+        self.assertIn('scripts/check-release-assets.sh "$tag"', verify_step)
+        self.assertIn(
+            'gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag"',
+            verify_step,
+        )
+        prerelease_guard = verify_step.index(
+            'if [ "$is_prerelease" != true ]; then'
+        )
+        latest_lookup = verify_step.index(
+            'gh api "repos/$GITHUB_REPOSITORY/releases/latest"'
+        )
+        self.assertLess(prerelease_guard, latest_lookup)
+        self.assertNotIn("releases/latest", verify_step[:prerelease_guard])
+        self.assertIn("latest.get(\"id\") != release.get(\"id\")", verify_step)
+        self.assertIn("$OSS_PREFIX/latest.json", verify_step)
+        self.assertIn(
+            "?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}",
+            verify_step,
+        )
+        self.assertIn("Cache-Control: no-cache", verify_step)
+        self.assertIn("set(manifest_by_name) != binaries", verify_step)
+        self.assertIn(
+            'manifest_asset.get("sha256") != github_digest', verify_step
+        )
+        self.assertIn(
+            'manifest_asset.get("url") != f"{release_base_url}/{name}"',
+            verify_step,
+        )
 
     def test_rollback_restores_stable_assets_before_latest_pointer(self) -> None:
         rollback = (

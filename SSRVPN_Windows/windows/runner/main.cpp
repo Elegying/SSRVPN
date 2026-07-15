@@ -7,6 +7,11 @@
 #include "system_proxy_recovery.h"
 #include "utils.h"
 
+namespace {
+constexpr wchar_t kAppInstanceMutexName[] =
+    L"Local\\SSRVPN_Windows_SingleInstance";
+}
+
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
   startup_diagnostics::Initialize();
@@ -16,11 +21,56 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   startup_diagnostics::Log(std::wstring(L"executable path: ") +
                            startup_diagnostics::GetExecutablePath());
 
+  std::vector<std::string> command_line_arguments =
+      GetCommandLineArguments();
+  if (command_line_arguments.size() == 1 &&
+      command_line_arguments[0] == "--recover-proxy-only") {
+    HANDLE recovery_mutex =
+        ::CreateMutexW(nullptr, TRUE, kAppInstanceMutexName);
+    const DWORD recovery_mutex_error = ::GetLastError();
+    if (recovery_mutex == nullptr) {
+      RearmWindowsProxyRecoveryRunOnce();
+      return EXIT_FAILURE;
+    }
+    if (recovery_mutex_error == ERROR_ALREADY_EXISTS) {
+      RearmWindowsProxyRecoveryRunOnce();
+      ::CloseHandle(recovery_mutex);
+      return ERROR_ALREADY_EXISTS;
+    }
+
+    bool safe_to_stop = RestoreOrConfirmOwnedWindowsProxySafeToStop();
+    bool retry_logged = false;
+    bool recovery_rearmed = false;
+    while (!safe_to_stop) {
+      if (!recovery_rearmed) {
+        recovery_rearmed = RearmWindowsProxyRecoveryRunOnce();
+      }
+      if (!recovery_rearmed && !retry_logged) {
+        startup_diagnostics::Log(
+            L"proxy recovery and RunOnce rearm both failed; retrying");
+        retry_logged = true;
+      }
+      ::Sleep(5000);
+      safe_to_stop = RestoreOrConfirmOwnedWindowsProxySafeToStop();
+    }
+    ::ReleaseMutex(recovery_mutex);
+    ::CloseHandle(recovery_mutex);
+    return EXIT_SUCCESS;
+  }
+
   HANDLE instance_mutex =
-      ::CreateMutexW(nullptr, TRUE, L"Local\\SSRVPN_Windows_SingleInstance");
-  bool owns_instance_mutex =
-      instance_mutex != nullptr && ::GetLastError() != ERROR_ALREADY_EXISTS;
-  if (instance_mutex != nullptr && !owns_instance_mutex) {
+      ::CreateMutexW(nullptr, TRUE, kAppInstanceMutexName);
+  const DWORD instance_mutex_error = ::GetLastError();
+  if (instance_mutex == nullptr) {
+    startup_diagnostics::Log(
+        L"instance mutex creation failed: " +
+        std::to_wstring(instance_mutex_error));
+    return static_cast<int>(instance_mutex_error == ERROR_SUCCESS
+                                ? ERROR_OPEN_FAILED
+                                : instance_mutex_error);
+  }
+  bool owns_instance_mutex = instance_mutex_error != ERROR_ALREADY_EXISTS;
+  if (!owns_instance_mutex) {
     startup_diagnostics::Log(L"existing instance detected");
     HWND existing_window =
         ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"SSRVPN");
@@ -55,9 +105,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
   flutter::DartProject project(L"data");
-
-  std::vector<std::string> command_line_arguments =
-      GetCommandLineArguments();
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 

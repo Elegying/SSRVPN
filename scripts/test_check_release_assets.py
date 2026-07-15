@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -12,6 +13,10 @@ SCRIPT = ROOT / "scripts" / "check-release-assets.sh"
 
 
 class CheckReleaseAssetsTests(unittest.TestCase):
+    def test_rejects_noncanonical_release_assets(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("unexpected = sorted(set(assets) - required)", source)
+
     def test_retries_gh_and_verifies_local_downloads(self) -> None:
         digest = "a" * 64
         tag = "v9.8.7"
@@ -113,6 +118,7 @@ exit 2
                     "FAKE_ASSET_DIRECTORY": str(asset_directory),
                     "FAKE_GH_API_STATE": str(temporary / "api-state"),
                     "FAKE_GH_DOWNLOAD_STATE": str(temporary / "download-state"),
+                    "PYTHON_BIN": os.fsdecode(sys.executable),
                 }
             )
             result = subprocess.run(

@@ -42,6 +42,9 @@ InfoBeforeFile={#ProjectDir}\installer\overwrite_notice.zh-CN.txt
 [Languages]
 Name: "chinesesimp"; MessagesFile: "{#ProjectDir}\installer\languages\ChineseSimplified.isl"
 
+[Messages]
+chinesesimp.ConfirmUninstall=确认卸载 %1 吗？%n%n卸载程序仅删除程序文件；设置、订阅、节点和本机加密密钥会保留，供以后重装使用。
+
 [InstallDelete]
 Type: files; Name: "{app}\*"
 Type: files; Name: "{app}\bin\*"
@@ -70,6 +73,151 @@ Name: "{autodesktop}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: 
 Filename: "{app}\ssrvpn_windows.exe"; Description: "{cm:LaunchProgram,SSRVPN}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+const
+  AppInstanceMutexName = 'Local\SSRVPN_Windows_SingleInstance';
+  LauncherMutexName = 'Local\SSRVPN_Windows_Launcher';
+  WaitObject0 = 0;
+  WaitAbandoned = $00000080;
+  GateWaitMilliseconds = 10000;
+  UpdateHandoffWaitMilliseconds = 60000;
+  SynchronizeAccess = $00100000;
+  UpdateHandoffEventPrefix = 'Local\SSRVPN_UpdateHandoff_';
+  UpdateHandoffRequestSuffix = '.ssrvpn-handoff';
+  UpdateHandoffStatusSuffix = '.ssrvpn-handoff-status';
+
+var
+  AppGateMutex: THandle;
+  LauncherGateMutex: THandle;
+  LauncherGateOwned: Boolean;
+  UpdateHandoffDetected: Boolean;
+  UpdateHandoffReady: Boolean;
+  UpdateHandoffToken: AnsiString;
+  UpdateHandoffStatusPath: String;
+
+function WinCreateMutex(Attributes: Cardinal; InitialOwner: BOOL;
+  Name: String): THandle;
+  external 'CreateMutexW@kernel32.dll stdcall';
+function WinOpenMutex(DesiredAccess: Cardinal; InheritHandle: BOOL;
+  Name: String): THandle;
+  external 'OpenMutexW@kernel32.dll stdcall';
+function WinWaitForSingleObject(Handle: THandle; Milliseconds: Cardinal): Cardinal;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function WinReleaseMutex(Handle: THandle): BOOL;
+  external 'ReleaseMutex@kernel32.dll stdcall';
+function WinCloseHandle(Handle: THandle): BOOL;
+  external 'CloseHandle@kernel32.dll stdcall';
+function WinOpenEvent(DesiredAccess: Cardinal; InheritHandle: BOOL;
+  Name: String): THandle;
+  external 'OpenEventW@kernel32.dll stdcall';
+
+function IsValidUpdateHandoffToken(Token: AnsiString): Boolean;
+var
+  Index: Integer;
+  Character: AnsiChar;
+begin
+  Result := Length(Token) = 32;
+  if not Result then
+    exit;
+  for Index := 1 to Length(Token) do
+  begin
+    Character := Token[Index];
+    if not (((Character >= '0') and (Character <= '9')) or
+      ((Character >= 'a') and (Character <= 'f'))) then
+    begin
+      Result := False;
+      exit;
+    end;
+  end;
+end;
+
+function InitializeSetup(): Boolean;
+var
+  HandoffEvent: THandle;
+  RequestPath: String;
+  Token: AnsiString;
+begin
+  RequestPath := ExpandConstant('{srcexe}') + UpdateHandoffRequestSuffix;
+  UpdateHandoffStatusPath :=
+    ExpandConstant('{srcexe}') + UpdateHandoffStatusSuffix;
+  if LoadStringFromFile(RequestPath, Token) and
+    IsValidUpdateHandoffToken(Token) then
+  begin
+    HandoffEvent := WinOpenEvent(
+      SynchronizeAccess, False, UpdateHandoffEventPrefix + String(Token));
+    if HandoffEvent <> 0 then
+    begin
+      WinCloseHandle(HandoffEvent);
+      UpdateHandoffToken := Token;
+      UpdateHandoffDetected := True;
+      DeleteFile(UpdateHandoffStatusPath);
+    end;
+  end;
+  Result := True;
+end;
+
+function IsUpdateHandoffLive: Boolean;
+var
+  HandoffEvent: THandle;
+begin
+  HandoffEvent := WinOpenEvent(
+    SynchronizeAccess, False,
+    UpdateHandoffEventPrefix + String(UpdateHandoffToken));
+  Result := HandoffEvent <> 0;
+  if Result then
+    WinCloseHandle(HandoffEvent);
+end;
+
+procedure ReleaseInstallGates;
+begin
+  if LauncherGateMutex <> 0 then
+  begin
+    if LauncherGateOwned then
+      WinReleaseMutex(LauncherGateMutex);
+    WinCloseHandle(LauncherGateMutex);
+    LauncherGateMutex := 0;
+    LauncherGateOwned := False;
+  end;
+  if AppGateMutex <> 0 then
+  begin
+    WinCloseHandle(AppGateMutex);
+    AppGateMutex := 0;
+  end;
+end;
+
+function CreateOrOpenGateMutex(Name: String): THandle;
+begin
+  Result := WinCreateMutex(0, False, Name);
+  if Result = 0 then
+    Result := WinOpenMutex(SynchronizeAccess, False, Name);
+end;
+
+function HoldInstallGateHandles: Boolean;
+begin
+  if AppGateMutex = 0 then
+    AppGateMutex := CreateOrOpenGateMutex(AppInstanceMutexName);
+  if LauncherGateMutex = 0 then
+    LauncherGateMutex := CreateOrOpenGateMutex(LauncherMutexName);
+  Result := (AppGateMutex <> 0) and (LauncherGateMutex <> 0);
+  if not Result then
+    ReleaseInstallGates;
+end;
+
+function AcquireLauncherGate(WaitMilliseconds: Cardinal): Boolean;
+var
+  WaitResult: Cardinal;
+begin
+  if LauncherGateOwned then
+  begin
+    Result := True;
+    exit;
+  end;
+  WaitResult := WinWaitForSingleObject(
+    LauncherGateMutex, WaitMilliseconds);
+  LauncherGateOwned := (WaitResult = WaitObject0) or
+    (WaitResult = WaitAbandoned);
+  Result := LauncherGateOwned;
+end;
+
 function RunStopSsrvpnProcesses(ScriptPath: String): Integer;
 var
   ResultCode: Integer;
@@ -115,23 +263,116 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   StopResult: Integer;
 begin
-  StopResult := StopSsrvpnProcesses;
+  if not HoldInstallGateHandles then
+  begin
+    Result := '无法建立 SSRVPN 安装期进程保护，安装尚未修改程序文件。' + #13#10 +
+      '请关闭其他安装程序后重试；如果仍然失败，请重启 Windows。';
+    exit;
+  end;
+  if UpdateHandoffDetected then
+  begin
+    if not IsUpdateHandoffLive then
+    begin
+      ReleaseInstallGates;
+      Result := 'SSRVPN 更新安装器交接已过期，安装尚未修改程序文件。' + #13#10 +
+        'SSRVPN 将保持运行；请重新发起更新或退出后手动运行安装包。';
+      exit;
+    end;
+    if not SaveStringToFile(
+      UpdateHandoffStatusPath, 'ready:' + UpdateHandoffToken, False) then
+    begin
+      ReleaseInstallGates;
+      Result := '无法确认 SSRVPN 已收到更新安装器接管信号，安装尚未修改程序文件。' + #13#10 +
+        'SSRVPN 将保持运行；请退出 SSRVPN 后手动运行已下载的安装包。';
+      exit;
+    end;
+    UpdateHandoffReady := True;
+    if not AcquireLauncherGate(UpdateHandoffWaitMilliseconds) then
+    begin
+      ReleaseInstallGates;
+      Result := '等待 SSRVPN 安全退出超时，安装尚未修改程序文件。' + #13#10 +
+        'SSRVPN 可能仍在恢复系统代理；请确认网络正常后重试。';
+      exit;
+    end;
+    StopResult := StopSsrvpnProcesses;
+  end
+  else
+  begin
+    StopResult := StopSsrvpnProcesses;
+    if (StopResult = 0) and
+      (not AcquireLauncherGate(GateWaitMilliseconds)) then
+    begin
+      ReleaseInstallGates;
+      Result := '无法取得 SSRVPN 安装期启动保护，安装尚未修改程序文件。' + #13#10 +
+        '请稍后重试；如果仍然失败，请重启 Windows。';
+      exit;
+    end;
+  end;
   if StopResult = 0 then
     Result := ''
+  else if StopResult = 3 then
+  begin
+    ReleaseInstallGates;
+    Result := '无法确认 SSRVPN 进程归属或安全恢复系统代理，安装尚未修改程序文件。' + #13#10 +
+      '请退出 SSRVPN，确认 Windows 系统代理和网络正常后重试；' +
+      '如果仍然失败，请重启 Windows 后再次安装。';
+  end
   else
+  begin
+    ReleaseInstallGates;
     Result := '无法关闭正在运行的 SSRVPN，安装尚未修改旧数据。' + #13#10 +
       '请退出 SSRVPN 后重试；如果仍然失败，请重启 Windows 后再次安装。';
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    ReleaseInstallGates;
+end;
+
+procedure DeinitializeSetup;
+begin
+  if UpdateHandoffDetected and (not UpdateHandoffReady) then
+    SaveStringToFile(
+      UpdateHandoffStatusPath, 'cancelled:' + UpdateHandoffToken, False);
+  ReleaseInstallGates;
 end;
 
 function InitializeUninstall(): Boolean;
 var
   StopResult: Integer;
 begin
+  if not HoldInstallGateHandles then
+  begin
+    MsgBox('无法建立 SSRVPN 卸载期进程保护，卸载尚未删除程序文件。' + #13#10 +
+      '请关闭其他安装程序后重试；如果仍然失败，请重启 Windows。',
+      mbError, MB_OK);
+    Result := False;
+    exit;
+  end;
   StopResult := RunStopSsrvpnProcesses(
     ExpandConstant('{app}\installer\stop_ssrvpn_processes.ps1'));
-  Result := StopResult = 0;
+  Result := (StopResult = 0) and
+    AcquireLauncherGate(GateWaitMilliseconds);
   if not Result then
-    MsgBox('无法关闭正在运行的 SSRVPN，卸载尚未删除程序文件。' + #13#10 +
-      '请退出 SSRVPN 后重试；如果仍然失败，请重启 Windows 后再次卸载。',
-      mbError, MB_OK);
+  begin
+    ReleaseInstallGates;
+    if StopResult = 3 then
+      MsgBox('无法确认 SSRVPN 进程归属或安全恢复系统代理，卸载尚未删除程序文件。' + #13#10 +
+        '请退出 SSRVPN，确认 Windows 系统代理和网络正常后重试；' +
+        '如果仍然失败，请重启 Windows 后再次卸载。', mbError, MB_OK)
+    else if StopResult <> 0 then
+      MsgBox('无法关闭正在运行的 SSRVPN，卸载尚未删除程序文件。' + #13#10 +
+        '请退出 SSRVPN 后重试；如果仍然失败，请重启 Windows 后再次卸载。',
+        mbError, MB_OK)
+    else
+      MsgBox('无法取得 SSRVPN 卸载期启动保护，卸载尚未删除程序文件。' + #13#10 +
+        '请稍后重试；如果仍然失败，请重启 Windows。', mbError, MB_OK);
+  end;
+end;
+
+procedure DeinitializeUninstall;
+begin
+  ReleaseInstallGates;
 end;

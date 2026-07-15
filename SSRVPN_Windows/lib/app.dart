@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
+import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -18,6 +19,7 @@ import 'services/clash_service.dart' as clash;
 import 'services/settings_service.dart';
 import 'services/subscription_service.dart';
 import 'services/tray_manager.dart';
+import 'services/update_service.dart';
 import 'startup/startup_flags.dart';
 import 'startup/startup_logger.dart';
 import 'startup/startup_status.dart';
@@ -42,23 +44,33 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   int _currentIndex = 0;
   bool _isQuitting = false;
   String? _runtimeNotice;
+  Timer? _runtimeNoticeAutoClearTimer;
   bool _windowListenerAttached = false;
   Timer? _windowStateSaveDebounce;
 
   SettingsService? _settingsService;
   clash.ClashService? _clashService;
   SubscriptionService? _subscriptionService;
+  late final Future<bool> Function() _updateHandoffShutdown = _quitApp;
 
   @override
   void initState() {
     super.initState();
+    UpdateService.onInstallerHandoff = _updateHandoffShutdown;
     StartupStatus.instance.addListener(_handleStartupStatusChanged);
     _handleStartupStatusChanged();
   }
 
   @override
   void dispose() {
+    if (identical(
+      UpdateService.onInstallerHandoff,
+      _updateHandoffShutdown,
+    )) {
+      UpdateService.onInstallerHandoff = null;
+    }
     StartupStatus.instance.removeListener(_handleStartupStatusChanged);
+    _runtimeNoticeAutoClearTimer?.cancel();
     _windowStateSaveDebounce?.cancel();
     if (_windowListenerAttached) {
       try {
@@ -128,7 +140,9 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         StartupLogger.error('Hide app from tray failed', error, stack);
       }
     };
-    _trayManager.onQuit = _quitApp;
+    _trayManager.onQuit = () async {
+      await _quitApp();
+    };
     _trayManager.onConnectToggle = _handleTrayConnectToggle;
     _trayManager.isConnected = () => _clashService?.isRunning ?? false;
     _trayManager.runtimeProxyPort = () =>
@@ -148,7 +162,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
 
     int? connectionGeneration;
     try {
-      if (mounted) setState(() => _runtimeNotice = null);
+      _clearRuntimeNotice();
       if (core.isRunning || core.connectionDesired) {
         core.requestConnectionIntent(false);
         await core.stop();
@@ -262,11 +276,18 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       _presentRuntimeNotice('连接失败：$reason');
 
   Future<void> _presentRuntimeNotice(String message) async {
+    _runtimeNoticeAutoClearTimer?.cancel();
+    _runtimeNoticeAutoClearTimer = null;
     if (mounted) {
       setState(() {
         _runtimeNotice = message;
         _currentIndex = 0;
       });
+      _runtimeNoticeAutoClearTimer = scheduleSuccessfulRuntimeNoticeClear(
+        message: message,
+        currentMessage: () => _runtimeNotice,
+        clear: _clearRuntimeNotice,
+      );
     }
     try {
       await windowManager.show();
@@ -277,11 +298,20 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     }
   }
 
+  void _clearRuntimeNotice() {
+    _runtimeNoticeAutoClearTimer?.cancel();
+    _runtimeNoticeAutoClearTimer = null;
+    if (mounted && _runtimeNotice != null) {
+      setState(() => _runtimeNotice = null);
+    }
+  }
+
   void _handleCoreStatusChanged() {
     if (mounted &&
         (_clashService?.isRunning ?? false) &&
-        _runtimeNotice != null) {
-      setState(() => _runtimeNotice = null);
+        _runtimeNotice != null &&
+        !isSuccessfulRuntimeNotice(_runtimeNotice)) {
+      _clearRuntimeNotice();
     }
     _refreshTrayStatus();
   }
@@ -299,8 +329,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     );
   }
 
-  Future<void> _quitApp() async {
-    if (_isQuitting) return;
+  Future<bool> _quitApp() async {
+    if (_isQuitting) return false;
     _isQuitting = true;
     final failures = await runWindowsAppShutdown(
       hideWindow: windowManager.hide,
@@ -325,15 +355,19 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         stack: failure.stackTrace,
       );
     }
-    final criticalFailures = failures.where((failure) => failure.step == 2);
-    if (criticalFailures.isNotEmpty) {
+    if (!isWindowsAppShutdownSafeToExit(failures)) {
       _isQuitting = false;
-      final reason = criticalFailures.first.error
+      final blockingFailure = failures.firstWhere(
+        (failure) => failure.step == 2 || failure.step == 5,
+      );
+      final reason = blockingFailure.error
           .toString()
           .replaceFirst('Bad state: ', '')
           .replaceFirst('StateError: ', '');
       await _presentRuntimeNotice('退出未完成：$reason。请稍后再次退出');
+      return false;
     }
+    return true;
   }
 
   @override

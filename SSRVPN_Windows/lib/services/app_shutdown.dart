@@ -43,3 +43,9 @@ Future<List<CleanupFailure>> runWindowsAppShutdown({
   );
   return failures;
 }
+
+bool isWindowsAppShutdownSafeToExit(List<CleanupFailure> failures) {
+  return !failures.any(
+    (failure) => failure.step == 2 || failure.step == 5,
+  );
+}

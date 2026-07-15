@@ -2,10 +2,77 @@ param(
   [string]$InstalledAppPath = '',
   [string]$InstalledLauncherPath = '',
   [string]$InstalledCorePath = '',
-  [string]$InstalledCorePidPath = ''
+  [string]$InstalledCorePidPath = '',
+  [ValidateRange(100, 30000)]
+  [int]$ProxyTransactionLockTimeoutMilliseconds = 10000
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Enter-ProxyTransactionLock {
+  param([Parameter(Mandatory = $true)][int]$TimeoutMilliseconds)
+
+  if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA) -or
+      -not [System.IO.Path]::IsPathRooted($env:LOCALAPPDATA)) {
+    throw 'LOCALAPPDATA is unavailable for the proxy transaction lock.'
+  }
+  $runtimePath = Join-Path $env:LOCALAPPDATA 'SSRVPN\runtime'
+  [System.IO.Directory]::CreateDirectory($runtimePath) | Out-Null
+  $lockPath = Join-Path $runtimePath 'system_proxy_transaction.lock'
+  $fileShare = [System.IO.FileShare](
+    [int][System.IO.FileShare]::ReadWrite -bor
+    [int][System.IO.FileShare]::Delete)
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+
+  while ($true) {
+    $stream = $null
+    try {
+      $stream = New-Object System.IO.FileStream -ArgumentList @(
+        $lockPath,
+        [System.IO.FileMode]::OpenOrCreate,
+        [System.IO.FileAccess]::ReadWrite,
+        $fileShare
+      )
+      $stream.Lock(0, 1)
+      return $stream
+    } catch [System.IO.IOException] {
+      if ($null -ne $stream) { $stream.Dispose() }
+      if ([DateTime]::UtcNow -ge $deadline) {
+        throw 'Timed out waiting for the proxy transaction lock.'
+      }
+      Start-Sleep -Milliseconds 100
+    } catch {
+      if ($null -ne $stream) { $stream.Dispose() }
+      throw
+    }
+  }
+}
+
+$script:ProxyTransactionLockStream = $null
+try {
+  # Keep the only strong reference at script scope. Process exit releases the
+  # byte-range lock even if installer cleanup terminates unexpectedly.
+  $script:ProxyTransactionLockStream = Enter-ProxyTransactionLock `
+    -TimeoutMilliseconds $ProxyTransactionLockTimeoutMilliseconds
+} catch {
+  Write-Warning "Could not acquire the proxy transaction lock: $($_.Exception.Message)"
+  exit 3
+}
+
+$script:AppInstanceMutex = $null
+try {
+  # Keeping this named object alive closes the stop-before-restore launch gap.
+  # Existing apps keep running, while any new installed or portable child sees
+  # ERROR_ALREADY_EXISTS and exits before it can replace the global journal.
+  $script:AppInstanceMutex = New-Object System.Threading.Mutex -ArgumentList @(
+    $false,
+    'Local\SSRVPN_Windows_SingleInstance'
+  )
+} catch {
+  Write-Warning "Could not reserve the SSRVPN app instance gate: $($_.Exception.Message)"
+  exit 3
+}
+
 $currentSessionId = (Get-Process -Id $PID -ErrorAction Stop).SessionId
 $script:OwnedProxyOverride = '<local>;localhost;127.*;10.*;172.16.*;172.17.*;' +
   '172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;' +
@@ -16,20 +83,18 @@ function Get-ProcessesByName {
   param([Parameter(Mandatory = $true)][string]$Name)
 
   try {
-    return @(
+    $candidates = @(
       Get-CimInstance -ClassName Win32_Process -Filter "Name = '$Name'" `
-        -ErrorAction Stop |
-        Where-Object { $_.SessionId -eq $currentSessionId }
+        -ErrorAction Stop
     )
   } catch {
     $cimError = $_.Exception.Message
     $processName = [System.IO.Path]::GetFileNameWithoutExtension($Name)
     try {
-      return @(
+      $candidates = @(
         Get-Process -ErrorAction Stop |
           Where-Object {
-            $_.ProcessName -ieq $processName -and
-            $_.SessionId -eq $currentSessionId
+            $_.ProcessName -ieq $processName
           } |
           ForEach-Object {
             $executablePath = $_.Path
@@ -47,6 +112,41 @@ function Get-ProcessesByName {
       throw "CIM enumeration failed ($cimError); Get-Process fallback failed: $($_.Exception.Message)"
     }
   }
+
+  $expectedProcessName = [System.IO.Path]::GetFileNameWithoutExtension($Name)
+  return @(
+    foreach ($candidate in $candidates) {
+      $processId = 0
+      if ($null -eq $candidate.PSObject.Properties['ProcessId'] -or
+          -not [int]::TryParse(
+            [string]$candidate.ProcessId, [ref]$processId) -or
+          $processId -le 0) {
+        throw "Invalid process identity returned while enumerating $Name."
+      }
+      if ($null -eq $candidate.PSObject.Properties['SessionId'] -or
+          [int]$candidate.SessionId -ne $currentSessionId -or
+          -not $candidate.ExecutablePath) {
+        throw "Incomplete process identity returned for PID $processId."
+      }
+
+      # Re-open the PID and compare its live name, session and image path. This
+      # prevents a stale CIM row or PID reuse from being trusted as ownership.
+      $live = Get-Process -Id $processId -ErrorAction Stop
+      $livePath = $live.Path
+      if (-not $livePath -or
+          $live.ProcessName -ine $expectedProcessName -or
+          $live.SessionId -ne $currentSessionId -or
+          -not (Test-ExactPath -Actual $livePath `
+            -Expected ([string]$candidate.ExecutablePath))) {
+        throw "Process identity changed while verifying PID $processId."
+      }
+      [pscustomobject]@{
+        ProcessId = $processId
+        ExecutablePath = [System.IO.Path]::GetFullPath($livePath)
+        SessionId = [int]$live.SessionId
+      }
+    }
+  )
 }
 
 function Test-ExactPath {
@@ -66,17 +166,269 @@ function Test-ExactPath {
   }
 }
 
-function Remove-ProxyRecoveryState {
-  $nativePath = 'HKCU:\Software\SSRVPN\RuntimeProxyBackup'
-  if (Test-Path -Path $nativePath) {
-    Remove-Item -Path $nativePath -Recurse -Force
-  }
-  if ($env:LOCALAPPDATA) {
-    $jsonPath = Join-Path $env:LOCALAPPDATA `
-      'SSRVPN\runtime\system_proxy_backup.json'
-    if (Test-Path -LiteralPath $jsonPath -PathType Leaf) {
-      Remove-Item -LiteralPath $jsonPath -Force
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class SsrvpnVerifiedProcessTerminator {
+  private const uint ProcessTerminate = 0x0001;
+  private const uint ProcessQueryLimitedInformation = 0x1000;
+  private const uint Synchronize = 0x00100000;
+  private const uint StillActive = 259;
+  private const uint WaitObject0 = 0;
+  private const uint WaitTimeout = 258;
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern IntPtr OpenProcess(
+      uint desiredAccess, bool inheritHandle, uint processId);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern uint GetProcessId(IntPtr process);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool ProcessIdToSessionId(
+      uint processId, out uint sessionId);
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool QueryFullProcessImageNameW(
+      IntPtr process, uint flags, StringBuilder imageName, ref uint size);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool GetExitCodeProcess(
+      IntPtr process, out uint exitCode);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern uint WaitForSingleObject(
+      IntPtr handle, uint milliseconds);
+  [DllImport("kernel32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool CloseHandle(IntPtr handle);
+
+  // 0 = terminated, 1 = already gone, 2 = identity mismatch.
+  public static int Terminate(
+      uint expectedProcessId, string expectedPath, uint expectedSessionId) {
+    IntPtr process = OpenProcess(
+        ProcessQueryLimitedInformation | ProcessTerminate | Synchronize,
+        false,
+        expectedProcessId);
+    if (process == IntPtr.Zero) {
+      int error = Marshal.GetLastWin32Error();
+      if (error == 87) return 1;
+      throw new Win32Exception(error);
     }
+    try {
+      uint exitCode;
+      if (GetExitCodeProcess(process, out exitCode) && exitCode != StillActive) {
+        return 1;
+      }
+      uint liveProcessId = GetProcessId(process);
+      if (liveProcessId == 0) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      uint liveSessionId;
+      if (!ProcessIdToSessionId(liveProcessId, out liveSessionId)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      var imageName = new StringBuilder(32768);
+      uint imageNameSize = (uint)imageName.Capacity;
+      if (!QueryFullProcessImageNameW(
+          process, 0, imageName, ref imageNameSize)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      if (liveProcessId != expectedProcessId ||
+          liveSessionId != expectedSessionId ||
+          !Path.GetFullPath(imageName.ToString()).Equals(
+              Path.GetFullPath(expectedPath),
+              StringComparison.OrdinalIgnoreCase)) {
+        return 2;
+      }
+      if (!TerminateProcess(process, 1)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      uint waitResult = WaitForSingleObject(process, 8000);
+      if (waitResult == WaitObject0) return 0;
+      if (waitResult == WaitTimeout) {
+        throw new TimeoutException("Timed out waiting for process termination.");
+      }
+      throw new Win32Exception(Marshal.GetLastWin32Error());
+    } finally {
+      CloseHandle(process);
+    }
+  }
+}
+'@
+
+function Stop-VerifiedProcess {
+  param(
+    [Parameter(Mandatory = $true)][int]$ProcessId,
+    [Parameter(Mandatory = $true)][string]$ExpectedPath
+  )
+
+  $result = [SsrvpnVerifiedProcessTerminator]::Terminate(
+    [uint32]$ProcessId,
+    $ExpectedPath,
+    [uint32]$currentSessionId
+  )
+  if ($result -eq 0 -or $result -eq 1) { return }
+  throw "Process identity changed before terminating PID $ProcessId."
+}
+
+function Remove-ProxyRecoveryRunOnce {
+  $runOncePath =
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce'
+  if (Test-Path -Path $runOncePath) {
+    $runOnce = Get-ItemProperty -Path $runOncePath
+    if ($null -ne $runOnce.PSObject.Properties['SSRVPNProxyRecovery']) {
+      Remove-ItemProperty -Path $runOncePath -Name 'SSRVPNProxyRecovery' `
+        -ErrorAction Stop
+    }
+  }
+}
+
+function Get-ValidatedExpectedPath {
+  param(
+    [AllowNull()][string]$Path,
+    [Parameter(Mandatory = $true)][string]$ExpectedFileName
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Path) -or
+      -not [System.IO.Path]::IsPathRooted($Path)) {
+    throw "Expected executable path for $ExpectedFileName is empty or relative."
+  }
+  try {
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+  } catch {
+    throw "Expected executable path for $ExpectedFileName is invalid."
+  }
+  if (-not [System.IO.Path]::GetFileName($fullPath).Equals(
+      $ExpectedFileName, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Expected executable path does not name $ExpectedFileName."
+  }
+  return $fullPath
+}
+
+function Remove-ProxyRecoveryState {
+  $cleanupErrors = @()
+  $jsonPath = Join-Path $env:LOCALAPPDATA `
+    'SSRVPN\runtime\system_proxy_backup.json'
+  $jsonExists = $false
+  $jsonTerminal = $false
+  try {
+    $jsonExists = Test-Path -LiteralPath $jsonPath -PathType Leaf
+    $jsonTerminal = -not $jsonExists
+  } catch {
+    $cleanupErrors += "Could not inspect JSON proxy recovery state: $($_.Exception.Message)"
+  }
+  if ($jsonExists) {
+    $tempJsonPath = "$jsonPath.tmp"
+    $terminalizeError = ''
+    try {
+      $json = Get-Content -LiteralPath $jsonPath -Encoding UTF8 -Raw |
+        ConvertFrom-Json -ErrorAction Stop
+      if ($null -ne $json.PSObject.Properties['_activationInProgress']) {
+        $json._activationInProgress = $false
+      } else {
+        $json | Add-Member -NotePropertyName '_activationInProgress' `
+          -NotePropertyValue $false -ErrorAction Stop
+      }
+      $jsonText = $json | ConvertTo-Json -Compress -Depth 8
+      [System.IO.File]::WriteAllText(
+        $tempJsonPath,
+        $jsonText,
+        [System.Text.UTF8Encoding]::new($false)
+      )
+      Move-Item -LiteralPath $tempJsonPath -Destination $jsonPath -Force `
+        -ErrorAction Stop
+      $jsonTerminal = $true
+    } catch {
+      $terminalizeError = $_.Exception.Message
+      try {
+        if (Test-Path -LiteralPath $tempJsonPath -PathType Leaf) {
+          Remove-Item -LiteralPath $tempJsonPath -Force -ErrorAction Stop
+        }
+      } catch {}
+    }
+    if (-not $jsonTerminal) {
+      try {
+        Remove-Item -LiteralPath $jsonPath -Force -ErrorAction Stop
+        $jsonExists = $false
+        $jsonTerminal = $true
+      } catch {
+        $cleanupErrors += "Could not terminalize or remove JSON proxy recovery state: $terminalizeError; $($_.Exception.Message)"
+      }
+    }
+  }
+  if (-not $jsonTerminal) {
+    throw ($cleanupErrors -join '; ')
+  }
+
+  $nativePath = 'HKCU:\Software\SSRVPN\RuntimeProxyBackup'
+  $nativeExists = $false
+  $nativeInspected = $false
+  try {
+    $nativeExists = Test-Path -Path $nativePath
+    $nativeInspected = $true
+  } catch {
+    $cleanupErrors += "Could not inspect native proxy recovery state: $($_.Exception.Message)"
+  }
+  $nativeTerminal = $nativeInspected -and -not $nativeExists
+  if ($nativeExists) {
+    $nativeErrors = @()
+    # Make a surviving journal terminal before deletion. A later launcher or
+    # RunOnce worker must not replay a completed restore over newer user state.
+    try {
+      Set-ItemProperty -Path $nativePath -Name 'Valid' -Type DWord -Value 0 `
+        -ErrorAction Stop
+      $nativeTerminal = $true
+    } catch {
+      $nativeErrors += "Could not invalidate native proxy recovery state: $($_.Exception.Message)"
+    }
+    $flagsTerminal = $true
+    foreach ($entry in @(
+      @{ Name = 'ActivationInProgress'; Value = 0 },
+      @{ Name = 'RestoreInProgress'; Value = 0 },
+      @{ Name = 'EndpointRestoreInProgress'; Value = 0 }
+    )) {
+      try {
+        Set-ItemProperty -Path $nativePath -Name $entry.Name -Type DWord `
+          -Value $entry.Value -ErrorAction Stop
+      } catch {
+        $flagsTerminal = $false
+        $nativeErrors += "Could not invalidate native proxy recovery state: $($_.Exception.Message)"
+      }
+    }
+    if ($flagsTerminal) { $nativeTerminal = $true }
+    try {
+      Remove-Item -Path $nativePath -Recurse -Force -ErrorAction Stop
+      $nativeTerminal = $true
+    } catch {
+      $nativeErrors += "Could not remove native proxy recovery state: $($_.Exception.Message)"
+    }
+    if (-not $nativeTerminal) { $cleanupErrors += $nativeErrors }
+  }
+  if (-not $nativeTerminal) {
+    throw ($cleanupErrors -join '; ')
+  }
+  if ($jsonExists) {
+    try {
+      if (Test-Path -LiteralPath $jsonPath -PathType Leaf) {
+        Remove-Item -LiteralPath $jsonPath -Force -ErrorAction Stop
+      }
+    } catch {
+      $cleanupErrors += "Could not remove JSON proxy recovery state: $($_.Exception.Message)"
+    }
+  }
+  try {
+    Remove-ProxyRecoveryRunOnce
+  } catch {
+    $cleanupErrors += "Could not remove proxy recovery RunOnce: $($_.Exception.Message)"
+  }
+  if ($cleanupErrors.Count -gt 0) {
+    throw ($cleanupErrors -join '; ')
   }
 }
 
@@ -117,6 +469,69 @@ function Test-BooleanValue {
   return $null -ne $Value -and $Value -is [bool]
 }
 
+function Test-NativeRecoveryJournalNonReplayable {
+  $nativePath = 'HKCU:\Software\SSRVPN\RuntimeProxyBackup'
+  if (-not (Test-Path -Path $nativePath)) { return $true }
+
+  $native = Get-ItemProperty -Path $nativePath
+  if (-not (Test-RequiredProperties -Value $native -Names @('Valid'))) {
+    return $false
+  }
+  if (-not (Test-DwordFlag -Value $native.Valid)) { return $false }
+  if ([int]$native.Valid -eq 0) { return $true }
+
+  $pendingNames = @(
+    'RestoreInProgress', 'ActivationInProgress',
+    'EndpointRestoreInProgress'
+  )
+  if (-not (Test-RequiredProperties -Value $native -Names $pendingNames)) {
+    return $false
+  }
+  foreach ($name in $pendingNames) {
+    if (-not (Test-DwordFlag -Value $native.$name)) { return $false }
+    if ([int]$native.$name -eq 1) { return $false }
+  }
+  return $true
+}
+
+function Test-JsonActivationCorroboratedByNative {
+  param(
+    [AllowNull()]$Native,
+    [AllowNull()]$Json
+  )
+
+  $required = @(
+    'Valid', 'OwnedProxyServer', 'OwnedProxyOverride',
+    'RestoreInProgress', 'ActivationInProgress',
+    'EndpointRestoreInProgress'
+  )
+  if (-not (Test-RequiredProperties -Value $Native -Names $required) -or
+      -not (Test-RequiredProperties -Value $Json -Names @(
+        '_ownedProxyServer', '_activationInProgress'
+      ))) {
+    return $false
+  }
+  foreach ($name in @(
+    'Valid', 'RestoreInProgress', 'ActivationInProgress',
+    'EndpointRestoreInProgress'
+  )) {
+    if (-not (Test-DwordFlag -Value $Native.$name)) { return $false }
+  }
+  if (-not (Test-BooleanValue -Value $Json._activationInProgress) -or
+      -not [bool]$Json._activationInProgress -or
+      [int]$Native.Valid -ne 1 -or
+      $Native.OwnedProxyServer -isnot [string] -or
+      $Native.OwnedProxyOverride -isnot [string] -or
+      $Json._ownedProxyServer -isnot [string] -or
+      [string]$Native.OwnedProxyServer -ne [string]$Json._ownedProxyServer -or
+      [string]$Native.OwnedProxyOverride -ne $script:OwnedProxyOverride) {
+    return $false
+  }
+  return [int]$Native.RestoreInProgress -eq 1 -or
+    [int]$Native.ActivationInProgress -eq 1 -or
+    [int]$Native.EndpointRestoreInProgress -eq 1
+}
+
 function Test-RecoveryState {
   param([AllowNull()]$Value)
 
@@ -153,6 +568,7 @@ function Test-RecoveryState {
 
 function Get-ProxyRecoveryState {
   $nativePath = 'HKCU:\Software\SSRVPN\RuntimeProxyBackup'
+  $native = $null
   if (Test-Path -Path $nativePath) {
     $native = Get-ItemProperty -Path $nativePath
     $hasNativeFields = Test-RequiredProperties -Value $native -Names @(
@@ -249,7 +665,8 @@ function Get-ProxyRecoveryState {
     ownedProxyServer = [string]$json._ownedProxyServer
     ownedProxyOverride = $script:OwnedProxyOverride
     restoreInProgress = $false
-    activationInProgress = [bool]$json._activationInProgress
+    activationInProgress = (Test-JsonActivationCorroboratedByNative `
+      -Native $native -Json $json)
     endpointRestoreInProgress = $false
   }
   if (Test-RecoveryState -Value $candidate) { return $candidate }
@@ -289,6 +706,47 @@ function Write-NativeRestoreJournal {
   Set-ItemProperty -Path $path -Name Valid -Type DWord -Value 1
 }
 
+function Complete-NativeRestoreJournal {
+  $path = 'HKCU:\Software\SSRVPN\RuntimeProxyBackup'
+  $errors = @()
+  $terminal = $false
+  try {
+    Set-ItemProperty -Path $path -Name Valid -Type DWord -Value 0 `
+      -ErrorAction Stop
+    $terminal = $true
+  } catch {
+    $errors += $_.Exception.Message
+  }
+
+  $flagsTerminal = $true
+  foreach ($name in @(
+    'RestoreInProgress',
+    'EndpointRestoreInProgress',
+    'ActivationInProgress'
+  )) {
+    try {
+      Set-ItemProperty -Path $path -Name $name -Type DWord -Value 0 `
+        -ErrorAction Stop
+    } catch {
+      $flagsTerminal = $false
+      $errors += $_.Exception.Message
+    }
+  }
+  if ($flagsTerminal) { $terminal = $true }
+
+  $removed = $false
+  try {
+    Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
+    $removed = $true
+  } catch {
+    $errors += $_.Exception.Message
+  }
+  if (-not ($terminal -or $removed)) {
+    throw ('Could not terminalize native proxy recovery state: ' +
+      ($errors -join '; '))
+  }
+}
+
 function Notify-WinInetProxyChange {
   Add-Type -TypeDefinition @"
 using System;
@@ -313,7 +771,10 @@ function Repair-InvalidProxyRecoveryState {
   }
   $hasRecoveryState = (Test-Path -Path $nativePath) -or
     ($jsonPath -and (Test-Path -LiteralPath $jsonPath -PathType Leaf))
-  if (-not $hasRecoveryState) { return }
+  if (-not $hasRecoveryState) {
+    Remove-ProxyRecoveryRunOnce
+    return
+  }
 
   $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
   $current = Get-ItemProperty -Path $regPath
@@ -394,6 +855,7 @@ function Restore-OwnedSystemProxy {
       -Present $backup.hasProxyServer -Value $backup.proxyServer
     Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord `
       -Value ([int]$backup.proxyEnable)
+    Complete-NativeRestoreJournal
     Notify-WinInetProxyChange
     Remove-ProxyRecoveryState
     return
@@ -422,6 +884,7 @@ function Restore-OwnedSystemProxy {
     -Present $backup.hasAutoDetect -Value ([string]$backup.autoDetect) -Type DWord
   Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord `
     -Value ([int]$backup.proxyEnable)
+  Complete-NativeRestoreJournal
 
   Notify-WinInetProxyChange
   Remove-ProxyRecoveryState
@@ -454,17 +917,21 @@ function Test-SystemProxySafeToStop {
   )
 
   try {
+    if (-not (Test-NativeRecoveryJournalNonReplayable)) { return $false }
     $regPath =
       'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
     $current = Get-ItemProperty -Path $regPath
-    if ($null -eq $current.PSObject.Properties['ProxyEnable'] -or
-        -not (Test-DwordFlag -Value $current.ProxyEnable)) {
+    if ($null -eq $current.PSObject.Properties['ProxyEnable']) {
+      return $true
+    }
+    if (-not (Test-DwordFlag -Value $current.ProxyEnable)) {
       return $false
     }
     if ([int]$current.ProxyEnable -eq 0) { return $true }
+    if ([int]$current.ProxyEnable -ne 1) { return $false }
 
     $hasProxyServer = $null -ne $current.PSObject.Properties['ProxyServer']
-    if (-not $hasProxyServer) { return $true }
+    if (-not $hasProxyServer) { return $false }
     $proxyServer = [string]$current.ProxyServer
     if ($Backup -and $proxyServer -eq [string]$Backup.ownedProxyServer) {
       return $false
@@ -498,10 +965,26 @@ function Test-SystemProxySafeToStop {
 
 $apps = @()
 $launchers = @()
+$cores = @()
 $proxyRecoveryFailed = $false
 try {
+  $InstalledAppPath = Get-ValidatedExpectedPath -Path $InstalledAppPath `
+    -ExpectedFileName 'ssrvpn_windows_app.exe'
+  $InstalledLauncherPath = Get-ValidatedExpectedPath `
+    -Path $InstalledLauncherPath -ExpectedFileName 'ssrvpn_windows.exe'
+  $InstalledCorePath = Get-ValidatedExpectedPath -Path $InstalledCorePath `
+    -ExpectedFileName 'mihomo.exe'
+  $installRoot = [System.IO.Path]::GetDirectoryName($InstalledLauncherPath)
+  if (-not (Test-ExactPath -Actual $InstalledAppPath -Expected (
+        Join-Path $installRoot 'bin\ssrvpn_windows_app.exe')) -or
+      -not (Test-ExactPath -Actual $InstalledCorePath -Expected (
+        Join-Path $installRoot 'bin\mihomo.exe'))) {
+    throw 'Installed executable paths do not describe one SSRVPN installation.'
+  }
+
   $apps = @(Get-ProcessesByName -Name 'ssrvpn_windows_app.exe')
   $launchers = @(Get-ProcessesByName -Name 'ssrvpn_windows.exe')
+  $cores = @(Get-ProcessesByName -Name 'mihomo.exe')
 } catch {
   Write-Warning "Could not enumerate SSRVPN app processes: $($_.Exception.Message)"
   exit 3
@@ -519,16 +1002,26 @@ $installedLaunchers = @(
       Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledLauncherPath
     }
 )
-
-try {
-  $installedCoresBefore = @(
-    Get-ProcessesByName -Name 'mihomo.exe' |
-      Where-Object {
-        Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledCorePath
-      }
-  )
-} catch {
-  Write-Warning "Could not enumerate SSRVPN core processes: $($_.Exception.Message)"
+$installedCoresBefore = @(
+  $cores |
+    Where-Object {
+      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledCorePath
+    }
+)
+$foreignApps = @($apps | Where-Object {
+  -not (Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledAppPath)
+})
+$foreignLaunchers = @($launchers | Where-Object {
+  -not (Test-ExactPath -Actual $_.ExecutablePath `
+    -Expected $InstalledLauncherPath)
+})
+$foreignCores = @($cores | Where-Object {
+  -not (Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledCorePath)
+})
+if ($foreignApps.Count -gt 0 -or
+    $foreignLaunchers.Count -gt 0 -or
+    $foreignCores.Count -gt 0) {
+  Write-Warning 'Another SSRVPN or same-name core instance is active; refusing global proxy recovery.'
   exit 3
 }
 
@@ -537,10 +1030,35 @@ $installedProcessRunning =
   $installedLaunchers.Count -gt 0 -or
   $installedCoresBefore.Count -gt 0
 $proxyBackup = Get-ProxyRecoveryState
+foreach ($app in $installedApps) {
+  try {
+    Stop-VerifiedProcess -ProcessId ([int]$app.ProcessId) `
+      -ExpectedPath $InstalledAppPath
+  } catch {
+    Write-Warning "Could not stop SSRVPN app PID $($app.ProcessId)."
+  }
+}
+
+# Do not alter WinINet until every visible app process is gone. If a force-stop
+# is denied, the still-running app/core/proxy combination remains internally
+# consistent and the installer can abort without creating silent direct mode.
+Start-Sleep -Milliseconds 300
+$appsBeforeRecovery = @(
+  Get-ProcessesByName -Name 'ssrvpn_windows_app.exe' |
+    Where-Object {
+      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledAppPath
+    }
+)
+if ($appsBeforeRecovery.Count -gt 0) {
+  Write-Warning 'SSRVPN app is still running; system proxy was left unchanged.'
+  exit 2
+}
+
 try {
   Restore-OwnedSystemProxy
 } catch {
   Write-Warning "Exact system-proxy restore failed: $($_.Exception.Message)"
+  $proxyRecoveryFailed = $true
   try {
     Disable-OwnedSystemProxyEndpoint
   } catch {
@@ -549,38 +1067,16 @@ try {
   }
 }
 
-if ($proxyRecoveryFailed -or
-    -not (Test-SystemProxySafeToStop -Backup $proxyBackup `
+if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup `
       -InstalledProcessRunning $installedProcessRunning)) {
-  Write-Warning 'Proxy recovery failed; refusing to stop SSRVPN processes.'
+  Write-Warning 'Proxy recovery is not safe; the still-live core was retained.'
   exit 3
 }
 
-$taskkill = if ($env:SystemRoot) {
-  Join-Path $env:SystemRoot 'System32\taskkill.exe'
-} else {
-  $null
-}
-foreach ($app in $installedApps) {
-  try {
-    if ($taskkill -and (Test-Path -LiteralPath $taskkill -PathType Leaf)) {
-      # Older SSRVPN builds can start the installer as a child process. Avoid
-      # /T here so the installer's own cleanup script does not kill itself.
-      & $taskkill /F /PID $app.ProcessId 2>$null | Out-Null
-    } else {
-      Stop-Process -Id $app.ProcessId -Force -ErrorAction Stop
-    }
-  } catch {
-    Write-Warning "Could not stop SSRVPN app PID $($app.ProcessId)."
-  }
-}
 foreach ($launcher in $installedLaunchers) {
   try {
-    if ($taskkill -and (Test-Path -LiteralPath $taskkill -PathType Leaf)) {
-      & $taskkill /F /PID $launcher.ProcessId 2>$null | Out-Null
-    } else {
-      Stop-Process -Id $launcher.ProcessId -Force -ErrorAction Stop
-    }
+    Stop-VerifiedProcess -ProcessId ([int]$launcher.ProcessId) `
+      -ExpectedPath $InstalledLauncherPath
   } catch {
     Write-Warning "Could not stop SSRVPN launcher PID $($launcher.ProcessId)."
   }
@@ -600,7 +1096,8 @@ $installedCores = @(
 )
 foreach ($core in $installedCores) {
   try {
-    Stop-Process -Id $core.ProcessId -Force -ErrorAction Stop
+    Stop-VerifiedProcess -ProcessId ([int]$core.ProcessId) `
+      -ExpectedPath $InstalledCorePath
   } catch {
     Write-Warning "Could not stop installed mihomo PID $($core.ProcessId)."
   }
@@ -634,6 +1131,11 @@ if ($remainingApps.Count -gt 0 -or
 } elseif ($InstalledCorePidPath) {
   Remove-Item -LiteralPath $InstalledCorePidPath -Force `
     -ErrorAction SilentlyContinue
+}
+
+if ($proxyRecoveryFailed) {
+  Write-Warning 'Proxy endpoint is safe and processes are stopped, but recovery artifacts remain; refusing file changes.'
+  exit 3
 }
 
 exit 0

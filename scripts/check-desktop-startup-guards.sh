@@ -16,20 +16,26 @@ for path in paths:
     source = path.read_text(encoding="utf-8")
     for token in (
         "int _startGeneration = 0",
-        "_startInternal(startToken)",
         "void _ensureStartCurrent(int startToken)",
         "_startGeneration++",
         "Completer<void>? _startCancellation",
         "cancellation.complete()",
         "cancellation: _startCancellation?.future",
-        "final proxyCleared = await _stopInternal()",
         "if (!proxyCleared)",
     ):
         if token not in source:
             raise SystemExit(f"{path}: missing cancellable-start guard {token}")
+    start_match = re.search(
+        r"Future<bool>\s+_startInternal\s*\(\s*int\s+startToken\b", source
+    )
+    call_match = re.search(r"_startInternal\s*\(\s*startToken\b", source)
+    if start_match is None or call_match is None:
+        raise SystemExit(f"{path}: missing cancellable-start guard _startInternal")
+    if re.search(r"final\s+\w+\s*=\s*await\s+_stopInternal\(\)", source) is None:
+        raise SystemExit(f"{path}: stop does not await cancellable startup cleanup")
     if "Future<void>? _exitCleanupOperation" not in source:
         raise SystemExit(f"{path}: unexpected-exit proxy cleanup is not tracked")
-    start = source.index("Future<bool> _startInternal(int startToken)")
+    start = start_match.start()
     end = source.index("Future<void> stop()", start)
     body = source[start:end]
     proxy_write = body.index("_proxyService.setSystemProxy")
@@ -62,7 +68,11 @@ for path in paths:
             f"{path}: kills the core before restoring the system proxy"
         )
     before_kill = stop_body[proxy_clear:process_kill]
-    if "if (!proxyCleared)" not in before_kill or "return false" not in before_kill:
+    unsafe_endpoint_guard = (
+        "if (!proxyCleared)" in before_kill
+        or "ProxyRecoveryDisposition.endpointMayStillBeOwned" in before_kill
+    )
+    if not unsafe_endpoint_guard or "return false" not in before_kill:
         raise SystemExit(
             f"{path}: proxy recovery failure does not keep the core alive"
         )

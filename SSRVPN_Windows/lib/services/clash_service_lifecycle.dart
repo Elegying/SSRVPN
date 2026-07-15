@@ -2,6 +2,53 @@ part of 'clash_service.dart';
 
 class _DesktopStartCancelled implements Exception {}
 
+const _unexpectedExitProxyRecoveryDelays = <Duration>[
+  Duration(milliseconds: 250),
+  Duration(milliseconds: 750),
+  Duration(milliseconds: 1500),
+];
+
+enum ProxyRecoveryDisposition {
+  journalTerminal,
+  endpointSafeWithPendingJournal,
+  endpointMayStillBeOwned,
+}
+
+ProxyRecoveryDisposition classifyProxyRecoveryDisposition({
+  required bool journalTerminal,
+  required bool endpointSafeWithPendingRecovery,
+}) {
+  if (journalTerminal) return ProxyRecoveryDisposition.journalTerminal;
+  if (endpointSafeWithPendingRecovery) {
+    return ProxyRecoveryDisposition.endpointSafeWithPendingJournal;
+  }
+  return ProxyRecoveryDisposition.endpointMayStillBeOwned;
+}
+
+/// Retries a failed proxy restore without overlapping registry transactions.
+///
+/// There is one initial attempt plus one attempt after every delay. The caller
+/// is responsible for restoring the local proxy listener if all attempts fail.
+Future<bool> retryUnexpectedExitSystemProxyRecovery({
+  required Future<bool> Function() clearProxy,
+  List<Duration> retryDelays = _unexpectedExitProxyRecoveryDelays,
+  Future<void> Function(Duration duration)? wait,
+  void Function(int attempt, int totalAttempts)? onAttemptFailed,
+}) async {
+  final waitFor = wait ?? (duration) => Future<void>.delayed(duration);
+  final totalAttempts = retryDelays.length + 1;
+  for (var attempt = 1; attempt <= totalAttempts; attempt++) {
+    try {
+      if (await clearProxy()) return true;
+    } catch (_) {}
+    onAttemptFailed?.call(attempt, totalAttempts);
+    if (attempt < totalAttempts) {
+      await waitFor(retryDelays[attempt - 1]);
+    }
+  }
+  return false;
+}
+
 mixin _WindowsCoreLifecycle on ClashServiceBase {
   // ── Process management ──
   Process? _coreProcess;
@@ -11,6 +58,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   Future<void>? _exitCleanupOperation;
   int _startGeneration = 0;
   bool _stoppingCore = false;
+  bool _proxyRecoveryListenerActive = false;
   final CoreRecoveryPolicy _unexpectedExitRecoveryPolicy =
       CoreRecoveryPolicy(maxAttempts: 1);
 
@@ -154,12 +202,108 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
     final encodedPath = base64Encode(utf8.encode(_corePath));
     final script = '''
 \$target = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encodedPath'))
-\$process = Get-CimInstance Win32_Process -Filter "ProcessId=$pid"
-if (-not \$process) { exit 0 }
-if (-not \$process.ExecutablePath -or
-    -not \$process.ExecutablePath.Equals(
-      \$target, [System.StringComparison]::OrdinalIgnoreCase)) { exit 3 }
-Stop-Process -Id $pid -Force -ErrorAction Stop
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class SsrvpnVerifiedProcessTerminator {
+  private const uint ProcessTerminate = 0x0001;
+  private const uint ProcessQueryLimitedInformation = 0x1000;
+  private const uint Synchronize = 0x00100000;
+  private const uint StillActive = 259;
+  private const uint WaitObject0 = 0;
+  private const uint WaitTimeout = 258;
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern IntPtr OpenProcess(
+      uint desiredAccess, bool inheritHandle, uint processId);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern uint GetProcessId(IntPtr process);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool ProcessIdToSessionId(
+      uint processId, out uint sessionId);
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool QueryFullProcessImageNameW(
+      IntPtr process, uint flags, StringBuilder imageName, ref uint size);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool GetExitCodeProcess(
+      IntPtr process, out uint exitCode);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern uint WaitForSingleObject(
+      IntPtr handle, uint milliseconds);
+  [DllImport("kernel32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool CloseHandle(IntPtr handle);
+
+  // 0 = terminated, 1 = already gone, 2 = identity mismatch.
+  public static int Terminate(
+      uint expectedProcessId, string expectedPath, uint expectedSessionId) {
+    IntPtr process = OpenProcess(
+        ProcessQueryLimitedInformation | ProcessTerminate | Synchronize,
+        false,
+        expectedProcessId);
+    if (process == IntPtr.Zero) {
+      int error = Marshal.GetLastWin32Error();
+      if (error == 87) return 1;
+      throw new Win32Exception(error);
+    }
+    try {
+      uint exitCode;
+      if (GetExitCodeProcess(process, out exitCode) && exitCode != StillActive) {
+        return 1;
+      }
+      uint liveProcessId = GetProcessId(process);
+      if (liveProcessId == 0) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      uint liveSessionId;
+      if (!ProcessIdToSessionId(liveProcessId, out liveSessionId)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      var imageName = new StringBuilder(32768);
+      uint imageNameSize = (uint)imageName.Capacity;
+      if (!QueryFullProcessImageNameW(
+          process, 0, imageName, ref imageNameSize)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      if (liveProcessId != expectedProcessId ||
+          liveSessionId != expectedSessionId ||
+          !Path.GetFullPath(imageName.ToString()).Equals(
+              Path.GetFullPath(expectedPath),
+              StringComparison.OrdinalIgnoreCase)) {
+        return 2;
+      }
+      if (!TerminateProcess(process, 1)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      uint waitResult = WaitForSingleObject(process, 8000);
+      if (waitResult == WaitObject0) return 0;
+      if (waitResult == WaitTimeout) {
+        throw new TimeoutException("Timed out waiting for process termination.");
+      }
+      throw new Win32Exception(Marshal.GetLastWin32Error());
+    } finally {
+      CloseHandle(process);
+    }
+  }
+}
+'@
+\$result = [SsrvpnVerifiedProcessTerminator]::Terminate(
+  [uint32]$pid,
+  \$target,
+  [uint32][Diagnostics.Process]::GetCurrentProcess().SessionId)
+if (\$result -eq 0 -or \$result -eq 1) { exit 0 }
+if (\$result -eq 2) { exit 3 }
+exit 4
 ''';
     try {
       final result = await _runPowerShell(
@@ -199,7 +343,10 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
   /// 启动核心
   Future<bool> start() => _start();
 
-  Future<bool> _start({bool automaticRecovery = false}) {
+  Future<bool> _start({
+    bool automaticRecovery = false,
+    bool preserveSystemProxyRecovery = false,
+  }) {
     if (!automaticRecovery) {
       _unexpectedExitRecoveryPolicy.reset();
     }
@@ -208,7 +355,10 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
 
     final startToken = ++_startGeneration;
     _startCancellation = Completer<void>();
-    final operation = _startInternal(startToken);
+    final operation = _startInternal(
+      startToken,
+      preserveSystemProxyRecovery: preserveSystemProxyRecovery,
+    );
     _startOperation = operation;
     operation.then<void>(
       (_) => _clearStartOperation(operation),
@@ -217,7 +367,10 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
     return operation;
   }
 
-  Future<bool> _startInternal(int startToken) async {
+  Future<bool> _startInternal(
+    int startToken, {
+    bool preserveSystemProxyRecovery = false,
+  }) async {
     final exitCleanup = _exitCleanupOperation;
     if (exitCleanup != null) await exitCleanup;
     _ensureStartCurrent(startToken);
@@ -337,6 +490,11 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
         if (!identical(_coreProcess, startedProcess) || _stoppingCore) return;
 
         log('❌ Mihomo 进程已退出，退出码: $code');
+        final recoveryListenerWasActive = _proxyRecoveryListenerActive;
+        _proxyRecoveryListenerActive = false;
+        if (recoveryListenerWasActive) {
+          log('⚠️ 系统代理保护监听已退出，重新执行安全恢复');
+        }
         unawaited(_deleteCorePid());
         if (isRunning) {
           final restartGeneration = captureAutomaticRestartIntent();
@@ -362,7 +520,7 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
       if (healthy) {
         _ensureStartCurrent(startToken);
         // 设置系统代理（非 TUN 模式时）
-        if (!settings.enableTun) {
+        if (!settings.enableTun && !preserveSystemProxyRecovery) {
           final proxyWatch = Stopwatch()..start();
           final proxySet = await _proxyService.setSystemProxy(
             '127.0.0.1',
@@ -397,6 +555,7 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
           return false;
         }
 
+        _proxyRecoveryListenerActive = preserveSystemProxyRecovery;
         setRunning(true);
         resetHealthCheckFailures();
         log('✅ Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');
@@ -456,8 +615,8 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
   Future<void> _stopAfterStart() async {
     final starting = _startOperation;
     if (starting != null) await starting;
-    final proxyCleared = await _stopInternal();
-    if (!proxyCleared) {
+    final stoppedSafely = await _stopInternal();
+    if (!stoppedSafely) {
       throw StateError(
         _proxyService.lastError ?? 'Windows 系统代理恢复失败，请再次尝试断开',
       );
@@ -470,12 +629,18 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
     stopStatusMonitor();
     resetHealthCheckFailures();
 
-    // Restore Windows networking while the local proxy is still alive. If
-    // registry recovery fails, keep the core running and let the caller keep
-    // the app open for a retry; killing it first would strand all HTTP apps on
-    // an unreachable localhost proxy.
-    final proxyCleared = await _proxyService.clearSystemProxy();
-    if (!proxyCleared) {
+    // Restore Windows networking while the local proxy is still alive. Keep
+    // the core only while Windows may still point at its local endpoint; once
+    // that endpoint is safe, a pending journal cleanup must not leave the UI
+    // connected to a core that the user asked to stop.
+    final journalTerminal = await _proxyService.clearSystemProxy();
+    final recoveryDisposition = classifyProxyRecoveryDisposition(
+      journalTerminal: journalTerminal,
+      endpointSafeWithPendingRecovery:
+          _proxyService.endpointSafeWithPendingRecovery,
+    );
+    if (recoveryDisposition ==
+        ProxyRecoveryDisposition.endpointMayStillBeOwned) {
       if (_proxyService.lastError != null) {
         log('⚠️ ${_proxyService.lastError}');
       }
@@ -483,6 +648,19 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
       notifyStatusChanged();
       return false;
     }
+    if (recoveryDisposition ==
+        ProxyRecoveryDisposition.endpointSafeWithPendingJournal) {
+      final warning = _proxyService.lastError ?? 'SSRVPN 代理端点已安全释放，但恢复日志仍待清理';
+      log('⚠️ $warning');
+      notifyRuntimeNotice(
+        '连接已安全断开，但 Windows 代理恢复日志仍待清理；请保持 SSRVPN '
+        '打开并使用“诊断”重试，清理完成前不要强制退出。',
+      );
+    }
+    if (_proxyService.recoveryPending && _proxyService.lastError != null) {
+      log('⚠️ ${_proxyService.lastError}');
+    }
+    _proxyRecoveryListenerActive = false;
 
     if (_coreProcess != null) {
       _stoppingCore = true;
@@ -531,7 +709,12 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
   }
 
   void _scheduleUnexpectedExitRecovery(int? generation, int exitCode) {
-    final cleanup = _clearProxyAfterUnexpectedExit();
+    final cleanup = retryUnexpectedExitSystemProxyRecovery(
+      clearProxy: _clearProxyAfterUnexpectedExit,
+      onAttemptFailed: (attempt, totalAttempts) {
+        log('⚠️ 核心退出后的系统代理恢复未完成 ($attempt/$totalAttempts)');
+      },
+    );
     final operation = cleanup.then<void>((_) {});
     _exitCleanupOperation = operation;
     cleanup.then((proxyCleared) {
@@ -547,7 +730,8 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
   Future<bool> _clearProxyAfterUnexpectedExit() async {
     try {
       final cleared = await _proxyService.clearSystemProxy();
-      if (!cleared && _proxyService.lastError != null) {
+      if (_proxyService.lastError != null &&
+          (!cleared || _proxyService.recoveryPending)) {
         log('⚠️ ${_proxyService.lastError}');
       }
       return cleared;
@@ -562,15 +746,62 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
     int exitCode,
     bool proxyCleared,
   ) async {
-    if (generation == null ||
-        !isConnectionIntentCurrent(generation, connected: true)) {
-      return;
-    }
     if (!proxyCleared) {
+      // A stop may have been requested while the bounded restore was running.
+      // Let it finish first: a successful stop makes the endpoint safe, while
+      // a failed stop still needs the listener fallback below.
+      final stopping = _stopOperation;
+      if (stopping != null) {
+        try {
+          await stopping;
+        } catch (_) {}
+        _clearStopOperation(stopping);
+        if (await _clearProxyAfterUnexpectedExit()) return;
+      }
+
+      final recoveryReason = _proxyService.lastError ?? '无法恢复 Windows 系统代理旧状态';
+      final recoveryDisposition = classifyProxyRecoveryDisposition(
+        journalTerminal: false,
+        endpointSafeWithPendingRecovery:
+            _proxyService.endpointSafeWithPendingRecovery,
+      );
+      if (recoveryDisposition ==
+          ProxyRecoveryDisposition.endpointSafeWithPendingJournal) {
+        setLastStartError(recoveryReason);
+        markConnectionLost();
+        notifyRuntimeNotice(
+          '连接已安全断开；Windows 代理端点已释放，但恢复日志仍待清理。'
+          '请保持 SSRVPN 打开并使用“诊断”重试，清理完成前不要强制退出。',
+        );
+        return;
+      }
+      notifyRuntimeNotice(
+        '系统代理恢复未完成，正在恢复本地保护监听…',
+      );
+      final listenerRestored = await _start(
+        automaticRecovery: true,
+        preserveSystemProxyRecovery: true,
+      );
+      if (listenerRestored && isRunning) {
+        setLastStartError(recoveryReason);
+        notifyRuntimeNotice(
+          '连接处于保护模式：Mihomo 本地代理监听已恢复，但 Windows '
+          '系统代理旧状态仍未恢复。为避免死代理，SSRVPN 将保持运行；'
+          '请使用“诊断”重试，恢复前不要强制退出。',
+        );
+        return;
+      }
+
+      final listenerReason = lastStartError ?? 'Mihomo 本地代理监听未能重新启动';
       markConnectionLost();
       notifyRuntimeNotice(
-        '连接已断开：核心异常退出，且系统代理恢复失败，请使用“诊断”重试恢复',
+        '紧急：系统代理恢复失败，本地保护监听也未能启动（$listenerReason）。'
+        '请保持 SSRVPN 打开并立即使用“诊断”重试恢复。',
       );
+      return;
+    }
+    if (generation == null ||
+        !isConnectionIntentCurrent(generation, connected: true)) {
       return;
     }
     if (!_unexpectedExitRecoveryPolicy.tryAcquire()) {
@@ -586,7 +817,7 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
 
     if (!isConnectionIntentCurrent(generation, connected: true)) return;
     if (restarted && isRunning) {
-      notifyRuntimeNotice('核心已自动恢复');
+      notifyRuntimeNotice(coreAutoRecoveredRuntimeNotice);
       return;
     }
 

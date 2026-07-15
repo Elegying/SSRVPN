@@ -65,13 +65,17 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 8. 再次连接后只从任务管理器结束 `bin\ssrvpn_windows_app.exe`，保留外层 `ssrvpn_windows.exe` 等待子进程退出；外层启动器必须自动恢复系统代理。随后重启 Windows，在未重新打开 SSRVPN 前确认浏览器可直接联网，系统代理不得仍指向 SSRVPN 的本地端口。
 9. Windows 分别用普通权限和管理员权限检查 TUN：普通权限必须明确失败且不残留代理；管理员权限下应能连接、断开并恢复网络。macOS TUN 必须显示管理员授权框；取消授权、启动超时、正常断开和退出均不得遗留 root Mihomo、utun 默认路由、暂存目录或系统代理。
 10. 在系统自带 Windows PowerShell 5.1 中确认 `$PSVersionTable.PSVersion` 后，创建两个带
-   `settings.json` 的便携副本，并在 `%LOCALAPPDATA%\Programs\SSRVPN\bin\ssrvpn` 与
-   `%LOCALAPPDATA%\SSRVPN\ssrvpn` 放置可识别旧配置，再启动 `SSRVPN_Setup.exe`。安装向导
-   必须全程使用简体中文并在复制前展示清除提示；它必须忽略两个便携副本，以普通用户权限
-   安装到固定目录并自动启动。固定目录、回退目录、窗口状态和旧安装恢复状态必须被清除，
-   旧订阅与设置不得恢复，用户可重新导入订阅。另保持已安装实例占用文件，确认安装器会在
-   删除旧数据前阻断；退出实例后重新安装必须成功。
-11. 检查应用内更新优先打开 OSS 的 `SSRVPN_Setup.exe`，OSS 异常时能使用 GitHub 备用下载。日志可提交排查，但不要公开发送 `.dmp` 文件。
+   `settings.json` 的便携副本，并在 `%LOCALAPPDATA%\Programs\SSRVPN\bin\ssrvpn`、
+   `%LOCALAPPDATA%\SSRVPN\ssrvpn` 和窗口状态文件中放置可识别旧配置，记录这些文件的
+   SHA256，再启动 `SSRVPN_Setup.exe`。安装向导必须全程使用简体中文并在复制前准确说明
+   替换和保留范围；它必须忽略两个便携副本，以普通用户权限安装到固定目录。自 3.4.2 起，
+   覆盖升级、卸载以及保留数据后的重装都必须保留安装版订阅、设置、DPAPI 密钥、
+   LocalAppData 回退数据和窗口状态，前后哈希一致；程序文件、旧恢复状态和两个已知
+   WebView 缓存目录必须清理。交互安装只在完成页勾选后启动，静默安装不得启动 GUI。
+   另保持已安装实例占用文件，确认安装器会在修改程序文件前阻断；退出实例后重试必须成功。
+11. 检查应用内更新优先从 OSS 下载并校验 `SSRVPN_Setup.exe`，OSS 异常时能使用 GitHub
+   备用下载；安装器确认接管后应用必须安全恢复代理并退出，交接失败不得修改程序文件。
+   日志可提交排查，但不要公开发送 `.dmp` 文件。
 
 ## 发布
 

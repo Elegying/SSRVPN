@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/src/services/system_proxy_ownership.dart';
 import 'package:ssrvpn_windows/src/services/windows_powershell.dart';
@@ -11,6 +12,12 @@ typedef SystemProxyScriptRunner = Future<ProcessResult> Function(String script);
 class SystemProxyService {
   static const _nativeBackupRegistryPath =
       r'HKCU:\Software\SSRVPN\RuntimeProxyBackup';
+  static const _runOnceRegistryPath =
+      r'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce';
+  static const _runOnceValueName = 'SSRVPNProxyRecovery';
+  static const _recoveryOnlyArgument = '--recover-proxy-only';
+  static const _launcherGuardianMutexName =
+      r'Local\SSRVPN_Windows_LauncherGuardian';
   static const _ownedProxyOverride =
       '<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;'
       '172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;'
@@ -21,37 +28,46 @@ class SystemProxyService {
     bool? isWindows,
     SystemProxyScriptRunner? scriptRunner,
     String? localAppData,
+    String? recoveryExecutable,
   })  : _isWindows = isWindows ?? Platform.isWindows,
         _scriptRunner = scriptRunner,
-        _localAppDataOverride = localAppData;
+        _localAppDataOverride = localAppData,
+        _recoveryExecutableOverride = recoveryExecutable;
 
   factory SystemProxyService.forTesting({
     required bool isWindows,
     required SystemProxyScriptRunner scriptRunner,
     String localAppData = '',
+    String? recoveryExecutable,
   }) =>
       SystemProxyService._(
         isWindows: isWindows,
         scriptRunner: scriptRunner,
         localAppData: localAppData,
+        recoveryExecutable: recoveryExecutable,
       );
 
   final bool _isWindows;
   final SystemProxyScriptRunner? _scriptRunner;
   final String? _localAppDataOverride;
+  final String? _recoveryExecutableOverride;
 
   bool _proxyEnabled = false;
   bool _ownsProxy = false;
   bool _recoveryPending = false;
+  bool _endpointSafeWithPendingRecovery = false;
   String? _dataDir;
   Future<bool>? _recoveryOperation;
   String? _statePath;
+  String? _transactionLockPath;
   _ProxySnapshot? _previousProxy;
   String? _ownedProxyServer;
   String? _lastError;
 
   bool get isProxyEnabled => _proxyEnabled;
   bool get recoveryPending => _recoveryPending;
+  bool get endpointSafeWithPendingRecovery =>
+      _recoveryPending && _endpointSafeWithPendingRecovery;
   String? get lastError => _lastError;
 
   /// Restores proxy settings left behind by an abnormal previous shutdown.
@@ -59,59 +75,92 @@ class SystemProxyService {
     if (!_isWindows) return;
     _dataDir = dataDir;
     _lastError = null;
+    _endpointSafeWithPendingRecovery = false;
     // This snapshot is machine-specific state. Keeping it outside the portable
     // directory prevents a copied folder from restoring another PC's proxy.
     final localAppData =
         _localAppDataOverride ?? Platform.environment['LOCALAPPDATA'];
-    final runtimeDir = localAppData == null || localAppData.trim().isEmpty
-        ? dataDir
-        : '$localAppData${Platform.pathSeparator}SSRVPN'
-            '${Platform.pathSeparator}runtime';
+    if (localAppData == null ||
+        localAppData.trim().isEmpty ||
+        !p.isAbsolute(localAppData)) {
+      _recoveryPending = true;
+      _lastError = 'LOCALAPPDATA 不可用，无法建立独立系统代理恢复保护';
+      return;
+    }
+    final runtimeDir = '$localAppData${Platform.pathSeparator}SSRVPN'
+        '${Platform.pathSeparator}runtime';
     await Directory(runtimeDir).create(recursive: true);
     _statePath = '$runtimeDir${Platform.pathSeparator}system_proxy_backup.json';
+    _transactionLockPath =
+        '$runtimeDir${Platform.pathSeparator}system_proxy_transaction.lock';
     final backupFile = File(_statePath!);
-    if (!await backupFile.exists()) return;
 
     try {
-      final data =
-          jsonDecode(await backupFile.readAsString()) as Map<String, dynamic>;
-      final snapshot = _ProxySnapshot.fromJson(data);
-      final rawOwnedProxyServer = data['_ownedProxyServer'];
-      final ownedProxyServer =
-          rawOwnedProxyServer is String ? rawOwnedProxyServer : null;
-      final activationInProgress = data['_activationInProgress'] == true;
-      final current = await _readCurrentProxy();
-      if (current == null) {
-        _recoveryPending = true;
-        _lastError ??= '无法读取当前 Windows 系统代理设置，稍后重试恢复';
-        return;
-      }
-      final ownsFullFingerprint = _isOwnedProxy(current, ownedProxyServer);
-      final ownsEndpoint = _isOwnedEndpoint(current, ownedProxyServer);
-      if (!ownsFullFingerprint && !ownsEndpoint && !activationInProgress) {
-        // The user or another app changed the proxy, or this is a legacy
-        // backup without ownership metadata. Never overwrite that state.
-        await _deleteBackup();
-        _forgetOwnership();
-        _recoveryPending = false;
-        return;
-      }
+      await _withProxyTransactionLock(() async {
+        if (!await backupFile.exists()) {
+          _forgetOwnership();
+          _recoveryPending = false;
+          return;
+        }
+        final data =
+            jsonDecode(await backupFile.readAsString()) as Map<String, dynamic>;
+        final snapshot = _ProxySnapshot.fromJson(data);
+        final rawOwnedProxyServer = data['_ownedProxyServer'];
+        final ownedProxyServer =
+            rawOwnedProxyServer is String ? rawOwnedProxyServer : null;
+        final activationInProgress = data['_activationInProgress'] == true;
+        final current = await _readCurrentProxy();
+        if (current == null) {
+          _recoveryPending = true;
+          _lastError ??= '无法读取当前 Windows 系统代理设置，稍后重试恢复';
+          return;
+        }
+        final ownsFullFingerprint = _isOwnedProxy(current, ownedProxyServer);
+        final ownsEndpoint = _isOwnedEndpoint(current, ownedProxyServer);
+        var trustedActivation = false;
+        if (activationInProgress && !ownsFullFingerprint) {
+          final nativePending =
+              await _hasMatchingPendingNativeRecovery(ownedProxyServer);
+          if (nativePending == null && !ownsEndpoint) {
+            _recoveryPending = true;
+            _lastError = '无法确认 Windows 原生代理恢复状态，稍后重试';
+            return;
+          }
+          trustedActivation = nativePending == true;
+        }
+        if (!ownsFullFingerprint && !ownsEndpoint && !trustedActivation) {
+          // The user or another app changed the proxy, or this is a legacy
+          // backup without ownership metadata. Never overwrite that state.
+          await _deleteBackup();
+          _forgetOwnership();
+          _recoveryPending = false;
+          return;
+        }
 
-      _previousProxy = snapshot;
-      _ownedProxyServer = ownedProxyServer;
-      _ownsProxy = true;
-      _proxyEnabled = true;
-      final restored = ownsFullFingerprint || activationInProgress
-          ? await _restoreSnapshot(snapshot)
-          : await _restoreOwnedEndpoint(snapshot);
-      if (restored) {
-        await _deleteBackup();
-        _forgetOwnership();
-        _recoveryPending = false;
-      } else {
-        _recoveryPending = true;
-        _lastError = '上次异常退出后的系统代理设置未能恢复';
-      }
+        _previousProxy = snapshot;
+        _ownedProxyServer = ownedProxyServer;
+        _ownsProxy = true;
+        _proxyEnabled = true;
+        final restored = ownsFullFingerprint || trustedActivation
+            ? await _restoreSnapshot(snapshot)
+            : await _restoreOwnedEndpoint(snapshot);
+        if (restored) {
+          try {
+            await _deleteBackup();
+            _forgetOwnership();
+            _recoveryPending = false;
+          } catch (cleanupError) {
+            await _finishFailedClearIfEndpointSafe(
+              '上次异常退出后的系统代理已恢复，但恢复日志清理失败: '
+              '$cleanupError',
+            );
+          }
+        } else {
+          await _finishFailedClearIfEndpointSafe(
+            '上次异常退出后的系统代理设置未能恢复',
+          );
+        }
+      });
     } catch (e) {
       // Keep the backup for a future retry instead of deleting recovery data.
       _recoveryPending = true;
@@ -159,7 +208,20 @@ class SystemProxyService {
 
   Future<bool> setSystemProxy(String host, int port) async {
     if (!_isWindows) return false;
+    try {
+      return await _withProxyTransactionLock(
+        () => _setSystemProxyUnlocked(host, port),
+      );
+    } catch (e) {
+      _lastError = '系统代理事务锁失败: $e';
+      return false;
+    }
+  }
+
+  Future<bool> _setSystemProxyUnlocked(String host, int port) async {
+    if (!_isWindows) return false;
     _lastError = null;
+    var acquisitionPrepared = false;
     if (_recoveryPending) {
       _lastError = '系统代理仍有未恢复的旧状态，请查看运行日志';
       return false;
@@ -170,11 +232,15 @@ class SystemProxyService {
     }
 
     try {
+      if (!await _isLauncherGuardianReady()) {
+        _lastError = '独立系统代理保护未就绪，请通过 ssrvpn_windows.exe 启动或重试';
+        return false;
+      }
       final proxyServer = '$host:$port';
       if (_ownsProxy && _ownedProxyServer != proxyServer) {
         // Release the old endpoint before acquiring a different one so the
         // recovery record always names the proxy that is actually installed.
-        if (!await clearSystemProxy()) return false;
+        if (!await _clearSystemProxyUnlocked()) return false;
         _lastError = null;
       }
       if (!_ownsProxy) {
@@ -183,10 +249,16 @@ class SystemProxyService {
           _lastError ??= '无法读取当前 Windows 系统代理设置';
           return false;
         }
-        await _writeBackup(snapshot, proxyServer);
         _previousProxy = snapshot;
         _ownedProxyServer = proxyServer;
+        // Recovery responsibility begins before the first journal write. If
+        // journal preparation only partially succeeds, its cleanup must still
+        // fail closed instead of letting another acquisition overwrite it.
+        _ownsProxy = true;
+        acquisitionPrepared = true;
+        await _writeBackup(snapshot, proxyServer);
       }
+      acquisitionPrepared = true;
 
       final script = '''
 \$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
@@ -209,11 +281,14 @@ ${_notifyWinInetScript()}
         return _rollbackFailedAcquisition('提交 Windows 系统代理状态失败: $e');
       }
 
-      _ownsProxy = true;
       _proxyEnabled = true;
       return true;
     } catch (e) {
-      _lastError = '设置 Windows 系统代理异常: $e';
+      final setError = '设置 Windows 系统代理异常: $e';
+      if (acquisitionPrepared) {
+        return _rollbackFailedAcquisition(setError);
+      }
+      _lastError = setError;
       return false;
     }
   }
@@ -231,11 +306,23 @@ ${_notifyWinInetScript()}
         return false;
       }
     }
+
+    try {
+      return await _withProxyTransactionLock(_clearSystemProxyUnlocked);
+    } catch (e) {
+      _recoveryPending = true;
+      _lastError = '系统代理事务锁失败: $e';
+      return false;
+    }
+  }
+
+  Future<bool> _clearSystemProxyUnlocked() async {
+    if (!_isWindows) return false;
     _lastError = null;
+    _endpointSafeWithPendingRecovery = false;
     if (!_ownsProxy) {
       if (_recoveryPending) {
-        _lastError = '系统代理仍有未恢复的旧状态，请重试';
-        return false;
+        return _finishFailedClearIfEndpointSafe('系统代理仍有未清理的旧恢复状态');
       }
       _proxyEnabled = false;
       return true;
@@ -243,9 +330,7 @@ ${_notifyWinInetScript()}
 
     final snapshot = _previousProxy;
     if (snapshot == null) {
-      _recoveryPending = true;
-      _lastError = '系统代理恢复快照缺失，无法安全恢复旧设置';
-      return false;
+      return _finishFailedClearIfEndpointSafe('系统代理恢复快照缺失，无法恢复旧设置');
     }
 
     try {
@@ -260,9 +345,9 @@ ${_notifyWinInetScript()}
         // preserving PAC, bypass and auto-detect changes made after connect.
         if (_isOwnedEndpoint(current, _ownedProxyServer) &&
             !await _restoreOwnedEndpoint(snapshot)) {
-          _recoveryPending = true;
-          _lastError ??= '释放 SSRVPN 系统代理端点失败';
-          return false;
+          return _finishFailedClearIfEndpointSafe(
+            _lastError ?? '释放 SSRVPN 系统代理端点失败',
+          );
         }
         await _deleteBackup();
         _forgetOwnership();
@@ -271,22 +356,151 @@ ${_notifyWinInetScript()}
       }
 
       if (!await _restoreSnapshot(snapshot)) {
-        _recoveryPending = true;
-        _lastError ??= '恢复原 Windows 系统代理设置失败';
-        return false;
+        return _finishFailedClearIfEndpointSafe(
+          _lastError ?? '恢复原 Windows 系统代理设置失败',
+        );
       }
       await _deleteBackup();
       _forgetOwnership();
       _recoveryPending = false;
       return true;
     } catch (e) {
-      _recoveryPending = true;
-      _lastError = '恢复 Windows 系统代理异常: $e';
+      return _finishFailedClearIfEndpointSafe('恢复 Windows 系统代理异常: $e');
+    }
+  }
+
+  Future<bool> _finishFailedClearIfEndpointSafe(String error) async {
+    _recoveryPending = true;
+    _endpointSafeWithPendingRecovery = false;
+    final current = await _readCurrentProxy();
+    if (current == null) {
+      final readError = _lastError;
+      _lastError = readError == null ? error : '$error；$readError';
+      return false;
+    }
+    if (!_isCurrentProxyEndpointSafeToStop(current)) {
+      _lastError = error;
+      return false;
+    }
+
+    _proxyEnabled = false;
+    try {
+      await _deleteBackup();
+      _forgetOwnership();
+      _recoveryPending = false;
+      _lastError = null;
+      return true;
+    } catch (cleanupError) {
+      _endpointSafeWithPendingRecovery = true;
+      _lastError = '$error；SSRVPN 代理端点已安全释放，但恢复日志仍待清理: '
+          '$cleanupError';
       return false;
     }
   }
 
+  bool _isCurrentProxyEndpointSafeToStop(_ProxySnapshot current) {
+    if (current.proxyEnable == 0) return true;
+    if (current.proxyEnable != 1 || !current.hasProxyServer) return false;
+    final ownedProxyServer = _ownedProxyServer;
+    if (ownedProxyServer == null || ownedProxyServer.isEmpty) return false;
+    return current.proxyServer != ownedProxyServer;
+  }
+
+  Future<T> _withProxyTransactionLock<T>(Future<T> Function() operation) async {
+    final lockPath = _transactionLockPath;
+    if (lockPath == null) {
+      throw StateError('SystemProxyService has not been initialized');
+    }
+    final lockFile = File(lockPath);
+    await lockFile.parent.create(recursive: true);
+    final handle = await lockFile.open(mode: FileMode.append);
+    var locked = false;
+    try {
+      await handle.lock(FileLock.exclusive);
+      locked = true;
+      return await operation();
+    } finally {
+      try {
+        if (locked) await handle.unlock();
+      } finally {
+        await handle.close();
+      }
+    }
+  }
+
   bool _isValidHost(String host) => RegExp(r'^[A-Za-z0-9.-]+$').hasMatch(host);
+
+  Future<bool> _isLauncherGuardianReady() async {
+    try {
+      final result = await _runPowerShell('''
+\$guardian = [System.Threading.Mutex]::OpenExisting('$_launcherGuardianMutexName')
+try {
+  \$acquired = \$false
+  try {
+    \$acquired = \$guardian.WaitOne(0)
+  } catch [System.Threading.AbandonedMutexException] {
+    \$acquired = \$true
+  }
+  if (\$acquired) {
+    \$guardian.ReleaseMutex()
+    throw 'Guardian mutex is not owned.'
+  }
+} finally {
+  \$guardian.Dispose()
+}
+''');
+      return result.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool?> _hasMatchingPendingNativeRecovery(
+    String? ownedProxyServer,
+  ) async {
+    if (ownedProxyServer == null || ownedProxyServer.isEmpty) return false;
+    final encodedServer = base64Encode(utf8.encode(ownedProxyServer));
+    final result = await _runPowerShell('''
+\$backupPath = '$_nativeBackupRegistryPath'
+if (-not (Test-Path -LiteralPath \$backupPath)) {
+  [Console]::Out.Write('terminal')
+  exit 0
+}
+\$key = Get-Item -LiteralPath \$backupPath
+\$item = Get-ItemProperty -LiteralPath \$backupPath
+\$dword = [Microsoft.Win32.RegistryValueKind]::DWord
+\$expectedServer = [Text.Encoding]::UTF8.GetString(
+  [Convert]::FromBase64String('$encodedServer'))
+\$valid = \$null -ne \$item.PSObject.Properties['Valid'] -and
+  \$key.GetValueKind('Valid') -eq \$dword -and [int]\$item.Valid -eq 1
+\$owned = \$null -ne \$item.PSObject.Properties['OwnedProxyServer'] -and
+  [string]\$item.OwnedProxyServer -eq \$expectedServer -and
+  \$null -ne \$item.PSObject.Properties['OwnedProxyOverride'] -and
+  [string]\$item.OwnedProxyOverride -eq '$_ownedProxyOverride'
+\$pending = \$false
+foreach (\$name in @(
+  'ActivationInProgress',
+  'RestoreInProgress',
+  'EndpointRestoreInProgress'
+)) {
+  if (\$null -ne \$item.PSObject.Properties[\$name] -and
+      \$key.GetValueKind(\$name) -eq \$dword -and
+      [int](\$item.PSObject.Properties[\$name].Value) -eq 1) {
+    \$pending = \$true
+  }
+}
+if (\$valid -and \$owned -and \$pending) {
+  [Console]::Out.Write('pending')
+} else {
+  [Console]::Out.Write('terminal')
+}
+''');
+    if (result.exitCode != 0) return null;
+    final output = result.stdout.toString().trim();
+    if (output == 'pending') return true;
+    if (output == 'terminal') return false;
+    return null;
+  }
 
   Future<bool> _rollbackFailedAcquisition(String setError) async {
     _recoveryPending = true;
@@ -294,13 +508,19 @@ ${_notifyWinInetScript()}
     final restored = snapshot != null && await _restoreSnapshot(snapshot);
     if (!restored) {
       final restoreError = _lastError;
-      _lastError = restoreError == null ? setError : '$setError；$restoreError';
+      final combinedError =
+          restoreError == null ? setError : '$setError；$restoreError';
+      await _finishFailedClearIfEndpointSafe(combinedError);
       return false;
     }
-    await _deleteBackup();
-    _forgetOwnership();
-    _recoveryPending = false;
-    _lastError = setError;
+    try {
+      await _deleteBackup();
+      _forgetOwnership();
+      _recoveryPending = false;
+      _lastError = setError;
+    } catch (e) {
+      await _finishFailedClearIfEndpointSafe('$setError；恢复状态清理失败: $e');
+    }
     return false;
   }
 
@@ -330,6 +550,7 @@ ${_notifyWinInetScript()}
   void _forgetOwnership() {
     _ownsProxy = false;
     _proxyEnabled = false;
+    _endpointSafeWithPendingRecovery = false;
     _previousProxy = null;
     _ownedProxyServer = null;
   }
@@ -404,6 +625,18 @@ if (${snapshot.hasAutoDetect ? r'$true' : r'$false'}) {
   Remove-ItemProperty -Path \$regPath -Name AutoDetect -ErrorAction SilentlyContinue
 }
 Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
+\$validTerminal = \$false
+try {
+  Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 0 -ErrorAction Stop
+  \$validTerminal = \$true
+} catch {}
+\$flagsTerminal = \$true
+try { Set-ItemProperty -Path \$backupPath -Name RestoreInProgress -Type DWord -Value 0 -ErrorAction Stop } catch { \$flagsTerminal = \$false }
+try { Set-ItemProperty -Path \$backupPath -Name EndpointRestoreInProgress -Type DWord -Value 0 -ErrorAction Stop } catch { \$flagsTerminal = \$false }
+try { Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Value 0 -ErrorAction Stop } catch { \$flagsTerminal = \$false }
+if (-not (\$validTerminal -or \$flagsTerminal)) {
+  throw 'Could not terminalize the native proxy recovery journal.'
+}
 ${_notifyWinInetScript()}
 ''';
     final result = await _runPowerShell(script);
@@ -426,6 +659,18 @@ if (${snapshot.hasProxyServer ? r'$true' : r'$false'}) {
   Remove-ItemProperty -Path \$regPath -Name ProxyServer -ErrorAction SilentlyContinue
 }
 Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
+\$validTerminal = \$false
+try {
+  Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 0 -ErrorAction Stop
+  \$validTerminal = \$true
+} catch {}
+\$flagsTerminal = \$true
+try { Set-ItemProperty -Path \$backupPath -Name RestoreInProgress -Type DWord -Value 0 -ErrorAction Stop } catch { \$flagsTerminal = \$false }
+try { Set-ItemProperty -Path \$backupPath -Name EndpointRestoreInProgress -Type DWord -Value 0 -ErrorAction Stop } catch { \$flagsTerminal = \$false }
+try { Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Value 0 -ErrorAction Stop } catch { \$flagsTerminal = \$false }
+if (-not (\$validTerminal -or \$flagsTerminal)) {
+  throw 'Could not terminalize the native proxy recovery journal.'
+}
 ${_notifyWinInetScript()}
 ''';
     final result = await _runPowerShell(script);
@@ -455,28 +700,138 @@ ${_notifyWinInetScript()}
     await temp.rename(statePath);
     try {
       await _writeNativeRecoveryBackup(snapshot, ownedProxyServer);
-    } catch (_) {
-      if (await file.exists()) await file.delete();
+      await _registerRunOnceRecovery();
+    } catch (acquisitionError) {
+      try {
+        await _deleteBackup();
+      } catch (cleanupError) {
+        throw StateError('$acquisitionError; cleanup failed: $cleanupError');
+      }
       rethrow;
     }
   }
 
-  Future<void> _deleteBackup() async {
+  Future<void> _registerRunOnceRecovery() async {
+    final executable =
+        _recoveryExecutableOverride ?? Platform.resolvedExecutable;
+    final encodedExecutable = base64Encode(utf8.encode(executable));
     final result = await _runPowerShell('''
-\$backupPath = '$_nativeBackupRegistryPath'
-if (Test-Path -LiteralPath \$backupPath) {
-  Remove-Item -LiteralPath \$backupPath -Recurse -Force
-}
+\$runOncePath = '$_runOnceRegistryPath'
+\$executable = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encodedExecutable'))
+New-Item -Path \$runOncePath -Force | Out-Null
+Set-ItemProperty -Path \$runOncePath -Name '$_runOnceValueName' -Type String `
+  -Value ('"' + \$executable + '" $_recoveryOnlyArgument')
 ''');
     if (result.exitCode != 0) {
       throw StateError(
-        _formatPowerShellError('删除 Windows 原生代理恢复状态失败', result),
+        _formatPowerShellError('注册 Windows 代理恢复任务失败', result),
       );
     }
+  }
+
+  Future<void> _deleteBackup() async {
     final statePath = _statePath;
-    if (statePath == null) return;
-    final backupFile = File(statePath);
-    if (await backupFile.exists()) await backupFile.delete();
+    File? backupFile;
+    if (statePath != null) {
+      backupFile = File(statePath);
+      if (await backupFile.exists()) {
+        Object? terminalizeError;
+        try {
+          final json = jsonDecode(await backupFile.readAsString())
+              as Map<String, dynamic>;
+          json['_activationInProgress'] = false;
+          final temp = File('$statePath.tmp');
+          await temp.writeAsString(jsonEncode(json), flush: true);
+          await temp.rename(statePath);
+        } catch (e) {
+          terminalizeError = e;
+        }
+        if (terminalizeError != null) {
+          try {
+            await backupFile.delete();
+            backupFile = null;
+          } catch (deleteError) {
+            throw StateError(
+              'Failed to terminalize or delete the Windows proxy recovery '
+              'file: $terminalizeError; $deleteError',
+            );
+          }
+        }
+      }
+    }
+
+    final nativeResult = await _runPowerShell('''
+\$backupPath = '$_nativeBackupRegistryPath'
+if (Test-Path -LiteralPath \$backupPath) {
+  \$terminalized = \$false
+  \$terminalizeErrors = @()
+  try {
+    Set-ItemProperty -LiteralPath \$backupPath -Name Valid -Type DWord -Value 0 -ErrorAction Stop
+    \$terminalized = \$true
+  } catch {
+    \$terminalizeErrors += \$_.Exception.Message
+  }
+  \$flagsTerminal = \$true
+  foreach (\$name in @(
+    'RestoreInProgress',
+    'EndpointRestoreInProgress',
+    'ActivationInProgress'
+  )) {
+    try {
+      Set-ItemProperty -LiteralPath \$backupPath -Name \$name -Type DWord -Value 0 -ErrorAction Stop
+    } catch {
+      \$flagsTerminal = \$false
+      \$terminalizeErrors += \$_.Exception.Message
+    }
+  }
+  if (\$flagsTerminal) { \$terminalized = \$true }
+  \$removed = \$false
+  \$removeError = ''
+  try {
+    Remove-Item -LiteralPath \$backupPath -Recurse -Force -ErrorAction Stop
+    \$removed = \$true
+  } catch {
+    \$removeError = \$_.Exception.Message
+  }
+  if (-not (\$terminalized -or \$removed)) {
+    throw ('Native proxy recovery cleanup failed: ' +
+      ((\$terminalizeErrors + \$removeError) -join '; '))
+  }
+}
+''');
+    if (nativeResult.exitCode != 0) {
+      throw StateError(
+        _formatPowerShellError(
+          'Failed to terminalize Windows native proxy recovery state',
+          nativeResult,
+        ),
+      );
+    }
+
+    final runOnceResult = await _runPowerShell('''
+\$runOncePath = '$_runOnceRegistryPath'
+if (Test-Path -LiteralPath \$runOncePath) {
+  \$runOnce = Get-ItemProperty -LiteralPath \$runOncePath -ErrorAction Stop
+  if (\$null -ne \$runOnce.PSObject.Properties['$_runOnceValueName']) {
+    Remove-ItemProperty -LiteralPath \$runOncePath `
+      -Name '$_runOnceValueName' -ErrorAction Stop
+  }
+}
+''');
+    if (runOnceResult.exitCode != 0) {
+      throw StateError(
+        _formatPowerShellError('删除 Windows 代理恢复任务失败', runOnceResult),
+      );
+    }
+    if (backupFile != null) {
+      try {
+        if (await backupFile.exists()) await backupFile.delete();
+      } catch (e) {
+        throw StateError(
+          'Failed to delete the Windows proxy recovery file: $e',
+        );
+      }
+    }
   }
 
   Future<void> _writeNativeRecoveryBackup(

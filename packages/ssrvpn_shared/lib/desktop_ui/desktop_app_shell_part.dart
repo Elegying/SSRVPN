@@ -37,6 +37,7 @@ class _DesktopAppShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final runtimeNoticeSuccessful = isSuccessfulRuntimeNotice(runtimeNotice);
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: DefaultTextStyle.merge(
@@ -60,9 +61,13 @@ class _DesktopAppShell extends StatelessWidget {
                 ),
               if (runtimeNotice != null)
                 _StartupBanner(
-                  icon: Icons.error_outline,
-                  color: AppTheme.error,
-                  title: '连接未完成',
+                  icon: runtimeNoticeSuccessful
+                      ? Icons.check_circle_outline
+                      : Icons.error_outline,
+                  color: runtimeNoticeSuccessful
+                      ? AppTheme.success
+                      : AppTheme.error,
+                  title: runtimeNoticeSuccessful ? '连接已恢复' : '连接未完成',
                   message: runtimeNotice!,
                 ),
               Expanded(

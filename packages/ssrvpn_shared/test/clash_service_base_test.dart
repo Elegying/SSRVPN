@@ -13,6 +13,34 @@ void main() {
   group('ClashServiceBase runtime ports', () {
     test('reports temporary port adjustments and clears stale notices',
         () async {
+      const preferredPort = 32000;
+      final service = _PlannedPortClashService({preferredPort});
+      addTearDown(service.dispose);
+
+      final runtime = await service.prepareForStart(
+        AppSettings(
+          proxyPort: preferredPort,
+          socksPort: preferredPort,
+          apiPort: preferredPort,
+        ),
+      );
+
+      expect(
+        service.lastRuntimePortAdjustmentMessage,
+        allOf(
+          contains('端口被占用，已临时调整'),
+          contains('代理 $preferredPort→${runtime.proxyPort}'),
+          contains('SOCKS $preferredPort→${runtime.socksPort}'),
+          contains('API $preferredPort→${runtime.apiPort}'),
+        ),
+      );
+
+      service.blockedPorts.clear();
+      await service.prepareForStart(runtime);
+      expect(service.lastRuntimePortAdjustmentMessage, isNull);
+    });
+
+    test('skips a port while another process is listening', () async {
       final occupied = await ServerSocket.bind(
         InternetAddress.loopbackIPv4,
         0,
@@ -22,27 +50,9 @@ void main() {
       addTearDown(service.dispose);
       addTearDown(occupied.close);
 
-      final runtime = await service.prepareForStart(
-        AppSettings(
-          proxyPort: occupied.port,
-          socksPort: occupied.port,
-          apiPort: occupied.port,
-        ),
-      );
+      final selected = await service.findAvailablePort(occupied.port, {});
 
-      expect(
-        service.lastRuntimePortAdjustmentMessage,
-        allOf(
-          contains('端口被占用，已临时调整'),
-          contains('代理 ${occupied.port}→${runtime.proxyPort}'),
-          contains('SOCKS ${occupied.port}→${runtime.socksPort}'),
-          contains('API ${occupied.port}→${runtime.apiPort}'),
-        ),
-      );
-
-      await occupied.close();
-      await service.prepareForStart(runtime);
-      expect(service.lastRuntimePortAdjustmentMessage, isNull);
+      expect(selected, isNot(occupied.port));
     });
   });
 
@@ -518,6 +528,21 @@ class _TestClashService extends ClashServiceBase {
   Future<void> onStopRequired() async {}
 
   void simulateUnexpectedCoreLoss() => markConnectionLost();
+}
+
+class _PlannedPortClashService extends _TestClashService {
+  _PlannedPortClashService(this.blockedPorts);
+
+  final Set<int> blockedPorts;
+
+  @override
+  Future<int> findAvailablePort(int preferred, Set<int> reserved) async {
+    var candidate = preferred;
+    while (blockedPorts.contains(candidate) || reserved.contains(candidate)) {
+      candidate++;
+    }
+    return candidate;
+  }
 }
 
 class _DiagnosticClashService extends _TestClashService {
