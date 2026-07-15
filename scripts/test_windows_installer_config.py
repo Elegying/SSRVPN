@@ -156,7 +156,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("StopResult := StopSsrvpnProcesses", installer)
         self.assertIn("if StopResult = 0 then", installer)
         self.assertIn("/F", stopper)
-        self.assertIn("/T", stopper)
+        self.assertIn("& $taskkill /F /PID $app.ProcessId", stopper)
+        self.assertIn("& $taskkill /F /PID $launcher.ProcessId", stopper)
+        self.assertNotIn("& $taskkill /F /T /PID $app.ProcessId", stopper)
         self.assertIn("ExecutablePath", stopper)
         self.assertIn("SessionId", stopper)
         self.assertIn("remainingApps", stopper)
@@ -165,7 +167,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("Restore-OwnedSystemProxy", stopper)
         self.assertLess(
             stopper.index("Restore-OwnedSystemProxy"),
-            stopper.index("& $taskkill /F /T /PID"),
+            stopper.index("& $taskkill /F /PID $app.ProcessId"),
         )
         self.assertIn("system_proxy_backup.json", stopper)
         self.assertIn("RuntimeProxyBackup", stopper)

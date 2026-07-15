@@ -6,6 +6,7 @@ import '../models/proxy_node.dart';
 import '../models/subscription.dart';
 import '../services/subscription_service_base.dart';
 import '../utils/proxy_node_usage_policy.dart';
+import '../utils/subscription_url_policy.dart';
 
 abstract class SubscriptionScreenServicePort {
   List<Subscription> get subscriptions;
@@ -358,10 +359,12 @@ class SubscriptionScreenController {
   }
 
   bool _isValidHttpSubscriptionUrl(String url) {
-    final parsedUri = Uri.tryParse(url);
-    return parsedUri != null &&
-        parsedUri.hasAuthority &&
-        (parsedUri.scheme == 'http' || parsedUri.scheme == 'https');
+    try {
+      SubscriptionUrlPolicy.parse(url);
+      return true;
+    } on FormatException {
+      return false;
+    }
   }
 
   bool _isNetworkErrorMessage(String message) {

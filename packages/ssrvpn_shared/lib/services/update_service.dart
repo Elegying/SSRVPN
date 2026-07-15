@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
@@ -349,14 +350,29 @@ class SharedUpdateService {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => Dialog(
-        backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+      builder: (ctx) {
+        final viewport = MediaQuery.sizeOf(ctx);
+        final maxWidth = math.min(
+          420.0,
+          math.max(280.0, viewport.width - 32),
+        );
+        final maxHeight = math.max(1.0, viewport.height - 32);
+
+        return Dialog(
+          backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          insetPadding: const EdgeInsets.all(16),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: maxWidth,
+              maxHeight: maxHeight,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
               Container(
                 width: 52,
                 height: 52,
@@ -469,10 +485,12 @@ class SharedUpdateService {
                   child: const Text('OSS 下载异常？使用 GitHub 备用下载'),
                 ),
               ],
-            ],
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

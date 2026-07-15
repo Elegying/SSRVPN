@@ -464,7 +464,9 @@ $taskkill = if ($env:SystemRoot) {
 foreach ($app in $installedApps) {
   try {
     if ($taskkill -and (Test-Path -LiteralPath $taskkill -PathType Leaf)) {
-      & $taskkill /F /T /PID $app.ProcessId 2>$null | Out-Null
+      # Older SSRVPN builds can start the installer as a child process. Avoid
+      # /T here so the installer's own cleanup script does not kill itself.
+      & $taskkill /F /PID $app.ProcessId 2>$null | Out-Null
     } else {
       Stop-Process -Id $app.ProcessId -Force -ErrorAction Stop
     }

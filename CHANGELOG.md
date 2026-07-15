@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.1] - 2026-07-15
+
+### 修复
+
+- Windows 安装清理脚本停止对 SSRVPN 主进程使用 `taskkill /T`，并让在线更新通过系统 Shell 独立启动安装器，避免旧版把安装器作为子进程启动时被安装脚本一并终止。
+- 共享桌面更新弹窗增加视口宽高约束和滚动容器，修复 1920×1080、150% 缩放下旧版升级弹窗内容溢出、更新按钮点击区域异常的问题。
+- 订阅入口统一复用 HTTP/HTTPS 订阅 URL 策略，保留旧 `http://` 订阅地址兼容性，同时继续拒绝无主机名或非 HTTP(S) 地址。
+
 ## [3.4.0] - 2026-07-15
 
 ### 新增

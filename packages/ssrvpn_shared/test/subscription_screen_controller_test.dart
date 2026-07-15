@@ -59,13 +59,12 @@ void main() {
         subscriptionService: service,
       );
 
-      final result =
-          await controller.addSubscription('https://example.com/sub');
+      final result = await controller.addSubscription('http://example.com/sub');
 
       expect(result.status, SubscriptionAddStatus.subscriptionAdded);
       expect(result.nodeCount, 2);
       expect(result.clearInput, isTrue);
-      expect(service.addedUrls, ['https://example.com/sub']);
+      expect(service.addedUrls, ['http://example.com/sub']);
     });
 
     test('reports only runnable nodes after subscription refresh', () async {

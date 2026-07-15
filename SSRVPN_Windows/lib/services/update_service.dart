@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../theme/app_theme.dart';
+import 'windows_detached_installer_launcher.dart';
 
 /// 在线更新服务 - OSS 主源，GitHub Releases 备用。
 class UpdateService {
@@ -63,7 +64,7 @@ class UpdateService {
         update,
         fileName: 'SSRVPN_Setup.exe',
         openFile: (file) async {
-          await Process.start(file.path, const []);
+          await WindowsDetachedInstallerLauncher.launch(file);
         },
       ),
     );

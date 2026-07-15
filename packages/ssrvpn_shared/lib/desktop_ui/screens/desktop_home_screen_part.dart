@@ -418,10 +418,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (input.isEmpty) return '请粘贴你的SSR代码或订阅链接';
     if (subService.isSingleNodeLink(input)) return null;
 
-    final uri = Uri.tryParse(input);
-    if (uri == null ||
-        !uri.hasAuthority ||
-        (uri.scheme != 'http' && uri.scheme != 'https')) {
+    try {
+      SubscriptionUrlPolicy.parse(input);
+    } on FormatException {
       return '请输入有效的 SSR 代码或 HTTP/HTTPS 订阅链接';
     }
     return null;
