@@ -976,6 +976,18 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn('"$($zipHash.Hash.ToLower())  SSRVPN.zip`n"', checksum_block)
         self.assertNotIn("Set-Content -LiteralPath $zipHashPath", checksum_block)
 
+    def test_windows_package_rejects_unexpected_build_artifacts(self) -> None:
+        package_script = (
+            ROOT / "SSRVPN_Windows" / "tool" / "package_windows.ps1"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("$unexpectedBuildArtifacts", package_script)
+        self.assertIn("@('.obj', '.pdb')", package_script)
+        self.assertIn("$allowedExecutables -notcontains $relativePath", package_script)
+        self.assertIn(
+            "Release contains unexpected build artifacts", package_script
+        )
+
     def test_windows_build_tools_read_json_as_utf8_and_require_inno_65(self) -> None:
         package_script = (
             ROOT / "SSRVPN_Windows" / "tool" / "package_windows.ps1"
@@ -989,6 +1001,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             package_script,
         )
         self.assertIn("[version]'6.5.0'", installer_script)
+        self.assertIn("$env:LOCALAPPDATA", installer_script)
+        self.assertIn("Programs\\Inno Setup 6\\ISCC.exe", installer_script)
         self.assertIn("AppName=SSRVPN Compiler Probe", installer_script)
         self.assertIn("Output=no", installer_script)
         self.assertIn("$probeExitCode", installer_script)

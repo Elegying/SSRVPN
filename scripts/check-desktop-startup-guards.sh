@@ -62,7 +62,11 @@ for path in paths:
     stop_end = source.index("void _ensureStartCurrent", stop_start)
     stop_body = source[stop_start:stop_end]
     proxy_clear = stop_body.index("_proxyService.clearSystemProxy()")
-    process_kill = stop_body.index(".kill(")
+    process_kill = (
+        stop_body.index("terminateCoreProcess(coreProcess)")
+        if "terminateCoreProcess(coreProcess)" in stop_body
+        else stop_body.index(".kill(")
+    )
     if proxy_clear > process_kill:
         raise SystemExit(
             f"{path}: kills the core before restoring the system proxy"
@@ -76,6 +80,71 @@ for path in paths:
         raise SystemExit(
             f"{path}: proxy recovery failure does not keep the core alive"
         )
+
+windows_source = paths[1].read_text(encoding="utf-8")
+required_tun_guards = (
+    "Future<bool> healthCheck() async",
+    "final tun = (await getConfigs())?['tun']",
+    "tun['enable'] != true",
+    "probeWindowsTunRuntime(",
+    "WindowsTunRuntimeStatus.ready",
+    "if (isAdministrator != true)",
+)
+missing = [token for token in required_tun_guards if token not in windows_source]
+if missing:
+    raise SystemExit(
+        "Windows TUN startup is not fail-closed: " + ", ".join(missing)
+    )
+if "if (isAdministrator == null)" in windows_source:
+    raise SystemExit("Windows TUN administrator probe still fails open")
+
+windows_start = windows_source.index("Future<bool> _startInternal(")
+windows_stop = windows_source.index("Future<void> stop()", windows_start)
+windows_start_body = windows_source[windows_start:windows_stop]
+process_spawn = windows_start_body.index(
+    "final startedProcess = await Process.start("
+)
+if windows_start_body[:process_spawn].count("if (_coreProcess != null)") < 2:
+    raise SystemExit(
+        "Windows can spawn a new core while an old process is still tracked"
+    )
+if windows_start_body.count("await _cleanupFailedStart()") < 5:
+    raise SystemExit("Windows startup failure does not propagate cleanup failure")
+if "Future<void>? _pidCleanupOperation" not in windows_source:
+    raise SystemExit("Windows exited-core PID cleanup is not tracked")
+if "unawaited(_deleteCorePid())" in windows_source:
+    raise SystemExit("Windows exited-core PID cleanup can race a new PID write")
+if "if (pidCleanup != null) await pidCleanup" not in windows_start_body:
+    raise SystemExit("Windows startup does not await the previous PID cleanup")
+windows_stop_internal = windows_source.index("Future<bool> _stopInternal()")
+windows_stop_internal_end = windows_source.index(
+    "void _ensureStartCurrent", windows_stop_internal
+)
+if (
+    "if (pidCleanup != null) await pidCleanup"
+    not in windows_source[windows_stop_internal:windows_stop_internal_end]
+):
+    raise SystemExit("Windows stop does not await an exited-core PID cleanup")
+
+helper_start = windows_source.index("Future<bool> terminateCoreProcess(")
+helper_end = windows_source.index("mixin _WindowsCoreLifecycle", helper_start)
+helper = windows_source[helper_start:helper_end]
+required_termination_guards = (
+    "ProcessSignal.sigterm",
+    "exitCode.timeout(gracefulTimeout)",
+    "ProcessSignal.sigkill",
+    "exitCode.timeout(forcedTimeout)",
+    "return false",
+)
+missing = [token for token in required_termination_guards if token not in helper]
+if missing:
+    raise SystemExit(
+        "Windows core termination does not wait after SIGKILL: "
+        + ", ".join(missing)
+    )
+positions = [helper.index(token) for token in required_termination_guards[:4]]
+if positions != sorted(positions):
+    raise SystemExit("Windows core termination signal/wait order is unsafe")
 
 print("Desktop core startup ordering guards passed.")
 

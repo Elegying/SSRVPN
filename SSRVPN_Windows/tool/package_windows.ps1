@@ -675,6 +675,26 @@ function Test-ReleaseContents {
     }
   }
 
+  $allowedExecutables = @(
+    'ssrvpn_windows.exe',
+    'bin\ssrvpn_windows_app.exe',
+    'bin\mihomo.exe'
+  )
+  $releasePrefix = [System.IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
+  $unexpectedBuildArtifacts = @(
+    Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object {
+      $relativePath = $_.FullName.Substring($releasePrefix.Length)
+      if ($_.Extension -in @('.obj', '.pdb') -or
+          ($_.Extension -eq '.exe' -and
+           $allowedExecutables -notcontains $relativePath)) {
+        $relativePath
+      }
+    }
+  )
+  if ($unexpectedBuildArtifacts.Count -gt 0) {
+    throw "Release contains unexpected build artifacts: $($unexpectedBuildArtifacts -join ', ')"
+  }
+
   $peFiles = @(
     'ssrvpn_windows.exe',
     'bin\ssrvpn_windows_app.exe',

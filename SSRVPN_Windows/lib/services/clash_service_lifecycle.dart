@@ -49,6 +49,27 @@ Future<bool> retryUnexpectedExitSystemProxyRecovery({
   return false;
 }
 
+Future<bool> terminateCoreProcess(
+  Process process, {
+  Duration gracefulTimeout = const Duration(seconds: 3),
+  Duration forcedTimeout = const Duration(seconds: 3),
+}) async {
+  final exitCode = process.exitCode;
+  process.kill(ProcessSignal.sigterm);
+  try {
+    await exitCode.timeout(gracefulTimeout);
+    return true;
+  } on TimeoutException {
+    process.kill(ProcessSignal.sigkill);
+    try {
+      await exitCode.timeout(forcedTimeout);
+      return true;
+    } on TimeoutException {
+      return false;
+    }
+  }
+}
+
 mixin _WindowsCoreLifecycle on ClashServiceBase {
   // ── Process management ──
   Process? _coreProcess;
@@ -56,6 +77,9 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   Completer<void>? _startCancellation;
   Future<void>? _stopOperation;
   Future<void>? _exitCleanupOperation;
+  Future<void>? _pidCleanupOperation;
+  WindowsTunRuntimeProbe? _tunRuntimeProbeOverride;
+  String? _lastStopError;
   int _startGeneration = 0;
   bool _stoppingCore = false;
   bool _proxyRecoveryListenerActive = false;
@@ -78,6 +102,39 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   bool get coreExists => File(_corePath).existsSync();
   String get corePath => _corePath;
   bool get hasPendingSystemProxyRecovery => _proxyService.recoveryPending;
+
+  @override
+  Future<bool> healthCheck() async {
+    if (!await super.healthCheck()) return false;
+    if (!settings.enableTun) return true;
+    final tun = (await getConfigs())?['tun'];
+    if (tun is! Map || tun['enable'] != true) {
+      setLastHealthCheckError('Mihomo API 已就绪，但 TUN listener 未启用');
+      return false;
+    }
+    WindowsTunRuntimeStatus runtimeStatus;
+    try {
+      runtimeStatus = await (_tunRuntimeProbeOverride?.call() ??
+          probeWindowsTunRuntime(
+            InternetAddress(AppConstants.fakeIpRange.split('/').first),
+            InternetAddress(AppConstants.tunInet6Address.split('/').first),
+          ));
+    } catch (_) {
+      runtimeStatus = WindowsTunRuntimeStatus.probeFailed;
+    }
+    if (runtimeStatus == WindowsTunRuntimeStatus.ready) return true;
+    setLastHealthCheckError(
+      switch (runtimeStatus) {
+        WindowsTunRuntimeStatus.adapterMissing =>
+          'Mihomo TUN listener 已启用，但 Windows TUN 网卡尚未就绪',
+        WindowsTunRuntimeStatus.routeMissing =>
+          'Mihomo TUN listener 已启用，但 Windows TUN 路由不完整',
+        WindowsTunRuntimeStatus.probeFailed => '无法确认 Windows TUN 网卡和路由状态，已安全中止',
+        WindowsTunRuntimeStatus.ready => null,
+      },
+    );
+    return false;
+  }
 
   @override
   Future<bool> diagnosticCoreAvailable() async =>
@@ -371,6 +428,8 @@ exit 4
     int startToken, {
     bool preserveSystemProxyRecovery = false,
   }) async {
+    final pidCleanup = _pidCleanupOperation;
+    if (pidCleanup != null) await pidCleanup;
     final exitCleanup = _exitCleanupOperation;
     if (exitCleanup != null) await exitCleanup;
     _ensureStartCurrent(startToken);
@@ -390,16 +449,36 @@ exit 4
       return false;
     }
 
-    if (isRunning) {
-      try {
-        if (await healthCheck()) return true;
-      } catch (_) {}
-      _ensureStartCurrent(startToken);
-      setRunning(false);
-      stopStatusMonitor();
-    }
-
     try {
+      if (isRunning) {
+        try {
+          if (await healthCheck()) return true;
+        } catch (_) {}
+        _ensureStartCurrent(startToken);
+        final stoppedSafely = await _stopInternal();
+        _ensureStartCurrent(startToken);
+        if (!stoppedSafely) {
+          setLastStartError(
+            _lastStopError ?? '现有 Mihomo 连接无法安全停止，已拒绝启动新的核心',
+          );
+          log('❌ $lastStartError');
+          return false;
+        }
+      }
+
+      if (_coreProcess != null) {
+        log('检测到尚未确认退出的 Mihomo，正在安全清理...');
+        final stoppedSafely = await _stopInternal();
+        _ensureStartCurrent(startToken);
+        if (!stoppedSafely || _coreProcess != null) {
+          setLastStartError(
+            _lastStopError ?? '上一个 Mihomo 进程尚未退出，已拒绝启动新的核心',
+          );
+          log('❌ $lastStartError');
+          return false;
+        }
+      }
+
       final startupWatch = Stopwatch()..start();
       log('🚀 启动 Mihomo...');
 
@@ -422,13 +501,14 @@ exit 4
       if (settings.enableTun) {
         final isAdministrator = await _isAdministrator();
         _ensureStartCurrent(startToken);
-        if (isAdministrator == false) {
-          setLastStartError('TUN 模式需要以管理员身份运行 SSRVPN');
+        if (isAdministrator != true) {
+          setLastStartError(
+            isAdministrator == false
+                ? 'TUN 模式需要以管理员身份运行 SSRVPN'
+                : '无法确认管理员权限，TUN 模式已安全中止，请重新以管理员身份运行 SSRVPN',
+          );
           log('❌ $lastStartError');
           return false;
-        }
-        if (isAdministrator == null) {
-          log('⚠️ 无法确认管理员权限，将继续尝试启动 TUN 模式');
         }
       }
 
@@ -447,6 +527,12 @@ exit 4
       _ensureStartCurrent(startToken);
 
       // 启动 mihomo 子进程（所有数据都在便携目录内）
+      if (_coreProcess != null) {
+        setLastStartError('上一个 Mihomo 进程尚未退出，已拒绝启动新的核心');
+        log('❌ $lastStartError');
+        await _cleanupFailedStart();
+        return false;
+      }
       final processStartWatch = Stopwatch()..start();
       final startedProcess = await Process.start(
         _corePath,
@@ -495,15 +581,23 @@ exit 4
         if (recoveryListenerWasActive) {
           log('⚠️ 系统代理保护监听已退出，重新执行安全恢复');
         }
-        unawaited(_deleteCorePid());
-        if (isRunning) {
-          final restartGeneration = captureAutomaticRestartIntent();
-          setRunning(false);
-          notifyStatusChanged();
-          stopStatusMonitor();
-          _coreProcess = null;
-          _scheduleUnexpectedExitRecovery(restartGeneration, code);
-        }
+        final cleanup = _deleteCorePid().then<void>((_) {
+          if (!identical(_coreProcess, startedProcess) || _stoppingCore) return;
+          if (isRunning) {
+            final restartGeneration = captureAutomaticRestartIntent();
+            setRunning(false);
+            notifyStatusChanged();
+            stopStatusMonitor();
+            _coreProcess = null;
+            _scheduleUnexpectedExitRecovery(restartGeneration, code);
+          }
+        });
+        _pidCleanupOperation = cleanup;
+        cleanup.whenComplete(() {
+          if (identical(_pidCleanupOperation, cleanup)) {
+            _pidCleanupOperation = null;
+          }
+        });
       });
 
       // 慢速磁盘或首次启动可能超过 2 秒，轮询等待 API 就绪。
@@ -534,7 +628,7 @@ exit 4
               _proxyService.lastError ?? 'Windows 系统代理设置失败',
             );
             log('❌ $lastStartError，连接已取消');
-            await _stopInternal();
+            await _cleanupFailedStart();
             return false;
           }
         }
@@ -551,7 +645,7 @@ exit 4
                 : 'Mihomo 在系统代理设置期间退出（退出码 $startupExitCode）',
           );
           log('❌ $lastStartError');
-          await _stopInternal();
+          await _cleanupFailedStart();
           return false;
         }
 
@@ -571,24 +665,44 @@ exit 4
           );
           log('❌ 核心启动失败: $lastStartError');
         } else {
-          setLastStartError('电脑性能不足，请重新连接');
-          log('❌ 核心启动后健康检查失败: Mihomo API 未在 15 秒内就绪');
+          setLastStartError(
+            settings.enableTun
+                ? 'TUN 网卡或路由未能启用，请检查管理员权限、驱动或同名虚拟网卡冲突'
+                : '电脑性能不足，请重新连接',
+          );
+          log('❌ 核心启动后健康检查失败: $lastStartError');
         }
-        await _stopInternal();
+        await _cleanupFailedStart();
         return false;
       }
     } on _DesktopStartCancelled {
       setLastStartError('连接已取消');
       log('Mihomo 启动已取消');
-      await _stopInternal();
+      await _cleanupFailedStart();
       return false;
     } catch (e, stack) {
       setLastStartError(_friendlyStartException(e));
       log('❌ 启动异常: $e');
       log('堆栈: $stack');
-      await _stopInternal();
+      await _cleanupFailedStart();
       return false;
     }
+  }
+
+  Future<void> _cleanupFailedStart() async {
+    final startError = lastStartError?.trim();
+    try {
+      if (await _stopInternal()) return;
+    } catch (error) {
+      _lastStopError = '启动失败后无法确认 Mihomo 已停止: $error';
+    }
+    final cleanupError = _lastStopError ?? '启动失败后无法确认 Mihomo 已安全停止';
+    if (startError == null || startError.isEmpty) {
+      setLastStartError(cleanupError);
+    } else if (!startError.contains(cleanupError)) {
+      setLastStartError('$startError；$cleanupError');
+    }
+    log('❌ 启动失败后的清理未完成: $cleanupError');
   }
 
   // ── Stop ──
@@ -618,12 +732,15 @@ exit 4
     final stoppedSafely = await _stopInternal();
     if (!stoppedSafely) {
       throw StateError(
-        _proxyService.lastError ?? 'Windows 系统代理恢复失败，请再次尝试断开',
+        _lastStopError ?? _proxyService.lastError ?? 'Windows 系统代理恢复失败，请再次尝试断开',
       );
     }
   }
 
   Future<bool> _stopInternal() async {
+    _lastStopError = null;
+    final pidCleanup = _pidCleanupOperation;
+    if (pidCleanup != null) await pidCleanup;
     final exitCleanup = _exitCleanupOperation;
     if (exitCleanup != null) await exitCleanup;
     stopStatusMonitor();
@@ -641,6 +758,7 @@ exit 4
     );
     if (recoveryDisposition ==
         ProxyRecoveryDisposition.endpointMayStillBeOwned) {
+      _lastStopError = _proxyService.lastError ?? 'Windows 系统代理恢复失败，请再次尝试断开';
       if (_proxyService.lastError != null) {
         log('⚠️ ${_proxyService.lastError}');
       }
@@ -662,19 +780,24 @@ exit 4
     }
     _proxyRecoveryListenerActive = false;
 
-    if (_coreProcess != null) {
+    final coreProcess = _coreProcess;
+    if (coreProcess != null) {
       _stoppingCore = true;
       try {
-        _coreProcess!.kill(ProcessSignal.sigterm);
-        await _coreProcess!.exitCode.timeout(
-          const Duration(seconds: 3),
-          onTimeout: () {
-            _coreProcess!.kill(ProcessSignal.sigkill);
-            return -1;
-          },
-        );
+        final stopped = await terminateCoreProcess(coreProcess);
+        if (!stopped) {
+          _lastStopError = 'Mihomo 强制停止后仍未退出，断开操作已中止';
+          log('❌ $_lastStopError');
+          if (isRunning) startStatusMonitor();
+          notifyStatusChanged();
+          return false;
+        }
       } catch (e) {
-        log('停止异常: $e');
+        _lastStopError = '无法确认 Mihomo 已停止: $e';
+        log('❌ $_lastStopError');
+        if (isRunning) startStatusMonitor();
+        notifyStatusChanged();
+        return false;
       } finally {
         _stoppingCore = false;
       }

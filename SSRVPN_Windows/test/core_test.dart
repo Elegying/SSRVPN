@@ -125,6 +125,11 @@ proxies:
 
       expect(disabled['tun']['enable'], isFalse);
       expect(enabled['tun']['enable'], isTrue);
+      expect(enabled['tun']['strict-route'], isTrue);
+      expect(
+        (enabled['tun']['dns-hijack'] as YamlList).cast<String>(),
+        ['any:53', 'tcp://any:53'],
+      );
       expect(enabled['ipv6'], isTrue);
       expect(enabled['dns']['ipv6'], isTrue);
       expect(enabled['tun']['inet6-address'], isNotEmpty);

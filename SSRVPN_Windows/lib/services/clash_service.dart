@@ -7,6 +7,7 @@ import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../services/system_proxy_service.dart';
+import '../services/windows_tun_runtime_probe.dart';
 import '../src/services/windows_powershell.dart';
 
 part 'clash_service_config.dart';
@@ -25,6 +26,10 @@ const List<String> _geoLookupHosts = [
 /// 支持 TUN 模式（需管理员权限）和系统代理模式。
 class ClashService extends ClashServiceBase
     with _WindowsClashConfig, _WindowsCoreLifecycle {
+  ClashService({WindowsTunRuntimeProbe? tunRuntimeProbe}) {
+    _tunRuntimeProbeOverride = tunRuntimeProbe;
+  }
+
   // ── File logging ──
   File? _logFile;
   BoundedFileLogger? _fileLogger;

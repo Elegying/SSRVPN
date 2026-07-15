@@ -1118,7 +1118,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         endpoint_safe = stop.index(
             "ProxyRecoveryDisposition.endpointSafeWithPendingJournal"
         )
-        stop_core = stop.index("if (_coreProcess != null)")
+        stop_core = stop.index("final coreProcess = _coreProcess;")
         self.assertLess(unsafe_return, endpoint_safe)
         self.assertLess(endpoint_safe, stop_core)
 
