@@ -312,4 +312,18 @@ if not app_shell.is_file():
 if len(app_shell.read_text(encoding="utf-8").splitlines()) > 620:
     raise SystemExit(f"{app_shell}: shared desktop application shell is oversized")
 print("Desktop application shell boundary guard passed.")
+
+hotspot_limits = {
+    Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart"): 1300,
+    Path("SSRVPN_Windows/windows/runner/launcher_main.cpp"): 1500,
+    Path("SSRVPN_Windows/installer/stop_ssrvpn_processes.ps1"): 1350,
+}
+for path, limit in hotspot_limits.items():
+    line_count = len(path.read_text(encoding="utf-8").splitlines())
+    if line_count > limit:
+        raise SystemExit(
+            f"{path}: recovery hotspot grew to {line_count} lines; "
+            f"split responsibility before exceeding {limit}"
+        )
+print("Desktop recovery hotspot size guards passed.")
 PY

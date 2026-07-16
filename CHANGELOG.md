@@ -14,10 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 安全
 
 - macOS 与 Windows 只有在 GitHub 正式 Release 独立发布相同版本和 SHA256 时才采用 OSS 桌面更新清单；GitHub 不可用时不再仅凭 OSS 摘要自动交接安装包，摘要不一致时改用 GitHub 资产。
+- 正式发布的 `Publish Release` job 绑定需要人工批准的 `release` 环境；线上 `main` 已启用严格 CI/PR 保护，`v*` 发布标签禁止改写和删除，并开启私有漏洞报告与 Dependabot 安全更新。
 
 ### 维护
 
-- 本地、CI 与 Release 共用唯一的 Python 发布工具测试入口，避免新增守卫只进入部分流水线；Windows 专属桌面和 `kernel32` 测试在非 Windows 主机明确跳过，本地 `make verify` 不再产生伪失败。
+- 本地、CI 与 Release 共用唯一的 Python 发布工具测试入口，避免新增守卫只进入部分流水线；Windows 专属桌面和 `kernel32` 测试在非 Windows 主机明确跳过，本地 `make verify` 不再产生伪失败；三个高复杂度 Windows 恢复文件新增体量上限，后续增长前必须先拆分职责。
 
 ### 文档
 

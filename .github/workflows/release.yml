@@ -484,6 +484,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [build-android, build-macos, build-windows]
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
       actions: read

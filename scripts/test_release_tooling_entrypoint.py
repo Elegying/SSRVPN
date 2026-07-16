@@ -28,6 +28,17 @@ class ReleaseToolingEntrypointTest(unittest.TestCase):
                 self.assertIn("scripts/test-release-tooling.sh", content)
                 self.assertNotIn("python3 -m unittest scripts/test_", content)
 
+    def test_publish_job_requires_the_release_environment(self) -> None:
+        workflow = (
+            ROOT / ".github" / "workflows" / "release.yml"
+        ).read_text(encoding="utf-8")
+        publish = workflow[workflow.index("  publish:\n") :]
+        self.assertIn("    environment: release\n", publish)
+        self.assertLess(
+            publish.index("    environment: release\n"),
+            publish.index("    steps:\n"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
