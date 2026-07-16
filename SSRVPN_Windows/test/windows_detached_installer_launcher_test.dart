@@ -4,6 +4,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_windows/services/windows_detached_installer_launcher.dart';
 
 void main() {
+  if (!Platform.isWindows) {
+    test(
+      'detached installer handoff requires Windows',
+      () {},
+      skip: 'Explorer and kernel32 are Windows-only dependencies',
+    );
+    return;
+  }
+
   late Directory tempDirectory;
 
   setUp(() async {

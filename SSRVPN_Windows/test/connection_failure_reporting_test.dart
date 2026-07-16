@@ -22,6 +22,15 @@ final class _DesktopDirectoryOverride extends IOOverrides {
 }
 
 void main() {
+  if (!Platform.isWindows) {
+    test(
+      'desktop failure reporting requires Windows',
+      () {},
+      skip: 'Windows Desktop discovery is required',
+    );
+    return;
+  }
+
   test('expected connection refusal writes only a warning', () async {
     final root = await Directory.systemTemp.createTemp(
       'ssrvpn_connection_failure_reporting_test_',

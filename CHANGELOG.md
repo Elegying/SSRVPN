@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - macOS 与 Windows 只有在 GitHub 正式 Release 独立发布相同版本和 SHA256 时才采用 OSS 桌面更新清单；GitHub 不可用时不再仅凭 OSS 摘要自动交接安装包，摘要不一致时改用 GitHub 资产。
 
+### 维护
+
+- 本地、CI 与 Release 共用唯一的 Python 发布工具测试入口，避免新增守卫只进入部分流水线；Windows 专属桌面和 `kernel32` 测试在非 Windows 主机明确跳过，本地 `make verify` 不再产生伪失败。
+
 ### 文档
 
 - 固化 Windows 安装版数据保留决策：安装器不再发现或合并多个便携数据源，覆盖升级只替换程序文件并保留固定安装数据；旧的每次安装删除数据策略正式废止。
