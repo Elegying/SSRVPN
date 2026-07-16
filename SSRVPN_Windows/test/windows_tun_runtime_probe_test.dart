@@ -188,32 +188,17 @@ void main() {
   });
 
   test(
-    'Windows residual probe enumerates network artifacts',
+    'Windows TUN teardown reaches a clean state within its production budget',
     () async {
-      final result = await probeWindowsTunResidual(tunIpv4, tunIpv6);
-      expect(result.status, isNot(WindowsTunResidualStatus.probeFailed));
-      if (result.status == WindowsTunResidualStatus.present) {
-        expect(result.interfaceIndexes, isNotEmpty);
-      }
-    },
-    skip: Platform.isWindows ? false : 'Windows network cmdlets are required',
-  );
-
-  test(
-    'two Windows residual probes complete within the teardown budget',
-    () async {
-      final watch = Stopwatch()..start();
-      final results = [
-        await probeWindowsTunResidual(tunIpv4, tunIpv6),
-        await probeWindowsTunResidual(tunIpv4, tunIpv6),
-      ];
-      watch.stop();
-
-      expect(
-        results.map((result) => result.status),
-        everyElement(isNot(WindowsTunResidualStatus.probeFailed)),
+      final cleared = await waitForWindowsTunTeardown(
+        probe: () => probeWindowsTunResidual(tunIpv4, tunIpv6),
       );
-      expect(watch.elapsed, lessThan(const Duration(seconds: 8)));
+      expect(
+        cleared,
+        isTrue,
+        reason: 'Windows TUN residual state was not confirmed gone within the '
+            'production teardown budget',
+      );
     },
     skip: Platform.isWindows ? false : 'Windows network cmdlets are required',
   );
