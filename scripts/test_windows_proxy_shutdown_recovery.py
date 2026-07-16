@@ -157,6 +157,26 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         clear_marker = wait.index("await _clearTunTeardownMarker()", confirmed)
         self.assertLess(confirmed, clear_marker)
 
+    def test_tun_residual_routes_belong_to_captured_interfaces(self) -> None:
+        probe = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "windows_tun_runtime_probe.dart"
+        ).read_text(encoding="utf-8")
+
+        script = probe[
+            probe.index("$expectedIndexes =") : probe.index("if (($adapters.Count")
+        ]
+        route_query = script[script.index("$routes =") :]
+        self.assertIn(
+            "$candidateIndexes -contains [int]$_.InterfaceIndex",
+            route_query,
+        )
+        self.assertNotIn("$knownRoutePrefixes", script)
+        self.assertNotIn("DestinationPrefix", route_query)
+
     def test_native_shutdown_restores_only_owned_proxy(self) -> None:
         runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
         flutter_window = (runner / "flutter_window.cpp").read_text(encoding="utf-8")

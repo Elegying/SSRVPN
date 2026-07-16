@@ -171,6 +171,11 @@ void main() {
       evaluate(const [], const {}).status,
       WindowsTunResidualStatus.gone,
     );
+    expect(
+      evaluate(const [], const {42}).status,
+      WindowsTunResidualStatus.gone,
+      reason: 'routes owned by another VPN must not become SSRVPN residuals',
+    );
   });
 
   test('residual PowerShell output retains observed interface indexes', () {

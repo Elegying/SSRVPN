@@ -149,7 +149,6 @@ $ErrorActionPreference = 'Stop'
 $expectedIndexes = @(__EXPECTED_INDEXES__)
 $expectedAddresses = @('__EXPECTED_IPV4__', '__EXPECTED_IPV6__')
 $knownNames = @('Meta', 'Meta Tunnel')
-$knownRoutePrefixes = @('0.0.0.0/1', '128.0.0.0/1', '::/1', '8000::/1')
 
 $adapters = @(Get-NetAdapter -IncludeHidden | Where-Object {
   $expectedIndexes -contains [int]$_.ifIndex -or
@@ -166,8 +165,7 @@ $candidateIndexes = @(
     Sort-Object -Unique
 )
 $routes = @(Get-NetRoute | Where-Object {
-  $candidateIndexes -contains [int]$_.InterfaceIndex -or
-  $knownRoutePrefixes -contains [string]$_.DestinationPrefix
+  $candidateIndexes -contains [int]$_.InterfaceIndex
 })
 
 if (($adapters.Count + $addresses.Count + $routes.Count) -eq 0) {
@@ -239,15 +237,20 @@ WindowsTunResidualProbeResult evaluateWindowsTunResidual({
   required Set<int> expectedInterfaceIndexes,
   Set<int> residualRouteInterfaceIndexes = const <int>{},
 }) {
-  final residualIndexes = <int>{...residualRouteInterfaceIndexes};
+  final candidateIndexes = <int>{...expectedInterfaceIndexes};
+  final residualIndexes = <int>{};
   for (final interface in interfaces) {
     if (expectedInterfaceIndexes.contains(interface.index) ||
         _isKnownTunInterfaceName(interface.name) ||
         interface.addresses.contains(expectedTunAddress) ||
         interface.addresses.contains(expectedTunIpv6Address)) {
+      candidateIndexes.add(interface.index);
       residualIndexes.add(interface.index);
     }
   }
+  residualIndexes.addAll(
+    residualRouteInterfaceIndexes.where(candidateIndexes.contains),
+  );
   if (residualIndexes.isEmpty) {
     return (
       status: WindowsTunResidualStatus.gone,
