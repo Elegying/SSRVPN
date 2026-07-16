@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
@@ -24,6 +25,60 @@ proxies:
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('terminateMacosCoreProcess', () {
+    test('confirms graceful termination before returning success', () async {
+      final exitCode = Completer<int>();
+      final signals = <ProcessSignal>[];
+
+      final stopped = await terminateMacosCoreProcess(
+        exitCode: exitCode.future,
+        sendSignal: (signal) {
+          signals.add(signal);
+          exitCode.complete(0);
+          return true;
+        },
+        gracefulTimeout: const Duration(milliseconds: 10),
+        forcedTimeout: const Duration(milliseconds: 10),
+      );
+
+      expect(stopped, isTrue);
+      expect(signals, [ProcessSignal.sigterm]);
+    });
+
+    test('waits for confirmed exit after escalating to SIGKILL', () async {
+      final exitCode = Completer<int>();
+      final signals = <ProcessSignal>[];
+
+      final stopped = await terminateMacosCoreProcess(
+        exitCode: exitCode.future,
+        sendSignal: (signal) {
+          signals.add(signal);
+          if (signal == ProcessSignal.sigkill) exitCode.complete(-9);
+          return true;
+        },
+        gracefulTimeout: const Duration(milliseconds: 1),
+        forcedTimeout: const Duration(milliseconds: 10),
+      );
+
+      expect(stopped, isTrue);
+      expect(signals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
+    });
+
+    test('reports failure when forced termination cannot be confirmed',
+        () async {
+      final exitCode = Completer<int>();
+
+      final stopped = await terminateMacosCoreProcess(
+        exitCode: exitCode.future,
+        sendSignal: (signal) => signal == ProcessSignal.sigterm,
+        gracefulTimeout: const Duration(milliseconds: 1),
+        forcedTimeout: const Duration(milliseconds: 1),
+      );
+
+      expect(stopped, isFalse);
+    });
+  });
 
   group('ClashService.generateClashConfig', () {
     test('首次连接保持订阅中的第一个节点为默认节点', () {
