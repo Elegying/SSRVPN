@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 修复
 
+- Windows TUN 清理在所有权标记缺失或损坏时不再把“当前未观察到网卡”误判为清理完成；只有已捕获稳定接口身份并确认消失后才放行重连，标记文件改为原子提交。
+- Windows 便携数据迁移增加一次性完成标记；安装数据已成功接管后不再反复比较或重放过期便携副本，避免旧数据重新阻断启动。
+- macOS 停止或重启核心时会保留进程所有权，依次等待优雅退出和强制退出；无法确认退出时拒绝启动第二个核心实例。
 - Windows TUN 清理持久化本次连接新建网卡的稳定 `InterfaceGuid`，不再把通用的 `Meta` 名称、相同地址、其他 VPN 的路由或可能被 Windows 复用的数字索引当作 SSRVPN 所有权；旧版纯索引状态升级后会被安全忽略。
 - Android 构建显式优先使用 Flutter 官方 Maven 仓库，再把阿里云仓库作为后备，避免镜像临时返回 5xx 时阻断 Flutter embedding 解析。
 
@@ -19,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 维护
 
+- Android 首页把应用生命周期、订阅刷新和连接动作拆到独立 `part`，主文件由 371 行降至 227 行；CI 在 macOS runner 上实际编译 Debug 应用，防止桌面插件和 Xcode 工程只通过静态检查却无法构建。
 - 本地、CI 与 Release 共用唯一的 Python 发布工具测试入口，并按真实 `unittest` 参数解析完整清单，注释不能伪装成已执行测试；Windows 独立纯逻辑继续跨平台验证，只有真正依赖桌面、`kernel32`、PowerShell、DPAPI 或网络 cmdlet 的断言按平台跳过；三个高复杂度 Windows 恢复文件新增体量上限，后续增长前必须先拆分职责。
 
 ### 文档
