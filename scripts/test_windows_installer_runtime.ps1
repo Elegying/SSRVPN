@@ -55,20 +55,20 @@ param(
   [int]$TunTimeoutMilliseconds
 )
 
-$script:ProbeMode = $ProbeMode
-$script:AdapterCalls = 0
-$script:AddressCalls = 0
-$script:RouteCalls = 0
+$global:SsrvpnTestProbeMode = $ProbeMode
+$global:SsrvpnTestAdapterCalls = 0
+$global:SsrvpnTestAddressCalls = 0
+$global:SsrvpnTestRouteCalls = 0
 
 function Get-NetAdapter {
   [CmdletBinding()]
   param([switch]$IncludeHidden)
 
-  $script:AdapterCalls++
-  if (($script:ProbeMode -eq 'late-pending' -and
-      $script:AdapterCalls -ge 2) -or
-      ($script:ProbeMode -eq 'sequence' -and
-      $script:AdapterCalls -eq 1)) {
+  $global:SsrvpnTestAdapterCalls++
+  if (($global:SsrvpnTestProbeMode -eq 'late-pending' -and
+      $global:SsrvpnTestAdapterCalls -ge 2) -or
+      ($global:SsrvpnTestProbeMode -eq 'sequence' -and
+      $global:SsrvpnTestAdapterCalls -eq 1)) {
     [pscustomobject]@{ Name = 'Meta Tunnel'; ifIndex = 4242 }
   }
 }
@@ -77,10 +77,10 @@ function Get-NetIPAddress {
   [CmdletBinding()]
   param()
 
-  $script:AddressCalls++
-  if ($script:ProbeMode -eq 'late-pending' -or
-      ($script:ProbeMode -eq 'sequence' -and
-      $script:AddressCalls -eq 1)) {
+  $global:SsrvpnTestAddressCalls++
+  if ($global:SsrvpnTestProbeMode -eq 'late-pending' -or
+      ($global:SsrvpnTestProbeMode -eq 'sequence' -and
+      $global:SsrvpnTestAddressCalls -eq 1)) {
     [pscustomobject]@{ InterfaceIndex = 4242 }
   }
 }
@@ -89,10 +89,10 @@ function Get-NetRoute {
   [CmdletBinding()]
   param()
 
-  $script:RouteCalls++
-  if ($script:ProbeMode -eq 'late-pending' -or
-      ($script:ProbeMode -eq 'sequence' -and
-      $script:RouteCalls -le 2)) {
+  $global:SsrvpnTestRouteCalls++
+  if ($global:SsrvpnTestProbeMode -eq 'late-pending' -or
+      ($global:SsrvpnTestProbeMode -eq 'sequence' -and
+      $global:SsrvpnTestRouteCalls -le 2)) {
     [pscustomobject]@{ InterfaceIndex = 4242 }
   }
 }
@@ -268,17 +268,17 @@ exit $LASTEXITCODE
   $ownedB.Refresh()
   $installedApp.Refresh()
   $installedLauncher.Refresh()
-  if (-not $ownedA.HasExited -or -not $ownedB.HasExited) {
-    throw 'No-TUN cleanup left an exact mihomo process running.'
-  }
-  if (-not $installedApp.HasExited -or -not $installedLauncher.HasExited) {
-    throw 'No-TUN cleanup left an exact app process running.'
-  }
   if ($stop.ExitCode -ne 0) {
     throw "No-TUN cleanup returned $($stop.ExitCode)."
   }
   if ([System.IO.File]::ReadAllText($noTunStatusPath) -cne 'OK') {
     throw 'No-TUN cleanup did not report OK.'
+  }
+  if (-not $ownedA.HasExited -or -not $ownedB.HasExited) {
+    throw 'No-TUN cleanup left an exact mihomo process running.'
+  }
+  if (-not $installedApp.HasExited -or -not $installedLauncher.HasExited) {
+    throw 'No-TUN cleanup left an exact app process running.'
   }
   if (Test-Path -LiteralPath $pidFile) {
     throw 'No-TUN cleanup left the stale core PID file behind.'

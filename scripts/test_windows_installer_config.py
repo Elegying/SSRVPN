@@ -782,7 +782,13 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("TUN_TEARDOWN_PENDING", runtime_test)
         self.assertIn("-TunTeardownTimeoutMilliseconds", runtime_test)
-        self.assertIn("$script:AdapterCalls -ge 2", runtime_test)
+        self.assertIn(
+            "$global:SsrvpnTestProbeMode = $ProbeMode", runtime_test
+        )
+        self.assertIn(
+            "$global:SsrvpnTestAdapterCalls -ge 2", runtime_test
+        )
+        self.assertNotIn("$script:ProbeMode", runtime_test)
         self.assertIn("'-ProbeMode', 'late-pending'", runtime_test)
         self.assertIn("'-ProbeMode', 'none'", runtime_test)
         self.assertIn("No-TUN cleanup did not report OK.", runtime_test)
