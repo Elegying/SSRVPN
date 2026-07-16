@@ -990,7 +990,9 @@ exit 4
     if (!hasActiveUnexpectedExitRecoveryIntent(
       generation,
       (value) => isConnectionIntentCurrent(value, connected: true),
-    )) return;
+    )) {
+      return;
+    }
     if (tunInterfaces != null && !await _waitForTunTeardown()) {
       setLastStartError(_tunTeardownTimeoutError);
       markConnectionLost();
@@ -1011,7 +1013,9 @@ exit 4
     if (!hasActiveUnexpectedExitRecoveryIntent(
       generation,
       (value) => isConnectionIntentCurrent(value, connected: true),
-    )) return;
+    )) {
+      return;
+    }
     if (restarted && isRunning) {
       notifyRuntimeNotice(coreAutoRecoveredRuntimeNotice);
       return;
