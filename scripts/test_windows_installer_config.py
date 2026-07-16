@@ -560,6 +560,16 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             restore_attempt.index("Disable-OwnedSystemProxyEndpoint"),
         )
         self.assertIn("Test-SystemProxySafeToStop -Backup $proxyBackup", stopper)
+        fallback = runtime_flow.index(
+            "Disable-OwnedSystemProxyEndpoint -Backup $proxyBackup",
+            proxy_gate,
+        )
+        final_proxy_gate = runtime_flow.index(
+            "if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup",
+            fallback,
+        )
+        self.assertLess(proxy_gate, fallback)
+        self.assertLess(fallback, final_proxy_gate)
         self.assertGreater(
             runtime_flow.rindex("if ($proxyRecoveryFailed)"),
             runtime_flow.index("$remainingApps = @("),
@@ -668,7 +678,6 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "PROXY_UNSAFE",
             "PROCESSES_STILL_RUNNING",
             "TUN_TEARDOWN_PENDING",
-            "RECOVERY_CLEANUP_PENDING",
             "INTERNAL_ERROR",
         }
 
@@ -884,10 +893,21 @@ class WindowsInstallerConfigTest(unittest.TestCase):
                 "$apps = @()"
             )
         ]
-        self.assertLess(
-            safe_to_stop.index("Test-NativeRecoveryJournalNonReplayable"),
-            safe_to_stop.index("$regPath"),
+        disabled_endpoint = safe_to_stop.index(
+            "if ([int]$current.ProxyEnable -eq 0) { return $true }"
         )
+        journal_gate = safe_to_stop.index(
+            "Test-NativeRecoveryJournalNonReplayable"
+        )
+        self.assertLess(
+            disabled_endpoint,
+            journal_gate,
+        )
+        disable_owned = stopper[
+            stopper.index("function Disable-OwnedSystemProxyEndpoint") :
+            stopper.index("function Test-SystemProxySafeToStop")
+        ]
+        self.assertIn("[AllowNull()]$Backup", disable_owned)
 
     def test_uninstaller_restores_proxy_and_stops_only_its_installation(
         self,

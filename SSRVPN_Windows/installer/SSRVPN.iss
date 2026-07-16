@@ -233,7 +233,6 @@ begin
     (Status = 'PROXY_UNSAFE') or
     (Status = 'PROCESSES_STILL_RUNNING') or
     (Status = 'TUN_TEARDOWN_PENDING') or
-    (Status = 'RECOVERY_CLEANUP_PENDING') or
     (Status = 'INTERNAL_ERROR') then
     Result := Status
   else
