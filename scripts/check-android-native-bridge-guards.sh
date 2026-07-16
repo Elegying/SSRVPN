@@ -8,9 +8,12 @@ TILE_SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/androi
 BUILD_GRADLE="$ROOT/SSRVPN_Android/android/app/build.gradle.kts"
 MANIFEST="$ROOT/SSRVPN_Android/android/app/src/main/AndroidManifest.xml"
 HOME_DART="$ROOT/SSRVPN_Android/lib/screens/home_screen.dart"
-HOME_CONNECTION_ACTIONS="$ROOT/SSRVPN_Android/lib/screens/home_connection_actions_part.dart"
-HOME_NODE_ACTIONS="$ROOT/SSRVPN_Android/lib/screens/home_node_actions_part.dart"
-HOME_PUBLIC_IP_ACTIONS="$ROOT/SSRVPN_Android/lib/screens/home_public_ip_part.dart"
+HOME_PARTS=(
+  "$ROOT/SSRVPN_Android/lib/screens/home_connection_actions_part.dart"
+  "$ROOT/SSRVPN_Android/lib/screens/home_lifecycle_actions_part.dart"
+  "$ROOT/SSRVPN_Android/lib/screens/home_node_actions_part.dart"
+  "$ROOT/SSRVPN_Android/lib/screens/home_public_ip_part.dart"
+)
 PUBLIC_ROUTES="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/PublicIpv4Routes.kt"
 VPN_ROUTE_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnRouteInstaller.kt"
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
@@ -60,9 +63,7 @@ require_home_text() {
   local needle="$1"
   if ! grep -Fq "$needle" \
     "$HOME_DART" \
-    "$HOME_CONNECTION_ACTIONS" \
-    "$HOME_NODE_ACTIONS" \
-    "$HOME_PUBLIC_IP_ACTIONS"; then
+    "${HOME_PARTS[@]}"; then
     echo "Android home lifecycle check failed: missing '$needle'" >&2
     exit 1
   fi
@@ -186,10 +187,7 @@ if [ "$home_lines" -gt 500 ]; then
   echo "Android home boundary check failed: home_screen.dart grew to $home_lines lines" >&2
   exit 1
 fi
-for home_part in \
-  "$HOME_CONNECTION_ACTIONS" \
-  "$HOME_NODE_ACTIONS" \
-  "$HOME_PUBLIC_IP_ACTIONS"; do
+for home_part in "${HOME_PARTS[@]}"; do
   if [ ! -f "$home_part" ]; then
     echo "Android home boundary check failed: missing $home_part" >&2
     exit 1
