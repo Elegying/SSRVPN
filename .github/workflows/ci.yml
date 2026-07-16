@@ -148,6 +148,12 @@ jobs:
 
       - run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
 
+      - name: Build macOS app
+        if: matrix.directory == 'SSRVPN_MacOS'
+        timeout-minutes: 15
+        run: flutter build macos --debug
+        working-directory: ${{ matrix.directory }}
+
       - name: Build Windows packages
         if: matrix.directory == 'SSRVPN_Windows'
         shell: powershell

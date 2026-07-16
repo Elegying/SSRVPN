@@ -6,6 +6,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FreeDesktopDistributionTest(unittest.TestCase):
+    def test_pull_requests_compile_the_native_macos_app(self) -> None:
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Build macOS app", ci)
+        self.assertIn("matrix.directory == 'SSRVPN_MacOS'", ci)
+        self.assertIn("flutter build macos --debug", ci)
+
     def test_paid_desktop_signing_automation_is_absent(self) -> None:
         active_files = [
             ROOT / ".github" / "workflows" / "ci.yml",
