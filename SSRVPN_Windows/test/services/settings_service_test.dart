@@ -353,6 +353,34 @@ void main() {
     }
   });
 
+  test('completed portable migration does not replay stale source data',
+      () async {
+    final portable = await Directory.systemTemp.createTemp('ssrvpn-portable-');
+    final fallback = await Directory.systemTemp.createTemp('ssrvpn-fallback-');
+    addTearDown(() => portable.delete(recursive: true));
+    addTearDown(() => fallback.delete(recursive: true));
+    final source = File(
+      '${portable.path}${Platform.pathSeparator}subscriptions.json',
+    );
+    final destination = File(
+      '${fallback.path}${Platform.pathSeparator}subscriptions.json',
+    );
+    await source.writeAsString('["portable"]', flush: true);
+
+    await SettingsService.migratePortableDataForTesting(
+      portable.path,
+      fallback.path,
+    );
+    await destination.writeAsString('["updated-fallback"]', flush: true);
+
+    await SettingsService.migratePortableDataForTesting(
+      portable.path,
+      fallback.path,
+    );
+
+    expect(await destination.readAsString(), '["updated-fallback"]');
+  });
+
   test('portable fallback conflict fails without overwriting either copy',
       () async {
     final portable = await Directory.systemTemp.createTemp('ssrvpn-portable-');

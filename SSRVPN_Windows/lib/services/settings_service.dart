@@ -13,6 +13,7 @@ import 'windows_dpapi_secret_store.dart';
 /// 使用 JSON 文件存储设置，放在 exe 同级目录下，支持绿色免安装。
 class SettingsService extends ChangeNotifier {
   static const _apiSecretFileName = '.api-secret.dpapi';
+  static const _portableMigrationMarkerName = '.portable-migration-v1';
   static const _portableDataFiles = [
     _apiSecretFileName,
     'settings.json',
@@ -146,6 +147,24 @@ class SettingsService extends ChangeNotifier {
   ) async {
     final source = Directory(portableDir);
     if (!await source.exists()) return;
+    final migrationMarker = File(
+      '$fallbackDir${Platform.pathSeparator}$_portableMigrationMarkerName',
+    );
+    final markerType = await FileSystemEntity.type(
+      migrationMarker.path,
+      followLinks: false,
+    );
+    if (markerType == FileSystemEntityType.file &&
+        (await migrationMarker.readAsString()).trim() == '1') {
+      return;
+    }
+    if (markerType != FileSystemEntityType.notFound &&
+        markerType != FileSystemEntityType.file) {
+      throw FileSystemException(
+        'Portable migration marker must be a regular file',
+        migrationMarker.path,
+      );
+    }
 
     for (final name in _portableDataFiles) {
       final sourceFile = File('$portableDir${Platform.pathSeparator}$name');
@@ -211,6 +230,17 @@ class SettingsService extends ChangeNotifier {
         }
         // A single locked cache file should not block application startup.
       }
+    }
+
+    final temporaryMarker = File('${migrationMarker.path}.tmp');
+    try {
+      await temporaryMarker.writeAsString('1\n', flush: true);
+      await temporaryMarker.rename(migrationMarker.path);
+    } catch (error, stackTrace) {
+      try {
+        if (await temporaryMarker.exists()) await temporaryMarker.delete();
+      } catch (_) {}
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
