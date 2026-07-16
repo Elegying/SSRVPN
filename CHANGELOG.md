@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修复
+
+- Windows TUN 清理只把本次连接捕获到的网卡、地址和所属路由视为 SSRVPN 残留，不再因其他 VPN 使用相同默认路由前缀而阻止断开、重连或升级。
+
+### 文档
+
+- 固化 Windows 安装版数据保留决策：安装器不再发现或合并多个便携数据源，覆盖升级只替换程序文件并保留固定安装数据；旧的每次安装删除数据策略正式废止。
+
 ## [3.4.3] - 2026-07-16
 
 ### 修复
