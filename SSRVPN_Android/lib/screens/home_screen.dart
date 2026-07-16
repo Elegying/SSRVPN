@@ -21,6 +21,7 @@ import 'node_edit_screen.dart';
 part 'home_dashboard_part.dart';
 part 'home_dialogs_part.dart';
 part 'home_connection_actions_part.dart';
+part 'home_lifecycle_actions_part.dart';
 part 'home_node_actions_part.dart';
 part 'home_public_ip_part.dart';
 
@@ -103,45 +104,6 @@ class HomeScreenState extends State<HomeScreen>
     }
   }
 
-  bool _onSubscriptionChanged(SubscriptionService subService) {
-    final controller = HomeNodeController(
-      nodes: _nodes,
-      latencies: _latencyController.latencies,
-      lastRevision: _lastRevision,
-      selectedNode: _selectedNode,
-    );
-    final sync = controller.syncSubscriptionSnapshot(
-      revision: subService.revision,
-      allNodes: subService.allNodes,
-    );
-    if (!sync.changed) return false;
-    _lastRevision = controller.lastRevision;
-    _nodes = controller.nodes;
-    if (sync.shouldPromptForImport) return true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _disposed) return;
-      if (!sync.isFirstSync && _isConnected) {
-        unawaited(_reloadConfig());
-      } else {
-        unawaited(_autoTestAllNodes());
-      }
-    });
-    return true;
-  }
-
-  void _scheduleLatencyFlush() {
-    _latencyBatchTimer?.cancel();
-    _latencyBatchTimer =
-        Timer(const Duration(milliseconds: 100), _flushPendingLatencies);
-  }
-
-  void _flushPendingLatencies() {
-    if (!_latencyController.hasPending || !mounted || _disposed) return;
-    setState(() {
-      _latencyController.flushTo(_nodes);
-    });
-  }
-
   /// 供外部（app.dart）在页面切换回来时强制刷新节点列表
   void refreshNodes() {
     if (_disposed || !mounted) return;
@@ -188,112 +150,6 @@ class HomeScreenState extends State<HomeScreen>
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
     _glowController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadInitialData() async {
-    final subService = context.read<SubscriptionService>();
-    final clashService = context.read<ClashService>();
-    final settingsService = context.read<SettingsService>();
-    final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
-    if (nodes.isNotEmpty) {
-      setState(() {
-        _nodes = nodes;
-        _lastRevision = subService.revision;
-        if (clashService.isRunning) {
-          _selectedNode = _resolveDefaultNode(
-            nodes,
-            settingsService.settings.lastSelectedNodeName,
-          );
-        }
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(_autoTestAllNodes());
-      });
-    }
-    if (clashService.isRunning) {
-      setState(() => _isConnected = true);
-      _glowController.repeat();
-      _schedulePublicIpRefresh();
-    }
-
-    _registeredClashService = clashService;
-    clashService.onAutoConnect = _onClashAutoConnect;
-
-    final pendingAutoConnect = await clashService.consumePendingAutoConnect();
-    if (pendingAutoConnect && !_isConnected && mounted) {
-      unawaited(_handleConnectToggle());
-    }
-
-    clashService.onStatusChanged = _onClashStatusChanged;
-  }
-
-  void _handleClashAutoConnect() {
-    if (!_isConnected && mounted && !_disposed) {
-      unawaited(_handleConnectToggle());
-    }
-  }
-
-  void _handleClashStatusChanged() {
-    final clashService = _registeredClashService;
-    if (!mounted || _disposed || clashService == null) return;
-    final running = clashService.isRunning;
-    if (_isConnected == running) return;
-    setState(() {
-      _isConnected = running;
-      if (!running) {
-        _latencyController.clear();
-        _selectedNode = null;
-        _resetPublicIpState();
-      }
-    });
-    if (running) {
-      _glowController.repeat();
-      _schedulePublicIpRefresh();
-    } else {
-      _glowController.stop();
-    }
-  }
-
-  ConnectionOrchestrator get _orchestrator => ConnectionOrchestrator(
-        clashService: context.read<ClashService>(),
-        notificationService: NotificationService.instance,
-        settingsService: context.read<SettingsService>(),
-        subscriptionService: context.read<SubscriptionService>(),
-      );
-
-  void _checkUpdateDelayed() {
-    _updateCheckTimer?.cancel();
-    _updateCheckTimer = Timer(const Duration(seconds: 10), () async {
-      if (!mounted ||
-          !_isConnected ||
-          _updateCheckInProgress ||
-          UpdateService.isUpdateUiBusy) {
-        return;
-      }
-      _updateCheckInProgress = true;
-      try {
-        const currentVersion = UpdateService.appVersion;
-        final update = await UpdateService.checkForUpdate(currentVersion);
-        if (update != null &&
-            mounted &&
-            _isConnected &&
-            !UpdateService.isUpdateUiBusy) {
-          await UpdateService.showUpdateDialog(
-            context,
-            latestVersion: update.version,
-            currentVersion: currentVersion,
-            downloadUrl: update.downloadUrl,
-            changelog: update.changelog,
-            sha256: update.sha256,
-            fallbackDownloadUrl: update.fallbackDownloadUrl,
-          );
-        }
-      } catch (e) {
-        AppLogger.warning('Update', '检查更新异常: $e');
-      } finally {
-        _updateCheckInProgress = false;
-      }
-    });
   }
 
   // ── 设置入口已移除，关键设置项融入首页 ──
