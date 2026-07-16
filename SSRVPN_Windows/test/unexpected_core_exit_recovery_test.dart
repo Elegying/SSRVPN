@@ -2,6 +2,37 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_windows/services/clash_service.dart';
 
 void main() {
+  test('a stop already in progress makes the core exit expected', () {
+    expect(
+      isUnexpectedCoreExit(
+        ownsProcess: true,
+        stoppingCore: false,
+        stopInProgress: true,
+      ),
+      isFalse,
+    );
+    expect(
+      isUnexpectedCoreExit(
+        ownsProcess: true,
+        stoppingCore: false,
+        stopInProgress: false,
+      ),
+      isTrue,
+    );
+  });
+
+  test('manual disconnect cancels unexpected-exit recovery fallback', () {
+    expect(hasActiveUnexpectedExitRecoveryIntent(null, (_) => true), isFalse);
+    expect(
+      hasActiveUnexpectedExitRecoveryIntent(7, (generation) => generation == 7),
+      isTrue,
+    );
+    expect(
+      hasActiveUnexpectedExitRecoveryIntent(7, (generation) => false),
+      isFalse,
+    );
+  });
+
   test('proxy recovery disposition keeps terminal and endpoint safety distinct',
       () {
     expect(

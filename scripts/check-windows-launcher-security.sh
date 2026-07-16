@@ -10,7 +10,6 @@ windows_cmake="SSRVPN_Windows/windows/CMakeLists.txt"
 runner_cmake="SSRVPN_Windows/windows/runner/CMakeLists.txt"
 cleanup_script="SSRVPN_Windows/scripts/remove_legacy_cet_exemption.ps1"
 cleanup_launcher="SSRVPN_Windows/scripts/remove_legacy_cet_exemption.bat"
-portable_readme="SSRVPN_Windows/PORTABLE_README.txt"
 diagnostic_launcher="SSRVPN_Windows/SSRVPN_Diag.bat"
 startup_diagnostics="SSRVPN_Windows/windows/runner/startup_diagnostics.cpp"
 
@@ -73,7 +72,6 @@ grep -Fq "Remove-ItemProperty -LiteralPath \$legacyPath" \
 grep -Fq "Get-ItemProperty -LiteralPath \$legacyPath" \
   "$cleanup_script"
 grep -Fq 'exit /b %EXIT_CODE%' "$cleanup_launcher"
-grep -Fq 'remove_legacy_cet_exemption.bat' "$portable_readme"
 grep -Fq 'remove_legacy_cet_exemption.bat' "$diagnostic_launcher"
 grep -Fq 'function Get-PeDllCharacteristics' "$package_script"
 grep -Fq 'Launcher unexpectedly requires AppContainer' \

@@ -148,7 +148,13 @@ jobs:
 
       - run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
 
-      - name: Build Windows packages
+      - name: Build macOS app
+        if: matrix.directory == 'SSRVPN_MacOS'
+        timeout-minutes: 15
+        run: flutter build macos --debug
+        working-directory: ${{ matrix.directory }}
+
+      - name: Build Windows installer
         if: matrix.directory == 'SSRVPN_Windows'
         shell: powershell
         timeout-minutes: 15
@@ -178,19 +184,17 @@ jobs:
           path: ${{ runner.temp }}/ssrvpn-installer-smoke/*.log
           if-no-files-found: ignore
 
-      - name: Smoke Windows packages
+      - name: Smoke Windows installer
         if: matrix.directory == 'SSRVPN_Windows'
         shell: bash
         run: bash scripts/smoke-release-artifacts.sh --allow-missing
 
-      - name: Upload Windows packages
+      - name: Upload Windows installer
         if: matrix.directory == 'SSRVPN_Windows'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: windows-packages-pr
+          name: windows-installer-pr
           path: |
-            SSRVPN_Windows/SSRVPN.zip
-            SSRVPN_Windows/SSRVPN.zip.sha256
             SSRVPN_Windows/SSRVPN_Setup.exe
             SSRVPN_Windows/SSRVPN_Setup.exe.sha256
 

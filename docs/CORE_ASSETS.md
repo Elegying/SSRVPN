@@ -61,7 +61,7 @@ and before each platform release build. CI prepares the verified assets once
 and shares them with platform jobs through GitHub Actions artifacts.
 
 Windows executable verification is also performed by
-`SSRVPN_Windows/tool/package_windows.ps1` when producing the portable ZIP.
+`SSRVPN_Windows/tool/package_windows.ps1` when preparing the installer payload.
 
 ## Runtime rule providers
 

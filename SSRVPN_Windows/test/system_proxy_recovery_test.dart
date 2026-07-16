@@ -9,25 +9,33 @@ void main() {
     final temp = await Directory.systemTemp.createTemp('ssrvpn_proxy_utf8_');
     addTearDown(() => temp.delete(recursive: true));
     final scripts = <String>[];
+    var proxyReads = 0;
     final service = SystemProxyService.forTesting(
       isWindows: true,
       localAppData: temp.path,
       scriptRunner: (script) async {
         scripts.add(script);
         if (script.contains('ConvertTo-Json -Compress')) {
+          proxyReads += 1;
+          final connected = proxyReads > 1;
           return ProcessResult(
             1,
             0,
             jsonEncode({
-              'proxyEnable': 0,
+              'proxyEnable': connected ? 1 : 0,
               'hasProxyServer': true,
-              'proxyServer': '代理.example:8080',
+              'proxyServer': connected ? '127.0.0.1:7890' : '代理.example:8080',
               'hasProxyOverride': true,
-              'proxyOverride': '本地地址',
-              'hasAutoConfigUrl': true,
-              'autoConfigUrl': 'https://例子.example/proxy.pac',
+              'proxyOverride': connected
+                  ? '<local>;localhost;127.*;10.*;172.16.*;172.17.*;'
+                      '172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;'
+                      '172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;'
+                      '172.28.*;172.29.*;172.30.*;172.31.*;192.168.*'
+                  : '本地地址',
+              'hasAutoConfigUrl': !connected,
+              'autoConfigUrl': connected ? '' : 'https://例子.example/proxy.pac',
               'hasAutoDetect': true,
-              'autoDetect': 1,
+              'autoDetect': connected ? 0 : 1,
             }),
             '',
           );
@@ -478,7 +486,7 @@ void main() {
       scriptRunner: (script) async {
         if (script.contains('ConvertTo-Json -Compress')) {
           reads += 1;
-          final connected = reads == 2;
+          final connected = reads == 2 || reads == 3;
           return ProcessResult(
             1,
             0,
@@ -568,6 +576,7 @@ void main() {
     final temp = await Directory.systemTemp.createTemp('ssrvpn_runonce_');
     addTearDown(() => temp.delete(recursive: true));
     final scripts = <String>[];
+    var proxyReads = 0;
     const executable = r'C:\Program Files\SSRVPN 测试\ssrvpn_windows_app.exe';
     final service = SystemProxyService.forTesting(
       isWindows: true,
@@ -576,18 +585,25 @@ void main() {
       scriptRunner: (script) async {
         scripts.add(script);
         if (script.contains('ConvertTo-Json -Compress')) {
+          proxyReads += 1;
+          final connected = proxyReads > 1;
           return ProcessResult(
             1,
             0,
             jsonEncode({
-              'proxyEnable': 0,
-              'hasProxyServer': false,
-              'proxyServer': '',
-              'hasProxyOverride': false,
-              'proxyOverride': '',
+              'proxyEnable': connected ? 1 : 0,
+              'hasProxyServer': connected,
+              'proxyServer': connected ? '127.0.0.1:7890' : '',
+              'hasProxyOverride': connected,
+              'proxyOverride': connected
+                  ? '<local>;localhost;127.*;10.*;172.16.*;172.17.*;'
+                      '172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;'
+                      '172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;'
+                      '172.28.*;172.29.*;172.30.*;172.31.*;192.168.*'
+                  : '',
               'hasAutoConfigUrl': false,
               'autoConfigUrl': '',
-              'hasAutoDetect': false,
+              'hasAutoDetect': connected,
               'autoDetect': 0,
             }),
             '',
@@ -671,6 +687,42 @@ void main() {
       'system_proxy_backup.json',
     );
     expect(await backup.exists(), isFalse);
+  });
+
+  test('proxy acquisition rejects an out-of-band restore before commit',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_proxy_postcondition_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        if (script.contains('ConvertTo-Json -Compress')) {
+          return ProcessResult(
+            1,
+            0,
+            jsonEncode({
+              'proxyEnable': 0,
+              'hasProxyServer': false,
+              'proxyServer': '',
+              'hasProxyOverride': false,
+              'proxyOverride': '',
+              'hasAutoConfigUrl': false,
+              'autoConfigUrl': '',
+              'hasAutoDetect': false,
+              'autoDetect': 0,
+            }),
+            '',
+          );
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+
+    await service.initialize(temp.path);
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
   });
 
   test('RunOnce registration failure refuses to enable the proxy', () async {

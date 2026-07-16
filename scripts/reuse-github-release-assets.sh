@@ -37,8 +37,6 @@ required = {
     "SSRVPN.dmg.sha256",
     "SSRVPN_Setup.exe",
     "SSRVPN_Setup.exe.sha256",
-    "SSRVPN.zip",
-    "SSRVPN.zip.sha256",
     "SSRVPN-release-provenance.json",
 }
 limits = {
@@ -56,6 +54,7 @@ assets = {
     if isinstance(asset, dict) and isinstance(asset.get("name"), str)
 }
 missing = sorted(required - set(assets))
+unexpected = sorted(set(assets) - required)
 empty = sorted(
     name for name in required if name in assets and int(assets[name].get("size") or 0) <= 0
 )
@@ -69,7 +68,7 @@ prerelease = release.get("prerelease") is True
 visibility = "draft" if draft else ("prerelease" if prerelease else "public")
 if oversized:
     print("invalid\t" + visibility)
-elif missing or empty:
+elif missing or unexpected or empty:
     print("incomplete\t" + visibility)
 else:
     print("complete\t" + visibility)
@@ -104,7 +103,6 @@ gh release download "$tag" --repo "$repo" --dir "$download_dir" \
   --pattern 'SSRVPN.apk' --pattern 'SSRVPN.apk.sha256' \
   --pattern 'SSRVPN.dmg' --pattern 'SSRVPN.dmg.sha256' \
   --pattern 'SSRVPN_Setup.exe' --pattern 'SSRVPN_Setup.exe.sha256' \
-  --pattern 'SSRVPN.zip' --pattern 'SSRVPN.zip.sha256' \
   --pattern 'SSRVPN-release-provenance.json'
 
 python3 - "$release_json" "$download_dir" "$tag" "${GITHUB_SHA:?GITHUB_SHA is required}" <<'PY'
@@ -128,7 +126,7 @@ def sha256(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest()
 
-for name in ("SSRVPN.apk", "SSRVPN.dmg", "SSRVPN_Setup.exe", "SSRVPN.zip"):
+for name in ("SSRVPN.apk", "SSRVPN.dmg", "SSRVPN_Setup.exe"):
     artifact = download_path / name
     checksum_file = download_path / f"{name}.sha256"
     if not artifact.is_file() or not checksum_file.is_file():
@@ -151,7 +149,7 @@ if provenance.get("tag") != expected_tag or provenance.get("commit") != expected
 provenance_assets = provenance.get("assets")
 if not isinstance(provenance_assets, dict):
     raise SystemExit("Release provenance asset map is missing")
-for name in ("SSRVPN.apk", "SSRVPN.dmg", "SSRVPN_Setup.exe", "SSRVPN.zip"):
+for name in ("SSRVPN.apk", "SSRVPN.dmg", "SSRVPN_Setup.exe"):
     if provenance_assets.get(name) != sha256(download_path / name):
         raise SystemExit(f"Release provenance mismatch for {name}")
 PY
@@ -183,8 +181,6 @@ install -m 0644 "$download_dir/SSRVPN.dmg" "$artifact_root/macos/SSRVPN.dmg"
 install -m 0644 "$download_dir/SSRVPN.dmg.sha256" "$artifact_root/macos/SSRVPN.dmg.sha256"
 install -m 0644 "$download_dir/SSRVPN_Setup.exe" "$artifact_root/windows/SSRVPN_Setup.exe"
 install -m 0644 "$download_dir/SSRVPN_Setup.exe.sha256" "$artifact_root/windows/SSRVPN_Setup.exe.sha256"
-install -m 0644 "$download_dir/SSRVPN.zip" "$artifact_root/windows/SSRVPN.zip"
-install -m 0644 "$download_dir/SSRVPN.zip.sha256" "$artifact_root/windows/SSRVPN.zip.sha256"
 
 echo "exists=true" >>"$output_file"
 echo "draft=$([ "$visibility" = draft ] && echo true || echo false)" >>"$output_file"

@@ -59,13 +59,20 @@ for path in paths:
         )
 
     stop_start = source.index("Future<bool> _stopInternal()")
-    stop_end = source.index("void _ensureStartCurrent", stop_start)
+    stop_end_candidates = [
+        source.find(marker, stop_start + 1)
+        for marker in ("void _ensureStartCurrent", "Future<bool> _startTunCore")
+    ]
+    stop_end = min(index for index in stop_end_candidates if index >= 0)
     stop_body = source[stop_start:stop_end]
     proxy_clear = stop_body.index("_proxyService.clearSystemProxy()")
-    process_kill = (
-        stop_body.index("terminateCoreProcess(coreProcess)")
-        if "terminateCoreProcess(coreProcess)" in stop_body
-        else stop_body.index(".kill(")
+    termination_calls = (
+        "terminateCoreProcess(coreProcess)",
+        "terminateMacosCoreProcess(",
+        ".kill(",
+    )
+    process_kill = min(
+        stop_body.index(call) for call in termination_calls if call in stop_body
     )
     if proxy_clear > process_kill:
         raise SystemExit(
@@ -145,6 +152,26 @@ if missing:
 positions = [helper.index(token) for token in required_termination_guards[:4]]
 if positions != sorted(positions):
     raise SystemExit("Windows core termination signal/wait order is unsafe")
+
+macos_source = paths[0].read_text(encoding="utf-8")
+helper_start = macos_source.index("Future<bool> terminateMacosCoreProcess(")
+helper_end = macos_source.index("mixin _MacosCoreLifecycle", helper_start)
+helper = macos_source[helper_start:helper_end]
+missing = [token for token in required_termination_guards if token not in helper]
+if missing:
+    raise SystemExit(
+        "macOS core termination does not wait after SIGKILL: "
+        + ", ".join(missing)
+    )
+positions = [helper.index(token) for token in required_termination_guards[:4]]
+if positions != sorted(positions):
+    raise SystemExit("macOS core termination signal/wait order is unsafe")
+macos_stop = macos_source[
+    macos_source.index("Future<bool> _stopInternal()") :
+    macos_source.index("Future<bool> _startTunCore")
+]
+if macos_stop.index("if (!terminated)") > macos_stop.index("_clashProcess = null"):
+    raise SystemExit("macOS drops core ownership before confirming process exit")
 
 print("Desktop core startup ordering guards passed.")
 

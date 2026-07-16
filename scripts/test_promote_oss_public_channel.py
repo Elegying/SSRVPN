@@ -12,16 +12,19 @@ from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "promote-oss-public-channel.sh"
-FILES = (
+PUBLISHED_FILES = (
     "SSRVPN.apk",
     "SSRVPN.apk.sha256",
     "SSRVPN.dmg",
     "SSRVPN.dmg.sha256",
     "SSRVPN_Setup.exe",
     "SSRVPN_Setup.exe.sha256",
+)
+RETIRED_FILES = (
     "SSRVPN.zip",
     "SSRVPN.zip.sha256",
 )
+MANAGED_FILES = PUBLISHED_FILES + RETIRED_FILES
 
 
 class PromoteOssPublicChannelTest(unittest.TestCase):
@@ -53,7 +56,6 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                             "SSRVPN.apk",
                             "SSRVPN.dmg",
                             "SSRVPN_Setup.exe",
-                            "SSRVPN.zip",
                         )
                     ],
                 }
@@ -67,15 +69,31 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
     def test_success_promotes_every_asset_and_pointer(self) -> None:
         result = self._run()
         self.assertEqual(result.returncode, 0, result.stderr)
-        for name in FILES:
+        for name in PUBLISHED_FILES:
             self.assertEqual(
                 (self.objects / "ssrvpn" / "downloads" / name).read_bytes(),
                 (self.source / name).read_bytes(),
+            )
+        for name in RETIRED_FILES:
+            self.assertFalse(
+                (self.objects / "ssrvpn" / "downloads" / name).exists()
             )
         self.assertEqual(
             (self.objects / "ssrvpn" / "latest.json").read_bytes(),
             self.manifest.read_bytes(),
         )
+
+    def test_success_tolerates_already_absent_retired_aliases(self) -> None:
+        for name in RETIRED_FILES:
+            (self.objects / "ssrvpn" / "downloads" / name).unlink()
+
+        result = self._run()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in RETIRED_FILES:
+            self.assertFalse(
+                (self.objects / "ssrvpn" / "downloads" / name).exists()
+            )
 
     def test_preserved_backup_can_restore_after_later_publish_failure(self) -> None:
         backup = self.root / "transaction-backup"
@@ -86,7 +104,7 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
         restore = self._restore(backup)
         self.assertEqual(restore.returncode, 0, restore.stderr)
         self.assertFalse(backup.exists())
-        for name in FILES:
+        for name in MANAGED_FILES:
             self.assertEqual(
                 (self.objects / "ssrvpn" / "downloads" / name).read_bytes(),
                 self.old[name],
@@ -99,7 +117,7 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
     def test_failure_restores_all_previous_objects(self) -> None:
         result = self._run(fail_on="SSRVPN.dmg")
         self.assertNotEqual(result.returncode, 0)
-        for name in FILES:
+        for name in MANAGED_FILES:
             self.assertEqual(
                 (self.objects / "ssrvpn" / "downloads" / name).read_bytes(),
                 self.old[name],
@@ -114,7 +132,7 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Cannot back up current OSS object", result.stderr)
-        for name in FILES:
+        for name in MANAGED_FILES:
             self.assertEqual(
                 (self.objects / "ssrvpn" / "downloads" / name).read_bytes(),
                 self.old[name],
@@ -197,7 +215,10 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
         downloads = root / "downloads" if root != self.source else root
         downloads.mkdir(parents=True, exist_ok=True)
         values: dict[str, bytes] = {}
-        for name in ("SSRVPN.apk", "SSRVPN.dmg", "SSRVPN_Setup.exe", "SSRVPN.zip"):
+        binaries = ["SSRVPN.apk", "SSRVPN.dmg", "SSRVPN_Setup.exe"]
+        if root != self.source:
+            binaries.append("SSRVPN.zip")
+        for name in binaries:
             payload = prefix + b"-" + name.encode()
             (downloads / name).write_bytes(payload)
             digest = hashlib.sha256(payload).hexdigest().encode()

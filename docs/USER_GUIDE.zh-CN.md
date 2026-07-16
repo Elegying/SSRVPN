@@ -5,7 +5,7 @@
 
 - [Android 安装与权限](../SSRVPN_Android/USER_GUIDE.md)
 - [macOS 安装与权限](../SSRVPN_MacOS/USER_GUIDE.md)
-- [Windows 安装、便携版与权限](../SSRVPN_Windows/USER_GUIDE.md)
+- [Windows 安装与权限](../SSRVPN_Windows/USER_GUIDE.md)
 
 ## 导入订阅或节点
 
@@ -59,7 +59,7 @@
 - macOS 把长期 API secret 从普通设置中分离到权限为 `0600` 的专用文件，Windows 使用
   与当前登录用户绑定的 DPAPI 加密存储。Mihomo 运行期间的 `config.yaml` 仍需要包含
   该 secret，因此不要共享运行时配置或整个数据目录。
-- Windows 便携目录会保存订阅、缓存和运行时配置。不要把正在使用的数据目录放进公共
+- Windows 安装版数据目录会保存订阅、缓存和运行时配置。不要把正在使用的数据目录放进公共
   网盘、共享账号目录或交给其他人。
 - macOS 管理员密码由系统授权窗口处理，SSRVPN 不读取或保存该密码。
 - 同一系统账号下的恶意进程仍可能读取当前用户可访问的运行时文件；凭据隔离或系统安全

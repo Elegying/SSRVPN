@@ -15,7 +15,6 @@ NAMES = (
     "SSRVPN.apk",
     "SSRVPN.dmg",
     "SSRVPN_Setup.exe",
-    "SSRVPN.zip",
 )
 CERT = "ab" * 32
 COMMIT = "c" * 40
@@ -170,7 +169,6 @@ fi
             ("SSRVPN.apk", "android"),
             ("SSRVPN.dmg", "macos"),
             ("SSRVPN_Setup.exe", "windows"),
-            ("SSRVPN.zip", "windows"),
         ):
             self.assertEqual(
                 (self.artifacts / platform / name).read_bytes(),
@@ -180,6 +178,16 @@ fi
     def test_partial_draft_is_deleted_without_deleting_the_tag(self) -> None:
         self._write_release(draft=True, missing="SSRVPN.dmg")
         result = self._run("found")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.delete_marker.is_file())
+        self.assertEqual(self.output.read_text(), "exists=false\n")
+
+    def test_draft_with_retired_asset_is_recreated(self) -> None:
+        (self.assets / "SSRVPN.zip").write_bytes(b"retired")
+        self._write_release(draft=True)
+
+        result = self._run("found")
+
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(self.delete_marker.is_file())
         self.assertEqual(self.output.read_text(), "exists=false\n")

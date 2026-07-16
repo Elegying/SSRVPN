@@ -155,9 +155,18 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             lifecycle.index("Future<bool> _waitForTunTeardown()") :
             lifecycle.index("// ── Admin helper")
         ]
-        confirmed = wait.index("if (cleared)")
+        confirmed = wait.index("_tunTeardownGate.accept((")
         clear_marker = wait.index("await _clearTunTeardownMarker()", confirmed)
+        self.assertIn("if (cleared &&", wait)
         self.assertLess(confirmed, clear_marker)
+
+        probe = (services / "windows_tun_runtime_probe.dart").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "if (!_ownershipKnown || result.status != WindowsTunResidualStatus.gone)",
+            probe,
+        )
 
     def test_tun_residual_routes_belong_to_captured_interfaces(self) -> None:
         probe = (
@@ -435,6 +444,13 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             / "runner"
             / "launcher_main.cpp"
         ).read_text(encoding="utf-8-sig")
+        guardian_restart = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "windows"
+            / "runner"
+            / "guardian_restart.h"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("kLauncherMutexName", launcher)
         self.assertIn("kGuardianMutexName", launcher)
@@ -529,6 +545,12 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertLess(terminate, kill_on_close)
         self.assertNotIn("proxy_safe_to_stop", cleanup)
 
+        self.assertIn("RetryGuardianStart", guardian_restart)
+        self.assertIn("for (DWORD attempt = 0;", guardian_restart)
+        self.assertIn("::Sleep(delay_milliseconds)", guardian_restart)
+        self.assertIn("kGuardianRestartAttempts = 5", launcher)
+        self.assertIn("kGuardianRestartDelayMs = 100", launcher)
+
         main = launcher[launcher.index("int APIENTRY wWinMain") :]
         start_guardian = main.index("StartGuardian")
         guardian_fallback = main.index("if (!guardian_ready)", start_guardian)
@@ -599,7 +621,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             supervision,
         )
         guardian_exit = supervision.index("WAIT_OBJECT_0 + 1")
-        restart = supervision.index("StartGuardian", guardian_exit)
+        restart = supervision.index("RetryGuardianStart", guardian_exit)
         restart_commit = supervision.index(
             "SetEvent(replacement_commit_event)", restart
         )
@@ -626,6 +648,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertNotIn("ArmKillOnJobCloseAndRelease", supervision)
         self.assertNotIn("MakeSafeDisconnectVisible", supervision)
         self.assertIn("if (!fail_closed_cleanup_pending)", supervision)
+        self.assertEqual(supervision.count("RetryGuardianStart("), 1)
         self.assertEqual(supervision.count("StartGuardian("), 1)
         child_retry = supervision[
             supervision.index("const DWORD child_retry_wait") :
@@ -1294,6 +1317,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("enabled: false", tray)
         self.assertIn("HTTP 127.0.0.1:$port", app)
         self.assertIn("CoreRecoveryPolicy(maxAttempts: 1)", lifecycle)
+        self.assertIn("isCurrentSystemProxyOwned", lifecycle)
         self.assertIn("Future<bool> start() => _start();", lifecycle)
         self.assertIn("_start(automaticRecovery: true)", lifecycle)
         self.assertLess(

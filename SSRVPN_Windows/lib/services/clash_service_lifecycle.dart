@@ -2,57 +2,10 @@ part of 'clash_service.dart';
 
 class _DesktopStartCancelled implements Exception {}
 
-const _unexpectedExitProxyRecoveryDelays = <Duration>[
-  Duration(milliseconds: 250),
-  Duration(milliseconds: 750),
-  Duration(milliseconds: 1500),
-];
-
 const _tunTeardownTimeoutError = '核心已停止，但 Windows TUN 网卡未在超时前移除；'
     '为避免路由冲突，已阻止再次连接，请保持 SSRVPN 打开并重试断开';
 const _tunResidualProbeError = '无法确认旧 Windows TUN 网卡和路由已清理；'
     '为避免死路由，已在启动 Mihomo 前安全中止';
-
-enum ProxyRecoveryDisposition {
-  journalTerminal,
-  endpointSafeWithPendingJournal,
-  endpointMayStillBeOwned,
-}
-
-ProxyRecoveryDisposition classifyProxyRecoveryDisposition({
-  required bool journalTerminal,
-  required bool endpointSafeWithPendingRecovery,
-}) {
-  if (journalTerminal) return ProxyRecoveryDisposition.journalTerminal;
-  if (endpointSafeWithPendingRecovery) {
-    return ProxyRecoveryDisposition.endpointSafeWithPendingJournal;
-  }
-  return ProxyRecoveryDisposition.endpointMayStillBeOwned;
-}
-
-/// Retries a failed proxy restore without overlapping registry transactions.
-///
-/// There is one initial attempt plus one attempt after every delay. The caller
-/// is responsible for restoring the local proxy listener if all attempts fail.
-Future<bool> retryUnexpectedExitSystemProxyRecovery({
-  required Future<bool> Function() clearProxy,
-  List<Duration> retryDelays = _unexpectedExitProxyRecoveryDelays,
-  Future<void> Function(Duration duration)? wait,
-  void Function(int attempt, int totalAttempts)? onAttemptFailed,
-}) async {
-  final waitFor = wait ?? (duration) => Future<void>.delayed(duration);
-  final totalAttempts = retryDelays.length + 1;
-  for (var attempt = 1; attempt <= totalAttempts; attempt++) {
-    try {
-      if (await clearProxy()) return true;
-    } catch (_) {}
-    onAttemptFailed?.call(attempt, totalAttempts);
-    if (attempt < totalAttempts) {
-      await waitFor(retryDelays[attempt - 1]);
-    }
-  }
-  return false;
-}
 
 Future<bool> terminateCoreProcess(
   Process process, {
@@ -115,7 +68,15 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   @override
   Future<bool> healthCheck() async {
     if (!await super.healthCheck()) return false;
-    if (!settings.enableTun) return true;
+    if (!settings.enableTun) {
+      if (isRunning && !await _proxyService.isCurrentSystemProxyOwned()) {
+        setLastHealthCheckError(
+          _proxyService.lastError ?? 'Windows 系统代理已被关闭或修改',
+        );
+        return false;
+      }
+      return true;
+    }
     final tun = (await getConfigs())?['tun'];
     if (tun is! Map || tun['enable'] != true) {
       setLastHealthCheckError('Mihomo API 已就绪，但 TUN listener 未启用');
@@ -538,7 +499,7 @@ exit 4
       }
       _ensureStartCurrent(startToken);
 
-      // 启动 mihomo 子进程（所有数据都在便携目录内）
+      // 启动 mihomo 子进程（运行数据位于安装版数据目录）
       if (_coreProcess != null) {
         setLastStartError('上一个 Mihomo 进程尚未退出，已拒绝启动新的核心');
         log('❌ $lastStartError');
@@ -609,7 +570,13 @@ exit 4
       // 监听子进程退出
       startedProcess.exitCode.then((code) {
         startupExitCode = code;
-        if (!identical(_coreProcess, startedProcess) || _stoppingCore) return;
+        if (!isUnexpectedCoreExit(
+          ownsProcess: identical(_coreProcess, startedProcess),
+          stoppingCore: _stoppingCore,
+          stopInProgress: _stopOperation != null,
+        )) {
+          return;
+        }
 
         log('❌ Mihomo 进程已退出，退出码: $code');
         final recoveryListenerWasActive = _proxyRecoveryListenerActive;
@@ -623,7 +590,13 @@ exit 4
           log('⚠️ 系统代理保护监听已退出，重新执行安全恢复');
         }
         final cleanup = _deleteCorePid().then<void>((_) {
-          if (!identical(_coreProcess, startedProcess) || _stoppingCore) return;
+          if (!isUnexpectedCoreExit(
+            ownsProcess: identical(_coreProcess, startedProcess),
+            stoppingCore: _stoppingCore,
+            stopInProgress: _stopOperation != null,
+          )) {
+            return;
+          }
           if (isRunning) {
             final restartGeneration = captureAutomaticRestartIntent();
             setRunning(false);
@@ -952,6 +925,14 @@ exit 4
     if (tunInterfaces != null) {
       _tunTeardownGate.markPending(await tunInterfaces);
     }
+    final hasRecoveryIntent = hasActiveUnexpectedExitRecoveryIntent(
+      generation,
+      (value) => isConnectionIntentCurrent(value, connected: true),
+    );
+    if (!hasRecoveryIntent) {
+      if (!proxyCleared) await _clearProxyAfterUnexpectedExit();
+      return;
+    }
     if (!proxyCleared) {
       // A stop may have been requested while the bounded restore was running.
       // Let it finish first: a successful stop makes the endpoint safe, while
@@ -1006,8 +987,10 @@ exit 4
       );
       return;
     }
-    if (generation == null ||
-        !isConnectionIntentCurrent(generation, connected: true)) {
+    if (!hasActiveUnexpectedExitRecoveryIntent(
+      generation,
+      (value) => isConnectionIntentCurrent(value, connected: true),
+    )) {
       return;
     }
     if (tunInterfaces != null && !await _waitForTunTeardown()) {
@@ -1027,7 +1010,12 @@ exit 4
     notifyRuntimeNotice('核心异常退出，正在自动恢复（退出码 $exitCode）');
     final restarted = await _start(automaticRecovery: true);
 
-    if (!isConnectionIntentCurrent(generation, connected: true)) return;
+    if (!hasActiveUnexpectedExitRecoveryIntent(
+      generation,
+      (value) => isConnectionIntentCurrent(value, connected: true),
+    )) {
+      return;
+    }
     if (restarted && isRunning) {
       notifyRuntimeNotice(coreAutoRecoveredRuntimeNotice);
       return;
@@ -1106,14 +1094,15 @@ exit 4
         return result;
       },
     );
-    if (cleared) {
-      _tunTeardownGate.accept((
-        status: WindowsTunResidualStatus.gone,
-        interfaces: const <WindowsTunInterfaceIdentity>{},
-      ));
+    if (cleared &&
+        _tunTeardownGate.accept((
+          status: WindowsTunResidualStatus.gone,
+          interfaces: const <WindowsTunInterfaceIdentity>{},
+        ))) {
       await _clearTunTeardownMarker();
+      return true;
     }
-    return cleared;
+    return false;
   }
 
   File get _tunTeardownMarker => File(
@@ -1138,7 +1127,7 @@ exit 4
 
   Future<bool> _armTunTeardownGate() async {
     try {
-      await _tunTeardownMarker.writeAsString('pending\n', flush: true);
+      await _writeTunTeardownMarker('pending\n');
       _tunTeardownGate.markPending();
       return true;
     } catch (error) {
@@ -1151,15 +1140,28 @@ exit 4
     final interfaces = await _captureTunInterfaceIdentities();
     if (interfaces.isEmpty) return false;
     try {
-      await _tunTeardownMarker.writeAsString(
+      await _writeTunTeardownMarker(
         encodeWindowsTunTeardownMarker(interfaces),
-        flush: true,
       );
       _tunTeardownGate.markPending(interfaces);
       return true;
     } catch (error) {
       log('❌ 无法写入 TUN 网卡身份: $error');
       return false;
+    }
+  }
+
+  Future<void> _writeTunTeardownMarker(String value) async {
+    final marker = _tunTeardownMarker;
+    final temporary = File('${marker.path}.tmp');
+    try {
+      await temporary.writeAsString(value, flush: true);
+      await temporary.rename(marker.path);
+    } catch (error) {
+      try {
+        if (await temporary.exists()) await temporary.delete();
+      } catch (_) {}
+      rethrow;
     }
   }
 

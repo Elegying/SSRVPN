@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.4] - 2026-07-17
+
+### 移除
+
+- Windows 停止构建和发布便携 ZIP，只保留每用户安装器 `SSRVPN_Setup.exe`；下一次正式发布会事务性移除 OSS 固定便携下载别名，历史不可变 Release 资产继续保留用于审计。
+
 ### 修复
 
+- Windows 安装器不再因已关闭的系统代理配合旧恢复日志而误报 `PROXY_UNSAFE`；覆盖升级会在终止进程前再次精确释放 SSRVPN 自有代理端点，安全端点上的旧日志不再阻断文件替换。
+- Windows 手动断开期间的核心退出不再被当作崩溃自动拉起；异常退出恢复流程会在启动保护监听或重启核心前再次核对当前连接意图。
+- Windows 系统代理写入后增加注册表读回校验，运行中被 guardian 或外部操作关闭时会由健康检查识别并安全断开，不再保留“已连接”假状态。
+- Windows launcher 在独立 guardian 意外退出后会有界重试建立替代 guardian，避免一次瞬时启动失败立即终止应用和核心。
+- Windows 卸载在代理端点已安全但恢复记录仍无法清理时保留恢复程序并阻止删除文件；完成后显式清理本应用的 HKCU 卸载注册表项，并由 GitHub Windows 安装包烟雾测试验证不留指向已删除 `unins000.exe` 的孤儿记录。
+- Windows TUN 清理在所有权标记缺失或损坏时不再把“当前未观察到网卡”误判为清理完成；只有已捕获稳定接口身份并确认消失后才放行重连，标记文件改为原子提交。
+- Windows 便携数据迁移增加一次性完成标记；安装数据已成功接管后不再反复比较或重放过期便携副本，避免旧数据重新阻断启动。
+- macOS 停止或重启核心时会保留进程所有权，依次等待优雅退出和强制退出；无法确认退出时拒绝启动第二个核心实例。
 - Windows TUN 清理持久化本次连接新建网卡的稳定 `InterfaceGuid`，不再把通用的 `Meta` 名称、相同地址、其他 VPN 的路由或可能被 Windows 复用的数字索引当作 SSRVPN 所有权；旧版纯索引状态升级后会被安全忽略。
 - Android 构建显式优先使用 Flutter 官方 Maven 仓库，再把阿里云仓库作为后备，避免镜像临时返回 5xx 时阻断 Flutter embedding 解析。
 
@@ -19,11 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 维护
 
+- Android 首页把应用生命周期、订阅刷新和连接动作拆到独立 `part`，主文件由 371 行降至 227 行；CI 在 macOS runner 上实际编译 Debug 应用，防止桌面插件和 Xcode 工程只通过静态检查却无法构建。
 - 本地、CI 与 Release 共用唯一的 Python 发布工具测试入口，并按真实 `unittest` 参数解析完整清单，注释不能伪装成已执行测试；Windows 独立纯逻辑继续跨平台验证，只有真正依赖桌面、`kernel32`、PowerShell、DPAPI 或网络 cmdlet 的断言按平台跳过；三个高复杂度 Windows 恢复文件新增体量上限，后续增长前必须先拆分职责。
 
 ### 文档
 
 - 固化 Windows 安装版数据保留决策：安装器不再发现或合并多个便携数据源，覆盖升级只替换程序文件并保留固定安装数据；旧的每次安装删除数据策略正式废止。
+- 统一当前发布、签名、用户和运维文档为 Windows 安装版单一分发，并以 ADR-003 记录退役边界。
 
 ## [3.4.3] - 2026-07-16
 

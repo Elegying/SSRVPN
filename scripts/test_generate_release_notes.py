@@ -12,7 +12,7 @@ SPEC.loader.exec_module(MODULE)
 
 
 class GenerateReleaseNotesTest(unittest.TestCase):
-    def test_windows_installer_and_portable_assets_are_documented(self) -> None:
+    def test_windows_installer_is_the_only_windows_asset_documented(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             changelog = Path(directory, "CHANGELOG.md")
             changelog.write_text(
@@ -24,8 +24,8 @@ class GenerateReleaseNotesTest(unittest.TestCase):
 
             self.assertIn("`SSRVPN_Setup.exe`", notes)
             self.assertIn("`SSRVPN_Setup.exe.sha256`", notes)
-            self.assertIn("`SSRVPN.zip`", notes)
-            self.assertIn("`SSRVPN.zip.sha256`", notes)
+            self.assertNotIn("`SSRVPN.zip`", notes)
+            self.assertNotIn("`SSRVPN.zip.sha256`", notes)
 
 
 if __name__ == "__main__":

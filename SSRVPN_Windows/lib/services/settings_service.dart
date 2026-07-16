@@ -8,12 +8,15 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
 import '../models/app_settings.dart';
 import 'windows_dpapi_secret_store.dart';
 
-/// 设置持久化服务 (Windows 便携版)
+/// 设置持久化服务（Windows 安装版）。
 ///
-/// 使用 JSON 文件存储设置，放在 exe 同级目录下，支持绿色免安装。
+/// 数据优先放在内部应用 EXE 旁；目录不可写时回退到 LocalAppData。
 class SettingsService extends ChangeNotifier {
   static const _apiSecretFileName = '.api-secret.dpapi';
-  static const _portableDataFiles = [
+  // Keep the legacy filename so completed migrations are not replayed after
+  // the portable distribution channel is retired.
+  static const _installedMigrationMarkerName = '.portable-migration-v1';
+  static const _installedDataFiles = [
     _apiSecretFileName,
     'settings.json',
     'subscriptions.json',
@@ -22,7 +25,7 @@ class SettingsService extends ChangeNotifier {
     'country.mmdb',
     'geoip.metadb',
   ];
-  static const _criticalPortableDataFiles = {
+  static const _criticalInstalledDataFiles = {
     _apiSecretFileName,
     'settings.json',
     'subscriptions.json',
@@ -101,10 +104,10 @@ class SettingsService extends ChangeNotifier {
 
   Future<String> _resolveDataDirectory() async {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
-    final portableDir = '$exeDir${Platform.pathSeparator}ssrvpn';
+    final installedDir = '$exeDir${Platform.pathSeparator}ssrvpn';
     try {
-      await _verifyWritableDirectory(portableDir);
-      return portableDir;
+      await _verifyWritableDirectory(installedDir);
+      return installedDir;
     } catch (e) {
       final localAppData = Platform.environment['LOCALAPPDATA'];
       if (localAppData == null || localAppData.trim().isEmpty) {
@@ -114,7 +117,7 @@ class SettingsService extends ChangeNotifier {
       final fallbackDir =
           '$localAppData${Platform.pathSeparator}SSRVPN${Platform.pathSeparator}ssrvpn';
       await _verifyWritableDirectory(fallbackDir);
-      await _migratePortableData(portableDir, fallbackDir);
+      await _migrateInstalledData(installedDir, fallbackDir);
       _storageNotice = '程序目录不可写，数据已改存到 $fallbackDir（原因: $e）';
       return fallbackDir;
     }
@@ -134,30 +137,48 @@ class SettingsService extends ChangeNotifier {
   }
 
   @visibleForTesting
-  static Future<void> migratePortableDataForTesting(
-    String portableDir,
+  static Future<void> migrateInstalledDataForTesting(
+    String installedDir,
     String fallbackDir,
   ) =>
-      _migratePortableData(portableDir, fallbackDir);
+      _migrateInstalledData(installedDir, fallbackDir);
 
-  static Future<void> _migratePortableData(
-    String portableDir,
+  static Future<void> _migrateInstalledData(
+    String installedDir,
     String fallbackDir,
   ) async {
-    final source = Directory(portableDir);
+    final source = Directory(installedDir);
     if (!await source.exists()) return;
+    final migrationMarker = File(
+      '$fallbackDir${Platform.pathSeparator}$_installedMigrationMarkerName',
+    );
+    final markerType = await FileSystemEntity.type(
+      migrationMarker.path,
+      followLinks: false,
+    );
+    if (markerType == FileSystemEntityType.file &&
+        (await migrationMarker.readAsString()).trim() == '1') {
+      return;
+    }
+    if (markerType != FileSystemEntityType.notFound &&
+        markerType != FileSystemEntityType.file) {
+      throw FileSystemException(
+        'Installed migration marker must be a regular file',
+        migrationMarker.path,
+      );
+    }
 
-    for (final name in _portableDataFiles) {
-      final sourceFile = File('$portableDir${Platform.pathSeparator}$name');
+    for (final name in _installedDataFiles) {
+      final sourceFile = File('$installedDir${Platform.pathSeparator}$name');
       final targetFile = File('$fallbackDir${Platform.pathSeparator}$name');
-      final critical = _criticalPortableDataFiles.contains(name);
+      final critical = _criticalInstalledDataFiles.contains(name);
       final sourceType =
           await FileSystemEntity.type(sourceFile.path, followLinks: false);
       if (sourceType == FileSystemEntityType.notFound) continue;
       if (sourceType != FileSystemEntityType.file) {
         if (critical) {
           throw FileSystemException(
-            'Critical portable data must be a regular file',
+            'Critical installed data must be a regular file',
             sourceFile.path,
           );
         }
@@ -179,7 +200,7 @@ class SettingsService extends ChangeNotifier {
             await targetFile.readAsBytes(),
           )) {
             throw StateError(
-              'Portable data conflicts with existing fallback $name',
+              'Installed data conflicts with existing fallback $name',
             );
           }
         }
@@ -195,7 +216,7 @@ class SettingsService extends ChangeNotifier {
             )) {
           await targetFile.delete();
           throw StateError(
-              'Portable data migration verification failed: $name');
+              'Installed data migration verification failed: $name');
         }
       } catch (error, stackTrace) {
         if (critical) {
@@ -211,6 +232,17 @@ class SettingsService extends ChangeNotifier {
         }
         // A single locked cache file should not block application startup.
       }
+    }
+
+    final temporaryMarker = File('${migrationMarker.path}.tmp');
+    try {
+      await temporaryMarker.writeAsString('1\n', flush: true);
+      await temporaryMarker.rename(migrationMarker.path);
+    } catch (error, stackTrace) {
+      try {
+        if (await temporaryMarker.exists()) await temporaryMarker.delete();
+      } catch (_) {}
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 

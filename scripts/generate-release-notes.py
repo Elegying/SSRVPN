@@ -12,7 +12,6 @@ DOWNLOADS = """### 下载
 | Android | `SSRVPN.apk` | `SSRVPN.apk.sha256` |
 | macOS | `SSRVPN.dmg` | `SSRVPN.dmg.sha256` |
 | Windows 安装版 | `SSRVPN_Setup.exe` | `SSRVPN_Setup.exe.sha256` |
-| Windows 便携版 | `SSRVPN.zip` | `SSRVPN.zip.sha256` |
 
 校验 SHA256：`shasum -a 256 -c <file>.sha256`
 """

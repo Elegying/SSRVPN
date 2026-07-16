@@ -48,8 +48,10 @@ const _tunRouteDestinations = <String>[
 class WindowsTunTeardownGate {
   final _interfaces = <WindowsTunInterfaceIdentity>{};
   bool _pending = false;
+  bool _ownershipKnown = true;
 
   bool get pending => _pending;
+  bool get ownershipKnown => _ownershipKnown;
   Set<WindowsTunInterfaceIdentity> get interfaces =>
       Set.unmodifiable(_interfaces);
   bool shouldProbeBeforeStart({required bool enableTun}) =>
@@ -60,21 +62,31 @@ class WindowsTunTeardownGate {
         const <WindowsTunInterfaceIdentity>[],
   ]) {
     _pending = true;
-    _interfaces.addAll(interfaces);
+    final captured = interfaces.toSet();
+    if (captured.isEmpty) {
+      if (_interfaces.isEmpty) _ownershipKnown = false;
+      return;
+    }
+    _interfaces.addAll(captured);
+    _ownershipKnown = true;
   }
 
   void observe(WindowsTunResidualProbeResult result) {
-    _interfaces.addAll(result.interfaces);
+    if (result.interfaces.isNotEmpty) {
+      _interfaces.addAll(result.interfaces);
+      _ownershipKnown = true;
+    }
     if (result.status != WindowsTunResidualStatus.gone) _pending = true;
   }
 
   bool accept(WindowsTunResidualProbeResult result) {
     observe(result);
-    if (result.status != WindowsTunResidualStatus.gone) {
+    if (!_ownershipKnown || result.status != WindowsTunResidualStatus.gone) {
       return false;
     }
     _pending = false;
     _interfaces.clear();
+    _ownershipKnown = true;
     return true;
   }
 }

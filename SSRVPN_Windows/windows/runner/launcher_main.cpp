@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "guardian_restart.h"
 #include "system_proxy_recovery.h"
 
 namespace {
@@ -1046,7 +1047,8 @@ bool StartGuardian(const std::wstring& launcher_path,
   }
   return true;
 }
-
+constexpr DWORD kGuardianRestartAttempts = 5;
+constexpr DWORD kGuardianRestartDelayMs = 100;
 // ── Child process creation ──
 
 bool CreateChildProcess(const std::wstring& child_path,
@@ -1125,8 +1127,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
   if (::GetFileAttributesW(child_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
     ShowError(L"SSRVPN",
               L"找不到 SSRVPN 主程序：\n\n" + child_path +
-                  L"\n\n请完整解压 ZIP 后再运行，不能只复制 ssrvpn_windows.exe。"
-                  L"\n也可以改用 SSRVPN 安装版。"
+                  L"\n\n安装目录不完整，请重新运行 SSRVPN_Setup.exe 修复安装。"
     );
     return ERROR_FILE_NOT_FOUND;
   }
@@ -1387,8 +1388,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
     if (!fail_closed_cleanup_pending) {
       HANDLE replacement_commit_event = nullptr;
       if (process_job != nullptr &&
-          StartGuardian(launcher_path, launcher_directory, child_process_id, 0,
-                        &guardian_process, &replacement_commit_event, &error)) {
+          RetryGuardianStart(kGuardianRestartAttempts,
+              kGuardianRestartDelayMs, [&]() {
+                return StartGuardian(
+                    launcher_path, launcher_directory, child_process_id, 0,
+                    &guardian_process, &replacement_commit_event, &error);
+              })) {
         if (::SetEvent(replacement_commit_event)) {
           ::CloseHandle(replacement_commit_event);
           continue;

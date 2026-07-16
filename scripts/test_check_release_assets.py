@@ -15,7 +15,19 @@ SCRIPT = ROOT / "scripts" / "check-release-assets.sh"
 class CheckReleaseAssetsTests(unittest.TestCase):
     def test_rejects_noncanonical_release_assets(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("unexpected = sorted(set(assets) - required)", source)
+        self.assertIn(
+            "unexpected = sorted(set(assets) - required - allowed_retired)",
+            source,
+        )
+
+    def test_only_rollback_may_tolerate_retired_windows_zip_assets(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        rollback = (ROOT / ".github" / "workflows" / "oss-rollback.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("SSRVPN_ALLOW_RETIRED_WINDOWS_ZIP", source)
+        self.assertIn("SSRVPN_ALLOW_RETIRED_WINDOWS_ZIP: '1'", rollback)
 
     def test_retries_gh_and_verifies_local_downloads(self) -> None:
         digest = "a" * 64
@@ -24,7 +36,6 @@ class CheckReleaseAssetsTests(unittest.TestCase):
             "SSRVPN.apk",
             "SSRVPN.dmg",
             "SSRVPN_Setup.exe",
-            "SSRVPN.zip",
         )
 
         with tempfile.TemporaryDirectory() as temporary_directory:

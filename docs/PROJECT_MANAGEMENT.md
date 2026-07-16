@@ -66,7 +66,7 @@ Current personal releases use the free path:
 
 - Android self-signed release keystore,
 - macOS ad-hoc signing without notarization,
-- Windows unsigned per-user installer and portable ZIP.
+- Windows unsigned per-user installer only.
 
 Paid Apple Developer ID notarization and Windows Authenticode signing are intentionally out of scope. Do not add certificate secrets or optional paid-signing branches unless this product decision is explicitly replaced.
 

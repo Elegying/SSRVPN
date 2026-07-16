@@ -33,7 +33,7 @@ fi
 echo
 echo "Local deliverables"
 echo "------------------"
-for file in dist/SSRVPN.apk dist/SSRVPN.dmg dist/SSRVPN.zip; do
+for file in dist/SSRVPN.apk dist/SSRVPN.dmg SSRVPN_Windows/SSRVPN_Setup.exe; do
   if [ -f "$file" ]; then
     size="$(du -h "$file" | awk '{print $1}')"
     echo "OK   $file ($size)"

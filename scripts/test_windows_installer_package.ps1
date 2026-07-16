@@ -23,6 +23,9 @@ if ([System.IO.Path]::GetFileName($installer) -ne 'SSRVPN_Setup.exe' -or
 }
 
 $installDir = Join-Path $env:LOCALAPPDATA 'Programs\SSRVPN'
+$uninstallRegistryPath =
+  'Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
+  '{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1'
 if (Test-Path -LiteralPath $installDir) {
   throw "Refusing to overwrite a pre-existing smoke-test install: $installDir"
 }
@@ -253,6 +256,9 @@ foreach ($cacheRoot in $cacheRoots) {
   if (Test-Path -LiteralPath $cacheRoot) {
     throw "Uninstaller left WebView cache behind: $cacheRoot"
   }
+}
+if (Test-Path -LiteralPath $uninstallRegistryPath) {
+  throw "Uninstaller left its registry entry behind: $uninstallRegistryPath"
 }
 
 Write-Host "Windows installer install/uninstall smoke test passed. Logs: $logDir"

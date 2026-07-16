@@ -96,7 +96,7 @@ git push origin vX.Y.Z
 
 - Android APK
 - macOS DMG
-- Windows 安装版 EXE 和便携版 ZIP
+- Windows 安装版 EXE
 
 正式 tag 构建完成后，Release workflow 还会把同一批已校验产物上传到阿里云
 OSS，并在最后一步更新 `ssrvpn/latest.json`。客户端优先读取 OSS，GitHub

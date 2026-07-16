@@ -76,8 +76,8 @@ class SystemProxyService {
     _dataDir = dataDir;
     _lastError = null;
     _endpointSafeWithPendingRecovery = false;
-    // This snapshot is machine-specific state. Keeping it outside the portable
-    // directory prevents a copied folder from restoring another PC's proxy.
+    // This snapshot is machine-specific state. Keeping it outside the install
+    // directory prevents copied app files from restoring another PC's proxy.
     final localAppData =
         _localAppDataOverride ?? Platform.environment['LOCALAPPDATA'];
     if (localAppData == null ||
@@ -218,6 +218,35 @@ class SystemProxyService {
     }
   }
 
+  Future<bool> isCurrentSystemProxyOwned() async {
+    if (!_isWindows) return false;
+    try {
+      return await _withProxyTransactionLock(
+        _isCurrentSystemProxyOwnedUnlocked,
+      );
+    } catch (e) {
+      _lastError = '系统代理状态检查失败: $e';
+      return false;
+    }
+  }
+
+  Future<bool> _isCurrentSystemProxyOwnedUnlocked() async {
+    if (!_ownsProxy) {
+      _lastError = 'SSRVPN 当前未持有 Windows 系统代理';
+      return false;
+    }
+    final current = await _readCurrentProxy();
+    if (current == null) {
+      _lastError ??= '无法读取当前 Windows 系统代理设置';
+      return false;
+    }
+    if (!_isOwnedProxy(current, _ownedProxyServer)) {
+      _lastError = 'Windows 系统代理已被关闭或修改';
+      return false;
+    }
+    return true;
+  }
+
   Future<bool> _setSystemProxyUnlocked(String host, int port) async {
     if (!_isWindows) return false;
     _lastError = null;
@@ -279,6 +308,16 @@ ${_notifyWinInetScript()}
         await _markActivationComplete();
       } catch (e) {
         return _rollbackFailedAcquisition('提交 Windows 系统代理状态失败: $e');
+      }
+
+      if (!await _isCurrentSystemProxyOwnedUnlocked()) {
+        final verificationError = _lastError ?? '无法确认 Windows 系统代理已生效';
+        final released = await _clearSystemProxyUnlocked();
+        final releaseError = _lastError;
+        _lastError = released || releaseError == null
+            ? verificationError
+            : '$verificationError；$releaseError';
+        return false;
       }
 
       _proxyEnabled = true;

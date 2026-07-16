@@ -4,6 +4,7 @@ param(
   [string]$InstalledCorePath = '',
   [string]$InstalledCorePidPath = '',
   [string]$StatusPath = '',
+  [switch]$RequireRecoveryCleanup,
   [ValidateRange(100, 8000)]
   [int]$TunTeardownTimeoutMilliseconds = 8000,
   [ValidateRange(100, 30000)]
@@ -1018,7 +1019,11 @@ function Restore-OwnedSystemProxy {
 }
 
 function Disable-OwnedSystemProxyEndpoint {
-  $backup = Get-ProxyRecoveryState
+  param([AllowNull()]$Backup)
+
+  $backup = if ($null -ne $Backup) { $Backup } else {
+    Get-ProxyRecoveryState
+  }
   if (-not $backup) { return }
 
   $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
@@ -1044,7 +1049,6 @@ function Test-SystemProxySafeToStop {
   )
 
   try {
-    if (-not (Test-NativeRecoveryJournalNonReplayable)) { return $false }
     $regPath =
       'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
     $current = Get-ItemProperty -Path $regPath
@@ -1055,6 +1059,7 @@ function Test-SystemProxySafeToStop {
       return $false
     }
     if ([int]$current.ProxyEnable -eq 0) { return $true }
+    if (-not (Test-NativeRecoveryJournalNonReplayable)) { return $false }
     if ([int]$current.ProxyEnable -ne 1) { return $false }
 
     $hasProxyServer = $null -ne $current.PSObject.Properties['ProxyServer']
@@ -1201,7 +1206,7 @@ try {
   Write-Warning "Exact system-proxy restore failed: $($_.Exception.Message)"
   $proxyRecoveryFailed = $true
   try {
-    Disable-OwnedSystemProxyEndpoint
+    Disable-OwnedSystemProxyEndpoint -Backup $proxyBackup
   } catch {
     Write-Warning "Could not disable the owned proxy endpoint: $($_.Exception.Message)"
     $proxyRecoveryFailed = $true
@@ -1210,9 +1215,18 @@ try {
 
 if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup `
       -InstalledProcessRunning $installedProcessRunning)) {
-  Set-StopStatus -Status 'PROXY_UNSAFE'
-  Write-Warning 'Proxy recovery is not safe; the still-live core was retained.'
-  exit 3
+  try {
+    Disable-OwnedSystemProxyEndpoint -Backup $proxyBackup
+  } catch {
+    $proxyRecoveryFailed = $true
+    Write-Warning "Could not disable the captured SSRVPN proxy endpoint: $($_.Exception.Message)"
+  }
+  if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup `
+        -InstalledProcessRunning $installedProcessRunning)) {
+    Set-StopStatus -Status 'PROXY_UNSAFE'
+    Write-Warning 'Proxy recovery is not safe; the still-live core was retained.'
+    exit 3
+  }
 }
 
 foreach ($launcher in $installedLaunchers) {
@@ -1296,9 +1310,12 @@ if ($InstalledCorePidPath) {
 }
 
 if ($proxyRecoveryFailed) {
-  Set-StopStatus -Status 'RECOVERY_CLEANUP_PENDING'
-  Write-Warning 'Proxy endpoint is safe and processes are stopped, but recovery artifacts remain; refusing file changes.'
-  exit 3
+  if ($RequireRecoveryCleanup) {
+    Set-StopStatus -Status 'RECOVERY_CLEANUP_PENDING'
+    Write-Warning 'Proxy endpoint is safe, but uninstall cannot remove the recovery helper while recovery artifacts remain.'
+    exit 3
+  }
+  Write-Warning 'Proxy endpoint is safe, but recovery artifacts remain for the installed app to retry.'
 }
 
 Set-StopStatus -Status 'OK'

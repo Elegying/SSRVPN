@@ -349,7 +349,7 @@ jobs:
 
   # ── Windows ──
   build-windows:
-    name: Windows packages
+    name: Windows installer
     needs: [shared-test, prepare-geoip]
     runs-on: windows-latest
     steps:
@@ -385,7 +385,7 @@ jobs:
         shell: bash
         run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows
 
-      - name: Build Windows packages
+      - name: Build Windows installer
         shell: powershell
         timeout-minutes: 15
         run: |
@@ -414,67 +414,14 @@ jobs:
           path: ${{ runner.temp }}/ssrvpn-installer-smoke/*.log
           if-no-files-found: ignore
 
-      - name: Verify portable ZIP
-        shell: powershell
-        run: |
-          $zip = 'SSRVPN_Windows\SSRVPN.zip'
-          if (-not (Test-Path -LiteralPath $zip -PathType Leaf)) {
-            throw "Windows ZIP was not created: $zip"
-          }
-
-          $verifyRoot = Join-Path $env:RUNNER_TEMP "ssrvpn-zip-$([Guid]::NewGuid().ToString('N'))"
-          Expand-Archive -LiteralPath $zip -DestinationPath $verifyRoot
-          $portableRoot = Join-Path $verifyRoot 'SSRVPN_Windows_Release'
-          foreach ($relativePath in @(
-            'ssrvpn_windows.exe',
-            'concrt140.dll',
-            'msvcp140.dll',
-            'msvcp140_1.dll',
-            'msvcp140_2.dll',
-            'msvcp140_atomic_wait.dll',
-            'msvcp140_codecvt_ids.dll',
-            'vcruntime140.dll',
-            'vcruntime140_1.dll',
-            'remove_legacy_cet_exemption.ps1',
-            'remove_legacy_cet_exemption.bat',
-            'bin\ssrvpn_windows_app.exe',
-            'bin\mihomo.exe',
-            'SHA256SUMS.txt',
-            'bin\data\flutter_assets\assets\geoip.metadb.gz'
-          )) {
-            $path = Join-Path $portableRoot $relativePath
-            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-              throw "Portable ZIP is missing $relativePath"
-            }
-          }
-          $rootExeFiles = @(Get-ChildItem -LiteralPath $portableRoot -File -Filter '*.exe')
-          if ($rootExeFiles.Count -ne 1 -or $rootExeFiles[0].Name -ne 'ssrvpn_windows.exe') {
-            $names = ($rootExeFiles | ForEach-Object { $_.Name }) -join ', '
-            throw "Portable ZIP root must contain exactly one user-facing exe: $names"
-          }
-          Remove-Item -LiteralPath $verifyRoot -Recurse -Force
-
       - name: Smoke release artifact
         run: bash scripts/smoke-release-artifacts.sh --allow-missing
-
-      - name: Generate portable ZIP checksum
-        shell: powershell
-        run: |
-          cd SSRVPN_Windows
-          $hash = (Get-FileHash SSRVPN.zip -Algorithm SHA256).Hash.ToLower()
-          [System.IO.File]::WriteAllText(
-            (Join-Path (Get-Location) 'SSRVPN.zip.sha256'),
-            "$hash  SSRVPN.zip`n",
-            [System.Text.Encoding]::ASCII
-          )
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: windows
           path: |
-            SSRVPN_Windows/SSRVPN.zip
-            SSRVPN_Windows/SSRVPN.zip.sha256
             SSRVPN_Windows/SSRVPN_Setup.exe
             SSRVPN_Windows/SSRVPN_Setup.exe.sha256
 
@@ -563,7 +510,6 @@ jobs:
             --asset artifacts/android/SSRVPN.apk \
             --asset artifacts/macos/SSRVPN.dmg \
             --asset artifacts/windows/SSRVPN_Setup.exe \
-            --asset artifacts/windows/SSRVPN.zip \
             --output artifacts/SSRVPN-release-provenance.json
 
       - name: Generate verified OSS update manifest
@@ -582,7 +528,6 @@ jobs:
             --asset artifacts/android/SSRVPN.apk \
             --asset artifacts/macos/SSRVPN.dmg \
             --asset artifacts/windows/SSRVPN_Setup.exe \
-            --asset artifacts/windows/SSRVPN.zip \
             --output artifacts/oss/latest.json
 
       - name: Reject a public-channel rollback
@@ -627,8 +572,6 @@ jobs:
             artifacts/macos/SSRVPN.dmg.sha256
             artifacts/windows/SSRVPN_Setup.exe
             artifacts/windows/SSRVPN_Setup.exe.sha256
-            artifacts/windows/SSRVPN.zip
-            artifacts/windows/SSRVPN.zip.sha256
             artifacts/SSRVPN-release-provenance.json
           generate_release_notes: false
           draft: true
@@ -660,8 +603,6 @@ jobs:
             artifacts/macos/SSRVPN.dmg.sha256
             artifacts/windows/SSRVPN_Setup.exe
             artifacts/windows/SSRVPN_Setup.exe.sha256
-            artifacts/windows/SSRVPN.zip
-            artifacts/windows/SSRVPN.zip.sha256
           )
           public_base="https://$OSS_BUCKET.$OSS_ENDPOINT"
           versioned_files=("${files[@]}" artifacts/oss/latest.json)
@@ -705,7 +646,6 @@ jobs:
           cp artifacts/android/SSRVPN.apk* "$public_assets/"
           cp artifacts/macos/SSRVPN.dmg* "$public_assets/"
           cp artifacts/windows/SSRVPN_Setup.exe* "$public_assets/"
-          cp artifacts/windows/SSRVPN.zip* "$public_assets/"
           OSS_BACKUP_DIR="$backup_dir" OSS_PRESERVE_BACKUP=1 \
             bash scripts/promote-oss-public-channel.sh \
             "$public_assets" artifacts/oss/latest.json
@@ -860,7 +800,6 @@ jobs:
               "SSRVPN.apk",
               "SSRVPN.dmg",
               "SSRVPN_Setup.exe",
-              "SSRVPN.zip",
           }
           expected_release_assets = binaries | {
               f"{name}.sha256" for name in binaries

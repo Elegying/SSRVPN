@@ -16,8 +16,6 @@ REQUIRED_ASSETS = {
     "SSRVPN.dmg.sha256",
     "SSRVPN_Setup.exe",
     "SSRVPN_Setup.exe.sha256",
-    "SSRVPN.zip",
-    "SSRVPN.zip.sha256",
     "SSRVPN-release-provenance.json",
 }
 SHA256_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
@@ -27,7 +25,6 @@ CANONICAL_BINARIES = {
     "SSRVPN.apk",
     "SSRVPN.dmg",
     "SSRVPN_Setup.exe",
-    "SSRVPN.zip",
 }
 
 
@@ -55,6 +52,11 @@ def validate_release_metadata(
     missing = sorted(REQUIRED_ASSETS - set(assets))
     if missing:
         raise ValueError("GitHub release is incomplete: " + ", ".join(missing))
+    unexpected = sorted(set(assets) - REQUIRED_ASSETS)
+    if unexpected:
+        raise ValueError(
+            "GitHub release has unexpected assets: " + ", ".join(unexpected)
+        )
     for name in sorted(REQUIRED_ASSETS):
         asset = assets[name]
         size = int(asset.get("size") or 0)

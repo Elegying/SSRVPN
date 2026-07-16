@@ -2,6 +2,29 @@ part of 'clash_service.dart';
 
 class _DesktopStartCancelled implements Exception {}
 
+Future<bool> terminateMacosCoreProcess({
+  required Future<int> exitCode,
+  required bool Function(ProcessSignal signal) sendSignal,
+  Duration gracefulTimeout = const Duration(seconds: 3),
+  Duration forcedTimeout = const Duration(seconds: 3),
+}) async {
+  try {
+    sendSignal(ProcessSignal.sigterm);
+    await exitCode.timeout(gracefulTimeout);
+    return true;
+  } on TimeoutException {
+    if (!sendSignal(ProcessSignal.sigkill)) return false;
+    try {
+      await exitCode.timeout(forcedTimeout);
+      return true;
+    } on TimeoutException {
+      return false;
+    }
+  } catch (_) {
+    return false;
+  }
+}
+
 mixin _MacosCoreLifecycle on ClashServiceBase {
   static const _filePath = '/usr/bin/file';
   static const _psPath = '/bin/ps';
@@ -249,14 +272,22 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       return false;
     }
 
-    if (isRunning) {
-      try {
-        if (await healthCheck()) return true;
-      } catch (_) {}
+    if (isRunning || _clashProcess != null) {
+      if (isRunning) {
+        try {
+          if (await healthCheck()) return true;
+        } catch (_) {}
+      }
       _ensureStartCurrent(startToken);
-      setRunning(false);
-      _clashProcess = null;
-      stopStatusMonitor();
+      final stoppedSafely = await _stopInternal();
+      _ensureStartCurrent(startToken);
+      if (!stoppedSafely || _clashProcess != null) {
+        setLastStartError(
+          lastStartError ?? '现有 Mihomo 核心无法安全停止，已拒绝启动新的核心',
+        );
+        log('❌ $lastStartError');
+        return false;
+      }
     }
 
     try {
@@ -462,7 +493,9 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     final proxyCleared = await _stopInternal();
     if (!proxyCleared) {
       throw StateError(
-        _proxyService.lastError ?? 'macOS 系统代理恢复失败，请再次尝试断开',
+        lastStartError ??
+            _proxyService.lastError ??
+            'macOS 系统代理或 Mihomo 核心未能安全停止，请再次尝试断开',
       );
     }
   }
@@ -497,19 +530,23 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     final process = _clashProcess;
     if (process != null) {
       _stoppingCore = true;
+      var terminated = false;
       try {
-        process.kill(ProcessSignal.sigterm);
-        await process.exitCode.timeout(
-          const Duration(seconds: 3),
-          onTimeout: () {
-            process.kill(ProcessSignal.sigkill);
-            return -1;
-          },
+        terminated = await terminateMacosCoreProcess(
+          exitCode: process.exitCode,
+          sendSignal: process.kill,
         );
       } catch (e) {
         log('停止核心异常: $e');
       } finally {
         _stoppingCore = false;
+      }
+      if (!terminated) {
+        setLastStartError('无法确认 Mihomo 核心已退出，已保留进程状态并拒绝重新启动');
+        log('❌ $lastStartError');
+        if (isRunning) startStatusMonitor();
+        notifyStatusChanged();
+        return false;
       }
       _clashProcess = null;
     }

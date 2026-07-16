@@ -54,6 +54,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ROLLBACK_TAG: ${{ inputs.tag }}
+          SSRVPN_ALLOW_RETIRED_WINDOWS_ZIP: '1'
         run: |
           set -euo pipefail
           release_dir="$RUNNER_TEMP/rollback-release"
@@ -65,9 +66,8 @@ jobs:
           gh release download "$ROLLBACK_TAG" --dir "$release_dir" \
             --pattern 'SSRVPN.apk' --pattern 'SSRVPN.apk.sha256' \
             --pattern 'SSRVPN.dmg' --pattern 'SSRVPN.dmg.sha256' \
-            --pattern 'SSRVPN_Setup.exe' --pattern 'SSRVPN_Setup.exe.sha256' \
-            --pattern 'SSRVPN.zip' --pattern 'SSRVPN.zip.sha256'
-          for name in SSRVPN.apk SSRVPN.dmg SSRVPN_Setup.exe SSRVPN.zip; do
+            --pattern 'SSRVPN_Setup.exe' --pattern 'SSRVPN_Setup.exe.sha256'
+          for name in SSRVPN.apk SSRVPN.dmg SSRVPN_Setup.exe; do
             (cd "$release_dir" && sha256sum -c "$name.sha256")
           done
 
@@ -91,10 +91,9 @@ jobs:
             --asset "$release_dir/SSRVPN.apk" \
             --asset "$release_dir/SSRVPN.dmg" \
             --asset "$release_dir/SSRVPN_Setup.exe" \
-            --asset "$release_dir/SSRVPN.zip" \
             --output "$RUNNER_TEMP/rollback-latest.json"
 
-          for name in SSRVPN.apk SSRVPN.dmg SSRVPN_Setup.exe SSRVPN.zip; do
+          for name in SSRVPN.apk SSRVPN.dmg SSRVPN_Setup.exe; do
             curl -fsSL --retry 3 --connect-timeout 10 --max-time 180 \
               --max-filesize 314572800 "$base_url/$name" \
               -o "$RUNNER_TEMP/oss-$name"

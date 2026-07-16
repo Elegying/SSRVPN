@@ -12,21 +12,21 @@ set "TEMP_OUT=%TEMP%\ssrvpn_diag_%RANDOM%_%RANDOM%.log"
 set MISSING_DLLS=0
 
 > "%DIAG_LOG%" (
-  echo SSRVPN Windows 便携版启动诊断工具
+  echo SSRVPN Windows 启动诊断工具
   echo 生成时间: %date% %time%
   echo 目录: %~dp0
   echo.
 )
 
 call :log "============================================"
-call :log " SSRVPN Windows 便携版启动诊断工具"
+call :log " SSRVPN Windows 启动诊断工具"
 call :log "============================================"
 call :log ""
 
 call :log "[1/7] 检查 Windows SmartScreen 拦截..."
 if not exist "%EXE_PATH%" (
     call :log "[ERROR] ssrvpn_windows.exe 不存在！"
-    call :log "请确认已经完整解压 ZIP 包，不要在压缩包预览窗口中直接运行。"
+    call :log "请重新运行 SSRVPN_Setup.exe 修复安装。"
     set /a MISSING_DLLS+=1
     goto :summary
 )
@@ -73,7 +73,7 @@ reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
     call :log "[OK]  系统已安装 VC++ 2015-2022 运行时"
 ) else (
-    call :log "[INFO] 系统未检测到 VC++ 运行时；便携版应自带所需 DLL。"
+    call :log "[INFO] 系统未检测到 VC++ 运行时；安装版应自带所需 DLL。"
 )
 
 call :log ""
@@ -82,7 +82,7 @@ where d3dcompiler_47.dll >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
     call :log "[OK]  系统已有 d3dcompiler_47.dll"
 ) else if exist "%BIN_DIR%d3dcompiler_47.dll" (
-    call :log "[OK]  便携版自带 bin\d3dcompiler_47.dll"
+    call :log "[OK]  安装版自带 bin\d3dcompiler_47.dll"
 ) else (
     call :log "[ERR]  缺少 d3dcompiler_47.dll，这是 Flutter 渲染必需组件。"
     set /a MISSING_DLLS+=1

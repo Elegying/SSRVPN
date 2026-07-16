@@ -85,6 +85,9 @@ const
   UpdateHandoffRequestSuffix = '.ssrvpn-handoff';
   UpdateHandoffStatusSuffix = '.ssrvpn-handoff-status';
   StopStatusSuffix = '.ssrvpn-stop-status';
+  UninstallRegistryKey =
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
+    '{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1';
 
 var
   AppGateMutex: THandle;
@@ -245,7 +248,8 @@ begin
   Result := '诊断阶段码：' + LastStopStatus + '。';
 end;
 
-function RunStopSsrvpnProcesses(ScriptPath: String): Integer;
+function RunStopSsrvpnProcesses(ScriptPath: String;
+  RequireRecoveryCleanup: Boolean): Integer;
 var
   ResultCode: Integer;
   Started: Boolean;
@@ -276,6 +280,8 @@ begin
       ' -InstalledCorePath ' + AddQuotes(InstalledCorePath) +
       ' -InstalledCorePidPath ' + AddQuotes(InstalledCorePidPath) +
       ' -StatusPath ' + AddQuotes(StatusPath);
+    if RequireRecoveryCleanup then
+      Parameters := Parameters + ' -RequireRecoveryCleanup';
     Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
       ewWaitUntilTerminated, ResultCode);
     if Started then
@@ -297,7 +303,7 @@ function StopSsrvpnProcesses: Integer;
 begin
   ExtractTemporaryFile('stop_ssrvpn_processes.ps1');
   Result := RunStopSsrvpnProcesses(
-    ExpandConstant('{tmp}\stop_ssrvpn_processes.ps1'));
+    ExpandConstant('{tmp}\stop_ssrvpn_processes.ps1'), False);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -395,7 +401,7 @@ begin
     exit;
   end;
   StopResult := RunStopSsrvpnProcesses(
-    ExpandConstant('{app}\installer\stop_ssrvpn_processes.ps1'));
+    ExpandConstant('{app}\installer\stop_ssrvpn_processes.ps1'), True);
   Result := (StopResult = 0) and
     AcquireLauncherGate(GateWaitMilliseconds);
   if not Result then
@@ -414,6 +420,15 @@ begin
     else
       MsgBox('无法取得 SSRVPN 卸载期启动保护，卸载尚未删除程序文件。' + #13#10 +
         '请稍后重试；如果仍然失败，请重启 Windows。', mbError, MB_OK);
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    if not RegDeleteKeyIncludingSubkeys(HKCU, UninstallRegistryKey) then
+      Log('SSRVPN uninstall registry entry was already absent or could not be removed.');
   end;
 end;
 

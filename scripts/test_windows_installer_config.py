@@ -76,7 +76,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             encoding="utf-8-sig"
         )
         self.assertIn("覆盖升级会保留安装版的设置、订阅", notice)
-        self.assertIn("便携副本不会被搜索或修改", notice)
+        self.assertIn("旧独立副本不会被搜索或修改", notice)
         self.assertNotIn("永久删除当前 Windows 用户的 SSRVPN 旧数据", notice)
         self.assertIn("ssrvpn_windows_app.exe", script)
         self.assertIn("ssrvpn_windows.exe", script)
@@ -560,6 +560,16 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             restore_attempt.index("Disable-OwnedSystemProxyEndpoint"),
         )
         self.assertIn("Test-SystemProxySafeToStop -Backup $proxyBackup", stopper)
+        fallback = runtime_flow.index(
+            "Disable-OwnedSystemProxyEndpoint -Backup $proxyBackup",
+            proxy_gate,
+        )
+        final_proxy_gate = runtime_flow.index(
+            "if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup",
+            fallback,
+        )
+        self.assertLess(proxy_gate, fallback)
+        self.assertLess(fallback, final_proxy_gate)
         self.assertGreater(
             runtime_flow.rindex("if ($proxyRecoveryFailed)"),
             runtime_flow.index("$remainingApps = @("),
@@ -694,6 +704,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         runner = installer.split("function RunStopSsrvpnProcesses", 1)[1].split(
             "function StopSsrvpnProcesses", 1
         )[0]
+        self.assertIn("RequireRecoveryCleanup: Boolean", runner)
+        self.assertIn("if RequireRecoveryCleanup then", runner)
+        self.assertIn("' -RequireRecoveryCleanup'", runner)
         self.assertIn("GenerateUniqueName(", runner)
         self.assertIn("StopStatusSuffix", runner)
         self.assertIn("' -StatusPath ' + AddQuotes(StatusPath)", runner)
@@ -884,10 +897,29 @@ class WindowsInstallerConfigTest(unittest.TestCase):
                 "$apps = @()"
             )
         ]
-        self.assertLess(
-            safe_to_stop.index("Test-NativeRecoveryJournalNonReplayable"),
-            safe_to_stop.index("$regPath"),
+        disabled_endpoint = safe_to_stop.index(
+            "if ([int]$current.ProxyEnable -eq 0) { return $true }"
         )
+        journal_gate = safe_to_stop.index(
+            "Test-NativeRecoveryJournalNonReplayable"
+        )
+        self.assertLess(
+            disabled_endpoint,
+            journal_gate,
+        )
+        disable_owned = stopper[
+            stopper.index("function Disable-OwnedSystemProxyEndpoint") :
+            stopper.index("function Test-SystemProxySafeToStop")
+        ]
+        self.assertIn("[AllowNull()]$Backup", disable_owned)
+        self.assertIn("[switch]$RequireRecoveryCleanup", stopper)
+        cleanup_failure = stopper[stopper.rindex("if ($proxyRecoveryFailed)") :]
+        self.assertIn("if ($RequireRecoveryCleanup)", cleanup_failure)
+        self.assertIn(
+            "Set-StopStatus -Status 'RECOVERY_CLEANUP_PENDING'",
+            cleanup_failure,
+        )
+        self.assertIn("exit 3", cleanup_failure)
 
     def test_uninstaller_restores_proxy_and_stops_only_its_installation(
         self,
@@ -902,11 +934,29 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
 
         self.assertIn("function InitializeUninstall(): Boolean;", installer)
+        self.assertIn(
+            "UninstallRegistryKey =\n"
+            "    'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\' +\n"
+            "    '{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1';",
+            installer,
+        )
+        self.assertIn(
+            "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);",
+            installer,
+        )
+        self.assertIn(
+            "RegDeleteKeyIncludingSubkeys(HKCU, UninstallRegistryKey)",
+            installer,
+        )
         self.assertIn("{app}\\installer\\stop_ssrvpn_processes.ps1", installer)
         self.assertIn("InstalledAppPath", installer)
         self.assertIn("InstalledLauncherPath", installer)
         uninstall = installer.split("function InitializeUninstall(): Boolean;", 1)[1]
-        self.assertIn("StopSsrvpnProcesses", uninstall)
+        self.assertIn(
+            "RunStopSsrvpnProcesses(\n"
+            "    ExpandConstant('{app}\\installer\\stop_ssrvpn_processes.ps1'), True)",
+            uninstall,
+        )
         self.assertIn(
             "Result := (StopResult = 0) and\n"
             "    AcquireLauncherGate(GateWaitMilliseconds)",
@@ -928,6 +978,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
 
         self.assertNotIn("-File $stopper", smoke)
         self.assertIn("$runningInstalledApp = Start-InstalledApp", smoke)
+        self.assertIn("$uninstallRegistryPath", smoke)
+        self.assertIn("Registry::HKEY_CURRENT_USER", smoke)
+        self.assertIn("{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1", smoke)
+        self.assertIn("Uninstaller left its registry entry behind", smoke)
         self.assertIn("The uninstaller left the installed SSRVPN app running", smoke)
 
         journal = stopper.split("function Write-NativeRestoreJournal", 1)[1]
@@ -1025,7 +1079,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             workflow = (
                 ROOT / ".github" / "workflows" / workflow_name
             ).read_text(encoding="utf-8")
-            build_step = workflow.split("- name: Build Windows packages", 1)[1]
+            build_step = workflow.split("- name: Build Windows installer", 1)[1]
             build_step = build_step.split("\n      - name:", 1)[0]
             with self.subTest(workflow=workflow_name):
                 self.assertIn("shell: powershell", build_step)
@@ -1086,7 +1140,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             workflow = (
                 ROOT / ".github" / "workflows" / workflow_name
             ).read_text(encoding="utf-8")
-            build_step = workflow.split("- name: Build Windows packages", 1)[1]
+            build_step = workflow.split("- name: Build Windows installer", 1)[1]
             build_step = build_step.split("\n      - name:", 1)[0]
             with self.subTest(workflow=workflow_name):
                 self.assertIn(invocation, build_step)
@@ -1130,17 +1184,15 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         for value in required:
             self.assertIn(value, ci)
 
-    def test_portable_checksum_uses_cross_platform_line_endings(self) -> None:
+    def test_windows_package_prepares_only_the_installer_payload(self) -> None:
         package_script = (
             ROOT / "SSRVPN_Windows" / "tool" / "package_windows.ps1"
         ).read_text(encoding="utf-8")
-        checksum_block = package_script.split(
-            "$zipHash = Get-FileHash -LiteralPath $zipPath -Algorithm SHA256", 1
-        )[1]
 
-        self.assertIn("[System.IO.File]::WriteAllText", checksum_block)
-        self.assertIn('"$($zipHash.Hash.ToLower())  SSRVPN.zip`n"', checksum_block)
-        self.assertNotIn("Set-Content -LiteralPath $zipHashPath", checksum_block)
+        self.assertIn('Write-Host "Installer payload: $releaseDir"', package_script)
+        self.assertIn("Test-ReleaseHashes -Root $releaseDir", package_script)
+        self.assertNotIn("Compress-Archive", package_script)
+        self.assertNotIn("SSRVPN.zip", package_script)
 
     def test_windows_package_rejects_unexpected_build_artifacts(self) -> None:
         package_script = (
@@ -1200,7 +1252,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("await _deleteCorePid()", lifecycle)
         self.assertNotIn("Where-Object { \\$_.ExecutablePath -eq \\$target }", lifecycle)
 
-    def test_portable_launcher_explains_complete_extraction(self) -> None:
+    def test_installed_launcher_explains_repairing_an_incomplete_install(
+        self,
+    ) -> None:
         launcher = (
             ROOT
             / "SSRVPN_Windows"
@@ -1209,8 +1263,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             / "launcher_main.cpp"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("请完整解压 ZIP", launcher)
-        self.assertIn("不能只复制 ssrvpn_windows.exe", launcher)
+        self.assertIn("安装目录不完整", launcher)
+        self.assertIn("重新运行 SSRVPN_Setup.exe", launcher)
 
 
 if __name__ == "__main__":

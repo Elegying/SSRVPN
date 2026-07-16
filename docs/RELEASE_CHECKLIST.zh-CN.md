@@ -45,8 +45,8 @@
 
 ### Windows x64 实机冒烟
 
-先在干净目录完整解压 `SSRVPN.zip`，再准备带有可识别旧订阅与设置的安装版目录，
-测试 `SSRVPN_Setup.exe` 全新覆盖。测试前先记录系统代理原值：
+在干净 Windows 环境准备带有可识别旧订阅与设置的安装版目录，测试
+`SSRVPN_Setup.exe` 全新安装与覆盖升级。测试前先记录系统代理原值：
 
 ```bat
 reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable
@@ -65,10 +65,10 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 8. 再次连接后只从任务管理器结束 `bin\ssrvpn_windows_app.exe`，保留外层 `ssrvpn_windows.exe` 等待子进程退出；外层启动器必须自动恢复系统代理。随后重启 Windows，在未重新打开 SSRVPN 前确认浏览器可直接联网，系统代理不得仍指向 SSRVPN 的本地端口。
 9. Windows 分别用普通权限和管理员权限检查 TUN：普通权限必须明确失败且不残留代理；管理员权限下应能连接、断开并恢复网络。macOS TUN 必须显示管理员授权框；取消授权、启动超时、正常断开和退出均不得遗留 root Mihomo、utun 默认路由、暂存目录或系统代理。
 10. 在系统自带 Windows PowerShell 5.1 中确认 `$PSVersionTable.PSVersion` 后，创建两个带
-   `settings.json` 的便携副本，并在 `%LOCALAPPDATA%\Programs\SSRVPN\bin\ssrvpn`、
+   `settings.json` 的旧独立副本，并在 `%LOCALAPPDATA%\Programs\SSRVPN\bin\ssrvpn`、
    `%LOCALAPPDATA%\SSRVPN\ssrvpn` 和窗口状态文件中放置可识别旧配置，记录这些文件的
    SHA256，再启动 `SSRVPN_Setup.exe`。安装向导必须全程使用简体中文并在复制前准确说明
-   替换和保留范围；它必须忽略两个便携副本，以普通用户权限安装到固定目录。自 3.4.2 起，
+   替换和保留范围；它必须忽略两个旧独立副本，以普通用户权限安装到固定目录。自 3.4.2 起，
    覆盖升级、卸载以及保留数据后的重装都必须保留安装版订阅、设置、DPAPI 密钥、
    LocalAppData 回退数据和窗口状态，前后哈希一致；程序文件、旧恢复状态和两个已知
    WebView 缓存目录必须清理。交互安装只在完成页勾选后启动，静默安装不得启动 GUI。
@@ -100,9 +100,7 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    - `SSRVPN.dmg.sha256`
    - `SSRVPN_Setup.exe`
    - `SSRVPN_Setup.exe.sha256`
-   - `SSRVPN.zip`
-   - `SSRVPN.zip.sha256`
-   - `SSRVPN-release-provenance.json`（绑定 tag、commit 与四个安装包 SHA256）
+   - `SSRVPN-release-provenance.json`（绑定 tag、commit 与三个安装包 SHA256）
    或直接运行：
 
    ```bash
@@ -117,7 +115,6 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    shasum -a 256 -c SSRVPN.dmg.sha256
    sha256sum -c SSRVPN.apk.sha256
    sha256sum -c SSRVPN_Setup.exe.sha256
-   sha256sum -c SSRVPN.zip.sha256
    ```
 6. 检查用户会看到的系统提示是否符合预期：
    - Android APK 使用同一个自签名 keystore，可覆盖安装升级。
