@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 修复
 
 - Windows TUN 清理持久化本次连接新建网卡的稳定 `InterfaceGuid`，不再把通用的 `Meta` 名称、相同地址、其他 VPN 的路由或可能被 Windows 复用的数字索引当作 SSRVPN 所有权；旧版纯索引状态升级后会被安全忽略。
+- Android 构建显式优先使用 Flutter 官方 Maven 仓库，再把阿里云仓库作为后备，避免镜像临时返回 5xx 时阻断 Flutter embedding 解析。
 
 ### 安全
 

@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 
 settings = Path("SSRVPN_Android/android/settings.gradle.kts").read_text(encoding="utf-8")
+root_build = Path("SSRVPN_Android/android/build.gradle.kts").read_text(encoding="utf-8")
 app = Path("SSRVPN_Android/android/app/build.gradle.kts").read_text(encoding="utf-8")
 properties = Path("SSRVPN_Android/android/gradle.properties").read_text(encoding="utf-8")
 wrapper = Path(
@@ -45,5 +46,15 @@ if "android:extractNativeLibs" in manifest:
 if "useLegacyPackaging = true" not in app:
     raise SystemExit("native core extraction must use the AGP 9 packaging DSL")
 
-print("Android built-in Kotlin migration guard passed.")
+flutter_repository = "https://storage.googleapis.com/download.flutter.io"
+aliyun_repository = "https://maven.aliyun.com/repository/"
+if flutter_repository not in root_build:
+    raise SystemExit("the official Flutter Maven repository must be explicit")
+if (
+    aliyun_repository in root_build
+    and root_build.index(flutter_repository) > root_build.index(aliyun_repository)
+):
+    raise SystemExit("the official Flutter Maven repository must precede mirrors")
+
+print("Android build configuration guard passed.")
 PY
