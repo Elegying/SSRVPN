@@ -71,7 +71,7 @@ class WindowsTunTeardownGate {
 
 Future<bool> waitForWindowsTunTeardown({
   required Future<WindowsTunResidualProbeResult> Function() probe,
-  Duration timeout = const Duration(seconds: 8),
+  Duration timeout = const Duration(seconds: 15),
   Duration pollInterval = const Duration(milliseconds: 100),
   Future<void> Function(Duration duration)? wait,
 }) async {
