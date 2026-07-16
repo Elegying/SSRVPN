@@ -13,7 +13,9 @@ void main() {
   setUp(() async {
     tempDirectory =
         await Directory.systemTemp.createTemp('desktop_window_state_test_');
-    stateFile = File('${tempDirectory.path}/window_state.json');
+    stateFile = File(
+      '${tempDirectory.path}${Platform.pathSeparator}window_state.json',
+    );
     errors = <String>[];
     store = DesktopWindowStateStore(
       stateFile,

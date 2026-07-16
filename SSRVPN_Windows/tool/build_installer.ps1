@@ -42,6 +42,10 @@ if (-not (Test-Path -LiteralPath $OutputDir -PathType Container)) {
 }
 
 $compilerCandidates = @($InnoCompiler, $env:INNO_SETUP_COMPILER)
+if ($env:LOCALAPPDATA) {
+  $compilerCandidates += Join-Path `
+    $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'
+}
 if (${env:ProgramFiles(x86)}) {
   $compilerCandidates += Join-Path `
     ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'

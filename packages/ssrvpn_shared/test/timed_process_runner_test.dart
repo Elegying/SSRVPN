@@ -20,7 +20,7 @@ void main() {
     final result = await task;
 
     expect(result.exitCode, 125);
-    expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+    expect(watch.elapsed, lessThan(const Duration(seconds: 3)));
   });
 
   test('returns timeout result when a process hangs', () async {

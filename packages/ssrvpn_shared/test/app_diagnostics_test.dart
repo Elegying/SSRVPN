@@ -52,6 +52,18 @@ void main() {
       expect(failure.message, isNot(contains('/Users/me')));
       expect(failure.recommendedAction, isNotEmpty);
     });
+
+    test('maps Windows TUN administrator failures to relaunch guidance', () {
+      for (final message in const [
+        'TUN 模式需要以管理员身份运行 SSRVPN',
+        '无法确认管理员权限，TUN 模式已安全中止，请重新以管理员身份运行 SSRVPN',
+      ]) {
+        final failure = AppFailure.fromMessage(message);
+
+        expect(failure.code, AppErrorCode.permissionRequired);
+        expect(failure.recommendedAction, '请退出 SSRVPN 后，以管理员身份重新运行。');
+      }
+    });
   });
 
   group('AppDiagnosticReport', () {

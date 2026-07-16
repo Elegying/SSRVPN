@@ -3,6 +3,7 @@ set -euo pipefail
 
 TAG="${1:-latest}"
 REPO="${SSRVPN_REPO:-Elegying/SSRVPN}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "gh is required to verify release assets" >&2
@@ -34,7 +35,7 @@ fetch_release_metadata() {
 }
 
 fetch_release_metadata
-release_tag="$(python3 - "$work_dir/release.json" <<'PY'
+release_tag="$("$PYTHON_BIN" - "$work_dir/release.json" <<'PY'
 import json
 import sys
 
@@ -69,7 +70,7 @@ download_verification_assets() {
 mkdir "$work_dir/assets"
 download_verification_assets
 
-python3 - "$work_dir/release.json" "$work_dir/assets" <<'PY'
+"$PYTHON_BIN" - "$work_dir/release.json" "$work_dir/assets" <<'PY'
 import json
 import os
 import re
@@ -94,6 +95,9 @@ assets = {asset.get("name"): asset for asset in release.get("assets", [])}
 missing = sorted(required - set(assets))
 if missing:
     raise SystemExit(f"missing release assets: {', '.join(missing)}")
+unexpected = sorted(set(assets) - required)
+if unexpected:
+    raise SystemExit(f"unexpected release assets: {', '.join(unexpected)}")
 
 empty = sorted(name for name in required if int(assets[name].get("size") or 0) <= 0)
 if empty:

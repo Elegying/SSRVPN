@@ -52,6 +52,7 @@ void main() {
     expect(failures, hasLength(1));
     expect(failures.single.step, 0);
     expect(events, ['flush', 'stop', 'tray', 'allow-close', 'destroy']);
+    expect(isWindowsAppShutdownSafeToExit(failures), isTrue);
   });
 
   test('keeps the app alive when core or proxy cleanup fails', () async {
@@ -72,5 +73,22 @@ void main() {
     expect(failures, hasLength(1));
     expect(failures.single.step, 2);
     expect(events, ['hide', 'flush', 'stop']);
+    expect(isWindowsAppShutdownSafeToExit(failures), isFalse);
+  });
+
+  test('does not confirm an update exit when window destruction fails',
+      () async {
+    final failures = await runWindowsAppShutdown(
+      hideWindow: () async {},
+      flushSettings: () async {},
+      stopCore: () async {},
+      destroyTray: () async {},
+      allowWindowClose: () async {},
+      destroyWindow: () async => throw StateError('window remains alive'),
+    );
+
+    expect(failures, hasLength(1));
+    expect(failures.single.step, 5);
+    expect(isWindowsAppShutdownSafeToExit(failures), isFalse);
   });
 }

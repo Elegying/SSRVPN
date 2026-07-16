@@ -9,6 +9,7 @@ import 'windows_detached_installer_launcher.dart';
 /// 在线更新服务 - OSS 主源，GitHub Releases 备用。
 class UpdateService {
   static const String appVersion = AppConstants.appVersion;
+  static Future<bool> Function()? onInstallerHandoff;
 
   static Future<AppUpdateInfo?> checkForUpdate(
     String currentVersion,
@@ -59,14 +60,27 @@ class UpdateService {
       textSecondary: AppTheme.textSecondary,
       lightTextPrimary: AppTheme.lightTextPrimary,
       lightTextSecondary: AppTheme.lightTextSecondary,
-      openDownload: (_) => SharedUpdateService.downloadAndOpenVerifiedUpdate(
+      openDownload: (url) => SharedUpdateService.downloadAndOpenVerifiedUpdate(
         context,
-        update,
+        SharedUpdateService.preferDownloadUrl(update, url),
         fileName: 'SSRVPN_Setup.exe',
-        openFile: (file) async {
-          await WindowsDetachedInstallerLauncher.launch(file);
-        },
+        openFile: installVerifiedUpdate,
       ),
     );
+  }
+
+  static Future<void> installVerifiedUpdate(
+    File file, {
+    Future<void> Function(File file)? launchInstaller,
+    Future<bool> Function()? shutdownApp,
+  }) async {
+    final shutdown = shutdownApp ?? onInstallerHandoff;
+    if (shutdown == null) {
+      throw StateError('SSRVPN 尚未准备好安全退出，更新安装未启动');
+    }
+    await (launchInstaller ?? WindowsDetachedInstallerLauncher.launch)(file);
+    if (!await shutdown()) {
+      throw StateError('系统代理或核心清理未完成，SSRVPN 保持运行，安装已中止');
+    }
   }
 }

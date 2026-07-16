@@ -2,6 +2,79 @@ part of 'clash_service.dart';
 
 class _DesktopStartCancelled implements Exception {}
 
+const _unexpectedExitProxyRecoveryDelays = <Duration>[
+  Duration(milliseconds: 250),
+  Duration(milliseconds: 750),
+  Duration(milliseconds: 1500),
+];
+
+const _tunTeardownTimeoutError = '核心已停止，但 Windows TUN 网卡未在超时前移除；'
+    '为避免路由冲突，已阻止再次连接，请保持 SSRVPN 打开并重试断开';
+const _tunResidualProbeError = '无法确认旧 Windows TUN 网卡和路由已清理；'
+    '为避免死路由，已在启动 Mihomo 前安全中止';
+
+enum ProxyRecoveryDisposition {
+  journalTerminal,
+  endpointSafeWithPendingJournal,
+  endpointMayStillBeOwned,
+}
+
+ProxyRecoveryDisposition classifyProxyRecoveryDisposition({
+  required bool journalTerminal,
+  required bool endpointSafeWithPendingRecovery,
+}) {
+  if (journalTerminal) return ProxyRecoveryDisposition.journalTerminal;
+  if (endpointSafeWithPendingRecovery) {
+    return ProxyRecoveryDisposition.endpointSafeWithPendingJournal;
+  }
+  return ProxyRecoveryDisposition.endpointMayStillBeOwned;
+}
+
+/// Retries a failed proxy restore without overlapping registry transactions.
+///
+/// There is one initial attempt plus one attempt after every delay. The caller
+/// is responsible for restoring the local proxy listener if all attempts fail.
+Future<bool> retryUnexpectedExitSystemProxyRecovery({
+  required Future<bool> Function() clearProxy,
+  List<Duration> retryDelays = _unexpectedExitProxyRecoveryDelays,
+  Future<void> Function(Duration duration)? wait,
+  void Function(int attempt, int totalAttempts)? onAttemptFailed,
+}) async {
+  final waitFor = wait ?? (duration) => Future<void>.delayed(duration);
+  final totalAttempts = retryDelays.length + 1;
+  for (var attempt = 1; attempt <= totalAttempts; attempt++) {
+    try {
+      if (await clearProxy()) return true;
+    } catch (_) {}
+    onAttemptFailed?.call(attempt, totalAttempts);
+    if (attempt < totalAttempts) {
+      await waitFor(retryDelays[attempt - 1]);
+    }
+  }
+  return false;
+}
+
+Future<bool> terminateCoreProcess(
+  Process process, {
+  Duration gracefulTimeout = const Duration(seconds: 3),
+  Duration forcedTimeout = const Duration(seconds: 3),
+}) async {
+  final exitCode = process.exitCode;
+  process.kill(ProcessSignal.sigterm);
+  try {
+    await exitCode.timeout(gracefulTimeout);
+    return true;
+  } on TimeoutException {
+    process.kill(ProcessSignal.sigkill);
+    try {
+      await exitCode.timeout(forcedTimeout);
+      return true;
+    } on TimeoutException {
+      return false;
+    }
+  }
+}
+
 mixin _WindowsCoreLifecycle on ClashServiceBase {
   // ── Process management ──
   Process? _coreProcess;
@@ -9,8 +82,15 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   Completer<void>? _startCancellation;
   Future<void>? _stopOperation;
   Future<void>? _exitCleanupOperation;
+  Future<void>? _pidCleanupOperation;
+  WindowsTunRuntimeProbe? _tunRuntimeProbeOverride;
+  WindowsTunResidualProbe? _tunResidualProbeOverride;
+  final WindowsTunTeardownGate _tunTeardownGate = WindowsTunTeardownGate();
+  String? _lastStopError;
   int _startGeneration = 0;
+  bool _coreUsesTun = false;
   bool _stoppingCore = false;
+  bool _proxyRecoveryListenerActive = false;
   final CoreRecoveryPolicy _unexpectedExitRecoveryPolicy =
       CoreRecoveryPolicy(maxAttempts: 1);
 
@@ -30,6 +110,30 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   bool get coreExists => File(_corePath).existsSync();
   String get corePath => _corePath;
   bool get hasPendingSystemProxyRecovery => _proxyService.recoveryPending;
+
+  @override
+  Future<bool> healthCheck() async {
+    if (!await super.healthCheck()) return false;
+    if (!settings.enableTun) return true;
+    final tun = (await getConfigs())?['tun'];
+    if (tun is! Map || tun['enable'] != true) {
+      setLastHealthCheckError('Mihomo API 已就绪，但 TUN listener 未启用');
+      return false;
+    }
+    final runtimeStatus = await _probeTunRuntime();
+    if (runtimeStatus == WindowsTunRuntimeStatus.ready) return true;
+    setLastHealthCheckError(
+      switch (runtimeStatus) {
+        WindowsTunRuntimeStatus.adapterMissing =>
+          'Mihomo TUN listener 已启用，但 Windows TUN 网卡尚未就绪',
+        WindowsTunRuntimeStatus.routeMissing =>
+          'Mihomo TUN listener 已启用，但 Windows TUN 路由不完整',
+        WindowsTunRuntimeStatus.probeFailed => '无法确认 Windows TUN 网卡和路由状态，已安全中止',
+        WindowsTunRuntimeStatus.ready => null,
+      },
+    );
+    return false;
+  }
 
   @override
   Future<bool> diagnosticCoreAvailable() async =>
@@ -154,12 +258,108 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
     final encodedPath = base64Encode(utf8.encode(_corePath));
     final script = '''
 \$target = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encodedPath'))
-\$process = Get-CimInstance Win32_Process -Filter "ProcessId=$pid"
-if (-not \$process) { exit 0 }
-if (-not \$process.ExecutablePath -or
-    -not \$process.ExecutablePath.Equals(
-      \$target, [System.StringComparison]::OrdinalIgnoreCase)) { exit 3 }
-Stop-Process -Id $pid -Force -ErrorAction Stop
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class SsrvpnVerifiedProcessTerminator {
+  private const uint ProcessTerminate = 0x0001;
+  private const uint ProcessQueryLimitedInformation = 0x1000;
+  private const uint Synchronize = 0x00100000;
+  private const uint StillActive = 259;
+  private const uint WaitObject0 = 0;
+  private const uint WaitTimeout = 258;
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern IntPtr OpenProcess(
+      uint desiredAccess, bool inheritHandle, uint processId);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern uint GetProcessId(IntPtr process);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool ProcessIdToSessionId(
+      uint processId, out uint sessionId);
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool QueryFullProcessImageNameW(
+      IntPtr process, uint flags, StringBuilder imageName, ref uint size);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool GetExitCodeProcess(
+      IntPtr process, out uint exitCode);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern uint WaitForSingleObject(
+      IntPtr handle, uint milliseconds);
+  [DllImport("kernel32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool CloseHandle(IntPtr handle);
+
+  // 0 = terminated, 1 = already gone, 2 = identity mismatch.
+  public static int Terminate(
+      uint expectedProcessId, string expectedPath, uint expectedSessionId) {
+    IntPtr process = OpenProcess(
+        ProcessQueryLimitedInformation | ProcessTerminate | Synchronize,
+        false,
+        expectedProcessId);
+    if (process == IntPtr.Zero) {
+      int error = Marshal.GetLastWin32Error();
+      if (error == 87) return 1;
+      throw new Win32Exception(error);
+    }
+    try {
+      uint exitCode;
+      if (GetExitCodeProcess(process, out exitCode) && exitCode != StillActive) {
+        return 1;
+      }
+      uint liveProcessId = GetProcessId(process);
+      if (liveProcessId == 0) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      uint liveSessionId;
+      if (!ProcessIdToSessionId(liveProcessId, out liveSessionId)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      var imageName = new StringBuilder(32768);
+      uint imageNameSize = (uint)imageName.Capacity;
+      if (!QueryFullProcessImageNameW(
+          process, 0, imageName, ref imageNameSize)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      if (liveProcessId != expectedProcessId ||
+          liveSessionId != expectedSessionId ||
+          !Path.GetFullPath(imageName.ToString()).Equals(
+              Path.GetFullPath(expectedPath),
+              StringComparison.OrdinalIgnoreCase)) {
+        return 2;
+      }
+      if (!TerminateProcess(process, 1)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      uint waitResult = WaitForSingleObject(process, 8000);
+      if (waitResult == WaitObject0) return 0;
+      if (waitResult == WaitTimeout) {
+        throw new TimeoutException("Timed out waiting for process termination.");
+      }
+      throw new Win32Exception(Marshal.GetLastWin32Error());
+    } finally {
+      CloseHandle(process);
+    }
+  }
+}
+'@
+\$result = [SsrvpnVerifiedProcessTerminator]::Terminate(
+  [uint32]$pid,
+  \$target,
+  [uint32][Diagnostics.Process]::GetCurrentProcess().SessionId)
+if (\$result -eq 0 -or \$result -eq 1) { exit 0 }
+if (\$result -eq 2) { exit 3 }
+exit 4
 ''';
     try {
       final result = await _runPowerShell(
@@ -199,7 +399,10 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
   /// 启动核心
   Future<bool> start() => _start();
 
-  Future<bool> _start({bool automaticRecovery = false}) {
+  Future<bool> _start({
+    bool automaticRecovery = false,
+    bool preserveSystemProxyRecovery = false,
+  }) {
     if (!automaticRecovery) {
       _unexpectedExitRecoveryPolicy.reset();
     }
@@ -208,7 +411,10 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
 
     final startToken = ++_startGeneration;
     _startCancellation = Completer<void>();
-    final operation = _startInternal(startToken);
+    final operation = _startInternal(
+      startToken,
+      preserveSystemProxyRecovery: preserveSystemProxyRecovery,
+    );
     _startOperation = operation;
     operation.then<void>(
       (_) => _clearStartOperation(operation),
@@ -217,7 +423,12 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
     return operation;
   }
 
-  Future<bool> _startInternal(int startToken) async {
+  Future<bool> _startInternal(
+    int startToken, {
+    bool preserveSystemProxyRecovery = false,
+  }) async {
+    final pidCleanup = _pidCleanupOperation;
+    if (pidCleanup != null) await pidCleanup;
     final exitCleanup = _exitCleanupOperation;
     if (exitCleanup != null) await exitCleanup;
     _ensureStartCurrent(startToken);
@@ -237,16 +448,53 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
       return false;
     }
 
-    if (isRunning) {
-      try {
-        if (await healthCheck()) return true;
-      } catch (_) {}
-      _ensureStartCurrent(startToken);
-      setRunning(false);
-      stopStatusMonitor();
-    }
-
     try {
+      if (isRunning) {
+        try {
+          if (await healthCheck()) return true;
+        } catch (_) {}
+        _ensureStartCurrent(startToken);
+        final stoppedSafely = await _stopInternal();
+        _ensureStartCurrent(startToken);
+        if (!stoppedSafely) {
+          setLastStartError(
+            _lastStopError ?? '现有 Mihomo 连接无法安全停止，已拒绝启动新的核心',
+          );
+          log('❌ $lastStartError');
+          return false;
+        }
+      }
+
+      if (_coreProcess != null) {
+        log('检测到尚未确认退出的 Mihomo，正在安全清理...');
+        final stoppedSafely = await _stopInternal();
+        _ensureStartCurrent(startToken);
+        if (!stoppedSafely || _coreProcess != null) {
+          setLastStartError(
+            _lastStopError ?? '上一个 Mihomo 进程尚未退出，已拒绝启动新的核心',
+          );
+          log('❌ $lastStartError');
+          return false;
+        }
+      }
+
+      if (_tunTeardownGate.shouldProbeBeforeStart(
+        enableTun: settings.enableTun,
+      )) {
+        final observedTunInterfaceIndexes = await _captureTunInterfaceIndexes();
+        _ensureStartCurrent(startToken);
+        if (observedTunInterfaceIndexes.isNotEmpty) {
+          _tunTeardownGate.markPending(observedTunInterfaceIndexes);
+        }
+        if (!await _waitForTunTeardown()) {
+          _ensureStartCurrent(startToken);
+          setLastStartError(_tunResidualProbeError);
+          log('❌ $lastStartError');
+          return false;
+        }
+        _ensureStartCurrent(startToken);
+      }
+
       final startupWatch = Stopwatch()..start();
       log('🚀 启动 Mihomo...');
 
@@ -269,13 +517,14 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
       if (settings.enableTun) {
         final isAdministrator = await _isAdministrator();
         _ensureStartCurrent(startToken);
-        if (isAdministrator == false) {
-          setLastStartError('TUN 模式需要以管理员身份运行 SSRVPN');
+        if (isAdministrator != true) {
+          setLastStartError(
+            isAdministrator == false
+                ? 'TUN 模式需要以管理员身份运行 SSRVPN'
+                : '无法确认管理员权限，TUN 模式已安全中止，请重新以管理员身份运行 SSRVPN',
+          );
           log('❌ $lastStartError');
           return false;
-        }
-        if (isAdministrator == null) {
-          log('⚠️ 无法确认管理员权限，将继续尝试启动 TUN 模式');
         }
       }
 
@@ -294,7 +543,31 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
       _ensureStartCurrent(startToken);
 
       // 启动 mihomo 子进程（所有数据都在便携目录内）
+      if (_coreProcess != null) {
+        setLastStartError('上一个 Mihomo 进程尚未退出，已拒绝启动新的核心');
+        log('❌ $lastStartError');
+        await _cleanupFailedStart();
+        return false;
+      }
+      if (settings.enableTun &&
+          !await _proxyService.isLauncherGuardianReady()) {
+        _ensureStartCurrent(startToken);
+        setLastStartError(
+          '独立崩溃保护进程未就绪，TUN 模式已安全中止；'
+          '请通过 ssrvpn_windows.exe 启动或重试',
+        );
+        log('❌ $lastStartError');
+        return false;
+      }
       final processStartWatch = Stopwatch()..start();
+      final startedWithTun = settings.enableTun;
+      if (startedWithTun && !await _armTunTeardownGate()) {
+        _ensureStartCurrent(startToken);
+        setLastStartError('无法持久化 TUN 清理状态，已在启动 Mihomo 前安全中止');
+        log('❌ $lastStartError');
+        return false;
+      }
+      _ensureStartCurrent(startToken);
       final startedProcess = await Process.start(
         _corePath,
         ['-d', configDir, '-f', configPath],
@@ -304,6 +577,7 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
       );
       log('Mihomo 进程已创建，耗时 ${processStartWatch.elapsedMilliseconds}ms');
       _coreProcess = startedProcess;
+      _coreUsesTun = startedWithTun;
       await _writeCorePid(startedProcess.pid);
       _ensureStartCurrent(startToken);
       int? startupExitCode;
@@ -337,15 +611,38 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
         if (!identical(_coreProcess, startedProcess) || _stoppingCore) return;
 
         log('❌ Mihomo 进程已退出，退出码: $code');
-        unawaited(_deleteCorePid());
-        if (isRunning) {
-          final restartGeneration = captureAutomaticRestartIntent();
-          setRunning(false);
-          notifyStatusChanged();
-          stopStatusMonitor();
-          _coreProcess = null;
-          _scheduleUnexpectedExitRecovery(restartGeneration, code);
+        final recoveryListenerWasActive = _proxyRecoveryListenerActive;
+        _proxyRecoveryListenerActive = false;
+        final tunInterfaceIndexes =
+            startedWithTun ? _captureTunInterfaceIndexes() : null;
+        if (tunInterfaceIndexes != null) {
+          _tunTeardownGate.markPending();
         }
+        if (recoveryListenerWasActive) {
+          log('⚠️ 系统代理保护监听已退出，重新执行安全恢复');
+        }
+        final cleanup = _deleteCorePid().then<void>((_) {
+          if (!identical(_coreProcess, startedProcess) || _stoppingCore) return;
+          if (isRunning) {
+            final restartGeneration = captureAutomaticRestartIntent();
+            setRunning(false);
+            notifyStatusChanged();
+            stopStatusMonitor();
+            _coreProcess = null;
+            _coreUsesTun = false;
+            _scheduleUnexpectedExitRecovery(
+              restartGeneration,
+              code,
+              tunInterfaceIndexes,
+            );
+          }
+        });
+        _pidCleanupOperation = cleanup;
+        cleanup.whenComplete(() {
+          if (identical(_pidCleanupOperation, cleanup)) {
+            _pidCleanupOperation = null;
+          }
+        });
       });
 
       // 慢速磁盘或首次启动可能超过 2 秒，轮询等待 API 就绪。
@@ -362,7 +659,7 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
       if (healthy) {
         _ensureStartCurrent(startToken);
         // 设置系统代理（非 TUN 模式时）
-        if (!settings.enableTun) {
+        if (!settings.enableTun && !preserveSystemProxyRecovery) {
           final proxyWatch = Stopwatch()..start();
           final proxySet = await _proxyService.setSystemProxy(
             '127.0.0.1',
@@ -376,7 +673,7 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
               _proxyService.lastError ?? 'Windows 系统代理设置失败',
             );
             log('❌ $lastStartError，连接已取消');
-            await _stopInternal();
+            await _cleanupFailedStart();
             return false;
           }
         }
@@ -393,10 +690,18 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
                 : 'Mihomo 在系统代理设置期间退出（退出码 $startupExitCode）',
           );
           log('❌ $lastStartError');
-          await _stopInternal();
+          await _cleanupFailedStart();
+          return false;
+        }
+        if (startedWithTun && !await _persistTunInterfaceIndexes()) {
+          _ensureStartCurrent(startToken);
+          setLastStartError('TUN 已启动，但无法持久化网卡索引，连接已安全取消');
+          log('❌ $lastStartError');
+          await _cleanupFailedStart();
           return false;
         }
 
+        _proxyRecoveryListenerActive = preserveSystemProxyRecovery;
         setRunning(true);
         resetHealthCheckFailures();
         log('✅ Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');
@@ -412,24 +717,44 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
           );
           log('❌ 核心启动失败: $lastStartError');
         } else {
-          setLastStartError('电脑性能不足，请重新连接');
-          log('❌ 核心启动后健康检查失败: Mihomo API 未在 15 秒内就绪');
+          setLastStartError(
+            settings.enableTun
+                ? 'TUN 网卡或路由未能启用，请检查管理员权限、驱动或同名虚拟网卡冲突'
+                : '电脑性能不足，请重新连接',
+          );
+          log('❌ 核心启动后健康检查失败: $lastStartError');
         }
-        await _stopInternal();
+        await _cleanupFailedStart();
         return false;
       }
     } on _DesktopStartCancelled {
       setLastStartError('连接已取消');
       log('Mihomo 启动已取消');
-      await _stopInternal();
+      await _cleanupFailedStart();
       return false;
     } catch (e, stack) {
       setLastStartError(_friendlyStartException(e));
       log('❌ 启动异常: $e');
       log('堆栈: $stack');
-      await _stopInternal();
+      await _cleanupFailedStart();
       return false;
     }
+  }
+
+  Future<void> _cleanupFailedStart() async {
+    final startError = lastStartError?.trim();
+    try {
+      if (await _stopInternal()) return;
+    } catch (error) {
+      _lastStopError = '启动失败后无法确认 Mihomo 已停止: $error';
+    }
+    final cleanupError = _lastStopError ?? '启动失败后无法确认 Mihomo 已安全停止';
+    if (startError == null || startError.isEmpty) {
+      setLastStartError(cleanupError);
+    } else if (!startError.contains(cleanupError)) {
+      setLastStartError('$startError；$cleanupError');
+    }
+    log('❌ 启动失败后的清理未完成: $cleanupError');
   }
 
   // ── Stop ──
@@ -456,26 +781,39 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
   Future<void> _stopAfterStart() async {
     final starting = _startOperation;
     if (starting != null) await starting;
-    final proxyCleared = await _stopInternal();
-    if (!proxyCleared) {
+    final stoppedSafely = await _stopInternal();
+    if (!stoppedSafely) {
       throw StateError(
-        _proxyService.lastError ?? 'Windows 系统代理恢复失败，请再次尝试断开',
+        _lastStopError ?? _proxyService.lastError ?? 'Windows 系统代理恢复失败，请再次尝试断开',
       );
     }
   }
 
   Future<bool> _stopInternal() async {
+    final needsTunTeardown = _coreUsesTun || _tunTeardownGate.pending;
+    _lastStopError = null;
+    final pidCleanup = _pidCleanupOperation;
+    if (pidCleanup != null) await pidCleanup;
     final exitCleanup = _exitCleanupOperation;
     if (exitCleanup != null) await exitCleanup;
+    final tunInterfaceIndexes =
+        needsTunTeardown ? await _captureTunInterfaceIndexes() : const <int>{};
     stopStatusMonitor();
     resetHealthCheckFailures();
 
-    // Restore Windows networking while the local proxy is still alive. If
-    // registry recovery fails, keep the core running and let the caller keep
-    // the app open for a retry; killing it first would strand all HTTP apps on
-    // an unreachable localhost proxy.
-    final proxyCleared = await _proxyService.clearSystemProxy();
-    if (!proxyCleared) {
+    // Restore Windows networking while the local proxy is still alive. Keep
+    // the core only while Windows may still point at its local endpoint; once
+    // that endpoint is safe, a pending journal cleanup must not leave the UI
+    // connected to a core that the user asked to stop.
+    final journalTerminal = await _proxyService.clearSystemProxy();
+    final recoveryDisposition = classifyProxyRecoveryDisposition(
+      journalTerminal: journalTerminal,
+      endpointSafeWithPendingRecovery:
+          _proxyService.endpointSafeWithPendingRecovery,
+    );
+    if (recoveryDisposition ==
+        ProxyRecoveryDisposition.endpointMayStillBeOwned) {
+      _lastStopError = _proxyService.lastError ?? 'Windows 系统代理恢复失败，请再次尝试断开';
       if (_proxyService.lastError != null) {
         log('⚠️ ${_proxyService.lastError}');
       }
@@ -483,26 +821,56 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
       notifyStatusChanged();
       return false;
     }
+    if (recoveryDisposition ==
+        ProxyRecoveryDisposition.endpointSafeWithPendingJournal) {
+      final warning = _proxyService.lastError ?? 'SSRVPN 代理端点已安全释放，但恢复日志仍待清理';
+      log('⚠️ $warning');
+      notifyRuntimeNotice(
+        '连接已安全断开，但 Windows 代理恢复日志仍待清理；请保持 SSRVPN '
+        '打开并使用“诊断”重试，清理完成前不要强制退出。',
+      );
+    }
+    if (_proxyService.recoveryPending && _proxyService.lastError != null) {
+      log('⚠️ ${_proxyService.lastError}');
+    }
+    _proxyRecoveryListenerActive = false;
 
-    if (_coreProcess != null) {
+    final coreProcess = _coreProcess;
+    if (coreProcess != null) {
       _stoppingCore = true;
       try {
-        _coreProcess!.kill(ProcessSignal.sigterm);
-        await _coreProcess!.exitCode.timeout(
-          const Duration(seconds: 3),
-          onTimeout: () {
-            _coreProcess!.kill(ProcessSignal.sigkill);
-            return -1;
-          },
-        );
+        final stopped = await terminateCoreProcess(coreProcess);
+        if (!stopped) {
+          _lastStopError = 'Mihomo 强制停止后仍未退出，断开操作已中止';
+          log('❌ $_lastStopError');
+          if (isRunning) startStatusMonitor();
+          notifyStatusChanged();
+          return false;
+        }
       } catch (e) {
-        log('停止异常: $e');
+        _lastStopError = '无法确认 Mihomo 已停止: $e';
+        log('❌ $_lastStopError');
+        if (isRunning) startStatusMonitor();
+        notifyStatusChanged();
+        return false;
       } finally {
         _stoppingCore = false;
       }
       _coreProcess = null;
     }
+    if (_coreProcess == null) _coreUsesTun = false;
     await _deleteCorePid();
+
+    if (needsTunTeardown) {
+      _tunTeardownGate.markPending(tunInterfaceIndexes);
+      if (!await _waitForTunTeardown()) {
+        _lastStopError = _tunTeardownTimeoutError;
+        setRunning(false);
+        notifyStatusChanged();
+        log('❌ $_lastStopError');
+        return false;
+      }
+    }
 
     setRunning(false);
     notifyStatusChanged();
@@ -530,8 +898,17 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
     }
   }
 
-  void _scheduleUnexpectedExitRecovery(int? generation, int exitCode) {
-    final cleanup = _clearProxyAfterUnexpectedExit();
+  void _scheduleUnexpectedExitRecovery(
+    int? generation,
+    int exitCode,
+    Future<Set<int>>? tunInterfaceIndexes,
+  ) {
+    final cleanup = retryUnexpectedExitSystemProxyRecovery(
+      clearProxy: _clearProxyAfterUnexpectedExit,
+      onAttemptFailed: (attempt, totalAttempts) {
+        log('⚠️ 核心退出后的系统代理恢复未完成 ($attempt/$totalAttempts)');
+      },
+    );
     final operation = cleanup.then<void>((_) {});
     _exitCleanupOperation = operation;
     cleanup.then((proxyCleared) {
@@ -539,7 +916,12 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
         _exitCleanupOperation = null;
       }
       unawaited(
-        _recoverFromUnexpectedExit(generation, exitCode, proxyCleared),
+        _recoverFromUnexpectedExit(
+          generation,
+          exitCode,
+          proxyCleared,
+          tunInterfaceIndexes,
+        ),
       );
     });
   }
@@ -547,7 +929,8 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
   Future<bool> _clearProxyAfterUnexpectedExit() async {
     try {
       final cleared = await _proxyService.clearSystemProxy();
-      if (!cleared && _proxyService.lastError != null) {
+      if (_proxyService.lastError != null &&
+          (!cleared || _proxyService.recoveryPending)) {
         log('⚠️ ${_proxyService.lastError}');
       }
       return cleared;
@@ -561,16 +944,73 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
     int? generation,
     int exitCode,
     bool proxyCleared,
+    Future<Set<int>>? tunInterfaceIndexes,
   ) async {
+    if (tunInterfaceIndexes != null) {
+      _tunTeardownGate.markPending(await tunInterfaceIndexes);
+    }
+    if (!proxyCleared) {
+      // A stop may have been requested while the bounded restore was running.
+      // Let it finish first: a successful stop makes the endpoint safe, while
+      // a failed stop still needs the listener fallback below.
+      final stopping = _stopOperation;
+      if (stopping != null) {
+        try {
+          await stopping;
+        } catch (_) {}
+        _clearStopOperation(stopping);
+        if (await _clearProxyAfterUnexpectedExit()) return;
+      }
+
+      final recoveryReason = _proxyService.lastError ?? '无法恢复 Windows 系统代理旧状态';
+      final recoveryDisposition = classifyProxyRecoveryDisposition(
+        journalTerminal: false,
+        endpointSafeWithPendingRecovery:
+            _proxyService.endpointSafeWithPendingRecovery,
+      );
+      if (recoveryDisposition ==
+          ProxyRecoveryDisposition.endpointSafeWithPendingJournal) {
+        setLastStartError(recoveryReason);
+        markConnectionLost();
+        notifyRuntimeNotice(
+          '连接已安全断开；Windows 代理端点已释放，但恢复日志仍待清理。'
+          '请保持 SSRVPN 打开并使用“诊断”重试，清理完成前不要强制退出。',
+        );
+        return;
+      }
+      notifyRuntimeNotice(
+        '系统代理恢复未完成，正在恢复本地保护监听…',
+      );
+      final listenerRestored = await _start(
+        automaticRecovery: true,
+        preserveSystemProxyRecovery: true,
+      );
+      if (listenerRestored && isRunning) {
+        setLastStartError(recoveryReason);
+        notifyRuntimeNotice(
+          '连接处于保护模式：Mihomo 本地代理监听已恢复，但 Windows '
+          '系统代理旧状态仍未恢复。为避免死代理，SSRVPN 将保持运行；'
+          '请使用“诊断”重试，恢复前不要强制退出。',
+        );
+        return;
+      }
+
+      final listenerReason = lastStartError ?? 'Mihomo 本地代理监听未能重新启动';
+      markConnectionLost();
+      notifyRuntimeNotice(
+        '紧急：系统代理恢复失败，本地保护监听也未能启动（$listenerReason）。'
+        '请保持 SSRVPN 打开并立即使用“诊断”重试恢复。',
+      );
+      return;
+    }
     if (generation == null ||
         !isConnectionIntentCurrent(generation, connected: true)) {
       return;
     }
-    if (!proxyCleared) {
+    if (tunInterfaceIndexes != null && !await _waitForTunTeardown()) {
+      setLastStartError(_tunTeardownTimeoutError);
       markConnectionLost();
-      notifyRuntimeNotice(
-        '连接已断开：核心异常退出，且系统代理恢复失败，请使用“诊断”重试恢复',
-      );
+      notifyRuntimeNotice('核心已退出：$_tunTeardownTimeoutError');
       return;
     }
     if (!_unexpectedExitRecoveryPolicy.tryAcquire()) {
@@ -586,7 +1026,7 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
 
     if (!isConnectionIntentCurrent(generation, connected: true)) return;
     if (restarted && isRunning) {
-      notifyRuntimeNotice('核心已自动恢复');
+      notifyRuntimeNotice(coreAutoRecoveredRuntimeNotice);
       return;
     }
 
@@ -605,6 +1045,126 @@ Stop-Process -Id $pid -Force -ErrorAction Stop
   void _clearStopOperation(Future<void> operation) {
     if (identical(_stopOperation, operation)) {
       _stopOperation = null;
+    }
+  }
+
+  Future<WindowsTunRuntimeStatus> _probeTunRuntime() async {
+    try {
+      return await (_tunRuntimeProbeOverride?.call() ??
+          probeWindowsTunRuntime(
+            InternetAddress(AppConstants.fakeIpRange.split('/').first),
+            InternetAddress(AppConstants.tunInet6Address.split('/').first),
+          ));
+    } catch (_) {
+      return WindowsTunRuntimeStatus.probeFailed;
+    }
+  }
+
+  Future<Set<int>> _captureTunInterfaceIndexes() =>
+      probeWindowsTunInterfaceIndexes(
+        InternetAddress(AppConstants.fakeIpRange.split('/').first),
+        InternetAddress(AppConstants.tunInet6Address.split('/').first),
+      );
+
+  Future<WindowsTunResidualProbeResult> _probeTunResidual(
+    Set<int> expectedInterfaceIndexes,
+  ) async {
+    try {
+      return await (_tunResidualProbeOverride?.call(
+            expectedInterfaceIndexes,
+          ) ??
+          probeWindowsTunResidual(
+            InternetAddress(AppConstants.fakeIpRange.split('/').first),
+            InternetAddress(AppConstants.tunInet6Address.split('/').first),
+            expectedInterfaceIndexes: expectedInterfaceIndexes,
+          ));
+    } catch (_) {
+      return (
+        status: WindowsTunResidualStatus.probeFailed,
+        interfaceIndexes: const <int>{},
+      );
+    }
+  }
+
+  Future<bool> _waitForTunTeardown() async {
+    final cleared = await waitForWindowsTunTeardown(
+      probe: () async {
+        final result = await _probeTunResidual(
+          _tunTeardownGate.interfaceIndexes,
+        );
+        _tunTeardownGate.observe(result);
+        return result;
+      },
+    );
+    if (cleared) {
+      _tunTeardownGate.accept((
+        status: WindowsTunResidualStatus.gone,
+        interfaceIndexes: const <int>{},
+      ));
+      await _clearTunTeardownMarker();
+    }
+    return cleared;
+  }
+
+  File get _tunTeardownMarker => File(
+        '$configDir${Platform.pathSeparator}tun_teardown.pending',
+      );
+
+  Future<void> _restoreTunTeardownGate() async {
+    try {
+      if (await _tunTeardownMarker.exists()) {
+        final value = (await _tunTeardownMarker.readAsString()).trim();
+        final indexes = value == 'pending'
+            ? const <int>{}
+            : value
+                .split(',')
+                .map(int.tryParse)
+                .whereType<int>()
+                .where((index) => index > 0)
+                .toSet();
+        _tunTeardownGate.markPending(indexes);
+      }
+    } catch (error) {
+      _tunTeardownGate.markPending();
+      log('⚠️ 无法读取 TUN 清理状态，后续连接将安全重试: $error');
+    }
+  }
+
+  Future<bool> _armTunTeardownGate() async {
+    try {
+      await _tunTeardownMarker.writeAsString('pending\n', flush: true);
+      _tunTeardownGate.markPending();
+      return true;
+    } catch (error) {
+      log('❌ 无法写入 TUN 清理状态: $error');
+      return false;
+    }
+  }
+
+  Future<bool> _persistTunInterfaceIndexes() async {
+    final indexes = await _captureTunInterfaceIndexes();
+    if (indexes.isEmpty) return false;
+    try {
+      final sorted = indexes.toList()..sort();
+      await _tunTeardownMarker.writeAsString(
+        '${sorted.join(',')}\n',
+        flush: true,
+      );
+      _tunTeardownGate.markPending(indexes);
+      return true;
+    } catch (error) {
+      log('❌ 无法写入 TUN 网卡索引: $error');
+      return false;
+    }
+  }
+
+  Future<void> _clearTunTeardownMarker() async {
+    try {
+      if (await _tunTeardownMarker.exists()) {
+        await _tunTeardownMarker.delete();
+      }
+    } catch (error) {
+      log('⚠️ TUN 已清理，但无法删除持久状态: $error');
     }
   }
 

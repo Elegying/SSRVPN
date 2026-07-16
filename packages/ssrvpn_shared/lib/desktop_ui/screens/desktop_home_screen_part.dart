@@ -761,7 +761,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           if (!isCurrent) return;
           clashService.requestConnectionIntent(false);
           final reason = clashService.lastStartError ?? '无法启动核心';
-          recordDesktopConnectionFailure('Connection failed: $reason');
+          recordDesktopConnectionFailure(
+            'Connection failed: $reason',
+            expected: AppFailure.fromMessage(reason).code ==
+                AppErrorCode.permissionRequired,
+          );
           setState(() {
             _errorMessage = '连接失败: $reason';
             _isConnecting = false;

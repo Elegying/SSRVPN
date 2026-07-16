@@ -65,6 +65,24 @@ class SharedUpdateService {
     return uri;
   }
 
+  static AppUpdateInfo preferDownloadUrl(
+    AppUpdateInfo update,
+    String downloadUrl,
+  ) {
+    if (downloadUrl == update.downloadUrl) return update;
+    if (downloadUrl != update.fallbackDownloadUrl) {
+      throw ArgumentError.value(downloadUrl, 'downloadUrl');
+    }
+    return AppUpdateInfo(
+      version: update.version,
+      downloadUrl: downloadUrl,
+      fallbackDownloadUrl: update.downloadUrl,
+      changelog: update.changelog,
+      sha256: update.sha256,
+      sourceHost: Uri.tryParse(downloadUrl)?.host,
+    );
+  }
+
   static Future<File> downloadVerifiedUpdate(
     AppUpdateInfo update, {
     required Directory outputDirectory,

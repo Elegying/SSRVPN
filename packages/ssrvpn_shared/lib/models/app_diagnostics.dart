@@ -34,6 +34,7 @@ class AppFailure {
   static AppFailure fromMessage(Object? error) {
     final text = error?.toString().trim().toLowerCase() ?? '';
     final code = _classify(text);
+    final requiresAdministratorRelaunch = text.contains('以管理员身份运行');
     return switch (code) {
       AppErrorCode.coreMissing => const AppFailure(
           code: AppErrorCode.coreMissing,
@@ -59,11 +60,13 @@ class AppFailure {
           message: '所需本地端口正被其他程序使用。',
           recommendedAction: '请再次连接以自动选择可用端口。',
         ),
-      AppErrorCode.permissionRequired => const AppFailure(
+      AppErrorCode.permissionRequired => AppFailure(
           code: AppErrorCode.permissionRequired,
           title: '系统权限不足',
           message: '当前操作需要额外的系统授权。',
-          recommendedAction: '请按系统提示授权；拒绝授权不会修改网络设置。',
+          recommendedAction: requiresAdministratorRelaunch
+              ? '请退出 SSRVPN 后，以管理员身份重新运行。'
+              : '请按系统提示授权；拒绝授权不会修改网络设置。',
         ),
       AppErrorCode.proxyRecoveryPending => const AppFailure(
           code: AppErrorCode.proxyRecoveryPending,
@@ -118,6 +121,7 @@ class AppFailure {
       '权限不足',
       '需要管理员',
       '需要授权',
+      '以管理员身份运行',
     ])) {
       return AppErrorCode.permissionRequired;
     }

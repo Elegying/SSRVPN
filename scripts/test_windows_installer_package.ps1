@@ -12,6 +12,9 @@ if ($env:GITHUB_ACTIONS -ne 'true') {
 if (-not $env:LOCALAPPDATA) {
   throw 'LOCALAPPDATA is required for the per-user installer smoke test.'
 }
+if (-not $env:APPDATA) {
+  throw 'APPDATA is required for the per-user installer smoke test.'
+}
 
 $installer = [System.IO.Path]::GetFullPath($InstallerPath)
 if ([System.IO.Path]::GetFileName($installer) -ne 'SSRVPN_Setup.exe' -or
@@ -32,10 +35,58 @@ $tempRoot = if ($env:RUNNER_TEMP) {
 $logDir = Join-Path $tempRoot 'ssrvpn-installer-smoke'
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $installLog = Join-Path $logDir 'install.log'
+$upgradeLog = Join-Path $logDir 'upgrade.log'
 $uninstallLog = Join-Path $logDir 'uninstall.log'
 $uninstaller = Join-Path $installDir 'unins000.exe'
 $uninstallFailure = $null
 $installedAppProcessId = $null
+$upgradeAppProcess = $null
+$installedAppPath = [System.IO.Path]::GetFullPath(
+  (Join-Path $installDir 'bin\ssrvpn_windows_app.exe')
+)
+$windowStateSentinel = Join-Path $env:LOCALAPPDATA 'SSRVPN\window_state.json'
+$validWindowState =
+  '{"schemaVersion":1,"left":0,"top":0,"width":1180,"height":760}'
+$preservedSentinels = @(
+  (Join-Path $installDir 'bin\ssrvpn\upgrade-preserve.sentinel'),
+  (Join-Path $env:LOCALAPPDATA 'SSRVPN\ssrvpn\upgrade-preserve.sentinel'),
+  $windowStateSentinel
+)
+$cacheRoots = @(
+  (Join-Path $env:APPDATA 'SSRVPN.exe\EBWebView'),
+  (Join-Path $env:LOCALAPPDATA 'vip.ssrvpn.windows\EBWebView')
+)
+
+function New-CacheSentinels {
+  foreach ($cacheRoot in $cacheRoots) {
+    New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+    [System.IO.File]::WriteAllText(
+      (Join-Path $cacheRoot 'upgrade-delete.sentinel'),
+      'ssrvpn-upgrade-delete'
+    )
+  }
+}
+
+function Start-InstalledApp {
+  Start-Process -FilePath (Join-Path $installDir 'ssrvpn_windows.exe') `
+    -WorkingDirectory $installDir | Out-Null
+
+  $runningInstalledApp = $null
+  for ($attempt = 0; $attempt -lt 40; $attempt++) {
+    $runningInstalledApp = @(
+      Get-Process ssrvpn_windows_app -ErrorAction SilentlyContinue |
+        Where-Object {
+          $_.Path -and [System.IO.Path]::GetFullPath($_.Path).Equals(
+            $installedAppPath,
+            [System.StringComparison]::OrdinalIgnoreCase
+          )
+        }
+    ) | Select-Object -First 1
+    if ($runningInstalledApp) { return $runningInstalledApp }
+    Start-Sleep -Milliseconds 250
+  }
+  throw 'No app from the exact installed path started.'
+}
 
 function Invoke-SmokeProcess {
   param(
@@ -47,8 +98,8 @@ function Invoke-SmokeProcess {
   )
 
   Write-Host "$Phase started. Log: $LogPath"
-  # Start-Process -Wait follows the whole descendant tree on Windows. Setup
-  # intentionally launches SSRVPN, so wait only for the installer process.
+  # Start-Process -Wait follows the whole descendant tree on Windows, so wait
+  # only for the installer process.
   $process = Start-Process -FilePath $FilePath -PassThru `
     -ArgumentList $ArgumentList
   try {
@@ -92,29 +143,65 @@ try {
     }
   }
 
-  $installedAppPath = [System.IO.Path]::GetFullPath(
-    (Join-Path $installDir 'bin\ssrvpn_windows_app.exe')
+  foreach ($sentinel in $preservedSentinels) {
+    New-Item -ItemType Directory -Path (Split-Path -Path $sentinel -Parent) `
+      -Force | Out-Null
+    $sentinelContent = if ($sentinel -eq $windowStateSentinel) {
+      $validWindowState
+    } else {
+      'ssrvpn-upgrade-preserve'
+    }
+    [System.IO.File]::WriteAllText($sentinel, $sentinelContent)
+  }
+  New-CacheSentinels
+
+  $upgradeAppProcess = Start-InstalledApp
+  $upgradeAppProcess.Refresh()
+  if ($upgradeAppProcess.HasExited) {
+    throw 'The installed app exited before the upgrade started.'
+  }
+
+  $upgradeExitCode = Invoke-SmokeProcess `
+    -FilePath $installer `
+    -Phase 'SSRVPN upgrade' `
+    -LogPath $upgradeLog `
+    -ArgumentList @(
+      '/VERYSILENT',
+      '/SUPPRESSMSGBOXES',
+      '/NORESTART',
+      '/SP-',
+      "/LOG=$upgradeLog"
   )
-  for ($attempt = 0; $attempt -lt 40; $attempt++) {
-    $runningInstalledApp = @(
-      Get-Process ssrvpn_windows_app -ErrorAction SilentlyContinue |
-        Where-Object {
-          $_.Path -and [System.IO.Path]::GetFullPath($_.Path).Equals(
-            $installedAppPath,
-            [System.StringComparison]::OrdinalIgnoreCase
-          )
-        }
-    ) | Select-Object -First 1
-    if ($runningInstalledApp) { break }
-    Start-Sleep -Milliseconds 250
+  if ($upgradeExitCode -ne 0) {
+    throw "SSRVPN upgrade exited with code $upgradeExitCode. Log: $upgradeLog"
   }
-  if (-not $runningInstalledApp) {
-    throw 'The uninstaller must stop the running installed app; no installed app was running.'
+  $upgradeAppProcess.Refresh()
+  if (-not $upgradeAppProcess.HasExited) {
+    throw "SSRVPN upgrade left the previous installed app PID $($upgradeAppProcess.Id) running."
   }
+  $upgradeAppProcess.Dispose()
+  $upgradeAppProcess = $null
+  foreach ($sentinel in $preservedSentinels) {
+    if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) {
+      throw "SSRVPN upgrade deleted preserved data: $sentinel"
+    }
+  }
+  foreach ($cacheRoot in $cacheRoots) {
+    if (Test-Path -LiteralPath $cacheRoot) {
+      throw "SSRVPN upgrade left WebView cache behind: $cacheRoot"
+    }
+  }
+
+  $runningInstalledApp = Start-InstalledApp
   $installedAppProcessId = [int]$runningInstalledApp.Id
+  $runningInstalledApp.Dispose()
 } finally {
+  if ($null -ne $upgradeAppProcess) {
+    $upgradeAppProcess.Dispose()
+  }
   if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
     try {
+      New-CacheSentinels
       $uninstallExitCode = Invoke-SmokeProcess `
         -FilePath $uninstaller `
         -Phase 'SSRVPN uninstaller' `
@@ -129,10 +216,24 @@ try {
         $uninstallFailure =
           "SSRVPN uninstaller exited with code $uninstallExitCode. " +
           "Log: $uninstallLog"
+      } else {
+        foreach ($sentinel in $preservedSentinels) {
+          if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) {
+            throw "SSRVPN uninstall deleted preserved data: $sentinel"
+          }
+          if ($sentinel -ne $windowStateSentinel -and
+              [System.IO.File]::ReadAllText($sentinel) -ne
+                'ssrvpn-upgrade-preserve') {
+            throw "SSRVPN uninstall changed preserved data: $sentinel"
+          }
+        }
       }
     } catch {
       $uninstallFailure = $_.Exception.Message
     }
+  }
+  foreach ($sentinel in $preservedSentinels) {
+    Remove-Item -LiteralPath $sentinel -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -146,6 +247,11 @@ if ($installedAppProcessId -and
 foreach ($relativePath in @('ssrvpn_windows.exe', 'bin\ssrvpn_windows_app.exe')) {
   if (Test-Path -LiteralPath (Join-Path $installDir $relativePath)) {
     throw "Uninstaller left an installed executable behind: $relativePath"
+  }
+}
+foreach ($cacheRoot in $cacheRoots) {
+  if (Test-Path -LiteralPath $cacheRoot) {
+    throw "Uninstaller left WebView cache behind: $cacheRoot"
   }
 }
 

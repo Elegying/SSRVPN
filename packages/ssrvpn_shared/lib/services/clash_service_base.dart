@@ -90,6 +90,12 @@ abstract class ClashServiceBase
   String? get lastRuntimePortAdjustmentMessage =>
       _lastRuntimePortAdjustmentMessage;
   String? get lastHealthCheckError => _lastHealthCheckError;
+
+  @protected
+  void setLastHealthCheckError(String? value) {
+    _lastHealthCheckError = value;
+  }
+
   @override
   String get recentLogs => _logBuffer;
   int get runtimeProxyPort => _settings.proxyPort;
