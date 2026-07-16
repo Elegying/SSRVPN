@@ -24,6 +24,9 @@ RETIRED_FILES = (
     "SSRVPN.zip",
     "SSRVPN.zip.sha256",
 )
+RETIRED_MARKER = (
+    b"SSRVPN Windows portable distribution retired; use SSRVPN_Setup.exe.\n"
+)
 MANAGED_FILES = PUBLISHED_FILES + RETIRED_FILES
 
 
@@ -95,6 +98,33 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                 (self.objects / "ssrvpn" / "downloads" / name).exists()
             )
 
+    def test_delete_denial_replaces_retired_aliases_with_marker(self) -> None:
+        result = self._run(deny_retired_delete=True)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in RETIRED_FILES:
+            self.assertEqual(
+                (self.objects / "ssrvpn" / "downloads" / name).read_bytes(),
+                RETIRED_MARKER,
+            )
+
+    def test_marker_fallback_preserves_transactional_restore(self) -> None:
+        backup = self.root / "transaction-backup"
+        result = self._run(
+            backup=backup,
+            preserve_backup=True,
+            deny_retired_delete=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        restore = self._restore(backup)
+        self.assertEqual(restore.returncode, 0, restore.stderr)
+        for name in RETIRED_FILES:
+            self.assertEqual(
+                (self.objects / "ssrvpn" / "downloads" / name).read_bytes(),
+                self.old[name],
+            )
+
     def test_preserved_backup_can_restore_after_later_publish_failure(self) -> None:
         backup = self.root / "transaction-backup"
         result = self._run(backup=backup, preserve_backup=True)
@@ -162,6 +192,7 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
         backup_fail_on: str = "",
         backup: Optional[Path] = None,
         preserve_backup: bool = False,
+        deny_retired_delete: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
@@ -176,6 +207,7 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                 "FAKE_RESTORE_FAIL_ON": restore_fail_on,
                 "FAKE_BACKUP_FAIL_ON": backup_fail_on,
                 "FAKE_NEW_SOURCE": str(self.source),
+                "FAKE_DENY_RETIRED_DELETE": "1" if deny_retired_delete else "0",
                 "RUNNER_TEMP": str(self.root),
                 "OSS_PRESERVE_BACKUP": "1" if preserve_backup else "0",
             }
@@ -256,6 +288,10 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(source, target)
                 elif command == 'rm':
+                    if (os.environ.get('FAKE_DENY_RETIRED_DELETE') == '1'
+                            and pathlib.Path(sys.argv[2]).name in {
+                                'SSRVPN.zip', 'SSRVPN.zip.sha256'}):
+                        raise SystemExit(11)
                     object_path(sys.argv[2]).unlink(missing_ok=True)
                 else:
                     raise SystemExit(2)

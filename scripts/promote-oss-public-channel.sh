@@ -234,14 +234,29 @@ for name in "${publish_files[@]}"; do
   cmp "$source" "$downloaded"
 done
 
+retired_marker="$backup_dir/windows-portable-retired.txt"
+printf '%s\n' \
+  'SSRVPN Windows portable distribution retired; use SSRVPN_Setup.exe.' \
+  >"$retired_marker"
+
 for name in "${retired_files[@]}"; do
   key="$(object_key "$name")"
   if [ -f "$backup_dir/$name.present" ]; then
-    "$ossutil_bin" rm "oss://$OSS_BUCKET/$key" --force
+    if ! "$ossutil_bin" rm "oss://$OSS_BUCKET/$key" --force; then
+      echo "::warning::Cannot delete retired OSS object $name; replacing it with a retirement marker."
+    fi
   fi
   status="$(fetch_object "$name" "$backup_dir/verify-retired-$name")"
-  if [ "$status" != 404 ]; then
-    echo "Cannot verify retired OSS object $name (HTTP ${status:-network error})" >&2
+  if [ "$status" = 404 ]; then
+    continue
+  fi
+
+  "$ossutil_bin" cp "$retired_marker" "oss://$OSS_BUCKET/$key" \
+    --force --cache-control "no-cache"
+  status="$(fetch_object "$name" "$backup_dir/verify-retired-$name")"
+  if [ "$status" != 200 ] || \
+    ! cmp -s "$retired_marker" "$backup_dir/verify-retired-$name"; then
+    echo "Cannot safely retire OSS object $name (HTTP ${status:-network error})" >&2
     exit 1
   fi
 done

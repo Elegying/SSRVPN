@@ -56,6 +56,12 @@ class FreeDesktopDistributionTest(unittest.TestCase):
             self.assertFalse((ROOT / removed).exists(), removed)
 
     def test_windows_distribution_is_installer_only(self) -> None:
+        windows_pubspec = (ROOT / "SSRVPN_Windows" / "pubspec.yaml").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("绿色免安装版", windows_pubspec)
+        self.assertIn("Windows 安装版", windows_pubspec)
+
         active_release_files = (
             ROOT / ".github" / "workflows" / "ci.yml",
             ROOT / ".github" / "workflows" / "release.yml",
@@ -80,6 +86,8 @@ class FreeDesktopDistributionTest(unittest.TestCase):
         self.assertIn("retired_files=(", promotion)
         self.assertIn("SSRVPN.zip SSRVPN.zip.sha256", promotion)
         self.assertIn('ossutil_bin\" rm', promotion)
+        self.assertIn("Windows portable distribution retired", promotion)
+        self.assertIn("replacing it with a retirement marker", promotion)
 
         release_verifier = (
             ROOT / "scripts" / "check-release-assets.sh"
