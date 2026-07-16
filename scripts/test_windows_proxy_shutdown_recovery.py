@@ -155,9 +155,18 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             lifecycle.index("Future<bool> _waitForTunTeardown()") :
             lifecycle.index("// ── Admin helper")
         ]
-        confirmed = wait.index("if (cleared)")
+        confirmed = wait.index("_tunTeardownGate.accept((")
         clear_marker = wait.index("await _clearTunTeardownMarker()", confirmed)
+        self.assertIn("if (cleared &&", wait)
         self.assertLess(confirmed, clear_marker)
+
+        probe = (services / "windows_tun_runtime_probe.dart").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "if (!_ownershipKnown || result.status != WindowsTunResidualStatus.gone)",
+            probe,
+        )
 
     def test_tun_residual_routes_belong_to_captured_interfaces(self) -> None:
         probe = (
