@@ -17,38 +17,10 @@ $projectRoot = [System.IO.Path]::GetFullPath(
 $buildDir = Join-Path $projectRoot 'build\windows\x64\runner\Release'
 $releaseDir = Join-Path $projectRoot 'SSRVPN_Windows_Release'
 $binDir = Join-Path $releaseDir 'bin'
-$zipPath = Join-Path $projectRoot 'SSRVPN.zip'
-$zipHashPath = "$zipPath.sha256"
 $defaultChinaPubHostedUrl = 'https://pub.flutter-io.cn'
 $defaultChinaFlutterStorageBaseUrl = 'https://storage.flutter-io.cn'
 $originalPubHostedUrl = $env:PUB_HOSTED_URL
 $originalFlutterStorageBaseUrl = $env:FLUTTER_STORAGE_BASE_URL
-
-function Get-AppDisplayVersion {
-  $pubspecPath = Join-Path $projectRoot 'pubspec.yaml'
-  foreach ($line in Get-Content -LiteralPath $pubspecPath -Encoding UTF8) {
-    if ($line -match '^version:\s+([^\s]+)') {
-      $semanticVersion = ($matches[1] -split '\+')[0]
-      return "v$semanticVersion"
-    }
-  }
-  throw "Could not read version from $pubspecPath"
-}
-
-function Copy-PortableReadme {
-  param([Parameter(Mandatory = $true)][string]$Destination)
-
-  $source = Join-Path $projectRoot 'PORTABLE_README.txt'
-  $lines = @(Get-Content -LiteralPath $source -Encoding UTF8)
-  if ($lines.Count -eq 0) {
-    throw "Portable readme is empty: $source"
-  }
-  # Preserve the UTF-8 title read from the guide. Windows PowerShell 5.1 may
-  # decode non-ASCII literals in a BOM-less .ps1 file using the active codepage.
-  $lines[0] = "$($lines[0]) $(Get-AppDisplayVersion)"
-  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-  [System.IO.File]::WriteAllLines($Destination, $lines, $utf8NoBom)
-}
 
 $runtimeDlls = @(
   'concrt140.dll',
@@ -278,7 +250,7 @@ function Add-VisualStudioRedistDirectories {
   }
 }
 
-function Get-PortableRuntimeSearchDirectories {
+function Get-RuntimeSearchDirectories {
   $directories = New-Object System.Collections.ArrayList
   Add-CandidateDirectory -List $directories -Path $releaseDir
   Add-CandidateDirectory -List $directories -Path $buildDir
@@ -360,7 +332,7 @@ function Find-DependencyFile {
   return $null
 }
 
-function Copy-PortableDependency {
+function Copy-RuntimeDependency {
   param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string[]]$Directories,
@@ -383,7 +355,7 @@ function Copy-PortableDependency {
   if (-not $source) {
     $searched = ($Directories | ForEach-Object { "  $_" }) -join "`r`n"
     throw @"
-Required portable dependency was not found: $Name
+Required installer dependency was not found: $Name
 
 Searched:
 $searched
@@ -396,19 +368,19 @@ $InstallHint
   Write-Host "[RUNTIME] Bundled $Name from $source"
 }
 
-function Add-PortableRuntimeFiles {
-  $runtimeDirs = Get-PortableRuntimeSearchDirectories
+function Add-RuntimeFiles {
+  $runtimeDirs = Get-RuntimeSearchDirectories
   foreach ($dll in $runtimeDlls) {
-    Copy-PortableDependency -Name $dll -Directories $runtimeDirs `
+    Copy-RuntimeDependency -Name $dll -Directories $runtimeDirs `
       -DestinationDirectory $releaseDir -RequireX64 `
       -InstallHint 'Install Visual Studio 2022 with the C++ desktop workload, or install the Microsoft Visual C++ Redistributable 2015-2022 x64 on the build machine.'
-    Copy-PortableDependency -Name $dll -Directories $runtimeDirs `
+    Copy-RuntimeDependency -Name $dll -Directories $runtimeDirs `
       -DestinationDirectory $binDir -RequireX64 `
       -InstallHint 'Install Visual Studio 2022 with the C++ desktop workload, or install the Microsoft Visual C++ Redistributable 2015-2022 x64 on the build machine.'
   }
 
   $d3dDirs = Get-D3DCompilerSearchDirectories
-  Copy-PortableDependency -Name 'd3dcompiler_47.dll' -Directories $d3dDirs `
+  Copy-RuntimeDependency -Name 'd3dcompiler_47.dll' -Directories $d3dDirs `
     -DestinationDirectory $binDir -RequireX64 `
     -InstallHint 'Install the Windows 10/11 SDK, or copy the x64 d3dcompiler_47.dll into this project runtime directory before packaging.'
 }
@@ -422,7 +394,7 @@ function Install-LauncherLayout {
     throw "Built Flutter executable was not found: $flutterExe"
   }
   if (-not (Test-Path -LiteralPath $launcherExe -PathType Leaf)) {
-    throw "Built portable launcher was not found: $launcherExe"
+    throw "Built launcher was not found: $launcherExe"
   }
 
   if (-not (Test-Path -LiteralPath $binDir -PathType Container)) {
@@ -434,10 +406,10 @@ function Install-LauncherLayout {
   Move-Item -LiteralPath $flutterExe -Destination $childExe
   Copy-Item -LiteralPath $launcherExe -Destination $flutterExe -Force
   Remove-Item -LiteralPath $launcherExe -Force
-  Write-Host '[LAUNCHER] Installed portable launcher.'
+  Write-Host '[LAUNCHER] Installed launcher.'
 }
 
-function Move-PortableInternalsToBin {
+function Move-InstallerInternalsToBin {
   if (-not (Test-Path -LiteralPath $binDir -PathType Container)) {
     New-Item -ItemType Directory -Path $binDir | Out-Null
   }
@@ -447,7 +419,6 @@ function Move-PortableInternalsToBin {
     'SSRVPN_Diag.bat',
     'ssrvpn_safe_mode.bat',
     'SAFE_MODE_README.txt',
-    $portableReadmeName,
     'remove_legacy_cet_exemption.ps1',
     'remove_legacy_cet_exemption.bat',
     'SHA256SUMS.txt'
@@ -512,7 +483,7 @@ Common fixes:
   1. Download Flutter SDK and extract it, for example to C:\src\flutter
   2. Add C:\src\flutter\bin to your user PATH
   3. Install Visual Studio 2022 with "Desktop development with C++"
-  4. Run build_release.bat again
+  4. Run .\tool\package_windows.ps1 again
 
 If Flutter is already installed, run this command instead:
   powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\tool\package_windows.ps1 -FlutterExe "C:\path\to\flutter\bin\flutter.bat"
@@ -646,13 +617,13 @@ $failureText
 This is usually a network problem, not a code problem.
 Try one of these fixes on the build machine:
   1. Check that the computer can open https://pub.dev/ in a browser.
-  2. If you are in mainland China, run build_release.bat again; the script
+  2. If you are in mainland China, run package_windows.ps1 again; the script
      already retries with:
        PUB_HOSTED_URL=$defaultChinaPubHostedUrl
        FLUTTER_STORAGE_BASE_URL=$defaultChinaFlutterStorageBaseUrl
   3. If your network requires a proxy, set HTTPS_PROXY/HTTP_PROXY first.
   4. If all packages are already cached, run:
-       build_release.bat -OfflinePub
+       .\tool\package_windows.ps1 -OfflinePub
 "@
 }
 
@@ -662,7 +633,7 @@ function Test-ReleaseContents {
   $rootExeFiles = @(Get-ChildItem -LiteralPath $Root -File -Filter '*.exe')
   if ($rootExeFiles.Count -ne 1 -or $rootExeFiles[0].Name -ne 'ssrvpn_windows.exe') {
     $names = ($rootExeFiles | ForEach-Object { $_.Name }) -join ', '
-    throw "Portable root must contain exactly one user-facing exe: $names"
+    throw "Installer payload must contain exactly one user-facing exe: $names"
   }
 
   foreach ($relativePath in $requiredFiles) {
@@ -849,15 +820,7 @@ try {
     -Recurse -Force
 
   Install-LauncherLayout
-  Add-PortableRuntimeFiles
-
-  $portableReadmeName = [string]::Concat(
-    [char]0x4F7F,
-    [char]0x7528,
-    [char]0x6559,
-    [char]0x7A0B,
-    '.txt'
-  )
+  Add-RuntimeFiles
   # Diagnostic launcher script
   Copy-Item -LiteralPath (Join-Path $projectRoot 'SSRVPN_Diag.bat') `
     -Destination (Join-Path $releaseDir 'SSRVPN_Diag.bat')
@@ -867,14 +830,13 @@ try {
   # Readme files
   Copy-Item -LiteralPath (Join-Path $projectRoot 'SAFE_MODE_README.txt') `
     -Destination (Join-Path $releaseDir 'SAFE_MODE_README.txt')
-  Copy-PortableReadme -Destination (Join-Path $releaseDir $portableReadmeName)
   # One-time cleanup for security exceptions created by older releases.
   Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\remove_legacy_cet_exemption.ps1') `
     -Destination (Join-Path $releaseDir 'remove_legacy_cet_exemption.ps1')
   Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\remove_legacy_cet_exemption.bat') `
     -Destination (Join-Path $releaseDir 'remove_legacy_cet_exemption.bat')
 
-  Move-PortableInternalsToBin
+  Move-InstallerInternalsToBin
   Test-ReleaseContents -Root $releaseDir
 
   $releasePrefix = [System.IO.Path]::GetFullPath($releaseDir).TrimEnd('\') + '\'
@@ -898,49 +860,7 @@ try {
   ) -Encoding UTF8
   Test-ReleaseHashes -Root $releaseDir
 
-  if (Test-Path -LiteralPath $zipPath) {
-    Remove-Item -LiteralPath $zipPath -Force
-  }
-  if (Test-Path -LiteralPath $zipHashPath) {
-    Remove-Item -LiteralPath $zipHashPath -Force
-  }
-  Compress-Archive -LiteralPath $releaseDir -DestinationPath $zipPath `
-    -CompressionLevel Optimal
-
-  $verifyRoot = Join-Path (
-    [System.IO.Path]::GetTempPath()
-  ) "SSRVPN-package-verify-$([Guid]::NewGuid().ToString('N'))"
-  try {
-    Expand-Archive -LiteralPath $zipPath -DestinationPath $verifyRoot
-    $verifiedReleaseDir = Join-Path $verifyRoot 'SSRVPN_Windows_Release'
-    Test-ReleaseContents -Root $verifiedReleaseDir
-    Test-ReleaseHashes -Root $verifiedReleaseDir
-  } finally {
-    $expectedTempRoot = [System.IO.Path]::GetFullPath(
-      [System.IO.Path]::GetTempPath()
-    )
-    $resolvedVerifyRoot = [System.IO.Path]::GetFullPath($verifyRoot)
-    if (-not $resolvedVerifyRoot.StartsWith(
-      $expectedTempRoot,
-      [System.StringComparison]::OrdinalIgnoreCase
-    )) {
-      throw "Refusing to clean unexpected verification directory: $verifyRoot"
-    }
-    if (Test-Path -LiteralPath $resolvedVerifyRoot) {
-      Remove-Item -LiteralPath $resolvedVerifyRoot -Recurse -Force
-    }
-  }
-
-  $zipHash = Get-FileHash -LiteralPath $zipPath -Algorithm SHA256
-  [System.IO.File]::WriteAllText(
-    $zipHashPath,
-    "$($zipHash.Hash.ToLower())  SSRVPN.zip`n",
-    [System.Text.Encoding]::ASCII
-  )
-  Write-Host "Release: $releaseDir"
-  Write-Host "ZIP:     $zipPath"
-  Write-Host "ZIP hash:$zipHashPath"
-  Write-Host "SHA256:  $($zipHash.Hash)"
+  Write-Host "Installer payload: $releaseDir"
 } finally {
   Pop-Location
   Restore-PubEnvironment

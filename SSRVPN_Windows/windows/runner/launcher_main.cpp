@@ -1125,8 +1125,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
   if (::GetFileAttributesW(child_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
     ShowError(L"SSRVPN",
               L"找不到 SSRVPN 主程序：\n\n" + child_path +
-                  L"\n\n请完整解压 ZIP 后再运行，不能只复制 ssrvpn_windows.exe。"
-                  L"\n也可以改用 SSRVPN 安装版。"
+                  L"\n\n安装目录不完整，请重新运行 SSRVPN_Setup.exe 修复安装。"
     );
     return ERROR_FILE_NOT_FOUND;
   }

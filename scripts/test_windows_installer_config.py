@@ -76,7 +76,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             encoding="utf-8-sig"
         )
         self.assertIn("覆盖升级会保留安装版的设置、订阅", notice)
-        self.assertIn("便携副本不会被搜索或修改", notice)
+        self.assertIn("旧独立副本不会被搜索或修改", notice)
         self.assertNotIn("永久删除当前 Windows 用户的 SSRVPN 旧数据", notice)
         self.assertIn("ssrvpn_windows_app.exe", script)
         self.assertIn("ssrvpn_windows.exe", script)
@@ -1025,7 +1025,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             workflow = (
                 ROOT / ".github" / "workflows" / workflow_name
             ).read_text(encoding="utf-8")
-            build_step = workflow.split("- name: Build Windows packages", 1)[1]
+            build_step = workflow.split("- name: Build Windows installer", 1)[1]
             build_step = build_step.split("\n      - name:", 1)[0]
             with self.subTest(workflow=workflow_name):
                 self.assertIn("shell: powershell", build_step)
@@ -1086,7 +1086,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             workflow = (
                 ROOT / ".github" / "workflows" / workflow_name
             ).read_text(encoding="utf-8")
-            build_step = workflow.split("- name: Build Windows packages", 1)[1]
+            build_step = workflow.split("- name: Build Windows installer", 1)[1]
             build_step = build_step.split("\n      - name:", 1)[0]
             with self.subTest(workflow=workflow_name):
                 self.assertIn(invocation, build_step)
@@ -1130,17 +1130,15 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         for value in required:
             self.assertIn(value, ci)
 
-    def test_portable_checksum_uses_cross_platform_line_endings(self) -> None:
+    def test_windows_package_prepares_only_the_installer_payload(self) -> None:
         package_script = (
             ROOT / "SSRVPN_Windows" / "tool" / "package_windows.ps1"
         ).read_text(encoding="utf-8")
-        checksum_block = package_script.split(
-            "$zipHash = Get-FileHash -LiteralPath $zipPath -Algorithm SHA256", 1
-        )[1]
 
-        self.assertIn("[System.IO.File]::WriteAllText", checksum_block)
-        self.assertIn('"$($zipHash.Hash.ToLower())  SSRVPN.zip`n"', checksum_block)
-        self.assertNotIn("Set-Content -LiteralPath $zipHashPath", checksum_block)
+        self.assertIn('Write-Host "Installer payload: $releaseDir"', package_script)
+        self.assertIn("Test-ReleaseHashes -Root $releaseDir", package_script)
+        self.assertNotIn("Compress-Archive", package_script)
+        self.assertNotIn("SSRVPN.zip", package_script)
 
     def test_windows_package_rejects_unexpected_build_artifacts(self) -> None:
         package_script = (
@@ -1200,7 +1198,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("await _deleteCorePid()", lifecycle)
         self.assertNotIn("Where-Object { \\$_.ExecutablePath -eq \\$target }", lifecycle)
 
-    def test_portable_launcher_explains_complete_extraction(self) -> None:
+    def test_installed_launcher_explains_repairing_an_incomplete_install(
+        self,
+    ) -> None:
         launcher = (
             ROOT
             / "SSRVPN_Windows"
@@ -1209,8 +1209,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             / "launcher_main.cpp"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("请完整解压 ZIP", launcher)
-        self.assertIn("不能只复制 ssrvpn_windows.exe", launcher)
+        self.assertIn("安装目录不完整", launcher)
+        self.assertIn("重新运行 SSRVPN_Setup.exe", launcher)
 
 
 if __name__ == "__main__":

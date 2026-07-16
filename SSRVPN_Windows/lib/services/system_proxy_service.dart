@@ -76,8 +76,8 @@ class SystemProxyService {
     _dataDir = dataDir;
     _lastError = null;
     _endpointSafeWithPendingRecovery = false;
-    // This snapshot is machine-specific state. Keeping it outside the portable
-    // directory prevents a copied folder from restoring another PC's proxy.
+    // This snapshot is machine-specific state. Keeping it outside the install
+    // directory prevents copied app files from restoring another PC's proxy.
     final localAppData =
         _localAppDataOverride ?? Platform.environment['LOCALAPPDATA'];
     if (localAppData == null ||

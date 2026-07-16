@@ -538,7 +538,7 @@ exit 4
       }
       _ensureStartCurrent(startToken);
 
-      // 启动 mihomo 子进程（所有数据都在便携目录内）
+      // 启动 mihomo 子进程（运行数据位于安装版数据目录）
       if (_coreProcess != null) {
         setLastStartError('上一个 Mihomo 进程尚未退出，已拒绝启动新的核心');
         log('❌ $lastStartError');

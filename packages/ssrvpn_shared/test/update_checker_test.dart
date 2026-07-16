@@ -52,20 +52,20 @@ void main() {
   "changelog": "OSS release notes",
   "assets": [
     {
-      "name": "SSRVPN.zip",
-      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/SSRVPN.zip",
+      "name": "SSRVPN_Setup.exe",
+      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/SSRVPN_Setup.exe",
       "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     }
   ]
 }
 ''', 200);
       }
-      return githubReleaseResponse(request, assetName: 'SSRVPN.zip');
+      return githubReleaseResponse(request, assetName: 'SSRVPN_Setup.exe');
     });
 
     final update = await UpdateChecker.checkLatest(
       currentVersion: '3.0.0',
-      assetExtension: '.zip',
+      assetExtension: '.exe',
       client: client,
     );
 
@@ -73,7 +73,7 @@ void main() {
     expect(update!.version, '3.1.0');
     expect(
       update.downloadUrl,
-      'https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/SSRVPN.zip',
+      'https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/SSRVPN_Setup.exe',
     );
     expect(
       update.sha256,
@@ -82,7 +82,7 @@ void main() {
     expect(update.sourceHost, 'nikuaimobi.oss-cn-qingdao.aliyuncs.com');
     expect(
       update.fallbackDownloadUrl,
-      'https://github.com/Elegying/SSRVPN/releases/download/v3.1.0/SSRVPN.zip',
+      'https://github.com/Elegying/SSRVPN/releases/download/v3.1.0/SSRVPN_Setup.exe',
     );
     expect(requestedHosts, [
       'nikuaimobi.oss-cn-qingdao.aliyuncs.com',
@@ -101,8 +101,8 @@ void main() {
   "version": "3.1.0",
   "assets": [
     {
-      "name": "SSRVPN.zip",
-      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/SSRVPN.zip",
+      "name": "SSRVPN_Setup.exe",
+      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/SSRVPN_Setup.exe",
       "sha256": "$_digestA"
     }
   ]
@@ -114,7 +114,7 @@ void main() {
 
     final update = await UpdateChecker.checkLatest(
       currentVersion: '3.0.0',
-      assetExtension: '.zip',
+      assetExtension: '.exe',
       client: client,
     );
 
@@ -133,8 +133,8 @@ void main() {
   "version": "3.1.0",
   "assets": [
     {
-      "name": "SSRVPN.zip",
-      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/SSRVPN.zip",
+      "name": "SSRVPN_Setup.exe",
+      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/SSRVPN_Setup.exe",
       "sha256": "$_digestA"
     }
   ]
@@ -143,14 +143,14 @@ void main() {
       }
       return githubReleaseResponse(
         request,
-        assetName: 'SSRVPN.zip',
+        assetName: 'SSRVPN_Setup.exe',
         digest: _digestB,
       );
     });
 
     final update = await UpdateChecker.checkLatest(
       currentVersion: '3.0.0',
-      assetExtension: '.zip',
+      assetExtension: '.exe',
       client: client,
     );
 
@@ -159,19 +159,13 @@ void main() {
     expect(update.sha256, _digestB);
   });
 
-  test('checkLatest selects the Windows installer instead of the portable ZIP',
-      () async {
+  test('checkLatest selects the canonical Windows installer', () async {
     final client = MockClient((request) async {
       if (request.url.host == 'nikuaimobi.oss-cn-qingdao.aliyuncs.com') {
         return http.Response('''
 {
   "version": "3.1.0",
   "assets": [
-    {
-      "name": "SSRVPN.zip",
-      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/SSRVPN.zip",
-      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-    },
     {
       "name": "SSRVPN_Setup.exe",
       "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/SSRVPN_Setup.exe",
@@ -293,13 +287,13 @@ void main() {
   "version": "3.1.0",
   "assets": [
     {
-      "name": "NotSSRVPN.zip",
-      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/NotSSRVPN.zip",
+      "name": "NotSSRVPN_Setup.exe",
+      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/NotSSRVPN_Setup.exe",
       "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     },
     {
-      "name": "SSRVPN.zip",
-      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.0.0/SSRVPN.zip",
+      "name": "SSRVPN_Setup.exe",
+      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.0.0/SSRVPN_Setup.exe",
       "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     }
   ]
@@ -311,7 +305,7 @@ void main() {
 
     final update = await UpdateChecker.checkLatest(
       currentVersion: '3.0.0',
-      assetExtension: '.zip',
+      assetExtension: '.exe',
       client: client,
     );
 
@@ -390,7 +384,7 @@ void main() {
     final client = MockClient((request) async {
       if (request.url.path.endsWith('.sha256')) {
         return http.Response(
-          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  SSRVPN.zip\n',
+          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  SSRVPN_Setup.exe\n',
           200,
         );
       }
@@ -402,8 +396,8 @@ void main() {
   "html_url": "https://github.com/Elegying/SSRVPN/releases/tag/v2.0.7",
   "assets": [
     {"name": "SSRVPN.apk", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN.apk"},
-    {"name": "SSRVPN.zip", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN.zip"},
-    {"name": "SSRVPN.zip.sha256", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN.zip.sha256"}
+    {"name": "SSRVPN_Setup.exe", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN_Setup.exe"},
+    {"name": "SSRVPN_Setup.exe.sha256", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN_Setup.exe.sha256"}
   ]
 }
 ''', 200);
@@ -411,7 +405,7 @@ void main() {
 
     final update = await UpdateChecker.checkLatest(
       currentVersion: '2.0.6',
-      assetExtension: '.zip',
+      assetExtension: '.exe',
       client: client,
     );
 
@@ -419,7 +413,7 @@ void main() {
     expect(update!.version, '2.0.7');
     expect(
       update.downloadUrl,
-      'https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN.zip',
+      'https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN_Setup.exe',
     );
     expect(update.changelog, startsWith('release notes\n\n下载来源: github.com'));
     expect(update.changelog, contains('SHA256:'));
@@ -465,7 +459,7 @@ void main() {
   "html_url": "https://github.com/Elegying/SSRVPN/releases/tag/v2.0.7",
   "assets": [
     {"name": "SSRVPN.apk", "browser_download_url": "https://example.test/app.apk"},
-    {"name": "SSRVPN.zip", "browser_download_url": "https://example.test/app.zip"}
+    {"name": "SSRVPN_Setup.exe", "browser_download_url": "https://example.test/app.exe"}
   ]
 }
 ''', 200);
@@ -510,7 +504,7 @@ void main() {
     final client = MockClient((request) async {
       if (request.url.path.endsWith('.sha256')) {
         return http.Response(
-          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  SSRVPN.zip\n',
+          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  SSRVPN_Setup.exe\n',
           200,
         );
       }
@@ -520,8 +514,8 @@ void main() {
   "body": "",
   "html_url": "https://github.com/Elegying/SSRVPN/releases/tag/v2.0.7",
   "assets": [
-    {"name": "SSRVPN.zip", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN.zip"},
-    {"name": "SSRVPN.zip.sha256", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN.zip.sha256"}
+    {"name": "SSRVPN_Setup.exe", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN_Setup.exe"},
+    {"name": "SSRVPN_Setup.exe.sha256", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN_Setup.exe.sha256"}
   ]
 }
 ''', 200);
@@ -529,7 +523,7 @@ void main() {
 
     final update = await UpdateChecker.checkLatest(
       currentVersion: '2.0.6',
-      assetExtension: '.zip',
+      assetExtension: '.exe',
       client: client,
     );
 
@@ -551,7 +545,7 @@ void main() {
     final client = MockClient((request) async {
       if (request.url.path.endsWith('.sha256')) {
         return http.Response(
-          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  Other.zip\n',
+          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  Other.exe\n',
           200,
         );
       }
@@ -559,8 +553,8 @@ void main() {
 {
   "tag_name": "v3.1.0",
   "assets": [
-    {"name": "SSRVPN.zip", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v3.1.0/SSRVPN.zip"},
-    {"name": "SSRVPN.zip.sha256", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v3.1.0/SSRVPN.zip.sha256"}
+    {"name": "SSRVPN_Setup.exe", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v3.1.0/SSRVPN_Setup.exe"},
+    {"name": "SSRVPN_Setup.exe.sha256", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v3.1.0/SSRVPN_Setup.exe.sha256"}
   ]
 }
 ''', 200);
@@ -568,7 +562,7 @@ void main() {
 
     final update = await UpdateChecker.checkLatest(
       currentVersion: '3.0.1',
-      assetExtension: '.zip',
+      assetExtension: '.exe',
       client: client,
     );
 
@@ -605,18 +599,18 @@ void main() {
     final client = MockClient((request) async {
       if (request.url.path.endsWith('.sha256')) {
         return http.Response(
-          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  SSRVPN.zip\n',
+          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  SSRVPN_Setup.exe\n',
           200,
         );
       }
       return http.Response('''
 {
   "tag_name": "v2.0.7",
-  "body": "### Changed\\n- Desktop layout update\\n\\n### Downloads\\n| Platform | File | Checksum |\\n|----------|------|----------|\\n| Windows | `SSRVPN.zip` | `SSRVPN.zip.sha256` |\\n\\nVerify checksums: `shasum -a 256 -c <file>.sha256`",
+  "body": "### Changed\\n- Desktop layout update\\n\\n### Downloads\\n| Platform | File | Checksum |\\n|----------|------|----------|\\n| Windows | `SSRVPN_Setup.exe` | `SSRVPN_Setup.exe.sha256` |\\n\\nVerify checksums: `shasum -a 256 -c <file>.sha256`",
   "html_url": "https://github.com/Elegying/SSRVPN/releases/tag/v2.0.7",
   "assets": [
-    {"name": "SSRVPN.zip", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN.zip"},
-    {"name": "SSRVPN.zip.sha256", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN.zip.sha256"}
+    {"name": "SSRVPN_Setup.exe", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN_Setup.exe"},
+    {"name": "SSRVPN_Setup.exe.sha256", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v2.0.7/SSRVPN_Setup.exe.sha256"}
   ]
 }
 ''', 200);
@@ -624,7 +618,7 @@ void main() {
 
     final update = await UpdateChecker.checkLatest(
       currentVersion: '2.0.6',
-      assetExtension: '.zip',
+      assetExtension: '.exe',
       client: client,
     );
 

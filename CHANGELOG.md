@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 移除
+
+- Windows 停止构建和发布便携 ZIP，只保留每用户安装器 `SSRVPN_Setup.exe`；下一次正式发布会事务性移除 OSS 固定便携下载别名，历史不可变 Release 资产继续保留用于审计。
+
 ### 修复
 
 - Windows TUN 清理在所有权标记缺失或损坏时不再把“当前未观察到网卡”误判为清理完成；只有已捕获稳定接口身份并确认消失后才放行重连，标记文件改为原子提交。
@@ -28,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 文档
 
 - 固化 Windows 安装版数据保留决策：安装器不再发现或合并多个便携数据源，覆盖升级只替换程序文件并保留固定安装数据；旧的每次安装删除数据策略正式废止。
+- 统一当前发布、签名、用户和运维文档为 Windows 安装版单一分发，并以 ADR-003 记录退役边界。
 
 ## [3.4.3] - 2026-07-16
 

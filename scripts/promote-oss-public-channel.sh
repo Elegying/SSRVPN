@@ -20,12 +20,15 @@ curl_bin="${CURL_BIN:-curl}"
 : "${OSS_ENDPOINT:?OSS_ENDPOINT is required}"
 : "${OSS_PREFIX:?OSS_PREFIX is required}"
 
-files=(
+publish_files=(
   SSRVPN.apk SSRVPN.apk.sha256
   SSRVPN.dmg SSRVPN.dmg.sha256
   SSRVPN_Setup.exe SSRVPN_Setup.exe.sha256
+)
+retired_files=(
   SSRVPN.zip SSRVPN.zip.sha256
 )
+managed_files=("${publish_files[@]}" "${retired_files[@]}")
 
 if [ "$restore_mode" -eq 0 ]; then
 python3 - "$source_dir" "$manifest" <<'PY'
@@ -60,7 +63,7 @@ def sha256(path):
             digest.update(chunk)
     return digest.hexdigest()
 
-for name in ("SSRVPN.apk", "SSRVPN.dmg", "SSRVPN_Setup.exe", "SSRVPN.zip"):
+for name in ("SSRVPN.apk", "SSRVPN.dmg", "SSRVPN_Setup.exe"):
     path = source / name
     if not path.is_file():
         raise SystemExit(f"missing public asset: {name}")
@@ -112,7 +115,7 @@ restore_backup() {
   fi
 
   local name
-  for name in "${files[@]}" latest.json; do
+  for name in "${managed_files[@]}" latest.json; do
     if [ -f "$source_backup/$name.present" ] && [ -f "$source_backup/$name" ]; then
       continue
     fi
@@ -125,7 +128,7 @@ restore_backup() {
 
   local restore_failed=0
   local key restored attempt verify_status
-  for name in "${files[@]}" latest.json; do
+  for name in "${managed_files[@]}" latest.json; do
     key="$(object_key "$name")"
     restored=0
     for attempt in 1 2 3; do
@@ -198,7 +201,7 @@ restore_previous_channel() {
 # failure therefore performs local cleanup only and never mutates OSS.
 trap 'rm -rf "$backup_dir"' EXIT
 
-for name in "${files[@]}" latest.json; do
+for name in "${managed_files[@]}" latest.json; do
   status="$(fetch_object "$name" "$backup_dir/$name")"
   case "$status" in
     200) touch "$backup_dir/$name.present" ;;
@@ -217,7 +220,7 @@ done
 # restore the fully captured channel.
 trap restore_previous_channel EXIT
 
-for name in "${files[@]}"; do
+for name in "${publish_files[@]}"; do
   source="$source_dir/$name"
   key="$(object_key "$name")"
   "$ossutil_bin" cp "$source" "oss://$OSS_BUCKET/$key" \
@@ -229,6 +232,18 @@ for name in "${files[@]}"; do
     exit 1
   fi
   cmp "$source" "$downloaded"
+done
+
+for name in "${retired_files[@]}"; do
+  key="$(object_key "$name")"
+  if [ -f "$backup_dir/$name.present" ]; then
+    "$ossutil_bin" rm "oss://$OSS_BUCKET/$key" --force
+  fi
+  status="$(fetch_object "$name" "$backup_dir/verify-retired-$name")"
+  if [ "$status" != 404 ]; then
+    echo "Cannot verify retired OSS object $name (HTTP ${status:-network error})" >&2
+    exit 1
+  fi
 done
 
 latest_key="$(object_key latest.json)"

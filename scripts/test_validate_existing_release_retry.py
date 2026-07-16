@@ -70,6 +70,24 @@ class ExistingReleaseRetryTest(unittest.TestCase):
                 expected_commit=COMMIT,
             )
 
+    def test_release_with_retired_asset_cannot_authorize_retry(self) -> None:
+        data = release()
+        data["assets"].append(
+            {
+                "name": "SSRVPN.zip",
+                "size": 1024,
+                "digest": "sha256:" + "a" * 64,
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "unexpected assets"):
+            MODULE.validate_release_metadata(
+                data,
+                provenance(),
+                expected_tag="v3.2.0",
+                expected_commit=COMMIT,
+            )
+
     def test_prerelease_cannot_enter_the_stable_retry_path(self) -> None:
         with self.assertRaisesRegex(ValueError, "prerelease"):
             MODULE.validate_release_metadata(

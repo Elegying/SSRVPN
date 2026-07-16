@@ -55,6 +55,47 @@ class FreeDesktopDistributionTest(unittest.TestCase):
         ):
             self.assertFalse((ROOT / removed).exists(), removed)
 
+    def test_windows_distribution_is_installer_only(self) -> None:
+        active_release_files = (
+            ROOT / ".github" / "workflows" / "ci.yml",
+            ROOT / ".github" / "workflows" / "release.yml",
+            ROOT / ".github" / "workflows" / "oss-rollback.yml",
+            ROOT / "scripts" / "generate-release-notes.py",
+            ROOT / "scripts" / "reuse-github-release-assets.sh",
+            ROOT / "scripts" / "validate-existing-release-retry.py",
+            ROOT / "SSRVPN_Windows" / "tool" / "package_windows.ps1",
+        )
+
+        for path in active_release_files:
+            content = path.read_text(encoding="utf-8")
+            with self.subTest(file=path.name):
+                self.assertNotIn("SSRVPN.zip", content)
+
+        release_workflow = active_release_files[1].read_text(encoding="utf-8")
+        self.assertIn("SSRVPN_Setup.exe", release_workflow)
+
+        promotion = (
+            ROOT / "scripts" / "promote-oss-public-channel.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("retired_files=(", promotion)
+        self.assertIn("SSRVPN.zip SSRVPN.zip.sha256", promotion)
+        self.assertIn('ossutil_bin\" rm', promotion)
+
+        release_verifier = (
+            ROOT / "scripts" / "check-release-assets.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("SSRVPN_ALLOW_RETIRED_WINDOWS_ZIP", release_verifier)
+        self.assertIn(
+            'allowed_retired = {"SSRVPN.zip", "SSRVPN.zip.sha256"}',
+            release_verifier,
+        )
+
+        for removed in (
+            "SSRVPN_Windows/PORTABLE_README.txt",
+            "SSRVPN_Windows/build_release.bat",
+        ):
+            self.assertFalse((ROOT / removed).exists(), removed)
+
 
 if __name__ == "__main__":
     unittest.main()

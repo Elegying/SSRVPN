@@ -44,8 +44,8 @@ class GenerateOssReleaseManifestTest(unittest.TestCase):
 
     def test_rejects_checksum_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            asset = Path(directory, "SSRVPN.zip")
-            asset.write_bytes(b"zip")
+            asset = Path(directory, "SSRVPN_Setup.exe")
+            asset.write_bytes(b"installer")
             Path(f"{asset}.sha256").write_text("0" * 64, encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "checksum mismatch"):
@@ -72,7 +72,6 @@ class GenerateOssReleaseManifestTest(unittest.TestCase):
             "SSRVPN.apk",
             "SSRVPN.dmg",
             "SSRVPN_Setup.exe",
-            "SSRVPN.zip",
         ):
             self.assertIn(name, workflow)
 

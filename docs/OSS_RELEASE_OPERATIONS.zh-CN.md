@@ -28,14 +28,12 @@ ssrvpn/
 ├── downloads/
 │   ├── SSRVPN.apk(.sha256)
 │   ├── SSRVPN.dmg(.sha256)
-│   ├── SSRVPN_Setup.exe(.sha256)
-│   └── SSRVPN.zip(.sha256)
+│   └── SSRVPN_Setup.exe(.sha256)
 └── releases/
     └── vX.Y.Z/
         ├── SSRVPN.apk(.sha256)
         ├── SSRVPN.dmg(.sha256)
         ├── SSRVPN_Setup.exe(.sha256)
-        ├── SSRVPN.zip(.sha256)
         └── latest.json
 ```
 
@@ -49,7 +47,10 @@ ssrvpn/
 `ssrvpn/downloads/` 是网站和人工分享使用的固定下载地址。每次正式发布都会
 用已经校验过的同一批文件覆盖并重新下载比对，同时设置 `Cache-Control:
 no-cache`。因此网站不需要随版本号修改链接。GitHub 备用地址使用
-`https://github.com/Elegying/SSRVPN/releases/latest/download/<文件名>`。
+`https://github.com/Elegying/SSRVPN/releases/latest/download/<文件名>`。推广新版本时会在同一
+备份事务内删除旧的 `downloads/SSRVPN.zip` 及校验文件；若后续步骤失败，原对象和
+`latest.json` 会一起恢复。历史不可变版本目录与旧 GitHub Release 资产保留作审计记录，
+不会被修改。
 
 ## 正常发布
 
@@ -102,7 +103,7 @@ Bucket、Endpoint、公开读取和上传权限都可用。
   回滚，否则可能造成已公开 GitHub 版本再次指向旧 OSS 通道。
 - 已发布版本确认有严重问题：先把 GitHub Release 标记为 prerelease，再在
   GitHub Actions 手动运行 `Roll back OSS public channel`，输入上一个稳定 tag。
-  该工作流会先验证不可变版本目录，恢复网站使用的四个固定下载包及校验文件，
+  该工作流会先验证不可变版本目录，恢复网站使用的三个固定下载包及校验文件，
   全部下载比对成功后才恢复 `ssrvpn/latest.json`。随后尽快发布更高版本号的
   修复版；客户端不会自动降级已经安装的坏版本。
 - 某个版本目录文件损坏：不要原地替换不可变文件。发布一个更高补丁版本，保留

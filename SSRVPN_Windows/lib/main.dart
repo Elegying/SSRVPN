@@ -14,11 +14,12 @@ import 'startup/window_state_store.dart';
 
 String _crashDirectoryPath() {
   final exeDir = File(Platform.resolvedExecutable).parent.path;
-  final portableRoot = '$exeDir${Platform.pathSeparator}ssrvpn';
-  final portableCrashDir = '$portableRoot${Platform.pathSeparator}crashes';
+  final installedDataRoot = '$exeDir${Platform.pathSeparator}ssrvpn';
+  final installedCrashDir =
+      '$installedDataRoot${Platform.pathSeparator}crashes';
   try {
-    Directory(portableCrashDir).createSync(recursive: true);
-    return portableCrashDir;
+    Directory(installedCrashDir).createSync(recursive: true);
+    return installedCrashDir;
   } catch (_) {
     final localAppData = Platform.environment['LOCALAPPDATA'];
     final root = localAppData == null || localAppData.trim().isEmpty

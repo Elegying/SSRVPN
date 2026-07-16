@@ -11,7 +11,7 @@
 - [常见问题排查](TROUBLESHOOTING.zh-CN.md)：按现象定位原因并采取动作。
 - [Android 安装与权限](../SSRVPN_Android/USER_GUIDE.md)
 - [macOS 安装与权限](../SSRVPN_MacOS/USER_GUIDE.md)
-- [Windows 安装、便携版与权限](../SSRVPN_Windows/USER_GUIDE.md)
+- [Windows 安装与权限](../SSRVPN_Windows/USER_GUIDE.md)
 - [产品行为要求](PRODUCT_REQUIREMENTS.zh-CN.md)：不可随意改变的用户可见行为。
 
 ## 开发与维护
@@ -42,6 +42,7 @@
 - [UI 设计规范](UI_DESIGN_GUIDE.md)
 - [ADR-001：桌面端 API Secret 的长期存储](decisions/001-desktop-api-secret-storage.md)
 - [ADR-002：Windows 安装版数据保留与多来源隔离](decisions/002-windows-installed-data-preservation.md)
+- [ADR-003：Windows 只发布安装器](decisions/003-windows-installer-only-distribution.md)
 
 ## 历史材料
 

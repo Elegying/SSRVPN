@@ -307,7 +307,6 @@ class UpdateChecker {
       '.apk' => 'SSRVPN.apk',
       '.dmg' => 'SSRVPN.dmg',
       '.exe' => 'SSRVPN_Setup.exe',
-      '.zip' => 'SSRVPN.zip',
       _ => null,
     };
   }

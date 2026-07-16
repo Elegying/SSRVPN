@@ -46,7 +46,7 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
-# A tiny outer launcher keeps the portable root stable while the Flutter
+# A tiny outer launcher keeps the installed entry point stable while the Flutter
 # executable and its runtime dependencies live under bin/. It forwards the
 # command line and preserves the operating system's security mitigations.
 set(LAUNCHER_TARGET "${BINARY_NAME}_launcher")

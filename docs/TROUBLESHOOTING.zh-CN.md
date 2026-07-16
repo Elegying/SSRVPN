@@ -160,14 +160,14 @@ Windows 提示未知发布者，浏览器也可能提示保留或删除下载文
 
 **原因或检查**
 
-当前 Windows 安装包和便携包没有 Authenticode 签名。
+当前 Windows 安装器没有 Authenticode 签名。
 
 **动作**
 
 仅在文件来自正式下载地址且 SHA256 匹配时选择保留并继续运行。来源或哈希不确定时不要
 绕过系统提示。
 
-## Windows 便携版提示找不到应用文件
+## Windows 提示找不到应用文件
 
 **现象**
 
@@ -175,12 +175,12 @@ Windows 提示未知发布者，浏览器也可能提示保留或删除下载文
 
 **原因或检查**
 
-通常是只复制了顶层启动器，或直接从压缩包运行而没有完整解压。
+安装目录不完整，内部 Flutter 程序或运行库被删除、隔离或损坏。
 
 **动作**
 
-重新下载 ZIP，将整个目录完整解压后再运行顶层 `ssrvpn_windows.exe`。普通用户优先使用
-`SSRVPN_Setup.exe` 安装版。
+从正式来源重新下载并校验 `SSRVPN_Setup.exe`，再运行安装器修复安装。不要从其他电脑
+单独复制顶层 `ssrvpn_windows.exe`。
 
 ## Windows 提示当前账户无法解密本机密钥
 
@@ -191,7 +191,7 @@ Windows 提示未知发布者，浏览器也可能提示保留或删除下载文
 
 **原因或检查**
 
-该文件使用创建它的 Windows 登录用户通过 DPAPI 加密。把便携目录连同密钥文件复制到
+该文件使用创建它的 Windows 登录用户通过 DPAPI 加密。把旧数据目录连同密钥文件复制到
 另一台电脑或另一个 Windows 账户，或者密文文件损坏时，当前账户无法解密。订阅和设置
 文件不依赖这次解密，仍应保留。
 
@@ -200,12 +200,12 @@ Windows 提示未知发布者，浏览器也可能提示保留或删除下载文
 1. 完全退出 SSRVPN，不要删除、上传或分享该密钥文件。
 2. 按界面显示的完整路径找到 `.api-secret.dpapi`。常见位置是安装版的
    `%LOCALAPPDATA%\Programs\SSRVPN\bin\ssrvpn`、回退目录的
-   `%LOCALAPPDATA%\SSRVPN\ssrvpn`，或便携目录的 `bin\ssrvpn`。
+   `%LOCALAPPDATA%\SSRVPN\ssrvpn`。
 3. 在原目录把文件重命名为
    `.api-secret.dpapi.unreadable-YYYYMMDD-HHMMSS`，保留它作为恢复证据。
 4. 重新启动 SSRVPN。应用会为当前 Windows 账户生成新密钥；已有设置和订阅继续保留。
 
-只有原 Windows 账户和原设备上下文可能解开旧密文。若要跨电脑或跨账户移动便携版，
+只有原 Windows 账户和原设备上下文可能解开旧密文。若要跨电脑或跨账户迁移数据，
 复制前应退出 SSRVPN，并从副本中排除 `.api-secret.dpapi`，让目标账户首次启动时生成新值。
 
 ## Windows 安装版升级后订阅和设置被清空
@@ -244,7 +244,7 @@ Windows 提示未知发布者，浏览器也可能提示保留或删除下载文
 **动作**
 
 从系统托盘打开 SSRVPN 菜单并选择显示窗口。若窗口仍无法出现，可完全退出后使用发布包
-中的 `ssrvpn_safe_mode.bat` 启动；`SSRVPN_Diag.bat` 可检查便携包必需文件。
+中的 `ssrvpn_safe_mode.bat` 启动；`SSRVPN_Diag.bat` 可检查安装目录必需文件。
 
 ## Android 首次连接没有建立 VPN
 
@@ -284,6 +284,6 @@ Windows 提示未知发布者，浏览器也可能提示保留或删除下载文
 
 ## 提交问题前
 
-请提供平台、SSRVPN 版本、安装版或便携版、复现步骤、预期结果和实际结果。日志必须先
+请提供平台、SSRVPN 版本、复现步骤、预期结果和实际结果。日志必须先
 移除订阅 URL、Token、节点地址、密码和 API secret。Windows 崩溃转储可能包含敏感数据，
 不要上传到公开 Issue；需要进一步分析时应通过维护者指定的私密渠道传递。

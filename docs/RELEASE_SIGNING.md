@@ -4,7 +4,7 @@
 
 - Android 使用免费的自签名 release keystore。
 - macOS 使用 ad-hoc 签名，不购买 Developer ID，不做 Apple 公证。
-- Windows 不购买 Authenticode 证书，安装包和便携包保持未签名。
+- Windows 不购买 Authenticode 证书，安装器保持未签名。
 - 三端发布都生成 SHA256，并只从正式 GitHub Release 或官网固定地址分发。
 
 仓库不保留 Apple/Microsoft 付费桌面签名自动化、启用变量或证书 secrets。除非维护者明确
@@ -53,7 +53,7 @@ ad-hoc 身份不能跨构建稳定复用，因此 macOS 长期 API secret 保持
 
 ## Windows：固定未签名
 
-Windows 发布 Inno Setup 每用户安装包和绿色便携 ZIP，并分别生成 SHA256。Release workflow
+Windows 只发布 Inno Setup 每用户安装器并生成 SHA256。Release workflow
 不导入 PFX、不调用 `signtool.exe`，打包脚本也不读取 Authenticode 环境变量。
 
 SmartScreen 或浏览器可能显示“未知发布者”。用户只有在正式来源和 SHA256 都匹配时才应
@@ -77,6 +77,6 @@ make verify
 scripts/check-release-assets.sh vX.Y.Z
 ```
 
-最后从公开 Release 重新下载 APK、DMG、EXE 和 ZIP，逐一校验随包 SHA256，并在目标平台
+最后从公开 Release 重新下载 APK、DMG 和 EXE，逐一校验随包 SHA256，并在目标平台
 检查系统提示、首次启动、连接、断开和退出。桌面免费分发决策不会降低运行稳定性、代理
 恢复、安装事务或来源校验的验收标准。

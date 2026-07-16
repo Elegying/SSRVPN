@@ -84,98 +84,6 @@ check_dmg() {
   echo "smoke: DMG ok: $dmg"
 }
 
-check_zip() {
-  local zip=""
-  for candidate in SSRVPN_Windows/SSRVPN.zip SSRVPN_Windows/build/SSRVPN.zip; do
-    if [[ -f "$candidate" ]]; then
-      zip="$candidate"
-      break
-    fi
-  done
-  [[ -n "$zip" ]] || { missing "Windows ZIP"; return; }
-  python3 - "$zip" <<'PY'
-from pathlib import Path, PurePosixPath
-import re
-import sys
-import zipfile
-
-zip_path = sys.argv[1]
-with zipfile.ZipFile(zip_path) as zf:
-    raw_names = zf.namelist()
-names = [
-    PurePosixPath(name.replace("\\", "/"))
-    for name in raw_names
-    if not name.endswith(("/", "\\"))
-]
-
-roots = {path.parts[0] for path in names if path.parts}
-if "SSRVPN_Windows_Release" not in roots:
-    raise SystemExit("ZIP missing SSRVPN_Windows_Release root")
-
-root_files = [
-    path.parts[1]
-    for path in names
-    if len(path.parts) == 2 and path.parts[0] == "SSRVPN_Windows_Release"
-]
-root_exes = [name for name in root_files if name.lower().endswith(".exe")]
-if root_exes != ["ssrvpn_windows.exe"]:
-    raise SystemExit(f"ZIP root must contain one user-facing exe: {root_exes}")
-
-runtime_dlls = [
-    "concrt140.dll",
-    "msvcp140.dll",
-    "msvcp140_1.dll",
-    "msvcp140_2.dll",
-    "msvcp140_atomic_wait.dll",
-    "msvcp140_codecvt_ids.dll",
-    "vcruntime140.dll",
-    "vcruntime140_1.dll",
-]
-required = {
-    "SSRVPN_Windows_Release/bin/ssrvpn_windows_app.exe",
-    "SSRVPN_Windows_Release/bin/mihomo.exe",
-    "SSRVPN_Windows_Release/bin/data/flutter_assets/assets/geoip.metadb.gz",
-    "SSRVPN_Windows_Release/使用教程.txt",
-}
-for dll in runtime_dlls:
-    required.add(f"SSRVPN_Windows_Release/{dll}")
-    required.add(f"SSRVPN_Windows_Release/bin/{dll}")
-all_names = {path.as_posix() for path in names}
-missing = sorted(required - all_names)
-if missing:
-    raise SystemExit(f"ZIP missing required files: {missing}")
-
-guide_path = "SSRVPN_Windows_Release/使用教程.txt"
-guide_entry = next(
-    name for name in raw_names if name.replace("\\", "/") == guide_path
-)
-with zipfile.ZipFile(zip_path) as zf:
-    guide = zf.read(guide_entry).decode("utf-8-sig")
-first_line = guide.splitlines()[0] if guide.splitlines() else ""
-pubspec = Path("SSRVPN_Windows/pubspec.yaml").read_text(encoding="utf-8")
-version_match = re.search(r"^version:\s+([^+\s]+)", pubspec, re.MULTILINE)
-if version_match is None:
-    raise SystemExit("Windows pubspec version is missing")
-expected_title = f"SSRVPN Windows 便携版 v{version_match.group(1)}"
-if first_line != expected_title:
-    raise SystemExit(f"ZIP tutorial title is invalid: {first_line!r}")
-expected_steps = [
-    "1、下载完 ZIP 后，使用解压软件解压出来。",
-    "2、双击 ssrvpn_windows.exe 打开软件。",
-    "3、粘贴你的节点代码或者订阅链接。",
-    "4、点击连接按钮即可。",
-]
-actual_steps = [
-    line
-    for line in guide.splitlines()
-    if line[:2] in {"1、", "2、", "3、", "4、"}
-]
-if actual_steps != expected_steps:
-    raise SystemExit(f"ZIP tutorial steps do not match: {actual_steps}")
-print(f"smoke: ZIP ok: {zip_path}")
-PY
-}
-
 check_installer() {
   local installer=""
   for candidate in \
@@ -215,5 +123,4 @@ PY
 
 check_apk
 check_dmg
-check_zip
 check_installer

@@ -321,11 +321,12 @@ void main() {
     expect(secureSecret, service.settings.apiSecret);
   });
 
-  test('portable fallback migration preserves all critical user data',
+  test('installed fallback migration preserves all critical user data',
       () async {
-    final portable = await Directory.systemTemp.createTemp('ssrvpn-portable-');
+    final installed =
+        await Directory.systemTemp.createTemp('ssrvpn-installed-');
     final fallback = await Directory.systemTemp.createTemp('ssrvpn-fallback-');
-    addTearDown(() => portable.delete(recursive: true));
+    addTearDown(() => installed.delete(recursive: true));
     addTearDown(() => fallback.delete(recursive: true));
     const critical = {
       '.api-secret.dpapi': 'encrypted-secret',
@@ -334,12 +335,12 @@ void main() {
     };
     for (final entry in critical.entries) {
       await File(
-        '${portable.path}${Platform.pathSeparator}${entry.key}',
+        '${installed.path}${Platform.pathSeparator}${entry.key}',
       ).writeAsString(entry.value, flush: true);
     }
 
-    await SettingsService.migratePortableDataForTesting(
-      portable.path,
+    await SettingsService.migrateInstalledDataForTesting(
+      installed.path,
       fallback.path,
     );
 
@@ -353,58 +354,60 @@ void main() {
     }
   });
 
-  test('completed portable migration does not replay stale source data',
+  test('completed installed migration does not replay stale source data',
       () async {
-    final portable = await Directory.systemTemp.createTemp('ssrvpn-portable-');
+    final installed =
+        await Directory.systemTemp.createTemp('ssrvpn-installed-');
     final fallback = await Directory.systemTemp.createTemp('ssrvpn-fallback-');
-    addTearDown(() => portable.delete(recursive: true));
+    addTearDown(() => installed.delete(recursive: true));
     addTearDown(() => fallback.delete(recursive: true));
     final source = File(
-      '${portable.path}${Platform.pathSeparator}subscriptions.json',
+      '${installed.path}${Platform.pathSeparator}subscriptions.json',
     );
     final destination = File(
       '${fallback.path}${Platform.pathSeparator}subscriptions.json',
     );
-    await source.writeAsString('["portable"]', flush: true);
+    await source.writeAsString('["installed"]', flush: true);
 
-    await SettingsService.migratePortableDataForTesting(
-      portable.path,
+    await SettingsService.migrateInstalledDataForTesting(
+      installed.path,
       fallback.path,
     );
     await destination.writeAsString('["updated-fallback"]', flush: true);
 
-    await SettingsService.migratePortableDataForTesting(
-      portable.path,
+    await SettingsService.migrateInstalledDataForTesting(
+      installed.path,
       fallback.path,
     );
 
     expect(await destination.readAsString(), '["updated-fallback"]');
   });
 
-  test('portable fallback conflict fails without overwriting either copy',
+  test('installed fallback conflict fails without overwriting either copy',
       () async {
-    final portable = await Directory.systemTemp.createTemp('ssrvpn-portable-');
+    final installed =
+        await Directory.systemTemp.createTemp('ssrvpn-installed-');
     final fallback = await Directory.systemTemp.createTemp('ssrvpn-fallback-');
-    addTearDown(() => portable.delete(recursive: true));
+    addTearDown(() => installed.delete(recursive: true));
     addTearDown(() => fallback.delete(recursive: true));
     final source = File(
-      '${portable.path}${Platform.pathSeparator}subscriptions.json',
+      '${installed.path}${Platform.pathSeparator}subscriptions.json',
     );
     final destination = File(
       '${fallback.path}${Platform.pathSeparator}subscriptions.json',
     );
-    await source.writeAsString('["portable"]', flush: true);
+    await source.writeAsString('["installed"]', flush: true);
     await destination.writeAsString('["fallback"]', flush: true);
 
     await expectLater(
-      SettingsService.migratePortableDataForTesting(
-        portable.path,
+      SettingsService.migrateInstalledDataForTesting(
+        installed.path,
         fallback.path,
       ),
       throwsA(isA<StateError>()),
     );
 
-    expect(await source.readAsString(), '["portable"]');
+    expect(await source.readAsString(), '["installed"]');
     expect(await destination.readAsString(), '["fallback"]');
   });
 }

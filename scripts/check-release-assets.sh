@@ -87,15 +87,16 @@ required = {
     "SSRVPN.dmg.sha256",
     "SSRVPN_Setup.exe",
     "SSRVPN_Setup.exe.sha256",
-    "SSRVPN.zip",
-    "SSRVPN.zip.sha256",
     "SSRVPN-release-provenance.json",
 }
+allowed_retired = set()
+if os.environ.get("SSRVPN_ALLOW_RETIRED_WINDOWS_ZIP") == "1":
+    allowed_retired = {"SSRVPN.zip", "SSRVPN.zip.sha256"}
 assets = {asset.get("name"): asset for asset in release.get("assets", [])}
 missing = sorted(required - set(assets))
 if missing:
     raise SystemExit(f"missing release assets: {', '.join(missing)}")
-unexpected = sorted(set(assets) - required)
+unexpected = sorted(set(assets) - required - allowed_retired)
 if unexpected:
     raise SystemExit(f"unexpected release assets: {', '.join(unexpected)}")
 
@@ -121,7 +122,6 @@ for artifact_name in (
     "SSRVPN.apk",
     "SSRVPN.dmg",
     "SSRVPN_Setup.exe",
-    "SSRVPN.zip",
 ):
     digest = str(assets[artifact_name].get("digest") or "")
     if not digest.startswith("sha256:") or not hash_pattern.fullmatch(digest[7:]):
@@ -156,7 +156,6 @@ for artifact_name in (
     "SSRVPN.apk",
     "SSRVPN.dmg",
     "SSRVPN_Setup.exe",
-    "SSRVPN.zip",
 ):
     api_digest = str(assets[artifact_name].get("digest") or "").removeprefix(
         "sha256:"
