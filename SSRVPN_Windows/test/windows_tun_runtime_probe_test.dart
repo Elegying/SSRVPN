@@ -7,16 +7,22 @@ import 'package:ssrvpn_windows/services/windows_tun_runtime_probe.dart';
 void main() {
   final tunIpv4 = InternetAddress('198.18.0.1');
   final tunIpv6 = InternetAddress('fdfe:dcba:9876::1');
+  const tunGuid7 = '11111111-1111-4111-8111-111111111111';
+  const tunGuid8 = '22222222-2222-4222-8222-222222222222';
+  const foreignGuid = '33333333-3333-4333-8333-333333333333';
+  const identity7 = (index: 7, interfaceGuid: tunGuid7);
+  const identity8 = (index: 8, interfaceGuid: tunGuid8);
   WindowsTunResidualProbeResult residual(
     WindowsTunResidualStatus status, [
-    Set<int> interfaceIndexes = const <int>{},
+    Set<WindowsTunInterfaceIdentity> interfaces =
+        const <WindowsTunInterfaceIdentity>{},
   ]) =>
-      (status: status, interfaceIndexes: interfaceIndexes);
+      (status: status, interfaces: interfaces);
 
   test('TUN teardown waits until the residual probe reports gone', () async {
     final statuses = <WindowsTunResidualProbeResult>[
-      residual(WindowsTunResidualStatus.present, const {7}),
-      residual(WindowsTunResidualStatus.present, const {7}),
+      residual(WindowsTunResidualStatus.present, const {identity7}),
+      residual(WindowsTunResidualStatus.present, const {identity7}),
       residual(WindowsTunResidualStatus.probeFailed),
       residual(WindowsTunResidualStatus.gone),
       residual(WindowsTunResidualStatus.gone),
@@ -39,7 +45,7 @@ void main() {
   test('TUN teardown rejects a late artifact after the first gone', () async {
     final statuses = <WindowsTunResidualProbeResult>[
       residual(WindowsTunResidualStatus.gone),
-      residual(WindowsTunResidualStatus.present, const {7}),
+      residual(WindowsTunResidualStatus.present, const {identity7}),
       residual(WindowsTunResidualStatus.gone),
       residual(WindowsTunResidualStatus.gone),
     ];
@@ -73,24 +79,26 @@ void main() {
     expect(calls, 1);
   });
 
-  test('TUN teardown gate retains captured indexes until gone', () {
-    final gate = WindowsTunTeardownGate()..markPending(const [7]);
+  test('TUN teardown gate retains captured identities until gone', () {
+    final gate = WindowsTunTeardownGate()..markPending(const [identity7]);
 
     expect(
-      gate.accept(residual(WindowsTunResidualStatus.present, const {8})),
+      gate.accept(
+        residual(WindowsTunResidualStatus.present, const {identity8}),
+      ),
       isFalse,
     );
     expect(gate.pending, isTrue);
-    expect(gate.interfaceIndexes, {7, 8});
+    expect(gate.interfaces, {identity7, identity8});
     expect(
       gate.accept(residual(WindowsTunResidualStatus.probeFailed)),
       isFalse,
     );
-    expect(gate.interfaceIndexes, {7, 8});
+    expect(gate.interfaces, {identity7, identity8});
 
     expect(gate.accept(residual(WindowsTunResidualStatus.gone)), isTrue);
     expect(gate.pending, isFalse);
-    expect(gate.interfaceIndexes, isEmpty);
+    expect(gate.interfaces, isEmpty);
   });
 
   test('TUN gate probes fresh TUN and pending reconnects only', () {
@@ -99,47 +107,79 @@ void main() {
     expect(gate.shouldProbeBeforeStart(enableTun: false), isFalse);
     expect(gate.shouldProbeBeforeStart(enableTun: true), isTrue);
 
-    gate.markPending(const [7]);
+    gate.markPending(const [identity7]);
     expect(gate.shouldProbeBeforeStart(enableTun: false), isTrue);
   });
 
   test('residual probe distinguishes zero from partial and duplicate TUNs', () {
     WindowsTunResidualProbeResult evaluate(
-      List<WindowsTunResidualInterfaceSnapshot> interfaces,
-    ) =>
+      List<WindowsTunResidualInterfaceSnapshot> interfaces, [
+      Set<WindowsTunInterfaceIdentity> expectedInterfaces =
+          const <WindowsTunInterfaceIdentity>{},
+    ]) =>
         evaluateWindowsTunResidual(
           interfaces: interfaces,
-          expectedTunAddress: tunIpv4,
-          expectedTunIpv6Address: tunIpv6,
-          expectedInterfaceIndexes: const {},
+          expectedInterfaces: expectedInterfaces,
         );
 
     expect(evaluate(const []).status, WindowsTunResidualStatus.gone);
     expect(
       evaluate([
-        (index: 7, name: 'Ethernet 7', addresses: [tunIpv4]),
+        (
+          index: 7,
+          interfaceGuid: tunGuid7,
+          name: 'Ethernet 7',
+          addresses: [tunIpv4],
+        ),
       ]).status,
+      WindowsTunResidualStatus.gone,
+      reason: 'an address alone is not durable ownership evidence',
+    );
+    expect(
+      evaluate(
+        [
+          (
+            index: 7,
+            interfaceGuid: tunGuid7,
+            name: 'Ethernet 7',
+            addresses: [tunIpv4, tunIpv6],
+          ),
+          (
+            index: 8,
+            interfaceGuid: tunGuid8,
+            name: 'Ethernet 8',
+            addresses: [tunIpv4, tunIpv6],
+          ),
+        ],
+        const {identity7, identity8},
+      ).interfaces,
+      {identity7, identity8},
+    );
+    expect(
+      evaluate(
+        [
+          (
+            index: 7,
+            interfaceGuid: tunGuid7,
+            name: 'Ethernet 7',
+            addresses: [tunIpv4, tunIpv6],
+          ),
+        ],
+        const {identity7},
+      ).status,
       WindowsTunResidualStatus.present,
     );
     expect(
       evaluate([
-        (index: 7, name: 'Ethernet 7', addresses: [tunIpv4, tunIpv6]),
-        (index: 8, name: 'Ethernet 8', addresses: [tunIpv4, tunIpv6]),
-      ]).interfaceIndexes,
-      {7, 8},
-    );
-    expect(
-      evaluate([
-        (index: 7, name: 'Ethernet 7', addresses: [tunIpv4, tunIpv6]),
-        (index: 8, name: 'Ethernet 8', addresses: [tunIpv4, tunIpv6]),
+        (
+          index: 9,
+          interfaceGuid: foreignGuid,
+          name: 'Meta Tunnel',
+          addresses: const [],
+        ),
       ]).status,
-      WindowsTunResidualStatus.present,
-    );
-    expect(
-      evaluate([
-        (index: 9, name: 'Meta Tunnel', addresses: const []),
-      ]).status,
-      WindowsTunResidualStatus.present,
+      WindowsTunResidualStatus.gone,
+      reason: 'another VPN may use Mihomo\'s common adapter name',
     );
   });
 
@@ -150,15 +190,20 @@ void main() {
     ) =>
         evaluateWindowsTunResidual(
           interfaces: interfaces,
-          expectedTunAddress: tunIpv4,
-          expectedTunIpv6Address: tunIpv6,
-          expectedInterfaceIndexes: const {7},
+          expectedInterfaces: const {identity7},
           residualRouteInterfaceIndexes: routeInterfaceIndexes,
         );
 
     expect(
       evaluate(
-        const [(index: 7, name: 'Meta', addresses: [])],
+        const [
+          (
+            index: 7,
+            interfaceGuid: tunGuid7,
+            name: 'Meta',
+            addresses: [],
+          ),
+        ],
         const {},
       ).status,
       WindowsTunResidualStatus.present,
@@ -176,27 +221,74 @@ void main() {
       WindowsTunResidualStatus.gone,
       reason: 'routes owned by another VPN must not become SSRVPN residuals',
     );
+    expect(
+      evaluate(
+        [
+          (
+            index: 7,
+            interfaceGuid: foreignGuid,
+            name: 'Ethernet',
+            addresses: [InternetAddress('192.0.2.50')],
+          ),
+        ],
+        const {7},
+      ).status,
+      WindowsTunResidualStatus.gone,
+      reason: 'a remembered numeric index may be recycled for a foreign NIC',
+    );
   });
 
-  test('residual PowerShell output retains observed interface indexes', () {
-    final present = parseWindowsTunResidualProbeOutput('PRESENT|7,8');
+  test('residual PowerShell output retains observed interface identities', () {
+    final present = parseWindowsTunResidualProbeOutput(
+      'PRESENT|7|$tunGuid7;8|$tunGuid8',
+    );
     expect(present.status, WindowsTunResidualStatus.present);
-    expect(present.interfaceIndexes, {7, 8});
+    expect(present.interfaces, {identity7, identity8});
 
     final gone = parseWindowsTunResidualProbeOutput('GONE');
     expect(gone.status, WindowsTunResidualStatus.gone);
-    expect(gone.interfaceIndexes, isEmpty);
+    expect(gone.interfaces, isEmpty);
 
     final malformed = parseWindowsTunResidualProbeOutput('PRESENT|');
     expect(malformed.status, WindowsTunResidualStatus.probeFailed);
-    expect(malformed.interfaceIndexes, isEmpty);
+    expect(malformed.interfaces, isEmpty);
+  });
+
+  test('TUN identities and pending markers preserve stable adapter GUIDs', () {
+    expect(
+      parseWindowsTunInterfaceIdentityOutput(
+        'FOUND|7|$tunGuid7;8|$tunGuid8',
+      ),
+      {identity7, identity8},
+    );
+    expect(parseWindowsTunInterfaceIdentityOutput('NONE'), isEmpty);
+
+    final marker = encodeWindowsTunTeardownMarker({identity7, identity8});
+    expect(decodeWindowsTunTeardownMarker(marker), {identity7, identity8});
+    expect(
+      decodeWindowsTunTeardownMarker('7,8'),
+      isEmpty,
+      reason: 'legacy bare indexes must not be trusted after an upgrade',
+    );
+    expect(decodeWindowsTunTeardownMarker('{"version":1}'), isNull);
+  });
+
+  test('TUN capture excludes another VPN that existed before core startup', () {
+    const own = (index: 9, interfaceGuid: tunGuid8);
+    expect(
+      selectWindowsTunInterfacesCreatedAfter(
+        const {identity7, own},
+        const {identity7},
+      ),
+      {own},
+    );
   });
 
   test(
     'Windows TUN teardown reaches a clean state within its production budget',
     () async {
       final cleared = await waitForWindowsTunTeardown(
-        probe: () => probeWindowsTunResidual(tunIpv4, tunIpv6),
+        probe: probeWindowsTunResidual,
       );
       expect(
         cleared,

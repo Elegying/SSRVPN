@@ -22,15 +22,6 @@ final class _DesktopDirectoryOverride extends IOOverrides {
 }
 
 void main() {
-  if (!Platform.isWindows) {
-    test(
-      'desktop failure reporting requires Windows',
-      () {},
-      skip: 'Windows Desktop discovery is required',
-    );
-    return;
-  }
-
   test('expected connection refusal writes only a warning', () async {
     final root = await Directory.systemTemp.createTemp(
       'ssrvpn_connection_failure_reporting_test_',
@@ -57,31 +48,49 @@ void main() {
     expect(desktop.listSync(), isEmpty);
     expect(await CrashReporter.pendingReports(), isEmpty);
     expect(await startupLog.readAsString(), contains('[WARN]'));
-
-    IOOverrides.runWithIOOverrides(
-      () => recordDesktopConnectionFailure('Connection failed'),
-      overrides,
-    );
-
-    expect(
-      desktop.listSync().whereType<File>(),
-      hasLength(1),
-    );
-    expect(await CrashReporter.pendingReports(), hasLength(1));
-
-    IOOverrides.runWithIOOverrides(
-      () => recordDesktopConnectionFailure(
-        'Connection threw',
-        error: StateError('unexpected failure'),
-        stack: StackTrace.current,
-      ),
-      overrides,
-    );
-
-    expect(
-      desktop.listSync().whereType<File>(),
-      hasLength(1),
-    );
-    expect(await CrashReporter.pendingReports(), hasLength(2));
   });
+
+  test(
+    'unexpected connection failures write desktop and crash reports',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'ssrvpn_unexpected_connection_failure_test_',
+      );
+      addTearDown(() => root.delete(recursive: true));
+
+      final desktop = await Directory('${root.path}/Desktop').create();
+      final crashDirectory = Directory('${root.path}/crashes');
+      final startupLog = File('${root.path}/startup.log');
+      await StartupLogger.init(verbose: false, fileOverride: startupLog);
+      await CrashReporter.init(crashDirectory.path);
+      final overrides = _DesktopDirectoryOverride(desktop);
+
+      IOOverrides.runWithIOOverrides(
+        () => recordDesktopConnectionFailure('Connection failed'),
+        overrides,
+      );
+
+      expect(
+        desktop.listSync().whereType<File>(),
+        hasLength(1),
+      );
+      expect(await CrashReporter.pendingReports(), hasLength(1));
+
+      IOOverrides.runWithIOOverrides(
+        () => recordDesktopConnectionFailure(
+          'Connection threw',
+          error: StateError('unexpected failure'),
+          stack: StackTrace.current,
+        ),
+        overrides,
+      );
+
+      expect(
+        desktop.listSync().whereType<File>(),
+        hasLength(1),
+      );
+      expect(await CrashReporter.pendingReports(), hasLength(2));
+    },
+    skip: Platform.isWindows ? false : 'Windows Desktop discovery is required',
+  );
 }

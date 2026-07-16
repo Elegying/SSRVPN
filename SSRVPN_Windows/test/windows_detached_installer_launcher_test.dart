@@ -4,6 +4,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_windows/services/windows_detached_installer_launcher.dart';
 
 void main() {
+  test('launch uses the independent Explorer shell owner', () {
+    const installerPath = r'C:\Users\Test User\Downloads\SSRVPN_Setup.exe';
+    final command = WindowsDetachedInstallerLauncher.buildLaunchCommand(
+      installerPath,
+    );
+
+    expect(command.executable, 'explorer.exe');
+    expect(command.arguments, [File(installerPath).absolute.path]);
+  });
+
   if (!Platform.isWindows) {
     test(
       'detached installer handoff requires Windows',
@@ -25,17 +35,6 @@ void main() {
     if (await tempDirectory.exists()) {
       await tempDirectory.delete(recursive: true);
     }
-  });
-
-  test('launch uses the independent Explorer shell owner', () {
-    final command = WindowsDetachedInstallerLauncher.buildLaunchCommand(
-      r'C:\Users\Test User\Downloads\SSRVPN_Setup.exe',
-    );
-
-    expect(command.executable, 'explorer.exe');
-    expect(command.arguments, [
-      r'C:\Users\Test User\Downloads\SSRVPN_Setup.exe',
-    ]);
   });
 
   test(

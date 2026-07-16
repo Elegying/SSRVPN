@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 修复
 
-- Windows TUN 清理只把本次连接捕获到的网卡、地址和所属路由视为 SSRVPN 残留，不再因其他 VPN 使用相同默认路由前缀而阻止断开、重连或升级。
+- Windows TUN 清理持久化本次连接新建网卡的稳定 `InterfaceGuid`，不再把通用的 `Meta` 名称、相同地址、其他 VPN 的路由或可能被 Windows 复用的数字索引当作 SSRVPN 所有权；旧版纯索引状态升级后会被安全忽略。
 
 ### 安全
 
@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 维护
 
-- 本地、CI 与 Release 共用唯一的 Python 发布工具测试入口，避免新增守卫只进入部分流水线；Windows 专属桌面和 `kernel32` 测试在非 Windows 主机明确跳过，本地 `make verify` 不再产生伪失败；三个高复杂度 Windows 恢复文件新增体量上限，后续增长前必须先拆分职责。
+- 本地、CI 与 Release 共用唯一的 Python 发布工具测试入口，并按真实 `unittest` 参数解析完整清单，注释不能伪装成已执行测试；Windows 独立纯逻辑继续跨平台验证，只有真正依赖桌面、`kernel32`、PowerShell、DPAPI 或网络 cmdlet 的断言按平台跳过；三个高复杂度 Windows 恢复文件新增体量上限，后续增长前必须先拆分职责。
 
 ### 文档
 

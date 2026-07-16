@@ -141,10 +141,12 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
 
         self.assertIn("await _restoreTunTeardownGate();", service)
         self.assertIn("tun_teardown.pending", lifecycle)
+        baseline = lifecycle.index("_tunInterfacesBeforeStart = startedWithTun")
         arm = lifecycle.index("!await _armTunTeardownGate()")
         spawn = lifecycle.index("final startedProcess = await Process.start(", arm)
+        self.assertLess(baseline, arm)
         self.assertLess(arm, spawn)
-        persist_index = lifecycle.index("!await _persistTunInterfaceIndexes()")
+        persist_index = lifecycle.index("!await _persistTunInterfaceIdentities()")
         commit_running = lifecycle.index("setRunning(true)", persist_index)
         self.assertLess(spawn, persist_index)
         self.assertLess(persist_index, commit_running)
@@ -167,7 +169,9 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         script = probe[
-            probe.index("$expectedIndexes =") : probe.index("if (($adapters.Count")
+            probe.index("$expected = @(") : probe.index(
+                "if (($ownedInterfaces.Count"
+            )
         ]
         route_query = script[script.index("$routes =") :]
         self.assertIn(
@@ -175,7 +179,13 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             route_query,
         )
         self.assertNotIn("$knownRoutePrefixes", script)
+        self.assertNotIn("$knownNames", script)
+        self.assertNotIn("$expectedAddresses", script)
+        self.assertIn("InterfaceGuid", script)
+        self.assertIn("$orphanedInterfaces", script)
+        self.assertIn("$occupiedIndexes -notcontains [int]$_.Index", script)
         self.assertNotIn("DestinationPrefix", route_query)
+        self.assertIn("selectWindowsTunInterfacesCreatedAfter", probe)
 
     def test_native_shutdown_restores_only_owned_proxy(self) -> None:
         runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
