@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.5] - 2026-07-17
+
+### 修复
+
+- OSS 发布凭据没有旧对象删除权限时，不再让 Windows 便携版退役阻断整个正式发布；事务会把旧 `SSRVPN.zip` 与校验别名覆盖为不可执行的退役标记并重新下载比对，仍保留失败后恢复原公共通道的能力。
+
 ## [3.4.4] - 2026-07-17
 
 ### 移除

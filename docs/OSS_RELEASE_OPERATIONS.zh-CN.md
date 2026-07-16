@@ -48,9 +48,10 @@ ssrvpn/
 用已经校验过的同一批文件覆盖并重新下载比对，同时设置 `Cache-Control:
 no-cache`。因此网站不需要随版本号修改链接。GitHub 备用地址使用
 `https://github.com/Elegying/SSRVPN/releases/latest/download/<文件名>`。推广新版本时会在同一
-备份事务内删除旧的 `downloads/SSRVPN.zip` 及校验文件；若后续步骤失败，原对象和
-`latest.json` 会一起恢复。历史不可变版本目录与旧 GitHub Release 资产保留作审计记录，
-不会被修改。
+备份事务内退役旧的 `downloads/SSRVPN.zip` 及校验文件：有删除权限时直接删除；若 RAM
+策略拒绝删除但仍允许覆盖，则写入固定、不可执行的退役标记并重新下载逐字节确认。若后续
+步骤失败，原对象和 `latest.json` 会一起恢复。历史不可变版本目录与旧 GitHub Release
+资产保留作审计记录，不会被修改。
 
 ## 正常发布
 

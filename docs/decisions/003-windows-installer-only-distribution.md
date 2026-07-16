@@ -19,7 +19,8 @@ Windows 同时发布安装器和便携 ZIP 会让构建、更新、校验、OSS 
 1. Windows 对外只发布 `SSRVPN_Setup.exe` 与 `SSRVPN_Setup.exe.sha256`。
 2. `package_windows.ps1` 只准备并校验安装器内部载荷，不生成 ZIP 或便携教程。
 3. 客户端更新、GitHub Release、发布证明、OSS 清单、固定下载和回滚都只接受安装器。
-4. 下一次正式发布在事务备份后删除 OSS 固定别名 `SSRVPN.zip` 与校验文件；失败时与其他
+4. 下一次正式发布在事务备份后退役 OSS 固定别名 `SSRVPN.zip` 与校验文件：优先删除；若
+   RAM 凭据没有旧对象删除权限，则覆盖为固定、不可执行且可验证的退役标记。失败时与其他
    固定资产和 `latest.json` 一起恢复。
 5. 已发布 tag 的 GitHub/OSS 不可变历史资产不删除、不替换，用于审计和重现旧版本。
 6. 安装器继续忽略且不修改、迁移或结束其他位置遗留的旧独立副本；ADR-002 的数据保留与
@@ -45,6 +46,7 @@ Windows 同时发布安装器和便携 ZIP 会让构建、更新、校验、OSS 
 ## 验证守卫
 
 - `scripts/test_free_desktop_distribution.py` 阻止 ZIP 重新进入活动发布链。
-- `scripts/test_promote_oss_public_channel.py` 验证固定便携别名被删除，失败时可恢复。
+- `scripts/test_promote_oss_public_channel.py` 验证固定便携别名被删除或安全覆盖，删除权限不足
+  时仍不可作为便携包使用，且失败时可恢复。
 - `scripts/test_windows_installer_config.py` 验证载荷脚本不生成 ZIP，Windows workflow 仍构建
   和实际安装 `SSRVPN_Setup.exe`。
