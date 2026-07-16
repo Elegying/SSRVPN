@@ -11,6 +11,7 @@ import '../services/windows_tun_runtime_probe.dart';
 import '../src/services/windows_powershell.dart';
 
 part 'clash_service_config.dart';
+part 'clash_service_recovery_policy.dart';
 part 'clash_service_lifecycle.dart';
 
 const String _geoProxyGroupName = 'SSRVPN-GEO';

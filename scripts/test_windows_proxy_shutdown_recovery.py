@@ -444,6 +444,13 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             / "runner"
             / "launcher_main.cpp"
         ).read_text(encoding="utf-8-sig")
+        guardian_restart = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "windows"
+            / "runner"
+            / "guardian_restart.h"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("kLauncherMutexName", launcher)
         self.assertIn("kGuardianMutexName", launcher)
@@ -538,14 +545,11 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertLess(terminate, kill_on_close)
         self.assertNotIn("proxy_safe_to_stop", cleanup)
 
-        replacement_retry = launcher[
-            launcher.index("bool StartReplacementGuardianWithRetry") :
-            launcher.index("// ── Child process creation")
-        ]
-        self.assertIn("kGuardianRestartAttempts", replacement_retry)
-        self.assertIn("kGuardianRestartDelayMs", replacement_retry)
-        self.assertIn("StartGuardian(", replacement_retry)
-        self.assertIn("::Sleep(kGuardianRestartDelayMs)", replacement_retry)
+        self.assertIn("RetryGuardianStart", guardian_restart)
+        self.assertIn("for (DWORD attempt = 0;", guardian_restart)
+        self.assertIn("::Sleep(delay_milliseconds)", guardian_restart)
+        self.assertIn("kGuardianRestartAttempts = 5", launcher)
+        self.assertIn("kGuardianRestartDelayMs = 100", launcher)
 
         main = launcher[launcher.index("int APIENTRY wWinMain") :]
         start_guardian = main.index("StartGuardian")
@@ -617,9 +621,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             supervision,
         )
         guardian_exit = supervision.index("WAIT_OBJECT_0 + 1")
-        restart = supervision.index(
-            "StartReplacementGuardianWithRetry", guardian_exit
-        )
+        restart = supervision.index("RetryGuardianStart", guardian_exit)
         restart_commit = supervision.index(
             "SetEvent(replacement_commit_event)", restart
         )
@@ -646,10 +648,8 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertNotIn("ArmKillOnJobCloseAndRelease", supervision)
         self.assertNotIn("MakeSafeDisconnectVisible", supervision)
         self.assertIn("if (!fail_closed_cleanup_pending)", supervision)
-        self.assertEqual(
-            supervision.count("StartReplacementGuardianWithRetry("), 1
-        )
-        self.assertEqual(supervision.count("StartGuardian("), 0)
+        self.assertEqual(supervision.count("RetryGuardianStart("), 1)
+        self.assertEqual(supervision.count("StartGuardian("), 1)
         child_retry = supervision[
             supervision.index("const DWORD child_retry_wait") :
         ]

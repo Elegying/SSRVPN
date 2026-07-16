@@ -2,70 +2,10 @@ part of 'clash_service.dart';
 
 class _DesktopStartCancelled implements Exception {}
 
-const _unexpectedExitProxyRecoveryDelays = <Duration>[
-  Duration(milliseconds: 250),
-  Duration(milliseconds: 750),
-  Duration(milliseconds: 1500),
-];
-
 const _tunTeardownTimeoutError = '核心已停止，但 Windows TUN 网卡未在超时前移除；'
     '为避免路由冲突，已阻止再次连接，请保持 SSRVPN 打开并重试断开';
 const _tunResidualProbeError = '无法确认旧 Windows TUN 网卡和路由已清理；'
     '为避免死路由，已在启动 Mihomo 前安全中止';
-
-enum ProxyRecoveryDisposition {
-  journalTerminal,
-  endpointSafeWithPendingJournal,
-  endpointMayStillBeOwned,
-}
-
-ProxyRecoveryDisposition classifyProxyRecoveryDisposition({
-  required bool journalTerminal,
-  required bool endpointSafeWithPendingRecovery,
-}) {
-  if (journalTerminal) return ProxyRecoveryDisposition.journalTerminal;
-  if (endpointSafeWithPendingRecovery) {
-    return ProxyRecoveryDisposition.endpointSafeWithPendingJournal;
-  }
-  return ProxyRecoveryDisposition.endpointMayStillBeOwned;
-}
-
-bool isUnexpectedCoreExit({
-  required bool ownsProcess,
-  required bool stoppingCore,
-  required bool stopInProgress,
-}) =>
-    ownsProcess && !stoppingCore && !stopInProgress;
-
-bool hasActiveUnexpectedExitRecoveryIntent(
-  int? generation,
-  bool Function(int generation) isCurrent,
-) =>
-    generation != null && isCurrent(generation);
-
-/// Retries a failed proxy restore without overlapping registry transactions.
-///
-/// There is one initial attempt plus one attempt after every delay. The caller
-/// is responsible for restoring the local proxy listener if all attempts fail.
-Future<bool> retryUnexpectedExitSystemProxyRecovery({
-  required Future<bool> Function() clearProxy,
-  List<Duration> retryDelays = _unexpectedExitProxyRecoveryDelays,
-  Future<void> Function(Duration duration)? wait,
-  void Function(int attempt, int totalAttempts)? onAttemptFailed,
-}) async {
-  final waitFor = wait ?? (duration) => Future<void>.delayed(duration);
-  final totalAttempts = retryDelays.length + 1;
-  for (var attempt = 1; attempt <= totalAttempts; attempt++) {
-    try {
-      if (await clearProxy()) return true;
-    } catch (_) {}
-    onAttemptFailed?.call(attempt, totalAttempts);
-    if (attempt < totalAttempts) {
-      await waitFor(retryDelays[attempt - 1]);
-    }
-  }
-  return false;
-}
 
 Future<bool> terminateCoreProcess(
   Process process, {
