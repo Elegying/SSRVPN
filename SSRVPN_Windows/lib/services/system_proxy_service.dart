@@ -232,7 +232,7 @@ class SystemProxyService {
     }
 
     try {
-      if (!await _isLauncherGuardianReady()) {
+      if (!await isLauncherGuardianReady()) {
         _lastError = '独立系统代理保护未就绪，请通过 ssrvpn_windows.exe 启动或重试';
         return false;
       }
@@ -430,7 +430,7 @@ ${_notifyWinInetScript()}
 
   bool _isValidHost(String host) => RegExp(r'^[A-Za-z0-9.-]+$').hasMatch(host);
 
-  Future<bool> _isLauncherGuardianReady() async {
+  Future<bool> isLauncherGuardianReady() async {
     try {
       final result = await _runPowerShell('''
 \$guardian = [System.Threading.Mutex]::OpenExisting('$_launcherGuardianMutexName')

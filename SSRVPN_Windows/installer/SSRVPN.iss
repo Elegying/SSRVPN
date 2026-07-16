@@ -84,6 +84,7 @@ const
   UpdateHandoffEventPrefix = 'Local\SSRVPN_UpdateHandoff_';
   UpdateHandoffRequestSuffix = '.ssrvpn-handoff';
   UpdateHandoffStatusSuffix = '.ssrvpn-handoff-status';
+  StopStatusSuffix = '.ssrvpn-stop-status';
 
 var
   AppGateMutex: THandle;
@@ -93,6 +94,7 @@ var
   UpdateHandoffReady: Boolean;
   UpdateHandoffToken: AnsiString;
   UpdateHandoffStatusPath: String;
+  LastStopStatus: String;
 
 function WinCreateMutex(Attributes: Cardinal; InitialOwner: BOOL;
   Name: String): THandle;
@@ -218,6 +220,31 @@ begin
   Result := LauncherGateOwned;
 end;
 
+function NormalizeStopStatus(Status: String): String;
+begin
+  Status := Trim(Status);
+  if (Status = 'OK') or
+    (Status = 'LOCK_BUSY') or
+    (Status = 'LOCK_FAILED') or
+    (Status = 'INSTANCE_GATE_FAILED') or
+    (Status = 'IDENTITY_UNVERIFIED') or
+    (Status = 'FOREIGN_INSTANCE') or
+    (Status = 'APP_STILL_RUNNING') or
+    (Status = 'PROXY_UNSAFE') or
+    (Status = 'PROCESSES_STILL_RUNNING') or
+    (Status = 'TUN_TEARDOWN_PENDING') or
+    (Status = 'RECOVERY_CLEANUP_PENDING') or
+    (Status = 'INTERNAL_ERROR') then
+    Result := Status
+  else
+    Result := 'INTERNAL_ERROR';
+end;
+
+function StopStatusDiagnostic: String;
+begin
+  Result := '诊断阶段码：' + LastStopStatus + '。';
+end;
+
 function RunStopSsrvpnProcesses(ScriptPath: String): Integer;
 var
   ResultCode: Integer;
@@ -227,29 +254,43 @@ var
   InstalledLauncherPath: String;
   InstalledCorePath: String;
   InstalledCorePidPath: String;
+  StatusPath: String;
+  RawStatus: AnsiString;
   Parameters: String;
 begin
   ResultCode := -1;
+  LastStopStatus := 'INTERNAL_ERROR';
   PowerShellPath := ExpandConstant(
     '{sys}\WindowsPowerShell\v1.0\powershell.exe');
   InstalledAppPath := ExpandConstant('{app}\bin\ssrvpn_windows_app.exe');
   InstalledLauncherPath := ExpandConstant('{app}\ssrvpn_windows.exe');
   InstalledCorePath := ExpandConstant('{app}\bin\mihomo.exe');
   InstalledCorePidPath := ExpandConstant('{app}\bin\ssrvpn\mihomo.pid');
-  Parameters := '-NoLogo -NoProfile -NonInteractive ' +
-    '-ExecutionPolicy Bypass -File ' + AddQuotes(ScriptPath) +
-    ' -InstalledAppPath ' + AddQuotes(InstalledAppPath) +
-    ' -InstalledLauncherPath ' + AddQuotes(InstalledLauncherPath) +
-    ' -InstalledCorePath ' + AddQuotes(InstalledCorePath) +
-    ' -InstalledCorePidPath ' + AddQuotes(InstalledCorePidPath);
-  Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
-    ewWaitUntilTerminated, ResultCode);
-  if Started then
-    Result := ResultCode
-  else
-    Result := -1;
-  if Result <> 0 then
-    Log(Format('SSRVPN process cleanup returned %d', [Result]));
+  StatusPath := GenerateUniqueName(
+    ExpandConstant('{tmp}'), StopStatusSuffix);
+  try
+    Parameters := '-NoLogo -NoProfile -NonInteractive ' +
+      '-ExecutionPolicy Bypass -File ' + AddQuotes(ScriptPath) +
+      ' -InstalledAppPath ' + AddQuotes(InstalledAppPath) +
+      ' -InstalledLauncherPath ' + AddQuotes(InstalledLauncherPath) +
+      ' -InstalledCorePath ' + AddQuotes(InstalledCorePath) +
+      ' -InstalledCorePidPath ' + AddQuotes(InstalledCorePidPath) +
+      ' -StatusPath ' + AddQuotes(StatusPath);
+    Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
+      ewWaitUntilTerminated, ResultCode);
+    if Started then
+      Result := ResultCode
+    else
+      Result := -1;
+    if LoadStringFromFile(StatusPath, RawStatus) then
+      LastStopStatus := NormalizeStopStatus(String(RawStatus));
+    if ((Result = 0) and (LastStopStatus <> 'OK')) or
+      ((Result <> 0) and (LastStopStatus = 'OK')) then
+      LastStopStatus := 'INTERNAL_ERROR';
+    Log(Format('SSRVPN process cleanup exit=%d stage=%s', [Result, LastStopStatus]));
+  finally
+    DeleteFile(StatusPath);
+  end;
 end;
 
 function StopSsrvpnProcesses: Integer;
@@ -314,6 +355,7 @@ begin
   begin
     ReleaseInstallGates;
     Result := '无法确认 SSRVPN 进程归属或安全恢复系统代理，安装尚未修改程序文件。' + #13#10 +
+      StopStatusDiagnostic + #13#10 +
       '请退出 SSRVPN，确认 Windows 系统代理和网络正常后重试；' +
       '如果仍然失败，请重启 Windows 后再次安装。';
   end
@@ -321,6 +363,7 @@ begin
   begin
     ReleaseInstallGates;
     Result := '无法关闭正在运行的 SSRVPN，安装尚未修改旧数据。' + #13#10 +
+      StopStatusDiagnostic + #13#10 +
       '请退出 SSRVPN 后重试；如果仍然失败，请重启 Windows 后再次安装。';
   end;
 end;
@@ -360,10 +403,12 @@ begin
     ReleaseInstallGates;
     if StopResult = 3 then
       MsgBox('无法确认 SSRVPN 进程归属或安全恢复系统代理，卸载尚未删除程序文件。' + #13#10 +
+        StopStatusDiagnostic + #13#10 +
         '请退出 SSRVPN，确认 Windows 系统代理和网络正常后重试；' +
         '如果仍然失败，请重启 Windows 后再次卸载。', mbError, MB_OK)
     else if StopResult <> 0 then
       MsgBox('无法关闭正在运行的 SSRVPN，卸载尚未删除程序文件。' + #13#10 +
+        StopStatusDiagnostic + #13#10 +
         '请退出 SSRVPN 后重试；如果仍然失败，请重启 Windows 后再次卸载。',
         mbError, MB_OK)
     else

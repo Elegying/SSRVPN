@@ -40,6 +40,10 @@ $uninstallLog = Join-Path $logDir 'uninstall.log'
 $uninstaller = Join-Path $installDir 'unins000.exe'
 $uninstallFailure = $null
 $installedAppProcessId = $null
+$upgradeAppProcess = $null
+$installedAppPath = [System.IO.Path]::GetFullPath(
+  (Join-Path $installDir 'bin\ssrvpn_windows_app.exe')
+)
 $preservedSentinels = @(
   (Join-Path $installDir 'bin\ssrvpn\upgrade-preserve.sentinel'),
   (Join-Path $env:LOCALAPPDATA 'SSRVPN\ssrvpn\upgrade-preserve.sentinel'),
@@ -58,6 +62,27 @@ function New-CacheSentinels {
       'ssrvpn-upgrade-delete'
     )
   }
+}
+
+function Start-InstalledApp {
+  Start-Process -FilePath (Join-Path $installDir 'ssrvpn_windows.exe') `
+    -WorkingDirectory $installDir | Out-Null
+
+  $runningInstalledApp = $null
+  for ($attempt = 0; $attempt -lt 40; $attempt++) {
+    $runningInstalledApp = @(
+      Get-Process ssrvpn_windows_app -ErrorAction SilentlyContinue |
+        Where-Object {
+          $_.Path -and [System.IO.Path]::GetFullPath($_.Path).Equals(
+            $installedAppPath,
+            [System.StringComparison]::OrdinalIgnoreCase
+          )
+        }
+    ) | Select-Object -First 1
+    if ($runningInstalledApp) { return $runningInstalledApp }
+    Start-Sleep -Milliseconds 250
+  }
+  throw 'No app from the exact installed path started.'
 }
 
 function Invoke-SmokeProcess {
@@ -122,6 +147,12 @@ try {
   }
   New-CacheSentinels
 
+  $upgradeAppProcess = Start-InstalledApp
+  $upgradeAppProcess.Refresh()
+  if ($upgradeAppProcess.HasExited) {
+    throw 'The installed app exited before the upgrade started.'
+  }
+
   $upgradeExitCode = Invoke-SmokeProcess `
     -FilePath $installer `
     -Phase 'SSRVPN upgrade' `
@@ -136,6 +167,12 @@ try {
   if ($upgradeExitCode -ne 0) {
     throw "SSRVPN upgrade exited with code $upgradeExitCode. Log: $upgradeLog"
   }
+  $upgradeAppProcess.Refresh()
+  if (-not $upgradeAppProcess.HasExited) {
+    throw "SSRVPN upgrade left the previous installed app PID $($upgradeAppProcess.Id) running."
+  }
+  $upgradeAppProcess.Dispose()
+  $upgradeAppProcess = $null
   foreach ($sentinel in $preservedSentinels) {
     if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) {
       throw "SSRVPN upgrade deleted preserved data: $sentinel"
@@ -147,30 +184,13 @@ try {
     }
   }
 
-  Start-Process -FilePath (Join-Path $installDir 'ssrvpn_windows.exe') `
-    -WorkingDirectory $installDir | Out-Null
-
-  $installedAppPath = [System.IO.Path]::GetFullPath(
-    (Join-Path $installDir 'bin\ssrvpn_windows_app.exe')
-  )
-  for ($attempt = 0; $attempt -lt 40; $attempt++) {
-    $runningInstalledApp = @(
-      Get-Process ssrvpn_windows_app -ErrorAction SilentlyContinue |
-        Where-Object {
-          $_.Path -and [System.IO.Path]::GetFullPath($_.Path).Equals(
-            $installedAppPath,
-            [System.StringComparison]::OrdinalIgnoreCase
-          )
-        }
-    ) | Select-Object -First 1
-    if ($runningInstalledApp) { break }
-    Start-Sleep -Milliseconds 250
-  }
-  if (-not $runningInstalledApp) {
-    throw 'The uninstaller must stop the running installed app; no installed app was running.'
-  }
+  $runningInstalledApp = Start-InstalledApp
   $installedAppProcessId = [int]$runningInstalledApp.Id
+  $runningInstalledApp.Dispose()
 } finally {
+  if ($null -ne $upgradeAppProcess) {
+    $upgradeAppProcess.Dispose()
+  }
   if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
     try {
       New-CacheSentinels
@@ -188,6 +208,15 @@ try {
         $uninstallFailure =
           "SSRVPN uninstaller exited with code $uninstallExitCode. " +
           "Log: $uninstallLog"
+      } else {
+        foreach ($sentinel in $preservedSentinels) {
+          if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) {
+            throw "SSRVPN uninstall deleted preserved data: $sentinel"
+          }
+          if ([System.IO.File]::ReadAllText($sentinel) -ne 'ssrvpn-upgrade-preserve') {
+            throw "SSRVPN uninstall changed preserved data: $sentinel"
+          }
+        }
       }
     } catch {
       $uninstallFailure = $_.Exception.Message

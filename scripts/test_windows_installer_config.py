@@ -481,10 +481,19 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("Process identity changed while verifying PID", process_lookup)
         self.assertIn("$live.ProcessName -ine $expectedProcessName", process_lookup)
         self.assertIn("$live.SessionId -ne $currentSessionId", process_lookup)
-        self.assertIn("[int]$candidate.SessionId -ne $currentSessionId", process_lookup)
-        self.assertNotIn(
-            "Where-Object { $_.SessionId -eq $currentSessionId }", process_lookup
+        self.assertIn("$candidateSessionId -ne $currentSessionId) { continue }", process_lookup)
+        fallback_session_filter = process_lookup.index(
+            "$_.SessionId -eq $currentSessionId"
         )
+        fallback_path_read = process_lookup.index("$executablePath = $_.Path")
+        self.assertLess(fallback_session_filter, fallback_path_read)
+        candidate_session_check = process_lookup.index(
+            "$candidateSessionId -ne $currentSessionId"
+        )
+        candidate_path_check = process_lookup.index(
+            "if (-not $candidate.ExecutablePath)"
+        )
+        self.assertLess(candidate_session_check, candidate_path_check)
         remove_state = stopper.split("function Remove-ProxyRecoveryState", 1)[1]
         remove_state = remove_state.split("function Test-RequiredProperties", 1)[0]
         self.assertIn("$nativeExists = Test-Path -Path $nativePath", remove_state)
@@ -642,6 +651,142 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             stopper,
         )
 
+    def test_installer_cleanup_status_is_fixed_and_sanitized(self) -> None:
+        installer_root = ROOT / "SSRVPN_Windows" / "installer"
+        installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
+        stopper = (installer_root / "stop_ssrvpn_processes.ps1").read_text(
+            encoding="utf-8"
+        )
+        allowed = {
+            "OK",
+            "LOCK_BUSY",
+            "LOCK_FAILED",
+            "INSTANCE_GATE_FAILED",
+            "IDENTITY_UNVERIFIED",
+            "FOREIGN_INSTANCE",
+            "APP_STILL_RUNNING",
+            "PROXY_UNSAFE",
+            "PROCESSES_STILL_RUNNING",
+            "TUN_TEARDOWN_PENDING",
+            "RECOVERY_CLEANUP_PENDING",
+            "INTERNAL_ERROR",
+        }
+
+        self.assertIn("[string]$StatusPath = ''", stopper)
+        writer = stopper.split("function Set-StopStatus", 1)[1].split(
+            "Set-StopStatus -Status 'INTERNAL_ERROR'", 1
+        )[0]
+        self.assertIn("$script:StopStatusValues -cnotcontains $Status", writer)
+        self.assertIn("[System.IO.File]::WriteAllText(", writer)
+        self.assertIn("[System.Text.Encoding]::ASCII", writer)
+        self.assertIn("} catch {", writer)
+        calls = set(re.findall(r"Set-StopStatus -Status '([A-Z_]+)'", stopper))
+        self.assertEqual(allowed, calls)
+
+        normalizer = installer.split("function NormalizeStopStatus", 1)[1].split(
+            "function StopStatusDiagnostic", 1
+        )[0]
+        for status in allowed:
+            with self.subTest(status=status):
+                self.assertIn(f"'{status}'", normalizer)
+        self.assertIn("else\n    Result := 'INTERNAL_ERROR'", normalizer)
+
+        runner = installer.split("function RunStopSsrvpnProcesses", 1)[1].split(
+            "function StopSsrvpnProcesses", 1
+        )[0]
+        self.assertIn("GenerateUniqueName(", runner)
+        self.assertIn("StopStatusSuffix", runner)
+        self.assertIn("' -StatusPath ' + AddQuotes(StatusPath)", runner)
+        self.assertIn("LoadStringFromFile(StatusPath, RawStatus)", runner)
+        self.assertIn("NormalizeStopStatus(String(RawStatus))", runner)
+        self.assertIn("DeleteFile(StatusPath)", runner)
+        self.assertEqual(1, runner.count("Exec("))
+        log_line = next(line for line in runner.splitlines() if "cleanup exit=" in line)
+        self.assertIn("stage=%s", log_line)
+        self.assertNotIn("RawStatus", log_line)
+        self.assertNotIn("StatusPath", log_line)
+
+        prepare = installer.split(
+            "function PrepareToInstall(var NeedsRestart: Boolean): String;", 1
+        )[1].split("procedure CurStepChanged", 1)[0]
+        uninstall = installer.split("function InitializeUninstall(): Boolean;", 1)[1]
+        self.assertGreaterEqual(prepare.count("StopStatusDiagnostic"), 2)
+        self.assertGreaterEqual(uninstall.count("StopStatusDiagnostic"), 2)
+
+        tun_capture = stopper.split("function Get-SsrvpnTunInterfaceIndexes", 1)[1]
+        tun_capture = tun_capture.split(
+            "function Test-SsrvpnTunArtifactsRemoved", 1
+        )[0]
+        self.assertIn("Get-NetAdapter -IncludeHidden -ErrorAction Stop", tun_capture)
+        self.assertIn("$_.Name -ceq 'Meta Tunnel'", tun_capture)
+        self.assertIn("[ref]$interfaceIndex", tun_capture)
+
+        tun_probe = stopper.split("function Test-SsrvpnTunArtifactsRemoved", 1)[1]
+        tun_probe = tun_probe.split("function Wait-SsrvpnTunTeardown", 1)[0]
+        for read_only_probe in (
+            "Get-NetAdapter -IncludeHidden",
+            "Get-NetIPAddress -ErrorAction Stop",
+            "Get-NetRoute -ErrorAction Stop",
+        ):
+            self.assertIn(read_only_probe, tun_probe)
+        for destructive_cmdlet in (
+            "Remove-NetAdapter",
+            "Remove-NetIPAddress",
+            "Remove-NetRoute",
+        ):
+            self.assertNotIn(destructive_cmdlet, stopper)
+
+        tun_wait = stopper.split("function Wait-SsrvpnTunTeardown", 1)[1]
+        tun_wait = tun_wait.split("Add-Type -TypeDefinition", 1)[0]
+        self.assertIn("[AllowEmptyCollection()]", tun_wait)
+        self.assertLess(
+            tun_wait.index("$InterfaceIndexes.Count -eq 0"),
+            tun_wait.index("AddMilliseconds($TimeoutMilliseconds)"),
+        )
+        self.assertIn("AddMilliseconds($TimeoutMilliseconds)", tun_wait)
+        self.assertIn("Start-Sleep -Milliseconds", tun_wait)
+        self.assertIn("$TunTeardownTimeoutMilliseconds = 8000", stopper)
+
+        runtime_flow = stopper.split("$installedProcessRunning =", 1)[1]
+        capture = runtime_flow.index(
+            "$tunInterfaceIndexes = @(Get-SsrvpnTunInterfaceIndexes)"
+        )
+        first_stop = runtime_flow.index("foreach ($app in $installedApps)")
+        capture_failure = runtime_flow[capture:first_stop]
+        self.assertIn("if ($installedProcessRunning)", capture_failure)
+        self.assertIn(
+            "Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'", capture_failure
+        )
+        self.assertIn("exit 3", capture_failure)
+        remaining_processes = runtime_flow.index("$remainingApps = @(")
+        post_stop_capture = runtime_flow.index(
+            "$tunInterfaceIndexes += @(Get-SsrvpnTunInterfaceIndexes)",
+            remaining_processes,
+        )
+        teardown = runtime_flow.index("Wait-SsrvpnTunTeardown")
+        post_capture_failure = runtime_flow[post_stop_capture:teardown]
+        self.assertIn("Sort-Object -Unique", post_capture_failure)
+        self.assertIn(
+            "Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'",
+            post_capture_failure,
+        )
+        self.assertIn("exit 3", post_capture_failure)
+        success = runtime_flow.index("Set-StopStatus -Status 'OK'")
+        self.assertLess(capture, first_stop)
+        self.assertLess(remaining_processes, post_stop_capture)
+        self.assertLess(post_stop_capture, teardown)
+        self.assertLess(teardown, success)
+
+        runtime_test = (
+            ROOT / "scripts" / "test_windows_installer_runtime.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("TUN_TEARDOWN_PENDING", runtime_test)
+        self.assertIn("-TunTeardownTimeoutMilliseconds", runtime_test)
+        self.assertIn("$script:AdapterCalls -ge 2", runtime_test)
+        self.assertIn("'-ProbeMode', 'late-pending'", runtime_test)
+        self.assertIn("'-ProbeMode', 'none'", runtime_test)
+        self.assertIn("No-TUN cleanup did not report OK.", runtime_test)
+
     def test_installer_terminalizes_restores_and_rejects_stale_journals(
         self,
     ) -> None:
@@ -776,7 +921,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("供以后重装使用", messages)
 
         self.assertNotIn("-File $stopper", smoke)
-        self.assertIn("uninstaller must stop the running installed app", smoke)
+        self.assertIn("$runningInstalledApp = Start-InstalledApp", smoke)
+        self.assertIn("The uninstaller left the installed SSRVPN app running", smoke)
 
         journal = stopper.split("function Write-NativeRestoreJournal", 1)[1]
         journal = journal.split("function Notify-WinInetProxyChange", 1)[0]
@@ -905,11 +1051,23 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("upgrade deleted preserved data", smoke)
         self.assertIn("upgrade left WebView cache behind", smoke)
         self.assertGreaterEqual(smoke.count("New-CacheSentinels"), 3)
+        self.assertIn("function Start-InstalledApp", smoke)
         self.assertIn(
             "Start-Process -FilePath (Join-Path $installDir "
             "'ssrvpn_windows.exe')",
             smoke,
         )
+        self.assertEqual(smoke.count("$upgradeAppProcess = Start-InstalledApp"), 1)
+        self.assertEqual(smoke.count("$runningInstalledApp = Start-InstalledApp"), 1)
+        upgrade_start = smoke.index("$upgradeAppProcess = Start-InstalledApp")
+        upgrade_run = smoke.index("$upgradeExitCode = Invoke-SmokeProcess")
+        upgrade_stop_check = smoke.index(
+            "SSRVPN upgrade left the previous installed app PID"
+        )
+        uninstall_start = smoke.index("$runningInstalledApp = Start-InstalledApp")
+        self.assertLess(upgrade_start, upgrade_run)
+        self.assertLess(upgrade_run, upgrade_stop_check)
+        self.assertLess(upgrade_stop_check, uninstall_start)
 
         invocation = (
             "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass "

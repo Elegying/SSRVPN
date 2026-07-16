@@ -3,11 +3,46 @@ param(
   [string]$InstalledLauncherPath = '',
   [string]$InstalledCorePath = '',
   [string]$InstalledCorePidPath = '',
+  [string]$StatusPath = '',
+  [ValidateRange(100, 8000)]
+  [int]$TunTeardownTimeoutMilliseconds = 8000,
   [ValidateRange(100, 30000)]
   [int]$ProxyTransactionLockTimeoutMilliseconds = 10000
 )
 
 $ErrorActionPreference = 'Stop'
+
+$script:StopStatusValues = @(
+  'OK',
+  'LOCK_BUSY',
+  'LOCK_FAILED',
+  'INSTANCE_GATE_FAILED',
+  'IDENTITY_UNVERIFIED',
+  'FOREIGN_INSTANCE',
+  'APP_STILL_RUNNING',
+  'PROXY_UNSAFE',
+  'PROCESSES_STILL_RUNNING',
+  'TUN_TEARDOWN_PENDING',
+  'RECOVERY_CLEANUP_PENDING',
+  'INTERNAL_ERROR'
+)
+
+function Set-StopStatus {
+  param([Parameter(Mandatory = $true)][string]$Status)
+
+  if ([string]::IsNullOrWhiteSpace($StatusPath) -or
+      $script:StopStatusValues -cnotcontains $Status) {
+    return
+  }
+  try {
+    [System.IO.File]::WriteAllText(
+      $StatusPath, $Status, [System.Text.Encoding]::ASCII)
+  } catch {
+    # Status is diagnostic only; cleanup exit codes remain authoritative.
+  }
+}
+
+Set-StopStatus -Status 'INTERNAL_ERROR'
 
 function Enter-ProxyTransactionLock {
   param([Parameter(Mandatory = $true)][int]$TimeoutMilliseconds)
@@ -38,7 +73,8 @@ function Enter-ProxyTransactionLock {
     } catch [System.IO.IOException] {
       if ($null -ne $stream) { $stream.Dispose() }
       if ([DateTime]::UtcNow -ge $deadline) {
-        throw 'Timed out waiting for the proxy transaction lock.'
+        throw [System.TimeoutException]::new(
+          'Timed out waiting for the proxy transaction lock.')
       }
       Start-Sleep -Milliseconds 100
     } catch {
@@ -54,7 +90,12 @@ try {
   # byte-range lock even if installer cleanup terminates unexpectedly.
   $script:ProxyTransactionLockStream = Enter-ProxyTransactionLock `
     -TimeoutMilliseconds $ProxyTransactionLockTimeoutMilliseconds
+} catch [System.TimeoutException] {
+  Set-StopStatus -Status 'LOCK_BUSY'
+  Write-Warning "Could not acquire the proxy transaction lock: $($_.Exception.Message)"
+  exit 3
 } catch {
+  Set-StopStatus -Status 'LOCK_FAILED'
   Write-Warning "Could not acquire the proxy transaction lock: $($_.Exception.Message)"
   exit 3
 }
@@ -69,6 +110,7 @@ try {
     'Local\SSRVPN_Windows_SingleInstance'
   )
 } catch {
+  Set-StopStatus -Status 'INSTANCE_GATE_FAILED'
   Write-Warning "Could not reserve the SSRVPN app instance gate: $($_.Exception.Message)"
   exit 3
 }
@@ -95,6 +137,9 @@ function Get-ProcessesByName {
         Get-Process -ErrorAction Stop |
           Where-Object {
             $_.ProcessName -ieq $processName
+          } |
+          Where-Object {
+            $_.SessionId -eq $currentSessionId
           } |
           ForEach-Object {
             $executablePath = $_.Path
@@ -123,9 +168,14 @@ function Get-ProcessesByName {
           $processId -le 0) {
         throw "Invalid process identity returned while enumerating $Name."
       }
+      $candidateSessionId = 0
       if ($null -eq $candidate.PSObject.Properties['SessionId'] -or
-          [int]$candidate.SessionId -ne $currentSessionId -or
-          -not $candidate.ExecutablePath) {
+          -not [int]::TryParse(
+            [string]$candidate.SessionId, [ref]$candidateSessionId)) {
+        throw "Incomplete process identity returned for PID $processId."
+      }
+      if ($candidateSessionId -ne $currentSessionId) { continue }
+      if (-not $candidate.ExecutablePath) {
         throw "Incomplete process identity returned for PID $processId."
       }
 
@@ -164,6 +214,83 @@ function Test-ExactPath {
   } catch {
     return $false
   }
+}
+
+function Get-SsrvpnTunInterfaceIndexes {
+  $indexes = @()
+  $adapters = @(
+    Get-NetAdapter -IncludeHidden -ErrorAction Stop |
+      Where-Object { $_.Name -ceq 'Meta Tunnel' }
+  )
+  foreach ($adapter in $adapters) {
+    $interfaceIndex = 0
+    if ($null -eq $adapter.PSObject.Properties['ifIndex'] -or
+        -not [int]::TryParse(
+          [string]$adapter.ifIndex, [ref]$interfaceIndex) -or
+        $interfaceIndex -le 0) {
+      throw 'Meta Tunnel returned an invalid interface index.'
+    }
+    $indexes += $interfaceIndex
+  }
+  return @($indexes | Sort-Object -Unique)
+}
+
+function Test-SsrvpnTunArtifactsRemoved {
+  param([Parameter(Mandatory = $true)][int[]]$InterfaceIndexes)
+
+  $adapterIndexes = @(
+    Get-NetAdapter -IncludeHidden -ErrorAction Stop |
+      ForEach-Object { [int]$_.ifIndex }
+  )
+  $addressIndexes = @(
+    Get-NetIPAddress -ErrorAction Stop |
+      ForEach-Object { [int]$_.InterfaceIndex }
+  )
+  $routeIndexes = @(
+    Get-NetRoute -ErrorAction Stop |
+      ForEach-Object { [int]$_.InterfaceIndex }
+  )
+  foreach ($interfaceIndex in $InterfaceIndexes) {
+    if (($adapterIndexes -contains $interfaceIndex) -or
+        ($addressIndexes -contains $interfaceIndex) -or
+        ($routeIndexes -contains $interfaceIndex)) {
+      return $false
+    }
+  }
+  return $true
+}
+
+function Wait-SsrvpnTunTeardown {
+  param(
+    [Parameter(Mandatory = $true)]
+    [AllowEmptyCollection()]
+    [int[]]$InterfaceIndexes,
+    [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds
+  )
+
+  if ($InterfaceIndexes.Count -eq 0) { return $true }
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+  $lastProbeError = ''
+  while ($true) {
+    try {
+      if (Test-SsrvpnTunArtifactsRemoved `
+          -InterfaceIndexes $InterfaceIndexes) {
+        return $true
+      }
+      $lastProbeError = ''
+    } catch {
+      $lastProbeError = $_.Exception.Message
+    }
+
+    $remaining = [int][Math]::Ceiling(
+      ($deadline - [DateTime]::UtcNow).TotalMilliseconds)
+    if ($remaining -le 0) { break }
+    Start-Sleep -Milliseconds ([Math]::Min(100, $remaining))
+  }
+  if ($lastProbeError) {
+    Write-Warning "Could not confirm TUN teardown: $lastProbeError"
+  }
+  return $false
 }
 
 Add-Type -TypeDefinition @'
@@ -986,6 +1113,7 @@ try {
   $launchers = @(Get-ProcessesByName -Name 'ssrvpn_windows.exe')
   $cores = @(Get-ProcessesByName -Name 'mihomo.exe')
 } catch {
+  Set-StopStatus -Status 'IDENTITY_UNVERIFIED'
   Write-Warning "Could not enumerate SSRVPN app processes: $($_.Exception.Message)"
   exit 3
 }
@@ -1021,6 +1149,7 @@ $foreignCores = @($cores | Where-Object {
 if ($foreignApps.Count -gt 0 -or
     $foreignLaunchers.Count -gt 0 -or
     $foreignCores.Count -gt 0) {
+  Set-StopStatus -Status 'FOREIGN_INSTANCE'
   Write-Warning 'Another SSRVPN or same-name core instance is active; refusing global proxy recovery.'
   exit 3
 }
@@ -1029,6 +1158,17 @@ $installedProcessRunning =
   $installedApps.Count -gt 0 -or
   $installedLaunchers.Count -gt 0 -or
   $installedCoresBefore.Count -gt 0
+$tunInterfaceIndexes = @()
+try {
+  $tunInterfaceIndexes = @(Get-SsrvpnTunInterfaceIndexes)
+} catch {
+  if ($installedProcessRunning) {
+    Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'
+    Write-Warning "Could not capture SSRVPN TUN ownership before stopping processes: $($_.Exception.Message)"
+    exit 3
+  }
+  Write-Warning "Could not inspect stale SSRVPN TUN state: $($_.Exception.Message)"
+}
 $proxyBackup = Get-ProxyRecoveryState
 foreach ($app in $installedApps) {
   try {
@@ -1050,6 +1190,7 @@ $appsBeforeRecovery = @(
     }
 )
 if ($appsBeforeRecovery.Count -gt 0) {
+  Set-StopStatus -Status 'APP_STILL_RUNNING'
   Write-Warning 'SSRVPN app is still running; system proxy was left unchanged.'
   exit 2
 }
@@ -1069,6 +1210,7 @@ try {
 
 if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup `
       -InstalledProcessRunning $installedProcessRunning)) {
+  Set-StopStatus -Status 'PROXY_UNSAFE'
   Write-Warning 'Proxy recovery is not safe; the still-live core was retained.'
   exit 3
 }
@@ -1126,16 +1268,38 @@ $remainingCores = @(
 if ($remainingApps.Count -gt 0 -or
     $remainingLaunchers.Count -gt 0 -or
     $remainingCores.Count -gt 0) {
+  Set-StopStatus -Status 'PROCESSES_STILL_RUNNING'
   Write-Warning 'SSRVPN files are still in use; refusing a partial overwrite.'
   exit 2
-} elseif ($InstalledCorePidPath) {
+}
+
+try {
+  $tunInterfaceIndexes += @(Get-SsrvpnTunInterfaceIndexes)
+  $tunInterfaceIndexes = @($tunInterfaceIndexes | Sort-Object -Unique)
+} catch {
+  Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'
+  Write-Warning "Could not capture SSRVPN TUN ownership after stopping processes: $($_.Exception.Message)"
+  exit 3
+}
+
+if (-not (Wait-SsrvpnTunTeardown `
+    -InterfaceIndexes $tunInterfaceIndexes `
+    -TimeoutMilliseconds $TunTeardownTimeoutMilliseconds)) {
+  Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'
+  Write-Warning 'SSRVPN TUN adapter, addresses, or routes are still present; refusing file changes.'
+  exit 3
+}
+
+if ($InstalledCorePidPath) {
   Remove-Item -LiteralPath $InstalledCorePidPath -Force `
     -ErrorAction SilentlyContinue
 }
 
 if ($proxyRecoveryFailed) {
+  Set-StopStatus -Status 'RECOVERY_CLEANUP_PENDING'
   Write-Warning 'Proxy endpoint is safe and processes are stopped, but recovery artifacts remain; refusing file changes.'
   exit 3
 }
 
+Set-StopStatus -Status 'OK'
 exit 0

@@ -36,6 +36,8 @@ void recordDesktopConnectionFailure(
   String message, {
   Object? error,
   StackTrace? stack,
+  bool expected = false,
 }) {
+  if (expected) return;
   CrashReporter.recordSync(message, error ?? message, stack);
 }

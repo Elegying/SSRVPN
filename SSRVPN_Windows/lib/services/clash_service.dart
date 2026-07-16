@@ -26,8 +26,12 @@ const List<String> _geoLookupHosts = [
 /// 支持 TUN 模式（需管理员权限）和系统代理模式。
 class ClashService extends ClashServiceBase
     with _WindowsClashConfig, _WindowsCoreLifecycle {
-  ClashService({WindowsTunRuntimeProbe? tunRuntimeProbe}) {
+  ClashService({
+    WindowsTunRuntimeProbe? tunRuntimeProbe,
+    WindowsTunResidualProbe? tunResidualProbe,
+  }) {
     _tunRuntimeProbeOverride = tunRuntimeProbe;
+    _tunResidualProbeOverride = tunResidualProbe;
   }
 
   // ── File logging ──
@@ -79,6 +83,7 @@ class ClashService extends ClashServiceBase
     );
     _corePath = '$exeDir${Platform.pathSeparator}mihomo.exe';
     await Directory(configDir).create(recursive: true);
+    await _restoreTunTeardownGate();
     await Directory(
       '$configDir${Platform.pathSeparator}providers',
     ).create(recursive: true);

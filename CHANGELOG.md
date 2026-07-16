@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.3] - 2026-07-16
+
+### 修复
+
+- Windows 普通权限下请求 TUN 时继续安全拒绝并提示重新以管理员身份运行，但不再把这一预期结果写成桌面启动失败或崩溃报告；主界面和托盘入口保持一致，真实异常仍保留诊断。
+- Windows 停止 TUN 后会等待自有网卡、地址与路由全部消失；正常断开、核心异常退出和安装/更新流程在清理未完成时均阻止重连或覆盖文件，避免残留路由与死代理。
+- Windows guardian 在终止 Job Object 后等待进程树实际归零再放行安装或退出；安装器兼容 PowerShell 5.1 的无 TUN 路径，并在停止进程后再次捕获延迟出现的 TUN 接口。
+
+### 测试
+
+- 增加预期权限拒绝、TUN 清理超时与延迟接口、guardian 进程树归零、安装器 PowerShell 5.1 运行时及系统代理恢复回归。
+
 ## [3.4.2] - 2026-07-15
 
 ### 修复

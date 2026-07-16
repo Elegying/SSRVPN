@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +7,216 @@ import 'package:ssrvpn_windows/services/windows_tun_runtime_probe.dart';
 void main() {
   final tunIpv4 = InternetAddress('198.18.0.1');
   final tunIpv6 = InternetAddress('fdfe:dcba:9876::1');
+  WindowsTunResidualProbeResult residual(
+    WindowsTunResidualStatus status, [
+    Set<int> interfaceIndexes = const <int>{},
+  ]) =>
+      (status: status, interfaceIndexes: interfaceIndexes);
+
+  test('TUN teardown waits until the residual probe reports gone', () async {
+    final statuses = <WindowsTunResidualProbeResult>[
+      residual(WindowsTunResidualStatus.present, const {7}),
+      residual(WindowsTunResidualStatus.present, const {7}),
+      residual(WindowsTunResidualStatus.probeFailed),
+      residual(WindowsTunResidualStatus.gone),
+      residual(WindowsTunResidualStatus.gone),
+    ];
+    var calls = 0;
+    final waits = <Duration>[];
+
+    final stopped = await waitForWindowsTunTeardown(
+      probe: () async => statuses[calls++],
+      timeout: const Duration(seconds: 1),
+      pollInterval: const Duration(milliseconds: 10),
+      wait: (duration) async => waits.add(duration),
+    );
+
+    expect(stopped, isTrue);
+    expect(calls, statuses.length);
+    expect(waits, hasLength(statuses.length - 1));
+  });
+
+  test('TUN teardown rejects a late artifact after the first gone', () async {
+    final statuses = <WindowsTunResidualProbeResult>[
+      residual(WindowsTunResidualStatus.gone),
+      residual(WindowsTunResidualStatus.present, const {7}),
+      residual(WindowsTunResidualStatus.gone),
+      residual(WindowsTunResidualStatus.gone),
+    ];
+    var calls = 0;
+
+    final stopped = await waitForWindowsTunTeardown(
+      probe: () async => statuses[calls++],
+      timeout: const Duration(seconds: 1),
+      pollInterval: const Duration(milliseconds: 1),
+      wait: (_) async {},
+    );
+
+    expect(stopped, isTrue);
+    expect(calls, statuses.length);
+  });
+
+  test('TUN teardown fails closed when its probe times out', () async {
+    final pending = Completer<WindowsTunResidualProbeResult>();
+    var calls = 0;
+
+    final stopped = await waitForWindowsTunTeardown(
+      probe: () {
+        calls++;
+        return pending.future;
+      },
+      timeout: const Duration(milliseconds: 20),
+      pollInterval: const Duration(milliseconds: 1),
+    );
+
+    expect(stopped, isFalse);
+    expect(calls, 1);
+  });
+
+  test('TUN teardown gate retains captured indexes until gone', () {
+    final gate = WindowsTunTeardownGate()..markPending(const [7]);
+
+    expect(
+      gate.accept(residual(WindowsTunResidualStatus.present, const {8})),
+      isFalse,
+    );
+    expect(gate.pending, isTrue);
+    expect(gate.interfaceIndexes, {7, 8});
+    expect(
+      gate.accept(residual(WindowsTunResidualStatus.probeFailed)),
+      isFalse,
+    );
+    expect(gate.interfaceIndexes, {7, 8});
+
+    expect(gate.accept(residual(WindowsTunResidualStatus.gone)), isTrue);
+    expect(gate.pending, isFalse);
+    expect(gate.interfaceIndexes, isEmpty);
+  });
+
+  test('TUN gate probes fresh TUN and pending reconnects only', () {
+    final gate = WindowsTunTeardownGate();
+
+    expect(gate.shouldProbeBeforeStart(enableTun: false), isFalse);
+    expect(gate.shouldProbeBeforeStart(enableTun: true), isTrue);
+
+    gate.markPending(const [7]);
+    expect(gate.shouldProbeBeforeStart(enableTun: false), isTrue);
+  });
+
+  test('residual probe distinguishes zero from partial and duplicate TUNs', () {
+    WindowsTunResidualProbeResult evaluate(
+      List<WindowsTunResidualInterfaceSnapshot> interfaces,
+    ) =>
+        evaluateWindowsTunResidual(
+          interfaces: interfaces,
+          expectedTunAddress: tunIpv4,
+          expectedTunIpv6Address: tunIpv6,
+          expectedInterfaceIndexes: const {},
+        );
+
+    expect(evaluate(const []).status, WindowsTunResidualStatus.gone);
+    expect(
+      evaluate([
+        (index: 7, name: 'Ethernet 7', addresses: [tunIpv4]),
+      ]).status,
+      WindowsTunResidualStatus.present,
+    );
+    expect(
+      evaluate([
+        (index: 7, name: 'Ethernet 7', addresses: [tunIpv4, tunIpv6]),
+        (index: 8, name: 'Ethernet 8', addresses: [tunIpv4, tunIpv6]),
+      ]).interfaceIndexes,
+      {7, 8},
+    );
+    expect(
+      evaluate([
+        (index: 7, name: 'Ethernet 7', addresses: [tunIpv4, tunIpv6]),
+        (index: 8, name: 'Ethernet 8', addresses: [tunIpv4, tunIpv6]),
+      ]).status,
+      WindowsTunResidualStatus.present,
+    );
+    expect(
+      evaluate([
+        (index: 9, name: 'Meta Tunnel', addresses: const []),
+      ]).status,
+      WindowsTunResidualStatus.present,
+    );
+  });
+
+  test('residual probe requires captured adapter and routes to disappear', () {
+    WindowsTunResidualProbeResult evaluate(
+      List<WindowsTunResidualInterfaceSnapshot> interfaces,
+      Set<int> routeInterfaceIndexes,
+    ) =>
+        evaluateWindowsTunResidual(
+          interfaces: interfaces,
+          expectedTunAddress: tunIpv4,
+          expectedTunIpv6Address: tunIpv6,
+          expectedInterfaceIndexes: const {7},
+          residualRouteInterfaceIndexes: routeInterfaceIndexes,
+        );
+
+    expect(
+      evaluate(
+        const [(index: 7, name: 'Meta', addresses: [])],
+        const {},
+      ).status,
+      WindowsTunResidualStatus.present,
+    );
+    expect(
+      evaluate(const [], const {7}).status,
+      WindowsTunResidualStatus.present,
+    );
+    expect(
+      evaluate(const [], const {}).status,
+      WindowsTunResidualStatus.gone,
+    );
+  });
+
+  test('residual PowerShell output retains observed interface indexes', () {
+    final present = parseWindowsTunResidualProbeOutput('PRESENT|7,8');
+    expect(present.status, WindowsTunResidualStatus.present);
+    expect(present.interfaceIndexes, {7, 8});
+
+    final gone = parseWindowsTunResidualProbeOutput('GONE');
+    expect(gone.status, WindowsTunResidualStatus.gone);
+    expect(gone.interfaceIndexes, isEmpty);
+
+    final malformed = parseWindowsTunResidualProbeOutput('PRESENT|');
+    expect(malformed.status, WindowsTunResidualStatus.probeFailed);
+    expect(malformed.interfaceIndexes, isEmpty);
+  });
+
+  test(
+    'Windows residual probe enumerates network artifacts',
+    () async {
+      final result = await probeWindowsTunResidual(tunIpv4, tunIpv6);
+      expect(result.status, isNot(WindowsTunResidualStatus.probeFailed));
+      if (result.status == WindowsTunResidualStatus.present) {
+        expect(result.interfaceIndexes, isNotEmpty);
+      }
+    },
+    skip: Platform.isWindows ? false : 'Windows network cmdlets are required',
+  );
+
+  test(
+    'two Windows residual probes complete within the teardown budget',
+    () async {
+      final watch = Stopwatch()..start();
+      final results = [
+        await probeWindowsTunResidual(tunIpv4, tunIpv6),
+        await probeWindowsTunResidual(tunIpv4, tunIpv6),
+      ];
+      watch.stop();
+
+      expect(
+        results.map((result) => result.status),
+        everyElement(isNot(WindowsTunResidualStatus.probeFailed)),
+      );
+      expect(watch.elapsed, lessThan(const Duration(seconds: 8)));
+    },
+    skip: Platform.isWindows ? false : 'Windows network cmdlets are required',
+  );
 
   test('runtime probe rejects a missing or duplicate TUN address', () {
     WindowsTunRuntimeStatus evaluate(

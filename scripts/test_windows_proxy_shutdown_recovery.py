@@ -6,6 +6,157 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
+    def test_expected_failures_skip_reports_but_unexpected_failures_keep_them(
+        self,
+    ) -> None:
+        for platform in ("SSRVPN_Windows", "SSRVPN_MacOS"):
+            with self.subTest(platform=platform):
+                home = (
+                    ROOT / platform / "lib" / "screens" / "home_screen.dart"
+                ).read_text(encoding="utf-8")
+                recorder = home[home.index("void recordDesktopConnectionFailure") :]
+                self.assertIn("bool expected = false", recorder)
+                self.assertIn("if (expected)", recorder)
+                self.assertNotIn("if (error != null || stack != null)", recorder)
+                self.assertIn(
+                    "CrashReporter.recordSync(message, error ?? message, stack)",
+                    recorder,
+                )
+
+        shared_home = (
+            ROOT
+            / "packages"
+            / "ssrvpn_shared"
+            / "lib"
+            / "desktop_ui"
+            / "screens"
+            / "desktop_home_screen_part.dart"
+        ).read_text(encoding="utf-8")
+        expected_failure = shared_home[
+            shared_home.index("final reason = clashService.lastStartError") :
+            shared_home.index("} catch (e, stack)")
+        ]
+        self.assertIn(
+            "expected: AppFailure.fromMessage(reason).code ==",
+            expected_failure,
+        )
+        self.assertIn("AppErrorCode.permissionRequired", expected_failure)
+        caught_exception = shared_home[
+            shared_home.index("} catch (e, stack)") :
+            shared_home.index("@override\n  Widget build")
+        ]
+        self.assertIn("error: e", caught_exception)
+        self.assertIn("stack: stack", caught_exception)
+
+        windows_app = (
+            ROOT / "SSRVPN_Windows" / "lib" / "app.dart"
+        ).read_text(encoding="utf-8")
+        tray_start_failure = windows_app[
+            windows_app.index("if (!started)") :
+            windows_app.index("if (started && preferredNodeName")
+        ]
+        permission_gate = tray_start_failure.index(
+            "AppErrorCode.permissionRequired"
+        )
+        warning = tray_start_failure.index("StartupLogger.warning", permission_gate)
+        report = tray_start_failure.index(
+            "StartupLogger.writeDesktopFailureReportSync", warning
+        )
+        self.assertLess(permission_gate, warning)
+        self.assertLess(warning, report)
+
+    def test_tun_start_requires_launcher_guardian_before_core_spawn(self) -> None:
+        services = ROOT / "SSRVPN_Windows" / "lib" / "services"
+        lifecycle = (services / "clash_service_lifecycle.dart").read_text(
+            encoding="utf-8"
+        )
+        proxy = (services / "system_proxy_service.dart").read_text(
+            encoding="utf-8"
+        )
+
+        admin_check = lifecycle.index("final isAdministrator")
+        guardian_check = lifecycle.index(
+            "!await _proxyService.isLauncherGuardianReady()", admin_check
+        )
+        core_spawn = lifecycle.index("final startedProcess = await Process.start(")
+        self.assertLess(admin_check, guardian_check)
+        self.assertLess(guardian_check, core_spawn)
+        self.assertIn("settings.enableTun &&", lifecycle[admin_check:guardian_check])
+        self.assertIn("TUN 模式已安全中止", lifecycle[guardian_check:core_spawn])
+        self.assertIn("Future<bool> isLauncherGuardianReady()", proxy)
+
+    def test_tun_teardown_blocks_stop_completion_and_automatic_restart(self) -> None:
+        lifecycle = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "clash_service_lifecycle.dart"
+        ).read_text(encoding="utf-8")
+
+        stop = lifecycle[
+            lifecycle.index("Future<bool> _stopInternal()") : lifecycle.index(
+                "void _ensureStartCurrent"
+            )
+        ]
+        core_exit = stop.index("await terminateCoreProcess(coreProcess)")
+        pid_cleanup = stop.index("await _deleteCorePid()", core_exit)
+        teardown = stop.index("!await _waitForTunTeardown()", pid_cleanup)
+        stopped = stop.index("setRunning(false)", teardown)
+        self.assertLess(core_exit, pid_cleanup)
+        self.assertLess(pid_cleanup, teardown)
+        self.assertLess(teardown, stopped)
+        self.assertIn(
+            "final needsTunTeardown = _coreUsesTun || _tunTeardownGate.pending;",
+            stop,
+        )
+
+        spawn = lifecycle.index("final startedWithTun = settings.enableTun;")
+        remember_mode = lifecycle.index("_coreUsesTun = startedWithTun;", spawn)
+        exit_handler = lifecycle.index("startedProcess.exitCode.then", remember_mode)
+        use_started_mode = lifecycle.index("startedWithTun", exit_handler)
+        self.assertLess(spawn, remember_mode)
+        self.assertLess(remember_mode, exit_handler)
+        self.assertLess(exit_handler, use_started_mode)
+
+        recovery = lifecycle[
+            lifecycle.index("Future<void> _recoverFromUnexpectedExit") : lifecycle.index(
+                "void _clearStartOperation"
+            )
+        ]
+        intent = recovery.index("isConnectionIntentCurrent")
+        teardown = recovery.index("!await _waitForTunTeardown()", intent)
+        budget = recovery.index("_unexpectedExitRecoveryPolicy.tryAcquire()", teardown)
+        restart = recovery.index("_start(automaticRecovery: true)", budget)
+        self.assertLess(intent, teardown)
+        self.assertLess(teardown, budget)
+        self.assertLess(budget, restart)
+
+    def test_tun_pending_marker_restores_gate_after_app_restart(self) -> None:
+        services = ROOT / "SSRVPN_Windows" / "lib" / "services"
+        service = (services / "clash_service.dart").read_text(encoding="utf-8")
+        lifecycle = (services / "clash_service_lifecycle.dart").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("await _restoreTunTeardownGate();", service)
+        self.assertIn("tun_teardown.pending", lifecycle)
+        arm = lifecycle.index("!await _armTunTeardownGate()")
+        spawn = lifecycle.index("final startedProcess = await Process.start(", arm)
+        self.assertLess(arm, spawn)
+        persist_index = lifecycle.index("!await _persistTunInterfaceIndexes()")
+        commit_running = lifecycle.index("setRunning(true)", persist_index)
+        self.assertLess(spawn, persist_index)
+        self.assertLess(persist_index, commit_running)
+
+        wait = lifecycle[
+            lifecycle.index("Future<bool> _waitForTunTeardown()") :
+            lifecycle.index("// ── Admin helper")
+        ]
+        confirmed = wait.index("if (cleared)")
+        clear_marker = wait.index("await _clearTunTeardownMarker()", confirmed)
+        self.assertLess(confirmed, clear_marker)
+
     def test_native_shutdown_restores_only_owned_proxy(self) -> None:
         runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
         flutter_window = (runner / "flutter_window.cpp").read_text(encoding="utf-8")
@@ -268,7 +419,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("CompareStringOrdinal", launcher)
         self.assertIn("OpenJobObjectW", launcher)
         self.assertIn("OpenJobObjectW(JOB_OBJECT_QUERY", launcher)
-        self.assertIn("OpenJobObjectW(JOB_OBJECT_TERMINATE", launcher)
+        self.assertIn("JOB_OBJECT_TERMINATE | JOB_OBJECT_QUERY", launcher)
         self.assertIn("IsProcessInJob", launcher)
         self.assertIn("PROCESS_TERMINATE", launcher)
 
@@ -446,6 +597,16 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertNotIn("MakeSafeDisconnectVisible", supervision)
         self.assertIn("if (!fail_closed_cleanup_pending)", supervision)
         self.assertEqual(supervision.count("StartGuardian("), 1)
+        child_retry = supervision[
+            supervision.index("const DWORD child_retry_wait") :
+        ]
+        child_exited_during_retry = child_retry[
+            child_retry.index("if (child_retry_wait == WAIT_OBJECT_0)") :
+            child_retry.index("if (child_retry_wait == WAIT_FAILED)")
+        ]
+        self.assertIn("::Sleep(1000)", child_exited_during_retry)
+        self.assertIn("continue", child_exited_during_retry)
+        self.assertNotIn("break", child_exited_during_retry)
         self.assertIn(
             "WaitForSingleObject(guardian_failure_notice, 5000)", main
         )
@@ -533,22 +694,43 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             launcher.index("int RunGuardian")
         ]
 
-        named_job = cleanup.index("OpenJobObjectW(JOB_OBJECT_TERMINATE")
+        named_job = cleanup.index("OpenJobObjectW(")
         terminate_job = cleanup.index("TerminateJobObject", named_job)
+        query_job = cleanup.index("QueryInformationJobObject", terminate_job)
+        active_zero = cleanup.index("accounting.ActiveProcesses == 0", query_job)
+        bounded_timeout = cleanup.index("termination_error = ERROR_TIMEOUT", active_zero)
+        close_job = cleanup.index("CloseHandle(termination_job)", bounded_timeout)
         child_recheck = cleanup.index(
-            "child_wait = ::WaitForSingleObject", terminate_job
+            "child_wait = ::WaitForSingleObject", close_job
         )
         exited_success = cleanup.index(
             "if (child_wait == WAIT_OBJECT_0 &&", child_recheck
         )
         self.assertNotIn("if (child_wait == WAIT_OBJECT_0)", cleanup[:named_job])
+        self.assertIn("JOB_OBJECT_TERMINATE | JOB_OBJECT_QUERY", cleanup)
         self.assertLess(named_job, terminate_job)
-        self.assertLess(terminate_job, child_recheck)
+        self.assertLess(terminate_job, query_job)
+        self.assertLess(query_job, active_zero)
+        self.assertLess(active_zero, bounded_timeout)
+        self.assertLess(bounded_timeout, close_job)
+        self.assertLess(close_job, child_recheck)
         self.assertLess(child_recheck, exited_success)
         success_gate = cleanup[exited_success:cleanup.index(
             "bool ArmKillOnJobCloseAndRelease", exited_success
         )]
-        self.assertIn("job_termination_requested || job_confirmed_absent", success_gate)
+        self.assertIn("GetTickCount64() + 5000", cleanup)
+        self.assertIn("::Sleep(50)", cleanup)
+        self.assertIn("job_termination_confirmed || job_confirmed_absent", success_gate)
+        self.assertIn(
+            "job_termination_requested && !job_termination_confirmed",
+            success_gate,
+        )
+        unconfirmed = success_gate[
+            success_gate.index(
+                "job_termination_requested && !job_termination_confirmed"
+            ) :
+        ]
+        self.assertIn("return ERROR_BUSY", unconfirmed)
         self.assertIn("return termination_error", success_gate)
 
     def test_guardian_retries_transient_restore_and_job_cleanup_failures(

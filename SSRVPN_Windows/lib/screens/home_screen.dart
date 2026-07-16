@@ -38,7 +38,12 @@ void recordDesktopConnectionFailure(
   String message, {
   Object? error,
   StackTrace? stack,
+  bool expected = false,
 }) {
+  if (expected) {
+    StartupLogger.warning(message);
+    return;
+  }
   StartupLogger.writeDesktopFailureReportSync(
     message,
     error: error,

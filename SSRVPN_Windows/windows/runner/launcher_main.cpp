@@ -462,12 +462,32 @@ DWORD RestoreAndTerminateGuardedProcess(
 
   DWORD termination_error = ERROR_NOT_FOUND;
   bool job_termination_requested = false;
+  bool job_termination_confirmed = false;
   bool job_confirmed_absent = false;
-  HANDLE termination_job =
-      ::OpenJobObjectW(JOB_OBJECT_TERMINATE, FALSE, kProcessJobName);
+  HANDLE termination_job = ::OpenJobObjectW(
+      JOB_OBJECT_TERMINATE | JOB_OBJECT_QUERY, FALSE, kProcessJobName);
   if (termination_job != nullptr) {
     if (::TerminateJobObject(termination_job, EXIT_FAILURE)) {
       job_termination_requested = true;
+      const ULONGLONG deadline = ::GetTickCount64() + 5000;
+      while (true) {
+        JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting = {};
+        if (!::QueryInformationJobObject(
+                termination_job, JobObjectBasicAccountingInformation,
+                &accounting, sizeof(accounting), nullptr)) {
+          termination_error = ::GetLastError();
+          break;
+        }
+        if (accounting.ActiveProcesses == 0) {
+          job_termination_confirmed = true;
+          break;
+        }
+        if (::GetTickCount64() >= deadline) {
+          termination_error = ERROR_TIMEOUT;
+          break;
+        }
+        ::Sleep(50);
+      }
     } else {
       termination_error = ::GetLastError();
     }
@@ -494,9 +514,12 @@ DWORD RestoreAndTerminateGuardedProcess(
   }
 
   if (child_wait == WAIT_OBJECT_0 &&
-      (job_termination_requested || job_confirmed_absent)) {
+      (job_termination_confirmed || job_confirmed_absent)) {
     return RestoreProxyForProcessCleanup(transaction_lock) ? ERROR_SUCCESS
                                                            : ERROR_BUSY;
+  }
+  if (job_termination_requested && !job_termination_confirmed) {
+    return ERROR_BUSY;
   }
 
   // Keep KILL_ON_JOB_CLOSE inside the same proxy transaction. Releasing the
@@ -1407,7 +1430,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
     const DWORD child_retry_wait =
         ::WaitForSingleObject(child_process, 1000);
     if (child_retry_wait == WAIT_OBJECT_0) {
-      break;
+      ::Sleep(1000);
+      continue;
     }
     if (child_retry_wait == WAIT_FAILED) {
       ::Sleep(1000);
