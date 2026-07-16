@@ -62,14 +62,19 @@ class UpdateChecker {
         client: httpClient,
         timeout: timeout,
       );
-      if (primary != null) return primary;
+      // Desktop installers are opened outside the app. Do not trust the OSS
+      // manifest alone; GitHub must independently publish the same digest.
+      if (primary != null && !_isDesktopAsset(assetExtension)) return primary;
 
-      return await _checkGitHub(
+      final github = await _checkGitHub(
         currentVersion: currentVersion,
         assetExtension: assetExtension,
         client: httpClient,
         timeout: timeout,
       );
+      if (primary == null) return github;
+      if (_sameReleaseDigest(primary, github)) return primary;
+      return github;
     } catch (_) {
       return null;
     } finally {
@@ -205,6 +210,20 @@ class UpdateChecker {
 
   static bool _isValidVersion(String version) =>
       RegExp(r'^\d+(?:\.\d+){1,3}$').hasMatch(version);
+
+  static bool _isDesktopAsset(String assetExtension) =>
+      const {'.dmg', '.exe', '.zip'}.contains(
+        assetExtension.trim().toLowerCase(),
+      );
+
+  static bool _sameReleaseDigest(
+    AppUpdateInfo primary,
+    AppUpdateInfo? github,
+  ) =>
+      github != null &&
+      primary.version == github.version &&
+      primary.sha256 != null &&
+      primary.sha256 == github.sha256;
 
   static _ReleaseAsset? _manifestAssetFor(
     Object? assets,

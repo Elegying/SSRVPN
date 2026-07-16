@@ -86,6 +86,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   WindowsTunRuntimeProbe? _tunRuntimeProbeOverride;
   WindowsTunResidualProbe? _tunResidualProbeOverride;
   final WindowsTunTeardownGate _tunTeardownGate = WindowsTunTeardownGate();
+  Set<WindowsTunInterfaceIdentity> _tunInterfacesBeforeStart = const {};
   String? _lastStopError;
   int _startGeneration = 0;
   bool _coreUsesTun = false;
@@ -481,11 +482,6 @@ exit 4
       if (_tunTeardownGate.shouldProbeBeforeStart(
         enableTun: settings.enableTun,
       )) {
-        final observedTunInterfaceIndexes = await _captureTunInterfaceIndexes();
-        _ensureStartCurrent(startToken);
-        if (observedTunInterfaceIndexes.isNotEmpty) {
-          _tunTeardownGate.markPending(observedTunInterfaceIndexes);
-        }
         if (!await _waitForTunTeardown()) {
           _ensureStartCurrent(startToken);
           setLastStartError(_tunResidualProbeError);
@@ -561,7 +557,12 @@ exit 4
       }
       final processStartWatch = Stopwatch()..start();
       final startedWithTun = settings.enableTun;
+      _tunInterfacesBeforeStart = startedWithTun
+          ? await _observeTunInterfaceIdentities()
+          : const <WindowsTunInterfaceIdentity>{};
+      _ensureStartCurrent(startToken);
       if (startedWithTun && !await _armTunTeardownGate()) {
+        _tunInterfacesBeforeStart = const <WindowsTunInterfaceIdentity>{};
         _ensureStartCurrent(startToken);
         setLastStartError('无法持久化 TUN 清理状态，已在启动 Mihomo 前安全中止');
         log('❌ $lastStartError');
@@ -613,9 +614,9 @@ exit 4
         log('❌ Mihomo 进程已退出，退出码: $code');
         final recoveryListenerWasActive = _proxyRecoveryListenerActive;
         _proxyRecoveryListenerActive = false;
-        final tunInterfaceIndexes =
-            startedWithTun ? _captureTunInterfaceIndexes() : null;
-        if (tunInterfaceIndexes != null) {
+        final tunInterfaces =
+            startedWithTun ? _captureTunInterfaceIdentities() : null;
+        if (tunInterfaces != null) {
           _tunTeardownGate.markPending();
         }
         if (recoveryListenerWasActive) {
@@ -633,7 +634,7 @@ exit 4
             _scheduleUnexpectedExitRecovery(
               restartGeneration,
               code,
-              tunInterfaceIndexes,
+              tunInterfaces,
             );
           }
         });
@@ -693,9 +694,9 @@ exit 4
           await _cleanupFailedStart();
           return false;
         }
-        if (startedWithTun && !await _persistTunInterfaceIndexes()) {
+        if (startedWithTun && !await _persistTunInterfaceIdentities()) {
           _ensureStartCurrent(startToken);
-          setLastStartError('TUN 已启动，但无法持久化网卡索引，连接已安全取消');
+          setLastStartError('TUN 已启动，但无法持久化网卡身份，连接已安全取消');
           log('❌ $lastStartError');
           await _cleanupFailedStart();
           return false;
@@ -796,8 +797,9 @@ exit 4
     if (pidCleanup != null) await pidCleanup;
     final exitCleanup = _exitCleanupOperation;
     if (exitCleanup != null) await exitCleanup;
-    final tunInterfaceIndexes =
-        needsTunTeardown ? await _captureTunInterfaceIndexes() : const <int>{};
+    final tunInterfaces = needsTunTeardown
+        ? await _captureTunInterfaceIdentities()
+        : const <WindowsTunInterfaceIdentity>{};
     stopStatusMonitor();
     resetHealthCheckFailures();
 
@@ -862,7 +864,7 @@ exit 4
     await _deleteCorePid();
 
     if (needsTunTeardown) {
-      _tunTeardownGate.markPending(tunInterfaceIndexes);
+      _tunTeardownGate.markPending(tunInterfaces);
       if (!await _waitForTunTeardown()) {
         _lastStopError = _tunTeardownTimeoutError;
         setRunning(false);
@@ -871,6 +873,7 @@ exit 4
         return false;
       }
     }
+    _tunInterfacesBeforeStart = const <WindowsTunInterfaceIdentity>{};
 
     setRunning(false);
     notifyStatusChanged();
@@ -901,7 +904,7 @@ exit 4
   void _scheduleUnexpectedExitRecovery(
     int? generation,
     int exitCode,
-    Future<Set<int>>? tunInterfaceIndexes,
+    Future<Set<WindowsTunInterfaceIdentity>>? tunInterfaces,
   ) {
     final cleanup = retryUnexpectedExitSystemProxyRecovery(
       clearProxy: _clearProxyAfterUnexpectedExit,
@@ -920,7 +923,7 @@ exit 4
           generation,
           exitCode,
           proxyCleared,
-          tunInterfaceIndexes,
+          tunInterfaces,
         ),
       );
     });
@@ -944,10 +947,10 @@ exit 4
     int? generation,
     int exitCode,
     bool proxyCleared,
-    Future<Set<int>>? tunInterfaceIndexes,
+    Future<Set<WindowsTunInterfaceIdentity>>? tunInterfaces,
   ) async {
-    if (tunInterfaceIndexes != null) {
-      _tunTeardownGate.markPending(await tunInterfaceIndexes);
+    if (tunInterfaces != null) {
+      _tunTeardownGate.markPending(await tunInterfaces);
     }
     if (!proxyCleared) {
       // A stop may have been requested while the bounded restore was running.
@@ -1007,7 +1010,7 @@ exit 4
         !isConnectionIntentCurrent(generation, connected: true)) {
       return;
     }
-    if (tunInterfaceIndexes != null && !await _waitForTunTeardown()) {
+    if (tunInterfaces != null && !await _waitForTunTeardown()) {
       setLastStartError(_tunTeardownTimeoutError);
       markConnectionLost();
       notifyRuntimeNotice('核心已退出：$_tunTeardownTimeoutError');
@@ -1060,28 +1063,35 @@ exit 4
     }
   }
 
-  Future<Set<int>> _captureTunInterfaceIndexes() =>
-      probeWindowsTunInterfaceIndexes(
+  Future<Set<WindowsTunInterfaceIdentity>> _observeTunInterfaceIdentities() =>
+      probeWindowsTunInterfaceIdentities(
         InternetAddress(AppConstants.fakeIpRange.split('/').first),
         InternetAddress(AppConstants.tunInet6Address.split('/').first),
       );
 
+  Future<Set<WindowsTunInterfaceIdentity>>
+      _captureTunInterfaceIdentities() async {
+    final observed = await _observeTunInterfaceIdentities();
+    return selectWindowsTunInterfacesCreatedAfter(
+      observed,
+      _tunInterfacesBeforeStart,
+    );
+  }
+
   Future<WindowsTunResidualProbeResult> _probeTunResidual(
-    Set<int> expectedInterfaceIndexes,
+    Set<WindowsTunInterfaceIdentity> expectedInterfaces,
   ) async {
     try {
       return await (_tunResidualProbeOverride?.call(
-            expectedInterfaceIndexes,
+            expectedInterfaces,
           ) ??
           probeWindowsTunResidual(
-            InternetAddress(AppConstants.fakeIpRange.split('/').first),
-            InternetAddress(AppConstants.tunInet6Address.split('/').first),
-            expectedInterfaceIndexes: expectedInterfaceIndexes,
+            expectedInterfaces: expectedInterfaces,
           ));
     } catch (_) {
       return (
         status: WindowsTunResidualStatus.probeFailed,
-        interfaceIndexes: const <int>{},
+        interfaces: const <WindowsTunInterfaceIdentity>{},
       );
     }
   }
@@ -1090,7 +1100,7 @@ exit 4
     final cleared = await waitForWindowsTunTeardown(
       probe: () async {
         final result = await _probeTunResidual(
-          _tunTeardownGate.interfaceIndexes,
+          _tunTeardownGate.interfaces,
         );
         _tunTeardownGate.observe(result);
         return result;
@@ -1099,7 +1109,7 @@ exit 4
     if (cleared) {
       _tunTeardownGate.accept((
         status: WindowsTunResidualStatus.gone,
-        interfaceIndexes: const <int>{},
+        interfaces: const <WindowsTunInterfaceIdentity>{},
       ));
       await _clearTunTeardownMarker();
     }
@@ -1114,15 +1124,11 @@ exit 4
     try {
       if (await _tunTeardownMarker.exists()) {
         final value = (await _tunTeardownMarker.readAsString()).trim();
-        final indexes = value == 'pending'
-            ? const <int>{}
-            : value
-                .split(',')
-                .map(int.tryParse)
-                .whereType<int>()
-                .where((index) => index > 0)
-                .toSet();
-        _tunTeardownGate.markPending(indexes);
+        final interfaces = decodeWindowsTunTeardownMarker(value);
+        if (interfaces == null) {
+          throw const FormatException('invalid TUN teardown marker');
+        }
+        _tunTeardownGate.markPending(interfaces);
       }
     } catch (error) {
       _tunTeardownGate.markPending();
@@ -1141,19 +1147,18 @@ exit 4
     }
   }
 
-  Future<bool> _persistTunInterfaceIndexes() async {
-    final indexes = await _captureTunInterfaceIndexes();
-    if (indexes.isEmpty) return false;
+  Future<bool> _persistTunInterfaceIdentities() async {
+    final interfaces = await _captureTunInterfaceIdentities();
+    if (interfaces.isEmpty) return false;
     try {
-      final sorted = indexes.toList()..sort();
       await _tunTeardownMarker.writeAsString(
-        '${sorted.join(',')}\n',
+        encodeWindowsTunTeardownMarker(interfaces),
         flush: true,
       );
-      _tunTeardownGate.markPending(indexes);
+      _tunTeardownGate.markPending(interfaces);
       return true;
     } catch (error) {
-      log('❌ 无法写入 TUN 网卡索引: $error');
+      log('❌ 无法写入 TUN 网卡身份: $error');
       return false;
     }
   }

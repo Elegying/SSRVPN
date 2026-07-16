@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修复
+
+- Windows TUN 清理持久化本次连接新建网卡的稳定 `InterfaceGuid`，不再把通用的 `Meta` 名称、相同地址、其他 VPN 的路由或可能被 Windows 复用的数字索引当作 SSRVPN 所有权；旧版纯索引状态升级后会被安全忽略。
+
+### 安全
+
+- macOS 与 Windows 只有在 GitHub 正式 Release 独立发布相同版本和 SHA256 时才采用 OSS 桌面更新清单；GitHub 不可用时不再仅凭 OSS 摘要自动交接安装包，摘要不一致时改用 GitHub 资产。
+- 正式发布的 `Publish Release` job 绑定需要人工批准的 `release` 环境；线上 `main` 已启用严格 CI/PR 保护，`v*` 发布标签禁止改写和删除，并开启私有漏洞报告与 Dependabot 安全更新。
+
+### 维护
+
+- 本地、CI 与 Release 共用唯一的 Python 发布工具测试入口，并按真实 `unittest` 参数解析完整清单，注释不能伪装成已执行测试；Windows 独立纯逻辑继续跨平台验证，只有真正依赖桌面、`kernel32`、PowerShell、DPAPI 或网络 cmdlet 的断言按平台跳过；三个高复杂度 Windows 恢复文件新增体量上限，后续增长前必须先拆分职责。
+
+### 文档
+
+- 固化 Windows 安装版数据保留决策：安装器不再发现或合并多个便携数据源，覆盖升级只替换程序文件并保留固定安装数据；旧的每次安装删除数据策略正式废止。
+
 ## [3.4.3] - 2026-07-16
 
 ### 修复

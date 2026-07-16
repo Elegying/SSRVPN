@@ -41,6 +41,7 @@
 - [IPv6 双栈规范](IPV6_DUAL_STACK_SPEC.zh-CN.md)
 - [UI 设计规范](UI_DESIGN_GUIDE.md)
 - [ADR-001：桌面端 API Secret 的长期存储](decisions/001-desktop-api-secret-storage.md)
+- [ADR-002：Windows 安装版数据保留与多来源隔离](decisions/002-windows-installed-data-preservation.md)
 
 ## 历史材料
 
