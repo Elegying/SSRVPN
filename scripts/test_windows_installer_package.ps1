@@ -44,10 +44,13 @@ $upgradeAppProcess = $null
 $installedAppPath = [System.IO.Path]::GetFullPath(
   (Join-Path $installDir 'bin\ssrvpn_windows_app.exe')
 )
+$windowStateSentinel = Join-Path $env:LOCALAPPDATA 'SSRVPN\window_state.json'
+$validWindowState =
+  '{"schemaVersion":1,"left":0,"top":0,"width":1180,"height":760}'
 $preservedSentinels = @(
   (Join-Path $installDir 'bin\ssrvpn\upgrade-preserve.sentinel'),
   (Join-Path $env:LOCALAPPDATA 'SSRVPN\ssrvpn\upgrade-preserve.sentinel'),
-  (Join-Path $env:LOCALAPPDATA 'SSRVPN\window_state.json')
+  $windowStateSentinel
 )
 $cacheRoots = @(
   (Join-Path $env:APPDATA 'SSRVPN.exe\EBWebView'),
@@ -143,7 +146,12 @@ try {
   foreach ($sentinel in $preservedSentinels) {
     New-Item -ItemType Directory -Path (Split-Path -Path $sentinel -Parent) `
       -Force | Out-Null
-    [System.IO.File]::WriteAllText($sentinel, 'ssrvpn-upgrade-preserve')
+    $sentinelContent = if ($sentinel -eq $windowStateSentinel) {
+      $validWindowState
+    } else {
+      'ssrvpn-upgrade-preserve'
+    }
+    [System.IO.File]::WriteAllText($sentinel, $sentinelContent)
   }
   New-CacheSentinels
 
@@ -213,7 +221,9 @@ try {
           if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) {
             throw "SSRVPN uninstall deleted preserved data: $sentinel"
           }
-          if ([System.IO.File]::ReadAllText($sentinel) -ne 'ssrvpn-upgrade-preserve') {
+          if ($sentinel -ne $windowStateSentinel -and
+              [System.IO.File]::ReadAllText($sentinel) -ne
+                'ssrvpn-upgrade-preserve') {
             throw "SSRVPN uninstall changed preserved data: $sentinel"
           }
         }

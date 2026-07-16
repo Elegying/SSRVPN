@@ -1052,6 +1052,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("upgrade-preserve.sentinel", smoke)
         self.assertIn("SSRVPN\\ssrvpn\\upgrade-preserve.sentinel", smoke)
         self.assertIn("SSRVPN\\window_state.json", smoke)
+        self.assertIn('"schemaVersion":1', smoke)
+        self.assertIn("$sentinel -ne $windowStateSentinel", smoke)
         self.assertIn("SSRVPN.exe\\EBWebView", smoke)
         self.assertIn("vip.ssrvpn.windows\\EBWebView", smoke)
         self.assertIn("upgrade deleted preserved data", smoke)
