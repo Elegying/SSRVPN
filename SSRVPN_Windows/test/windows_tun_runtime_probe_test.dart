@@ -101,6 +101,18 @@ void main() {
     expect(gate.interfaces, isEmpty);
   });
 
+  test('TUN teardown gate fails closed while adapter ownership is unknown', () {
+    final gate = WindowsTunTeardownGate()..markPending();
+
+    expect(gate.ownershipKnown, isFalse);
+    expect(gate.accept(residual(WindowsTunResidualStatus.gone)), isFalse);
+    expect(gate.pending, isTrue);
+
+    gate.markPending(const [identity7]);
+    expect(gate.ownershipKnown, isTrue);
+    expect(gate.accept(residual(WindowsTunResidualStatus.gone)), isTrue);
+  });
+
   test('TUN gate probes fresh TUN and pending reconnects only', () {
     final gate = WindowsTunTeardownGate();
 

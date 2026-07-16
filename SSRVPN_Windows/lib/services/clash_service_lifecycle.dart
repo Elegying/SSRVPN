@@ -1106,14 +1106,15 @@ exit 4
         return result;
       },
     );
-    if (cleared) {
-      _tunTeardownGate.accept((
-        status: WindowsTunResidualStatus.gone,
-        interfaces: const <WindowsTunInterfaceIdentity>{},
-      ));
+    if (cleared &&
+        _tunTeardownGate.accept((
+          status: WindowsTunResidualStatus.gone,
+          interfaces: const <WindowsTunInterfaceIdentity>{},
+        ))) {
       await _clearTunTeardownMarker();
+      return true;
     }
-    return cleared;
+    return false;
   }
 
   File get _tunTeardownMarker => File(
@@ -1138,7 +1139,7 @@ exit 4
 
   Future<bool> _armTunTeardownGate() async {
     try {
-      await _tunTeardownMarker.writeAsString('pending\n', flush: true);
+      await _writeTunTeardownMarker('pending\n');
       _tunTeardownGate.markPending();
       return true;
     } catch (error) {
@@ -1151,15 +1152,28 @@ exit 4
     final interfaces = await _captureTunInterfaceIdentities();
     if (interfaces.isEmpty) return false;
     try {
-      await _tunTeardownMarker.writeAsString(
+      await _writeTunTeardownMarker(
         encodeWindowsTunTeardownMarker(interfaces),
-        flush: true,
       );
       _tunTeardownGate.markPending(interfaces);
       return true;
     } catch (error) {
       log('❌ 无法写入 TUN 网卡身份: $error');
       return false;
+    }
+  }
+
+  Future<void> _writeTunTeardownMarker(String value) async {
+    final marker = _tunTeardownMarker;
+    final temporary = File('${marker.path}.tmp');
+    try {
+      await temporary.writeAsString(value, flush: true);
+      await temporary.rename(marker.path);
+    } catch (error) {
+      try {
+        if (await temporary.exists()) await temporary.delete();
+      } catch (_) {}
+      rethrow;
     }
   }
 
