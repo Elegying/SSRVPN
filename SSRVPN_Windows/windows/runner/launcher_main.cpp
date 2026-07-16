@@ -1047,6 +1047,26 @@ bool StartGuardian(const std::wstring& launcher_path,
   return true;
 }
 
+constexpr DWORD kGuardianRestartAttempts = 5;
+constexpr DWORD kGuardianRestartDelayMs = 100;
+
+bool StartReplacementGuardianWithRetry(
+    const std::wstring& launcher_path,
+    const std::wstring& launcher_directory, DWORD child_process_id,
+    HANDLE* guardian_process, HANDLE* guardian_commit_event,
+    DWORD* error_code) {
+  for (DWORD attempt = 0; attempt < kGuardianRestartAttempts; ++attempt) {
+    if (StartGuardian(launcher_path, launcher_directory, child_process_id, 0,
+                      guardian_process, guardian_commit_event, error_code)) {
+      return true;
+    }
+    if (attempt + 1 < kGuardianRestartAttempts) {
+      ::Sleep(kGuardianRestartDelayMs);
+    }
+  }
+  return false;
+}
+
 // ── Child process creation ──
 
 bool CreateChildProcess(const std::wstring& child_path,
@@ -1386,8 +1406,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
     if (!fail_closed_cleanup_pending) {
       HANDLE replacement_commit_event = nullptr;
       if (process_job != nullptr &&
-          StartGuardian(launcher_path, launcher_directory, child_process_id, 0,
-                        &guardian_process, &replacement_commit_event, &error)) {
+          StartReplacementGuardianWithRetry(
+              launcher_path, launcher_directory, child_process_id,
+              &guardian_process, &replacement_commit_event, &error)) {
         if (::SetEvent(replacement_commit_event)) {
           ::CloseHandle(replacement_commit_event);
           continue;

@@ -538,6 +538,15 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertLess(terminate, kill_on_close)
         self.assertNotIn("proxy_safe_to_stop", cleanup)
 
+        replacement_retry = launcher[
+            launcher.index("bool StartReplacementGuardianWithRetry") :
+            launcher.index("// ── Child process creation")
+        ]
+        self.assertIn("kGuardianRestartAttempts", replacement_retry)
+        self.assertIn("kGuardianRestartDelayMs", replacement_retry)
+        self.assertIn("StartGuardian(", replacement_retry)
+        self.assertIn("::Sleep(kGuardianRestartDelayMs)", replacement_retry)
+
         main = launcher[launcher.index("int APIENTRY wWinMain") :]
         start_guardian = main.index("StartGuardian")
         guardian_fallback = main.index("if (!guardian_ready)", start_guardian)
@@ -608,7 +617,9 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             supervision,
         )
         guardian_exit = supervision.index("WAIT_OBJECT_0 + 1")
-        restart = supervision.index("StartGuardian", guardian_exit)
+        restart = supervision.index(
+            "StartReplacementGuardianWithRetry", guardian_exit
+        )
         restart_commit = supervision.index(
             "SetEvent(replacement_commit_event)", restart
         )
@@ -635,7 +646,10 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertNotIn("ArmKillOnJobCloseAndRelease", supervision)
         self.assertNotIn("MakeSafeDisconnectVisible", supervision)
         self.assertIn("if (!fail_closed_cleanup_pending)", supervision)
-        self.assertEqual(supervision.count("StartGuardian("), 1)
+        self.assertEqual(
+            supervision.count("StartReplacementGuardianWithRetry("), 1
+        )
+        self.assertEqual(supervision.count("StartGuardian("), 0)
         child_retry = supervision[
             supervision.index("const DWORD child_retry_wait") :
         ]
@@ -1303,6 +1317,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("enabled: false", tray)
         self.assertIn("HTTP 127.0.0.1:$port", app)
         self.assertIn("CoreRecoveryPolicy(maxAttempts: 1)", lifecycle)
+        self.assertIn("isCurrentSystemProxyOwned", lifecycle)
         self.assertIn("Future<bool> start() => _start();", lifecycle)
         self.assertIn("_start(automaticRecovery: true)", lifecycle)
         self.assertLess(

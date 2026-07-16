@@ -85,6 +85,9 @@ const
   UpdateHandoffRequestSuffix = '.ssrvpn-handoff';
   UpdateHandoffStatusSuffix = '.ssrvpn-handoff-status';
   StopStatusSuffix = '.ssrvpn-stop-status';
+  UninstallRegistryKey =
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
+    '{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1';
 
 var
   AppGateMutex: THandle;
@@ -413,6 +416,15 @@ begin
     else
       MsgBox('无法取得 SSRVPN 卸载期启动保护，卸载尚未删除程序文件。' + #13#10 +
         '请稍后重试；如果仍然失败，请重启 Windows。', mbError, MB_OK);
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    if not RegDeleteKeyIncludingSubkeys(HKCU, UninstallRegistryKey) then
+      Log('SSRVPN uninstall registry entry was already absent or could not be removed.');
   end;
 end;
 

@@ -922,6 +922,20 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
 
         self.assertIn("function InitializeUninstall(): Boolean;", installer)
+        self.assertIn(
+            "UninstallRegistryKey =\n"
+            "    'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\' +\n"
+            "    '{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1';",
+            installer,
+        )
+        self.assertIn(
+            "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);",
+            installer,
+        )
+        self.assertIn(
+            "RegDeleteKeyIncludingSubkeys(HKCU, UninstallRegistryKey)",
+            installer,
+        )
         self.assertIn("{app}\\installer\\stop_ssrvpn_processes.ps1", installer)
         self.assertIn("InstalledAppPath", installer)
         self.assertIn("InstalledLauncherPath", installer)
@@ -948,6 +962,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
 
         self.assertNotIn("-File $stopper", smoke)
         self.assertIn("$runningInstalledApp = Start-InstalledApp", smoke)
+        self.assertIn("$uninstallRegistryPath", smoke)
+        self.assertIn("Registry::HKEY_CURRENT_USER", smoke)
+        self.assertIn("{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1", smoke)
+        self.assertIn("Uninstaller left its registry entry behind", smoke)
         self.assertIn("The uninstaller left the installed SSRVPN app running", smoke)
 
         journal = stopper.split("function Write-NativeRestoreJournal", 1)[1]

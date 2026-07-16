@@ -30,6 +30,19 @@ ProxyRecoveryDisposition classifyProxyRecoveryDisposition({
   return ProxyRecoveryDisposition.endpointMayStillBeOwned;
 }
 
+bool isUnexpectedCoreExit({
+  required bool ownsProcess,
+  required bool stoppingCore,
+  required bool stopInProgress,
+}) =>
+    ownsProcess && !stoppingCore && !stopInProgress;
+
+bool hasActiveUnexpectedExitRecoveryIntent(
+  int? generation,
+  bool Function(int generation) isCurrent,
+) =>
+    generation != null && isCurrent(generation);
+
 /// Retries a failed proxy restore without overlapping registry transactions.
 ///
 /// There is one initial attempt plus one attempt after every delay. The caller
@@ -115,7 +128,15 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   @override
   Future<bool> healthCheck() async {
     if (!await super.healthCheck()) return false;
-    if (!settings.enableTun) return true;
+    if (!settings.enableTun) {
+      if (isRunning && !await _proxyService.isCurrentSystemProxyOwned()) {
+        setLastHealthCheckError(
+          _proxyService.lastError ?? 'Windows 系统代理已被关闭或修改',
+        );
+        return false;
+      }
+      return true;
+    }
     final tun = (await getConfigs())?['tun'];
     if (tun is! Map || tun['enable'] != true) {
       setLastHealthCheckError('Mihomo API 已就绪，但 TUN listener 未启用');
@@ -609,7 +630,13 @@ exit 4
       // 监听子进程退出
       startedProcess.exitCode.then((code) {
         startupExitCode = code;
-        if (!identical(_coreProcess, startedProcess) || _stoppingCore) return;
+        if (!isUnexpectedCoreExit(
+          ownsProcess: identical(_coreProcess, startedProcess),
+          stoppingCore: _stoppingCore,
+          stopInProgress: _stopOperation != null,
+        )) {
+          return;
+        }
 
         log('❌ Mihomo 进程已退出，退出码: $code');
         final recoveryListenerWasActive = _proxyRecoveryListenerActive;
@@ -623,7 +650,13 @@ exit 4
           log('⚠️ 系统代理保护监听已退出，重新执行安全恢复');
         }
         final cleanup = _deleteCorePid().then<void>((_) {
-          if (!identical(_coreProcess, startedProcess) || _stoppingCore) return;
+          if (!isUnexpectedCoreExit(
+            ownsProcess: identical(_coreProcess, startedProcess),
+            stoppingCore: _stoppingCore,
+            stopInProgress: _stopOperation != null,
+          )) {
+            return;
+          }
           if (isRunning) {
             final restartGeneration = captureAutomaticRestartIntent();
             setRunning(false);
@@ -952,6 +985,14 @@ exit 4
     if (tunInterfaces != null) {
       _tunTeardownGate.markPending(await tunInterfaces);
     }
+    final hasRecoveryIntent = hasActiveUnexpectedExitRecoveryIntent(
+      generation,
+      (value) => isConnectionIntentCurrent(value, connected: true),
+    );
+    if (!hasRecoveryIntent) {
+      if (!proxyCleared) await _clearProxyAfterUnexpectedExit();
+      return;
+    }
     if (!proxyCleared) {
       // A stop may have been requested while the bounded restore was running.
       // Let it finish first: a successful stop makes the endpoint safe, while
@@ -1006,10 +1047,10 @@ exit 4
       );
       return;
     }
-    if (generation == null ||
-        !isConnectionIntentCurrent(generation, connected: true)) {
-      return;
-    }
+    if (!hasActiveUnexpectedExitRecoveryIntent(
+      generation,
+      (value) => isConnectionIntentCurrent(value, connected: true),
+    )) return;
     if (tunInterfaces != null && !await _waitForTunTeardown()) {
       setLastStartError(_tunTeardownTimeoutError);
       markConnectionLost();
@@ -1027,7 +1068,10 @@ exit 4
     notifyRuntimeNotice('核心异常退出，正在自动恢复（退出码 $exitCode）');
     final restarted = await _start(automaticRecovery: true);
 
-    if (!isConnectionIntentCurrent(generation, connected: true)) return;
+    if (!hasActiveUnexpectedExitRecoveryIntent(
+      generation,
+      (value) => isConnectionIntentCurrent(value, connected: true),
+    )) return;
     if (restarted && isRunning) {
       notifyRuntimeNotice(coreAutoRecoveredRuntimeNotice);
       return;
