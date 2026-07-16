@@ -4,6 +4,7 @@ param(
   [string]$InstalledCorePath = '',
   [string]$InstalledCorePidPath = '',
   [string]$StatusPath = '',
+  [switch]$RequireRecoveryCleanup,
   [ValidateRange(100, 8000)]
   [int]$TunTeardownTimeoutMilliseconds = 8000,
   [ValidateRange(100, 30000)]
@@ -23,6 +24,7 @@ $script:StopStatusValues = @(
   'PROXY_UNSAFE',
   'PROCESSES_STILL_RUNNING',
   'TUN_TEARDOWN_PENDING',
+  'RECOVERY_CLEANUP_PENDING',
   'INTERNAL_ERROR'
 )
 
@@ -1308,6 +1310,11 @@ if ($InstalledCorePidPath) {
 }
 
 if ($proxyRecoveryFailed) {
+  if ($RequireRecoveryCleanup) {
+    Set-StopStatus -Status 'RECOVERY_CLEANUP_PENDING'
+    Write-Warning 'Proxy endpoint is safe, but uninstall cannot remove the recovery helper while recovery artifacts remain.'
+    exit 3
+  }
   Write-Warning 'Proxy endpoint is safe, but recovery artifacts remain for the installed app to retry.'
 }
 

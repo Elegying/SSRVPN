@@ -678,6 +678,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "PROXY_UNSAFE",
             "PROCESSES_STILL_RUNNING",
             "TUN_TEARDOWN_PENDING",
+            "RECOVERY_CLEANUP_PENDING",
             "INTERNAL_ERROR",
         }
 
@@ -703,6 +704,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         runner = installer.split("function RunStopSsrvpnProcesses", 1)[1].split(
             "function StopSsrvpnProcesses", 1
         )[0]
+        self.assertIn("RequireRecoveryCleanup: Boolean", runner)
+        self.assertIn("if RequireRecoveryCleanup then", runner)
+        self.assertIn("' -RequireRecoveryCleanup'", runner)
         self.assertIn("GenerateUniqueName(", runner)
         self.assertIn("StopStatusSuffix", runner)
         self.assertIn("' -StatusPath ' + AddQuotes(StatusPath)", runner)
@@ -908,6 +912,14 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             stopper.index("function Test-SystemProxySafeToStop")
         ]
         self.assertIn("[AllowNull()]$Backup", disable_owned)
+        self.assertIn("[switch]$RequireRecoveryCleanup", stopper)
+        cleanup_failure = stopper[stopper.rindex("if ($proxyRecoveryFailed)") :]
+        self.assertIn("if ($RequireRecoveryCleanup)", cleanup_failure)
+        self.assertIn(
+            "Set-StopStatus -Status 'RECOVERY_CLEANUP_PENDING'",
+            cleanup_failure,
+        )
+        self.assertIn("exit 3", cleanup_failure)
 
     def test_uninstaller_restores_proxy_and_stops_only_its_installation(
         self,
@@ -940,7 +952,11 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("InstalledAppPath", installer)
         self.assertIn("InstalledLauncherPath", installer)
         uninstall = installer.split("function InitializeUninstall(): Boolean;", 1)[1]
-        self.assertIn("StopSsrvpnProcesses", uninstall)
+        self.assertIn(
+            "RunStopSsrvpnProcesses(\n"
+            "    ExpandConstant('{app}\\installer\\stop_ssrvpn_processes.ps1'), True)",
+            uninstall,
+        )
         self.assertIn(
             "Result := (StopResult = 0) and\n"
             "    AcquireLauncherGate(GateWaitMilliseconds)",

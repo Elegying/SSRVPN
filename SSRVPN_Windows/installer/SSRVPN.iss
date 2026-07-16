@@ -236,6 +236,7 @@ begin
     (Status = 'PROXY_UNSAFE') or
     (Status = 'PROCESSES_STILL_RUNNING') or
     (Status = 'TUN_TEARDOWN_PENDING') or
+    (Status = 'RECOVERY_CLEANUP_PENDING') or
     (Status = 'INTERNAL_ERROR') then
     Result := Status
   else
@@ -247,7 +248,8 @@ begin
   Result := '诊断阶段码：' + LastStopStatus + '。';
 end;
 
-function RunStopSsrvpnProcesses(ScriptPath: String): Integer;
+function RunStopSsrvpnProcesses(ScriptPath: String;
+  RequireRecoveryCleanup: Boolean): Integer;
 var
   ResultCode: Integer;
   Started: Boolean;
@@ -278,6 +280,8 @@ begin
       ' -InstalledCorePath ' + AddQuotes(InstalledCorePath) +
       ' -InstalledCorePidPath ' + AddQuotes(InstalledCorePidPath) +
       ' -StatusPath ' + AddQuotes(StatusPath);
+    if RequireRecoveryCleanup then
+      Parameters := Parameters + ' -RequireRecoveryCleanup';
     Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
       ewWaitUntilTerminated, ResultCode);
     if Started then
@@ -299,7 +303,7 @@ function StopSsrvpnProcesses: Integer;
 begin
   ExtractTemporaryFile('stop_ssrvpn_processes.ps1');
   Result := RunStopSsrvpnProcesses(
-    ExpandConstant('{tmp}\stop_ssrvpn_processes.ps1'));
+    ExpandConstant('{tmp}\stop_ssrvpn_processes.ps1'), False);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -397,7 +401,7 @@ begin
     exit;
   end;
   StopResult := RunStopSsrvpnProcesses(
-    ExpandConstant('{app}\installer\stop_ssrvpn_processes.ps1'));
+    ExpandConstant('{app}\installer\stop_ssrvpn_processes.ps1'), True);
   Result := (StopResult = 0) and
     AcquireLauncherGate(GateWaitMilliseconds);
   if not Result then
