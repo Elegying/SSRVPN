@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Windows TUN 清理只把本次连接捕获到的网卡、地址和所属路由视为 SSRVPN 残留，不再因其他 VPN 使用相同默认路由前缀而阻止断开、重连或升级。
 
+### 安全
+
+- macOS 与 Windows 只有在 GitHub 正式 Release 独立发布相同版本和 SHA256 时才采用 OSS 桌面更新清单；GitHub 不可用时不再仅凭 OSS 摘要自动交接安装包，摘要不一致时改用 GitHub 资产。
+
 ### 文档
 
 - 固化 Windows 安装版数据保留决策：安装器不再发现或合并多个便携数据源，覆盖升级只替换程序文件并保留固定安装数据；旧的每次安装删除数据策略正式废止。

@@ -4,6 +4,33 @@ import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/services/update_checker.dart';
 import 'package:test/test.dart';
 
+const _digestA =
+    '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+const _digestB =
+    'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+
+http.Response githubReleaseResponse(
+  http.BaseRequest request, {
+  required String assetName,
+  String digest = _digestA,
+  String version = '3.1.0',
+}) {
+  if (request.url.path.endsWith('.sha256')) {
+    return http.Response('$digest  $assetName\n', 200);
+  }
+  expect(request.url.host, 'api.github.com');
+  return http.Response('''
+{
+  "tag_name": "v$version",
+  "body": "GitHub release notes",
+  "assets": [
+    {"name": "$assetName", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v$version/$assetName"},
+    {"name": "$assetName.sha256", "browser_download_url": "https://github.com/Elegying/SSRVPN/releases/download/v$version/$assetName.sha256"}
+  ]
+}
+''', 200);
+}
+
 void main() {
   test('compareVersions handles different lengths', () {
     expect(UpdateChecker.compareVersions('2.0.6', '2.0.5'), 1);
@@ -11,11 +38,13 @@ void main() {
     expect(UpdateChecker.compareVersions('2.0.0', '2.1.0'), -1);
   });
 
-  test('checkLatest prefers the OSS manifest and asset', () async {
+  test('checkLatest prefers OSS after GitHub digest corroboration', () async {
     final requestedHosts = <String>[];
     final client = MockClient((request) async {
       requestedHosts.add(request.url.host);
-      expect(request.headers['User-Agent'], AppConstants.appUserAgent);
+      if (!request.url.path.endsWith('.sha256')) {
+        expect(request.headers['User-Agent'], AppConstants.appUserAgent);
+      }
       if (request.url.host == 'nikuaimobi.oss-cn-qingdao.aliyuncs.com') {
         return http.Response('''
 {
@@ -31,7 +60,7 @@ void main() {
 }
 ''', 200);
       }
-      fail('GitHub must not be queried when the OSS manifest is valid');
+      return githubReleaseResponse(request, assetName: 'SSRVPN.zip');
     });
 
     final update = await UpdateChecker.checkLatest(
@@ -55,14 +84,86 @@ void main() {
       update.fallbackDownloadUrl,
       'https://github.com/Elegying/SSRVPN/releases/download/v3.1.0/SSRVPN.zip',
     );
-    expect(requestedHosts, ['nikuaimobi.oss-cn-qingdao.aliyuncs.com']);
+    expect(requestedHosts, [
+      'nikuaimobi.oss-cn-qingdao.aliyuncs.com',
+      'api.github.com',
+      'github.com',
+    ]);
+  });
+
+  test('checkLatest rejects an uncorroborated desktop OSS manifest', () async {
+    final requestedHosts = <String>[];
+    final client = MockClient((request) async {
+      requestedHosts.add(request.url.host);
+      if (request.url.host == 'nikuaimobi.oss-cn-qingdao.aliyuncs.com') {
+        return http.Response('''
+{
+  "version": "3.1.0",
+  "assets": [
+    {
+      "name": "SSRVPN.zip",
+      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/SSRVPN.zip",
+      "sha256": "$_digestA"
+    }
+  ]
+}
+''', 200);
+      }
+      return http.Response('GitHub unavailable', 503);
+    });
+
+    final update = await UpdateChecker.checkLatest(
+      currentVersion: '3.0.0',
+      assetExtension: '.zip',
+      client: client,
+    );
+
+    expect(update, isNull);
+    expect(requestedHosts, [
+      'nikuaimobi.oss-cn-qingdao.aliyuncs.com',
+      'api.github.com',
+    ]);
+  });
+
+  test('checkLatest uses GitHub when the desktop OSS digest differs', () async {
+    final client = MockClient((request) async {
+      if (request.url.host == 'nikuaimobi.oss-cn-qingdao.aliyuncs.com') {
+        return http.Response('''
+{
+  "version": "3.1.0",
+  "assets": [
+    {
+      "name": "SSRVPN.zip",
+      "url": "https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v3.1.0/SSRVPN.zip",
+      "sha256": "$_digestA"
+    }
+  ]
+}
+''', 200);
+      }
+      return githubReleaseResponse(
+        request,
+        assetName: 'SSRVPN.zip',
+        digest: _digestB,
+      );
+    });
+
+    final update = await UpdateChecker.checkLatest(
+      currentVersion: '3.0.0',
+      assetExtension: '.zip',
+      client: client,
+    );
+
+    expect(update, isNotNull);
+    expect(update!.sourceHost, 'github.com');
+    expect(update.sha256, _digestB);
   });
 
   test('checkLatest selects the Windows installer instead of the portable ZIP',
       () async {
     final client = MockClient((request) async {
-      expect(request.url.host, 'nikuaimobi.oss-cn-qingdao.aliyuncs.com');
-      return http.Response('''
+      if (request.url.host == 'nikuaimobi.oss-cn-qingdao.aliyuncs.com') {
+        return http.Response('''
 {
   "version": "3.1.0",
   "assets": [
@@ -79,6 +180,12 @@ void main() {
   ]
 }
 ''', 200);
+      }
+      return githubReleaseResponse(
+        request,
+        assetName: 'SSRVPN_Setup.exe',
+        digest: _digestB,
+      );
     });
 
     final update = await UpdateChecker.checkLatest(
