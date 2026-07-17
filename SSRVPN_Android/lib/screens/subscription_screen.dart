@@ -309,6 +309,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
           id,
           clashRunning: clashService.isRunning,
           stopClash: clashService.stop,
+          onNoRunnableNodes: clashService.clearNativeConnectionSnapshot,
           continueAfterRefreshFailure: true,
         );
       } catch (e) {

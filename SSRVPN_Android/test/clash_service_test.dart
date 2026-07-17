@@ -86,24 +86,50 @@ void main() {
     });
 
     test('preferred node config is persisted for tile cold starts', () async {
+      SharedPreferences.setMockInitialValues({});
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => call.method == 'syncSettings' ? true : null,
+      );
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
       final dir = await Directory.systemTemp.createTemp('ssrvpn_config_test_');
       addTearDown(() => dir.delete(recursive: true));
       final configPath = '${dir.path}${Platform.pathSeparator}config.yaml';
       final service = ClashService()
         ..setPaths(configDir: dir.path, configPath: configPath);
 
-      await service.writePreferredNodeConfig(
+      final committedPath = await service.writePreferredNodeConfig(
         _testProxies,
         AppSettings(),
         '新加坡节点',
       );
 
-      final parsed = loadYaml(await File(configPath).readAsString()) as YamlMap;
+      expect(committedPath, isNot(configPath));
+      final parsed =
+          loadYaml(await File(committedPath).readAsString()) as YamlMap;
       final proxyGroup = (parsed['proxy-groups'] as YamlList)
           .firstWhere((g) => (g as YamlMap)['name'] == 'PROXY') as YamlMap;
       final proxies = (proxyGroup['proxies'] as YamlList).cast<String>();
 
       expect(proxies.first, '新加坡节点');
+    });
+
+    test('staged configs never overwrite the last committed config', () async {
+      final dir = await Directory.systemTemp.createTemp('ssrvpn_versioned_');
+      addTearDown(() => dir.delete(recursive: true));
+      final committed = File('${dir.path}${Platform.pathSeparator}config.yaml');
+      await committed.writeAsString('last-known-good');
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: committed.path);
+
+      final staged = await service.writeConfig('candidate');
+
+      expect(staged, isNot(committed.path));
+      expect(await committed.readAsString(), 'last-known-good');
+      expect(await File(staged).readAsString(), 'candidate');
     });
 
     test('url-test group has correct ping URL and interval', () {
@@ -348,6 +374,22 @@ void main() {
     await service.stop();
 
     expect(service.isRunning, isFalse);
+  });
+
+  test('native node snapshot failure is reported to the caller', () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'updateVpnNotification') {
+        throw PlatformException(code: 'NATIVE_SNAPSHOT_UPDATE_FAILED');
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final service = ClashService();
+    expect(await service.updateVpnNotification('New Node'), isFalse);
   });
 
   test('native credential sync failure preserves the last usable tile config',

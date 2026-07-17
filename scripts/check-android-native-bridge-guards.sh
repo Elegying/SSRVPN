@@ -136,6 +136,7 @@ require_count "bridge.Bridge.stop()" 1
 require_count "bridge.Bridge.isRunning()" 1
 
 require_activity_text '"syncSettings"'
+require_activity_text '"clearConnectionSnapshot"'
 require_activity_text "private fun handleNativeMethodCall("
 require_activity_text "NativeConnectionSnapshotStore.write("
 require_activity_text '"flutter.proxyPort"'
@@ -185,6 +186,8 @@ require_text "VpnNotificationSupport.createChannel(this, CHANNEL_ID)"
 require_text "NativeConnectionSnapshotStore.read(this)"
 require_text "notificationUpdatePolicy.publishIfChanged(state)"
 require_text "Looper.myLooper() != notificationHandler.looper"
+require_text "notifyCurrentState(currentNotificationState())"
+require_activity_text "NATIVE_SNAPSHOT_UPDATE_FAILED"
 
 if grep -R -n -E 'flutter\.(apiSecret|configDir|configPath|apiPort|selectedNodeName)' \
   "$MAIN_ACTIVITY" "$SERVICE" "$TILE_SERVICE"; then
@@ -200,6 +203,10 @@ for needle in \
     exit 1
   }
 done
+grep -Fq "fun clear(context: Context)" "$NATIVE_SNAPSHOT_STORE" || {
+  echo "Android native snapshot guard failed: clear operation is missing" >&2
+  exit 1
+}
 
 python3 - "$NATIVE_SNAPSHOT_STORE" <<'PY'
 import sys

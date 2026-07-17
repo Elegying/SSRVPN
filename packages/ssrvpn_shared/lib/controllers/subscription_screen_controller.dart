@@ -246,6 +246,7 @@ class SubscriptionScreenController {
     String id, {
     required bool clashRunning,
     required Future<void> Function()? stopClash,
+    Future<void> Function()? onNoRunnableNodes,
     bool continueAfterRefreshFailure = false,
   }) async {
     try {
@@ -260,6 +261,7 @@ class SubscriptionScreenController {
         error: e,
         clashRunning: clashRunning,
         stopClash: stopClash,
+        onNoRunnableNodes: onNoRunnableNodes,
       );
     }
 
@@ -267,6 +269,7 @@ class SubscriptionScreenController {
       removed: true,
       clashRunning: clashRunning,
       stopClash: stopClash,
+      onNoRunnableNodes: onNoRunnableNodes,
     );
   }
 
@@ -337,11 +340,14 @@ class SubscriptionScreenController {
     required bool removed,
     required bool clashRunning,
     required Future<void> Function()? stopClash,
+    Future<void> Function()? onNoRunnableNodes,
     bool remainingRefreshFailed = false,
     Object? error,
   }) async {
+    var stopped = false;
     try {
-      final stopped = await _stopClashIfNeeded(clashRunning, stopClash);
+      stopped = await _stopClashIfNeeded(clashRunning, stopClash);
+      if (!_hasRunnableNodes()) await onNoRunnableNodes?.call();
       return SubscriptionDeleteResult(
         removed: removed,
         remainingRefreshFailed: remainingRefreshFailed,
@@ -352,7 +358,7 @@ class SubscriptionScreenController {
       return SubscriptionDeleteResult(
         removed: removed,
         remainingRefreshFailed: remainingRefreshFailed,
-        stoppedClash: false,
+        stoppedClash: stopped,
         error: e,
       );
     }

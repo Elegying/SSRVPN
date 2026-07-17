@@ -76,8 +76,17 @@ internal object NativeConnectionSnapshotStore {
     }
 
     fun updateSelectedNode(context: Context, nodeName: String) {
-        val current = read(context) ?: return
+        val current = checkNotNull(read(context)) {
+            "Native connection snapshot is unavailable"
+        }
         write(context, current.copy(selectedNodeName = nodeName))
+    }
+
+    fun clear(context: Context) {
+        check(preferences(context).edit().clear().commit()) {
+            "Unable to clear the native connection snapshot"
+        }
+        deleteKey()
     }
 
     private fun encrypt(plaintext: ByteArray, key: SecretKey): EncryptedValue {
