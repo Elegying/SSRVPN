@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yaml/yaml.dart';
-import 'dart:io';
 import 'package:ssrvpn_android/models/app_settings.dart';
 import 'package:ssrvpn_android/services/clash_service.dart';
 
@@ -641,15 +643,22 @@ void main() {
     );
   });
 
-  test('uncommitted cleanup marker never deletes a still-referenced snapshot',
+  test('a newer native snapshot supersedes a failed cleanup transaction',
       () async {
+    SharedPreferences.setMockInitialValues({});
     const channel = MethodChannel('com.ssrvpn/native');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var clearCalls = 0;
     messenger.setMockMethodCallHandler(channel, (call) async {
       switch (call.method) {
         case 'clearConnectionSnapshot':
-          throw PlatformException(code: 'CLEAR_FAILED');
+          clearCalls += 1;
+          if (clearCalls == 1) {
+            throw PlatformException(code: 'CLEAR_FAILED');
+          }
+          return true;
+        case 'syncSettings':
         case 'stopCore':
         case 'notifyVpnStateChanged':
           return true;
@@ -662,24 +671,42 @@ void main() {
     );
     addTearDown(() => dir.delete(recursive: true));
     final configPath = '${dir.path}${Platform.pathSeparator}config.yaml';
-    final snapshot = File(configPath);
-    await snapshot.writeAsString(_testProxies);
+    final oldSnapshot = File(configPath);
+    await oldSnapshot.writeAsString(_testProxies);
     final service = ClashService()
       ..setPaths(configDir: dir.path, configPath: configPath)
-      ..setRunning(true);
+      ..setRunning(true)
+      ..updateSettings(AppSettings(apiSecret: 'new-secret'));
 
     await expectLater(
       service.clearNativeConnectionSnapshot(),
       throwsA(isA<PlatformException>()),
     );
-    await service.stop();
-
-    expect(await snapshot.exists(), isTrue);
-    expect(
-      await File(
-        '${dir.path}${Platform.pathSeparator}.snapshot-cleanup.pending',
-      ).exists(),
-      isTrue,
+    final newSnapshot = await service.writePreferredNodeConfig(
+      _testProxies,
+      AppSettings(apiSecret: 'new-secret'),
+      '新加坡节点',
     );
+    final marker = File(
+      '${dir.path}${Platform.pathSeparator}.snapshot-cleanup.pending',
+    );
+    final markerJson = jsonDecode(await marker.readAsString()) as Map;
+
+    expect(markerJson['committed'], isTrue);
+    expect(markerJson['files'], contains('config.yaml'));
+    expect(
+      markerJson['files'],
+      isNot(contains(File(newSnapshot).uri.pathSegments.last)),
+    );
+
+    final restartedService = ClashService()
+      ..setPaths(configDir: dir.path, configPath: configPath)
+      ..setRunning(true);
+    await restartedService.stop();
+
+    expect(clearCalls, 1);
+    expect(await oldSnapshot.exists(), isFalse);
+    expect(await File(newSnapshot).exists(), isTrue);
+    expect(await marker.exists(), isFalse);
   });
 }

@@ -36,6 +36,7 @@ class ClashService extends ClashServiceBase {
   String _nativeLibDir = '';
   Future<bool>? _startOperation;
   Future<void>? _stopOperation;
+  Future<void> _nativeSnapshotOperationTail = Future<void>.value();
   int _startGeneration = 0;
   int _configRevision = 0;
   String? _runningConfigPath;
@@ -538,13 +539,24 @@ class ClashService extends ClashServiceBase {
   }) async {
     if (shouldContinue?.call() == false) return false;
     try {
-      await _channel.invokeMethod('syncSettings', {
-        'configDir': configDir,
-        'configPath': snapshotPath,
-        'apiPort': settings.apiPort,
-        'proxyPort': settings.proxyPort,
-        'apiSecret': settings.apiSecret,
-        'selectedNodeName': nodeName,
+      await _serializeNativeSnapshotOperation(() async {
+        await _channel.invokeMethod('syncSettings', {
+          'configDir': configDir,
+          'configPath': snapshotPath,
+          'apiPort': settings.apiPort,
+          'proxyPort': settings.proxyPort,
+          'apiSecret': settings.apiSecret,
+          'selectedNodeName': nodeName,
+        });
+        try {
+          await _reconcileSnapshotCleanupAfterCommit(snapshotPath);
+        } catch (error) {
+          // syncSettings is the commit point. Reporting failure from here
+          // would let the caller delete a config the native snapshot uses.
+          // Keeping the prepared marker is safe: recovery may clear the fast
+          // start snapshot, but it will never delete the new config file.
+          log('原生快速启动快照已提交，旧清理事务收口失败: $error');
+        }
       });
     } catch (error) {
       log('原生快速启动数据同步失败，保留上次可用快照: $error');
@@ -573,6 +585,17 @@ class ClashService extends ClashServiceBase {
       log('原生快速启动快照已提交，旧数据清理失败: $error');
     }
     return true;
+  }
+
+  Future<T> _serializeNativeSnapshotOperation<T>(
+    Future<T> Function() operation,
+  ) {
+    final result = _nativeSnapshotOperationTail.then((_) => operation());
+    _nativeSnapshotOperationTail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    return result;
   }
 
   Future<void> _pruneVersionedConfigs(Set<String> keepPaths) async {

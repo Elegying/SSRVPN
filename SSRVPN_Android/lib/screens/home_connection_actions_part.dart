@@ -185,10 +185,18 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
             );
           }
           if (!clashService.isConnectionIntentCurrent(
-                connectionGeneration,
-                connected: true,
-              ) ||
-              !clashService.isRunning) {
+            connectionGeneration,
+            connected: true,
+          )) {
+            return;
+          }
+          if (!clashService.isRunning) {
+            _updateHomeState(() {
+              _isConnected = false;
+              _isConnecting = false;
+              _errorMessage = result ?? '连接已中断，请重新连接';
+              _resetPublicIpState();
+            });
             return;
           }
           _updateHomeState(() {
