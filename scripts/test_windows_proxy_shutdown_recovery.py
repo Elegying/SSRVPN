@@ -164,9 +164,12 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(
-            "if (!_ownershipKnown || result.status != WindowsTunResidualStatus.gone)",
+            "if (result.status != WindowsTunResidualStatus.gone)",
             probe,
         )
+        self.assertIn("$signatureIndexes", probe)
+        self.assertIn("__EXPECTED_IPV4__", probe)
+        self.assertIn("__EXPECTED_IPV6__", probe)
 
     def test_tun_residual_routes_belong_to_captured_interfaces(self) -> None:
         probe = (
