@@ -7,6 +7,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
 import java.security.KeyStore
+import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -24,10 +25,22 @@ internal object NativeConnectionSnapshotStore {
     private const val STORAGE_NAME = "ssrvpn_native_connection_snapshot"
     private const val CIPHERTEXT_KEY = "snapshot_ciphertext"
     private const val IV_KEY = "snapshot_iv"
+    private const val GENERATION_KEY = "snapshot_generation"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val GCM_TAG_LENGTH_BITS = 128
 
-    fun write(context: Context, snapshot: NativeConnectionSnapshot) {
+    @Synchronized
+    fun write(context: Context, snapshot: NativeConnectionSnapshot): String {
+        val generation = UUID.randomUUID().toString()
+        write(context, snapshot, generation)
+        return generation
+    }
+
+    private fun write(
+        context: Context,
+        snapshot: NativeConnectionSnapshot,
+        generation: String
+    ) {
         require(snapshot.configDir.isNotBlank()) { "Missing config directory" }
         require(snapshot.configPath.isNotBlank()) { "Missing config path" }
         require(snapshot.apiPort in 1..65535) { "Invalid API port" }
@@ -46,10 +59,12 @@ internal object NativeConnectionSnapshotStore {
                 Base64.encodeToString(encrypted.ciphertext, Base64.NO_WRAP)
             )
             .putString(IV_KEY, Base64.encodeToString(encrypted.iv, Base64.NO_WRAP))
+            .putString(GENERATION_KEY, generation)
             .commit()
         check(committed) { "Unable to persist the native connection snapshot" }
     }
 
+    @Synchronized
     fun read(context: Context): NativeConnectionSnapshot? {
         val prefs = preferences(context)
         val ciphertextValue = prefs.getString(CIPHERTEXT_KEY, null) ?: return null
@@ -75,18 +90,51 @@ internal object NativeConnectionSnapshotStore {
         }
     }
 
+    @Synchronized
     fun updateSelectedNode(context: Context, nodeName: String) {
         val current = checkNotNull(read(context)) {
             "Native connection snapshot is unavailable"
         }
-        write(context, current.copy(selectedNodeName = nodeName))
+        val generation = checkNotNull(generation(context)) {
+            "Native connection snapshot generation is unavailable"
+        }
+        write(context, current.copy(selectedNodeName = nodeName), generation)
     }
 
-    fun clear(context: Context) {
+    @Synchronized
+    fun generation(context: Context): String? {
+        val prefs = preferences(context)
+        prefs.getString(GENERATION_KEY, null)?.let { return it }
+        val hasLegacySnapshot = prefs.contains(CIPHERTEXT_KEY) || prefs.contains(IV_KEY)
+        if (!hasLegacySnapshot) return null
+
+        val migratedGeneration = UUID.randomUUID().toString()
+        check(prefs.edit().putString(GENERATION_KEY, migratedGeneration).commit()) {
+            "Unable to bind the legacy native snapshot generation"
+        }
+        return migratedGeneration
+    }
+
+    @Synchronized
+    fun clearIfGeneration(context: Context, expectedGeneration: String?): Boolean {
+        if (!NativeSnapshotGenerationPolicy.shouldClear(
+                expectedGeneration,
+                generation(context)
+            )
+        ) {
+            return false
+        }
         check(preferences(context).edit().clear().commit()) {
             "Unable to clear the native connection snapshot"
         }
-        deleteKey()
+        try {
+            deleteKey()
+        } catch (error: Exception) {
+            // Preferences are the ownership commit point. A leftover key has
+            // no ciphertext to decrypt and can safely be reused or replaced.
+            Log.w(TAG, "Unable to delete the retired snapshot key", error)
+        }
+        return true
     }
 
     private fun encrypt(plaintext: ByteArray, key: SecretKey): EncryptedValue {
@@ -128,4 +176,9 @@ internal object NativeConnectionSnapshotStore {
         val ciphertext: ByteArray,
         val iv: ByteArray
     )
+}
+
+internal object NativeSnapshotGenerationPolicy {
+    fun shouldClear(expectedGeneration: String?, currentGeneration: String?): Boolean =
+        expectedGeneration == currentGeneration
 }

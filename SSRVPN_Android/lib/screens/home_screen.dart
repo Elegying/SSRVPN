@@ -15,6 +15,7 @@ import '../widgets/force_proxy_sites_dialog.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/home_node_list.dart';
 import '../widgets/proxy_mode_selector.dart';
+import 'home_connection_status_policy.dart';
 import 'node_edit_screen.dart';
 
 part 'home_dashboard_part.dart';

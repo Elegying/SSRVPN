@@ -37,6 +37,8 @@ class ClashService extends ClashServiceBase {
   Future<bool>? _startOperation;
   Future<void>? _stopOperation;
   Future<void> _nativeSnapshotOperationTail = Future<void>.value();
+  String? _nativeSnapshotConfigPath;
+  String? _nativeSnapshotGeneration;
   int _startGeneration = 0;
   int _configRevision = 0;
   String? _runningConfigPath;
@@ -411,8 +413,11 @@ class ClashService extends ClashServiceBase {
         notifyStatusChanged();
         await _notifyNativeStateChange();
         _ensureStartCurrent(startToken);
-        final snapshotSaved =
-            await _saveConfigForTile(nodeName, startConfigPath);
+        final snapshotSaved = await _saveConfigForTile(
+          nodeName,
+          startConfigPath,
+          shouldContinue: () => startToken == _startGeneration,
+        );
         _ensureStartCurrent(startToken);
         if (!snapshotSaved) {
           const snapshotError = '无法保存快速启动配置，VPN 已安全回滚';
@@ -539,25 +544,38 @@ class ClashService extends ClashServiceBase {
   }) async {
     if (shouldContinue?.call() == false) return false;
     try {
-      await _serializeNativeSnapshotOperation(() async {
-        await _channel.invokeMethod('syncSettings', {
-          'configDir': configDir,
-          'configPath': snapshotPath,
-          'apiPort': settings.apiPort,
-          'proxyPort': settings.proxyPort,
-          'apiSecret': settings.apiSecret,
-          'selectedNodeName': nodeName,
-        });
+      final committed = await _serializeNativeSnapshotOperation(() async {
+        if (shouldContinue?.call() == false) return false;
+        await _bindPendingSnapshotCleanupGeneration();
+        if (shouldContinue?.call() == false) return false;
+        final generation = await _channel.invokeMethod<String>(
+          'syncSettings',
+          {
+            'configDir': configDir,
+            'configPath': snapshotPath,
+            'apiPort': settings.apiPort,
+            'proxyPort': settings.proxyPort,
+            'apiSecret': settings.apiSecret,
+            'selectedNodeName': nodeName,
+          },
+        );
+        if (generation == null || generation.isEmpty) {
+          throw StateError('原生快速启动快照未返回有效代际');
+        }
+        _nativeSnapshotConfigPath = snapshotPath;
+        _nativeSnapshotGeneration = generation;
         try {
           await _reconcileSnapshotCleanupAfterCommit(snapshotPath);
         } catch (error) {
           // syncSettings is the commit point. Reporting failure from here
           // would let the caller delete a config the native snapshot uses.
-          // Keeping the prepared marker is safe: recovery may clear the fast
-          // start snapshot, but it will never delete the new config file.
+          // The prepared marker is already bound to the previous native
+          // generation, so recovery cannot clear this newer snapshot.
           log('原生快速启动快照已提交，旧清理事务收口失败: $error');
         }
+        return true;
       });
+      if (!committed) return false;
     } catch (error) {
       log('原生快速启动数据同步失败，保留上次可用快照: $error');
       return false;
@@ -587,17 +605,6 @@ class ClashService extends ClashServiceBase {
     return true;
   }
 
-  Future<T> _serializeNativeSnapshotOperation<T>(
-    Future<T> Function() operation,
-  ) {
-    final result = _nativeSnapshotOperationTail.then((_) => operation());
-    _nativeSnapshotOperationTail = result.then<void>(
-      (_) {},
-      onError: (Object _, StackTrace __) {},
-    );
-    return result;
-  }
-
   Future<void> _pruneVersionedConfigs(Set<String> keepPaths) async {
     final directory = Directory(configDir);
     if (!await directory.exists()) return;
@@ -613,7 +620,7 @@ class ClashService extends ClashServiceBase {
   }
 
   Future<void> discardPreparedConfig(String path) async {
-    if (path == _runningConfigPath) return;
+    if (path == _runningConfigPath || path == _nativeSnapshotConfigPath) return;
     final file = File(path);
     final name = file.uri.pathSegments.last;
     if (!name.startsWith('config-') || !name.endsWith('.yaml')) return;

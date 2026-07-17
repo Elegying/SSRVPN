@@ -102,18 +102,8 @@ class MainActivity : FlutterActivity() {
                 result.success(pending)
             }
             "syncSettings" -> handleSyncSettings(call, result)
-            "clearConnectionSnapshot" -> {
-                try {
-                    NativeConnectionSnapshotStore.clear(this)
-                    result.success(true)
-                } catch (error: Exception) {
-                    result.error(
-                        "NATIVE_SNAPSHOT_CLEAR_FAILED",
-                        "无法清除原生 VPN 快速启动数据",
-                        null
-                    )
-                }
-            }
+            "getConnectionSnapshotGeneration" -> handleSnapshotGeneration(result)
+            "clearConnectionSnapshot" -> handleClearConnectionSnapshot(call, result)
             "notifyVpnStateChanged" -> {
                 SsrvpnVpnService.broadcastState(this)
                 result.success(true)
@@ -127,6 +117,47 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun handleSnapshotGeneration(result: MethodChannel.Result) {
+        try {
+            result.success(NativeConnectionSnapshotStore.generation(this))
+        } catch (error: Exception) {
+            result.error(
+                "NATIVE_SNAPSHOT_GENERATION_FAILED",
+                "无法读取原生 VPN 快照代际",
+                null
+            )
+        }
+    }
+
+    private fun handleClearConnectionSnapshot(
+        call: MethodCall,
+        result: MethodChannel.Result
+    ) {
+        val args = call.arguments as? Map<*, *>
+        if (args == null || !args.containsKey("expectedGeneration")) {
+            result.error(
+                "INVALID_SNAPSHOT_CLEAR",
+                "缺少原生 VPN 快照代际",
+                null
+            )
+            return
+        }
+        try {
+            result.success(
+                NativeConnectionSnapshotStore.clearIfGeneration(
+                    this,
+                    args["expectedGeneration"] as? String
+                )
+            )
+        } catch (error: Exception) {
+            result.error(
+                "NATIVE_SNAPSHOT_CLEAR_FAILED",
+                "无法清除原生 VPN 快速启动数据",
+                null
+            )
+        }
+    }
+
     private fun handleSyncSettings(call: MethodCall, result: MethodChannel.Result) {
         val args = call.arguments as? Map<*, *>
         val proxyPort = (args?.get("proxyPort") as? Number)?.toInt() ?: 7890
@@ -136,7 +167,7 @@ class MainActivity : FlutterActivity() {
         val apiSecret = args?.get("apiSecret") as? String
         val selectedNodeName = args?.get("selectedNodeName") as? String
         try {
-            NativeConnectionSnapshotStore.write(
+            val generation = NativeConnectionSnapshotStore.write(
                 this,
                 NativeConnectionSnapshot(
                     configDir = configDir.orEmpty(),
@@ -146,6 +177,7 @@ class MainActivity : FlutterActivity() {
                     selectedNodeName = selectedNodeName
                 )
             )
+            result.success(generation)
         } catch (error: Exception) {
             Log.e("MainActivity", "Unable to sync native VPN snapshot", error)
             result.error(
@@ -160,7 +192,6 @@ class MainActivity : FlutterActivity() {
             .edit()
             .putLong("flutter.proxyPort", proxyPort.toLong())
             .apply()
-        result.success(true)
     }
 
     private fun handleStartCoreWithVpn(call: MethodCall, result: MethodChannel.Result) {
