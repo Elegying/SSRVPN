@@ -13,6 +13,7 @@ import '../src/services/windows_powershell.dart';
 part 'clash_service_config.dart';
 part 'clash_service_recovery_policy.dart';
 part 'clash_service_lifecycle.dart';
+part 'clash_service_tun_recovery.dart';
 
 const String _geoProxyGroupName = 'SSRVPN-GEO';
 const List<String> _geoLookupHosts = [

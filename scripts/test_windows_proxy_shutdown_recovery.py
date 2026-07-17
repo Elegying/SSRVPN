@@ -184,9 +184,12 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         lifecycle = (services / "clash_service_lifecycle.dart").read_text(
             encoding="utf-8"
         )
+        tun_recovery = (services / "clash_service_tun_recovery.dart").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn("await _restoreTunTeardownGate();", service)
-        self.assertIn("tun_teardown.pending", lifecycle)
+        self.assertIn("tun_teardown.pending", tun_recovery)
         baseline = lifecycle.index("_tunInterfacesBeforeStart = startedWithTun")
         arm = lifecycle.index("!await _armTunTeardownGate()")
         spawn = lifecycle.index("final startedProcess = await Process.start(", arm)
@@ -197,9 +200,9 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertLess(spawn, persist_index)
         self.assertLess(persist_index, commit_running)
 
-        wait = lifecycle[
-            lifecycle.index("Future<bool> _waitForTunTeardown()") :
-            lifecycle.index("// ── Admin helper")
+        wait = tun_recovery[
+            tun_recovery.index("Future<bool> _waitForTunTeardown()") :
+            tun_recovery.index("Future<void> _restoreTunTeardownGate()")
         ]
         confirmed = wait.index("_tunTeardownGate.accept((")
         clear_marker = wait.index("await _clearTunTeardownMarker()", confirmed)
@@ -227,12 +230,12 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             / "services"
             / "windows_tun_runtime_probe.dart"
         ).read_text(encoding="utf-8")
-        lifecycle = (
+        tun_recovery = (
             ROOT
             / "SSRVPN_Windows"
             / "lib"
             / "services"
-            / "clash_service_lifecycle.dart"
+            / "clash_service_tun_recovery.dart"
         ).read_text(encoding="utf-8")
 
         script = probe[
@@ -253,10 +256,13 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("$occupiedIndexes -notcontains [int]$_.Index", script)
         self.assertNotIn("DestinationPrefix", route_query)
         self.assertIn("selectWindowsTunInterfacesCreatedAfter", probe)
-        self.assertIn("baselineInterfaces: _tunTeardownGate.baselineInterfaces", lifecycle)
+        self.assertIn(
+            "baselineInterfaces: _tunTeardownGate.baselineInterfaces",
+            tun_recovery,
+        )
         self.assertIn(
             "baselineInterfaces: _tunInterfacesBeforeStart",
-            lifecycle,
+            tun_recovery,
         )
 
     def test_native_shutdown_restores_only_owned_proxy(self) -> None:
