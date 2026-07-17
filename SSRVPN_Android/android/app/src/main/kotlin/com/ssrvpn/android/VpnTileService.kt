@@ -61,20 +61,7 @@ class VpnTileService : TileService() {
         if (isConnected) {
             stopVpnAndUpdateTile(cancelPendingStart = false)
         } else {
-            val snapshot = NativeConnectionSnapshotStore.read(this)
-            if (snapshot == null) {
-                // Upgrades and damaged Keystore state must rehydrate through
-                // Flutter instead of attempting an unauthenticated cold start.
-                launchApp()
-                return
-            }
-            startVpnDirectly(
-                snapshot.configDir,
-                snapshot.configPath,
-                snapshot.apiPort,
-                snapshot.apiSecret,
-                snapshot.selectedNodeName
-            )
+            startVpnDirectly()
         }
     }
 
@@ -97,13 +84,7 @@ class VpnTileService : TileService() {
     }
 
     /** 直接启动 VPN 服务（不依赖 Flutter） */
-    private fun startVpnDirectly(
-        configDir: String,
-        configPath: String,
-        apiPort: Int,
-        apiSecret: String,
-        nodeName: String?
-    ) {
+    private fun startVpnDirectly() {
         if (SsrvpnVpnService.isCoreOperationBusy()) {
             Log.d(TAG, "Cancelling VPN operation from tile")
             stopVpnAndUpdateTile(cancelPendingStart = true)
@@ -118,38 +99,60 @@ class VpnTileService : TileService() {
             return
         }
 
+        // Snapshot read and start reservation share the native generation lock.
+        // A concurrent cleanup therefore either wins before this read (and the
+        // snapshot is absent) or observes the reservation and defers deletion.
+        val claim = NativeVpnSessionCoordinator.claimSnapshotForStart(this)
+        if (claim == null) {
+            launchApp()
+            return
+        }
+        val snapshot = claim.snapshot
+
         // 已有权限，直接启动
         Log.d(TAG, "Starting VPN directly from tile")
         val consumed = AtomicBoolean(false)
-        lateinit var callback: (Boolean, String) -> Unit
-        callback = { success, message ->
+        lateinit var callback: (Boolean, String, Map<String, Any?>?) -> Unit
+        callback = { success, message, _ ->
             if (consumed.compareAndSet(false, true)) {
+                NativeVpnSessionCoordinator.releasePendingStart(claim.id)
                 Log.d(TAG, "VPN start result: $success, $message")
                 isConnected = success
                 updateTile()
                 notifyStateChanged()
             }
         }
-        val requestId = SsrvpnVpnService.registerStartResultCallback(callback)
+        val requestId = VpnStartResultRegistry.register(callback)
         val intent = SsrvpnVpnService.createStartIntent(
             this,
-            configDir,
-            configPath,
-            apiPort,
-            apiSecret,
-            nodeName,
-            requestId
+            snapshot.configDir,
+            snapshot.configPath,
+            snapshot.apiPort,
+            snapshot.apiSecret,
+            snapshot.selectedNodeName,
+            requestId,
+            claim.id
         )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (error: Exception) {
+            NativeVpnSessionCoordinator.releasePendingStart(claim.id)
+            VpnStartResultRegistry.clear(requestId)
+            consumed.set(true)
+            Log.e(TAG, "Unable to start VPN service from tile", error)
+            launchApp()
+            return
         }
         // 30 秒超时清理回调，防止泄漏
         android.os.Handler(mainLooper).postDelayed({
             if (consumed.compareAndSet(false, true)) {
                 Log.w(TAG, "VPN start callback timeout, clearing")
-                SsrvpnVpnService.clearStartResultCallback(requestId)
+                NativeVpnSessionCoordinator.releasePendingStart(claim.id)
+                VpnStartResultRegistry.clear(requestId)
             }
         }, 30_000L)
         // 不再提前设置 isConnected = true，等回调确认后再更新磁贴状态

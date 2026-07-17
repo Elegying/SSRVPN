@@ -4,8 +4,9 @@ internal class StartGenerationGate {
     private val lock = Any()
     private var generation = 0L
 
-    fun beginStart(): Long = synchronized(lock) {
+    fun beginStart(onStarted: () -> Unit = {}): Long = synchronized(lock) {
         generation += 1
+        onStarted()
         generation
     }
 
@@ -16,6 +17,10 @@ internal class StartGenerationGate {
     }
 
     fun current(): Long = synchronized(lock) { generation }
+
+    fun <T> withCurrent(action: (Long) -> T): T = synchronized(lock) {
+        action(generation)
+    }
 
     fun runIfCurrent(token: Long, action: () -> Unit): Boolean = synchronized(lock) {
         if (token != generation) return false

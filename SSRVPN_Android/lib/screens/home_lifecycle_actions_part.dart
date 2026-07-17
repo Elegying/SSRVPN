@@ -43,16 +43,29 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
   Future<void> _loadInitialData() async {
     final subService = context.read<SubscriptionService>();
     final clashService = context.read<ClashService>();
-    final settingsService = context.read<SettingsService>();
+    _registeredClashService = clashService;
+    clashService.onAutoConnect = _onClashAutoConnect;
+    clashService.onStatusChanged = _onClashStatusChanged;
+
+    final statusEpoch = _connectionStatusEpoch;
+    final running = clashService.isRunning;
+    final queriedRuntimeNodeName =
+        running ? await clashService.currentSelectedProxyName() : null;
+    if (!mounted || _disposed) return;
+    final statusIsCurrent = statusEpoch == _connectionStatusEpoch &&
+        clashService.isRunning == running;
+    final runtimeSelectedNodeName =
+        statusIsCurrent ? queriedRuntimeNodeName : null;
     final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
+    final revision = subService.revision;
     if (nodes.isNotEmpty) {
       _updateHomeState(() {
         _nodes = nodes;
-        _lastRevision = subService.revision;
-        if (clashService.isRunning) {
-          _selectedNode = _resolveDefaultNode(
+        _lastRevision = revision;
+        if (statusIsCurrent && running && _selectedNode == null) {
+          _selectedNode = HomeNodeController.resolveRuntimeSelectedNodeFrom(
             nodes,
-            settingsService.settings.lastSelectedNodeName,
+            runtimeSelectedNodeName,
           );
         }
       });
@@ -60,21 +73,16 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
         unawaited(_autoTestAllNodes());
       });
     }
-    if (clashService.isRunning) {
+    if (statusIsCurrent && running) {
       _updateHomeState(() => _isConnected = true);
       _glowController.repeat();
       _schedulePublicIpRefresh();
     }
 
-    _registeredClashService = clashService;
-    clashService.onAutoConnect = _onClashAutoConnect;
-
     final pendingAutoConnect = await clashService.consumePendingAutoConnect();
     if (pendingAutoConnect && !_isConnected && mounted) {
       unawaited(_handleConnectToggle());
     }
-
-    clashService.onStatusChanged = _onClashStatusChanged;
   }
 
   void _handleClashAutoConnect() {
@@ -86,16 +94,38 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
   void _handleClashStatusChanged() {
     final clashService = _registeredClashService;
     if (!mounted || _disposed || clashService == null) return;
+    final statusEpoch = ++_connectionStatusEpoch;
+    unawaited(_applyClashStatusChanged(clashService, statusEpoch));
+  }
+
+  Future<void> _applyClashStatusChanged(
+    ClashService clashService,
+    int statusEpoch,
+  ) async {
     final running = clashService.isRunning;
-    if (_isConnected == running) return;
+    if (!shouldHandleAndroidHomeConnectionStatus(
+      uiConnected: _isConnected,
+      runtimeRunning: running,
+    )) {
+      return;
+    }
+    final runtimeSelectedNodeName = running && !_isConnecting
+        ? await clashService.currentSelectedProxyName()
+        : null;
+    if (!mounted ||
+        _disposed ||
+        statusEpoch != _connectionStatusEpoch ||
+        !identical(_registeredClashService, clashService) ||
+        clashService.isRunning != running) {
+      return;
+    }
     final transition = transitionAndroidHomeConnectionStatus(
       running: running,
       connecting: _isConnecting,
       errorMessage: _errorMessage,
       selectedNode: _selectedNode,
       nodes: _nodes,
-      rememberedNodeName:
-          context.read<SettingsService>().settings.lastSelectedNodeName,
+      runtimeSelectedNodeName: runtimeSelectedNodeName,
     );
     _updateHomeState(() {
       _isConnected = transition.connected;

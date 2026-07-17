@@ -119,6 +119,38 @@ void main() {
       expect(proxies.first, '新加坡节点');
     });
 
+    test('attached native session keeps an unknown running config', () async {
+      SharedPreferences.setMockInitialValues({});
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => call.method == 'syncSettings' ? 'generation-1' : null,
+      );
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final dir = await Directory.systemTemp.createTemp(
+        'ssrvpn_attached_native_config_',
+      );
+      addTearDown(() => dir.delete(recursive: true));
+      final service = ClashService()
+        ..setPaths(
+          configDir: dir.path,
+          configPath: '${dir.path}${Platform.pathSeparator}config.yaml',
+        )
+        ..setRunning(true);
+      final unknownRunningConfig = await service.writeConfig(_testProxies);
+
+      final replacement = await service.writePreferredNodeConfig(
+        _testProxies,
+        AppSettings(),
+        '新加坡节点',
+      );
+
+      expect(await File(unknownRunningConfig).exists(), isTrue);
+      expect(await File(replacement).exists(), isTrue);
+    });
+
     test('failed preferred snapshot discards its credential config', () async {
       SharedPreferences.setMockInitialValues({});
       const channel = MethodChannel('com.ssrvpn/native');
@@ -326,6 +358,211 @@ void main() {
     expect(stops, 1);
     stopCompleter.complete(true);
     await Future.wait([firstStop, secondStop]);
+  });
+
+  test('duplicate native start preserves the actual active config', () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_duplicate_native_start_',
+    );
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+    final activeConfig = File(
+      '${dir.path}${Platform.pathSeparator}config-active.yaml',
+    );
+    final requestedConfig = File(
+      '${dir.path}${Platform.pathSeparator}config-requested.yaml',
+    );
+    await activeConfig.writeAsString(_testProxies);
+    await requestedConfig.writeAsString(_testProxies);
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+        case 'getConnectionState':
+          return <String, Object?>{
+            'running': true,
+            'protectedConfigPath': activeConfig.path,
+            'sessionGeneration': 7,
+          };
+        case 'syncSettings':
+          expect(call.arguments['expectedSessionGeneration'], 7);
+          return 'snapshot-generation';
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: requestedConfig.path)
+      ..updateSettings(AppSettings(apiSecret: 'test-secret'));
+
+    expect(
+      await service.start(
+        nodeName: '日本节点',
+        preparedConfigPath: requestedConfig.path,
+      ),
+      isTrue,
+    );
+
+    expect(await activeConfig.exists(), isTrue);
+    expect(await requestedConfig.exists(), isTrue);
+  });
+
+  test('recovery transition cannot prune its reserved config', () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_recovery_prune_race_',
+    );
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+    final activeConfig = File(
+      '${dir.path}${Platform.pathSeparator}config-active.yaml',
+    );
+    await activeConfig.writeAsString(_testProxies);
+    var nativeState = <String, Object?>{
+      'running': true,
+      'protectedConfigPath': activeConfig.path,
+      'sessionGeneration': 11,
+    };
+    var syncCalls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+        case 'getConnectionState':
+          return nativeState;
+        case 'syncSettings':
+          expect(call.arguments['expectedSessionGeneration'], 11);
+          syncCalls += 1;
+          if (syncCalls == 2) {
+            nativeState = <String, Object?>{
+              'running': false,
+              'protectedConfigPath': activeConfig.path,
+              'sessionGeneration': null,
+            };
+          }
+          return 'snapshot-generation-$syncCalls';
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: activeConfig.path)
+      ..updateSettings(AppSettings(apiSecret: 'test-secret'));
+    expect(
+      await service.start(
+        nodeName: '日本节点',
+        preparedConfigPath: activeConfig.path,
+      ),
+      isTrue,
+    );
+
+    final replacement = await service.writePreferredNodeConfig(
+      _testProxies,
+      AppSettings(apiSecret: 'test-secret'),
+      '新加坡节点',
+    );
+
+    expect(await activeConfig.exists(), isTrue);
+    expect(await File(replacement).exists(), isTrue);
+  });
+
+  test('snapshot pruning keeps configs prepared by a queued transaction',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_prepared_snapshot_race_',
+    );
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+    final stateQueryEntered = Completer<void>();
+    final releaseStateQuery = Completer<Map<String, Object?>>();
+    var blockNextStateQuery = true;
+    var syncCalls = 0;
+    late String activeConfigPath;
+    Map<String, Object?> connectionState() => <String, Object?>{
+          'running': true,
+          'transitioning': false,
+          'protectedConfigPath': activeConfigPath,
+          'sessionGeneration': 17,
+        };
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+          return connectionState();
+        case 'syncSettings':
+          syncCalls += 1;
+          return 'snapshot-generation-$syncCalls';
+        case 'getConnectionState':
+          if (blockNextStateQuery) {
+            blockNextStateQuery = false;
+            stateQueryEntered.complete();
+            return releaseStateQuery.future;
+          }
+          return connectionState();
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    final service = ClashService()
+      ..setPaths(
+        configDir: dir.path,
+        configPath: '${dir.path}${Platform.pathSeparator}config.yaml',
+      )
+      ..updateSettings(AppSettings(apiSecret: 'test-secret'));
+    activeConfigPath = await service.writeConfig(_testProxies);
+
+    final start = service.start(
+      nodeName: '日本节点',
+      preparedConfigPath: activeConfigPath,
+    );
+    await stateQueryEntered.future;
+    final replacementFuture = service.writePreferredNodeConfig(
+      _testProxies,
+      AppSettings(apiSecret: 'test-secret'),
+      '新加坡节点',
+    );
+    String? preparedReplacement;
+    for (var attempt = 0; attempt < 100; attempt++) {
+      final candidates = await dir
+          .list(followLinks: false)
+          .where((entity) =>
+              entity is File &&
+              entity.path.endsWith('.yaml') &&
+              entity.path != activeConfigPath)
+          .map((entity) => entity.path)
+          .toList();
+      if (candidates.isNotEmpty) {
+        preparedReplacement = candidates.single;
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    expect(preparedReplacement, isNotNull);
+
+    releaseStateQuery.complete(connectionState());
+    expect(await start, isTrue);
+    final committedReplacement = await replacementFuture;
+
+    expect(committedReplacement, preparedReplacement);
+    expect(await File(committedReplacement).exists(), isTrue);
+    expect(syncCalls, 2);
   });
 
   test('failed native stop preserves a still-running VPN state', () async {
@@ -554,6 +791,13 @@ void main() {
           return 'generation-1';
         case 'getConnectionSnapshotGeneration':
           return 'generation-1';
+        case 'getConnectionState':
+          return <String, Object?>{
+            'running': false,
+            'transitioning': false,
+            'protectedConfigPath': null,
+            'sessionGeneration': null,
+          };
         case 'stopCore':
           stopCalls += 1;
           if (stopCalls == 1) {
@@ -592,6 +836,62 @@ void main() {
     expect(await File(configPath).exists(), isFalse);
   });
 
+  test('a start-lease-blocked clear is retried after the next stop', () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var clearCalls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'getConnectionSnapshotGeneration':
+          return 'generation-lease';
+        case 'clearConnectionSnapshot':
+          clearCalls += 1;
+          if (clearCalls == 1) {
+            throw PlatformException(code: 'NATIVE_SESSION_BUSY');
+          }
+          return true;
+        case 'stopCore':
+        case 'notifyVpnStateChanged':
+          return true;
+        case 'getConnectionState':
+          return <String, Object?>{
+            'running': false,
+            'transitioning': false,
+            'protectedConfigPath': null,
+            'sessionGeneration': null,
+          };
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_start_lease_clear_retry_',
+    );
+    addTearDown(() => dir.delete(recursive: true));
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString(_testProxies);
+    final marker = File(
+      '${dir.path}${Platform.pathSeparator}.snapshot-cleanup.pending',
+    );
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path);
+
+    await expectLater(
+      service.clearNativeConnectionSnapshot(),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(await config.exists(), isTrue);
+    expect(await marker.exists(), isTrue);
+
+    await service.stop();
+
+    expect(clearCalls, 2);
+    expect(await config.exists(), isFalse);
+    expect(await marker.exists(), isFalse);
+  });
+
   test('durable cleanup removes only files from the cleared snapshot era',
       () async {
     SharedPreferences.setMockInitialValues({});
@@ -609,6 +909,13 @@ void main() {
           return 'generation-2';
         case 'getConnectionSnapshotGeneration':
           return 'generation-1';
+        case 'getConnectionState':
+          return <String, Object?>{
+            'running': false,
+            'transitioning': false,
+            'protectedConfigPath': null,
+            'sessionGeneration': null,
+          };
       }
       return null;
     });
@@ -682,6 +989,13 @@ void main() {
         case 'stopCore':
         case 'notifyVpnStateChanged':
           return true;
+        case 'getConnectionState':
+          return <String, Object?>{
+            'running': false,
+            'transitioning': false,
+            'protectedConfigPath': null,
+            'sessionGeneration': null,
+          };
       }
       return null;
     });
@@ -730,56 +1044,177 @@ void main() {
     expect(await marker.exists(), isFalse);
   });
 
-  test('legacy cleanup is generation-bound before a replacement sync',
-      () async {
+  test('recovery reservation blocks pending snapshot file cleanup', () async {
     SharedPreferences.setMockInitialValues({});
     const channel = MethodChannel('com.ssrvpn/native');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final dir = await Directory.systemTemp.createTemp(
-      'ssrvpn_snapshot_generation_binding_',
+      'ssrvpn_recovery_reserved_config_',
     );
-    addTearDown(() => dir.delete(recursive: true));
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+    final reserved = File(
+      '${dir.path}${Platform.pathSeparator}config-recovery.yaml',
+    );
+    await reserved.writeAsString(_testProxies);
     final marker = File(
       '${dir.path}${Platform.pathSeparator}.snapshot-cleanup.pending',
     );
     await marker.writeAsString(jsonEncode({
-      'version': 1,
-      'committed': false,
-      'files': ['config.yaml'],
+      'version': 4,
+      'committed': true,
+      'files': ['config-recovery.yaml'],
+      'expectedNativeGeneration': 'cleared-generation',
+      'deferredUntilReplacement': false,
+      'replacementPrepared': false,
+      'replacementBaselineGeneration': null,
+      'replacementFileName': null,
     }));
-    Map<String, dynamic>? markerSeenBySync;
+    var nativeState = <String, Object?>{
+      'running': false,
+      'transitioning': true,
+      'protectedConfigPath': reserved.path,
+      'sessionGeneration': null,
+    };
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'isCoreRunning':
+          return false;
+        case 'getConnectionState':
+          return nativeState;
+      }
+      return null;
+    });
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: reserved.path);
+
+    await service.resumePendingNativeSnapshotCleanup();
+
+    expect(await reserved.exists(), isTrue);
+    expect(await marker.exists(), isTrue);
+
+    nativeState = <String, Object?>{
+      'running': false,
+      'transitioning': true,
+      'protectedConfigPath': null,
+      'sessionGeneration': null,
+    };
+    await service.resumePendingNativeSnapshotCleanup();
+
+    expect(await reserved.exists(), isTrue);
+    expect(await marker.exists(), isTrue);
+  });
+
+  test('unbound legacy cleanup waits for a replacement before deleting files',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var generationReads = 0;
+    var clearCalls = 0;
+    String? nativeGeneration = 'old-generation';
     messenger.setMockMethodCallHandler(channel, (call) async {
       switch (call.method) {
         case 'getConnectionSnapshotGeneration':
-          return 'old-generation';
+          generationReads += 1;
+          return nativeGeneration;
+        case 'clearConnectionSnapshot':
+          clearCalls += 1;
+          return true;
+        case 'isCoreRunning':
+          return false;
         case 'syncSettings':
-          markerSeenBySync =
-              jsonDecode(await marker.readAsString()) as Map<String, dynamic>;
           return 'new-generation';
+        case 'getConnectionState':
+          return <String, Object?>{
+            'running': false,
+            'transitioning': false,
+            'protectedConfigPath': null,
+            'sessionGeneration': null,
+          };
       }
       return null;
     });
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
-    final service = ClashService()
-      ..setPaths(
-        configDir: dir.path,
-        configPath: '${dir.path}${Platform.pathSeparator}config.yaml',
+    for (final legacyCommitted in [false, true]) {
+      final dir = await Directory.systemTemp.createTemp(
+        'ssrvpn_legacy_snapshot_cleanup_',
+      );
+      addTearDown(() => dir.delete(recursive: true));
+      final marker = File(
+        '${dir.path}${Platform.pathSeparator}.snapshot-cleanup.pending',
+      );
+      await marker.writeAsString(jsonEncode({
+        'version': 1,
+        'committed': legacyCommitted,
+        'files': ['config.yaml'],
+      }));
+      final retainedConfig = File(
+        '${dir.path}${Platform.pathSeparator}config.yaml',
+      );
+      await retainedConfig.writeAsString(_testProxies);
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: retainedConfig.path);
+
+      await service.resumePendingNativeSnapshotCleanup();
+
+      final retired = jsonDecode(await marker.readAsString()) as Map;
+      expect(retired['version'], 4);
+      expect(retired['deferredUntilReplacement'], isTrue);
+      expect(retired['files'], contains('config.yaml'));
+      expect(await retainedConfig.exists(), isTrue);
+
+      final replacement = await service.writePreferredNodeConfig(
+        _testProxies,
+        AppSettings(apiSecret: 'new-secret'),
+        '新加坡节点',
       );
 
-    final newSnapshot = await service.writePreferredNodeConfig(
-      _testProxies,
-      AppSettings(apiSecret: 'new-secret'),
-      '新加坡节点',
-    );
+      expect(await retainedConfig.exists(), isFalse);
+      expect(await File(replacement).exists(), isTrue);
+      expect(await marker.exists(), isFalse);
+    }
 
-    expect(markerSeenBySync?['version'], 2);
-    expect(markerSeenBySync?['committed'], isFalse);
-    expect(
-      markerSeenBySync?['expectedNativeGeneration'],
-      'old-generation',
+    final crashDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_legacy_snapshot_recovery_',
     );
-    expect(await File(newSnapshot).exists(), isTrue);
+    addTearDown(() => crashDir.delete(recursive: true));
+    final crashMarker = File(
+      '${crashDir.path}${Platform.pathSeparator}.snapshot-cleanup.pending',
+    );
+    await crashMarker.writeAsString(jsonEncode({
+      'version': 4,
+      'committed': true,
+      'files': ['config.yaml'],
+      'expectedNativeGeneration': null,
+      'deferredUntilReplacement': true,
+      'replacementPrepared': true,
+      'replacementBaselineGeneration': 'old-generation',
+      'replacementFileName': 'config-new.yaml',
+    }));
+    final oldConfig = File(
+      '${crashDir.path}${Platform.pathSeparator}config.yaml',
+    );
+    final replacement = File(
+      '${crashDir.path}${Platform.pathSeparator}config-new.yaml',
+    );
+    await oldConfig.writeAsString(_testProxies);
+    await replacement.writeAsString(_testProxies);
+    nativeGeneration = 'new-generation';
+    final restarted = ClashService()
+      ..setPaths(configDir: crashDir.path, configPath: oldConfig.path);
+
+    await restarted.resumePendingNativeSnapshotCleanup();
+
+    expect(generationReads, greaterThan(0));
+    expect(clearCalls, 0);
+    expect(await oldConfig.exists(), isFalse);
+    expect(await replacement.exists(), isTrue);
+    expect(await crashMarker.exists(), isFalse);
   });
 
   test('queued snapshot sync rechecks the start generation before commit',

@@ -36,9 +36,12 @@ class MainActivity : FlutterActivity() {
     private var autoConnectPending = false
     // 记录本 Activity 注册的回调，便于 onDestroy 时精确清理，避免泄漏 Activity
     @Volatile
-    private var myResultCallback: ((Boolean, String) -> Unit)? = null
+    private var myResultCallback:
+        ((Boolean, String, Map<String, Any?>?) -> Unit)? = null
     @Volatile
     private var myStartRequestId: String? = null
+    @Volatile
+    private var myStartClaimId: String? = null
     private var methodChannel: MethodChannel? = null
     // 监听 VPN 状态广播（磁贴断开/连接），实时推送给 Flutter 更新 UI
     private var vpnStateReceiver: BroadcastReceiver? = null
@@ -96,6 +99,8 @@ class MainActivity : FlutterActivity() {
             "getNativeLibraryDir" -> result.success(applicationInfo.nativeLibraryDir)
             "getAppDataDir" -> result.success(applicationInfo.dataDir)
             "isCoreRunning" -> result.success(SsrvpnVpnService.isRunning)
+            "getConnectionState" ->
+                result.success(NativeVpnSessionCoordinator.connectionState())
             "consumePendingAutoConnect" -> {
                 val pending = autoConnectPending
                 autoConnectPending = false
@@ -144,7 +149,7 @@ class MainActivity : FlutterActivity() {
         }
         try {
             result.success(
-                NativeConnectionSnapshotStore.clearIfGeneration(
+                NativeVpnSessionCoordinator.clearIdleSnapshot(
                     this,
                     args["expectedGeneration"] as? String
                 )
@@ -167,16 +172,26 @@ class MainActivity : FlutterActivity() {
         val apiSecret = args?.get("apiSecret") as? String
         val selectedNodeName = args?.get("selectedNodeName") as? String
         try {
-            val generation = NativeConnectionSnapshotStore.write(
-                this,
-                NativeConnectionSnapshot(
-                    configDir = configDir.orEmpty(),
-                    configPath = configPath.orEmpty(),
-                    apiPort = apiPort ?: 0,
-                    apiSecret = apiSecret.orEmpty(),
-                    selectedNodeName = selectedNodeName
-                )
+            val snapshot = NativeConnectionSnapshot(
+                configDir = configDir.orEmpty(),
+                configPath = configPath.orEmpty(),
+                apiPort = apiPort ?: 0,
+                apiSecret = apiSecret.orEmpty(),
+                selectedNodeName = selectedNodeName
             )
+            val expectedSessionGeneration =
+                (args?.get("expectedSessionGeneration") as? Number)?.toLong()
+            val generation = if (expectedSessionGeneration == null) {
+                NativeVpnSessionCoordinator.commitIdleSnapshot(this, snapshot)
+                    ?: throw IllegalStateException(
+                        "Active native VPN session requires a generation"
+                    )
+            } else {
+                SsrvpnVpnService.instance?.commitConnectionSnapshot(
+                    expectedSessionGeneration,
+                    snapshot
+                ) ?: throw IllegalStateException("Native VPN session changed")
+            }
             result.success(generation)
         } catch (error: Exception) {
             Log.e("MainActivity", "Unable to sync native VPN snapshot", error)
@@ -216,7 +231,7 @@ class MainActivity : FlutterActivity() {
             "startCoreWithVpn: dir=$configDir, config=$configPath, apiPort=$apiPort"
         )
         val completed = AtomicBoolean(false)
-        lateinit var callback: (Boolean, String) -> Unit
+        lateinit var callback: (Boolean, String, Map<String, Any?>?) -> Unit
         lateinit var timeoutRunnable: Runnable
         lateinit var requestId: String
         timeoutRunnable = Runnable {
@@ -227,7 +242,9 @@ class MainActivity : FlutterActivity() {
             }
             myResultCallback = null
             myStartRequestId = null
-            SsrvpnVpnService.clearStartResultCallback(requestId)
+            NativeVpnSessionCoordinator.releasePendingStart(myStartClaimId)
+            myStartClaimId = null
+            VpnStartResultRegistry.clear(requestId)
             try {
                 SsrvpnVpnService.instance?.stopAll()
             } catch (_: Exception) {}
@@ -235,27 +252,29 @@ class MainActivity : FlutterActivity() {
                 result.error("CORE_TIMEOUT", "设备性能不足，请重新连接", null)
             }
         }
-        callback = callback@{ success, message ->
+        callback = callback@{ success, message, capturedState ->
             if (!completed.compareAndSet(false, true)) return@callback
             vpnPermissionRequestPending = false
             mainHandler.removeCallbacks(timeoutRunnable)
             if (startTimeoutRunnable === timeoutRunnable) {
                 startTimeoutRunnable = null
             }
-            SsrvpnVpnService.clearStartResultCallback(requestId)
+            VpnStartResultRegistry.clear(requestId)
+            NativeVpnSessionCoordinator.releasePendingStart(myStartClaimId)
+            myStartClaimId = null
             myResultCallback = null
             myStartRequestId = null
             runOnUiThread {
                 if (success) {
                     requestNotificationPermissionOnce()
-                    result.success(true)
+                    result.success(capturedState)
                 } else {
                     result.error("CORE_FAILED", message, null)
                 }
             }
         }
         myResultCallback = callback
-        requestId = SsrvpnVpnService.registerStartResultCallback(callback)
+        requestId = VpnStartResultRegistry.register(callback)
         myStartRequestId = requestId
         pendingVpnServiceIntent = SsrvpnVpnService.createStartIntent(
             this,
@@ -300,12 +319,17 @@ class MainActivity : FlutterActivity() {
         result: MethodChannel.Result
     ) {
         val nodeName = call.argument<String>("nodeName")
+        val expectedSessionGeneration =
+            call.argument<Number>("expectedSessionGeneration")?.toLong()
         if (nodeName.isNullOrBlank()) {
             result.error("INVALID_ARGS", "Node name is required", null)
             return
         }
         val service = SsrvpnVpnService.instance
-        if (service == null || !service.updateNotificationNode(nodeName)) {
+        if (expectedSessionGeneration == null ||
+            service == null ||
+            !service.updateNotificationNode(nodeName, expectedSessionGeneration)
+        ) {
             result.error(
                 "NATIVE_SNAPSHOT_UPDATE_FAILED",
                 "无法更新原生 VPN 节点快照",
@@ -465,7 +489,18 @@ class MainActivity : FlutterActivity() {
         pendingVpnServiceIntent = null
         mainHandler.removeCallbacks(timeoutRunnable)
         mainHandler.postDelayed(timeoutRunnable, 55000L)
-        startVpnService(serviceIntent)
+        val claimId = NativeVpnSessionCoordinator.claimPendingStart(serviceIntent)
+        if (claimId == null) {
+            cancelPendingActivityStart("VPN 启动状态已变化，请重试")
+            return
+        }
+        myStartClaimId = claimId
+        try {
+            startVpnService(serviceIntent)
+        } catch (error: Exception) {
+            Log.e("MainActivity", "Unable to start VPN service", error)
+            cancelPendingActivityStart("无法启动 VPN 服务，请重试")
+        }
     }
 
     private fun cancelPendingActivityStart(message: String) {
@@ -473,7 +508,9 @@ class MainActivity : FlutterActivity() {
         startTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         startTimeoutRunnable = null
         pendingVpnServiceIntent = null
-        myResultCallback?.invoke(false, message)
+        NativeVpnSessionCoordinator.releasePendingStart(myStartClaimId)
+        myStartClaimId = null
+        myResultCallback?.invoke(false, message, null)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -516,9 +553,11 @@ class MainActivity : FlutterActivity() {
         startTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         startTimeoutRunnable = null
         pendingVpnServiceIntent = null
+        NativeVpnSessionCoordinator.releasePendingStart(myStartClaimId)
+        myStartClaimId = null
         // 只清理本 Activity 注册的回调，避免静态引用泄漏 Activity；
         // 不影响磁贴等其他来源设置的回调
-        SsrvpnVpnService.clearStartResultCallback(myStartRequestId)
+        VpnStartResultRegistry.clear(myStartRequestId)
         myStartRequestId = null
         myResultCallback = null
         vpnStateReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }

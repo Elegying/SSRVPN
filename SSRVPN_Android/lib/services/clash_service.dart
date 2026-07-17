@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 part 'clash_service_snapshot_cleanup.dart';
+part 'clash_service_native_bridge.dart';
 
 class _AndroidStartCancelled implements Exception {}
 
@@ -17,11 +18,13 @@ class AndroidProxySwitchResult {
     required this.liveSwitched,
     required this.snapshotPersisted,
     required this.intentCurrent,
+    this.nativeSessionGeneration,
   });
 
   final bool liveSwitched;
   final bool snapshotPersisted;
   final bool intentCurrent;
+  final int? nativeSessionGeneration;
 }
 
 /// Clash Meta 核心管理服务 (Android 版)
@@ -37,11 +40,16 @@ class ClashService extends ClashServiceBase {
   Future<bool>? _startOperation;
   Future<void>? _stopOperation;
   Future<void> _nativeSnapshotOperationTail = Future<void>.value();
+  int _nativeSnapshotOperationCount = 0;
   String? _nativeSnapshotConfigPath;
   String? _nativeSnapshotGeneration;
   int _startGeneration = 0;
   int _configRevision = 0;
+  int _nativeStateEpoch = 0;
+  int? _nativeSessionGeneration;
+  bool _nativeSessionProtocolAvailable = false;
   String? _runningConfigPath;
+  final Set<String> _preparedConfigPaths = <String>{};
 
   /// 磁贴/通知触发的自动连接回调
   VoidCallback? onAutoConnect;
@@ -100,24 +108,7 @@ class ClashService extends ClashServiceBase {
     log('核心路径: $_corePath');
     log('配置目录: $configDir');
 
-    _channel.setMethodCallHandler((call) async {
-      if (call.method == 'autoConnect') {
-        log('收到原生自动连接请求');
-        onAutoConnect?.call();
-      } else if (call.method == 'vpnStateChanged') {
-        final connected = call.arguments == true;
-        if (isRunning != connected) {
-          setRunning(connected);
-          log(connected ? '原生通知: VPN 已连接' : '原生通知: VPN 已断开');
-          if (connected) {
-            startStatusMonitor();
-          } else {
-            stopStatusMonitor();
-          }
-          notifyStatusChanged();
-        }
-      }
-    });
+    _channel.setMethodCallHandler(_handleNativeMethodCall);
 
     final coreFile = File(_corePath);
     if (await coreFile.exists()) {
@@ -130,57 +121,7 @@ class ClashService extends ClashServiceBase {
 
     await _ensureMMDB();
     await _syncNativeState();
-    await _resumePendingSnapshotFileCleanup();
-  }
-
-  Future<void> _syncNativeState() async {
-    final running = await _queryNativeRunningState();
-    if (running == true && !isRunning) {
-      setRunning(true);
-      log('检测到 VPN 已在运行（磁贴启动），同步状态');
-      startStatusMonitor();
-    }
-  }
-
-  Future<bool?> _queryNativeRunningState() async {
-    try {
-      return await _channel
-          .invokeMethod<bool>('isCoreRunning')
-          .timeout(const Duration(seconds: 3));
-    } catch (e) {
-      log('查询原生 VPN 状态失败: $e');
-      return null;
-    }
-  }
-
-  Future<bool> consumePendingAutoConnect() async {
-    try {
-      final pending = await _channel.invokeMethod<bool>(
-        'consumePendingAutoConnect',
-      );
-      return pending == true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  // ── 原生路径 ──
-
-  Future<String> _getNativeLibraryDir() async {
-    try {
-      final result = await _channel.invokeMethod<String>('getNativeLibraryDir');
-      if (result != null && result.isNotEmpty) return result;
-    } catch (e) {
-      log('MethodChannel getNativeLibraryDir 失败: $e');
-    }
-    for (final dir in ['/data/app/~~/lib/arm64', '/data/app/lib/arm64']) {
-      if (Directory(dir).existsSync()) {
-        for (final e in Directory(dir).listSync()) {
-          if (e.path.contains('libgojni')) return dir;
-        }
-      }
-    }
-    return '/data/app/lib/arm64';
+    await resumePendingNativeSnapshotCleanup();
   }
 
   Future<void> _debugListDirs() async {
@@ -303,8 +244,15 @@ class ClashService extends ClashServiceBase {
     final revision = ++_configRevision;
     final path = '$configDir/config-'
         '${DateTime.now().microsecondsSinceEpoch}-$revision.yaml';
-    await writeStringAtomically(File(path), configContent);
-    return path;
+    final absolutePath = File(path).absolute.path;
+    _preparedConfigPaths.add(absolutePath);
+    try {
+      await writeStringAtomically(File(absolutePath), configContent);
+      return absolutePath;
+    } catch (_) {
+      _preparedConfigPaths.remove(absolutePath);
+      rethrow;
+    }
   }
 
   Future<String> writePreferredNodeConfig(
@@ -312,6 +260,7 @@ class ClashService extends ClashServiceBase {
     AppSettings settings,
     String nodeName, {
     bool Function()? shouldContinue,
+    int? expectedSessionGeneration,
   }) async {
     updateSettings(settings);
     final config = generateClashConfig(
@@ -328,6 +277,7 @@ class ClashService extends ClashServiceBase {
       nodeName,
       path,
       shouldContinue: shouldContinue,
+      expectedSessionGeneration: expectedSessionGeneration,
     )) {
       await discardPreparedConfig(path);
       throw StateError('无法提交原生快速启动配置');
@@ -385,7 +335,7 @@ class ClashService extends ClashServiceBase {
       await Directory('$configDir/tmp').create(recursive: true);
       _ensureStartCurrent(startToken);
 
-      final result = await _channel.invokeMethod('startCoreWithVpn', {
+      final result = await _channel.invokeMethod<Object?>('startCoreWithVpn', {
         'configDir': configDir,
         'configPath': startConfigPath,
         'apiPort': settings.apiPort,
@@ -406,9 +356,17 @@ class ClashService extends ClashServiceBase {
       );
       _ensureStartCurrent(startToken);
 
-      if (result == true) {
+      final returnedState = await _parseNativeConnectionState(result);
+      if (result == true || returnedState?.running == true) {
         setRunning(true);
-        _runningConfigPath = startConfigPath;
+        if (returnedState == null) {
+          _runningConfigPath = startConfigPath;
+          _nativeSessionGeneration = null;
+        } else {
+          _nativeSessionProtocolAvailable = true;
+          _runningConfigPath = returnedState.protectedConfigPath;
+          _nativeSessionGeneration = returnedState.sessionGeneration;
+        }
         log('✅ Mihomo 启动成功 (gomobile)');
         notifyStatusChanged();
         await _notifyNativeStateChange();
@@ -506,6 +464,9 @@ class ClashService extends ClashServiceBase {
     if (!runningAfterStop) {
       _runningConfigPath = null;
       await _completePendingSnapshotFileCleanup();
+      if (_nativeSnapshotOperationCount == 0) {
+        await resumePendingNativeSnapshotCleanup();
+      }
     }
     if (runningAfterStop) startStatusMonitor();
     notifyStatusChanged();
@@ -523,30 +484,27 @@ class ClashService extends ClashServiceBase {
     if (startToken != _startGeneration) throw _AndroidStartCancelled();
   }
 
-  void _clearStopOperation(Future<void> operation) {
-    if (identical(_stopOperation, operation)) _stopOperation = null;
-  }
-
-  Future<void> _notifyNativeStateChange() async {
-    try {
-      await _channel
-          .invokeMethod('notifyVpnStateChanged')
-          .timeout(const Duration(seconds: 3));
-    } catch (e) {
-      log('通知原生 VPN 状态失败: $e');
-    }
-  }
-
   Future<bool> _saveConfigForTile(
     String? nodeName,
     String snapshotPath, {
     bool Function()? shouldContinue,
+    int? expectedSessionGeneration,
   }) async {
     if (shouldContinue?.call() == false) return false;
+    final effectiveSessionGeneration =
+        expectedSessionGeneration ?? _nativeSessionGeneration;
+    final protectedConfigPathAtStart = _runningConfigPath;
+    final protocolAvailableAtStart = _nativeSessionProtocolAvailable;
+    if (protocolAvailableAtStart &&
+        isRunning &&
+        effectiveSessionGeneration == null) {
+      log('原生 VPN 会话身份未知，拒绝覆盖快速启动快照');
+      return false;
+    }
     try {
-      final committed = await _serializeNativeSnapshotOperation(() async {
+      return await _serializeNativeSnapshotOperation(() async {
         if (shouldContinue?.call() == false) return false;
-        await _bindPendingSnapshotCleanupGeneration();
+        await _preparePendingSnapshotCleanupForReplacement(snapshotPath);
         if (shouldContinue?.call() == false) return false;
         final generation = await _channel.invokeMethod<String>(
           'syncSettings',
@@ -557,6 +515,7 @@ class ClashService extends ClashServiceBase {
             'proxyPort': settings.proxyPort,
             'apiSecret': settings.apiSecret,
             'selectedNodeName': nodeName,
+            'expectedSessionGeneration': effectiveSessionGeneration,
           },
         );
         if (generation == null || generation.isEmpty) {
@@ -564,70 +523,74 @@ class ClashService extends ClashServiceBase {
         }
         _nativeSnapshotConfigPath = snapshotPath;
         _nativeSnapshotGeneration = generation;
+        _preparedConfigPaths.remove(File(snapshotPath).absolute.path);
         try {
           await _reconcileSnapshotCleanupAfterCommit(snapshotPath);
         } catch (error) {
           // syncSettings is the commit point. Reporting failure from here
           // would let the caller delete a config the native snapshot uses.
-          // The prepared marker is already bound to the previous native
-          // generation, so recovery cannot clear this newer snapshot.
+          // The prepared marker is generation-bound or records the replacement
+          // baseline, so recovery cannot clear this newer snapshot.
           log('原生快速启动快照已提交，旧清理事务收口失败: $error');
         }
+
+        // The native atomic snapshot is the commit point. Everything below is
+        // best-effort but remains under the same serialization tail so an older
+        // prune can never race and delete a newer committed snapshot.
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          for (final key in [
+            'configDir',
+            'configPath',
+            'apiPort',
+            'apiSecret',
+            'selectedNodeName',
+          ]) {
+            await prefs.remove(key);
+          }
+          final keepPaths = <String>{snapshotPath};
+          keepPaths.addAll(_preparedConfigPaths);
+          final runningConfigPath = _runningConfigPath;
+          if (runningConfigPath != null) keepPaths.add(runningConfigPath);
+          if (protectedConfigPathAtStart != null) {
+            keepPaths.add(protectedConfigPathAtStart);
+          }
+          final nativeSnapshotConfigPath = _nativeSnapshotConfigPath;
+          if (nativeSnapshotConfigPath != null) {
+            keepPaths.add(nativeSnapshotConfigPath);
+          }
+          final postCommitState = protocolAvailableAtStart
+              ? await _queryNativeConnectionState()
+              : null;
+          final postCommitProtectedPath = postCommitState?.protectedConfigPath;
+          if (postCommitProtectedPath != null) {
+            keepPaths.add(postCommitProtectedPath);
+          }
+          final sessionStable = !protocolAvailableAtStart
+              ? !isRunning
+              : effectiveSessionGeneration == null
+                  ? postCommitState != null &&
+                      !postCommitState.running &&
+                      !postCommitState.transitioning &&
+                      postCommitProtectedPath == null
+                  : postCommitState?.running == true &&
+                      postCommitState?.sessionGeneration ==
+                          effectiveSessionGeneration &&
+                      postCommitProtectedPath != null;
+          if (!sessionStable) {
+            log('原生 VPN 会话已变更或正在恢复，保留旧版本配置');
+          } else {
+            await _pruneVersionedConfigs(keepPaths);
+          }
+        } catch (error) {
+          log('原生快速启动快照已提交，旧数据清理失败: $error');
+        }
+        if (!isRunning) await _completePendingSnapshotFileCleanup();
         return true;
       });
-      if (!committed) return false;
     } catch (error) {
       log('原生快速启动数据同步失败，保留上次可用快照: $error');
       return false;
-    }
-
-    // The native atomic snapshot is the commit point. Cleanup after this point
-    // is best-effort: rolling the connection back would leave the committed
-    // snapshot pointing at a config that the caller may delete.
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      for (final key in [
-        'configDir',
-        'configPath',
-        'apiPort',
-        'apiSecret',
-        'selectedNodeName',
-      ]) {
-        await prefs.remove(key);
-      }
-      final keepPaths = <String>{snapshotPath};
-      final runningConfigPath = _runningConfigPath;
-      if (runningConfigPath != null) keepPaths.add(runningConfigPath);
-      await _pruneVersionedConfigs(keepPaths);
-    } catch (error) {
-      log('原生快速启动快照已提交，旧数据清理失败: $error');
-    }
-    return true;
-  }
-
-  Future<void> _pruneVersionedConfigs(Set<String> keepPaths) async {
-    final directory = Directory(configDir);
-    if (!await directory.exists()) return;
-    await for (final entity in directory.list(followLinks: false)) {
-      final name = entity.uri.pathSegments.last;
-      if (!name.startsWith('config-') || !name.endsWith('.yaml')) continue;
-      if (keepPaths.contains(entity.path)) continue;
-      if (await FileSystemEntity.type(entity.path, followLinks: false) ==
-          FileSystemEntityType.file) {
-        await File(entity.path).delete();
-      }
-    }
-  }
-
-  Future<void> discardPreparedConfig(String path) async {
-    if (path == _runningConfigPath || path == _nativeSnapshotConfigPath) return;
-    final file = File(path);
-    final name = file.uri.pathSegments.last;
-    if (!name.startsWith('config-') || !name.endsWith('.yaml')) return;
-    if (file.absolute.parent.path != Directory(configDir).absolute.path) return;
-    if (await FileSystemEntity.type(path, followLinks: false) ==
-        FileSystemEntityType.file) {
-      await file.delete();
     }
   }
 
@@ -669,6 +632,21 @@ class ClashService extends ClashServiceBase {
         intentCurrent: false,
       );
     }
+    if (!await _ensureNativeSessionForMutation()) {
+      return const AndroidProxySwitchResult(
+        liveSwitched: false,
+        snapshotPersisted: false,
+        intentCurrent: true,
+      );
+    }
+    final nativeSessionGeneration = _nativeSessionGeneration;
+    if (nativeSessionGeneration == null) {
+      return const AndroidProxySwitchResult(
+        liveSwitched: false,
+        snapshotPersisted: false,
+        intentCurrent: false,
+      );
+    }
     final switched = await super.switchSelectedProxy(nodeName);
     final intentCurrent =
         isConnectionIntentCurrent(connectionGeneration, connected: true);
@@ -682,16 +660,20 @@ class ClashService extends ClashServiceBase {
     final updated = await updateVpnNotification(
       nodeName,
       persistSelection: false,
+      expectedSessionGeneration: nativeSessionGeneration,
       shouldContinue: () => isConnectionIntentCurrent(
         connectionGeneration,
         connected: true,
       ),
     );
+    final nativeSessionCurrent =
+        await _isNativeSessionCurrent(nativeSessionGeneration);
     return AndroidProxySwitchResult(
       liveSwitched: true,
       snapshotPersisted: updated,
-      intentCurrent:
+      intentCurrent: nativeSessionCurrent &&
           isConnectionIntentCurrent(connectionGeneration, connected: true),
+      nativeSessionGeneration: nativeSessionGeneration,
     );
   }
 
@@ -699,11 +681,18 @@ class ClashService extends ClashServiceBase {
     String nodeName, {
     bool persistSelection = true,
     bool Function()? shouldContinue,
+    int? expectedSessionGeneration,
   }) async {
     try {
       if (shouldContinue?.call() == false) return false;
+      expectedSessionGeneration ??= _nativeSessionGeneration;
+      if (_nativeSessionProtocolAvailable &&
+          expectedSessionGeneration == null) {
+        return false;
+      }
       await _channel.invokeMethod('updateVpnNotification', {
         'nodeName': nodeName,
+        'expectedSessionGeneration': expectedSessionGeneration,
       });
       if (!persistSelection || shouldContinue?.call() == false) return true;
       final prefs = await SharedPreferences.getInstance();
