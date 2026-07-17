@@ -3,21 +3,45 @@ part of 'clash_service.dart';
 typedef _SnapshotCleanupMarker = ({
   bool committed,
   Set<String> fileNames,
+  bool generationBound,
+  String? expectedNativeGeneration,
 });
 
 extension AndroidSnapshotCleanup on ClashService {
+  Future<T> _serializeNativeSnapshotOperation<T>(
+    Future<T> Function() operation,
+  ) {
+    final result = _nativeSnapshotOperationTail.then((_) => operation());
+    _nativeSnapshotOperationTail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    return result;
+  }
+
   Future<void> clearNativeConnectionSnapshot() =>
       _serializeNativeSnapshotOperation(() async {
+        final expectedGeneration = await _readNativeSnapshotGeneration();
         final fileNames = await _collectSnapshotConfigFileNames();
         await _writeSnapshotCleanupMarker(
           committed: false,
           fileNames: fileNames,
+          expectedNativeGeneration: expectedGeneration,
         );
-        await ClashService._channel.invokeMethod('clearConnectionSnapshot');
+        final cleared = await ClashService._channel.invokeMethod<bool>(
+          'clearConnectionSnapshot',
+          {'expectedGeneration': expectedGeneration},
+        );
         await _writeSnapshotCleanupMarker(
           committed: true,
           fileNames: fileNames,
+          expectedNativeGeneration: expectedGeneration,
         );
+        if (cleared == true &&
+            _nativeSnapshotGeneration == expectedGeneration) {
+          _nativeSnapshotConfigPath = null;
+          _nativeSnapshotGeneration = null;
+        }
         if (!isRunning) await _completePendingSnapshotFileCleanup();
       });
 
@@ -48,6 +72,7 @@ extension AndroidSnapshotCleanup on ClashService {
   Future<void> _writeSnapshotCleanupMarker({
     required bool committed,
     required Set<String> fileNames,
+    required String? expectedNativeGeneration,
   }) async {
     final marker = _snapshotCleanupMarker;
     final temporary = File('${marker.path}.tmp');
@@ -55,9 +80,10 @@ extension AndroidSnapshotCleanup on ClashService {
     try {
       await temporary.writeAsString(
         jsonEncode({
-          'version': 1,
+          'version': 2,
           'committed': committed,
           'files': sortedNames,
+          'expectedNativeGeneration': expectedNativeGeneration,
         }),
         flush: true,
       );
@@ -76,7 +102,7 @@ extension AndroidSnapshotCleanup on ClashService {
     try {
       final decoded = jsonDecode(await marker.readAsString());
       if (decoded is! Map<String, dynamic> ||
-          decoded['version'] != 1 ||
+          (decoded['version'] != 1 && decoded['version'] != 2) ||
           decoded['committed'] is! bool ||
           decoded['files'] is! List) {
         throw const FormatException('invalid snapshot cleanup marker');
@@ -88,9 +114,19 @@ extension AndroidSnapshotCleanup on ClashService {
         }
         names.add(value);
       }
+      final version = decoded['version'] as int;
+      final expectedGeneration = decoded['expectedNativeGeneration'];
+      if (version == 2 &&
+          expectedGeneration != null &&
+          (expectedGeneration is! String || expectedGeneration.isEmpty)) {
+        throw const FormatException('invalid native snapshot generation');
+      }
       return (
         committed: decoded['committed'] as bool,
         fileNames: names,
+        generationBound: version == 2,
+        expectedNativeGeneration:
+            version == 2 ? expectedGeneration as String? : null,
       );
     } catch (error) {
       log('快照配置清理标记无效，已安全保留文件: $error');
@@ -101,14 +137,31 @@ extension AndroidSnapshotCleanup on ClashService {
   Future<void> _resumePendingSnapshotFileCleanup() async {
     var marker = await _readSnapshotCleanupMarker();
     if (marker == null) return;
+    if (!marker.committed && !marker.generationBound) {
+      marker = await _bindSnapshotCleanupGeneration(marker);
+    }
     if (!marker.committed) {
       try {
-        await ClashService._channel.invokeMethod('clearConnectionSnapshot');
+        final cleared = await ClashService._channel.invokeMethod<bool>(
+          'clearConnectionSnapshot',
+          {'expectedGeneration': marker.expectedNativeGeneration},
+        );
         await _writeSnapshotCleanupMarker(
           committed: true,
           fileNames: marker.fileNames,
+          expectedNativeGeneration: marker.expectedNativeGeneration,
         );
-        marker = (committed: true, fileNames: marker.fileNames);
+        if (cleared == true &&
+            _nativeSnapshotGeneration == marker.expectedNativeGeneration) {
+          _nativeSnapshotConfigPath = null;
+          _nativeSnapshotGeneration = null;
+        }
+        marker = (
+          committed: true,
+          fileNames: marker.fileNames,
+          generationBound: true,
+          expectedNativeGeneration: marker.expectedNativeGeneration,
+        );
       } catch (error) {
         log('恢复原生快照清理事务失败，保留待清理配置: $error');
         return;
@@ -136,6 +189,35 @@ extension AndroidSnapshotCleanup on ClashService {
     await _writeSnapshotCleanupMarker(
       committed: true,
       fileNames: remaining,
+      expectedNativeGeneration: pending.expectedNativeGeneration,
+    );
+  }
+
+  Future<String?> _readNativeSnapshotGeneration() =>
+      ClashService._channel.invokeMethod<String>(
+        'getConnectionSnapshotGeneration',
+      );
+
+  Future<void> _bindPendingSnapshotCleanupGeneration() async {
+    final pending = await _readSnapshotCleanupMarker();
+    if (pending == null || pending.committed || pending.generationBound) return;
+    await _bindSnapshotCleanupGeneration(pending);
+  }
+
+  Future<_SnapshotCleanupMarker> _bindSnapshotCleanupGeneration(
+    _SnapshotCleanupMarker pending,
+  ) async {
+    final generation = await _readNativeSnapshotGeneration();
+    await _writeSnapshotCleanupMarker(
+      committed: false,
+      fileNames: pending.fileNames,
+      expectedNativeGeneration: generation,
+    );
+    return (
+      committed: false,
+      fileNames: pending.fileNames,
+      generationBound: true,
+      expectedNativeGeneration: generation,
     );
   }
 

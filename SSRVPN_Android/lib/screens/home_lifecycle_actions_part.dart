@@ -88,11 +88,22 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     if (!mounted || _disposed || clashService == null) return;
     final running = clashService.isRunning;
     if (_isConnected == running) return;
+    final transition = transitionAndroidHomeConnectionStatus(
+      running: running,
+      connecting: _isConnecting,
+      errorMessage: _errorMessage,
+      selectedNode: _selectedNode,
+      nodes: _nodes,
+      rememberedNodeName:
+          context.read<SettingsService>().settings.lastSelectedNodeName,
+    );
     _updateHomeState(() {
-      _isConnected = running;
+      _isConnected = transition.connected;
+      _isConnecting = transition.connecting;
+      _errorMessage = transition.errorMessage;
+      _selectedNode = transition.selectedNode;
       if (!running) {
         _latencyController.clear();
-        _selectedNode = null;
         _resetPublicIpState();
       }
     });

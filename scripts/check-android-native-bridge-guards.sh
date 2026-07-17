@@ -166,9 +166,11 @@ require_count "bridge.Bridge.stop()" 1
 require_count "bridge.Bridge.isRunning()" 1
 
 require_activity_text '"syncSettings"'
+require_activity_text '"getConnectionSnapshotGeneration"'
 require_activity_text '"clearConnectionSnapshot"'
 require_activity_text "private fun handleNativeMethodCall("
 require_activity_text "NativeConnectionSnapshotStore.write("
+require_activity_text "NativeConnectionSnapshotStore.clearIfGeneration("
 require_activity_text '"flutter.proxyPort"'
 require_activity_text '"installUpdate"'
 require_activity_text "Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES"
@@ -231,14 +233,34 @@ fi
 for needle in \
   'AndroidKeyStore' \
   'AES/GCM/NoPadding' \
-  'setRandomizedEncryptionRequired(true)'; do
+  'setRandomizedEncryptionRequired(true)' \
+  'snapshot_generation' \
+  'clearIfGeneration'; do
   grep -Fq "$needle" "$NATIVE_SNAPSHOT_STORE" || {
     echo "Android native credential guard failed: missing '$needle'" >&2
     exit 1
   }
 done
-grep -Fq "fun clear(context: Context)" "$NATIVE_SNAPSHOT_STORE" || {
-  echo "Android native snapshot guard failed: clear operation is missing" >&2
+
+python3 - "${HOME_PARTS[1]}" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+handler = source[source.index("void _handleClashStatusChanged()") :]
+for required in (
+    "transitionAndroidHomeConnectionStatus(",
+    "_isConnecting = transition.connecting",
+    "_errorMessage = transition.errorMessage",
+    "_selectedNode = transition.selectedNode",
+):
+    if required not in handler:
+        raise SystemExit(
+            f"Android recovery UI transition guard missing {required!r}"
+        )
+PY
+grep -Fq "fun clearIfGeneration(" "$NATIVE_SNAPSHOT_STORE" || {
+  echo "Android native snapshot guard failed: generation-bound clear is missing" >&2
   exit 1
 }
 
