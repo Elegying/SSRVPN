@@ -19,6 +19,7 @@ VPN_ROUTE_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
 NATIVE_SNAPSHOT_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSnapshotStore.kt"
+STARTUP_ORCHESTRATOR="$ROOT/SSRVPN_Android/lib/startup/startup_orchestrator.dart"
 
 require_text() {
   local needle="$1"
@@ -88,6 +89,11 @@ require_count() {
     exit 1
   fi
 }
+
+if grep -Fq "syncSettings" "$STARTUP_ORCHESTRATOR"; then
+  echo "Android startup must not overwrite the last committed native snapshot" >&2
+  exit 1
+fi
 
 require_text "BRIDGE_START_TIMEOUT_MS"
 require_text "PENDING_START_CANCEL_GRACE_MS = 1_000L"

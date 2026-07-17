@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/services.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/clash_service.dart';
 import '../services/settings_service.dart';
@@ -47,9 +46,6 @@ class StartupOrchestrator {
         await _autoConnect();
       }
 
-      status.recordStep('原生同步', '同步设置到原生层');
-      await _syncToNative();
-
       status.complete();
       StartupLogger.info('启动流程完成');
     } catch (e, stack) {
@@ -83,24 +79,6 @@ class StartupOrchestrator {
       // 节点列表可能为空或 switchSelectedProxy 因节点不存在而失败
       // 用户可在连接后通过 clash API 手动切换节点
       StartupLogger.warn('自动连接警告 (非致命): $e');
-    }
-  }
-
-  Future<void> _syncToNative() async {
-    try {
-      const channel = MethodChannel('com.ssrvpn/native');
-      final s = _settings?.settings;
-      final clash = _clash;
-      await channel.invokeMethod('syncSettings', {
-        'configDir': clash?.configDir ?? '',
-        'configPath': clash?.configPath ?? '',
-        'apiPort': s?.apiPort ?? 9090,
-        'proxyPort': s?.proxyPort ?? 7890,
-        'apiSecret': s?.apiSecret ?? '',
-        'selectedNodeName': s?.lastSelectedNodeName,
-      });
-    } catch (e) {
-      StartupLogger.warn('原生同步失败: $e');
     }
   }
 }
