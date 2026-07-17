@@ -18,5 +18,16 @@ internal object CoreRecoveryPolicy {
     fun recoveringMessage(attempt: Int): String =
         "核心异常，正在自动恢复（$attempt/$MAX_ATTEMPTS）"
 
+    fun shouldAcceptRestart(
+        attempt: Int,
+        intentToken: Long?,
+        currentToken: Long,
+        manualStopRequested: Boolean
+    ): Boolean =
+        attempt > 0 &&
+            intentToken != null &&
+            intentToken == currentToken &&
+            !manualStopRequested
+
     const val failureMessage = "核心异常，自动恢复失败，请重新连接"
 }

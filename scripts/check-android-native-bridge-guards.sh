@@ -18,7 +18,7 @@ PUBLIC_ROUTES="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/andro
 VPN_ROUTE_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnRouteInstaller.kt"
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
-NATIVE_SECRET_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeApiSecretStore.kt"
+NATIVE_SNAPSHOT_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSnapshotStore.kt"
 
 require_text() {
   local needle="$1"
@@ -94,12 +94,15 @@ require_text "PENDING_START_CANCEL_GRACE_MS = 1_000L"
 require_text "serviceStartInProgress.compareAndSet(false, true)"
 require_text "processTerminationPending.get()"
 require_text "processTerminationPending.set(true)"
-require_text "startGeneration.incrementAndGet()"
+require_text "startGeneration.invalidate { isRunning = false }"
+require_text "startGeneration.runIfCurrent(startToken)"
 require_text "ensureStartCurrent(startToken)"
 require_text "CoreRecoveryPolicy.nextAttempt(request.attempt)"
 require_text "stopForRecovery"
 require_text "showCoreRecoveryFailedNotification"
 require_text "EXTRA_RECOVERY_ATTEMPT"
+require_text "EXTRA_RECOVERY_TOKEN"
+require_text "CoreRecoveryPolicy.shouldAcceptRestart("
 
 python3 - "$SERVICE" <<'PY'
 import sys
@@ -108,8 +111,8 @@ from pathlib import Path
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
 selection = source.index("applyProxySelection(apiPort, apiSecret, selectedNodeName)")
 publish = source.index("isRunning = true", selection)
-if "ensureStartCurrent(startToken)" not in source[selection:publish]:
-    raise SystemExit("Android VPN publishes connected state without post-selection generation guard")
+if "startGeneration.runIfCurrent(startToken)" not in source[selection:publish]:
+    raise SystemExit("Android VPN publishes connected state outside the atomic generation gate")
 PY
 require_text "waitForPendingStart()"
 require_text "VPN is already running; reusing the active session"
@@ -134,7 +137,7 @@ require_count "bridge.Bridge.isRunning()" 1
 
 require_activity_text '"syncSettings"'
 require_activity_text "private fun handleNativeMethodCall("
-require_activity_text "NativeApiSecretStore.write(this, apiSecret)"
+require_activity_text "NativeConnectionSnapshotStore.write("
 require_activity_text '"flutter.proxyPort"'
 require_activity_text '"installUpdate"'
 require_activity_text "Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES"
@@ -156,7 +159,7 @@ require_tile_text "SsrvpnVpnService.cancelPendingStart()"
 require_tile_text "service.stopAll {"
 require_tile_text "isConnected = SsrvpnVpnService.isRunning"
 require_tile_text "SsrvpnVpnService.createStartIntent"
-require_tile_text "NativeApiSecretStore.read(this)"
+require_tile_text "NativeConnectionSnapshotStore.read(this)"
 require_activity_text "vpnPermissionRequestPending"
 require_activity_text "startVpnServiceWithTimeout"
 require_activity_text "pendingVpnServiceIntent"
@@ -179,23 +182,35 @@ require_route_text "VpnIpv6Config.address"
 require_route_text "addRoute(route.address, route.prefixLength)"
 require_route_text "VpnIpv6Config.defaultRoute"
 require_text "VpnNotificationSupport.createChannel(this, CHANNEL_ID)"
-require_text "NativeApiSecretStore.read(this)"
-require_text "notificationUpdatePolicy.shouldPublish(state)"
+require_text "NativeConnectionSnapshotStore.read(this)"
+require_text "notificationUpdatePolicy.publishIfChanged(state)"
+require_text "Looper.myLooper() != notificationHandler.looper"
 
-if grep -R -n -F 'flutter.apiSecret' \
+if grep -R -n -E 'flutter\.(apiSecret|configDir|configPath|apiPort|selectedNodeName)' \
   "$MAIN_ACTIVITY" "$SERVICE" "$TILE_SERVICE"; then
-  echo "Android native credential guard failed: plaintext Flutter preferences are still used" >&2
+  echo "Android native snapshot guard failed: split Flutter preferences are still used" >&2
   exit 1
 fi
 for needle in \
   'AndroidKeyStore' \
   'AES/GCM/NoPadding' \
   'setRandomizedEncryptionRequired(true)'; do
-  grep -Fq "$needle" "$NATIVE_SECRET_STORE" || {
+  grep -Fq "$needle" "$NATIVE_SNAPSHOT_STORE" || {
     echo "Android native credential guard failed: missing '$needle'" >&2
     exit 1
   }
 done
+
+python3 - "$NATIVE_SNAPSHOT_STORE" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+read_start = source.index("fun read(context: Context)")
+read_end = source.index("fun updateSelectedNode", read_start)
+if ".remove(" in source[read_start:read_end]:
+    raise SystemExit("Android native snapshot read failure still deletes recovery data")
+PY
 
 require_build_text 'applicationIdSuffix = ".debug"'
 require_build_text 'versionNameSuffix = "-debug"'

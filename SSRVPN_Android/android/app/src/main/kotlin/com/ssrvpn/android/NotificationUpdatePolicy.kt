@@ -7,22 +7,38 @@ internal class NotificationUpdatePolicy(
     private var screenInteractive = true
     private var lastPublishedState: VpnNotificationState? = null
 
+    @Synchronized
     fun onScreenStateChanged(interactive: Boolean) {
         screenInteractive = interactive
     }
 
+    @Synchronized
     fun shouldScheduleTrafficRefresh(): Boolean = screenInteractive
 
+    @Synchronized
     fun shouldPublish(state: VpnNotificationState): Boolean {
         if (state == lastPublishedState) return false
         lastPublishedState = state
         return true
     }
 
+    @Synchronized
+    fun publishIfChanged(
+        state: VpnNotificationState,
+        publish: () -> Unit
+    ): Boolean {
+        if (state == lastPublishedState) return false
+        publish()
+        lastPublishedState = state
+        return true
+    }
+
+    @Synchronized
     fun markPublished(state: VpnNotificationState) {
         lastPublishedState = state
     }
 
+    @Synchronized
     fun resetPublishedState() {
         lastPublishedState = null
     }

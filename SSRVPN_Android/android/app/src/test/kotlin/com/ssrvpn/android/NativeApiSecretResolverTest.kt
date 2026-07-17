@@ -1,6 +1,7 @@
 package com.ssrvpn.android
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class NativeApiSecretResolverTest {
@@ -27,5 +28,19 @@ class NativeApiSecretResolverTest {
     @Test
     fun `missing secrets stay empty without inventing credentials`() {
         assertEquals("", NativeApiSecretResolver.resolve(null, null))
+    }
+
+    @Test
+    fun `explicit service secret does not touch the stored fallback`() {
+        var fallbackRead = false
+
+        assertEquals(
+            "intent-secret",
+            NativeApiSecretResolver.resolve("intent-secret") {
+                fallbackRead = true
+                "stored-secret"
+            }
+        )
+        assertFalse(fallbackRead)
     }
 }

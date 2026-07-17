@@ -118,19 +118,30 @@ class MainActivity : FlutterActivity() {
     private fun handleSyncSettings(call: MethodCall, result: MethodChannel.Result) {
         val args = call.arguments as? Map<*, *>
         val proxyPort = (args?.get("proxyPort") as? Number)?.toInt() ?: 7890
+        val configDir = args?.get("configDir") as? String
+        val configPath = args?.get("configPath") as? String
+        val apiPort = (args?.get("apiPort") as? Number)?.toInt()
         val apiSecret = args?.get("apiSecret") as? String
-        if (apiSecret != null) {
-            try {
-                NativeApiSecretStore.write(this, apiSecret)
-            } catch (error: Exception) {
-                Log.e("MainActivity", "Unable to sync native VPN credentials", error)
-                result.error(
-                    "NATIVE_SECRET_SYNC_FAILED",
-                    "无法同步原生 VPN 凭据",
-                    null
+        val selectedNodeName = args?.get("selectedNodeName") as? String
+        try {
+            NativeConnectionSnapshotStore.write(
+                this,
+                NativeConnectionSnapshot(
+                    configDir = configDir.orEmpty(),
+                    configPath = configPath.orEmpty(),
+                    apiPort = apiPort ?: 0,
+                    apiSecret = apiSecret.orEmpty(),
+                    selectedNodeName = selectedNodeName
                 )
-                return
-            }
+            )
+        } catch (error: Exception) {
+            Log.e("MainActivity", "Unable to sync native VPN snapshot", error)
+            result.error(
+                "NATIVE_SNAPSHOT_SYNC_FAILED",
+                "无法同步原生 VPN 快速启动数据",
+                null
+            )
+            return
         }
 
         getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)

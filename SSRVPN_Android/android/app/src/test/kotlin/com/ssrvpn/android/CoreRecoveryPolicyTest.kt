@@ -1,7 +1,9 @@
 package com.ssrvpn.android
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CoreRecoveryPolicyTest {
@@ -21,6 +23,34 @@ class CoreRecoveryPolicyTest {
         assertEquals(
             "核心异常，自动恢复失败，请重新连接",
             CoreRecoveryPolicy.failureMessage
+        )
+    }
+
+    @Test
+    fun `queued recovery is rejected after a manual stop or token change`() {
+        assertTrue(
+            CoreRecoveryPolicy.shouldAcceptRestart(
+                attempt = 1,
+                intentToken = 8,
+                currentToken = 8,
+                manualStopRequested = false
+            )
+        )
+        assertFalse(
+            CoreRecoveryPolicy.shouldAcceptRestart(
+                attempt = 1,
+                intentToken = 8,
+                currentToken = 9,
+                manualStopRequested = false
+            )
+        )
+        assertFalse(
+            CoreRecoveryPolicy.shouldAcceptRestart(
+                attempt = 1,
+                intentToken = 8,
+                currentToken = 8,
+                manualStopRequested = true
+            )
         )
     }
 }
