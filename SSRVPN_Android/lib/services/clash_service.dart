@@ -23,6 +23,8 @@ class ClashService extends ClashServiceBase {
   Future<bool>? _startOperation;
   Future<void>? _stopOperation;
   int _startGeneration = 0;
+  int _configRevision = 0;
+  String? _runningConfigPath;
 
   /// 磁贴/通知触发的自动连接回调
   VoidCallback? onAutoConnect;
@@ -279,11 +281,15 @@ class ClashService extends ClashServiceBase {
     );
   }
 
-  Future<void> writeConfig(String configContent) async {
-    await writeStringAtomically(File(configPath), configContent);
+  Future<String> writeConfig(String configContent) async {
+    final revision = ++_configRevision;
+    final path = '$configDir/config-'
+        '${DateTime.now().microsecondsSinceEpoch}-$revision.yaml';
+    await writeStringAtomically(File(path), configContent);
+    return path;
   }
 
-  Future<void> writePreferredNodeConfig(
+  Future<String> writePreferredNodeConfig(
     String rawYaml,
     AppSettings settings,
     String nodeName,
@@ -294,19 +300,23 @@ class ClashService extends ClashServiceBase {
       settings,
       preferredNodeName: nodeName,
     );
-    await writeConfig(config);
-    await _saveConfigForTile(nodeName);
+    final path = await writeConfig(config);
+    if (!await _saveConfigForTile(nodeName, path)) {
+      throw StateError('无法提交原生快速启动配置');
+    }
+    return path;
   }
 
   // ── 进程控制 ──
 
-  Future<bool> start({String? nodeName}) {
+  Future<bool> start({String? nodeName, String? preparedConfigPath}) {
     final current = _startOperation;
     if (current != null) return current;
 
     final startToken = ++_startGeneration;
     final operation = _startInternal(
       nodeName: nodeName,
+      startConfigPath: preparedConfigPath ?? configPath,
       startToken: startToken,
     );
     _startOperation = operation;
@@ -319,6 +329,7 @@ class ClashService extends ClashServiceBase {
 
   Future<bool> _startInternal({
     String? nodeName,
+    required String startConfigPath,
     required int startToken,
   }) async {
     final stopping = _stopOperation;
@@ -335,9 +346,9 @@ class ClashService extends ClashServiceBase {
 
     try {
       log('🚀 启动 Mihomo (gomobile)...');
-      log('配置: $configPath');
+      log('配置: $startConfigPath');
 
-      if (!File(configPath).existsSync()) {
+      if (!File(startConfigPath).existsSync()) {
         log('❌ 配置文件不存在');
         setLastStartError('找不到生成的 VPN 配置文件');
         return false;
@@ -348,7 +359,7 @@ class ClashService extends ClashServiceBase {
 
       final result = await _channel.invokeMethod('startCoreWithVpn', {
         'configDir': configDir,
-        'configPath': configPath,
+        'configPath': startConfigPath,
         'apiPort': settings.apiPort,
         'apiSecret': settings.apiSecret,
         'nodeName': nodeName,
@@ -369,11 +380,12 @@ class ClashService extends ClashServiceBase {
 
       if (result == true) {
         setRunning(true);
+        _runningConfigPath = startConfigPath;
         log('✅ Mihomo 启动成功 (gomobile)');
         notifyStatusChanged();
         await _notifyNativeStateChange();
         _ensureStartCurrent(startToken);
-        await _saveConfigForTile(nodeName);
+        await _saveConfigForTile(nodeName, startConfigPath);
         _ensureStartCurrent(startToken);
         startStatusMonitor();
         return true;
@@ -449,6 +461,7 @@ class ClashService extends ClashServiceBase {
         ? false
         : (await _queryNativeRunningState() ?? isRunning);
     setRunning(runningAfterStop);
+    if (!runningAfterStop) _runningConfigPath = null;
     if (runningAfterStop) startStatusMonitor();
     notifyStatusChanged();
     await _notifyNativeStateChange();
@@ -479,11 +492,11 @@ class ClashService extends ClashServiceBase {
     }
   }
 
-  Future<void> _saveConfigForTile(String? nodeName) async {
+  Future<bool> _saveConfigForTile(String? nodeName, String snapshotPath) async {
     try {
       await _channel.invokeMethod('syncSettings', {
         'configDir': configDir,
-        'configPath': configPath,
+        'configPath': snapshotPath,
         'apiPort': settings.apiPort,
         'proxyPort': settings.proxyPort,
         'apiSecret': settings.apiSecret,
@@ -501,16 +514,54 @@ class ClashService extends ClashServiceBase {
       ]) {
         await prefs.remove(key);
       }
+      final keepPaths = <String>{snapshotPath};
+      final runningConfigPath = _runningConfigPath;
+      if (runningConfigPath != null) keepPaths.add(runningConfigPath);
+      await _pruneVersionedConfigs(keepPaths);
+      return true;
     } catch (error) {
       log('原生快速启动数据同步失败，保留上次可用快照: $error');
+      return false;
+    }
+  }
+
+  Future<void> _pruneVersionedConfigs(Set<String> keepPaths) async {
+    final directory = Directory(configDir);
+    if (!await directory.exists()) return;
+    await for (final entity in directory.list(followLinks: false)) {
+      final name = entity.uri.pathSegments.last;
+      if (!name.startsWith('config-') || !name.endsWith('.yaml')) continue;
+      if (keepPaths.contains(entity.path)) continue;
+      if (await FileSystemEntity.type(entity.path, followLinks: false) ==
+          FileSystemEntityType.file) {
+        await File(entity.path).delete();
+      }
+    }
+  }
+
+  Future<void> clearNativeConnectionSnapshot() async {
+    await _channel.invokeMethod('clearConnectionSnapshot');
+    _runningConfigPath = null;
+    final directory = Directory(configDir);
+    if (!await directory.exists()) return;
+    await for (final entity in directory.list(followLinks: false)) {
+      final name = entity.uri.pathSegments.last;
+      if (name != 'config.yaml' &&
+          !(name.startsWith('config-') && name.endsWith('.yaml'))) {
+        continue;
+      }
+      final type = await FileSystemEntity.type(entity.path, followLinks: false);
+      if (type == FileSystemEntityType.file ||
+          type == FileSystemEntityType.link) {
+        await entity.delete();
+      }
     }
   }
 
   @override
   Future<bool> switchSelectedProxy(String nodeName) async {
     final switched = await super.switchSelectedProxy(nodeName);
-    if (switched) await updateVpnNotification(nodeName);
-    return switched;
+    return switched && await updateVpnNotification(nodeName);
   }
 
   /// Initial/reload connection flows use this variant so an obsolete intent
@@ -524,7 +575,7 @@ class ClashService extends ClashServiceBase {
         !isConnectionIntentCurrent(connectionGeneration, connected: true)) {
       return false;
     }
-    await updateVpnNotification(
+    final updated = await updateVpnNotification(
       nodeName,
       persistSelection: false,
       shouldContinue: () => isConnectionIntentCurrent(
@@ -532,25 +583,28 @@ class ClashService extends ClashServiceBase {
         connected: true,
       ),
     );
-    return isConnectionIntentCurrent(connectionGeneration, connected: true);
+    return updated &&
+        isConnectionIntentCurrent(connectionGeneration, connected: true);
   }
 
-  Future<void> updateVpnNotification(
+  Future<bool> updateVpnNotification(
     String nodeName, {
     bool persistSelection = true,
     bool Function()? shouldContinue,
   }) async {
     try {
-      if (shouldContinue?.call() == false) return;
+      if (shouldContinue?.call() == false) return false;
       await _channel.invokeMethod('updateVpnNotification', {
         'nodeName': nodeName,
       });
-      if (!persistSelection || shouldContinue?.call() == false) return;
+      if (!persistSelection || shouldContinue?.call() == false) return true;
       final prefs = await SharedPreferences.getInstance();
-      if (shouldContinue?.call() == false) return;
+      if (shouldContinue?.call() == false) return false;
       await prefs.setString('selectedNodeName', nodeName);
+      return true;
     } catch (e) {
       log('更新 VPN 通知失败: $e');
+      return false;
     }
   }
 

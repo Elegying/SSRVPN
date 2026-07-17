@@ -102,6 +102,18 @@ class MainActivity : FlutterActivity() {
                 result.success(pending)
             }
             "syncSettings" -> handleSyncSettings(call, result)
+            "clearConnectionSnapshot" -> {
+                try {
+                    NativeConnectionSnapshotStore.clear(this)
+                    result.success(true)
+                } catch (error: Exception) {
+                    result.error(
+                        "NATIVE_SNAPSHOT_CLEAR_FAILED",
+                        "无法清除原生 VPN 快速启动数据",
+                        null
+                    )
+                }
+            }
             "notifyVpnStateChanged" -> {
                 SsrvpnVpnService.broadcastState(this)
                 result.success(true)
@@ -261,7 +273,15 @@ class MainActivity : FlutterActivity() {
             result.error("INVALID_ARGS", "Node name is required", null)
             return
         }
-        SsrvpnVpnService.instance?.updateNotificationNode(nodeName)
+        val service = SsrvpnVpnService.instance
+        if (service == null || !service.updateNotificationNode(nodeName)) {
+            result.error(
+                "NATIVE_SNAPSHOT_UPDATE_FAILED",
+                "无法更新原生 VPN 节点快照",
+                null
+            )
+            return
+        }
         result.success(true)
     }
 

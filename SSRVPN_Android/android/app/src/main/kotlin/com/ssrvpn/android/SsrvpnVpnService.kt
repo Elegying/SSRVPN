@@ -379,24 +379,29 @@ class SsrvpnVpnService : VpnService() {
             state
         )
 
-    fun updateNotificationNode(nodeName: String) {
-        if (nodeName.isBlank()) return
+    fun updateNotificationNode(nodeName: String): Boolean {
+        if (nodeName.isBlank()) return false
         currentNodeName = nodeName
         try {
             NativeConnectionSnapshotStore.updateSelectedNode(this, nodeName)
         } catch (error: Exception) {
             Log.e(TAG, "Unable to update the native connection snapshot", error)
+            notifyCurrentState()
+            return false
         }
         notifyCurrentState()
+        return true
     }
 
-    private fun notifyCurrentState() {
+    private fun notifyCurrentState(
+        capturedState: VpnNotificationState? = null
+    ) {
+        val state = capturedState ?: currentNotificationState()
         if (Looper.myLooper() != notificationHandler.looper) {
-            notificationHandler.post { notifyCurrentState() }
+            notificationHandler.post { notifyCurrentState(state) }
             return
         }
-        if (!isRunning) return
-        val state = currentNotificationState()
+        if (!isRunning && capturedState == null) return
         notificationUpdatePolicy.publishIfChanged(state) {
             getSystemService(NotificationManager::class.java)
                 .notify(NOTIFICATION_ID, buildDynamicNotification(state))
@@ -658,7 +663,7 @@ class SsrvpnVpnService : VpnService() {
         val recoveryToken = recoveryGeneration.incrementAndGet()
         notificationStatusText = CoreRecoveryPolicy.recoveringMessage(nextAttempt)
         notificationConnected = false
-        notifyCurrentState()
+        notifyCurrentState(currentNotificationState())
 
         val restartIntent = createStartIntent(
             this,

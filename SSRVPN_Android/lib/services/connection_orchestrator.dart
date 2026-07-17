@@ -43,11 +43,14 @@ class ConnectionOrchestrator {
     );
 
     // 写入配置
-    await clashService.writeConfig(config);
+    final preparedConfigPath = await clashService.writeConfig(config);
     if (!_isCurrent(connectionGeneration)) return null;
 
     // 启动核心
-    final success = await clashService.start(nodeName: nodeName);
+    final success = await clashService.start(
+      nodeName: nodeName,
+      preparedConfigPath: preparedConfigPath,
+    );
 
     if (!_isCurrent(connectionGeneration)) {
       return null;

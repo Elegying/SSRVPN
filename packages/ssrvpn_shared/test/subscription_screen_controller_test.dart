@@ -174,6 +174,30 @@ void main() {
       expect(stopped, isTrue);
     });
 
+    test('delete clears the platform cold-start snapshot when no nodes remain',
+        () async {
+      final service = _FakeSubscriptionService(
+        subscriptions: [
+          Subscription(id: 'sub-1', name: 'A', url: 'https://example.com'),
+        ],
+        nodes: [node('A')],
+      );
+      final controller = SubscriptionScreenController(
+        subscriptionService: service,
+      );
+      var cleared = false;
+
+      final result = await controller.deleteSubscription(
+        'sub-1',
+        clashRunning: false,
+        stopClash: null,
+        onNoRunnableNodes: () async => cleared = true,
+      );
+
+      expect(result.removed, isTrue);
+      expect(cleared, isTrue);
+    });
+
     test('delete reports stop failure without losing removed state', () async {
       final service = _FakeSubscriptionService(
         subscriptions: [
