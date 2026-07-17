@@ -126,6 +126,32 @@ void main() {
       );
     });
 
+    test('endpoint restore rejects an unreachable disabled original endpoint',
+        () {
+      final enabledOriginal = _original.copyWith(proxyEnable: 1);
+
+      expect(
+        isReachableWindowsProxyTransactionState(
+          current: enabledOriginal.copyWith(proxyEnable: 0),
+          original: enabledOriginal,
+          owned: _owned,
+          phase: WindowsProxyTransactionPhase.endpointRestore,
+        ),
+        isFalse,
+        reason: 'endpoint restore never disables an originally enabled proxy',
+      );
+      expect(
+        isReachableWindowsProxyTransactionState(
+          current: _owned.copyWith(proxyEnable: 0),
+          original: enabledOriginal,
+          owned: _owned,
+          phase: WindowsProxyTransactionPhase.endpointRestore,
+        ),
+        isTrue,
+        reason: 'a failed owned endpoint may be disabled before restoration',
+      );
+    });
+
     test('missing ProxyEnable remains a recoverable exact registry state', () {
       final original = _original.copyWith(
         hasProxyEnable: false,

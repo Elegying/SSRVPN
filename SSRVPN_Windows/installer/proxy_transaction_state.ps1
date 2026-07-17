@@ -124,8 +124,11 @@ function Test-ReachableProxyTransactionState {
       [int]$Current.proxyEnable -eq 0
     $originalProxy = [bool]$Current.hasProxyEnable -eq [bool]$Original.hasProxyEnable -and
       [int]$Current.proxyEnable -eq [int]$Original.proxyEnable
+    $originalMayBeDisabled = -not [bool]$Original.hasProxyEnable -or
+      [int]$Original.proxyEnable -eq 0
     return ($ownedServer -and ($ownedProxy -or $disabledProxy)) -or
-      ($originalServer -and ($disabledProxy -or $originalProxy))
+      ($originalServer -and ($originalProxy -or
+        ($originalMayBeDisabled -and $disabledProxy)))
   }
 
   foreach ($candidate in $activation) {

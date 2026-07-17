@@ -581,4 +581,105 @@ void main() {
 
     expect(await File(configPath).exists(), isFalse);
   });
+
+  test('durable cleanup removes only files from the cleared snapshot era',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+        case 'syncSettings':
+        case 'notifyVpnStateChanged':
+        case 'clearConnectionSnapshot':
+        case 'stopCore':
+          return true;
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_durable_snapshot_cleanup_',
+    );
+    addTearDown(() => dir.delete(recursive: true));
+    final configPath = '${dir.path}${Platform.pathSeparator}config.yaml';
+    final firstProcess = ClashService()
+      ..setPaths(configDir: dir.path, configPath: configPath)
+      ..updateSettings(AppSettings(apiSecret: 'test-secret'));
+    final oldConfig = await firstProcess.writeConfig(_testProxies);
+    expect(
+      await firstProcess.start(
+        nodeName: '日本节点',
+        preparedConfigPath: oldConfig,
+      ),
+      isTrue,
+    );
+
+    await firstProcess.clearNativeConnectionSnapshot();
+    final newConfig = await firstProcess.writePreferredNodeConfig(
+      _testProxies,
+      AppSettings(apiSecret: 'new-secret'),
+      '新加坡节点',
+    );
+    expect(await File(oldConfig).exists(), isTrue);
+    expect(await File(newConfig).exists(), isTrue);
+
+    final restartedProcess = ClashService()
+      ..setPaths(configDir: dir.path, configPath: configPath)
+      ..setRunning(true);
+    await restartedProcess.stop();
+
+    expect(await File(oldConfig).exists(), isFalse);
+    expect(await File(newConfig).exists(), isTrue);
+    expect(
+      await File(
+        '${dir.path}${Platform.pathSeparator}.snapshot-cleanup.pending',
+      ).exists(),
+      isFalse,
+    );
+  });
+
+  test('uncommitted cleanup marker never deletes a still-referenced snapshot',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'clearConnectionSnapshot':
+          throw PlatformException(code: 'CLEAR_FAILED');
+        case 'stopCore':
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_uncommitted_snapshot_cleanup_',
+    );
+    addTearDown(() => dir.delete(recursive: true));
+    final configPath = '${dir.path}${Platform.pathSeparator}config.yaml';
+    final snapshot = File(configPath);
+    await snapshot.writeAsString(_testProxies);
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: configPath)
+      ..setRunning(true);
+
+    await expectLater(
+      service.clearNativeConnectionSnapshot(),
+      throwsA(isA<PlatformException>()),
+    );
+    await service.stop();
+
+    expect(await snapshot.exists(), isTrue);
+    expect(
+      await File(
+        '${dir.path}${Platform.pathSeparator}.snapshot-cleanup.pending',
+      ).exists(),
+      isTrue,
+    );
+  });
 }

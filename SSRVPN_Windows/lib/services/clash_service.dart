@@ -31,9 +31,11 @@ class ClashService extends ClashServiceBase
   ClashService({
     WindowsTunRuntimeProbe? tunRuntimeProbe,
     WindowsTunResidualProbe? tunResidualProbe,
+    WindowsNetworkInterfaceIdentityProbe? networkInterfaceIdentityProbe,
   }) {
     _tunRuntimeProbeOverride = tunRuntimeProbe;
     _tunResidualProbeOverride = tunResidualProbe;
+    _networkInterfaceIdentityProbeOverride = networkInterfaceIdentityProbe;
   }
 
   // ── File logging ──

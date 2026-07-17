@@ -292,9 +292,12 @@ bool IsEndpointRestorePrefix(const ProxyStateSnapshot& current,
   ProxyStateSnapshot disabled = original;
   disabled.proxy_enable.present = 1;
   disabled.proxy_enable.value = 0;
+  const bool original_may_be_disabled =
+      original.proxy_enable.present == 0 || original.proxy_enable.value == 0;
   return (owned_server && (proxy_equals(owned) || proxy_equals(disabled))) ||
          (original_server &&
-          (proxy_equals(disabled) || proxy_equals(original)));
+          (proxy_equals(original) ||
+           (original_may_be_disabled && proxy_equals(disabled))));
 }
 
 bool DisableOwnedProxyEndpoint(HKEY settings,

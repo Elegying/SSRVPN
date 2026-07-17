@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:ssrvpn_windows/services/clash_service.dart';
 import 'package:ssrvpn_windows/services/windows_tun_runtime_probe.dart';
 
 void main() {
@@ -336,6 +338,42 @@ void main() {
       reason: 'legacy numeric ownership must survive migration',
     );
     expect(decodeWindowsTunTeardownMarker('{"version":1}'), isNull);
+  });
+
+  test('legacy numeric marker never claims a reused external interface',
+      () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'ssrvpn_legacy_tun_migration_',
+    );
+    final marker = File(
+      '${directory.path}${Platform.pathSeparator}tun_teardown.pending',
+    );
+    await marker.writeAsString('7', flush: true);
+    final probedOwnership = <Set<WindowsTunInterfaceIdentity>>[];
+    final service = ClashService(
+      networkInterfaceIdentityProbe: () async => const {
+        (index: 7, interfaceGuid: foreignGuid),
+      },
+      tunResidualProbe: (expectedInterfaces) async {
+        probedOwnership.add(Set.of(expectedInterfaces));
+        return residual(WindowsTunResidualStatus.gone);
+      },
+    );
+
+    try {
+      await service.init(
+        AppSettings(),
+        dataDir: directory.path,
+        skipCoreProbes: true,
+      );
+
+      expect(probedOwnership, isNotEmpty);
+      expect(probedOwnership.every((interfaces) => interfaces.isEmpty), isTrue);
+      expect(await marker.exists(), isFalse);
+    } finally {
+      service.dispose();
+      if (await directory.exists()) await directory.delete(recursive: true);
+    }
   });
 
   test('TUN capture excludes another VPN that existed before core startup', () {
