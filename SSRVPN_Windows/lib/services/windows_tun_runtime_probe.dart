@@ -326,7 +326,7 @@ function Test-IpInPrefix {
       $prefixLength -gt ($address.Length * 8)) {
     return $false
   }
-  $wholeBytes = [Math]::Floor($prefixLength / 8)
+  $wholeBytes = [int][Math]::Floor($prefixLength / 8)
   for ($i = 0; $i -lt $wholeBytes; $i++) {
     if ($address[$i] -ne $network[$i]) { return $false }
   }
