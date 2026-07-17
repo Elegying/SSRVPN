@@ -87,6 +87,10 @@ for path in paths:
         raise SystemExit(
             f"{path}: proxy recovery failure does not keep the core alive"
         )
+    if "setRunning(false)" not in before_kill or "notifyStatusChanged()" not in before_kill:
+        raise SystemExit(
+            f"{path}: released proxy endpoint does not immediately publish disconnected state"
+        )
 
 windows_source = paths[1].read_text(encoding="utf-8")
 required_tun_guards = (
