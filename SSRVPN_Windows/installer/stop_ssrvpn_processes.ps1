@@ -947,53 +947,25 @@ function Set-OrRemoveRegistryValue {
     }
   }
 }
-
-function Test-OptionalPropertyMatchesEither {
-  param(
-    [Parameter(Mandatory = $true)]$Current,
-    [Parameter(Mandatory = $true)][string]$Name,
-    [Parameter(Mandatory = $true)][bool]$OriginalPresent,
-    [AllowNull()]$OriginalValue,
-    [Parameter(Mandatory = $true)][bool]$OwnedPresent,
-    [AllowNull()]$OwnedValue
-  )
-
-  $currentPresent = $null -ne $Current.PSObject.Properties[$Name]
-  $currentValue = if ($currentPresent) { $Current.$Name } else { $null }
-  $matchesOriginal = $currentPresent -eq $OriginalPresent -and
-    (-not $currentPresent -or $currentValue -eq $OriginalValue)
-  $matchesOwned = $currentPresent -eq $OwnedPresent -and
-    (-not $currentPresent -or $currentValue -eq $OwnedValue)
-  return $matchesOriginal -or $matchesOwned
-}
-
 function Test-CorroboratedProxyTransactionState {
-  param(
-    [Parameter(Mandatory = $true)]$Current,
-    [Parameter(Mandatory = $true)]$Backup
-  )
-
+  param($Current, $Backup)
   if (-not (Test-DwordFlag -Value $Current.ProxyEnable) -or
       ([int]$Current.ProxyEnable -ne [int]$Backup.proxyEnable -and
-        [int]$Current.ProxyEnable -ne 1)) {
-    return $false
+        [int]$Current.ProxyEnable -ne 1)) { return $false }
+  $checks = @(
+    @('ProxyServer', $Backup.hasProxyServer, $Backup.proxyServer, $true, $Backup.ownedProxyServer),
+    @('ProxyOverride', $Backup.hasProxyOverride, $Backup.proxyOverride, $true, $Backup.ownedProxyOverride),
+    @('AutoConfigURL', $Backup.hasAutoConfigUrl, $Backup.autoConfigUrl, $false, $null),
+    @('AutoDetect', $Backup.hasAutoDetect, $Backup.autoDetect, $true, 0)
+  )
+  foreach ($check in $checks) {
+    $present = $null -ne $Current.PSObject.Properties[$check[0]]
+    $value = if ($present) { $Current.($check[0]) } else { $null }
+    $original = $present -eq [bool]$check[1] -and (-not $present -or $value -eq $check[2])
+    $owned = $present -eq [bool]$check[3] -and (-not $present -or $value -eq $check[4])
+    if (-not ($original -or $owned)) { return $false }
   }
-  return (Test-OptionalPropertyMatchesEither -Current $Current `
-      -Name ProxyServer -OriginalPresent $Backup.hasProxyServer `
-      -OriginalValue ([string]$Backup.proxyServer) -OwnedPresent $true `
-      -OwnedValue ([string]$Backup.ownedProxyServer)) -and
-    (Test-OptionalPropertyMatchesEither -Current $Current `
-      -Name ProxyOverride -OriginalPresent $Backup.hasProxyOverride `
-      -OriginalValue ([string]$Backup.proxyOverride) -OwnedPresent $true `
-      -OwnedValue ([string]$Backup.ownedProxyOverride)) -and
-    (Test-OptionalPropertyMatchesEither -Current $Current `
-      -Name AutoConfigURL -OriginalPresent $Backup.hasAutoConfigUrl `
-      -OriginalValue ([string]$Backup.autoConfigUrl) -OwnedPresent $false `
-      -OwnedValue $null) -and
-    (Test-OptionalPropertyMatchesEither -Current $Current `
-      -Name AutoDetect -OriginalPresent $Backup.hasAutoDetect `
-      -OriginalValue ([int]$Backup.autoDetect) -OwnedPresent $true `
-      -OwnedValue 0)
+  return $true
 }
 
 function Restore-OwnedSystemProxy {
