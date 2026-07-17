@@ -121,6 +121,122 @@ bool RestorePreparedString(HKEY settings, DWORD present,
   return SetString(settings, target_name, value);
 }
 
+struct OptionalStringValue {
+  DWORD present = 0;
+  std::wstring value;
+};
+
+struct OptionalDwordValue {
+  DWORD present = 0;
+  DWORD value = 0;
+};
+
+struct ProxyStateSnapshot {
+  DWORD proxy_enable = 0;
+  OptionalStringValue proxy_server;
+  OptionalStringValue proxy_override;
+  OptionalStringValue auto_config_url;
+  OptionalDwordValue auto_detect;
+};
+
+bool ReadBackupProxyState(HKEY backup, ProxyStateSnapshot* state) {
+  return ReadDword(backup, L"OriginalProxyEnable", &state->proxy_enable) &&
+         ReadOptionalString(backup, L"HasProxyServer", L"OriginalProxyServer",
+                            &state->proxy_server.present,
+                            &state->proxy_server.value) &&
+         ReadOptionalString(backup, L"HasProxyOverride",
+                            L"OriginalProxyOverride",
+                            &state->proxy_override.present,
+                            &state->proxy_override.value) &&
+         ReadOptionalString(backup, L"HasAutoConfigURL",
+                            L"OriginalAutoConfigURL",
+                            &state->auto_config_url.present,
+                            &state->auto_config_url.value) &&
+         ReadDword(backup, L"HasAutoDetect", &state->auto_detect.present) &&
+         ReadDword(backup, L"OriginalAutoDetect", &state->auto_detect.value);
+}
+
+bool ReadCurrentOptionalString(HKEY settings, const wchar_t* name,
+                               OptionalStringValue* value) {
+  if (!ValueExists(settings, name)) {
+    value->present = 0;
+    value->value.clear();
+    return true;
+  }
+  value->present = 1;
+  return ReadString(settings, name, &value->value);
+}
+
+bool ReadCurrentOptionalDword(HKEY settings, const wchar_t* name,
+                              OptionalDwordValue* value) {
+  if (!ValueExists(settings, name)) {
+    value->present = 0;
+    value->value = 0;
+    return true;
+  }
+  value->present = 1;
+  return ReadDword(settings, name, &value->value);
+}
+
+bool ReadCurrentProxyState(HKEY settings, ProxyStateSnapshot* state) {
+  return ReadDword(settings, L"ProxyEnable", &state->proxy_enable) &&
+         ReadCurrentOptionalString(settings, L"ProxyServer",
+                                   &state->proxy_server) &&
+         ReadCurrentOptionalString(settings, L"ProxyOverride",
+                                   &state->proxy_override) &&
+         ReadCurrentOptionalString(settings, L"AutoConfigURL",
+                                   &state->auto_config_url) &&
+         ReadCurrentOptionalDword(settings, L"AutoDetect",
+                                  &state->auto_detect);
+}
+
+bool OptionalStringMatchesEither(const OptionalStringValue& current,
+                                 const OptionalStringValue& first,
+                                 const OptionalStringValue& second) {
+  const auto matches = [&current](const OptionalStringValue& candidate) {
+    return current.present == candidate.present &&
+           (current.present == 0 || current.value == candidate.value);
+  };
+  return matches(first) || matches(second);
+}
+
+bool OptionalDwordMatchesEither(const OptionalDwordValue& current,
+                                const OptionalDwordValue& first,
+                                const OptionalDwordValue& second) {
+  const auto matches = [&current](const OptionalDwordValue& candidate) {
+    return current.present == candidate.present &&
+           (current.present == 0 || current.value == candidate.value);
+  };
+  return matches(first) || matches(second);
+}
+
+bool IsCorroboratedProxyTransactionState(
+    HKEY settings, const ProxyStateSnapshot& original,
+    const std::wstring& owned_server, const std::wstring& owned_override) {
+  ProxyStateSnapshot current;
+  if (!ReadCurrentProxyState(settings, &current)) return false;
+
+  ProxyStateSnapshot owned;
+  owned.proxy_enable = 1;
+  owned.proxy_server = {1, owned_server};
+  owned.proxy_override = {1, owned_override};
+  owned.auto_config_url = {0, std::wstring()};
+  owned.auto_detect = {1, 0};
+  return (current.proxy_enable == original.proxy_enable ||
+          current.proxy_enable == owned.proxy_enable) &&
+         OptionalStringMatchesEither(current.proxy_server,
+                                     original.proxy_server,
+                                     owned.proxy_server) &&
+         OptionalStringMatchesEither(current.proxy_override,
+                                     original.proxy_override,
+                                     owned.proxy_override) &&
+         OptionalStringMatchesEither(current.auto_config_url,
+                                     original.auto_config_url,
+                                     owned.auto_config_url) &&
+         OptionalDwordMatchesEither(current.auto_detect, original.auto_detect,
+                                    owned.auto_detect);
+}
+
 bool DisableOwnedProxyEndpoint(HKEY settings,
                                const std::wstring& owned_server) {
   DWORD proxy_enable = 0;
@@ -431,22 +547,26 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
                      proxy_override == owned_override &&
                      IsDwordZeroOrAbsent(settings, L"AutoDetect") &&
                      !ValueExists(settings, L"AutoConfigURL");
+
+  ProxyStateSnapshot original;
+  const bool snapshot_valid = ReadBackupProxyState(backup, &original);
+  const bool pending_state_corroborated =
+      snapshot_valid && IsCorroboratedProxyTransactionState(
+                            settings, original, owned_server, owned_override);
   const bool full_restore_pending =
-      restore_in_progress == 1 || activation_in_progress == 1;
+      pending_state_corroborated &&
+      (restore_in_progress == 1 || activation_in_progress == 1);
+  const bool endpoint_restore_pending =
+      pending_state_corroborated && endpoint_restore_in_progress == 1;
   if (!owned && !full_restore_pending &&
-      (endpoint_owned || endpoint_restore_in_progress == 1)) {
-    DWORD original_proxy_enable = 0;
-    DWORD has_proxy_server = 0;
-    std::wstring original_proxy_server;
+      (endpoint_owned || endpoint_restore_pending)) {
     bool endpoint_restored =
-        ReadDword(backup, L"OriginalProxyEnable", &original_proxy_enable) &&
-        ReadOptionalString(backup, L"HasProxyServer", L"OriginalProxyServer",
-                           &has_proxy_server, &original_proxy_server) &&
+        snapshot_valid &&
         (endpoint_restore_in_progress == 1 ||
          SetDword(backup, L"EndpointRestoreInProgress", 1)) &&
-        RestorePreparedString(settings, has_proxy_server,
-                              original_proxy_server, L"ProxyServer") &&
-        SetDword(settings, L"ProxyEnable", original_proxy_enable);
+        RestorePreparedString(settings, original.proxy_server.present,
+                              original.proxy_server.value, L"ProxyServer") &&
+        SetDword(settings, L"ProxyEnable", original.proxy_enable);
     const bool valid_terminal =
         endpoint_restored && SetDword(backup, L"Valid", 0);
     const bool restore_terminal =
@@ -477,44 +597,24 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
     return RemoveRecoveryArtifacts();
   }
 
-  DWORD original_proxy_enable = 0;
-  DWORD has_proxy_server = 0;
-  DWORD has_proxy_override = 0;
-  DWORD has_auto_config_url = 0;
-  DWORD has_auto_detect = 0;
-  DWORD original_auto_detect = 0;
-  std::wstring original_proxy_server;
-  std::wstring original_proxy_override;
-  std::wstring original_auto_config_url;
-  const bool snapshot_valid =
-      ReadDword(backup, L"OriginalProxyEnable", &original_proxy_enable) &&
-      ReadOptionalString(backup, L"HasProxyServer", L"OriginalProxyServer",
-                         &has_proxy_server, &original_proxy_server) &&
-      ReadOptionalString(backup, L"HasProxyOverride",
-                         L"OriginalProxyOverride", &has_proxy_override,
-                         &original_proxy_override) &&
-      ReadOptionalString(backup, L"HasAutoConfigURL",
-                         L"OriginalAutoConfigURL", &has_auto_config_url,
-                         &original_auto_config_url) &&
-      ReadDword(backup, L"HasAutoDetect", &has_auto_detect) &&
-      ReadDword(backup, L"OriginalAutoDetect", &original_auto_detect);
-
   bool settings_restored =
       snapshot_valid &&
       (restore_in_progress == 1 ||
        SetDword(backup, L"RestoreInProgress", 1));
   if (settings_restored) {
     settings_restored =
-        RestorePreparedString(settings, has_proxy_server,
-                              original_proxy_server, L"ProxyServer") &&
-        RestorePreparedString(settings, has_proxy_override,
-                              original_proxy_override, L"ProxyOverride") &&
-        RestorePreparedString(settings, has_auto_config_url,
-                              original_auto_config_url, L"AutoConfigURL") &&
-        (has_auto_detect != 0
-             ? SetDword(settings, L"AutoDetect", original_auto_detect)
+        RestorePreparedString(settings, original.proxy_server.present,
+                              original.proxy_server.value, L"ProxyServer") &&
+        RestorePreparedString(settings, original.proxy_override.present,
+                              original.proxy_override.value,
+                              L"ProxyOverride") &&
+        RestorePreparedString(settings, original.auto_config_url.present,
+                              original.auto_config_url.value,
+                              L"AutoConfigURL") &&
+        (original.auto_detect.present != 0
+             ? SetDword(settings, L"AutoDetect", original.auto_detect.value)
              : DeleteValueIfPresent(settings, L"AutoDetect")) &&
-        SetDword(settings, L"ProxyEnable", original_proxy_enable);
+        SetDword(settings, L"ProxyEnable", original.proxy_enable);
   }
   const bool valid_terminal =
       settings_restored && SetDword(backup, L"Valid", 0);

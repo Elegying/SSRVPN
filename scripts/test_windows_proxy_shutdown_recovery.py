@@ -6,6 +6,52 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
+    def test_launcher_rejects_a_precreated_process_job(self) -> None:
+        launcher = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "windows"
+            / "runner"
+            / "launcher_main.cpp"
+        ).read_text(encoding="utf-8-sig")
+        create_job = launcher[
+            launcher.index("HANDLE CreateProcessJob()") :
+            launcher.index("bool RestoreProxyForProcessCleanup")
+        ]
+
+        self.assertIn("GetLastError() == ERROR_ALREADY_EXISTS", create_job)
+        self.assertIn("CloseHandle(process_job)", create_job)
+        self.assertIn("SetLastError(ERROR_ALREADY_EXISTS)", create_job)
+        self.assertIn("return nullptr", create_job)
+
+    def test_pending_proxy_flags_require_a_live_transaction_fingerprint(self) -> None:
+        native = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "windows"
+            / "runner"
+            / "system_proxy_recovery.cpp"
+        ).read_text(encoding="utf-8")
+        installer = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "installer"
+            / "stop_ssrvpn_processes.ps1"
+        ).read_text(encoding="utf-8")
+        dart = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "system_proxy_service.dart"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("IsCorroboratedProxyTransactionState", native)
+        self.assertIn("pending_state_corroborated", native)
+        self.assertIn("Test-CorroboratedProxyTransactionState", installer)
+        self.assertIn("$pendingStateCorroborated", installer)
+        self.assertIn("_isCorroboratedTransactionState", dart)
+
     def test_expected_failures_skip_reports_but_unexpected_failures_keep_them(
         self,
     ) -> None:
@@ -286,12 +332,15 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
 
         restore_start = recovery.index("bool RestoreOwnedWindowsProxyUnlocked()")
         restore_body = recovery[restore_start:]
-        first_snapshot = restore_body.index("DWORD original_proxy_enable = 0;")
-        full_snapshot = restore_body.index(
-            "DWORD original_proxy_enable = 0;", first_snapshot + 1
+        snapshot_read = restore_body.index(
+            "ReadBackupProxyState(backup, &original)"
         )
-        endpoint_restore = restore_body[first_snapshot:full_snapshot]
-        full_restore = restore_body[full_snapshot:]
+        endpoint_start = restore_body.index(
+            "if (!owned && !full_restore_pending"
+        )
+        full_restore_start = restore_body.index("bool settings_restored")
+        endpoint_restore = restore_body[endpoint_start:full_restore_start]
+        full_restore = restore_body[full_restore_start:]
         mutation_tokens = (
             "SetDword(settings",
             "SetString(settings",
@@ -303,26 +352,23 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             for token in mutation_tokens
             if token in full_restore
         )
-        for token in (
-            'ReadDword(backup, L"OriginalProxyEnable"',
-            'ReadOptionalString(backup, L"HasProxyServer"',
-            'ReadOptionalString(backup, L"HasProxyOverride"',
-            'ReadOptionalString(backup, L"HasAutoConfigURL"',
-            'ReadDword(backup, L"HasAutoDetect"',
-            'ReadDword(backup, L"OriginalAutoDetect"',
-        ):
-            self.assertLess(full_restore.index(token), first_mutation)
+        self.assertLess(snapshot_read, endpoint_start)
+        self.assertIn("bool ReadBackupProxyState", recovery)
 
         proxy_enable_write = full_restore.index(
             'SetDword(settings, L"ProxyEnable"'
         )
         self.assertGreater(
             proxy_enable_write,
-            full_restore.index('RestorePreparedString(settings, has_proxy_server'),
+            full_restore.index(
+                "RestorePreparedString(settings, original.proxy_server.present"
+            ),
         )
         self.assertGreater(
             proxy_enable_write,
-            full_restore.index('RestorePreparedString(settings, has_auto_config_url'),
+            full_restore.index(
+                "RestorePreparedString(settings, original.auto_config_url.present"
+            ),
         )
         self.assertGreater(
             proxy_enable_write,
@@ -331,7 +377,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         journal_write = restore_body.index(
             'SetDword(backup, L"RestoreInProgress", 1)'
         )
-        self.assertLess(journal_write - full_snapshot, first_mutation)
+        self.assertLess(journal_write - full_restore_start, first_mutation)
         self.assertIn('restore_in_progress == 1', restore_body)
         self.assertGreaterEqual(
             restore_body.count('L"RestoreInProgress", 0)'),

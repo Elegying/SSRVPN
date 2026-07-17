@@ -126,7 +126,12 @@ class SystemProxyService {
             _lastError = '无法确认 Windows 原生代理恢复状态，稍后重试';
             return;
           }
-          trustedActivation = nativePending == true;
+          trustedActivation = nativePending == true &&
+              _isCorroboratedTransactionState(
+                current,
+                snapshot,
+                ownedProxyServer,
+              );
         }
         if (!ownsFullFingerprint && !ownsEndpoint && !trustedActivation) {
           // The user or another app changed the proxy, or this is a legacy
@@ -585,6 +590,75 @@ if (\$valid -and \$owned -and \$pending) {
         proxyServer: current.proxyServer,
         ownedProxyServer: ownedProxyServer,
       );
+
+  bool _isCorroboratedTransactionState(
+    _ProxySnapshot current,
+    _ProxySnapshot original,
+    String? ownedProxyServer,
+  ) {
+    if (ownedProxyServer == null) return false;
+
+    bool optionalStringMatchesEither(
+      bool currentPresent,
+      String currentValue,
+      bool originalPresent,
+      String originalValue,
+      bool ownedPresent,
+      String ownedValue,
+    ) =>
+        (currentPresent == originalPresent &&
+            (!currentPresent || currentValue == originalValue)) ||
+        (currentPresent == ownedPresent &&
+            (!currentPresent || currentValue == ownedValue));
+
+    bool optionalDwordMatchesEither(
+      bool currentPresent,
+      int currentValue,
+      bool originalPresent,
+      int originalValue,
+      bool ownedPresent,
+      int ownedValue,
+    ) =>
+        (currentPresent == originalPresent &&
+            (!currentPresent || currentValue == originalValue)) ||
+        (currentPresent == ownedPresent &&
+            (!currentPresent || currentValue == ownedValue));
+
+    return (current.proxyEnable == original.proxyEnable ||
+            current.proxyEnable == 1) &&
+        optionalStringMatchesEither(
+          current.hasProxyServer,
+          current.proxyServer,
+          original.hasProxyServer,
+          original.proxyServer,
+          true,
+          ownedProxyServer,
+        ) &&
+        optionalStringMatchesEither(
+          current.hasProxyOverride,
+          current.proxyOverride,
+          original.hasProxyOverride,
+          original.proxyOverride,
+          true,
+          _ownedProxyOverride,
+        ) &&
+        optionalStringMatchesEither(
+          current.hasAutoConfigUrl,
+          current.autoConfigUrl,
+          original.hasAutoConfigUrl,
+          original.autoConfigUrl,
+          false,
+          '',
+        ) &&
+        optionalDwordMatchesEither(
+          current.hasAutoDetect,
+          current.autoDetect,
+          original.hasAutoDetect,
+          original.autoDetect,
+          true,
+          0,
+        );
+  }
 
   void _forgetOwnership() {
     _ownsProxy = false;

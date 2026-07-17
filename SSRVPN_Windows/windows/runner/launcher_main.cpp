@@ -149,7 +149,16 @@ bool HasUsableStandardHandle(DWORD id) {
 }
 
 HANDLE CreateProcessJob() {
-  return ::CreateJobObjectW(nullptr, kProcessJobName);
+  HANDLE process_job = ::CreateJobObjectW(nullptr, kProcessJobName);
+  if (process_job != nullptr &&
+      ::GetLastError() == ERROR_ALREADY_EXISTS) {
+    // A fixed-name job can be created before SSRVPN starts. Never attach the
+    // app to an object whose membership was not established by this launcher.
+    ::CloseHandle(process_job);
+    ::SetLastError(ERROR_ALREADY_EXISTS);
+    return nullptr;
+  }
+  return process_job;
 }
 
 bool RestoreProxyForProcessCleanup(
