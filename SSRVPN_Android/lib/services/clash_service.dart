@@ -10,6 +10,18 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 class _AndroidStartCancelled implements Exception {}
 
+class AndroidProxySwitchResult {
+  const AndroidProxySwitchResult({
+    required this.liveSwitched,
+    required this.snapshotPersisted,
+    required this.intentCurrent,
+  });
+
+  final bool liveSwitched;
+  final bool snapshotPersisted;
+  final bool intentCurrent;
+}
+
 /// Clash Meta 核心管理服务 (Android 版)
 ///
 /// 继承 [ClashServiceBase] 共享 API/延迟/健康检查/状态/端口，
@@ -385,8 +397,19 @@ class ClashService extends ClashServiceBase {
         notifyStatusChanged();
         await _notifyNativeStateChange();
         _ensureStartCurrent(startToken);
-        await _saveConfigForTile(nodeName, startConfigPath);
+        final snapshotSaved =
+            await _saveConfigForTile(nodeName, startConfigPath);
         _ensureStartCurrent(startToken);
+        if (!snapshotSaved) {
+          const snapshotError = '无法保存快速启动配置，VPN 已安全回滚';
+          try {
+            await stop();
+            setLastStartError(snapshotError);
+          } catch (stopError) {
+            setLastStartError('$snapshotError；$stopError');
+          }
+          return false;
+        }
         startStatusMonitor();
         return true;
       } else {
@@ -539,8 +562,27 @@ class ClashService extends ClashServiceBase {
     }
   }
 
+  Future<void> discardPreparedConfig(String path) async {
+    if (path == _runningConfigPath) return;
+    final file = File(path);
+    final name = file.uri.pathSegments.last;
+    if (!name.startsWith('config-') || !name.endsWith('.yaml')) return;
+    if (file.absolute.parent.path != Directory(configDir).absolute.path) return;
+    if (await FileSystemEntity.type(path, followLinks: false) ==
+        FileSystemEntityType.file) {
+      await file.delete();
+    }
+  }
+
   Future<void> clearNativeConnectionSnapshot() async {
     await _channel.invokeMethod('clearConnectionSnapshot');
+    final runningConfigPath = _runningConfigPath;
+    if (isRunning) {
+      if (runningConfigPath != null) {
+        await _pruneVersionedConfigs({runningConfigPath});
+      }
+      return;
+    }
     _runningConfigPath = null;
     final directory = Directory(configDir);
     if (!await directory.exists()) return;
@@ -560,20 +602,51 @@ class ClashService extends ClashServiceBase {
 
   @override
   Future<bool> switchSelectedProxy(String nodeName) async {
+    final result = await switchSelectedProxyWithSnapshot(nodeName);
+    return result.liveSwitched;
+  }
+
+  Future<AndroidProxySwitchResult> switchSelectedProxyWithSnapshot(
+    String nodeName,
+  ) async {
     final switched = await super.switchSelectedProxy(nodeName);
-    return switched && await updateVpnNotification(nodeName);
+    if (!switched) {
+      return const AndroidProxySwitchResult(
+        liveSwitched: false,
+        snapshotPersisted: false,
+        intentCurrent: true,
+      );
+    }
+    final persisted = await updateVpnNotification(nodeName);
+    return AndroidProxySwitchResult(
+      liveSwitched: true,
+      snapshotPersisted: persisted,
+      intentCurrent: true,
+    );
   }
 
   /// Initial/reload connection flows use this variant so an obsolete intent
   /// cannot publish its node after a newer connect/disconnect request wins.
-  Future<bool> switchSelectedProxyForConnection(
+  Future<AndroidProxySwitchResult> switchSelectedProxyForConnection(
     String nodeName, {
     required int connectionGeneration,
   }) async {
+    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+      return const AndroidProxySwitchResult(
+        liveSwitched: false,
+        snapshotPersisted: false,
+        intentCurrent: false,
+      );
+    }
     final switched = await super.switchSelectedProxy(nodeName);
-    if (!switched ||
-        !isConnectionIntentCurrent(connectionGeneration, connected: true)) {
-      return false;
+    final intentCurrent =
+        isConnectionIntentCurrent(connectionGeneration, connected: true);
+    if (!switched || !intentCurrent) {
+      return AndroidProxySwitchResult(
+        liveSwitched: switched,
+        snapshotPersisted: false,
+        intentCurrent: intentCurrent,
+      );
     }
     final updated = await updateVpnNotification(
       nodeName,
@@ -583,8 +656,12 @@ class ClashService extends ClashServiceBase {
         connected: true,
       ),
     );
-    return updated &&
-        isConnectionIntentCurrent(connectionGeneration, connected: true);
+    return AndroidProxySwitchResult(
+      liveSwitched: true,
+      snapshotPersisted: updated,
+      intentCurrent:
+          isConnectionIntentCurrent(connectionGeneration, connected: true),
+    );
   }
 
   Future<bool> updateVpnNotification(

@@ -406,10 +406,14 @@ void main() {
       'apiPort': 9091,
       'selectedNodeName': 'Old Node',
     });
+    var stops = 0;
     messenger.setMockMethodCallHandler(channel, (call) async {
       switch (call.method) {
         case 'startCoreWithVpn':
         case 'notifyVpnStateChanged':
+          return true;
+        case 'stopCore':
+          stops += 1;
           return true;
         case 'syncSettings':
           throw PlatformException(code: 'NATIVE_SECRET_SYNC_FAILED');
@@ -425,7 +429,10 @@ void main() {
       ..setPaths(configDir: dir.path, configPath: config.path)
       ..updateSettings(AppSettings(apiSecret: 'current-secret'));
 
-    expect(await service.start(nodeName: 'New Node'), isTrue);
+    expect(await service.start(nodeName: 'New Node'), isFalse);
+    expect(service.lastStartError, contains('快速启动'));
+    expect(service.isRunning, isFalse);
+    expect(stops, 1);
 
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('configDir'), 'old-dir');
@@ -433,5 +440,21 @@ void main() {
     expect(prefs.getInt('apiPort'), 9091);
     expect(prefs.getString('selectedNodeName'), 'Old Node');
     service.dispose();
+  });
+
+  test('discard removes an unused versioned config but keeps the running one',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('ssrvpn_discard_test_');
+    addTearDown(() => dir.delete(recursive: true));
+    final service = ClashService()
+      ..setPaths(
+        configDir: dir.path,
+        configPath: '${dir.path}${Platform.pathSeparator}config.yaml',
+      );
+    final unused = await service.writeConfig('unused');
+
+    await service.discardPreparedConfig(unused);
+
+    expect(await File(unused).exists(), isFalse);
   });
 }

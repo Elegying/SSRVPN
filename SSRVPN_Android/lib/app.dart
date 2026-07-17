@@ -99,12 +99,9 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         if (!mounted) return;
         setState(() => _appInitialized = true);
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          unawaited(StartupOrchestrator(
-            settings: _settingsService,
-            clash: _clashService,
-            subscription: _subscriptionService,
-            flags: widget.startupFlags,
-          ).start());
+          unawaited(
+            StartupOrchestrator(flags: widget.startupFlags).start(),
+          );
         });
         return;
       } catch (e) {

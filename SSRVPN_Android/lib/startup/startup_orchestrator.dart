@@ -1,8 +1,5 @@
 import 'dart:async';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
-import '../services/clash_service.dart';
-import '../services/settings_service.dart';
-import '../services/subscription_service.dart';
 import '../services/update_service.dart';
 import 'startup_flags.dart';
 import 'startup_logger.dart';
@@ -12,38 +9,17 @@ import 'startup_status.dart';
 class StartupOrchestrator {
   final StartupFlags flags;
   final StartupStatus status = StartupStatus();
-  final SettingsService? _settings;
-  final ClashService? _clash;
-  final SubscriptionService? _subscription;
 
-  StartupOrchestrator({
-    required SettingsService? settings,
-    required ClashService? clash,
-    required SubscriptionService? subscription,
-    required this.flags,
-  })  : _settings = settings,
-        _clash = clash,
-        _subscription = subscription;
+  StartupOrchestrator({required this.flags});
 
   Future<void> start() async {
     status.start();
     StartupLogger.info('启动流程开始');
 
     try {
-      if (_clash == null || _subscription == null) {
-        StartupLogger.error('startup', '核心服务未就绪');
-        status.fail('核心服务未就绪');
-        return;
-      }
-
       if (!flags.skipUpdateCheck) {
         status.recordStep('更新检查', '检查新版本');
         await _checkForUpdate();
-      }
-
-      if (flags.autoConnect) {
-        status.recordStep('自动连接', '尝试自动连接 VPN');
-        await _autoConnect();
       }
 
       status.complete();
@@ -59,26 +35,6 @@ class StartupOrchestrator {
       await UpdateService.checkForUpdate(AppConstants.appVersion);
     } catch (e) {
       StartupLogger.warn('更新检查失败: $e');
-    }
-  }
-
-  Future<void> _autoConnect() async {
-    try {
-      final clash = _clash;
-      if (clash == null) return;
-      final node = HomeNodeController.resolveDefaultNodeFrom(
-        _subscription?.allNodes ?? const <ProxyNode>[],
-        _settings?.settings.lastSelectedNodeName,
-      )?.name;
-      final started = await clash.start(nodeName: node);
-      if (started && node != null && node.isNotEmpty) {
-        await clash.switchSelectedProxy(node);
-      }
-    } catch (e) {
-      // 记录警告但不阻止启动流程
-      // 节点列表可能为空或 switchSelectedProxy 因节点不存在而失败
-      // 用户可在连接后通过 clash API 手动切换节点
-      StartupLogger.warn('自动连接警告 (非致命): $e');
     }
   }
 }

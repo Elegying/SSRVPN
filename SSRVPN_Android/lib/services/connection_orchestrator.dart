@@ -42,40 +42,55 @@ class ConnectionOrchestrator {
       preferredNodeName: nodeName,
     );
 
-    // 写入配置
-    final preparedConfigPath = await clashService.writeConfig(config);
-    if (!_isCurrent(connectionGeneration)) return null;
+    String? preparedConfigPath;
+    try {
+      // 写入配置
+      preparedConfigPath = await clashService.writeConfig(config);
+      if (!_isCurrent(connectionGeneration)) return null;
 
-    // 启动核心
-    final success = await clashService.start(
-      nodeName: nodeName,
-      preparedConfigPath: preparedConfigPath,
-    );
-
-    if (!_isCurrent(connectionGeneration)) {
-      return null;
-    }
-
-    if (!success) {
-      return '连接失败: ${clashService.lastStartError ?? "无法启动VPN核心"}';
-    }
-
-    // 切换选中节点
-    if (nodeName != null && nodeName.isNotEmpty) {
-      await clashService.switchSelectedProxyForConnection(
-        nodeName,
-        connectionGeneration: connectionGeneration,
+      // 启动核心
+      final success = await clashService.start(
+        nodeName: nodeName,
+        preparedConfigPath: preparedConfigPath,
       );
+
       if (!_isCurrent(connectionGeneration)) {
         return null;
       }
-    }
 
-    // 验证连通性
-    final connectivityWarning = await clashService.verifyUserConnectivity(
-      shouldContinue: () => _isCurrent(connectionGeneration),
-    );
-    return connectivityWarning; // null = 完全成功
+      if (!success) {
+        return '连接失败: ${clashService.lastStartError ?? "无法启动VPN核心"}';
+      }
+
+      // 切换选中节点
+      String? snapshotWarning;
+      if (nodeName != null && nodeName.isNotEmpty) {
+        final switchResult =
+            await clashService.switchSelectedProxyForConnection(
+          nodeName,
+          connectionGeneration: connectionGeneration,
+        );
+        if (!_isCurrent(connectionGeneration)) {
+          return null;
+        }
+        if (!switchResult.liveSwitched) {
+          return '连接失败: 无法切换到所选节点';
+        }
+        if (!switchResult.snapshotPersisted) {
+          snapshotWarning = 'VPN 已连接，但快速启动节点信息保存失败';
+        }
+      }
+
+      // 验证连通性
+      final connectivityWarning = await clashService.verifyUserConnectivity(
+        shouldContinue: () => _isCurrent(connectionGeneration),
+      );
+      return connectivityWarning ?? snapshotWarning; // null = 完全成功
+    } finally {
+      if (preparedConfigPath != null) {
+        await clashService.discardPreparedConfig(preparedConfigPath);
+      }
+    }
   }
 
   bool _isCurrent(int generation) => clashService.isConnectionIntentCurrent(

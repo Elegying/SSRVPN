@@ -44,10 +44,13 @@ extension _AndroidHomeNodeActions on HomeScreenState {
       return;
     }
     final clashService = context.read<ClashService>();
-    final ok = await clashService.switchSelectedProxy(node.name);
-    if (ok) {
+    final result =
+        await clashService.switchSelectedProxyWithSnapshot(node.name);
+    var snapshotPersisted = result.snapshotPersisted;
+    if (result.liveSwitched) {
       await _rememberSelectedNode(node);
-      await _writePreferredNodeConfigForTile(node);
+      snapshotPersisted =
+          await _writePreferredNodeConfigForTile(node) || snapshotPersisted;
       if (mounted) _updateHomeState(() => _selectedNode = node);
       _schedulePublicIpRefresh();
     }
@@ -55,7 +58,13 @@ extension _AndroidHomeNodeActions on HomeScreenState {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
-          content: Text(ok ? '已切换: ${node.name}' : '切换失败: ${node.name}'),
+          content: Text(
+            !result.liveSwitched
+                ? '切换失败: ${node.name}'
+                : snapshotPersisted
+                    ? '已切换: ${node.name}'
+                    : '已切换: ${node.name}；快速启动信息保存失败',
+          ),
           duration: const Duration(seconds: 4),
         ),
       );
@@ -88,9 +97,9 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     await settingsService.setLastSelectedNodeName(node.name);
   }
 
-  Future<void> _writePreferredNodeConfigForTile(ProxyNode node) async {
+  Future<bool> _writePreferredNodeConfigForTile(ProxyNode node) async {
     final rawYaml = context.read<SubscriptionService>().rawYaml;
-    if (rawYaml == null || rawYaml.trim().isEmpty) return;
+    if (rawYaml == null || rawYaml.trim().isEmpty) return false;
     final settingsService = context.read<SettingsService>();
     try {
       await context.read<ClashService>().writePreferredNodeConfig(
@@ -98,8 +107,10 @@ extension _AndroidHomeNodeActions on HomeScreenState {
             settingsService.settings,
             node.name,
           );
+      return true;
     } catch (e) {
       AppLogger.warning('Tile', '更新默认节点配置失败: $e');
+      return false;
     }
   }
 
