@@ -184,6 +184,13 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
               ),
             );
           }
+          if (!clashService.isConnectionIntentCurrent(
+                connectionGeneration,
+                connected: true,
+              ) ||
+              !clashService.isRunning) {
+            return;
+          }
           _updateHomeState(() {
             _isConnected = true;
             _isConnecting = false;

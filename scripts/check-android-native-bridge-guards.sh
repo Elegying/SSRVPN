@@ -121,6 +121,24 @@ publish = source.index("isRunning = true", selection)
 if "startGeneration.runIfCurrent(startToken)" not in source[selection:publish]:
     raise SystemExit("Android VPN publishes connected state outside the atomic generation gate")
 PY
+
+python3 - "${HOME_PARTS[0]}" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+remember = source.index("await _rememberSelectedNode(")
+publish = source.index("_updateHomeState(() {", remember)
+window = source[remember:publish]
+if window.count("isConnectionIntentCurrent(") < 2:
+    raise SystemExit(
+        "Android home must revalidate connection intent after persisting the selected node"
+    )
+if "!clashService.isRunning" not in window:
+    raise SystemExit(
+        "Android home must confirm the core is still running before publishing connected UI"
+    )
+PY
 require_text "waitForPendingStart()"
 require_text "VPN is already running; reusing the active session"
 require_text "createStartIntent"

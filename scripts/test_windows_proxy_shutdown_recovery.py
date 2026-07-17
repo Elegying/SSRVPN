@@ -227,7 +227,9 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("snapshot.legacyInterfaceIndexes", tun_recovery)
         self.assertIn("discoverLegacySignatures: true", migration)
         self.assertIn("waitForWindowsTunTeardown", migration)
-        self.assertIn("legacyInterfaceIndexes.contains", migration)
+        self.assertIn("_tunResidualProbeOverride?.call(const {})", migration)
+        self.assertIn("expectedInterfaces: const {}", migration)
+        self.assertNotIn("legacyInterfaceIndexes.contains", migration)
 
     def test_tun_residual_routes_belong_to_captured_interfaces(self) -> None:
         probe = (
@@ -400,6 +402,16 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("IsActivationPrefix", restore_body)
         self.assertIn("IsFullRestorePrefix", restore_body)
         self.assertIn("IsEndpointRestorePrefix", restore_body)
+        endpoint_prefix = recovery[
+            recovery.index("bool IsEndpointRestorePrefix") : recovery.index(
+                "bool DisableOwnedProxyEndpoint"
+            )
+        ]
+        self.assertIn("original_may_be_disabled", endpoint_prefix)
+        self.assertIn(
+            "original_may_be_disabled && proxy_equals(disabled)",
+            endpoint_prefix,
+        )
         journal_write = restore_body.index(
             'SetDword(backup, L"RestoreInProgress", 1)'
         )

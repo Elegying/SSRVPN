@@ -97,24 +97,18 @@ extension _WindowsTunRecovery on _WindowsCoreLifecycle {
   Future<void> _migrateLegacyTunTeardownMarker(
     Set<int> legacyInterfaceIndexes,
   ) async {
-    final allInterfaces = await probeWindowsNetworkInterfaceIdentities();
-    final legacyInterfaces = allInterfaces
-        .where((identity) => legacyInterfaceIndexes.contains(identity.index))
-        .toSet();
-    final legacyGuids = legacyInterfaces
-        .map((identity) => identity.interfaceGuid.toLowerCase())
-        .toSet();
-    var baseline = allInterfaces
-        .where(
-          (identity) =>
-              !legacyGuids.contains(identity.interfaceGuid.toLowerCase()),
-        )
-        .toSet();
+    final allInterfaces =
+        await (_networkInterfaceIdentityProbeOverride?.call() ??
+            probeWindowsNetworkInterfaceIdentities());
+    var baseline = allInterfaces;
 
     Future<WindowsTunResidualProbeResult> probeLegacyResidual() async {
-      return await (_tunResidualProbeOverride?.call(legacyInterfaces) ??
+      // A numeric ifIndex can be reused by Windows. Keep the old values only
+      // as migration evidence; ownership must be rediscovered from SSRVPN's
+      // address/route signatures before it is promoted to a stable GUID.
+      return await (_tunResidualProbeOverride?.call(const {}) ??
           probeWindowsTunResidual(
-            expectedInterfaces: legacyInterfaces,
+            expectedInterfaces: const {},
             baselineInterfaces: baseline,
             discoverLegacySignatures: true,
           ));
@@ -140,10 +134,7 @@ extension _WindowsTunRecovery on _WindowsCoreLifecycle {
       return;
     }
 
-    final observed = <WindowsTunInterfaceIdentity>{
-      ...legacyInterfaces,
-      ...initial.interfaces,
-    };
+    final observed = initial.interfaces;
     final observedGuids = observed
         .map((identity) => identity.interfaceGuid.toLowerCase())
         .toSet();
@@ -161,7 +152,10 @@ extension _WindowsTunRecovery on _WindowsCoreLifecycle {
     );
     _tunInterfacesBeforeStart = baseline;
     _tunTeardownGate.markPending(observed, baseline);
-    log('已将旧版 TUN 清理标记迁移为稳定网卡身份');
+    log(
+      '已从旧版 TUN 索引 ${legacyInterfaceIndexes.toList()..sort()} '
+      '重新验证并迁移稳定网卡身份',
+    );
   }
 
   Future<bool> _armTunTeardownGate() async {

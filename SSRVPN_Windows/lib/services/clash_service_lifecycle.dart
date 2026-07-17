@@ -38,6 +38,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   Future<void>? _pidCleanupOperation;
   WindowsTunRuntimeProbe? _tunRuntimeProbeOverride;
   WindowsTunResidualProbe? _tunResidualProbeOverride;
+  WindowsNetworkInterfaceIdentityProbe? _networkInterfaceIdentityProbeOverride;
   final WindowsTunTeardownGate _tunTeardownGate = WindowsTunTeardownGate();
   Set<WindowsTunInterfaceIdentity> _tunInterfacesBeforeStart = const {};
   String? _lastStopError;

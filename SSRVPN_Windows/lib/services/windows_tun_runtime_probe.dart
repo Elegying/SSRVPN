@@ -21,6 +21,8 @@ typedef WindowsTunInterfaceIdentity = ({
   int index,
   String interfaceGuid,
 });
+typedef WindowsNetworkInterfaceIdentityProbe
+    = Future<Set<WindowsTunInterfaceIdentity>> Function();
 typedef WindowsTunTeardownMarkerSnapshot = ({
   Set<WindowsTunInterfaceIdentity> interfaces,
   Set<WindowsTunInterfaceIdentity> baselineInterfaces,

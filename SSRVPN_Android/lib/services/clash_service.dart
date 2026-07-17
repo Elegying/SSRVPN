@@ -8,6 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
+part 'clash_service_snapshot_cleanup.dart';
+
 class _AndroidStartCancelled implements Exception {}
 
 class AndroidProxySwitchResult {
@@ -37,7 +39,6 @@ class ClashService extends ClashServiceBase {
   int _startGeneration = 0;
   int _configRevision = 0;
   String? _runningConfigPath;
-  bool _nativeSnapshotClearPending = false;
 
   /// 磁贴/通知触发的自动连接回调
   VoidCallback? onAutoConnect;
@@ -126,6 +127,7 @@ class ClashService extends ClashServiceBase {
 
     await _ensureMMDB();
     await _syncNativeState();
+    await _resumePendingSnapshotFileCleanup();
   }
 
   Future<void> _syncNativeState() async {
@@ -597,42 +599,6 @@ class ClashService extends ClashServiceBase {
         FileSystemEntityType.file) {
       await file.delete();
     }
-  }
-
-  Future<void> clearNativeConnectionSnapshot() async {
-    await _channel.invokeMethod('clearConnectionSnapshot');
-    _nativeSnapshotClearPending = true;
-    final runningConfigPath = _runningConfigPath;
-    if (isRunning) {
-      if (runningConfigPath != null) {
-        await _pruneVersionedConfigs({runningConfigPath});
-      }
-      return;
-    }
-    await _completePendingSnapshotFileCleanup();
-  }
-
-  Future<void> _completePendingSnapshotFileCleanup() async {
-    if (!_nativeSnapshotClearPending) return;
-    _runningConfigPath = null;
-    final directory = Directory(configDir);
-    if (!await directory.exists()) {
-      _nativeSnapshotClearPending = false;
-      return;
-    }
-    await for (final entity in directory.list(followLinks: false)) {
-      final name = entity.uri.pathSegments.last;
-      if (name != 'config.yaml' &&
-          !(name.startsWith('config-') && name.endsWith('.yaml'))) {
-        continue;
-      }
-      final type = await FileSystemEntity.type(entity.path, followLinks: false);
-      if (type == FileSystemEntityType.file ||
-          type == FileSystemEntityType.link) {
-        await entity.delete();
-      }
-    }
-    _nativeSnapshotClearPending = false;
   }
 
   @override

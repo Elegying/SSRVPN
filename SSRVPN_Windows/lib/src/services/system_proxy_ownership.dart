@@ -136,8 +136,12 @@ bool isReachableWindowsProxyTransactionState({
       hasProxyEnable: true,
       proxyEnable: 0,
     );
+    final originalMayBeDisabled =
+        !original.hasProxyEnable || original.proxyEnable == 0;
     return (ownedServer && (proxyEquals(owned) || proxyEquals(disabled))) ||
-        (originalServer && (proxyEquals(disabled) || proxyEquals(original)));
+        (originalServer &&
+            (proxyEquals(original) ||
+                (originalMayBeDisabled && proxyEquals(disabled))));
   }
 
   for (final activationState in activationStates) {
