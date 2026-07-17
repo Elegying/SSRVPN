@@ -682,7 +682,8 @@ int RunGuardian(const std::wstring& child_path, DWORD child_process_id,
     return finish(ERROR_ACCESS_DENIED);
   }
   process_job = ::OpenJobObjectW(
-      JOB_OBJECT_TERMINATE | JOB_OBJECT_QUERY, FALSE, kProcessJobName);
+      JOB_OBJECT_TERMINATE | JOB_OBJECT_QUERY | JOB_OBJECT_SET_ATTRIBUTES,
+      FALSE, kProcessJobName);
   if (process_job == nullptr) {
     return finish(::GetLastError());
   }

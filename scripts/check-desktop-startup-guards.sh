@@ -93,6 +93,9 @@ for path in paths:
         )
 
 windows_source = paths[1].read_text(encoding="utf-8")
+windows_source += Path(
+    "SSRVPN_Windows/lib/services/clash_service_tun_recovery.dart"
+).read_text(encoding="utf-8")
 required_tun_guards = (
     "Future<bool> healthCheck() async",
     "final tun = (await getConfigs())?['tun']",

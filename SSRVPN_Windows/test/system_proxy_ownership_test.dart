@@ -3,7 +3,127 @@ import 'package:ssrvpn_windows/src/services/system_proxy_ownership.dart';
 
 const _ownedOverride = '<local>;localhost;127.*';
 
+const _original = WindowsProxyState(
+  proxyEnable: 0,
+  hasProxyServer: true,
+  proxyServer: 'proxy.example:8080',
+  hasProxyOverride: true,
+  proxyOverride: '<local>;example.test',
+  hasAutoConfigUrl: true,
+  autoConfigUrl: 'https://example.test/proxy.pac',
+  hasAutoDetect: true,
+  autoDetect: 1,
+);
+
+const _owned = WindowsProxyState(
+  proxyEnable: 1,
+  hasProxyServer: true,
+  proxyServer: '127.0.0.1:7890',
+  hasProxyOverride: true,
+  proxyOverride: _ownedOverride,
+  hasAutoConfigUrl: false,
+  autoConfigUrl: '',
+  hasAutoDetect: true,
+  autoDetect: 0,
+);
+
 void main() {
+  group('Windows proxy transaction states', () {
+    test('accepts every exact activation prefix', () {
+      final prefixes = windowsProxyActivationPrefixes(
+        original: _original,
+        owned: _owned,
+      );
+
+      expect(prefixes, hasLength(6));
+      for (final state in prefixes) {
+        expect(
+          isReachableWindowsProxyTransactionState(
+            current: state,
+            original: _original,
+            owned: _owned,
+            phase: WindowsProxyTransactionPhase.activation,
+          ),
+          isTrue,
+        );
+      }
+    });
+
+    test('rejects impossible Cartesian mixtures', () {
+      const impossible = WindowsProxyState(
+        proxyEnable: 1,
+        hasProxyServer: true,
+        proxyServer: 'proxy.example:8080',
+        hasProxyOverride: true,
+        proxyOverride: _ownedOverride,
+        hasAutoConfigUrl: true,
+        autoConfigUrl: 'https://example.test/proxy.pac',
+        hasAutoDetect: true,
+        autoDetect: 0,
+      );
+
+      for (final phase in WindowsProxyTransactionPhase.values) {
+        expect(
+          isReachableWindowsProxyTransactionState(
+            current: impossible,
+            original: _original,
+            owned: _owned,
+            phase: phase,
+          ),
+          isFalse,
+        );
+      }
+    });
+
+    test('full restore accepts only states reachable from activation', () {
+      final activation = windowsProxyActivationPrefixes(
+        original: _original,
+        owned: _owned,
+      );
+      final interrupted = activation[3].copyWith(proxyEnable: 0);
+
+      expect(
+        isReachableWindowsProxyTransactionState(
+          current: interrupted,
+          original: _original,
+          owned: _owned,
+          phase: WindowsProxyTransactionPhase.fullRestore,
+        ),
+        isTrue,
+        reason:
+            'disabled original proxies are made safe before support restore',
+      );
+    });
+
+    test('endpoint restore ignores support fields but bounds endpoint states',
+        () {
+      final changedSupport = _owned.copyWith(
+        proxyOverride: 'changed-by-user',
+        autoConfigUrl: 'https://other.test/pac',
+        hasAutoConfigUrl: true,
+      );
+
+      expect(
+        isReachableWindowsProxyTransactionState(
+          current: changedSupport.copyWith(proxyEnable: 0),
+          original: _original,
+          owned: _owned,
+          phase: WindowsProxyTransactionPhase.endpointRestore,
+        ),
+        isTrue,
+      );
+      expect(
+        isReachableWindowsProxyTransactionState(
+          current: changedSupport.copyWith(proxyServer: 'foreign:9000'),
+          original: _original,
+          owned: _owned,
+          phase: WindowsProxyTransactionPhase.endpointRestore,
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('isOwnedWindowsProxyEndpoint', () {
     test('recognizes the enabled localhost endpoint despite support changes',
         () {

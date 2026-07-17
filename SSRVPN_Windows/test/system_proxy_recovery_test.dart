@@ -130,8 +130,7 @@ void main() {
     expect(await backup.exists(), isFalse);
   });
 
-  test('stale activation restores only the exact owned endpoint',
-      () async {
+  test('stale activation restores only the exact owned endpoint', () async {
     final temp = await Directory.systemTemp.createTemp(
       'ssrvpn_stale_activation_',
     );
@@ -212,7 +211,7 @@ void main() {
     expect(service.recoveryPending, isFalse);
   });
 
-  test('pending native activation never authorizes mixed snapshot replay',
+  test('pending native activation resumes an exact interrupted prefix',
       () async {
     final temp = await Directory.systemTemp.createTemp(
       'ssrvpn_native_activation_',
@@ -247,6 +246,9 @@ void main() {
       localAppData: temp.path,
       scriptRunner: (script) async {
         scripts.add(script);
+        if (script.contains("[Console]::Out.Write('ACTIVATION')")) {
+          return ProcessResult(1, 0, 'ACTIVATION', '');
+        }
         if (script.contains("[Console]::Out.Write('pending')")) {
           return ProcessResult(1, 0, 'pending', '');
         }
@@ -280,7 +282,7 @@ void main() {
           '-Name RestoreInProgress -Type DWord -Value 1',
         ),
       ),
-      isFalse,
+      isTrue,
     );
     expect(await backup.exists(), isFalse);
     expect(service.recoveryPending, isFalse);
@@ -321,6 +323,9 @@ void main() {
       localAppData: temp.path,
       scriptRunner: (script) async {
         scripts.add(script);
+        if (script.contains("[Console]::Out.Write('ACTIVATION')")) {
+          return ProcessResult(1, 0, 'ACTIVATION', '');
+        }
         if (script.contains("[Console]::Out.Write('pending')")) {
           return ProcessResult(1, 0, 'pending', '');
         }
@@ -405,6 +410,9 @@ void main() {
       isWindows: true,
       localAppData: temp.path,
       scriptRunner: (script) async {
+        if (script.contains("[Console]::Out.Write('ACTIVATION')")) {
+          return ProcessResult(1, 0, 'FULL_RESTORE', '');
+        }
         if (script.contains('ConvertTo-Json -Compress')) {
           reads += 1;
           final connected = reads == 1;

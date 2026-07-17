@@ -337,8 +337,13 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         stopper = (installer_root / "stop_ssrvpn_processes.ps1").read_text(
             encoding="utf-8"
         )
+        transaction_state = (
+            installer_root / "proxy_transaction_state.ps1"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("stop_ssrvpn_processes.ps1", installer)
+        self.assertIn("proxy_transaction_state.ps1", installer)
+        self.assertIn(". $proxyTransactionStatePath", stopper)
         self.assertIn("StopResult := StopSsrvpnProcesses", installer)
         self.assertIn("if StopResult = 0 then", installer)
         lock_acquire = stopper.index(
@@ -531,8 +536,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertLess(json_delete, runonce_delete)
         self.assertIn("$cleanupErrors +=", remove_state)
         self.assertIn("throw ($cleanupErrors -join '; ')", remove_state)
-        set_or_remove = stopper.split("function Set-OrRemoveRegistryValue", 1)[1]
-        set_or_remove = set_or_remove.split("function Restore-OwnedSystemProxy", 1)[0]
+        set_or_remove = transaction_state.split(
+            "function Set-OrRemoveRegistryValue", 1
+        )[1].split("function Get-SystemProxyState", 1)[0]
         self.assertIn("$current.PSObject.Properties[$Name]", set_or_remove)
         self.assertNotIn("ErrorAction SilentlyContinue", set_or_remove)
         self.assertIn("function Test-SystemProxySafeToStop", stopper)
