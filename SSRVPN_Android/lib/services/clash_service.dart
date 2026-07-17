@@ -485,9 +485,13 @@ class ClashService extends ClashServiceBase {
       await prefs.setString('configDir', configDir);
       await prefs.setString('configPath', configPath);
       await prefs.setInt('apiPort', settings.apiPort);
-      // Keep apiSecret out of SharedPreferences. Tile cold starts use the
-      // generated config order; Flutter updates the proxy selection when open.
+      // Keep apiSecret out of SharedPreferences. Native cold starts read the
+      // Android Keystore-backed copy synchronized through the method channel.
       await prefs.remove('apiSecret');
+      await _channel.invokeMethod('syncSettings', {
+        'proxyPort': settings.proxyPort,
+        'apiSecret': settings.apiSecret,
+      });
       if (nodeName != null && nodeName.isNotEmpty) {
         await prefs.setString('selectedNodeName', nodeName);
       }

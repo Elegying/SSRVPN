@@ -103,6 +103,21 @@ class MainActivity : FlutterActivity() {
                 "syncSettings" -> {
                     val args = call.arguments as? Map<*, *>
                     val proxyPort = (args?.get("proxyPort") as? Number)?.toInt() ?: 7890
+                    val apiSecret = args?.get("apiSecret") as? String
+
+                    if (apiSecret != null) {
+                        try {
+                            NativeApiSecretStore.write(this, apiSecret)
+                        } catch (error: Exception) {
+                            Log.e("MainActivity", "Unable to sync native VPN credentials", error)
+                            result.error(
+                                "NATIVE_SECRET_SYNC_FAILED",
+                                "无法同步原生 VPN 凭据",
+                                null
+                            )
+                            return@setMethodCallHandler
+                        }
+                    }
 
                     getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
                         .edit()

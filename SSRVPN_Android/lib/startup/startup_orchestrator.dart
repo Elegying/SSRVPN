@@ -105,6 +105,7 @@ class StartupOrchestrator {
       final s = _settings?.settings;
       await channel.invokeMethod('syncSettings', {
         'proxyPort': s?.proxyPort ?? 7890,
+        'apiSecret': s?.apiSecret ?? '',
       });
     } catch (e) {
       StartupLogger.warn('原生同步失败: $e');
