@@ -347,7 +347,7 @@ The single chromatic accent is **violet** `{colors.primary}` (#8B5CF6) — used 
 
 ### Semantic
 - **Success** `{colors.success}` (#22C55E): Connected state — transforms the connection orb, selected node indicator, success banners.
-- **Warning** `{colors.warning}` (#F59E0B): Cautions, "safe mode" banner, originals-only unlock status.
+- **Warning** `{colors.warning}` (#F59E0B): Cautions, the safe-mode banner, and recoverable partial-availability states.
 - **Error** `{colors.error}` (#EF4444): Connection failures, blocked states, error banners.
 
 ### Glass
