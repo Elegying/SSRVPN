@@ -75,6 +75,46 @@ download_verified() {
     fail "$label SHA256 mismatch: expected $expected got $actual"
 }
 
+extract_zip_member_bounded() {
+  local archive="$1"
+  local member="$2"
+  local output="$3"
+  local max_bytes="$4"
+  local label="$5"
+  python3 - "$archive" "$member" "$output" "$max_bytes" "$label" <<'PY'
+import stat
+import sys
+import zipfile
+from pathlib import Path
+
+archive_path, member, output_path, max_bytes_raw, label = sys.argv[1:]
+max_bytes = int(max_bytes_raw)
+with zipfile.ZipFile(archive_path) as archive:
+    matches = [info for info in archive.infolist() if info.filename == member]
+    if len(matches) != 1:
+        raise SystemExit(f"{label} must contain exactly one {member}")
+    info = matches[0]
+    if stat.S_ISLNK(info.external_attr >> 16):
+        raise SystemExit(f"{label} member {member} must not be a symlink")
+    if info.file_size > max_bytes:
+        raise SystemExit(f"{label} member exceeds the {max_bytes} byte limit")
+    total = 0
+    with archive.open(info) as source, Path(output_path).open("wb") as target:
+        while True:
+            chunk = source.read(min(1024 * 1024, max_bytes + 1 - total))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise SystemExit(
+                    f"{label} member exceeds the {max_bytes} byte limit"
+                )
+            target.write(chunk)
+    if total != info.file_size:
+        raise SystemExit(f"{label} member size changed during extraction")
+PY
+}
+
 install_verified() {
   local source="$1"
   local destination="$2"
@@ -92,7 +132,7 @@ install_verified() {
   echo "installed $label"
 }
 
-for command in curl gzip python3 unzip; do
+for command in curl gzip python3; do
   command -v "$command" >/dev/null 2>&1 || fail "$command is required"
 done
 
@@ -124,8 +164,9 @@ if ! asset_matches "$android_asset" "$android_hash"; then
   download_verified \
     "$apk_url" "$apk_hash" "$apk" "Android bootstrap APK" $((512 * 1024 * 1024))
 
-  unzip -p "$apk" "$android_member" >"$temp_dir/libgojni.so" ||
-    fail "Android bootstrap APK is missing $android_member"
+  extract_zip_member_bounded \
+    "$apk" "$android_member" "$temp_dir/libgojni.so" \
+    $((128 * 1024 * 1024)) "Android bootstrap APK"
   install_verified \
     "$temp_dir/libgojni.so" "$android_asset" "$android_hash" \
     "Android libgojni.so"
@@ -185,9 +226,10 @@ else
   download_verified \
     "$windows_url" "$windows_zip_hash" "$temp_dir/mihomo-windows.zip" \
     "Windows Mihomo archive" $((256 * 1024 * 1024))
-  unzip -p "$temp_dir/mihomo-windows.zip" "$windows_member" \
-    >"$temp_dir/mihomo.exe" ||
-    fail "Windows Mihomo archive is missing $windows_member"
+  extract_zip_member_bounded \
+    "$temp_dir/mihomo-windows.zip" "$windows_member" \
+    "$temp_dir/mihomo.exe" $((128 * 1024 * 1024)) \
+    "Windows Mihomo archive"
   install_verified \
     "$temp_dir/mihomo.exe" "$windows_asset" "$windows_hash" \
     "Windows mihomo.exe"
