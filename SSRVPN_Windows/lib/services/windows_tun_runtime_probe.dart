@@ -81,7 +81,7 @@ class WindowsTunTeardownGate {
 
   bool accept(WindowsTunResidualProbeResult result) {
     observe(result);
-    if (!_ownershipKnown || result.status != WindowsTunResidualStatus.gone) {
+    if (result.status != WindowsTunResidualStatus.gone) {
       return false;
     }
     _pending = false;
@@ -222,6 +222,14 @@ $allAdapters = @(Get-NetAdapter -IncludeHidden)
 $occupiedIndexes = @(
   $allAdapters | ForEach-Object { [int]$_.ifIndex } | Sort-Object -Unique
 )
+$signatureIndexes = @(
+  if ($expected.Count -eq 0) {
+    Get-NetIPAddress | Where-Object {
+      [string]$_.IPAddress -eq '__EXPECTED_IPV4__' -or
+      [string]$_.IPAddress -eq '__EXPECTED_IPV6__'
+    } | ForEach-Object { [int]$_.InterfaceIndex }
+  }
+)
 $ownedInterfaces = @(
   foreach ($identity in $expected) {
     $adapter = $allAdapters | Where-Object {
@@ -235,13 +243,23 @@ $ownedInterfaces = @(
     }
   }
 )
+$signatureInterfaces = @(
+  $allAdapters | Where-Object {
+    $signatureIndexes -contains [int]$_.ifIndex
+  } | ForEach-Object {
+    [pscustomobject]@{
+      Index = [int]$_.ifIndex
+      Guid = ([Guid]$_.InterfaceGuid).ToString('D').ToLowerInvariant()
+    }
+  }
+)
 $orphanedInterfaces = @(
   $expected | Where-Object {
     $occupiedIndexes -notcontains [int]$_.Index
   }
 )
 $candidateInterfaces = @(
-  $ownedInterfaces + $orphanedInterfaces |
+  $ownedInterfaces + $orphanedInterfaces + $signatureInterfaces |
     Sort-Object Guid, Index -Unique
 )
 $candidateIndexes = @(
@@ -265,7 +283,15 @@ $artifacts = @(
 )
 'PRESENT|' + ($artifacts -join ';')
 '''
-        .replaceAll('__EXPECTED_IDENTITIES__', expectedLiteral);
+        .replaceAll('__EXPECTED_IDENTITIES__', expectedLiteral)
+        .replaceAll(
+          '__EXPECTED_IPV4__',
+          AppConstants.fakeIpRange.split('/').first,
+        )
+        .replaceAll(
+          '__EXPECTED_IPV6__',
+          AppConstants.tunInet6Address.split('/').first,
+        );
     final result = await TimedProcessRunner.run(
       windowsPowerShellExecutable(),
       [
