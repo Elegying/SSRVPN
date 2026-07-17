@@ -163,6 +163,7 @@ class SsrvpnVpnService : VpnService() {
     private var notificationConnected = false
     private var notificationStatusText: String? = null
     private val notificationUpdatePolicy = NotificationUpdatePolicy()
+    private val notificationGeneration = NotificationGenerationGate()
     private val mihomoApiWaiter = MihomoApiWaiter()
     private val screenStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -394,14 +395,15 @@ class SsrvpnVpnService : VpnService() {
     }
 
     private fun notifyCurrentState(
-        capturedState: VpnNotificationState? = null
+        capturedState: VpnNotificationState? = null,
+        generation: Long = notificationGeneration.capture()
     ) {
         val state = capturedState ?: currentNotificationState()
         if (Looper.myLooper() != notificationHandler.looper) {
-            notificationHandler.post { notifyCurrentState(state) }
+            notificationHandler.post { notifyCurrentState(state, generation) }
             return
         }
-        if (!isRunning && capturedState == null) return
+        if (!notificationGeneration.isCurrent(generation) || !isRunning) return
         notificationUpdatePolicy.publishIfChanged(state) {
             getSystemService(NotificationManager::class.java)
                 .notify(NOTIFICATION_ID, buildDynamicNotification(state))
@@ -755,6 +757,7 @@ class SsrvpnVpnService : VpnService() {
         stopServiceWhenDone: Boolean,
         onComplete: (() -> Unit)?
     ) {
+        notificationGeneration.invalidate()
         startGeneration.invalidate { isRunning = false }
         serviceStartThread?.interrupt()
         val completion: () -> Unit = {

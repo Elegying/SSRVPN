@@ -220,6 +220,30 @@ void main() {
       expect(result.error.toString(), contains('stop failed'));
     });
 
+    test('delete clears cold-start state even when stopping fails', () async {
+      final service = _FakeSubscriptionService(
+        subscriptions: [
+          Subscription(id: 'sub-1', name: 'A', url: 'https://example.com'),
+        ],
+        nodes: [node('A')],
+      );
+      final controller = SubscriptionScreenController(
+        subscriptionService: service,
+      );
+      var cleared = false;
+
+      final result = await controller.deleteSubscription(
+        'sub-1',
+        clashRunning: true,
+        stopClash: () async => throw Exception('stop failed'),
+        onNoRunnableNodes: () async => cleared = true,
+      );
+
+      expect(result.removed, isTrue);
+      expect(result.error.toString(), contains('stop failed'));
+      expect(cleared, isTrue);
+    });
+
     test('delete stops clash when only non-runnable nodes remain', () async {
       final service = _FakeSubscriptionService(
         subscriptions: [

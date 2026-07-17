@@ -345,23 +345,25 @@ class SubscriptionScreenController {
     Object? error,
   }) async {
     var stopped = false;
+    Object? operationError = error;
     try {
       stopped = await _stopClashIfNeeded(clashRunning, stopClash);
-      if (!_hasRunnableNodes()) await onNoRunnableNodes?.call();
-      return SubscriptionDeleteResult(
-        removed: removed,
-        remainingRefreshFailed: remainingRefreshFailed,
-        stoppedClash: stopped,
-        error: error,
-      );
     } catch (e) {
-      return SubscriptionDeleteResult(
-        removed: removed,
-        remainingRefreshFailed: remainingRefreshFailed,
-        stoppedClash: stopped,
-        error: e,
-      );
+      operationError = e;
     }
+    if (!_hasRunnableNodes()) {
+      try {
+        await onNoRunnableNodes?.call();
+      } catch (e) {
+        operationError ??= e;
+      }
+    }
+    return SubscriptionDeleteResult(
+      removed: removed,
+      remainingRefreshFailed: remainingRefreshFailed,
+      stoppedClash: stopped,
+      error: operationError,
+    );
   }
 
   bool _isValidHttpSubscriptionUrl(String url) {

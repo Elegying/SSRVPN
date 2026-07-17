@@ -5,13 +5,11 @@ class StartupFlags {
   final bool verbose;
   final bool resetWindow; // Android 上用于重置数据
   final bool skipUpdateCheck;
-  final bool autoConnect;
 
   const StartupFlags({
     this.verbose = false,
     this.resetWindow = false,
     this.skipUpdateCheck = false,
-    this.autoConnect = false,
   });
 
   /// 从 Map（Android Intent extras）解析
@@ -21,7 +19,6 @@ class StartupFlags {
       verbose: extras['verbose'] == true,
       resetWindow: extras['resetData'] == true || extras['resetWindow'] == true,
       skipUpdateCheck: extras['skipUpdateCheck'] == true,
-      autoConnect: extras['autoConnect'] == true,
     );
   }
 
