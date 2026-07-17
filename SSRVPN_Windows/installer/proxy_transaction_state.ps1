@@ -20,12 +20,14 @@ function Set-OrRemoveRegistryValue {
 function Get-SystemProxyState {
   param([Parameter(Mandatory = $true)]$Value)
 
+  $hasProxyEnable = $null -ne $Value.PSObject.Properties['ProxyEnable']
   $hasProxyServer = $null -ne $Value.PSObject.Properties['ProxyServer']
   $hasProxyOverride = $null -ne $Value.PSObject.Properties['ProxyOverride']
   $hasAutoConfigUrl = $null -ne $Value.PSObject.Properties['AutoConfigURL']
   $hasAutoDetect = $null -ne $Value.PSObject.Properties['AutoDetect']
   return [pscustomobject]@{
-    proxyEnable = [int]$Value.ProxyEnable
+    hasProxyEnable = $hasProxyEnable
+    proxyEnable = if ($hasProxyEnable) { [int]$Value.ProxyEnable } else { 0 }
     hasProxyServer = $hasProxyServer
     proxyServer = if ($hasProxyServer) { [string]$Value.ProxyServer } else { '' }
     hasProxyOverride = $hasProxyOverride
@@ -40,6 +42,7 @@ function Get-SystemProxyState {
 function Copy-ProxyState {
   param([Parameter(Mandatory = $true)]$Value)
   return [pscustomobject]@{
+    hasProxyEnable = [bool]$Value.hasProxyEnable
     proxyEnable = [int]$Value.proxyEnable
     hasProxyServer = [bool]$Value.hasProxyServer
     proxyServer = [string]$Value.proxyServer
@@ -57,7 +60,8 @@ function Test-ProxyStatesEqual {
     [Parameter(Mandatory = $true)]$Left,
     [Parameter(Mandatory = $true)]$Right
   )
-  return [int]$Left.proxyEnable -eq [int]$Right.proxyEnable -and
+  return [bool]$Left.hasProxyEnable -eq [bool]$Right.hasProxyEnable -and
+    [int]$Left.proxyEnable -eq [int]$Right.proxyEnable -and
     [bool]$Left.hasProxyServer -eq [bool]$Right.hasProxyServer -and
     [string]$Left.proxyServer -ceq [string]$Right.proxyServer -and
     [bool]$Left.hasProxyOverride -eq [bool]$Right.hasProxyOverride -and
@@ -87,6 +91,7 @@ function Get-ProxyActivationPrefixes {
   $state.hasAutoConfigUrl = [bool]$Owned.hasAutoConfigUrl
   $state.autoConfigUrl = [string]$Owned.autoConfigUrl
   $states += Copy-ProxyState -Value $state
+  $state.hasProxyEnable = [bool]$Owned.hasProxyEnable
   $state.proxyEnable = [int]$Owned.proxyEnable
   $states += Copy-ProxyState -Value $state
   return $states
@@ -113,20 +118,22 @@ function Test-ReachableProxyTransactionState {
     $originalServer =
       [bool]$Current.hasProxyServer -eq [bool]$Original.hasProxyServer -and
       [string]$Current.proxyServer -ceq [string]$Original.proxyServer
-    if ([int]$Original.proxyEnable -eq 0) {
-      return ($ownedServer -and
-        ([int]$Current.proxyEnable -eq [int]$Owned.proxyEnable -or
-          [int]$Current.proxyEnable -eq 0)) -or
-        ($originalServer -and [int]$Current.proxyEnable -eq 0)
-    }
-    return ($ownedServer -or $originalServer) -and
+    $ownedProxy = [bool]$Current.hasProxyEnable -eq [bool]$Owned.hasProxyEnable -and
+      [int]$Current.proxyEnable -eq [int]$Owned.proxyEnable
+    $disabledProxy = [bool]$Current.hasProxyEnable -and
+      [int]$Current.proxyEnable -eq 0
+    $originalProxy = [bool]$Current.hasProxyEnable -eq [bool]$Original.hasProxyEnable -and
       [int]$Current.proxyEnable -eq [int]$Original.proxyEnable
+    return ($ownedServer -and ($ownedProxy -or $disabledProxy)) -or
+      ($originalServer -and ($disabledProxy -or $originalProxy))
   }
 
   foreach ($candidate in $activation) {
     $state = Copy-ProxyState -Value $candidate
     if (Test-ProxyStatesEqual -Left $Current -Right $state) { return $true }
-    if ([int]$Original.proxyEnable -eq 0) {
+    if (-not [bool]$Original.hasProxyEnable -or
+        [int]$Original.proxyEnable -eq 0) {
+      $state.hasProxyEnable = $true
       $state.proxyEnable = 0
       if (Test-ProxyStatesEqual -Left $Current -Right $state) { return $true }
     }
@@ -142,10 +149,9 @@ function Test-ReachableProxyTransactionState {
     $state.hasAutoDetect = [bool]$Original.hasAutoDetect
     $state.autoDetect = [int]$Original.autoDetect
     if (Test-ProxyStatesEqual -Left $Current -Right $state) { return $true }
-    if ([int]$Original.proxyEnable -ne 0) {
-      $state.proxyEnable = [int]$Original.proxyEnable
-      if (Test-ProxyStatesEqual -Left $Current -Right $state) { return $true }
-    }
+    $state.hasProxyEnable = [bool]$Original.hasProxyEnable
+    $state.proxyEnable = [int]$Original.proxyEnable
+    if (Test-ProxyStatesEqual -Left $Current -Right $state) { return $true }
   }
   return $false
 }

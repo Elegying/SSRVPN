@@ -37,6 +37,7 @@ class ClashService extends ClashServiceBase {
   int _startGeneration = 0;
   int _configRevision = 0;
   String? _runningConfigPath;
+  bool _nativeSnapshotClearPending = false;
 
   /// 磁贴/通知触发的自动连接回调
   VoidCallback? onAutoConnect;
@@ -304,8 +305,9 @@ class ClashService extends ClashServiceBase {
   Future<String> writePreferredNodeConfig(
     String rawYaml,
     AppSettings settings,
-    String nodeName,
-  ) async {
+    String nodeName, {
+    bool Function()? shouldContinue,
+  }) async {
     updateSettings(settings);
     final config = generateClashConfig(
       rawYaml,
@@ -313,7 +315,16 @@ class ClashService extends ClashServiceBase {
       preferredNodeName: nodeName,
     );
     final path = await writeConfig(config);
-    if (!await _saveConfigForTile(nodeName, path)) {
+    if (shouldContinue?.call() == false) {
+      await discardPreparedConfig(path);
+      throw StateError('节点切换已取消');
+    }
+    if (!await _saveConfigForTile(
+      nodeName,
+      path,
+      shouldContinue: shouldContinue,
+    )) {
+      await discardPreparedConfig(path);
       throw StateError('无法提交原生快速启动配置');
     }
     return path;
@@ -484,7 +495,10 @@ class ClashService extends ClashServiceBase {
         ? false
         : (await _queryNativeRunningState() ?? isRunning);
     setRunning(runningAfterStop);
-    if (!runningAfterStop) _runningConfigPath = null;
+    if (!runningAfterStop) {
+      _runningConfigPath = null;
+      await _completePendingSnapshotFileCleanup();
+    }
     if (runningAfterStop) startStatusMonitor();
     notifyStatusChanged();
     await _notifyNativeStateChange();
@@ -515,7 +529,12 @@ class ClashService extends ClashServiceBase {
     }
   }
 
-  Future<bool> _saveConfigForTile(String? nodeName, String snapshotPath) async {
+  Future<bool> _saveConfigForTile(
+    String? nodeName,
+    String snapshotPath, {
+    bool Function()? shouldContinue,
+  }) async {
+    if (shouldContinue?.call() == false) return false;
     try {
       await _channel.invokeMethod('syncSettings', {
         'configDir': configDir,
@@ -525,8 +544,15 @@ class ClashService extends ClashServiceBase {
         'apiSecret': settings.apiSecret,
         'selectedNodeName': nodeName,
       });
-      // Native code now owns one encrypted atomic cold-start snapshot. Remove
-      // the old split preferences only after that snapshot is committed.
+    } catch (error) {
+      log('原生快速启动数据同步失败，保留上次可用快照: $error');
+      return false;
+    }
+
+    // The native atomic snapshot is the commit point. Cleanup after this point
+    // is best-effort: rolling the connection back would leave the committed
+    // snapshot pointing at a config that the caller may delete.
+    try {
       final prefs = await SharedPreferences.getInstance();
       for (final key in [
         'configDir',
@@ -541,11 +567,10 @@ class ClashService extends ClashServiceBase {
       final runningConfigPath = _runningConfigPath;
       if (runningConfigPath != null) keepPaths.add(runningConfigPath);
       await _pruneVersionedConfigs(keepPaths);
-      return true;
     } catch (error) {
-      log('原生快速启动数据同步失败，保留上次可用快照: $error');
-      return false;
+      log('原生快速启动快照已提交，旧数据清理失败: $error');
     }
+    return true;
   }
 
   Future<void> _pruneVersionedConfigs(Set<String> keepPaths) async {
@@ -576,6 +601,7 @@ class ClashService extends ClashServiceBase {
 
   Future<void> clearNativeConnectionSnapshot() async {
     await _channel.invokeMethod('clearConnectionSnapshot');
+    _nativeSnapshotClearPending = true;
     final runningConfigPath = _runningConfigPath;
     if (isRunning) {
       if (runningConfigPath != null) {
@@ -583,9 +609,17 @@ class ClashService extends ClashServiceBase {
       }
       return;
     }
+    await _completePendingSnapshotFileCleanup();
+  }
+
+  Future<void> _completePendingSnapshotFileCleanup() async {
+    if (!_nativeSnapshotClearPending) return;
     _runningConfigPath = null;
     final directory = Directory(configDir);
-    if (!await directory.exists()) return;
+    if (!await directory.exists()) {
+      _nativeSnapshotClearPending = false;
+      return;
+    }
     await for (final entity in directory.list(followLinks: false)) {
       final name = entity.uri.pathSegments.last;
       if (name != 'config.yaml' &&
@@ -598,6 +632,7 @@ class ClashService extends ClashServiceBase {
         await entity.delete();
       }
     }
+    _nativeSnapshotClearPending = false;
   }
 
   @override

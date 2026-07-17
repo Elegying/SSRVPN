@@ -77,7 +77,9 @@ extension _WindowsTunRecovery on _WindowsCoreLifecycle {
           throw const FormatException('invalid TUN teardown marker');
         }
         if (snapshot.legacy) {
-          await _migrateLegacyTunTeardownMarker();
+          await _migrateLegacyTunTeardownMarker(
+            snapshot.legacyInterfaceIndexes,
+          );
           return;
         }
         _tunInterfacesBeforeStart = snapshot.baselineInterfaces;
@@ -92,21 +94,60 @@ extension _WindowsTunRecovery on _WindowsCoreLifecycle {
     }
   }
 
-  Future<void> _migrateLegacyTunTeardownMarker() async {
-    final observed = await _observeTunInterfaceIdentities();
-    if (observed.isEmpty) {
+  Future<void> _migrateLegacyTunTeardownMarker(
+    Set<int> legacyInterfaceIndexes,
+  ) async {
+    final allInterfaces = await probeWindowsNetworkInterfaceIdentities();
+    final legacyInterfaces = allInterfaces
+        .where((identity) => legacyInterfaceIndexes.contains(identity.index))
+        .toSet();
+    final legacyGuids = legacyInterfaces
+        .map((identity) => identity.interfaceGuid.toLowerCase())
+        .toSet();
+    var baseline = allInterfaces
+        .where(
+          (identity) =>
+              !legacyGuids.contains(identity.interfaceGuid.toLowerCase()),
+        )
+        .toSet();
+
+    Future<WindowsTunResidualProbeResult> probeLegacyResidual() async {
+      return await (_tunResidualProbeOverride?.call(legacyInterfaces) ??
+          probeWindowsTunResidual(
+            expectedInterfaces: legacyInterfaces,
+            baselineInterfaces: baseline,
+            discoverLegacySignatures: true,
+          ));
+    }
+
+    final initial = await probeLegacyResidual();
+    if (initial.status == WindowsTunResidualStatus.probeFailed) {
+      throw StateError('unable to inspect legacy TUN residual state');
+    }
+    if (initial.status == WindowsTunResidualStatus.gone) {
+      final confirmedGone = await waitForWindowsTunTeardown(
+        probe: probeLegacyResidual,
+        timeout: const Duration(seconds: 3),
+      );
+      if (!confirmedGone) {
+        throw StateError('legacy TUN residual state did not remain gone');
+      }
       await _clearTunTeardownMarker();
       if (await _tunTeardownMarker.exists()) {
         throw StateError('unable to remove legacy TUN teardown marker');
       }
-      log('已完成旧版 TUN 清理标记迁移，未发现活动的 SSRVPN 网卡');
+      log('已完成旧版 TUN 清理标记迁移，连续确认无残留接口或路由');
       return;
     }
-    final allInterfaces = await probeWindowsNetworkInterfaceIdentities();
+
+    final observed = <WindowsTunInterfaceIdentity>{
+      ...legacyInterfaces,
+      ...initial.interfaces,
+    };
     final observedGuids = observed
         .map((identity) => identity.interfaceGuid.toLowerCase())
         .toSet();
-    final baseline = allInterfaces
+    baseline = allInterfaces
         .where(
           (identity) =>
               !observedGuids.contains(identity.interfaceGuid.toLowerCase()),

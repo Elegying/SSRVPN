@@ -176,7 +176,13 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         final connected = clashService.isRunning;
         if (connected) {
           if (autoSelect != null) {
-            await _rememberSelectedNode(autoSelect);
+            await _rememberSelectedNode(
+              autoSelect,
+              shouldContinue: () => clashService.isConnectionIntentCurrent(
+                connectionGeneration!,
+                connected: true,
+              ),
+            );
           }
           _updateHomeState(() {
             _isConnected = true;

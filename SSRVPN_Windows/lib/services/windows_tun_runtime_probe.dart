@@ -24,6 +24,7 @@ typedef WindowsTunInterfaceIdentity = ({
 typedef WindowsTunTeardownMarkerSnapshot = ({
   Set<WindowsTunInterfaceIdentity> interfaces,
   Set<WindowsTunInterfaceIdentity> baselineInterfaces,
+  Set<int> legacyInterfaceIndexes,
   bool legacy,
 });
 typedef WindowsTunResidualProbeResult = ({
@@ -240,10 +241,13 @@ Future<WindowsTunResidualProbeResult> probeWindowsTunResidual(
     {Set<WindowsTunInterfaceIdentity> expectedInterfaces =
         const <WindowsTunInterfaceIdentity>{},
     Set<WindowsTunInterfaceIdentity> baselineInterfaces =
-        const <WindowsTunInterfaceIdentity>{}}) async {
+        const <WindowsTunInterfaceIdentity>{},
+    bool discoverLegacySignatures = false}) async {
   if (!Platform.isWindows) return _tunResidualProbeFailed;
   try {
-    if (expectedInterfaces.isEmpty && baselineInterfaces.isEmpty) {
+    if (expectedInterfaces.isEmpty &&
+        baselineInterfaces.isEmpty &&
+        !discoverLegacySignatures) {
       return _tunResidualProbeFailed;
     }
     final identities = expectedInterfaces.toList()
@@ -298,6 +302,7 @@ $baselineIndexes = @(
 $baselineGuids = @(
   $baseline | ForEach-Object { [string]$_.Guid } | Sort-Object -Unique
 )
+$discoverLegacySignatures = __DISCOVER_LEGACY_SIGNATURES__
 $allAddresses = @(Get-NetIPAddress)
 $signatureAddressIndexes = @(
   $allAddresses | Where-Object {
@@ -357,10 +362,12 @@ $postStartRouteIndexes = @(
         [int]$_.ifIndex -eq $index
       } | Select-Object -First 1
       if ($null -eq $adapter) {
-        if ($baselineIndexes -notcontains $index) { $index }
+        if ($discoverLegacySignatures -or
+            $baselineIndexes -notcontains $index) { $index }
       } else {
         $guid = ([Guid]$adapter.InterfaceGuid).ToString('D').ToLowerInvariant()
-        if ($baselineGuids -notcontains $guid) { $index }
+        if ($discoverLegacySignatures -or
+            $baselineGuids -notcontains $guid) { $index }
       }
     }
 )
@@ -429,6 +436,10 @@ if ($artifacts.Count -eq 0) {
 '''
         .replaceAll('__EXPECTED_IDENTITIES__', expectedLiteral)
         .replaceAll('__BASELINE_IDENTITIES__', baselineLiteral)
+        .replaceAll(
+          '__DISCOVER_LEGACY_SIGNATURES__',
+          discoverLegacySignatures ? r'$true' : r'$false',
+        )
         .replaceAll(
           '__EXPECTED_IPV4__',
           AppConstants.fakeIpRange.split('/').first,
@@ -644,9 +655,13 @@ WindowsTunTeardownMarkerSnapshot? decodeWindowsTunTeardownMarker(
 ) {
   final trimmed = value.trim();
   if (trimmed == 'pending' || RegExp(r'^\d+(,\d+)*$').hasMatch(trimmed)) {
+    final indexes = trimmed == 'pending'
+        ? const <int>{}
+        : trimmed.split(',').map(int.parse).where((index) => index > 0).toSet();
     return (
       interfaces: const <WindowsTunInterfaceIdentity>{},
       baselineInterfaces: const <WindowsTunInterfaceIdentity>{},
+      legacyInterfaceIndexes: indexes,
       legacy: true,
     );
   }
@@ -684,6 +699,7 @@ WindowsTunTeardownMarkerSnapshot? decodeWindowsTunTeardownMarker(
     return (
       interfaces: interfaces,
       baselineInterfaces: baseline,
+      legacyInterfaceIndexes: const <int>{},
       legacy: false,
     );
   } on FormatException {

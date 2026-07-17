@@ -688,7 +688,7 @@ function Test-RecoveryState {
       return $false
     }
     foreach ($name in @(
-      'hasProxyServer', 'hasProxyOverride', 'hasAutoConfigUrl',
+      'hasProxyEnable', 'hasProxyServer', 'hasProxyOverride', 'hasAutoConfigUrl',
       'hasAutoDetect', 'restoreInProgress', 'activationInProgress',
       'endpointRestoreInProgress'
     )) {
@@ -715,6 +715,7 @@ function Get-ProxyRecoveryState {
       'Valid', 'OriginalProxyEnable', 'HasProxyServer', 'HasProxyOverride',
       'HasAutoConfigURL', 'HasAutoDetect', 'OriginalAutoDetect'
     )
+    if ($null -ne $native.PSObject.Properties['HasProxyEnable']) { $nativeFlagNames += 'HasProxyEnable' }
     $nativeFlagsValid = $hasNativeFields
     foreach ($name in $nativeFlagNames) {
       if (-not (Test-DwordFlag -Value $native.$name)) {
@@ -732,6 +733,7 @@ function Get-ProxyRecoveryState {
     }
     if ($nativeFlagsValid -and [int]$native.Valid -eq 1) {
       $candidate = [pscustomobject]@{
+        hasProxyEnable = $null -eq $native.PSObject.Properties['HasProxyEnable'] -or [int]$native.HasProxyEnable -ne 0
         proxyEnable = [int]$native.OriginalProxyEnable
         hasProxyServer = [int]$native.HasProxyServer -ne 0
         proxyServer = [string]$native.OriginalProxyServer
@@ -783,10 +785,14 @@ function Get-ProxyRecoveryState {
     'hasProxyServer', 'hasProxyOverride', 'hasAutoConfigUrl',
     'hasAutoDetect', '_activationInProgress'
   )
+  if ($null -ne $json.PSObject.Properties['hasProxyEnable']) {
+    $jsonBooleanNames += 'hasProxyEnable'
+  }
   foreach ($name in $jsonBooleanNames) {
     if (-not (Test-BooleanValue -Value $json.$name)) { return $null }
   }
   $candidate = [pscustomobject]@{
+    hasProxyEnable = $null -eq $json.PSObject.Properties['hasProxyEnable'] -or [bool]$json.hasProxyEnable
     proxyEnable = [int]$json.proxyEnable
     hasProxyServer = [bool]$json.hasProxyServer
     proxyServer = [string]$json.proxyServer
@@ -817,6 +823,7 @@ function Write-NativeRestoreJournal {
   New-Item -Path $path -Force | Out-Null
   Set-ItemProperty -Path $path -Name Valid -Type DWord -Value 0
   $values = @{
+    HasProxyEnable = [int][bool]$Backup.hasProxyEnable
     OriginalProxyEnable = [int]$Backup.proxyEnable
     HasProxyServer = [int][bool]$Backup.hasProxyServer
     OriginalProxyServer = [string]$Backup.proxyServer
@@ -963,6 +970,7 @@ function Restore-OwnedSystemProxy {
     [string]$current.ProxyServer -eq $backup.ownedProxyServer
   $currentState = Get-SystemProxyState -Value $current
   $ownedState = [pscustomobject]@{
+    hasProxyEnable = $true
     proxyEnable = 1
     hasProxyServer = $true
     proxyServer = [string]$backup.ownedProxyServer
@@ -991,15 +999,15 @@ function Restore-OwnedSystemProxy {
     $endpointRestorePrefix
   if ($restoreEndpoint) {
     Write-NativeRestoreJournal -Backup $backup -EndpointOnly
-    if ([int]$backup.proxyEnable -eq 0) {
+    if (-not [bool]$backup.hasProxyEnable -or
+        [int]$backup.proxyEnable -eq 0) {
       Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord -Value 0
     }
     Set-OrRemoveRegistryValue -Path $regPath -Name ProxyServer `
       -Present $backup.hasProxyServer -Value $backup.proxyServer
-    if ([int]$backup.proxyEnable -ne 0) {
-      Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord `
-        -Value ([int]$backup.proxyEnable)
-    }
+    Set-OrRemoveRegistryValue -Path $regPath -Name ProxyEnable `
+      -Present ([bool]$backup.hasProxyEnable) `
+      -Value ([string]$backup.proxyEnable) -Type DWord
     Complete-NativeRestoreJournal
     Notify-WinInetProxyChange
     Remove-ProxyRecoveryState
@@ -1016,7 +1024,8 @@ function Restore-OwnedSystemProxy {
   Write-NativeRestoreJournal -Backup $backup
 
   # A disabled original proxy becomes safe before any supporting value write.
-  if ([int]$backup.proxyEnable -eq 0) {
+  if (-not [bool]$backup.hasProxyEnable -or
+      [int]$backup.proxyEnable -eq 0) {
     Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord -Value 0
   }
   Set-OrRemoveRegistryValue -Path $regPath -Name ProxyServer `
@@ -1027,10 +1036,9 @@ function Restore-OwnedSystemProxy {
     -Present $backup.hasAutoConfigUrl -Value $backup.autoConfigUrl
   Set-OrRemoveRegistryValue -Path $regPath -Name AutoDetect `
     -Present $backup.hasAutoDetect -Value ([string]$backup.autoDetect) -Type DWord
-  if ([int]$backup.proxyEnable -ne 0) {
-    Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord `
-      -Value ([int]$backup.proxyEnable)
-  }
+  Set-OrRemoveRegistryValue -Path $regPath -Name ProxyEnable `
+    -Present ([bool]$backup.hasProxyEnable) `
+    -Value ([string]$backup.proxyEnable) -Type DWord
   Complete-NativeRestoreJournal
 
   Notify-WinInetProxyChange

@@ -555,6 +555,7 @@ try {
   WindowsProxyState? _ownedProxyState(String? ownedProxyServer) {
     if (ownedProxyServer == null || ownedProxyServer.isEmpty) return null;
     return WindowsProxyState(
+      hasProxyEnable: true,
       proxyEnable: 1,
       hasProxyServer: true,
       proxyServer: ownedProxyServer,
@@ -655,6 +656,7 @@ if ($null -ne $item.PSObject.Properties['AutoDetect'] -and
   throw 'AutoDetect must be a REG_DWORD value.'
 }
 [pscustomobject]@{
+  hasProxyEnable = $null -ne $item.PSObject.Properties['ProxyEnable']
   proxyEnable = if ($null -eq $item.ProxyEnable) { 0 } else { [int]$item.ProxyEnable }
   hasProxyServer = $null -ne $item.PSObject.Properties['ProxyServer']
   proxyServer = [string]$item.ProxyServer
@@ -686,7 +688,7 @@ if ($null -ne $item.PSObject.Properties['AutoDetect'] -and
 \$backupPath = '$_nativeBackupRegistryPath'
 Set-ItemProperty -Path \$backupPath -Name RestoreInProgress -Type DWord -Value 1
 \$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
-if (${snapshot.proxyEnable == 0 ? r'$true' : r'$false'}) {
+if (${!snapshot.hasProxyEnable || snapshot.proxyEnable == 0 ? r'$true' : r'$false'}) {
   Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value 0
 }
 if (${snapshot.hasProxyServer ? r'$true' : r'$false'}) {
@@ -712,8 +714,10 @@ if (${snapshot.hasAutoDetect ? r'$true' : r'$false'}) {
 } else {
   Remove-ItemProperty -Path \$regPath -Name AutoDetect -ErrorAction SilentlyContinue
 }
-if (${snapshot.proxyEnable != 0 ? r'$true' : r'$false'}) {
+if (${snapshot.hasProxyEnable ? r'$true' : r'$false'}) {
   Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
+} else {
+  Remove-ItemProperty -Path \$regPath -Name ProxyEnable -ErrorAction SilentlyContinue
 }
 \$validTerminal = \$false
 try {
@@ -742,7 +746,7 @@ ${_notifyWinInetScript()}
 \$backupPath = '$_nativeBackupRegistryPath'
 Set-ItemProperty -Path \$backupPath -Name EndpointRestoreInProgress -Type DWord -Value 1
 \$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
-if (${snapshot.proxyEnable == 0 ? r'$true' : r'$false'}) {
+if (${!snapshot.hasProxyEnable || snapshot.proxyEnable == 0 ? r'$true' : r'$false'}) {
   Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value 0
 }
 if (${snapshot.hasProxyServer ? r'$true' : r'$false'}) {
@@ -751,8 +755,10 @@ if (${snapshot.hasProxyServer ? r'$true' : r'$false'}) {
 } else {
   Remove-ItemProperty -Path \$regPath -Name ProxyServer -ErrorAction SilentlyContinue
 }
-if (${snapshot.proxyEnable != 0 ? r'$true' : r'$false'}) {
+if (${snapshot.hasProxyEnable ? r'$true' : r'$false'}) {
   Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
+} else {
+  Remove-ItemProperty -Path \$regPath -Name ProxyEnable -ErrorAction SilentlyContinue
 }
 \$validTerminal = \$false
 try {
@@ -941,6 +947,7 @@ if (Test-Path -LiteralPath \$backupPath) {
 }
 New-Item -Path \$backupPath -Force | Out-Null
 Set-ItemProperty -Path \$backupPath -Name OriginalProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
+Set-ItemProperty -Path \$backupPath -Name HasProxyEnable -Type DWord -Value ${snapshot.hasProxyEnable ? 1 : 0}
 Set-ItemProperty -Path \$backupPath -Name HasProxyServer -Type DWord -Value ${snapshot.hasProxyServer ? 1 : 0}
 \$value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded(snapshot.proxyServer)}'))
 Set-ItemProperty -Path \$backupPath -Name OriginalProxyServer -Type String -Value \$value
@@ -1036,6 +1043,7 @@ public static class SsrVpnWinInet {
 
 class _ProxySnapshot {
   const _ProxySnapshot({
+    required this.hasProxyEnable,
     required this.proxyEnable,
     required this.hasProxyServer,
     required this.proxyServer,
@@ -1047,6 +1055,7 @@ class _ProxySnapshot {
     required this.autoDetect,
   });
 
+  final bool hasProxyEnable;
   final int proxyEnable;
   final bool hasProxyServer;
   final String proxyServer;
@@ -1059,6 +1068,7 @@ class _ProxySnapshot {
 
   factory _ProxySnapshot.fromJson(Map<String, dynamic> json) {
     return _ProxySnapshot(
+      hasProxyEnable: json['hasProxyEnable'] as bool? ?? true,
       proxyEnable: (json['proxyEnable'] as num?)?.toInt() ?? 0,
       hasProxyServer: json['hasProxyServer'] as bool? ?? false,
       proxyServer: json['proxyServer'] as String? ?? '',
@@ -1072,6 +1082,7 @@ class _ProxySnapshot {
   }
 
   Map<String, dynamic> toJson() => {
+        'hasProxyEnable': hasProxyEnable,
         'proxyEnable': proxyEnable,
         'hasProxyServer': hasProxyServer,
         'proxyServer': proxyServer,
@@ -1084,6 +1095,7 @@ class _ProxySnapshot {
       };
 
   WindowsProxyState toWindowsProxyState() => WindowsProxyState(
+        hasProxyEnable: hasProxyEnable,
         proxyEnable: proxyEnable,
         hasProxyServer: hasProxyServer,
         proxyServer: proxyServer,

@@ -29,5 +29,15 @@ internal object CoreRecoveryPolicy {
             intentToken == currentToken &&
             !manualStopRequested
 
+    fun shouldPublishRecovery(
+        recoveryToken: Long,
+        currentToken: Long,
+        manualStopRequested: Boolean,
+        processTerminationPending: Boolean
+    ): Boolean =
+        recoveryToken == currentToken &&
+            !manualStopRequested &&
+            !processTerminationPending
+
     const val failureMessage = "核心异常，自动恢复失败，请重新连接"
 }

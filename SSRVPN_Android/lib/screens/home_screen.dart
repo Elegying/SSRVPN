@@ -67,6 +67,7 @@ class HomeScreenState extends State<HomeScreen>
   int _lastRevision = -1;
   int _publicIpGeneration = 0;
   bool _disposed = false;
+  Future<void> _nodeSelectionTail = Future<void>.value();
   ClashService? _registeredClashService;
   SubscriptionService? _subscriptionService;
   late final VoidCallback _onClashAutoConnect = _handleClashAutoConnect;

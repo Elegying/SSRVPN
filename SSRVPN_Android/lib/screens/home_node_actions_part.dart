@@ -29,8 +29,8 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     }
   }
 
-  Future<void> _handleSelectNode(ProxyNode node) async {
-    if (!_latencyController.canSelect(node)) return;
+  Future<void> _handleSelectNode(ProxyNode node) {
+    if (!_latencyController.canSelect(node)) return Future<void>.value();
     if (!_isConnected) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -41,20 +41,54 @@ extension _AndroidHomeNodeActions on HomeScreenState {
           ),
         );
       }
-      return;
+      return Future<void>.value();
     }
     final clashService = context.read<ClashService>();
-    final result =
-        await clashService.switchSelectedProxyWithSnapshot(node.name);
+    final generation = clashService.requestConnectionIntent(true);
+    final operation = _nodeSelectionTail.then(
+      (_) => _performSelectNode(node, clashService, generation),
+    );
+    _nodeSelectionTail = operation.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {
+        AppLogger.warning('NodeSelection', '节点切换事务失败: $error');
+      },
+    );
+    return operation;
+  }
+
+  Future<void> _performSelectNode(
+    ProxyNode node,
+    ClashService clashService,
+    int generation,
+  ) async {
+    bool isCurrent() => clashService.isConnectionIntentCurrent(
+          generation,
+          connected: true,
+        );
+
+    if (!isCurrent()) return;
+    final result = await clashService.switchSelectedProxyForConnection(
+      node.name,
+      connectionGeneration: generation,
+    );
+    if (!result.intentCurrent || !isCurrent()) return;
     var snapshotPersisted = result.snapshotPersisted;
     if (result.liveSwitched) {
-      await _rememberSelectedNode(node);
-      snapshotPersisted =
-          await _writePreferredNodeConfigForTile(node) || snapshotPersisted;
-      if (mounted) _updateHomeState(() => _selectedNode = node);
+      await _rememberSelectedNode(node, shouldContinue: isCurrent);
+      if (!isCurrent()) return;
+      snapshotPersisted = await _writePreferredNodeConfigForTile(
+            node,
+            shouldContinue: isCurrent,
+          ) ||
+          snapshotPersisted;
+      if (!isCurrent()) return;
+      if (mounted && !_disposed) {
+        _updateHomeState(() => _selectedNode = node);
+      }
       _schedulePublicIpRefresh();
     }
-    if (mounted) {
+    if (mounted && !_disposed && isCurrent()) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
@@ -91,13 +125,21 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     );
   }
 
-  Future<void> _rememberSelectedNode(ProxyNode node) async {
+  Future<void> _rememberSelectedNode(
+    ProxyNode node, {
+    required bool Function() shouldContinue,
+  }) async {
+    if (!shouldContinue()) return;
     final settingsService = context.read<SettingsService>();
     if (settingsService.settings.lastSelectedNodeName == node.name) return;
     await settingsService.setLastSelectedNodeName(node.name);
   }
 
-  Future<bool> _writePreferredNodeConfigForTile(ProxyNode node) async {
+  Future<bool> _writePreferredNodeConfigForTile(
+    ProxyNode node, {
+    required bool Function() shouldContinue,
+  }) async {
+    if (!shouldContinue()) return false;
     final rawYaml = context.read<SubscriptionService>().rawYaml;
     if (rawYaml == null || rawYaml.trim().isEmpty) return false;
     final settingsService = context.read<SettingsService>();
@@ -106,8 +148,9 @@ extension _AndroidHomeNodeActions on HomeScreenState {
             rawYaml,
             settingsService.settings,
             node.name,
+            shouldContinue: shouldContinue,
           );
-      return true;
+      return shouldContinue();
     } catch (e) {
       AppLogger.warning('Tile', '更新默认节点配置失败: $e');
       return false;
