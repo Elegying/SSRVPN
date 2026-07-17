@@ -143,6 +143,38 @@ void main() {
     await expectLater(task, throwsA(isA<VerifiedUpdateCancelled>()));
     expect(tempDir.listSync(), isEmpty);
   });
+
+  test('verified desktop download enforces one absolute attempt deadline',
+      () async {
+    final chunks = List<List<int>>.generate(6, (index) => [index]);
+    final bytes = chunks.expand((chunk) => chunk).toList();
+    final client = _StreamClient(
+      (_) async => http.StreamedResponse(
+        Stream<List<int>>.periodic(
+          const Duration(milliseconds: 25),
+          (index) => chunks[index],
+        ).take(chunks.length),
+        HttpStatus.ok,
+      ),
+    );
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN.dmg',
+          changelog: '',
+          sha256: sha256.convert(bytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN.dmg',
+        client: client,
+        timeout: const Duration(milliseconds: 70),
+      ),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(tempDir.listSync(), isEmpty);
+  });
 }
 
 class _StreamClient extends http.BaseClient {

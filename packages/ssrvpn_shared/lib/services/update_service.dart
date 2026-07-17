@@ -120,11 +120,14 @@ class SharedUpdateService {
       if (await destination.exists()) await destination.delete();
       for (var attempt = 0; attempt < uris.length; attempt++) {
         cancellation?.throwIfCancelled();
+        final attemptClock = Stopwatch()..start();
         try {
           final request = http.Request('GET', uris[attempt])
             ..headers['User-Agent'] = 'SSRVPN/${update.version}';
           final response = await _awaitWithCancellation(
-            httpClient.send(request).timeout(timeout),
+            httpClient
+                .send(request)
+                .timeout(_remainingAttemptTime(attemptClock, timeout)),
             cancellation,
           );
           if (response case http.BaseResponseWithUrl(:final url)) {
@@ -151,8 +154,10 @@ class SharedUpdateService {
           late final String actualSha256;
           try {
             await for (final chunk in _cancellableStream(
-              response.stream.timeout(timeout),
+              response.stream,
               cancellation,
+              attemptClock: attemptClock,
+              timeout: timeout,
             )) {
               cancellation?.throwIfCancelled();
               received += chunk.length;
@@ -204,16 +209,16 @@ class SharedUpdateService {
 
   static Stream<List<int>> _cancellableStream(
     Stream<List<int>> source,
-    VerifiedUpdateCancellation? cancellation,
-  ) async* {
-    if (cancellation == null) {
-      yield* source;
-      return;
-    }
+    VerifiedUpdateCancellation? cancellation, {
+    required Stopwatch attemptClock,
+    required Duration timeout,
+  }) async* {
     final iterator = StreamIterator<List<int>>(source);
     try {
       while (await _awaitWithCancellation(
-        iterator.moveNext(),
+        iterator
+            .moveNext()
+            .timeout(_remainingAttemptTime(attemptClock, timeout)),
         cancellation,
       )) {
         yield iterator.current;
@@ -221,6 +226,17 @@ class SharedUpdateService {
     } finally {
       await iterator.cancel();
     }
+  }
+
+  static Duration _remainingAttemptTime(
+    Stopwatch attemptClock,
+    Duration timeout,
+  ) {
+    final remaining = timeout - attemptClock.elapsed;
+    if (remaining <= Duration.zero) {
+      throw TimeoutException('更新下载超时');
+    }
+    return remaining;
   }
 
   static Future<void> downloadAndOpenVerifiedUpdate(
@@ -391,118 +407,119 @@ class SharedUpdateService {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [primaryColor, accentColor],
-                  ),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.system_update_rounded,
-                  size: 28,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                '发现新版本',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: isDark ? textPrimary : lightTextPrimary,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'v$currentVersion → v$latestVersion',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: primaryColor,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              if (changelog.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  constraints: const BoxConstraints(maxHeight: 120),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 5 / 255)
-                        : Colors.black.withValues(alpha: 5 / 255),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: SingleChildScrollView(
-                    child: Text(
-                      changelog,
-                      style: TextStyle(
-                        fontSize: 12,
-                        height: 1.5,
-                        color: isDark ? textSecondary : lightTextSecondary,
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [primaryColor, accentColor],
                       ),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.system_update_rounded,
+                      size: 28,
+                      color: Colors.white,
                     ),
                   ),
-                ),
-              ],
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
+                  const SizedBox(height: 16),
+                  Text(
+                    '发现新版本',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? textPrimary : lightTextPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'v$currentVersion → v$latestVersion',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: primaryColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (changelog.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(maxHeight: 120),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 5 / 255)
+                            : Colors.black.withValues(alpha: 5 / 255),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Text(
-                        '稍后再说',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: isDark ? textSecondary : lightTextSecondary,
+                      child: SingleChildScrollView(
+                        child: Text(
+                          changelog,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.5,
+                            color: isDark ? textSecondary : lightTextSecondary,
+                          ),
                         ),
                       ),
                     ),
+                  ],
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: Text(
+                            '稍后再说',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color:
+                                  isDark ? textSecondary : lightTextSecondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            openDownload(downloadUrl);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            '立即更新',
+                            style: TextStyle(fontSize: 14, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
+                  if (fallbackDownloadUrl != null &&
+                      fallbackDownloadUrl.trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    TextButton(
                       onPressed: () {
                         Navigator.pop(ctx);
-                        openDownload(downloadUrl);
+                        openDownload(fallbackDownloadUrl);
                       },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryColor,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: const Text(
-                        '立即更新',
-                        style: TextStyle(fontSize: 14, color: Colors.white),
-                      ),
+                      child: const Text('OSS 下载异常？使用 GitHub 备用下载'),
                     ),
-                  ),
-                ],
-              ),
-              if (fallbackDownloadUrl != null &&
-                  fallbackDownloadUrl.trim().isNotEmpty) ...[
-                const SizedBox(height: 6),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    openDownload(fallbackDownloadUrl);
-                  },
-                  child: const Text('OSS 下载异常？使用 GitHub 备用下载'),
-                ),
-              ],
+                  ],
                 ],
               ),
             ),
