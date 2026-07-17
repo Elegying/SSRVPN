@@ -43,6 +43,7 @@
 - [ADR-001：桌面端 API Secret 的长期存储](decisions/001-desktop-api-secret-storage.md)
 - [ADR-002：Windows 安装版数据保留与多来源隔离](decisions/002-windows-installed-data-preservation.md)
 - [ADR-003：Windows 只发布安装器](decisions/003-windows-installer-only-distribution.md)
+- [ADR-004：三端只保留首页与订阅](decisions/004-two-page-product-surface.md)
 
 ## 历史材料
 

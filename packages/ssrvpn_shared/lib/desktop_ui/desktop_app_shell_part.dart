@@ -1,6 +1,6 @@
 part of desktop_app;
 
-const desktopPrimaryNavigationItems = <NavItem>[
+const _desktopPrimaryNavigationItems = <NavItem>[
   NavItem(
     icon: Icons.home_outlined,
     activeIcon: Icons.home_rounded,
@@ -149,7 +149,7 @@ class _CompactShell extends StatelessWidget {
         Expanded(child: _PageStack(currentIndex: currentIndex)),
         LiquidGlassNavBar(
           currentIndex: currentIndex,
-          items: desktopPrimaryNavigationItems,
+          items: _desktopPrimaryNavigationItems,
           onTap: onIndexChanged,
         ),
       ],
@@ -261,10 +261,10 @@ class _GlassSideRail extends StatelessWidget {
           ),
           const SizedBox(height: 28),
           for (var index = 0;
-              index < desktopPrimaryNavigationItems.length;
+              index < _desktopPrimaryNavigationItems.length;
               index++)
             _ShellRailItem(
-              item: desktopPrimaryNavigationItems[index],
+              item: _desktopPrimaryNavigationItems[index],
               selected: currentIndex == index,
               onTap: () => onIndexChanged(index),
             ),

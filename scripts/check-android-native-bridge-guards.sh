@@ -18,6 +18,7 @@ PUBLIC_ROUTES="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/andro
 VPN_ROUTE_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnRouteInstaller.kt"
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
+NATIVE_SECRET_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeApiSecretStore.kt"
 
 require_text() {
   local needle="$1"
@@ -133,6 +134,7 @@ require_count "bridge.Bridge.isRunning()" 1
 
 require_activity_text '"syncSettings"'
 require_activity_text "private fun handleNativeMethodCall("
+require_activity_text "NativeApiSecretStore.write(this, apiSecret)"
 require_activity_text '"flutter.proxyPort"'
 require_activity_text '"installUpdate"'
 require_activity_text "Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES"
@@ -154,6 +156,7 @@ require_tile_text "SsrvpnVpnService.cancelPendingStart()"
 require_tile_text "service.stopAll {"
 require_tile_text "isConnected = SsrvpnVpnService.isRunning"
 require_tile_text "SsrvpnVpnService.createStartIntent"
+require_tile_text "NativeApiSecretStore.read(this)"
 require_activity_text "vpnPermissionRequestPending"
 require_activity_text "startVpnServiceWithTimeout"
 require_activity_text "pendingVpnServiceIntent"
@@ -176,6 +179,23 @@ require_route_text "VpnIpv6Config.address"
 require_route_text "addRoute(route.address, route.prefixLength)"
 require_route_text "VpnIpv6Config.defaultRoute"
 require_text "VpnNotificationSupport.createChannel(this, CHANNEL_ID)"
+require_text "NativeApiSecretStore.read(this)"
+require_text "notificationUpdatePolicy.shouldPublish(state)"
+
+if grep -R -n -F 'flutter.apiSecret' \
+  "$MAIN_ACTIVITY" "$SERVICE" "$TILE_SERVICE"; then
+  echo "Android native credential guard failed: plaintext Flutter preferences are still used" >&2
+  exit 1
+fi
+for needle in \
+  'AndroidKeyStore' \
+  'AES/GCM/NoPadding' \
+  'setRandomizedEncryptionRequired(true)'; do
+  grep -Fq "$needle" "$NATIVE_SECRET_STORE" || {
+    echo "Android native credential guard failed: missing '$needle'" >&2
+    exit 1
+  }
+done
 
 require_build_text 'applicationIdSuffix = ".debug"'
 require_build_text 'versionNameSuffix = "-debug"'
