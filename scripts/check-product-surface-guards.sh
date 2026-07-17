@@ -35,11 +35,12 @@ current_docs = (
     Path("docs/USER_GUIDE.zh-CN.md"),
     Path("docs/TROUBLESHOOTING.zh-CN.md"),
     Path("docs/TESTING.md"),
+    Path("SSRVPN_Windows/DESIGN.md"),
 )
 for path in current_docs:
     source = path.read_text(encoding="utf-8")
-    for token in ("unlock_test", "UnlockTest", "解锁测试", "解锁检测"):
-        if token in source:
+    for token in ("unlock", "解锁"):
+        if token in source.casefold():
             raise SystemExit(f"unlock-test residue in current documentation {path}: {token}")
 
 windows_safe_mode = Path("SSRVPN_Windows/ssrvpn_safe_mode.bat").read_text(

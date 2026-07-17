@@ -14,7 +14,7 @@ make verify
 
 - 共享包导入、版本同步、安装包内指南和当前文档一致性。
 - Mihomo/GeoIP 资源的可复现引导与 SHA256。
-- Android native bridge、AGP 9 应用模块内置 Kotlin、解锁取消、桌面启动、Clash/订阅/私有存储职责、macOS 特权和 Windows launcher 的静态边界。
+- Android native bridge、AGP 9 应用模块内置 Kotlin、两页产品表面、桌面启动、Clash/订阅/私有存储职责、macOS 特权和 Windows launcher 的静态边界。
 - 全部受版本控制 PowerShell 脚本的 ASCII 源码约束、显式 UTF-8 文件读取、Windows PowerShell 5.1 真实解析与已知参数集兼容性，以及 CI/Release 子进程退出码的逐次传播。
 - 明显密钥模式扫描、固定 commit 的 Gitleaks 全历史扫描、免费桌面分发策略守卫和发布工具单元测试；
   `.gitleaks.toml` 仅对测试目录中的合成 VPN URI 做单规则允许，默认凭据规则不跳过测试目录。
