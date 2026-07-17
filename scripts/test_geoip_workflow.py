@@ -24,6 +24,19 @@ class _FakeResponse(BytesIO):
         self.close()
 
 
+class _DripResponse:
+    headers = {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def read1(self, _size):
+        return b"x"
+
+
 class GeoIpWorkflowTest(unittest.TestCase):
     def test_github_token_is_only_sent_to_the_api_origin(self) -> None:
         with patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"}):
@@ -38,6 +51,15 @@ class GeoIpWorkflowTest(unittest.TestCase):
         with patch.object(SYNC.urllib.request, "urlopen", return_value=response):
             with self.assertRaisesRegex(SystemExit, "exceeds the 4 byte limit"):
                 SYNC.download("https://example.com/asset", max_bytes=4)
+
+    def test_download_has_an_absolute_deadline_for_slow_drips(self) -> None:
+        with patch.object(
+            SYNC.urllib.request,
+            "urlopen",
+            return_value=_DripResponse(),
+        ), patch.object(SYNC.time, "monotonic", side_effect=[0, 0, 30, 61]):
+            with self.assertRaisesRegex(SystemExit, "absolute deadline"):
+                SYNC.download("https://example.com/slow", max_bytes=1024)
 
     def test_freshness_workflow_opens_scoped_immutable_update_prs(self) -> None:
         workflow = (ROOT / ".github/workflows/geoip-check.yml").read_text(
@@ -54,6 +76,7 @@ class GeoIpWorkflowTest(unittest.TestCase):
         self.assertIn("--base main", workflow)
         self.assertIn("automation/geoip-", workflow)
         self.assertNotIn("git push --force", workflow)
+        self.assertIn("timeout-minutes:", workflow)
 
         sync_script = (ROOT / "scripts/sync-geoip-metadb.py").read_text(
             encoding="utf-8"
@@ -78,6 +101,9 @@ class GeoIpWorkflowTest(unittest.TestCase):
         self.assertIn("https://api.github.com/*", bootstrap)
         self.assertIn("Accept: application/octet-stream", bootstrap)
         self.assertIn("--max-filesize", bootstrap)
+        self.assertIn("extract_zip_member_bounded", bootstrap)
+        self.assertIn("info.file_size", bootstrap)
+        self.assertIn("source.read", bootstrap)
         self.assertNotIn("geo_member=", bootstrap)
 
         sync_script = (ROOT / "scripts/sync-geoip-metadb.py").read_text(

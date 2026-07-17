@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -29,6 +30,8 @@ HASH_RE = re.compile(r"\b([0-9a-fA-F]{64})\b")
 MAX_RELEASE_METADATA_BYTES = 2 * 1024 * 1024
 MAX_CHECKSUM_BYTES = 64 * 1024
 MAX_GEOIP_BYTES = 64 * 1024 * 1024
+MAX_DOWNLOAD_SECONDS = 60
+DOWNLOAD_CHUNK_BYTES = 64 * 1024
 
 
 def sha256(data: bytes) -> str:
@@ -59,16 +62,31 @@ def request(url: str) -> urllib.request.Request:
 
 
 def download(url: str, *, max_bytes: int) -> bytes:
-    with urllib.request.urlopen(request(url), timeout=60) as response:
+    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
+    with urllib.request.urlopen(request(url), timeout=10) as response:
         content_length = response.headers.get("Content-Length") if hasattr(
             response, "headers"
         ) else None
         if content_length is not None and int(content_length) > max_bytes:
             raise SystemExit(f"download exceeds the {max_bytes} byte limit: {url}")
-        content = response.read(max_bytes + 1)
-    if len(content) > max_bytes:
-        raise SystemExit(f"download exceeds the {max_bytes} byte limit: {url}")
-    return content
+        content = bytearray()
+        read_chunk = response.read1 if hasattr(response, "read1") else response.read
+        while True:
+            if time.monotonic() >= deadline:
+                raise SystemExit(f"download exceeded its absolute deadline: {url}")
+            chunk = read_chunk(
+                min(DOWNLOAD_CHUNK_BYTES, max_bytes + 1 - len(content))
+            )
+            if not chunk:
+                break
+            content.extend(chunk)
+            if len(content) > max_bytes:
+                raise SystemExit(
+                    f"download exceeds the {max_bytes} byte limit: {url}"
+                )
+            if time.monotonic() >= deadline:
+                raise SystemExit(f"download exceeded its absolute deadline: {url}")
+    return bytes(content)
 
 
 def load_latest_release() -> dict[str, object]:
