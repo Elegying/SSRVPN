@@ -6,20 +6,20 @@ typedef _SnapshotCleanupMarker = ({
 });
 
 extension AndroidSnapshotCleanup on ClashService {
-  Future<void> clearNativeConnectionSnapshot() async {
-    final fileNames = await _collectSnapshotConfigFileNames();
-    await _writeSnapshotCleanupMarker(
-      committed: false,
-      fileNames: fileNames,
-    );
-    await ClashService._channel.invokeMethod('clearConnectionSnapshot');
-    await _writeSnapshotCleanupMarker(
-      committed: true,
-      fileNames: fileNames,
-    );
-    if (isRunning) return;
-    await _completePendingSnapshotFileCleanup();
-  }
+  Future<void> clearNativeConnectionSnapshot() =>
+      _serializeNativeSnapshotOperation(() async {
+        final fileNames = await _collectSnapshotConfigFileNames();
+        await _writeSnapshotCleanupMarker(
+          committed: false,
+          fileNames: fileNames,
+        );
+        await ClashService._channel.invokeMethod('clearConnectionSnapshot');
+        await _writeSnapshotCleanupMarker(
+          committed: true,
+          fileNames: fileNames,
+        );
+        if (!isRunning) await _completePendingSnapshotFileCleanup();
+      });
 
   File get _snapshotCleanupMarker => File(
         '$configDir${Platform.pathSeparator}.snapshot-cleanup.pending',
@@ -118,6 +118,25 @@ extension AndroidSnapshotCleanup on ClashService {
     if (nativeRunning == false) {
       await _completePendingSnapshotFileCleanup();
     }
+  }
+
+  Future<void> _reconcileSnapshotCleanupAfterCommit(
+    String snapshotPath,
+  ) async {
+    final pending = await _readSnapshotCleanupMarker();
+    if (pending == null) return;
+    final remaining = Set<String>.of(pending.fileNames);
+    final snapshot = File(snapshotPath).absolute;
+    if (snapshot.parent.path == Directory(configDir).absolute.path) {
+      remaining.remove(snapshot.uri.pathSegments.last);
+    }
+    // A successful syncSettings replaces whichever native snapshot existed
+    // before it. Any older prepared clear must never replay against this new
+    // generation, while its exact old files remain eligible for later cleanup.
+    await _writeSnapshotCleanupMarker(
+      committed: true,
+      fileNames: remaining,
+    );
   }
 
   Future<void> _completePendingSnapshotFileCleanup() async {

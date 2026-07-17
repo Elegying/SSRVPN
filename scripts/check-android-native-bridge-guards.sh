@@ -128,15 +128,20 @@ from pathlib import Path
 
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
 remember = source.index("await _rememberSelectedNode(")
-publish = source.index("_updateHomeState(() {", remember)
-window = source[remember:publish]
+connected_publish = source.index("_isConnected = true", remember)
+window = source[remember:connected_publish]
 if window.count("isConnectionIntentCurrent(") < 2:
     raise SystemExit(
         "Android home must revalidate connection intent after persisting the selected node"
     )
-if "!clashService.isRunning" not in window:
+if "if (!clashService.isRunning)" not in window:
     raise SystemExit(
         "Android home must confirm the core is still running before publishing connected UI"
+    )
+core_down = window[window.index("if (!clashService.isRunning)") :]
+if "_isConnecting = false" not in core_down or "连接已中断" not in core_down:
+    raise SystemExit(
+        "Android home must clear the spinner when the core stops during node persistence"
     )
 PY
 require_text "waitForPendingStart()"
