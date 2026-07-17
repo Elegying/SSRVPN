@@ -76,6 +76,10 @@ extension _WindowsTunRecovery on _WindowsCoreLifecycle {
         if (snapshot == null) {
           throw const FormatException('invalid TUN teardown marker');
         }
+        if (snapshot.legacy) {
+          await _migrateLegacyTunTeardownMarker();
+          return;
+        }
         _tunInterfacesBeforeStart = snapshot.baselineInterfaces;
         _tunTeardownGate.markPending(
           snapshot.interfaces,
@@ -86,6 +90,37 @@ extension _WindowsTunRecovery on _WindowsCoreLifecycle {
       _tunTeardownGate.markPending();
       log('⚠️ 无法读取 TUN 清理状态，后续连接将安全重试: $error');
     }
+  }
+
+  Future<void> _migrateLegacyTunTeardownMarker() async {
+    final observed = await _observeTunInterfaceIdentities();
+    if (observed.isEmpty) {
+      await _clearTunTeardownMarker();
+      if (await _tunTeardownMarker.exists()) {
+        throw StateError('unable to remove legacy TUN teardown marker');
+      }
+      log('已完成旧版 TUN 清理标记迁移，未发现活动的 SSRVPN 网卡');
+      return;
+    }
+    final allInterfaces = await probeWindowsNetworkInterfaceIdentities();
+    final observedGuids = observed
+        .map((identity) => identity.interfaceGuid.toLowerCase())
+        .toSet();
+    final baseline = allInterfaces
+        .where(
+          (identity) =>
+              !observedGuids.contains(identity.interfaceGuid.toLowerCase()),
+        )
+        .toSet();
+    await _writeTunTeardownMarker(
+      encodeWindowsTunTeardownMarker(
+        observed,
+        baselineInterfaces: baseline,
+      ),
+    );
+    _tunInterfacesBeforeStart = baseline;
+    _tunTeardownGate.markPending(observed, baseline);
+    log('已将旧版 TUN 清理标记迁移为稳定网卡身份');
   }
 
   Future<bool> _armTunTeardownGate() async {

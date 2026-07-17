@@ -621,9 +621,14 @@ exit 4
 
       // 慢速磁盘或首次启动可能超过 2 秒，轮询等待 API 就绪。
       var healthy = false;
+      var tunIdentityPersisted = !startedWithTun;
       final deadline = DateTime.now().add(const Duration(seconds: 15));
       while (DateTime.now().isBefore(deadline) && startupExitCode == null) {
         _ensureStartCurrent(startToken);
+        if (!tunIdentityPersisted) {
+          tunIdentityPersisted = await _persistTunInterfaceIdentities();
+          _ensureStartCurrent(startToken);
+        }
         healthy = await healthCheck();
         _ensureStartCurrent(startToken);
         if (healthy) break;
@@ -667,7 +672,9 @@ exit 4
           await _cleanupFailedStart();
           return false;
         }
-        if (startedWithTun && !await _persistTunInterfaceIdentities()) {
+        if (startedWithTun &&
+            !tunIdentityPersisted &&
+            !await _persistTunInterfaceIdentities()) {
           _ensureStartCurrent(startToken);
           setLastStartError('TUN 已启动，但无法持久化网卡身份，连接已安全取消');
           log('❌ $lastStartError');

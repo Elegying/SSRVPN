@@ -114,9 +114,34 @@ class SystemProxyService {
           _lastError ??= '无法读取当前 Windows 系统代理设置，稍后重试恢复';
           return;
         }
-        final ownsFullFingerprint = _isOwnedProxy(current, ownedProxyServer);
-        final ownsEndpoint = _isOwnedEndpoint(current, ownedProxyServer);
-        if (!ownsFullFingerprint && !ownsEndpoint) {
+        final ownedState = _ownedProxyState(ownedProxyServer);
+        final originalState = snapshot.toWindowsProxyState();
+        var restoreFullSnapshot = _isOwnedProxy(current, ownedProxyServer);
+        var restoreEndpoint = _isOwnedEndpoint(current, ownedProxyServer);
+        if (!restoreFullSnapshot && !restoreEndpoint && ownedState != null) {
+          final journal = await _readNativeRecoveryJournal(
+            ownedState.proxyServer,
+          );
+          if (journal == null) {
+            _recoveryPending = true;
+            _lastError ??= '无法读取 Windows 原生代理恢复阶段，稍后重试恢复';
+            return;
+          }
+          final phase = journal.phase;
+          if (phase != null) {
+            final reachable = isReachableWindowsProxyTransactionState(
+              current: current.toWindowsProxyState(),
+              original: originalState,
+              owned: ownedState,
+              phase: phase,
+            );
+            restoreFullSnapshot = reachable &&
+                phase != WindowsProxyTransactionPhase.endpointRestore;
+            restoreEndpoint = reachable &&
+                phase == WindowsProxyTransactionPhase.endpointRestore;
+          }
+        }
+        if (!restoreFullSnapshot && !restoreEndpoint) {
           // The user or another app changed the proxy, or this is a legacy
           // backup without ownership metadata. Never overwrite that state.
           await _deleteBackup();
@@ -129,7 +154,7 @@ class SystemProxyService {
         _ownedProxyServer = ownedProxyServer;
         _ownsProxy = true;
         _proxyEnabled = true;
-        final restored = ownsFullFingerprint
+        final restored = restoreFullSnapshot
             ? await _restoreSnapshot(snapshot)
             : await _restoreOwnedEndpoint(snapshot);
         if (restored) {
@@ -527,6 +552,86 @@ try {
         ownedProxyServer: ownedProxyServer,
       );
 
+  WindowsProxyState? _ownedProxyState(String? ownedProxyServer) {
+    if (ownedProxyServer == null || ownedProxyServer.isEmpty) return null;
+    return WindowsProxyState(
+      proxyEnable: 1,
+      hasProxyServer: true,
+      proxyServer: ownedProxyServer,
+      hasProxyOverride: true,
+      proxyOverride: _ownedProxyOverride,
+      hasAutoConfigUrl: false,
+      autoConfigUrl: '',
+      hasAutoDetect: true,
+      autoDetect: 0,
+    );
+  }
+
+  Future<_NativeProxyJournal?> _readNativeRecoveryJournal(
+    String ownedProxyServer,
+  ) async {
+    final encodedServer = base64Encode(utf8.encode(ownedProxyServer));
+    final encodedOverride = base64Encode(utf8.encode(_ownedProxyOverride));
+    final result = await _runPowerShell('''
+\$path = '$_nativeBackupRegistryPath'
+if (-not (Test-Path -LiteralPath \$path)) {
+  [Console]::Out.Write('TERMINAL')
+  exit 0
+}
+\$item = Get-ItemProperty -LiteralPath \$path
+\$expectedServer = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encodedServer'))
+\$expectedOverride = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encodedOverride'))
+\$required = @('Valid', 'OwnedProxyServer', 'OwnedProxyOverride',
+  'RestoreInProgress', 'EndpointRestoreInProgress', 'ActivationInProgress')
+foreach (\$name in \$required) {
+  if (\$null -eq \$item.PSObject.Properties[\$name]) {
+    [Console]::Out.Write('TERMINAL')
+    exit 0
+  }
+}
+if ([int]\$item.Valid -ne 1 -or
+    [string]\$item.OwnedProxyServer -cne \$expectedServer -or
+    [string]\$item.OwnedProxyOverride -cne \$expectedOverride) {
+  [Console]::Out.Write('TERMINAL')
+  exit 0
+}
+if ([int]\$item.EndpointRestoreInProgress -eq 1 -and
+    [int]\$item.RestoreInProgress -eq 0) {
+  [Console]::Out.Write('ENDPOINT_RESTORE')
+} elseif ([int]\$item.RestoreInProgress -eq 1 -and
+    [int]\$item.EndpointRestoreInProgress -eq 0) {
+  [Console]::Out.Write('FULL_RESTORE')
+} elseif ([int]\$item.ActivationInProgress -eq 1 -and
+    [int]\$item.RestoreInProgress -eq 0 -and
+    [int]\$item.EndpointRestoreInProgress -eq 0) {
+  [Console]::Out.Write('ACTIVATION')
+} else {
+  [Console]::Out.Write('TERMINAL')
+}
+''');
+    if (result.exitCode != 0) {
+      _lastError = _formatPowerShellError(
+        '读取 Windows 原生代理恢复阶段失败',
+        result,
+      );
+      return null;
+    }
+    final output = result.stdout.toString().trim();
+    return switch (output) {
+      'ACTIVATION' => const _NativeProxyJournal(
+          WindowsProxyTransactionPhase.activation,
+        ),
+      'FULL_RESTORE' => const _NativeProxyJournal(
+          WindowsProxyTransactionPhase.fullRestore,
+        ),
+      'ENDPOINT_RESTORE' => const _NativeProxyJournal(
+          WindowsProxyTransactionPhase.endpointRestore,
+        ),
+      'TERMINAL' => const _NativeProxyJournal(null),
+      _ => null,
+    };
+  }
+
   void _forgetOwnership() {
     _ownsProxy = false;
     _proxyEnabled = false;
@@ -581,6 +686,9 @@ if ($null -ne $item.PSObject.Properties['AutoDetect'] -and
 \$backupPath = '$_nativeBackupRegistryPath'
 Set-ItemProperty -Path \$backupPath -Name RestoreInProgress -Type DWord -Value 1
 \$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
+if (${snapshot.proxyEnable == 0 ? r'$true' : r'$false'}) {
+  Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value 0
+}
 if (${snapshot.hasProxyServer ? r'$true' : r'$false'}) {
   \$value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$server'))
   Set-ItemProperty -Path \$regPath -Name ProxyServer -Type String -Value \$value
@@ -604,7 +712,9 @@ if (${snapshot.hasAutoDetect ? r'$true' : r'$false'}) {
 } else {
   Remove-ItemProperty -Path \$regPath -Name AutoDetect -ErrorAction SilentlyContinue
 }
-Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
+if (${snapshot.proxyEnable != 0 ? r'$true' : r'$false'}) {
+  Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
+}
 \$validTerminal = \$false
 try {
   Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 0 -ErrorAction Stop
@@ -632,13 +742,18 @@ ${_notifyWinInetScript()}
 \$backupPath = '$_nativeBackupRegistryPath'
 Set-ItemProperty -Path \$backupPath -Name EndpointRestoreInProgress -Type DWord -Value 1
 \$regPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
+if (${snapshot.proxyEnable == 0 ? r'$true' : r'$false'}) {
+  Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value 0
+}
 if (${snapshot.hasProxyServer ? r'$true' : r'$false'}) {
   \$value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$server'))
   Set-ItemProperty -Path \$regPath -Name ProxyServer -Type String -Value \$value
 } else {
   Remove-ItemProperty -Path \$regPath -Name ProxyServer -ErrorAction SilentlyContinue
 }
-Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
+if (${snapshot.proxyEnable != 0 ? r'$true' : r'$false'}) {
+  Set-ItemProperty -Path \$regPath -Name ProxyEnable -Type DWord -Value ${snapshot.proxyEnable}
+}
 \$validTerminal = \$false
 try {
   Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 0 -ErrorAction Stop
@@ -967,4 +1082,22 @@ class _ProxySnapshot {
         'hasAutoDetect': hasAutoDetect,
         'autoDetect': autoDetect,
       };
+
+  WindowsProxyState toWindowsProxyState() => WindowsProxyState(
+        proxyEnable: proxyEnable,
+        hasProxyServer: hasProxyServer,
+        proxyServer: proxyServer,
+        hasProxyOverride: hasProxyOverride,
+        proxyOverride: proxyOverride,
+        hasAutoConfigUrl: hasAutoConfigUrl,
+        autoConfigUrl: autoConfigUrl,
+        hasAutoDetect: hasAutoDetect,
+        autoDetect: autoDetect,
+      );
+}
+
+class _NativeProxyJournal {
+  const _NativeProxyJournal(this.phase);
+
+  final WindowsProxyTransactionPhase? phase;
 }

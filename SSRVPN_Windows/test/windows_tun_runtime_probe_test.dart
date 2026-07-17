@@ -272,6 +272,25 @@ void main() {
     );
   });
 
+  test('captured identity does not absorb a later external adapter', () {
+    expect(
+      evaluateWindowsTunResidual(
+        interfaces: const [
+          (
+            index: 9,
+            interfaceGuid: foreignGuid,
+            name: 'USB Ethernet',
+            addresses: [],
+          ),
+        ],
+        expectedInterfaces: const {identity7},
+        baselineInterfaces: const {identity8},
+        residualRouteInterfaceIndexes: const {9},
+      ).status,
+      WindowsTunResidualStatus.gone,
+    );
+  });
+
   test('residual PowerShell output retains observed interface identities', () {
     final present = parseWindowsTunResidualProbeOutput(
       'PRESENT|7|$tunGuid7;8|$tunGuid8',
@@ -304,10 +323,11 @@ void main() {
     final decoded = decodeWindowsTunTeardownMarker(marker)!;
     expect(decoded.interfaces, {identity8});
     expect(decoded.baselineInterfaces, {identity7});
+    expect(decoded.legacy, isFalse);
     expect(
-      decodeWindowsTunTeardownMarker('pending')!.interfaces,
-      isEmpty,
-      reason: 'legacy bare indexes must not be trusted after an upgrade',
+      decodeWindowsTunTeardownMarker('pending')!.legacy,
+      isTrue,
+      reason: 'legacy markers require a controlled one-time migration',
     );
     expect(decodeWindowsTunTeardownMarker('{"version":1}'), isNull);
   });

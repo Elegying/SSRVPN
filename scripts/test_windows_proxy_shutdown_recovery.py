@@ -355,9 +355,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         snapshot_read = restore_body.index(
             "ReadBackupProxyState(backup, &original)"
         )
-        endpoint_start = restore_body.index(
-            "if (!owned && endpoint_owned)"
-        )
+        endpoint_start = restore_body.index("if (restore_endpoint)")
         full_restore_start = restore_body.index("bool settings_restored")
         endpoint_restore = restore_body[endpoint_start:full_restore_start]
         full_restore = restore_body[full_restore_start:]
@@ -375,25 +373,20 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertLess(snapshot_read, endpoint_start)
         self.assertIn("bool ReadBackupProxyState", recovery)
 
-        proxy_enable_write = full_restore.index(
-            'SetDword(settings, L"ProxyEnable"'
+        safe_disable = full_restore.index(
+            'SetDword(settings, L"ProxyEnable", 0)'
         )
-        self.assertGreater(
-            proxy_enable_write,
-            full_restore.index(
-                "RestorePreparedString(settings, original.proxy_server.present"
-            ),
+        restore_server = full_restore.index(
+            "RestorePreparedString(settings, original.proxy_server.present"
         )
-        self.assertGreater(
-            proxy_enable_write,
-            full_restore.index(
-                "RestorePreparedString(settings, original.auto_config_url.present"
-            ),
+        final_enable = full_restore.index(
+            'SetDword(settings, L"ProxyEnable", original.proxy_enable)'
         )
-        self.assertGreater(
-            proxy_enable_write,
-            full_restore.index('SetDword(settings, L"AutoDetect"'),
-        )
+        self.assertLess(safe_disable, restore_server)
+        self.assertGreater(final_enable, restore_server)
+        self.assertIn("IsActivationPrefix", restore_body)
+        self.assertIn("IsFullRestorePrefix", restore_body)
+        self.assertIn("IsEndpointRestorePrefix", restore_body)
         journal_write = restore_body.index(
             'SetDword(backup, L"RestoreInProgress", 1)'
         )
@@ -456,6 +449,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             'target_link_libraries(${LAUNCHER_TARGET} PRIVATE "wininet.lib")',
             cmake,
         )
+        self.assertIn("JOB_OBJECT_SET_ATTRIBUTES", launcher)
 
         guardian = launcher[
             launcher.index("int RunGuardian") : launcher.index("// ── UI helpers")

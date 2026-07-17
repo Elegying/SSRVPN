@@ -24,6 +24,7 @@ typedef WindowsTunInterfaceIdentity = ({
 typedef WindowsTunTeardownMarkerSnapshot = ({
   Set<WindowsTunInterfaceIdentity> interfaces,
   Set<WindowsTunInterfaceIdentity> baselineInterfaces,
+  bool legacy,
 });
 typedef WindowsTunResidualProbeResult = ({
   WindowsTunResidualStatus status,
@@ -305,8 +306,51 @@ $signatureAddressIndexes = @(
   } | ForEach-Object { [int]$_.InterfaceIndex }
 )
 $allRoutes = @(Get-NetRoute)
+$routeDestinations = @(__ROUTE_DESTINATIONS__)
+function Test-IpInPrefix {
+  param(
+    [Parameter(Mandatory = $true)][string]$IpAddress,
+    [Parameter(Mandatory = $true)][string]$Prefix
+  )
+  $parts = $Prefix.Split('/')
+  if ($parts.Count -ne 2) { return $false }
+  try {
+    $address = [Net.IPAddress]::Parse($IpAddress).GetAddressBytes()
+    $network = [Net.IPAddress]::Parse($parts[0]).GetAddressBytes()
+    $prefixLength = [int]$parts[1]
+  } catch {
+    return $false
+  }
+  if ($address.Length -ne $network.Length -or
+      $prefixLength -le 0 -or
+      $prefixLength -gt ($address.Length * 8)) {
+    return $false
+  }
+  $wholeBytes = [Math]::Floor($prefixLength / 8)
+  for ($i = 0; $i -lt $wholeBytes; $i++) {
+    if ($address[$i] -ne $network[$i]) { return $false }
+  }
+  $remainingBits = $prefixLength % 8
+  if ($remainingBits -eq 0) { return $true }
+  $mask = (0xff -shl (8 - $remainingBits)) -band 0xff
+  return ([int]$address[$wholeBytes] -band $mask) -eq
+    ([int]$network[$wholeBytes] -band $mask)
+}
+$signatureRoutes = @(
+  $allRoutes | Where-Object {
+    $prefix = [string]$_.DestinationPrefix
+    $matched = $false
+    foreach ($destination in $routeDestinations) {
+      if (Test-IpInPrefix -IpAddress $destination -Prefix $prefix) {
+        $matched = $true
+        break
+      }
+    }
+    $matched
+  }
+)
 $postStartRouteIndexes = @(
-  ($allRoutes | ForEach-Object { [int]$_.InterfaceIndex }) |
+  ($signatureRoutes | ForEach-Object { [int]$_.InterfaceIndex }) |
     Sort-Object -Unique | ForEach-Object {
       $index = [int]$_
       $adapter = $allAdapters | Where-Object {
@@ -321,7 +365,9 @@ $postStartRouteIndexes = @(
     }
 )
 $postStartSignatureIndexes = @(
-  $signatureAddressIndexes + $postStartRouteIndexes | Sort-Object -Unique
+  if ($expected.Count -eq 0) {
+    $signatureAddressIndexes + $postStartRouteIndexes | Sort-Object -Unique
+  }
 )
 $ownedInterfaces = @(
   foreach ($identity in $expected) {
@@ -356,9 +402,9 @@ $candidateInterfaces = @(
     Sort-Object Guid, Index -Unique
 )
 $candidateIndexes = @(
-  ($candidateInterfaces | ForEach-Object { [int]$_.Index }) +
-    $postStartRouteIndexes | Sort-Object -Unique
-)
+  ($candidateInterfaces | ForEach-Object { [int]$_.Index })
+  if ($expected.Count -eq 0) { $postStartRouteIndexes }
+) | Sort-Object -Unique
 $addresses = @($allAddresses | Where-Object {
   $candidateIndexes -contains [int]$_.InterfaceIndex
 })
@@ -390,6 +436,10 @@ if ($artifacts.Count -eq 0) {
         .replaceAll(
           '__EXPECTED_IPV6__',
           AppConstants.tunInet6Address.split('/').first,
+        )
+        .replaceAll(
+          '__ROUTE_DESTINATIONS__',
+          _tunRouteDestinations.map((value) => "'$value'").join(', '),
         );
     final result = await TimedProcessRunner.run(
       windowsPowerShellExecutable(),
@@ -527,7 +577,7 @@ WindowsTunResidualProbeResult evaluateWindowsTunResidual({
       residualInterfaces.add(identity);
     }
   }
-  if (baselineInterfaces.isNotEmpty) {
+  if (baselineInterfaces.isNotEmpty && expectedInterfaces.isEmpty) {
     for (final index in residualRouteInterfaceIndexes) {
       final matching =
           interfaces.where((interface) => interface.index == index);
@@ -597,6 +647,7 @@ WindowsTunTeardownMarkerSnapshot? decodeWindowsTunTeardownMarker(
     return (
       interfaces: const <WindowsTunInterfaceIdentity>{},
       baselineInterfaces: const <WindowsTunInterfaceIdentity>{},
+      legacy: true,
     );
   }
   try {
@@ -630,7 +681,11 @@ WindowsTunTeardownMarkerSnapshot? decodeWindowsTunTeardownMarker(
         ? decodeInterfaces(decoded['baselineInterfaces'])
         : const <WindowsTunInterfaceIdentity>{};
     if (baseline == null) return null;
-    return (interfaces: interfaces, baselineInterfaces: baseline);
+    return (
+      interfaces: interfaces,
+      baselineInterfaces: baseline,
+      legacy: false,
+    );
   } on FormatException {
     return null;
   }
