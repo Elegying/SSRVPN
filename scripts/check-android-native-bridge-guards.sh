@@ -132,6 +132,7 @@ require_count "bridge.Bridge.stop()" 1
 require_count "bridge.Bridge.isRunning()" 1
 
 require_activity_text '"syncSettings"'
+require_activity_text "private fun handleNativeMethodCall("
 require_activity_text '"flutter.proxyPort"'
 require_activity_text '"installUpdate"'
 require_activity_text "Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES"
@@ -247,6 +248,21 @@ for address in ("1.1.1.1", "2.2.2.2", "8.8.8.8", "11.0.0.1", "102.1.2.3", "103.1
 for address in ("10.1.2.3", "100.64.0.1", "172.16.0.1", "192.168.1.1"):
     if routed(address):
         raise SystemExit(f"Android local route exclusion is missing {address}")
+PY
+
+python3 - "$MAIN_ACTIVITY" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+start = source.index("    override fun configureFlutterEngine(")
+end = source.index("\n    private fun ", start)
+line_count = len(source[start:end].splitlines())
+if line_count > 30:
+    raise SystemExit(
+        f"MainActivity.configureFlutterEngine grew to {line_count} lines; "
+        "keep channel actions in focused handlers"
+    )
 PY
 
 python3 - "$SERVICE" "$NOTIFICATION_SUPPORT" <<'PY'

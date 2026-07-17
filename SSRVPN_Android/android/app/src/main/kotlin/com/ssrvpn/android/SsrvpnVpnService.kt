@@ -17,7 +17,6 @@ import android.os.SystemClock
 import android.net.TrafficStats
 import android.util.Log
 import androidx.core.content.ContextCompat
-import java.io.FileInputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -161,6 +160,7 @@ class SsrvpnVpnService : VpnService() {
     private var notificationConnected = false
     private var notificationStatusText: String? = null
     private val notificationUpdatePolicy = NotificationUpdatePolicy()
+    private val mihomoApiWaiter = MihomoApiWaiter()
     private val screenStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -453,35 +453,12 @@ class SsrvpnVpnService : VpnService() {
             Log.d(TAG, "Protect pipe fd=$protectReadFd")
 
             // Step 2: Start protect monitor thread (reads fd, calls protect, sends result)
-            if (protectReadFd > 0) {
-                protectThread = Thread {
-                    try {
-                        val pfd = ParcelFileDescriptor.fromFd(protectReadFd.toInt())
-                        val fis = FileInputStream(pfd.fileDescriptor)
-                        val buf = ByteArray(4)
-                        while (!Thread.currentThread().isInterrupted) {
-                            val n = fis.read(buf)
-                            if (n == 4) {
-                                val socketFd = (buf[0].toInt() and 0xFF) or
-                                    ((buf[1].toInt() and 0xFF) shl 8) or
-                                    ((buf[2].toInt() and 0xFF) shl 16) or
-                                    ((buf[3].toInt() and 0xFF) shl 24)
-                                val ok = protect(socketFd)
-                                Log.d(TAG, "protect($socketFd) = $ok")
-                                bridge.Bridge.setProtectResult(ok)
-                            } else if (n == -1) {
-                                Log.d(TAG, "Protect pipe closed")
-                                break
-                            }
-                        }
-                        fis.close()
-                        pfd.close()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Protect thread error: ${e.message}", e)
-                    }
-                }
-                protectThread?.isDaemon = true
-                protectThread?.start()
+            protectThread = VpnProtectMonitor.start(
+                protectReadFd,
+                protectSocket = { socketFd -> protect(socketFd) },
+                reportResult = { protected -> bridge.Bridge.setProtectResult(protected) }
+            )
+            if (protectThread != null) {
                 Log.d(TAG, "Protect monitor started")
             }
 
@@ -544,25 +521,13 @@ class SsrvpnVpnService : VpnService() {
             Log.d(TAG, "Waiting for API on port $apiPort...")
             val healthDeadlineNanos =
                 System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(API_HEALTH_TIMEOUT_MS)
-            var healthy = false
-            while (System.nanoTime() < healthDeadlineNanos) {
-                ensureStartCurrent(startToken)
-                healthy = MihomoApiHealthProbe.isHealthy(
-                    apiPort,
-                    apiSecret,
-                    healthDeadlineNanos
-                )
-                ensureStartCurrent(startToken)
-                if (healthy) break
-                val remainingNanos =
-                    (healthDeadlineNanos - System.nanoTime()).coerceAtLeast(0L)
-                Thread.sleep(
-                    minOf(
-                        API_HEALTH_POLL_INTERVAL_MS,
-                        TimeUnit.NANOSECONDS.toMillis(remainingNanos)
-                    )
-                )
-            }
+            val healthy = mihomoApiWaiter.waitUntilHealthy(
+                apiPort,
+                apiSecret,
+                healthDeadlineNanos,
+                API_HEALTH_POLL_INTERVAL_MS,
+                ensureCurrent = { ensureStartCurrent(startToken) }
+            )
             if (healthy) Log.d(TAG, "Mihomo API /version is healthy")
 
             if (healthy) {
