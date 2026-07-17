@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 移除
+
+- Android、macOS 与 Windows 删除解锁测试页面及共享检测服务，主导航统一收敛为“主页/首页”和“订阅”两项。
+
+### 修复
+
+- Android 快捷磁贴和系统粘性重启通过 Android Keystore 加密的原生凭据副本读取 Mihomo API 密钥，避免冷启动健康检查因缺失认证而失败。
+- Android 常驻通知按完整展示状态去重，内容未变化时不再重复提交系统通知。
+
+### 维护
+
+- 删除 Android 未被原生实现支持的通知 MethodChannel 门面与无人调用的旧 VPN 门面，连接状态继续由真实前台 VPN Service 统一管理。
+
 ## [3.4.5] - 2026-07-17
 
 ### 修复

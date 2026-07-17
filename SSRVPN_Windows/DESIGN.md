@@ -308,32 +308,6 @@ components:
     menu-items: "Show/Hide, Connect/Disconnect, Quit"
     icon: system-tray-plugin
 
-  # ── Unlock Test ──
-  unlock-category-tab:
-    backgroundColor-default: "{colors.card}"
-    backgroundColor-active: "{colors.primary} at 12% alpha"
-    textColor-default: "{colors.text-secondary}"
-    textColor-active: "{colors.primary}"
-    rounded: "{rounded.md}"
-    padding: 8px 14px
-    border-active: "{colors.primary} at 30% alpha"
-    typography: "{typography.body-sm}"
-
-  unlock-card:
-    backgroundColor: white at 4% alpha
-    rounded: "{rounded.lg}"
-    padding: 14px
-    border-default: status-color at 25% alpha
-    border-result: status-color at 50% alpha, 1px
-    typography-name: "{typography.body-strong}"
-
-  unlock-summary-chip:
-    backgroundColor: color at 10% alpha
-    textColor: color
-    rounded: "{rounded.sm}"
-    padding: 3px 8px
-    typography: "{typography.pill-label}"
-
 ---
 
 ## Overview
@@ -403,7 +377,7 @@ The glass system is subtractive — it uses `BackdropFilter.blur()` to soften th
 | `{typography.button-label}` | 13px | 700 | 1.2 | 3.0px | Connection button label ("连接" / "断开") |
 | `{typography.pill-label}` | 10px | 600 | 1.2 | 0 | Status pill, node count badge |
 | `{typography.badge}` | 8px | 700 | 1.2 | 1.2px | Platform badge ("WINDOWS") |
-| `{typography.caption}` | 10px | 500 | 1.3 | 0 | Fine print, unlock test metadata |
+| `{typography.caption}` | 10px | 500 | 1.3 | 0 | Fine print and secondary metadata |
 
 ### Principles
 - **Weight 800 is reserved for the brand name** ("SSRVPN"). Everything else caps at 700.
@@ -453,7 +427,7 @@ SSRVPN uses **glass + glow** for depth, not the traditional shadow ladder. Cards
 | `{rounded.xs}` | 4px | Platform badge, section indicator |
 | `{rounded.sm}` | 6px | Status pills, small buttons |
 | `{rounded.md}` | 10px | Form inputs, buttons, mode cards, nav |
-| `{rounded.lg}` | 14px | Node cards, unlock cards, generic cards |
+| `{rounded.lg}` | 14px | Node cards and generic cards |
 | `{rounded.xl}` | 20px | Dialog modals |
 | `{rounded.xxl}` | 24px | Connection card (highest prominence) |
 | `{rounded.pill}` | 9999px | Nav indicators, refresh buttons |
@@ -468,7 +442,7 @@ The connection card uses `{rounded.xxl}` 24px — the largest radius — to sign
 - Height 48px. Logo (28×28 px violet gradient square, 7px radius) + "SSRVPN" brand name + platform badge + tutorial button. Transparent background.
 
 **`bottom-nav`** — Liquid-glass navigation bar.
-- Three tabs: Home, Subscription, Unlock Test. Active tab gets violet text + icon. Uses `GlassContainer` with `{rounded.pill}` 32px. Sits in a `SafeArea` above the bottom edge.
+- Two tabs: Home and Subscription. Active tab gets violet text + icon. Uses `GlassContainer` with `{rounded.pill}` 32px. Sits in a `SafeArea` above the bottom edge.
 
 ### Hero: Connection Card
 
@@ -530,21 +504,10 @@ The connection card uses `{rounded.xxl}` 24px — the largest radius — to sign
 ### Pills & Badges
 
 **`pill-status`** — Status indicator.
-- Color at 10% alpha background, solid color text, `{rounded.sm}`, 4px × 9px padding. Used for "已连接" / "支持" / "不支持" labels.
+- Color at 10% alpha background, solid color text, `{rounded.sm}`, 4px × 9px padding. Used for connection and node state labels.
 
 **`badge-platform`** — Platform tag ("WINDOWS").
 - Violet at 10% alpha background, `{typography.badge}` (8px, 700 weight, 1.2px spacing), `{rounded.xs}`.
-
-### Unlock Test
-
-**`unlock-category-tab`** — Category filter pill.
-- Row of 4 tabs: 全部 / 流媒体 / AI 服务 / 其他. Active tab gets violet tint + violet border.
-
-**`unlock-card`** — Service test result.
-- White at 4% alpha background, `{rounded.lg}`, 14px padding. Status-colored border. Contains: icon + name + refresh button → status pills → detail text.
-
-**`unlock-summary-chip`** — Summary stats.
-- Row of 3 chips: 解锁N / 阻止N / 失败N. Each uses its status color at 10% alpha.
 
 ### Glass System
 
@@ -582,7 +545,7 @@ The connection card uses `{rounded.xxl}` 24px — the largest radius — to sign
 │  ├─ ● Node 3 ── ∞ ─────┤  │
 │  └──────────────────────┘  │
 │                             │
-│  [ 主页 | 订阅 | 解锁 ]      │  ← bottom-nav
+│  [    主页    |    订阅    ]  │  ← bottom-nav
 └─────────────────────────────┘
 ```
 
@@ -590,11 +553,6 @@ The connection card uses `{rounded.xxl}` 24px — the largest radius — to sign
 - Header + subscription URL list with status indicators.
 - Each subscription shows: last update time, node count, update button.
 - "添加订阅" button at bottom.
-
-### Unlock Test Screen
-- Header + connection info strip + category tabs + summary bar.
-- Grid of unlock cards (27 services across streaming / AI / other categories).
-- Each card: service icon + name + status pill + region (if detected) + detail.
 
 ## Animation
 

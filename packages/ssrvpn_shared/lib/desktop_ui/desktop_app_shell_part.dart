@@ -1,6 +1,6 @@
 part of desktop_app;
 
-const _shellNavItems = [
+const desktopPrimaryNavigationItems = <NavItem>[
   NavItem(
     icon: Icons.home_outlined,
     activeIcon: Icons.home_rounded,
@@ -10,11 +10,6 @@ const _shellNavItems = [
     icon: Icons.rss_feed_outlined,
     activeIcon: Icons.rss_feed_rounded,
     label: '订阅',
-  ),
-  NavItem(
-    icon: Icons.fact_check_outlined,
-    activeIcon: Icons.fact_check_rounded,
-    label: '解锁',
   ),
 ];
 
@@ -154,7 +149,7 @@ class _CompactShell extends StatelessWidget {
         Expanded(child: _PageStack(currentIndex: currentIndex)),
         LiquidGlassNavBar(
           currentIndex: currentIndex,
-          items: _shellNavItems,
+          items: desktopPrimaryNavigationItems,
           onTap: onIndexChanged,
         ),
       ],
@@ -174,7 +169,6 @@ class _PageStack extends StatelessWidget {
       children: const [
         HomeScreen(),
         SubscriptionScreen(),
-        UnlockTestScreen(),
       ],
     );
   }
@@ -266,9 +260,11 @@ class _GlassSideRail extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 28),
-          for (var index = 0; index < _shellNavItems.length; index++)
+          for (var index = 0;
+              index < desktopPrimaryNavigationItems.length;
+              index++)
             _ShellRailItem(
-              item: _shellNavItems[index],
+              item: desktopPrimaryNavigationItems[index],
               selected: currentIndex == index,
               onTap: () => onIndexChanged(index),
             ),

@@ -9,7 +9,6 @@ import 'services/clash_service.dart' as clash;
 import 'services/subscription_service.dart';
 import 'screens/home_screen.dart';
 import 'screens/subscription_screen.dart';
-import 'screens/unlock_test_screen.dart';
 
 import 'startup/initialization_task.dart';
 import 'startup/startup_flags.dart';
@@ -18,6 +17,19 @@ import 'theme/app_theme.dart';
 import 'utils/responsive.dart';
 import 'widgets/liquid_glass.dart' hide GlassInputDecoration;
 import 'widgets/glass_container.dart';
+
+const androidPrimaryNavigationItems = <NavItem>[
+  NavItem(
+    icon: Icons.home_outlined,
+    activeIcon: Icons.home_rounded,
+    label: '主页',
+  ),
+  NavItem(
+    icon: Icons.rss_feed_outlined,
+    activeIcon: Icons.rss_feed_rounded,
+    label: '订阅',
+  ),
+];
 
 class SSRVpnApp extends StatefulWidget {
   final StartupFlags startupFlags;
@@ -273,7 +285,6 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                   children: <Widget>[
                     HomeScreen(key: _homeKey),
                     const SubscriptionScreen(),
-                    const UnlockTestScreen(),
                   ],
                 ),
               ),
@@ -292,23 +303,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                       curve: Curves.easeOutCubic,
                     );
                   },
-                  items: const [
-                    NavItem(
-                      icon: Icons.home_outlined,
-                      activeIcon: Icons.home_rounded,
-                      label: '主页',
-                    ),
-                    NavItem(
-                      icon: Icons.rss_feed_outlined,
-                      activeIcon: Icons.rss_feed_rounded,
-                      label: '订阅',
-                    ),
-                    NavItem(
-                      icon: Icons.fact_check_outlined,
-                      activeIcon: Icons.fact_check_rounded,
-                      label: '解锁',
-                    ),
-                  ],
+                  items: androidPrimaryNavigationItems,
                 ),
               ),
             ],
