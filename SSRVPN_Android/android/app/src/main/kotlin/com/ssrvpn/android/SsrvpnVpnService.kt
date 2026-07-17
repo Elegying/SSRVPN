@@ -257,7 +257,10 @@ class SsrvpnVpnService : VpnService() {
             .cancel(RECOVERY_FAILURE_NOTIFICATION_ID)
         resetTrafficStats()
 
-        val notification = buildDynamicNotification()
+        notificationUpdatePolicy.resetPublishedState()
+        val initialNotificationState = currentNotificationState()
+        val notification = buildDynamicNotification(initialNotificationState)
+        notificationUpdatePolicy.markPublished(initialNotificationState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
@@ -276,9 +279,18 @@ class SsrvpnVpnService : VpnService() {
         } else {
             prefs.getLong("flutter.apiPort", 9090L).toInt()
         }
-        val apiSecret = intent?.getStringExtra(EXTRA_API_SECRET)
-            ?: prefs.getString("flutter.apiSecret", "")
-            ?: ""
+        val explicitApiSecret = intent?.getStringExtra(EXTRA_API_SECRET)
+        if (!explicitApiSecret.isNullOrBlank()) {
+            try {
+                NativeApiSecretStore.write(this, explicitApiSecret)
+            } catch (error: Exception) {
+                Log.e(TAG, "Unable to refresh native VPN credentials", error)
+            }
+        }
+        val apiSecret = NativeApiSecretResolver.resolve(
+            explicitApiSecret,
+            NativeApiSecretStore.read(this)
+        )
         val selectedNodeName = currentNodeName
 
         if (configDir == null || configPath == null) {
@@ -316,21 +328,25 @@ class SsrvpnVpnService : VpnService() {
         return START_STICKY
     }
 
-    private fun buildDynamicNotification(): Notification =
+    private fun currentNotificationState() = VpnNotificationState(
+        currentNodeName,
+        notificationConnected,
+        notificationStatusText,
+        uploadRate,
+        downloadRate,
+        sessionUpload(),
+        sessionDownload(),
+        connectionStartedAt
+    )
+
+    private fun buildDynamicNotification(
+        state: VpnNotificationState = currentNotificationState()
+    ): Notification =
         VpnNotificationSupport.buildStatusNotification(
             this,
             CHANNEL_ID,
             ACTION_DISCONNECT,
-            VpnNotificationState(
-                currentNodeName,
-                notificationConnected,
-                notificationStatusText,
-                uploadRate,
-                downloadRate,
-                sessionUpload(),
-                sessionDownload(),
-                connectionStartedAt
-            )
+            state
         )
 
     fun updateNotificationNode(nodeName: String) {
@@ -345,8 +361,10 @@ class SsrvpnVpnService : VpnService() {
 
     private fun notifyCurrentState() {
         if (!isRunning) return
+        val state = currentNotificationState()
+        if (!notificationUpdatePolicy.shouldPublish(state)) return
         getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID, buildDynamicNotification())
+            .notify(NOTIFICATION_ID, buildDynamicNotification(state))
     }
 
     private fun resetTrafficStats() {
