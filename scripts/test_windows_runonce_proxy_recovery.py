@@ -204,7 +204,8 @@ class WindowsRunOnceProxyRecoveryTest(unittest.TestCase):
         self.assertIn("IsOwnedWindowsProxySafeToStop", no_backup)
         self.assertIn("RemoveRecoveryRunOnce()", no_backup)
         confirmed_start = recovery.index(
-            "if (!owned && !full_restore_pending) {"
+            "if (!owned) {",
+            restore_start,
         )
         confirmed_end = recovery.index("bool settings_restored", confirmed_start)
         confirmed_not_owned = recovery[confirmed_start:confirmed_end]

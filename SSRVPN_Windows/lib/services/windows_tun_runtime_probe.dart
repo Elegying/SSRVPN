@@ -21,6 +21,10 @@ typedef WindowsTunInterfaceIdentity = ({
   int index,
   String interfaceGuid,
 });
+typedef WindowsTunTeardownMarkerSnapshot = ({
+  Set<WindowsTunInterfaceIdentity> interfaces,
+  Set<WindowsTunInterfaceIdentity> baselineInterfaces,
+});
 typedef WindowsTunResidualProbeResult = ({
   WindowsTunResidualStatus status,
   Set<WindowsTunInterfaceIdentity> interfaces,
@@ -47,6 +51,7 @@ const _tunRouteDestinations = <String>[
 
 class WindowsTunTeardownGate {
   final _interfaces = <WindowsTunInterfaceIdentity>{};
+  final _baselineInterfaces = <WindowsTunInterfaceIdentity>{};
   bool _pending = false;
   bool _ownershipKnown = true;
 
@@ -54,21 +59,22 @@ class WindowsTunTeardownGate {
   bool get ownershipKnown => _ownershipKnown;
   Set<WindowsTunInterfaceIdentity> get interfaces =>
       Set.unmodifiable(_interfaces);
-  bool shouldProbeBeforeStart({required bool enableTun}) =>
-      enableTun || _pending;
+  Set<WindowsTunInterfaceIdentity> get baselineInterfaces =>
+      Set.unmodifiable(_baselineInterfaces);
+  bool shouldProbeBeforeStart({required bool enableTun}) => _pending;
 
   void markPending([
     Iterable<WindowsTunInterfaceIdentity> interfaces =
         const <WindowsTunInterfaceIdentity>[],
+    Iterable<WindowsTunInterfaceIdentity> baselineInterfaces =
+        const <WindowsTunInterfaceIdentity>[],
   ]) {
     _pending = true;
     final captured = interfaces.toSet();
-    if (captured.isEmpty) {
-      if (_interfaces.isEmpty) _ownershipKnown = false;
-      return;
-    }
+    final baseline = baselineInterfaces.toSet();
     _interfaces.addAll(captured);
-    _ownershipKnown = true;
+    _baselineInterfaces.addAll(baseline);
+    _ownershipKnown = _interfaces.isNotEmpty || _baselineInterfaces.isNotEmpty;
   }
 
   void observe(WindowsTunResidualProbeResult result) {
@@ -81,11 +87,12 @@ class WindowsTunTeardownGate {
 
   bool accept(WindowsTunResidualProbeResult result) {
     observe(result);
-    if (result.status != WindowsTunResidualStatus.gone) {
+    if (!_ownershipKnown || result.status != WindowsTunResidualStatus.gone) {
       return false;
     }
     _pending = false;
     _interfaces.clear();
+    _baselineInterfaces.clear();
     _ownershipKnown = true;
     return true;
   }
@@ -191,11 +198,53 @@ if ($identities.Count -eq 0) {
   }
 }
 
+Future<Set<WindowsTunInterfaceIdentity>>
+    probeWindowsNetworkInterfaceIdentities() async {
+  if (!Platform.isWindows) return const <WindowsTunInterfaceIdentity>{};
+  try {
+    const script = r'''
+$ErrorActionPreference = 'Stop'
+$identities = @(
+  Get-NetAdapter -IncludeHidden | ForEach-Object {
+    $guid = ([Guid]$_.InterfaceGuid).ToString('D').ToLowerInvariant()
+    "$([int]$_.ifIndex)|$guid"
+  } | Sort-Object -Unique
+)
+if ($identities.Count -eq 0) {
+  'NONE'
+} else {
+  'FOUND|' + ($identities -join ';')
+}
+''';
+    final result = await TimedProcessRunner.run(
+      windowsPowerShellExecutable(),
+      [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        windowsPowerShellUtf8Script(script),
+      ],
+      timeout: const Duration(seconds: 3),
+      timeoutStderr: 'Windows network interface baseline probe timed out',
+    );
+    if (result.exitCode != 0) return const <WindowsTunInterfaceIdentity>{};
+    return parseWindowsTunInterfaceIdentityOutput(result.stdout.toString());
+  } catch (_) {
+    return const <WindowsTunInterfaceIdentity>{};
+  }
+}
+
 Future<WindowsTunResidualProbeResult> probeWindowsTunResidual(
     {Set<WindowsTunInterfaceIdentity> expectedInterfaces =
+        const <WindowsTunInterfaceIdentity>{},
+    Set<WindowsTunInterfaceIdentity> baselineInterfaces =
         const <WindowsTunInterfaceIdentity>{}}) async {
   if (!Platform.isWindows) return _tunResidualProbeFailed;
   try {
+    if (expectedInterfaces.isEmpty && baselineInterfaces.isEmpty) {
+      return _tunResidualProbeFailed;
+    }
     final identities = expectedInterfaces.toList()
       ..sort((left, right) {
         final byGuid = left.interfaceGuid.compareTo(right.interfaceGuid);
@@ -207,7 +256,24 @@ Future<WindowsTunResidualProbeResult> probeWindowsTunResidual(
     )) {
       return _tunResidualProbeFailed;
     }
+    final baseline = baselineInterfaces.toList()
+      ..sort((left, right) {
+        final byGuid = left.interfaceGuid.compareTo(right.interfaceGuid);
+        return byGuid != 0 ? byGuid : left.index.compareTo(right.index);
+      });
+    if (baseline.any(
+      (identity) =>
+          identity.index <= 0 || !_isValidInterfaceGuid(identity.interfaceGuid),
+    )) {
+      return _tunResidualProbeFailed;
+    }
     final expectedLiteral = identities
+        .map(
+          (identity) => "[pscustomobject]@{ Index = ${identity.index}; Guid = "
+              "'${identity.interfaceGuid.toLowerCase()}' }",
+        )
+        .join(",\n  ");
+    final baselineLiteral = baseline
         .map(
           (identity) => "[pscustomobject]@{ Index = ${identity.index}; Guid = "
               "'${identity.interfaceGuid.toLowerCase()}' }",
@@ -218,17 +284,44 @@ $ErrorActionPreference = 'Stop'
 $expected = @(
   __EXPECTED_IDENTITIES__
 )
+$baseline = @(
+  __BASELINE_IDENTITIES__
+)
 $allAdapters = @(Get-NetAdapter -IncludeHidden)
 $occupiedIndexes = @(
   $allAdapters | ForEach-Object { [int]$_.ifIndex } | Sort-Object -Unique
 )
-$signatureIndexes = @(
-  if ($expected.Count -eq 0) {
-    Get-NetIPAddress | Where-Object {
-      [string]$_.IPAddress -eq '__EXPECTED_IPV4__' -or
-      [string]$_.IPAddress -eq '__EXPECTED_IPV6__'
-    } | ForEach-Object { [int]$_.InterfaceIndex }
-  }
+$baselineIndexes = @(
+  $baseline | ForEach-Object { [int]$_.Index } | Sort-Object -Unique
+)
+$baselineGuids = @(
+  $baseline | ForEach-Object { [string]$_.Guid } | Sort-Object -Unique
+)
+$allAddresses = @(Get-NetIPAddress)
+$signatureAddressIndexes = @(
+  $allAddresses | Where-Object {
+    [string]$_.IPAddress -eq '__EXPECTED_IPV4__' -or
+    [string]$_.IPAddress -eq '__EXPECTED_IPV6__'
+  } | ForEach-Object { [int]$_.InterfaceIndex }
+)
+$allRoutes = @(Get-NetRoute)
+$postStartRouteIndexes = @(
+  ($allRoutes | ForEach-Object { [int]$_.InterfaceIndex }) |
+    Sort-Object -Unique | ForEach-Object {
+      $index = [int]$_
+      $adapter = $allAdapters | Where-Object {
+        [int]$_.ifIndex -eq $index
+      } | Select-Object -First 1
+      if ($null -eq $adapter) {
+        if ($baselineIndexes -notcontains $index) { $index }
+      } else {
+        $guid = ([Guid]$adapter.InterfaceGuid).ToString('D').ToLowerInvariant()
+        if ($baselineGuids -notcontains $guid) { $index }
+      }
+    }
+)
+$postStartSignatureIndexes = @(
+  $signatureAddressIndexes + $postStartRouteIndexes | Sort-Object -Unique
 )
 $ownedInterfaces = @(
   foreach ($identity in $expected) {
@@ -245,7 +338,7 @@ $ownedInterfaces = @(
 )
 $signatureInterfaces = @(
   $allAdapters | Where-Object {
-    $signatureIndexes -contains [int]$_.ifIndex
+    $postStartSignatureIndexes -contains [int]$_.ifIndex
   } | ForEach-Object {
     [pscustomobject]@{
       Index = [int]$_.ifIndex
@@ -263,12 +356,13 @@ $candidateInterfaces = @(
     Sort-Object Guid, Index -Unique
 )
 $candidateIndexes = @(
-  $candidateInterfaces | ForEach-Object { [int]$_.Index } | Sort-Object -Unique
+  ($candidateInterfaces | ForEach-Object { [int]$_.Index }) +
+    $postStartRouteIndexes | Sort-Object -Unique
 )
-$addresses = @(Get-NetIPAddress | Where-Object {
+$addresses = @($allAddresses | Where-Object {
   $candidateIndexes -contains [int]$_.InterfaceIndex
 })
-$routes = @(Get-NetRoute | Where-Object {
+$routes = @($allRoutes | Where-Object {
   $candidateIndexes -contains [int]$_.InterfaceIndex
 })
 
@@ -281,9 +375,14 @@ $artifacts = @(
     "$([int]$_.Index)|$([string]$_.Guid)"
   }
 )
-'PRESENT|' + ($artifacts -join ';')
+if ($artifacts.Count -eq 0) {
+  'PRESENT'
+} else {
+  'PRESENT|' + ($artifacts -join ';')
+}
 '''
         .replaceAll('__EXPECTED_IDENTITIES__', expectedLiteral)
+        .replaceAll('__BASELINE_IDENTITIES__', baselineLiteral)
         .replaceAll(
           '__EXPECTED_IPV4__',
           AppConstants.fakeIpRange.split('/').first,
@@ -354,6 +453,12 @@ WindowsTunResidualProbeResult parseWindowsTunResidualProbeOutput(
       interfaces: const <WindowsTunInterfaceIdentity>{},
     );
   }
+  if (value == 'PRESENT') {
+    return (
+      status: WindowsTunResidualStatus.present,
+      interfaces: const <WindowsTunInterfaceIdentity>{},
+    );
+  }
   if (!value.startsWith('PRESENT|')) return _tunResidualProbeFailed;
   Set<WindowsTunInterfaceIdentity> interfaces;
   try {
@@ -373,6 +478,8 @@ WindowsTunResidualProbeResult parseWindowsTunResidualProbeOutput(
 WindowsTunResidualProbeResult evaluateWindowsTunResidual({
   required List<WindowsTunResidualInterfaceSnapshot> interfaces,
   required Set<WindowsTunInterfaceIdentity> expectedInterfaces,
+  Set<WindowsTunInterfaceIdentity> baselineInterfaces =
+      const <WindowsTunInterfaceIdentity>{},
   Set<int> residualRouteInterfaceIndexes = const <int>{},
 }) {
   final occupiedIndexes =
@@ -383,6 +490,11 @@ WindowsTunResidualProbeResult evaluateWindowsTunResidual({
     ),
   };
   final residualInterfaces = <WindowsTunInterfaceIdentity>{};
+  final baselineGuids = baselineInterfaces
+      .map((identity) => identity.interfaceGuid.toLowerCase())
+      .toSet();
+  final baselineIndexes =
+      baselineInterfaces.map((identity) => identity.index).toSet();
   for (final interface in interfaces) {
     final owned = expectedInterfaces.any(
       (identity) =>
@@ -396,14 +508,43 @@ WindowsTunResidualProbeResult evaluateWindowsTunResidual({
       );
       candidateInterfaces.add(identity);
       residualInterfaces.add(identity);
+    } else if (baselineInterfaces.isNotEmpty &&
+        !baselineGuids.contains(interface.interfaceGuid.toLowerCase()) &&
+        interface.addresses.any(
+          (address) =>
+              address.address == AppConstants.fakeIpRange.split('/').first ||
+              address.address == AppConstants.tunInet6Address.split('/').first,
+        )) {
+      residualInterfaces.add((
+        index: interface.index,
+        interfaceGuid: interface.interfaceGuid.toLowerCase(),
+      ));
     }
   }
+  var hasRouteOnlyResidual = false;
   for (final identity in candidateInterfaces) {
     if (residualRouteInterfaceIndexes.contains(identity.index)) {
       residualInterfaces.add(identity);
     }
   }
-  if (residualInterfaces.isEmpty) {
+  if (baselineInterfaces.isNotEmpty) {
+    for (final index in residualRouteInterfaceIndexes) {
+      final matching =
+          interfaces.where((interface) => interface.index == index);
+      if (matching.isEmpty) {
+        if (!baselineIndexes.contains(index)) hasRouteOnlyResidual = true;
+        continue;
+      }
+      final interface = matching.single;
+      if (!baselineGuids.contains(interface.interfaceGuid.toLowerCase())) {
+        residualInterfaces.add((
+          index: interface.index,
+          interfaceGuid: interface.interfaceGuid.toLowerCase(),
+        ));
+      }
+    }
+  }
+  if (residualInterfaces.isEmpty && !hasRouteOnlyResidual) {
     return (
       status: WindowsTunResidualStatus.gone,
       interfaces: const <WindowsTunInterfaceIdentity>{},
@@ -416,17 +557,30 @@ WindowsTunResidualProbeResult evaluateWindowsTunResidual({
 }
 
 String encodeWindowsTunTeardownMarker(
-  Set<WindowsTunInterfaceIdentity> interfaces,
-) {
+  Set<WindowsTunInterfaceIdentity> interfaces, {
+  required Set<WindowsTunInterfaceIdentity> baselineInterfaces,
+}) {
   final sorted = interfaces.toList()
     ..sort((left, right) {
       final byGuid = left.interfaceGuid.compareTo(right.interfaceGuid);
       return byGuid != 0 ? byGuid : left.index.compareTo(right.index);
     });
+  final sortedBaseline = baselineInterfaces.toList()
+    ..sort((left, right) {
+      final byGuid = left.interfaceGuid.compareTo(right.interfaceGuid);
+      return byGuid != 0 ? byGuid : left.index.compareTo(right.index);
+    });
   return '${jsonEncode({
-        'version': 1,
+        'version': 2,
         'interfaces': [
           for (final identity in sorted)
+            {
+              'index': identity.index,
+              'guid': identity.interfaceGuid.toLowerCase(),
+            },
+        ],
+        'baselineInterfaces': [
+          for (final identity in sortedBaseline)
             {
               'index': identity.index,
               'guid': identity.interfaceGuid.toLowerCase(),
@@ -435,34 +589,48 @@ String encodeWindowsTunTeardownMarker(
       })}\n';
 }
 
-Set<WindowsTunInterfaceIdentity>? decodeWindowsTunTeardownMarker(
+WindowsTunTeardownMarkerSnapshot? decodeWindowsTunTeardownMarker(
   String value,
 ) {
   final trimmed = value.trim();
   if (trimmed == 'pending' || RegExp(r'^\d+(,\d+)*$').hasMatch(trimmed)) {
-    return const <WindowsTunInterfaceIdentity>{};
+    return (
+      interfaces: const <WindowsTunInterfaceIdentity>{},
+      baselineInterfaces: const <WindowsTunInterfaceIdentity>{},
+    );
   }
   try {
     final decoded = jsonDecode(trimmed);
     if (decoded is! Map<String, dynamic> ||
-        decoded['version'] != 1 ||
+        (decoded['version'] != 1 && decoded['version'] != 2) ||
         decoded['interfaces'] is! List) {
       return null;
     }
-    final interfaces = <WindowsTunInterfaceIdentity>{};
-    for (final entry in decoded['interfaces'] as List) {
-      if (entry is! Map<String, dynamic>) return null;
-      final index = entry['index'];
-      final guid = entry['guid'];
-      if (index is! int ||
-          index <= 0 ||
-          guid is! String ||
-          !_isValidInterfaceGuid(guid)) {
-        return null;
+    Set<WindowsTunInterfaceIdentity>? decodeInterfaces(Object? value) {
+      if (value is! List) return null;
+      final result = <WindowsTunInterfaceIdentity>{};
+      for (final entry in value) {
+        if (entry is! Map<String, dynamic>) return null;
+        final index = entry['index'];
+        final guid = entry['guid'];
+        if (index is! int ||
+            index <= 0 ||
+            guid is! String ||
+            !_isValidInterfaceGuid(guid)) {
+          return null;
+        }
+        result.add((index: index, interfaceGuid: guid.toLowerCase()));
       }
-      interfaces.add((index: index, interfaceGuid: guid.toLowerCase()));
+      return result;
     }
-    return interfaces;
+
+    final interfaces = decodeInterfaces(decoded['interfaces']);
+    if (interfaces == null) return null;
+    final baseline = decoded['version'] == 2
+        ? decodeInterfaces(decoded['baselineInterfaces'])
+        : const <WindowsTunInterfaceIdentity>{};
+    if (baseline == null) return null;
+    return (interfaces: interfaces, baselineInterfaces: baseline);
   } on FormatException {
     return null;
   }

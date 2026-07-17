@@ -130,7 +130,7 @@ void main() {
     expect(await backup.exists(), isFalse);
   });
 
-  test('stale activation without native corroboration only releases endpoint',
+  test('stale activation restores only the exact owned endpoint',
       () async {
     final temp = await Directory.systemTemp.createTemp(
       'ssrvpn_stale_activation_',
@@ -212,7 +212,7 @@ void main() {
     expect(service.recoveryPending, isFalse);
   });
 
-  test('matching native activation completes an interrupted acquisition',
+  test('pending native activation never authorizes mixed snapshot replay',
       () async {
     final temp = await Directory.systemTemp.createTemp(
       'ssrvpn_native_activation_',
@@ -256,8 +256,8 @@ void main() {
             0,
             jsonEncode({
               'proxyEnable': 0,
-              'hasProxyServer': false,
-              'proxyServer': '',
+              'hasProxyServer': true,
+              'proxyServer': '127.0.0.1:7890',
               'hasProxyOverride': false,
               'proxyOverride': '',
               'hasAutoConfigUrl': false,
@@ -280,7 +280,7 @@ void main() {
           '-Name RestoreInProgress -Type DWord -Value 1',
         ),
       ),
-      isTrue,
+      isFalse,
     );
     expect(await backup.exists(), isFalse);
     expect(service.recoveryPending, isFalse);

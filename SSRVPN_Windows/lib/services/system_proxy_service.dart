@@ -108,7 +108,6 @@ class SystemProxyService {
         final rawOwnedProxyServer = data['_ownedProxyServer'];
         final ownedProxyServer =
             rawOwnedProxyServer is String ? rawOwnedProxyServer : null;
-        final activationInProgress = data['_activationInProgress'] == true;
         final current = await _readCurrentProxy();
         if (current == null) {
           _recoveryPending = true;
@@ -117,23 +116,7 @@ class SystemProxyService {
         }
         final ownsFullFingerprint = _isOwnedProxy(current, ownedProxyServer);
         final ownsEndpoint = _isOwnedEndpoint(current, ownedProxyServer);
-        var trustedActivation = false;
-        if (activationInProgress && !ownsFullFingerprint) {
-          final nativePending =
-              await _hasMatchingPendingNativeRecovery(ownedProxyServer);
-          if (nativePending == null && !ownsEndpoint) {
-            _recoveryPending = true;
-            _lastError = '无法确认 Windows 原生代理恢复状态，稍后重试';
-            return;
-          }
-          trustedActivation = nativePending == true &&
-              _isCorroboratedTransactionState(
-                current,
-                snapshot,
-                ownedProxyServer,
-              );
-        }
-        if (!ownsFullFingerprint && !ownsEndpoint && !trustedActivation) {
+        if (!ownsFullFingerprint && !ownsEndpoint) {
           // The user or another app changed the proxy, or this is a legacy
           // backup without ownership metadata. Never overwrite that state.
           await _deleteBackup();
@@ -146,7 +129,7 @@ class SystemProxyService {
         _ownedProxyServer = ownedProxyServer;
         _ownsProxy = true;
         _proxyEnabled = true;
-        final restored = ownsFullFingerprint || trustedActivation
+        final restored = ownsFullFingerprint
             ? await _restoreSnapshot(snapshot)
             : await _restoreOwnedEndpoint(snapshot);
         if (restored) {
@@ -499,53 +482,6 @@ try {
     }
   }
 
-  Future<bool?> _hasMatchingPendingNativeRecovery(
-    String? ownedProxyServer,
-  ) async {
-    if (ownedProxyServer == null || ownedProxyServer.isEmpty) return false;
-    final encodedServer = base64Encode(utf8.encode(ownedProxyServer));
-    final result = await _runPowerShell('''
-\$backupPath = '$_nativeBackupRegistryPath'
-if (-not (Test-Path -LiteralPath \$backupPath)) {
-  [Console]::Out.Write('terminal')
-  exit 0
-}
-\$key = Get-Item -LiteralPath \$backupPath
-\$item = Get-ItemProperty -LiteralPath \$backupPath
-\$dword = [Microsoft.Win32.RegistryValueKind]::DWord
-\$expectedServer = [Text.Encoding]::UTF8.GetString(
-  [Convert]::FromBase64String('$encodedServer'))
-\$valid = \$null -ne \$item.PSObject.Properties['Valid'] -and
-  \$key.GetValueKind('Valid') -eq \$dword -and [int]\$item.Valid -eq 1
-\$owned = \$null -ne \$item.PSObject.Properties['OwnedProxyServer'] -and
-  [string]\$item.OwnedProxyServer -eq \$expectedServer -and
-  \$null -ne \$item.PSObject.Properties['OwnedProxyOverride'] -and
-  [string]\$item.OwnedProxyOverride -eq '$_ownedProxyOverride'
-\$pending = \$false
-foreach (\$name in @(
-  'ActivationInProgress',
-  'RestoreInProgress',
-  'EndpointRestoreInProgress'
-)) {
-  if (\$null -ne \$item.PSObject.Properties[\$name] -and
-      \$key.GetValueKind(\$name) -eq \$dword -and
-      [int](\$item.PSObject.Properties[\$name].Value) -eq 1) {
-    \$pending = \$true
-  }
-}
-if (\$valid -and \$owned -and \$pending) {
-  [Console]::Out.Write('pending')
-} else {
-  [Console]::Out.Write('terminal')
-}
-''');
-    if (result.exitCode != 0) return null;
-    final output = result.stdout.toString().trim();
-    if (output == 'pending') return true;
-    if (output == 'terminal') return false;
-    return null;
-  }
-
   Future<bool> _rollbackFailedAcquisition(String setError) async {
     _recoveryPending = true;
     final snapshot = _previousProxy;
@@ -590,75 +526,6 @@ if (\$valid -and \$owned -and \$pending) {
         proxyServer: current.proxyServer,
         ownedProxyServer: ownedProxyServer,
       );
-
-  bool _isCorroboratedTransactionState(
-    _ProxySnapshot current,
-    _ProxySnapshot original,
-    String? ownedProxyServer,
-  ) {
-    if (ownedProxyServer == null) return false;
-
-    bool optionalStringMatchesEither(
-      bool currentPresent,
-      String currentValue,
-      bool originalPresent,
-      String originalValue,
-      bool ownedPresent,
-      String ownedValue,
-    ) =>
-        (currentPresent == originalPresent &&
-            (!currentPresent || currentValue == originalValue)) ||
-        (currentPresent == ownedPresent &&
-            (!currentPresent || currentValue == ownedValue));
-
-    bool optionalDwordMatchesEither(
-      bool currentPresent,
-      int currentValue,
-      bool originalPresent,
-      int originalValue,
-      bool ownedPresent,
-      int ownedValue,
-    ) =>
-        (currentPresent == originalPresent &&
-            (!currentPresent || currentValue == originalValue)) ||
-        (currentPresent == ownedPresent &&
-            (!currentPresent || currentValue == ownedValue));
-
-    return (current.proxyEnable == original.proxyEnable ||
-            current.proxyEnable == 1) &&
-        optionalStringMatchesEither(
-          current.hasProxyServer,
-          current.proxyServer,
-          original.hasProxyServer,
-          original.proxyServer,
-          true,
-          ownedProxyServer,
-        ) &&
-        optionalStringMatchesEither(
-          current.hasProxyOverride,
-          current.proxyOverride,
-          original.hasProxyOverride,
-          original.proxyOverride,
-          true,
-          _ownedProxyOverride,
-        ) &&
-        optionalStringMatchesEither(
-          current.hasAutoConfigUrl,
-          current.autoConfigUrl,
-          original.hasAutoConfigUrl,
-          original.autoConfigUrl,
-          false,
-          '',
-        ) &&
-        optionalDwordMatchesEither(
-          current.hasAutoDetect,
-          current.autoDetect,
-          original.hasAutoDetect,
-          original.autoDetect,
-          true,
-          0,
-        );
-  }
 
   void _forgetOwnership() {
     _ownsProxy = false;

@@ -473,9 +473,9 @@ DWORD RestoreAndTerminateGuardedProcess(
   DWORD termination_error = ERROR_NOT_FOUND;
   bool job_termination_requested = false;
   bool job_termination_confirmed = false;
-  bool job_confirmed_absent = false;
-  HANDLE termination_job = ::OpenJobObjectW(
-      JOB_OBJECT_TERMINATE | JOB_OBJECT_QUERY, FALSE, kProcessJobName);
+  const bool job_confirmed_absent =
+      process_job == nullptr || *process_job == nullptr;
+  HANDLE termination_job = process_job == nullptr ? nullptr : *process_job;
   if (termination_job != nullptr) {
     if (::TerminateJobObject(termination_job, EXIT_FAILURE)) {
       job_termination_requested = true;
@@ -501,10 +501,8 @@ DWORD RestoreAndTerminateGuardedProcess(
     } else {
       termination_error = ::GetLastError();
     }
-    ::CloseHandle(termination_job);
   } else {
-    termination_error = ::GetLastError();
-    job_confirmed_absent = termination_error == ERROR_FILE_NOT_FOUND;
+    termination_error = ERROR_NOT_FOUND;
   }
 
   child_wait = ::WaitForSingleObject(
@@ -544,11 +542,12 @@ DWORD RestoreAndTerminateGuardedProcess(
 }
 
 DWORD RestoreAndTerminateGuardedProcessWithRetry(
-    const std::wstring& child_path, HANDLE child_process) {
+    const std::wstring& child_path, HANDLE child_process,
+    HANDLE* process_job) {
   DWORD retry_delay_ms = 250;
   while (true) {
     const DWORD cleanup_error =
-        RestoreAndTerminateGuardedProcess(child_process);
+        RestoreAndTerminateGuardedProcess(child_process, process_job);
     if (cleanup_error == ERROR_SUCCESS) {
       return ERROR_SUCCESS;
     }
@@ -682,8 +681,8 @@ int RunGuardian(const std::wstring& child_path, DWORD child_process_id,
       !ProcessImageMatches(child_process, child_path)) {
     return finish(ERROR_ACCESS_DENIED);
   }
-  process_job =
-      ::OpenJobObjectW(JOB_OBJECT_QUERY, FALSE, kProcessJobName);
+  process_job = ::OpenJobObjectW(
+      JOB_OBJECT_TERMINATE | JOB_OBJECT_QUERY, FALSE, kProcessJobName);
   if (process_job == nullptr) {
     return finish(::GetLastError());
   }
@@ -726,7 +725,8 @@ int RunGuardian(const std::wstring& child_path, DWORD child_process_id,
     const DWORD startup_error =
         startup_wait == WAIT_TIMEOUT ? ERROR_TIMEOUT : ::GetLastError();
     const DWORD cleanup_error =
-        RestoreAndTerminateGuardedProcessWithRetry(child_path, child_process);
+        RestoreAndTerminateGuardedProcessWithRetry(
+            child_path, child_process, &process_job);
     if (cleanup_error != ERROR_SUCCESS &&
         ::WaitForSingleObject(child_process, 0) == WAIT_TIMEOUT) {
       ::OutputDebugStringW(
@@ -749,8 +749,8 @@ int RunGuardian(const std::wstring& child_path, DWORD child_process_id,
              GetLastErrorMessage(resume_error) + L"\n")
                 .c_str());
         const DWORD cleanup_error =
-            RestoreAndTerminateGuardedProcessWithRetry(child_path,
-                                                       child_process);
+            RestoreAndTerminateGuardedProcessWithRetry(
+                child_path, child_process, &process_job);
         return finish(cleanup_error == ERROR_SUCCESS ? resume_error
                                                       : cleanup_error);
       }
@@ -770,7 +770,8 @@ int RunGuardian(const std::wstring& child_path, DWORD child_process_id,
   }
 
   return finish(
-      RestoreAndTerminateGuardedProcessWithRetry(child_path, child_process));
+      RestoreAndTerminateGuardedProcessWithRetry(
+          child_path, child_process, &process_job));
 }
 
 // ── UI helpers ──
