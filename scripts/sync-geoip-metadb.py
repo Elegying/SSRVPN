@@ -10,6 +10,7 @@ import re
 import sys
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +26,9 @@ ASSET_PATHS = [
     ROOT / "SSRVPN_Windows" / "assets" / "geoip.metadb.gz",
 ]
 HASH_RE = re.compile(r"\b([0-9a-fA-F]{64})\b")
+MAX_RELEASE_METADATA_BYTES = 2 * 1024 * 1024
+MAX_CHECKSUM_BYTES = 64 * 1024
+MAX_GEOIP_BYTES = 64 * 1024 * 1024
 
 
 def sha256(data: bytes) -> str:
@@ -41,23 +45,39 @@ def stable_gzip(data: bytes) -> bytes:
 
 
 def request(url: str) -> urllib.request.Request:
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise SystemExit(f"refusing non-HTTPS download URL: {url}")
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": "SSRVPN-geoip-sync",
     }
     token = os.environ.get("GITHUB_TOKEN")
-    if token:
+    if token and parsed.hostname == "api.github.com":
         headers["Authorization"] = f"Bearer {token}"
     return urllib.request.Request(url, headers=headers)
 
 
-def download(url: str) -> bytes:
+def download(url: str, *, max_bytes: int) -> bytes:
     with urllib.request.urlopen(request(url), timeout=60) as response:
-        return response.read()
+        content_length = response.headers.get("Content-Length") if hasattr(
+            response, "headers"
+        ) else None
+        if content_length is not None and int(content_length) > max_bytes:
+            raise SystemExit(f"download exceeds the {max_bytes} byte limit: {url}")
+        content = response.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise SystemExit(f"download exceeds the {max_bytes} byte limit: {url}")
+    return content
 
 
 def load_latest_release() -> dict[str, object]:
-    return json.loads(download(GITHUB_API_URL).decode("utf-8"))
+    return json.loads(
+        download(
+            GITHUB_API_URL,
+            max_bytes=MAX_RELEASE_METADATA_BYTES,
+        ).decode("utf-8")
+    )
 
 
 def find_asset(release: dict[str, object], name: str) -> dict[str, object]:
@@ -111,14 +131,16 @@ def sync(check: bool) -> int:
 
     asset_url = str(asset["browser_download_url"])
     checksum_url = str(checksum_asset["browser_download_url"])
-    expected_hash = parse_checksum(download(checksum_url))
+    expected_hash = parse_checksum(
+        download(checksum_url, max_bytes=MAX_CHECKSUM_BYTES)
+    )
     api_hash = asset_digest(asset)
     if api_hash is not None and api_hash != expected_hash:
         raise SystemExit(
             f"GitHub API digest {api_hash} does not match {CHECKSUM_ASSET_NAME} {expected_hash}",
         )
 
-    raw = download(asset_url)
+    raw = download(asset_url, max_bytes=MAX_GEOIP_BYTES)
     actual_hash = sha256(raw)
     if actual_hash != expected_hash:
         raise SystemExit(

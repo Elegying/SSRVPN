@@ -43,6 +43,7 @@ download_verified() {
   local expected="$2"
   local output="$3"
   local label="$4"
+  local max_bytes="$5"
 
   case "$url" in
     https://github.com/* | https://api.github.com/*) ;;
@@ -59,8 +60,14 @@ download_verified() {
     --retry-all-errors \
     --connect-timeout 15 \
     --max-time 300 \
+    --max-filesize "$max_bytes" \
     --output "$output" \
     "$url"
+
+  local actual_size
+  actual_size="$(wc -c <"$output" | tr -d '[:space:]')"
+  test "$actual_size" -le "$max_bytes" ||
+    fail "$label exceeds the $max_bytes byte limit"
 
   local actual
   actual="$(sha256_file "$output")"
@@ -114,7 +121,8 @@ trap 'rm -rf "$temp_dir"' EXIT
 
 if ! asset_matches "$android_asset" "$android_hash"; then
   apk="$temp_dir/SSRVPN.apk"
-  download_verified "$apk_url" "$apk_hash" "$apk" "Android bootstrap APK"
+  download_verified \
+    "$apk_url" "$apk_hash" "$apk" "Android bootstrap APK" $((512 * 1024 * 1024))
 
   unzip -p "$apk" "$android_member" >"$temp_dir/libgojni.so" ||
     fail "Android bootstrap APK is missing $android_member"
@@ -132,7 +140,7 @@ done
 if [ "$need_geo" -eq 1 ]; then
   download_verified \
     "$geo_url" "$geo_raw_hash" "$temp_dir/geoip.metadb" \
-    "GeoIP database"
+    "GeoIP database" $((64 * 1024 * 1024))
   python3 - "$temp_dir/geoip.metadb" "$temp_dir/geoip.metadb.gz" <<'PY'
 import gzip
 import sys
@@ -160,7 +168,7 @@ if asset_matches "$macos_asset" "$macos_gzip_hash"; then
 else
   download_verified \
     "$macos_url" "$macos_gzip_hash" "$temp_dir/AtlasCore.gz" \
-    "macOS Mihomo archive"
+    "macOS Mihomo archive" $((256 * 1024 * 1024))
   install_verified \
     "$temp_dir/AtlasCore.gz" "$macos_asset" "$macos_gzip_hash" \
     "macOS AtlasCore.gz"
@@ -176,7 +184,7 @@ if asset_matches "$windows_asset" "$windows_hash"; then
 else
   download_verified \
     "$windows_url" "$windows_zip_hash" "$temp_dir/mihomo-windows.zip" \
-    "Windows Mihomo archive"
+    "Windows Mihomo archive" $((256 * 1024 * 1024))
   unzip -p "$temp_dir/mihomo-windows.zip" "$windows_member" \
     >"$temp_dir/mihomo.exe" ||
     fail "Windows Mihomo archive is missing $windows_member"
