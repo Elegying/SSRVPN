@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 维护
 
 - 删除 Android 未被原生实现支持的通知 MethodChannel 门面与无人调用的旧 VPN 门面，连接状态继续由真实前台 VPN Service 统一管理。
+- Android 原生 MethodChannel 分发、VPN protect 管道与 Mihomo API 轮询拆成聚焦组件，并新增结构门禁和原生单元测试，降低关键启动路径的认知复杂度。
 
 ## [3.4.5] - 2026-07-17
 

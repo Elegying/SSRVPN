@@ -20,6 +20,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -60,220 +61,223 @@ class MainActivity : FlutterActivity() {
 
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel = channel
+        registerVpnStateReceiver()
+        channel.setMethodCallHandler(::handleNativeMethodCall)
+    }
 
-        // 注册 VPN 状态广播接收器，磁贴操作时实时同步 Flutter UI
-        if (vpnStateReceiver == null) {
-            val receiver = object : BroadcastReceiver() {
-                override fun onReceive(context: Context?, intent: Intent?) {
-                    if (intent?.action == VpnTileService.ACTION_VPN_STATE_CHANGED) {
-                        val connected = intent.getBooleanExtra(VpnTileService.EXTRA_CONNECTED, false)
-                        Log.d("MainActivity", "VPN state broadcast: connected=$connected")
-                        runOnUiThread {
-                            methodChannel?.invokeMethod("vpnStateChanged", connected)
-                        }
+    private fun registerVpnStateReceiver() {
+        if (vpnStateReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == VpnTileService.ACTION_VPN_STATE_CHANGED) {
+                    val connected = intent.getBooleanExtra(
+                        VpnTileService.EXTRA_CONNECTED,
+                        false
+                    )
+                    Log.d("MainActivity", "VPN state broadcast: connected=$connected")
+                    runOnUiThread {
+                        methodChannel?.invokeMethod("vpnStateChanged", connected)
                     }
                 }
             }
-            val filter = IntentFilter(VpnTileService.ACTION_VPN_STATE_CHANGED)
-            ContextCompat.registerReceiver(
-                this,
-                receiver,
-                filter,
-                ContextCompat.RECEIVER_NOT_EXPORTED
-            )
-            vpnStateReceiver = receiver
+        }
+        val filter = IntentFilter(VpnTileService.ACTION_VPN_STATE_CHANGED)
+        ContextCompat.registerReceiver(
+            this,
+            receiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        vpnStateReceiver = receiver
+    }
+
+    private fun handleNativeMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        when (call.method) {
+            "getNativeLibraryDir" -> result.success(applicationInfo.nativeLibraryDir)
+            "getAppDataDir" -> result.success(applicationInfo.dataDir)
+            "isCoreRunning" -> result.success(SsrvpnVpnService.isRunning)
+            "consumePendingAutoConnect" -> {
+                val pending = autoConnectPending
+                autoConnectPending = false
+                result.success(pending)
+            }
+            "syncSettings" -> handleSyncSettings(call, result)
+            "notifyVpnStateChanged" -> {
+                SsrvpnVpnService.broadcastState(this)
+                result.success(true)
+            }
+            "startCoreWithVpn" -> handleStartCoreWithVpn(call, result)
+            "stopCore" -> handleStopCore(result)
+            "updateVpnNotification" -> handleUpdateVpnNotification(call, result)
+            "openUrl" -> handleOpenUrl(call, result)
+            "installUpdate" -> handleInstallUpdate(call, result)
+            else -> result.notImplemented()
+        }
+    }
+
+    private fun handleSyncSettings(call: MethodCall, result: MethodChannel.Result) {
+        val args = call.arguments as? Map<*, *>
+        val proxyPort = (args?.get("proxyPort") as? Number)?.toInt() ?: 7890
+        val apiSecret = args?.get("apiSecret") as? String
+        if (apiSecret != null) {
+            try {
+                NativeApiSecretStore.write(this, apiSecret)
+            } catch (error: Exception) {
+                Log.e("MainActivity", "Unable to sync native VPN credentials", error)
+                result.error(
+                    "NATIVE_SECRET_SYNC_FAILED",
+                    "无法同步原生 VPN 凭据",
+                    null
+                )
+                return
+            }
         }
 
-        channel.setMethodCallHandler { call, result ->
-            when (call.method) {
-                "getNativeLibraryDir" -> {
-                    result.success(applicationInfo.nativeLibraryDir)
-                }
-                "getAppDataDir" -> {
-                    result.success(applicationInfo.dataDir)
-                }
-                "isCoreRunning" -> {
-                    result.success(SsrvpnVpnService.isRunning)
-                }
-                "consumePendingAutoConnect" -> {
-                    val pending = autoConnectPending
-                    autoConnectPending = false
-                    result.success(pending)
-                }
-                "syncSettings" -> {
-                    val args = call.arguments as? Map<*, *>
-                    val proxyPort = (args?.get("proxyPort") as? Number)?.toInt() ?: 7890
-                    val apiSecret = args?.get("apiSecret") as? String
+        getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            .edit()
+            .putLong("flutter.proxyPort", proxyPort.toLong())
+            .apply()
+        result.success(true)
+    }
 
-                    if (apiSecret != null) {
-                        try {
-                            NativeApiSecretStore.write(this, apiSecret)
-                        } catch (error: Exception) {
-                            Log.e("MainActivity", "Unable to sync native VPN credentials", error)
-                            result.error(
-                                "NATIVE_SECRET_SYNC_FAILED",
-                                "无法同步原生 VPN 凭据",
-                                null
-                            )
-                            return@setMethodCallHandler
-                        }
-                    }
+    private fun handleStartCoreWithVpn(call: MethodCall, result: MethodChannel.Result) {
+        if (SsrvpnVpnService.isCoreOperationBusy()) {
+            result.error("CORE_BUSY", "VPN 核心正在启动或停止，请稍后重试", null)
+            return
+        }
+        cancelPendingActivityStart("新的连接请求已替代旧请求")
+        val args = call.arguments as? Map<*, *>
+        val configDir = args?.get("configDir") as? String
+        val configPath = args?.get("configPath") as? String
+        val apiPort = args?.get("apiPort") as? Int ?: 9090
+        val apiSecret = args?.get("apiSecret") as? String ?: ""
+        val nodeName = args?.get("nodeName") as? String
+        if (configDir == null || configPath == null) {
+            result.error("INVALID_ARGS", "Missing required arguments", null)
+            return
+        }
 
-                    getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-                        .edit()
-                        .putLong("flutter.proxyPort", proxyPort.toLong())
-                        .apply()
-
+        Log.d(
+            "MainActivity",
+            "startCoreWithVpn: dir=$configDir, config=$configPath, apiPort=$apiPort"
+        )
+        val completed = AtomicBoolean(false)
+        lateinit var callback: (Boolean, String) -> Unit
+        lateinit var timeoutRunnable: Runnable
+        lateinit var requestId: String
+        timeoutRunnable = Runnable {
+            if (!completed.compareAndSet(false, true)) return@Runnable
+            vpnPermissionRequestPending = false
+            if (startTimeoutRunnable === timeoutRunnable) {
+                startTimeoutRunnable = null
+            }
+            myResultCallback = null
+            myStartRequestId = null
+            SsrvpnVpnService.clearStartResultCallback(requestId)
+            try {
+                SsrvpnVpnService.instance?.stopAll()
+            } catch (_: Exception) {}
+            runOnUiThread {
+                result.error("CORE_TIMEOUT", "设备性能不足，请重新连接", null)
+            }
+        }
+        callback = callback@{ success, message ->
+            if (!completed.compareAndSet(false, true)) return@callback
+            vpnPermissionRequestPending = false
+            mainHandler.removeCallbacks(timeoutRunnable)
+            if (startTimeoutRunnable === timeoutRunnable) {
+                startTimeoutRunnable = null
+            }
+            SsrvpnVpnService.clearStartResultCallback(requestId)
+            myResultCallback = null
+            myStartRequestId = null
+            runOnUiThread {
+                if (success) {
+                    requestNotificationPermissionOnce()
                     result.success(true)
-                }
-                "notifyVpnStateChanged" -> {
-                    // Flutter 通知原生状态变更，广播给磁贴和通知
-                    SsrvpnVpnService.broadcastState(this)
-                    result.success(true)
-                }
-                "startCoreWithVpn" -> {
-                    if (SsrvpnVpnService.isCoreOperationBusy()) {
-                        result.error(
-                            "CORE_BUSY",
-                            "VPN 核心正在启动或停止，请稍后重试",
-                            null
-                        )
-                        return@setMethodCallHandler
-                    }
-                    cancelPendingActivityStart("新的连接请求已替代旧请求")
-                    val args = call.arguments as? Map<*, *>
-                    val configDir = args?.get("configDir") as? String
-                    val configPath = args?.get("configPath") as? String
-                    val apiPort = args?.get("apiPort") as? Int ?: 9090
-                    val apiSecret = args?.get("apiSecret") as? String ?: ""
-                    val nodeName = args?.get("nodeName") as? String
-
-                    if (configDir == null || configPath == null) {
-                        result.error("INVALID_ARGS", "Missing required arguments", null)
-                        return@setMethodCallHandler
-                    }
-
-                    Log.d("MainActivity", "startCoreWithVpn: dir=$configDir, config=$configPath, apiPort=$apiPort")
-
-                    val completed = AtomicBoolean(false)
-                    lateinit var callback: (Boolean, String) -> Unit
-                    lateinit var timeoutRunnable: Runnable
-                    lateinit var requestId: String
-                    timeoutRunnable = Runnable {
-                        if (!completed.compareAndSet(false, true)) return@Runnable
-                        vpnPermissionRequestPending = false
-                        if (startTimeoutRunnable === timeoutRunnable) {
-                            startTimeoutRunnable = null
-                        }
-                        myResultCallback = null
-                        myStartRequestId = null
-                        SsrvpnVpnService.clearStartResultCallback(requestId)
-                        try {
-                            SsrvpnVpnService.instance?.stopAll()
-                        } catch (_: Exception) {}
-                        runOnUiThread {
-                            result.error("CORE_TIMEOUT", "设备性能不足，请重新连接", null)
-                        }
-                    }
-                    callback = callback@{ success, message ->
-                        if (!completed.compareAndSet(false, true)) return@callback
-                        vpnPermissionRequestPending = false
-                        mainHandler.removeCallbacks(timeoutRunnable)
-                        if (startTimeoutRunnable === timeoutRunnable) {
-                            startTimeoutRunnable = null
-                        }
-                        SsrvpnVpnService.clearStartResultCallback(requestId)
-                        myResultCallback = null
-                        myStartRequestId = null
-                        runOnUiThread {
-                            if (success) {
-                                requestNotificationPermissionOnce()
-                                result.success(true)
-                            } else {
-                                result.error("CORE_FAILED", message, null)
-                            }
-                        }
-                    }
-                    myResultCallback = callback
-                    requestId = SsrvpnVpnService.registerStartResultCallback(callback)
-                    myStartRequestId = requestId
-                    pendingVpnServiceIntent = SsrvpnVpnService.createStartIntent(
-                        this,
-                        configDir,
-                        configPath,
-                        apiPort,
-                        apiSecret,
-                        nodeName,
-                        requestId
-                    )
-                    startTimeoutRunnable = timeoutRunnable
-
-                    val vpnIntent = VpnService.prepare(this)
-                    if (vpnIntent != null) {
-                        Log.d("MainActivity", "Requesting VPN permission...")
-                        vpnPermissionRequestPending = true
-                        startActivityForResult(vpnIntent, VPN_REQUEST_CODE)
-                    } else {
-                        Log.d("MainActivity", "VPN permission already granted, starting service...")
-                        startVpnServiceWithTimeout()
-                    }
-                }
-                "stopCore" -> {
-                    Log.d("MainActivity", "Stopping core...")
-                    try {
-                        cancelPendingActivityStart("连接已取消")
-                        val service = SsrvpnVpnService.instance
-                        if (service == null) {
-                            stopService(Intent(this, SsrvpnVpnService::class.java))
-                            result.success(true)
-                        } else {
-                            service.stopAll {
-                                runOnUiThread { result.success(true) }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        result.error("STOP_FAILED", e.message, null)
-                    }
-                }
-                "updateVpnNotification" -> {
-                    val nodeName = call.argument<String>("nodeName")
-                    if (nodeName.isNullOrBlank()) {
-                        result.error("INVALID_ARGS", "Node name is required", null)
-                    } else {
-                        SsrvpnVpnService.instance?.updateNotificationNode(nodeName)
-                        result.success(true)
-                    }
-                }
-                "openUrl" -> {
-                    val url = call.argument<String>("url")
-                    if (url != null) {
-                        try {
-                            val browserIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
-                            startActivity(browserIntent)
-                            result.success(true)
-                        } catch (e: Exception) {
-                            result.error("OPEN_URL_FAILED", e.message, null)
-                        }
-                    } else {
-                        result.error("INVALID_ARGS", "URL is required", null)
-                    }
-                }
-                "installUpdate" -> {
-                    val apkPath = call.argument<String>("apkPath")
-                    if (apkPath.isNullOrBlank()) {
-                        result.error("INVALID_ARGS", "APK path is required", null)
-                    } else {
-                        try {
-                            result.success(mapOf("status" to requestUpdateInstall(apkPath)))
-                        } catch (e: Exception) {
-                            result.error("INSTALL_UPDATE_FAILED", e.message, null)
-                        }
-                    }
-                }
-                else -> {
-                    result.notImplemented()
+                } else {
+                    result.error("CORE_FAILED", message, null)
                 }
             }
+        }
+        myResultCallback = callback
+        requestId = SsrvpnVpnService.registerStartResultCallback(callback)
+        myStartRequestId = requestId
+        pendingVpnServiceIntent = SsrvpnVpnService.createStartIntent(
+            this,
+            configDir,
+            configPath,
+            apiPort,
+            apiSecret,
+            nodeName,
+            requestId
+        )
+        startTimeoutRunnable = timeoutRunnable
+
+        val vpnIntent = VpnService.prepare(this)
+        if (vpnIntent != null) {
+            Log.d("MainActivity", "Requesting VPN permission...")
+            vpnPermissionRequestPending = true
+            startActivityForResult(vpnIntent, VPN_REQUEST_CODE)
+        } else {
+            Log.d("MainActivity", "VPN permission already granted, starting service...")
+            startVpnServiceWithTimeout()
+        }
+    }
+
+    private fun handleStopCore(result: MethodChannel.Result) {
+        Log.d("MainActivity", "Stopping core...")
+        try {
+            cancelPendingActivityStart("连接已取消")
+            val service = SsrvpnVpnService.instance
+            if (service == null) {
+                stopService(Intent(this, SsrvpnVpnService::class.java))
+                result.success(true)
+            } else {
+                service.stopAll { runOnUiThread { result.success(true) } }
+            }
+        } catch (error: Exception) {
+            result.error("STOP_FAILED", error.message, null)
+        }
+    }
+
+    private fun handleUpdateVpnNotification(
+        call: MethodCall,
+        result: MethodChannel.Result
+    ) {
+        val nodeName = call.argument<String>("nodeName")
+        if (nodeName.isNullOrBlank()) {
+            result.error("INVALID_ARGS", "Node name is required", null)
+            return
+        }
+        SsrvpnVpnService.instance?.updateNotificationNode(nodeName)
+        result.success(true)
+    }
+
+    private fun handleOpenUrl(call: MethodCall, result: MethodChannel.Result) {
+        val url = call.argument<String>("url")
+        if (url == null) {
+            result.error("INVALID_ARGS", "URL is required", null)
+            return
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            result.success(true)
+        } catch (error: Exception) {
+            result.error("OPEN_URL_FAILED", error.message, null)
+        }
+    }
+
+    private fun handleInstallUpdate(call: MethodCall, result: MethodChannel.Result) {
+        val apkPath = call.argument<String>("apkPath")
+        if (apkPath.isNullOrBlank()) {
+            result.error("INVALID_ARGS", "APK path is required", null)
+            return
+        }
+        try {
+            result.success(mapOf("status" to requestUpdateInstall(apkPath)))
+        } catch (error: Exception) {
+            result.error("INSTALL_UPDATE_FAILED", error.message, null)
         }
     }
 
