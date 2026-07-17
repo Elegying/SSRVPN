@@ -10,7 +10,10 @@ from pathlib import Path
 services = {
     Path("SSRVPN_Android/lib/services/clash_service.dart"): (
         850,
-        ("clash_service_snapshot_cleanup.dart",),
+        (
+            "clash_service_native_bridge.dart",
+            "clash_service_snapshot_cleanup.dart",
+        ),
     ),
     Path("packages/ssrvpn_shared/lib/services/clash_service_base.dart"): (
         750,

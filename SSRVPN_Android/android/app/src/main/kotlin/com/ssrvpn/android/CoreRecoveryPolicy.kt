@@ -5,7 +5,6 @@ internal data class CoreRecoveryRequest(
     val configPath: String,
     val apiPort: Int,
     val apiSecret: String,
-    val selectedNodeName: String?,
     val attempt: Int
 )
 

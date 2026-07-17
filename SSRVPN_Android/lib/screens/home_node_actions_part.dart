@@ -45,8 +45,9 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     }
     final clashService = context.read<ClashService>();
     final generation = clashService.requestConnectionIntent(true);
+    final statusEpoch = _connectionStatusEpoch;
     final operation = _nodeSelectionTail.then(
-      (_) => _performSelectNode(node, clashService, generation),
+      (_) => _performSelectNode(node, clashService, generation, statusEpoch),
     );
     _nodeSelectionTail = operation.then<void>(
       (_) {},
@@ -61,8 +62,12 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     ProxyNode node,
     ClashService clashService,
     int generation,
+    int statusEpoch,
   ) async {
-    bool isCurrent() => clashService.isConnectionIntentCurrent(
+    bool isCurrent() =>
+        statusEpoch == _connectionStatusEpoch &&
+        _isConnected &&
+        clashService.isConnectionIntentCurrent(
           generation,
           connected: true,
         );
@@ -75,13 +80,18 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     if (!result.intentCurrent || !isCurrent()) return;
     var snapshotPersisted = result.snapshotPersisted;
     if (result.liveSwitched) {
-      await _rememberSelectedNode(node, shouldContinue: isCurrent);
-      if (!isCurrent()) return;
       snapshotPersisted = await _writePreferredNodeConfigForTile(
             node,
             shouldContinue: isCurrent,
+            expectedSessionGeneration: result.nativeSessionGeneration,
           ) ||
           snapshotPersisted;
+      if (!isCurrent()) return;
+      if (!snapshotPersisted) {
+        final runtimeNodeName = await clashService.currentSelectedProxyName();
+        if (!isCurrent() || runtimeNodeName != node.name) return;
+      }
+      await _rememberSelectedNode(node, shouldContinue: isCurrent);
       if (!isCurrent()) return;
       if (mounted && !_disposed) {
         _updateHomeState(() => _selectedNode = node);
@@ -138,6 +148,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
   Future<bool> _writePreferredNodeConfigForTile(
     ProxyNode node, {
     required bool Function() shouldContinue,
+    required int? expectedSessionGeneration,
   }) async {
     if (!shouldContinue()) return false;
     final rawYaml = context.read<SubscriptionService>().rawYaml;
@@ -149,6 +160,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
             settingsService.settings,
             node.name,
             shouldContinue: shouldContinue,
+            expectedSessionGeneration: expectedSessionGeneration,
           );
       return shouldContinue();
     } catch (e) {

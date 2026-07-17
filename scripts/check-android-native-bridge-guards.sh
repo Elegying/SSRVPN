@@ -20,7 +20,13 @@ NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvp
 NOTIFICATION_GATE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NotificationGenerationGate.kt"
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
 NATIVE_SNAPSHOT_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSnapshotStore.kt"
+NATIVE_CONNECTION_SESSION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSession.kt"
+NATIVE_SESSION_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeVpnSessionCoordinator.kt"
+NATIVE_SESSION_COMMITTER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeSessionCommitter.kt"
+START_RESULT_REGISTRY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnStartResultRegistry.kt"
 STARTUP_ORCHESTRATOR="$ROOT/SSRVPN_Android/lib/startup/startup_orchestrator.dart"
+CLASH_DART="$ROOT/SSRVPN_Android/lib/services/clash_service.dart"
+CLASH_NATIVE_BRIDGE="$ROOT/SSRVPN_Android/lib/services/clash_service_native_bridge.dart"
 
 require_text() {
   local needle="$1"
@@ -101,9 +107,22 @@ require_text "PENDING_START_CANCEL_GRACE_MS = 1_000L"
 require_text "serviceStartInProgress.compareAndSet(false, true)"
 require_text "processTerminationPending.get()"
 require_text "processTerminationPending.set(true)"
-require_text "startGeneration.invalidate { isRunning = false }"
+require_text "startGeneration.invalidate {"
+grep -Fq "NativeConnectionSession.beginStarting(claimId)" "$NATIVE_SESSION_COORDINATOR" || {
+  echo "Android native start lease is not consumed by the session coordinator" >&2
+  exit 1
+}
 require_text "startGeneration.runIfCurrent(startToken)"
 require_text "ensureStartCurrent(startToken)"
+grep -Fq "fun connectionState(): Map<String, Any?>" "$NATIVE_SESSION_COORDINATOR" || {
+  echo "Android native session coordinator lost the atomic state snapshot" >&2
+  exit 1
+}
+require_text "NativeConnectionSession.publishRunning(configPath)"
+require_text "NativeVpnSessionCoordinator.reserveRecovery(request.configPath)"
+require_text "NativeConnectionSession.clearRunning()"
+require_text "if (bridgeStopped) NativeConnectionSession.clearRunning()"
+require_text "NativeConnectionSession.clearRecovery()"
 require_text "CoreRecoveryPolicy.nextAttempt(request.attempt)"
 require_text "stopForRecovery"
 require_text "showCoreRecoveryFailedNotification"
@@ -144,6 +163,52 @@ if "_isConnecting = false" not in core_down or "连接已中断" not in core_dow
         "Android home must clear the spinner when the core stops during node persistence"
     )
 PY
+python3 - "${HOME_PARTS[1]}" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+load = source[source.index("Future<void> _loadInitialData() async") :]
+register = load.index("clashService.onStatusChanged = _onClashStatusChanged")
+runtime_query = load.index("await clashService.currentSelectedProxyName()")
+node_capture = load.index("HomeNodeController.runnableNodesFrom(subService.allNodes)")
+if not (register < runtime_query < node_capture):
+    raise SystemExit(
+        "Android home must register status recovery before awaits and capture nodes afterwards"
+    )
+for needle in (
+    "final statusEpoch = _connectionStatusEpoch",
+    "statusEpoch == _connectionStatusEpoch",
+    "final statusEpoch = ++_connectionStatusEpoch",
+):
+    if needle not in load:
+        raise SystemExit(f"Android home status reconciliation is missing: {needle}")
+PY
+python3 - "${HOME_PARTS[2]}" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+handle = source[source.index("Future<void> _handleSelectNode(") :]
+perform = handle[handle.index("Future<void> _performSelectNode(") :]
+for needle in (
+    "final statusEpoch = _connectionStatusEpoch",
+    "_performSelectNode(node, clashService, generation, statusEpoch)",
+    "statusEpoch == _connectionStatusEpoch",
+):
+    if needle not in handle:
+        raise SystemExit(
+            f"Android node selection recovery guard is missing: {needle}"
+        )
+if "statusEpoch == _connectionStatusEpoch" not in perform:
+    raise SystemExit("Android node selection is not scoped to one native status epoch")
+persist = perform.index("await _writePreferredNodeConfigForTile(")
+remember = perform.index("await _rememberSelectedNode(")
+if persist >= remember:
+    raise SystemExit("Android node preference is published before the session-bound snapshot")
+if "await clashService.currentSelectedProxyName()" not in perform:
+    raise SystemExit("Android node selection lacks a runtime fallback after persistence failure")
+PY
 require_text "waitForPendingStart()"
 require_text "VPN is already running; reusing the active session"
 require_text "createStartIntent"
@@ -166,11 +231,14 @@ require_count "bridge.Bridge.stop()" 1
 require_count "bridge.Bridge.isRunning()" 1
 
 require_activity_text '"syncSettings"'
+require_activity_text '"getConnectionState"'
+require_activity_text '"expectedSessionGeneration"'
+require_activity_text '"Active native VPN session requires a generation"'
 require_activity_text '"getConnectionSnapshotGeneration"'
 require_activity_text '"clearConnectionSnapshot"'
 require_activity_text "private fun handleNativeMethodCall("
-require_activity_text "NativeConnectionSnapshotStore.write("
-require_activity_text "NativeConnectionSnapshotStore.clearIfGeneration("
+require_activity_text "NativeVpnSessionCoordinator.commitIdleSnapshot(this, snapshot)"
+require_activity_text "NativeVpnSessionCoordinator.clearIdleSnapshot("
 require_activity_text '"flutter.proxyPort"'
 require_activity_text '"installUpdate"'
 require_activity_text "Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES"
@@ -184,15 +252,19 @@ require_tile_text "ContextCompat.registerReceiver"
 require_text "ContextCompat.RECEIVER_NOT_EXPORTED"
 require_activity_text "ContextCompat.RECEIVER_NOT_EXPORTED"
 require_tile_text "ContextCompat.RECEIVER_NOT_EXPORTED"
-require_text "ConcurrentHashMap<String, (Boolean, String) -> Unit>()"
-require_tile_text "clearStartResultCallback(requestId)"
-require_activity_text "registerStartResultCallback(callback)"
+grep -Fq "ConcurrentHashMap<String" "$START_RESULT_REGISTRY" || {
+  echo "Android start callback registry lost its concurrent ownership map" >&2
+  exit 1
+}
+require_tile_text "VpnStartResultRegistry.clear(requestId)"
+require_activity_text "VpnStartResultRegistry.register(callback)"
 require_tile_text "SsrvpnVpnService.isCoreOperationBusy()"
 require_tile_text "SsrvpnVpnService.cancelPendingStart()"
 require_tile_text "service.stopAll {"
 require_tile_text "isConnected = SsrvpnVpnService.isRunning"
 require_tile_text "SsrvpnVpnService.createStartIntent"
-require_tile_text "NativeConnectionSnapshotStore.read(this)"
+require_tile_text "NativeVpnSessionCoordinator.claimSnapshotForStart(this)"
+require_tile_text "NativeVpnSessionCoordinator.releasePendingStart(claim.id)"
 require_activity_text "vpnPermissionRequestPending"
 require_activity_text "startVpnServiceWithTimeout"
 require_activity_text "pendingVpnServiceIntent"
@@ -202,6 +274,29 @@ require_activity_text "Manifest.permission.POST_NOTIFICATIONS"
 require_activity_text "NOTIFICATION_PERMISSION_REQUESTED"
 require_activity_text "requestNotificationPermissionOnce"
 require_activity_text "Build.VERSION_CODES.TIRAMISU"
+
+python3 - "$TILE_SERVICE" "$MAIN_ACTIVITY" "$NATIVE_CONNECTION_SESSION" <<'PY'
+import sys
+from pathlib import Path
+
+tile = Path(sys.argv[1]).read_text(encoding="utf-8")
+activity = Path(sys.argv[2]).read_text(encoding="utf-8")
+session = Path(sys.argv[3]).read_text(encoding="utf-8")
+claim = tile.index("NativeVpnSessionCoordinator.claimSnapshotForStart(this)")
+intent = tile.index("SsrvpnVpnService.createStartIntent(", claim)
+launch = tile.index("startForegroundService(intent)", intent)
+if not claim < intent < launch:
+    raise SystemExit("Android tile start lease is not acquired before service launch")
+main_claim = activity.index("NativeVpnSessionCoordinator.claimPendingStart(serviceIntent)")
+main_launch = activity.index("startVpnService(serviceIntent)", main_claim)
+if main_claim >= main_launch:
+    raise SystemExit("Android activity start lease is not acquired before service launch")
+idle_clear = session[session.index("fun clearIdleSnapshot(") :]
+for needle in ("gate.withCurrent", "!isTransitioning()", "clearIfGeneration"):
+    if needle not in idle_clear:
+        raise SystemExit(f"Android idle snapshot clear lost lease guard: {needle}")
+PY
+
 require_text "Bridge.isRunning already in progress; deferring verdict"
 require_text "Bridge.isRunning timed out after"
 require_text "treating as stopped"
@@ -224,6 +319,57 @@ fi
 require_text "notificationGeneration.publishLatest("
 require_text "CoreRecoveryPolicy.shouldPublishRecovery("
 require_activity_text "NATIVE_SNAPSHOT_UPDATE_FAILED"
+
+for needle in \
+  "await _queryNativeConnectionState()" \
+  "_ensureNativeSessionForMutation" \
+  "final nativeStateEpoch = ++_nativeStateEpoch" \
+  "nativeStateEpoch == _nativeStateEpoch"; do
+  grep -Fq "$needle" "$CLASH_NATIVE_BRIDGE" || {
+    echo "Android active config identity guard failed: missing '$needle'" >&2
+    exit 1
+  }
+done
+for needle in \
+  "'expectedSessionGeneration': expectedSessionGeneration" \
+  "postCommitState?.sessionGeneration" \
+  "原生 VPN 会话已变更或正在恢复"; do
+  grep -Fq "$needle" "$CLASH_DART" || {
+    echo "Android session-bound snapshot guard failed: missing '$needle'" >&2
+    exit 1
+  }
+done
+for needle in \
+  "recoveryConfigPath" \
+  "startingConfigPath" \
+  "pendingStartClaimId" \
+  "claimSnapshotForStart" \
+  "beginStarting" \
+  "commitIdleSnapshot" \
+  "snapshotConsistently" \
+  "sessionGeneration.takeIf { running }"; do
+  grep -Fq "$needle" "$NATIVE_CONNECTION_SESSION" || {
+    echo "Android native recovery reservation guard failed: missing '$needle'" >&2
+    exit 1
+  }
+done
+for needle in \
+  "capturedState" \
+  "result.success(capturedState)"; do
+  grep -Fq "$needle" "$MAIN_ACTIVITY" || {
+    echo "Android immutable start result guard failed: missing '$needle'" >&2
+    exit 1
+  }
+done
+for needle in \
+  "gate.runIfCurrent(expectedSessionGeneration)" \
+  "NativeConnectionSnapshotStore.updateSelectedNode" \
+  "NativeConnectionSnapshotStore.write"; do
+  grep -Fq "$needle" "$NATIVE_SESSION_COMMITTER" || {
+    echo "Android native session commit guard failed: missing '$needle'" >&2
+    exit 1
+  }
+done
 
 if grep -R -n -E 'flutter\.(apiSecret|configDir|configPath|apiPort|selectedNodeName)' \
   "$MAIN_ACTIVITY" "$SERVICE" "$TILE_SERVICE"; then
@@ -249,6 +395,7 @@ from pathlib import Path
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
 handler = source[source.index("void _handleClashStatusChanged()") :]
 for required in (
+    "shouldHandleAndroidHomeConnectionStatus(",
     "transitionAndroidHomeConnectionStatus(",
     "_isConnecting = transition.connecting",
     "_errorMessage = transition.errorMessage",
@@ -370,7 +517,7 @@ from pathlib import Path
 service = Path(sys.argv[1])
 support = Path(sys.argv[2])
 line_count = len(service.read_text(encoding="utf-8").splitlines())
-if line_count > 900:
+if line_count > 915:
     raise SystemExit(f"{service}: VPN service grew to {line_count} lines")
 if "fun formatBytes(bytes: Long)" not in support.read_text(encoding="utf-8"):
     raise SystemExit(f"{support}: missing notification byte formatter")

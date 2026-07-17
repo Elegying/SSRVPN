@@ -1,5 +1,11 @@
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
+bool shouldHandleAndroidHomeConnectionStatus({
+  required bool uiConnected,
+  required bool runtimeRunning,
+}) =>
+    runtimeRunning || uiConnected != runtimeRunning;
+
 class AndroidHomeConnectionStatusTransition {
   const AndroidHomeConnectionStatusTransition({
     required this.connected,
@@ -20,7 +26,7 @@ AndroidHomeConnectionStatusTransition transitionAndroidHomeConnectionStatus({
   required String? errorMessage,
   required ProxyNode? selectedNode,
   required Iterable<ProxyNode> nodes,
-  required String? rememberedNodeName,
+  required String? runtimeSelectedNodeName,
 }) {
   if (!running) {
     return AndroidHomeConnectionStatusTransition(
@@ -46,9 +52,9 @@ AndroidHomeConnectionStatusTransition transitionAndroidHomeConnectionStatus({
     connected: true,
     connecting: false,
     errorMessage: null,
-    selectedNode: HomeNodeController.resolveDefaultNodeFrom(
+    selectedNode: HomeNodeController.resolveRuntimeSelectedNodeFrom(
           nodes,
-          rememberedNodeName,
+          runtimeSelectedNodeName,
         ) ??
         selectedNode,
   );

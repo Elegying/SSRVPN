@@ -267,6 +267,7 @@ class _RecordingClashService extends ClashService {
     String nodeName, {
     bool persistSelection = true,
     bool Function()? shouldContinue,
+    int? expectedSessionGeneration,
   }) async {
     if (shouldContinue?.call() == false) return false;
     notificationNodes.add(nodeName);
