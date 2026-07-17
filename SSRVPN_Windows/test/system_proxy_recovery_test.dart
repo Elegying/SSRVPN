@@ -286,6 +286,88 @@ void main() {
     expect(service.recoveryPending, isFalse);
   });
 
+  test('native pending flags never overwrite a foreign proxy fingerprint',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_foreign_proxy_during_recovery_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    final runtime = Directory(
+      '${temp.path}${Platform.pathSeparator}SSRVPN'
+      '${Platform.pathSeparator}runtime',
+    );
+    await runtime.create(recursive: true);
+    final backup = File(
+      '${runtime.path}${Platform.pathSeparator}system_proxy_backup.json',
+    );
+    await backup.writeAsString(
+      jsonEncode({
+        'proxyEnable': 0,
+        'hasProxyServer': false,
+        'proxyServer': '',
+        'hasProxyOverride': false,
+        'proxyOverride': '',
+        'hasAutoConfigUrl': false,
+        'autoConfigUrl': '',
+        'hasAutoDetect': false,
+        'autoDetect': 0,
+        '_ownedProxyServer': '127.0.0.1:7890',
+        '_activationInProgress': true,
+      }),
+    );
+    final scripts = <String>[];
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        scripts.add(script);
+        if (script.contains("[Console]::Out.Write('pending')")) {
+          return ProcessResult(1, 0, 'pending', '');
+        }
+        if (script.contains('ConvertTo-Json -Compress')) {
+          return ProcessResult(
+            1,
+            0,
+            jsonEncode({
+              'proxyEnable': 1,
+              'hasProxyServer': true,
+              'proxyServer': '127.0.0.1:9911',
+              'hasProxyOverride': true,
+              'proxyOverride': 'foreign override',
+              'hasAutoConfigUrl': true,
+              'autoConfigUrl': 'https://foreign.example/proxy.pac',
+              'hasAutoDetect': true,
+              'autoDetect': 1,
+            }),
+            '',
+          );
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+
+    await service.initialize(temp.path);
+
+    expect(
+      scripts.any(
+        (script) => script.contains(
+          '-Name RestoreInProgress -Type DWord -Value 1',
+        ),
+      ),
+      isFalse,
+    );
+    expect(
+      scripts.any(
+        (script) => script.contains(
+          '-Name EndpointRestoreInProgress -Type DWord -Value 1',
+        ),
+      ),
+      isFalse,
+    );
+    expect(await backup.exists(), isFalse);
+    expect(service.recoveryPending, isFalse);
+  });
+
   test('startup restore preserves retry state when RunOnce cleanup fails',
       () async {
     final temp = await Directory.systemTemp.createTemp(
