@@ -206,9 +206,7 @@ class WindowsRunOnceProxyRecoveryTest(unittest.TestCase):
         confirmed_start = recovery.index(
             "if (!owned && !full_restore_pending) {"
         )
-        confirmed_end = recovery.index(
-            "DWORD original_proxy_enable = 0;", confirmed_start
-        )
+        confirmed_end = recovery.index("bool settings_restored", confirmed_start)
         confirmed_not_owned = recovery[confirmed_start:confirmed_end]
         self.assertIn("RemoveRecoveryArtifacts()", confirmed_not_owned)
         restore_failure_start = recovery.rindex("if (!settings_restored) {")
