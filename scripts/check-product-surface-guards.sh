@@ -31,6 +31,16 @@ for root in source_roots:
             if token in source:
                 raise SystemExit(f"unlock-test residue in {path}: {token}")
 
+current_docs = (
+    Path("docs/USER_GUIDE.zh-CN.md"),
+    Path("docs/TROUBLESHOOTING.zh-CN.md"),
+)
+for path in current_docs:
+    source = path.read_text(encoding="utf-8")
+    for token in ("unlock_test", "UnlockTest", "解锁测试", "解锁检测"):
+        if token in source:
+            raise SystemExit(f"unlock-test residue in current documentation {path}: {token}")
+
 android_app = Path("SSRVPN_Android/lib/app.dart").read_text(encoding="utf-8")
 if android_app.count("NavItem(") != 2:
     raise SystemExit("Android primary navigation must contain exactly two items")

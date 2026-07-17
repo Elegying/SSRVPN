@@ -18,7 +18,7 @@ import 'utils/responsive.dart';
 import 'widgets/liquid_glass.dart' hide GlassInputDecoration;
 import 'widgets/glass_container.dart';
 
-const androidPrimaryNavigationItems = <NavItem>[
+const _androidPrimaryNavigationItems = <NavItem>[
   NavItem(
     icon: Icons.home_outlined,
     activeIcon: Icons.home_rounded,
@@ -303,7 +303,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                       curve: Curves.easeOutCubic,
                     );
                   },
-                  items: androidPrimaryNavigationItems,
+                  items: _androidPrimaryNavigationItems,
                 ),
               ),
             ],

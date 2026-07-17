@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 删除 Android 未被原生实现支持的通知 MethodChannel 门面与无人调用的旧 VPN 门面，连接状态继续由真实前台 VPN Service 统一管理。
 - Android 原生 MethodChannel 分发、VPN protect 管道与 Mihomo API 轮询拆成聚焦组件，并新增结构门禁和原生单元测试，降低关键启动路径的认知复杂度。
+- GeoIP 更新固定校验 GitHub Release 资产 ID、原始摘要与确定性 gzip 摘要；定时任务只在验证通过后创建更新 PR，不直接改写主分支。
+- 更新 Android `shared_preferences_android` 补丁版本并保持完整门禁通过。
+
+### 文档
+
+- 新增 ADR-004 固化三端只保留首页与订阅的产品边界，并清理当前用户指南与排障中的旧功能说明。
 
 ## [3.4.5] - 2026-07-17
 
