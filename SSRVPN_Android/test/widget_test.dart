@@ -3,10 +3,18 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ssrvpn_android/app.dart';
 import 'package:ssrvpn_android/models/app_settings.dart';
 import 'package:ssrvpn_android/services/clash_service.dart';
 
 void main() {
+  test('primary navigation exposes only home and subscriptions', () {
+    expect(androidPrimaryNavigationItems.map((item) => item.label), [
+      '主页',
+      '订阅',
+    ]);
+  });
+
   group('AppSettings', () {
     test('默认值', () {
       final s = AppSettings();

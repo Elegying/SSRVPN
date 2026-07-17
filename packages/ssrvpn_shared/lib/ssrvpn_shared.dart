@@ -20,7 +20,6 @@ export 'services/subscription_parser.dart';
 export 'services/subscription_text_decoder.dart';
 export 'services/subscription_node_codec.dart';
 export 'services/subscription_yaml_merger.dart';
-export 'services/unlock_test_service.dart';
 export 'services/clash_config_generator.dart';
 export 'services/clash_service_base.dart';
 export 'services/subscription_service_base.dart';

@@ -5,10 +5,18 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:ssrvpn_macos/app.dart';
 import 'package:ssrvpn_macos/services/settings_service.dart';
 import 'package:ssrvpn_macos/widgets/connection_button.dart';
 
 void main() {
+  test('desktop primary navigation exposes only home and subscriptions', () {
+    expect(desktopPrimaryNavigationItems.map((item) => item.label), [
+      '首页',
+      '订阅',
+    ]);
+  });
+
   testWidgets('desktop connecting button is keyboard cancellable',
       (tester) async {
     final semantics = tester.ensureSemantics();

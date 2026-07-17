@@ -14,7 +14,6 @@ import 'package:window_manager/window_manager.dart';
 
 import 'screens/home_screen.dart';
 import 'screens/subscription_screen.dart';
-import 'screens/unlock_test_screen.dart';
 import 'services/app_shutdown.dart';
 import 'services/clash_service.dart' as clash;
 import 'services/settings_service.dart';

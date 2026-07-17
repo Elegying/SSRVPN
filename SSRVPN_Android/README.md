@@ -19,7 +19,6 @@ SSRVPN Android 版 - 基于 Clash Meta 的 VPN 客户端
 - 📡 支持订阅链接和 ssr:// 链接导入
 - 🚀 基于 Clash Meta 核心
 - 🔄 节点延迟测速（单个/批量）
-- 🧪 流媒体解锁测试（Netflix/YouTube/ChatGPT 等）
 - 📌 Android 快捷磁贴（Tile）一键连接
 - 🔄 在线更新检查
 - 🛡️ 代理模式切换（规则/全局）
@@ -31,8 +30,8 @@ SSRVPN Android 版 - 基于 Clash Meta 的 VPN 客户端
 
 - Flutter SDK 3.44.1 或兼容的 stable 版本
 - Android Studio / Android SDK
-- NDK 27.0.12077973
-- JDK 17（AGP 8.11 的运行要求；应用源码仍以 Java/Kotlin 11 为字节码目标）
+- NDK 28.2.13676358
+- JDK 17（AGP 9.0.1 与应用源码均使用 JVM 17）
 
 ### 构建步骤
 
@@ -94,13 +93,11 @@ lib/
 ├── screens/
 │   ├── home_screen.dart          # 主页（连接/节点列表）
 │   ├── subscription_screen.dart  # 订阅管理
-│   ├── unlock_test_screen.dart   # 解锁测试
 │   └── node_edit_screen.dart     # 节点编辑
 ├── services/
 │   ├── clash_service.dart        # Clash Meta 核心管理
 │   ├── settings_service.dart     # 设置持久化
 │   ├── subscription_service.dart # 订阅管理
-│   ├── unlock_test_service.dart  # 解锁测试
 │   └── update_service.dart       # 在线更新
 ├── theme/
 │   └── app_theme.dart            # 主题配置

@@ -59,7 +59,7 @@ jobs:
       - run: bash ../../scripts/check-android-native-bridge-guards.sh
         working-directory: packages/ssrvpn_shared
       - run: bash scripts/check-android-built-in-kotlin.sh
-      - run: bash scripts/check-unlock-test-guards.sh
+      - run: bash scripts/check-product-surface-guards.sh
       - run: bash scripts/check-desktop-startup-guards.sh
       - run: bash scripts/check-desktop-secure-storage.sh
       - run: bash scripts/check-clash-service-boundaries.sh
