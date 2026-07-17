@@ -101,20 +101,23 @@ void main() {
     expect(gate.interfaces, isEmpty);
   });
 
-  test('a trusted gone probe clears an identity-free pending marker', () {
+  test('TUN teardown fails closed when no ownership baseline exists', () {
     final gate = WindowsTunTeardownGate()..markPending();
 
     expect(gate.ownershipKnown, isFalse);
-    expect(gate.accept(residual(WindowsTunResidualStatus.gone)), isTrue);
+    expect(gate.accept(residual(WindowsTunResidualStatus.gone)), isFalse);
+    expect(gate.pending, isTrue);
+
+    gate.markPending(const [], const [identity7]);
     expect(gate.ownershipKnown, isTrue);
-    expect(gate.pending, isFalse);
+    expect(gate.accept(residual(WindowsTunResidualStatus.gone)), isTrue);
   });
 
-  test('TUN gate probes fresh TUN and pending reconnects only', () {
+  test('TUN gate probes only transactions with a pending marker', () {
     final gate = WindowsTunTeardownGate();
 
     expect(gate.shouldProbeBeforeStart(enableTun: false), isFalse);
-    expect(gate.shouldProbeBeforeStart(enableTun: true), isTrue);
+    expect(gate.shouldProbeBeforeStart(enableTun: true), isFalse);
 
     gate.markPending(const [identity7]);
     expect(gate.shouldProbeBeforeStart(enableTun: false), isTrue);
@@ -247,6 +250,28 @@ void main() {
     );
   });
 
+  test('pre-start baseline distinguishes route-only SSRVPN residue', () {
+    expect(
+      evaluateWindowsTunResidual(
+        interfaces: const [],
+        expectedInterfaces: const {},
+        baselineInterfaces: const {identity7},
+        residualRouteInterfaceIndexes: const {8},
+      ).status,
+      WindowsTunResidualStatus.present,
+    );
+    expect(
+      evaluateWindowsTunResidual(
+        interfaces: const [],
+        expectedInterfaces: const {},
+        baselineInterfaces: const {identity7},
+        residualRouteInterfaceIndexes: const {7},
+      ).status,
+      WindowsTunResidualStatus.gone,
+      reason: 'a route that predates SSRVPN is outside its ownership boundary',
+    );
+  });
+
   test('residual PowerShell output retains observed interface identities', () {
     final present = parseWindowsTunResidualProbeOutput(
       'PRESENT|7|$tunGuid7;8|$tunGuid8',
@@ -258,9 +283,9 @@ void main() {
     expect(gone.status, WindowsTunResidualStatus.gone);
     expect(gone.interfaces, isEmpty);
 
-    final malformed = parseWindowsTunResidualProbeOutput('PRESENT|');
-    expect(malformed.status, WindowsTunResidualStatus.probeFailed);
-    expect(malformed.interfaces, isEmpty);
+    final routeOnly = parseWindowsTunResidualProbeOutput('PRESENT');
+    expect(routeOnly.status, WindowsTunResidualStatus.present);
+    expect(routeOnly.interfaces, isEmpty);
   });
 
   test('TUN identities and pending markers preserve stable adapter GUIDs', () {
@@ -272,10 +297,15 @@ void main() {
     );
     expect(parseWindowsTunInterfaceIdentityOutput('NONE'), isEmpty);
 
-    final marker = encodeWindowsTunTeardownMarker({identity7, identity8});
-    expect(decodeWindowsTunTeardownMarker(marker), {identity7, identity8});
+    final marker = encodeWindowsTunTeardownMarker(
+      {identity8},
+      baselineInterfaces: {identity7},
+    );
+    final decoded = decodeWindowsTunTeardownMarker(marker)!;
+    expect(decoded.interfaces, {identity8});
+    expect(decoded.baselineInterfaces, {identity7});
     expect(
-      decodeWindowsTunTeardownMarker('7,8'),
+      decodeWindowsTunTeardownMarker('pending')!.interfaces,
       isEmpty,
       reason: 'legacy bare indexes must not be trusted after an upgrade',
     );
@@ -296,8 +326,11 @@ void main() {
   test(
     'Windows TUN teardown reaches a clean state within its production budget',
     () async {
+      final baseline = await probeWindowsNetworkInterfaceIdentities();
       final cleared = await waitForWindowsTunTeardown(
-        probe: probeWindowsTunResidual,
+        probe: () => probeWindowsTunResidual(
+          baselineInterfaces: baseline,
+        ),
       );
       expect(
         cleared,

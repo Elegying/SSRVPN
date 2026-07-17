@@ -519,7 +519,7 @@ exit 4
       final processStartWatch = Stopwatch()..start();
       final startedWithTun = settings.enableTun;
       _tunInterfacesBeforeStart = startedWithTun
-          ? await _observeTunInterfaceIdentities()
+          ? await probeWindowsNetworkInterfaceIdentities()
           : const <WindowsTunInterfaceIdentity>{};
       _ensureStartCurrent(startToken);
       if (startedWithTun && !await _armTunTeardownGate()) {
@@ -839,7 +839,10 @@ exit 4
     await _deleteCorePid();
 
     if (needsTunTeardown) {
-      _tunTeardownGate.markPending(tunInterfaces);
+      _tunTeardownGate.markPending(
+        tunInterfaces,
+        _tunInterfacesBeforeStart,
+      );
       if (!await _waitForTunTeardown()) {
         _lastStopError = _tunTeardownTimeoutError;
         setRunning(false);
@@ -1077,6 +1080,7 @@ exit 4
           ) ??
           probeWindowsTunResidual(
             expectedInterfaces: expectedInterfaces,
+            baselineInterfaces: _tunTeardownGate.baselineInterfaces,
           ));
     } catch (_) {
       return (
@@ -1115,11 +1119,15 @@ exit 4
     try {
       if (await _tunTeardownMarker.exists()) {
         final value = (await _tunTeardownMarker.readAsString()).trim();
-        final interfaces = decodeWindowsTunTeardownMarker(value);
-        if (interfaces == null) {
+        final snapshot = decodeWindowsTunTeardownMarker(value);
+        if (snapshot == null) {
           throw const FormatException('invalid TUN teardown marker');
         }
-        _tunTeardownGate.markPending(interfaces);
+        _tunInterfacesBeforeStart = snapshot.baselineInterfaces;
+        _tunTeardownGate.markPending(
+          snapshot.interfaces,
+          snapshot.baselineInterfaces,
+        );
       }
     } catch (error) {
       _tunTeardownGate.markPending();
@@ -1128,9 +1136,21 @@ exit 4
   }
 
   Future<bool> _armTunTeardownGate() async {
+    if (_tunInterfacesBeforeStart.isEmpty) {
+      log('❌ 无法获取 TUN 启动前网卡基线');
+      return false;
+    }
     try {
-      await _writeTunTeardownMarker('pending\n');
-      _tunTeardownGate.markPending();
+      await _writeTunTeardownMarker(
+        encodeWindowsTunTeardownMarker(
+          const <WindowsTunInterfaceIdentity>{},
+          baselineInterfaces: _tunInterfacesBeforeStart,
+        ),
+      );
+      _tunTeardownGate.markPending(
+        const <WindowsTunInterfaceIdentity>{},
+        _tunInterfacesBeforeStart,
+      );
       return true;
     } catch (error) {
       log('❌ 无法写入 TUN 清理状态: $error');
@@ -1143,9 +1163,15 @@ exit 4
     if (interfaces.isEmpty) return false;
     try {
       await _writeTunTeardownMarker(
-        encodeWindowsTunTeardownMarker(interfaces),
+        encodeWindowsTunTeardownMarker(
+          interfaces,
+          baselineInterfaces: _tunInterfacesBeforeStart,
+        ),
       );
-      _tunTeardownGate.markPending(interfaces);
+      _tunTeardownGate.markPending(
+        interfaces,
+        _tunInterfacesBeforeStart,
+      );
       return true;
     } catch (error) {
       log('❌ 无法写入 TUN 网卡身份: $error');

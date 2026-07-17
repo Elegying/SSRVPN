@@ -156,87 +156,6 @@ bool ReadBackupProxyState(HKEY backup, ProxyStateSnapshot* state) {
          ReadDword(backup, L"OriginalAutoDetect", &state->auto_detect.value);
 }
 
-bool ReadCurrentOptionalString(HKEY settings, const wchar_t* name,
-                               OptionalStringValue* value) {
-  if (!ValueExists(settings, name)) {
-    value->present = 0;
-    value->value.clear();
-    return true;
-  }
-  value->present = 1;
-  return ReadString(settings, name, &value->value);
-}
-
-bool ReadCurrentOptionalDword(HKEY settings, const wchar_t* name,
-                              OptionalDwordValue* value) {
-  if (!ValueExists(settings, name)) {
-    value->present = 0;
-    value->value = 0;
-    return true;
-  }
-  value->present = 1;
-  return ReadDword(settings, name, &value->value);
-}
-
-bool ReadCurrentProxyState(HKEY settings, ProxyStateSnapshot* state) {
-  return ReadDword(settings, L"ProxyEnable", &state->proxy_enable) &&
-         ReadCurrentOptionalString(settings, L"ProxyServer",
-                                   &state->proxy_server) &&
-         ReadCurrentOptionalString(settings, L"ProxyOverride",
-                                   &state->proxy_override) &&
-         ReadCurrentOptionalString(settings, L"AutoConfigURL",
-                                   &state->auto_config_url) &&
-         ReadCurrentOptionalDword(settings, L"AutoDetect",
-                                  &state->auto_detect);
-}
-
-bool OptionalStringMatchesEither(const OptionalStringValue& current,
-                                 const OptionalStringValue& first,
-                                 const OptionalStringValue& second) {
-  const auto matches = [&current](const OptionalStringValue& candidate) {
-    return current.present == candidate.present &&
-           (current.present == 0 || current.value == candidate.value);
-  };
-  return matches(first) || matches(second);
-}
-
-bool OptionalDwordMatchesEither(const OptionalDwordValue& current,
-                                const OptionalDwordValue& first,
-                                const OptionalDwordValue& second) {
-  const auto matches = [&current](const OptionalDwordValue& candidate) {
-    return current.present == candidate.present &&
-           (current.present == 0 || current.value == candidate.value);
-  };
-  return matches(first) || matches(second);
-}
-
-bool IsCorroboratedProxyTransactionState(
-    HKEY settings, const ProxyStateSnapshot& original,
-    const std::wstring& owned_server, const std::wstring& owned_override) {
-  ProxyStateSnapshot current;
-  if (!ReadCurrentProxyState(settings, &current)) return false;
-
-  ProxyStateSnapshot owned;
-  owned.proxy_enable = 1;
-  owned.proxy_server = {1, owned_server};
-  owned.proxy_override = {1, owned_override};
-  owned.auto_config_url = {0, std::wstring()};
-  owned.auto_detect = {1, 0};
-  return (current.proxy_enable == original.proxy_enable ||
-          current.proxy_enable == owned.proxy_enable) &&
-         OptionalStringMatchesEither(current.proxy_server,
-                                     original.proxy_server,
-                                     owned.proxy_server) &&
-         OptionalStringMatchesEither(current.proxy_override,
-                                     original.proxy_override,
-                                     owned.proxy_override) &&
-         OptionalStringMatchesEither(current.auto_config_url,
-                                     original.auto_config_url,
-                                     owned.auto_config_url) &&
-         OptionalDwordMatchesEither(current.auto_detect, original.auto_detect,
-                                    owned.auto_detect);
-}
-
 bool DisableOwnedProxyEndpoint(HKEY settings,
                                const std::wstring& owned_server) {
   DWORD proxy_enable = 0;
@@ -529,12 +448,10 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
 
   DWORD proxy_enable = 0;
   DWORD restore_in_progress = 0;
-  DWORD activation_in_progress = 0;
   DWORD endpoint_restore_in_progress = 0;
   std::wstring proxy_server;
   std::wstring proxy_override;
   ReadDword(backup, L"RestoreInProgress", &restore_in_progress);
-  ReadDword(backup, L"ActivationInProgress", &activation_in_progress);
   ReadDword(backup, L"EndpointRestoreInProgress",
             &endpoint_restore_in_progress);
   const bool endpoint_owned =
@@ -550,16 +467,7 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
 
   ProxyStateSnapshot original;
   const bool snapshot_valid = ReadBackupProxyState(backup, &original);
-  const bool pending_state_corroborated =
-      snapshot_valid && IsCorroboratedProxyTransactionState(
-                            settings, original, owned_server, owned_override);
-  const bool full_restore_pending =
-      pending_state_corroborated &&
-      (restore_in_progress == 1 || activation_in_progress == 1);
-  const bool endpoint_restore_pending =
-      pending_state_corroborated && endpoint_restore_in_progress == 1;
-  if (!owned && !full_restore_pending &&
-      (endpoint_owned || endpoint_restore_pending)) {
+  if (!owned && endpoint_owned) {
     bool endpoint_restored =
         snapshot_valid &&
         (endpoint_restore_in_progress == 1 ||
@@ -591,7 +499,7 @@ bool RestoreOwnedWindowsProxyUnlocked() noexcept {
     NotifyWinInet();
     return journal_terminal || artifacts_removed;
   }
-  if (!owned && !full_restore_pending) {
+  if (!owned) {
     RegCloseKey(settings);
     RegCloseKey(backup);
     return RemoveRecoveryArtifacts();

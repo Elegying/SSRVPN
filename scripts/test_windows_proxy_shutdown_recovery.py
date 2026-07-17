@@ -24,7 +24,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("SetLastError(ERROR_ALREADY_EXISTS)", create_job)
         self.assertIn("return nullptr", create_job)
 
-    def test_pending_proxy_flags_require_a_live_transaction_fingerprint(self) -> None:
+    def test_pending_proxy_flags_never_authorize_snapshot_replay(self) -> None:
         native = (
             ROOT
             / "SSRVPN_Windows"
@@ -46,11 +46,11 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             / "system_proxy_service.dart"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("IsCorroboratedProxyTransactionState", native)
-        self.assertIn("pending_state_corroborated", native)
-        self.assertIn("Test-CorroboratedProxyTransactionState", installer)
-        self.assertIn("$pendingStateCorroborated", installer)
-        self.assertIn("_isCorroboratedTransactionState", dart)
+        self.assertNotIn("IsCorroboratedProxyTransactionState", native)
+        self.assertNotIn("pending_state_corroborated", native)
+        self.assertNotIn("Test-CorroboratedProxyTransactionState", installer)
+        self.assertNotIn("$pendingStateCorroborated", installer)
+        self.assertNotIn("_isCorroboratedTransactionState", dart)
 
     def test_expected_failures_skip_reports_but_unexpected_failures_keep_them(
         self,
@@ -213,7 +213,9 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             "if (result.status != WindowsTunResidualStatus.gone)",
             probe,
         )
-        self.assertIn("$signatureIndexes", probe)
+        self.assertIn("$baseline = @(", probe)
+        self.assertIn("$postStartRouteIndexes", probe)
+        self.assertIn("$allRoutes = @(Get-NetRoute)", probe)
         self.assertIn("__EXPECTED_IPV4__", probe)
         self.assertIn("__EXPECTED_IPV6__", probe)
 
@@ -224,6 +226,13 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             / "lib"
             / "services"
             / "windows_tun_runtime_probe.dart"
+        ).read_text(encoding="utf-8")
+        lifecycle = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "clash_service_lifecycle.dart"
         ).read_text(encoding="utf-8")
 
         script = probe[
@@ -244,6 +253,11 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("$occupiedIndexes -notcontains [int]$_.Index", script)
         self.assertNotIn("DestinationPrefix", route_query)
         self.assertIn("selectWindowsTunInterfacesCreatedAfter", probe)
+        self.assertIn("baselineInterfaces: _tunTeardownGate.baselineInterfaces", lifecycle)
+        self.assertIn(
+            "baselineInterfaces: _tunInterfacesBeforeStart",
+            lifecycle,
+        )
 
     def test_native_shutdown_restores_only_owned_proxy(self) -> None:
         runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
@@ -336,7 +350,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             "ReadBackupProxyState(backup, &original)"
         )
         endpoint_start = restore_body.index(
-            "if (!owned && !full_restore_pending"
+            "if (!owned && endpoint_owned)"
         )
         full_restore_start = restore_body.index("bool settings_restored")
         endpoint_restore = restore_body[endpoint_start:full_restore_start]
@@ -379,6 +393,8 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         )
         self.assertLess(journal_write - full_restore_start, first_mutation)
         self.assertIn('restore_in_progress == 1', restore_body)
+        self.assertNotIn("full_restore_pending", restore_body)
+        self.assertNotIn("endpoint_restore_pending", restore_body)
         self.assertGreaterEqual(
             restore_body.count('L"RestoreInProgress", 0)'),
             2,
@@ -781,7 +797,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("ShowError", failure_branch)
         self.assertIn("return static_cast<int>(child_process_open_error)", failure_branch)
 
-    def test_guardian_cleans_named_job_after_primary_app_already_exited(
+    def test_cleanup_terminates_only_the_validated_job_handle(
         self,
     ) -> None:
         launcher = (
@@ -796,26 +812,27 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             launcher.index("int RunGuardian")
         ]
 
-        named_job = cleanup.index("OpenJobObjectW(")
-        terminate_job = cleanup.index("TerminateJobObject", named_job)
+        self.assertNotIn("OpenJobObjectW(", cleanup)
+        trusted_job = cleanup.index(
+            "HANDLE termination_job = process_job == nullptr"
+        )
+        terminate_job = cleanup.index("TerminateJobObject", trusted_job)
         query_job = cleanup.index("QueryInformationJobObject", terminate_job)
         active_zero = cleanup.index("accounting.ActiveProcesses == 0", query_job)
         bounded_timeout = cleanup.index("termination_error = ERROR_TIMEOUT", active_zero)
-        close_job = cleanup.index("CloseHandle(termination_job)", bounded_timeout)
         child_recheck = cleanup.index(
-            "child_wait = ::WaitForSingleObject", close_job
+            "child_wait = ::WaitForSingleObject", bounded_timeout
         )
         exited_success = cleanup.index(
             "if (child_wait == WAIT_OBJECT_0 &&", child_recheck
         )
-        self.assertNotIn("if (child_wait == WAIT_OBJECT_0)", cleanup[:named_job])
-        self.assertIn("JOB_OBJECT_TERMINATE | JOB_OBJECT_QUERY", cleanup)
-        self.assertLess(named_job, terminate_job)
+        self.assertNotIn("CloseHandle(termination_job)", cleanup)
+        self.assertNotIn("if (child_wait == WAIT_OBJECT_0)", cleanup[:trusted_job])
+        self.assertLess(trusted_job, terminate_job)
         self.assertLess(terminate_job, query_job)
         self.assertLess(query_job, active_zero)
         self.assertLess(active_zero, bounded_timeout)
-        self.assertLess(bounded_timeout, close_job)
-        self.assertLess(close_job, child_recheck)
+        self.assertLess(bounded_timeout, child_recheck)
         self.assertLess(child_recheck, exited_success)
         success_gate = cleanup[exited_success:cleanup.index(
             "bool ArmKillOnJobCloseAndRelease", exited_success
@@ -869,9 +886,15 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         guardian = launcher[
             launcher.index("int RunGuardian") : launcher.index("void ShowError(")
         ]
+        guardian_open = guardian[
+            guardian.index("process_job = ::OpenJobObjectW(") :
+            guardian.index("if (process_job == nullptr)")
+        ]
+        self.assertIn("JOB_OBJECT_TERMINATE | JOB_OBJECT_QUERY", guardian_open)
         self.assertGreaterEqual(
             guardian.count("RestoreAndTerminateGuardedProcessWithRetry"), 3
         )
+        self.assertGreaterEqual(guardian.count("&process_job"), 3)
 
         main = launcher[launcher.index("int APIENTRY wWinMain") :]
         final_guardian_wait = main[

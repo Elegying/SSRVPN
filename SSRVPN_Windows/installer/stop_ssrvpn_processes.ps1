@@ -947,27 +947,6 @@ function Set-OrRemoveRegistryValue {
     }
   }
 }
-function Test-CorroboratedProxyTransactionState {
-  param($Current, $Backup)
-  if (-not (Test-DwordFlag -Value $Current.ProxyEnable) -or
-      ([int]$Current.ProxyEnable -ne [int]$Backup.proxyEnable -and
-        [int]$Current.ProxyEnable -ne 1)) { return $false }
-  $checks = @(
-    @('ProxyServer', $Backup.hasProxyServer, $Backup.proxyServer, $true, $Backup.ownedProxyServer),
-    @('ProxyOverride', $Backup.hasProxyOverride, $Backup.proxyOverride, $true, $Backup.ownedProxyOverride),
-    @('AutoConfigURL', $Backup.hasAutoConfigUrl, $Backup.autoConfigUrl, $false, $null),
-    @('AutoDetect', $Backup.hasAutoDetect, $Backup.autoDetect, $true, 0)
-  )
-  foreach ($check in $checks) {
-    $present = $null -ne $Current.PSObject.Properties[$check[0]]
-    $value = if ($present) { $Current.($check[0]) } else { $null }
-    $original = $present -eq [bool]$check[1] -and (-not $present -or $value -eq $check[2])
-    $owned = $present -eq [bool]$check[3] -and (-not $present -or $value -eq $check[4])
-    if (-not ($original -or $owned)) { return $false }
-  }
-  return $true
-}
-
 function Restore-OwnedSystemProxy {
   $backup = Get-ProxyRecoveryState
   if (-not $backup) {
@@ -994,15 +973,7 @@ function Restore-OwnedSystemProxy {
   $endpointOwned = $proxyEnabled -and
     $hasProxyServer -and
     [string]$current.ProxyServer -eq $backup.ownedProxyServer
-  $pendingStateCorroborated =
-    Test-CorroboratedProxyTransactionState -Current $current -Backup $backup
-  $fullRestorePending = $pendingStateCorroborated -and
-    ($backup.restoreInProgress -or $backup.activationInProgress)
-  $endpointRestorePending = $pendingStateCorroborated -and
-    $backup.endpointRestoreInProgress
-  if (-not $owned -and
-      -not $fullRestorePending -and
-      ($endpointOwned -or $endpointRestorePending)) {
+  if (-not $owned -and $endpointOwned) {
     Write-NativeRestoreJournal -Backup $backup -EndpointOnly
     Set-OrRemoveRegistryValue -Path $regPath -Name ProxyServer `
       -Present $backup.hasProxyServer -Value $backup.proxyServer
@@ -1013,7 +984,7 @@ function Restore-OwnedSystemProxy {
     Remove-ProxyRecoveryState
     return
   }
-  if (-not $owned -and -not $fullRestorePending) {
+  if (-not $owned) {
     Remove-ProxyRecoveryState
     return
   }
