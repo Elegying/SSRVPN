@@ -323,11 +323,17 @@ void main() {
     final decoded = decodeWindowsTunTeardownMarker(marker)!;
     expect(decoded.interfaces, {identity8});
     expect(decoded.baselineInterfaces, {identity7});
+    expect(decoded.legacyInterfaceIndexes, isEmpty);
     expect(decoded.legacy, isFalse);
     expect(
       decodeWindowsTunTeardownMarker('pending')!.legacy,
       isTrue,
       reason: 'legacy markers require a controlled one-time migration',
+    );
+    expect(
+      decodeWindowsTunTeardownMarker('7,8')!.legacyInterfaceIndexes,
+      {7, 8},
+      reason: 'legacy numeric ownership must survive migration',
     );
     expect(decodeWindowsTunTeardownMarker('{"version":1}'), isNull);
   });

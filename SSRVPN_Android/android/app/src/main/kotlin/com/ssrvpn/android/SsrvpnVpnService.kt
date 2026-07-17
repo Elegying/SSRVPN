@@ -396,17 +396,19 @@ class SsrvpnVpnService : VpnService() {
 
     private fun notifyCurrentState(
         capturedState: VpnNotificationState? = null,
-        generation: Long = notificationGeneration.capture()
+        allowPublication: (() -> Boolean)? = null
     ) {
         val state = capturedState ?: currentNotificationState()
-        if (Looper.myLooper() != notificationHandler.looper) {
-            notificationHandler.post { notifyCurrentState(state, generation) }
-            return
-        }
-        if (!notificationGeneration.isCurrent(generation) || !isRunning) return
-        notificationUpdatePolicy.publishIfChanged(state) {
-            getSystemService(NotificationManager::class.java)
-                .notify(NOTIFICATION_ID, buildDynamicNotification(state))
+        notificationGeneration.publishLatest(
+            notificationHandler,
+            state,
+            { isRunning },
+            allowPublication
+        ) {
+            notificationUpdatePolicy.publishIfChanged(it) {
+                getSystemService(NotificationManager::class.java)
+                    .notify(NOTIFICATION_ID, buildDynamicNotification(it))
+            }
         }
     }
 
@@ -665,7 +667,14 @@ class SsrvpnVpnService : VpnService() {
         val recoveryToken = recoveryGeneration.incrementAndGet()
         notificationStatusText = CoreRecoveryPolicy.recoveringMessage(nextAttempt)
         notificationConnected = false
-        notifyCurrentState(currentNotificationState())
+        notifyCurrentState(currentNotificationState()) {
+            CoreRecoveryPolicy.shouldPublishRecovery(
+                recoveryToken,
+                recoveryGeneration.get(),
+                manualStopRequested.get(),
+                processTerminationPending.get()
+            )
+        }
 
         val restartIntent = createStartIntent(
             this,

@@ -4,6 +4,7 @@ import 'package:ssrvpn_windows/src/services/system_proxy_ownership.dart';
 const _ownedOverride = '<local>;localhost;127.*';
 
 const _original = WindowsProxyState(
+  hasProxyEnable: true,
   proxyEnable: 0,
   hasProxyServer: true,
   proxyServer: 'proxy.example:8080',
@@ -16,6 +17,7 @@ const _original = WindowsProxyState(
 );
 
 const _owned = WindowsProxyState(
+  hasProxyEnable: true,
   proxyEnable: 1,
   hasProxyServer: true,
   proxyServer: '127.0.0.1:7890',
@@ -51,6 +53,7 @@ void main() {
 
     test('rejects impossible Cartesian mixtures', () {
       const impossible = WindowsProxyState(
+        hasProxyEnable: true,
         proxyEnable: 1,
         hasProxyServer: true,
         proxyServer: 'proxy.example:8080',
@@ -120,6 +123,48 @@ void main() {
           phase: WindowsProxyTransactionPhase.endpointRestore,
         ),
         isFalse,
+      );
+    });
+
+    test('missing ProxyEnable remains a recoverable exact registry state', () {
+      final original = _original.copyWith(
+        hasProxyEnable: false,
+        proxyEnable: 0,
+      );
+      final activation = windowsProxyActivationPrefixes(
+        original: original,
+        owned: _owned,
+      );
+
+      expect(
+          activation.take(5).every((state) => !state.hasProxyEnable), isTrue);
+      expect(activation.last.hasProxyEnable, isTrue);
+      expect(
+        isReachableWindowsProxyTransactionState(
+          current: activation[4],
+          original: original,
+          owned: _owned,
+          phase: WindowsProxyTransactionPhase.activation,
+        ),
+        isTrue,
+      );
+      expect(
+        isReachableWindowsProxyTransactionState(
+          current: activation.last.copyWith(proxyEnable: 0),
+          original: original,
+          owned: _owned,
+          phase: WindowsProxyTransactionPhase.fullRestore,
+        ),
+        isTrue,
+      );
+      expect(
+        isReachableWindowsProxyTransactionState(
+          current: original,
+          original: original,
+          owned: _owned,
+          phase: WindowsProxyTransactionPhase.fullRestore,
+        ),
+        isTrue,
       );
     });
   });

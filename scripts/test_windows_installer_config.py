@@ -345,6 +345,12 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("proxy_transaction_state.ps1", installer)
         self.assertIn(". $proxyTransactionStatePath", stopper)
         self.assertIn("StopResult := StopSsrvpnProcesses", installer)
+        self.assertIn("hasProxyEnable", transaction_state)
+        self.assertIn("HasProxyEnable", stopper)
+        self.assertIn(
+            "Set-OrRemoveRegistryValue -Path $regPath -Name ProxyEnable",
+            stopper,
+        )
         self.assertIn("if StopResult = 0 then", installer)
         lock_acquire = stopper.index(
             "$script:ProxyTransactionLockStream = Enter-ProxyTransactionLock"

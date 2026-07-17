@@ -2,6 +2,7 @@ enum WindowsProxyTransactionPhase { activation, fullRestore, endpointRestore }
 
 class WindowsProxyState {
   const WindowsProxyState({
+    required this.hasProxyEnable,
     required this.proxyEnable,
     required this.hasProxyServer,
     required this.proxyServer,
@@ -13,6 +14,7 @@ class WindowsProxyState {
     required this.autoDetect,
   });
 
+  final bool hasProxyEnable;
   final int proxyEnable;
   final bool hasProxyServer;
   final String proxyServer;
@@ -24,6 +26,7 @@ class WindowsProxyState {
   final int autoDetect;
 
   WindowsProxyState copyWith({
+    bool? hasProxyEnable,
     int? proxyEnable,
     bool? hasProxyServer,
     String? proxyServer,
@@ -35,6 +38,7 @@ class WindowsProxyState {
     int? autoDetect,
   }) =>
       WindowsProxyState(
+        hasProxyEnable: hasProxyEnable ?? this.hasProxyEnable,
         proxyEnable: proxyEnable ?? this.proxyEnable,
         hasProxyServer: hasProxyServer ?? this.hasProxyServer,
         proxyServer: proxyServer ?? this.proxyServer,
@@ -49,6 +53,7 @@ class WindowsProxyState {
   @override
   bool operator ==(Object other) =>
       other is WindowsProxyState &&
+      hasProxyEnable == other.hasProxyEnable &&
       proxyEnable == other.proxyEnable &&
       hasProxyServer == other.hasProxyServer &&
       proxyServer == other.proxyServer &&
@@ -61,6 +66,7 @@ class WindowsProxyState {
 
   @override
   int get hashCode => Object.hash(
+        hasProxyEnable,
         proxyEnable,
         hasProxyServer,
         proxyServer,
@@ -98,7 +104,10 @@ List<WindowsProxyState> windowsProxyActivationPrefixes({
     autoConfigUrl: owned.autoConfigUrl,
   );
   states.add(state);
-  states.add(state.copyWith(proxyEnable: owned.proxyEnable));
+  states.add(state.copyWith(
+    hasProxyEnable: owned.hasProxyEnable,
+    proxyEnable: owned.proxyEnable,
+  ));
   return states;
 }
 
@@ -120,21 +129,22 @@ bool isReachableWindowsProxyTransactionState({
         current.proxyServer == owned.proxyServer;
     final originalServer = current.hasProxyServer == original.hasProxyServer &&
         current.proxyServer == original.proxyServer;
-    if (original.proxyEnable == 0) {
-      return (ownedServer &&
-              (current.proxyEnable == owned.proxyEnable ||
-                  current.proxyEnable == 0)) ||
-          (originalServer && current.proxyEnable == 0);
-    }
-    return (ownedServer || originalServer) &&
-        current.proxyEnable == original.proxyEnable;
+    bool proxyEquals(WindowsProxyState state) =>
+        current.hasProxyEnable == state.hasProxyEnable &&
+        current.proxyEnable == state.proxyEnable;
+    final disabled = original.copyWith(
+      hasProxyEnable: true,
+      proxyEnable: 0,
+    );
+    return (ownedServer && (proxyEquals(owned) || proxyEquals(disabled))) ||
+        (originalServer && (proxyEquals(disabled) || proxyEquals(original)));
   }
 
   for (final activationState in activationStates) {
     var state = activationState;
     if (state == current) return true;
-    if (original.proxyEnable == 0) {
-      state = state.copyWith(proxyEnable: 0);
+    if (!original.hasProxyEnable || original.proxyEnable == 0) {
+      state = state.copyWith(hasProxyEnable: true, proxyEnable: 0);
       if (state == current) return true;
     }
     state = state.copyWith(
@@ -157,10 +167,11 @@ bool isReachableWindowsProxyTransactionState({
       autoDetect: original.autoDetect,
     );
     if (state == current) return true;
-    if (original.proxyEnable != 0) {
-      state = state.copyWith(proxyEnable: original.proxyEnable);
-      if (state == current) return true;
-    }
+    state = state.copyWith(
+      hasProxyEnable: original.hasProxyEnable,
+      proxyEnable: original.proxyEnable,
+    );
+    if (state == current) return true;
   }
   return false;
 }

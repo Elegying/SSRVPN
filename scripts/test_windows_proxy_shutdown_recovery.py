@@ -221,6 +221,13 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("$allRoutes = @(Get-NetRoute)", probe)
         self.assertIn("__EXPECTED_IPV4__", probe)
         self.assertIn("__EXPECTED_IPV6__", probe)
+        migration = tun_recovery[
+            tun_recovery.index("Future<void> _migrateLegacyTunTeardownMarker") :
+        ]
+        self.assertIn("snapshot.legacyInterfaceIndexes", tun_recovery)
+        self.assertIn("discoverLegacySignatures: true", migration)
+        self.assertIn("waitForWindowsTunTeardown", migration)
+        self.assertIn("legacyInterfaceIndexes.contains", migration)
 
     def test_tun_residual_routes_belong_to_captured_interfaces(self) -> None:
         probe = (
@@ -372,6 +379,9 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         )
         self.assertLess(snapshot_read, endpoint_start)
         self.assertIn("bool ReadBackupProxyState", recovery)
+        self.assertIn("OptionalDwordValue proxy_enable", recovery)
+        self.assertIn('ValueExists(settings, L"ProxyEnable") ? 1 : 0', recovery)
+        self.assertIn('ValueExists(backup, L"HasProxyEnable")', recovery)
 
         safe_disable = full_restore.index(
             'SetDword(settings, L"ProxyEnable", 0)'
@@ -380,10 +390,13 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             "RestorePreparedString(settings, original.proxy_server.present"
         )
         final_enable = full_restore.index(
-            'SetDword(settings, L"ProxyEnable", original.proxy_enable)'
+            "original.proxy_enable.value", restore_server
         )
         self.assertLess(safe_disable, restore_server)
         self.assertGreater(final_enable, restore_server)
+        self.assertIn(
+            'DeleteValueIfPresent(settings, L"ProxyEnable")', full_restore
+        )
         self.assertIn("IsActivationPrefix", restore_body)
         self.assertIn("IsFullRestorePrefix", restore_body)
         self.assertIn("IsEndpointRestorePrefix", restore_body)

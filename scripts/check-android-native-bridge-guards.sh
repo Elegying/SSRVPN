@@ -17,6 +17,7 @@ HOME_PARTS=(
 PUBLIC_ROUTES="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/PublicIpv4Routes.kt"
 VPN_ROUTE_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnRouteInstaller.kt"
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
+NOTIFICATION_GATE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NotificationGenerationGate.kt"
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
 NATIVE_SNAPSHOT_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSnapshotStore.kt"
 STARTUP_ORCHESTRATOR="$ROOT/SSRVPN_Android/lib/startup/startup_orchestrator.dart"
@@ -190,9 +191,13 @@ require_route_text "addRoute(route.address, route.prefixLength)"
 require_route_text "VpnIpv6Config.defaultRoute"
 require_text "VpnNotificationSupport.createChannel(this, CHANNEL_ID)"
 require_text "NativeConnectionSnapshotStore.read(this)"
-require_text "notificationUpdatePolicy.publishIfChanged(state)"
-require_text "Looper.myLooper() != notificationHandler.looper"
-require_text "notifyCurrentState(currentNotificationState())"
+require_text "notificationUpdatePolicy.publishIfChanged(it)"
+if ! grep -Fq "Looper.myLooper() != handler.looper" "$NOTIFICATION_GATE"; then
+  echo "Android notification generation guard lost its main-thread handoff" >&2
+  exit 1
+fi
+require_text "notificationGeneration.publishLatest("
+require_text "CoreRecoveryPolicy.shouldPublishRecovery("
 require_activity_text "NATIVE_SNAPSHOT_UPDATE_FAILED"
 
 if grep -R -n -E 'flutter\.(apiSecret|configDir|configPath|apiPort|selectedNodeName)' \

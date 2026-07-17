@@ -53,4 +53,37 @@ class CoreRecoveryPolicyTest {
             )
         )
     }
+
+    @Test
+    fun `recovery transition notification survives ordinary stop invalidation`() {
+        val notificationGate = NotificationGenerationGate()
+        val ordinaryNotification = notificationGate.capture()
+        notificationGate.invalidate()
+
+        assertFalse(notificationGate.isCurrent(ordinaryNotification))
+        assertTrue(
+            CoreRecoveryPolicy.shouldPublishRecovery(
+                recoveryToken = 12,
+                currentToken = 12,
+                manualStopRequested = false,
+                processTerminationPending = false
+            )
+        )
+        assertFalse(
+            CoreRecoveryPolicy.shouldPublishRecovery(
+                recoveryToken = 12,
+                currentToken = 13,
+                manualStopRequested = false,
+                processTerminationPending = false
+            )
+        )
+        assertFalse(
+            CoreRecoveryPolicy.shouldPublishRecovery(
+                recoveryToken = 12,
+                currentToken = 12,
+                manualStopRequested = true,
+                processTerminationPending = false
+            )
+        )
+    }
 }

@@ -117,6 +117,78 @@ void main() {
       expect(proxies.first, '新加坡节点');
     });
 
+    test('failed preferred snapshot discards its credential config', () async {
+      SharedPreferences.setMockInitialValues({});
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'syncSettings') {
+          throw PlatformException(code: 'NATIVE_SYNC_FAILED');
+        }
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final dir = await Directory.systemTemp.createTemp('ssrvpn_config_fail_');
+      addTearDown(() => dir.delete(recursive: true));
+      final service = ClashService()
+        ..setPaths(
+          configDir: dir.path,
+          configPath: '${dir.path}${Platform.pathSeparator}config.yaml',
+        );
+
+      await expectLater(
+        service.writePreferredNodeConfig(
+          _testProxies,
+          AppSettings(),
+          '新加坡节点',
+        ),
+        throwsStateError,
+      );
+
+      expect(
+        await dir
+            .list()
+            .where((entry) => entry.path.endsWith('.yaml'))
+            .toList(),
+        isEmpty,
+      );
+    });
+
+    test('obsolete preferred selection never reaches the native snapshot',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var syncCalls = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'syncSettings') syncCalls += 1;
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final dir = await Directory.systemTemp.createTemp('ssrvpn_config_stale_');
+      addTearDown(() => dir.delete(recursive: true));
+      final service = ClashService()
+        ..setPaths(
+          configDir: dir.path,
+          configPath: '${dir.path}${Platform.pathSeparator}config.yaml',
+        );
+
+      await expectLater(
+        service.writePreferredNodeConfig(
+          _testProxies,
+          AppSettings(),
+          '新加坡节点',
+          shouldContinue: () => false,
+        ),
+        throwsStateError,
+      );
+
+      expect(syncCalls, 0);
+      expect(await dir.list().toList(), isEmpty);
+    });
+
     test('staged configs never overwrite the last committed config', () async {
       final dir = await Directory.systemTemp.createTemp('ssrvpn_versioned_');
       addTearDown(() => dir.delete(recursive: true));
@@ -456,5 +528,57 @@ void main() {
     await service.discardPreparedConfig(unused);
 
     expect(await File(unused).exists(), isFalse);
+  });
+
+  test('pending snapshot files are removed after a later successful stop',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var stopCalls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+        case 'syncSettings':
+        case 'notifyVpnStateChanged':
+        case 'clearConnectionSnapshot':
+          return true;
+        case 'stopCore':
+          stopCalls += 1;
+          if (stopCalls == 1) {
+            throw PlatformException(code: 'STOP_FAILED');
+          }
+          return true;
+        case 'isCoreRunning':
+          return true;
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final dir = await Directory.systemTemp.createTemp('ssrvpn_pending_clear_');
+    addTearDown(() => dir.delete(recursive: true));
+    final service = ClashService()
+      ..setPaths(
+        configDir: dir.path,
+        configPath: '${dir.path}${Platform.pathSeparator}config.yaml',
+      )
+      ..updateSettings(AppSettings(apiSecret: 'test-secret'));
+    final configPath = await service.writeConfig(_testProxies);
+
+    expect(
+      await service.start(
+        nodeName: '日本节点',
+        preparedConfigPath: configPath,
+      ),
+      isTrue,
+    );
+    await expectLater(service.stop(), throwsStateError);
+    await service.clearNativeConnectionSnapshot();
+    expect(await File(configPath).exists(), isTrue);
+
+    await service.stop();
+
+    expect(await File(configPath).exists(), isFalse);
   });
 }
