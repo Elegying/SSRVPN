@@ -349,4 +349,47 @@ void main() {
 
     expect(service.isRunning, isFalse);
   });
+
+  test('native credential sync failure preserves the last usable tile config',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp('ssrvpn_tile_test_');
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    SharedPreferences.setMockInitialValues({
+      'configDir': 'old-dir',
+      'configPath': 'old-config.yaml',
+      'apiPort': 9091,
+      'selectedNodeName': 'Old Node',
+    });
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+        case 'notifyVpnStateChanged':
+          return true;
+        case 'syncSettings':
+          throw PlatformException(code: 'NATIVE_SECRET_SYNC_FAILED');
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings(apiSecret: 'current-secret'));
+
+    expect(await service.start(nodeName: 'New Node'), isTrue);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('configDir'), 'old-dir');
+    expect(prefs.getString('configPath'), 'old-config.yaml');
+    expect(prefs.getInt('apiPort'), 9091);
+    expect(prefs.getString('selectedNodeName'), 'Old Node');
+    service.dispose();
+  });
 }

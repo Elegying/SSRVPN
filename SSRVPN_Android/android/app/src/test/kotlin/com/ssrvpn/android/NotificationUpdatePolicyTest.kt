@@ -73,4 +73,29 @@ class NotificationUpdatePolicyTest {
         policy.resetPublishedState()
         assertTrue(policy.shouldPublish(state))
     }
+
+    @Test
+    fun `failed publication is retried instead of being marked delivered`() {
+        val policy = NotificationUpdatePolicy()
+        val state = VpnNotificationState(
+            nodeName = "SSRVPN",
+            connected = true,
+            statusText = null,
+            uploadRate = 0L,
+            downloadRate = 0L,
+            sessionUpload = 0L,
+            sessionDownload = 0L,
+            connectionStartedAt = 100L
+        )
+
+        try {
+            policy.publishIfChanged(state) { error("notification manager failed") }
+        } catch (_: IllegalStateException) {
+        }
+
+        var publications = 0
+        assertTrue(policy.publishIfChanged(state) { publications += 1 })
+        assertEquals(1, publications)
+        assertFalse(policy.publishIfChanged(state) { publications += 1 })
+    }
 }

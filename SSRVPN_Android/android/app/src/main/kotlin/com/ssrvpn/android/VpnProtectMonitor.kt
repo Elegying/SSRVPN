@@ -3,6 +3,7 @@ package com.ssrvpn.android
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.io.FileInputStream
+import java.io.InputStream
 
 internal object VpnProtectMonitor {
     private const val TAG = "VpnProtectMonitor"
@@ -20,19 +21,13 @@ internal object VpnProtectMonitor {
                     FileInputStream(descriptor.fileDescriptor).use { input ->
                         val buffer = ByteArray(4)
                         while (!Thread.currentThread().isInterrupted) {
-                            when (val count = input.read(buffer)) {
-                                4 -> {
-                                    val socketFd = decodeLittleEndianInt(buffer)
-                                    val protected = protectSocket(socketFd)
-                                    Log.d(TAG, "protect($socketFd) = $protected")
-                                    reportResult(protected)
-                                }
-                                -1 -> {
-                                    Log.d(TAG, "Protect pipe closed")
-                                    return@Thread
-                                }
-                                else -> Log.w(TAG, "Ignoring partial protect request: $count bytes")
+                            val socketFd = readSocketFd(input) ?: run {
+                                Log.d(TAG, "Protect pipe closed")
+                                return@Thread
                             }
+                            val protected = protectSocket(socketFd)
+                            Log.d(TAG, "protect($socketFd) = $protected")
+                            reportResult(protected)
                         }
                     }
                 }
@@ -43,6 +38,18 @@ internal object VpnProtectMonitor {
             isDaemon = true
             start()
         }
+    }
+
+    internal fun readSocketFd(input: InputStream): Int? {
+        val buffer = ByteArray(4)
+        var offset = 0
+        while (offset < buffer.size) {
+            val count = input.read(buffer, offset, buffer.size - offset)
+            if (count == -1) return null
+            if (count == 0) continue
+            offset += count
+        }
+        return decodeLittleEndianInt(buffer)
     }
 
     private fun decodeLittleEndianInt(buffer: ByteArray): Int =

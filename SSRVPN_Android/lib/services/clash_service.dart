@@ -481,21 +481,29 @@ class ClashService extends ClashServiceBase {
 
   Future<void> _saveConfigForTile(String? nodeName) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('configDir', configDir);
-      await prefs.setString('configPath', configPath);
-      await prefs.setInt('apiPort', settings.apiPort);
-      // Keep apiSecret out of SharedPreferences. Native cold starts read the
-      // Android Keystore-backed copy synchronized through the method channel.
-      await prefs.remove('apiSecret');
       await _channel.invokeMethod('syncSettings', {
+        'configDir': configDir,
+        'configPath': configPath,
+        'apiPort': settings.apiPort,
         'proxyPort': settings.proxyPort,
         'apiSecret': settings.apiSecret,
+        'selectedNodeName': nodeName,
       });
-      if (nodeName != null && nodeName.isNotEmpty) {
-        await prefs.setString('selectedNodeName', nodeName);
+      // Native code now owns one encrypted atomic cold-start snapshot. Remove
+      // the old split preferences only after that snapshot is committed.
+      final prefs = await SharedPreferences.getInstance();
+      for (final key in [
+        'configDir',
+        'configPath',
+        'apiPort',
+        'apiSecret',
+        'selectedNodeName',
+      ]) {
+        await prefs.remove(key);
       }
-    } catch (_) {}
+    } catch (error) {
+      log('原生快速启动数据同步失败，保留上次可用快照: $error');
+    }
   }
 
   @override

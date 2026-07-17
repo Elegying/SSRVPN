@@ -5,7 +5,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.SharedPreferences
 import android.net.VpnService
 import android.os.Build
 import android.service.quicksettings.Tile
@@ -62,22 +61,20 @@ class VpnTileService : TileService() {
         if (isConnected) {
             stopVpnAndUpdateTile(cancelPendingStart = false)
         } else {
-            // 尝试直接启动 VPN（无需打开 App）
-            val prefs = getPrefs()
-            // shared_preferences 插件的 key 带 "flutter." 前缀，int 以 Long 存储
-            val configDir = prefs.getString("flutter.configDir", null)
-            val configPath = prefs.getString("flutter.configPath", null)
-            val apiPort = prefs.getLong("flutter.apiPort", 9090L).toInt()
-            val apiSecret = NativeApiSecretStore.read(this).orEmpty()
-            val nodeName = prefs.getString("flutter.selectedNodeName", null)
-
-            if (configDir != null && configPath != null) {
-                // 有配置，直接启动 VPN
-                startVpnDirectly(configDir, configPath, apiPort, apiSecret, nodeName)
-            } else {
-                // 无配置，打开 App
+            val snapshot = NativeConnectionSnapshotStore.read(this)
+            if (snapshot == null) {
+                // Upgrades and damaged Keystore state must rehydrate through
+                // Flutter instead of attempting an unauthenticated cold start.
                 launchApp()
+                return
             }
+            startVpnDirectly(
+                snapshot.configDir,
+                snapshot.configPath,
+                snapshot.apiPort,
+                snapshot.apiSecret,
+                snapshot.selectedNodeName
+            )
         }
     }
 
@@ -183,11 +180,6 @@ class VpnTileService : TileService() {
             // Android 14+ 隐式广播不会投递给 NOT_EXPORTED 接收器，必须显式指定包名
             setPackage(packageName)
         })
-    }
-
-    private fun getPrefs(): SharedPreferences {
-        // Flutter shared_preferences 插件的存储文件
-        return getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
     }
 
     private fun updateTile() {

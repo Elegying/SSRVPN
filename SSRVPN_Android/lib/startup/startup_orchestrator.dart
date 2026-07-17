@@ -90,9 +90,14 @@ class StartupOrchestrator {
     try {
       const channel = MethodChannel('com.ssrvpn/native');
       final s = _settings?.settings;
+      final clash = _clash;
       await channel.invokeMethod('syncSettings', {
+        'configDir': clash?.configDir ?? '',
+        'configPath': clash?.configPath ?? '',
+        'apiPort': s?.apiPort ?? 9090,
         'proxyPort': s?.proxyPort ?? 7890,
         'apiSecret': s?.apiSecret ?? '',
+        'selectedNodeName': s?.lastSelectedNodeName,
       });
     } catch (e) {
       StartupLogger.warn('原生同步失败: $e');

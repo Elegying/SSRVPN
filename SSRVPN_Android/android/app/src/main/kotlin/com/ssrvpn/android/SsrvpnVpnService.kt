@@ -42,6 +42,7 @@ class SsrvpnVpnService : VpnService() {
         private const val EXTRA_NODE_NAME = "com.ssrvpn.extra.NODE_NAME"
         private const val EXTRA_REQUEST_ID = "com.ssrvpn.extra.REQUEST_ID"
         private const val EXTRA_RECOVERY_ATTEMPT = "com.ssrvpn.extra.RECOVERY_ATTEMPT"
+        private const val EXTRA_RECOVERY_TOKEN = "com.ssrvpn.extra.RECOVERY_TOKEN"
 
         @Volatile
         var isRunning = false
@@ -59,7 +60,8 @@ class SsrvpnVpnService : VpnService() {
             apiSecret: String,
             nodeName: String?,
             requestId: String? = null,
-            recoveryAttempt: Int = 0
+            recoveryAttempt: Int = 0,
+            recoveryToken: Long? = null
         ): Intent = Intent(context, SsrvpnVpnService::class.java).apply {
             putExtra(EXTRA_CONFIG_DIR, configDir)
             putExtra(EXTRA_CONFIG_PATH, configPath)
@@ -68,6 +70,7 @@ class SsrvpnVpnService : VpnService() {
             putExtra(EXTRA_NODE_NAME, nodeName)
             putExtra(EXTRA_REQUEST_ID, requestId)
             putExtra(EXTRA_RECOVERY_ATTEMPT, recoveryAttempt)
+            recoveryToken?.let { putExtra(EXTRA_RECOVERY_TOKEN, it) }
         }
 
         private val startResultCallbacks =
@@ -115,7 +118,7 @@ class SsrvpnVpnService : VpnService() {
         private val bridgeStopInProgress = AtomicBoolean(false)
         private val bridgeRunningCheckInProgress = AtomicBoolean(false)
         private val processTerminationPending = AtomicBoolean(false)
-        private val startGeneration = AtomicLong(0)
+        private val startGeneration = StartGenerationGate()
         private val recoveryGeneration = AtomicLong(0)
         private val manualStopRequested = AtomicBoolean(false)
 
@@ -127,7 +130,7 @@ class SsrvpnVpnService : VpnService() {
                 processTerminationPending.get()
 
         fun cancelPendingStart() {
-            startGeneration.incrementAndGet()
+            startGeneration.invalidate { isRunning = false }
             instance?.stopAll()
         }
     }
@@ -150,13 +153,13 @@ class SsrvpnVpnService : VpnService() {
     private val notificationHandler = Handler(Looper.getMainLooper())
     private var currentNodeName = "SSRVPN"
     private var connectionStartedAt = 0L
-    private var trafficBaselineTx = 0L
-    private var trafficBaselineRx = 0L
-    private var lastTrafficTx = 0L
-    private var lastTrafficRx = 0L
-    private var lastTrafficSampleAtMs = 0L
-    private var uploadRate = 0L
-    private var downloadRate = 0L
+    private val trafficTracker by lazy {
+        VpnTrafficTracker(
+            { TrafficStats.getUidTxBytes(applicationInfo.uid) },
+            { TrafficStats.getUidRxBytes(applicationInfo.uid) },
+            SystemClock::elapsedRealtime
+        )
+    }
     private var notificationConnected = false
     private var notificationStatusText: String? = null
     private val notificationUpdatePolicy = NotificationUpdatePolicy()
@@ -172,7 +175,7 @@ class SsrvpnVpnService : VpnService() {
                     notificationUpdatePolicy.onScreenStateChanged(true)
                     if (isRunning && notificationConnected) {
                         notificationHandler.removeCallbacks(notificationUpdater)
-                        resetTrafficSample()
+                        trafficTracker.resetSample()
                         notifyCurrentState()
                         notificationHandler.postDelayed(
                             notificationUpdater,
@@ -186,7 +189,7 @@ class SsrvpnVpnService : VpnService() {
     private val notificationUpdater = object : Runnable {
         override fun run() {
             if (!isRunning || !notificationUpdatePolicy.shouldScheduleTrafficRefresh()) return
-            updateTrafficStats()
+            trafficTracker.update(notificationUpdatePolicy::bytesPerSecond)
             notifyCurrentState()
             notificationHandler.postDelayed(
                 this,
@@ -223,6 +226,24 @@ class SsrvpnVpnService : VpnService() {
         Log.d(TAG, "VPN Service starting...")
         val requestId = intent?.getStringExtra(EXTRA_REQUEST_ID)
         val recoveryAttempt = intent?.getIntExtra(EXTRA_RECOVERY_ATTEMPT, 0) ?: 0
+        val recoveryToken = if (intent?.hasExtra(EXTRA_RECOVERY_TOKEN) == true) {
+            intent.getLongExtra(EXTRA_RECOVERY_TOKEN, -1L)
+        } else {
+            null
+        }
+
+        if (recoveryAttempt > 0 && !CoreRecoveryPolicy.shouldAcceptRestart(
+                recoveryAttempt,
+                recoveryToken,
+                recoveryGeneration.get(),
+                manualStopRequested.get()
+            )
+        ) {
+            Log.w(TAG, "Ignoring obsolete VPN recovery request")
+            consumeStartResult(requestId, false, "自动恢复请求已失效")
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
 
         if (isRunning) {
             Log.d(TAG, "VPN is already running; reusing the active session")
@@ -240,11 +261,34 @@ class SsrvpnVpnService : VpnService() {
             return START_STICKY
         }
         manualStopRequested.set(false)
-        val startToken = startGeneration.incrementAndGet()
+        val startToken = startGeneration.beginStart()
 
-        val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        val explicitConfigDir = intent?.getStringExtra(EXTRA_CONFIG_DIR)
+        val explicitConfigPath = intent?.getStringExtra(EXTRA_CONFIG_PATH)
+        val hasExplicitApiPort = intent?.hasExtra(EXTRA_API_PORT) == true
+        val explicitApiSecret = intent?.getStringExtra(EXTRA_API_SECRET)
+        val needsSnapshot = explicitConfigDir == null ||
+            explicitConfigPath == null ||
+            !hasExplicitApiPort ||
+            explicitApiSecret.isNullOrBlank()
+        val snapshot = if (needsSnapshot) {
+            NativeConnectionSnapshotStore.read(this)
+        } else {
+            null
+        }
+        val configDir = explicitConfigDir ?: snapshot?.configDir
+        val configPath = explicitConfigPath ?: snapshot?.configPath
+        val apiPort = if (hasExplicitApiPort) {
+            intent.getIntExtra(EXTRA_API_PORT, 9090)
+        } else {
+            snapshot?.apiPort ?: 9090
+        }
+        val apiSecret = NativeApiSecretResolver.resolve(explicitApiSecret) {
+            snapshot?.apiSecret
+        }
+
         currentNodeName = intent?.getStringExtra(EXTRA_NODE_NAME)
-            ?: prefs.getString("flutter.selectedNodeName", null)
+            ?: snapshot?.selectedNodeName
             ?: "SSRVPN"
         connectionStartedAt = System.currentTimeMillis()
         notificationConnected = false
@@ -255,7 +299,7 @@ class SsrvpnVpnService : VpnService() {
         }
         getSystemService(NotificationManager::class.java)
             .cancel(RECOVERY_FAILURE_NOTIFICATION_ID)
-        resetTrafficStats()
+        trafficTracker.reset()
 
         notificationUpdatePolicy.resetPublishedState()
         val initialNotificationState = currentNotificationState()
@@ -269,33 +313,16 @@ class SsrvpnVpnService : VpnService() {
 
         isRunning = false
 
-        // 进程被系统杀掉后 START_STICKY 重启时，静态字段已丢失，回退读持久化配置
-        val configDir = intent?.getStringExtra(EXTRA_CONFIG_DIR)
-            ?: prefs.getString("flutter.configDir", null)
-        val configPath = intent?.getStringExtra(EXTRA_CONFIG_PATH)
-            ?: prefs.getString("flutter.configPath", null)
-        val apiPort = if (intent?.hasExtra(EXTRA_API_PORT) == true) {
-            intent.getIntExtra(EXTRA_API_PORT, 9090)
-        } else {
-            prefs.getLong("flutter.apiPort", 9090L).toInt()
-        }
-        val explicitApiSecret = intent?.getStringExtra(EXTRA_API_SECRET)
-        if (!explicitApiSecret.isNullOrBlank()) {
-            try {
-                NativeApiSecretStore.write(this, explicitApiSecret)
-            } catch (error: Exception) {
-                Log.e(TAG, "Unable to refresh native VPN credentials", error)
-            }
-        }
-        val apiSecret = NativeApiSecretResolver.resolve(
-            explicitApiSecret,
-            NativeApiSecretStore.read(this)
-        )
         val selectedNodeName = currentNodeName
 
-        if (configDir == null || configPath == null) {
-            Log.e(TAG, "Missing parameters!")
-            consumeStartResult(requestId, false, "Missing parameters")
+        if (configDir == null || configPath == null || apiSecret.isBlank()) {
+            val message = if (apiSecret.isBlank()) {
+                "VPN 凭据不可用，请打开应用重新连接"
+            } else {
+                "VPN 配置不可用，请打开应用重新连接"
+            }
+            Log.e(TAG, message)
+            consumeStartResult(requestId, false, message)
             serviceStartInProgress.set(false)
             stopAfterStartFailure(recoveryAttempt)
             return START_NOT_STICKY
@@ -328,16 +355,19 @@ class SsrvpnVpnService : VpnService() {
         return START_STICKY
     }
 
-    private fun currentNotificationState() = VpnNotificationState(
-        currentNodeName,
-        notificationConnected,
-        notificationStatusText,
-        uploadRate,
-        downloadRate,
-        sessionUpload(),
-        sessionDownload(),
-        connectionStartedAt
-    )
+    private fun currentNotificationState(): VpnNotificationState {
+        val traffic = trafficTracker.snapshot()
+        return VpnNotificationState(
+            currentNodeName,
+            notificationConnected,
+            notificationStatusText,
+            traffic.uploadRate,
+            traffic.downloadRate,
+            traffic.sessionUpload,
+            traffic.sessionDownload,
+            connectionStartedAt
+        )
+    }
 
     private fun buildDynamicNotification(
         state: VpnNotificationState = currentNotificationState()
@@ -352,63 +382,26 @@ class SsrvpnVpnService : VpnService() {
     fun updateNotificationNode(nodeName: String) {
         if (nodeName.isBlank()) return
         currentNodeName = nodeName
-        getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-            .edit()
-            .putString("flutter.selectedNodeName", nodeName)
-            .apply()
+        try {
+            NativeConnectionSnapshotStore.updateSelectedNode(this, nodeName)
+        } catch (error: Exception) {
+            Log.e(TAG, "Unable to update the native connection snapshot", error)
+        }
         notifyCurrentState()
     }
 
     private fun notifyCurrentState() {
+        if (Looper.myLooper() != notificationHandler.looper) {
+            notificationHandler.post { notifyCurrentState() }
+            return
+        }
         if (!isRunning) return
         val state = currentNotificationState()
-        if (!notificationUpdatePolicy.shouldPublish(state)) return
-        getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID, buildDynamicNotification(state))
+        notificationUpdatePolicy.publishIfChanged(state) {
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIFICATION_ID, buildDynamicNotification(state))
+        }
     }
-
-    private fun resetTrafficStats() {
-        val tx = TrafficStats.getUidTxBytes(applicationInfo.uid).coerceAtLeast(0L)
-        val rx = TrafficStats.getUidRxBytes(applicationInfo.uid).coerceAtLeast(0L)
-        trafficBaselineTx = tx
-        trafficBaselineRx = rx
-        resetTrafficSample(tx, rx)
-    }
-
-    private fun resetTrafficSample(
-        tx: Long = TrafficStats.getUidTxBytes(applicationInfo.uid).coerceAtLeast(0L),
-        rx: Long = TrafficStats.getUidRxBytes(applicationInfo.uid).coerceAtLeast(0L)
-    ) {
-        lastTrafficTx = tx
-        lastTrafficRx = rx
-        lastTrafficSampleAtMs = SystemClock.elapsedRealtime()
-        uploadRate = 0L
-        downloadRate = 0L
-    }
-
-    private fun updateTrafficStats() {
-        val now = SystemClock.elapsedRealtime()
-        val tx = TrafficStats.getUidTxBytes(applicationInfo.uid).coerceAtLeast(0L)
-        val rx = TrafficStats.getUidRxBytes(applicationInfo.uid).coerceAtLeast(0L)
-        val elapsedMillis = (now - lastTrafficSampleAtMs).coerceAtLeast(0L)
-        uploadRate = notificationUpdatePolicy.bytesPerSecond(
-            (tx - lastTrafficTx).coerceAtLeast(0L),
-            elapsedMillis
-        )
-        downloadRate = notificationUpdatePolicy.bytesPerSecond(
-            (rx - lastTrafficRx).coerceAtLeast(0L),
-            elapsedMillis
-        )
-        lastTrafficTx = tx
-        lastTrafficRx = rx
-        lastTrafficSampleAtMs = now
-    }
-
-    private fun sessionUpload(): Long =
-        (lastTrafficTx - trafficBaselineTx).coerceAtLeast(0L)
-
-    private fun sessionDownload(): Long =
-        (lastTrafficRx - trafficBaselineRx).coerceAtLeast(0L)
 
     private fun startNotificationUpdates() {
         notificationStatusText = null
@@ -534,15 +527,14 @@ class SsrvpnVpnService : VpnService() {
                 ensureStartCurrent(startToken)
                 Log.d(TAG, "Core started!")
                 applyProxySelection(apiPort, apiSecret, selectedNodeName)
-                // Selection can perform several bounded API requests. Recheck
-                // the generation so a concurrent disconnect cannot publish a
-                // stale connected state after those requests return.
-                ensureStartCurrent(startToken)
-                isRunning = true
-                broadcastState(this)
-                startNotificationUpdates()
-                consumeStartResult(requestId, true, "OK")
-                serviceStartInProgress.set(false)
+                val published = startGeneration.runIfCurrent(startToken) {
+                    isRunning = true
+                    broadcastState(this)
+                    startNotificationUpdates()
+                    consumeStartResult(requestId, true, "OK")
+                    serviceStartInProgress.set(false)
+                }
+                if (!published) throw StartCancelledException()
 
                 Thread({
                     monitorCoreRunning(
@@ -577,7 +569,7 @@ class SsrvpnVpnService : VpnService() {
     }
 
     private fun ensureStartCurrent(startToken: Long) {
-        if (startToken != startGeneration.get() ||
+        if (startToken != startGeneration.current() ||
             stopOperation.isRunning ||
             processTerminationPending.get()
         ) {
@@ -634,7 +626,7 @@ class SsrvpnVpnService : VpnService() {
             // 否则全局流量仍被路由进无人读取的 TUN，导致整机断网
             if (CoreLivenessMonitor.waitForUnexpectedExit(
                     startToken,
-                    startGeneration::get,
+                    startGeneration::current,
                     { isRunning },
                     ::isBridgeRunningWithTimeout
                 )
@@ -644,6 +636,13 @@ class SsrvpnVpnService : VpnService() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Monitor error", e)
+            stopAll {
+                try {
+                    showCoreRecoveryFailedNotification()
+                } catch (notificationError: Exception) {
+                    Log.e(TAG, "Unable to show core recovery failure", notificationError)
+                }
+            }
         }
     }
 
@@ -668,7 +667,8 @@ class SsrvpnVpnService : VpnService() {
             request.apiPort,
             request.apiSecret,
             request.selectedNodeName,
-            recoveryAttempt = nextAttempt
+            recoveryAttempt = nextAttempt,
+            recoveryToken = recoveryToken
         )
         stopForRecovery {
             if (manualStopRequested.get() ||
@@ -750,7 +750,7 @@ class SsrvpnVpnService : VpnService() {
         stopServiceWhenDone: Boolean,
         onComplete: (() -> Unit)?
     ) {
-        startGeneration.incrementAndGet()
+        startGeneration.invalidate { isRunning = false }
         serviceStartThread?.interrupt()
         val completion: () -> Unit = {
             if (stopServiceWhenDone || manualStopRequested.get()) {
