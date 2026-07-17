@@ -5,8 +5,8 @@ cd /d "%~dp0"
 echo SSRVPN Safe Mode 启动中... 日志: ssrvpn_safe.log
 echo 启动时间: %date% %time% > "%~dp0ssrvpn_safe.log"
 if not exist "%~dp0ssrvpn_windows.exe" (
-    echo ssrvpn_windows.exe 不存在，请先完整解压 ZIP。>> "%~dp0ssrvpn_safe.log"
-    echo ssrvpn_windows.exe 不存在，请先完整解压 ZIP。
+    echo ssrvpn_windows.exe 不存在，请重新安装 SSRVPN 安装版。>> "%~dp0ssrvpn_safe.log"
+    echo ssrvpn_windows.exe 不存在，请重新安装 SSRVPN 安装版。
     pause
     exit /b 1
 )
