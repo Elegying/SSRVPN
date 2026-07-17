@@ -1,5 +1,4 @@
 import '../services/clash_service.dart';
-import '../services/notification_service.dart';
 import '../services/settings_service.dart';
 import '../services/subscription_service.dart';
 
@@ -9,13 +8,11 @@ import '../services/subscription_service.dart';
 /// updateVpnNotification + verify 的完整编排流程。
 class ConnectionOrchestrator {
   final ClashService clashService;
-  final NotificationService notificationService;
   final SettingsService settingsService;
   final SubscriptionService subscriptionService;
 
   ConnectionOrchestrator({
     required this.clashService,
-    required this.notificationService,
     required this.settingsService,
     required this.subscriptionService,
   });
@@ -69,15 +66,6 @@ class ConnectionOrchestrator {
       if (!_isCurrent(connectionGeneration)) {
         return null;
       }
-    }
-
-    // 更新通知栏
-    await notificationService.showConnectedNotification(
-      nodeName: nodeName ?? '自动',
-      proxyMode: settings.proxyMode.name,
-    );
-    if (!_isCurrent(connectionGeneration)) {
-      return null;
     }
 
     // 验证连通性

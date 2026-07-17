@@ -106,7 +106,6 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
 
   ConnectionOrchestrator get _orchestrator => ConnectionOrchestrator(
         clashService: context.read<ClashService>(),
-        notificationService: NotificationService.instance,
         settingsService: context.read<SettingsService>(),
         subscriptionService: context.read<SubscriptionService>(),
       );

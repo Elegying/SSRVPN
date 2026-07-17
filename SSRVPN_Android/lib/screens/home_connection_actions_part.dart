@@ -11,7 +11,6 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
 
     final orch = ConnectionOrchestrator(
       clashService: clashService,
-      notificationService: NotificationService.instance,
       settingsService: settingsService,
       subscriptionService: subService,
     );

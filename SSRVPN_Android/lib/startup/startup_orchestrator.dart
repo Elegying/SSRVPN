@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/clash_service.dart';
-import '../services/notification_service.dart';
 import '../services/settings_service.dart';
 import '../services/subscription_service.dart';
 import '../services/update_service.dart';
@@ -38,9 +37,6 @@ class StartupOrchestrator {
         return;
       }
 
-      status.recordStep('通知服务', '初始化通知通道');
-      await _initNotifications();
-
       if (!flags.skipUpdateCheck) {
         status.recordStep('更新检查', '检查新版本');
         await _checkForUpdate();
@@ -59,15 +55,6 @@ class StartupOrchestrator {
     } catch (e, stack) {
       status.fail(e.toString());
       StartupLogger.error('启动流程失败: $e', stack);
-    }
-  }
-
-  Future<void> _initNotifications() async {
-    try {
-      final ns = NotificationService.instance;
-      await ns.initialize();
-    } catch (e) {
-      StartupLogger.warn('通知服务初始化失败: $e');
     }
   }
 
