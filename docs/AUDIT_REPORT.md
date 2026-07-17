@@ -52,7 +52,7 @@
 
 - `make verify` 现在会运行共享 barrel 守卫、版本/核心资产/秘密检查、三端 Flutter 测试与覆盖率，以及 Android Kotlin/JUnit 测试。
 - 修复 Flutter 3.44 覆盖率参数，CI 产出标准 `coverage/lcov.info`。
-- GeoIP 数据已更新到 2026-07-10；日常 CI 只校验仓库固定哈希，独立 freshness workflow 检查上游，Release 再同步最新数据。
+- GeoIP 数据在本历史审查中更新到 2026-07-10；当前流程由独立 freshness workflow 提交固定来源与哈希 PR，Release 只使用已审核快照，不在打包时跟随最新数据。
 - macOS 特权模型和 Windows 启动器安全均有静态发布守卫，避免旧危险逻辑回流。
 
 ## 最终验证证据

@@ -6,21 +6,78 @@ on:
     - cron: '17 1 * * *'
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 concurrency:
   group: geoip-freshness
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  check:
-    name: Compare bundled GeoIP with upstream
+  refresh:
+    name: Propose a verified GeoIP refresh
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: main
 
       - run: bash scripts/bootstrap-core-assets.sh
 
-      - run: python3 scripts/sync-geoip-metadb.py --check
+      - name: Synchronize and verify the latest upstream snapshot
+        id: sync
+        run: |
+          python3 scripts/sync-geoip-metadb.py
+          bash scripts/verify-core-assets.sh
+
+          unexpected="$(git diff --name-only -- . ':!docs/GEOIP_SOURCE.txt')"
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected tracked files changed:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          if git diff --quiet -- docs/GEOIP_SOURCE.txt; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          source_tag="$(awk -F': ' '$1 == "Release tag" { print $2; exit }' docs/GEOIP_SOURCE.txt)"
+          upstream_sha="$(awk -F': ' '$1 == "Upstream SHA256" { print $2; exit }' docs/GEOIP_SOURCE.txt)"
+          safe_tag="$(printf '%s' "$source_tag" | tr -cs '[:alnum:]._' '-')"
+          test -n "$source_tag" && test -n "$upstream_sha"
+          {
+            echo "changed=true"
+            echo "source_tag=$source_tag"
+            echo "branch=automation/geoip-${safe_tag}-${upstream_sha:0:12}"
+          } >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Create an immutable update pull request
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.sync.outputs.branch }}
+          SOURCE_TAG: ${{ steps.sync.outputs.source_tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add -- docs/GEOIP_SOURCE.txt
+          git commit -m "chore(assets): refresh GeoIP to $SOURCE_TAG"
+
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            if gh pr view "$BRANCH" >/dev/null 2>&1; then
+              echo "GeoIP refresh pull request already exists for $SOURCE_TAG"
+              exit 0
+            fi
+            echo "Remote branch exists without a pull request: $BRANCH" >&2
+            exit 1
+          fi
+
+          git push origin "HEAD:$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(assets): refresh GeoIP to $SOURCE_TAG" \
+            --body "Automated verified GeoIP snapshot refresh. The source URL and both raw and deterministic gzip SHA-256 values are pinned in docs/GEOIP_SOURCE.txt."

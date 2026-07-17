@@ -23,7 +23,7 @@ rename it to `mihomo.exe`, place it in `SSRVPN_Windows/assets/`, and update
 - Bundled file: `SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so`
 - Geo database: `SSRVPN_Android/assets/geoip.metadb.gz`
 - Source record: `SSRVPN_Android/assets/libgojni-source.txt`
-- Bootstrap container: the signed SSRVPN `v2.4.5` APK
+- Native-library bootstrap container: the signed SSRVPN `v2.4.5` APK
 - Geo source record: `docs/GEOIP_SOURCE.txt`
 
 The Android native library is loaded by the VPN service, so it must be verified
@@ -50,10 +50,17 @@ scripts/verify-core-assets.sh
 
 `scripts/bootstrap-core-assets.sh` uses only allowlisted HTTPS GitHub URLs,
 downloads into a temporary directory, verifies SHA256 before extraction or
-installation, and atomically replaces stale local assets. The normal bootstrap
-GeoIP snapshot comes from the immutable `v2.4.5` APK so old commits remain
-reproducible. Release builds refresh it with
-`python3 scripts/sync-geoip-metadb.py` before packaging.
+installation, and atomically replaces stale local assets. GeoIP is downloaded
+from the upstream release asset API URL and unique asset ID pinned in
+`GEOIP_SOURCE.txt`, verified against its raw SHA256, and reproducibly compressed
+before its gzip SHA256 is checked. This avoids following the upstream project's
+mutable `latest` download alias. Release builds always use that reviewed
+snapshot.
+
+The daily `GeoIP Freshness` workflow compares against the latest upstream
+release. When a newer verified snapshot exists, it opens a uniquely named PR
+that changes only `GEOIP_SOURCE.txt`; normal CI then reconstructs and verifies
+the exact three platform assets before the PR can merge.
 
 `scripts/verify-core-assets.sh` checks fixed SHA256 hashes, macOS decompressed
 executable equivalence, and bundled GeoIP databases. The same checks run in CI

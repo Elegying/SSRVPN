@@ -1,6 +1,8 @@
-Repo: Elegying/SSRVPN
-Release tag: v2.4.5
-Release name: SSRVPN v2.4.5 bootstrap snapshot
-Asset URL: https://github.com/Elegying/SSRVPN/releases/download/v2.4.5/SSRVPN.apk
-Upstream SHA256: 7fdcb786185fe40f957c34a7a14033953fbc7ecd171e30888007d9be15ffd689
-Bundled gzip SHA256: 91f7ac96b924fc2b498852b9ed546d9462f26014b8451e32100cdd2c8e3ebfe1
+Repo: MetaCubeX/meta-rules-dat
+Release ID: 355443765
+Release tag: latest
+Release name: Release 2026-07-17 10:27
+Asset ID: 479869166
+Asset URL: https://api.github.com/repos/MetaCubeX/meta-rules-dat/releases/assets/479869166
+Upstream SHA256: 51ce2af9ed2f2422dc73fb8411287da674529e9925e98d8f3ddeebd787b63cf8
+Bundled gzip SHA256: 095e5d6cb04ac9f673902cf59a710e5496bcc63363a7dc6f5c1b9b2905c25561
