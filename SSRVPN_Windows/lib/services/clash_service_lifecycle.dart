@@ -810,23 +810,25 @@ exit 4
     }
     _proxyRecoveryListenerActive = false;
 
+    // The proxy endpoint is already safe, so the UI must be disconnected even
+    // if an orphaned core later refuses to exit. The tracked process still
+    // blocks a new start until cleanup is confirmed.
+    setRunning(false);
+    notifyStatusChanged();
+
     final coreProcess = _coreProcess;
     if (coreProcess != null) {
       _stoppingCore = true;
       try {
         final stopped = await terminateCoreProcess(coreProcess);
         if (!stopped) {
-          _lastStopError = 'Mihomo 强制停止后仍未退出，断开操作已中止';
+          _lastStopError = 'Mihomo 强制停止后仍未退出，代理已断开但核心清理未完成';
           log('❌ $_lastStopError');
-          if (isRunning) startStatusMonitor();
-          notifyStatusChanged();
           return false;
         }
       } catch (e) {
         _lastStopError = '无法确认 Mihomo 已停止: $e';
         log('❌ $_lastStopError');
-        if (isRunning) startStatusMonitor();
-        notifyStatusChanged();
         return false;
       } finally {
         _stoppingCore = false;

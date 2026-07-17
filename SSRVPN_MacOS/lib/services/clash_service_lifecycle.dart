@@ -527,6 +527,12 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       return false;
     }
 
+    // The system no longer routes through SSRVPN. Publish that user-visible
+    // fact before process cleanup; a surviving orphan is a cleanup error, not
+    // an active connection.
+    setRunning(false);
+    notifyStatusChanged();
+
     final process = _clashProcess;
     if (process != null) {
       _stoppingCore = true;
@@ -544,8 +550,6 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       if (!terminated) {
         setLastStartError('无法确认 Mihomo 核心已退出，已保留进程状态并拒绝重新启动');
         log('❌ $lastStartError');
-        if (isRunning) startStatusMonitor();
-        notifyStatusChanged();
         return false;
       }
       _clashProcess = null;
