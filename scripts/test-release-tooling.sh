@@ -7,6 +7,7 @@ cd "$ROOT"
 python3 -m unittest \
   scripts/test_check_release_assets.py \
   scripts/test_free_desktop_distribution.py \
+  scripts/test_geoip_workflow.py \
   scripts/test_generate_oss_release_manifest.py \
   scripts/test_generate_release_notes.py \
   scripts/test_generate_release_provenance.py \

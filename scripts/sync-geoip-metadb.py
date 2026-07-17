@@ -92,9 +92,11 @@ def build_source_record(
     return "\n".join(
         [
             "Repo: MetaCubeX/meta-rules-dat",
+            f"Release ID: {release.get('id', '')}",
             f"Release tag: {release.get('tag_name', '')}",
             f"Release name: {release.get('name', '')}",
-            f"Asset URL: {asset.get('browser_download_url', '')}",
+            f"Asset ID: {asset.get('id', '')}",
+            f"Asset URL: {asset.get('url', '')}",
             f"Upstream SHA256: {upstream_hash}",
             f"Bundled gzip SHA256: {gzip_hash}",
             "",

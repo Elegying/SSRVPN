@@ -45,13 +45,14 @@ download_verified() {
   local label="$4"
 
   case "$url" in
-    https://github.com/*) ;;
+    https://github.com/* | https://api.github.com/*) ;;
     *) fail "$label uses an unapproved download host: $url" ;;
   esac
 
   curl \
     --fail \
     --location \
+    --header 'Accept: application/octet-stream' \
     --proto '=https' \
     --proto-redir '=https' \
     --retry 3 \
@@ -84,7 +85,7 @@ install_verified() {
   echo "installed $label"
 }
 
-for command in curl gzip unzip; do
+for command in curl gzip python3 unzip; do
   command -v "$command" >/dev/null 2>&1 || fail "$command is required"
 done
 
@@ -97,7 +98,8 @@ apk_url="$(require_field "$android_source" 'Container URL')"
 apk_hash="$(require_field "$android_source" 'Container SHA256')"
 android_member="$(require_field "$android_source" 'Library member')"
 android_hash="$(require_field "$android_source" 'Library SHA256')"
-geo_member="$(require_field "$android_source" 'GeoIP member')"
+geo_url="$(require_field "$geo_source" 'Asset URL')"
+geo_raw_hash="$(require_field "$geo_source" 'Upstream SHA256')"
 geo_gzip_hash="$(require_field "$geo_source" 'Bundled gzip SHA256')"
 
 android_asset="SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so"
@@ -107,16 +109,10 @@ geo_assets=(
   SSRVPN_Windows/assets/geoip.metadb.gz
 )
 
-need_apk=0
-asset_matches "$android_asset" "$android_hash" || need_apk=1
-for geo_asset in "${geo_assets[@]}"; do
-  asset_matches "$geo_asset" "$geo_gzip_hash" || need_apk=1
-done
-
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/ssrvpn-core-assets.XXXXXX")"
 trap 'rm -rf "$temp_dir"' EXIT
 
-if [ "$need_apk" -eq 1 ]; then
+if ! asset_matches "$android_asset" "$android_hash"; then
   apk="$temp_dir/SSRVPN.apk"
   download_verified "$apk_url" "$apk_hash" "$apk" "Android bootstrap APK"
 
@@ -125,16 +121,35 @@ if [ "$need_apk" -eq 1 ]; then
   install_verified \
     "$temp_dir/libgojni.so" "$android_asset" "$android_hash" \
     "Android libgojni.so"
+else
+  echo "ok Android libgojni.so"
+fi
 
-  unzip -p "$apk" "$geo_member" >"$temp_dir/geoip.metadb.gz" ||
-    fail "Android bootstrap APK is missing $geo_member"
+need_geo=0
+for geo_asset in "${geo_assets[@]}"; do
+  asset_matches "$geo_asset" "$geo_gzip_hash" || need_geo=1
+done
+if [ "$need_geo" -eq 1 ]; then
+  download_verified \
+    "$geo_url" "$geo_raw_hash" "$temp_dir/geoip.metadb" \
+    "GeoIP database"
+  python3 - "$temp_dir/geoip.metadb" "$temp_dir/geoip.metadb.gz" <<'PY'
+import gzip
+import sys
+from pathlib import Path
+
+raw = Path(sys.argv[1]).read_bytes()
+compressed = gzip.compress(raw, compresslevel=9, mtime=0)
+# Keep the gzip header platform-independent across supported Python versions.
+Path(sys.argv[2]).write_bytes(compressed[:9] + b"\xff" + compressed[10:])
+PY
   for geo_asset in "${geo_assets[@]}"; do
     install_verified \
       "$temp_dir/geoip.metadb.gz" "$geo_asset" "$geo_gzip_hash" \
       "$geo_asset"
   done
 else
-  echo "ok Android and GeoIP bootstrap assets"
+  echo "ok GeoIP bootstrap assets"
 fi
 
 macos_url="$(require_field "$macos_source" 'Official asset URL')"
