@@ -68,7 +68,7 @@ class SsrvpnVpnService : VpnService() {
             putExtra(EXTRA_REQUEST_ID, requestId)
             startClaimId?.let { putExtra(EXTRA_START_CLAIM_ID, it) }
             putExtra(EXTRA_RECOVERY_ATTEMPT, recoveryAttempt)
-        recoveryToken?.let { putExtra(EXTRA_RECOVERY_TOKEN, it) }
+            recoveryToken?.let { putExtra(EXTRA_RECOVERY_TOKEN, it) }
         }
 
         private fun consumeStartResult(
