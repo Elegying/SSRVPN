@@ -68,11 +68,17 @@ jobs:
           git commit -m "chore(assets): refresh GeoIP to $SOURCE_TAG"
 
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            if gh pr view "$BRANCH" >/dev/null 2>&1; then
+            pr_state="$(
+              gh pr view "$BRANCH" --json state --jq .state 2>/dev/null || true
+            )"
+            pr_action="$(
+              python3 scripts/geoip-pr-state-policy.py "$pr_state"
+            )"
+            if [ "$pr_action" = "reuse" ]; then
               echo "GeoIP refresh pull request already exists for $SOURCE_TAG"
               exit 0
             fi
-            echo "Remote branch exists without a pull request: $BRANCH" >&2
+            echo "Remote branch exists without an open pull request: $BRANCH" >&2
             exit 1
           fi
 
