@@ -1,6 +1,9 @@
 import importlib.util
 import os
+import subprocess
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -100,6 +103,12 @@ class GeoIpWorkflowTest(unittest.TestCase):
         self.assertIn("gzip.compress(raw, compresslevel=9, mtime=0)", bootstrap)
         self.assertIn("https://api.github.com/*", bootstrap)
         self.assertIn("Accept: application/octet-stream", bootstrap)
+        self.assertIn(
+            '[[ "$url" == https://api.github.com/* && -n "${GITHUB_TOKEN:-}" ]]',
+            bootstrap,
+        )
+        self.assertIn('--oauth2-bearer "${GITHUB_TOKEN}"', bootstrap)
+        self.assertNotIn("Authorization: Bearer ${GITHUB_TOKEN}", bootstrap)
         self.assertIn("--max-filesize", bootstrap)
         self.assertIn("extract_zip_member_bounded", bootstrap)
         self.assertIn("info.file_size", bootstrap)
@@ -111,6 +120,66 @@ class GeoIpWorkflowTest(unittest.TestCase):
         )
         self.assertIn("asset.get('url', '')", sync_script)
         self.assertIn("Asset ID:", sync_script)
+
+    def test_curl_oauth_token_is_not_forwarded_to_a_redirect_host(self) -> None:
+        initial_authorization: list[str | None] = []
+        redirected_authorization: list[str | None] = []
+
+        class RedirectTarget(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                redirected_authorization.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            def log_message(self, *_args) -> None:
+                pass
+
+        target = ThreadingHTTPServer(("127.0.0.1", 0), RedirectTarget)
+
+        class InitialHost(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                initial_authorization.append(self.headers.get("Authorization"))
+                self.send_response(302)
+                self.send_header(
+                    "Location",
+                    f"http://127.0.0.1:{target.server_port}/asset",
+                )
+                self.end_headers()
+
+            def log_message(self, *_args) -> None:
+                pass
+
+        initial = ThreadingHTTPServer(("127.0.0.1", 0), InitialHost)
+        target_thread = threading.Thread(target=target.serve_forever, daemon=True)
+        initial_thread = threading.Thread(target=initial.serve_forever, daemon=True)
+        target_thread.start()
+        initial_thread.start()
+        try:
+            subprocess.run(
+                [
+                    "curl",
+                    "--fail",
+                    "--silent",
+                    "--show-error",
+                    "--location",
+                    "--oauth2-bearer",
+                    "test-token",
+                    f"http://localhost:{initial.server_port}/asset",
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+        finally:
+            initial.shutdown()
+            target.shutdown()
+            initial.server_close()
+            target.server_close()
+            initial_thread.join(timeout=5)
+            target_thread.join(timeout=5)
+
+        self.assertEqual(initial_authorization, ["Bearer test-token"])
+        self.assertEqual(redirected_authorization, [None])
 
 
 if __name__ == "__main__":

@@ -50,10 +50,16 @@ download_verified() {
     *) fail "$label uses an unapproved download host: $url" ;;
   esac
 
+  local curl_auth=()
+  if [[ "$url" == https://api.github.com/* && -n "${GITHUB_TOKEN:-}" ]]; then
+    curl_auth+=(--oauth2-bearer "${GITHUB_TOKEN}")
+  fi
+
   curl \
     --fail \
     --location \
     --header 'Accept: application/octet-stream' \
+    "${curl_auth[@]}" \
     --proto '=https' \
     --proto-redir '=https' \
     --retry 3 \
