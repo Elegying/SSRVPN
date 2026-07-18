@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:test/test.dart';
 import 'package:ssrvpn_shared/services/subscription_parser.dart';
+import 'package:ssrvpn_shared/utils/bounded_yaml.dart';
 import 'package:ssrvpn_shared/utils/log_redactor.dart';
 
 void main() {
@@ -156,6 +157,18 @@ proxies:
       final parsed = SubscriptionParser.parseSubscriptionContent(yaml);
 
       expect(parsed, yaml);
+    });
+
+    test('rejects high-cardinality YAML before subscription normalization', () {
+      final yaml = StringBuffer('proxies:\n');
+      for (var index = 0; index <= BoundedYaml.maxCollectionItems; index++) {
+        yaml.writeln('  - {}');
+      }
+
+      expect(
+        SubscriptionParser.parseSubscriptionContent(yaml.toString()),
+        isNull,
+      );
     });
 
     group('importSsrLink', () {

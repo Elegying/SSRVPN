@@ -61,6 +61,34 @@ proxies:
       );
     });
 
+    test('rejects excessive block collection items before loading', () {
+      final yaml = StringBuffer('proxies:\n');
+      for (var index = 0; index <= BoundedYaml.maxCollectionItems; index++) {
+        yaml.writeln('  - {}');
+      }
+
+      expect(
+        () => BoundedYaml.validate(yaml.toString()),
+        throwsA(
+          isA<YamlResourceLimitException>().having(
+            (error) => error.message,
+            'message',
+            contains('集合元素'),
+          ),
+        ),
+      );
+    });
+
+    test('rejects excessive flow collection items before loading', () {
+      final yaml = 'proxies: ['
+          '${List.filled(BoundedYaml.maxCollectionItems + 1, '{}').join(',')}]';
+
+      expect(
+        () => BoundedYaml.validate(yaml),
+        throwsA(isA<YamlResourceLimitException>()),
+      );
+    });
+
     test('does not count quoted or block-scalar syntax as structure', () {
       final bracketText = '[' * (BoundedYaml.maxNestingDepth + 5);
       final aliasText = '*alias ' * (BoundedYaml.maxAliasReferences + 5);
