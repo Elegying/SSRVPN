@@ -79,6 +79,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     );
     if (!result.intentCurrent || !isCurrent()) return;
     var snapshotPersisted = result.snapshotPersisted;
+    ProxyNode? reconciledRuntimeNode;
     if (result.liveSwitched) {
       snapshotPersisted = await _writePreferredNodeConfigForTile(
             node,
@@ -97,6 +98,28 @@ extension _AndroidHomeNodeActions on HomeScreenState {
         _updateHomeState(() => _selectedNode = node);
       }
       _schedulePublicIpRefresh();
+    } else {
+      reconciledRuntimeNode = resolveAndroidHomeNodeAfterFailedSwitch(
+        nodes: _nodes,
+        runtimeSelectedNodeName: result.runtimeNodeName,
+      );
+      if (reconciledRuntimeNode != null) {
+        snapshotPersisted = await _writePreferredNodeConfigForTile(
+          reconciledRuntimeNode,
+          shouldContinue: isCurrent,
+          expectedSessionGeneration: result.nativeSessionGeneration,
+        );
+        if (!isCurrent()) return;
+        await _rememberSelectedNode(
+          reconciledRuntimeNode,
+          shouldContinue: isCurrent,
+        );
+        if (!isCurrent()) return;
+        if (mounted && !_disposed) {
+          _updateHomeState(() => _selectedNode = reconciledRuntimeNode);
+        }
+        _schedulePublicIpRefresh();
+      }
     }
     if (mounted && !_disposed && isCurrent()) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -104,7 +127,11 @@ extension _AndroidHomeNodeActions on HomeScreenState {
           margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: Text(
             !result.liveSwitched
-                ? '切换失败: ${node.name}'
+                ? reconciledRuntimeNode == null
+                    ? '切换失败: ${node.name}'
+                    : snapshotPersisted
+                        ? '切换失败: ${node.name}；当前节点: ${reconciledRuntimeNode.name}'
+                        : '切换失败: ${node.name}；当前节点: ${reconciledRuntimeNode.name}；快速启动信息保存失败'
                 : snapshotPersisted
                     ? '已切换: ${node.name}'
                     : '已切换: ${node.name}；快速启动信息保存失败',

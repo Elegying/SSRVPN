@@ -74,4 +74,13 @@ void main() {
       isFalse,
     );
   });
+
+  test('failed latest switch resolves the node Mihomo actually uses', () {
+    final resolved = resolveAndroidHomeNodeAfterFailedSwitch(
+      nodes: [remembered, nativeSelected],
+      runtimeSelectedNodeName: nativeSelected.name,
+    );
+
+    expect(resolved, same(nativeSelected));
+  });
 }
