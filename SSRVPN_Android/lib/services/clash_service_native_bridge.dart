@@ -1,5 +1,21 @@
 part of 'clash_service.dart';
 
+class AndroidProxySwitchResult {
+  const AndroidProxySwitchResult({
+    required this.liveSwitched,
+    required this.snapshotPersisted,
+    required this.intentCurrent,
+    this.nativeSessionGeneration,
+    this.runtimeNodeName,
+  });
+
+  final bool liveSwitched;
+  final bool snapshotPersisted;
+  final bool intentCurrent;
+  final int? nativeSessionGeneration;
+  final String? runtimeNodeName;
+}
+
 typedef _NativeConnectionState = ({
   bool running,
   bool transitioning,

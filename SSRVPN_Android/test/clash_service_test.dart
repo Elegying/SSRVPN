@@ -25,6 +25,8 @@ proxies:
     password: test
 ''';
 
+class _RealHttpOverrides extends HttpOverrides {}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -1321,5 +1323,100 @@ void main() {
     expect(await start, isFalse);
     await service.discardPreparedConfig(prepared);
     expect(await File(prepared).exists(), isTrue);
+  });
+
+  test('latest failed node switch reports the stale success runtime node',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_node_switch_reconcile_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString(_testProxies);
+    final firstSwitchEntered = Completer<void>();
+    final releaseFirstSwitch = Completer<void>();
+    var runtimeNode = '原节点';
+    late final ClashService service;
+
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final subscription = server.listen((request) async {
+      if (request.uri.path == '/proxies/PROXY' && request.method == 'PUT') {
+        final body = jsonDecode(await utf8.decoder.bind(request).join())
+            as Map<String, dynamic>;
+        final requestedNode = body['name'] as String;
+        if (requestedNode == '日本节点') {
+          if (!firstSwitchEntered.isCompleted) firstSwitchEntered.complete();
+          await releaseFirstSwitch.future;
+          runtimeNode = requestedNode;
+          request.response.statusCode = HttpStatus.noContent;
+        } else {
+          request.response.statusCode = HttpStatus.internalServerError;
+        }
+      } else if (request.uri.path == '/proxies/PROXY' &&
+          request.method == 'GET') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'now': runtimeNode}));
+      } else if (request.uri.path == '/connections' &&
+          request.method == 'GET') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'connections': <Object>[]}));
+      } else if (request.uri.path == '/connections' &&
+          request.method == 'DELETE') {
+        request.response.statusCode = HttpStatus.noContent;
+      } else {
+        request.response.statusCode = HttpStatus.notFound;
+      }
+      await request.response.close();
+    });
+
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getConnectionState') {
+        return <String, Object?>{
+          'running': true,
+          'transitioning': false,
+          'protectedConfigPath': config.path,
+          'sessionGeneration': 23,
+        };
+      }
+      return true;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      service.dispose();
+      await server.close(force: true);
+      await subscription.cancel();
+      await dir.delete(recursive: true);
+    });
+
+    await HttpOverrides.runWithHttpOverrides(() async {
+      service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: config.path)
+        ..updateSettings(AppSettings(apiPort: server.port))
+        ..setRunning(true)
+        ..initHttpClient();
+      final firstGeneration = service.requestConnectionIntent(true);
+      final firstSwitch = service.switchSelectedProxyForConnection(
+        '日本节点',
+        connectionGeneration: firstGeneration,
+      );
+      await firstSwitchEntered.future;
+      final latestGeneration = service.requestConnectionIntent(true);
+      releaseFirstSwitch.complete();
+
+      final staleResult = await firstSwitch;
+      final latestResult = await service.switchSelectedProxyForConnection(
+        '新加坡节点',
+        connectionGeneration: latestGeneration,
+      );
+
+      expect(staleResult.liveSwitched, isTrue);
+      expect(staleResult.intentCurrent, isFalse);
+      expect(latestResult.liveSwitched, isFalse);
+      expect(latestResult.intentCurrent, isTrue);
+      expect(latestResult.runtimeNodeName, '日本节点');
+      expect(latestResult.nativeSessionGeneration, 23);
+    }, _RealHttpOverrides());
   });
 }

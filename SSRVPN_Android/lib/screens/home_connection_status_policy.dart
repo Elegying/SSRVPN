@@ -6,6 +6,15 @@ bool shouldHandleAndroidHomeConnectionStatus({
 }) =>
     runtimeRunning || uiConnected != runtimeRunning;
 
+ProxyNode? resolveAndroidHomeNodeAfterFailedSwitch({
+  required Iterable<ProxyNode> nodes,
+  required String? runtimeSelectedNodeName,
+}) =>
+    HomeNodeController.resolveRuntimeSelectedNodeFrom(
+      nodes,
+      runtimeSelectedNodeName,
+    );
+
 class AndroidHomeConnectionStatusTransition {
   const AndroidHomeConnectionStatusTransition({
     required this.connected,

@@ -13,20 +13,6 @@ part 'clash_service_native_bridge.dart';
 
 class _AndroidStartCancelled implements Exception {}
 
-class AndroidProxySwitchResult {
-  const AndroidProxySwitchResult({
-    required this.liveSwitched,
-    required this.snapshotPersisted,
-    required this.intentCurrent,
-    this.nativeSessionGeneration,
-  });
-
-  final bool liveSwitched;
-  final bool snapshotPersisted;
-  final bool intentCurrent;
-  final int? nativeSessionGeneration;
-}
-
 /// Clash Meta 核心管理服务 (Android 版)
 ///
 /// 继承 [ClashServiceBase] 共享 API/延迟/健康检查/状态/端口，
@@ -650,11 +636,26 @@ class ClashService extends ClashServiceBase {
     final switched = await super.switchSelectedProxy(nodeName);
     final intentCurrent =
         isConnectionIntentCurrent(connectionGeneration, connected: true);
-    if (!switched || !intentCurrent) {
+    if (!intentCurrent) {
       return AndroidProxySwitchResult(
         liveSwitched: switched,
         snapshotPersisted: false,
-        intentCurrent: intentCurrent,
+        intentCurrent: false,
+        nativeSessionGeneration: nativeSessionGeneration,
+      );
+    }
+    if (!switched) {
+      final runtimeNodeName = await currentSelectedProxyName();
+      final nativeSessionCurrent =
+          await _isNativeSessionCurrent(nativeSessionGeneration);
+      final failureStillCurrent = nativeSessionCurrent &&
+          isConnectionIntentCurrent(connectionGeneration, connected: true);
+      return AndroidProxySwitchResult(
+        liveSwitched: false,
+        snapshotPersisted: false,
+        intentCurrent: failureStillCurrent,
+        nativeSessionGeneration: nativeSessionGeneration,
+        runtimeNodeName: failureStillCurrent ? runtimeNodeName : null,
       );
     }
     final updated = await updateVpnNotification(
