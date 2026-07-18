@@ -147,22 +147,26 @@ class _AndroidHomeTopBar extends StatelessWidget {
             ),
           ),
           SizedBox(width: Responsive.gap(10)),
-          AppTitleWithVersion(
-            titleStyle: TextStyle(
-              fontSize: Responsive.sp(18),
-              fontWeight: FontWeight.w700,
-              color: textColor,
-              letterSpacing: 0.5,
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: AppTitleWithVersion(
+                titleStyle: TextStyle(
+                  fontSize: Responsive.sp(18),
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                  letterSpacing: 0.5,
+                ),
+                versionStyle: TextStyle(
+                  fontSize: Responsive.sp(9),
+                  fontWeight: FontWeight.w600,
+                  color: textColor.withValues(alpha: 0.58),
+                  letterSpacing: 0.2,
+                ),
+                gap: Responsive.gap(4),
+              ),
             ),
-            versionStyle: TextStyle(
-              fontSize: Responsive.sp(9),
-              fontWeight: FontWeight.w600,
-              color: textColor.withValues(alpha: 0.58),
-              letterSpacing: 0.2,
-            ),
-            gap: Responsive.gap(4),
           ),
-          const Spacer(),
           if (isConnected)
             Container(
               padding: EdgeInsets.symmetric(

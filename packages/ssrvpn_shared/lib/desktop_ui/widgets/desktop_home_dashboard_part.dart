@@ -184,47 +184,54 @@ class _DesktopHomeTopBar extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              AppTitleWithVersion(
-                titleStyle: TextStyle(
-                  fontSize: compact ? 17 : 19,
-                  fontWeight: FontWeight.w800,
-                  color: textColor,
-                  letterSpacing: 0,
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: AppTitleWithVersion(
+                        titleStyle: TextStyle(
+                          fontSize: compact ? 17 : 19,
+                          fontWeight: FontWeight.w800,
+                          color: textColor,
+                          letterSpacing: 0,
+                        ),
+                        versionStyle: TextStyle(
+                          fontSize: compact ? 8 : 9,
+                          fontWeight: FontWeight.w600,
+                          color: textColor.withValues(alpha: 0.56),
+                          letterSpacing: 0.2,
+                        ),
+                        gap: compact ? 4 : 5,
+                      ),
+                    ),
+                    if (!compact) ...[
+                      const SizedBox(width: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withValues(alpha: 15 / 255),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(
+                            color: AppTheme.primary.withValues(alpha: 30 / 255),
+                          ),
+                        ),
+                        child: Text(
+                          desktopPlatformLabel,
+                          style: const TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.5,
+                            color: AppTheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                versionStyle: TextStyle(
-                  fontSize: compact ? 8 : 9,
-                  fontWeight: FontWeight.w600,
-                  color: textColor.withValues(alpha: 0.56),
-                  letterSpacing: 0.2,
-                ),
-                gap: compact ? 4 : 5,
               ),
-              if (!compact) ...[
-                const SizedBox(width: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary.withValues(alpha: 15 / 255),
-                    borderRadius: BorderRadius.circular(5),
-                    border: Border.all(
-                      color: AppTheme.primary.withValues(alpha: 30 / 255),
-                    ),
-                  ),
-                  child: Text(
-                    desktopPlatformLabel,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.5,
-                      color: AppTheme.primary,
-                    ),
-                  ),
-                ),
-              ],
-              const Spacer(),
               if (isConnected && !compact)
                 Container(
                   margin: const EdgeInsets.only(right: 8),

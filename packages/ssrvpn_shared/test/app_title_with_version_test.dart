@@ -37,4 +37,32 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('fits a compact title slot with large accessibility text', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(2)),
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: 84,
+                child: AppTitleWithVersion(
+                  titleStyle: TextStyle(fontSize: 18),
+                  versionStyle: TextStyle(fontSize: 9),
+                  gap: 4,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('v${AppConstants.appVersion}'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
