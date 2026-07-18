@@ -91,6 +91,35 @@ class GeoIpWorkflowTest(unittest.TestCase):
         ):
             self.assertIn(path, sync_script)
 
+    def test_existing_geoip_pull_request_state_policy(self) -> None:
+        policy_path = ROOT / "scripts/geoip-pr-state-policy.py"
+        spec = importlib.util.spec_from_file_location(
+            "geoip_pr_state_policy",
+            policy_path,
+        )
+        assert spec is not None and spec.loader is not None
+        policy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(policy)
+
+        self.assertEqual(policy.classify_pr_state(""), "create")
+        self.assertEqual(policy.classify_pr_state("OPEN"), "reuse")
+        for state in ("CLOSED", "MERGED"):
+            with self.subTest(state=state):
+                with self.assertRaisesRegex(ValueError, state):
+                    policy.classify_pr_state(state)
+
+        workflow = (ROOT / ".github/workflows/geoip-check.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'gh pr view "$BRANCH" --json state --jq .state',
+            workflow,
+        )
+        self.assertIn(
+            'python3 scripts/geoip-pr-state-policy.py "$pr_state"',
+            workflow,
+        )
+
     def test_bootstrap_uses_the_pinned_upstream_asset(self) -> None:
         bootstrap = (ROOT / "scripts/bootstrap-core-assets.sh").read_text(
             encoding="utf-8"
