@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 修复
 
 - Android 快捷磁贴和系统粘性重启通过 Android Keystore 加密的原生凭据副本读取 Mihomo API 密钥，避免冷启动健康检查因缺失认证而失败。
+- Android 原生连接快照改用有界的 32 位长度前缀 UTF-8 编码，并继续兼容读取旧版快照；共享层允许的 64 KiB ASCII 或多字节节点名不再因 `writeUTF` 上限导致连接启动后回滚。
 - Android 常驻通知按完整展示状态去重，内容未变化时不再重复提交系统通知。
 - Android 手动节点切换与连接/删除订阅共用 latest-wins 连接代际，并串行覆盖实时切换、持久化、原生快照和 UI 发布，避免快速连续选择或删除最后订阅后旧节点重新覆盖当前状态。
 - Android 原生启动、快捷磁贴、粘性恢复和停止流程共用带声明令牌的会话协调器；只有持有匹配租约的 Service 能消费配置，超时回调和旧启动结果不能释放或覆盖较新的连接。
