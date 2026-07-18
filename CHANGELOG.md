@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.6] - 2026-07-18
+
+### 新增
+
+- Android、macOS 与 Windows 首页的 SSRVPN 标题右侧统一显示当前同步版本号，并补充读屏语义和产品界面守卫。
+
 ### 移除
 
 - Android、macOS 与 Windows 删除解锁测试页面及共享检测服务，主导航统一收敛为“主页/首页”和“订阅”两项。
@@ -24,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Android 核心异常恢复通知使用独立恢复代际，普通停止仍会失效旧通知，但恢复中的状态不会被内部停止步骤误吞。
 - Windows 系统代理事务精确记录 `ProxyEnable` 是否原本存在，Dart、PowerShell 与原生恢复器统一识别真实可达的激活/恢复前缀并按原始存在性还原，覆盖缺失该值但启用了 PAC 或自动检测的崩溃场景，同时拒绝把事务外的用户禁用误当作可恢复前缀。
 - Windows 旧版 TUN 清理读取历史网卡索引但不直接把可能复用的数字索引提升为所有权；地址已消失时仍继续探测特征路由与适配器，只有连续确认无残留后才删除标记，否则迁移经特征验证的稳定 GUID。
+
+### 安全
+
+- 共享 YAML 入口统一限制 20 MiB 输入、64 层嵌套和 256 次别名引用；磁盘缓存会在读入内存前检查大小，避免异常订阅或缓存造成无界资源消耗。
 
 ### 维护
 
