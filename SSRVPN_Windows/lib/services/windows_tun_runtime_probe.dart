@@ -53,6 +53,13 @@ const _tunRouteDestinations = <String>[
   '9000::1',
 ];
 
+// A fresh Windows PowerShell process may need several seconds to load the
+// NetTCPIP/NetAdapter modules on otherwise healthy machines. Keep individual
+// probes below half of the 15-second teardown budget so two consecutive clean
+// observations still fit, while avoiding a permanent fail-closed loop caused
+// solely by the previous 3-second cold-start ceiling.
+const _windowsNetworkCmdletTimeout = Duration(seconds: 6);
+
 class WindowsTunTeardownGate {
   final _interfaces = <WindowsTunInterfaceIdentity>{};
   final _baselineInterfaces = <WindowsTunInterfaceIdentity>{};
@@ -192,7 +199,7 @@ if ($identities.Count -eq 0) {
         '-Command',
         windowsPowerShellUtf8Script(script),
       ],
-      timeout: const Duration(seconds: 3),
+      timeout: _windowsNetworkCmdletTimeout,
       timeoutStderr: 'Windows TUN identity probe timed out',
     );
     if (result.exitCode != 0) return const <WindowsTunInterfaceIdentity>{};
@@ -229,7 +236,7 @@ if ($identities.Count -eq 0) {
         '-Command',
         windowsPowerShellUtf8Script(script),
       ],
-      timeout: const Duration(seconds: 3),
+      timeout: _windowsNetworkCmdletTimeout,
       timeoutStderr: 'Windows network interface baseline probe timed out',
     );
     if (result.exitCode != 0) return const <WindowsTunInterfaceIdentity>{};
@@ -490,7 +497,7 @@ if ($artifacts.Count -eq 0) {
         '-Command',
         windowsPowerShellUtf8Script(script),
       ],
-      timeout: const Duration(seconds: 3),
+      timeout: _windowsNetworkCmdletTimeout,
       timeoutStderr: 'Windows TUN residual probe timed out',
     );
     if (result.exitCode != 0) return _tunResidualProbeFailed;

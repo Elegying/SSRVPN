@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Android 核心异常恢复通知使用独立恢复代际，普通停止仍会失效旧通知，但恢复中的状态不会被内部停止步骤误吞。
 - Windows 系统代理事务精确记录 `ProxyEnable` 是否原本存在，Dart、PowerShell 与原生恢复器统一识别真实可达的激活/恢复前缀并按原始存在性还原，覆盖缺失该值但启用了 PAC 或自动检测的崩溃场景，同时拒绝把事务外的用户禁用误当作可恢复前缀。
 - Windows 旧版 TUN 清理读取历史网卡索引但不直接把可能复用的数字索引提升为所有权；迁移稳定 GUID 必须在同一接口同时验证 SSRVPN 专属 IPv4、IPv6 和路由证据，仅有全隧道路由的其他 VPN 不会被认作 SSRVPN 残留。
+- Windows TUN 网卡身份与残留探针允许 PowerShell 网络模块在冷启动时使用最多 6 秒，但清理总预算仍为 15 秒并继续要求连续两次无残留，避免健康但较慢的系统因旧 3 秒单次上限误报清理失败。
 
 ### 安全
 

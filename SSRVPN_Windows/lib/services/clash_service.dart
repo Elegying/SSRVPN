@@ -44,6 +44,8 @@ class ClashService extends ClashServiceBase
 
   String get logPath => _logFile?.path ?? '';
 
+  Future<void> flushLogs() async => _fileLogger?.flush();
+
   @override
   void debugLog(String message) {
     AppLogger.info('Clash', message);
