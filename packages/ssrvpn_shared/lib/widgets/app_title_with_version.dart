@@ -24,13 +24,22 @@ class AppTitleWithVersion extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Text(AppConstants.appName, style: titleStyle),
+          Flexible(
+            child: Text(
+              AppConstants.appName,
+              style: titleStyle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              softWrap: false,
+            ),
+          ),
           SizedBox(width: gap),
           Padding(
             padding: const EdgeInsets.only(bottom: 1),
             child: Text(
               'v${AppConstants.appVersion}',
               style: versionStyle,
+              textScaler: TextScaler.noScaling,
               maxLines: 1,
             ),
           ),
