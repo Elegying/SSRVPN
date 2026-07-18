@@ -73,4 +73,33 @@ class NativeConnectionSessionTest {
         NativeConnectionSession.clearStarting()
         config.delete()
     }
+
+    @Test
+    fun `released activity claim is rejected when service handles its queued start`() {
+        val gate = StartGenerationGate()
+        val config = java.io.File.createTempFile("ssrvpn-released-claim", ".yaml")
+        config.writeText("proxies: []")
+        NativeConnectionSession.clearRecovery()
+        NativeConnectionSession.clearStarting()
+
+        val claimId = NativeConnectionSession.claimPendingStart(
+            config.absolutePath,
+            gate,
+            { false }
+        )
+        assertTrue(claimId != null)
+
+        NativeConnectionSession.releasePendingStart(claimId, gate)
+        var accepted = false
+        gate.beginStart {
+            accepted = NativeConnectionSession.beginStarting(claimId)
+        }
+
+        assertFalse(accepted)
+        assertFalse(
+            NativeConnectionSession.snapshotConsistently(gate) { false }["transitioning"]
+                as Boolean
+        )
+        config.delete()
+    }
 }
