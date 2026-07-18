@@ -376,6 +376,57 @@ void main() {
     }
   });
 
+  test('legacy discovery ignores unrelated full-tunnel VPN routes', () {
+    final unrelatedVpn = (
+      index: 9,
+      interfaceGuid: foreignGuid,
+      name: 'WireGuard Tunnel',
+      addresses: [InternetAddress('10.8.0.2')],
+    );
+    final partialSsrvpnSignature = (
+      index: 10,
+      interfaceGuid: tunGuid7,
+      name: 'Meta',
+      addresses: [tunIpv4],
+    );
+    final completeSsrvpnSignature = (
+      index: 11,
+      interfaceGuid: tunGuid8,
+      name: 'Meta',
+      addresses: [tunIpv4, tunIpv6],
+    );
+
+    expect(
+      selectWindowsLegacyTunSignatures(
+        interfaces: [unrelatedVpn],
+        signatureRouteInterfaceIndexes: const {9},
+      ),
+      isEmpty,
+    );
+    expect(
+      selectWindowsLegacyTunSignatures(
+        interfaces: [partialSsrvpnSignature],
+        signatureRouteInterfaceIndexes: const {10},
+      ),
+      isEmpty,
+    );
+    expect(
+      selectWindowsLegacyTunSignatures(
+        interfaces: [completeSsrvpnSignature],
+        signatureRouteInterfaceIndexes: const {11},
+      ),
+      {(index: 11, interfaceGuid: tunGuid8)},
+    );
+    expect(
+      selectWindowsLegacyTunSignatures(
+        interfaces: [completeSsrvpnSignature],
+        signatureRouteInterfaceIndexes: const {},
+      ),
+      isEmpty,
+      reason: 'legacy migration requires address and route evidence together',
+    );
+  });
+
   test('TUN capture excludes another VPN that existed before core startup', () {
     const own = (index: 9, interfaceGuid: tunGuid8);
     expect(
