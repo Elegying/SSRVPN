@@ -67,5 +67,14 @@ for token in ("label: '首页'", "label: '订阅'", "HomeScreen()",
     if token not in desktop_shell:
         raise SystemExit(f"Desktop primary navigation is missing: {token}")
 
+home_title_sources = (
+    Path("SSRVPN_Android/lib/screens/home_dashboard_part.dart"),
+    Path("packages/ssrvpn_shared/lib/desktop_ui/widgets/desktop_home_dashboard_part.dart"),
+)
+for path in home_title_sources:
+    source = path.read_text(encoding="utf-8")
+    if "AppTitleWithVersion(" not in source:
+        raise SystemExit(f"home title must show the synchronized app version: {path}")
+
 print("Two-page product surface guards passed.")
 PY

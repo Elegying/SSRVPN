@@ -184,14 +184,20 @@ class _DesktopHomeTopBar extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              Text(
-                'SSRVPN',
-                style: TextStyle(
+              AppTitleWithVersion(
+                titleStyle: TextStyle(
                   fontSize: compact ? 17 : 19,
                   fontWeight: FontWeight.w800,
                   color: textColor,
                   letterSpacing: 0,
                 ),
+                versionStyle: TextStyle(
+                  fontSize: compact ? 8 : 9,
+                  fontWeight: FontWeight.w600,
+                  color: textColor.withValues(alpha: 0.56),
+                  letterSpacing: 0.2,
+                ),
+                gap: compact ? 4 : 5,
               ),
               if (!compact) ...[
                 const SizedBox(width: 10),
