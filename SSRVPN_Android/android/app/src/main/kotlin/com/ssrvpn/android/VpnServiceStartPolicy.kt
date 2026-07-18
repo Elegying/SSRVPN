@@ -21,8 +21,13 @@ object VpnServiceStartPolicy {
 
 fun SsrvpnVpnService.finishRejectedServiceStart(
     startId: Int,
-    action: RejectedServiceStartAction
+    hasActiveSession: Boolean,
+    newerStartInProgress: Boolean
 ): Int {
+    val action = VpnServiceStartPolicy.rejectedRequest(
+        hasActiveSession,
+        newerStartInProgress
+    )
     if (action == RejectedServiceStartAction.KEEP_SERVICE) {
         return Service.START_STICKY
     }

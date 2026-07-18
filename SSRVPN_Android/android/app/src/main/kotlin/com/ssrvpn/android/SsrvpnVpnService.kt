@@ -230,7 +230,8 @@ class SsrvpnVpnService : VpnService() {
             Log.w(TAG, "Ignoring obsolete VPN recovery request")
             NativeVpnSessionCoordinator.releasePendingStart(startClaimId)
             consumeStartResult(requestId, false, "自动恢复请求已失效")
-            return finishRejectedServiceStart(startId, VpnServiceStartPolicy.rejectedRequest(isRunning, serviceStartInProgress.get()))
+            return finishRejectedServiceStart(
+                startId, isRunning, serviceStartInProgress.get())
         }
 
         if (isRunning) {
@@ -257,7 +258,7 @@ class SsrvpnVpnService : VpnService() {
         if (startToken == null) {
             serviceStartInProgress.set(false)
             consumeStartResult(requestId, false, "VPN 启动租约已失效")
-            return finishRejectedServiceStart(startId, VpnServiceStartPolicy.rejectedRequest(isRunning, false))
+            return finishRejectedServiceStart(startId, isRunning, false)
         }
 
         val explicitConfigDir = intent?.getStringExtra(EXTRA_CONFIG_DIR)
