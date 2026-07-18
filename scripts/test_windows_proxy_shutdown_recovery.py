@@ -274,6 +274,35 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             tun_recovery,
         )
 
+    def test_legacy_tun_discovery_requires_dual_addresses_and_route_evidence(
+        self,
+    ) -> None:
+        probe = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "windows_tun_runtime_probe.dart"
+        ).read_text(encoding="utf-8")
+        script = probe[
+            probe.index("$signatureIpv4Indexes = @(") : probe.index(
+                "$ownedInterfaces = @(")
+        ]
+
+        self.assertIn("$signatureIpv6Indexes = @(", script)
+        self.assertIn("$dualAddressSignatureIndexes = @(", script)
+        self.assertIn("$legacySignatureIndexes = @(", script)
+        self.assertIn(
+            "$postStartRouteIndexes -contains [int]$_",
+            script,
+        )
+        self.assertIn("if ($discoverLegacySignatures)", script)
+        candidate_indexes = probe[
+            probe.index("$candidateIndexes = @(") : probe.index("$addresses = @(")
+        ]
+        self.assertIn("$legacySignatureIndexes", candidate_indexes)
+        self.assertIn("$postStartRouteIndexes", candidate_indexes)
+
     def test_native_shutdown_restores_only_owned_proxy(self) -> None:
         runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
         flutter_window = (runner / "flutter_window.cpp").read_text(encoding="utf-8")

@@ -306,11 +306,23 @@ $baselineGuids = @(
 )
 $discoverLegacySignatures = __DISCOVER_LEGACY_SIGNATURES__
 $allAddresses = @(Get-NetIPAddress)
-$signatureAddressIndexes = @(
+$signatureIpv4Indexes = @(
   $allAddresses | Where-Object {
-    [string]$_.IPAddress -eq '__EXPECTED_IPV4__' -or
+    [string]$_.IPAddress -eq '__EXPECTED_IPV4__'
+  } | ForEach-Object { [int]$_.InterfaceIndex }
+)
+$signatureIpv6Indexes = @(
+  $allAddresses | Where-Object {
     [string]$_.IPAddress -eq '__EXPECTED_IPV6__'
   } | ForEach-Object { [int]$_.InterfaceIndex }
+)
+$signatureAddressIndexes = @(
+  $signatureIpv4Indexes + $signatureIpv6Indexes | Sort-Object -Unique
+)
+$dualAddressSignatureIndexes = @(
+  $signatureIpv4Indexes | Where-Object {
+    $signatureIpv6Indexes -contains [int]$_
+  } | Sort-Object -Unique
 )
 $allRoutes = @(Get-NetRoute)
 $routeDestinations = @(__ROUTE_DESTINATIONS__)
@@ -373,9 +385,18 @@ $postStartRouteIndexes = @(
       }
     }
 )
+$legacySignatureIndexes = @(
+  $dualAddressSignatureIndexes | Where-Object {
+    $postStartRouteIndexes -contains [int]$_
+  } | Sort-Object -Unique
+)
 $postStartSignatureIndexes = @(
   if ($expected.Count -eq 0) {
-    $signatureAddressIndexes + $postStartRouteIndexes | Sort-Object -Unique
+    if ($discoverLegacySignatures) {
+      $legacySignatureIndexes
+    } else {
+      $signatureAddressIndexes + $postStartRouteIndexes | Sort-Object -Unique
+    }
   }
 )
 $ownedInterfaces = @(
@@ -412,7 +433,13 @@ $candidateInterfaces = @(
 )
 $candidateIndexes = @(
   ($candidateInterfaces | ForEach-Object { [int]$_.Index })
-  if ($expected.Count -eq 0) { $postStartRouteIndexes }
+  if ($expected.Count -eq 0) {
+    if ($discoverLegacySignatures) {
+      $legacySignatureIndexes
+    } else {
+      $postStartRouteIndexes
+    }
+  }
 ) | Sort-Object -Unique
 $addresses = @($allAddresses | Where-Object {
   $candidateIndexes -contains [int]$_.InterfaceIndex
@@ -502,6 +529,30 @@ Set<WindowsTunInterfaceIdentity> selectWindowsTunInterfacesCreatedAfter(
       .where(
         (identity) =>
             !preexistingGuids.contains(identity.interfaceGuid.toLowerCase()),
+      )
+      .toSet();
+}
+
+Set<WindowsTunInterfaceIdentity> selectWindowsLegacyTunSignatures({
+  required List<WindowsTunResidualInterfaceSnapshot> interfaces,
+  required Set<int> signatureRouteInterfaceIndexes,
+}) {
+  final expectedIpv4 = AppConstants.fakeIpRange.split('/').first;
+  final expectedIpv6 = AppConstants.tunInet6Address.split('/').first;
+  return interfaces
+      .where((interface) {
+        if (!signatureRouteInterfaceIndexes.contains(interface.index)) {
+          return false;
+        }
+        final addresses = interface.addresses.map((address) => address.address);
+        return addresses.contains(expectedIpv4) &&
+            addresses.contains(expectedIpv6);
+      })
+      .map(
+        (interface) => (
+          index: interface.index,
+          interfaceGuid: interface.interfaceGuid.toLowerCase(),
+        ),
       )
       .toSet();
 }
