@@ -42,6 +42,7 @@ export 'utils/async_lazy.dart';
 export 'utils/subscription_url_policy.dart';
 export 'utils/best_effort_cleanup.dart';
 export 'utils/bounded_file_logger.dart';
+export 'utils/bounded_yaml.dart';
 export 'utils/connection_intent_tracker.dart';
 export 'utils/core_recovery_policy.dart';
 export 'utils/recovering_serial_queue.dart';
