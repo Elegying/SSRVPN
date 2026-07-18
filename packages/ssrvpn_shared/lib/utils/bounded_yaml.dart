@@ -16,6 +16,7 @@ abstract final class BoundedYaml {
   static const int maxInputBytes = AppConstants.maxSubscriptionBytes;
   static const int maxNestingDepth = 64;
   static const int maxAliasReferences = 256;
+  static const int maxCollectionItems = 100000;
 
   static dynamic load(String source) {
     validate(source);
@@ -28,10 +29,20 @@ abstract final class BoundedYaml {
     final indentationStack = <int>[];
     final flowClosers = <int>[];
     var aliasReferences = 0;
+    var collectionItems = 0;
     int? blockScalarIndent;
     var inSingleQuote = false;
     var inDoubleQuote = false;
     var escaped = false;
+
+    void addCollectionItems([int count = 1]) {
+      collectionItems += count;
+      if (collectionItems > maxCollectionItems) {
+        throw const YamlResourceLimitException(
+          'YAML 集合元素过多（最多 100000 个）',
+        );
+      }
+    }
 
     for (final rawLine in _lines(source)) {
       final line = rawLine.endsWith('\r')
@@ -50,11 +61,15 @@ abstract final class BoundedYaml {
       final continuedQuotedScalar = inSingleQuote || inDoubleQuote;
       var leadingSequenceDepth = 0;
       if (!continuedQuotedScalar && !trimmedLeft.startsWith('#')) {
+        addCollectionItems();
         while (indentationStack.isNotEmpty && indent <= indentationStack.last) {
           indentationStack.removeLast();
         }
         indentationStack.add(indent);
         leadingSequenceDepth = _leadingSequenceDepth(trimmedLeft);
+        if (leadingSequenceDepth > 1) {
+          addCollectionItems(leadingSequenceDepth - 1);
+        }
       }
 
       final visible = StringBuffer();
@@ -107,6 +122,8 @@ abstract final class BoundedYaml {
             flowClosers.isNotEmpty &&
             flowClosers.last == codeUnit) {
           flowClosers.removeLast();
+        } else if (codeUnit == _comma && flowClosers.isNotEmpty) {
+          addCollectionItems();
         } else if (codeUnit == _asterisk &&
             _isYamlTokenStart(trimmedLeft, index)) {
           aliasReferences++;
