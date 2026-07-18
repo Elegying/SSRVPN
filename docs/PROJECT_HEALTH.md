@@ -87,7 +87,7 @@ Windows Explorer/`kernel32`、PowerShell 5.1、DPAPI、Mihomo 和真实网络 cm
 - `MainActivity` 的 MethodChannel `when` 分发虽然静态复杂度偏高，但只有 26 行且每个分支已
   委托独立处理器；为降低数字而引入动态注册表不会改善可读性。`startCoreWithVpn` 是剩余的
   Android 关键编排热点，保持单向阶段和统一失败清理，后续只在新增行为时继续提取可测试阶段。
-- Android 的核心 Dart 服务和原生 VPN Service 分别为 `835/850` 行、`914/915` 行，均受仓库
+- Android 的核心 Dart 服务和原生 VPN Service 分别为 `835/850` 行、`915/915` 行，均受仓库
   门禁约束；本轮把原生会话状态和 Dart 原生桥接职责提取为独立组件，没有用转移代码掩盖复杂度。
 - Windows launcher 和恢复脚本依赖 Windows API 与进程所有权语义；在没有对应 Windows 运行时
   验证的本轮中不做纯行数驱动的大改写。
