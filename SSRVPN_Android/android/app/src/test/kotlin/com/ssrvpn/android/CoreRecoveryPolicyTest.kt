@@ -55,6 +55,42 @@ class CoreRecoveryPolicyTest {
     }
 
     @Test
+    fun `stale recovery never stops a newer active or starting service`() {
+        assertEquals(
+            RejectedServiceStartAction.KEEP_SERVICE,
+            VpnServiceStartPolicy.rejectedRequest(
+                hasActiveSession = true,
+                newerStartInProgress = false
+            )
+        )
+        assertEquals(
+            RejectedServiceStartAction.KEEP_SERVICE,
+            VpnServiceStartPolicy.rejectedRequest(
+                hasActiveSession = false,
+                newerStartInProgress = true
+            )
+        )
+        assertEquals(
+            RejectedServiceStartAction.STOP_IDLE_SERVICE,
+            VpnServiceStartPolicy.rejectedRequest(
+                hasActiveSession = false,
+                newerStartInProgress = false
+            )
+        )
+    }
+
+    @Test
+    fun `rejected start lease stops the idle foreground service request`() {
+        assertEquals(
+            RejectedServiceStartAction.STOP_IDLE_SERVICE,
+            VpnServiceStartPolicy.rejectedRequest(
+                hasActiveSession = false,
+                newerStartInProgress = false
+            )
+        )
+    }
+
+    @Test
     fun `recovery transition notification survives ordinary stop invalidation`() {
         val notificationGate = NotificationGenerationGate()
         val ordinaryNotification = notificationGate.capture()
