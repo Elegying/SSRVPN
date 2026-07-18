@@ -1,9 +1,8 @@
 import 'dart:collection';
 import 'dart:convert';
 
-import 'package:yaml/yaml.dart';
-
 import '../constants/app_constants.dart';
+import '../utils/bounded_yaml.dart';
 import 'subscription_parser.dart';
 
 class SubscriptionYamlMerger {
@@ -130,7 +129,7 @@ class SubscriptionYamlMerger {
 
   static Map<String, dynamic>? parseProxyItem(String item) {
     try {
-      final parsed = loadYaml('proxies:\n$item');
+      final parsed = BoundedYaml.load('proxies:\n$item');
       final list = (parsed as Map)['proxies'];
       if (list is List && list.isNotEmpty && list.first is Map) {
         final value = _jsonValue(list.first);

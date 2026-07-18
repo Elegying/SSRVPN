@@ -3,9 +3,29 @@ import 'dart:io';
 
 import 'package:ssrvpn_shared/services/subscription_service_base.dart';
 import 'package:ssrvpn_shared/models/subscription.dart';
+import 'package:ssrvpn_shared/utils/bounded_yaml.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('rejects an oversized YAML cache before restoring it', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'ssrvpn-oversized-yaml-cache-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final cache = File('${directory.path}/subscription_cache.yaml');
+    await cache.writeAsString('x' * (BoundedYaml.maxInputBytes + 1));
+
+    final service = _FakeSubscriptionService();
+    await service.init(directory.path);
+
+    expect(service.rawYaml, isNull);
+    expect(await cache.exists(), isFalse);
+    expect(
+      directory.listSync().map((entry) => entry.path),
+      anyElement(predicate<String>((path) => path.contains('.bad-'))),
+    );
+  });
+
   group('SubscriptionServiceBase.refreshAllSubscriptions', () {
     late _FakeSubscriptionService service;
     late DateTime originalLastUpdate;

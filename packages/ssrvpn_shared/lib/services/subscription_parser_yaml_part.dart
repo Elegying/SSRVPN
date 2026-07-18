@@ -5,7 +5,7 @@ class _SubscriptionYamlParser {
 
   static ParsedSubscription parseYaml(String rawYaml) {
     try {
-      final doc = loadYaml(rawYaml);
+      final doc = BoundedYaml.load(rawYaml);
       if (doc is! Map) return ParsedSubscription.empty();
 
       final nodes = <ProxyNode>[];
@@ -120,7 +120,7 @@ class _SubscriptionYamlParser {
 
   static Map<String, dynamic>? parseProxyItem(String item) {
     try {
-      final doc = loadYaml('proxies:\n$item');
+      final doc = BoundedYaml.load('proxies:\n$item');
       if (doc is Map && doc['proxies'] is List) {
         final list = doc['proxies'] as List;
         if (list.isNotEmpty && list.first is Map) {

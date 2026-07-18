@@ -1,10 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:yaml/yaml.dart';
-
 import '../models/app_settings.dart';
 import '../constants/app_constants.dart';
+import '../utils/bounded_yaml.dart';
 import '../utils/proxy_node_usage_policy.dart';
 
 /// Clash 配置生成器 - 跨平台共享的核心逻辑
@@ -313,7 +312,7 @@ class ClashConfigGenerator {
   }
 
   static List<dynamic>? _parseProxyList(String rawYaml) {
-    final yaml = loadYaml(rawYaml);
+    final yaml = BoundedYaml.load(rawYaml);
     if (yaml is! Map) return null;
     final proxies = yaml['proxies'];
     return proxies is List ? proxies : null;

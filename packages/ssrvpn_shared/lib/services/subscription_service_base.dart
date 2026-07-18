@@ -4,8 +4,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
-import 'package:yaml/yaml.dart';
-
 import '../models/subscription.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
@@ -14,6 +12,7 @@ import '../services/subscription_node_codec.dart';
 import '../services/subscription_parser.dart';
 import '../services/subscription_yaml_merger.dart';
 import '../utils/app_logger.dart';
+import '../utils/bounded_yaml.dart';
 
 enum SubscriptionBatchRefreshStatus { empty, success, partialSuccess }
 
@@ -323,7 +322,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
       throw StateError('当前没有可编辑的订阅配置');
     }
 
-    final parsed = jsonValue(loadYaml(_rawYaml!));
+    final parsed = jsonValue(BoundedYaml.load(_rawYaml!));
     if (parsed is! Map<String, dynamic> || parsed['proxies'] is! List) {
       throw const FormatException('订阅配置中没有有效的节点列表');
     }
@@ -648,8 +647,13 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     final cacheFile = File('$_cacheDir/subscription_cache.yaml');
     if (await cacheFile.exists()) {
       try {
+        if (await cacheFile.length() > BoundedYaml.maxInputBytes) {
+          throw const YamlResourceLimitException(
+            'subscription_cache.yaml exceeds the 20 MB limit',
+          );
+        }
         final content = await cacheFile.readAsString();
-        final parsed = loadYaml(content);
+        final parsed = BoundedYaml.load(content);
         if (parsed != null && parsed is! Map) {
           throw const FormatException(
             'subscription_cache.yaml must be a YAML map',

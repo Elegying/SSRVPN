@@ -1,10 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:yaml/yaml.dart';
-
 import '../models/proxy_group.dart';
 import '../models/proxy_node.dart';
+import '../utils/bounded_yaml.dart';
 import '../utils/proxy_node_usage_policy.dart';
 
 part 'subscription_parser_base64_part.dart';
@@ -106,7 +105,7 @@ String _jsonEncode(Object? value) => jsonEncode(value);
 
 bool _looksLikeYaml(String text) {
   try {
-    final document = loadYaml(text);
+    final document = BoundedYaml.load(text);
     return document is Map && document['proxies'] is List;
   } catch (_) {
     return false;
