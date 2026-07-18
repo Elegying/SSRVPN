@@ -1,8 +1,8 @@
 Repo: MetaCubeX/meta-rules-dat
-Release ID: 355443765
+Release ID: 355962252
 Release tag: latest
-Release name: Release 2026-07-17 10:27
-Asset ID: 479869166
-Asset URL: https://api.github.com/repos/MetaCubeX/meta-rules-dat/releases/assets/479869166
-Upstream SHA256: 51ce2af9ed2f2422dc73fb8411287da674529e9925e98d8f3ddeebd787b63cf8
-Bundled gzip SHA256: 095e5d6cb04ac9f673902cf59a710e5496bcc63363a7dc6f5c1b9b2905c25561
+Release name: Release 2026-07-18 07:14
+Asset ID: 480917611
+Asset URL: https://api.github.com/repos/MetaCubeX/meta-rules-dat/releases/assets/480917611
+Upstream SHA256: 7cf5ed69574a73021735c6cba9891509aaa205dd3854db049571664b476df1f4
+Bundled gzip SHA256: 073889534886f211285398d5622922e540e3fb052d18e649e07351dc73323c9a
