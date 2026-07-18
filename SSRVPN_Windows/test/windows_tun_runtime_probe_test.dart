@@ -371,6 +371,7 @@ void main() {
       expect(probedOwnership.every((interfaces) => interfaces.isEmpty), isTrue);
       expect(await marker.exists(), isFalse);
     } finally {
+      await service.flushLogs();
       service.dispose();
       if (await directory.exists()) await directory.delete(recursive: true);
     }
