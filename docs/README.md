@@ -46,6 +46,7 @@
 - [ADR-003：Windows 只发布安装器](decisions/003-windows-installer-only-distribution.md)
 - [ADR-004：三端只保留首页与订阅](decisions/004-two-page-product-surface.md)
 - [ADR-005：使用 SSRVPN 自控的内容寻址 GeoIP 镜像](decisions/005-content-addressed-geoip-mirror.md)
+- [ADR-006：macOS 核心进程所有权使用持久化原生代际](decisions/006-macos-core-process-identity.md)
 
 ## 历史材料
 

@@ -39,12 +39,12 @@ run_step "Release tooling tests" scripts/test-release-tooling.sh
 run_step "Workspace pub get" flutter pub get
 run_step "Critical-path performance smoke" scripts/check-performance-baseline.sh
 run_step "Workspace analyze" flutter analyze
-run_step "Shared tests" run_in packages/ssrvpn_shared flutter test --coverage
+run_step "Shared tests" scripts/run-flutter-coverage.sh packages/ssrvpn_shared
 run_step "Shared coverage thresholds" \
   scripts/check-coverage-thresholds.sh packages/ssrvpn_shared
 
 for app in SSRVPN_Android SSRVPN_MacOS SSRVPN_Windows; do
-  run_step "$app tests" run_in "$app" flutter test --coverage
+  run_step "$app tests" scripts/run-flutter-coverage.sh "$app"
   if [[ "$app" == "SSRVPN_Android" ]]; then
     run_step "Android native unit tests" scripts/test-android-native.sh
   elif [[ "$app" == "SSRVPN_MacOS" ]]; then

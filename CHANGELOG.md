@@ -9,22 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 修复
 
-- macOS 启动时清理遗留核心会同时核验 PID、可执行文件路径和进程代际，并在发送 TERM/KILL 前再次确认所有权；PID 文件损坏、身份查询异常、权限不足或 PID 已被复用时均安全失败并保留证据，避免误杀其他进程或并行启动第二个核心。
-- macOS 原生退出路径改用 Darwin 微秒级进程身份并检查信号发送结果；PID 文件删除通过同目录原子隔离和内容复核完成，不会覆盖或删除并发写入的新 PID。
+- macOS 核心 PID 文件升级为持久化 `PID + Darwin 启动秒/微秒` 的 canonical v2 记录；启动与退出统一核验精确可执行路径和已保存代际，并在 TERM/KILL 前重新确认所有权。旧数字 PID 若仍存活会安全拒绝而不会猜测终止，避免首次查询前已发生的 PID 复用导致误杀。
+- macOS 在 Flutter engine 启动前获取每用户 `flock` 单实例租约；第二实例只唤醒现有窗口并退出，且不能执行代理、TUN 或核心清理。
+- macOS 非 TUN 核心改由原生串行边界一次完成 spawn、Darwin 身份双采样和 canonical v2 记录发布；原生持续持有直系子进程句柄并有界排空输出。身份采样或记录发布失败、PID 文件意外缺失/冲突时只收口该直系子进程，不会留下无记录孤儿或误杀替换代际。记录使用“私有同目录临时文件完整写入与 `fsync` → `RENAME_EXCL` 发布”，删除通过同目录原子隔离和整条记录 CAS 完成。
+- macOS 系统代理恢复失败时不再终止旧核心或替换 AtlasCore/GeoIP；恢复成功后才先清理旧代际再安装资产。正常断开也改为把完整 v2 记录交给原生层复核，Dart 不再通过 `Process.kill` 发送 PID-only 信号。
+- macOS 核心 launch/status/terminate/remove MethodChannel 操作统一进入原生串行队列；Cmd+Q 会排空原生启动或终止操作后再恢复代理和清理核心。运行期状态 watcher 可在手动断开前取消并排空，避免自然退出清理与完整记录终止互相竞态。
+- macOS 系统代理 set/clear 全事务增加原生生命周期令牌；Cmd+Q 在令牌存续期间返回 `terminateLater`，直到所有 `networksetup` 与快照操作结束才继续退出，避免恢复/删快照后 Dart 又写入死代理。清理保持 single-flight；快照在执行任何命令前必须包含至少一个结构完整的服务，精确区分元数据键与 `_Wi-Fi` 等真实服务，并在服务名撞到保留键时拒绝接管代理。缺少所有权、畸形内容或不安全路径均保留现场并阻止核心清理。
 - 三端 GeoIP bootstrap 不再依赖会被上游每日 Release 回收的旧 Asset ID，改为读取 SSRVPN `core-assets-v1` 运维 prerelease 中的内容寻址快照，并同时校验 deterministic gzip 与解压后数据库的 SHA-256。
 
 ### 安全
 
 - GeoIP freshness 在上传缺失镜像后必须通过公开下载 URL 回读并复核双摘要，才允许创建来源更新 PR；认证 API 禁止重定向，公开镜像重定向只允许 GitHub HTTPS/CDN 主机并剥离凭据，同名上传竞态不得覆盖既有资产。
+- macOS 遗留核心所有权完全移入原生微秒级身份边界；进程身份按“代际 → 路径 → 代际”双采样，Dart 不再依赖秒级 `ps lstart`、`kill -0` 或裸 PID 信号判断，并对原生返回记录再做 canonical 校验。
+- LCOV `DA` 行号和命中数只接受 canonical ASCII 十进制，非法 UTF-8、伪造/越界 `SF`、缺失生产源码、路径别名和汇总不一致均安全失败；macOS/Windows 实际编译的 16 个共享桌面 `part` 也必须进入各自分母，不能再通过移动到共享目录绕过覆盖率门禁。
 
 ### 测试
 
-- macOS 新增真实 Swift/XCTest 门禁，覆盖延迟 TERM、强制退出、信号失败、PID 复用和原子 PID 清理，并接入本地 `make verify`、普通 CI 与 Release workflow。
-- 覆盖率门禁新增关键生命周期文件的渐进下限，并拒绝缺失或非法 `DA`、重复 canonical/别名和只伪造 `LF/LH` 的 LCOV；macOS 生命周期当前锁定为 `71/418`（`16.99%`）。
+- macOS 真实 Swift/XCTest 门禁扩展到 58 项，新增原生 spawn/记录原子边界、身份采样与记录发布失败收口、直系子进程与冲突记录、退出期间代理事务拒绝及安全超时取消、严格状态载荷、流式 UTF-8 诊断和快照 schema 回归，并继续接入本地 `make verify`、普通 CI 与 Release workflow。
+- 四端覆盖率改为可审计生产源码清单与统一 wrapper；Android、macOS、Windows 新增带用户行为断言的启动、首页、订阅、节点编辑和连接流程测试。当前真实覆盖率为 Shared `74.39%`（`3094/4159`）、Android `43.43%`（`1861/4285`）、macOS `51.91%`（`2588/4986`）、Windows `43.75%`（`2531/5785`）；macOS 生命周期为 `296/470`（`62.98%`），系统代理为 `220/258`（`85.27%`）。
 
 ### 文档
 
-- 新增 ADR-005，记录内容寻址 GeoIP 镜像的信任边界、不可覆盖策略和 freshness 自愈顺序；刷新测试、核心资产与项目健康说明。
+- 新增 ADR-005，记录内容寻址 GeoIP 镜像的信任边界、不可覆盖策略和 freshness 自愈顺序；新增 ADR-006 固化 macOS 原生进程代际记录与完整 CAS；刷新测试、核心资产与项目健康说明。
 
 ## [3.4.6] - 2026-07-18
 

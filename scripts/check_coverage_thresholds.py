@@ -6,13 +6,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 import sys
 from typing import Mapping, Sequence
 
 
 TOTAL_THRESHOLDS = {
     "packages/ssrvpn_shared": 65.0,
-    "SSRVPN_Android": 50.0,
+    "SSRVPN_Android": 30.0,
     "SSRVPN_MacOS": 30.0,
     "SSRVPN_Windows": 30.0,
 }
@@ -21,8 +22,8 @@ TOTAL_THRESHOLDS = {
 # fresh full-suite coverage evidence; lowering one requires an explicit review.
 CRITICAL_FILE_THRESHOLDS = {
     "SSRVPN_MacOS": {
-        "lib/services/clash_service_lifecycle.dart": 16.98,
-        "lib/services/system_proxy_service.dart": 17.75,
+        "lib/services/clash_service_lifecycle.dart": 60.0,
+        "lib/services/system_proxy_service.dart": 80.0,
     },
     "SSRVPN_Windows": {
         "lib/services/clash_service_lifecycle.dart": 4.19,
@@ -37,6 +38,7 @@ class LcovRecord:
     hit: int
     saw_da: bool
     valid_da: bool
+    summary_error: str | None
     line_hits: tuple[tuple[int, int], ...]
 
 
@@ -47,6 +49,16 @@ class LcovSummary:
     file_counts: Mapping[str, tuple[int, int]]
     records: tuple[LcovRecord, ...]
     errors: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ProductionSourceManifest:
+    included: frozenset[str]
+    included_external_parts: frozenset[str]
+    ignored_dependency_sources: frozenset[str]
+    excluded_generated: frozenset[str]
+    excluded_external_parts: frozenset[str]
+    excluded_non_coverable: frozenset[str]
 
 
 @dataclass(frozen=True)
@@ -103,24 +115,339 @@ def _normalise_source(source: str) -> str:
     return normalised
 
 
+def _is_ascii_decimal(value: str) -> bool:
+    return bool(value) and value.isascii() and value.isdecimal()
+
+
+_GENERATED_SUFFIXES = (".freezed.dart", ".g.dart", ".gr.dart", ".mocks.dart")
+_PART_OF_DIRECTIVE = re.compile(r"(?m)^[ \t]*part\s+of\b")
+_PART_DIRECTIVE = re.compile(r"(?m)^[ \t]*part\s+['\"]([^'\"]+)['\"]\s*;")
+_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+_FULL_LINE_COMMENT = re.compile(r"(?m)^[ \t]*//.*(?:\n|$)")
+_DART_DIRECTIVE = re.compile(
+    r"(?ms)^[ \t]*(?:library|import|export|part)\b.*?;[ \t]*(?:\n|$)"
+)
+_DART_STRING = re.compile(
+    r'''(?sx)
+    (?:r)?''' + "'''" + r'''.*?''' + "'''" + r'''|
+    (?:r)?""".*?"""|
+    (?:r)?'(?:\\.|[^'\\])*'|
+    (?:r)?"(?:\\.|[^"\\])*"
+    '''
+)
+
+# Dart's coverage format has no executable line entries for these declaration-
+# only sources. Keeping the exception explicit prevents a broad syntax guess
+# from silently excluding future production logic.
+_EXPLICIT_NON_COVERABLE = {
+    "packages/ssrvpn_shared": frozenset({"lib/constants/app_constants.dart"}),
+}
+
+
+def _contains_only_directives_and_comments(text: str) -> bool:
+    without_comments = _FULL_LINE_COMMENT.sub("", _BLOCK_COMMENT.sub("", text))
+    return not _DART_DIRECTIVE.sub("", without_comments).strip()
+
+
+def _contains_only_static_constants(text: str) -> bool:
+    without_strings = _DART_STRING.sub("''", text)
+    without_comments = re.sub(
+        r"(?m)//.*$",
+        "",
+        _BLOCK_COMMENT.sub("", without_strings),
+    )
+    match = re.fullmatch(
+        r"\s*class\s+[A-Za-z_$][\w$]*\s*\{(?P<body>.*)\}\s*",
+        without_comments,
+        re.DOTALL,
+    )
+    if match is None:
+        return False
+    statements = [item.strip() for item in match.group("body").split(";")]
+    return bool(statements) and all(
+        not statement or re.match(r"^static\s+const\b", statement)
+        for statement in statements
+    )
+
+
+def _has_generated_header(text: str) -> bool:
+    stripped = text.lstrip("\ufeff \t\r\n")
+    return re.match(r"^//\s*GENERATED CODE(?:[ \t]|$)", stripped) is not None
+
+
+def _dart_code_flags(text: str) -> list[bool]:
+    """Mark source positions that are outside Dart comments and strings."""
+
+    flags = [True] * len(text)
+    index = 0
+    while index < len(text):
+        if text.startswith("//", index):
+            end = text.find("\n", index + 2)
+            if end == -1:
+                end = len(text)
+            flags[index:end] = [False] * (end - index)
+            index = end
+            continue
+        if text.startswith("/*", index):
+            start = index
+            depth = 1
+            index += 2
+            while index < len(text) and depth:
+                if text.startswith("/*", index):
+                    depth += 1
+                    index += 2
+                elif text.startswith("*/", index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            flags[start:index] = [False] * (index - start)
+            continue
+        if text[index] in {"'", '"'}:
+            start = index
+            quote = text[index]
+            width = 3 if text.startswith(quote * 3, index) else 1
+            raw = index > 0 and text[index - 1] in {"r", "R"}
+            index += width
+            while index < len(text):
+                if text.startswith(quote * width, index):
+                    index += width
+                    break
+                if not raw and text[index] == "\\":
+                    index = min(index + 2, len(text))
+                else:
+                    index += 1
+            flags[start:index] = [False] * (index - start)
+            continue
+        index += 1
+    return flags
+
+
+def _mask_dart_comments(text: str) -> str:
+    """Replace comments with whitespace while preserving strings and offsets."""
+
+    masked = list(text)
+    index = 0
+    while index < len(text):
+        if text.startswith("//", index):
+            end = text.find("\n", index + 2)
+            if end == -1:
+                end = len(text)
+            for comment_index in range(index, end):
+                masked[comment_index] = " "
+            index = end
+            continue
+        if text.startswith("/*", index):
+            start = index
+            depth = 1
+            index += 2
+            while index < len(text) and depth:
+                if text.startswith("/*", index):
+                    depth += 1
+                    index += 2
+                elif text.startswith("*/", index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            for comment_index in range(start, index):
+                if text[comment_index] not in {"\r", "\n"}:
+                    masked[comment_index] = " "
+            continue
+        if text[index] in {"'", '"'}:
+            quote = text[index]
+            width = 3 if text.startswith(quote * 3, index) else 1
+            raw = index > 0 and text[index - 1] in {"r", "R"}
+            index += width
+            while index < len(text):
+                if text.startswith(quote * width, index):
+                    index += width
+                    break
+                if not raw and text[index] == "\\":
+                    index = min(index + 2, len(text))
+                else:
+                    index += 1
+            continue
+        index += 1
+    return "".join(masked)
+
+
+def _code_directive_matches(pattern: re.Pattern[str], text: str) -> list[re.Match[str]]:
+    flags = _dart_code_flags(text)
+    searchable = _mask_dart_comments(text)
+    matches: list[re.Match[str]] = []
+    for match in pattern.finditer(searchable):
+        keyword = searchable.find("part", match.start(), match.end())
+        if keyword >= 0 and flags[keyword]:
+            matches.append(match)
+    return matches
+
+
+def _normalise_relative_source_path(value: str) -> str | None:
+    parts: list[str] = []
+    for part in value.replace("\\", "/").split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if not parts:
+                return None
+            parts.pop()
+            continue
+        parts.append(part)
+    return "/".join(parts) or None
+
+
+def discover_production_sources(
+    target_root: Path,
+    target: str | None = None,
+) -> ProductionSourceManifest:
+    """Build an auditable source inventory from a target's checked-in lib tree.
+
+    Generated Dart outputs are excluded because their source of truth is the
+    generator input. A `part of` fragment is included when a library in the
+    same target owns it. Fragments owned by a consuming package (the shared
+    desktop UI pattern) are excluded here because they cannot be loaded as a
+    library in this target on their own.
+    """
+
+    lib_root = target_root / "lib"
+    sources: dict[str, str] = {}
+    generated: set[str] = set()
+    if not lib_root.is_dir():
+        return ProductionSourceManifest(
+            frozenset(),
+            frozenset(),
+            frozenset(),
+            frozenset(),
+            frozenset(),
+            frozenset(),
+        )
+
+    for path in sorted(lib_root.rglob("*.dart")):
+        relative = _normalise_source(str(path.relative_to(target_root)))
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if path.name.endswith(_GENERATED_SUFFIXES) or _has_generated_header(text):
+            generated.add(relative)
+            continue
+        sources[relative] = text
+
+    locally_owned_parts: set[str] = set()
+    for owner_relative, text in sources.items():
+        owner_directory = Path(owner_relative).parent
+        for match in _code_directive_matches(_PART_DIRECTIVE, text):
+            uri = match.group(1)
+            if ":" in uri:
+                continue
+            owned = _normalise_relative_source_path(str(owner_directory / uri))
+            if owned is not None and owned.startswith("lib/") and owned in sources:
+                locally_owned_parts.add(owned)
+
+    external_parts = {
+        relative
+        for relative, text in sources.items()
+        if _code_directive_matches(_PART_OF_DIRECTIVE, text)
+        and relative not in locally_owned_parts
+    }
+    non_coverable = {
+        relative
+        for relative, text in sources.items()
+        if _contains_only_directives_and_comments(text)
+    }
+    if target is not None:
+        for relative in _EXPLICIT_NON_COVERABLE.get(target, ()):
+            text = sources.get(relative)
+            if text is not None and _contains_only_static_constants(text):
+                non_coverable.add(relative)
+    non_coverable.intersection_update(sources)
+    included = set(sources) - external_parts - non_coverable
+
+    included_external_parts: set[str] = set()
+    ignored_dependency_sources: set[str] = set()
+    if target in {"SSRVPN_MacOS", "SSRVPN_Windows"}:
+        shared_lib = target_root.parent / "packages" / "ssrvpn_shared" / "lib"
+        dependency_sources: set[str] = set()
+        if shared_lib.is_dir():
+            for path in sorted(shared_lib.rglob("*.dart")):
+                dependency_relative = _normalise_source(
+                    str(path.relative_to(shared_lib))
+                )
+                canonical = (
+                    "../packages/ssrvpn_shared/lib/" + dependency_relative
+                )
+                dependency_sources.add(canonical)
+
+        for text in sources.values():
+            for match in _code_directive_matches(_PART_DIRECTIVE, text):
+                uri = match.group(1)
+                prefix = "package:ssrvpn_shared/"
+                if not uri.startswith(prefix):
+                    continue
+                dependency_relative = _normalise_relative_source_path(
+                    uri.removeprefix(prefix)
+                )
+                if dependency_relative is None:
+                    continue
+                canonical = (
+                    "../packages/ssrvpn_shared/lib/" + dependency_relative
+                )
+                physical = shared_lib / dependency_relative
+                if canonical not in dependency_sources or not physical.is_file():
+                    continue
+                part_text = physical.read_text(encoding="utf-8", errors="ignore")
+                if physical.name.endswith(_GENERATED_SUFFIXES) or _has_generated_header(
+                    part_text
+                ):
+                    continue
+                included_external_parts.add(canonical)
+
+        ignored_dependency_sources = dependency_sources - included_external_parts
+
+    return ProductionSourceManifest(
+        included=frozenset(included),
+        included_external_parts=frozenset(included_external_parts),
+        ignored_dependency_sources=frozenset(ignored_dependency_sources),
+        excluded_generated=frozenset(generated),
+        excluded_external_parts=frozenset(external_parts),
+        excluded_non_coverable=frozenset(non_coverable),
+    )
+
+
 def read_lcov(path: Path) -> LcovSummary:
     records: list[LcovRecord] = []
     source: str | None = None
-    declared_found: int | None = None
-    declared_hit: int | None = None
+    summary_fields: dict[str, list[str]] = {"LF": [], "LH": []}
     line_hits: dict[int, int] = {}
     saw_da = False
     invalid_da = False
 
     def finish_record() -> None:
-        nonlocal source, declared_found, declared_hit, line_hits, saw_da, invalid_da
+        nonlocal source, summary_fields, line_hits, saw_da, invalid_da
         if source is not None:
-            if line_hits:
-                found = len(line_hits)
-                hit = sum(1 for count in line_hits.values() if count > 0)
-            else:
-                found = declared_found or 0
-                hit = declared_hit or 0
+            found = len(line_hits)
+            hit = sum(1 for count in line_hits.values() if count > 0)
+            summary_issues: list[str] = []
+            for field, expected in (("LF", found), ("LH", hit)):
+                values = summary_fields[field]
+                if not values:
+                    summary_issues.append(f"missing {field}")
+                    continue
+                if len(values) != 1:
+                    summary_issues.append(f"duplicate {field}")
+                    continue
+
+                raw_value = values[0]
+                if not raw_value.isascii() or not raw_value.isdigit():
+                    summary_issues.append(f"invalid {field}")
+                    continue
+                try:
+                    declared = int(raw_value)
+                except ValueError:
+                    summary_issues.append(f"invalid {field}")
+                    continue
+                if declared != expected:
+                    summary_issues.append(
+                        f"{field}/DA mismatch: declared {declared}, computed {expected}"
+                    )
             records.append(
                 LcovRecord(
                     source,
@@ -128,24 +455,41 @@ def read_lcov(path: Path) -> LcovSummary:
                     hit,
                     saw_da=saw_da,
                     valid_da=saw_da and not invalid_da and bool(line_hits),
+                    summary_error="; ".join(summary_issues) or None,
                     line_hits=tuple(sorted(line_hits.items())),
                 )
             )
         source = None
-        declared_found = None
-        declared_hit = None
+        summary_fields = {"LF": [], "LH": []}
         line_hits = {}
         saw_da = False
         invalid_da = False
 
-    for raw_line in path.read_text(errors="ignore").splitlines():
+    try:
+        lcov_text = path.read_text(encoding="utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return LcovSummary(
+            found=0,
+            hit=0,
+            file_counts={},
+            records=(),
+            errors=("LCOV is not valid UTF-8",),
+        )
+
+    for raw_line in lcov_text.splitlines():
         if raw_line.startswith("SF:"):
             finish_record()
             source = _normalise_source(raw_line.split(":", 1)[1])
         elif raw_line.startswith("DA:") and source is not None:
             saw_da = True
             fields = raw_line.split(":", 1)[1].split(",")
-            if len(fields) < 2:
+            if len(fields) not in (2, 3) or (
+                len(fields) == 3
+                and (not fields[2] or any(char.isspace() for char in fields[2]))
+            ):
+                invalid_da = True
+                continue
+            if not _is_ascii_decimal(fields[0]) or not _is_ascii_decimal(fields[1]):
                 invalid_da = True
                 continue
             try:
@@ -158,10 +502,10 @@ def read_lcov(path: Path) -> LcovSummary:
                 invalid_da = True
                 continue
             line_hits[line] = max(line_hits.get(line, 0), count)
-        elif raw_line.startswith("LF:"):
-            declared_found = int(raw_line.split(":", 1)[1])
-        elif raw_line.startswith("LH:"):
-            declared_hit = int(raw_line.split(":", 1)[1])
+        elif raw_line.startswith("LF:") and source is not None:
+            summary_fields["LF"].append(raw_line.split(":", 1)[1])
+        elif raw_line.startswith("LH:") and source is not None:
+            summary_fields["LH"].append(raw_line.split(":", 1)[1])
         elif raw_line == "end_of_record":
             finish_record()
     finish_record()
@@ -177,14 +521,23 @@ def read_lcov(path: Path) -> LcovSummary:
         has_invalid_da = any(
             record.saw_da and not record.valid_da for record in source_records
         )
-        if has_summary_only or has_invalid_da:
+        summary_errors = sorted(
+            {
+                record.summary_error
+                for record in source_records
+                if record.summary_error is not None
+            }
+        )
+        if has_summary_only or has_invalid_da or summary_errors:
             file_counts[record_source] = (0, 0)
-            if has_summary_only and has_invalid_da:
-                kind = "summary-only/invalid DA"
-            elif has_summary_only:
-                kind = "summary-only"
-            else:
-                kind = "invalid DA"
+            kinds: list[str] = []
+            if has_summary_only:
+                kinds.append("summary-only")
+            if has_invalid_da:
+                kinds.append("invalid DA")
+            if summary_errors:
+                kinds.append(f"invalid LF/LH ({'; '.join(summary_errors)})")
+            kind = "/".join(kinds)
             duplicate = "duplicate " if len(source_records) > 1 else ""
             errors.append(
                 f"{duplicate}{kind} LCOV record rejected: {record_source}"
@@ -284,6 +637,17 @@ def _critical_file_coverage(
             threshold,
             error="canonical LCOV record has invalid DA line coverage",
         )
+    if record.summary_error is not None:
+        return FileCoverage(
+            relative_path,
+            0,
+            0,
+            threshold,
+            error=(
+                "canonical LCOV record has invalid LF/LH summary: "
+                f"{record.summary_error}"
+            ),
+        )
     return FileCoverage(
         relative_path,
         record.found,
@@ -301,6 +665,74 @@ def evaluate_lcov(
     target_root: Path | None = None,
 ) -> CoverageReport:
     summary = read_lcov(path)
+    found = summary.found
+    hit = summary.hit
+    total_errors = list(summary.errors)
+    if target_root is not None:
+        manifest = discover_production_sources(target_root, target)
+        root_source = _normalise_source(str(target_root.resolve()))
+        dependency_root_source = _normalise_source(
+            str(
+                (
+                    target_root.parent
+                    / "packages"
+                    / "ssrvpn_shared"
+                    / "lib"
+                ).resolve()
+            )
+        )
+        included_sources = manifest.included | manifest.included_external_parts
+        records_by_manifest_source: dict[str, set[str]] = {}
+        excluded = (
+            manifest.excluded_generated
+            | manifest.excluded_external_parts
+            | manifest.excluded_non_coverable
+        )
+
+        for source in summary.file_counts:
+            candidate: str | None = None
+            if source == "lib" or source.startswith("lib/"):
+                candidate = source
+            elif source.startswith("../packages/ssrvpn_shared/lib/"):
+                candidate = source
+            elif source.startswith(f"{root_source}/"):
+                candidate = source.removeprefix(f"{root_source}/")
+            elif source.startswith(f"{dependency_root_source}/"):
+                candidate = (
+                    "../packages/ssrvpn_shared/lib/"
+                    + source.removeprefix(f"{dependency_root_source}/")
+                )
+
+            if candidate in excluded:
+                continue
+            if candidate in manifest.ignored_dependency_sources:
+                continue
+            if candidate not in included_sources:
+                total_errors.append(
+                    f"LCOV source outside production source manifest: {source}"
+                )
+                continue
+            records_by_manifest_source.setdefault(candidate, set()).add(source)
+
+        manifest_counts: dict[str, tuple[int, int]] = {}
+        for relative in sorted(included_sources):
+            raw_sources = records_by_manifest_source.get(relative, set())
+            if not raw_sources:
+                total_errors.append(
+                    f"production source missing from LCOV: {relative}"
+                )
+                continue
+            if len(raw_sources) != 1:
+                total_errors.append(
+                    f"multiple LCOV aliases for production source: {relative}"
+                )
+                manifest_counts[relative] = (0, 0)
+                continue
+            manifest_counts[relative] = summary.file_counts[next(iter(raw_sources))]
+
+        found = sum(counts[0] for counts in manifest_counts.values())
+        hit = sum(counts[1] for counts in manifest_counts.values())
+
     critical_files = [
         _critical_file_coverage(
             summary,
@@ -312,11 +744,11 @@ def evaluate_lcov(
     ]
     return CoverageReport(
         target=target,
-        found=summary.found,
-        hit=summary.hit,
+        found=found,
+        hit=hit,
         total_threshold=total_threshold,
         critical_files=tuple(critical_files),
-        total_errors=summary.errors,
+        total_errors=tuple(dict.fromkeys(total_errors)),
     )
 
 

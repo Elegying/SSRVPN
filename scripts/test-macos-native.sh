@@ -25,5 +25,6 @@ done
     -configuration Debug \
     -destination 'platform=macOS' \
     -only-testing:RunnerTests \
+    -parallel-testing-enabled NO \
     CODE_SIGNING_ALLOWED=NO
 )

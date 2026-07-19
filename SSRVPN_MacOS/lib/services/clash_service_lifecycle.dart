@@ -2,131 +2,129 @@ part of 'clash_service.dart';
 
 class _DesktopStartCancelled implements Exception {}
 
-Future<bool> terminateMacosCoreProcess({
-  required Future<int> exitCode,
-  required bool Function(ProcessSignal signal) sendSignal,
-  Duration gracefulTimeout = const Duration(seconds: 3),
-  Duration forcedTimeout = const Duration(seconds: 3),
-}) async {
-  try {
-    sendSignal(ProcessSignal.sigterm);
-    await exitCode.timeout(gracefulTimeout);
-    return true;
-  } on TimeoutException {
-    if (!sendSignal(ProcessSignal.sigkill)) return false;
-    try {
-      await exitCode.timeout(forcedTimeout);
-      return true;
-    } on TimeoutException {
-      return false;
-    }
-  } catch (_) {
-    return false;
-  }
+class MacosNativeCoreHandle {
+  const MacosNativeCoreHandle({
+    required this.pid,
+    required this.pidRecordContents,
+  });
+
+  final int pid;
+  final String pidRecordContents;
 }
 
-typedef MacosProcessIdentity = ({String startTime, String command});
+class MacosNativeCoreStatus {
+  const MacosNativeCoreStatus({
+    required this.isRunning,
+    required this.exitCode,
+    required this.standardOutput,
+    required this.standardError,
+  });
 
-MacosProcessIdentity? ownedMacosCoreIdentityFromPsOutput(
-  String output,
-  String executablePath,
-) {
-  final identity = macosProcessIdentityFromPsOutput(output);
-  if (identity == null) return null;
-  final owned = identity.command == executablePath ||
-      identity.command.startsWith('$executablePath ');
-  return owned ? identity : null;
+  final bool isRunning;
+  final int? exitCode;
+  final String standardOutput;
+  final String standardError;
 }
 
-MacosProcessIdentity? macosProcessIdentityFromPsOutput(String output) {
-  final line = output.trimRight();
-  const startFieldLength = 24;
-  if (line.length <= startFieldLength || line.contains('\n')) return null;
-
-  final startTime = line.substring(0, startFieldLength);
-  if (!RegExp(
-    r'^[A-Z][a-z]{2} [A-Z][a-z]{2} [ 0-9][0-9] '
-    r'[0-9]{2}:[0-9]{2}:[0-9]{2} [0-9]{4}$',
-  ).hasMatch(startTime)) {
-    return null;
+MacosNativeCoreHandle parseMacosNativeCoreLaunch(Object? value) {
+  if (value is! Map) throw StateError('原生核心启动结果无效');
+  final rawPid = value['pid'];
+  final corePid = rawPid is int ? rawPid : null;
+  final record = value['pidRecordContents'];
+  if (corePid == null || record is! String) {
+    throw StateError('原生核心启动结果无效');
   }
-  final command = line.substring(startFieldLength).trimLeft();
-  if (command.isEmpty) return null;
-  return (startTime: startTime, command: command);
-}
-
-bool macosKillProbeShowsProcessAbsent(int exitCode, String stderr) =>
-    exitCode != 0 &&
-    RegExp(r'(^|:) No such process\s*$').hasMatch(stderr.trim());
-
-Future<bool> terminateOwnedMacosCoreProcess({
-  required Future<MacosProcessIdentity?> Function() readIdentity,
-  required bool Function(ProcessSignal signal) sendSignal,
-  Duration gracefulTimeout = const Duration(seconds: 3),
-  Duration forcedTimeout = const Duration(seconds: 3),
-  Duration pollInterval = const Duration(milliseconds: 100),
-}) async {
-  final identity = await readIdentity();
-  if (identity == null || await readIdentity() != identity) return true;
-  if (!sendSignal(ProcessSignal.sigterm)) {
-    return await readIdentity() != identity;
-  }
-  if (await _waitForMacosCoreIdentityExit(
-    identity,
-    readIdentity,
-    gracefulTimeout,
-    pollInterval,
-  )) {
-    return true;
-  }
-  if (await readIdentity() != identity) return true;
-  if (!sendSignal(ProcessSignal.sigkill)) {
-    return await readIdentity() != identity;
-  }
-  return _waitForMacosCoreIdentityExit(
-    identity,
-    readIdentity,
-    forcedTimeout,
-    pollInterval,
+  return MacosNativeCoreHandle(
+    pid: corePid,
+    pidRecordContents: validateMacosCorePidRecord(record, corePid),
   );
 }
 
-Future<bool> _waitForMacosCoreIdentityExit(
-  MacosProcessIdentity identity,
-  Future<MacosProcessIdentity?> Function() readIdentity,
-  Duration timeout,
-  Duration pollInterval,
-) async {
-  final deadline = DateTime.now().add(timeout);
-  while (true) {
-    if (await readIdentity() != identity) return true;
-    if (!DateTime.now().isBefore(deadline)) return false;
-    await Future<void>.delayed(pollInterval);
+MacosNativeCoreStatus parseMacosNativeCoreStatus(Object? value) {
+  if (value is! Map ||
+      value['isRunning'] is! bool ||
+      value['standardOutput'] is! String ||
+      value['standardError'] is! String) {
+    throw StateError('原生核心状态无效');
   }
+  final isRunning = value['isRunning'] as bool;
+  final rawExitCode = value['exitCode'];
+  final expectedKeys = isRunning
+      ? const {'isRunning', 'standardOutput', 'standardError'}
+      : const {'isRunning', 'exitCode', 'standardOutput', 'standardError'};
+  if (value.keys.toSet().difference(expectedKeys).isNotEmpty ||
+      expectedKeys.difference(value.keys.toSet()).isNotEmpty ||
+      (isRunning ? rawExitCode != null : rawExitCode is! int)) {
+    throw StateError('原生核心退出码无效');
+  }
+  return MacosNativeCoreStatus(
+    isRunning: isRunning,
+    exitCode: rawExitCode as int?,
+    standardOutput: value['standardOutput'] as String,
+    standardError: value['standardError'] as String,
+  );
+}
+
+String validateMacosCorePidRecord(String? contents, int expectedPid) {
+  if (contents == null || !contents.endsWith('\n')) {
+    throw StateError('原生进程身份记录无效');
+  }
+  final fields = contents.substring(0, contents.length - 1).split(' ');
+  final recordedPid = fields.length == 4 ? int.tryParse(fields[1]) : null;
+  final startSeconds = fields.length == 4 ? int.tryParse(fields[2]) : null;
+  final startMicroseconds = fields.length == 4 ? int.tryParse(fields[3]) : null;
+  final canonical = fields.length == 4 &&
+      fields[0] == 'v2' &&
+      recordedPid == expectedPid &&
+      expectedPid > 1 &&
+      startSeconds != null &&
+      startSeconds > 0 &&
+      startMicroseconds != null &&
+      startMicroseconds >= 0 &&
+      startMicroseconds < 1000000 &&
+      contents == 'v2 $recordedPid $startSeconds $startMicroseconds\n';
+  if (!canonical) throw StateError('原生进程身份记录无效');
+  return contents;
 }
 
 mixin _MacosCoreLifecycle on ClashServiceBase {
   static const _filePath = '/usr/bin/file';
-  static const _killPath = '/bin/kill';
-  static const _psPath = '/bin/ps';
+  static const _coreProcessChannel = MethodChannel('ssrvpn/core_process');
 
-  Process? _clashProcess;
+  MacosNativeCoreHandle? _clashProcess;
   MacosTunSession? _tunSession;
   bool _stoppingCore = false;
   Future<bool>? _startOperation;
   Completer<void>? _startCancellation;
   Future<void>? _stopOperation;
   Future<void>? _exitCleanupOperation;
+  Future<void>? _nativeCoreStatusWatcher;
+  int _nativeCoreStatusWatchGeneration = 0;
   int _startGeneration = 0;
   String _corePath = '';
+  String? _corePidRecordContents;
   String? _startupDisabledReason;
-  final SystemProxyService _proxyService = SystemProxyService();
+  late final SystemProxyService _proxyService;
+  bool _coreAssetsPrepared = false;
+  bool _startupBlockedByProxyRecovery = false;
+  bool _runCoreProbesAfterRecovery = true;
+  Future<bool>? _proxyRecoveryOperation;
 
   bool get isStartupDisabled => _startupDisabledReason != null;
   String? get startupDisabledReason => _startupDisabledReason;
   String get corePath => _corePath;
   bool get coreExists => File(_corePath).existsSync();
-  bool get hasPendingSystemProxyRecovery => _proxyService.recoveryPending;
+  bool get hasPendingSystemProxyRecovery =>
+      _proxyService.recoveryPending || _startupBlockedByProxyRecovery;
+  String get _recoveryDiagnosticSummary {
+    if (_proxyService.recoveryPending) {
+      return '检测到 SSRVPN 自有的待恢复代理状态';
+    }
+    if (_startupBlockedByProxyRecovery) {
+      return '系统代理已恢复，但 Mihomo 核心资产尚未安全就绪';
+    }
+    return '没有待恢复的 SSRVPN 系统代理状态';
+  }
 
   @override
   Future<bool> diagnosticCoreAvailable() async =>
@@ -149,16 +147,14 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         AppDiagnosticCheck(
           id: 'system_proxy',
           title: '系统代理恢复',
-          status: _proxyService.recoveryPending
+          status: hasPendingSystemProxyRecovery
               ? AppDiagnosticStatus.warning
               : AppDiagnosticStatus.passed,
-          summary: _proxyService.recoveryPending
-              ? '检测到 SSRVPN 自有的待恢复代理状态'
-              : '没有待恢复的 SSRVPN 系统代理状态',
-          errorCode: _proxyService.recoveryPending
+          summary: _recoveryDiagnosticSummary,
+          errorCode: hasPendingSystemProxyRecovery
               ? AppErrorCode.proxyRecoveryPending
               : null,
-          repairAction: _proxyService.recoveryPending
+          repairAction: hasPendingSystemProxyRecovery
               ? AppRepairAction.retryOwnedProxyRecovery
               : null,
         ),
@@ -183,21 +179,52 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   }
 
   Future<bool> recoverPendingSystemProxy() async {
-    if (!_proxyService.recoveryPending) return true;
-    log('检测到上次异常退出留下的系统代理状态，正在重试恢复...');
-    final recovered = await _proxyService.clearSystemProxy();
-    if (recovered) {
-      setLastStartError(null);
-      log('✅ 旧系统代理状态已恢复，本次连接继续');
-      return true;
+    final current = _proxyRecoveryOperation;
+    if (current != null) return current;
+    final operation = _recoverPendingSystemProxyInternal();
+    _proxyRecoveryOperation = operation;
+    operation.whenComplete(() {
+      if (identical(_proxyRecoveryOperation, operation)) {
+        _proxyRecoveryOperation = null;
+      }
+    });
+    return operation;
+  }
+
+  Future<bool> _recoverPendingSystemProxyInternal() async {
+    if (!hasPendingSystemProxyRecovery) return true;
+    if (_proxyService.recoveryPending) {
+      log('检测到上次异常退出留下的系统代理状态，正在重试恢复...');
+      final recovered = await _proxyService.clearSystemProxy();
+      if (!recovered) {
+        final reason = _proxyService.lastError ?? '系统代理旧状态恢复失败';
+        setLastStartError(reason);
+        log('❌ $reason');
+        return false;
+      }
     }
-    final reason = _proxyService.lastError ?? '系统代理旧状态恢复失败';
-    setLastStartError(reason);
-    log('❌ $reason');
-    return false;
+
+    try {
+      await _prepareCoreAssetsAfterProxyRecovery(
+        runVersionProbe: _runCoreProbesAfterRecovery,
+      );
+      _startupBlockedByProxyRecovery = false;
+      _startupDisabledReason = null;
+      setLastStartError(null);
+      log('✅ 旧系统代理状态已恢复，核心资产已安全就绪');
+      return true;
+    } catch (error) {
+      _startupBlockedByProxyRecovery = true;
+      final reason = '系统代理已恢复，但 Mihomo 核心安全准备失败: $error';
+      disableStartup(reason);
+      return false;
+    }
   }
 
   Future<void> _verifyCoreForExecution();
+  Future<void> _prepareCoreAssetsAfterProxyRecovery({
+    required bool runVersionProbe,
+  });
 
   @override
   Future<void> onStopRequired() => stop();
@@ -251,63 +278,30 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   }
 
   Future<void> _terminateOrphanedCores() async {
+    if (_proxyService.recoveryPending) {
+      throw StateError('系统代理恢复完成前不得终止遗留 Mihomo 核心');
+    }
     if (_corePath.isEmpty || !Platform.isMacOS) return;
     final pidFile = File(
       '$configDir${Platform.pathSeparator}AtlasCore.pid',
     );
-    if (!await pidFile.exists()) return;
+    if (await FileSystemEntity.type(pidFile.path, followLinks: false) ==
+        FileSystemEntityType.notFound) {
+      return;
+    }
     try {
-      final pid = int.tryParse((await pidFile.readAsString()).trim());
-      if (pid == null || pid <= 1) {
-        throw StateError('遗留核心 PID 文件无效，已保留以阻止不安全启动');
-      }
-      final terminated = await terminateOwnedMacosCoreProcess(
-        readIdentity: () => _readOwnedCoreIdentity(pid),
-        sendSignal: (signal) => Process.killPid(pid, signal),
+      final terminated = await _coreProcessChannel.invokeMethod<bool>(
+        'terminateOwnedCore',
+        {'directory': configDir},
       );
-      if (!terminated) throw StateError('遗留核心未能终止');
-      await _deleteCorePid();
+      if (terminated != true) {
+        throw StateError('遗留核心身份或退出状态无法安全确认');
+      }
+      _corePidRecordContents = null;
       log('已清理遗留的 Mihomo 进程');
     } catch (e) {
       throw StateError('无法安全确认并清理遗留核心: $e');
     }
-  }
-
-  Future<MacosProcessIdentity?> _readOwnedCoreIdentity(int pid) async {
-    final result = await _runProcess(
-      _psPath,
-      ['-p', '$pid', '-o', 'lstart=', '-o', 'command='],
-      includeParentEnvironment: true,
-      environment: const {'LC_ALL': 'C'},
-      timeout: const Duration(seconds: 2),
-    );
-    if (result.exitCode == 124) {
-      throw StateError('确认遗留核心归属超时');
-    }
-    if (result.exitCode != 0) {
-      final probe = await _runProcess(
-        _killPath,
-        ['-0', '$pid'],
-        includeParentEnvironment: true,
-        environment: const {'LC_ALL': 'C'},
-        timeout: const Duration(seconds: 2),
-      );
-      if (probe.exitCode == 124) {
-        throw StateError('确认遗留核心是否存在超时');
-      }
-      if (macosKillProbeShowsProcessAbsent(
-        probe.exitCode,
-        probe.stderr.toString(),
-      )) {
-        return null;
-      }
-      throw StateError('无法确认遗留核心是否仍存在');
-    }
-    final output = result.stdout.toString();
-    if (macosProcessIdentityFromPsOutput(output) == null) {
-      throw StateError('遗留核心进程身份输出无效');
-    }
-    return ownedMacosCoreIdentityFromPsOutput(output, _corePath);
   }
 
   void setCorePath(String path) {
@@ -345,6 +339,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     }
     if (_corePath.isEmpty || configDir.isEmpty || configPath.isEmpty) {
       setLastStartError('Mihomo service is not initialized');
+      log(lastStartError!);
+      return false;
+    }
+    if (!_coreAssetsPrepared) {
+      setLastStartError('Mihomo 核心资产尚未通过安全准备，已拒绝启动');
       log(lastStartError!);
       return false;
     }
@@ -393,6 +392,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         'TEMP': tmpDir,
       };
 
+      await _terminateOrphanedCores();
+      _ensureStartCurrent(startToken);
       if (!await _validateConfig(environment)) {
         setLastStartError(
           lastStartError ?? 'Mihomo 配置校验失败，请打开运行日志查看具体错误',
@@ -409,65 +410,32 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       _ensureStartCurrent(startToken);
 
       final processStartWatch = Stopwatch()..start();
-      final startedProcess = await Process.start(
-        _corePath,
-        ['-d', configDir, '-f', configPath],
-        workingDirectory: configDir,
-        mode: ProcessStartMode.normal,
-        includeParentEnvironment: true,
-        environment: environment,
+      final startedProcess = parseMacosNativeCoreLaunch(
+        await _coreProcessChannel.invokeMethod<Object?>(
+          'launchOwnedCore',
+          {'directory': configDir},
+        ),
       );
       log(
         'Mihomo 进程已创建，耗时 ${processStartWatch.elapsedMilliseconds}ms',
       );
       _clashProcess = startedProcess;
-      await _writeCorePid(startedProcess.pid);
+      final pidRecordContents = startedProcess.pidRecordContents;
+      _corePidRecordContents = pidRecordContents;
       _ensureStartCurrent(startToken);
       int? startupExitCode;
       final startupOutput = <String>[];
-
-      startedProcess.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((line) {
-        final message = line.trim();
-        if (message.isEmpty) return;
-        startupOutput.add(message);
-        if (startupOutput.length > 30) startupOutput.removeAt(0);
-        log('[mihomo] $message');
-      });
-
-      startedProcess.stderr
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((line) {
-        final message = line.trim();
-        if (message.isEmpty) return;
-        startupOutput.add(message);
-        if (startupOutput.length > 30) startupOutput.removeAt(0);
-        log('[mihomo stderr] $message');
-      });
-
-      startedProcess.exitCode.then((code) {
-        startupExitCode = code;
-        if (!identical(_clashProcess, startedProcess) || _stoppingCore) {
-          return;
-        }
-
-        log('Mihomo 进程已退出，退出码: $code');
-        unawaited(_deleteCorePid());
-        if (isRunning) {
-          markConnectionLost();
-          stopStatusMonitor();
-          _clashProcess = null;
-          _scheduleUnexpectedExitCleanup();
-        }
-      });
 
       var healthy = false;
       final deadline = DateTime.now().add(const Duration(seconds: 15));
       while (DateTime.now().isBefore(deadline) && startupExitCode == null) {
         _ensureStartCurrent(startToken);
+        final nativeStatus = await _readNativeCoreStatus(startedProcess);
+        _recordNativeCoreDiagnostics(nativeStatus, startupOutput);
+        if (!nativeStatus.isRunning) {
+          startupExitCode = nativeStatus.exitCode ?? -1;
+          break;
+        }
         healthy = await healthCheck();
         _ensureStartCurrent(startToken);
         if (healthy) break;
@@ -493,8 +461,14 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
         final processStillHealthy = await healthCheck();
         _ensureStartCurrent(startToken);
+        final nativeStatus = await _readNativeCoreStatus(startedProcess);
+        _recordNativeCoreDiagnostics(nativeStatus, startupOutput);
+        if (!nativeStatus.isRunning) {
+          startupExitCode = nativeStatus.exitCode ?? -1;
+        }
         final canCommitRunning = identical(_clashProcess, startedProcess) &&
             startupExitCode == null &&
+            nativeStatus.isRunning &&
             processStillHealthy;
         if (!canCommitRunning) {
           setLastStartError(
@@ -515,6 +489,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
         notifyStatusChanged();
         startStatusMonitor();
+        _scheduleNativeCoreStatusWatch(startedProcess);
         return true;
       }
 
@@ -580,6 +555,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   Future<bool> _stopInternal() async {
     final exitCleanup = _exitCleanupOperation;
     if (exitCleanup != null) await exitCleanup;
+    await _cancelNativeCoreStatusWatch();
     stopStatusMonitor();
     resetHealthCheckFailures();
 
@@ -599,6 +575,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       if (_proxyService.lastError != null) {
         log(_proxyService.lastError!);
       }
+      final activeCore = _clashProcess;
+      if (activeCore != null) _scheduleNativeCoreStatusWatch(activeCore);
       if (isRunning) startStatusMonitor();
       notifyStatusChanged();
       return false;
@@ -611,14 +589,21 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     notifyStatusChanged();
 
     final process = _clashProcess;
-    if (process != null) {
+    final expectedRecord = _corePidRecordContents;
+    if (process != null || expectedRecord != null) {
       _stoppingCore = true;
       var terminated = false;
       try {
-        terminated = await terminateMacosCoreProcess(
-          exitCode: process.exitCode,
-          sendSignal: process.kill,
-        );
+        if (expectedRecord != null) {
+          terminated = await _coreProcessChannel.invokeMethod<bool>(
+                'terminateOwnedCoreRecord',
+                {
+                  'directory': configDir,
+                  'expectedContents': expectedRecord,
+                },
+              ) ==
+              true;
+        }
       } catch (e) {
         log('停止核心异常: $e');
       } finally {
@@ -627,11 +612,13 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       if (!terminated) {
         setLastStartError('无法确认 Mihomo 核心已退出，已保留进程状态并拒绝重新启动');
         log('❌ $lastStartError');
+        final activeCore = _clashProcess;
+        if (activeCore != null) _scheduleNativeCoreStatusWatch(activeCore);
         return false;
       }
       _clashProcess = null;
+      _corePidRecordContents = null;
     }
-    await _deleteCorePid();
 
     setRunning(false);
     notifyStatusChanged();
@@ -696,19 +683,119 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     if (startToken != _startGeneration) throw _DesktopStartCancelled();
   }
 
-  Future<void> _writeCorePid(int corePid) async {
-    final file = File('$configDir${Platform.pathSeparator}AtlasCore.pid');
-    final temp = File('${file.path}.tmp');
-    await temp.writeAsString('$corePid\n', flush: true);
-    await temp.rename(file.path);
+  Future<MacosNativeCoreStatus> _readNativeCoreStatus(
+    MacosNativeCoreHandle handle,
+  ) async {
+    final value = await _coreProcessChannel.invokeMethod<Object?>(
+      'ownedCoreStatus',
+      {
+        'directory': configDir,
+        'expectedContents': handle.pidRecordContents,
+      },
+    );
+    return parseMacosNativeCoreStatus(value);
   }
 
-  Future<void> _deleteCorePid() async {
-    final file = File('$configDir${Platform.pathSeparator}AtlasCore.pid');
+  void _recordNativeCoreDiagnostics(
+    MacosNativeCoreStatus status, [
+    List<String>? startupOutput,
+  ]) {
+    void record(String output, String prefix) {
+      for (final line in output.split('\n')) {
+        final message = line.trim();
+        if (message.isEmpty) continue;
+        startupOutput?.add(message);
+        if (startupOutput != null && startupOutput.length > 30) {
+          startupOutput.removeAt(0);
+        }
+        log('$prefix$message');
+      }
+    }
+
+    record(status.standardOutput, '[mihomo] ');
+    record(status.standardError, '[mihomo stderr] ');
+  }
+
+  void _scheduleNativeCoreStatusWatch(MacosNativeCoreHandle handle) {
+    final generation = ++_nativeCoreStatusWatchGeneration;
+    final operation = _watchNativeCoreStatus(handle, generation);
+    _nativeCoreStatusWatcher = operation;
+    operation.whenComplete(() {
+      if (identical(_nativeCoreStatusWatcher, operation)) {
+        _nativeCoreStatusWatcher = null;
+      }
+    });
+  }
+
+  Future<void> _cancelNativeCoreStatusWatch() async {
+    _nativeCoreStatusWatchGeneration++;
+    final watcher = _nativeCoreStatusWatcher;
+    if (watcher != null) await watcher;
+  }
+
+  Future<void> _watchNativeCoreStatus(
+    MacosNativeCoreHandle handle,
+    int generation,
+  ) async {
+    bool isCurrent() =>
+        generation == _nativeCoreStatusWatchGeneration &&
+        identical(_clashProcess, handle);
+
+    while (isCurrent()) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      if (!isCurrent()) return;
+      MacosNativeCoreStatus status;
+      try {
+        status = await _readNativeCoreStatus(handle);
+      } catch (error) {
+        log('读取 Mihomo 原生进程状态失败: $error');
+        continue;
+      }
+      if (!isCurrent()) return;
+      _recordNativeCoreDiagnostics(status);
+      if (status.isRunning) continue;
+
+      final exitCode = status.exitCode ?? -1;
+      log('Mihomo 进程已退出，退出码: $exitCode');
+      final recordRemoved = await _removeOwnedCorePidRecord(
+        expectedContents: handle.pidRecordContents,
+      );
+      if (!isCurrent()) {
+        if (recordRemoved && identical(_clashProcess, handle)) {
+          _clashProcess = null;
+        }
+        return;
+      }
+      _clashProcess = null;
+      if (_stoppingCore) return;
+      if (isRunning) {
+        markConnectionLost();
+        stopStatusMonitor();
+        _scheduleUnexpectedExitCleanup();
+      }
+      return;
+    }
+  }
+
+  Future<bool> _removeOwnedCorePidRecord({String? expectedContents}) async {
+    final contents = expectedContents ?? _corePidRecordContents;
+    if (contents == null) return true;
     try {
-      if (await file.exists()) await file.delete();
+      final removed = await _coreProcessChannel.invokeMethod<bool>(
+        'removeOwnedCorePidRecord',
+        {'directory': configDir, 'expectedContents': contents},
+      );
+      if (removed == true) {
+        if (_corePidRecordContents == contents) {
+          _corePidRecordContents = null;
+        }
+        return true;
+      }
+      log('核心进程身份记录已变化，保留现有记录');
+      return false;
     } catch (error) {
-      log('删除核心 PID 文件失败: $error');
+      log('删除核心进程身份记录失败: $error');
+      return false;
     }
   }
 

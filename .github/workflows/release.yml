@@ -128,7 +128,7 @@ jobs:
       - run: bash ../../scripts/test-release-tooling.sh
       - run: dart pub get
       - run: flutter analyze --fatal-infos
-      - run: flutter test --coverage
+      - run: bash ../../scripts/run-flutter-coverage.sh packages/ssrvpn_shared
       - run: bash ../../scripts/check-coverage-thresholds.sh packages/ssrvpn_shared
 
   prepare-geoip:
@@ -192,7 +192,7 @@ jobs:
         run: cd SSRVPN_Android && flutter analyze
 
       - name: Test
-        run: cd SSRVPN_Android && flutter test --coverage
+        run: bash scripts/run-flutter-coverage.sh SSRVPN_Android
 
       - name: Enforce coverage threshold
         run: bash scripts/check-coverage-thresholds.sh SSRVPN_Android
@@ -306,7 +306,7 @@ jobs:
         run: cd SSRVPN_MacOS && flutter analyze
 
       - name: Test
-        run: cd SSRVPN_MacOS && flutter test --coverage
+        run: bash scripts/run-flutter-coverage.sh SSRVPN_MacOS
 
       - name: macOS native unit tests
         timeout-minutes: 15
@@ -383,7 +383,8 @@ jobs:
         run: cd SSRVPN_Windows; flutter analyze
 
       - name: Test
-        run: cd SSRVPN_Windows; flutter test --coverage
+        shell: bash
+        run: bash scripts/run-flutter-coverage.sh SSRVPN_Windows
 
       - name: Enforce coverage threshold
         shell: bash

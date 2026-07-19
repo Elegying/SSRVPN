@@ -32,6 +32,7 @@ current_docs=(
   docs/USER_GUIDE.zh-CN.md
   docs/decisions/001-desktop-api-secret-storage.md
   docs/decisions/005-content-addressed-geoip-mirror.md
+  docs/decisions/006-macos-core-process-identity.md
 )
 
 python3 "$ROOT/scripts/check_doc_consistency.py" --self-test

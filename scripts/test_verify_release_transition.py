@@ -73,7 +73,10 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         self.assertIn('cmp "$file" "$downloaded"', workflow)
         self.assertNotIn("Sync latest geoip.metadb", workflow)
         self.assertNotIn("scripts/sync-geoip-metadb.py", workflow)
-        self.assertGreaterEqual(workflow.count("flutter test --coverage"), 4)
+        self.assertGreaterEqual(
+            workflow.count("scripts/run-flutter-coverage.sh"),
+            4,
+        )
         for target in (
             "packages/ssrvpn_shared",
             "SSRVPN_Android",

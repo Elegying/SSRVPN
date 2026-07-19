@@ -1,11 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show MethodChannel, rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_macos/models/app_settings.dart';
 import 'package:ssrvpn_macos/services/clash_service.dart';
+import 'package:ssrvpn_macos/services/system_proxy_service.dart';
 
 const _subscriptionYaml = '''
 proxies:
@@ -25,199 +27,121 @@ proxies:
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  const coreProcessChannel = MethodChannel('ssrvpn/core_process');
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
-  group('terminateMacosCoreProcess', () {
-    test('confirms graceful termination before returning success', () async {
-      final exitCode = Completer<int>();
-      final signals = <ProcessSignal>[];
-
-      final stopped = await terminateMacosCoreProcess(
-        exitCode: exitCode.future,
-        sendSignal: (signal) {
-          signals.add(signal);
-          exitCode.complete(0);
-          return true;
-        },
-        gracefulTimeout: const Duration(milliseconds: 10),
-        forcedTimeout: const Duration(milliseconds: 10),
-      );
-
-      expect(stopped, isTrue);
-      expect(signals, [ProcessSignal.sigterm]);
-    });
-
-    test('waits for confirmed exit after escalating to SIGKILL', () async {
-      final exitCode = Completer<int>();
-      final signals = <ProcessSignal>[];
-
-      final stopped = await terminateMacosCoreProcess(
-        exitCode: exitCode.future,
-        sendSignal: (signal) {
-          signals.add(signal);
-          if (signal == ProcessSignal.sigkill) exitCode.complete(-9);
-          return true;
-        },
-        gracefulTimeout: const Duration(milliseconds: 1),
-        forcedTimeout: const Duration(milliseconds: 10),
-      );
-
-      expect(stopped, isTrue);
-      expect(signals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
-    });
-
-    test('reports failure when forced termination cannot be confirmed',
-        () async {
-      final exitCode = Completer<int>();
-
-      final stopped = await terminateMacosCoreProcess(
-        exitCode: exitCode.future,
-        sendSignal: (signal) => signal == ProcessSignal.sigterm,
-        gracefulTimeout: const Duration(milliseconds: 1),
-        forcedTimeout: const Duration(milliseconds: 1),
-      );
-
-      expect(stopped, isFalse);
-    });
-
-    test('reports failure when SIGKILL is sent but exit stays pending',
-        () async {
-      final exitCode = Completer<int>();
-      final signals = <ProcessSignal>[];
-
-      final stopped = await terminateMacosCoreProcess(
-        exitCode: exitCode.future,
-        sendSignal: (signal) {
-          signals.add(signal);
-          return true;
-        },
-        gracefulTimeout: const Duration(milliseconds: 1),
-        forcedTimeout: const Duration(milliseconds: 1),
-      );
-
-      expect(stopped, isFalse);
-      expect(signals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
-    });
-
-    test('reports failure when sending a termination signal throws', () async {
-      final stopped = await terminateMacosCoreProcess(
-        exitCode: Completer<int>().future,
-        sendSignal: (_) => throw StateError('signal rejected'),
-        gracefulTimeout: const Duration(milliseconds: 1),
-        forcedTimeout: const Duration(milliseconds: 1),
-      );
-
-      expect(stopped, isFalse);
+  setUp(() {
+    messenger.setMockMethodCallHandler(coreProcessChannel, (call) async {
+      if (call.method == 'beginProxyLifecycleTransaction') {
+        return 'test-proxy-lease';
+      }
+      if (call.method == 'endProxyLifecycleTransaction') return true;
+      return null;
     });
   });
+  tearDown(() {
+    messenger.setMockMethodCallHandler(coreProcessChannel, null);
+  });
 
-  group('terminateOwnedMacosCoreProcess', () {
-    test('does not SIGKILL a reused PID with a new start generation', () async {
-      const corePath = '/tmp/SSRVPN/AtlasCore';
-      final originalIdentity = ownedMacosCoreIdentityFromPsOutput(
-        'Sun Jul 19 20:00:00 2026     $corePath -d /tmp/SSRVPN',
-        corePath,
-      );
-      final replacementIdentity = ownedMacosCoreIdentityFromPsOutput(
-        'Sun Jul 19 20:00:01 2026     $corePath -d /tmp/SSRVPN',
-        corePath,
-      );
-      final identities = <MacosProcessIdentity?>[
-        originalIdentity,
-        originalIdentity,
-        replacementIdentity,
-      ];
-      final signals = <ProcessSignal>[];
+  group('validateMacosCorePidRecord', () {
+    test('accepts only the canonical native generation record', () {
+      const record = 'v2 4242 100 123456\n';
 
-      final stopped = await terminateOwnedMacosCoreProcess(
-        readIdentity: () async => identities.removeAt(0),
-        sendSignal: (signal) {
-          signals.add(signal);
-          return true;
+      expect(validateMacosCorePidRecord(record, 4242), record);
+    });
+
+    for (final invalid in <String?>[
+      null,
+      'v2 4242 100 123456',
+      'v1 4242 100 123456\n',
+      'v2 5252 100 123456\n',
+      'v2 1 100 123456\n',
+      'v2 4242 0 123456\n',
+      'v2 4242 100 -1\n',
+      'v2 4242 100 1000000\n',
+      'v2 04242 100 123456\n',
+      'v2 4242 100 123456 extra\n',
+    ]) {
+      test('rejects a non-canonical record: $invalid', () {
+        expect(
+          () => validateMacosCorePidRecord(invalid, 4242),
+          throwsA(isA<StateError>()),
+        );
+      });
+    }
+  });
+
+  group('native macOS core channel payloads', () {
+    test('parses a launch handle only with a matching canonical record', () {
+      final handle = parseMacosNativeCoreLaunch({
+        'pid': 4242,
+        'pidRecordContents': 'v2 4242 100 123456\n',
+      });
+
+      expect(handle.pid, 4242);
+      expect(handle.pidRecordContents, 'v2 4242 100 123456\n');
+      expect(
+        () => parseMacosNativeCoreLaunch({
+          'pid': 4242,
+          'pidRecordContents': 'v2 5252 100 123456\n',
+        }),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('parses running and exited native status payloads', () {
+      final running = parseMacosNativeCoreStatus({
+        'isRunning': true,
+        'standardOutput': 'ready',
+        'standardError': '',
+      });
+      final exited = parseMacosNativeCoreStatus({
+        'isRunning': false,
+        'exitCode': 17,
+        'standardOutput': '',
+        'standardError': 'failed',
+      });
+
+      expect(running.isRunning, isTrue);
+      expect(running.exitCode, isNull);
+      expect(running.standardOutput, 'ready');
+      expect(exited.isRunning, isFalse);
+      expect(exited.exitCode, 17);
+      expect(exited.standardError, 'failed');
+      expect(
+        () => parseMacosNativeCoreStatus({'isRunning': 'yes'}),
+        throwsA(isA<StateError>()),
+      );
+      for (final invalid in <Map<String, Object?>>[
+        {
+          'isRunning': true,
+          'exitCode': 0,
+          'standardOutput': '',
+          'standardError': '',
         },
-        gracefulTimeout: const Duration(milliseconds: 10),
-        forcedTimeout: const Duration(milliseconds: 10),
-        pollInterval: Duration.zero,
-      );
-
-      expect(stopped, isTrue);
-      expect(originalIdentity, isNotNull);
-      expect(replacementIdentity, isNotNull);
-      expect(replacementIdentity, isNot(originalIdentity));
-      expect(signals, [ProcessSignal.sigterm]);
-    });
-
-    test('fails closed when SIGTERM is rejected and ownership is unchanged',
-        () async {
-      const identity = (
-        startTime: 'Sun Jul 19 20:00:00 2026',
-        command: '/tmp/SSRVPN/AtlasCore -d /tmp/SSRVPN',
-      );
-
-      final stopped = await terminateOwnedMacosCoreProcess(
-        readIdentity: () async => identity,
-        sendSignal: (_) => false,
-      );
-
-      expect(stopped, isFalse);
-    });
-
-    test('fails closed when SIGKILL is rejected and ownership is unchanged',
-        () async {
-      const identity = (
-        startTime: 'Sun Jul 19 20:00:00 2026',
-        command: '/tmp/SSRVPN/AtlasCore -d /tmp/SSRVPN',
-      );
-      final signals = <ProcessSignal>[];
-
-      final stopped = await terminateOwnedMacosCoreProcess(
-        readIdentity: () async => identity,
-        sendSignal: (signal) {
-          signals.add(signal);
-          return signal == ProcessSignal.sigterm;
+        {
+          'isRunning': false,
+          'standardOutput': '',
+          'standardError': '',
         },
-        gracefulTimeout: Duration.zero,
-        forcedTimeout: Duration.zero,
-        pollInterval: Duration.zero,
-      );
-
-      expect(stopped, isFalse);
-      expect(signals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
-    });
-
-    test('refuses an executable path prefix that is not the owned core', () {
-      const corePath = '/tmp/SSRVPN/AtlasCore';
-
-      final identity = ownedMacosCoreIdentityFromPsOutput(
-        'Sun Jul 19 20:00:00 2026     ${corePath}Backdoor -d /tmp',
-        corePath,
-      );
-
-      expect(identity, isNull);
-    });
-
-    test('rejects malformed ps identity output', () {
-      expect(
-        macosProcessIdentityFromPsOutput('not a process identity'),
-        isNull,
-      );
-    });
-
-    test('treats only an explicit ESRCH probe as process absence', () {
-      expect(
-        macosKillProbeShowsProcessAbsent(
-          1,
-          'kill: 424242: No such process',
-        ),
-        isTrue,
-      );
-      expect(
-        macosKillProbeShowsProcessAbsent(
-          1,
-          'kill: 424242: Operation not permitted',
-        ),
-        isFalse,
-      );
-      expect(macosKillProbeShowsProcessAbsent(127, 'tool failed'), isFalse);
+        {
+          'isRunning': true,
+          'standardOutput': 42,
+          'standardError': '',
+        },
+        {
+          'isRunning': true,
+          'standardOutput': '',
+          'standardError': '',
+          'futureField': true,
+        },
+      ]) {
+        expect(
+          () => parseMacosNativeCoreStatus(invalid),
+          throwsA(isA<StateError>()),
+        );
+      }
     });
   });
 
@@ -403,6 +327,170 @@ void main() {
   });
 
   group('macOS core privilege boundary', () {
+    test(
+        'proxy recovery failure preserves the old core until recovery succeeds',
+        () async {
+      const channel = MethodChannel('ssrvpn/core_process');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_proxy_recovery_order_',
+      );
+      addTearDown(() async {
+        messenger.setMockMethodCallHandler(channel, null);
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final snapshot = File('${tempDir.path}/system_proxy.json');
+      await snapshot.writeAsString(
+        jsonEncode({
+          '_ownedProxyHost': '127.0.0.1',
+          '_ownedProxyPort': 7890,
+          'Wi-Fi': {
+            'web': {'enabled': false, 'server': '', 'port': 0},
+            'secureWeb': {'enabled': false, 'server': '', 'port': 0},
+            'socks': {'enabled': false, 'server': '', 'port': 0},
+          },
+        }),
+        flush: true,
+      );
+      final core = File('${tempDir.path}/AtlasCore')
+        ..writeAsStringSync('old-running-core', flush: true);
+      final geoip = File('${tempDir.path}/geoip.metadb')
+        ..writeAsStringSync('old-geoip', flush: true);
+      final pidFile = File('${tempDir.path}/AtlasCore.pid')
+        ..writeAsStringSync('v2 4242 100 123456\n', flush: true);
+      var allowRecovery = false;
+      final events = <String>[];
+      final proxyService = SystemProxyService(
+        beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
+        endProxyLifecycleTransaction: (_) async => true,
+        networkSetupRunner: (arguments) async {
+          events.add('network:${arguments.join(' ')}');
+          if (!allowRecovery) {
+            return ProcessResult(1, 1, '', 'network services unavailable');
+          }
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, 'Wi-Fi\n', '');
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(
+              1,
+              0,
+              'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n',
+              '',
+            );
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+      var nativeTerminationCalls = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        events.add('native:${call.method}');
+        expect(call.method, 'terminateOwnedCore');
+        expect(await snapshot.exists(), isFalse);
+        nativeTerminationCalls++;
+        await pidFile.delete();
+        return true;
+      });
+      final service = ClashService(proxyService: proxyService);
+
+      await service.init(
+        AppSettings(),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+
+      expect(service.hasPendingSystemProxyRecovery, isTrue);
+      expect(service.isStartupDisabled, isTrue);
+      expect(nativeTerminationCalls, 0);
+      expect(await core.readAsString(), 'old-running-core');
+      expect(await geoip.readAsString(), 'old-geoip');
+      expect(await pidFile.exists(), isTrue);
+
+      allowRecovery = true;
+      expect(await service.recoverPendingSystemProxy(), isTrue);
+
+      expect(service.hasPendingSystemProxyRecovery, isFalse);
+      expect(service.isStartupDisabled, isFalse);
+      expect(nativeTerminationCalls, 1);
+      expect(await pidFile.exists(), isFalse);
+      expect(
+        await core.readAsBytes(),
+        isNot(equals(utf8.encode('old-running-core'))),
+      );
+      expect(
+        await geoip.readAsBytes(),
+        isNot(equals(utf8.encode('old-geoip'))),
+      );
+      final nativeIndex = events.indexOf('native:terminateOwnedCore');
+      final lastNetworkIndex = events.lastIndexWhere(
+        (event) => event.startsWith('network:'),
+      );
+      expect(nativeIndex, greaterThan(lastNetworkIndex));
+    });
+
+    test('delegates stale generation cleanup to the native owner gate',
+        () async {
+      const channel = MethodChannel('ssrvpn/core_process');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_native_pid_cleanup_',
+      );
+      addTearDown(() async {
+        messenger.setMockMethodCallHandler(channel, null);
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final pidFile = File('${tempDir.path}/AtlasCore.pid');
+      await pidFile.writeAsString('v2 4242 100 123456\n', flush: true);
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'beginProxyLifecycleTransaction') {
+          return 'test-proxy-lease';
+        }
+        if (call.method == 'endProxyLifecycleTransaction') return true;
+        expect(call.method, 'terminateOwnedCore');
+        final arguments = call.arguments! as Map<Object?, Object?>;
+        expect(arguments['directory'], tempDir.path);
+        await pidFile.delete();
+        return true;
+      });
+
+      await ClashService().init(AppSettings(), dataDir: tempDir.path);
+
+      expect(await pidFile.exists(), isFalse);
+    });
+
+    test('preserves stale generation state when the native gate refuses it',
+        () async {
+      const channel = MethodChannel('ssrvpn/core_process');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_native_pid_refusal_',
+      );
+      addTearDown(() async {
+        messenger.setMockMethodCallHandler(channel, null);
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      final pidFile = File('${tempDir.path}/AtlasCore.pid');
+      const record = 'v2 4242 100 123456\n';
+      await pidFile.writeAsString(record, flush: true);
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'beginProxyLifecycleTransaction') {
+          return 'test-proxy-lease';
+        }
+        if (call.method == 'endProxyLifecycleTransaction') return true;
+        return false;
+      });
+
+      await expectLater(
+        ClashService().init(AppSettings(), dataDir: tempDir.path),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(await pidFile.readAsString(), record);
+    });
+
     for (final invalidPid in ['not-a-pid', '1']) {
       test('preserves and rejects invalid core PID "$invalidPid"', () async {
         final tempDir = await Directory.systemTemp.createTemp(
@@ -419,6 +507,201 @@ void main() {
         expect(await pidFile.readAsString(), '$invalidPid\n');
       });
     }
+
+    test('native status watcher handles an immediate unexpected exit',
+        () async {
+      const channel = MethodChannel('ssrvpn/core_process');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_native_status_exit_',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      var statusCalls = 0;
+      final nativeCalls = <String>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        nativeCalls.add(call.method);
+        switch (call.method) {
+          case 'launchOwnedCore':
+            return {
+              'pid': 4242,
+              'pidRecordContents': 'v2 4242 100 123456\n',
+            };
+          case 'ownedCoreStatus':
+            statusCalls++;
+            if (statusCalls <= 2) {
+              return {
+                'isRunning': true,
+                'standardOutput': statusCalls == 1 ? 'native ready\n' : '',
+                'standardError': '',
+              };
+            }
+            return {
+              'isRunning': false,
+              'exitCode': 17,
+              'standardOutput': '',
+              'standardError': 'native failed\n',
+            };
+          case 'removeOwnedCorePidRecord':
+            return true;
+          case 'terminateOwnedCoreRecord':
+            return true;
+          case 'beginProxyLifecycleTransaction':
+            return 'test-proxy-lease';
+          case 'endProxyLifecycleTransaction':
+            return true;
+        }
+        return null;
+      });
+      var proxyOwned = false;
+      final proxyService = SystemProxyService(
+        beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
+        endProxyLifecycleTransaction: (_) async => true,
+        networkSetupRunner: (arguments) async {
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, 'Wi-Fi\n', '');
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(
+              1,
+              0,
+              proxyOwned
+                  ? 'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n'
+                  : 'Enabled: No\nServer: \nPort: 0\n',
+              '',
+            );
+          }
+          if (arguments.first.endsWith('state')) {
+            proxyOwned = arguments.last == 'on';
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+      final service = _AlwaysHealthyClashService(proxyService: proxyService);
+      final exited = Completer<void>();
+      service.onProcessExit = () {
+        if (!exited.isCompleted) exited.complete();
+      };
+      await service.init(
+        AppSettings(),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      await service.writeConfig(
+        service.generateClashConfig(_subscriptionYaml, AppSettings()),
+      );
+
+      expect(await service.start(), isTrue);
+      await exited.future.timeout(const Duration(seconds: 3));
+
+      expect(statusCalls, greaterThanOrEqualTo(3));
+      expect(nativeCalls, contains('removeOwnedCorePidRecord'));
+      expect(service.isRunning, isFalse);
+      expect(
+        await File('${tempDir.path}/system_proxy.json').exists(),
+        isFalse,
+      );
+    });
+
+    test('stop cancels and drains native status watch before termination',
+        () async {
+      const channel = MethodChannel('ssrvpn/core_process');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_native_status_stop_',
+      );
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      var statusCalls = 0;
+      var removeCalls = 0;
+      var terminateCalls = 0;
+      final watcherPolled = Completer<void>();
+      final releaseWatcher = Completer<Map<String, Object?>>();
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'launchOwnedCore':
+            return {
+              'pid': 4242,
+              'pidRecordContents': 'v2 4242 100 123456\n',
+            };
+          case 'ownedCoreStatus':
+            statusCalls++;
+            if (statusCalls <= 2) {
+              return {
+                'isRunning': true,
+                'standardOutput': '',
+                'standardError': '',
+              };
+            }
+            if (!watcherPolled.isCompleted) watcherPolled.complete();
+            return releaseWatcher.future;
+          case 'removeOwnedCorePidRecord':
+            removeCalls++;
+            return true;
+          case 'terminateOwnedCoreRecord':
+            terminateCalls++;
+            return true;
+          case 'beginProxyLifecycleTransaction':
+            return 'test-proxy-lease';
+          case 'endProxyLifecycleTransaction':
+            return true;
+        }
+        return null;
+      });
+      var proxyOwned = false;
+      final proxyService = SystemProxyService(
+        beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
+        endProxyLifecycleTransaction: (_) async => true,
+        networkSetupRunner: (arguments) async {
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, 'Wi-Fi\n', '');
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(
+              1,
+              0,
+              proxyOwned
+                  ? 'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n'
+                  : 'Enabled: No\nServer: \nPort: 0\n',
+              '',
+            );
+          }
+          if (arguments.first.endsWith('state')) {
+            proxyOwned = arguments.last == 'on';
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+      final service = _AlwaysHealthyClashService(proxyService: proxyService);
+      await service.init(
+        AppSettings(),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      await service.writeConfig(
+        service.generateClashConfig(_subscriptionYaml, AppSettings()),
+      );
+      expect(await service.start(), isTrue);
+      await watcherPolled.future.timeout(const Duration(seconds: 3));
+
+      final stopping = service.stop();
+      await Future<void>.delayed(Duration.zero);
+      releaseWatcher.complete({
+        'isRunning': false,
+        'exitCode': 0,
+        'standardOutput': '',
+        'standardError': '',
+      });
+      await stopping;
+
+      expect(removeCalls, 0);
+      expect(terminateCalls, 1);
+      expect(service.isRunning, isFalse);
+    });
 
     test('TUN reaches the normal initialized-service boundary', () async {
       final service = ClashService()
@@ -563,4 +846,11 @@ void main() {
       );
     });
   });
+}
+
+class _AlwaysHealthyClashService extends ClashService {
+  _AlwaysHealthyClashService({required super.proxyService});
+
+  @override
+  Future<bool> healthCheck() async => true;
 }
