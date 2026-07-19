@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -46,27 +47,87 @@ class UpdateService {
       changelog: changelog,
       sha256: sha256,
     );
-    await SharedUpdateService.showUpdateDialog(
-      context,
-      latestVersion: latestVersion,
-      currentVersion: currentVersion,
-      downloadUrl: downloadUrl,
-      fallbackDownloadUrl: fallbackDownloadUrl,
-      changelog: changelog,
-      primaryColor: AppTheme.primary,
-      accentColor: AppTheme.accentColor,
-      textPrimary: AppTheme.textPrimary,
-      textSecondary: AppTheme.textSecondary,
-      lightTextPrimary: AppTheme.lightTextPrimary,
-      lightTextSecondary: AppTheme.lightTextSecondary,
-      openDownload: (url) => SharedUpdateService.downloadAndOpenVerifiedUpdate(
-        context,
-        SharedUpdateService.preferDownloadUrl(update, url),
-        fileName: 'SSRVPN.dmg',
-        openFile: (file) async {
-          await Process.start(_openPath, [file.path]);
-        },
-      ),
-    );
+    await AppModalCoordinator.run<void>(() async {
+      if (!context.mounted) return;
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+
+      Future<void> downloadAndOpen(String url) =>
+          SharedUpdateService.downloadAndOpenVerifiedUpdate(
+            context,
+            SharedUpdateService.preferDownloadUrl(update, url),
+            fileName: 'SSRVPN.dmg',
+            openFile: (file) async {
+              await Process.start(_openPath, [file.path]);
+            },
+          );
+
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
+          title: const Text('发现新版本'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'v$currentVersion → v$latestVersion',
+                    style: const TextStyle(
+                      color: AppTheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '下载并校验完成后会打开 DMG。请将 SSRVPN 拖入“应用程序”文件夹，替换旧版本，然后重新启动 SSRVPN。',
+                  ),
+                  if (changelog.trim().isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      changelog,
+                      style: TextStyle(
+                        color: isDark
+                            ? AppTheme.textSecondary
+                            : AppTheme.lightTextSecondary,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('稍后再说'),
+            ),
+            if (fallbackDownloadUrl != null &&
+                fallbackDownloadUrl.trim().isNotEmpty)
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  unawaited(downloadAndOpen(fallbackDownloadUrl));
+                },
+                child: const Text('使用 GitHub 备用下载'),
+              ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                unawaited(downloadAndOpen(downloadUrl));
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('下载并打开 DMG'),
+            ),
+          ],
+        ),
+      );
+    });
   }
 }

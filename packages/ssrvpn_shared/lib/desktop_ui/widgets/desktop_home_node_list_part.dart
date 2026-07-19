@@ -105,6 +105,7 @@ class _DesktopHomeNodeList extends StatelessWidget {
             _SmallButton(
               icon: Icons.speed,
               label: '测速',
+              semanticsLabel: '测试全部节点延迟',
               onTap: onTestAllLatency,
             ),
         ],
@@ -302,41 +303,54 @@ class _SmallButton extends StatelessWidget {
   const _SmallButton({
     required this.icon,
     required this.label,
+    required this.semanticsLabel,
     required this.onTap,
   });
 
   final IconData icon;
   final String label;
+  final String semanticsLabel;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.card : AppTheme.lightBg,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
+    return Tooltip(
+      message: semanticsLabel,
+      child: TextButton(
+        onPressed: onTap,
+        style: TextButton.styleFrom(
+          foregroundColor: AppTheme.primary,
+          backgroundColor: isDark ? AppTheme.card : AppTheme.lightBg,
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+          side: BorderSide(
             color: isDark ? AppTheme.border : AppTheme.lightBorder,
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: AppTheme.primary),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.primary,
+        child: Semantics(
+          label: semanticsLabel,
+          hint: '按回车或空格开始测速',
+          excludeSemantics: true,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: AppTheme.primary),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: AppTheme.primary,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -376,115 +390,163 @@ class _NodeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final displayName = nodeDisplayNameWithoutLeadingFlag(node.name);
     final effectiveTextColor =
         isTimeout ? textColor.withValues(alpha: 80 / 255) : textColor;
     final effectiveSubColor =
         isTimeout ? subColor.withValues(alpha: 60 / 255) : subColor;
+    final semanticsValue = isTimeout
+        ? '测速超时，暂不可选择'
+        : isTesting
+            ? '测速中'
+            : isSelected
+                ? '已选择'
+                : latency != null && latency! > 0
+                    ? '延迟 $latency 毫秒'
+                    : '未测速';
+    final showLatencyAction =
+        !isTesting && !isTimeout && latency == null && isConnected;
 
     return _HoverableNodeCard(
       enabled: !isTimeout,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 6),
-        child: GestureDetector(
-          onTap: isTimeout ? null : onTap,
-          onSecondaryTapDown: onSecondaryTapDown,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: isSelected
+                ? (isDark
+                    ? AppTheme.success.withValues(alpha: 15 / 255)
+                    : AppTheme.success.withValues(alpha: 10 / 255))
+                : null,
+            border: Border.all(
               color: isSelected
-                  ? (isDark
-                      ? AppTheme.success.withValues(alpha: 15 / 255)
-                      : AppTheme.success.withValues(alpha: 10 / 255))
-                  : null,
-              border: Border.all(
-                color: isSelected
-                    ? AppTheme.success.withValues(alpha: 80 / 255)
-                    : isDark
-                        ? AppTheme.border
-                        : AppTheme.lightBorder,
-                width: isSelected ? 1.5 : 1,
-              ),
+                  ? AppTheme.success.withValues(alpha: 80 / 255)
+                  : isDark
+                      ? AppTheme.border
+                      : AppTheme.lightBorder,
+              width: isSelected ? 1.5 : 1,
             ),
-            child: Opacity(
-              opacity: isTimeout ? 0.45 : 1.0,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                child: Row(
-                  children: [
-                    _NodeFlagBadge(
-                      countryCode: countryCode,
-                      selected: isSelected,
-                      timeout: isTimeout,
-                      isDark: isDark,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            nodeDisplayNameWithoutLeadingFlag(node.name),
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: isSelected
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                              color: isSelected
-                                  ? AppTheme.success
-                                  : effectiveTextColor,
+          ),
+          child: Stack(
+            alignment: Alignment.centerRight,
+            children: [
+              Material(
+                type: MaterialType.transparency,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  onTap: isTimeout ? null : onTap,
+                  onSecondaryTapDown: onSecondaryTapDown,
+                  canRequestFocus: !isTimeout,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Semantics(
+                    button: true,
+                    enabled: !isTimeout,
+                    selected: isSelected,
+                    label: '选择节点 $displayName',
+                    value: semanticsValue,
+                    hint: isTimeout ? null : '按回车或空格选择节点',
+                    excludeSemantics: true,
+                    child: Opacity(
+                      opacity: isTimeout ? 0.45 : 1.0,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        child: Row(
+                          children: [
+                            _NodeFlagBadge(
+                              countryCode: countryCode,
+                              selected: isSelected,
+                              timeout: isTimeout,
+                              isDark: isDark,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 3),
-                          Row(
-                            children: [
-                              _TypeBadge(type: node.type, isTimeout: isTimeout),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  '${node.server.contains(':') ? '[${node.server}]' : node.server}:${node.port}',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: effectiveSubColor,
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    displayName,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: isSelected
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                      color: isSelected
+                                          ? AppTheme.success
+                                          : effectiveTextColor,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                                  const SizedBox(height: 3),
+                                  Row(
+                                    children: [
+                                      _TypeBadge(
+                                        type: node.type,
+                                        isTimeout: isTimeout,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          '${node.server.contains(':') ? '[${node.server}]' : node.server}:${node.port}',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: effectiveSubColor,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                        ],
+                            ),
+                            if (isTesting)
+                              const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppTheme.primary,
+                                ),
+                              )
+                            else if (isTimeout)
+                              const _LatencyBadge(latency: 65535)
+                            else if (latency != null && latency! > 0)
+                              _LatencyBadge(latency: latency!)
+                            else if (showLatencyAction)
+                              const SizedBox(width: 38, height: 21),
+                          ],
+                        ),
                       ),
                     ),
-                    if (isTesting)
-                      const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: AppTheme.primary,
-                        ),
-                      )
-                    else if (isTimeout)
-                      const _LatencyBadge(latency: 65535)
-                    else if (latency != null && latency! > 0)
-                      _LatencyBadge(latency: latency!)
-                    else if (isConnected)
-                      GestureDetector(
-                        onTap: onTestLatency,
-                        child: Container(
+                  ),
+                ),
+              ),
+              if (showLatencyAction)
+                Positioned(
+                  right: 14,
+                  child: Material(
+                    color: AppTheme.primary.withValues(alpha: 15 / 255),
+                    borderRadius: BorderRadius.circular(6),
+                    child: InkWell(
+                      onTap: onTestLatency,
+                      onSecondaryTapDown: onSecondaryTapDown,
+                      borderRadius: BorderRadius.circular(6),
+                      child: Semantics(
+                        button: true,
+                        label: '测试 $displayName 延迟',
+                        hint: '按回车或空格开始测速',
+                        excludeSemantics: true,
+                        child: Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 8,
                             vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primary.withValues(alpha: 15 / 255),
-                            borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
                             '测速',
@@ -497,10 +559,10 @@ class _NodeCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                  ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
+            ],
           ),
         ),
       ),

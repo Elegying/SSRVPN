@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import 'update_checker.dart';
+import '../utils/app_modal_coordinator.dart';
 
 typedef DownloadOpener = Future<void> Function(String url);
 typedef VerifiedUpdateOpener = Future<void> Function(File file);
@@ -109,26 +110,35 @@ class SharedUpdateService {
       if (fallbackUri != uris.first) uris.add(fallbackUri);
     }
 
-    await outputDirectory.create(recursive: true);
+    await _awaitWithCancellation(
+      outputDirectory.create(recursive: true),
+      cancellation,
+    );
     final destination = File('${outputDirectory.path}/$fileName');
     final temporary = File('${destination.path}.part');
+    if (await _awaitWithCancellation(temporary.exists(), cancellation)) {
+      await _awaitWithCancellation(temporary.delete(), cancellation);
+    }
+    if (await _awaitWithCancellation(destination.exists(), cancellation)) {
+      await _awaitWithCancellation(destination.delete(), cancellation);
+    }
+    cancellation?.throwIfCancelled();
     final ownsClient = client == null;
     final httpClient = client ?? http.Client();
-    cancellation?._attach(httpClient.close);
     try {
-      if (await temporary.exists()) await temporary.delete();
-      if (await destination.exists()) await destination.delete();
+      if (ownsClient) cancellation?._attach(httpClient.close);
       for (var attempt = 0; attempt < uris.length; attempt++) {
         cancellation?.throwIfCancelled();
         final attemptClock = Stopwatch()..start();
         try {
           final request = http.Request('GET', uris[attempt])
             ..headers['User-Agent'] = 'SSRVPN/${update.version}';
-          final response = await _awaitWithCancellation(
-            httpClient
-                .send(request)
-                .timeout(_remainingAttemptTime(attemptClock, timeout)),
+          final response = await _sendResponse(
+            httpClient,
+            request,
             cancellation,
+            attemptClock: attemptClock,
+            timeout: timeout,
           );
           if (response case http.BaseResponseWithUrl(:final url)) {
             if (url.scheme != 'https' || url.host.isEmpty) {
@@ -168,6 +178,7 @@ class SharedUpdateService {
               await output.writeFrom(chunk);
               onProgress?.call(received, total);
             }
+            cancellation?.throwIfCancelled();
             hashClosed = true;
             hashSink.close();
             actualSha256 = digestSink.value.toString();
@@ -175,10 +186,13 @@ class SharedUpdateService {
             if (!hashClosed) hashSink.close();
             await output.close();
           }
+          cancellation?.throwIfCancelled();
           if (actualSha256 != expectedSha256) {
             throw StateError('更新文件 SHA256 校验失败，已取消更新');
           }
+          cancellation?.throwIfCancelled();
           await temporary.rename(destination.path);
+          cancellation?.throwIfCancelled();
           return destination;
         } catch (_) {
           if (await temporary.exists()) await temporary.delete();
@@ -205,6 +219,42 @@ class SharedUpdateService {
         (_) => throw VerifiedUpdateCancelled(),
       ),
     ]);
+  }
+
+  static Future<http.StreamedResponse> _sendResponse(
+    http.Client client,
+    http.BaseRequest request,
+    VerifiedUpdateCancellation? cancellation, {
+    required Stopwatch attemptClock,
+    required Duration timeout,
+  }) async {
+    final responseFuture = client.send(request);
+    try {
+      return await _awaitWithCancellation(
+        responseFuture.timeout(_remainingAttemptTime(attemptClock, timeout)),
+        cancellation,
+      );
+    } catch (_) {
+      unawaited(
+        responseFuture.then<void>(
+          _cancelUnusedResponse,
+          onError: (Object _, StackTrace __) {},
+        ),
+      );
+      rethrow;
+    }
+  }
+
+  static Future<void> _cancelUnusedResponse(
+    http.StreamedResponse response,
+  ) async {
+    try {
+      final subscription = response.stream.listen((_) {});
+      await subscription.cancel();
+    } catch (_) {
+      // The request already lost its timeout/cancellation race. Cleanup is
+      // best-effort and must not replace the original error.
+    }
   }
 
   static Stream<List<int>> _cancellableStream(
@@ -252,101 +302,114 @@ class SharedUpdateService {
     final cancellation = VerifiedUpdateCancellation();
     var receivedBytes = 0;
     int? totalBytes;
-    var progressDialogOpen = true;
+    var progressDialogOpen = false;
+    Future<void>? progressDialogFuture;
+    Future<void>? progressDialogCloseFuture;
     var cancelledByUser = false;
     StateSetter? updateDialogState;
 
-    unawaited(
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            updateDialogState = setDialogState;
-            final progress = totalBytes == null || totalBytes == 0
-                ? null
-                : receivedBytes / totalBytes!;
-            return PopScope(
-              canPop: false,
-              child: AlertDialog(
-                title: const Text('正在下载更新'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    LinearProgressIndicator(value: progress),
-                    const SizedBox(height: 12),
-                    Text(_formatProgress(receivedBytes, totalBytes)),
-                    const SizedBox(height: 8),
-                    const Text('下载完成并通过 SHA256 校验后才会打开安装包。'),
-                  ],
+    Future<void> closeProgressDialog() {
+      final pendingClose = progressDialogCloseFuture;
+      if (pendingClose != null) return pendingClose;
+      final close = () async {
+        if (!progressDialogOpen) return;
+        progressDialogOpen = false;
+        updateDialogState = null;
+        if (context.mounted) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
+        await progressDialogFuture;
+      }();
+      progressDialogCloseFuture = close;
+      return close;
+    }
+
+    try {
+      await AppModalCoordinator.run<void>(() async {
+        if (!context.mounted) return;
+        try {
+          progressDialogFuture = showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogContext) => StatefulBuilder(
+              builder: (dialogContext, setDialogState) {
+                updateDialogState = setDialogState;
+                final progress = totalBytes == null || totalBytes == 0
+                    ? null
+                    : (receivedBytes / totalBytes!).clamp(0.0, 1.0);
+                return PopScope(
+                  canPop: false,
+                  child: AlertDialog(
+                    title: const Text('正在下载更新'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        LinearProgressIndicator(value: progress),
+                        const SizedBox(height: 12),
+                        Text(_formatProgress(receivedBytes, totalBytes)),
+                        const SizedBox(height: 8),
+                        const Text('下载完成并通过 SHA256 校验后才会打开安装包。'),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () {
+                          cancelledByUser = true;
+                          cancellation.cancel();
+                          unawaited(closeProgressDialog());
+                        },
+                        child: const Text('取消更新'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          );
+          progressDialogOpen = true;
+          final file = await downloadVerifiedUpdate(
+            update,
+            outputDirectory: outputDirectory ??
+                Directory('${Directory.systemTemp.path}/ssrvpn_update'),
+            fileName: fileName,
+            client: client,
+            cancellation: cancellation,
+            onProgress: (received, total) {
+              receivedBytes = received;
+              totalBytes = total;
+              if (progressDialogOpen) updateDialogState?.call(() {});
+            },
+          );
+          cancellation.throwIfCancelled();
+          await closeProgressDialog();
+          cancellation.throwIfCancelled();
+          await openFile(file);
+        } catch (error) {
+          final cancelled = cancelledByUser || error is VerifiedUpdateCancelled;
+          await closeProgressDialog();
+          if (!cancelled && context.mounted) {
+            await showDialog<void>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('更新失败'),
+                content: Text(
+                  error.toString().replaceFirst('Bad state: ', ''),
                 ),
                 actions: [
                   TextButton(
-                    onPressed: () {
-                      cancelledByUser = true;
-                      cancellation.cancel();
-                      if (progressDialogOpen) {
-                        Navigator.of(dialogContext).pop();
-                        progressDialogOpen = false;
-                      }
-                    },
-                    child: const Text('取消更新'),
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('知道了'),
                   ),
                 ],
               ),
             );
-          },
-        ),
-      ),
-    );
-
-    try {
-      final file = await downloadVerifiedUpdate(
-        update,
-        outputDirectory: outputDirectory ??
-            Directory('${Directory.systemTemp.path}/ssrvpn_update'),
-        fileName: fileName,
-        client: client,
-        cancellation: cancellation,
-        onProgress: (received, total) {
-          receivedBytes = received;
-          totalBytes = total;
-          updateDialogState?.call(() {});
-        },
-      );
-      if (context.mounted && progressDialogOpen) {
-        Navigator.of(context, rootNavigator: true).pop();
-        progressDialogOpen = false;
-      }
-      await openFile(file);
-    } catch (error) {
-      final cancelled = cancelledByUser || error is VerifiedUpdateCancelled;
-      if (context.mounted && progressDialogOpen) {
-        Navigator.of(context, rootNavigator: true).pop();
-        progressDialogOpen = false;
-      }
-      if (!cancelled && context.mounted) {
-        await showDialog<void>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: const Text('更新失败'),
-            content: Text(
-              error.toString().replaceFirst('Bad state: ', ''),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('知道了'),
-              ),
-            ],
-          ),
-        );
-      }
+          }
+        } finally {
+          await closeProgressDialog();
+        }
+      });
     } finally {
-      if (context.mounted && progressDialogOpen) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
       _verifiedDownloadInProgress = false;
     }
   }
@@ -381,152 +444,157 @@ class SharedUpdateService {
     required DownloadOpener openDownload,
   }) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        final viewport = MediaQuery.sizeOf(ctx);
-        final maxWidth = math.min(
-          420.0,
-          math.max(280.0, viewport.width - 32),
-        );
-        final maxHeight = math.max(1.0, viewport.height - 32);
+    await AppModalCoordinator.run<void>(() {
+      if (!context.mounted) return Future.value();
+      return showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          final viewport = MediaQuery.sizeOf(ctx);
+          final maxWidth = math.min(
+            420.0,
+            math.max(280.0, viewport.width - 32),
+          );
+          final maxHeight = math.max(1.0, viewport.height - 32);
 
-        return Dialog(
-          backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          insetPadding: const EdgeInsets.all(16),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: maxWidth,
-              maxHeight: maxHeight,
-            ),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [primaryColor, accentColor],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.system_update_rounded,
-                      size: 28,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '发现新版本',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? textPrimary : lightTextPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'v$currentVersion → v$latestVersion',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: primaryColor,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  if (changelog.isNotEmpty) ...[
-                    const SizedBox(height: 12),
+          return Dialog(
+            backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            insetPadding: const EdgeInsets.all(16),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: maxWidth,
+                maxHeight: maxHeight,
+              ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     Container(
-                      width: double.infinity,
-                      constraints: const BoxConstraints(maxHeight: 120),
-                      padding: const EdgeInsets.all(12),
+                      width: 52,
+                      height: 52,
                       decoration: BoxDecoration(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 5 / 255)
-                            : Colors.black.withValues(alpha: 5 / 255),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: SingleChildScrollView(
-                        child: Text(
-                          changelog,
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.5,
-                            color: isDark ? textSecondary : lightTextSecondary,
-                          ),
+                        gradient: LinearGradient(
+                          colors: [primaryColor, accentColor],
                         ),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.system_update_rounded,
+                        size: 28,
+                        color: Colors.white,
                       ),
                     ),
-                  ],
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '发现新版本',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? textPrimary : lightTextPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'v$currentVersion → v$latestVersion',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: primaryColor,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (changelog.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        constraints: const BoxConstraints(maxHeight: 120),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 5 / 255)
+                              : Colors.black.withValues(alpha: 5 / 255),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: SingleChildScrollView(
                           child: Text(
-                            '稍后再说',
+                            changelog,
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: 12,
+                              height: 1.5,
                               color:
                                   isDark ? textSecondary : lightTextSecondary,
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            openDownload(downloadUrl);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryColor,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                    ],
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
                             ),
-                            elevation: 0,
-                          ),
-                          child: const Text(
-                            '立即更新',
-                            style: TextStyle(fontSize: 14, color: Colors.white),
+                            child: Text(
+                              '稍后再说',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color:
+                                    isDark ? textSecondary : lightTextSecondary,
+                              ),
+                            ),
                           ),
                         ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              openDownload(downloadUrl);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryColor,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: const Text(
+                              '立即更新',
+                              style:
+                                  TextStyle(fontSize: 14, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (fallbackDownloadUrl != null &&
+                        fallbackDownloadUrl.trim().isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          openDownload(fallbackDownloadUrl);
+                        },
+                        child: const Text('OSS 下载异常？使用 GitHub 备用下载'),
                       ),
                     ],
-                  ),
-                  if (fallbackDownloadUrl != null &&
-                      fallbackDownloadUrl.trim().isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        openDownload(fallbackDownloadUrl);
-                      },
-                      child: const Text('OSS 下载异常？使用 GitHub 备用下载'),
-                    ),
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-        );
-      },
-    );
+          );
+        },
+      );
+    });
   }
 }
 

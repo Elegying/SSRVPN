@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ssrvpn_shared/services/desktop_subscription_fetcher.dart';
+import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -80,6 +81,101 @@ void main() {
     } finally {
       await subscription.cancel();
       await server.close(force: true);
+    }
+  });
+
+  test('cancelling a regular HTTP fetch aborts the response promptly',
+      () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final requestStarted = Completer<void>();
+    final keepOpen = Completer<void>();
+    final subscription = server.listen((request) async {
+      request.response.headers.contentType = ContentType.text;
+      request.response.write('a');
+      await request.response.flush();
+      if (!requestStarted.isCompleted) requestStarted.complete();
+      await keepOpen.future;
+    });
+    final cancellation = SubscriptionRefreshCancellation();
+    final control = SubscriptionRefreshControl(
+      timeout: const Duration(seconds: 5),
+      cancellation: cancellation,
+    );
+
+    try {
+      final task = DesktopSubscriptionFetcher.fetch(
+        'http://127.0.0.1:${server.port}/stalled',
+        allowDirectFetch: false,
+        maxRetries: 1,
+        control: control,
+      );
+      await requestStarted.future.timeout(const Duration(seconds: 1));
+
+      cancellation.cancel();
+
+      await expectLater(
+        task.timeout(const Duration(seconds: 1)),
+        throwsA(isA<SubscriptionRefreshCancelled>()),
+      );
+    } finally {
+      if (!keepOpen.isCompleted) keepOpen.complete();
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test('batch deadline closes a stalled direct-fetch socket', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final requestReceived = Completer<void>();
+    final peerClosed = Completer<void>();
+    Socket? client;
+    final subscription = server.listen((socket) {
+      client = socket;
+      socket.listen(
+        (_) {
+          if (requestReceived.isCompleted) return;
+          requestReceived.complete();
+          socket.write(
+            'HTTP/1.1 200 OK\r\n'
+            'Transfer-Encoding: chunked\r\n'
+            'Connection: keep-alive\r\n'
+            '\r\n'
+            '5\r\nhel',
+          );
+          unawaited(socket.flush());
+        },
+        onDone: () {
+          if (!peerClosed.isCompleted) peerClosed.complete();
+        },
+        onError: (Object _) {
+          if (!peerClosed.isCompleted) peerClosed.complete();
+        },
+        cancelOnError: true,
+      );
+    });
+    final control = SubscriptionRefreshControl(
+      timeout: const Duration(milliseconds: 80),
+    );
+
+    try {
+      final task = DesktopSubscriptionFetcher.fetch(
+        'http://direct-fetch.test:${server.port}/stalled',
+        allowDirectFetch: true,
+        maxRetries: 1,
+        control: control,
+        directAddressLookup: (_) async => [InternetAddress.loopbackIPv4],
+      );
+      await requestReceived.future.timeout(const Duration(seconds: 1));
+
+      await expectLater(
+        task.timeout(const Duration(seconds: 1)),
+        throwsA(isA<SubscriptionRefreshDeadlineExceeded>()),
+      );
+      await peerClosed.future.timeout(const Duration(seconds: 1));
+    } finally {
+      client?.destroy();
+      await subscription.cancel();
+      await server.close();
     }
   });
 

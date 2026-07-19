@@ -234,6 +234,12 @@ home = Path(
 runtime_actions = Path(
     "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_runtime_actions_part.dart"
 )
+background_tasks = Path(
+    "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_background_tasks_part.dart"
+)
+initial_subscription = Path(
+    "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_initial_subscription_part.dart"
+)
 public_ip_actions = Path(
     "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_public_ip_part.dart"
 )
@@ -249,6 +255,8 @@ connection_options = Path(
 part_limits = {
     home: 900,
     runtime_actions: 600,
+    background_tasks: 300,
+    initial_subscription: 300,
     public_ip_actions: 600,
     dashboard: 600,
     status_widgets: 600,
@@ -265,11 +273,11 @@ for path, limit in part_limits.items():
 
 aggregate_lines = sum(
     len(path.read_text(encoding="utf-8").splitlines())
-    for path in (home, runtime_actions)
+    for path in (home, runtime_actions, background_tasks)
 )
-if aggregate_lines > 1250:
+if aggregate_lines > 1400:
     raise SystemExit(
-        f"desktop home state/runtime parts grew to {aggregate_lines} aggregate lines"
+        f"desktop home state/runtime/background parts grew to {aggregate_lines} aggregate lines"
     )
 
 for entrypoint in (
@@ -279,6 +287,8 @@ for entrypoint in (
     entrypoint_source = entrypoint.read_text(encoding="utf-8")
     for required_part in (
         "desktop_home_runtime_actions_part.dart",
+        "desktop_home_initial_subscription_part.dart",
+        "desktop_home_background_tasks_part.dart",
         "desktop_home_public_ip_part.dart",
         "desktop_home_status_widgets_part.dart",
         "desktop_home_connection_options_part.dart",
@@ -338,6 +348,31 @@ for token in (
 
 print("Desktop screen boundary and latency-policy guards passed.")
 
+coordinator = Path(
+    "packages/ssrvpn_shared/lib/services/desktop_connection_coordinator.dart"
+)
+if not coordinator.is_file():
+    raise SystemExit(f"{coordinator}: shared desktop connection coordinator is missing")
+coordinator_lines = len(coordinator.read_text(encoding="utf-8").splitlines())
+if coordinator_lines > 180:
+    raise SystemExit(
+        f"{coordinator}: shared desktop connection coordinator grew to "
+        f"{coordinator_lines} lines"
+    )
+for consumer in (
+    home,
+    runtime_actions,
+    Path("SSRVPN_MacOS/lib/app_runtime_actions_part.dart"),
+    Path("SSRVPN_Windows/lib/app_runtime_actions_part.dart"),
+):
+    consumer_source = consumer.read_text(encoding="utf-8")
+    if "DesktopConnectionCoordinator().connect(" not in consumer_source:
+        raise SystemExit(
+            f"{consumer}: bypasses the shared revision-guarded connection transaction"
+        )
+
+print("Desktop connection coordinator boundary guard passed.")
+
 for app in (
     Path("SSRVPN_MacOS/lib/app.dart"),
     Path("SSRVPN_Windows/lib/app.dart"),
@@ -354,6 +389,21 @@ for app in (
         raise SystemExit(f"{app}: dispose stop failure is not contained")
 
 print("Desktop dispose cleanup guard passed.")
+
+for app_dir in (Path("SSRVPN_MacOS/lib"), Path("SSRVPN_Windows/lib")):
+    entrypoint = (app_dir / "app.dart").read_text(encoding="utf-8")
+    runtime_part = app_dir / "app_runtime_actions_part.dart"
+    if "part 'app_runtime_actions_part.dart';" not in entrypoint:
+        raise SystemExit(f"{app_dir / 'app.dart'}: missing app runtime actions part")
+    if not runtime_part.is_file():
+        raise SystemExit(f"{runtime_part}: platform runtime actions part is missing")
+    runtime_lines = len(runtime_part.read_text(encoding="utf-8").splitlines())
+    if runtime_lines > 320:
+        raise SystemExit(
+            f"{runtime_part}: platform runtime actions grew to {runtime_lines} lines"
+        )
+
+print("Desktop application runtime boundary guard passed.")
 
 app_shell = Path(
     "packages/ssrvpn_shared/lib/desktop_ui/desktop_app_shell_part.dart"

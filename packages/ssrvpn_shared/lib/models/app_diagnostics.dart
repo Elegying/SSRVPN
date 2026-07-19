@@ -8,6 +8,7 @@ enum AppErrorCode {
   permissionRequired('PERMISSION_REQUIRED'),
   proxyRecoveryPending('PROXY_RECOVERY_PENDING'),
   subscriptionPartial('SUBSCRIPTION_PARTIAL'),
+  subscriptionChanged('SUBSCRIPTION_CHANGED'),
   subscriptionFailed('SUBSCRIPTION_FAILED'),
   configInvalid('CONFIG_INVALID'),
   updateFailed('UPDATE_FAILED'),
@@ -80,6 +81,12 @@ class AppFailure {
           message: '已有可用订阅继续保留，但部分来源未能更新。',
           recommendedAction: '请检查失败来源后重试，不必删除现有订阅。',
         ),
+      AppErrorCode.subscriptionChanged => const AppFailure(
+          code: AppErrorCode.subscriptionChanged,
+          title: '订阅已更新',
+          message: '连接准备期间订阅内容发生了变化，旧配置未启动。',
+          recommendedAction: '请重新点击连接，以使用最新订阅配置。',
+        ),
       AppErrorCode.subscriptionFailed => const AppFailure(
           code: AppErrorCode.subscriptionFailed,
           title: '订阅刷新失败',
@@ -135,6 +142,13 @@ class AppFailure {
     }
     if (hasAny(const ['部分订阅', 'partial subscription'])) {
       return AppErrorCode.subscriptionPartial;
+    }
+    if (hasAny(const [
+      '订阅已更新',
+      'subscription changed',
+      'subscription was updated',
+    ])) {
+      return AppErrorCode.subscriptionChanged;
     }
     if (hasAny(const ['订阅', 'subscription']) &&
         hasAny(const ['失败', 'failed', 'invalid', '无可用'])) {

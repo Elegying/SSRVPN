@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:ssrvpn_shared/constants/app_constants.dart';
@@ -91,7 +95,7 @@ void main() {
     ]);
   });
 
-  test('checkLatest rejects an uncorroborated desktop OSS manifest', () async {
+  test('checkLatest exposes a GitHub outage so desktop can retry', () async {
     final requestedHosts = <String>[];
     final client = MockClient((request) async {
       requestedHosts.add(request.url.host);
@@ -112,17 +116,48 @@ void main() {
       return http.Response('GitHub unavailable', 503);
     });
 
-    final update = await UpdateChecker.checkLatest(
-      currentVersion: '3.0.0',
-      assetExtension: '.exe',
-      client: client,
+    await expectLater(
+      UpdateChecker.checkLatest(
+        currentVersion: '3.0.0',
+        assetExtension: '.exe',
+        client: client,
+      ),
+      throwsA(isA<HttpException>()),
     );
 
-    expect(update, isNull);
     expect(requestedHosts, [
       'nikuaimobi.oss-cn-qingdao.aliyuncs.com',
       'api.github.com',
     ]);
+  });
+
+  test('metadata timeout cancels the stalled response stream', () async {
+    final streamCancelled = Completer<void>();
+    final stalledStream = StreamController<List<int>>(
+      onCancel: streamCancelled.complete,
+    );
+    addTearDown(stalledStream.close);
+    final client = _StreamClient((request) async {
+      if (request.url == UpdateChecker.primaryManifestUrl) {
+        return http.StreamedResponse(stalledStream.stream, 200);
+      }
+      return http.StreamedResponse(
+        Stream<List<int>>.value(
+          utf8.encode('{"tag_name":"v3.4.6","assets":[]}'),
+        ),
+        200,
+      );
+    });
+
+    final update = await UpdateChecker.checkLatest(
+      currentVersion: '3.4.6',
+      assetExtension: '.apk',
+      client: client,
+      timeout: const Duration(milliseconds: 20),
+    );
+
+    expect(update, isNull);
+    await streamCancelled.future.timeout(const Duration(seconds: 1));
   });
 
   test('checkLatest uses GitHub when the desktop OSS digest differs', () async {
@@ -642,4 +677,15 @@ void main() {
 
     expect(update, isNull);
   });
+}
+
+class _StreamClient extends http.BaseClient {
+  _StreamClient(this._handler);
+
+  final Future<http.StreamedResponse> Function(http.BaseRequest request)
+      _handler;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      _handler(request);
 }

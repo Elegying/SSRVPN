@@ -66,6 +66,8 @@ Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; Flags: dontcopy
 Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "{#ProjectDir}\installer\proxy_transaction_state.ps1"; Flags: dontcopy
 Source: "{#ProjectDir}\installer\proxy_transaction_state.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
+Source: "{#ProjectDir}\installer\tun_ownership.ps1"; Flags: dontcopy
+Source: "{#ProjectDir}\installer\tun_ownership.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
@@ -304,6 +306,7 @@ end;
 function StopSsrvpnProcesses: Integer;
 begin
   ExtractTemporaryFile('proxy_transaction_state.ps1');
+  ExtractTemporaryFile('tun_ownership.ps1');
   ExtractTemporaryFile('stop_ssrvpn_processes.ps1');
   Result := RunStopSsrvpnProcesses(
     ExpandConstant('{tmp}\stop_ssrvpn_processes.ps1'), False);

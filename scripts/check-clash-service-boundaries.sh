@@ -53,8 +53,12 @@ if len(subscription_source.splitlines()) > 800:
     raise SystemExit(f"{subscription_base}: subscription orchestration boundary regressed")
 if "subscription_node_codec.dart" not in subscription_source:
     raise SystemExit(f"{subscription_base}: node codec responsibility is not delegated")
+if "subscription_header_name_parser.dart" not in subscription_source:
+    raise SystemExit(f"{subscription_base}: header parsing responsibility is not delegated")
 if "_cleanJsonMap" in subscription_source:
     raise SystemExit(f"{subscription_base}: node normalization leaked back into orchestration")
+if "_cleanSubscriptionHeaderName" in subscription_source:
+    raise SystemExit(f"{subscription_base}: header parsing leaked back into orchestration")
 
 macos_settings = Path("SSRVPN_MacOS/lib/services/settings_service.dart")
 macos_settings_source = macos_settings.read_text(encoding="utf-8")

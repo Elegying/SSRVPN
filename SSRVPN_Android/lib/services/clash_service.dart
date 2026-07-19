@@ -226,6 +226,22 @@ class ClashService extends ClashServiceBase {
     );
   }
 
+  Future<String> generateClashConfigAsync(
+    String rawYaml,
+    AppSettings settings, {
+    String? preferredNodeName,
+  }) {
+    return buildClashConfigAsync(
+      rawYaml,
+      settings,
+      preferredNodeName: preferredNodeName,
+      platformHeader: '# ===== SSRVPN Android =====',
+      tunConfig: _androidTunConfig(settings),
+      latencyTestUrl: settings.latencyTestUrl,
+      includeGeoIpRules: _geoipDatabaseExists(),
+    );
+  }
+
   Future<String> writeConfig(String configContent) async {
     final revision = ++_configRevision;
     final path = '$configDir/config-'
@@ -249,7 +265,7 @@ class ClashService extends ClashServiceBase {
     int? expectedSessionGeneration,
   }) async {
     updateSettings(settings);
-    final config = generateClashConfig(
+    final config = await generateClashConfigAsync(
       rawYaml,
       settings,
       preferredNodeName: nodeName,
@@ -321,25 +337,15 @@ class ClashService extends ClashServiceBase {
       await Directory('$configDir/tmp').create(recursive: true);
       _ensureStartCurrent(startToken);
 
+      // Android owns the VPN permission flow. Keep this Future pending until
+      // the user answers instead of imposing a Dart-side deadline.
       final result = await _channel.invokeMethod<Object?>('startCoreWithVpn', {
         'configDir': configDir,
         'configPath': startConfigPath,
         'apiPort': settings.apiPort,
         'apiSecret': settings.apiSecret,
         'nodeName': nodeName,
-      }).timeout(
-        const Duration(seconds: 55),
-        onTimeout: () async {
-          try {
-            await _channel
-                .invokeMethod('stopCore')
-                .timeout(const Duration(seconds: 5), onTimeout: () => null);
-          } catch (_) {}
-          setRunning(false);
-          await _notifyNativeStateChange();
-          throw TimeoutException('设备性能不足，请重新连接');
-        },
-      );
+      });
       _ensureStartCurrent(startToken);
 
       final returnedState = await _parseNativeConnectionState(result);
@@ -395,16 +401,9 @@ class ClashService extends ClashServiceBase {
       if (e.code == 'PERMISSION_DENIED') {
         log('⚠️ 用户拒绝了 VPN 权限');
         setLastStartError('用户拒绝了 VPN 权限');
-      } else if (msg == '设备性能不足，请重新连接') {
-        setLastStartError(msg);
       } else {
         setLastStartError(msg);
       }
-      return false;
-    } on TimeoutException catch (e) {
-      final msg = e.message ?? '设备性能不足，请重新连接';
-      log('❌ $msg');
-      setLastStartError(msg);
       return false;
     } catch (e, stack) {
       log('❌ 启动异常: $e');

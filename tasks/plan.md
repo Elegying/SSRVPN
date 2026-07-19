@@ -64,3 +64,66 @@ verify a formal free-distribution release. The critical outcomes are:
 - [x] `v3.4.0` Release is public and all assets/checksums/provenance verify.
 - [x] OSS fixed aliases and website paths download the same `v3.4.0` artifacts.
 - [x] Rollback to `v3.3.5` remains operational if release validation fails.
+
+---
+
+# Implementation Record: 2026-07-20 User-Journey Reliability Fixes
+
+## Objective
+
+Fix every confirmed issue from the 2026-07-20 three-platform user-journey
+review, then complete a fresh five-axis and adversarial review. Preserve the
+explicit product boundaries: HTTP subscription policy is unchanged, Windows
+remains installer-only and unsigned, and all platforms retain only Home and
+Subscriptions.
+
+## Architecture Decisions
+
+- Make subscription deletion transactional: a failed refresh of the remaining
+  sources must roll the deletion back and preserve the last-known-good state.
+- Give refresh and latency work explicit operation generations and cancellation
+  boundaries so stale asynchronous results cannot mutate current UI state.
+- Preserve proxy recovery fail-safe behavior on desktop platforms; improve
+  visibility and retry behavior without killing a core that is still protecting
+  an owned system-proxy endpoint.
+- Reuse the canonical subscription URL redactor and existing update-verification
+  pipeline; add no dependency for these fixes.
+- Move only measured large YAML/config work off the Flutter UI isolate while
+  retaining small-input behavior and deterministic output.
+
+## Phases and Checkpoints
+
+1. Add regression tests and repair subscription deletion, batch refresh
+   deadline/cancellation, and partial-failure preservation.
+2. Add operation generations/cancellation for Android and desktop batch latency
+   tests, including stale same-name node protection.
+3. Repair Android permission/privacy/update paths, Windows installer/launcher
+   ownership paths, and macOS recovery/exit visibility in isolated platform
+   slices.
+4. Repair shared crash-report handling, update discovery, network guidance, and
+   measured large-subscription UI-isolate work.
+5. Run targeted suites after every slice, then `make verify`, platform-native
+   gates, structural/security guards, performance benchmarks, dead-code scans,
+   and a fresh-context adversarial review.
+
+## Risks and Mitigations
+
+| Risk | Mitigation |
+| --- | --- |
+| Cancelled refresh completes late and overwrites newer state | Operation generation checked before every shared-state commit |
+| Delete rollback leaves metadata/cache split | Defer persistence until refresh commit; test disk and memory state |
+| Latency cancellation leaks old callbacks | Generation-scoped result sink plus stale-completion tests |
+| Windows ignores a real SSRVPN TUN residue | Require stronger ownership evidence and retain fail-closed owned-residue tests |
+| macOS visible recovery change weakens proxy safety | Keep existing restore-before-kill rule; test retry and failed-exit behavior |
+| Isolate conversion changes generated YAML | Compare byte-for-byte output in unit tests and rerun benchmarks |
+
+## Acceptance
+
+- [x] Every confirmed finding has a regression test or target-platform guard.
+- [x] Targeted tests pass after each incremental slice.
+- [x] Repository-wide verification, coverage gates, and native tests pass.
+- [x] Final five-axis and adversarial reviews have no Critical or Required issue.
+- [x] Working tree contains only intentional source/test/documentation changes.
+- [x] At the original review checkpoint, no commit, push, tag, release, or
+  release artifact build was performed; the user's later explicit publication
+  request supersedes that temporary delivery boundary.

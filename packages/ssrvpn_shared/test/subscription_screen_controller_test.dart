@@ -6,6 +6,7 @@ import 'package:ssrvpn_shared/models/proxy_group.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/models/subscription.dart';
 import 'package:ssrvpn_shared/services/subscription_parser.dart';
+import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:ssrvpn_shared/services/subscription_service_base.dart';
 import 'package:test/test.dart';
 
@@ -151,6 +152,45 @@ void main() {
       expect(result.shouldShowNetworkHelp, isFalse);
     });
 
+    test('refresh forwards cancellation and reports user cancellation',
+        () async {
+      final cancellation = SubscriptionRefreshCancellation()..cancel();
+      final service = _FakeSubscriptionService(
+        refreshError: const SubscriptionRefreshCancelled(),
+      );
+      final controller = SubscriptionScreenController(
+        subscriptionService: service,
+      );
+
+      final result = await controller.refreshAll(
+        cancellation: cancellation,
+        timeout: const Duration(seconds: 9),
+      );
+
+      expect(result.status, SubscriptionRefreshStatus.cancelled);
+      expect(result.message, '刷新已取消');
+      expect(result.shouldShowNetworkHelp, isFalse);
+      expect(service.receivedCancellation, same(cancellation));
+      expect(service.receivedTimeout, const Duration(seconds: 9));
+    });
+
+    test('batch deadline has a specific actionable error', () async {
+      final controller = SubscriptionScreenController(
+        subscriptionService: _FakeSubscriptionService(
+          refreshError: const SubscriptionRefreshDeadlineExceeded(
+            Duration(seconds: 30),
+          ),
+        ),
+      );
+
+      final result = await controller.refreshAll();
+
+      expect(result.status, SubscriptionRefreshStatus.failure);
+      expect(result.message, contains('总时限'));
+      expect(result.message, contains('失效订阅'));
+      expect(result.shouldShowNetworkHelp, isFalse);
+    });
+
     test('delete stops clash when no nodes remain', () async {
       final service = _FakeSubscriptionService(
         subscriptions: [
@@ -268,7 +308,7 @@ void main() {
       expect(stopped, isTrue);
     });
 
-    test('desktop-style delete can continue after refresh failure', () async {
+    test('delete failure never reports a committed removal', () async {
       final service = _FakeSubscriptionService(
         subscriptions: [
           Subscription(id: 'sub-1', name: 'A', url: 'https://example.com'),
@@ -283,11 +323,9 @@ void main() {
         'sub-1',
         clashRunning: false,
         stopClash: null,
-        continueAfterRefreshFailure: true,
       );
 
-      expect(result.removed, isTrue);
-      expect(result.remainingRefreshFailed, isTrue);
+      expect(result.removed, isFalse);
       expect(result.error, isA<Exception>());
     });
   });
@@ -314,6 +352,8 @@ class _FakeSubscriptionService implements SubscriptionScreenServicePort {
   Object? refreshError;
   Object? removeError;
   final addedUrls = <String>[];
+  SubscriptionRefreshCancellation? receivedCancellation;
+  Duration? receivedTimeout;
 
   @override
   List<Subscription> get subscriptions => List.unmodifiable(_subscriptions);
@@ -367,8 +407,12 @@ class _FakeSubscriptionService implements SubscriptionScreenServicePort {
   }
 
   @override
-  Future<SubscriptionBatchRefreshResult>
-      refreshAllSubscriptionsDetailed() async {
+  Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed({
+    SubscriptionRefreshCancellation? cancellation,
+    Duration timeout = SubscriptionServiceBase.defaultBatchRefreshTimeout,
+  }) async {
+    receivedCancellation = cancellation;
+    receivedTimeout = timeout;
     if (refreshError != null) throw refreshError!;
     return refreshOutcome ??
         SubscriptionBatchRefreshResult(

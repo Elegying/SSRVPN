@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:ssrvpn_shared/services/subscription_service_base.dart';
+import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:ssrvpn_shared/models/subscription.dart';
 import 'package:ssrvpn_shared/utils/bounded_yaml.dart';
 import 'package:test/test.dart';
@@ -150,6 +151,21 @@ proxies:
       );
     });
 
+    test('large merge and parse yields the UI event queue before caching',
+        () async {
+      service.response = _largeYaml(3000);
+      var heartbeat = false;
+      service.cacheProbe = () => heartbeat;
+      Timer.run(() => heartbeat = true);
+
+      await service.refreshAllSubscriptions();
+
+      expect(service.response!.length,
+          greaterThan(SubscriptionServiceBase.processingIsolateThreshold));
+      expect(service.cacheProbeResult, isTrue);
+      expect(service.allNodes, hasLength(3000));
+    });
+
     test('partial fetch returns details and preserves the last valid state',
         () async {
       await service.addSubscription(
@@ -196,6 +212,55 @@ proxies:
       );
     });
 
+    test(
+        'deleting one subscription rolls back when every remaining source fails',
+        () async {
+      final removed = service.subscriptions.single;
+      await service.addSubscription(
+        'Backup',
+        'https://backup.example.com/sub',
+      );
+      originalState = _ServiceSnapshot.capture(service);
+      service.responses = {
+        'https://backup.example.com/sub': Exception('temporary timeout'),
+      };
+
+      await expectLater(
+        service.removeSubscription(removed.id),
+        throwsA(anything),
+      );
+
+      originalState.expectUnchanged(service);
+      expect(service.cachedYaml, originalState.rawYaml);
+    });
+
+    test(
+        'deleting one subscription rolls back when remaining refresh is partial',
+        () async {
+      final removed = service.subscriptions.single;
+      await service.addSubscription(
+        'Backup A',
+        'https://backup-a.example.com/sub',
+      );
+      await service.addSubscription(
+        'Backup B',
+        'https://backup-b.example.com/sub',
+      );
+      originalState = _ServiceSnapshot.capture(service);
+      service.responses = {
+        'https://backup-a.example.com/sub': _yamlFor('Fresh Backup'),
+        'https://backup-b.example.com/sub': Exception('temporary timeout'),
+      };
+
+      await expectLater(
+        service.removeSubscription(removed.id),
+        throwsA(isA<SubscriptionPartialRefreshException>()),
+      );
+
+      originalState.expectUnchanged(service);
+      expect(service.cachedYaml, originalState.rawYaml);
+    });
+
     test('concurrent refreshes commit in request order', () async {
       final firstResponse = Completer<String?>();
       service.queuedResponses = [
@@ -211,6 +276,216 @@ proxies:
       await Future.wait([first, second]);
 
       expect(service.allNodes.map((node) => node.name), ['Newest Node']);
+    });
+
+    test('queued refresh deadline starts at public invocation', () async {
+      final firstResponse = Completer<String?>();
+      service.queuedResponses = [firstResponse.future];
+
+      final first = service.refreshAllSubscriptions();
+      await Future<void>.delayed(Duration.zero);
+      final second = service.refreshAllSubscriptionsDetailed(
+        timeout: const Duration(milliseconds: 20),
+      );
+
+      await expectLater(
+        second.timeout(const Duration(seconds: 1)),
+        throwsA(isA<SubscriptionRefreshDeadlineExceeded>()),
+      );
+      expect(service.fetchCalls, 1);
+
+      firstResponse.complete(_yamlFor('First Node'));
+      await first;
+      await service.addSubscription('Queue drain', 'ss://drain');
+      expect(service.fetchCalls, 1);
+    });
+
+    test('queued refresh cancellation completes before queue admission',
+        () async {
+      final firstResponse = Completer<String?>();
+      service.queuedResponses = [firstResponse.future];
+      final cancellation = SubscriptionRefreshCancellation();
+
+      final first = service.refreshAllSubscriptions();
+      await Future<void>.delayed(Duration.zero);
+      final second = service.refreshAllSubscriptionsDetailed(
+        cancellation: cancellation,
+      );
+      cancellation.cancel();
+
+      await expectLater(
+        second.timeout(const Duration(seconds: 1)),
+        throwsA(isA<SubscriptionRefreshCancelled>()),
+      );
+      expect(service.fetchCalls, 1);
+
+      firstResponse.complete(_yamlFor('First Node'));
+      await first;
+      await service.addSubscription('Queue drain', 'ss://drain');
+      expect(service.fetchCalls, 1);
+    });
+
+    test('add waits for an in-flight refresh before changing subscriptions',
+        () async {
+      final fetchStarted = Completer<void>();
+      final response = Completer<String?>();
+      service
+        ..fetchStarted = fetchStarted
+        ..queuedResponses = [response.future];
+
+      final refresh = service.refreshAllSubscriptions();
+      await fetchStarted.future;
+      var addCompleted = false;
+      final add = service
+          .addSubscription('Queued', 'https://queued.example.com/sub')
+          .whenComplete(() => addCompleted = true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(addCompleted, isFalse);
+      expect(service.subscriptions.map((sub) => sub.name), ['Primary']);
+
+      response.complete(_yamlFor('Refreshed Node'));
+      await refresh;
+      await add;
+
+      expect(
+        service.subscriptions.map((sub) => sub.name),
+        ['Primary', 'Queued'],
+      );
+      expect(service.allNodes.map((node) => node.name), ['Refreshed Node']);
+    });
+
+    test('remove waits for an in-flight refresh and then refreshes survivors',
+        () async {
+      final removed = await service.addSubscription(
+        'Backup',
+        'https://backup.example.com/sub',
+      );
+      final fetchStarted = Completer<void>();
+      final firstResponse = Completer<String?>();
+      service
+        ..fetchStarted = fetchStarted
+        ..queuedResponses = [
+          firstResponse.future,
+          Future<String?>.value(_yamlFor('Backup During Refresh')),
+          Future<String?>.value(_yamlFor('Survivor After Removal')),
+        ];
+
+      final refresh = service.refreshAllSubscriptions();
+      await fetchStarted.future;
+      var removeCompleted = false;
+      final remove = service
+          .removeSubscription(removed.id)
+          .whenComplete(() => removeCompleted = true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(removeCompleted, isFalse);
+      expect(service.subscriptions, hasLength(2));
+
+      firstResponse.complete(_yamlFor('Primary During Refresh'));
+      await refresh;
+      await remove;
+
+      expect(service.subscriptions.map((sub) => sub.name), ['Primary']);
+      expect(
+        service.allNodes.map((node) => node.name),
+        ['Survivor After Removal'],
+      );
+    });
+
+    test('update waits for an in-flight refresh before replacing metadata',
+        () async {
+      final fetchStarted = Completer<void>();
+      final response = Completer<String?>();
+      service
+        ..fetchStarted = fetchStarted
+        ..queuedResponses = [response.future];
+
+      final refresh = service.refreshAllSubscriptions();
+      await fetchStarted.future;
+      final original = service.subscriptions.single;
+      var updateCompleted = false;
+      final update = service
+          .updateSubscription(
+            Subscription(
+              id: original.id,
+              name: 'Updated after refresh',
+              url: 'https://updated.example.com/sub',
+            ),
+          )
+          .whenComplete(() => updateCompleted = true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(updateCompleted, isFalse);
+      expect(service.subscriptions.single.name, 'Primary');
+
+      response.complete(_yamlFor('Refreshed Before Update'));
+      await refresh;
+      await update;
+
+      expect(service.subscriptions.single.name, 'Updated after refresh');
+      expect(
+        service.allNodes.map((node) => node.name),
+        ['Refreshed Before Update'],
+      );
+    });
+
+    test('cancelling a batch preserves the last valid state', () async {
+      final response = Completer<String?>();
+      service.queuedResponses = [response.future];
+      final cancellation = SubscriptionRefreshCancellation();
+
+      final refresh = service.refreshAllSubscriptionsDetailed(
+        cancellation: cancellation,
+        timeout: const Duration(seconds: 1),
+      );
+      await Future<void>.delayed(Duration.zero);
+      cancellation.cancel();
+
+      await expectLater(
+        refresh,
+        throwsA(isA<SubscriptionRefreshCancelled>()),
+      );
+      originalState.expectUnchanged(service);
+      response.complete(_yamlFor('Late Node'));
+      await Future<void>.delayed(Duration.zero);
+      originalState.expectUnchanged(service);
+    });
+
+    test('batch deadline preserves the last valid state', () async {
+      service.queuedResponses = [Completer<String?>().future];
+
+      await expectLater(
+        service.refreshAllSubscriptionsDetailed(
+          timeout: const Duration(milliseconds: 20),
+        ),
+        throwsA(isA<SubscriptionRefreshDeadlineExceeded>()),
+      );
+
+      originalState.expectUnchanged(service);
+    });
+
+    test('cancellation after the cache commit point finishes consistently',
+        () async {
+      final cacheStarted = Completer<void>();
+      final releaseCache = Completer<void>();
+      service
+        ..response = _yamlFor('Committed Node')
+        ..cacheWriteStarted = cacheStarted
+        ..cacheWriteRelease = releaseCache;
+      final cancellation = SubscriptionRefreshCancellation();
+
+      final refresh = service.refreshAllSubscriptionsDetailed(
+        cancellation: cancellation,
+      );
+      await cacheStarted.future;
+      cancellation.cancel();
+      releaseCache.complete();
+
+      final result = await refresh;
+      expect(result.status, SubscriptionBatchRefreshStatus.success);
+      expect(service.allNodes.map((node) => node.name), ['Committed Node']);
+      expect(service.cachedYaml, service.rawYaml);
     });
 
     test('failed add does not leak an unsaved subscription into memory',
@@ -246,6 +521,19 @@ proxies:
     test('failed remove restores the removed subscription', () async {
       final id = service.subscriptions.single.id;
       service.failMetadataWrites = true;
+
+      await expectLater(
+        service.removeSubscription(id),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      originalState.expectUnchanged(service);
+    });
+
+    test('failed last-subscription cache clear rolls back the removal',
+        () async {
+      final id = service.subscriptions.single.id;
+      service.failCacheClears = true;
 
       await expectLater(
         service.removeSubscription(id),
@@ -301,6 +589,20 @@ ${includeGroup ? '''proxy-groups:
       - $name
 ''' : ''}''';
 
+String _largeYaml(int count) {
+  final buffer = StringBuffer('proxies:\n');
+  for (var index = 0; index < count; index++) {
+    buffer
+      ..writeln('  - name: Node $index')
+      ..writeln('    type: ss')
+      ..writeln('    server: node-$index.example.com')
+      ..writeln('    port: 443')
+      ..writeln('    cipher: aes-256-gcm')
+      ..writeln('    password: secret-$index');
+  }
+  return buffer.toString();
+}
+
 class _FakeSubscriptionService extends SubscriptionServiceBase {
   String? response;
   Map<String, Object?>? responses;
@@ -310,9 +612,23 @@ class _FakeSubscriptionService extends SubscriptionServiceBase {
   bool failCacheWrites = false;
   bool failMetadataWrites = false;
   bool failOldYamlCacheWrites = false;
+  bool failCacheClears = false;
+  bool Function()? cacheProbe;
+  bool? cacheProbeResult;
+  Completer<void>? cacheWriteStarted;
+  Completer<void>? cacheWriteRelease;
+  Completer<void>? fetchStarted;
+  int fetchCalls = 0;
 
   @override
-  Future<String?> fetchSubscription(String url, {int maxRetries = 3}) async {
+  Future<String?> fetchSubscription(
+    String url, {
+    int maxRetries = 3,
+    SubscriptionRefreshControl? control,
+  }) async {
+    fetchCalls++;
+    final started = fetchStarted;
+    if (started != null && !started.isCompleted) started.complete();
     final profileName = fetchedProfileName;
     if (profileName != null) {
       recordSubscriptionResponseHeaders(url, {'profile-title': profileName});
@@ -334,7 +650,22 @@ class _FakeSubscriptionService extends SubscriptionServiceBase {
         (failOldYamlCacheWrites && yaml.contains('Old Node'))) {
       throw const FileSystemException('simulated cache write failure');
     }
+    if (yaml.contains('Committed Node')) {
+      final started = cacheWriteStarted;
+      if (started != null && !started.isCompleted) started.complete();
+      await cacheWriteRelease?.future;
+    }
+    final probe = cacheProbe;
+    if (probe != null) cacheProbeResult = probe();
     cachedYaml = yaml;
+  }
+
+  @override
+  Future<void> clearCachedNodes() async {
+    if (failCacheClears) {
+      throw const FileSystemException('simulated cache clear failure');
+    }
+    await super.clearCachedNodes();
   }
 
   @override

@@ -27,16 +27,23 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final HomeLatencyController _latencyController = HomeLatencyController();
   final Map<String, String> _exitCountryCodes = {};
   Timer? _latencyBatchTimer;
+  int? _latencyBatchGeneration;
+  int _singleLatencyGeneration = 0;
   Timer? _publicIpTimer;
   int _lastRevision = -1;
   int _publicIpGeneration = 0;
+  int _connectionStatusEpoch = 0;
   bool _disposed = false;
   bool _isResolvingExitCountries = false;
   bool _pendingExitCountryResolution = false;
   int _exitCountryResolveGeneration = 0;
   ClashService? _clashService;
+  late final VoidCallback _clashStatusListener = _handleClashStatusChanged;
   SubscriptionService? _subscriptionService;
   Timer? _updateCheckTimer;
+  bool _updateCheckInProgress = false;
+  bool _updateCheckCompleted = false;
+  int _updateCheckAttempts = 0;
   late AnimationController _glowController;
 
   @override
@@ -46,7 +53,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 3000),
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadInitialData());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _disposed) return;
+      unawaited(_loadInitialData());
+      _checkUpdateDelayed();
+    });
   }
 
   @override
@@ -80,6 +91,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       allNodes: subService.allNodes,
     );
     if (!sync.changed) return false;
+    _cancelLatencyBatch();
+    if (_isConnecting) {
+      (_clashService ?? context.read<ClashService>()).interruptPendingStart();
+    }
     _lastRevision = controller.lastRevision;
     _nodes = controller.nodes;
     final nodeNames = _nodes.map((node) => node.name).toSet();
@@ -99,304 +114,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return true;
   }
 
-  void _scheduleLatencyFlush() {
-    _latencyBatchTimer?.cancel();
-    _latencyBatchTimer = Timer(
-      const Duration(milliseconds: 100),
-      _flushPendingLatencies,
-    );
-  }
-
-  void _flushPendingLatencies() {
-    if (!_latencyController.hasPending || !mounted || _disposed) return;
-    setState(() {
-      _latencyController.flushTo(_nodes);
-    });
-  }
-
   @override
   void dispose() {
     _disposed = true;
-    _latencyBatchTimer?.cancel();
+    _cancelLatencyBatch();
     _publicIpTimer?.cancel();
     _updateCheckTimer?.cancel();
-    _clashService?.removeStatusListener(_handleClashStatusChanged);
+    _clashService?.removeStatusListener(_clashStatusListener);
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
     _glowController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadInitialData() async {
-    final subService = context.read<SubscriptionService>();
-    final clashService = context.read<ClashService>();
-    _clashService = clashService;
-    final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
-    final runtimeSelectedNode = clashService.isRunning
-        ? await _resolveRuntimeSelectedNode(clashService, nodes)
-        : null;
-    if (nodes.isNotEmpty) {
-      setState(() {
-        _nodes = nodes;
-        _lastRevision = subService.revision;
-        if (clashService.isRunning) _selectedNode = runtimeSelectedNode;
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(_autoTestAllNodes());
-      });
-    }
-    if (clashService.isRunning) {
-      setState(() => _isConnected = true);
-      _glowController.repeat();
-      _schedulePublicIpRefresh();
-    }
-
-    clashService.addStatusListener(_handleClashStatusChanged);
-
-    if (nodes.isEmpty) {
-      _maybeShowInitialSubscriptionDialog(subService);
-    }
-  }
-
-  void _handleClashStatusChanged() {
-    final clashService = _clashService;
-    if (clashService == null || !mounted || _disposed) return;
-    final running = clashService.isRunning;
-    final cancelledWhileConnecting =
-        _isConnecting && !clashService.connectionDesired;
-    if (_isConnected == running && !cancelledWhileConnecting) return;
-    setState(() {
-      _isConnected = running;
-      if (cancelledWhileConnecting) _isConnecting = false;
-      if (!running) {
-        _latencyController.clear();
-        _selectedNode = null;
-        _resetPublicIpState();
-        _exitCountryResolveGeneration++;
-        _glowController.stop();
-      } else {
-        _glowController.repeat();
-        _scheduleExitCountryResolution();
-        _schedulePublicIpRefresh();
-        unawaited(_syncSelectedNodeFromRuntime());
-      }
-    });
-  }
-
-  Future<void> _showInitialSubscriptionDialog() async {
-    if (_initialSubscriptionDialogInFlight) return;
-    _initialSubscriptionDialogInFlight = true;
-
-    final controller = TextEditingController();
-    String? inputError;
-    bool isSubmitting = false;
-
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        final isDark = Theme.of(dialogContext).brightness == Brightness.dark;
-        final titleColor =
-            isDark ? AppTheme.textPrimary : AppTheme.lightTextPrimary;
-        final subtitleColor =
-            isDark ? AppTheme.textSecondary : AppTheme.lightTextSecondary;
-
-        return StatefulBuilder(
-          builder: (builderContext, setDialogState) {
-            Future<void> submit() async {
-              final input = controller.text.trim();
-              final subService = builderContext.read<SubscriptionService>();
-              final settingsService = builderContext.read<SettingsService>();
-              final navigator = Navigator.of(dialogContext);
-              final messenger = ScaffoldMessenger.of(builderContext);
-              final validationError = _validateSubscriptionInput(
-                input,
-                subService,
-              );
-              if (validationError != null) {
-                setDialogState(() => inputError = validationError);
-                return;
-              }
-
-              setDialogState(() {
-                inputError = null;
-                isSubmitting = true;
-              });
-
-              try {
-                final exists = subService.subscriptions.any(
-                  (sub) => sub.url == input,
-                );
-                if (!exists) {
-                  await subService.addSubscription(
-                    subService.defaultSubscriptionName(input),
-                    input,
-                  );
-                }
-
-                final yaml = await subService.refreshAllSubscriptions();
-                final nodes = HomeNodeController.runnableNodesFrom(
-                  subService.allNodes,
-                );
-                if (yaml == null || yaml.trim().isEmpty || nodes.isEmpty) {
-                  throw Exception('未获取到可用节点');
-                }
-
-                if (!mounted || _disposed) return;
-                setState(() {
-                  _nodes = nodes;
-                  _lastRevision = subService.revision;
-                  _selectedNode = _resolveDefaultNode(
-                    nodes,
-                    settingsService.settings.lastSelectedNodeName,
-                  );
-                });
-                unawaited(_autoTestAllNodes());
-
-                if (navigator.canPop()) navigator.pop();
-                messenger.showSnackBar(
-                  SnackBar(
-                    behavior: SnackBarBehavior.floating,
-                    content: Text('节点已更新，获取到 ${nodes.length} 个节点'),
-                    backgroundColor: AppTheme.success,
-                  ),
-                );
-              } catch (e) {
-                if (!mounted || _disposed) return;
-                final msg = e.toString().replaceFirst('Exception: ', '');
-                setDialogState(() {
-                  inputError = '更新失败: $msg';
-                  isSubmitting = false;
-                });
-              }
-            }
-
-            return Dialog(
-              backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: AppTheme.primary.withValues(
-                                alpha: 22 / 255,
-                              ),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(
-                              Icons.rss_feed_rounded,
-                              color: AppTheme.primary,
-                              size: 22,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              '添加订阅',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                                color: titleColor,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      Text(
-                        '请粘贴你的SSR代码或订阅链接',
-                        style: TextStyle(fontSize: 13, color: subtitleColor),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: controller,
-                        minLines: 1,
-                        maxLines: 4,
-                        enabled: !isSubmitting,
-                        decoration: InputDecoration(
-                          hintText: 'ssr:// 或 https://...',
-                          prefixIcon: const Icon(Icons.link_rounded),
-                          errorText: inputError,
-                          filled: true,
-                          fillColor: isDark
-                              ? Colors.white.withValues(alpha: 6 / 255)
-                              : Colors.black.withValues(alpha: 4 / 255),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                              color: isDark
-                                  ? AppTheme.border
-                                  : AppTheme.lightBorder,
-                            ),
-                          ),
-                        ),
-                        keyboardType: TextInputType.url,
-                        onSubmitted: (_) {
-                          if (!isSubmitting) submit();
-                        },
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextButton(
-                              onPressed: isSubmitting
-                                  ? null
-                                  : () => Navigator.of(dialogContext).pop(),
-                              child: const Text('取消'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: isSubmitting ? null : submit,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppTheme.primary,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                              child: isSubmitting
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Text('确定'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-    _initialSubscriptionDialogInFlight = false;
-
-    controller.dispose();
   }
 
   void _maybeShowInitialSubscriptionDialog(SubscriptionService subService) {
@@ -441,7 +168,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     try {
       if (wasConnected) {
         clashService.requestConnectionIntent(false);
-        await clashService.stop();
+        clashService.interruptPendingStart();
+        await clashService.runConnectionTransition(clashService.stop);
         _resetPublicIpState();
       }
 
@@ -533,8 +261,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     if (_isConnecting) {
       clashService.requestConnectionIntent(false);
+      clashService.interruptPendingStart();
       try {
-        await clashService.stop();
+        await clashService.runConnectionTransition(clashService.stop);
       } catch (error, stack) {
         recordDesktopConnectionFailure(
           '取消连接失败',
@@ -565,12 +294,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     if (_isConnected) {
       clashService.requestConnectionIntent(false);
+      clashService.interruptPendingStart();
       setState(() {
         _isConnecting = true;
         _errorMessage = null;
       });
       try {
-        await clashService.stop();
+        await clashService.runConnectionTransition(clashService.stop);
         if (!mounted || _disposed) return;
         setState(() {
           _isConnected = false;
@@ -617,6 +347,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           }
           if (!recovered) {
             clashService.requestConnectionIntent(false);
+            clashService.interruptPendingStart();
             final reason = clashService.lastStartError ?? '系统代理旧状态恢复失败';
             recordDesktopConnectionFailure(
               'System proxy recovery failed: $reason',
@@ -632,6 +363,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final rawYaml = subService.rawYaml;
         if (rawYaml == null || rawYaml.isEmpty) {
           clashService.requestConnectionIntent(false);
+          clashService.interruptPendingStart();
           setState(() {
             _errorMessage = '请先添加并刷新订阅';
             _isConnecting = false;
@@ -639,11 +371,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           });
           return;
         }
+        final subscriptionRevision = subService.revision;
+
         final nodes = HomeNodeController.runnableNodesFrom(
           subService.allNodes,
         );
         if (nodes.isEmpty) {
           clashService.requestConnectionIntent(false);
+          clashService.interruptPendingStart();
           setState(() {
             _errorMessage = '订阅中没有可用节点，请刷新订阅';
             _isConnecting = false;
@@ -655,137 +390,158 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           nodes,
           settingsService.settings.lastSelectedNodeName,
         );
-        final runtimeSettings = await clashService.prepareForStart(
-          settingsService.settings,
-        );
-        final portAdjustmentNotice =
-            clashService.lastRuntimePortAdjustmentMessage;
-        final config = clashService.generateClashConfig(
-          rawYaml,
-          runtimeSettings,
-          preferredNodeName: autoSelect?.name,
-        );
-        await clashService.writeConfig(config);
-        if (!clashService.isConnectionIntentCurrent(
-          connectionGeneration,
-          connected: true,
-        )) {
-          return;
-        }
-        final success = await clashService.start();
-        if (!clashService.isConnectionIntentCurrent(
-          connectionGeneration,
-          connected: true,
-        )) {
-          return;
-        }
         ProxyNode? runtimeSelectedNode;
-        if (!mounted) return;
-        if (success) {
-          if (autoSelect != null) {
-            final switched = await clashService.switchSelectedProxy(
-              autoSelect.name,
-            );
-            runtimeSelectedNode = await _resolveRuntimeSelectedNode(
-              clashService,
-              nodes,
-            );
-            if (switched && runtimeSelectedNode?.name == autoSelect.name) {
-              await _rememberSelectedNode(autoSelect);
-            }
-          } else {
-            runtimeSelectedNode = await _resolveRuntimeSelectedNode(
-              clashService,
-              nodes,
-            );
-          }
-          if (!clashService.isRunning ||
-              !clashService.isConnectionIntentCurrent(
-                connectionGeneration,
-                connected: true,
-              )) {
-            if (!clashService.isConnectionIntentCurrent(
-              connectionGeneration,
-              connected: true,
-            )) {
-              return;
-            }
-            if (mounted && !_disposed) {
-              setState(() {
-                _isConnected = false;
-                _isConnecting = false;
-                _selectedNode = null;
-                _resetPublicIpState();
-              });
-            }
-            return;
-          }
-          setState(() {
-            _isConnected = true;
-            _isConnecting = false;
-            _errorMessage = null;
-            _nodes = nodes;
-            _selectedNode = runtimeSelectedNode;
-          });
-          _glowController.repeat();
-          _showRuntimePortAdjustmentNotice(portAdjustmentNotice);
-          _scheduleExitCountryResolution();
-          _schedulePublicIpRefresh();
-          unawaited(_autoTestAllNodes());
-          _checkUpdateDelayed();
-
-          // Core/API/system proxy success is the user-visible connection
-          // boundary. Connectivity probing is advisory and must not leave the
-          // UI looking stuck on slower or probe-blocking networks.
-          final connectivityWarning = await clashService.verifyUserConnectivity(
-            shouldContinue: () => clashService.isConnectionIntentCurrent(
+        final connectionResult = await clashService.runConnectionTransition(
+          () => const DesktopConnectionCoordinator().connect(
+            preferredSettings: settingsService.settings,
+            prepareForStart: clashService.prepareForStart,
+            generateConfig: (runtimeSettings) =>
+                clashService.generateClashConfigAsync(
+              rawYaml,
+              runtimeSettings,
+              preferredNodeName: autoSelect?.name,
+            ),
+            writeConfig: clashService.writeConfig,
+            start: clashService.start,
+            stop: clashService.stop,
+            isRevisionCurrent: () =>
+                subService.revision == subscriptionRevision,
+            isIntentCurrent: () => clashService.isConnectionIntentCurrent(
               connectionGeneration,
               connected: true,
             ),
+            shouldRollbackStaleIntent: () => !clashService.connectionDesired,
+            cancelIntent: () {
+              clashService.requestConnectionIntent(false);
+              clashService.interruptPendingStart();
+            },
+            readStartFailureReason: () => clashService.lastStartError,
+            readRuntimeNotice: () =>
+                clashService.lastRuntimePortAdjustmentMessage,
+            switchPreferredNode: () async {
+              if (autoSelect != null) {
+                final switched = await clashService.switchSelectedProxy(
+                  autoSelect.name,
+                );
+                runtimeSelectedNode = await _resolveRuntimeSelectedNode(
+                  clashService,
+                  nodes,
+                );
+                return switched;
+              }
+              runtimeSelectedNode = await _resolveRuntimeSelectedNode(
+                clashService,
+                nodes,
+              );
+              return true;
+            },
+          ),
+        );
+        if (connectionResult.failure == DesktopConnectionFailure.cancelled) {
+          return;
+        }
+        if (connectionResult.failure ==
+            DesktopConnectionFailure.subscriptionChanged) {
+          throw StateError(
+            connectionResult.failureReason ?? desktopSubscriptionChangedMessage,
           );
-          if (!mounted ||
-              _disposed ||
-              !clashService.isRunning ||
-              !clashService.isConnectionIntentCurrent(
-                connectionGeneration,
-                connected: true,
-              )) {
-            return;
-          }
-          setState(() => _errorMessage = connectivityWarning);
-        } else {
-          final isCurrent = clashService.isConnectionIntentCurrent(
-            connectionGeneration,
-            connected: true,
-          );
-          if (!isCurrent) return;
-          clashService.requestConnectionIntent(false);
-          final reason = clashService.lastStartError ?? '无法启动核心';
+        }
+        if (!connectionResult.connected) {
+          final reason = connectionResult.failureReason ?? '无法启动核心';
           recordDesktopConnectionFailure(
             'Connection failed: $reason',
             expected: AppFailure.fromMessage(reason).code ==
                 AppErrorCode.permissionRequired,
           );
+          if (!mounted || _disposed) return;
           setState(() {
-            _errorMessage = '连接失败: $reason';
+            _isConnected = false;
             _isConnecting = false;
+            _errorMessage = '连接失败: $reason';
             _resetPublicIpState();
           });
+          return;
         }
+        if (autoSelect != null &&
+            connectionResult.preferredNodeSwitchSucceeded == true &&
+            runtimeSelectedNode?.name == autoSelect.name &&
+            clashService.isRunning &&
+            subService.revision == subscriptionRevision &&
+            clashService.isConnectionIntentCurrent(
+              connectionGeneration,
+              connected: true,
+            )) {
+          await _rememberSelectedNode(autoSelect);
+        }
+        if (!mounted || _disposed) return;
+        if (!clashService.isRunning ||
+            !clashService.isConnectionIntentCurrent(
+              connectionGeneration,
+              connected: true,
+            )) {
+          if (mounted && !_disposed) {
+            setState(() {
+              _isConnected = false;
+              _isConnecting = false;
+              _selectedNode = null;
+              _resetPublicIpState();
+            });
+          }
+          return;
+        }
+        setState(() {
+          _isConnected = true;
+          _isConnecting = false;
+          _errorMessage = null;
+          _nodes = nodes;
+          _selectedNode = runtimeSelectedNode;
+        });
+        _glowController.repeat();
+        _showRuntimePortAdjustmentNotice(connectionResult.runtimeNotice);
+        _scheduleExitCountryResolution();
+        _schedulePublicIpRefresh();
+        unawaited(_autoTestAllNodes());
+        _checkUpdateDelayed();
+
+        // Core/API/system proxy success is the user-visible connection
+        // boundary. Connectivity probing is advisory and must not leave the
+        // UI looking stuck on slower or probe-blocking networks.
+        final connectivityWarning = await clashService.verifyUserConnectivity(
+          shouldContinue: () => clashService.isConnectionIntentCurrent(
+            connectionGeneration,
+            connected: true,
+          ),
+        );
+        if (!mounted ||
+            _disposed ||
+            !clashService.isRunning ||
+            !clashService.isConnectionIntentCurrent(
+              connectionGeneration,
+              connected: true,
+            )) {
+          return;
+        }
+        setState(() => _errorMessage = connectivityWarning);
       } catch (e, stack) {
         final isCurrent = clashService.isConnectionIntentCurrent(
           requestedGeneration,
           connected: true,
         );
-        if (!isCurrent) return;
-        clashService.requestConnectionIntent(false);
+        if (!isCurrent && clashService.connectionDesired) return;
+        if (isCurrent) {
+          clashService.requestConnectionIntent(false);
+          clashService.interruptPendingStart();
+        }
         recordDesktopConnectionFailure(
           'Connection failed',
           error: e,
           stack: stack,
         );
         if (!mounted) return;
-        final msg = e.toString().replaceFirst('Exception: ', '');
+        final msg = e
+            .toString()
+            .replaceFirst('Exception: ', '')
+            .replaceFirst('Bad state: ', '');
         setState(() {
           _errorMessage = '连接失败: $msg';
           _isConnecting = false;

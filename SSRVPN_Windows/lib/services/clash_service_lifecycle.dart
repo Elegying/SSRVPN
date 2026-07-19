@@ -343,6 +343,7 @@ exit 4
   Future<ProcessResult> _runPowerShell(
     String script, {
     Duration timeout = const Duration(seconds: 10),
+    Future<void>? cancellation,
   }) =>
       TimedProcessRunner.run(
         windowsPowerShellExecutable(),
@@ -355,6 +356,7 @@ exit 4
         ],
         timeout: timeout,
         timeoutStderr: '电脑性能不足，请重新连接',
+        cancellation: cancellation,
       );
 
   // ── clang-format off: Start / Stop ──
@@ -473,7 +475,10 @@ exit 4
       }
 
       if (settings.enableTun) {
-        final isAdministrator = await _isAdministrator();
+        final isAdministrator = await _awaitStartOperation(
+          _isAdministrator(cancellation: _startCancellation?.future),
+          startToken,
+        );
         _ensureStartCurrent(startToken);
         if (isAdministrator != true) {
           setLastStartError(
@@ -508,7 +513,12 @@ exit 4
         return false;
       }
       if (settings.enableTun &&
-          !await _proxyService.isLauncherGuardianReady()) {
+          !await _awaitStartOperation(
+            _proxyService.isLauncherGuardianReady(
+              cancellation: _startCancellation?.future,
+            ),
+            startToken,
+          )) {
         _ensureStartCurrent(startToken);
         setLastStartError(
           '独立崩溃保护进程未就绪，TUN 模式已安全中止；'
@@ -519,9 +529,18 @@ exit 4
       }
       final processStartWatch = Stopwatch()..start();
       final startedWithTun = settings.enableTun;
-      _tunInterfacesBeforeStart = startedWithTun
-          ? await probeWindowsNetworkInterfaceIdentities()
-          : const <WindowsTunInterfaceIdentity>{};
+      if (startedWithTun) {
+        final baselineProbe = _networkInterfaceIdentityProbeOverride;
+        _tunInterfacesBeforeStart = await _awaitStartOperation(
+          baselineProbe?.call() ??
+              probeWindowsNetworkInterfaceIdentities(
+                cancellation: _startCancellation?.future,
+              ),
+          startToken,
+        );
+      } else {
+        _tunInterfacesBeforeStart = const <WindowsTunInterfaceIdentity>{};
+      }
       _ensureStartCurrent(startToken);
       if (startedWithTun && !await _armTunTeardownGate()) {
         _tunInterfacesBeforeStart = const <WindowsTunInterfaceIdentity>{};
@@ -644,6 +663,7 @@ exit 4
           final proxySet = await _proxyService.setSystemProxy(
             '127.0.0.1',
             settings.proxyPort,
+            cancellation: _startCancellation?.future,
           );
           _ensureStartCurrent(startToken);
           if (proxySet) {
@@ -741,13 +761,18 @@ exit 4
 
   // ── Stop ──
 
-  /// 停止核心
-  Future<void> stop() {
+  @override
+  void interruptPendingStart() {
     _startGeneration++;
     final cancellation = _startCancellation;
     if (cancellation != null && !cancellation.isCompleted) {
       cancellation.complete();
     }
+  }
+
+  /// 停止核心
+  Future<void> stop() {
+    interruptPendingStart();
     final current = _stopOperation;
     if (current != null) return current;
 
@@ -1054,7 +1079,7 @@ exit 4
 
   // ── Admin helper ──
 
-  Future<bool?> _isAdministrator() async {
+  Future<bool?> _isAdministrator({Future<void>? cancellation}) async {
     if (!Platform.isWindows) return null;
     const script = r'''
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -1065,6 +1090,7 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
       final result = await _runPowerShell(
         script,
         timeout: const Duration(seconds: 5),
+        cancellation: cancellation,
       );
       if (result.exitCode != 0) return null;
       final output = result.stdout.toString().trim().toLowerCase();
@@ -1074,6 +1100,36 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     } catch (_) {
       return null;
     }
+  }
+
+  Future<T> _awaitStartOperation<T>(
+    Future<T> operation,
+    int startToken,
+  ) async {
+    final cancellation = _startCancellation?.future;
+    if (cancellation == null) {
+      final value = await operation;
+      _ensureStartCurrent(startToken);
+      return value;
+    }
+
+    final completion = Completer<T>();
+    operation.then<void>(
+      (value) {
+        if (!completion.isCompleted) completion.complete(value);
+      },
+      onError: (Object error, StackTrace stack) {
+        if (!completion.isCompleted) completion.completeError(error, stack);
+      },
+    );
+    cancellation.then<void>((_) {
+      if (!completion.isCompleted) {
+        completion.completeError(_DesktopStartCancelled());
+      }
+    });
+    final value = await completion.future;
+    _ensureStartCurrent(startToken);
+    return value;
   }
 
   String _friendlyStartException(Object error) {

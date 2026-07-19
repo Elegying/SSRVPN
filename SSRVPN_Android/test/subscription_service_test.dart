@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_android/services/http_client_adapter.dart';
 import 'package:ssrvpn_android/services/subscription_service.dart';
@@ -17,6 +19,16 @@ class _FakeHttpClientAdapter implements HttpClientAdapter {
 
   @override
   Future<AdapterResponse> get(Uri uri, {Duration? timeout}) async => response;
+}
+
+class _PendingHttpClientAdapter implements HttpClientAdapter {
+  final started = Completer<void>();
+
+  @override
+  Future<AdapterResponse> get(Uri uri, {Duration? timeout}) {
+    if (!started.isCompleted) started.complete();
+    return Completer<AdapterResponse>().future;
+  }
 }
 
 void main() {
@@ -82,6 +94,120 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('refresh cancellation interrupts a pending Android fetch', () async {
+    final adapter = _PendingHttpClientAdapter();
+    SubscriptionService.overrideHttpClient(adapter);
+    final cancellation = SubscriptionRefreshCancellation();
+    final control = SubscriptionRefreshControl(
+      timeout: const Duration(minutes: 1),
+      cancellation: cancellation,
+    );
+
+    final fetch = service.fetchSubscription(
+      'https://example.com/feed',
+      maxRetries: 1,
+      control: control,
+    );
+    await adapter.started.future;
+    cancellation.cancel();
+
+    await expectLater(
+      fetch.timeout(const Duration(seconds: 1)),
+      throwsA(isA<SubscriptionRefreshCancelled>()),
+    );
+  });
+
+  test('refresh cancellation closes a stalled Android socket read', () async {
+    final requestStarted = Completer<void>();
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((_) {
+      if (!requestStarted.isCompleted) requestStarted.complete();
+      // Deliberately leave the response open until the refresh is cancelled.
+    });
+    final cancellation = SubscriptionRefreshCancellation();
+    final control = SubscriptionRefreshControl(
+      timeout: const Duration(minutes: 1),
+      cancellation: cancellation,
+    );
+
+    final fetch = service.fetchSubscription(
+      'http://${server.address.address}:${server.port}/feed',
+      maxRetries: 1,
+      control: control,
+    );
+    await requestStarted.future;
+    cancellation.cancel();
+
+    await expectLater(
+      fetch.timeout(const Duration(seconds: 1)),
+      throwsA(isA<SubscriptionRefreshCancelled>()),
+    );
+  });
+
+  test('the refresh deadline also bounds retry backoff', () async {
+    SubscriptionService.overrideHttpClient(
+      _FakeHttpClientAdapter(
+        AdapterResponse(
+          statusCode: HttpStatus.internalServerError,
+          headers: const {},
+          bodyBytes: const [],
+        ),
+      ),
+    );
+    final control = SubscriptionRefreshControl(
+      timeout: const Duration(milliseconds: 50),
+    );
+
+    await expectLater(
+      service
+          .fetchSubscription(
+            'https://example.com/feed',
+            maxRetries: 3,
+            control: control,
+          )
+          .timeout(const Duration(seconds: 1)),
+      throwsA(isA<SubscriptionRefreshDeadlineExceeded>()),
+    );
+  });
+
+  test('redirect logs never expose subscription path credentials', () async {
+    SubscriptionService.overrideHttpClient(
+      _FakeHttpClientAdapter(
+        AdapterResponse(
+          statusCode: HttpStatus.found,
+          headers: const {
+            'location':
+                'https://user:password@example.com/private/top-secret?token=query-secret',
+          },
+          bodyBytes: const [],
+        ),
+      ),
+    );
+    final messages = <String>[];
+    final originalDebugPrint = debugPrint;
+    debugPrint = (message, {wrapWidth}) {
+      if (message != null) messages.add(message);
+    };
+    try {
+      await expectLater(
+        service.fetchSubscription(
+          'https://example.com/feed',
+          maxRetries: 1,
+        ),
+        throwsA(anything),
+      );
+    } finally {
+      debugPrint = originalDebugPrint;
+    }
+
+    final output = messages.join('\n');
+    expect(output, isNot(contains('top-secret')));
+    expect(output, isNot(contains('password')));
+    expect(output, isNot(contains('query-secret')));
+    expect(output, contains('https://example.com/***'));
   });
 
   test(

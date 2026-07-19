@@ -31,6 +31,34 @@ mixin _ClashConfigSupport {
     );
   }
 
+  @protected
+  Future<String> buildClashConfigAsync(
+    String rawYaml,
+    AppSettings settings, {
+    required String platformHeader,
+    String? preferredNodeName,
+    String? tunConfig,
+    String? latencyTestUrl,
+    bool includeFallbackGroup = false,
+    bool includeGeoIpRules = false,
+    Iterable<String> extraSelectGroupNames = const [],
+    Iterable<String> extraRulesBeforeDirect = const [],
+  }) {
+    final preferredNode = preferredNodeName ?? settings.lastSelectedNodeName;
+    return ClashConfigGenerator.generateConfigAsync(
+      rawYaml,
+      settings,
+      preferredNodeName: preferredNode,
+      platformHeader: platformHeader,
+      tunConfig: tunConfig,
+      latencyTestUrl: latencyTestUrl,
+      includeFallbackGroup: includeFallbackGroup,
+      includeGeoIpRules: includeGeoIpRules,
+      extraSelectGroupNames: extraSelectGroupNames,
+      extraRulesBeforeDirect: extraRulesBeforeDirect,
+    );
+  }
+
   /// Extracts one top-level YAML section while preserving relative indentation.
   String extractSection(String yaml, String sectionName) {
     if (sectionName == 'proxies') {

@@ -68,6 +68,7 @@ void main() {
           isDark: false,
           urlController: controller,
           isAdding: false,
+          isBusy: false,
           onAdd: () => submissions++,
         ),
       ),
@@ -96,6 +97,7 @@ void main() {
           isDark: true,
           urlController: controller,
           isAdding: true,
+          isBusy: true,
           onAdd: () => submissions++,
         ),
         themeMode: ThemeMode.dark,
@@ -105,6 +107,34 @@ void main() {
     final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
     expect(button.onPressed, isNull);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(submissions, 0);
+  });
+
+  testWidgets(
+      'add card blocks keyboard and button while another operation runs',
+      (tester) async {
+    final controller = TextEditingController(text: 'https://example.com/sub');
+    addTearDown(controller.dispose);
+    var submissions = 0;
+
+    await tester.pumpWidget(
+      host(
+        SubscriptionAddCard(
+          isDark: false,
+          urlController: controller,
+          isAdding: false,
+          isBusy: true,
+          onAdd: () => submissions++,
+        ),
+      ),
+    );
+
+    final field = tester.widget<TextField>(find.byType(TextField));
+    final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
+    expect(field.enabled, isFalse);
+    expect(field.onSubmitted, isNull);
+    expect(button.onPressed, isNull);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(submissions, 0);
   });
 
@@ -123,6 +153,42 @@ void main() {
       ),
     );
     expect(find.text('暂无订阅'), findsOneWidget);
+  });
+
+  testWidgets('network refresh guidance does not guess the active transport',
+      (tester) async {
+    await tester.pumpWidget(
+      host(
+        const SubscriptionNetworkErrorDialog(
+          detail: 'Connection reset by peer',
+        ),
+      ),
+    );
+
+    expect(find.text('订阅刷新失败'), findsOneWidget);
+    expect(
+      find.text('请确认设备已联网，并检查订阅地址或服务状态后重试'),
+      findsOneWidget,
+    );
+    expect(find.text('Connection reset by peer'), findsOneWidget);
+    expect(find.textContaining('移动数据'), findsNothing);
+    expect(find.textContaining('连接 WiFi'), findsNothing);
+  });
+
+  testWidgets('network refresh guidance redacts credentials and tokens',
+      (tester) async {
+    await tester.pumpWidget(
+      host(
+        const SubscriptionNetworkErrorDialog(
+          detail:
+              'failed https://user:password@example.com/sub?token=top-secret',
+        ),
+      ),
+    );
+
+    expect(find.textContaining('top-secret'), findsNothing);
+    expect(find.textContaining('password'), findsNothing);
+    expect(find.textContaining('***'), findsOneWidget);
   });
 
   testWidgets('subscription list renders status, age, refresh and deletion',
@@ -176,6 +242,7 @@ void main() {
         SubscriptionListSection(
           subscriptions: subscriptions,
           isDark: false,
+          isAdding: false,
           isRefreshing: false,
           isDeleting: false,
           refreshResult: const SubscriptionRefreshResult(
@@ -183,6 +250,7 @@ void main() {
             status: SubscriptionRefreshStatus.success,
           ),
           onRefresh: () => refreshes++,
+          onCancelRefresh: () {},
           onDelete: (id) => deletedId = id,
         ),
       ),
@@ -207,33 +275,70 @@ void main() {
     expect(deletedId, 'enabled-now');
   });
 
+  testWidgets('subscription list never renders URL credentials or tokens',
+      (tester) async {
+    const secretUrl =
+        'https://user:password@example.com/api/subscription?token=top-secret';
+    await tester.pumpWidget(
+      host(
+        SubscriptionListSection(
+          subscriptions: [
+            Subscription(
+              id: 'sensitive',
+              name: '私密订阅',
+              url: secretUrl,
+            ),
+          ],
+          isDark: false,
+          isAdding: false,
+          isRefreshing: false,
+          isDeleting: false,
+          refreshResult: null,
+          onRefresh: () {},
+          onCancelRefresh: () {},
+          onDelete: (_) {},
+        ),
+      ),
+    );
+
+    expect(find.text('https://example.com/***'), findsOneWidget);
+    expect(find.text(secretUrl), findsNothing);
+    expect(find.textContaining('top-secret'), findsNothing);
+    expect(find.textContaining('password'), findsNothing);
+  });
+
   testWidgets('refresh states distinguish partial and total failure',
       (tester) async {
     const partial = SubscriptionRefreshResult(
       message: '部分订阅刷新成功',
       status: SubscriptionRefreshStatus.partialSuccess,
     );
+    var cancellations = 0;
     await tester.pumpWidget(
       host(
         SubscriptionListSection(
           subscriptions: const [],
           isDark: true,
+          isAdding: false,
           isRefreshing: true,
           isDeleting: true,
           refreshResult: partial,
           onRefresh: () {},
+          onCancelRefresh: () => cancellations++,
           onDelete: (_) {},
         ),
         themeMode: ThemeMode.dark,
       ),
     );
 
-    expect(find.text('刷新中...'), findsOneWidget);
+    expect(find.text('取消刷新'), findsOneWidget);
     expect(find.text('部分订阅刷新成功'), findsOneWidget);
     expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
     final refreshButton =
         tester.widget<TextButton>(find.byType(TextButton).first);
-    expect(refreshButton.onPressed, isNull);
+    expect(refreshButton.onPressed, isNotNull);
+    await tester.tap(find.text('取消刷新'));
+    expect(cancellations, 1);
 
     await tester.pumpWidget(
       host(
@@ -246,6 +351,7 @@ void main() {
             ),
           ],
           isDark: false,
+          isAdding: false,
           isRefreshing: false,
           isDeleting: true,
           refreshResult: const SubscriptionRefreshResult(
@@ -253,6 +359,7 @@ void main() {
             status: SubscriptionRefreshStatus.failure,
           ),
           onRefresh: () {},
+          onCancelRefresh: () {},
           onDelete: (_) {},
         ),
       ),
@@ -262,5 +369,39 @@ void main() {
     expect(find.byIcon(Icons.error_outline), findsOneWidget);
     expect(find.byTooltip('删除订阅'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
+  });
+
+  testWidgets('subscription list blocks refresh and delete while adding',
+      (tester) async {
+    var refreshes = 0;
+    var deletes = 0;
+    await tester.pumpWidget(
+      host(
+        SubscriptionListSection(
+          subscriptions: [
+            Subscription(
+              id: 'busy',
+              name: '正在添加',
+              url: 'https://example.com/busy',
+            ),
+          ],
+          isDark: false,
+          isAdding: true,
+          isRefreshing: false,
+          isDeleting: false,
+          refreshResult: null,
+          onRefresh: () => refreshes++,
+          onCancelRefresh: () {},
+          onDelete: (_) => deletes++,
+        ),
+      ),
+    );
+
+    final refreshButton =
+        tester.widget<TextButton>(find.widgetWithText(TextButton, '全部刷新'));
+    expect(refreshButton.onPressed, isNull);
+    expect(find.byTooltip('删除订阅'), findsNothing);
+    expect(refreshes, 0);
+    expect(deletes, 0);
   });
 }

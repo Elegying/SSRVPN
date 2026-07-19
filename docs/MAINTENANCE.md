@@ -55,9 +55,12 @@ Use these boundaries before adding or removing home-screen behavior:
 
 | Scope | Responsibility |
 | --- | --- |
-| `SSRVPN_MacOS/lib/app.dart`, `SSRVPN_Windows/lib/app.dart` | Platform startup, tray callbacks, shutdown, window state, and OS-specific failure policy |
+| `SSRVPN_MacOS/lib/app.dart`, `SSRVPN_Windows/lib/app.dart` | Platform startup, shutdown, window state, and OS-specific failure policy |
+| `SSRVPN_MacOS/lib/app_runtime_actions_part.dart`, `SSRVPN_Windows/lib/app_runtime_actions_part.dart` | Platform tray connection workflow, runtime notices, and user-facing recovery actions |
+| `packages/ssrvpn_shared/lib/services/desktop_connection_coordinator.dart` | Revision- and intent-guarded desktop config preparation, start, preferred-node switch, and owned rollback transaction |
 | `packages/ssrvpn_shared/lib/desktop_ui/desktop_app_shell_part.dart` | Shared responsive navigation shell, page stack, side rail, and startup banners |
 | `desktop_home_screen_part.dart` | Shared desktop home state, lifecycle, connection entrypoint, and page composition |
+| `desktop_home_background_tasks_part.dart` | Initial runtime synchronization, status listeners, latency flushing, and update scheduling |
 | `desktop_home_runtime_actions_part.dart` | Shared desktop reload, node selection, latency, update, and runtime actions |
 | `desktop_home_public_ip_part.dart` | Shared desktop public-IP refresh state |
 | `desktop_home_dashboard_part.dart` | Desktop dashboard composition, top bar, and status-panel layout |

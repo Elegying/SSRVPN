@@ -144,6 +144,70 @@ void main() {
     expect(tempDir.listSync(), isEmpty);
   });
 
+  test('cancellation keeps an injected client open and cancels a late response',
+      () async {
+    final response = Completer<http.StreamedResponse>();
+    final sendStarted = Completer<void>();
+    final streamCancelled = Completer<void>();
+    final responseStream = StreamController<List<int>>(
+      onCancel: streamCancelled.complete,
+    );
+    addTearDown(responseStream.close);
+    final client = _TrackingStreamClient((_) {
+      if (!sendStarted.isCompleted) sendStarted.complete();
+      return response.future;
+    });
+    final cancellation = VerifiedUpdateCancellation();
+    final task = SharedUpdateService.downloadVerifiedUpdate(
+      const AppUpdateInfo(
+        version: '9.9.9',
+        downloadUrl: 'https://example.com/SSRVPN.dmg',
+        changelog: '',
+        sha256:
+            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      ),
+      outputDirectory: tempDir,
+      fileName: 'SSRVPN.dmg',
+      client: client,
+      cancellation: cancellation,
+    );
+    await sendStarted.future;
+
+    cancellation.cancel();
+    await expectLater(task, throwsA(isA<VerifiedUpdateCancelled>()));
+    expect(client.closed, isFalse);
+
+    response.complete(http.StreamedResponse(responseStream.stream, 200));
+    await streamCancelled.future.timeout(const Duration(seconds: 1));
+  });
+
+  test('cancellation after the final progress event prevents publication',
+      () async {
+    final bytes = utf8.encode('verified-installer');
+    final cancellation = VerifiedUpdateCancellation();
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN.dmg',
+          changelog: '',
+          sha256: sha256.convert(bytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN.dmg',
+        client: MockClient(
+          (_) async => http.Response.bytes(bytes, HttpStatus.ok),
+        ),
+        cancellation: cancellation,
+        onProgress: (_, __) => cancellation.cancel(),
+      ),
+      throwsA(isA<VerifiedUpdateCancelled>()),
+    );
+
+    expect(tempDir.listSync(), isEmpty);
+  });
+
   test('verified desktop download enforces one absolute attempt deadline',
       () async {
     final chunks = List<List<int>>.generate(6, (index) => [index]);
@@ -186,4 +250,15 @@ class _StreamClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) =>
       handler(request);
+}
+
+class _TrackingStreamClient extends _StreamClient {
+  _TrackingStreamClient(super.handler);
+
+  bool closed = false;
+
+  @override
+  void close() {
+    closed = true;
+  }
 }

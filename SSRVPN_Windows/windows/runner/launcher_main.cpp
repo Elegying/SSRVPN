@@ -1,6 +1,5 @@
 ﻿#include <windows.h>
 #include <shellapi.h>
-#include <tlhelp32.h>
 
 #include <cstdlib>
 #include <cwchar>
@@ -8,22 +7,20 @@
 #include <vector>
 
 #include "guardian_restart.h"
+#include "launcher_instance_control.h"
 #include "system_proxy_recovery.h"
 
 namespace {
 
 constexpr wchar_t kChildExeName[] = L"ssrvpn_windows_app.exe";
-constexpr wchar_t kAppMutexName[] =
-    L"Local\\SSRVPN_Windows_SingleInstance";
+constexpr wchar_t kAppMutexName[] = L"Local\\SSRVPN_Windows_SingleInstance";
 constexpr wchar_t kLauncherMutexName[] = L"Local\\SSRVPN_Windows_Launcher";
-constexpr wchar_t kGuardianMutexName[] =
-    L"Local\\SSRVPN_Windows_LauncherGuardian";
+constexpr wchar_t kGuardianMutexName[] = L"Local\\SSRVPN_Windows_LauncherGuardian";
+constexpr wchar_t kProxyRecoveryMutexName[] = L"Local\\SSRVPN_Windows_ProxyRecovery";
 constexpr wchar_t kProcessJobName[] = L"Local\\SSRVPN_Windows_ProcessJob";
 constexpr wchar_t kGuardianArgument[] = L"--ssrvpn-native-guardian";
-constexpr wchar_t kGuardianReadyPrefix[] =
-    L"Local\\SSRVPN_Windows_GuardianReady_";
-constexpr wchar_t kGuardianCommitPrefix[] =
-    L"Local\\SSRVPN_Windows_GuardianCommit_";
+constexpr wchar_t kGuardianReadyPrefix[] = L"Local\\SSRVPN_Windows_GuardianReady_";
+constexpr wchar_t kGuardianCommitPrefix[] = L"Local\\SSRVPN_Windows_GuardianCommit_";
 
 // ── Error formatting ──
 
@@ -171,89 +168,6 @@ bool RestoreProxyForProcessCleanup() {
   return RestoreOrConfirmOwnedWindowsProxySafeToStop();
 }
 
-bool ProcessImageMatches(HANDLE process, const std::wstring& expected_path) {
-  std::vector<wchar_t> path(32768);
-  DWORD path_length = static_cast<DWORD>(path.size());
-  if (!::QueryFullProcessImageNameW(process, 0, path.data(), &path_length)) {
-    return false;
-  }
-  return ::CompareStringOrdinal(
-             path.data(), static_cast<int>(path_length), expected_path.c_str(),
-             static_cast<int>(expected_path.size()), TRUE) == CSTR_EQUAL;
-}
-
-struct ProcessTokenSecurity {
-  TOKEN_ELEVATION_TYPE elevation_type = TokenElevationTypeDefault;
-  DWORD integrity_rid = 0;
-};
-
-bool ReadProcessTokenSecurity(HANDLE process, ProcessTokenSecurity* security,
-                              DWORD* error_code) {
-  HANDLE token = nullptr;
-  if (!::OpenProcessToken(process, TOKEN_QUERY, &token)) {
-    if (error_code != nullptr) *error_code = ::GetLastError();
-    return false;
-  }
-
-  DWORD bytes = 0;
-  if (!::GetTokenInformation(token, TokenElevationType,
-                             &security->elevation_type,
-                             sizeof(security->elevation_type), &bytes)) {
-    const DWORD error = ::GetLastError();
-    ::CloseHandle(token);
-    if (error_code != nullptr) *error_code = error;
-    return false;
-  }
-  ::GetTokenInformation(token, TokenIntegrityLevel, nullptr, 0, &bytes);
-  std::vector<unsigned char> buffer(bytes);
-  if (bytes == 0 ||
-      !::GetTokenInformation(token, TokenIntegrityLevel, buffer.data(), bytes,
-                             &bytes)) {
-    const DWORD error = bytes == 0 ? ERROR_INVALID_TOKEN : ::GetLastError();
-    ::CloseHandle(token);
-    if (error_code != nullptr) *error_code = error;
-    return false;
-  }
-
-  const auto* label =
-      reinterpret_cast<const TOKEN_MANDATORY_LABEL*>(buffer.data());
-  if (!::IsValidSid(label->Label.Sid)) {
-    ::CloseHandle(token);
-    if (error_code != nullptr) *error_code = ERROR_INVALID_SID;
-    return false;
-  }
-  const UCHAR subauthority_count =
-      *::GetSidSubAuthorityCount(label->Label.Sid);
-  if (subauthority_count == 0) {
-    ::CloseHandle(token);
-    if (error_code != nullptr) *error_code = ERROR_INVALID_SID;
-    return false;
-  }
-  security->integrity_rid =
-      *::GetSidSubAuthority(label->Label.Sid, subauthority_count - 1);
-  ::CloseHandle(token);
-  if (error_code != nullptr) *error_code = ERROR_SUCCESS;
-  return true;
-}
-
-bool ProcessTokensHaveSecurityParity(HANDLE first_process,
-                                     HANDLE second_process,
-                                     DWORD* error_code) {
-  ProcessTokenSecurity first;
-  ProcessTokenSecurity second;
-  if (!ReadProcessTokenSecurity(first_process, &first, error_code) ||
-      !ReadProcessTokenSecurity(second_process, &second, error_code)) {
-    return false;
-  }
-  if (first.elevation_type != second.elevation_type ||
-      first.integrity_rid != second.integrity_rid) {
-    if (error_code != nullptr) *error_code = ERROR_ACCESS_DENIED;
-    return false;
-  }
-  if (error_code != nullptr) *error_code = ERROR_SUCCESS;
-  return true;
-}
-
 bool ProcessIsOutsideJob(HANDLE process, HANDLE process_job,
                          DWORD* error_code) {
   BOOL belongs_to_job = FALSE;
@@ -267,151 +181,6 @@ bool ProcessIsOutsideJob(HANDLE process, HANDLE process_job,
   }
   if (error_code != nullptr) *error_code = ERROR_SUCCESS;
   return true;
-}
-
-HANDLE OpenExistingChildProcess(const std::wstring& child_path,
-                                bool activate_window, DWORD* process_id,
-                                DWORD* open_error) {
-  constexpr const wchar_t* kWindowTitles[] = {L"SSRVPN",
-                                               L"ssrvpn_windows"};
-  for (const wchar_t* title : kWindowTitles) {
-    HWND window =
-        ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", title);
-    if (window == nullptr) {
-      continue;
-    }
-
-    DWORD candidate_id = 0;
-    ::GetWindowThreadProcessId(window, &candidate_id);
-    if (candidate_id == 0) {
-      continue;
-    }
-    HANDLE process = ::OpenProcess(
-        SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE,
-        FALSE, candidate_id);
-    if (process == nullptr) {
-      const DWORD terminate_error = ::GetLastError();
-      HANDLE query_process = ::OpenProcess(
-          SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
-          candidate_id);
-      if (query_process == nullptr) {
-        continue;
-      }
-      const bool matches = ProcessImageMatches(query_process, child_path);
-      ::CloseHandle(query_process);
-      if (matches) {
-        if (open_error != nullptr) {
-          *open_error = terminate_error == ERROR_SUCCESS
-                            ? ERROR_ACCESS_DENIED
-                            : terminate_error;
-        }
-        return nullptr;
-      }
-      continue;
-    }
-    if (!ProcessImageMatches(process, child_path)) {
-      ::CloseHandle(process);
-      continue;
-    }
-
-    if (activate_window && !::IsHungAppWindow(window)) {
-      ::ShowWindow(window, SW_SHOW);
-      ::ShowWindow(window, SW_RESTORE);
-      ::SetForegroundWindow(window);
-    }
-    if (process_id != nullptr) {
-      *process_id = candidate_id;
-    }
-    return process;
-  }
-  return nullptr;
-}
-
-HANDLE FindChildProcessByPath(const std::wstring& child_path,
-                              DWORD* process_id, DWORD* open_error) {
-  HANDLE snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-  if (snapshot == INVALID_HANDLE_VALUE) {
-    if (open_error != nullptr) {
-      *open_error = ::GetLastError();
-    }
-    return nullptr;
-  }
-  DWORD current_session_id = 0;
-  if (!::ProcessIdToSessionId(::GetCurrentProcessId(),
-                              &current_session_id)) {
-    const DWORD error = ::GetLastError();
-    ::CloseHandle(snapshot);
-    if (open_error != nullptr) {
-      *open_error = error;
-    }
-    return nullptr;
-  }
-  PROCESSENTRY32W entry = {};
-  entry.dwSize = sizeof(entry);
-  BOOL has_entry = ::Process32FirstW(snapshot, &entry);
-  while (has_entry) {
-    if (_wcsicmp(entry.szExeFile, kChildExeName) == 0) {
-      DWORD candidate_session_id = 0;
-      if (!::ProcessIdToSessionId(entry.th32ProcessID,
-                                  &candidate_session_id)) {
-        has_entry = ::Process32NextW(snapshot, &entry);
-        continue;
-      }
-      if (candidate_session_id == current_session_id) {
-        HANDLE process = ::OpenProcess(
-            SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION |
-                PROCESS_TERMINATE,
-            FALSE, entry.th32ProcessID);
-        if (process != nullptr) {
-          if (ProcessImageMatches(process, child_path)) {
-            ::CloseHandle(snapshot);
-            if (process_id != nullptr) {
-              *process_id = entry.th32ProcessID;
-            }
-            return process;
-          }
-          ::CloseHandle(process);
-        } else {
-          const DWORD terminate_error = ::GetLastError();
-          HANDLE query_process = ::OpenProcess(
-              SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
-              entry.th32ProcessID);
-          if (query_process != nullptr) {
-            const bool matches =
-                ProcessImageMatches(query_process, child_path);
-            ::CloseHandle(query_process);
-            if (matches) {
-              ::CloseHandle(snapshot);
-              if (open_error != nullptr) {
-                *open_error = terminate_error == ERROR_SUCCESS
-                                  ? ERROR_ACCESS_DENIED
-                                  : terminate_error;
-              }
-              return nullptr;
-            }
-          }
-        }
-      }
-    }
-    has_entry = ::Process32NextW(snapshot, &entry);
-  }
-  ::CloseHandle(snapshot);
-  return nullptr;
-}
-
-bool IsNamedMutexOwned(const wchar_t* name) {
-  HANDLE mutex =
-      ::OpenMutexW(SYNCHRONIZE | MUTEX_MODIFY_STATE, FALSE, name);
-  if (mutex == nullptr) {
-    return false;
-  }
-  const DWORD wait_result = ::WaitForSingleObject(mutex, 0);
-  const bool owned = wait_result == WAIT_TIMEOUT || wait_result == WAIT_FAILED;
-  if (wait_result == WAIT_OBJECT_0 || wait_result == WAIT_ABANDONED) {
-    ::ReleaseMutex(mutex);
-  }
-  ::CloseHandle(mutex);
-  return owned;
 }
 
 bool ParseGuardianArguments(DWORD* child_process_id,
@@ -1110,16 +879,13 @@ bool CreateChildProcess(const std::wstring& child_path,
 
 }  // namespace
 
-// ────────────────────────────────────────────────────────────────────────
-//  Entry point
-// ────────────────────────────────────────────────────────────────────────
-
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
                       _In_ wchar_t* command_line, _In_ int show_command) {
   const std::wstring launcher_path = GetExecutablePath();
   const std::wstring launcher_directory = GetDirectoryName(launcher_path);
   const std::wstring child_directory = JoinPath(launcher_directory, L"bin");
   const std::wstring child_path = JoinPath(child_directory, kChildExeName);
+  const std::wstring core_path = JoinPath(child_directory, L"mihomo.exe");
 
   DWORD guardian_child_process_id = 0;
   DWORD guardian_child_thread_id = 0;
@@ -1154,13 +920,29 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
   }
   const DWORD launcher_wait = ::WaitForSingleObject(launcher_mutex, 0);
   if (launcher_wait == WAIT_TIMEOUT) {
+    bool existing_window_activated = false;
     HANDLE existing_process =
-        OpenExistingChildProcess(child_path, true, nullptr, nullptr);
+        OpenExistingChildProcess(child_path, true, nullptr, nullptr,
+                                 &existing_window_activated);
+    if (existing_process != nullptr && existing_window_activated) {
+      ::CloseHandle(existing_process);
+      ::CloseHandle(launcher_mutex);
+      return EXIT_SUCCESS;
+    }
     if (existing_process != nullptr) {
       ::CloseHandle(existing_process);
     }
+    InstanceContentionAction action = SelectInstanceContentionAction(
+        false, existing_process != nullptr,
+        IsNamedMutexOwned(kProxyRecoveryMutexName),
+        IsNamedMutexOwned(kAppMutexName),
+        IsNamedMutexOwned(kGuardianMutexName));
+    if (action == InstanceContentionAction::kContinueStartup) {
+      action = InstanceContentionAction::kShowBackgroundCleanup;
+    }
+    ShowInstanceContentionNotice(action);
     ::CloseHandle(launcher_mutex);
-    return EXIT_SUCCESS;
+    return ERROR_BUSY;
   }
   if (launcher_wait != WAIT_OBJECT_0 && launcher_wait != WAIT_ABANDONED) {
     const DWORD error = ::GetLastError();
@@ -1173,13 +955,16 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
 
   DWORD child_process_id = 0;
   DWORD child_process_open_error = ERROR_SUCCESS;
+  bool current_window_activated = false;
   HANDLE child_process =
       OpenExistingChildProcess(child_path, true, &child_process_id,
-                               &child_process_open_error);
+                               &child_process_open_error,
+                               &current_window_activated);
   if (child_process == nullptr &&
       child_process_open_error == ERROR_SUCCESS) {
     child_process = FindChildProcessByPath(
-        child_path, &child_process_id, &child_process_open_error);
+        child_path, kChildExeName, &child_process_id,
+        &child_process_open_error);
   }
   if (child_process == nullptr &&
       child_process_open_error != ERROR_SUCCESS) {
@@ -1192,15 +977,23 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
   }
   const bool guardian_already_running =
       IsNamedMutexOwned(kGuardianMutexName);
-  if ((child_process != nullptr && guardian_already_running) ||
-      (child_process == nullptr &&
-       (guardian_already_running || IsNamedMutexOwned(kAppMutexName)))) {
+  const InstanceContentionAction contention_action =
+      SelectInstanceContentionAction(
+          current_window_activated, child_process != nullptr,
+          IsNamedMutexOwned(kProxyRecoveryMutexName),
+          IsNamedMutexOwned(kAppMutexName), guardian_already_running);
+  if (contention_action != InstanceContentionAction::kContinueStartup) {
     if (child_process != nullptr) {
       ::CloseHandle(child_process);
     }
     ::ReleaseMutex(launcher_mutex);
     ::CloseHandle(launcher_mutex);
-    return EXIT_SUCCESS;
+    if (contention_action ==
+        InstanceContentionAction::kActivateCurrentInstance) {
+      return EXIT_SUCCESS;
+    }
+    ShowInstanceContentionNotice(contention_action);
+    return ERROR_BUSY;
   }
 
   HANDLE process_job = CreateProcessJob();
@@ -1231,6 +1024,26 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
     child_thread = process_information.hThread;
     child_thread_id = process_information.dwThreadId;
     child_process_id = process_information.dwProcessId;
+  }
+  if (attached_to_existing &&
+      !AdoptExistingChildProcessTree(process_job, child_process, core_path,
+                                     &error)) {
+    if (process_job != nullptr) {
+      ::CloseHandle(process_job);
+    }
+    ::CloseHandle(child_process);
+    ::ReleaseMutex(launcher_mutex);
+    ::CloseHandle(launcher_mutex);
+    ShowError(
+        L"SSRVPN",
+        L"检测到已运行的 SSRVPN，但无法将它安全纳入崩溃保护。\n\n" +
+            GetLastErrorMessage(error) +
+            L"\n\n现有进程未被终止。请先从应用内正常退出，再重新启动 SSRVPN。");
+    return static_cast<int>(error == ERROR_SUCCESS ? ERROR_ACCESS_DENIED
+                                                    : error);
+  }
+  if (attached_to_existing) {
+    assigned_to_job = true;
   }
 
   HANDLE guardian_process = nullptr;
@@ -1474,14 +1287,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
     ::CloseHandle(guardian_process);
   }
 
-  if (exit_code != ERROR_ALREADY_EXISTS && RestoreProxyForProcessCleanup()) {
+  if (!ChildExitRequiresProxyPreservation(exit_code) &&
+      RestoreProxyForProcessCleanup()) {
     if (process_job != nullptr && (assigned_to_job || attached_to_existing)) {
       ::TerminateJobObject(process_job, EXIT_FAILURE);
     }
   }
-  if (exit_code == ERROR_ALREADY_EXISTS) {
-    exit_code = EXIT_SUCCESS;
-  }
+  exit_code = ResolveChildExitCode(
+      exit_code, IsNamedMutexOwned(kProxyRecoveryMutexName),
+      IsNamedMutexOwned(kAppMutexName), IsNamedMutexOwned(kGuardianMutexName));
   if (process_job != nullptr) {
     ::CloseHandle(process_job);
   }

@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart'
+    show ProcessTerminationNotConfirmedException;
 import 'package:ssrvpn_windows/services/system_proxy_service.dart';
 
 void main() {
@@ -164,8 +167,8 @@ void main() {
       localAppData: temp.path,
       scriptRunner: (script) async {
         scripts.add(script);
-        if (script.contains("[Console]::Out.Write('pending')")) {
-          return ProcessResult(1, 0, 'terminal', '');
+        if (script.contains("[Console]::Out.Write('TERMINAL')")) {
+          return ProcessResult(1, 0, 'TERMINAL', '');
         }
         if (script.contains('ConvertTo-Json -Compress')) {
           return ProcessResult(
@@ -283,6 +286,253 @@ void main() {
         ),
       ),
       isTrue,
+    );
+    expect(await backup.exists(), isFalse);
+    expect(service.recoveryPending, isFalse);
+  });
+
+  test(
+      'partial full restore resumes even when original endpoint matches target',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_partial_full_restore_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    final runtime = Directory(
+      '${temp.path}${Platform.pathSeparator}SSRVPN'
+      '${Platform.pathSeparator}runtime',
+    );
+    await runtime.create(recursive: true);
+    final backup = File(
+      '${runtime.path}${Platform.pathSeparator}system_proxy_backup.json',
+    );
+    await backup.writeAsString(
+      jsonEncode({
+        'hasProxyEnable': true,
+        'proxyEnable': 1,
+        'hasProxyServer': true,
+        'proxyServer': '127.0.0.1:7890',
+        'hasProxyOverride': true,
+        'proxyOverride': 'corp-bypass',
+        'hasAutoConfigUrl': true,
+        'autoConfigUrl': 'https://corp.example/proxy.pac',
+        'hasAutoDetect': true,
+        'autoDetect': 1,
+        '_ownedProxyServer': '127.0.0.1:7890',
+        '_activationInProgress': false,
+      }),
+    );
+    final scripts = <String>[];
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        scripts.add(script);
+        if (script.contains("[Console]::Out.Write('FULL_RESTORE')")) {
+          return ProcessResult(1, 0, 'FULL_RESTORE', '');
+        }
+        if (script.contains('ConvertTo-Json -Compress')) {
+          return ProcessResult(
+            1,
+            0,
+            jsonEncode({
+              'hasProxyEnable': true,
+              'proxyEnable': 1,
+              'hasProxyServer': true,
+              'proxyServer': '127.0.0.1:7890',
+              'hasProxyOverride': true,
+              'proxyOverride': 'corp-bypass',
+              'hasAutoConfigUrl': false,
+              'autoConfigUrl': '',
+              'hasAutoDetect': true,
+              'autoDetect': 0,
+            }),
+            '',
+          );
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+
+    await service.initialize(temp.path);
+
+    expect(
+      scripts.where(
+        (script) =>
+            script.contains('-Name RestoreInProgress -Type DWord -Value 1'),
+      ),
+      hasLength(1),
+    );
+    expect(
+      scripts.where(
+        (script) =>
+            script.contains('EndpointRestoreInProgress -Type DWord -Value 1'),
+      ),
+      isEmpty,
+    );
+    expect(await backup.exists(), isFalse);
+    expect(service.recoveryPending, isFalse);
+  });
+
+  test('partial endpoint restore resumes the endpoint-only transaction',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_partial_endpoint_restore_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    final runtime = Directory(
+      '${temp.path}${Platform.pathSeparator}SSRVPN'
+      '${Platform.pathSeparator}runtime',
+    );
+    await runtime.create(recursive: true);
+    final backup = File(
+      '${runtime.path}${Platform.pathSeparator}system_proxy_backup.json',
+    );
+    await backup.writeAsString(
+      jsonEncode({
+        'hasProxyEnable': true,
+        'proxyEnable': 0,
+        'hasProxyServer': true,
+        'proxyServer': 'corp.example:8080',
+        'hasProxyOverride': true,
+        'proxyOverride': 'corp-bypass',
+        'hasAutoConfigUrl': true,
+        'autoConfigUrl': 'https://corp.example/proxy.pac',
+        'hasAutoDetect': true,
+        'autoDetect': 1,
+        '_ownedProxyServer': '127.0.0.1:7890',
+        '_activationInProgress': false,
+      }),
+    );
+    final scripts = <String>[];
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        scripts.add(script);
+        if (script.contains("[Console]::Out.Write('ENDPOINT_RESTORE')")) {
+          return ProcessResult(1, 0, 'ENDPOINT_RESTORE', '');
+        }
+        if (script.contains('ConvertTo-Json -Compress')) {
+          return ProcessResult(
+            1,
+            0,
+            jsonEncode({
+              'hasProxyEnable': true,
+              'proxyEnable': 0,
+              'hasProxyServer': true,
+              'proxyServer': '127.0.0.1:7890',
+              'hasProxyOverride': true,
+              'proxyOverride': 'user-updated-bypass',
+              'hasAutoConfigUrl': true,
+              'autoConfigUrl': 'https://user.example/new.pac',
+              'hasAutoDetect': true,
+              'autoDetect': 1,
+            }),
+            '',
+          );
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+
+    await service.initialize(temp.path);
+
+    expect(
+      scripts.where(
+        (script) =>
+            script.contains('EndpointRestoreInProgress -Type DWord -Value 1'),
+      ),
+      hasLength(1),
+    );
+    expect(
+      scripts.where(
+        (script) =>
+            script.contains('-Name RestoreInProgress -Type DWord -Value 1'),
+      ),
+      isEmpty,
+    );
+    expect(await backup.exists(), isFalse);
+    expect(service.recoveryPending, isFalse);
+  });
+
+  test('foreign fields during activation still release the owned endpoint',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_activation_foreign_fields_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    final runtime = Directory(
+      '${temp.path}${Platform.pathSeparator}SSRVPN'
+      '${Platform.pathSeparator}runtime',
+    );
+    await runtime.create(recursive: true);
+    final backup = File(
+      '${runtime.path}${Platform.pathSeparator}system_proxy_backup.json',
+    );
+    await backup.writeAsString(
+      jsonEncode({
+        'hasProxyEnable': true,
+        'proxyEnable': 0,
+        'hasProxyServer': false,
+        'proxyServer': '',
+        'hasProxyOverride': false,
+        'proxyOverride': '',
+        'hasAutoConfigUrl': false,
+        'autoConfigUrl': '',
+        'hasAutoDetect': false,
+        'autoDetect': 0,
+        '_ownedProxyServer': '127.0.0.1:7890',
+        '_activationInProgress': true,
+      }),
+    );
+    final scripts = <String>[];
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        scripts.add(script);
+        if (script.contains("[Console]::Out.Write('ACTIVATION')")) {
+          return ProcessResult(1, 0, 'ACTIVATION', '');
+        }
+        if (script.contains('ConvertTo-Json -Compress')) {
+          return ProcessResult(
+            1,
+            0,
+            jsonEncode({
+              'hasProxyEnable': true,
+              'proxyEnable': 1,
+              'hasProxyServer': true,
+              'proxyServer': '127.0.0.1:7890',
+              'hasProxyOverride': true,
+              'proxyOverride': 'user-updated-bypass',
+              'hasAutoConfigUrl': true,
+              'autoConfigUrl': 'https://user.example/new.pac',
+              'hasAutoDetect': true,
+              'autoDetect': 1,
+            }),
+            '',
+          );
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+
+    await service.initialize(temp.path);
+
+    expect(
+      scripts.where(
+        (script) =>
+            script.contains('EndpointRestoreInProgress -Type DWord -Value 1'),
+      ),
+      hasLength(1),
+    );
+    expect(
+      scripts.where(
+        (script) =>
+            script.contains('-Name RestoreInProgress -Type DWord -Value 1'),
+      ),
+      isEmpty,
     );
     expect(await backup.exists(), isFalse);
     expect(service.recoveryPending, isFalse);
@@ -568,12 +818,22 @@ void main() {
     addTearDown(() => temp.delete(recursive: true));
     var reads = 0;
     var restoreCommitFailed = false;
+    var allowRestoreCommit = false;
+    var restoreCompleted = false;
     var cleanupFallbackFailed = false;
     var allowCleanupFallback = false;
     final service = SystemProxyService.forTesting(
       isWindows: true,
       localAppData: temp.path,
       scriptRunner: (script) async {
+        if (script.contains("[Console]::Out.Write('FULL_RESTORE')")) {
+          return ProcessResult(
+            1,
+            0,
+            restoreCompleted ? 'TERMINAL' : 'FULL_RESTORE',
+            '',
+          );
+        }
         if (script.contains('ConvertTo-Json -Compress')) {
           reads += 1;
           final connected = reads == 2 || reads == 3;
@@ -603,6 +863,10 @@ void main() {
             script.contains('-Name Valid -Type DWord -Value 0')) {
           restoreCommitFailed = true;
           expect(script, contains(r'$validTerminal -or $flagsTerminal'));
+          if (allowRestoreCommit) {
+            restoreCompleted = true;
+            return ProcessResult(1, 0, '', '');
+          }
           return ProcessResult(1, 1, '', 'native cleanup denied');
         }
         if (script.contains('Native proxy recovery cleanup failed')) {
@@ -642,9 +906,9 @@ void main() {
     expect(service.recoveryPending, isTrue);
     expect(service.endpointSafeWithPendingRecovery, isTrue);
     expect(service.lastError, contains('代理端点已安全释放'));
-    expect(service.lastError, contains('恢复日志仍待清理'));
+    expect(service.lastError, contains('原设置尚未完整恢复'));
     expect(restoreCommitFailed, isTrue);
-    expect(cleanupFallbackFailed, isTrue);
+    expect(cleanupFallbackFailed, isFalse);
     final backup = File(
       '${temp.path}${Platform.pathSeparator}SSRVPN'
       '${Platform.pathSeparator}runtime${Platform.pathSeparator}'
@@ -655,11 +919,98 @@ void main() {
         jsonDecode(await backup.readAsString()) as Map<String, dynamic>;
     expect(json['_activationInProgress'], isFalse);
 
+    allowRestoreCommit = true;
+    expect(await service.clearSystemProxy(), isFalse);
+    expect(service.recoveryPending, isTrue);
+    expect(service.endpointSafeWithPendingRecovery, isTrue);
+    expect(service.lastError, contains('恢复日志仍待清理'));
+    expect(cleanupFallbackFailed, isTrue);
+
     allowCleanupFallback = true;
     expect(await service.clearSystemProxy(), isTrue);
     expect(service.recoveryPending, isFalse);
     expect(service.endpointSafeWithPendingRecovery, isFalse);
     expect(await backup.exists(), isFalse);
+  });
+
+  test(
+      'restored original state is endpoint-safe when it shares the owned endpoint',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_same_endpoint_cleanup_failure_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    const original = {
+      'hasProxyEnable': true,
+      'proxyEnable': 1,
+      'hasProxyServer': true,
+      'proxyServer': '127.0.0.1:7890',
+      'hasProxyOverride': true,
+      'proxyOverride': 'corp-bypass',
+      'hasAutoConfigUrl': true,
+      'autoConfigUrl': 'https://corp.example/proxy.pac',
+      'hasAutoDetect': true,
+      'autoDetect': 1,
+    };
+    const owned = {
+      'hasProxyEnable': true,
+      'proxyEnable': 1,
+      'hasProxyServer': true,
+      'proxyServer': '127.0.0.1:7890',
+      'hasProxyOverride': true,
+      'proxyOverride': '<local>;localhost;127.*;10.*;172.16.*;172.17.*;'
+          '172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;'
+          '172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;'
+          '172.30.*;172.31.*;192.168.*',
+      'hasAutoConfigUrl': false,
+      'autoConfigUrl': '',
+      'hasAutoDetect': true,
+      'autoDetect': 0,
+    };
+    var current = original;
+    var cleanupAttempts = 0;
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        if (script.contains('ConvertTo-Json -Compress')) {
+          return ProcessResult(1, 0, jsonEncode(current), '');
+        }
+        if (script.contains(
+          '-Name RestoreInProgress -Type DWord -Value 1',
+        )) {
+          current = original;
+          return ProcessResult(1, 0, '', '');
+        }
+        if (script.contains(r'$regPath') &&
+            script.contains(
+              r'Set-ItemProperty -Path $regPath -Name ProxyOverride',
+            ) &&
+            script.contains(
+              r'Set-ItemProperty -Path $regPath -Name ProxyEnable '
+              r'-Type DWord -Value 1',
+            )) {
+          current = owned;
+          return ProcessResult(1, 0, '', '');
+        }
+        if (script.contains('Native proxy recovery cleanup failed')) {
+          cleanupAttempts += 1;
+          return ProcessResult(1, 1, '', 'native cleanup denied');
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+
+    await service.initialize(temp.path);
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+
+    expect(await service.clearSystemProxy(), isFalse);
+    expect(current, original);
+    expect(cleanupAttempts, 2);
+    expect(service.isProxyEnabled, isFalse);
+    expect(service.recoveryPending, isTrue);
+    expect(service.endpointSafeWithPendingRecovery, isTrue);
+    expect(service.lastError, contains('恢复日志仍待清理'));
   });
 
   test('guardian check precedes backup, RunOnce, and proxy enable', () async {
@@ -777,6 +1128,609 @@ void main() {
       'system_proxy_backup.json',
     );
     expect(await backup.exists(), isFalse);
+  });
+
+  test('guardian readiness check returns when its caller cancels', () async {
+    final guardianStarted = Completer<void>();
+    final neverReturns = Completer<ProcessResult>();
+    final cancellation = Completer<void>();
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      scriptRunner: (script) {
+        expect(script, contains(r'Mutex]::OpenExisting'));
+        guardianStarted.complete();
+        return neverReturns.future;
+      },
+    );
+
+    final checking = service.isLauncherGuardianReady(
+      cancellation: cancellation.future,
+    );
+    await guardianStarted.future.timeout(const Duration(seconds: 1));
+
+    cancellation.complete();
+
+    expect(
+      await checking.timeout(const Duration(seconds: 1)),
+      isFalse,
+    );
+  });
+
+  test('proxy acquisition cancellation aborts write and rolls back', () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_proxy_cancel_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    final proxyWriteStarted = Completer<void>();
+    final stalledProxyWrite = Completer<ProcessResult>();
+    final cancellation = Completer<void>();
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        if (script.contains('ConvertTo-Json -Compress')) {
+          return ProcessResult(
+            1,
+            0,
+            jsonEncode({
+              'hasProxyEnable': true,
+              'proxyEnable': 0,
+              'hasProxyServer': false,
+              'proxyServer': '',
+              'hasProxyOverride': false,
+              'proxyOverride': '',
+              'hasAutoConfigUrl': false,
+              'autoConfigUrl': '',
+              'hasAutoDetect': false,
+              'autoDetect': 0,
+            }),
+            '',
+          );
+        }
+        final isProxyActivation = script.contains(
+                r'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings') &&
+            script.contains(
+              r'Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord -Value 1',
+            ) &&
+            !script.contains('OriginalProxyEnable');
+        if (isProxyActivation) {
+          if (!proxyWriteStarted.isCompleted) proxyWriteStarted.complete();
+          return stalledProxyWrite.future;
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+
+    await service.initialize(temp.path);
+    final setting = service.setSystemProxy(
+      '127.0.0.1',
+      7890,
+      cancellation: cancellation.future,
+    );
+    await proxyWriteStarted.future.timeout(const Duration(seconds: 1));
+
+    cancellation.complete();
+
+    expect(await setting.timeout(const Duration(seconds: 1)), isFalse);
+    expect(service.isProxyEnabled, isFalse);
+    expect(service.recoveryPending, isFalse);
+    expect(service.lastError, contains('已取消'));
+    final backup = File(
+      '${temp.path}${Platform.pathSeparator}SSRVPN'
+      '${Platform.pathSeparator}runtime${Platform.pathSeparator}'
+      'system_proxy_backup.json',
+    );
+    expect(await backup.exists(), isFalse);
+  });
+
+  test('cancelling journal preparation never restores an untouched endpoint',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_proxy_prepare_cancel_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    final scripts = <String>[];
+    final runOnceStarted = Completer<void>();
+    final stalledRunOnce = Completer<ProcessResult>();
+    final cancellation = Completer<void>();
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        scripts.add(script);
+        if (script.contains('ConvertTo-Json -Compress')) {
+          return ProcessResult(
+            1,
+            0,
+            jsonEncode({
+              'hasProxyEnable': true,
+              'proxyEnable': 1,
+              'hasProxyServer': true,
+              'proxyServer': '127.0.0.1:7890',
+              'hasProxyOverride': true,
+              'proxyOverride': 'user-owned-bypass',
+              'hasAutoConfigUrl': false,
+              'autoConfigUrl': '',
+              'hasAutoDetect': true,
+              'autoDetect': 1,
+            }),
+            '',
+          );
+        }
+        final isRunOnceRegistration = script.contains('SSRVPNProxyRecovery') &&
+            script.contains('Set-ItemProperty') &&
+            !script.contains('Remove-ItemProperty');
+        if (isRunOnceRegistration) {
+          if (!runOnceStarted.isCompleted) runOnceStarted.complete();
+          return stalledRunOnce.future;
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+
+    await service.initialize(temp.path);
+    final setting = service.setSystemProxy(
+      '127.0.0.1',
+      7890,
+      cancellation: cancellation.future,
+    );
+    await runOnceStarted.future.timeout(const Duration(seconds: 1));
+
+    cancellation.complete();
+
+    expect(await setting.timeout(const Duration(seconds: 1)), isFalse);
+    expect(service.isProxyEnabled, isFalse);
+    expect(service.recoveryPending, isFalse);
+    expect(service.lastError, contains('已取消'));
+    expect(
+      scripts.where(
+        (script) =>
+            script.contains('-Name RestoreInProgress -Type DWord -Value 1'),
+      ),
+      isEmpty,
+    );
+    final backup = File(
+      '${temp.path}${Platform.pathSeparator}SSRVPN'
+      '${Platform.pathSeparator}runtime${Platform.pathSeparator}'
+      'system_proxy_backup.json',
+    );
+    expect(await backup.exists(), isFalse);
+  });
+
+  for (final interruptedStage in ['native journal', 'RunOnce']) {
+    test(
+        'unconfirmed $interruptedStage preparation waits before discarding state',
+        () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'ssrvpn_proxy_prepare_unconfirmed_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      final scripts = <String>[];
+      final pendingProcessExit = Completer<int>();
+      final service = SystemProxyService.forTesting(
+        isWindows: true,
+        localAppData: temp.path,
+        scriptRunner: (script) async {
+          scripts.add(script);
+          if (script.contains("[Console]::Out.Write('TERMINAL')")) {
+            return ProcessResult(1, 0, 'TERMINAL', '');
+          }
+          if (script.contains('ConvertTo-Json -Compress')) {
+            return ProcessResult(
+              1,
+              0,
+              jsonEncode({
+                'hasProxyEnable': true,
+                'proxyEnable': 1,
+                'hasProxyServer': true,
+                'proxyServer': '127.0.0.1:7890',
+                'hasProxyOverride': true,
+                'proxyOverride': 'user-owned-bypass',
+                'hasAutoConfigUrl': false,
+                'autoConfigUrl': '',
+                'hasAutoDetect': true,
+                'autoDetect': 1,
+              }),
+              '',
+            );
+          }
+          final isNativeJournal = script.contains('OriginalProxyEnable') &&
+              script.contains('OwnedProxyServer');
+          final isRunOnce = script.contains('SSRVPNProxyRecovery') &&
+              script.contains('Set-ItemProperty') &&
+              !script.contains('Remove-ItemProperty');
+          if ((interruptedStage == 'native journal' && isNativeJournal) ||
+              (interruptedStage == 'RunOnce' && isRunOnce)) {
+            throw ProcessTerminationNotConfirmedException(
+              pendingProcessExit.future,
+            );
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await service.initialize(temp.path);
+      expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+      expect(service.recoveryPending, isTrue);
+      final scriptCountBeforeClear = scripts.length;
+
+      var clearReturned = false;
+      final clearing = service.clearSystemProxy()
+        ..then<void>((_) => clearReturned = true);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(clearReturned, isFalse);
+      expect(scripts, hasLength(scriptCountBeforeClear));
+
+      pendingProcessExit.complete(125);
+
+      expect(await clearing.timeout(const Duration(seconds: 1)), isTrue);
+      expect(service.recoveryPending, isFalse);
+      expect(
+        scripts.where(
+          (script) =>
+              script.contains('-Name RestoreInProgress -Type DWord -Value 1'),
+        ),
+        isEmpty,
+      );
+      final backup = File(
+        '${temp.path}${Platform.pathSeparator}SSRVPN'
+        '${Platform.pathSeparator}runtime${Platform.pathSeparator}'
+        'system_proxy_backup.json',
+      );
+      expect(await backup.exists(), isFalse);
+    });
+  }
+
+  test('late prep exit is discarded before retry and cannot taint next lease',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_proxy_prepare_retry_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    const ownedOverride =
+        '<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;'
+        '172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;'
+        '172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*';
+    final scripts = <String>[];
+    final pendingProcessExit = Completer<int>();
+    var firstRunOnce = true;
+    var ssrvpnOwnsLiveProxy = false;
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      pendingCommandExitTimeout: const Duration(milliseconds: 20),
+      scriptRunner: (script) async {
+        scripts.add(script);
+        if (script.contains('ConvertTo-Json -Compress')) {
+          return ProcessResult(
+            1,
+            0,
+            jsonEncode({
+              'hasProxyEnable': true,
+              'proxyEnable': 1,
+              'hasProxyServer': true,
+              'proxyServer': '127.0.0.1:7890',
+              'hasProxyOverride': true,
+              'proxyOverride':
+                  ssrvpnOwnsLiveProxy ? ownedOverride : 'user-owned-bypass',
+              'hasAutoConfigUrl': false,
+              'autoConfigUrl': '',
+              'hasAutoDetect': true,
+              'autoDetect': ssrvpnOwnsLiveProxy ? 0 : 1,
+            }),
+            '',
+          );
+        }
+        final isRunOnce = script.contains('SSRVPNProxyRecovery') &&
+            script.contains('Set-ItemProperty') &&
+            !script.contains('Remove-ItemProperty');
+        if (firstRunOnce && isRunOnce) {
+          firstRunOnce = false;
+          throw ProcessTerminationNotConfirmedException(
+            pendingProcessExit.future,
+          );
+        }
+        final isRestore =
+            script.contains('-Name RestoreInProgress -Type DWord -Value 1');
+        if (isRestore) ssrvpnOwnsLiveProxy = false;
+        final isActivation = script.contains(
+                r'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings') &&
+            script.contains(
+              r'Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord -Value 1',
+            ) &&
+            !isRestore &&
+            !script.contains('OriginalProxyEnable');
+        if (isActivation) ssrvpnOwnsLiveProxy = true;
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+
+    await service.initialize(temp.path);
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+    expect(service.recoveryPending, isTrue);
+    expect(await service.clearSystemProxy(), isFalse);
+
+    pendingProcessExit.complete(125);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(await service.retryPendingRecovery(), isTrue);
+    expect(service.recoveryPending, isFalse);
+    expect(
+      scripts.where(
+        (script) =>
+            script.contains('-Name RestoreInProgress -Type DWord -Value 1'),
+      ),
+      isEmpty,
+    );
+
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+    expect(ssrvpnOwnsLiveProxy, isTrue);
+    expect(await service.clearSystemProxy(), isTrue);
+    expect(ssrvpnOwnsLiveProxy, isFalse);
+    expect(service.recoveryPending, isFalse);
+    expect(
+      scripts.where(
+        (script) =>
+            script.contains('-Name RestoreInProgress -Type DWord -Value 1'),
+      ),
+      hasLength(1),
+    );
+  });
+
+  test('queued clear rechecks the pending-process gate after taking the lock',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_proxy_lock_gate_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    const ownedOverride =
+        '<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;'
+        '172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;'
+        '172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*';
+    final scripts = <String>[];
+    final activationStarted = Completer<void>();
+    final activationResult = Completer<ProcessResult>();
+    final pendingProcessExit = Completer<int>();
+    var proxyReads = 0;
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        scripts.add(script);
+        if (script.contains('ConvertTo-Json -Compress')) {
+          proxyReads += 1;
+          final connected = proxyReads > 1;
+          return ProcessResult(
+            1,
+            0,
+            jsonEncode({
+              'hasProxyEnable': true,
+              'proxyEnable': connected ? 1 : 0,
+              'hasProxyServer': connected,
+              'proxyServer': connected ? '127.0.0.1:7890' : '',
+              'hasProxyOverride': connected,
+              'proxyOverride': connected ? ownedOverride : '',
+              'hasAutoConfigUrl': false,
+              'autoConfigUrl': '',
+              'hasAutoDetect': true,
+              'autoDetect': connected ? 0 : 1,
+            }),
+            '',
+          );
+        }
+        final isActivation = script.contains(
+                r'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings') &&
+            script.contains(
+              r'Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord -Value 1',
+            ) &&
+            !script.contains('OriginalProxyEnable');
+        if (isActivation) {
+          activationStarted.complete();
+          return activationResult.future;
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+
+    await service.initialize(temp.path);
+    final setting = service.setSystemProxy('127.0.0.1', 7890);
+    await activationStarted.future.timeout(const Duration(seconds: 1));
+    final clearing = service.clearSystemProxy();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final scriptsBeforeFailure = scripts.length;
+
+    activationResult.completeError(
+      ProcessTerminationNotConfirmedException(pendingProcessExit.future),
+    );
+    expect(await setting.timeout(const Duration(seconds: 1)), isFalse);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(scripts, hasLength(scriptsBeforeFailure));
+
+    pendingProcessExit.complete(125);
+
+    expect(await clearing.timeout(const Duration(seconds: 1)), isTrue);
+    expect(service.recoveryPending, isFalse);
+  });
+
+  for (final interruptedStage in ['restore', 'journal cleanup']) {
+    test('clear waits when $interruptedStage exit is unconfirmed', () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'ssrvpn_proxy_clear_unconfirmed_',
+      );
+      addTearDown(() => temp.delete(recursive: true));
+      const ownedOverride =
+          '<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;'
+          '172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;'
+          '172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*';
+      final scripts = <String>[];
+      final pendingProcessExit = Completer<int>();
+      var interruptOnce = true;
+      var ssrvpnOwnsLiveProxy = false;
+      final service = SystemProxyService.forTesting(
+        isWindows: true,
+        localAppData: temp.path,
+        scriptRunner: (script) async {
+          scripts.add(script);
+          if (script.contains("[Console]::Out.Write('TERMINAL')")) {
+            return ProcessResult(1, 0, 'TERMINAL', '');
+          }
+          if (script.contains('ConvertTo-Json -Compress')) {
+            return ProcessResult(
+              1,
+              0,
+              jsonEncode({
+                'hasProxyEnable': true,
+                'proxyEnable': ssrvpnOwnsLiveProxy ? 1 : 0,
+                'hasProxyServer': ssrvpnOwnsLiveProxy,
+                'proxyServer': ssrvpnOwnsLiveProxy ? '127.0.0.1:7890' : '',
+                'hasProxyOverride': ssrvpnOwnsLiveProxy,
+                'proxyOverride': ssrvpnOwnsLiveProxy ? ownedOverride : '',
+                'hasAutoConfigUrl': false,
+                'autoConfigUrl': '',
+                'hasAutoDetect': true,
+                'autoDetect': ssrvpnOwnsLiveProxy ? 0 : 1,
+              }),
+              '',
+            );
+          }
+          final isRestore =
+              script.contains('-Name RestoreInProgress -Type DWord -Value 1');
+          final isJournalCleanup =
+              script.contains('Native proxy recovery cleanup failed');
+          if (interruptOnce &&
+              ((interruptedStage == 'restore' && isRestore) ||
+                  (interruptedStage == 'journal cleanup' &&
+                      isJournalCleanup))) {
+            interruptOnce = false;
+            throw ProcessTerminationNotConfirmedException(
+              pendingProcessExit.future,
+            );
+          }
+          if (isRestore) ssrvpnOwnsLiveProxy = false;
+          final isActivation = script.contains(
+                  r'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings') &&
+              script.contains(
+                r'Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord -Value 1',
+              ) &&
+              !script.contains('OriginalProxyEnable') &&
+              !isRestore;
+          if (isActivation) ssrvpnOwnsLiveProxy = true;
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+
+      await service.initialize(temp.path);
+      expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+      expect(await service.clearSystemProxy(), isFalse);
+      expect(service.recoveryPending, isTrue);
+      final scriptsBeforeRetry = scripts.length;
+
+      var retryReturned = false;
+      final retrying = service.clearSystemProxy()
+        ..then<void>((_) => retryReturned = true);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(retryReturned, isFalse);
+      expect(scripts, hasLength(scriptsBeforeRetry));
+
+      pendingProcessExit.complete(125);
+
+      expect(await retrying.timeout(const Duration(seconds: 1)), isTrue);
+      expect(ssrvpnOwnsLiveProxy, isFalse);
+      expect(service.recoveryPending, isFalse);
+    });
+  }
+
+  test('rollback waits for an unconfirmed cancelled proxy command to exit',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_proxy_exit_confirmation_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    const ownedOverride =
+        '<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;'
+        '172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;'
+        '172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*';
+    final scripts = <String>[];
+    final pendingProcessExit = Completer<int>();
+    var proxyReads = 0;
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        scripts.add(script);
+        if (script.contains('ConvertTo-Json -Compress')) {
+          proxyReads += 1;
+          final connected = proxyReads > 1;
+          return ProcessResult(
+            1,
+            0,
+            jsonEncode({
+              'hasProxyEnable': true,
+              'proxyEnable': connected ? 1 : 0,
+              'hasProxyServer': connected,
+              'proxyServer': connected ? '127.0.0.1:7890' : '',
+              'hasProxyOverride': connected,
+              'proxyOverride': connected ? ownedOverride : '',
+              'hasAutoConfigUrl': false,
+              'autoConfigUrl': '',
+              'hasAutoDetect': true,
+              'autoDetect': connected ? 0 : 1,
+            }),
+            '',
+          );
+        }
+        final isProxyActivation = script.contains(
+                r'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings') &&
+            script.contains(
+              r'Set-ItemProperty -Path $regPath -Name ProxyEnable -Type DWord -Value 1',
+            ) &&
+            !script.contains('OriginalProxyEnable');
+        if (isProxyActivation) {
+          throw ProcessTerminationNotConfirmedException(
+            pendingProcessExit.future,
+          );
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+
+    await service.initialize(temp.path);
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+    expect(service.recoveryPending, isTrue);
+    expect(service.lastError, contains('确认'));
+    expect(
+      scripts.where(
+        (script) =>
+            script.contains('-Name RestoreInProgress -Type DWord -Value 1'),
+      ),
+      isEmpty,
+    );
+
+    var clearReturned = false;
+    final clearing = service.clearSystemProxy()
+      ..then<void>((_) => clearReturned = true);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(clearReturned, isFalse);
+    expect(
+      scripts.where(
+        (script) =>
+            script.contains('-Name RestoreInProgress -Type DWord -Value 1'),
+      ),
+      isEmpty,
+    );
+
+    pendingProcessExit.complete(125);
+
+    expect(await clearing.timeout(const Duration(seconds: 1)), isTrue);
+    expect(clearReturned, isTrue);
+    expect(service.recoveryPending, isFalse);
+    expect(
+      scripts.where(
+        (script) =>
+            script.contains('-Name RestoreInProgress -Type DWord -Value 1'),
+      ),
+      hasLength(1),
+    );
   });
 
   test('proxy acquisition rejects an out-of-band restore before commit',

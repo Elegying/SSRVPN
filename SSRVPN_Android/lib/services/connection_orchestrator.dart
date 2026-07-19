@@ -2,6 +2,25 @@ import '../services/clash_service.dart';
 import '../services/settings_service.dart';
 import '../services/subscription_service.dart';
 
+/// Clears only the still-current connection intent owned by a failed attempt.
+///
+/// A newer connect/disconnect request must never be overwritten, and a core
+/// that is still running keeps its desired intent for recovery.
+bool rollbackFailedAndroidConnectionIntent(
+  ClashService clashService,
+  int? connectionGeneration,
+) {
+  if (connectionGeneration == null || clashService.isRunning) return false;
+  if (!clashService.isConnectionIntentCurrent(
+    connectionGeneration,
+    connected: true,
+  )) {
+    return false;
+  }
+  clashService.requestConnectionIntent(false);
+  return true;
+}
+
 /// 连接编排器
 ///
 /// 抽取 home_screen 中 generateClashConfig + writeConfig + start +
@@ -31,22 +50,30 @@ class ConnectionOrchestrator {
     if (rawYaml == null || rawYaml.isEmpty) {
       return '请先添加并刷新订阅';
     }
+    final subscriptionRevision = subscriptionService.revision;
 
     final settings = settingsService.settings;
     clashService.updateSettings(settings);
 
     // 生成配置
-    final config = clashService.generateClashConfig(
+    final config = await clashService.generateClashConfigAsync(
       rawYaml,
       settings,
       preferredNodeName: nodeName,
     );
+    if (!_isCurrent(connectionGeneration)) return null;
+    if (!_isSubscriptionCurrent(subscriptionRevision)) {
+      return '订阅已更新，请重新连接';
+    }
 
     String? preparedConfigPath;
     try {
       // 写入配置
       preparedConfigPath = await clashService.writeConfig(config);
       if (!_isCurrent(connectionGeneration)) return null;
+      if (!_isSubscriptionCurrent(subscriptionRevision)) {
+        return '订阅已更新，请重新连接';
+      }
 
       // 启动核心
       final success = await clashService.start(
@@ -57,6 +84,9 @@ class ConnectionOrchestrator {
       if (!_isCurrent(connectionGeneration)) {
         return null;
       }
+      final staleAfterStart =
+          await _handleStaleSubscription(subscriptionRevision);
+      if (staleAfterStart != null) return staleAfterStart;
 
       if (!success) {
         return '连接失败: ${clashService.lastStartError ?? "无法启动VPN核心"}';
@@ -73,6 +103,9 @@ class ConnectionOrchestrator {
         if (!_isCurrent(connectionGeneration)) {
           return null;
         }
+        final staleAfterSwitch =
+            await _handleStaleSubscription(subscriptionRevision);
+        if (staleAfterSwitch != null) return staleAfterSwitch;
         if (!switchResult.liveSwitched) {
           return '连接失败: 无法切换到所选节点';
         }
@@ -83,8 +116,14 @@ class ConnectionOrchestrator {
 
       // 验证连通性
       final connectivityWarning = await clashService.verifyUserConnectivity(
-        shouldContinue: () => _isCurrent(connectionGeneration),
+        shouldContinue: () =>
+            _isCurrent(connectionGeneration) &&
+            _isSubscriptionCurrent(subscriptionRevision),
       );
+      if (!_isCurrent(connectionGeneration)) return null;
+      final staleAfterVerification =
+          await _handleStaleSubscription(subscriptionRevision);
+      if (staleAfterVerification != null) return staleAfterVerification;
       return connectivityWarning ?? snapshotWarning; // null = 完全成功
     } finally {
       if (preparedConfigPath != null) {
@@ -97,4 +136,19 @@ class ConnectionOrchestrator {
         generation,
         connected: true,
       );
+
+  bool _isSubscriptionCurrent(int revision) =>
+      subscriptionService.revision == revision;
+
+  Future<String?> _handleStaleSubscription(int revision) async {
+    if (_isSubscriptionCurrent(revision)) return null;
+    if (clashService.isRunning) {
+      try {
+        await clashService.stop();
+      } catch (_) {
+        return '订阅已更新，但旧连接断开失败，请手动断开后重试';
+      }
+    }
+    return '订阅已更新，请重新连接';
+  }
 }

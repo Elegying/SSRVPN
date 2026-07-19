@@ -36,3 +36,34 @@
 - [x] Tag and publish `v3.4.0`; require Release green
 - [x] Verify GitHub, OSS, website, checksums, and provenance
 - [x] Update and read back durable SSRVPN project memory
+
+---
+
+# 2026-07-20 User-Journey Reliability Fixes
+
+> This checklist records the completed pre-publication review. The user's later
+> explicit publication request supersedes the earlier local-only checkpoint.
+
+## Shared data and async state
+
+- [x] Make subscription deletion transactional and preserve last-known-good data
+- [x] Add total refresh deadline and user cancellation with stale-result guards
+- [x] Make batch latency single-flight/generation-safe across Android and desktop
+- [x] Show update discoveries without requiring a successful VPN connection
+- [x] Keep copied crash reports until the user explicitly deletes them
+- [x] Move measured large YAML/config work off the UI isolate without drift
+
+## Platform fixes
+
+- [x] Android: permission wait, URL redaction, network guidance, APK deadline
+- [x] Windows: owned TUN detection and visible mutex/recovery conflicts
+- [x] macOS: startup recovery, unexpected exit, quit failure, tray failure visibility
+
+## Verification and review
+
+- [x] Run shared and platform targeted tests after each slice
+- [x] Run analyzers, native tests, coverage, security and structural guards
+- [x] Run before/after performance benchmark
+- [x] Inspect dead code, UI wording and explicit product exclusions
+- [x] Complete fresh-context adversarial review and reconcile every finding
+- [x] Run final `make verify` and confirm a clean, intentional diff

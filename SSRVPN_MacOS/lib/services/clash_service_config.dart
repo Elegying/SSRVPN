@@ -40,6 +40,23 @@ mixin _MacosClashConfig on ClashServiceBase {
     );
   }
 
+  Future<String> generateClashConfigAsync(
+    String rawYaml,
+    AppSettings settings, {
+    String? preferredNodeName,
+  }) {
+    return buildClashConfigAsync(
+      rawYaml,
+      settings,
+      preferredNodeName: preferredNodeName,
+      platformHeader: '# ===== SSRVPN 配置（规则内置，订阅仅加载节点） =====',
+      tunConfig: settings.enableTun ? _macosTunConfig(settings) : null,
+      latencyTestUrl: settings.latencyTestUrl,
+      includeFallbackGroup: true,
+      includeGeoIpRules: true,
+    );
+  }
+
   Future<void> writeConfig(String configContent) async {
     await writeStringAtomically(
       File(configPath),

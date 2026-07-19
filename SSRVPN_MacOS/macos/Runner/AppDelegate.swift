@@ -385,11 +385,20 @@ class AppDelegate: FlutterAppDelegate {
     _ sender: NSApplication
   ) -> NSApplication.TerminateReply {
     var pendingIdentifierToSchedule: UUID?
+    var shouldRunPreflight = false
     proxyLifecycleLeaseLock.lock()
     if proxyLifecycleLeaseTokens.isEmpty {
-      let shouldTerminateNow = applicationTerminationLeaseState == .idle
+      if applicationTerminationLeaseState == .idle {
+        applicationTerminationLeaseState = .committed
+        shouldRunPreflight = true
+      }
       proxyLifecycleLeaseLock.unlock()
-      return shouldTerminateNow ? .terminateNow : .terminateLater
+      if shouldRunPreflight {
+        let safe = prepareForSafeApplicationTermination()
+        if !safe { resetCommittedApplicationTermination() }
+        return safe ? .terminateNow : .terminateCancel
+      }
+      return .terminateLater
     }
     if applicationTerminationLeaseState == .idle {
       let identifier = UUID()
@@ -434,7 +443,10 @@ class AppDelegate: FlutterAppDelegate {
     proxyLifecycleLeaseLock.unlock()
     if shouldReply {
       DispatchQueue.main.async { [weak self] in
-        self?.replyToPendingApplicationTermination(true)
+        guard let self else { return }
+        let safe = self.prepareForSafeApplicationTermination()
+        if !safe { self.resetCommittedApplicationTermination() }
+        self.replyToPendingApplicationTermination(safe)
       }
     }
     return true
@@ -463,6 +475,75 @@ class AppDelegate: FlutterAppDelegate {
     let active = !proxyLifecycleLeaseTokens.isEmpty
     proxyLifecycleLeaseLock.unlock()
     return active
+  }
+
+  private func resetCommittedApplicationTermination() {
+    proxyLifecycleLeaseLock.lock()
+    if applicationTerminationLeaseState == .committed {
+      applicationTerminationLeaseState = .idle
+    }
+    proxyLifecycleLeaseLock.unlock()
+  }
+
+  @discardableResult
+  func performSafeTerminationPreflight(
+    hadProxyState: Bool,
+    restoreProxy: () -> Bool,
+    terminateCore: () -> Bool,
+    onFailure: (String) -> Void
+  ) -> Bool {
+    if hadProxyState && !restoreProxy() {
+      onFailure("系统代理恢复失败。SSRVPN 已保留窗口和菜单栏图标，未继续终止当前 Mihomo 核心；请修复网络后重试退出。")
+      return false
+    }
+    if !terminateCore() {
+      onFailure("Mihomo 安全停止失败。SSRVPN 已保留窗口和菜单栏图标，请稍后重试退出。")
+      return false
+    }
+    return true
+  }
+
+  private func prepareForSafeApplicationTermination() -> Bool {
+    guard ownsInstanceLease else { return true }
+    var failureMessage: String?
+    var safe = false
+    performCoreProcessOperationAndWait {
+      let proxyStateURL = findProxyStateFile()
+      let runtimeDirectory = runtimeDirectoryForTermination(proxyStateURL: proxyStateURL)
+      safe = performSafeTerminationPreflight(
+        hadProxyState: proxyStateURL != nil,
+        restoreProxy: {
+          guard let proxyStateURL else { return true }
+          return restoreSavedProxyState(at: proxyStateURL)
+        },
+        terminateCore: {
+          removeTunSessionRequests()
+          guard let runtimeDirectory else { return true }
+          return terminateOwnedCore(in: runtimeDirectory)
+        },
+        onFailure: { failureMessage = $0 }
+      )
+    }
+    if let failureMessage {
+      presentTerminationFailure(failureMessage)
+    }
+    return safe
+  }
+
+  private func presentTerminationFailure(_ message: String) {
+    _ = revealMainWindow()
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = "SSRVPN 未能安全退出"
+    alert.informativeText = message
+    alert.addButton(withTitle: "知道了")
+    let window = NSApp.windows.first(where: { $0 is MainFlutterWindow })
+      ?? NSApp.windows.first(where: { $0.canBecomeKey || $0.canBecomeMain })
+    if let window {
+      alert.beginSheetModal(for: window)
+    } else {
+      alert.runModal()
+    }
   }
 
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

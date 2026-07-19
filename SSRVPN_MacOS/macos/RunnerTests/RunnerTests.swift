@@ -212,6 +212,56 @@ class RunnerTests: XCTestCase {
     XCTAssertFalse(delegate.hasActiveProxyLifecycleTransaction)
   }
 
+  func testTerminationPreflightKeepsUIAndCoreWhenProxyRestoreFails() {
+    let delegate = AppDelegate()
+    var events: [String] = []
+    var failure: String?
+
+    let safe = delegate.performSafeTerminationPreflight(
+      hadProxyState: true,
+      restoreProxy: {
+        events.append("restore")
+        return false
+      },
+      terminateCore: {
+        events.append("terminate")
+        return true
+      },
+      onFailure: { failure = $0 }
+    )
+
+    XCTAssertFalse(safe)
+    XCTAssertEqual(events, ["restore"])
+    XCTAssertTrue(failure?.contains("系统代理") == true)
+    XCTAssertTrue(failure?.contains("未继续终止当前 Mihomo 核心") == true)
+    XCTAssertFalse(failure?.contains("安全核心") == true)
+    XCTAssertTrue(failure?.contains("重试退出") == true)
+  }
+
+  func testTerminationPreflightRequiresOwnedCoreCleanupBeforeExit() {
+    let delegate = AppDelegate()
+    var events: [String] = []
+    var failure: String?
+
+    let safe = delegate.performSafeTerminationPreflight(
+      hadProxyState: true,
+      restoreProxy: {
+        events.append("restore")
+        return true
+      },
+      terminateCore: {
+        events.append("terminate")
+        return false
+      },
+      onFailure: { failure = $0 }
+    )
+
+    XCTAssertFalse(safe)
+    XCTAssertEqual(events, ["restore", "terminate"])
+    XCTAssertTrue(failure?.contains("Mihomo") == true)
+    XCTAssertTrue(failure?.contains("重试退出") == true)
+  }
+
   func testNativeLaunchPublishesIdentityAndDrainsDiagnosticsBeforeReturning() throws {
     let delegate = AppDelegate()
     let directory = FileManager.default.temporaryDirectory

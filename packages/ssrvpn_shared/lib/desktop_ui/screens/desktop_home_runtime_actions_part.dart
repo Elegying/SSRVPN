@@ -7,6 +7,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     final settingsService = context.read<SettingsService>();
     final rawYaml = subService.rawYaml;
     if (rawYaml == null || rawYaml.isEmpty) return;
+    final subscriptionRevision = subService.revision;
     final connectionGeneration = clashService.captureAutomaticRestartIntent();
     if (connectionGeneration == null) return;
 
@@ -25,63 +26,90 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         nodes,
         settingsService.settings.lastSelectedNodeName,
       );
-      await clashService.stop();
-      if (!clashService.isConnectionIntentCurrent(
-        connectionGeneration,
-        connected: true,
-      )) {
-        return;
-      }
-      final runtimeSettings = await clashService.prepareForStart(
-        settingsService.settings,
-      );
-      final portAdjustmentNotice =
-          clashService.lastRuntimePortAdjustmentMessage;
-      final config = clashService.generateClashConfig(
-        rawYaml,
-        runtimeSettings,
-        preferredNodeName: preferredNode?.name,
-      );
-      await clashService.writeConfig(config);
-      if (!clashService.isConnectionIntentCurrent(
-        connectionGeneration,
-        connected: true,
-      )) {
-        return;
-      }
-      final success = await clashService.start();
-      if (!clashService.isConnectionIntentCurrent(
-        connectionGeneration,
-        connected: true,
-      )) {
-        return;
-      }
       ProxyNode? runtimeSelectedNode;
-      if (success && preferredNode != null) {
-        final switched = await clashService.switchSelectedProxy(
-          preferredNode.name,
-        );
-        runtimeSelectedNode = await _resolveRuntimeSelectedNode(
-          clashService,
-          nodes,
-        );
-        if (switched && runtimeSelectedNode?.name == preferredNode.name) {
-          await _rememberSelectedNode(preferredNode);
-        }
-      } else if (success) {
-        runtimeSelectedNode = await _resolveRuntimeSelectedNode(
-          clashService,
-          nodes,
+      clashService.interruptPendingStart();
+      final connectionResult = await clashService.runConnectionTransition(
+        () async {
+          await clashService.stop();
+          return const DesktopConnectionCoordinator().connect(
+            preferredSettings: settingsService.settings,
+            prepareForStart: clashService.prepareForStart,
+            generateConfig: (runtimeSettings) =>
+                clashService.generateClashConfigAsync(
+              rawYaml,
+              runtimeSettings,
+              preferredNodeName: preferredNode?.name,
+            ),
+            writeConfig: clashService.writeConfig,
+            start: clashService.start,
+            stop: clashService.stop,
+            isRevisionCurrent: () =>
+                subService.revision == subscriptionRevision,
+            isIntentCurrent: () => clashService.isConnectionIntentCurrent(
+              connectionGeneration,
+              connected: true,
+            ),
+            shouldRollbackStaleIntent: () => !clashService.connectionDesired,
+            cancelIntent: () {
+              clashService.requestConnectionIntent(false);
+              clashService.interruptPendingStart();
+            },
+            readStartFailureReason: () => clashService.lastStartError,
+            readRuntimeNotice: () =>
+                clashService.lastRuntimePortAdjustmentMessage,
+            switchPreferredNode: () async {
+              if (preferredNode != null) {
+                final switched = await clashService.switchSelectedProxy(
+                  preferredNode.name,
+                );
+                runtimeSelectedNode = await _resolveRuntimeSelectedNode(
+                  clashService,
+                  nodes,
+                );
+                return switched;
+              }
+              runtimeSelectedNode = await _resolveRuntimeSelectedNode(
+                clashService,
+                nodes,
+              );
+              return true;
+            },
+          );
+        },
+      );
+      if (connectionResult.failure == DesktopConnectionFailure.cancelled) {
+        return;
+      }
+      if (connectionResult.failure ==
+          DesktopConnectionFailure.subscriptionChanged) {
+        throw StateError(
+          connectionResult.failureReason ?? desktopSubscriptionChangedMessage,
         );
       }
-      if (!clashService.isConnectionIntentCurrent(
-        connectionGeneration,
-        connected: true,
-      )) {
-        return;
+      var success = connectionResult.connected &&
+          clashService.isRunning &&
+          subService.revision == subscriptionRevision &&
+          clashService.isConnectionIntentCurrent(
+            connectionGeneration,
+            connected: true,
+          );
+      if (success &&
+          preferredNode != null &&
+          connectionResult.preferredNodeSwitchSucceeded == true &&
+          runtimeSelectedNode?.name == preferredNode.name) {
+        await _rememberSelectedNode(preferredNode);
+        success = clashService.isRunning &&
+            subService.revision == subscriptionRevision &&
+            clashService.isConnectionIntentCurrent(
+              connectionGeneration,
+              connected: true,
+            );
       }
       if (mounted && !_disposed) {
-        if (!success) clashService.requestConnectionIntent(false);
+        if (!success) {
+          clashService.requestConnectionIntent(false);
+          clashService.interruptPendingStart();
+        }
         setState(() {
           _isConnected = success;
           _isConnecting = false;
@@ -91,7 +119,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
           if (!success) _resetPublicIpState();
         });
         if (success) {
-          _showRuntimePortAdjustmentNotice(portAdjustmentNotice);
+          _showRuntimePortAdjustmentNotice(connectionResult.runtimeNotice);
           _scheduleExitCountryResolution();
           _schedulePublicIpRefresh();
         }
@@ -118,11 +146,17 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         connectionGeneration,
         connected: true,
       );
-      if (!isCurrent) return;
+      if (!isCurrent && clashService.connectionDesired) return;
       final stillRunning = clashService.isRunning;
-      if (!stillRunning) clashService.requestConnectionIntent(false);
+      if (!stillRunning && isCurrent) {
+        clashService.requestConnectionIntent(false);
+        clashService.interruptPendingStart();
+      }
       if (mounted && !_disposed) {
-        final msg = e.toString().replaceFirst('Exception: ', '');
+        final msg = e
+            .toString()
+            .replaceFirst('Exception: ', '')
+            .replaceFirst('Bad state: ', '');
         setState(() {
           _isConnected = stillRunning;
           _isConnecting = false;
@@ -134,36 +168,16 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     }
   }
 
-  void _checkUpdateDelayed() {
-    _updateCheckTimer?.cancel();
-    _updateCheckTimer = Timer(const Duration(seconds: 10), () async {
-      if (!mounted || !_isConnected) return;
-      try {
-        const currentVersion = UpdateService.appVersion;
-        final update = await UpdateService.checkForUpdate(currentVersion);
-        if (update != null && mounted && _isConnected) {
-          await UpdateService.showUpdateDialog(
-            context,
-            latestVersion: update.version,
-            currentVersion: currentVersion,
-            downloadUrl: update.downloadUrl,
-            changelog: update.changelog,
-            sha256: update.sha256,
-            fallbackDownloadUrl: update.fallbackDownloadUrl,
-          );
-        }
-      } catch (e) {
-        AppLogger.warning('Update', '检查更新异常: $e');
-      }
-    });
-  }
-
   Future<void> _handleTestLatency(
     String nodeName,
     String server,
     int port,
   ) async {
     if (_testingNodeName == nodeName) return;
+    _cancelLatencyBatch();
+    final generation = ++_singleLatencyGeneration;
+    final subscriptionService = context.read<SubscriptionService>();
+    final subscriptionRevision = subscriptionService.revision;
     setState(() => _testingNodeName = nodeName);
     final clashService = context.read<ClashService>();
     final settings = context.read<SettingsService>().settings;
@@ -177,12 +191,27 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       measuredLatency,
       random: math.Random(),
     );
-    if (mounted && !_disposed) {
+    final isCurrent = mounted &&
+        !_disposed &&
+        generation == _singleLatencyGeneration &&
+        subscriptionService.revision == subscriptionRevision &&
+        _nodes.any(
+          (node) =>
+              node.name == nodeName &&
+              node.server == server &&
+              node.port == port,
+        );
+    if (isCurrent) {
       setState(() {
         _testingNodeName = null;
         _latencyController.applyNow(_nodes, nodeName, latency);
       });
       _sortNodesByLatency();
+    } else if (mounted &&
+        !_disposed &&
+        generation == _singleLatencyGeneration &&
+        _testingNodeName == nodeName) {
+      setState(() => _testingNodeName = null);
     }
   }
 
@@ -267,23 +296,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     );
   }
 
-  Future<void> _syncSelectedNodeFromRuntime() async {
-    final clashService = _clashService;
-    if (clashService == null || !mounted || _disposed || !_isConnected) return;
-    final runtimeSelectedNode = await _resolveRuntimeSelectedNode(
-      clashService,
-      _nodes,
-    );
-    if (!mounted || _disposed || !_isConnected) return;
-    setState(() => _selectedNode = runtimeSelectedNode);
-  }
-
-  Future<void> _rememberSelectedNode(ProxyNode node) async {
-    final settingsService = context.read<SettingsService>();
-    if (settingsService.settings.lastSelectedNodeName == node.name) return;
-    await settingsService.updateLastSelectedNodeName(node.name);
-  }
-
   Future<void> _autoTestAllNodes() => _runBatchLatencyTest();
 
   Future<void> _handleTestAllLatency() => _runBatchLatencyTest();
@@ -291,19 +303,53 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
   Future<void> _runBatchLatencyTest() async {
     if (_nodes.isEmpty) return;
     final clashService = context.read<ClashService>();
+    final subscriptionService = context.read<SubscriptionService>();
     final timeout = context.read<SettingsService>().settings.latencyTestTimeout;
+    final nodesUnderTest = List<ProxyNode>.from(_nodes);
+    final subscriptionRevision = subscriptionService.revision;
+    _cancelLatencyBatch();
+    final generation = _latencyController.beginBatch();
+    _latencyBatchGeneration = generation;
     setState(() => _isBatchTesting = true);
-    _latencyController.clearPending();
-    await clashService.testAllLatencies(_nodes, (name, latency) {
-      _latencyController.queue(name, latency);
-      _scheduleLatencyFlush();
-    }, timeoutMs: timeout);
-    _latencyBatchTimer?.cancel();
-    _flushPendingLatencies();
-    if (mounted && !_disposed) {
-      _sortNodesByLatency();
-      setState(() => _isBatchTesting = false);
+
+    bool isCurrent() =>
+        mounted &&
+        !_disposed &&
+        _latencyBatchGeneration == generation &&
+        _latencyController.isCurrentBatch(generation) &&
+        subscriptionService.revision == subscriptionRevision;
+
+    try {
+      await clashService.testAllLatencies(
+        nodesUnderTest,
+        (name, latency) {
+          if (!_latencyController.queueForBatch(generation, name, latency)) {
+            return;
+          }
+          _scheduleLatencyFlush(generation);
+        },
+        timeoutMs: timeout,
+        shouldContinue: isCurrent,
+      );
+    } catch (error) {
+      AppLogger.warning('Latency', '批量延迟测试失败: $error');
     }
+    _latencyBatchTimer?.cancel();
+    if (!isCurrent()) {
+      if (mounted && !_disposed && _latencyBatchGeneration == generation) {
+        setState(_cancelLatencyBatch);
+      } else if (_latencyBatchGeneration == generation) {
+        _cancelLatencyBatch();
+      }
+      return;
+    }
+    setState(() {
+      if (_latencyController.finishBatch(generation, _nodes)) {
+        _nodes = _latencyController.timeoutLast(_nodes);
+        _latencyBatchGeneration = null;
+        _isBatchTesting = false;
+      }
+    });
   }
 
   void _sortNodesByLatency() {

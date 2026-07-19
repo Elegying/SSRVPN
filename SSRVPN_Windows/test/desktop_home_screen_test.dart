@@ -1,6 +1,9 @@
 import 'dart:io';
+import 'dart:ui' show Tristate;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
@@ -43,7 +46,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('SSRVPN'), findsOneWidget);
-    expect(find.text('v3.4.6'), findsOneWidget);
+    expect(find.text('v3.4.7'), findsOneWidget);
     expect(find.text('添加订阅'), findsOneWidget);
 
     await tester.tap(find.text('确定'));
@@ -103,7 +106,7 @@ void main() {
 
     await tester.tap(find.text('连接'));
     await tester.pump();
-    await tester.pump();
+    await _pumpUntil(tester, () => fixture.clash.isRunning);
     expect(fixture.clash.isRunning, isTrue);
     expect(find.text('已连接'), findsWidgets);
 
@@ -129,6 +132,88 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });
+
+  testWidgets('node and latency actions are keyboard accessible',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(
+        withNodes: true,
+        recordBatchLatencyResults: false,
+      ),
+    ))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+
+    final nodeAction = find.bySemanticsLabel('选择节点 东京节点');
+    expect(nodeAction, findsOneWidget);
+    expect(tester.getSemantics(nodeAction).flagsCollection.isButton, isTrue);
+    expect(
+      tester.getSemantics(nodeAction).flagsCollection.isEnabled,
+      Tristate.isTrue,
+    );
+    await _focusSemanticAction(tester, nodeAction);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(find.text('请先连接VPN'), findsOneWidget);
+
+    await tester.tap(find.text('连接'));
+    await tester.pump();
+    await _pumpUntil(tester, () => fixture.clash.isRunning);
+    expect(fixture.clash.isRunning, isTrue);
+
+    final batchAction = find.bySemanticsLabel('测试全部节点延迟');
+    expect(batchAction, findsOneWidget);
+    expect(tester.getSemantics(batchAction).flagsCollection.isButton, isTrue);
+    final batchRunsBefore = fixture.clash.batchLatencyRuns;
+    await _focusSemanticAction(tester, batchAction);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(fixture.clash.batchLatencyRuns, greaterThan(batchRunsBefore));
+
+    final singleAction = find.bySemanticsLabel('测试 东京节点 延迟');
+    expect(singleAction, findsOneWidget);
+    expect(tester.getSemantics(singleAction).flagsCollection.isButton, isTrue);
+    await tester.tap(singleAction, buttons: kSecondaryMouseButton);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('编辑'), findsOneWidget);
+    await tester.tapAt(Offset.zero);
+    await tester.pump(const Duration(milliseconds: 300));
+    final singleRunsBefore = fixture.clash.singleLatencyRuns;
+    await _focusSemanticAction(tester, singleAction);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(fixture.clash.singleLatencyRuns, greaterThan(singleRunsBefore));
+    semantics.dispose();
+  });
+}
+
+Future<void> _focusSemanticAction(WidgetTester tester, Finder action) async {
+  for (var attempt = 0; attempt < 80; attempt++) {
+    if (tester.getSemantics(action).flagsCollection.isFocused ==
+        Tristate.isTrue) {
+      return;
+    }
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+  }
+  fail('Could not focus requested semantic action with keyboard traversal');
+}
+
+Future<void> _pumpUntil(
+  WidgetTester tester,
+  bool Function() condition, {
+  int maxPumps = 30,
+}) async {
+  for (var attempt = 0; attempt < maxPumps && !condition(); attempt++) {
+    await tester.pump();
+  }
+  expect(condition(), isTrue, reason: 'condition did not become true');
 }
 
 class _HomeFixture {
@@ -144,7 +229,10 @@ class _HomeFixture {
   final SettingsService settings;
   final _FakeClashService clash;
 
-  static Future<_HomeFixture> create({required bool withNodes}) async {
+  static Future<_HomeFixture> create({
+    required bool withNodes,
+    bool recordBatchLatencyResults = true,
+  }) async {
     SubscriptionService.resetInstanceForTesting();
     final directory = Directory.systemTemp.createTempSync('ssrvpn_home_');
     final subscription = await SubscriptionService.getInstance(directory.path);
@@ -161,7 +249,9 @@ class _HomeFixture {
       directory: directory,
       subscription: subscription,
       settings: settings,
-      clash: _FakeClashService(),
+      clash: _FakeClashService(
+        recordBatchLatencyResults: recordBatchLatencyResults,
+      ),
     );
   }
 
@@ -188,9 +278,13 @@ class _HomeFixture {
 }
 
 class _FakeClashService extends ClashService {
+  _FakeClashService({this.recordBatchLatencyResults = true});
+
+  final bool recordBatchLatencyResults;
   bool _running = false;
   String? lastSwitchAttempt;
   int batchLatencyRuns = 0;
+  int singleLatencyRuns = 0;
 
   @override
   bool get isRunning => _running;
@@ -208,6 +302,19 @@ class _FakeClashService extends ClashService {
     String? preferredNodeName,
   }) {
     return rawYaml;
+  }
+
+  @override
+  Future<String> generateClashConfigAsync(
+    String rawYaml,
+    AppSettings settings, {
+    String? preferredNodeName,
+  }) async {
+    return generateClashConfig(
+      rawYaml,
+      settings,
+      preferredNodeName: preferredNodeName,
+    );
   }
 
   @override
@@ -239,6 +346,7 @@ class _FakeClashService extends ClashService {
     int port, {
     int timeoutMs = 5000,
   }) async {
+    singleLatencyRuns++;
     return server.endsWith('.1') ? 42 : 68;
   }
 
@@ -248,9 +356,12 @@ class _FakeClashService extends ClashService {
     void Function(String name, int latency) onResult, {
     int concurrency = 10,
     int timeoutMs = 5000,
+    bool Function()? shouldContinue,
   }) async {
     batchLatencyRuns++;
+    if (!recordBatchLatencyResults) return;
     for (final node in nodes) {
+      if (shouldContinue?.call() == false) return;
       onResult(node.name, await testLatency(node.server, node.port));
     }
   }

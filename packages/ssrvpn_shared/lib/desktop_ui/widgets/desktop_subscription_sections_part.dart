@@ -74,12 +74,14 @@ class _DesktopSubscriptionAddCard extends StatelessWidget {
   final bool isDark;
   final TextEditingController urlController;
   final bool isAdding;
+  final bool isBusy;
   final VoidCallback onAdd;
 
   const _DesktopSubscriptionAddCard({
     required this.isDark,
     required this.urlController,
     required this.isAdding,
+    required this.isBusy,
     required this.onAdd,
   });
 
@@ -112,20 +114,21 @@ class _DesktopSubscriptionAddCard extends StatelessWidget {
           const SizedBox(height: 18),
           TextField(
             controller: urlController,
+            enabled: !isBusy,
             decoration: GlassInputDecoration(
               isDark: isDark,
               hintText: '粘贴订阅链接或 ssr:// 链接',
               prefixIcon: const Icon(Icons.link, size: 20),
             ),
             keyboardType: TextInputType.url,
-            onSubmitted: (_) => onAdd(),
+            onSubmitted: isBusy ? null : (_) => onAdd(),
           ),
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             height: 48,
             child: ElevatedButton(
-              onPressed: isAdding ? null : onAdd,
+              onPressed: isBusy ? null : onAdd,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primary,
                 disabledBackgroundColor:
@@ -164,16 +167,20 @@ class _DesktopSubscriptionListSection extends StatelessWidget {
   final List<Subscription> subscriptions;
   final bool isDark;
   final bool isRefreshing;
+  final bool isBusy;
   final SubscriptionRefreshResult? refreshResult;
   final VoidCallback onRefresh;
+  final VoidCallback onCancelRefresh;
   final ValueChanged<String> onDelete;
 
   const _DesktopSubscriptionListSection({
     required this.subscriptions,
     required this.isDark,
     required this.isRefreshing,
+    required this.isBusy,
     required this.refreshResult,
     required this.onRefresh,
+    required this.onCancelRefresh,
     required this.onDelete,
   });
 
@@ -210,18 +217,12 @@ class _DesktopSubscriptionListSection extends StatelessWidget {
             ),
             const Spacer(),
             TextButton.icon(
-              onPressed: isRefreshing ? null : onRefresh,
+              onPressed:
+                  isRefreshing ? onCancelRefresh : (isBusy ? null : onRefresh),
               icon: isRefreshing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AppTheme.primary,
-                      ),
-                    )
+                  ? const Icon(Icons.cancel_outlined, size: 18)
                   : const Icon(Icons.refresh, size: 18),
-              label: Text(isRefreshing ? '刷新中...' : '全部刷新'),
+              label: Text(isRefreshing ? '取消刷新' : '全部刷新'),
             ),
           ],
         ),
@@ -235,7 +236,7 @@ class _DesktopSubscriptionListSection extends StatelessWidget {
           (subscription) => _DesktopSubscriptionCard(
             subscription: subscription,
             isDark: isDark,
-            onDelete: () => onDelete(subscription.id),
+            onDelete: isBusy ? null : () => onDelete(subscription.id),
           ),
         ),
       ],
@@ -257,11 +258,13 @@ class _DesktopSubscriptionRefreshResult extends StatelessWidget {
     final color = switch (result.status) {
       SubscriptionRefreshStatus.success => AppTheme.success,
       SubscriptionRefreshStatus.partialSuccess => AppTheme.warning,
+      SubscriptionRefreshStatus.cancelled => AppTheme.warning,
       SubscriptionRefreshStatus.failure => AppTheme.error,
     };
     final icon = switch (result.status) {
       SubscriptionRefreshStatus.success => Icons.check_circle,
       SubscriptionRefreshStatus.partialSuccess => Icons.warning_amber_rounded,
+      SubscriptionRefreshStatus.cancelled => Icons.cancel_outlined,
       SubscriptionRefreshStatus.failure => Icons.error_outline,
     };
     return Container(
@@ -300,7 +303,7 @@ class _DesktopSubscriptionRefreshResult extends StatelessWidget {
 class _DesktopSubscriptionCard extends StatelessWidget {
   final Subscription subscription;
   final bool isDark;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
 
   const _DesktopSubscriptionCard({
     required this.subscription,
@@ -368,10 +371,13 @@ class _DesktopSubscriptionCard extends StatelessWidget {
               ),
               IconButton(
                 onPressed: onDelete,
-                icon: Icon(
+                color: AppTheme.error.withValues(alpha: 150 / 255),
+                disabledColor:
+                    (isDark ? AppTheme.textTertiary : AppTheme.lightTextHint)
+                        .withValues(alpha: 100 / 255),
+                icon: const Icon(
                   Icons.delete_outline,
                   size: 22,
-                  color: AppTheme.error.withValues(alpha: 150 / 255),
                 ),
                 padding: const EdgeInsets.all(4),
                 constraints: const BoxConstraints(),
@@ -510,35 +516,46 @@ class _DesktopAboutButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       message: '关于',
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: 34,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: AppTheme.primary.withValues(alpha: 20 / 255),
-            borderRadius: BorderRadius.circular(10),
-            border:
-                Border.all(color: AppTheme.primary.withValues(alpha: 55 / 255)),
+      child: SizedBox(
+        height: 34,
+        child: TextButton(
+          onPressed: onTap,
+          style: TextButton.styleFrom(
+            foregroundColor: AppTheme.primary,
+            backgroundColor: AppTheme.primary.withValues(alpha: 20 / 255),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            side: BorderSide(
+              color: AppTheme.primary.withValues(alpha: 55 / 255),
+            ),
           ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.info_outline_rounded,
-                size: 16,
-                color: AppTheme.primary,
-              ),
-              SizedBox(width: 6),
-              Text(
-                '关于',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+          child: Semantics(
+            label: '打开关于 SSRVPN',
+            hint: '查看版本与项目信息',
+            excludeSemantics: true,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 16,
                   color: AppTheme.primary,
                 ),
-              ),
-            ],
+                SizedBox(width: 6),
+                Text(
+                  '关于',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.primary,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

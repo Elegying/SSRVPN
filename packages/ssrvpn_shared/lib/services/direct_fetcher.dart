@@ -2,7 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+
+import 'package:meta/meta.dart';
+
 import '../constants/app_constants.dart';
+import '../services/subscription_refresh_control.dart';
 import '../services/subscription_text_decoder.dart';
 import '../utils/subscription_url_policy.dart';
 
@@ -123,7 +127,10 @@ class DirectFetcher {
 
   /// 通过 DoH 解析域名的真实 A/AAAA 记录(连接按 IP 直达,不依赖系统 DNS)
   static Future<List<String>> _resolveViaDoH(
-      String host, InternetAddress? bindAddr) async {
+    String host,
+    InternetAddress? bindAddr,
+    _DirectFetchCancellationScope cancellationScope,
+  ) async {
     Future<List<String>> resolve(String recordType, int answerType) async {
       try {
         return await _resolveRecordViaDoH(
@@ -131,7 +138,10 @@ class DirectFetcher {
           bindAddr,
           recordType,
           answerType,
+          cancellationScope,
         );
+      } on SubscriptionRefreshCancelled {
+        rethrow;
       } catch (_) {
         return const [];
       }
@@ -149,23 +159,33 @@ class DirectFetcher {
     InternetAddress? bindAddr,
     String recordType,
     int answerType,
+    _DirectFetchCancellationScope cancellationScope,
   ) async {
-    final socket = await Socket.connect(_dohIp, 443,
-        sourceAddress: bindAddr, timeout: _connectTimeout);
+    final socket = await cancellationScope.waitAndTrackSocket(
+      Socket.connect(
+        _dohIp,
+        443,
+        sourceAddress: bindAddr,
+        timeout: _connectTimeout,
+      ),
+    );
     SecureSocket tls;
     try {
-      tls = await SecureSocket.secure(socket, host: _dohHost)
-          .timeout(_connectTimeout);
+      tls = await cancellationScope.waitAndTrackSocket(
+        SecureSocket.secure(socket, host: _dohHost).timeout(_connectTimeout),
+      );
     } catch (e) {
       socket.destroy();
       rethrow;
     }
     try {
-      final body = await _httpGetOverSocket(
-        tls,
-        host: _dohHost,
-        path: '/resolve?name=${Uri.encodeComponent(host)}&type=$recordType',
-        accept: 'application/dns-json',
+      final body = await cancellationScope.wait(
+        _httpGetOverSocket(
+          tls,
+          host: _dohHost,
+          path: '/resolve?name=${Uri.encodeComponent(host)}&type=$recordType',
+          accept: 'application/dns-json',
+        ),
       );
       final json = jsonDecode(body.body) as Map<String, dynamic>;
       final answers = json['Answer'] as List? ?? [];
@@ -185,6 +205,7 @@ class DirectFetcher {
     int maxRedirects = 4,
     int maxBodyBytes = AppConstants.maxSubscriptionBytes,
     Duration requestTimeout = _requestTimeout,
+    SubscriptionRefreshCancellation? cancellation,
   }) async {
     return (await fetchResponse(
       url,
@@ -192,6 +213,7 @@ class DirectFetcher {
       maxRedirects: maxRedirects,
       maxBodyBytes: maxBodyBytes,
       requestTimeout: requestTimeout,
+      cancellation: cancellation,
     ))
         .body;
   }
@@ -204,116 +226,153 @@ class DirectFetcher {
     int maxBodyBytes = AppConstants.maxSubscriptionBytes,
     Duration requestTimeout = _requestTimeout,
     Future<List<InternetAddress>> Function(String host)? addressLookup,
+    @visibleForTesting
+    Future<Map<InternetAddressType, InternetAddress>> Function()?
+        physicalAddressLookup,
+    SubscriptionRefreshCancellation? cancellation,
   }) async {
-    final deadline = DateTime.now().add(requestTimeout);
-    Duration remaining({Duration? cap}) {
-      final value = deadline.difference(DateTime.now());
-      if (value <= Duration.zero) {
-        throw TimeoutException('订阅请求总超时', requestTimeout);
-      }
-      return cap != null && value > cap ? cap : value;
-    }
-
-    final physicalAddresses = await _physicalInterfaceAddresses();
-    final dohBindAddress = physicalAddresses[InternetAddressType.IPv4];
-    var current = SubscriptionUrlPolicy.parse(url);
-
-    for (var hop = 0; hop <= maxRedirects; hop++) {
-      final host = current.host;
-      final isHttps = current.scheme == 'https';
-      final port = current.hasPort ? current.port : (isHttps ? 443 : 80);
-      final formattedHost = host.contains(':') ? '[$host]' : host;
-      final hostHeader =
-          current.hasPort ? '$formattedHost:$port' : formattedHost;
-
-      // 解析真实 IP:IP 直填则跳过;否则优先 DoH,失败回退系统 DNS(过滤 fake-ip)
-      List<InternetAddress> connectAddresses;
-      final hostAddress = InternetAddress.tryParse(host);
-      if (hostAddress != null) {
-        connectAddresses = [hostAddress];
-      } else if (addressLookup != null) {
-        connectAddresses = await addressLookup(host).timeout(remaining());
-      } else {
-        List<String> ips = [];
-        ips = await _resolveViaDoH(host, dohBindAddress).timeout(remaining());
-        if (ips.isEmpty) {
-          final sys = await InternetAddress.lookup(host)
-              .timeout(remaining(cap: const Duration(seconds: 5)));
-          ips = sys.where((a) => !isFakeIp(a)).map((a) => a.address).toList();
+    final cancellationScope = _DirectFetchCancellationScope(cancellation);
+    try {
+      final deadline = DateTime.now().add(requestTimeout);
+      Duration remaining({Duration? cap}) {
+        final value = deadline.difference(DateTime.now());
+        if (value <= Duration.zero) {
+          throw TimeoutException('订阅请求总超时', requestTimeout);
         }
-        connectAddresses = ips
-            .map(InternetAddress.tryParse)
-            .whereType<InternetAddress>()
-            .toList();
+        return cap != null && value > cap ? cap : value;
       }
-      if (connectAddresses.isEmpty) {
-        throw Exception('无法解析订阅服务器地址: $host');
-      }
-      connectAddresses = balancedAddresses(
-        connectAddresses.where((address) => !isFakeIp(address)),
-      );
 
-      Socket? stream;
-      Object? lastConnectError;
-      for (final connectAddress in connectAddresses) {
-        Socket? socket;
-        try {
-          final physicalAddress = physicalAddresses[connectAddress.type];
-          final sourceAddress =
-              physicalAddress != null && _canBindSourceAddress(connectAddress)
-                  ? physicalAddress
-                  : null;
-          socket = await Socket.connect(
-            connectAddress,
-            port,
-            sourceAddress: sourceAddress,
-            timeout: remaining(cap: _connectTimeout),
+      final physicalAddresses = await cancellationScope
+          .wait(
+            (physicalAddressLookup ?? _physicalInterfaceAddresses)(),
+          )
+          .timeout(remaining());
+      final dohBindAddress = physicalAddresses[InternetAddressType.IPv4];
+      var current = SubscriptionUrlPolicy.parse(url);
+
+      for (var hop = 0; hop <= maxRedirects; hop++) {
+        final host = current.host;
+        final isHttps = current.scheme == 'https';
+        final port = current.hasPort ? current.port : (isHttps ? 443 : 80);
+        final formattedHost = host.contains(':') ? '[$host]' : host;
+        final hostHeader =
+            current.hasPort ? '$formattedHost:$port' : formattedHost;
+
+        // 解析真实 IP:IP 直填则跳过;否则优先 DoH,失败回退系统 DNS(过滤 fake-ip)
+        List<InternetAddress> connectAddresses;
+        final hostAddress = InternetAddress.tryParse(host);
+        if (hostAddress != null) {
+          connectAddresses = [hostAddress];
+        } else if (addressLookup != null) {
+          connectAddresses = await cancellationScope.wait(
+            addressLookup(host).timeout(remaining()),
           );
-          stream = isHttps
-              ? await SecureSocket.secure(socket, host: host)
-                  .timeout(remaining(cap: _connectTimeout))
-              : socket;
-          break;
-        } catch (e) {
-          lastConnectError = e;
-          socket?.destroy();
+        } else {
+          List<String> ips = [];
+          ips = await cancellationScope
+              .wait(
+                _resolveViaDoH(host, dohBindAddress, cancellationScope),
+              )
+              .timeout(remaining());
+          if (ips.isEmpty) {
+            final sys = await cancellationScope.wait(
+              InternetAddress.lookup(host)
+                  .timeout(remaining(cap: const Duration(seconds: 5))),
+            );
+            ips = sys.where((a) => !isFakeIp(a)).map((a) => a.address).toList();
+          }
+          connectAddresses = ips
+              .map(InternetAddress.tryParse)
+              .whereType<InternetAddress>()
+              .toList();
         }
-      }
-      if (stream == null) {
-        throw Exception('无法连接订阅服务器 $host: $lastConnectError');
-      }
-
-      _HttpResponse resp;
-      try {
-        final basePath = current.path.isEmpty ? '/' : current.path;
-        final pathAndQuery =
-            basePath + (current.hasQuery ? '?${current.query}' : '');
-        resp = await _httpGetOverSocket(
-          stream,
-          host: hostHeader,
-          path: pathAndQuery,
-          accept: headers['Accept'] ?? '*/*',
-          userAgent: headers['User-Agent'],
-          maxBodyBytes: maxBodyBytes,
-          requestTimeout: remaining(),
+        if (connectAddresses.isEmpty) {
+          throw Exception('无法解析订阅服务器地址: $host');
+        }
+        connectAddresses = balancedAddresses(
+          connectAddresses.where((address) => !isFakeIp(address)),
         );
-      } finally {
-        stream.destroy();
-      }
 
-      if (SubscriptionUrlPolicy.isRedirectStatus(resp.statusCode)) {
-        current = SubscriptionUrlPolicy.resolveRedirect(
-          current,
-          resp.headers['location'] ?? '',
-        );
-        continue;
+        Socket? stream;
+        Object? lastConnectError;
+        for (final connectAddress in connectAddresses) {
+          Socket? socket;
+          try {
+            final physicalAddress = physicalAddresses[connectAddress.type];
+            final sourceAddress =
+                physicalAddress != null && _canBindSourceAddress(connectAddress)
+                    ? physicalAddress
+                    : null;
+            socket = await cancellationScope.waitAndTrackSocket(
+              Socket.connect(
+                connectAddress,
+                port,
+                sourceAddress: sourceAddress,
+                timeout: remaining(cap: _connectTimeout),
+              ),
+            );
+            stream = isHttps
+                ? await cancellationScope.waitAndTrackSocket(
+                    SecureSocket.secure(socket, host: host)
+                        .timeout(remaining(cap: _connectTimeout)),
+                  )
+                : socket;
+            break;
+          } on SubscriptionRefreshCancelled {
+            socket?.destroy();
+            rethrow;
+          } catch (e) {
+            lastConnectError = e;
+            socket?.destroy();
+          }
+        }
+        if (stream == null) {
+          throw Exception('无法连接订阅服务器 $host: $lastConnectError');
+        }
+
+        _HttpResponse resp;
+        try {
+          final basePath = current.path.isEmpty ? '/' : current.path;
+          final pathAndQuery =
+              basePath + (current.hasQuery ? '?${current.query}' : '');
+          resp = await cancellationScope.wait(
+            _httpGetOverSocket(
+              stream,
+              host: hostHeader,
+              path: pathAndQuery,
+              accept: headers['Accept'] ?? '*/*',
+              userAgent: headers['User-Agent'],
+              maxBodyBytes: maxBodyBytes,
+              requestTimeout: remaining(),
+            ),
+          );
+        } finally {
+          stream.destroy();
+        }
+
+        if (SubscriptionUrlPolicy.isRedirectStatus(resp.statusCode)) {
+          current = SubscriptionUrlPolicy.resolveRedirect(
+            current,
+            resp.headers['location'] ?? '',
+          );
+          continue;
+        }
+        if (resp.statusCode != 200) {
+          throw Exception('HTTP ${resp.statusCode}: 订阅获取失败(直连通道)');
+        }
+        return DirectFetchResponse(headers: resp.headers, body: resp.body);
       }
-      if (resp.statusCode != 200) {
-        throw Exception('HTTP ${resp.statusCode}: 订阅获取失败(直连通道)');
+      throw Exception('重定向次数过多');
+    } on SubscriptionRefreshCancelled {
+      rethrow;
+    } catch (error) {
+      if (cancellation?.isCancelled ?? false) {
+        throw const SubscriptionRefreshCancelled();
       }
-      return DirectFetchResponse(headers: resp.headers, body: resp.body);
+      rethrow;
+    } finally {
+      cancellationScope.dispose();
     }
-    throw Exception('重定向次数过多');
   }
 
   static bool _canBindSourceAddress(InternetAddress? address) {
@@ -575,6 +634,74 @@ class _ChunkedBodyDecoder {
   bool _lineEndsWithCrlf() {
     final length = _line.length;
     return length >= 2 && _line[length - 2] == 13 && _line[length - 1] == 10;
+  }
+}
+
+class _DirectFetchCancellationScope {
+  _DirectFetchCancellationScope(this.cancellation) {
+    _detachCancellation = cancellation?.attach(_destroyTrackedSockets);
+  }
+
+  final SubscriptionRefreshCancellation? cancellation;
+  final Set<Socket> _trackedSockets = <Socket>{};
+  void Function()? _detachCancellation;
+  bool _disposed = false;
+
+  Future<T> wait<T>(Future<T> operation) async {
+    final activeCancellation = cancellation;
+    if (activeCancellation == null) return operation;
+    activeCancellation.throwIfCancelled();
+
+    final result = Completer<T>();
+    final detach = activeCancellation.attach(() {
+      if (!result.isCompleted) {
+        result.completeError(const SubscriptionRefreshCancelled());
+      }
+    });
+    operation.then(
+      (value) {
+        if (!result.isCompleted) result.complete(value);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!result.isCompleted) result.completeError(error, stackTrace);
+      },
+    );
+    try {
+      return await result.future;
+    } finally {
+      detach();
+    }
+  }
+
+  Future<T> waitAndTrackSocket<T extends Socket>(Future<T> operation) {
+    final trackedOperation = operation.then((socket) {
+      if (cancellation?.isCancelled ?? false) {
+        socket.destroy();
+        throw const SubscriptionRefreshCancelled();
+      }
+      if (_disposed) {
+        socket.destroy();
+        throw StateError('直连请求作用域已结束');
+      }
+      _trackedSockets.add(socket);
+      return socket;
+    });
+    return wait(trackedOperation);
+  }
+
+  void _destroyTrackedSockets() {
+    for (final socket in List<Socket>.of(_trackedSockets)) {
+      socket.destroy();
+    }
+    _trackedSockets.clear();
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _detachCancellation?.call();
+    _detachCancellation = null;
+    _destroyTrackedSockets();
   }
 }
 

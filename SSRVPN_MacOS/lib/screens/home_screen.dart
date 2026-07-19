@@ -21,6 +21,8 @@ import '../widgets/liquid_glass.dart';
 import 'node_edit_screen.dart';
 
 part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_screen_part.dart';
+part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_background_tasks_part.dart';
+part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_initial_subscription_part.dart';
 part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_runtime_actions_part.dart';
 part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_public_ip_part.dart';
 part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_force_proxy_sites_dialog_part.dart';

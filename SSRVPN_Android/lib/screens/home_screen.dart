@@ -14,6 +14,7 @@ import '../widgets/connection_button.dart';
 import '../widgets/force_proxy_sites_dialog.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/home_node_list.dart';
+import 'home_latency_result_guard.dart';
 import '../widgets/proxy_mode_selector.dart';
 import 'home_connection_status_policy.dart';
 import 'node_edit_screen.dart';
@@ -54,6 +55,7 @@ class HomeScreenState extends State<HomeScreen>
   bool _isBatchTesting = false;
   String? _errorMessage;
   String? _testingNodeName;
+  int _singleLatencyGeneration = 0;
   ProxyNode? _selectedNode;
   PublicIpInfo? _publicIpInfo;
   bool _isRefreshingPublicIp = false;
@@ -62,6 +64,7 @@ class HomeScreenState extends State<HomeScreen>
 
   final HomeLatencyController _latencyController = HomeLatencyController();
   Timer? _latencyBatchTimer;
+  int? _latencyBatchGeneration;
   Timer? _publicIpTimer;
   Timer? _updateCheckTimer;
   bool _updateCheckInProgress = false;
@@ -84,7 +87,10 @@ class HomeScreenState extends State<HomeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 3000),
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadInitialData());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _disposed) return;
+      unawaited(_loadInitialData());
+    });
   }
 
   @override
@@ -114,6 +120,8 @@ class HomeScreenState extends State<HomeScreen>
         HomeNodeController.runnableNodesFrom(subService.allNodes);
     final revision = subService.revision;
     if (revision != _lastRevision || _nodes.length != latestNodes.length) {
+      _cancelSingleLatencyTest();
+      _cancelLatencyBatch();
       _lastRevision = revision;
       setState(() {
         _nodes = latestNodes;
@@ -146,7 +154,8 @@ class HomeScreenState extends State<HomeScreen>
         clashService.onStatusChanged = null;
       }
     }
-    _latencyBatchTimer?.cancel();
+    _cancelSingleLatencyTest();
+    _cancelLatencyBatch();
     _publicIpTimer?.cancel();
     _updateCheckTimer?.cancel();
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);

@@ -8,52 +8,17 @@ import '../models/subscription.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
 import '../services/desktop_subscription_fetcher.dart';
+import '../services/subscription_header_name_parser.dart';
 import '../services/subscription_node_codec.dart';
 import '../services/subscription_parser.dart';
+import '../services/subscription_processing.dart';
+import '../services/subscription_refresh_control.dart';
+import '../services/subscription_refresh_result.dart';
 import '../services/subscription_yaml_merger.dart';
 import '../utils/app_logger.dart';
 import '../utils/bounded_yaml.dart';
 
-enum SubscriptionBatchRefreshStatus { empty, success, partialSuccess }
-
-class SubscriptionRefreshFailure {
-  const SubscriptionRefreshFailure({
-    required this.subscriptionName,
-    required this.message,
-  });
-
-  final String subscriptionName;
-  final String message;
-
-  String get detail => '$subscriptionName: $message';
-}
-
-class SubscriptionBatchRefreshResult {
-  const SubscriptionBatchRefreshResult({
-    required this.status,
-    required this.yaml,
-    this.successfulSubscriptionNames = const [],
-    this.failures = const [],
-  });
-
-  final SubscriptionBatchRefreshStatus status;
-  final String? yaml;
-  final List<String> successfulSubscriptionNames;
-  final List<SubscriptionRefreshFailure> failures;
-
-  bool get isPartialSuccess =>
-      status == SubscriptionBatchRefreshStatus.partialSuccess;
-}
-
-class SubscriptionPartialRefreshException implements Exception {
-  const SubscriptionPartialRefreshException(this.outcome);
-
-  final SubscriptionBatchRefreshResult outcome;
-
-  @override
-  String toString() => '部分订阅刷新失败，已保留上次有效节点:\n'
-      '${outcome.failures.map((failure) => failure.detail).join('\n')}';
-}
+export 'subscription_refresh_result.dart';
 
 /// 订阅管理服务基类
 ///
@@ -61,6 +26,9 @@ class SubscriptionPartialRefreshException implements Exception {
 /// 各平台只需实现 [fetchSubscription] 提供平台特定的 HTTP 拉取策略。
 abstract class SubscriptionServiceBase extends ChangeNotifier {
   static const int maxSubscriptionBytes = 20 * 1024 * 1024;
+  static const int processingIsolateThreshold =
+      SubscriptionProcessing.isolateThreshold;
+  static const Duration defaultBatchRefreshTimeout = Duration(minutes: 2);
   static const String proxySourceKey = SubscriptionParser.proxySourceKey;
   static const String standaloneGroupName =
       SubscriptionParser.standaloneGroupName;
@@ -71,7 +39,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   String? _cacheDir;
   int _revision = 0;
   final Map<String, String> _fetchedProfileNames = {};
-  Future<void> _refreshTail = Future<void>.value();
+  Future<void> _operationTail = Future<void>.value();
 
   List<ProxyNode> _allNodes = [];
   List<ProxyGroup> _allGroups = [];
@@ -83,26 +51,43 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   List<ProxyGroup> get allGroups => List.unmodifiable(_allGroups);
 
   /// 平台特定的 HTTP 订阅拉取（含重试）
-  Future<String?> fetchSubscription(String url, {int maxRetries = 3});
+  Future<String?> fetchSubscription(
+    String url, {
+    int maxRetries = 3,
+    SubscriptionRefreshControl? control,
+  });
 
   @protected
   Future<String?> fetchDesktopSubscription(
     String url, {
     required bool allowDirectFetch,
     int maxRetries = 3,
+    SubscriptionRefreshControl? control,
   }) async {
     final response = await DesktopSubscriptionFetcher.fetch(
       url,
       allowDirectFetch: allowDirectFetch,
       maxRetries: maxRetries,
+      control: control,
     );
+    control?.throwIfStopped();
     recordSubscriptionResponseHeaders(url, response.headers);
     return response.body;
   }
 
   // ── 订阅 CRUD ──
 
-  Future<Subscription> addSubscription(String name, String url) async {
+  Future<T> _enqueueOperation<T>(Future<T> Function() operation) {
+    final result = _operationTail.then((_) => operation());
+    _operationTail = result.then<void>((_) {}, onError: (_, __) {});
+    return result;
+  }
+
+  Future<Subscription> addSubscription(String name, String url) {
+    return _enqueueOperation(() => _addSubscription(name, url));
+  }
+
+  Future<Subscription> _addSubscription(String name, String url) async {
     final sub = Subscription(id: _uuid.v4(), name: name, url: url);
     _subscriptions.add(sub);
     try {
@@ -118,34 +103,58 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   /// 通知监听器（子类实现，通常调用 ChangeNotifier.notifyListeners）
   // Subclasses should provide their own resetInstanceForTesting()
 
-  Future<void> removeSubscription(String id) async {
+  Future<void> removeSubscription(String id) {
+    return _enqueueOperation(() => _removeSubscription(id));
+  }
+
+  Future<void> _removeSubscription(String id) async {
     final index =
         _subscriptions.indexWhere((subscription) => subscription.id == id);
     if (index < 0) return;
     final removed = _subscriptions.removeAt(index);
-    try {
-      await saveToDisk();
-    } catch (error, stackTrace) {
-      _subscriptions.insert(index, removed);
-      Error.throwWithStackTrace(error, stackTrace);
-    }
 
     if (_subscriptions.isEmpty) {
-      await clearCachedNodes();
+      try {
+        await saveToDisk();
+        await clearCachedNodes();
+      } catch (error, stackTrace) {
+        _subscriptions.insert(index, removed);
+        try {
+          await saveToDisk();
+        } catch (rollbackError) {
+          AppLogger.warning(
+            'SubscriptionService',
+            '删除最后一个订阅失败后回滚元数据失败: $rollbackError',
+          );
+        }
+        Error.throwWithStackTrace(error, stackTrace);
+      }
       notifyListeners();
       return;
     }
 
     try {
-      await refreshAllSubscriptions();
-    } catch (_) {
-      await clearCachedNodes();
-      notifyListeners();
-      rethrow;
+      // The refresh transaction persists the updated subscription list only
+      // after the replacement cache has been validated and written. Keeping
+      // the removal in memory until then makes a failed/partial refresh a true
+      // rollback instead of destroying the last-known-good merged state.
+      final result = await _refreshAllSubscriptions(
+        SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout),
+      );
+      if (result.isPartialSuccess) {
+        throw SubscriptionPartialRefreshException(result);
+      }
+    } catch (error, stackTrace) {
+      _subscriptions.insert(index, removed);
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
-  Future<void> updateSubscription(Subscription updated) async {
+  Future<void> updateSubscription(Subscription updated) {
+    return _enqueueOperation(() => _updateSubscription(updated));
+  }
+
+  Future<void> _updateSubscription(Subscription updated) async {
     final index = _subscriptions.indexWhere((s) => s.id == updated.id);
     if (index >= 0) {
       final previous = _subscriptions[index];
@@ -163,8 +172,14 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   // ── 刷新 ──
 
   /// 刷新所有订阅，返回合并后的 YAML；null 表示无订阅
-  Future<String?> refreshAllSubscriptions() async {
-    final result = await refreshAllSubscriptionsDetailed();
+  Future<String?> refreshAllSubscriptions({
+    SubscriptionRefreshCancellation? cancellation,
+    Duration timeout = defaultBatchRefreshTimeout,
+  }) async {
+    final result = await refreshAllSubscriptionsDetailed(
+      cancellation: cancellation,
+      timeout: timeout,
+    );
     if (result.isPartialSuccess) {
       throw SubscriptionPartialRefreshException(result);
     }
@@ -172,13 +187,39 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   }
 
   /// 刷新所有订阅并返回可区分成功、部分成功和空订阅的结构化结果。
-  Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed() {
-    final operation = _refreshTail.then((_) => _refreshAllSubscriptions());
-    _refreshTail = operation.then<void>((_) {}, onError: (_, __) {});
-    return operation;
+  Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed({
+    SubscriptionRefreshCancellation? cancellation,
+    Duration timeout = defaultBatchRefreshTimeout,
+  }) {
+    final control = SubscriptionRefreshControl(
+      timeout: timeout,
+      cancellation: cancellation,
+    );
+    final admitted = Completer<void>();
+    final queued = _enqueueOperation(() {
+      if (!admitted.isCompleted) admitted.complete();
+      return _refreshAllSubscriptions(control);
+    });
+    return _awaitRefreshQueueAdmission(queued, admitted.future, control);
   }
 
-  Future<SubscriptionBatchRefreshResult> _refreshAllSubscriptions() async {
+  Future<SubscriptionBatchRefreshResult> _awaitRefreshQueueAdmission(
+    Future<SubscriptionBatchRefreshResult> queued,
+    Future<void> admitted,
+    SubscriptionRefreshControl control,
+  ) async {
+    // The advertised total timeout starts when the public API is called, not
+    // after earlier mutations release the serial queue. Once admitted, return
+    // the refresh future directly so cancellation after the atomic cache write
+    // cannot report failure while the transaction is finishing its commit.
+    await control.wait(admitted);
+    return queued;
+  }
+
+  Future<SubscriptionBatchRefreshResult> _refreshAllSubscriptions(
+    SubscriptionRefreshControl control,
+  ) async {
+    control.throwIfStopped();
     if (_subscriptions.isEmpty) {
       _rawYaml = null;
       _allNodes = [];
@@ -194,14 +235,18 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     final failures = <SubscriptionRefreshFailure>[];
 
     for (final sub in _subscriptions.where((s) => s.enabled)) {
+      control.throwIfStopped();
       try {
         String? yaml;
         if (isSingleNodeLink(sub.url)) {
           yaml = normalizeSubscriptionContent(sub.url);
           if (yaml == null) throw const FormatException('节点链接格式无效');
         } else {
-          yaml = await fetchSubscription(sub.url);
+          yaml = await control.wait(
+            fetchSubscription(sub.url, control: control),
+          );
         }
+        control.throwIfStopped();
         yaml = normalizeSubscriptionContent(yaml);
         if (yaml != null && yaml.isNotEmpty) {
           allYamlBuffers.add(yaml);
@@ -214,6 +259,10 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
             ),
           );
         }
+      } on SubscriptionRefreshCancelled {
+        rethrow;
+      } on SubscriptionRefreshDeadlineExceeded {
+        rethrow;
       } catch (e) {
         failures.add(
           SubscriptionRefreshFailure(
@@ -241,11 +290,15 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
       );
     }
 
-    final candidateYaml = mergeYamlConfigs(
+    control.throwIfStopped();
+    final processed = await SubscriptionProcessing.mergeAndParse(
       allYamlBuffers,
-      sourceNames:
-          succeededSubs.map(_sourceNameForFetchedSubscription).toList(),
+      succeededSubs.map(_sourceNameForFetchedSubscription).toList(),
+      control,
+      proxySourceKey: proxySourceKey,
+      standaloneGroupName: standaloneGroupName,
     );
+    final candidateYaml = processed.yaml;
     if (candidateYaml.trim().isEmpty) {
       throw const FormatException('合并后的订阅内容为空');
     }
@@ -253,7 +306,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     // 子类可覆盖此方法添加合并后验证（如大小检查）
     validateMergedYaml(candidateYaml);
 
-    final candidate = SubscriptionParser.parseYaml(candidateYaml);
+    final candidate = processed.parsed;
     if (candidate.nodes.isEmpty) {
       throw const FormatException('合并后的订阅不包含可运行节点');
     }
@@ -268,6 +321,11 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
       for (final sub in succeededSubs)
         sub: (name: sub.name, lastUpdate: sub.lastUpdate),
     };
+    control.throwIfStopped();
+    // Point of no return: once the atomic cache write starts, complete the
+    // metadata and in-memory commit even if cancellation arrives meanwhile.
+    // Returning "cancelled" after this point would leave a new disk cache with
+    // the old in-memory snapshot and make the next launch observe other data.
     await cacheYaml(candidateYaml);
 
     final now = DateTime.now();
@@ -315,6 +373,13 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   // ── 节点编辑 ──
 
   Future<void> updateNode(
+    String originalName,
+    Map<String, dynamic> updatedConfig,
+  ) {
+    return _enqueueOperation(() => _updateNode(originalName, updatedConfig));
+  }
+
+  Future<void> _updateNode(
     String originalName,
     Map<String, dynamic> updatedConfig,
   ) async {
@@ -370,7 +435,11 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setRawYaml(String yaml) async {
+  Future<void> setRawYaml(String yaml) {
+    return _enqueueOperation(() => _setRawYaml(yaml));
+  }
+
+  Future<void> _setRawYaml(String yaml) async {
     final candidate = SubscriptionParser.parseYaml(yaml);
     await cacheYaml(yaml);
 
@@ -460,19 +529,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
 
   @visibleForTesting
   String? subscriptionNameFromHeaders(Map<String, String> headers) {
-    final profileTitle = _headerValue(headers, 'profile-title');
-    if (profileTitle != null) {
-      final parsed = _subscriptionHeaderName(profileTitle);
-      if (parsed != null) return parsed;
-    }
-
-    final disposition = _headerValue(headers, 'content-disposition');
-    if (disposition == null) return null;
-    final filename = RegExp(
-      "filename\\*?=(?:UTF-8'')?\"?([^\";]+)\"?",
-      caseSensitive: false,
-    ).firstMatch(disposition)?.group(1);
-    return filename == null ? null : _cleanSubscriptionHeaderName(filename);
+    return SubscriptionHeaderNameParser.fromHeaders(headers);
   }
 
   String defaultSubscriptionName(String input) {
@@ -497,46 +554,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
         currentName == defaultSubscriptionName(sub.url)) {
       sub.name = fetchedName;
     }
-  }
-
-  String? _headerValue(Map<String, String> headers, String name) {
-    for (final entry in headers.entries) {
-      if (entry.key.toLowerCase() == name) return entry.value;
-    }
-    return null;
-  }
-
-  String? _subscriptionHeaderName(String value) {
-    var text = value.trim();
-    if (text.length >= 2 &&
-        ((text.startsWith('"') && text.endsWith('"')) ||
-            (text.startsWith("'") && text.endsWith("'")))) {
-      text = text.substring(1, text.length - 1).trim();
-    }
-    final storeName = RegExp(
-      r'(?:^|[;,\s])store-name="?([^";,]+)"?',
-      caseSensitive: false,
-    ).firstMatch(text);
-    return _cleanSubscriptionHeaderName(storeName?.group(1) ?? text);
-  }
-
-  String? _cleanSubscriptionHeaderName(String value) {
-    var name = value.trim();
-    if (name.length >= 2 &&
-        ((name.startsWith('"') && name.endsWith('"')) ||
-            (name.startsWith("'") && name.endsWith("'")))) {
-      name = name.substring(1, name.length - 1).trim();
-    }
-    if (name.toLowerCase().startsWith('base64:')) {
-      try {
-        name = utf8.decode(base64Decode(name.substring(7))).trim();
-      } catch (_) {}
-    }
-    try {
-      name = Uri.decodeComponent(name).trim();
-    } catch (_) {}
-    name = name.replaceAll(RegExp(r'[\r\n]'), '').trim();
-    return name.isEmpty ? null : name;
   }
 
   // ── JSON/YAML 辅助 ──
@@ -697,33 +714,14 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   }
 
   Future<void> clearCachedNodes() async {
-    _rawYaml = null;
-    _allNodes = [];
-    _allGroups = [];
-    _revision++;
-    if (_cacheDir == null) return;
-    try {
+    if (_cacheDir != null) {
       final cacheFile = File('$_cacheDir/subscription_cache.yaml');
       if (await cacheFile.exists()) await cacheFile.delete();
-    } catch (_) {}
-  }
-
-  Future<void> resetLocalData() async {
-    _subscriptions = [];
+    }
     _rawYaml = null;
     _allNodes = [];
     _allGroups = [];
     _revision++;
-
-    if (_cacheDir != null) {
-      for (final name in ['subscriptions.json', 'subscription_cache.yaml']) {
-        final file = File('$_cacheDir${Platform.pathSeparator}$name');
-        try {
-          if (await file.exists()) await file.delete();
-        } catch (_) {}
-      }
-    }
-    notifyListeners();
   }
 
   Future<void> writeStringAtomically(File file, String content) async {

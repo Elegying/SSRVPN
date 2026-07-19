@@ -28,6 +28,12 @@ void main() {
         AppFailure.fromMessage('部分订阅刷新失败').code,
         AppErrorCode.subscriptionPartial,
       );
+      final changed = AppFailure.fromMessage(
+        '连接失败: 订阅已更新，请重新连接以使用最新配置',
+      );
+      expect(changed.code, AppErrorCode.subscriptionChanged);
+      expect(changed.title, '订阅已更新');
+      expect(changed.recommendedAction, contains('重新点击连接'));
       expect(
         AppFailure.fromMessage('download update failed').code,
         AppErrorCode.updateFailed,
