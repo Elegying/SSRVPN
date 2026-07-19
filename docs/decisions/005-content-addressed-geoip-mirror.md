@@ -22,7 +22,8 @@ freshness 任务把未经校验的上游内容直接带入发布构建。
 
 1. 在 `Elegying/SSRVPN` 仓库保留专用支持 Release `core-assets-v1`，存放经过验证的
    deterministic gzip。它必须是已发布的 prerelease、不能是 draft，也不能抢占应用的
-   `latest`；它不是应用版本 Release，也不进入面向用户的版本资产清单。
+   `latest`；它不是应用版本 Release，也不进入面向用户的版本资产清单。支持 tag 与应用
+   `v*` tag 由同一 active ruleset 禁止更新和删除，且没有人工绕过主体。
 2. 每个 GeoIP 镜像使用 `geoip.metadb-<gzip-sha256>.gz` 命名。文件名由完整 gzip
    SHA-256 内容寻址；上传不得使用 `--clobber`。一旦某项被已合并的
    `docs/GEOIP_SOURCE.txt` 引用，就禁止替换或删除；误删时只能用完全相同的名称和字节恢复。
@@ -57,6 +58,8 @@ freshness 任务把未经校验的上游内容直接带入发布构建。
   SHA-256 固定。即使 Release 管理权限被误用，替换内容也会在 bootstrap 时被拒绝。
 - freshness 的 GitHub token 可以创建分支、PR 和上传缺失镜像，但流程不授予覆盖既有资产
   的命令路径。代码审查和仓库权限仍需保护支持 Release 不被人工删除。
+- `core-assets-v1` tag 已纳入仓库 release-tag ruleset；tag 更新和删除都会被拒绝。Release
+  管理员仍可操作资产，因此内容寻址名称、双哈希和禁止 clobber 的流程约束仍不可省略。
 - 普通 CI 和正式发版不需要信任当前上游状态，也不会因上游旧 Asset ID 被回收而改变输入。
 
 ## 结果

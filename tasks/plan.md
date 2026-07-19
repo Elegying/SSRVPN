@@ -1,4 +1,9 @@
-# Implementation Plan: SSRVPN 3.4.0 Windows Release Hardening
+# Historical Implementation Plan: SSRVPN 3.4.0 Windows Release Hardening
+
+> Historical record: this plan was completed with the v3.4.0 release. It is
+> retained as execution evidence, not as the project's current implementation
+> plan. See [project health](../docs/PROJECT_HEALTH.md) and the
+> [roadmap](../docs/ROADMAP.md) for current status and priorities.
 
 ## Objective
 

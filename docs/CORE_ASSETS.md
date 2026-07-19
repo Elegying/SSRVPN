@@ -53,7 +53,9 @@ downloads into a temporary directory, verifies SHA256 before extraction or
 installation, and atomically replaces stale local assets. GeoIP bootstrap reads
 only the content-addressed deterministic gzip in SSRVPN's `core-assets-v1`
 support prerelease. The support release is published but marked prerelease and
-non-latest so it cannot replace the current application release.
+non-latest so it cannot replace the current application release. Its
+`core-assets-v1` tag is covered by the repository's active release-tag ruleset,
+which rejects updates and deletion just like application `v*` tags.
 `GEOIP_SOURCE.txt` pins that asset's exact name and URL, its
 gzip SHA256, and the decompressed upstream SHA256. The bootstrap accepts only
 the `Elegying/SSRVPN/releases/download/core-assets-v1/` path and verifies both

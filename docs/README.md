@@ -21,7 +21,8 @@
 - [Monorepo 迁移说明](../MIGRATION.md)
 - [项目管理](PROJECT_MANAGEMENT.md)：分支、源码与产物边界。
 - [维护指南](MAINTENANCE.md)：日常维护和合并要求。
-- [当前实现计划](../tasks/plan.md)与[执行清单](../tasks/todo.md)：本轮可维护性拆分的边界、验收和进度。
+- [历史执行计划](../tasks/plan.md)与[完成清单](../tasks/todo.md)：v3.4.0 Windows
+  加固与发布的留档证据，不代表当前待办。
 - [测试策略](TESTING.md)：本地、CI、原生与覆盖率验证。
 - [性能基线](PERFORMANCE.md)：关键路径测量方法、比较边界与回归处置。
 - [项目健康状态](PROJECT_HEALTH.md)：最近一次审查基线、证据与已知风险。
@@ -44,6 +45,7 @@
 - [ADR-002：Windows 安装版数据保留与多来源隔离](decisions/002-windows-installed-data-preservation.md)
 - [ADR-003：Windows 只发布安装器](decisions/003-windows-installer-only-distribution.md)
 - [ADR-004：三端只保留首页与订阅](decisions/004-two-page-product-surface.md)
+- [ADR-005：使用 SSRVPN 自控的内容寻址 GeoIP 镜像](decisions/005-content-addressed-geoip-mirror.md)
 
 ## 历史材料
 
