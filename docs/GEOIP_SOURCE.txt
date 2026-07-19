@@ -6,3 +6,7 @@ Asset ID: 480917611
 Asset URL: https://api.github.com/repos/MetaCubeX/meta-rules-dat/releases/assets/480917611
 Upstream SHA256: 7cf5ed69574a73021735c6cba9891509aaa205dd3854db049571664b476df1f4
 Bundled gzip SHA256: 073889534886f211285398d5622922e540e3fb052d18e649e07351dc73323c9a
+Mirror repo: Elegying/SSRVPN
+Mirror release tag: core-assets-v1
+Mirror asset name: geoip.metadb-073889534886f211285398d5622922e540e3fb052d18e649e07351dc73323c9a.gz
+Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/geoip.metadb-073889534886f211285398d5622922e540e3fb052d18e649e07351dc73323c9a.gz

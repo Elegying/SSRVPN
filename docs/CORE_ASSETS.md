@@ -50,17 +50,28 @@ scripts/verify-core-assets.sh
 
 `scripts/bootstrap-core-assets.sh` uses only allowlisted HTTPS GitHub URLs,
 downloads into a temporary directory, verifies SHA256 before extraction or
-installation, and atomically replaces stale local assets. GeoIP is downloaded
-from the upstream release asset API URL and unique asset ID pinned in
-`GEOIP_SOURCE.txt`, verified against its raw SHA256, and reproducibly compressed
-before its gzip SHA256 is checked. This avoids following the upstream project's
-mutable `latest` download alias. Release builds always use that reviewed
-snapshot.
+installation, and atomically replaces stale local assets. GeoIP bootstrap reads
+only the content-addressed deterministic gzip in SSRVPN's `core-assets-v1`
+support prerelease. The support release is published but marked prerelease and
+non-latest so it cannot replace the current application release.
+`GEOIP_SOURCE.txt` pins that asset's exact name and URL, its
+gzip SHA256, and the decompressed upstream SHA256. The bootstrap accepts only
+the `Elegying/SSRVPN/releases/download/core-assets-v1/` path and verifies both
+hashes before installing the same bytes for all three platforms. It never needs
+the upstream project's mutable Release during a normal CI or release build.
 
-The daily `GeoIP Freshness` workflow compares against the latest upstream
-release. When a newer verified snapshot exists, it opens a uniquely named PR
-that changes only `GEOIP_SOURCE.txt`; normal CI then reconstructs and verifies
-the exact three platform assets before the PR can merge.
+The daily `GeoIP Freshness` workflow independently downloads and verifies the
+latest upstream checksum, API digest, and database, produces deterministic gzip,
+uploads a missing content-addressed mirror asset without overwrite, and reads it
+back through the public bootstrap URL. Only after that verification succeeds may
+it open a uniquely named PR changing `GEOIP_SOURCE.txt`. An expired Asset ID in
+the previous upstream provenance therefore cannot block the refresh. The trust
+boundary disables redirects on authenticated API calls; mirror readback permits
+only GitHub's HTTPS download/CDN hosts and strips credentials from redirects.
+Concurrent same-name uploads are re-listed and accepted only when the public
+gzip/raw hashes match. These trust boundaries and the prohibition on replacing
+or deleting referenced assets are recorded in
+[ADR-005](decisions/005-content-addressed-geoip-mirror.md).
 
 `scripts/verify-core-assets.sh` checks fixed SHA256 hashes, macOS decompressed
 executable equivalence, and bundled GeoIP databases. The same checks run in CI

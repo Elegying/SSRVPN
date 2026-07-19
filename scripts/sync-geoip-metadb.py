@@ -20,6 +20,11 @@ GITHUB_API_URL = (
 )
 ASSET_NAME = "geoip.metadb"
 CHECKSUM_ASSET_NAME = "geoip.metadb.sha256sum"
+MIRROR_REPO = "Elegying/SSRVPN"
+MIRROR_RELEASE_TAG = "core-assets-v1"
+MIRROR_URL_PREFIX = (
+    "https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/"
+)
 SOURCE_RECORD = ROOT / "docs" / "GEOIP_SOURCE.txt"
 ASSET_PATHS = [
     ROOT / "SSRVPN_Android" / "assets" / "geoip.metadb.gz",
@@ -32,6 +37,21 @@ MAX_CHECKSUM_BYTES = 64 * 1024
 MAX_GEOIP_BYTES = 64 * 1024 * 1024
 MAX_DOWNLOAD_SECONDS = 60
 DOWNLOAD_CHUNK_BYTES = 64 * 1024
+
+
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req,
+        fp,
+        code,
+        msg,
+        headers,
+        newurl,
+    ):
+        # Authenticated GitHub API calls never need redirects. Refusing every
+        # redirect keeps urllib from copying Authorization to another origin.
+        return None
 
 
 def sha256(data: bytes) -> str:
@@ -63,7 +83,13 @@ def request(url: str) -> urllib.request.Request:
 
 def download(url: str, *, max_bytes: int) -> bytes:
     deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
-    with urllib.request.urlopen(request(url), timeout=10) as response:
+    prepared_request = request(url)
+    if urlsplit(url).hostname == "api.github.com":
+        opener = urllib.request.build_opener(NoRedirectHandler())
+        response_context = opener.open(prepared_request, timeout=10)
+    else:
+        response_context = urllib.request.urlopen(prepared_request, timeout=10)
+    with response_context as response:
         content_length = response.headers.get("Content-Length") if hasattr(
             response, "headers"
         ) else None
@@ -127,6 +153,8 @@ def build_source_record(
     upstream_hash: str,
     gzip_hash: str,
 ) -> str:
+    mirror_asset_name = f"geoip.metadb-{gzip_hash}.gz"
+    mirror_url = f"{MIRROR_URL_PREFIX}{mirror_asset_name}"
     return "\n".join(
         [
             "Repo: MetaCubeX/meta-rules-dat",
@@ -137,6 +165,10 @@ def build_source_record(
             f"Asset URL: {asset.get('url', '')}",
             f"Upstream SHA256: {upstream_hash}",
             f"Bundled gzip SHA256: {gzip_hash}",
+            f"Mirror repo: {MIRROR_REPO}",
+            f"Mirror release tag: {MIRROR_RELEASE_TAG}",
+            f"Mirror asset name: {mirror_asset_name}",
+            f"Mirror URL: {mirror_url}",
             "",
         ],
     )
