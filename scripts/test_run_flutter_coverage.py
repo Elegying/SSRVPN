@@ -43,8 +43,8 @@ class RunFlutterCoverageTests(unittest.TestCase):
 
     def test_desktop_targets_collect_owned_shared_part_coverage(self) -> None:
         expected_packages = {
-            "SSRVPN_MacOS": "--coverage-package=^(ssrvpn_macos|ssrvpn_shared)$",
-            "SSRVPN_Windows": "--coverage-package=^(ssrvpn_windows|ssrvpn_shared)$",
+            "SSRVPN_MacOS": "--coverage-package=ssrvpn_.*",
+            "SSRVPN_Windows": "--coverage-package=ssrvpn_.*",
         }
         for target, package_argument in expected_packages.items():
             with self.subTest(target=target):
@@ -59,6 +59,7 @@ class RunFlutterCoverageTests(unittest.TestCase):
                         package_argument,
                     ],
                 )
+                self.assertNotRegex(package_argument, r"[()|<>^&]")
 
     def test_non_desktop_targets_keep_package_local_coverage(self) -> None:
         for target in ("packages/ssrvpn_shared", "SSRVPN_Android"):
