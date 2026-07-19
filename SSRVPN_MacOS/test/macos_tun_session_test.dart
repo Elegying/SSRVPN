@@ -85,6 +85,84 @@ void main() {
     expect(await File(session.requestPath).exists(), isFalse);
   });
 
+  test('interrupt cancels pending authorization without releasing its exit',
+      () async {
+    final dataDir =
+        await Directory.systemTemp.createTemp('ssrvpn_tun_interrupt_');
+    addTearDown(() => dataDir.delete(recursive: true));
+    final runner = _writeTunAssets(dataDir);
+    File('${dataDir.path}/config.yaml').writeAsStringSync('proxies: []\n');
+    final authorizationStarted = Completer<void>();
+    final neverExits = Completer<int>();
+    var terminated = false;
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      statusPath: '${dataDir.path}/status',
+      appPid: 123,
+      routeProbe: (_, __) async =>
+          ProcessResult(1, 0, '  interface: en0\n', ''),
+      authorizationLauncher: (_, __) async {
+        authorizationStarted.complete();
+        return TunAuthorizationHandle(
+          exitCode: neverExits.future,
+          terminate: () => terminated = true,
+        );
+      },
+    );
+
+    final starting = session.start();
+    await authorizationStarted.future.timeout(const Duration(seconds: 1));
+    expect(await File(session.requestPath).exists(), isTrue);
+
+    session.interruptPendingStart();
+
+    expect(
+      await starting.timeout(const Duration(seconds: 1)),
+      isFalse,
+    );
+    expect(terminated, isTrue);
+    expect(session.lastError, 'TUN 连接已取消');
+    expect(await File(session.requestPath).exists(), isFalse);
+  });
+
+  test('interrupt racing authorization return still terminates its handle',
+      () async {
+    final dataDir =
+        await Directory.systemTemp.createTemp('ssrvpn_tun_launch_race_');
+    addTearDown(() => dataDir.delete(recursive: true));
+    final runner = _writeTunAssets(dataDir);
+    File('${dataDir.path}/config.yaml').writeAsStringSync('proxies: []\n');
+    final neverExits = Completer<int>();
+    var terminated = false;
+    late final MacosTunSession session;
+    session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      statusPath: '${dataDir.path}/status',
+      appPid: 123,
+      routeProbe: (_, __) async =>
+          ProcessResult(1, 0, '  interface: en0\n', ''),
+      authorizationLauncher: (_, __) async {
+        scheduleMicrotask(session.interruptPendingStart);
+        return TunAuthorizationHandle(
+          exitCode: neverExits.future,
+          terminate: () => terminated = true,
+        );
+      },
+    );
+
+    expect(
+      await session.start().timeout(const Duration(seconds: 1)),
+      isFalse,
+    );
+    expect(terminated, isTrue);
+    expect(session.lastError, 'TUN 连接已取消');
+    expect(await File(session.requestPath).exists(), isFalse);
+  });
+
   test('TUN refuses to authorize before the app is installed', () async {
     final dataDir = await Directory.systemTemp.createTemp('ssrvpn_tun_path_');
     addTearDown(() => dataDir.delete(recursive: true));

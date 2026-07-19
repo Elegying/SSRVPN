@@ -229,8 +229,11 @@ class StartupOrchestrator {
       hideWindow: windowManager.hide,
       flushSettings: () async => status.settingsService?.flush(),
       stopCore: () async {
-        status.clashService?.requestConnectionIntent(false);
-        await status.clashService?.stop();
+        final core = status.clashService;
+        if (core == null) return;
+        core.requestConnectionIntent(false);
+        core.interruptPendingStart();
+        await core.runConnectionTransition(core.stop);
       },
       destroyTray: TrayManager().destroy,
       allowWindowClose: () => windowManager.setPreventClose(false),

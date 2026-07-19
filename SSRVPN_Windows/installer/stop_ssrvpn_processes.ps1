@@ -19,6 +19,12 @@ if (-not (Test-Path -LiteralPath $proxyTransactionStatePath -PathType Leaf)) {
 }
 . $proxyTransactionStatePath
 
+$tunOwnershipPath = Join-Path $PSScriptRoot 'tun_ownership.ps1'
+if (-not (Test-Path -LiteralPath $tunOwnershipPath -PathType Leaf)) {
+  throw 'TUN ownership helper is missing.'
+}
+. $tunOwnershipPath
+
 $script:StopStatusValues = @(
   'OK',
   'LOCK_BUSY',
@@ -221,83 +227,6 @@ function Test-ExactPath {
   } catch {
     return $false
   }
-}
-
-function Get-SsrvpnTunInterfaceIndexes {
-  $indexes = @()
-  $adapters = @(
-    Get-NetAdapter -IncludeHidden -ErrorAction Stop |
-      Where-Object { $_.Name -ceq 'Meta Tunnel' }
-  )
-  foreach ($adapter in $adapters) {
-    $interfaceIndex = 0
-    if ($null -eq $adapter.PSObject.Properties['ifIndex'] -or
-        -not [int]::TryParse(
-          [string]$adapter.ifIndex, [ref]$interfaceIndex) -or
-        $interfaceIndex -le 0) {
-      throw 'Meta Tunnel returned an invalid interface index.'
-    }
-    $indexes += $interfaceIndex
-  }
-  return @($indexes | Sort-Object -Unique)
-}
-
-function Test-SsrvpnTunArtifactsRemoved {
-  param([Parameter(Mandatory = $true)][int[]]$InterfaceIndexes)
-
-  $adapterIndexes = @(
-    Get-NetAdapter -IncludeHidden -ErrorAction Stop |
-      ForEach-Object { [int]$_.ifIndex }
-  )
-  $addressIndexes = @(
-    Get-NetIPAddress -ErrorAction Stop |
-      ForEach-Object { [int]$_.InterfaceIndex }
-  )
-  $routeIndexes = @(
-    Get-NetRoute -ErrorAction Stop |
-      ForEach-Object { [int]$_.InterfaceIndex }
-  )
-  foreach ($interfaceIndex in $InterfaceIndexes) {
-    if (($adapterIndexes -contains $interfaceIndex) -or
-        ($addressIndexes -contains $interfaceIndex) -or
-        ($routeIndexes -contains $interfaceIndex)) {
-      return $false
-    }
-  }
-  return $true
-}
-
-function Wait-SsrvpnTunTeardown {
-  param(
-    [Parameter(Mandatory = $true)]
-    [AllowEmptyCollection()]
-    [int[]]$InterfaceIndexes,
-    [Parameter(Mandatory = $true)][int]$TimeoutMilliseconds
-  )
-
-  if ($InterfaceIndexes.Count -eq 0) { return $true }
-  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
-  $lastProbeError = ''
-  while ($true) {
-    try {
-      if (Test-SsrvpnTunArtifactsRemoved `
-          -InterfaceIndexes $InterfaceIndexes) {
-        return $true
-      }
-      $lastProbeError = ''
-    } catch {
-      $lastProbeError = $_.Exception.Message
-    }
-
-    $remaining = [int][Math]::Ceiling(
-      ($deadline - [DateTime]::UtcNow).TotalMilliseconds)
-    if ($remaining -le 0) { break }
-    Start-Sleep -Milliseconds ([Math]::Min(100, $remaining))
-  }
-  if ($lastProbeError) {
-    Write-Warning "Could not confirm TUN teardown: $lastProbeError"
-  }
-  return $false
 }
 
 Add-Type -TypeDefinition @'
@@ -1190,9 +1119,9 @@ $installedProcessRunning =
   $installedApps.Count -gt 0 -or
   $installedLaunchers.Count -gt 0 -or
   $installedCoresBefore.Count -gt 0
-$tunInterfaceIndexes = @()
+$tunOwnership = @()
 try {
-  $tunInterfaceIndexes = @(Get-SsrvpnTunInterfaceIndexes)
+  $tunOwnership = @(Get-SsrvpnTunOwnership)
 } catch {
   if ($installedProcessRunning) {
     Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'
@@ -1315,8 +1244,10 @@ if ($remainingApps.Count -gt 0 -or
 }
 
 try {
-  $tunInterfaceIndexes += @(Get-SsrvpnTunInterfaceIndexes)
-  $tunInterfaceIndexes = @($tunInterfaceIndexes | Sort-Object -Unique)
+  $tunOwnership += @(Get-SsrvpnTunOwnership)
+  $tunOwnership = @(
+    $tunOwnership | Sort-Object ExpectedGuid, OriginalIndex -Unique
+  )
 } catch {
   Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'
   Write-Warning "Could not capture SSRVPN TUN ownership after stopping processes: $($_.Exception.Message)"
@@ -1324,7 +1255,7 @@ try {
 }
 
 if (-not (Wait-SsrvpnTunTeardown `
-    -InterfaceIndexes $tunInterfaceIndexes `
+    -OwnedInterfaces $tunOwnership `
     -TimeoutMilliseconds $TunTeardownTimeoutMilliseconds)) {
   Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'
   Write-Warning 'SSRVPN TUN adapter, addresses, or routes are still present; refusing file changes.'

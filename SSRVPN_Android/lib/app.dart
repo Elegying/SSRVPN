@@ -2,11 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
-    show AppLogger, HomeNodeController;
+    show AppLogger, AppModalCoordinator, AppUpdateInfo, HomeNodeController;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'services/settings_service.dart';
 import 'services/clash_service.dart' as clash;
 import 'services/subscription_service.dart';
+import 'services/update_service.dart';
 import 'screens/home_screen.dart';
 import 'screens/subscription_screen.dart';
 
@@ -41,6 +42,7 @@ class SSRVpnApp extends StatefulWidget {
 class _SSRVpnAppState extends State<SSRVpnApp> {
   int _currentIndex = 0;
   late final PageController _pageController;
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   bool _appInitialized = false;
   bool _initError = false;
   String _initErrorMsg = '';
@@ -50,6 +52,9 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
   SubscriptionService? _subscriptionService;
   final InitializationTask _appInitialization = InitializationTask();
   final InitializationTask _coreInitialization = InitializationTask();
+  AppUpdateInfo? _pendingStartupUpdate;
+  bool _startupUpdatePresentationScheduled = false;
+  Timer? _startupUpdateRetryTimer;
 
   // 公开 getter 供 StartupOrchestrator 使用
   clash.ClashService? get clashService => _clashService;
@@ -67,6 +72,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
 
   @override
   void dispose() {
+    _startupUpdateRetryTimer?.cancel();
     _pageController.dispose();
     final clashService = _clashService;
     if (clashService != null) unawaited(clashService.stop());
@@ -100,7 +106,10 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         setState(() => _appInitialized = true);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           unawaited(
-            StartupOrchestrator(flags: widget.startupFlags).start(),
+            StartupOrchestrator(
+              flags: widget.startupFlags,
+              onUpdateAvailable: _queueStartupUpdate,
+            ).start(),
           );
         });
         return;
@@ -128,66 +137,119 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
     }
   }
 
+  Future<void> _queueStartupUpdate(AppUpdateInfo update) async {
+    if (!mounted) return;
+    _pendingStartupUpdate = update;
+    _scheduleStartupUpdatePresentation();
+  }
+
+  void _scheduleStartupUpdatePresentation() {
+    if (_startupUpdatePresentationScheduled || !mounted) return;
+    _startupUpdatePresentationScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _startupUpdatePresentationScheduled = false;
+      if (!mounted) return;
+      final update = _pendingStartupUpdate;
+      final updateContext = _navigatorKey.currentContext;
+      if (update == null) return;
+      if (updateContext == null) {
+        _retryStartupUpdatePresentation();
+        return;
+      }
+      if (UpdateService.isUpdateUiBusy) {
+        _retryStartupUpdatePresentation();
+        return;
+      }
+      try {
+        await UpdateService.showUpdateDialog(
+          updateContext,
+          latestVersion: update.version,
+          currentVersion: UpdateService.appVersion,
+          downloadUrl: update.downloadUrl,
+          changelog: update.changelog,
+          sha256: update.sha256,
+          fallbackDownloadUrl: update.fallbackDownloadUrl,
+        );
+        if (identical(_pendingStartupUpdate, update)) {
+          _pendingStartupUpdate = null;
+        }
+      } catch (error, stackTrace) {
+        AppLogger.warning(
+          'Update',
+          '启动更新提示暂时无法显示: $error\n$stackTrace',
+        );
+        _retryStartupUpdatePresentation();
+      }
+    });
+  }
+
+  void _retryStartupUpdatePresentation() {
+    if (!mounted || _pendingStartupUpdate == null) return;
+    _startupUpdateRetryTimer?.cancel();
+    _startupUpdateRetryTimer = Timer(const Duration(seconds: 1), () {
+      _startupUpdateRetryTimer = null;
+      _scheduleStartupUpdatePresentation();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_initError) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
-        home: CrashReportPrompt(
-          child: Scaffold(
-            backgroundColor: const Color(0xFF0B0D14),
-            body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: AppTheme.errorColor.withValues(alpha: 20 / 255),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.error_outline,
-                          size: 32, color: AppTheme.errorColor),
+        home: Scaffold(
+          backgroundColor: const Color(0xFF0B0D14),
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: AppTheme.errorColor.withValues(alpha: 20 / 255),
+                      shape: BoxShape.circle,
                     ),
-                    const SizedBox(height: 20),
-                    const Text('初始化失败',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.darkTextPrimary)),
-                    const SizedBox(height: 8),
-                    Text(_initErrorMsg,
-                        style: const TextStyle(
-                            fontSize: 13, color: AppTheme.darkTextSecondary),
-                        textAlign: TextAlign.center),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: 120,
-                      height: 44,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          setState(() {
-                            _initRetryCount = 0;
-                            _initError = false;
-                            _initErrorMsg = '';
-                            _appInitialized = false;
-                          });
-                          unawaited(_initApp());
-                        },
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.primaryColor,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12))),
-                        child: const Text('重试',
-                            style: TextStyle(color: Colors.white)),
-                      ),
+                    child: const Icon(Icons.error_outline,
+                        size: 32, color: AppTheme.errorColor),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text('初始化失败',
+                      style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.darkTextPrimary)),
+                  const SizedBox(height: 8),
+                  Text(_initErrorMsg,
+                      style: const TextStyle(
+                          fontSize: 13, color: AppTheme.darkTextSecondary),
+                      textAlign: TextAlign.center),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: 120,
+                    height: 44,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          _initRetryCount = 0;
+                          _initError = false;
+                          _initErrorMsg = '';
+                          _appInitialized = false;
+                        });
+                        unawaited(_initApp());
+                      },
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryColor,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12))),
+                      child: const Text('重试',
+                          style: TextStyle(color: Colors.white)),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -199,31 +261,29 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
-        home: const CrashReportPrompt(
-          child: Scaffold(
-            backgroundColor: Color(0xFF0B0D14),
-            body: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                      width: 36,
-                      height: 36,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2.5, color: AppTheme.primaryColor)),
-                  SizedBox(height: 20),
-                  Text('SSRVPN',
-                      style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.darkTextPrimary,
-                          letterSpacing: 1)),
-                  SizedBox(height: 8),
-                  Text('正在初始化...',
-                      style: TextStyle(
-                          fontSize: 14, color: AppTheme.darkTextSecondary)),
-                ],
-              ),
+        home: const Scaffold(
+          backgroundColor: Color(0xFF0B0D14),
+          body: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2.5, color: AppTheme.primaryColor)),
+                SizedBox(height: 20),
+                Text('SSRVPN',
+                    style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.darkTextPrimary,
+                        letterSpacing: 1)),
+                SizedBox(height: 8),
+                Text('正在初始化...',
+                    style: TextStyle(
+                        fontSize: 14, color: AppTheme.darkTextSecondary)),
+              ],
             ),
           ),
         ),
@@ -240,6 +300,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
             value: _subscriptionService!),
       ],
       child: MaterialApp(
+        navigatorKey: _navigatorKey,
         debugShowCheckedModeBanner: false,
         title: 'SSRVPN',
         theme: AppTheme.lightTheme,
@@ -348,14 +409,27 @@ class _InitialSubscriptionPromptState
 
     _promptInFlight = true;
     _lastPromptRevision = subService.revision;
-    final input = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _InitialSubscriptionDialog(
-        isValidInput: _isValidSubscriptionInput,
-      ),
-    );
-    _promptInFlight = false;
+    String? input;
+    try {
+      input = await AppModalCoordinator.run<String?>(() {
+        if (!mounted) return Future.value();
+        return showDialog<String>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => _InitialSubscriptionDialog(
+            isValidInput: _isValidSubscriptionInput,
+          ),
+        );
+      });
+    } catch (error, stack) {
+      AppLogger.warning(
+        'Subscription',
+        '初始订阅提示暂时无法显示: $error\n$stack',
+      );
+      return;
+    } finally {
+      _promptInFlight = false;
+    }
 
     if (input == null || input.trim().isEmpty || !mounted) return;
     await _addSubscriptionAndRefresh(input.trim());

@@ -209,8 +209,8 @@ if ($identities.Count -eq 0) {
   }
 }
 
-Future<Set<WindowsTunInterfaceIdentity>>
-    probeWindowsNetworkInterfaceIdentities() async {
+Future<Set<WindowsTunInterfaceIdentity>> probeWindowsNetworkInterfaceIdentities(
+    {Future<void>? cancellation}) async {
   if (!Platform.isWindows) return const <WindowsTunInterfaceIdentity>{};
   try {
     const script = r'''
@@ -238,6 +238,7 @@ if ($identities.Count -eq 0) {
       ],
       timeout: _windowsNetworkCmdletTimeout,
       timeoutStderr: 'Windows network interface baseline probe timed out',
+      cancellation: cancellation,
     );
     if (result.exitCode != 0) return const <WindowsTunInterfaceIdentity>{};
     return parseWindowsTunInterfaceIdentityOutput(result.stdout.toString());

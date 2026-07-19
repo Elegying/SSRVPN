@@ -7,6 +7,28 @@ import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 
 void main() {
   group('ClashConfigGenerator', () {
+    test('large async generation is byte-for-byte equivalent', () async {
+      final padding = List.filled(14000, '# keep UI responsive').join('\n');
+      final yaml = '''
+$padding
+proxies:
+  - name: Large Node
+    type: ss
+    server: large.example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: secret
+''';
+      expect(yaml.length, greaterThan(ClashConfigGenerator.isolateThreshold));
+      final settings = AppSettings(proxyPort: 7897, socksPort: 7898);
+
+      final synchronous = ClashConfigGenerator.generateConfig(yaml, settings);
+      final asynchronous =
+          await ClashConfigGenerator.generateConfigAsync(yaml, settings);
+
+      expect(asynchronous, synchronous);
+    });
+
     test('extractProxyNames extracts names from YAML', () {
       final yaml = '''
 proxies:

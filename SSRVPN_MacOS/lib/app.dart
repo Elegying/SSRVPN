@@ -9,12 +9,17 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
 import 'package:ssrvpn_shared/runtime_notice.dart';
-import 'package:ssrvpn_shared/ssrvpn_shared.dart' show runBestEffortCleanup;
+import 'package:ssrvpn_shared/ssrvpn_shared.dart'
+    show
+        DesktopConnectionCoordinator,
+        DesktopConnectionFailure,
+        desktopSubscriptionChangedMessage;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'screens/home_screen.dart';
 import 'screens/subscription_screen.dart';
+import 'services/app_shutdown.dart';
 import 'services/clash_service.dart' as clash;
 import 'services/settings_service.dart';
 import 'services/subscription_service.dart';
@@ -27,6 +32,7 @@ import 'theme/app_theme.dart';
 import 'widgets/liquid_glass.dart';
 
 part 'package:ssrvpn_shared/desktop_ui/desktop_app_shell_part.dart';
+part 'app_runtime_actions_part.dart';
 
 class SSRVpnApp extends StatefulWidget {
   const SSRVpnApp({super.key, required this.startupFlags});
@@ -37,17 +43,10 @@ class SSRVpnApp extends StatefulWidget {
   State<SSRVpnApp> createState() => _SSRVpnAppState();
 }
 
-class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
-  final TrayManager _trayManager = TrayManager();
-
-  int _currentIndex = 0;
-  bool _isQuitting = false;
+class _SSRVpnAppState extends State<SSRVpnApp>
+    with WindowListener, _MacosAppRuntimeActions {
   bool _windowListenerAttached = false;
   Timer? _windowStateSaveDebounce;
-
-  SettingsService? _settingsService;
-  clash.ClashService? _clashService;
-  SubscriptionService? _subscriptionService;
 
   @override
   void initState() {
@@ -59,6 +58,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   @override
   void dispose() {
     StartupStatus.instance.removeListener(_handleStartupStatusChanged);
+    _runtimeNoticeAutoClearTimer?.cancel();
     _windowStateSaveDebounce?.cancel();
     if (_windowListenerAttached) {
       try {
@@ -66,11 +66,16 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       } catch (_) {}
     }
     _clashService?.removeStatusListener(_handleCoreStatusChanged);
+    _clashService?.onProcessExit = null;
+    _clashService?.onRuntimeNotice = null;
     final core = _clashService;
-    if (core != null) {
+    if (core != null && !_isQuitting) {
       core.requestConnectionIntent(false);
+      core.interruptPendingStart();
       unawaited(
-        core.stop().catchError((Object error, StackTrace stack) {
+        core
+            .runConnectionTransition(core.stop)
+            .catchError((Object error, StackTrace stack) {
           StartupLogger.error('Dispose core cleanup failed', error, stack);
         }),
       );
@@ -95,146 +100,34 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     if (nextClashService != null &&
         !identical(_clashService, nextClashService)) {
       _clashService?.removeStatusListener(_handleCoreStatusChanged);
+      _clashService?.onProcessExit = null;
+      _clashService?.onRuntimeNotice = null;
       _clashService = nextClashService;
       _clashService!.addStatusListener(_handleCoreStatusChanged);
+      _clashService!.onRuntimeNotice = (message) {
+        unawaited(_presentRuntimeNotice(message));
+      };
+      _clashService!.onProcessExit = () {
+        final notice = _clashService?.lastUnexpectedExitNotice ??
+            'Mihomo 异常退出，系统代理恢复结果未知。请点击首页“连接”重试。';
+        unawaited(_presentRuntimeNotice(notice));
+      };
       _configureTrayCallbacks();
+      final recoveryNotice = _clashService!.startupRecoveryNotice;
+      if (recoveryNotice != null) {
+        unawaited(
+          _presentRuntimeNotice(
+            recoveryNotice,
+            tracksPendingRecovery: true,
+          ),
+        );
+      }
     }
 
     _settingsService = status.settingsService;
     _subscriptionService = status.subscriptionService;
 
     if (mounted) setState(() {});
-  }
-
-  void _configureTrayCallbacks() {
-    _trayManager.onShowApp = () async {
-      try {
-        await windowManager.show();
-        await windowManager.restore();
-        await windowManager.focus();
-      } catch (error, stack) {
-        StartupLogger.error('Show app from tray failed', error, stack);
-      }
-    };
-    _trayManager.onHideApp = () async {
-      try {
-        await windowManager.hide();
-      } catch (error, stack) {
-        StartupLogger.error('Hide app from tray failed', error, stack);
-      }
-    };
-    _trayManager.onQuit = _quitApp;
-    _trayManager.onConnectToggle = _handleTrayConnectToggle;
-    _trayManager.isConnected = () => _clashService?.isRunning ?? false;
-    unawaited(_trayManager.refreshMenu());
-  }
-
-  Future<void> _handleTrayConnectToggle() async {
-    final core = _clashService;
-    final settings = _settingsService;
-    if (core == null || settings == null) return;
-
-    int? connectionGeneration;
-    try {
-      if (core.isRunning || core.connectionDesired) {
-        core.requestConnectionIntent(false);
-        await core.stop();
-        return;
-      }
-
-      if (core.hasPendingSystemProxyRecovery &&
-          !await core.recoverPendingSystemProxy()) {
-        StartupLogger.warning(
-          core.lastStartError ?? 'System proxy recovery is still pending',
-        );
-        return;
-      }
-      if (core.isStartupDisabled) {
-        StartupLogger.warning(core.startupDisabledReason ?? 'Core disabled');
-        return;
-      }
-
-      final rawYaml = _subscriptionService?.rawYaml;
-      if (rawYaml == null || rawYaml.trim().isEmpty) return;
-
-      connectionGeneration = core.requestConnectionIntent(true);
-      final preferredNodeName = _defaultNodeName();
-      final runtimeSettings = await core.prepareForStart(settings.settings);
-      final config = core.generateClashConfig(
-        rawYaml,
-        runtimeSettings,
-        preferredNodeName: preferredNodeName,
-      );
-      await core.writeConfig(config);
-      if (!core.isConnectionIntentCurrent(
-        connectionGeneration,
-        connected: true,
-      )) {
-        return;
-      }
-      final started = await core.start();
-      if (!core.isConnectionIntentCurrent(
-        connectionGeneration,
-        connected: true,
-      )) {
-        if (started) await core.stop();
-        return;
-      }
-      if (!started) {
-        core.requestConnectionIntent(false);
-        return;
-      }
-      if (started && preferredNodeName != null) {
-        final switched = await core.switchSelectedProxy(preferredNodeName);
-        if (switched) {
-          await settings.updateLastSelectedNodeName(preferredNodeName);
-        }
-      }
-    } catch (error, stack) {
-      if (connectionGeneration != null &&
-          core.isConnectionIntentCurrent(
-            connectionGeneration,
-            connected: true,
-          )) {
-        core.requestConnectionIntent(false);
-      }
-      StartupLogger.error('Tray connect toggle failed', error, stack);
-    } finally {
-      await _trayManager.refreshMenu();
-    }
-  }
-
-  String? _defaultNodeName() {
-    final nodes = _subscriptionService?.allNodes ?? const [];
-    final remembered = _settingsService?.settings.lastSelectedNodeName;
-    return HomeNodeController.resolveDefaultNodeFrom(nodes, remembered)?.name;
-  }
-
-  void _handleCoreStatusChanged() {
-    unawaited(_trayManager.refreshMenu());
-  }
-
-  Future<void> _quitApp() async {
-    if (_isQuitting) return;
-    _isQuitting = true;
-    final failures = await runBestEffortCleanup([
-      () async => _settingsService?.flush(),
-      () async {
-        _clashService?.requestConnectionIntent(false);
-        await _clashService?.stop();
-      },
-      _trayManager.destroy,
-      () => windowManager.setPreventClose(false),
-      windowManager.destroy,
-    ]);
-    for (final failure in failures) {
-      StartupLogger.error(
-        'Quit cleanup step ${failure.step} failed',
-        failure.error,
-        failure.stackTrace,
-      );
-    }
-    SystemNavigator.pop();
   }
 
   @override
@@ -332,7 +225,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
             startupFailureMessages: StartupStatus.instance.failures
                 .map(_startupFailureSummary)
                 .toList(growable: false),
-            runtimeNotice: null,
+            runtimeNotice: _runtimeNotice,
             currentIndex: _currentIndex,
             onIndexChanged: (index) => setState(() => _currentIndex = index),
           ),
@@ -347,65 +240,62 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
-      home: CrashReportPrompt(
-        child: Scaffold(
-          backgroundColor: const Color(0xFF050508),
-          body: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      startupFailed
-                          ? Icons.error_outline_rounded
-                          : Icons.shield_outlined,
-                      color: startupFailed ? AppTheme.error : AppTheme.primary,
-                      size: 42,
+      home: Scaffold(
+        backgroundColor: const Color(0xFF050508),
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    startupFailed
+                        ? Icons.error_outline_rounded
+                        : Icons.shield_outlined,
+                    color: startupFailed ? AppTheme.error : AppTheme.primary,
+                    size: 42,
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    startupFailed ? '启动失败' : 'SSRVPN',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      color:
+                          startupFailed ? AppTheme.error : AppTheme.textPrimary,
                     ),
-                    const SizedBox(height: 24),
-                    Text(
-                      startupFailed ? '启动失败' : 'SSRVPN',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: startupFailed
-                            ? AppTheme.error
-                            : AppTheme.textPrimary,
-                      ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    startupFailed ? '初始化服务失败，请稍后查看诊断日志。' : '正在加载必要组件...',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: AppTheme.textSecondary,
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      startupFailed ? '初始化服务失败，请稍后查看诊断日志。' : '正在加载必要组件...',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                    if (!startupFailed) ...[
-                      const SizedBox(height: 18),
-                      SizedBox(
-                        width: 260,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(999),
-                          child: LinearProgressIndicator(
-                            value: _startupProgress(status),
-                            minHeight: 6,
-                            backgroundColor:
-                                AppTheme.primary.withValues(alpha: 32 / 255),
-                            color: AppTheme.primary,
-                          ),
+                  ),
+                  if (!startupFailed) ...[
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: 260,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          value: _startupProgress(status),
+                          minHeight: 6,
+                          backgroundColor:
+                              AppTheme.primary.withValues(alpha: 32 / 255),
+                          color: AppTheme.primary,
                         ),
                       ),
-                    ],
-                    if (failures.isNotEmpty) ...[
-                      const SizedBox(height: 18),
-                      _StartupProblemPanel(failures: failures),
-                    ],
+                    ),
                   ],
-                ),
+                  if (failures.isNotEmpty) ...[
+                    const SizedBox(height: 18),
+                    _StartupProblemPanel(failures: failures),
+                  ],
+                ],
               ),
             ),
           ),

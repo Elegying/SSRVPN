@@ -5,6 +5,7 @@ import '../models/proxy_group.dart';
 import '../models/proxy_node.dart';
 import '../models/subscription.dart';
 import '../services/subscription_service_base.dart';
+import '../services/subscription_refresh_control.dart';
 import '../utils/proxy_node_usage_policy.dart';
 import '../utils/subscription_url_policy.dart';
 
@@ -15,7 +16,10 @@ abstract class SubscriptionScreenServicePort {
   bool isSingleNodeLink(String input);
   String defaultSubscriptionName(String input);
   Future<Subscription> addSubscription(String name, String url);
-  Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed();
+  Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed({
+    SubscriptionRefreshCancellation? cancellation,
+    Duration timeout = SubscriptionServiceBase.defaultBatchRefreshTimeout,
+  });
   Future<void> removeSubscription(String id);
 }
 
@@ -39,8 +43,10 @@ class CallbackSubscriptionScreenService
   final String Function(String input) defaultSubscriptionNameOf;
   final Future<Subscription> Function(String name, String url)
       addSubscriptionWith;
-  final Future<SubscriptionBatchRefreshResult> Function()
-      refreshAllSubscriptionsDetailedWith;
+  final Future<SubscriptionBatchRefreshResult> Function({
+    SubscriptionRefreshCancellation? cancellation,
+    Duration timeout,
+  }) refreshAllSubscriptionsDetailedWith;
   final Future<void> Function(String id) removeSubscriptionWith;
 
   @override
@@ -65,8 +71,14 @@ class CallbackSubscriptionScreenService
   }
 
   @override
-  Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed() {
-    return refreshAllSubscriptionsDetailedWith();
+  Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed({
+    SubscriptionRefreshCancellation? cancellation,
+    Duration timeout = SubscriptionServiceBase.defaultBatchRefreshTimeout,
+  }) {
+    return refreshAllSubscriptionsDetailedWith(
+      cancellation: cancellation,
+      timeout: timeout,
+    );
   }
 
   @override
@@ -106,7 +118,7 @@ class SubscriptionAddResult {
       status == SubscriptionAddStatus.subscriptionAdded;
 }
 
-enum SubscriptionRefreshStatus { success, partialSuccess, failure }
+enum SubscriptionRefreshStatus { success, partialSuccess, cancelled, failure }
 
 class SubscriptionRefreshResult {
   const SubscriptionRefreshResult({
@@ -130,13 +142,11 @@ class SubscriptionRefreshResult {
 class SubscriptionDeleteResult {
   const SubscriptionDeleteResult({
     required this.removed,
-    this.remainingRefreshFailed = false,
     this.stoppedClash = false,
     this.error,
   });
 
   final bool removed;
-  final bool remainingRefreshFailed;
   final bool stoppedClash;
   final Object? error;
 }
@@ -188,10 +198,15 @@ class SubscriptionScreenController {
     }
   }
 
-  Future<SubscriptionRefreshResult> refreshAll() async {
+  Future<SubscriptionRefreshResult> refreshAll({
+    SubscriptionRefreshCancellation? cancellation,
+    Duration timeout = SubscriptionServiceBase.defaultBatchRefreshTimeout,
+  }) async {
     try {
-      final outcome =
-          await subscriptionService.refreshAllSubscriptionsDetailed();
+      final outcome = await subscriptionService.refreshAllSubscriptionsDetailed(
+        cancellation: cancellation,
+        timeout: timeout,
+      );
       if (outcome.isPartialSuccess) {
         final failedNames = outcome.failures
             .map((failure) => failure.subscriptionName)
@@ -218,6 +233,17 @@ class SubscriptionScreenController {
       }
       return const SubscriptionRefreshResult(
         message: '刷新失败: 没有可用的订阅',
+        status: SubscriptionRefreshStatus.failure,
+      );
+    } on SubscriptionRefreshCancelled {
+      return const SubscriptionRefreshResult(
+        message: '刷新已取消',
+        status: SubscriptionRefreshStatus.cancelled,
+      );
+    } on SubscriptionRefreshDeadlineExceeded catch (e) {
+      return SubscriptionRefreshResult(
+        message: '刷新失败: 已超过 ${e.timeout.inSeconds} 秒总时限，'
+            '请重试或删除长期失效订阅',
         status: SubscriptionRefreshStatus.failure,
       );
     } on SocketException catch (e) {
@@ -247,22 +273,11 @@ class SubscriptionScreenController {
     required bool clashRunning,
     required Future<void> Function()? stopClash,
     Future<void> Function()? onNoRunnableNodes,
-    bool continueAfterRefreshFailure = false,
   }) async {
     try {
       await subscriptionService.removeSubscription(id);
     } catch (e) {
-      if (!continueAfterRefreshFailure) {
-        return SubscriptionDeleteResult(removed: false, error: e);
-      }
-      return _deleteResultAfterOptionalStop(
-        removed: true,
-        remainingRefreshFailed: true,
-        error: e,
-        clashRunning: clashRunning,
-        stopClash: stopClash,
-        onNoRunnableNodes: onNoRunnableNodes,
-      );
+      return SubscriptionDeleteResult(removed: false, error: e);
     }
 
     return _deleteResultAfterOptionalStop(
@@ -341,7 +356,6 @@ class SubscriptionScreenController {
     required bool clashRunning,
     required Future<void> Function()? stopClash,
     Future<void> Function()? onNoRunnableNodes,
-    bool remainingRefreshFailed = false,
     Object? error,
   }) async {
     var stopped = false;
@@ -360,7 +374,6 @@ class SubscriptionScreenController {
     }
     return SubscriptionDeleteResult(
       removed: removed,
-      remainingRefreshFailed: remainingRefreshFailed,
       stoppedClash: stopped,
       error: operationError,
     );

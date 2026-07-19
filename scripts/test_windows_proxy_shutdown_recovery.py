@@ -5,7 +5,90 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def windows_app_runtime_source() -> str:
+    app_dir = ROOT / "SSRVPN_Windows" / "lib"
+    runtime = (app_dir / "app_runtime_actions_part.dart").read_text(
+        encoding="utf-8"
+    )
+    entrypoint = (app_dir / "app.dart").read_text(encoding="utf-8")
+    return runtime + "\n" + entrypoint
+
+
 class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
+    def test_launcher_contention_never_silently_succeeds_without_activation(
+        self,
+    ) -> None:
+        runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
+        launcher = (runner / "launcher_main.cpp").read_text(encoding="utf-8-sig")
+        instance_control = (runner / "launcher_instance_control.cpp").read_text(
+            encoding="utf-8"
+        )
+        main = (runner / "main.cpp").read_text(encoding="utf-8")
+        cmake = (runner / "CMakeLists.txt").read_text(encoding="utf-8")
+        policy = (runner / "launcher_instance_policy.h").read_text(
+            encoding="utf-8"
+        )
+
+        launcher_wait = launcher[
+            launcher.index("if (launcher_wait == WAIT_TIMEOUT)") : launcher.index(
+                "if (launcher_wait != WAIT_OBJECT_0"
+            )
+        ]
+        self.assertIn("OpenExistingChildProcess(child_path, true", launcher_wait)
+        self.assertIn("existing_window_activated", launcher_wait)
+        self.assertIn(
+            "existing_process != nullptr && existing_window_activated",
+            launcher_wait,
+        )
+        self.assertIn("ShowInstanceContentionNotice", launcher_wait)
+        self.assertIn("return ERROR_BUSY", launcher_wait)
+        blocked_path = launcher_wait[launcher_wait.index(
+            "InstanceContentionAction action"
+        ) :]
+        self.assertNotIn("return EXIT_SUCCESS", blocked_path)
+
+        self.assertIn("enum class InstanceContentionAction", policy)
+        self.assertIn("kActivateCurrentInstance", policy)
+        self.assertIn("kShowProxyRecovery", policy)
+        self.assertIn("kShowConflictingCopy", policy)
+        self.assertGreaterEqual(policy.count("static_assert"), 3)
+        self.assertIn("false, true, false, true, true", policy)
+
+        notice = instance_control[
+            instance_control.index("void ShowInstanceContentionNotice") :
+        ]
+        notice = notice.split("\n}\n\n", 1)[0]
+        self.assertIn("任务管理器", notice)
+        self.assertIn("重试", notice)
+        self.assertIn("重启 Windows", notice)
+        self.assertNotIn("child_path", notice)
+        self.assertIn('"launcher_instance_control.cpp"', cmake)
+
+        app_contention = main[
+            main.index("if (!owns_instance_mutex)") : main.index(
+                "// Attach to console"
+            )
+        ]
+        activated = app_contention[
+            app_contention.index("if (existing_window != nullptr)") :
+            app_contention.index("startup_diagnostics::Log(",
+                app_contention.index("if (existing_window != nullptr)"))
+        ]
+        hidden = app_contention[app_contention.index(
+            'startup_diagnostics::Log(L"existing instance window is hung")'
+        ) :]
+        self.assertIn("return ERROR_ALREADY_EXISTS", activated)
+        self.assertIn("return ERROR_BUSY", hidden)
+
+        finalization_start = launcher.rindex("DWORD exit_code = EXIT_FAILURE")
+        launcher_finalization = launcher[
+            finalization_start : launcher.index(
+                "if (process_job != nullptr)", finalization_start
+            )
+        ]
+        self.assertIn("ChildExitRequiresProxyPreservation", launcher_finalization)
+        self.assertIn("ResolveChildExitCode", launcher_finalization)
+
     def test_launcher_rejects_a_precreated_process_job(self) -> None:
         launcher = (
             ROOT
@@ -94,12 +177,10 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("error: e", caught_exception)
         self.assertIn("stack: stack", caught_exception)
 
-        windows_app = (
-            ROOT / "SSRVPN_Windows" / "lib" / "app.dart"
-        ).read_text(encoding="utf-8")
+        windows_app = windows_app_runtime_source()
         tray_start_failure = windows_app[
-            windows_app.index("if (!started)") :
-            windows_app.index("if (started && preferredNodeName")
+            windows_app.index("if (!connectionResult.connected)") :
+            windows_app.index("final portAdjustmentNotice")
         ]
         permission_gate = tray_start_failure.index(
             "AppErrorCode.permissionRequired"
@@ -121,15 +202,26 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         )
 
         admin_check = lifecycle.index("final isAdministrator")
+        guardian_gate = lifecycle.index(
+            "if (settings.enableTun &&", admin_check
+        )
         guardian_check = lifecycle.index(
-            "!await _proxyService.isLauncherGuardianReady()", admin_check
+            "_proxyService.isLauncherGuardianReady(", guardian_gate
         )
         core_spawn = lifecycle.index("final startedProcess = await Process.start(")
         self.assertLess(admin_check, guardian_check)
         self.assertLess(guardian_check, core_spawn)
-        self.assertIn("settings.enableTun &&", lifecycle[admin_check:guardian_check])
-        self.assertIn("TUN 模式已安全中止", lifecycle[guardian_check:core_spawn])
-        self.assertIn("Future<bool> isLauncherGuardianReady()", proxy)
+        guardian_start_gate = lifecycle[guardian_gate:core_spawn]
+        self.assertIn("_awaitStartOperation(", guardian_start_gate)
+        self.assertIn(
+            "cancellation: _startCancellation?.future",
+            guardian_start_gate,
+        )
+        self.assertIn("TUN 模式已安全中止", guardian_start_gate)
+        self.assertIn(
+            "Future<bool> isLauncherGuardianReady({Future<void>? cancellation})",
+            proxy,
+        )
 
     def test_tun_teardown_blocks_stop_completion_and_automatic_restart(self) -> None:
         lifecycle = (
@@ -190,11 +282,29 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
 
         self.assertIn("await _restoreTunTeardownGate();", service)
         self.assertIn("tun_teardown.pending", tun_recovery)
-        baseline = lifecycle.index("_tunInterfacesBeforeStart = startedWithTun")
+        started_mode = lifecycle.index(
+            "final startedWithTun = settings.enableTun;"
+        )
+        baseline_branch = lifecycle.index("if (startedWithTun)", started_mode)
+        baseline = lifecycle.index(
+            "_tunInterfacesBeforeStart = await _awaitStartOperation(",
+            baseline_branch,
+        )
         arm = lifecycle.index("!await _armTunTeardownGate()")
         spawn = lifecycle.index("final startedProcess = await Process.start(", arm)
+        self.assertLess(started_mode, baseline_branch)
+        self.assertLess(baseline_branch, baseline)
         self.assertLess(baseline, arm)
         self.assertLess(arm, spawn)
+        baseline_to_arm = lifecycle[baseline:arm]
+        self.assertIn("probeWindowsNetworkInterfaceIdentities(", baseline_to_arm)
+        self.assertIn(
+            "cancellation: _startCancellation?.future", baseline_to_arm
+        )
+        self.assertIn(
+            "_tunInterfacesBeforeStart = const <WindowsTunInterfaceIdentity>{};",
+            baseline_to_arm,
+        )
         persist_index = lifecycle.index("!await _persistTunInterfaceIdentities()")
         commit_running = lifecycle.index("setRunning(true)", persist_index)
         self.assertLess(spawn, persist_index)
@@ -570,6 +680,13 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             / "runner"
             / "guardian_restart.h"
         ).read_text(encoding="utf-8")
+        instance_control = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "windows"
+            / "runner"
+            / "launcher_instance_control.cpp"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("kLauncherMutexName", launcher)
         self.assertIn("kGuardianMutexName", launcher)
@@ -580,7 +697,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("PROC_THREAD_ATTRIBUTE_PARENT_PROCESS", launcher)
         self.assertIn("EXTENDED_STARTUPINFO_PRESENT", launcher)
         self.assertIn("IsNamedMutexOwned(kGuardianMutexName)", launcher)
-        self.assertIn("QueryFullProcessImageNameW", launcher)
+        self.assertIn("QueryFullProcessImageNameW", instance_control)
         self.assertIn("CompareStringOrdinal", launcher)
         self.assertIn("OpenJobObjectW", launcher)
         self.assertIn("OpenJobObjectW(JOB_OBJECT_QUERY", launcher)
@@ -720,8 +837,8 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertNotIn("ResumeThread", child_creation)
         self.assertIn("CREATE_SUSPENDED", child_creation)
         final_job_cleanup = main[
-            main.index("if (exit_code != ERROR_ALREADY_EXISTS") :
-            main.index("if (exit_code == ERROR_ALREADY_EXISTS")
+            main.index("if (!ChildExitRequiresProxyPreservation") :
+            main.index("exit_code = ResolveChildExitCode")
         ]
         self.assertIn("RestoreProxyForProcessCleanup()", final_job_cleanup)
         self.assertIn(
@@ -787,21 +904,21 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         )
 
     def test_launcher_terminates_only_the_verified_child_handle(self) -> None:
-        launcher = (
-            ROOT
-            / "SSRVPN_Windows"
-            / "windows"
-            / "runner"
-            / "launcher_main.cpp"
-        ).read_text(encoding="utf-8-sig")
+        runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
+        launcher = (runner / "launcher_main.cpp").read_text(
+            encoding="utf-8-sig"
+        )
+        instance_control = (runner / "launcher_instance_control.cpp").read_text(
+            encoding="utf-8"
+        )
 
-        existing = launcher[
-            launcher.index("HANDLE OpenExistingChildProcess") :
-            launcher.index("HANDLE FindChildProcessByPath")
+        existing = instance_control[
+            instance_control.index("HANDLE OpenExistingChildProcess") :
+            instance_control.index("HANDLE FindChildProcessByPath")
         ]
-        finder = launcher[
-            launcher.index("HANDLE FindChildProcessByPath") :
-            launcher.index("bool IsNamedMutexOwned")
+        finder = instance_control[
+            instance_control.index("HANDLE FindChildProcessByPath") :
+            instance_control.index("bool IsNamedMutexOwned")
         ]
         for discovery in (existing, finder):
             self.assertIn("DWORD* open_error", discovery)
@@ -953,7 +1070,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         main = launcher[launcher.index("int APIENTRY wWinMain") :]
         final_guardian_wait = main[
             main.rindex("if (guardian_process != nullptr)") : main.index(
-                "if (exit_code != ERROR_ALREADY_EXISTS", main.rindex(
+                "if (!ChildExitRequiresProxyPreservation", main.rindex(
                     "if (guardian_process != nullptr)"
                 )
             )
@@ -1000,20 +1117,21 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
     ) -> None:
         runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
         launcher = (runner / "launcher_main.cpp").read_text(encoding="utf-8-sig")
+        instance_control = (runner / "launcher_instance_control.cpp").read_text(
+            encoding="utf-8"
+        )
         harness = (
             ROOT / "scripts" / "windows_guardian_token_parity_harness.cpp"
         ).read_text(encoding="utf-8-sig")
 
-        token_security = launcher[
-            launcher.index("struct ProcessTokenSecurity") : launcher.index(
-                "HANDLE OpenExistingChildProcess"
-            )
-        ]
+        token_security = instance_control
         self.assertIn("TokenElevationType", token_security)
         self.assertIn("TokenIntegrityLevel", token_security)
+        self.assertIn("TokenUser", token_security)
+        self.assertIn("EqualSid", token_security)
         self.assertIn("GetSidSubAuthority", token_security)
         self.assertIn("ProcessTokensHaveSecurityParity", token_security)
-        self.assertIn("ProcessIsOutsideJob", token_security)
+        self.assertIn("ProcessIsOutsideJob", launcher)
 
         detached = launcher[
             launcher.index("bool CreateDetachedGuardianProcess") : launcher.index(
@@ -1086,6 +1204,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         )
         terminate = cleanup.index("TerminateJobObject", restore)
         self.assertLess(restore, terminate)
+
         fail_closed_job = launcher[
             launcher.index("bool ArmKillOnJobCloseAndRelease") :
             launcher.index("struct ProcessWindowLookup")
@@ -1111,6 +1230,151 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("FlashWindowEx", visible_disconnect)
         self.assertIn("ShowErrorAsync", visible_disconnect)
         self.assertNotIn("MessageBoxW", visible_disconnect)
+
+    def test_launcher_adopts_an_existing_child_before_starting_guardian(self) -> None:
+        runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
+        launcher = (runner / "launcher_main.cpp").read_text(
+            encoding="utf-8-sig"
+        )
+        instance_control = (runner / "launcher_instance_control.cpp").read_text(
+            encoding="utf-8"
+        )
+
+        open_existing = instance_control[
+            instance_control.index("HANDLE OpenExistingChildProcess") :
+            instance_control.index("bool IsNamedMutexOwned")
+        ]
+        self.assertIn("PROCESS_SET_QUOTA", open_existing)
+
+        adoption_helpers = instance_control[
+            instance_control.index("constexpr wchar_t kCoreExeName") :
+            instance_control.index("HANDLE OpenExistingChildProcess")
+        ]
+        self.assertIn("CreateToolhelp32Snapshot", adoption_helpers)
+        self.assertIn("SnapshotConfirmsDirectChild", adoption_helpers)
+        self.assertIn(
+            "entry.th32ParentProcessID != child_process_id",
+            adoption_helpers,
+        )
+        self.assertNotIn("IsSnapshotDescendant", adoption_helpers)
+        self.assertIn(
+            "ProcessImageMatches(core_process, expected_core_path)",
+            adoption_helpers,
+        )
+        self.assertIn("ProcessIdToSessionId", adoption_helpers)
+        self.assertIn("ProcessTokensHaveSecurityParity", adoption_helpers)
+        self.assertIn("CompareFileTime", adoption_helpers)
+        self.assertIn("AssignProcessToJobObject", adoption_helpers)
+        core_open = adoption_helpers[
+            adoption_helpers.index("HANDLE core_process = ::OpenProcess") :
+            adoption_helpers.index("if (core_process == nullptr)")
+        ]
+        self.assertIn("PROCESS_SET_QUOTA", core_open)
+        self.assertIn("PROCESS_TERMINATE", core_open)
+        self.assertGreaterEqual(adoption_helpers.count("IsProcessInJob"), 2)
+        self.assertIn("kAdoptionSnapshotPasses = 3", adoption_helpers)
+        self.assertIn("::Sleep(kAdoptionSnapshotDelayMs)", instance_control)
+
+        capture = adoption_helpers[
+            adoption_helpers.index("bool CaptureProcessEntries") :
+            adoption_helpers.index("bool SnapshotConfirmsDirectChild")
+        ]
+        enumeration_complete = capture.index(
+            "const DWORD enumeration_error = ::GetLastError()"
+        )
+        timestamp_capture = capture.index(
+            "::GetSystemTimePreciseAsFileTime(snapshot_completion_time)"
+        )
+        snapshot_close = capture.index(
+            "::CloseHandle(snapshot)", timestamp_capture
+        )
+        self.assertLess(enumeration_complete, timestamp_capture)
+        self.assertLess(timestamp_capture, snapshot_close)
+
+        direct_child_confirmation = adoption_helpers[
+            adoption_helpers.index("bool SnapshotConfirmsDirectChild") :
+            adoption_helpers.index("bool ReadProcessCreationTime")
+        ]
+        self.assertIn(
+            "entry.th32ProcessID == candidate_id", direct_child_confirmation
+        )
+        self.assertIn(
+            "entry.th32ParentProcessID == parent_id",
+            direct_child_confirmation,
+        )
+        self.assertIn(
+            "_wcsicmp(entry.szExeFile, kCoreExeName)",
+            direct_child_confirmation,
+        )
+
+        direct_children = adoption_helpers[
+            adoption_helpers.index("bool AdoptExpectedDirectCoreChildren") :
+            adoption_helpers.index("}  // namespace")
+        ]
+        initial_capture = direct_children.index(
+            "CaptureProcessEntries(&entries, &snapshot_completion_time"
+        )
+        core_open = direct_children.index("HANDLE core_process = ::OpenProcess")
+        creation_upper_bound = direct_children.index(
+            "CompareFileTime(&core_creation_time, &snapshot_completion_time)"
+        )
+        self.assertRegex(
+            direct_children[
+                creation_upper_bound : direct_children.index(
+                    "// The first snapshot", creation_upper_bound
+                )
+            ],
+            r">\s*0",
+        )
+        refreshed_capture = direct_children.index(
+            "CaptureProcessEntries(&refreshed_entries,"
+        )
+        refreshed_parent_check = direct_children.index(
+            "SnapshotConfirmsDirectChild(entry.th32ProcessID, child_process_id"
+        )
+        irreversible_assignment = direct_children.index(
+            "EnsureProcessInJob(process_job, core_process, true"
+        )
+        self.assertLess(initial_capture, core_open)
+        self.assertLess(core_open, creation_upper_bound)
+        self.assertLess(creation_upper_bound, refreshed_capture)
+        self.assertLess(refreshed_capture, refreshed_parent_check)
+        self.assertLess(refreshed_parent_check, irreversible_assignment)
+        refresh_to_assignment = direct_children[
+            refreshed_capture:irreversible_assignment
+        ]
+        self.assertIn(
+            "WaitForSingleObject(child_process, 0)", refresh_to_assignment
+        )
+        self.assertIn(
+            "WaitForSingleObject(core_process, 0)", refresh_to_assignment
+        )
+
+        adoption = instance_control[
+            instance_control.index("bool AdoptExistingChildProcessTree") :
+            instance_control.index("bool IsNamedMutexOwned")
+        ]
+        assign_app = adoption.index(
+            "EnsureProcessInJob(process_job, child_process, false"
+        )
+        snapshot_loop = adoption.index(
+            "for (int pass = 0; pass < kAdoptionSnapshotPasses"
+        )
+        self.assertLess(assign_app, snapshot_loop)
+        self.assertIn("AdoptExpectedDirectCoreChildren", adoption)
+        self.assertNotIn("TerminateProcess", adoption)
+
+        main = launcher[launcher.index("int APIENTRY wWinMain") :]
+        self.assertIn(
+            'const std::wstring core_path = JoinPath(child_directory, L"mihomo.exe")',
+            main,
+        )
+        adopt_call = main.index("AdoptExistingChildProcessTree")
+        guardian_start = main.index("StartGuardian", adopt_call)
+        self.assertLess(adopt_call, guardian_start)
+        failure = main[adopt_call:guardian_start]
+        self.assertIn("现有进程未被终止", failure)
+        self.assertIn("assigned_to_job = true", failure)
 
     def test_in_app_installer_handoff_cannot_fall_back_into_the_job(self) -> None:
         handoff = (
@@ -1245,7 +1509,12 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             / "system_proxy_service.dart"
         ).read_text(encoding="utf-8")
 
-        backup = service.index("await _writeBackup(snapshot, proxyServer)")
+        backup = service.index("await _writeBackup(")
+        backup_end = service.index(");", backup)
+        backup_call = service[backup:backup_end]
+        self.assertIn("snapshot", backup_call)
+        self.assertIn("proxyServer", backup_call)
+        self.assertIn("cancellation: cancellation", backup_call)
         enable = service.index("Set-ItemProperty -Path \\$regPath -Name ProxyEnable")
         self.assertLess(backup, enable)
         for token in (
@@ -1258,7 +1527,12 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("await _writeNativeRecoveryBackup", service)
         self.assertIn("RuntimeProxyBackup", service)
         self.assertIn("ActivationInProgress", service)
-        self.assertIn("await _markActivationComplete()", service)
+        activation = service.index("await _markActivationComplete(")
+        activation_end = service.index(");", activation)
+        self.assertIn(
+            "cancellation: cancellation",
+            service[activation:activation_end],
+        )
         self.assertIn("Remove-Item -LiteralPath \\$backupPath", service)
 
     def test_dart_native_backup_cleanup_is_idempotent_when_missing(self) -> None:
@@ -1362,9 +1636,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             / "services"
             / "clash_service_lifecycle.dart"
         ).read_text(encoding="utf-8")
-        app = (ROOT / "SSRVPN_Windows" / "lib" / "app.dart").read_text(
-            encoding="utf-8"
-        )
+        app = windows_app_runtime_source()
         home = (
             ROOT
             / "packages"
@@ -1411,9 +1683,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             / "services"
             / "clash_service_lifecycle.dart"
         ).read_text(encoding="utf-8")
-        app = (ROOT / "SSRVPN_Windows" / "lib" / "app.dart").read_text(
-            encoding="utf-8"
-        )
+        app = windows_app_runtime_source()
         summary = (
             ROOT
             / "packages"

@@ -2,6 +2,18 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+typedef ProcessTreeTerminator = Future<void> Function(Process process);
+
+class ProcessTerminationNotConfirmedException implements Exception {
+  ProcessTerminationNotConfirmedException(this.processExit);
+
+  /// Completes only when the original process handle reports termination.
+  final Future<int> processExit;
+
+  @override
+  String toString() => '无法确认已取消的进程已经退出';
+}
+
 class TimedProcessRunner {
   static const _outputDrainTimeout = Duration(milliseconds: 250);
 
@@ -17,6 +29,7 @@ class TimedProcessRunner {
     Future<void>? cancellation,
     int cancellationExitCode = 125,
     String cancellationStderr = '命令已取消',
+    ProcessTreeTerminator? processTreeTerminator,
   }) async {
     Process? process;
     _OutputCollector? stdoutCollector;
@@ -58,7 +71,7 @@ class TimedProcessRunner {
       timer.cancel();
       final interrupted = outcome.stderrOverride != null;
       if (interrupted) {
-        await _terminateProcessTree(process);
+        await (processTreeTerminator ?? _terminateProcessTree)(process);
       }
 
       final outputs = await Future.wait([
@@ -68,9 +81,22 @@ class TimedProcessRunner {
       final stdout = outputs[0];
       final stderr = outcome.stderrOverride ?? outputs[1];
       return ProcessResult(process.pid, outcome.exitCode, stdout, stderr);
+    } on ProcessTerminationNotConfirmedException {
+      timer?.cancel();
+      await stdoutCollector?.cancel();
+      await stderrCollector?.cancel();
+      rethrow;
     } catch (_) {
       timer?.cancel();
-      if (process != null) await _terminateProcessTree(process);
+      if (process != null) {
+        try {
+          await (processTreeTerminator ?? _terminateProcessTree)(process);
+        } on ProcessTerminationNotConfirmedException {
+          await stdoutCollector?.cancel();
+          await stderrCollector?.cancel();
+          rethrow;
+        }
+      }
       await stdoutCollector?.cancel();
       await stderrCollector?.cancel();
       rethrow;
@@ -78,6 +104,7 @@ class TimedProcessRunner {
   }
 
   static Future<void> _terminateProcessTree(Process process) async {
+    final processExit = process.exitCode;
     if (Platform.isWindows) {
       try {
         final killer = await Process.start(
@@ -98,6 +125,11 @@ class TimedProcessRunner {
       }
     }
     process.kill(ProcessSignal.sigkill);
+    try {
+      await processExit.timeout(const Duration(seconds: 2));
+    } on TimeoutException {
+      throw ProcessTerminationNotConfirmedException(processExit);
+    }
   }
 }
 

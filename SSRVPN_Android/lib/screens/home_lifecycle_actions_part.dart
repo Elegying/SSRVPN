@@ -13,6 +13,8 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
       allNodes: subService.allNodes,
     );
     if (!sync.changed) return false;
+    _cancelSingleLatencyTest();
+    _cancelLatencyBatch();
     _lastRevision = controller.lastRevision;
     _nodes = controller.nodes;
     if (sync.shouldPromptForImport) return true;
@@ -27,20 +29,40 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     return true;
   }
 
-  void _scheduleLatencyFlush() {
+  void _scheduleLatencyFlush(int generation) {
     _latencyBatchTimer?.cancel();
-    _latencyBatchTimer =
-        Timer(const Duration(milliseconds: 100), _flushPendingLatencies);
+    _latencyBatchTimer = Timer(
+      const Duration(milliseconds: 100),
+      () => _flushPendingLatencies(generation),
+    );
   }
 
-  void _flushPendingLatencies() {
+  void _flushPendingLatencies(int generation) {
     if (!_latencyController.hasPending || !mounted || _disposed) return;
+    if (_latencyBatchGeneration != generation ||
+        !_latencyController.isCurrentBatch(generation)) {
+      return;
+    }
     _updateHomeState(() {
-      _latencyController.flushTo(_nodes);
+      _latencyController.flushBatchTo(generation, _nodes);
     });
   }
 
+  void _cancelLatencyBatch() {
+    _latencyBatchTimer?.cancel();
+    final generation = _latencyBatchGeneration;
+    if (generation != null) _latencyController.cancelBatch(generation);
+    _latencyBatchGeneration = null;
+    _isBatchTesting = false;
+  }
+
+  void _cancelSingleLatencyTest() {
+    _singleLatencyGeneration++;
+    _testingNodeName = null;
+  }
+
   Future<void> _loadInitialData() async {
+    if (!mounted || _disposed) return;
     final subService = context.read<SubscriptionService>();
     final clashService = context.read<ClashService>();
     _registeredClashService = clashService;
@@ -51,7 +73,12 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     final running = clashService.isRunning;
     final queriedRuntimeNodeName =
         running ? await clashService.currentSelectedProxyName() : null;
-    if (!mounted || _disposed) return;
+    if (!mounted ||
+        _disposed ||
+        !identical(_subscriptionService, subService) ||
+        !identical(_registeredClashService, clashService)) {
+      return;
+    }
     final statusIsCurrent = statusEpoch == _connectionStatusEpoch &&
         clashService.isRunning == running;
     final runtimeSelectedNodeName =
@@ -70,6 +97,12 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
         }
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            _disposed ||
+            !identical(_subscriptionService, subService) ||
+            subService.revision != revision) {
+          return;
+        }
         unawaited(_autoTestAllNodes());
       });
     }
@@ -80,7 +113,11 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     }
 
     final pendingAutoConnect = await clashService.consumePendingAutoConnect();
-    if (pendingAutoConnect && !_isConnected && mounted) {
+    if (pendingAutoConnect &&
+        !_isConnected &&
+        mounted &&
+        !_disposed &&
+        identical(_registeredClashService, clashService)) {
       unawaited(_handleConnectToggle());
     }
   }

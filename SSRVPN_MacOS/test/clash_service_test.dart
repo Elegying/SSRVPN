@@ -145,6 +145,66 @@ void main() {
     });
   });
 
+  group('macOS unexpected core exit notices', () {
+    test('reports both exit code and successful proxy recovery', () {
+      expect(
+        buildMacosUnexpectedExitNotice(
+          exitCode: 17,
+          proxyRecovered: true,
+        ),
+        allOf(contains('退出码 17'), contains('系统代理已恢复'), contains('重试')),
+      );
+    });
+
+    test('keeps the retry and diagnostics path when proxy recovery fails', () {
+      expect(
+        buildMacosUnexpectedExitNotice(
+          exitCode: 9,
+          proxyRecovered: false,
+        ),
+        allOf(
+          contains('退出码 9'),
+          contains('系统代理恢复失败'),
+          contains('保留'),
+          contains('暂停新连接'),
+          isNot(contains('安全核心')),
+          contains('日志诊断'),
+        ),
+      );
+    });
+  });
+
+  group('macOS startup recovery notices', () {
+    test('distinguishes pending proxy recovery from core preparation', () {
+      expect(
+        buildMacosStartupRecoveryNotice(
+          proxyRecoveryPending: true,
+          corePreparationPending: true,
+        ),
+        allOf(contains('系统代理状态'), contains('旧核心'), contains('重试恢复')),
+      );
+      expect(
+        buildMacosStartupRecoveryNotice(
+          proxyRecoveryPending: false,
+          corePreparationPending: true,
+        ),
+        allOf(
+          contains('系统代理已恢复'),
+          contains('安全准备'),
+          contains('旧核心'),
+          contains('重试准备'),
+        ),
+      );
+      expect(
+        buildMacosStartupRecoveryNotice(
+          proxyRecoveryPending: false,
+          corePreparationPending: false,
+        ),
+        isNull,
+      );
+    });
+  });
+
   group('ClashService.generateClashConfig', () {
     test('首次连接保持订阅中的第一个节点为默认节点', () {
       final config = ClashService().generateClashConfig(
@@ -402,6 +462,15 @@ void main() {
 
       expect(service.hasPendingSystemProxyRecovery, isTrue);
       expect(service.isStartupDisabled, isTrue);
+      expect(
+        service.startupRecoveryNotice,
+        allOf(
+          contains('旧核心'),
+          contains('首页'),
+          contains('连接'),
+          contains('重试'),
+        ),
+      );
       expect(nativeTerminationCalls, 0);
       expect(await core.readAsString(), 'old-running-core');
       expect(await geoip.readAsString(), 'old-geoip');
@@ -599,6 +668,10 @@ void main() {
       expect(statusCalls, greaterThanOrEqualTo(3));
       expect(nativeCalls, contains('removeOwnedCorePidRecord'));
       expect(service.isRunning, isFalse);
+      expect(
+        service.lastUnexpectedExitNotice,
+        allOf(contains('异常退出'), contains('系统代理已恢复'), contains('重试')),
+      );
       expect(
         await File('${tempDir.path}/system_proxy.json').exists(),
         isFalse,

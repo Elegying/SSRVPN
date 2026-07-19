@@ -51,6 +51,7 @@ add_dependencies(${BINARY_NAME} flutter_assemble)
 # command line and preserves the operating system's security mitigations.
 set(LAUNCHER_TARGET "${BINARY_NAME}_launcher")
 add_executable(${LAUNCHER_TARGET} WIN32
+  "launcher_instance_control.cpp"
   "launcher_main.cpp"
   "system_proxy_recovery.cpp"
   "Runner.rc"

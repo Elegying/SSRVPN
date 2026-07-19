@@ -166,7 +166,6 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           autoSelect?.name,
           connectionGeneration: connectionGeneration,
         );
-        if (!mounted || _disposed) return;
         if (!clashService.isConnectionIntentCurrent(
           connectionGeneration,
           connected: true,
@@ -174,6 +173,13 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           return;
         }
         final connected = clashService.isRunning;
+        if (!connected) {
+          rollbackFailedAndroidConnectionIntent(
+            clashService,
+            connectionGeneration,
+          );
+        }
+        if (!mounted || _disposed) return;
         if (connected) {
           if (autoSelect != null) {
             await _rememberSelectedNode(
@@ -191,6 +197,10 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
             return;
           }
           if (!clashService.isRunning) {
+            rollbackFailedAndroidConnectionIntent(
+              clashService,
+              connectionGeneration,
+            );
             _updateHomeState(() {
               _isConnected = false;
               _isConnecting = false;
@@ -223,8 +233,12 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
               connectionGeneration,
               connected: true,
             );
-        if (!mounted || _disposed) return;
         if (cancelled) return;
+        rollbackFailedAndroidConnectionIntent(
+          clashService,
+          connectionGeneration,
+        );
+        if (!mounted || _disposed) return;
         _updateHomeState(() {
           _errorMessage = '连接失败: ${_userFriendlyError(e)}';
           _isConnected = clashService.isRunning;

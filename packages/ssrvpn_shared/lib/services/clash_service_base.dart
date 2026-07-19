@@ -17,6 +17,7 @@ import 'clash_config_generator.dart';
 import '../utils/log_redactor.dart';
 import '../utils/private_node_latency_policy.dart';
 import '../utils/connection_intent_tracker.dart';
+import '../utils/connection_transition_queue.dart';
 import 'public_ip_info_service.dart';
 
 part 'clash_service_config_support.dart';
@@ -41,6 +42,8 @@ abstract class ClashServiceBase
   String? _lastStartError;
   String? _lastRuntimePortAdjustmentMessage;
   final ConnectionIntentTracker _connectionIntent = ConnectionIntentTracker();
+  final ConnectionTransitionQueue _connectionTransitions =
+      ConnectionTransitionQueue();
   Future<void> _proxySelectionTail = Future<void>.value();
 
   AppSettings _settings = AppSettings();
@@ -115,6 +118,17 @@ abstract class ClashServiceBase
 
   bool isConnectionIntentCurrent(int generation, {required bool connected}) =>
       _connectionIntent.isCurrent(generation, desired: connected);
+
+  Future<T> runConnectionTransition<T>(Future<T> Function() transition) =>
+      _connectionTransitions.run(transition);
+
+  /// Synchronously asks an in-flight platform start to abort.
+  ///
+  /// Disconnect callers must invoke this before queueing [stop]. That lets a
+  /// cancellable start release the transition queue immediately instead of
+  /// forcing the cleanup operation to wait behind the work it needs to stop.
+  /// Platforms without a cancellable start can keep the default no-op.
+  void interruptPendingStart() {}
 
   // ── 初始化 ──
 
@@ -474,9 +488,11 @@ abstract class ClashServiceBase
     void Function(String name, int latency) onResult, {
     int concurrency = 10,
     int timeoutMs = 5000,
+    bool Function()? shouldContinue,
   }) async {
     final random = Random();
     for (var i = 0; i < nodes.length; i += concurrency) {
+      if (shouldContinue?.call() == false) return;
       final batch = nodes.skip(i).take(concurrency).toList();
       final results = await Future.wait(
         batch.map(
@@ -484,6 +500,7 @@ abstract class ClashServiceBase
         ),
       );
       for (var j = 0; j < batch.length; j++) {
+        if (shouldContinue?.call() == false) return;
         final latency = PrivateNodeLatencyPolicy.displayLatencyForNode(
           batch[j].name,
           results[j],

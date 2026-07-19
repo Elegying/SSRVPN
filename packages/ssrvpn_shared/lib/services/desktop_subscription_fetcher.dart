@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import '../constants/app_constants.dart';
 import '../services/direct_fetcher.dart';
 import '../services/subscription_parser.dart';
+import '../services/subscription_refresh_control.dart';
 import '../services/subscription_text_decoder.dart';
 import '../utils/app_logger.dart';
 import '../utils/subscription_url_policy.dart';
@@ -30,24 +31,40 @@ class DesktopSubscriptionFetcher {
     required bool allowDirectFetch,
     int maxRetries = 3,
     Duration requestTimeout = _requestTimeout,
+    SubscriptionRefreshControl? control,
+    Future<List<InternetAddress>> Function(String host)? directAddressLookup,
   }) async {
+    control?.throwIfStopped();
     final uri = SubscriptionUrlPolicy.parse(url);
 
     if (_shouldTryDirectFetch(uri, allowDirectFetch: allowDirectFetch)) {
       try {
-        final response = await DirectFetcher.fetchResponse(
+        final directRequestTimeout =
+            control != null && control.remaining < requestTimeout
+                ? control.remaining
+                : requestTimeout;
+        final operation = DirectFetcher.fetchResponse(
           url,
           headers: const {
             'User-Agent': AppConstants.appUserAgent,
             'Accept': 'text/yaml, application/x-yaml, */*',
           },
           maxBodyBytes: maxSubscriptionBytes,
-          requestTimeout: requestTimeout,
+          requestTimeout: directRequestTimeout,
+          addressLookup: directAddressLookup,
+          cancellation: control?.cancellation,
         );
+        final response =
+            control == null ? await operation : await control.wait(operation);
+        control?.throwIfStopped();
         return DesktopSubscriptionFetchResult(
           body: _normalizeFetchedBody(response.body),
           headers: response.headers,
         );
+      } on SubscriptionRefreshCancelled {
+        rethrow;
+      } on SubscriptionRefreshDeadlineExceeded {
+        rethrow;
       } catch (e) {
         AppLogger.info('Subscription', '直连通道失败，降级到常规 HTTP: $e');
       }
@@ -55,6 +72,7 @@ class DesktopSubscriptionFetcher {
 
     Exception? lastException;
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      control?.throwIfStopped();
       try {
         var current = uri;
         for (var hop = 0; hop <= _maxRedirects; hop++) {
@@ -62,6 +80,7 @@ class DesktopSubscriptionFetcher {
             current,
             attempt: attempt,
             requestTimeout: requestTimeout,
+            control: control,
           );
           if (SubscriptionUrlPolicy.isRedirectStatus(response.statusCode)) {
             current = SubscriptionUrlPolicy.resolveRedirect(
@@ -91,6 +110,10 @@ class DesktopSubscriptionFetcher {
           throw Exception('HTTP ${response.statusCode}');
         }
         throw Exception('重定向次数过多');
+      } on SubscriptionRefreshCancelled {
+        rethrow;
+      } on SubscriptionRefreshDeadlineExceeded {
+        rethrow;
       } on SocketException catch (e) {
         lastException = Exception('网络连接失败: ${e.message}');
       } on TimeoutException catch (e) {
@@ -102,7 +125,12 @@ class DesktopSubscriptionFetcher {
       }
 
       if (attempt < maxRetries) {
-        await Future.delayed(Duration(seconds: attempt * 2));
+        final delay = Duration(seconds: attempt * 2);
+        if (control == null) {
+          await Future<void>.delayed(delay);
+        } else {
+          await control.delay(delay);
+        }
       }
     }
 
@@ -113,10 +141,14 @@ class DesktopSubscriptionFetcher {
     Uri uri, {
     required int attempt,
     required Duration requestTimeout,
+    SubscriptionRefreshControl? control,
   }) async {
     final stopwatch = Stopwatch()..start();
     final client = HttpClient()
       ..connectionTimeout = Duration(seconds: 15 * attempt);
+    final detachAbort = control?.cancellation.attach(
+      () => client.close(force: true),
+    );
 
     Duration remaining() {
       final value = requestTimeout - stopwatch.elapsed;
@@ -126,14 +158,24 @@ class DesktopSubscriptionFetcher {
       return value;
     }
 
+    Future<T> waitFor<T>(Future<T> operation) {
+      if (control == null) return operation;
+      return control.wait(
+        operation,
+        onAbort: () => client.close(force: true),
+      );
+    }
+
     try {
-      final request = await client.getUrl(uri).timeout(remaining());
+      control?.throwIfStopped();
+      final request = await waitFor(client.getUrl(uri).timeout(remaining()));
       request
         ..followRedirects = false
         ..headers.set('User-Agent', AppConstants.appUserAgent)
         ..headers.set('Accept', 'text/yaml, application/x-yaml, */*');
 
-      final response = await request.close().timeout(remaining());
+      final response = await waitFor(request.close().timeout(remaining()));
+      control?.throwIfStopped();
       final headers = <String, String>{};
       response.headers.forEach((name, values) {
         headers[name.toLowerCase()] = values.join(', ');
@@ -144,10 +186,12 @@ class DesktopSubscriptionFetcher {
         if (response.contentLength > maxSubscriptionBytes) {
           throw Exception('订阅内容超过 20 MB 限制');
         }
-        bodyBytes = await _readLimitedResponse(
-          response.timeout(_readInactivityTimeout),
-          absoluteTimeout: remaining(),
-          requestTimeout: requestTimeout,
+        bodyBytes = await waitFor(
+          _readLimitedResponse(
+            response.timeout(_readInactivityTimeout),
+            absoluteTimeout: remaining(),
+            requestTimeout: requestTimeout,
+          ),
         );
       }
       return _DesktopHttpResponse(
@@ -156,6 +200,7 @@ class DesktopSubscriptionFetcher {
         bodyBytes: bodyBytes,
       );
     } finally {
+      detachAbort?.call();
       client.close(force: true);
     }
   }

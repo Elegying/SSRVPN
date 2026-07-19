@@ -7,8 +7,48 @@ class HomeLatencyController {
 
   final Map<String, int> latencies;
   final Map<String, int> _pending = {};
+  int _batchGeneration = 0;
 
   bool get hasPending => _pending.isNotEmpty;
+
+  int beginBatch() {
+    _pending.clear();
+    return ++_batchGeneration;
+  }
+
+  bool isCurrentBatch(int generation) => generation == _batchGeneration;
+
+  bool queueForBatch(int generation, String nodeName, int latency) {
+    if (!isCurrentBatch(generation)) return false;
+    _pending[nodeName] = latency;
+    return true;
+  }
+
+  bool flushBatchTo(
+    int generation,
+    List<ProxyNode> nodes, {
+    DateTime? testedAt,
+  }) {
+    if (!isCurrentBatch(generation)) return false;
+    _flushTo(nodes, testedAt: testedAt);
+    return true;
+  }
+
+  bool finishBatch(
+    int generation,
+    List<ProxyNode> nodes, {
+    DateTime? testedAt,
+  }) {
+    if (!flushBatchTo(generation, nodes, testedAt: testedAt)) return false;
+    _batchGeneration++;
+    return true;
+  }
+
+  void cancelBatch(int generation) {
+    if (!isCurrentBatch(generation)) return;
+    _pending.clear();
+    _batchGeneration++;
+  }
 
   int? latencyFor(ProxyNode node) => latencies[node.name] ?? node.latency;
 
@@ -16,17 +56,10 @@ class HomeLatencyController {
     return HomeNodeController.canSelectNode(node, latencies);
   }
 
-  void queue(String nodeName, int latency) {
-    _pending[nodeName] = latency;
-  }
-
-  void clearPending() {
-    _pending.clear();
-  }
-
   void clear() {
     latencies.clear();
     _pending.clear();
+    _batchGeneration++;
   }
 
   void remove(String nodeName) {
@@ -34,7 +67,7 @@ class HomeLatencyController {
     _pending.remove(nodeName);
   }
 
-  void flushTo(List<ProxyNode> nodes, {DateTime? testedAt}) {
+  void _flushTo(List<ProxyNode> nodes, {DateTime? testedAt}) {
     if (_pending.isEmpty) return;
     final batch = Map<String, int>.from(_pending);
     _pending.clear();

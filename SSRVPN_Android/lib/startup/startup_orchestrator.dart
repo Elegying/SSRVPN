@@ -5,12 +5,23 @@ import 'startup_flags.dart';
 import 'startup_logger.dart';
 import 'startup_status.dart';
 
+typedef StartupUpdateChecker = Future<AppUpdateInfo?> Function(
+  String currentVersion,
+);
+typedef StartupUpdateHandler = Future<void> Function(AppUpdateInfo update);
+
 /// Android 启动流程编排器
 class StartupOrchestrator {
   final StartupFlags flags;
   final StartupStatus status = StartupStatus();
+  final StartupUpdateChecker _updateChecker;
+  final StartupUpdateHandler? onUpdateAvailable;
 
-  StartupOrchestrator({required this.flags});
+  StartupOrchestrator({
+    required this.flags,
+    StartupUpdateChecker? checkForUpdate,
+    this.onUpdateAvailable,
+  }) : _updateChecker = checkForUpdate ?? UpdateService.checkForUpdate;
 
   Future<void> start() async {
     status.start();
@@ -32,7 +43,8 @@ class StartupOrchestrator {
 
   Future<void> _checkForUpdate() async {
     try {
-      await UpdateService.checkForUpdate(AppConstants.appVersion);
+      final update = await _updateChecker(AppConstants.appVersion);
+      if (update != null) await onUpdateAvailable?.call(update);
     } catch (e) {
       StartupLogger.warn('更新检查失败: $e');
     }

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -56,12 +58,18 @@ class UpdateChecker {
     final ownsClient = client == null;
     final httpClient = client ?? http.Client();
     try {
-      final primary = await _checkPrimaryManifest(
-        currentVersion: currentVersion,
-        assetExtension: assetExtension,
-        client: httpClient,
-        timeout: timeout,
-      );
+      AppUpdateInfo? primary;
+      try {
+        primary = await _checkPrimaryManifest(
+          currentVersion: currentVersion,
+          assetExtension: assetExtension,
+          client: httpClient,
+          timeout: timeout,
+        );
+      } catch (_) {
+        // GitHub is the independent fallback and authority for release
+        // metadata. A primary failure must not suppress that attempt.
+      }
       // Desktop installers are opened outside the app. Do not trust the OSS
       // manifest alone; GitHub must independently publish the same digest.
       if (primary != null && !_isDesktopAsset(assetExtension)) return primary;
@@ -75,8 +83,6 @@ class UpdateChecker {
       if (primary == null) return github;
       if (_sameReleaseDigest(primary, github)) return primary;
       return github;
-    } catch (_) {
-      return null;
     } finally {
       if (ownsClient) httpClient.close();
     }
@@ -88,57 +94,58 @@ class UpdateChecker {
     required http.Client client,
     required Duration timeout,
   }) async {
-    try {
-      final response = await _boundedGet(
-        primaryManifestUrl,
-        client: client,
-        timeout: timeout,
-        maxBytes: maxMetadataResponseBytes,
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': AppConstants.appUserAgent,
-        },
+    final response = await _boundedGet(
+      primaryManifestUrl,
+      client: client,
+      timeout: timeout,
+      maxBytes: maxMetadataResponseBytes,
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': AppConstants.appUserAgent,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw HttpException(
+        'primary update metadata returned HTTP ${response.statusCode}',
+        uri: primaryManifestUrl,
       );
-      if (response.statusCode != 200) return null;
-
-      final data = jsonDecode(response.body);
-      if (data is! Map<String, dynamic>) return null;
-
-      final version = (data['version']?.toString() ?? '')
-          .trim()
-          .replaceFirst(RegExp(r'^v'), '');
-      if (!_isValidVersion(version)) return null;
-      // A stale pointer can remain when GitHub publishing succeeds but the OSS
-      // upload fails. Let GitHub act as the backup detector in that case.
-      if (compareVersions(version, currentVersion) <= 0) return null;
-
-      final asset = _manifestAssetFor(
-        data['assets'],
-        assetExtension,
-        version,
-      );
-      if (asset == null) return null;
-      final sourceHost = Uri.parse(asset.downloadUrl).host;
-      final fallbackUrl = Uri.https(
-        'github.com',
-        '/$owner/$repo/releases/download/v$version/${asset.name}',
-      ).toString();
-
-      return AppUpdateInfo(
-        version: version,
-        downloadUrl: asset.downloadUrl,
-        fallbackDownloadUrl: fallbackUrl,
-        changelog: _buildChangelog(
-          data['changelog']?.toString() ?? '',
-          sourceHost: sourceHost,
-          sha256: asset.sha256,
-        ),
-        sha256: asset.sha256,
-        sourceHost: sourceHost,
-      );
-    } catch (_) {
-      return null;
     }
+
+    final data = jsonDecode(response.body);
+    if (data is! Map<String, dynamic>) return null;
+
+    final version = (data['version']?.toString() ?? '')
+        .trim()
+        .replaceFirst(RegExp(r'^v'), '');
+    if (!_isValidVersion(version)) return null;
+    // A stale pointer can remain when GitHub publishing succeeds but the OSS
+    // upload fails. Let GitHub act as the backup detector in that case.
+    if (compareVersions(version, currentVersion) <= 0) return null;
+
+    final asset = _manifestAssetFor(
+      data['assets'],
+      assetExtension,
+      version,
+    );
+    if (asset == null) return null;
+    final sourceHost = Uri.parse(asset.downloadUrl).host;
+    final fallbackUrl = Uri.https(
+      'github.com',
+      '/$owner/$repo/releases/download/v$version/${asset.name}',
+    ).toString();
+
+    return AppUpdateInfo(
+      version: version,
+      downloadUrl: asset.downloadUrl,
+      fallbackDownloadUrl: fallbackUrl,
+      changelog: _buildChangelog(
+        data['changelog']?.toString() ?? '',
+        sourceHost: sourceHost,
+        sha256: asset.sha256,
+      ),
+      sha256: asset.sha256,
+      sourceHost: sourceHost,
+    );
   }
 
   static Future<AppUpdateInfo?> _checkGitHub({
@@ -147,65 +154,70 @@ class UpdateChecker {
     required http.Client client,
     required Duration timeout,
   }) async {
-    try {
-      final response = await _boundedGet(
-        githubLatestReleaseUrl,
-        client: client,
-        timeout: timeout,
-        maxBytes: maxMetadataResponseBytes,
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': AppConstants.appUserAgent,
-        },
+    final response = await _boundedGet(
+      githubLatestReleaseUrl,
+      client: client,
+      timeout: timeout,
+      maxBytes: maxMetadataResponseBytes,
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': AppConstants.appUserAgent,
+      },
+    );
+
+    if (response.statusCode != 200) {
+      throw HttpException(
+        'GitHub update metadata returned HTTP ${response.statusCode}',
+        uri: githubLatestReleaseUrl,
       );
+    }
 
-      if (response.statusCode != 200) return null;
+    final data = jsonDecode(response.body);
+    if (data is! Map<String, dynamic>) {
+      throw const FormatException('GitHub update metadata is not an object');
+    }
 
-      final data = jsonDecode(response.body);
-      if (data is! Map<String, dynamic>) return null;
+    final latestVersion = (data['tag_name']?.toString() ?? '').replaceFirst(
+      RegExp(r'^v'),
+      '',
+    );
+    if (!_isValidVersion(latestVersion)) {
+      throw const FormatException('GitHub release version is invalid');
+    }
+    if (compareVersions(latestVersion, currentVersion) <= 0) return null;
 
-      final latestVersion = (data['tag_name']?.toString() ?? '').replaceFirst(
-        RegExp(r'^v'),
-        '',
-      );
-      if (!_isValidVersion(latestVersion)) return null;
-      if (compareVersions(latestVersion, currentVersion) <= 0) return null;
-
-      final releaseAssets = _releaseAssets(data['assets']);
-      final selectedAsset = _assetFor(releaseAssets, assetExtension);
-      if (selectedAsset == null) return null;
-      final downloadUrl = selectedAsset.downloadUrl;
-      if (!_isExpectedGitHubAssetUrl(
-        downloadUrl,
-        version: latestVersion,
-        assetName: selectedAsset.name,
-      )) {
-        return null;
-      }
-      final sha256 = await _sha256ForAsset(
-        releaseAssets,
-        selectedAsset,
-        latestVersion,
-        client,
-        timeout,
-      );
-      if (sha256 == null) return null;
-      final sourceHost = Uri.parse(downloadUrl).host;
-
-      return AppUpdateInfo(
-        version: latestVersion,
-        downloadUrl: downloadUrl,
-        changelog: _buildChangelog(
-          data['body']?.toString() ?? '',
-          sourceHost: sourceHost,
-          sha256: sha256,
-        ),
-        sha256: sha256,
-        sourceHost: sourceHost,
-      );
-    } catch (_) {
+    final releaseAssets = _releaseAssets(data['assets']);
+    final selectedAsset = _assetFor(releaseAssets, assetExtension);
+    if (selectedAsset == null) return null;
+    final downloadUrl = selectedAsset.downloadUrl;
+    if (!_isExpectedGitHubAssetUrl(
+      downloadUrl,
+      version: latestVersion,
+      assetName: selectedAsset.name,
+    )) {
       return null;
     }
+    final sha256 = await _sha256ForAsset(
+      releaseAssets,
+      selectedAsset,
+      latestVersion,
+      client,
+      timeout,
+    );
+    if (sha256 == null) return null;
+    final sourceHost = Uri.parse(downloadUrl).host;
+
+    return AppUpdateInfo(
+      version: latestVersion,
+      downloadUrl: downloadUrl,
+      changelog: _buildChangelog(
+        data['body']?.toString() ?? '',
+        sourceHost: sourceHost,
+        sha256: sha256,
+      ),
+      sha256: sha256,
+      sourceHost: sourceHost,
+    );
   }
 
   static bool _isValidVersion(String version) =>
@@ -340,22 +352,23 @@ class UpdateChecker {
       return null;
     }
 
-    try {
-      final response = await _boundedGet(
-        Uri.parse(checksumAsset.downloadUrl),
-        client: client,
-        timeout: timeout,
-        maxBytes: _maxChecksumResponseBytes,
+    final response = await _boundedGet(
+      Uri.parse(checksumAsset.downloadUrl),
+      client: client,
+      timeout: timeout,
+      maxBytes: _maxChecksumResponseBytes,
+    );
+    if (response.statusCode != 200) {
+      throw HttpException(
+        'GitHub checksum returned HTTP ${response.statusCode}',
+        uri: Uri.parse(checksumAsset.downloadUrl),
       );
-      if (response.statusCode != 200) return null;
-      final checksumLine = RegExp(
-        '^\\s*([a-fA-F0-9]{64})\\s+\\*?${RegExp.escape(asset.name)}\\s*\$',
-        multiLine: true,
-      ).firstMatch(response.body);
-      return checksumLine?.group(1)?.toLowerCase();
-    } catch (_) {
-      return null;
     }
+    final checksumLine = RegExp(
+      '^\\s*([a-fA-F0-9]{64})\\s+\\*?${RegExp.escape(asset.name)}\\s*\$',
+      multiLine: true,
+    ).firstMatch(response.body);
+    return checksumLine?.group(1)?.toLowerCase();
   }
 
   static Future<_BoundedTextResponse> _boundedGet(
@@ -364,30 +377,67 @@ class UpdateChecker {
     required Duration timeout,
     required int maxBytes,
     Map<String, String>? headers,
-  }) {
-    return (() async {
-      final request = http.Request('GET', uri);
-      if (headers != null) request.headers.addAll(headers);
-      final response = await client.send(request);
-      final contentLength = response.contentLength;
-      if (contentLength != null && contentLength > maxBytes) {
-        throw StateError('update response exceeds $maxBytes bytes');
-      }
-      final bytes = BytesBuilder(copy: false);
-      var received = 0;
-      await for (final chunk in response.stream) {
+  }) async {
+    final clock = Stopwatch()..start();
+    final request = http.Request('GET', uri);
+    if (headers != null) request.headers.addAll(headers);
+    final responseFuture = client.send(request);
+    late final http.StreamedResponse response;
+    try {
+      response = await responseFuture.timeout(_remainingTime(clock, timeout));
+    } catch (_) {
+      unawaited(
+        responseFuture.then<void>(
+          _cancelUnusedResponse,
+          onError: (Object _, StackTrace __) {},
+        ),
+      );
+      rethrow;
+    }
+    final contentLength = response.contentLength;
+    if (contentLength != null && contentLength > maxBytes) {
+      await _cancelUnusedResponse(response);
+      throw StateError('update response exceeds $maxBytes bytes');
+    }
+    final bytes = BytesBuilder(copy: false);
+    var received = 0;
+    final iterator = StreamIterator<List<int>>(response.stream);
+    try {
+      while (
+          await iterator.moveNext().timeout(_remainingTime(clock, timeout))) {
+        final chunk = iterator.current;
         received += chunk.length;
         if (received > maxBytes) {
           throw StateError('update response exceeds $maxBytes bytes');
         }
         bytes.add(chunk);
       }
-      return _BoundedTextResponse(
-        statusCode: response.statusCode,
-        body: utf8.decode(bytes.takeBytes()),
-      );
-    })()
-        .timeout(timeout);
+    } finally {
+      await iterator.cancel();
+    }
+    return _BoundedTextResponse(
+      statusCode: response.statusCode,
+      body: utf8.decode(bytes.takeBytes()),
+    );
+  }
+
+  static Duration _remainingTime(Stopwatch clock, Duration timeout) {
+    final remaining = timeout - clock.elapsed;
+    if (remaining <= Duration.zero) {
+      throw TimeoutException('update request timed out');
+    }
+    return remaining;
+  }
+
+  static Future<void> _cancelUnusedResponse(
+    http.StreamedResponse response,
+  ) async {
+    try {
+      final subscription = response.stream.listen((_) {});
+      await subscription.cancel();
+    } catch (_) {
+      // Preserve the request failure that made this response obsolete.
+    }
   }
 
   static bool _isExpectedGitHubAssetUrl(

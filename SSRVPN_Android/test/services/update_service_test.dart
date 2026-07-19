@@ -288,6 +288,56 @@ void main() {
       expect(tempDir.listSync(), isEmpty);
     });
 
+    test('absolute attempt deadline falls back when bytes keep trickling',
+        () async {
+      final fallbackBytes = utf8.encode('fallback-apk');
+      final requestedUrls = <String>[];
+      final cancellation = UpdateDownloadCancellation();
+      final task = UpdateService.downloadUpdateApk(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://primary.example/SSRVPN.apk',
+          fallbackDownloadUrl: 'https://fallback.example/SSRVPN.apk',
+          changelog: '',
+          sha256: sha256.convert(fallbackBytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        client: _StreamClient((request) async {
+          requestedUrls.add(request.url.toString());
+          if (request.url.host == 'primary.example') {
+            return http.StreamedResponse(
+              Stream<List<int>>.periodic(
+                const Duration(milliseconds: 5),
+                (_) => const [0],
+              ),
+              HttpStatus.ok,
+            );
+          }
+          return http.StreamedResponse(
+            Stream<List<int>>.value(fallbackBytes),
+            HttpStatus.ok,
+            contentLength: fallbackBytes.length,
+          );
+        }),
+        timeout: const Duration(milliseconds: 100),
+        cancellation: cancellation,
+      );
+
+      try {
+        final apk = await task.timeout(const Duration(seconds: 2));
+        expect(await apk.readAsBytes(), fallbackBytes);
+        expect(requestedUrls, [
+          'https://primary.example/SSRVPN.apk',
+          'https://fallback.example/SSRVPN.apk',
+        ]);
+      } finally {
+        cancellation.cancel();
+        try {
+          await task;
+        } catch (_) {}
+      }
+    });
+
     test('cancellation aborts a stalled stream and removes partial files',
         () async {
       final streamStarted = Completer<void>();
@@ -317,6 +367,69 @@ void main() {
       cancellation.cancel();
 
       await expectLater(task, throwsA(isA<UpdateDownloadCancelled>()));
+      expect(tempDir.listSync(), isEmpty);
+    });
+
+    test(
+        'cancellation keeps an injected client open and cancels a late response',
+        () async {
+      final response = Completer<http.StreamedResponse>();
+      final sendStarted = Completer<void>();
+      final streamCancelled = Completer<void>();
+      final responseStream = StreamController<List<int>>(
+        onCancel: streamCancelled.complete,
+      );
+      addTearDown(responseStream.close);
+      final client = _TrackingStreamClient((_) {
+        if (!sendStarted.isCompleted) sendStarted.complete();
+        return response.future;
+      });
+      final cancellation = UpdateDownloadCancellation();
+      final task = UpdateService.downloadUpdateApk(
+        const AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN.apk',
+          changelog: '',
+          sha256:
+              '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        ),
+        outputDirectory: tempDir,
+        client: client,
+        cancellation: cancellation,
+      );
+      await sendStarted.future;
+
+      cancellation.cancel();
+      await expectLater(task, throwsA(isA<UpdateDownloadCancelled>()));
+      expect(client.closed, isFalse);
+
+      response.complete(http.StreamedResponse(responseStream.stream, 200));
+      await streamCancelled.future.timeout(const Duration(seconds: 1));
+    });
+
+    test('cancellation after the final progress event prevents APK publication',
+        () async {
+      final bytes = utf8.encode('apk-bytes');
+      final cancellation = UpdateDownloadCancellation();
+
+      await expectLater(
+        UpdateService.downloadUpdateApk(
+          AppUpdateInfo(
+            version: '9.9.9',
+            downloadUrl: 'https://example.com/SSRVPN.apk',
+            changelog: '',
+            sha256: sha256.convert(bytes).toString(),
+          ),
+          outputDirectory: tempDir,
+          client: MockClient(
+            (_) async => http.Response.bytes(bytes, HttpStatus.ok),
+          ),
+          cancellation: cancellation,
+          onProgress: (_, __) => cancellation.cancel(),
+        ),
+        throwsA(isA<UpdateDownloadCancelled>()),
+      );
+
       expect(tempDir.listSync(), isEmpty);
     });
 
@@ -377,7 +490,9 @@ void main() {
             return http.Response.bytes(
               bytes,
               HttpStatus.ok,
-              headers: {'content-length': bytes.length.toString()},
+              // A dishonest server can under-report Content-Length. The UI
+              // must clamp progress instead of passing a value above 1.0.
+              headers: {'content-length': '1'},
             );
           }),
           installApk: (apkFile) async {
@@ -418,8 +533,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final task = tester.runAsync(
-        () => UpdateService.downloadAndInstallUpdate(
+      late Future<void> task;
+      await tester.runAsync(() async {
+        final installAttempted = Completer<void>();
+        task = UpdateService.downloadAndInstallUpdate(
           updatePageContext!,
           AppUpdateInfo(
             version: '9.9.9',
@@ -431,16 +548,23 @@ void main() {
           client: MockClient(
             (_) async => http.Response.bytes(bytes, HttpStatus.ok),
           ),
-          installApk: (_) async => throw StateError('installer failed'),
-        ),
-      );
+          installApk: (_) async {
+            installAttempted.complete();
+            throw StateError('installer failed');
+          },
+        );
+        await installAttempted.future.timeout(const Duration(seconds: 5));
+      });
 
-      await tester.pump();
-      await task.timeout(const Duration(seconds: 5));
       await tester.pumpAndSettle();
 
       expect(find.text('update-page'), findsOneWidget);
       expect(find.textContaining('更新失败'), findsOneWidget);
+      await tester.tap(find.text('知道了'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => task.timeout(const Duration(seconds: 5)),
+      );
     });
 
     testWidgets('download dialog can cancel a stalled update', (tester) async {
@@ -457,30 +581,132 @@ void main() {
         ),
       );
 
-      final task = tester.runAsync(
-        () => UpdateService.downloadAndInstallUpdate(
-          capturedContext!,
-          AppUpdateInfo(
-            version: '9.9.9',
-            downloadUrl: 'https://example.com/SSRVPN.apk',
-            changelog: '',
-            sha256: '0' * 64,
-          ),
-          outputDirectory: tempDir,
-          client: _StreamClient((_) => response.future),
+      final task = UpdateService.downloadAndInstallUpdate(
+        capturedContext!,
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN.apk',
+          changelog: '',
+          sha256: '0' * 64,
         ),
+        outputDirectory: tempDir,
+        client: _StreamClient((_) => response.future),
       );
+      var taskCompleted = false;
+      task.whenComplete(() => taskCompleted = true);
 
       await tester.pump();
       expect(find.text('取消更新'), findsOneWidget);
       await tester.tap(find.text('取消更新'));
-      await task.timeout(const Duration(seconds: 5));
       await tester.pumpAndSettle();
+      expect(taskCompleted, isTrue);
 
       expect(find.text('正在更新'), findsNothing);
       expect(find.textContaining('更新失败'), findsNothing);
       expect(tempDir.listSync(), isEmpty);
     });
+  });
+
+  testWidgets('the same update version is prompted only once per app session',
+      (tester) async {
+    BuildContext? context;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (builderContext) {
+            context = builderContext;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+    const version = '99.99.901';
+
+    final firstPrompt = UpdateService.showUpdateDialog(
+      context!,
+      latestVersion: version,
+      currentVersion: '3.4.6',
+      downloadUrl: 'https://example.com/SSRVPN.apk',
+      changelog: '测试更新',
+      sha256: 'a' * 64,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('发现新版本'), findsOneWidget);
+    await tester.tap(find.text('稍后再说'));
+    await tester.pumpAndSettle();
+    await firstPrompt;
+
+    final secondPrompt = UpdateService.showUpdateDialog(
+      context!,
+      latestVersion: version,
+      currentVersion: '3.4.6',
+      downloadUrl: 'https://example.com/SSRVPN.apk',
+      changelog: '测试更新',
+      sha256: 'a' * 64,
+    );
+    await tester.pump();
+    final duplicatePrompts = find.text('发现新版本').evaluate().length;
+    if (duplicatePrompts > 0) {
+      await tester.tap(find.text('稍后再说'));
+      await tester.pumpAndSettle();
+    }
+    await secondPrompt;
+
+    expect(duplicatePrompts, 0);
+  });
+
+  testWidgets('a failed prompt can retry the same version', (tester) async {
+    BuildContext? contextWithoutNavigator;
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Builder(
+          builder: (context) {
+            contextWithoutNavigator = context;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+    const version = '99.99.902';
+
+    await expectLater(
+      UpdateService.showUpdateDialog(
+        contextWithoutNavigator!,
+        latestVersion: version,
+        currentVersion: '3.4.6',
+        downloadUrl: 'https://example.com/SSRVPN.apk',
+        changelog: '测试更新',
+        sha256: 'a' * 64,
+      ),
+      throwsA(anything),
+    );
+
+    BuildContext? validContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            validContext = context;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+    final retry = UpdateService.showUpdateDialog(
+      validContext!,
+      latestVersion: version,
+      currentVersion: '3.4.6',
+      downloadUrl: 'https://example.com/SSRVPN.apk',
+      changelog: '测试更新',
+      sha256: 'a' * 64,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('发现新版本'), findsOneWidget);
+    await tester.tap(find.text('稍后再说'));
+    await tester.pumpAndSettle();
+    await retry;
   });
 }
 
@@ -493,6 +719,17 @@ class _StreamClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) =>
       _handler(request);
+}
+
+class _TrackingStreamClient extends _StreamClient {
+  _TrackingStreamClient(super._handler);
+
+  bool closed = false;
+
+  @override
+  void close() {
+    closed = true;
+  }
 }
 
 class _StreamedResponseWithUrl extends http.StreamedResponse

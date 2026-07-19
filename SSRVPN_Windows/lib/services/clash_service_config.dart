@@ -55,4 +55,24 @@ mixin _WindowsClashConfig on ClashServiceBase {
       includeGeoIpRules: _geoipDatabaseExists(),
     );
   }
+
+  Future<String> generateClashConfigAsync(
+    String rawYaml,
+    AppSettings appSettings, {
+    String? preferredNodeName,
+  }) {
+    return buildClashConfigAsync(
+      rawYaml,
+      appSettings,
+      preferredNodeName: preferredNodeName,
+      platformHeader: '# ===== SSRVPN Windows =====',
+      tunConfig: _windowsTunConfig(appSettings),
+      latencyTestUrl: appSettings.latencyTestUrl,
+      extraSelectGroupNames: const [_geoProxyGroupName],
+      extraRulesBeforeDirect: _geoLookupHosts.map(
+        (host) => 'DOMAIN,$host,$_geoProxyGroupName',
+      ),
+      includeGeoIpRules: _geoipDatabaseExists(),
+    );
+  }
 }

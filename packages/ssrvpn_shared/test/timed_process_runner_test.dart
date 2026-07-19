@@ -23,6 +23,35 @@ void main() {
     expect(watch.elapsed, lessThan(const Duration(seconds: 3)));
   });
 
+  test('cancellation does not return before termination is confirmed',
+      () async {
+    final cancellation = Completer<void>();
+    final terminationStarted = Completer<void>();
+    final mayTerminate = Completer<void>();
+    var returned = false;
+    final task = TimedProcessRunner.run(
+      _shellExecutable,
+      _shellArguments(_sleepCommand),
+      timeout: const Duration(seconds: 5),
+      cancellation: cancellation.future,
+      processTreeTerminator: (process) async {
+        terminationStarted.complete();
+        await mayTerminate.future;
+        process.kill(ProcessSignal.sigkill);
+        await process.exitCode;
+      },
+    )..then<void>((_) => returned = true);
+
+    cancellation.complete();
+    await terminationStarted.future.timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(returned, isFalse);
+
+    mayTerminate.complete();
+    expect((await task).exitCode, 125);
+    expect(returned, isTrue);
+  });
+
   test('returns timeout result when a process hangs', () async {
     final result = await TimedProcessRunner.run(
       _shellExecutable,

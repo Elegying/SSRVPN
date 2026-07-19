@@ -9,6 +9,7 @@ import 'package:ssrvpn_macos/models/app_settings.dart';
 import 'package:ssrvpn_macos/screens/home_screen.dart';
 import 'package:ssrvpn_macos/screens/node_edit_screen.dart';
 import 'package:ssrvpn_macos/screens/subscription_screen.dart';
+import 'package:ssrvpn_macos/services/app_shutdown.dart';
 import 'package:ssrvpn_macos/services/clash_service.dart';
 import 'package:ssrvpn_macos/services/direct_fetcher.dart';
 import 'package:ssrvpn_macos/services/ip_geo_service.dart';

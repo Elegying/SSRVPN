@@ -26,11 +26,16 @@ class SubscriptionService extends SubscriptionServiceBase {
   }
 
   @override
-  Future<String?> fetchSubscription(String url, {int maxRetries = 3}) async {
+  Future<String?> fetchSubscription(
+    String url, {
+    int maxRetries = 3,
+    SubscriptionRefreshControl? control,
+  }) async {
     return fetchDesktopSubscription(
       url,
       allowDirectFetch: Platform.isMacOS,
       maxRetries: maxRetries,
+      control: control,
     );
   }
 

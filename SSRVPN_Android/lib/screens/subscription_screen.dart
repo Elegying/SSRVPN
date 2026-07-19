@@ -27,14 +27,19 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
   bool _isRefreshing = false;
   bool _isDeleting = false;
   SubscriptionRefreshResult? _refreshResult;
+  SubscriptionRefreshCancellation? _refreshCancellation;
+
+  bool get _isBusy => _isAdding || _isRefreshing || _isDeleting;
 
   @override
   void dispose() {
+    _refreshCancellation?.cancel();
     _urlController.dispose();
     super.dispose();
   }
 
   Future<void> _addSubscription() async {
+    if (_isBusy) return;
     setState(() => _isAdding = true);
     final controller = _subscriptionController(
       context.read<SubscriptionService>(),
@@ -48,6 +53,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
   }
 
   Future<void> _refreshAll() async {
+    if (_isBusy) return;
+    final cancellation = SubscriptionRefreshCancellation();
+    _refreshCancellation = cancellation;
     setState(() {
       _isRefreshing = true;
       _refreshResult = null;
@@ -56,16 +64,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     final controller = _subscriptionController(
       context.read<SubscriptionService>(),
     );
-    final result = await controller.refreshAll();
-    if (!mounted) return;
+    final result = await controller.refreshAll(cancellation: cancellation);
+    if (!mounted || !identical(_refreshCancellation, cancellation)) return;
 
     setState(() {
       _refreshResult = result;
       _isRefreshing = false;
+      _refreshCancellation = null;
     });
     if (result.shouldShowNetworkHelp) {
-      _showWifiDialog(result.networkErrorDetail!);
+      _showNetworkErrorDialog(result.networkErrorDetail!);
     }
+  }
+
+  void _cancelRefresh() {
+    _refreshCancellation?.cancel();
   }
 
   SubscriptionScreenController _subscriptionController(
@@ -129,111 +142,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     );
   }
 
-  /// 网络异常时弹窗提示连接 WiFi
-  void _showWifiDialog(String detail) {
+  void _showNetworkErrorDialog(String detail) {
     if (!mounted) return;
     showDialog(
       context: context,
-      builder: (ctx) {
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: GlassContainer(
-            borderRadius: 16,
-            enablePress: false,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(ctx).size.width * 0.88,
-              ),
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(24, 24, 24, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color:
-                            AppTheme.warningColor.withValues(alpha: 20 / 255),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.wifi_off_rounded,
-                          size: 28, color: AppTheme.warningColor),
-                    ),
-                    SizedBox(height: 16),
-                    Text(
-                      '请连接 WiFi 后再刷新',
-                      style: TextStyle(
-                        fontSize: Responsive.sp(16),
-                        fontWeight: FontWeight.w700,
-                        color: isDark
-                            ? AppTheme.darkTextPrimary
-                            : AppTheme.lightTextPrimary,
-                      ),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      '当前移动数据网络异常，建议连接 WiFi 后重试',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: Responsive.sp(13),
-                        color: isDark
-                            ? AppTheme.darkTextSecondary
-                            : AppTheme.lightTextSecondary,
-                      ),
-                    ),
-                    SizedBox(height: 6),
-                    Container(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppTheme.errorColor.withValues(alpha: 10 / 255),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        detail,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: Responsive.sp(11),
-                            color: AppTheme.errorColor
-                                .withValues(alpha: 180 / 255)),
-                      ),
-                    ),
-                    SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                          backgroundColor: AppTheme.primaryColor
-                              .withValues(alpha: (isDark ? 25 : 15) / 255),
-                        ),
-                        child: Text('知道了',
-                            style: TextStyle(
-                                fontSize: Responsive.sp(14),
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.primaryColor)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
+      builder: (_) => SubscriptionNetworkErrorDialog(detail: detail),
     );
   }
 
   Future<void> _deleteSubscription(String id) async {
-    if (!mounted) return;
+    if (!mounted || _isBusy) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -299,7 +217,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     );
 
     if (confirmed == true) {
-      if (!mounted) return;
+      if (!mounted || _isBusy) return;
       setState(() => _isDeleting = true);
       final subService = context.read<SubscriptionService>();
       final clashService = context.read<ClashService>();
@@ -308,19 +226,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         result = await _subscriptionController(subService).deleteSubscription(
           id,
           clashRunning: clashService.isRunning,
-          stopClash: clashService.stop,
-          onNoRunnableNodes: () async {
+          stopClash: () async {
             clashService.requestConnectionIntent(false);
-            Object? stopError;
-            try {
-              await clashService.stop();
-            } catch (error) {
-              stopError = error;
-            }
-            await clashService.clearNativeConnectionSnapshot();
-            if (stopError != null) throw stopError;
+            await clashService.stop();
           },
-          continueAfterRefreshFailure: true,
+          onNoRunnableNodes: () async {
+            await clashService.clearNativeConnectionSnapshot();
+          },
         );
       } catch (e) {
         if (mounted) {
@@ -340,13 +252,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         _showSnack(
           '删除失败：${result.error.toString().replaceFirst("Exception: ", "")}',
           AppTheme.errorColor,
-        );
-      } else if (result.remainingRefreshFailed) {
-        _showSnack(
-          result.stoppedClash
-              ? '订阅已删除；剩余订阅刷新失败，VPN 已断开'
-              : '订阅已删除，但剩余订阅刷新失败，请稍后重试',
-          AppTheme.warningColor,
         );
       } else if (result.error != null) {
         _showSnack(
@@ -391,6 +296,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                 isDark: isDark,
                 urlController: _urlController,
                 isAdding: _isAdding,
+                isBusy: _isBusy,
                 onAdd: _addSubscription,
               ),
               const SizedBox(height: 24),
@@ -398,10 +304,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                 SubscriptionListSection(
                   subscriptions: subscriptions,
                   isDark: isDark,
+                  isAdding: _isAdding,
                   isRefreshing: _isRefreshing,
                   isDeleting: _isDeleting,
                   refreshResult: _refreshResult,
                   onRefresh: _refreshAll,
+                  onCancelRefresh: _cancelRefresh,
                   onDelete: _deleteSubscription,
                 ),
               if (subscriptions.isEmpty) SubscriptionEmptyState(isDark: isDark),

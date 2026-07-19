@@ -10,6 +10,8 @@
 namespace {
 constexpr wchar_t kAppInstanceMutexName[] =
     L"Local\\SSRVPN_Windows_SingleInstance";
+constexpr wchar_t kProxyRecoveryMutexName[] =
+    L"Local\\SSRVPN_Windows_ProxyRecovery";
 }
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
@@ -25,16 +27,32 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       GetCommandLineArguments();
   if (command_line_arguments.size() == 1 &&
       command_line_arguments[0] == "--recover-proxy-only") {
+    HANDLE proxy_recovery_mutex =
+        ::CreateMutexW(nullptr, TRUE, kProxyRecoveryMutexName);
+    const DWORD proxy_recovery_mutex_error = ::GetLastError();
+    if (proxy_recovery_mutex == nullptr) {
+      RearmWindowsProxyRecoveryRunOnce();
+      return EXIT_FAILURE;
+    }
+    if (proxy_recovery_mutex_error == ERROR_ALREADY_EXISTS) {
+      RearmWindowsProxyRecoveryRunOnce();
+      ::CloseHandle(proxy_recovery_mutex);
+      return ERROR_ALREADY_EXISTS;
+    }
     HANDLE recovery_mutex =
         ::CreateMutexW(nullptr, TRUE, kAppInstanceMutexName);
     const DWORD recovery_mutex_error = ::GetLastError();
     if (recovery_mutex == nullptr) {
       RearmWindowsProxyRecoveryRunOnce();
+      ::ReleaseMutex(proxy_recovery_mutex);
+      ::CloseHandle(proxy_recovery_mutex);
       return EXIT_FAILURE;
     }
     if (recovery_mutex_error == ERROR_ALREADY_EXISTS) {
       RearmWindowsProxyRecoveryRunOnce();
       ::CloseHandle(recovery_mutex);
+      ::ReleaseMutex(proxy_recovery_mutex);
+      ::CloseHandle(proxy_recovery_mutex);
       return ERROR_ALREADY_EXISTS;
     }
 
@@ -55,6 +73,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     }
     ::ReleaseMutex(recovery_mutex);
     ::CloseHandle(recovery_mutex);
+    ::ReleaseMutex(proxy_recovery_mutex);
+    ::CloseHandle(proxy_recovery_mutex);
     return EXIT_SUCCESS;
   }
 
@@ -91,7 +111,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       startup_diagnostics::Log(L"existing instance window not found");
     }
     ::CloseHandle(instance_mutex);
-    return ERROR_ALREADY_EXISTS;
+    return ERROR_BUSY;
   }
 
   // Attach to console when present (e.g., 'flutter run') or create a

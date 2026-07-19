@@ -337,13 +337,19 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         stopper = (installer_root / "stop_ssrvpn_processes.ps1").read_text(
             encoding="utf-8"
         )
+        tun_helper = (installer_root / "tun_ownership.ps1").read_text(
+            encoding="utf-8"
+        )
         transaction_state = (
             installer_root / "proxy_transaction_state.ps1"
         ).read_text(encoding="utf-8")
 
         self.assertIn("stop_ssrvpn_processes.ps1", installer)
         self.assertIn("proxy_transaction_state.ps1", installer)
+        self.assertIn("tun_ownership.ps1", installer)
         self.assertIn(". $proxyTransactionStatePath", stopper)
+        self.assertIn(". $tunOwnershipPath", stopper)
+        self.assertIn("function Get-SsrvpnTunOwnership", tun_helper)
         self.assertIn("StopResult := StopSsrvpnProcesses", installer)
         self.assertIn("hasProxyEnable", transaction_state)
         self.assertIn("$originalMayBeDisabled", transaction_state)
@@ -684,6 +690,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         stopper = (installer_root / "stop_ssrvpn_processes.ps1").read_text(
             encoding="utf-8"
         )
+        tun_helper = (installer_root / "tun_ownership.ps1").read_text(
+            encoding="utf-8"
+        )
         allowed = {
             "OK",
             "LOCK_BUSY",
@@ -743,15 +752,17 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertGreaterEqual(prepare.count("StopStatusDiagnostic"), 2)
         self.assertGreaterEqual(uninstall.count("StopStatusDiagnostic"), 2)
 
-        tun_capture = stopper.split("function Get-SsrvpnTunInterfaceIndexes", 1)[1]
+        tun_capture = tun_helper.split("function Get-SsrvpnTunOwnership", 1)[1]
         tun_capture = tun_capture.split(
             "function Test-SsrvpnTunArtifactsRemoved", 1
         )[0]
         self.assertIn("Get-NetAdapter -IncludeHidden -ErrorAction Stop", tun_capture)
-        self.assertIn("$_.Name -ceq 'Meta Tunnel'", tun_capture)
-        self.assertIn("[ref]$interfaceIndex", tun_capture)
+        self.assertNotIn("Meta Tunnel", tun_capture)
+        self.assertIn("InterfaceGuid", tun_capture)
+        self.assertIn("tun_teardown.pending", tun_capture)
+        self.assertIn("ConvertFrom-Json", tun_capture)
 
-        tun_probe = stopper.split("function Test-SsrvpnTunArtifactsRemoved", 1)[1]
+        tun_probe = tun_helper.split("function Test-SsrvpnTunArtifactsRemoved", 1)[1]
         tun_probe = tun_probe.split("function Wait-SsrvpnTunTeardown", 1)[0]
         for read_only_probe in (
             "Get-NetAdapter -IncludeHidden",
@@ -764,13 +775,12 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "Remove-NetIPAddress",
             "Remove-NetRoute",
         ):
-            self.assertNotIn(destructive_cmdlet, stopper)
+            self.assertNotIn(destructive_cmdlet, tun_helper)
 
-        tun_wait = stopper.split("function Wait-SsrvpnTunTeardown", 1)[1]
-        tun_wait = tun_wait.split("Add-Type -TypeDefinition", 1)[0]
+        tun_wait = tun_helper.split("function Wait-SsrvpnTunTeardown", 1)[1]
         self.assertIn("[AllowEmptyCollection()]", tun_wait)
         self.assertLess(
-            tun_wait.index("$InterfaceIndexes.Count -eq 0"),
+            tun_wait.index("$OwnedInterfaces.Count -eq 0"),
             tun_wait.index("AddMilliseconds($TimeoutMilliseconds)"),
         )
         self.assertIn("AddMilliseconds($TimeoutMilliseconds)", tun_wait)
@@ -779,7 +789,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
 
         runtime_flow = stopper.split("$installedProcessRunning =", 1)[1]
         capture = runtime_flow.index(
-            "$tunInterfaceIndexes = @(Get-SsrvpnTunInterfaceIndexes)"
+            "$tunOwnership = @(Get-SsrvpnTunOwnership"
         )
         first_stop = runtime_flow.index("foreach ($app in $installedApps)")
         capture_failure = runtime_flow[capture:first_stop]
@@ -790,12 +800,15 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("exit 3", capture_failure)
         remaining_processes = runtime_flow.index("$remainingApps = @(")
         post_stop_capture = runtime_flow.index(
-            "$tunInterfaceIndexes += @(Get-SsrvpnTunInterfaceIndexes)",
+            "$tunOwnership += @(Get-SsrvpnTunOwnership",
             remaining_processes,
         )
         teardown = runtime_flow.index("Wait-SsrvpnTunTeardown")
         post_capture_failure = runtime_flow[post_stop_capture:teardown]
-        self.assertIn("Sort-Object -Unique", post_capture_failure)
+        self.assertIn(
+            "Sort-Object ExpectedGuid, OriginalIndex -Unique",
+            post_capture_failure,
+        )
         self.assertIn(
             "Set-StopStatus -Status 'TUN_TEARDOWN_PENDING'",
             post_capture_failure,
@@ -822,6 +835,81 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("'-ProbeMode', 'late-pending'", runtime_test)
         self.assertIn("'-ProbeMode', 'none'", runtime_test)
         self.assertIn("No-TUN cleanup did not report OK.", runtime_test)
+
+    def test_installer_tun_ownership_never_uses_the_generic_adapter_name(
+        self,
+    ) -> None:
+        stopper = (
+            ROOT / "SSRVPN_Windows" / "installer" / "stop_ssrvpn_processes.ps1"
+        ).read_text(encoding="utf-8")
+        tun_helper = (
+            ROOT / "SSRVPN_Windows" / "installer" / "tun_ownership.ps1"
+        ).read_text(encoding="utf-8")
+
+        ownership = tun_helper[
+            tun_helper.index("function Get-SsrvpnTunOwnership") : tun_helper.index(
+                "function Test-SsrvpnTunArtifactsRemoved"
+            )
+        ]
+        self.assertNotIn("Meta Tunnel", ownership)
+        self.assertIn("tun_teardown.pending", ownership)
+        self.assertIn("ConvertFrom-Json", ownership)
+        self.assertIn("$markerText -match '^\\d+(,\\d+)*$'", ownership)
+        self.assertNotIn("$markerText -match '^\\\\d+(,\\\\d+)*$'", ownership)
+        self.assertIn("InterfaceGuid", ownership)
+        self.assertIn("baselineInterfaces", ownership)
+        self.assertIn("198.18.0.1", ownership)
+        self.assertIn("fdfe:dcba:9876::1", ownership)
+        self.assertIn("Get-NetRoute", ownership)
+        self.assertIn("$discoverFromBaseline", ownership)
+        self.assertIn("$discoverFromLegacy", ownership)
+        self.assertIn("ConvertTo-Json -Compress -Depth 4", ownership)
+        self.assertIn("Move-Item -LiteralPath $markerTempPath", ownership)
+        self.assertIn("Legacy TUN ownership could not be verified", ownership)
+        self.assertNotIn("$InstalledProcessRunning", ownership)
+
+        residual_probe = tun_helper[
+            tun_helper.index("function Test-SsrvpnTunArtifactsRemoved") : tun_helper.index(
+                "function Wait-SsrvpnTunTeardown"
+            )
+        ]
+        self.assertIn("InterfaceGuid", residual_probe)
+        self.assertIn("ExpectedGuid", residual_probe)
+        self.assertIn("OriginalIndex", residual_probe)
+        self.assertNotIn("$_.Name", residual_probe)
+
+        runtime_test = (
+            ROOT / "scripts" / "test_windows_installer_runtime.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("foreign-same-name", runtime_test)
+        self.assertIn("Foreign same-name TUN blocked installer cleanup", runtime_test)
+        self.assertIn("owned-marker-pending", runtime_test)
+        self.assertIn("Owned TUN residual did not block installer cleanup", runtime_test)
+        for legacy_mode in (
+            "legacy-signature-pending",
+            "legacy-signature-numeric",
+            "legacy-foreign-same-name",
+            "legacy-single-address",
+            "legacy-wrong-route",
+            "unmarked-signature",
+        ):
+            self.assertIn(legacy_mode, runtime_test)
+        self.assertIn(
+            "was not migrated to the stable TUN GUID",
+            runtime_test,
+        )
+        self.assertIn(
+            "A foreign same-name TUN was promoted to SSRVPN ownership",
+            runtime_test,
+        )
+        self.assertIn(
+            "A TUN signature without a persistent marker claimed ownership",
+            runtime_test,
+        )
+        self.assertIn(
+            "did not fail closed",
+            runtime_test,
+        )
 
     def test_installer_terminalizes_restores_and_rejects_stale_journals(
         self,

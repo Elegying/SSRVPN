@@ -5,6 +5,118 @@ import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import 'glass_container.dart';
 
+class SubscriptionNetworkErrorDialog extends StatelessWidget {
+  const SubscriptionNetworkErrorDialog({
+    super.key,
+    required this.detail,
+  });
+
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final safeDetail = LogRedactor.sanitize(detail);
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: GlassContainer(
+        borderRadius: 16,
+        enablePress: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.88,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: AppTheme.warningColor.withValues(alpha: 20 / 255),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.cloud_off_rounded,
+                    size: 28,
+                    color: AppTheme.warningColor,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  '订阅刷新失败',
+                  style: TextStyle(
+                    fontSize: Responsive.sp(16),
+                    fontWeight: FontWeight.w700,
+                    color: isDark
+                        ? AppTheme.darkTextPrimary
+                        : AppTheme.lightTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '请确认设备已联网，并检查订阅地址或服务状态后重试',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: Responsive.sp(13),
+                    color: isDark
+                        ? AppTheme.darkTextSecondary
+                        : AppTheme.lightTextSecondary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.errorColor.withValues(alpha: 10 / 255),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    safeDetail,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: Responsive.sp(11),
+                      color: AppTheme.errorColor.withValues(alpha: 180 / 255),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      backgroundColor: AppTheme.primaryColor
+                          .withValues(alpha: (isDark ? 25 : 15) / 255),
+                    ),
+                    child: Text(
+                      '知道了',
+                      style: TextStyle(
+                        fontSize: Responsive.sp(14),
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.primaryColor,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class SubscriptionHeader extends StatelessWidget {
   const SubscriptionHeader({
     super.key,
@@ -99,12 +211,14 @@ class SubscriptionAddCard extends StatelessWidget {
     required this.isDark,
     required this.urlController,
     required this.isAdding,
+    required this.isBusy,
     required this.onAdd,
   });
 
   final bool isDark;
   final TextEditingController urlController;
   final bool isAdding;
+  final bool isBusy;
   final VoidCallback onAdd;
 
   @override
@@ -136,20 +250,21 @@ class SubscriptionAddCard extends StatelessWidget {
           const SizedBox(height: 16),
           TextField(
             controller: urlController,
+            enabled: !isBusy,
             decoration: GlassInputDecoration(
               isDark: isDark,
               hintText: '粘贴订阅链接或 ssr:// 链接',
               prefixIcon: const Icon(Icons.link, size: 20),
             ),
             keyboardType: TextInputType.url,
-            onSubmitted: (_) => onAdd(),
+            onSubmitted: isBusy ? null : (_) => onAdd(),
           ),
           const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
             height: 48,
             child: ElevatedButton(
-              onPressed: isAdding ? null : onAdd,
+              onPressed: isBusy ? null : onAdd,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primaryColor,
                 disabledBackgroundColor:
@@ -189,19 +304,23 @@ class SubscriptionListSection extends StatelessWidget {
     super.key,
     required this.subscriptions,
     required this.isDark,
+    required this.isAdding,
     required this.isRefreshing,
     required this.isDeleting,
     required this.refreshResult,
     required this.onRefresh,
+    required this.onCancelRefresh,
     required this.onDelete,
   });
 
   final List<Subscription> subscriptions;
   final bool isDark;
+  final bool isAdding;
   final bool isRefreshing;
   final bool isDeleting;
   final SubscriptionRefreshResult? refreshResult;
   final VoidCallback onRefresh;
+  final VoidCallback onCancelRefresh;
   final ValueChanged<String> onDelete;
 
   @override
@@ -237,18 +356,13 @@ class SubscriptionListSection extends StatelessWidget {
             ),
             const Spacer(),
             TextButton.icon(
-              onPressed: isRefreshing ? null : onRefresh,
+              onPressed: isRefreshing
+                  ? onCancelRefresh
+                  : (isAdding || isDeleting ? null : onRefresh),
               icon: isRefreshing
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AppTheme.primaryColor,
-                      ),
-                    )
+                  ? const Icon(Icons.cancel_outlined, size: 18)
                   : const Icon(Icons.refresh, size: 18),
-              label: Text(isRefreshing ? '刷新中...' : '全部刷新'),
+              label: Text(isRefreshing ? '取消刷新' : '全部刷新'),
             ),
           ],
         ),
@@ -259,7 +373,7 @@ class SubscriptionListSection extends StatelessWidget {
           (sub) => _SubscriptionCard(
             subscription: sub,
             isDark: isDark,
-            isDeleting: isDeleting,
+            isDeleting: isDeleting || isRefreshing || isAdding,
             onDelete: () => onDelete(sub.id),
           ),
         ),
@@ -340,11 +454,13 @@ class _SubscriptionRefreshResult extends StatelessWidget {
     final color = switch (result.status) {
       SubscriptionRefreshStatus.success => AppTheme.successColor,
       SubscriptionRefreshStatus.partialSuccess => AppTheme.warningColor,
+      SubscriptionRefreshStatus.cancelled => AppTheme.warningColor,
       SubscriptionRefreshStatus.failure => AppTheme.errorColor,
     };
     final icon = switch (result.status) {
       SubscriptionRefreshStatus.success => Icons.check_circle,
       SubscriptionRefreshStatus.partialSuccess => Icons.warning_amber_rounded,
+      SubscriptionRefreshStatus.cancelled => Icons.cancel_outlined,
       SubscriptionRefreshStatus.failure => Icons.error_outline,
     };
     return Container(
@@ -438,7 +554,7 @@ class _SubscriptionCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      subscription.url,
+                      LogRedactor.subscriptionUrlForDisplay(subscription.url),
                       style: TextStyle(
                         fontSize: Responsive.sp(11),
                         color: isDark

@@ -25,6 +25,12 @@ class TunAuthorizationHandle {
 
 enum MacosTunStartupState { pending, starting, running, failed }
 
+class _MacosTunStartCancelled implements Exception {}
+
+class _AuthorizationLaunchCancelled {
+  const _AuthorizationLaunchCancelled();
+}
+
 /// Starts one privileged Mihomo TUN session through the macOS authorization
 /// dialog. The application never receives or stores the administrator password.
 class MacosTunSession {
@@ -108,53 +114,74 @@ check_hash "$stage/config.yaml" "$expected_config"
   bool _requested = false;
   TunAuthorizationHandle? _authorizationHandle;
   DateTime? _statusNotBefore;
+  int _startEpoch = 0;
+  Completer<void>? _startCancellation;
+  Future<void>? _interruptCleanup;
 
   String get requestPath => '$dataDir${Platform.pathSeparator}$_requestName';
   bool get isRequested => _requested;
 
   Future<bool> start() async {
+    final startEpoch = ++_startEpoch;
+    final cancellation = Completer<void>();
+    _startCancellation = cancellation;
     lastError = null;
-    if (!_isInstalledApplication(resolvedExecutable)) {
-      lastError = '请先把 SSRVPN 拖到 Applications 文件夹，再开启 TUN 模式';
-      return false;
-    }
-    if (await FileSystemEntity.type(runnerPath, followLinks: false) !=
-        FileSystemEntityType.file) {
-      lastError = 'TUN 授权组件缺失，请重新安装 SSRVPN';
-      return false;
-    }
-    final assetDirectory = File(runnerPath).parent.path;
-    final coreArchivePath = '$assetDirectory/AtlasCore.gz';
-    final coreManifestPath = '$assetDirectory/AtlasCore-source.txt';
-    for (final path in [coreArchivePath, coreManifestPath]) {
-      if (await FileSystemEntity.type(path, followLinks: false) !=
-          FileSystemEntityType.file) {
-        lastError = 'TUN 核心资源缺失，请重新安装 SSRVPN';
+    try {
+      final priorCleanup = _interruptCleanup;
+      if (priorCleanup != null) await priorCleanup;
+      _ensureStartCurrent(startEpoch);
+      if (!_isInstalledApplication(resolvedExecutable)) {
+        lastError = '请先把 SSRVPN 拖到 Applications 文件夹，再开启 TUN 模式';
         return false;
       }
-    }
-    final configPath = '$dataDir${Platform.pathSeparator}config.yaml';
-    if (await FileSystemEntity.type(configPath, followLinks: false) !=
-        FileSystemEntityType.file) {
-      lastError = 'TUN 配置缺失，请重新连接';
-      return false;
-    }
-    if (await FileSystemEntity.type(dataDir, followLinks: false) !=
-        FileSystemEntityType.directory) {
-      lastError = 'TUN 数据目录无效';
-      return false;
-    }
-    if (await _hasConflictingDefaultTunnel()) {
-      lastError ??= '检测到其他 VPN/TUN 正在接管网络，请先断开后再连接';
-      return false;
-    }
+      if (await FileSystemEntity.type(runnerPath, followLinks: false) !=
+          FileSystemEntityType.file) {
+        _ensureStartCurrent(startEpoch);
+        lastError = 'TUN 授权组件缺失，请重新安装 SSRVPN';
+        return false;
+      }
+      _ensureStartCurrent(startEpoch);
+      final assetDirectory = File(runnerPath).parent.path;
+      final coreArchivePath = '$assetDirectory/AtlasCore.gz';
+      final coreManifestPath = '$assetDirectory/AtlasCore-source.txt';
+      for (final path in [coreArchivePath, coreManifestPath]) {
+        if (await FileSystemEntity.type(path, followLinks: false) !=
+            FileSystemEntityType.file) {
+          _ensureStartCurrent(startEpoch);
+          lastError = 'TUN 核心资源缺失，请重新安装 SSRVPN';
+          return false;
+        }
+        _ensureStartCurrent(startEpoch);
+      }
+      final configPath = '$dataDir${Platform.pathSeparator}config.yaml';
+      if (await FileSystemEntity.type(configPath, followLinks: false) !=
+          FileSystemEntityType.file) {
+        _ensureStartCurrent(startEpoch);
+        lastError = 'TUN 配置缺失，请重新连接';
+        return false;
+      }
+      _ensureStartCurrent(startEpoch);
+      if (await FileSystemEntity.type(dataDir, followLinks: false) !=
+          FileSystemEntityType.directory) {
+        _ensureStartCurrent(startEpoch);
+        lastError = 'TUN 数据目录无效';
+        return false;
+      }
+      _ensureStartCurrent(startEpoch);
+      if (await _hasConflictingDefaultTunnel(startEpoch)) {
+        _ensureStartCurrent(startEpoch);
+        lastError ??= '检测到其他 VPN/TUN 正在接管网络，请先断开后再连接';
+        return false;
+      }
+      _ensureStartCurrent(startEpoch);
 
-    final request = File(requestPath);
-    try {
+      final request = File(requestPath);
       final configSha256 = crypto.sha256.convert(
         await File(configPath).readAsBytes(),
       );
+      _ensureStartCurrent(startEpoch);
       await request.writeAsString('$appPid\n', flush: true);
+      _ensureStartCurrent(startEpoch);
       final command = '/bin/bash -c '
           '${_shellQuote(_privilegedLauncherScript)} ssrvpn-tun-launch '
           '${_shellQuote(runnerPath)} '
@@ -168,16 +195,35 @@ check_hash "$stage/config.yaml" "$expected_config"
           'with administrator privileges '
           'with prompt "SSRVPN 需要管理员授权以启用本次 TUN 连接"';
       _statusNotBefore = DateTime.now().subtract(const Duration(seconds: 1));
-      final handle = await _authorizationLauncher(
+      final launch = _authorizationLauncher(
         _osascriptPath,
         ['-e', appleScript],
       );
+      final launchResult = await Future.any<Object>([
+        launch,
+        cancellation.future.then<Object>(
+          (_) => const _AuthorizationLaunchCancelled(),
+        ),
+      ]);
+      if (launchResult is _AuthorizationLaunchCancelled) {
+        unawaited(
+          launch.then<void>(
+            (lateHandle) => lateHandle.terminate(),
+            onError: (_, __) {},
+          ),
+        );
+        throw _MacosTunStartCancelled();
+      }
+      final handle = launchResult as TunAuthorizationHandle;
       _authorizationHandle = handle;
+      _ensureStartCurrent(startEpoch);
       int? exitCode;
       unawaited(handle.exitCode.then((value) => exitCode = value));
       final deadline = DateTime.now().add(const Duration(minutes: 2));
       while (DateTime.now().isBefore(deadline)) {
+        _ensureStartCurrent(startEpoch);
         final state = await startupState();
+        _ensureStartCurrent(startEpoch);
         if (state == MacosTunStartupState.starting ||
             state == MacosTunStartupState.running) {
           _requested = true;
@@ -192,17 +238,57 @@ check_hash "$stage/config.yaml" "$expected_config"
           lastError = exitCode == 0 ? 'TUN 授权会话已结束，请重试' : 'TUN 模式需要管理员授权，已取消';
           return false;
         }
-        await Future.delayed(const Duration(milliseconds: 100));
+        await Future.any<void>([
+          Future<void>.delayed(const Duration(milliseconds: 100)),
+          cancellation.future,
+        ]);
       }
+      _ensureStartCurrent(startEpoch);
       await _removeRequest();
       handle.terminate();
       lastError = '等待管理员授权超过 2 分钟，请重试';
+      return false;
+    } on _MacosTunStartCancelled {
+      await _removeRequest();
+      final handle = _authorizationHandle;
+      if (!_requested && handle != null) {
+        handle.terminate();
+        _authorizationHandle = null;
+      }
+      lastError = 'TUN 连接已取消';
       return false;
     } catch (_) {
       await _removeRequest();
       lastError = '无法打开 macOS 管理员授权窗口';
       return false;
+    } finally {
+      if (identical(_startCancellation, cancellation)) {
+        _startCancellation = null;
+      }
     }
+  }
+
+  /// Cancels authorization/startup synchronously so queued teardown can run.
+  void interruptPendingStart() {
+    _startEpoch++;
+    final cancellation = _startCancellation;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
+    }
+    final handle = _authorizationHandle;
+    if (!_requested && handle != null) {
+      handle.terminate();
+      _authorizationHandle = null;
+    }
+    final cleanup = _removeRequest();
+    _interruptCleanup = cleanup;
+    unawaited(
+      cleanup.whenComplete(() {
+        if (identical(_interruptCleanup, cleanup)) {
+          _interruptCleanup = null;
+        }
+      }),
+    );
   }
 
   Future<void> stop() async {
@@ -277,7 +363,7 @@ check_hash "$stage/config.yaml" "$expected_config"
     } catch (_) {}
   }
 
-  Future<bool> _hasConflictingDefaultTunnel() async {
+  Future<bool> _hasConflictingDefaultTunnel(int startEpoch) async {
     for (final arguments in const [
       ['-n', 'get', 'default'],
       ['-n', 'get', '-inet6', 'default'],
@@ -287,17 +373,24 @@ check_hash "$stage/config.yaml" "$expected_config"
           '/sbin/route',
           arguments,
         ).timeout(const Duration(seconds: 3));
+        _ensureStartCurrent(startEpoch);
         if (result.exitCode == 0 &&
             RegExp(r'^\s*interface:\s*utun\d+\s*$', multiLine: true)
                 .hasMatch(result.stdout.toString())) {
           return true;
         }
+      } on _MacosTunStartCancelled {
+        rethrow;
       } catch (_) {
         lastError = '无法确认现有 VPN 路由状态，请稍后重试';
         return true;
       }
     }
     return false;
+  }
+
+  void _ensureStartCurrent(int startEpoch) {
+    if (startEpoch != _startEpoch) throw _MacosTunStartCancelled();
   }
 
   static Future<TunAuthorizationHandle> _launchAuthorizationProcess(

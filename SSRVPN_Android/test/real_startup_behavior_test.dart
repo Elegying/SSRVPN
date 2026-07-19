@@ -3,6 +3,7 @@ import 'package:ssrvpn_android/startup/startup_flags.dart';
 import 'package:ssrvpn_android/startup/startup_logger.dart';
 import 'package:ssrvpn_android/startup/startup_orchestrator.dart';
 import 'package:ssrvpn_android/startup/startup_status.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
   group('Android startup behavior', () {
@@ -79,6 +80,28 @@ void main() {
       expect(orchestrator.status.error, isNull);
       expect(orchestrator.status.steps, isEmpty);
       expect(orchestrator.status.toString(), contains('状态: 完成'));
+    });
+
+    test('orchestrator delivers an available update instead of discarding it',
+        () async {
+      final delivered = <AppUpdateInfo>[];
+      final update = AppUpdateInfo(
+        version: '9.9.9',
+        downloadUrl: 'https://example.com/SSRVPN.apk',
+        changelog: '修复连接问题',
+        sha256: 'a' * 64,
+      );
+      final orchestrator = StartupOrchestrator(
+        flags: const StartupFlags(),
+        checkForUpdate: (_) async => update,
+        onUpdateAvailable: (available) async => delivered.add(available),
+      );
+
+      await orchestrator.start();
+
+      expect(delivered, [same(update)]);
+      expect(orchestrator.status.isComplete, isTrue);
+      expect(orchestrator.status.error, isNull);
     });
 
     test('startup logs redact credentials and retain only the newest entries',

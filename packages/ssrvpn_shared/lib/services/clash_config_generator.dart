@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import '../models/app_settings.dart';
 import '../constants/app_constants.dart';
@@ -10,6 +11,7 @@ import '../utils/proxy_node_usage_policy.dart';
 ///
 /// 生成通用的 Clash 配置，平台特定的配置可以通过继承或组合方式扩展
 class ClashConfigGenerator {
+  static const int isolateThreshold = 256 * 1024;
   static const _internalProxyKeys = {
     'ssrvpn-subscription',
     'group',
@@ -234,6 +236,47 @@ class ClashConfigGenerator {
     result.writeln("  - '${AppConstants.defaultMatchRule}'");
 
     return result.toString();
+  }
+
+  /// Generates large runtime configurations away from the UI isolate.
+  ///
+  /// Small subscriptions stay synchronous to avoid isolate startup overhead;
+  /// large subscriptions are copied into a short-lived isolate so parsing and
+  /// serialization cannot freeze connection controls or animations.
+  static Future<String> generateConfigAsync(
+    String rawYaml,
+    AppSettings settings, {
+    String? preferredNodeName,
+    String? platformHeader,
+    String? tunConfig,
+    String? dnsConfig,
+    String? latencyTestUrl,
+    bool includeFallbackGroup = false,
+    Iterable<String> extraSelectGroupNames = const [],
+    Iterable<String> extraRulesBeforeDirect = const [],
+    bool includeGeoIpRules = false,
+  }) {
+    final extraGroups = List<String>.of(extraSelectGroupNames);
+    final extraRules = List<String>.of(extraRulesBeforeDirect);
+
+    String generate() => generateConfig(
+          rawYaml,
+          settings,
+          preferredNodeName: preferredNodeName,
+          platformHeader: platformHeader,
+          tunConfig: tunConfig,
+          dnsConfig: dnsConfig,
+          latencyTestUrl: latencyTestUrl,
+          includeFallbackGroup: includeFallbackGroup,
+          extraSelectGroupNames: extraGroups,
+          extraRulesBeforeDirect: extraRules,
+          includeGeoIpRules: includeGeoIpRules,
+        );
+
+    if (rawYaml.length < isolateThreshold) {
+      return Future<String>.value(generate());
+    }
+    return Isolate.run(generate);
   }
 
   /// 从 YAML 中提取代理节点名称

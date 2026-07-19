@@ -7,9 +7,40 @@ import 'package:http/http.dart' as http;
 import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
+import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
 
 void main() {
+  group('ClashServiceBase batch latency', () {
+    test('stops delivering a stale batch before starting another chunk',
+        () async {
+      final service = _ControlledLatencyClashService();
+      var current = true;
+      final delivered = <String>[];
+      final nodes = List.generate(
+        25,
+        (index) => ProxyNode(
+          name: 'Node $index',
+          type: 'ss',
+          server: 'node-$index.example.com',
+          port: 443,
+        ),
+      );
+
+      await service.testAllLatencies(
+        nodes,
+        (name, _) {
+          delivered.add(name);
+          current = false;
+        },
+        shouldContinue: () => current,
+      );
+
+      expect(service.testCalls, 10);
+      expect(delivered, ['Node 0']);
+    });
+  });
+
   group('ClashServiceBase runtime ports', () {
     test('reports temporary port adjustments and clears stale notices',
         () async {
@@ -510,6 +541,20 @@ class _ApiClashService extends ClashServiceBase {
 
   @override
   Future<void> onStopRequired() async {}
+}
+
+class _ControlledLatencyClashService extends _TestClashService {
+  int testCalls = 0;
+
+  @override
+  Future<int> testLatency(
+    String server,
+    int port, {
+    int timeoutMs = 5000,
+  }) async {
+    testCalls++;
+    return 25;
+  }
 }
 
 class _TestClashService extends ClashServiceBase {

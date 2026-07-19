@@ -12,15 +12,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   final _urlController = TextEditingController();
   bool _isAdding = false;
   bool _isRefreshing = false;
+  bool _isDeleting = false;
   SubscriptionRefreshResult? _refreshResult;
+  SubscriptionRefreshCancellation? _refreshCancellation;
+
+  bool get _hasBlockingOperation => _isAdding || _isRefreshing || _isDeleting;
 
   @override
   void dispose() {
+    _refreshCancellation?.cancel();
     _urlController.dispose();
     super.dispose();
   }
 
   Future<void> _addSubscription() async {
+    if (_hasBlockingOperation) return;
     setState(() => _isAdding = true);
     final controller = _subscriptionController(
       context.read<SubscriptionService>(),
@@ -34,6 +40,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   Future<void> _refreshAll() async {
+    if (_hasBlockingOperation) return;
+    final cancellation = SubscriptionRefreshCancellation();
+    _refreshCancellation = cancellation;
     setState(() {
       _isRefreshing = true;
       _refreshResult = null;
@@ -42,16 +51,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     final controller = _subscriptionController(
       context.read<SubscriptionService>(),
     );
-    final result = await controller.refreshAll();
-    if (!mounted) return;
+    final result = await controller.refreshAll(cancellation: cancellation);
+    if (!mounted || !identical(_refreshCancellation, cancellation)) return;
 
     setState(() {
+      _refreshCancellation = null;
       _refreshResult = result;
       _isRefreshing = false;
     });
     if (result.shouldShowNetworkHelp) {
       _showNetworkErrorDialog(result.networkErrorDetail!);
     }
+  }
+
+  void _cancelRefresh() {
+    _refreshCancellation?.cancel();
   }
 
   SubscriptionScreenController _subscriptionController(
@@ -217,100 +231,108 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   Future<void> _deleteSubscription(String id) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.transparent,
-        contentPadding: EdgeInsets.zero,
-        content: ConstrainedBox(
-          constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.88),
-          child: GlassContainer(
-            borderRadius: 20,
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  size: 48,
-                  color: AppTheme.warning,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  '确认删除',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '删除后将无法恢复',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white.withValues(alpha: 120 / 255)
-                        : AppTheme.lightTextSecondary,
+    if (_hasBlockingOperation) return;
+    setState(() => _isDeleting = true);
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: Colors.transparent,
+          contentPadding: EdgeInsets.zero,
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.88),
+            child: GlassContainer(
+              borderRadius: 20,
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 48,
+                    color: AppTheme.warning,
                   ),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('取消'),
-                      ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    '确认删除',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '删除后将无法恢复',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white.withValues(alpha: 120 / 255)
+                          : AppTheme.lightTextSecondary,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.error,
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('取消'),
                         ),
-                        child: const Text('删除'),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.error,
+                          ),
+                          child: const Text('删除'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    if (confirmed == true) {
-      if (!mounted) return;
-      final subService = context.read<SubscriptionService>();
-      final clashService = context.read<ClashService>();
-      final result = await _subscriptionController(subService)
-          .deleteSubscription(
-        id,
-        clashRunning: clashService.isRunning,
-        stopClash: clashService.stop,
-        continueAfterRefreshFailure: true,
-      )
-          .catchError((Object e) {
-        return SubscriptionDeleteResult(removed: false, error: e);
-      });
-      if (!mounted) return;
+      if (confirmed == true) {
+        if (!mounted) return;
+        final subService = context.read<SubscriptionService>();
+        final clashService = context.read<ClashService>();
+        final result =
+            await _subscriptionController(subService).deleteSubscription(
+          id,
+          clashRunning:
+              clashService.isRunning || clashService.connectionDesired,
+          stopClash: () async {
+            clashService.requestConnectionIntent(false);
+            clashService.interruptPendingStart();
+            await clashService.runConnectionTransition(clashService.stop);
+          },
+        ).catchError((Object e) {
+          return SubscriptionDeleteResult(removed: false, error: e);
+        });
+        if (!mounted) return;
 
-      if (!result.removed) {
-        _showSnack(
-          '删除失败：${result.error.toString().replaceFirst("Exception: ", "")}',
-          AppTheme.error,
-        );
-      } else if (result.remainingRefreshFailed) {
-        _showSnack('订阅已删除，但刷新剩余订阅失败，请稍后重试', AppTheme.warning);
-      } else if (result.error != null) {
-        _showSnack(
-          '订阅已删除，但断开 VPN 失败：${result.error.toString().replaceFirst("Exception: ", "")}',
-          AppTheme.warning,
-        );
+        if (!result.removed) {
+          _showSnack(
+            '删除失败：${result.error.toString().replaceFirst("Exception: ", "")}',
+            AppTheme.error,
+          );
+        } else if (result.error != null) {
+          _showSnack(
+            '订阅已删除，但断开 VPN 失败：${result.error.toString().replaceFirst("Exception: ", "")}',
+            AppTheme.warning,
+          );
+        } else if (result.stoppedClash) {
+          _showSnack('订阅已删除，VPN 已断开', AppTheme.warning);
+        } else {
+          _showSnack('订阅已删除', AppTheme.success);
+        }
       }
-      if (result.stoppedClash) {
-        _showSnack('订阅已删除，VPN 已断开', AppTheme.warning);
-      }
+    } finally {
+      if (mounted) setState(() => _isDeleting = false);
     }
   }
 
@@ -347,6 +369,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                         isDark: isDark,
                         urlController: _urlController,
                         isAdding: _isAdding,
+                        isBusy: _hasBlockingOperation,
                         onAdd: _addSubscription,
                       ),
                       const SizedBox(height: 28),
@@ -355,8 +378,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           subscriptions: subscriptions,
                           isDark: isDark,
                           isRefreshing: _isRefreshing,
+                          isBusy: _hasBlockingOperation,
                           refreshResult: _refreshResult,
                           onRefresh: _refreshAll,
+                          onCancelRefresh: _cancelRefresh,
                           onDelete: _deleteSubscription,
                         ),
                       if (subscriptions.isEmpty)

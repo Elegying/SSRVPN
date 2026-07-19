@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ssrvpn_shared/services/direct_fetcher.dart';
+import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -320,6 +321,141 @@ void main() {
       );
     } finally {
       dripTimer?.cancel();
+      client?.destroy();
+      await subscription.cancel();
+      await server.close();
+    }
+  });
+
+  test('fetchResponse deadline includes physical interface discovery',
+      () async {
+    final interfaces = Completer<Map<InternetAddressType, InternetAddress>>();
+    final elapsed = Stopwatch()..start();
+
+    try {
+      await expectLater(
+        DirectFetcher.fetchResponse(
+          'http://127.0.0.1:9/subscription',
+          requestTimeout: const Duration(milliseconds: 50),
+          physicalAddressLookup: () => interfaces.future,
+        ),
+        throwsA(isA<TimeoutException>()),
+      );
+      expect(elapsed.elapsed, lessThan(const Duration(milliseconds: 500)));
+    } finally {
+      if (!interfaces.isCompleted) interfaces.complete(const {});
+    }
+  });
+
+  test('a socket that completes after the deadline is destroyed', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final peerAccepted = Completer<void>();
+    final peerClosed = Completer<void>();
+    Socket? peer;
+    final subscription = server.listen((socket) {
+      peer = socket;
+      if (!peerAccepted.isCompleted) peerAccepted.complete();
+      socket.listen(
+        (_) {},
+        onDone: () {
+          if (!peerClosed.isCompleted) peerClosed.complete();
+        },
+        onError: (Object _) {
+          if (!peerClosed.isCompleted) peerClosed.complete();
+        },
+        cancelOnError: true,
+      );
+    });
+    final lateSocket = await Socket.connect(
+      InternetAddress.loopbackIPv4,
+      server.port,
+    );
+    await peerAccepted.future.timeout(const Duration(seconds: 1));
+    var connectCalls = 0;
+
+    try {
+      final task = IOOverrides.runZoned(
+        () => DirectFetcher.fetchResponse(
+          'https://late-socket.test/subscription',
+          requestTimeout: const Duration(milliseconds: 80),
+          physicalAddressLookup: () async => const {},
+        ),
+        socketConnect: (
+          host,
+          port, {
+          sourceAddress,
+          sourcePort = 0,
+          timeout,
+        }) {
+          connectCalls++;
+          if (connectCalls == 1) {
+            return Future<Socket>.delayed(
+              const Duration(milliseconds: 180),
+              () => lateSocket,
+            );
+          }
+          return Future<Socket>.error(
+            const SocketException('simulated parallel lookup failure'),
+          );
+        },
+      );
+
+      await expectLater(task, throwsA(isA<TimeoutException>()));
+      await peerClosed.future.timeout(const Duration(seconds: 1));
+    } finally {
+      lateSocket.destroy();
+      peer?.destroy();
+      await subscription.cancel();
+      await server.close();
+    }
+  });
+
+  test('cancelling fetchResponse destroys a stalled direct socket', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final requestReceived = Completer<void>();
+    final peerClosed = Completer<void>();
+    Socket? client;
+    final subscription = server.listen((socket) {
+      client = socket;
+      socket.listen(
+        (_) {
+          if (requestReceived.isCompleted) return;
+          requestReceived.complete();
+          socket.write(
+            'HTTP/1.1 200 OK\r\n'
+            'Transfer-Encoding: chunked\r\n'
+            'Connection: keep-alive\r\n'
+            '\r\n'
+            '5\r\nhel',
+          );
+          unawaited(socket.flush());
+        },
+        onDone: () {
+          if (!peerClosed.isCompleted) peerClosed.complete();
+        },
+        onError: (Object _) {
+          if (!peerClosed.isCompleted) peerClosed.complete();
+        },
+        cancelOnError: true,
+      );
+    });
+    final cancellation = SubscriptionRefreshCancellation();
+
+    try {
+      final task = DirectFetcher.fetchResponse(
+        'http://127.0.0.1:${server.port}/stalled',
+        cancellation: cancellation,
+      );
+      await requestReceived.future.timeout(const Duration(seconds: 1));
+
+      cancellation.cancel();
+
+      await expectLater(
+        task.timeout(const Duration(seconds: 1)),
+        throwsA(isA<SubscriptionRefreshCancelled>()),
+      );
+      await peerClosed.future.timeout(const Duration(seconds: 1));
+    } finally {
       client?.destroy();
       await subscription.cancel();
       await server.close();

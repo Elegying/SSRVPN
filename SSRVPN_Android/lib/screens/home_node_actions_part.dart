@@ -7,6 +7,10 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     int port,
   ) async {
     if (_testingNodeName == nodeName) return;
+    _cancelLatencyBatch();
+    final generation = ++_singleLatencyGeneration;
+    final subscriptionService = context.read<SubscriptionService>();
+    final subscriptionRevision = subscriptionService.revision;
     _updateHomeState(() => _testingNodeName = nodeName);
     final clashService = context.read<ClashService>();
     final settings = context.read<SettingsService>().settings;
@@ -20,13 +24,26 @@ extension _AndroidHomeNodeActions on HomeScreenState {
       measuredLatency,
       random: math.Random(),
     );
-    if (mounted && !_disposed) {
-      _updateHomeState(() {
-        _testingNodeName = null;
-        _latencyController.applyNow(_nodes, nodeName, latency);
-      });
-      _sortNodesByLatency();
+    if (!mounted || _disposed || generation != _singleLatencyGeneration) {
+      return;
     }
+    final isCurrent = isAndroidNodeLatencyResultCurrent(
+      operationGeneration: generation,
+      currentGeneration: _singleLatencyGeneration,
+      operationSubscriptionRevision: subscriptionRevision,
+      currentSubscriptionRevision: subscriptionService.revision,
+      nodeName: nodeName,
+      server: server,
+      port: port,
+      currentNodes: _nodes,
+    );
+    _updateHomeState(() {
+      _testingNodeName = null;
+      if (isCurrent) {
+        _latencyController.applyNow(_nodes, nodeName, latency);
+        _nodes = _latencyController.timeoutLast(_nodes);
+      }
+    });
   }
 
   Future<void> _handleSelectNode(ProxyNode node) {
@@ -196,43 +213,54 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     }
   }
 
-  Future<void> _autoTestAllNodes() async {
+  Future<void> _autoTestAllNodes() => _runBatchLatencyTest();
+
+  Future<void> _handleTestAllLatency() => _runBatchLatencyTest();
+
+  Future<void> _runBatchLatencyTest() async {
     if (_nodes.isEmpty) return;
     final clashService = context.read<ClashService>();
+    final subscriptionService = context.read<SubscriptionService>();
+    final nodesUnderTest = List<ProxyNode>.from(_nodes);
+    final subscriptionRevision = subscriptionService.revision;
+    _cancelSingleLatencyTest();
+    _cancelLatencyBatch();
+    final generation = _latencyController.beginBatch();
+    _latencyBatchGeneration = generation;
     _updateHomeState(() => _isBatchTesting = true);
-    _latencyController.clearPending();
-    await clashService.testAllLatencies(_nodes, (name, latency) {
-      _latencyController.queue(name, latency);
-      _scheduleLatencyFlush();
-    });
-    _latencyBatchTimer?.cancel();
-    _flushPendingLatencies();
-    if (mounted && !_disposed) {
-      _sortNodesByLatency();
-      _updateHomeState(() => _isBatchTesting = false);
-    }
-  }
 
-  Future<void> _handleTestAllLatency() async {
-    if (_nodes.isEmpty) return;
-    final clashService = context.read<ClashService>();
-    _updateHomeState(() => _isBatchTesting = true);
-    _latencyController.clearPending();
-    await clashService.testAllLatencies(_nodes, (name, latency) {
-      _latencyController.queue(name, latency);
-      _scheduleLatencyFlush();
-    });
-    _latencyBatchTimer?.cancel();
-    _flushPendingLatencies();
-    if (mounted && !_disposed) {
-      _sortNodesByLatency();
-      _updateHomeState(() => _isBatchTesting = false);
-    }
-  }
+    bool isCurrent() =>
+        mounted &&
+        !_disposed &&
+        _latencyBatchGeneration == generation &&
+        _latencyController.isCurrentBatch(generation) &&
+        subscriptionService.revision == subscriptionRevision;
 
-  void _sortNodesByLatency() {
+    try {
+      await clashService.testAllLatencies(
+        nodesUnderTest,
+        (name, latency) {
+          if (!_latencyController.queueForBatch(generation, name, latency)) {
+            return;
+          }
+          _scheduleLatencyFlush(generation);
+        },
+        shouldContinue: isCurrent,
+      );
+    } catch (error) {
+      AppLogger.warning('Latency', '批量延迟测试失败: $error');
+    }
+    _latencyBatchTimer?.cancel();
+    if (!isCurrent()) {
+      if (_latencyBatchGeneration == generation) _cancelLatencyBatch();
+      return;
+    }
     _updateHomeState(() {
-      _nodes = _latencyController.timeoutLast(_nodes);
+      if (_latencyController.finishBatch(generation, _nodes)) {
+        _nodes = _latencyController.timeoutLast(_nodes);
+        _latencyBatchGeneration = null;
+        _isBatchTesting = false;
+      }
     });
   }
 }

@@ -87,6 +87,27 @@ String validateMacosCorePidRecord(String? contents, int expectedPid) {
   return contents;
 }
 
+String buildMacosUnexpectedExitNotice({
+  required int exitCode,
+  required bool proxyRecovered,
+}) =>
+    proxyRecovered
+        ? 'Mihomo 异常退出（退出码 $exitCode），系统代理已恢复。请点击首页“连接”重试。'
+        : 'Mihomo 异常退出（退出码 $exitCode），系统代理恢复失败。已保留恢复记录并暂停新连接，请点击首页“连接”重试；仍失败请打开日志诊断。';
+
+String? buildMacosStartupRecoveryNotice({
+  required bool proxyRecoveryPending,
+  required bool corePreparationPending,
+}) {
+  if (proxyRecoveryPending) {
+    return '检测到上次退出遗留的系统代理状态。为保护网络，SSRVPN 已保留旧核心并暂停新连接；请点击首页“连接”重试恢复。';
+  }
+  if (corePreparationPending) {
+    return '系统代理已恢复，但 Mihomo 核心安全准备尚未完成。SSRVPN 已保留旧核心并暂停新连接；请点击首页“连接”重试准备。';
+  }
+  return null;
+}
+
 mixin _MacosCoreLifecycle on ClashServiceBase {
   static const _filePath = '/usr/bin/file';
   static const _coreProcessChannel = MethodChannel('ssrvpn/core_process');
@@ -109,6 +130,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   bool _startupBlockedByProxyRecovery = false;
   bool _runCoreProbesAfterRecovery = true;
   Future<bool>? _proxyRecoveryOperation;
+  String? _lastUnexpectedExitNotice;
 
   bool get isStartupDisabled => _startupDisabledReason != null;
   String? get startupDisabledReason => _startupDisabledReason;
@@ -116,6 +138,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   bool get coreExists => File(_corePath).existsSync();
   bool get hasPendingSystemProxyRecovery =>
       _proxyService.recoveryPending || _startupBlockedByProxyRecovery;
+  String? get startupRecoveryNotice => buildMacosStartupRecoveryNotice(
+        proxyRecoveryPending: _proxyService.recoveryPending,
+        corePreparationPending: _startupBlockedByProxyRecovery,
+      );
+  String? get lastUnexpectedExitNotice => _lastUnexpectedExitNotice;
   String get _recoveryDiagnosticSummary {
     if (_proxyService.recoveryPending) {
       return '检测到 SSRVPN 自有的待恢复代理状态';
@@ -200,6 +227,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         final reason = _proxyService.lastError ?? '系统代理旧状态恢复失败';
         setLastStartError(reason);
         log('❌ $reason');
+        notifyStatusChanged();
         return false;
       }
     }
@@ -212,11 +240,13 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       _startupDisabledReason = null;
       setLastStartError(null);
       log('✅ 旧系统代理状态已恢复，核心资产已安全就绪');
+      notifyStatusChanged();
       return true;
     } catch (error) {
       _startupBlockedByProxyRecovery = true;
       final reason = '系统代理已恢复，但 Mihomo 核心安全准备失败: $error';
       disableStartup(reason);
+      notifyStatusChanged();
       return false;
     }
   }
@@ -518,12 +548,18 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     }
   }
 
-  Future<void> stop() {
+  @override
+  void interruptPendingStart() {
     _startGeneration++;
     final cancellation = _startCancellation;
     if (cancellation != null && !cancellation.isCompleted) {
       cancellation.complete();
     }
+    _tunSession?.interruptPendingStart();
+  }
+
+  Future<void> stop() {
+    interruptPendingStart();
     final current = _stopOperation;
     if (current != null) return current;
 
@@ -635,6 +671,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
     log('正在请求 macOS 管理员授权以启动本次 TUN 连接...');
     if (!await tunSession.start()) {
+      _ensureStartCurrent(startToken);
       setLastStartError(tunSession.lastError ?? 'TUN 管理员授权失败');
       log(lastStartError!);
       return false;
@@ -771,7 +808,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       if (isRunning) {
         markConnectionLost();
         stopStatusMonitor();
-        _scheduleUnexpectedExitCleanup();
+        _scheduleUnexpectedExitCleanup(exitCode);
       }
       return;
     }
@@ -799,8 +836,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     }
   }
 
-  void _scheduleUnexpectedExitCleanup() {
-    final operation = _clearProxyAfterUnexpectedExit();
+  void _scheduleUnexpectedExitCleanup(int exitCode) {
+    final operation = _clearProxyAfterUnexpectedExit(exitCode);
     _exitCleanupOperation = operation;
     operation.whenComplete(() {
       if (identical(_exitCleanupOperation, operation)) {
@@ -809,15 +846,20 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     });
   }
 
-  Future<void> _clearProxyAfterUnexpectedExit() async {
+  Future<void> _clearProxyAfterUnexpectedExit(int exitCode) async {
+    var proxyRecovered = false;
     try {
-      final cleared = await _proxyService.clearSystemProxy();
-      if (!cleared && _proxyService.lastError != null) {
+      proxyRecovered = await _proxyService.clearSystemProxy();
+      if (!proxyRecovered && _proxyService.lastError != null) {
         log(_proxyService.lastError!);
       }
     } catch (error) {
       log('核心异常退出后清理系统代理失败: $error');
     } finally {
+      _lastUnexpectedExitNotice = buildMacosUnexpectedExitNotice(
+        exitCode: exitCode,
+        proxyRecovered: proxyRecovered,
+      );
       try {
         onProcessExit?.call();
       } catch (error) {

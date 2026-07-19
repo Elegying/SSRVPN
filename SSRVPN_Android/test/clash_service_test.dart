@@ -362,6 +362,60 @@ void main() {
     await Future.wait([firstStop, secondStop]);
   });
 
+  test('granting VPN permission resumes the original start operation',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_permission_resume_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    final startInvoked = Completer<void>();
+    final permissionResult = Completer<Object?>();
+    var stopCalls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+          startInvoked.complete();
+          return permissionResult.future;
+        case 'stopCore':
+          stopCalls += 1;
+          return true;
+        case 'notifyVpnStateChanged':
+          return true;
+        case 'syncSettings':
+          return 'generation-after-permission';
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings(apiSecret: 'test-secret'));
+    final starting = service.start(nodeName: 'A');
+    await startInvoked.future;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(stopCalls, 0);
+
+    permissionResult.complete(<String, Object?>{
+      'running': true,
+      'transitioning': false,
+      'protectedConfigPath': config.path,
+      'sessionGeneration': 41,
+    });
+
+    expect(await starting, isTrue);
+    expect(service.isRunning, isTrue);
+    expect(stopCalls, 0);
+  });
+
   test('duplicate native start preserves the actual active config', () async {
     SharedPreferences.setMockInitialValues({});
     const channel = MethodChannel('com.ssrvpn/native');

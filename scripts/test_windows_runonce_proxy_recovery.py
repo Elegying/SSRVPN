@@ -7,6 +7,53 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsRunOnceProxyRecoveryTest(unittest.TestCase):
+    def test_recovery_worker_has_a_dedicated_visible_contention_signal(self) -> None:
+        runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
+        launcher = (runner / "launcher_main.cpp").read_text(encoding="utf-8-sig")
+        instance_control = (runner / "launcher_instance_control.cpp").read_text(
+            encoding="utf-8"
+        )
+        main = (runner / "main.cpp").read_text(encoding="utf-8")
+
+        native_match = re.search(
+            r'kProxyRecoveryMutexName\[\]\s*=\s*L"([^"]+)";',
+            main,
+            re.DOTALL,
+        )
+        launcher_match = re.search(
+            r'kProxyRecoveryMutexName\[\]\s*=\s*L"([^"]+)";',
+            launcher,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(native_match)
+        self.assertIsNotNone(launcher_match)
+        self.assertEqual(native_match.group(1), launcher_match.group(1))
+
+        branch = main[
+            main.index('command_line_arguments[0] == "--recover-proxy-only"') :
+            main.index("HANDLE instance_mutex")
+        ]
+        self.assertIn(
+            "CreateMutexW(nullptr, TRUE, kProxyRecoveryMutexName)", branch
+        )
+        self.assertIn("CreateMutexW(nullptr, TRUE, kAppInstanceMutexName)", branch)
+        self.assertLess(
+            branch.index("kProxyRecoveryMutexName"),
+            branch.index("kAppInstanceMutexName"),
+        )
+        self.assertIn("::ReleaseMutex(proxy_recovery_mutex)", branch)
+        self.assertIn("::CloseHandle(proxy_recovery_mutex)", branch)
+
+        contention = launcher[
+            launcher.index("const InstanceContentionAction contention_action") :
+            launcher.index("HANDLE process_job", launcher.index(
+                "const InstanceContentionAction contention_action"
+            ))
+        ]
+        self.assertIn("IsNamedMutexOwned(kProxyRecoveryMutexName)", contention)
+        self.assertIn("kShowProxyRecovery", instance_control)
+        self.assertIn("ShowInstanceContentionNotice", contention)
+
     def test_guardian_mutex_name_matches_native_launcher(self) -> None:
         launcher = (
             ROOT / "SSRVPN_Windows" / "windows" / "runner" / "launcher_main.cpp"
@@ -91,7 +138,17 @@ class WindowsRunOnceProxyRecoveryTest(unittest.TestCase):
         self.assertIn("LockFileEx", recovery)
         self.assertIn("UnlockFileEx", recovery)
         self.assertIn("FileLock.exclusive", service)
-        self.assertIn("_withProxyTransactionLock(_clearSystemProxyUnlocked)", service)
+        clear_start = service.index("Future<bool> clearSystemProxy")
+        clear_end = service.index(
+            "Future<bool> _clearSystemProxyUnlocked", clear_start
+        )
+        clear = service[clear_start:clear_end]
+        self.assertIn("_withProxyTransactionLock", clear)
+        self.assertIn("return _clearSystemProxyUnlocked();", clear)
+        self.assertIn(
+            "if (!await _awaitPendingCancelledProxyCommandExit()) return false;",
+            clear,
+        )
         set_start = service.index("Future<bool> setSystemProxy")
         set_end = service.index("Future<bool> _setSystemProxyUnlocked", set_start)
         self.assertIn("_withProxyTransactionLock", service[set_start:set_end])
