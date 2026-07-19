@@ -110,6 +110,117 @@ void main() {
     });
   });
 
+  group('terminateOwnedMacosCoreProcess', () {
+    test('does not SIGKILL a reused PID with a new start generation', () async {
+      const corePath = '/tmp/SSRVPN/AtlasCore';
+      final originalIdentity = ownedMacosCoreIdentityFromPsOutput(
+        'Sun Jul 19 20:00:00 2026     $corePath -d /tmp/SSRVPN',
+        corePath,
+      );
+      final replacementIdentity = ownedMacosCoreIdentityFromPsOutput(
+        'Sun Jul 19 20:00:01 2026     $corePath -d /tmp/SSRVPN',
+        corePath,
+      );
+      final identities = <MacosProcessIdentity?>[
+        originalIdentity,
+        originalIdentity,
+        replacementIdentity,
+      ];
+      final signals = <ProcessSignal>[];
+
+      final stopped = await terminateOwnedMacosCoreProcess(
+        readIdentity: () async => identities.removeAt(0),
+        sendSignal: (signal) {
+          signals.add(signal);
+          return true;
+        },
+        gracefulTimeout: const Duration(milliseconds: 10),
+        forcedTimeout: const Duration(milliseconds: 10),
+        pollInterval: Duration.zero,
+      );
+
+      expect(stopped, isTrue);
+      expect(originalIdentity, isNotNull);
+      expect(replacementIdentity, isNotNull);
+      expect(replacementIdentity, isNot(originalIdentity));
+      expect(signals, [ProcessSignal.sigterm]);
+    });
+
+    test('fails closed when SIGTERM is rejected and ownership is unchanged',
+        () async {
+      const identity = (
+        startTime: 'Sun Jul 19 20:00:00 2026',
+        command: '/tmp/SSRVPN/AtlasCore -d /tmp/SSRVPN',
+      );
+
+      final stopped = await terminateOwnedMacosCoreProcess(
+        readIdentity: () async => identity,
+        sendSignal: (_) => false,
+      );
+
+      expect(stopped, isFalse);
+    });
+
+    test('fails closed when SIGKILL is rejected and ownership is unchanged',
+        () async {
+      const identity = (
+        startTime: 'Sun Jul 19 20:00:00 2026',
+        command: '/tmp/SSRVPN/AtlasCore -d /tmp/SSRVPN',
+      );
+      final signals = <ProcessSignal>[];
+
+      final stopped = await terminateOwnedMacosCoreProcess(
+        readIdentity: () async => identity,
+        sendSignal: (signal) {
+          signals.add(signal);
+          return signal == ProcessSignal.sigterm;
+        },
+        gracefulTimeout: Duration.zero,
+        forcedTimeout: Duration.zero,
+        pollInterval: Duration.zero,
+      );
+
+      expect(stopped, isFalse);
+      expect(signals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
+    });
+
+    test('refuses an executable path prefix that is not the owned core', () {
+      const corePath = '/tmp/SSRVPN/AtlasCore';
+
+      final identity = ownedMacosCoreIdentityFromPsOutput(
+        'Sun Jul 19 20:00:00 2026     ${corePath}Backdoor -d /tmp',
+        corePath,
+      );
+
+      expect(identity, isNull);
+    });
+
+    test('rejects malformed ps identity output', () {
+      expect(
+        macosProcessIdentityFromPsOutput('not a process identity'),
+        isNull,
+      );
+    });
+
+    test('treats only an explicit ESRCH probe as process absence', () {
+      expect(
+        macosKillProbeShowsProcessAbsent(
+          1,
+          'kill: 424242: No such process',
+        ),
+        isTrue,
+      );
+      expect(
+        macosKillProbeShowsProcessAbsent(
+          1,
+          'kill: 424242: Operation not permitted',
+        ),
+        isFalse,
+      );
+      expect(macosKillProbeShowsProcessAbsent(127, 'tool failed'), isFalse);
+    });
+  });
+
   group('ClashService.generateClashConfig', () {
     test('首次连接保持订阅中的第一个节点为默认节点', () {
       final config = ClashService().generateClashConfig(
@@ -292,6 +403,23 @@ void main() {
   });
 
   group('macOS core privilege boundary', () {
+    for (final invalidPid in ['not-a-pid', '1']) {
+      test('preserves and rejects invalid core PID "$invalidPid"', () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'ssrvpn_macos_invalid_pid_',
+        );
+        addTearDown(() => tempDir.delete(recursive: true));
+        final pidFile = File('${tempDir.path}/AtlasCore.pid');
+        await pidFile.writeAsString('$invalidPid\n', flush: true);
+
+        await expectLater(
+          ClashService().init(AppSettings(), dataDir: tempDir.path),
+          throwsA(isA<StateError>()),
+        );
+        expect(await pidFile.readAsString(), '$invalidPid\n');
+      });
+    }
+
     test('TUN reaches the normal initialized-service boundary', () async {
       final service = ClashService()
         ..updateSettings(AppSettings(enableTun: true));

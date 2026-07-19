@@ -308,6 +308,10 @@ jobs:
       - name: Test
         run: cd SSRVPN_MacOS && flutter test --coverage
 
+      - name: macOS native unit tests
+        timeout-minutes: 15
+        run: bash scripts/test-macos-native.sh
+
       - name: Enforce coverage threshold
         run: bash scripts/check-coverage-thresholds.sh SSRVPN_MacOS
 

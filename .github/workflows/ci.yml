@@ -141,6 +141,12 @@ jobs:
       - run: flutter test --coverage
         working-directory: ${{ matrix.directory }}
 
+      - name: macOS native unit tests
+        if: matrix.directory == 'SSRVPN_MacOS'
+        shell: bash
+        timeout-minutes: 15
+        run: bash scripts/test-macos-native.sh
+
       - name: Android native unit tests
         if: matrix.directory == 'SSRVPN_Android'
         shell: bash

@@ -21,7 +21,7 @@ TOTAL_THRESHOLDS = {
 # fresh full-suite coverage evidence; lowering one requires an explicit review.
 CRITICAL_FILE_THRESHOLDS = {
     "SSRVPN_MacOS": {
-        "lib/services/clash_service_lifecycle.dart": 8.67,
+        "lib/services/clash_service_lifecycle.dart": 16.98,
         "lib/services/system_proxy_service.dart": 17.75,
     },
     "SSRVPN_Windows": {

@@ -47,6 +47,8 @@ for app in SSRVPN_Android SSRVPN_MacOS SSRVPN_Windows; do
   run_step "$app tests" run_in "$app" flutter test --coverage
   if [[ "$app" == "SSRVPN_Android" ]]; then
     run_step "Android native unit tests" scripts/test-android-native.sh
+  elif [[ "$app" == "SSRVPN_MacOS" ]]; then
+    run_step "macOS native unit tests" scripts/test-macos-native.sh
   fi
   run_step "$app coverage thresholds" scripts/check-coverage-thresholds.sh "$app"
 done
