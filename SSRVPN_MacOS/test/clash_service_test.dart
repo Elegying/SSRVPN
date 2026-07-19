@@ -78,6 +78,36 @@ void main() {
 
       expect(stopped, isFalse);
     });
+
+    test('reports failure when SIGKILL is sent but exit stays pending',
+        () async {
+      final exitCode = Completer<int>();
+      final signals = <ProcessSignal>[];
+
+      final stopped = await terminateMacosCoreProcess(
+        exitCode: exitCode.future,
+        sendSignal: (signal) {
+          signals.add(signal);
+          return true;
+        },
+        gracefulTimeout: const Duration(milliseconds: 1),
+        forcedTimeout: const Duration(milliseconds: 1),
+      );
+
+      expect(stopped, isFalse);
+      expect(signals, [ProcessSignal.sigterm, ProcessSignal.sigkill]);
+    });
+
+    test('reports failure when sending a termination signal throws', () async {
+      final stopped = await terminateMacosCoreProcess(
+        exitCode: Completer<int>().future,
+        sendSignal: (_) => throw StateError('signal rejected'),
+        gracefulTimeout: const Duration(milliseconds: 1),
+        forcedTimeout: const Duration(milliseconds: 1),
+      );
+
+      expect(stopped, isFalse);
+    });
   });
 
   group('ClashService.generateClashConfig', () {
