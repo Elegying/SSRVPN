@@ -4,6 +4,25 @@ import FlutterMacOS
 import XCTest
 @testable import SSRVPN
 
+private final class FakeWindowRevealTarget: WindowRevealTarget {
+  var isMiniaturized: Bool
+  private(set) var deminiaturizeCallCount = 0
+  private(set) var makeKeyAndOrderFrontCallCount = 0
+
+  init(isMiniaturized: Bool) {
+    self.isMiniaturized = isMiniaturized
+  }
+
+  func deminiaturize(_ sender: Any?) {
+    deminiaturizeCallCount += 1
+    isMiniaturized = false
+  }
+
+  func makeKeyAndOrderFront(_ sender: Any?) {
+    makeKeyAndOrderFrontCallCount += 1
+  }
+}
+
 class RunnerTests: XCTestCase {
 
   private func buildNativeCoreFixture(at executableURL: URL) throws {
@@ -876,29 +895,25 @@ class RunnerTests: XCTestCase {
 
   func testDockReopenRevealsHiddenWindow() {
     let delegate = AppDelegate()
-    let window = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
-      styleMask: [.titled],
-      backing: .buffered,
-      defer: false
-    )
-    addTeardownBlock { window.close() }
+    let miniaturizedWindow = FakeWindowRevealTarget(isMiniaturized: true)
+    let hiddenWindow = FakeWindowRevealTarget(isMiniaturized: false)
 
-    window.orderOut(nil)
-    XCTAssertFalse(window.isVisible)
+    XCTAssertTrue(delegate.revealWindow(miniaturizedWindow))
+    XCTAssertEqual(miniaturizedWindow.deminiaturizeCallCount, 1)
+    XCTAssertEqual(miniaturizedWindow.makeKeyAndOrderFrontCallCount, 1)
+    XCTAssertFalse(miniaturizedWindow.isMiniaturized)
 
-    XCTAssertTrue(delegate.revealWindow(window))
-    XCTAssertTrue(window.isVisible)
+    XCTAssertTrue(delegate.revealWindow(hiddenWindow))
+    XCTAssertEqual(hiddenWindow.deminiaturizeCallCount, 0)
+    XCTAssertEqual(hiddenWindow.makeKeyAndOrderFrontCallCount, 1)
   }
 
   func testDockReopenDelegateHandlesDockActivation() {
     let delegate = AppDelegate()
-    XCTAssertTrue(
-      delegate.applicationShouldHandleReopen(
-        NSApplication.shared,
-        hasVisibleWindows: false
-      )
-    )
+    var revealCount = 0
+
+    XCTAssertTrue(delegate.handleApplicationReopen { revealCount += 1 })
+    XCTAssertEqual(revealCount, 1)
   }
 
   func testTerminationPreservesMalformedPidFileFailClosed() throws {

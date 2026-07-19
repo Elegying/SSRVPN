@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - macOS 系统代理恢复失败时不再终止旧核心或替换 AtlasCore/GeoIP；恢复成功后才先清理旧代际再安装资产。正常断开也改为把完整 v2 记录交给原生层复核，Dart 不再通过 `Process.kill` 发送 PID-only 信号。
 - macOS 核心 launch/status/terminate/remove MethodChannel 操作统一进入原生串行队列；Cmd+Q 会排空原生启动或终止操作后再恢复代理和清理核心。运行期状态 watcher 可在手动断开前取消并排空，避免自然退出清理与完整记录终止互相竞态。
 - macOS 系统代理 set/clear 全事务增加原生生命周期令牌；Cmd+Q 在令牌存续期间返回 `terminateLater`，直到所有 `networksetup` 与快照操作结束才继续退出，避免恢复/删快照后 Dart 又写入死代理。清理保持 single-flight；快照在执行任何命令前必须包含至少一个结构完整的服务，精确区分元数据键与 `_Wi-Fi` 等真实服务，并在服务名撞到保留键时拒绝接管代理。缺少所有权、畸形内容或不安全路径均保留现场并阻止核心清理。
+- macOS Dock 重开原生测试改用无 AppKit 动画的 recording fake，避免测试结束时真实窗口变换对象释放崩溃并触发“SSRVPN 意外退出”弹窗；RunnerTests scheme 与命令行入口均强制单 worker 串行。
 - 三端 GeoIP bootstrap 不再依赖会被上游每日 Release 回收的旧 Asset ID，改为读取 SSRVPN `core-assets-v1` 运维 prerelease 中的内容寻址快照，并同时校验 deterministic gzip 与解压后数据库的 SHA-256。
 
 ### 安全
@@ -26,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 测试
 
 - macOS 真实 Swift/XCTest 门禁扩展到 58 项，新增原生 spawn/记录原子边界、身份采样与记录发布失败收口、直系子进程与冲突记录、退出期间代理事务拒绝及安全超时取消、严格状态载荷、流式 UTF-8 诊断和快照 schema 回归，并继续接入本地 `make verify`、普通 CI 与 Release workflow。
+- macOS 原生门禁每次使用独立 DerivedData，并在 xcodebuild 返回后继续等待 CrashReporter 落盘；只有没有新增 Debug 测试宿主 `.ips`、没有残留测试宿主或临时 AtlasCore 时才通过，避免“断言通过但宿主随后崩溃”的假绿。
 - 四端覆盖率改为可审计生产源码清单与统一 wrapper；Android、macOS、Windows 新增带用户行为断言的启动、首页、订阅、节点编辑和连接流程测试。当前真实覆盖率为 Shared `74.39%`（`3094/4159`）、Android `43.43%`（`1861/4285`）、macOS `51.91%`（`2588/4986`）、Windows `43.75%`（`2531/5785`）；macOS 生命周期为 `296/470`（`62.98%`），系统代理为 `220/258`（`85.27%`）。
 
 ### 文档
