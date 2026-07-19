@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修复
+
+- macOS 启动时清理遗留核心会同时核验 PID、可执行文件路径和进程代际，并在发送 TERM/KILL 前再次确认所有权；PID 文件损坏、身份查询异常、权限不足或 PID 已被复用时均安全失败并保留证据，避免误杀其他进程或并行启动第二个核心。
+- macOS 原生退出路径改用 Darwin 微秒级进程身份并检查信号发送结果；PID 文件删除通过同目录原子隔离和内容复核完成，不会覆盖或删除并发写入的新 PID。
+- 三端 GeoIP bootstrap 不再依赖会被上游每日 Release 回收的旧 Asset ID，改为读取 SSRVPN `core-assets-v1` 运维 prerelease 中的内容寻址快照，并同时校验 deterministic gzip 与解压后数据库的 SHA-256。
+
+### 安全
+
+- GeoIP freshness 在上传缺失镜像后必须通过公开下载 URL 回读并复核双摘要，才允许创建来源更新 PR；认证 API 禁止重定向，公开镜像重定向只允许 GitHub HTTPS/CDN 主机并剥离凭据，同名上传竞态不得覆盖既有资产。
+
+### 测试
+
+- macOS 新增真实 Swift/XCTest 门禁，覆盖延迟 TERM、强制退出、信号失败、PID 复用和原子 PID 清理，并接入本地 `make verify`、普通 CI 与 Release workflow。
+- 覆盖率门禁新增关键生命周期文件的渐进下限，并拒绝缺失或非法 `DA`、重复 canonical/别名和只伪造 `LF/LH` 的 LCOV；macOS 生命周期当前锁定为 `71/418`（`16.99%`）。
+
+### 文档
+
+- 新增 ADR-005，记录内容寻址 GeoIP 镜像的信任边界、不可覆盖策略和 freshness 自愈顺序；刷新测试、核心资产与项目健康说明。
+
 ## [3.4.6] - 2026-07-18
 
 ### 新增
