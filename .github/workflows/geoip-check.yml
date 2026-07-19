@@ -23,13 +23,11 @@ jobs:
         with:
           ref: main
 
-      - run: bash scripts/bootstrap-core-assets.sh
-
-      - name: Synchronize and verify the latest upstream snapshot
+      - name: Synchronize upstream and publish the immutable mirror
         id: sync
         run: |
           python3 scripts/sync-geoip-metadb.py
-          bash scripts/verify-core-assets.sh
+          python3 scripts/ensure-geoip-mirror.py --upload
 
           unexpected="$(git diff --name-only -- . ':!docs/GEOIP_SOURCE.txt')"
           if [ -n "$unexpected" ]; then
@@ -53,6 +51,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
 
       - name: Create an immutable update pull request
         if: steps.sync.outputs.changed == 'true'
@@ -87,4 +86,4 @@ jobs:
             --base main \
             --head "$BRANCH" \
             --title "chore(assets): refresh GeoIP to $SOURCE_TAG" \
-            --body "Automated verified GeoIP snapshot refresh. The source URL and both raw and deterministic gzip SHA-256 values are pinned in docs/GEOIP_SOURCE.txt."
+            --body "Automated verified GeoIP snapshot refresh. Upstream provenance, the raw and deterministic gzip SHA-256 values, and the immutable SSRVPN mirror URL are pinned in docs/GEOIP_SOURCE.txt."

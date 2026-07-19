@@ -50,25 +50,24 @@ download_verified() {
     *) fail "$label uses an unapproved download host: $url" ;;
   esac
 
-  local curl_auth=()
+  local curl_args=(
+    --fail
+    --location
+    --header 'Accept: application/octet-stream'
+    --proto '=https'
+    --proto-redir '=https'
+    --retry 3
+    --retry-all-errors
+    --connect-timeout 15
+    --max-time 300
+    --max-filesize "$max_bytes"
+    --output "$output"
+  )
   if [[ "$url" == https://api.github.com/* && -n "${GITHUB_TOKEN:-}" ]]; then
-    curl_auth+=(--oauth2-bearer "${GITHUB_TOKEN}")
+    curl_args+=(--oauth2-bearer "${GITHUB_TOKEN}")
   fi
 
-  curl \
-    --fail \
-    --location \
-    --header 'Accept: application/octet-stream' \
-    "${curl_auth[@]}" \
-    --proto '=https' \
-    --proto-redir '=https' \
-    --retry 3 \
-    --retry-all-errors \
-    --connect-timeout 15 \
-    --max-time 300 \
-    --max-filesize "$max_bytes" \
-    --output "$output" \
-    "$url"
+  curl "${curl_args[@]}" "$url"
 
   local actual_size
   actual_size="$(wc -c <"$output" | tr -d '[:space:]')"
@@ -79,6 +78,50 @@ download_verified() {
   actual="$(sha256_file "$output")"
   test "$actual" = "$expected" ||
     fail "$label SHA256 mismatch: expected $expected got $actual"
+}
+
+verify_geoip_payload() {
+  local archive="$1"
+  local expected_gzip_hash="$2"
+  local expected_raw_hash="$3"
+  local max_raw_bytes="$4"
+  local actual_gzip_hash
+
+  actual_gzip_hash="$(sha256_file "$archive")"
+  test "$actual_gzip_hash" = "$expected_gzip_hash" ||
+    fail "GeoIP mirror gzip SHA256 mismatch: expected $expected_gzip_hash got $actual_gzip_hash"
+
+  python3 - "$archive" "$expected_raw_hash" "$max_raw_bytes" <<'PY'
+import gzip
+import hashlib
+import sys
+from pathlib import Path
+
+archive_path, expected_hash, max_bytes_raw = sys.argv[1:]
+max_bytes = int(max_bytes_raw)
+digest = hashlib.sha256()
+total = 0
+try:
+    with gzip.open(Path(archive_path), "rb") as source:
+        while True:
+            chunk = source.read(min(64 * 1024, max_bytes + 1 - total))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise SystemExit(
+                    f"GeoIP mirror raw payload exceeds the {max_bytes} byte limit"
+                )
+            digest.update(chunk)
+except (EOFError, OSError) as error:
+    raise SystemExit(f"GeoIP mirror is not a valid gzip: {error}") from error
+
+actual_hash = digest.hexdigest()
+if actual_hash != expected_hash:
+    raise SystemExit(
+        f"GeoIP mirror raw SHA256 mismatch: expected {expected_hash} got {actual_hash}"
+    )
+PY
 }
 
 extract_zip_member_bounded() {
@@ -151,9 +194,22 @@ apk_url="$(require_field "$android_source" 'Container URL')"
 apk_hash="$(require_field "$android_source" 'Container SHA256')"
 android_member="$(require_field "$android_source" 'Library member')"
 android_hash="$(require_field "$android_source" 'Library SHA256')"
-geo_url="$(require_field "$geo_source" 'Asset URL')"
+geo_mirror_repo="$(require_field "$geo_source" 'Mirror repo')"
+geo_mirror_tag="$(require_field "$geo_source" 'Mirror release tag')"
+geo_mirror_name="$(require_field "$geo_source" 'Mirror asset name')"
+geo_url="$(require_field "$geo_source" 'Mirror URL')"
 geo_raw_hash="$(require_field "$geo_source" 'Upstream SHA256')"
 geo_gzip_hash="$(require_field "$geo_source" 'Bundled gzip SHA256')"
+expected_geo_name="geoip.metadb-${geo_gzip_hash}.gz"
+expected_geo_url="https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/${expected_geo_name}"
+test "$geo_mirror_repo" = "Elegying/SSRVPN" ||
+  fail "GeoIP mirror repo must be Elegying/SSRVPN"
+test "$geo_mirror_tag" = "core-assets-v1" ||
+  fail "GeoIP mirror release tag must be core-assets-v1"
+test "$geo_mirror_name" = "$expected_geo_name" ||
+  fail "GeoIP mirror asset must be content-addressed as $expected_geo_name"
+test "$geo_url" = "$expected_geo_url" ||
+  fail "GeoIP Mirror URL must be $expected_geo_url"
 
 android_asset="SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so"
 geo_assets=(
@@ -163,7 +219,13 @@ geo_assets=(
 )
 
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/ssrvpn-core-assets.XXXXXX")"
-trap 'rm -rf "$temp_dir"' EXIT
+cleanup() {
+  local status=$?
+  trap - EXIT
+  rm -rf "$temp_dir"
+  exit "$status"
+}
+trap cleanup EXIT
 
 if ! asset_matches "$android_asset" "$android_hash"; then
   apk="$temp_dir/SSRVPN.apk"
@@ -186,18 +248,11 @@ for geo_asset in "${geo_assets[@]}"; do
 done
 if [ "$need_geo" -eq 1 ]; then
   download_verified \
-    "$geo_url" "$geo_raw_hash" "$temp_dir/geoip.metadb" \
-    "GeoIP database" $((64 * 1024 * 1024))
-  python3 - "$temp_dir/geoip.metadb" "$temp_dir/geoip.metadb.gz" <<'PY'
-import gzip
-import sys
-from pathlib import Path
-
-raw = Path(sys.argv[1]).read_bytes()
-compressed = gzip.compress(raw, compresslevel=9, mtime=0)
-# Keep the gzip header platform-independent across supported Python versions.
-Path(sys.argv[2]).write_bytes(compressed[:9] + b"\xff" + compressed[10:])
-PY
+    "$geo_url" "$geo_gzip_hash" "$temp_dir/geoip.metadb.gz" \
+    "GeoIP mirror asset" $((64 * 1024 * 1024))
+  verify_geoip_payload \
+    "$temp_dir/geoip.metadb.gz" "$geo_gzip_hash" "$geo_raw_hash" \
+    $((64 * 1024 * 1024))
   for geo_asset in "${geo_assets[@]}"; do
     install_verified \
       "$temp_dir/geoip.metadb.gz" "$geo_asset" "$geo_gzip_hash" \
