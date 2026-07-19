@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show MethodChannel, rootBundle;
 import 'package:path_provider/path_provider.dart';
 
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
@@ -21,6 +21,10 @@ part 'clash_service_lifecycle.dart';
 /// 仅保留 macOS 特有的进程管理、资源释放和系统代理集成。
 class ClashService extends ClashServiceBase
     with _MacosClashConfig, _MacosCoreLifecycle {
+  ClashService({SystemProxyService? proxyService}) {
+    _proxyService = proxyService ?? SystemProxyService();
+  }
+
   // ── macOS 静态路径 ──
   static const _chmodPath = '/bin/chmod';
   static const _coreName = 'AtlasCore';
@@ -71,6 +75,9 @@ class ClashService extends ClashServiceBase
   }) async {
     updateSettings(settings);
     _startupDisabledReason = null;
+    _startupBlockedByProxyRecovery = false;
+    _coreAssetsPrepared = false;
+    _runCoreProbesAfterRecovery = !skipCoreProbes;
 
     String configDir;
     if (dataDir != null && dataDir.isNotEmpty) {
@@ -98,17 +105,15 @@ class ClashService extends ClashServiceBase
     // 初始化 HTTP 客户端
     initHttpClient();
 
-    // 核心是可执行文件：先移除不可信的旧路径项，再安装普通用户文件。
-    await _installCoreAsset(
-      'assets/AtlasCore.gz',
-      _corePath,
-    );
-    await _installAsset(
-      'assets/geoip.metadb.gz',
-      '$configDir${Platform.pathSeparator}geoip.metadb',
-    );
-    if (!skipCoreProbes) {
-      await _terminateOrphanedCores();
+    if (_proxyService.recoveryPending) {
+      _startupBlockedByProxyRecovery = true;
+      disableStartup(
+        _proxyService.lastError ?? '检测到未恢复的 macOS 系统代理状态，已保留现有核心并暂停启动',
+      );
+    } else {
+      await _prepareCoreAssetsAfterProxyRecovery(
+        runVersionProbe: !skipCoreProbes,
+      );
     }
 
     log('系统: ${Platform.operatingSystemVersion}');
@@ -122,7 +127,29 @@ class ClashService extends ClashServiceBase
     if (_proxyService.lastError != null) {
       log(_proxyService.lastError!);
     }
-    if (!skipCoreProbes) {
+  }
+
+  @override
+  Future<void> _prepareCoreAssetsAfterProxyRecovery({
+    required bool runVersionProbe,
+  }) async {
+    if (_proxyService.recoveryPending) {
+      throw StateError('系统代理恢复完成前不得终止或替换 Mihomo 核心');
+    }
+    if (!_coreAssetsPrepared) {
+      // 必须先用旧路径确认并终止遗留代际；替换 executable 会破坏 proc_pidpath 证据。
+      await _terminateOrphanedCores();
+      await _installCoreAsset(
+        'assets/AtlasCore.gz',
+        _corePath,
+      );
+      await _installAsset(
+        'assets/geoip.metadb.gz',
+        '$configDir${Platform.pathSeparator}geoip.metadb',
+      );
+      _coreAssetsPrepared = true;
+    }
+    if (runVersionProbe) {
       await _logCoreVersion();
     }
   }

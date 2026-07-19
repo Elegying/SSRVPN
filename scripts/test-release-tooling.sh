@@ -16,6 +16,7 @@ python3 -m unittest \
   scripts/test_promote_oss_public_channel.py \
   scripts/test_release_tooling_entrypoint.py \
   scripts/test_reuse_github_release_assets.py \
+  scripts/test_run_flutter_coverage.py \
   scripts/test_run_command_with_timeout.py \
   scripts/test_secret_scanning.py \
   scripts/test_validate_existing_release_retry.py \

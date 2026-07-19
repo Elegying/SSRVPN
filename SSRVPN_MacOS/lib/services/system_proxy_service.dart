@@ -1,8 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_macos/src/services/system_proxy_ownership.dart';
+
+typedef MacNetworkSetupRunner = Future<ProcessResult> Function(
+  List<String> arguments,
+);
+typedef MacProxyLifecycleBegin = Future<String> Function();
+typedef MacProxyLifecycleEnd = Future<bool> Function(String token);
 
 /// macOS 系统代理服务。
 ///
@@ -10,13 +17,29 @@ import 'package:ssrvpn_macos/src/services/system_proxy_ownership.dart';
 /// 原始代理状态，停止连接或下次启动发现残留状态时优先恢复，避免异常退出后
 /// 把用户本来配置的代理直接清空。
 class SystemProxyService {
-  static final SystemProxyService _instance = SystemProxyService._();
-  factory SystemProxyService() => _instance;
-  SystemProxyService._();
+  SystemProxyService({
+    MacNetworkSetupRunner? networkSetupRunner,
+    MacProxyLifecycleBegin? beginProxyLifecycleTransaction,
+    MacProxyLifecycleEnd? endProxyLifecycleTransaction,
+  })  : _networkSetupRunner = networkSetupRunner,
+        _beginProxyLifecycleTransaction = beginProxyLifecycleTransaction,
+        _endProxyLifecycleTransaction = endProxyLifecycleTransaction;
 
   static const _networkSetupPath = '/usr/sbin/networksetup';
+  static const _coreProcessChannel = MethodChannel('ssrvpn/core_process');
   static const _commandTimeout = Duration(seconds: 4);
+  static const _maxStateFileBytes = 1024 * 1024;
+  static const _groupOrOtherWriteMask = 0x12;
+  static const _snapshotMetadataKeys = {
+    '_ownedProxyHost',
+    '_ownedProxyPort',
+    '_ownerPid',
+  };
+  final MacNetworkSetupRunner? _networkSetupRunner;
+  final MacProxyLifecycleBegin? _beginProxyLifecycleTransaction;
+  final MacProxyLifecycleEnd? _endProxyLifecycleTransaction;
   File? _stateFile;
+  Future<bool>? _clearSystemProxyInFlight;
   bool _proxyEnabled = false;
   bool _recoveryPending = false;
   String? _ownedProxyHost;
@@ -29,10 +52,11 @@ class SystemProxyService {
 
   Future<void> initialize(String configDir) async {
     _stateFile = File('$configDir${Platform.pathSeparator}system_proxy.json');
-    final file = _stateFile;
-    if (file != null && await file.exists()) {
-      _recoveryPending = !await clearSystemProxy();
+    if (!Platform.isMacOS) {
+      _recoveryPending = false;
+      return;
     }
+    _recoveryPending = !await clearSystemProxy();
   }
 
   /// 获取所有可用的网络服务名称（Wi-Fi、Ethernet 等）。
@@ -53,10 +77,17 @@ class SystemProxyService {
   Future<bool> setSystemProxy(String host, int port) async {
     if (!Platform.isMacOS) return false;
     _lastError = null;
-    if (host.trim().isEmpty || port < 1 || port > 65535) {
+    final normalizedHost = host.trim();
+    if (normalizedHost.isEmpty || port < 1 || port > 65535) {
       _lastError = '代理地址或端口无效: $host:$port';
       return false;
     }
+    return _runWithNativeProxyLifecycleLease(
+      () => _setSystemProxyOnce(normalizedHost, port),
+    );
+  }
+
+  Future<bool> _setSystemProxyOnce(String host, int port) async {
     if (_recoveryPending) {
       _lastError = '系统代理仍有未恢复的旧状态，请查看运行日志';
       return false;
@@ -71,6 +102,17 @@ class SystemProxyService {
       final services = await _listNetworkServices();
       if (services.isEmpty) {
         _lastError ??= '没有找到可用的 macOS 网络服务';
+        return false;
+      }
+      String? reservedService;
+      for (final service in services) {
+        if (_snapshotMetadataKeys.contains(service)) {
+          reservedService = service;
+          break;
+        }
+      }
+      if (reservedService != null) {
+        _lastError = '网络服务名称与代理快照保留字段冲突: $reservedService';
         return false;
       }
 
@@ -91,21 +133,98 @@ class SystemProxyService {
       return true;
     } catch (e) {
       final originalError = '系统代理设置失败: $e';
-      await clearSystemProxy();
+      await _clearSystemProxyOnce();
       _lastError = originalError;
       return false;
     }
   }
 
-  Future<bool> clearSystemProxy() async {
-    if (!Platform.isMacOS) return false;
+  Future<bool> clearSystemProxy() {
+    if (!Platform.isMacOS) return Future.value(false);
+    return _clearSystemProxyInFlight ??= _runClearSystemProxy();
+  }
+
+  Future<bool> _runClearSystemProxy() async {
+    try {
+      return await _runWithNativeProxyLifecycleLease(_clearSystemProxyOnce);
+    } finally {
+      _clearSystemProxyInFlight = null;
+    }
+  }
+
+  Future<bool> _runWithNativeProxyLifecycleLease(
+    Future<bool> Function() operation,
+  ) async {
+    String? token;
+    var succeeded = false;
+    try {
+      token = await _beginNativeProxyLifecycleTransaction();
+      if (token.isEmpty) throw StateError('原生代理生命周期令牌无效');
+      succeeded = await operation();
+    } catch (error) {
+      _lastError ??= '无法锁定 macOS 代理生命周期: $error';
+      succeeded = false;
+    } finally {
+      if (token != null) {
+        var ended = false;
+        Object? lastEndError;
+        for (var attempt = 0; attempt < 3 && !ended; attempt++) {
+          try {
+            ended = await _endNativeProxyLifecycleTransaction(token);
+          } catch (error) {
+            lastEndError = error;
+          }
+        }
+        if (!ended) {
+          _lastError = '无法释放 macOS 代理生命周期令牌: '
+              '${lastEndError ?? '令牌不匹配'}';
+          succeeded = false;
+        }
+      }
+    }
+    return succeeded;
+  }
+
+  Future<String> _beginNativeProxyLifecycleTransaction() async {
+    final begin = _beginProxyLifecycleTransaction;
+    if (begin != null) return begin();
+    final token = await _coreProcessChannel.invokeMethod<String>(
+      'beginProxyLifecycleTransaction',
+    );
+    if (token == null || token.isEmpty) {
+      throw StateError('原生代理生命周期令牌无效');
+    }
+    return token;
+  }
+
+  Future<bool> _endNativeProxyLifecycleTransaction(String token) async {
+    final end = _endProxyLifecycleTransaction;
+    if (end != null) return end(token);
+    return await _coreProcessChannel.invokeMethod<bool>(
+          'endProxyLifecycleTransaction',
+          {'token': token},
+        ) ==
+        true;
+  }
+
+  Future<bool> _clearSystemProxyOnce() async {
     _lastError = null;
     try {
       final file = _stateFile;
-      if (file == null || !await file.exists()) {
+      if (file == null) {
         _forgetOwnership();
         _recoveryPending = false;
         return true;
+      }
+      final stateFileStatus = await _inspectStateFile(file);
+      if (stateFileStatus == _ProxyStateFileStatus.missing) {
+        _forgetOwnership();
+        _recoveryPending = false;
+        return true;
+      }
+      if (stateFileStatus == _ProxyStateFileStatus.unsafe) {
+        _recoveryPending = true;
+        return false;
       }
 
       final restored = await _restoreSavedState();
@@ -132,9 +251,17 @@ class SystemProxyService {
     if (file == null) {
       throw StateError('SystemProxyService has not been initialized');
     }
-    if (await file.exists()) {
+    final stateFileStatus = await _inspectStateFile(file);
+    if (stateFileStatus != _ProxyStateFileStatus.missing) {
       _recoveryPending = true;
-      throw StateError('已有未恢复的系统代理备份');
+      throw StateError(
+        stateFileStatus == _ProxyStateFileStatus.safe
+            ? '已有未恢复的系统代理备份'
+            : _lastError ?? '代理恢复状态路径不安全',
+      );
+    }
+    if (services.any(_snapshotMetadataKeys.contains)) {
+      throw StateError('网络服务名称与代理快照保留字段冲突');
     }
 
     final states = <String, dynamic>{
@@ -160,24 +287,34 @@ class SystemProxyService {
 
   Future<bool> _restoreSavedState() async {
     final file = _stateFile;
-    if (file == null || !await file.exists()) return false;
+    if (file == null) return false;
 
     try {
-      final raw = jsonDecode(await file.readAsString());
-      if (raw is! Map) return false;
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! Map<String, dynamic>) {
+        _lastError = '代理恢复快照格式无效，已保留现场';
+        return false;
+      }
+      final raw = decoded;
 
-      final ownedHost = raw['_ownedProxyHost']?.toString();
-      final ownedPort = int.tryParse(raw['_ownedProxyPort']?.toString() ?? '');
-      if (ownedHost == null || ownedHost.isEmpty || ownedPort == null) {
-        // Legacy state cannot prove ownership. Preserve current user settings.
-        await file.delete();
-        return true;
+      final rawOwnedHost = raw['_ownedProxyHost'];
+      final rawOwnedPort = raw['_ownedProxyPort'];
+      final rawOwnerPid = raw['_ownerPid'];
+      final ownedHost = rawOwnedHost is String ? rawOwnedHost.trim() : null;
+      final ownedPort = rawOwnedPort is int ? rawOwnedPort : null;
+      if (ownedHost == null ||
+          ownedHost.isEmpty ||
+          ownedPort == null ||
+          ownedPort < 1 ||
+          ownedPort > 65535 ||
+          (rawOwnerPid != null && (rawOwnerPid is! int || rawOwnerPid <= 1))) {
+        _lastError = '无法确认代理归属，已保留恢复快照并阻止核心清理';
+        return false;
       }
 
-      final savedServices = raw.keys
-          .map((key) => key.toString())
-          .where((service) => !service.startsWith('_'))
-          .toList(growable: false);
+      final savedServiceStates = _validatedSavedServiceStates(raw);
+      if (savedServiceStates == null) return false;
+      final savedServices = savedServiceStates.keys.toList(growable: false);
       final currentServices = await _listNetworkServices();
       if (savedServices.isNotEmpty && currentServices.isEmpty) {
         _lastError ??= '无法确认当前 macOS 网络服务，稍后重试恢复';
@@ -194,11 +331,7 @@ class SystemProxyService {
       final failures = <String>[];
       final resolvedServices = <String>[];
       for (final service in services) {
-        final value = raw[service];
-        if (value is! Map) {
-          failures.add('$service: 保存的代理状态格式无效');
-          continue;
-        }
+        final value = savedServiceStates[service]!;
         try {
           await _restoreProxyStateIfOwned(
             service,
@@ -254,6 +387,50 @@ class SystemProxyService {
       _lastError = '读取代理恢复状态失败: $e';
       return false;
     }
+  }
+
+  Map<String, Map<String, dynamic>>? _validatedSavedServiceStates(
+    Map<String, dynamic> raw,
+  ) {
+    final services = <String, Map<String, dynamic>>{};
+    for (final entry in raw.entries) {
+      if (_snapshotMetadataKeys.contains(entry.key)) continue;
+      final value = entry.value;
+      if (value is! Map<String, dynamic> ||
+          !const {'web', 'secureWeb', 'socks'}.containsAll(value.keys) ||
+          value.length != 3 ||
+          !_isValidProxyState(value['web']) ||
+          !_isValidProxyState(value['secureWeb']) ||
+          !_isValidProxyState(value['socks'])) {
+        _lastError = '${entry.key}: 保存的代理状态格式无效，已保留现场';
+        return null;
+      }
+      services[entry.key] = value;
+    }
+    if (services.isEmpty) {
+      _lastError = '代理恢复快照不包含有效网络服务，已保留现场';
+      return null;
+    }
+    return services;
+  }
+
+  bool _isValidProxyState(Object? value) {
+    if (value is! Map<String, dynamic>) return false;
+    if (!const {'enabled', 'server', 'port'}.containsAll(value.keys) ||
+        value.length != 3) {
+      return false;
+    }
+    final enabled = value['enabled'];
+    final server = value['server'];
+    final port = value['port'];
+    if (enabled is! bool ||
+        server is! String ||
+        port is! int ||
+        port < 0 ||
+        port > 65535) {
+      return false;
+    }
+    return !enabled || (server.trim().isNotEmpty && port > 0);
   }
 
   Future<Map<String, dynamic>> _readProxyState(
@@ -339,13 +516,57 @@ class SystemProxyService {
     }
   }
 
-  Future<ProcessResult> _runNetworkSetup(List<String> args) =>
-      TimedProcessRunner.run(
-        _networkSetupPath,
-        args,
-        timeout: _commandTimeout,
-        timeoutStderr: 'networksetup 命令超时',
+  Future<ProcessResult> _runNetworkSetup(List<String> args) {
+    final runner = _networkSetupRunner;
+    if (runner != null) return runner(args);
+    return TimedProcessRunner.run(
+      _networkSetupPath,
+      args,
+      timeout: _commandTimeout,
+      timeoutStderr: 'networksetup 命令超时',
+    );
+  }
+
+  Future<_ProxyStateFileStatus> _inspectStateFile(File file) async {
+    try {
+      final type = await FileSystemEntity.type(
+        file.path,
+        followLinks: false,
       );
+      if (type == FileSystemEntityType.notFound) {
+        return _ProxyStateFileStatus.missing;
+      }
+      if (type != FileSystemEntityType.file) {
+        _lastError = '代理恢复状态路径不是安全的普通文件，已保留现场';
+        return _ProxyStateFileStatus.unsafe;
+      }
+
+      final stat = await file.stat();
+      final typeAfterStat = await FileSystemEntity.type(
+        file.path,
+        followLinks: false,
+      );
+      const fileTypeMask = 0xF000;
+      const regularFileType = 0x8000;
+      if (typeAfterStat != FileSystemEntityType.file ||
+          stat.mode & fileTypeMask != regularFileType) {
+        _lastError = '代理恢复状态路径不是安全的普通文件，已保留现场';
+        return _ProxyStateFileStatus.unsafe;
+      }
+      if (stat.size > _maxStateFileBytes) {
+        _lastError = '代理恢复状态超过 1 MiB 安全上限，已保留现场';
+        return _ProxyStateFileStatus.unsafe;
+      }
+      if (stat.mode & _groupOrOtherWriteMask != 0) {
+        _lastError = '代理恢复状态文件为 group/other 可写，已保留现场';
+        return _ProxyStateFileStatus.unsafe;
+      }
+      return _ProxyStateFileStatus.safe;
+    } catch (error) {
+      _lastError = '无法安全检查代理恢复状态，已保留现场: $error';
+      return _ProxyStateFileStatus.unsafe;
+    }
+  }
 
   Future<void> _writeStringAtomically(File file, String content) async {
     await file.parent.create(recursive: true);
@@ -362,3 +583,5 @@ class SystemProxyService {
     _ownedProxyPort = null;
   }
 }
+
+enum _ProxyStateFileStatus { missing, safe, unsafe }

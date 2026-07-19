@@ -142,6 +142,13 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         return;
       }
 
+      if (core.hasPendingSystemProxyRecovery &&
+          !await core.recoverPendingSystemProxy()) {
+        StartupLogger.warning(
+          core.lastStartError ?? 'System proxy recovery is still pending',
+        );
+        return;
+      }
       if (core.isStartupDisabled) {
         StartupLogger.warning(core.startupDisabledReason ?? 'Core disabled');
         return;

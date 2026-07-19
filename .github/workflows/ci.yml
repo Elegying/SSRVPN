@@ -70,8 +70,7 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
         working-directory: packages/ssrvpn_shared
-      - run: flutter test --coverage
-        working-directory: packages/ssrvpn_shared
+      - run: bash scripts/run-flutter-coverage.sh packages/ssrvpn_shared
       - run: bash scripts/check-coverage-thresholds.sh packages/ssrvpn_shared
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -138,8 +137,7 @@ jobs:
       - run: flutter analyze
         working-directory: ${{ matrix.directory }}
 
-      - run: flutter test --coverage
-        working-directory: ${{ matrix.directory }}
+      - run: bash scripts/run-flutter-coverage.sh ${{ matrix.directory }}
 
       - name: macOS native unit tests
         if: matrix.directory == 'SSRVPN_MacOS'

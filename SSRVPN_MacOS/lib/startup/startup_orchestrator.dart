@@ -177,7 +177,7 @@ class StartupOrchestrator {
         dataDir: settings.dataDir,
         storageNotice: settings.storageNotice,
       );
-      if (!core.coreExists) {
+      if (!core.coreExists && !core.hasPendingSystemProxyRecovery) {
         coreFailure = StateError('Mihomo core not found: ${core.corePath}');
       }
     } catch (error, stack) {

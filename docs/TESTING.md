@@ -27,12 +27,12 @@ make verify
 
 ## 覆盖率门槛
 
-门槛是回归保险，不是质量分数。本轮根据已稳定通过的实际基线，将过低的 `50/40/10/12` 收紧为：
+门槛是回归保险，不是质量分数。总门槛以完整生产源码清单为分母：
 
 | 目标 | 最低行覆盖率 |
 | --- | ---: |
 | `packages/ssrvpn_shared` | 65% |
-| Android | 50% |
+| Android | 30% |
 | macOS | 30% |
 | Windows | 30% |
 
@@ -42,13 +42,24 @@ make verify
 | 关键文件 | 最低行覆盖率 | 当前锁定证据 |
 | --- | ---: | ---: |
 | Windows `clash_service_lifecycle.dart` | 4.19% | `21/501` |
-| macOS `clash_service_lifecycle.dart` | 16.98% | `71/418`（16.99%） |
-| macOS `system_proxy_service.dart` | 17.75% | `30/169` |
+| macOS `clash_service_lifecycle.dart` | 60.00% | `296/470`（62.98%） |
+| macOS `system_proxy_service.dart` | 80.00% | `220/258`（85.27%） |
 
 这些下限不把当前仍偏低的数值包装成目标值，只防止已有证据悄然倒退；关键文件从 LCOV 中消失
 同样会使门禁失败。新增生命周期行为时应先提高对应测试与下限，而不是依靠平台总覆盖率吸收
-未测试代码。macOS 当前额外覆盖了 TERM/KILL 后仍未退出、信号发送异常，以及无所有权的旧代理
-快照只能被安全丢弃而不得恢复到系统等失败路径。
+未测试代码。macOS 当前额外覆盖了单实例租约、原生 spawn/身份/记录原子边界、身份失败时的
+直系子进程收口、有界输出与状态 watcher、完整记录正常停止、旧数字 PID 的保守迁移、同 PID
+ABA、代理事务令牌延迟 Cmd+Q、严格快照 schema、保留键冲突、代理恢复失败时保留旧核心与资产、
+符号链接/超大记录拒绝、TERM/KILL 后仍未退出及信号发送异常等失败路径。LCOV 的 `LF/LH` 必须各
+出现一次并与去重后的 `DA` 精确一致；`DA` 只接受 canonical ASCII 十进制，汇总字段不能替代
+真实逐行证据。
+
+覆盖率执行由 `scripts/run-flutter-coverage.sh` 统一配置。每个平台的 manifest 测试会加载所有可
+独立导入的生产库；门禁再把平台库通过真实 `part` 指令拥有的片段加入同一清单。macOS/Windows
+的 16 个 `packages/ssrvpn_shared/lib/desktop_ui` 片段因此分别计入消费平台的分母，普通 shared
+依赖不会抬高平台分子或分母。生产源码缺失于 LCOV、伪造或越界 `SF`、路径穿越/别名、非法
+UTF-8、注释或字符串伪装的 `part` 指令都会使门禁失败。只有明确的生成代码、纯声明文件和由
+另一目标实际拥有的片段可以按可审计分类排除。
 
 不得通过排除生产源码、删除分支或添加无有效断言的测试来满足门槛。若行为新增导致覆盖率下降，应优先覆盖用户结果与错误路径；确需调整门槛时，在 PR 中写明可执行行变化和风险。
 
@@ -72,8 +83,11 @@ scripts/check-coverage-thresholds.sh SSRVPN_MacOS
 ### 原生层
 
 - Android Kotlin/JUnit 覆盖 VPN Service 代际、更新安装身份和 Mihomo API 健康检查；静态门禁要求应用模块使用 AGP 9 内置 Kotlin、Gradle/JVM 17 和新原生库打包 DSL。第三方插件迁移完成前保留逐模块兼容开关，删除开关时必须重新跑 APK 构建和原生测试。涉及 Service、磁贴、通知或 MethodChannel 时还需真机回归。
-- macOS Swift/XCTest 覆盖窗口/Dock 生命周期等原生行为；TUN、管理员授权、系统代理和打包必须在 macOS 实际运行。
-  统一入口为 `scripts/test-macos-native.sh`；非 Darwin 主机会明确跳过，CI 与 Release 的 macOS job 必须执行而不能用 Flutter build 代替。
+- macOS Swift/XCTest 覆盖窗口/Dock、单实例租约、原生核心启动/记录、串行生命周期队列、代理
+  退出令牌、进程代际和不可信代理状态文件等原生行为；TUN、管理员授权、
+  系统代理和打包必须在 macOS 实际运行。统一入口为 `scripts/test-macos-native.sh`；单实例 App
+  的 XCTest 宿主固定串行，非 Darwin 主机会明确跳过，CI 与 Release 的 macOS job 必须执行而
+  不能用 Flutter build 代替。
 - Windows launcher、安装器、代理恢复和进程路径需要 Windows CI。CI 必须用 `powershell.exe` 5.1 执行全部脚本兼容性测试，并在每个子进程后检查退出码，不能只看最后一条打包命令；生成安装包后还必须在隔离 runner 上按默认每用户路径真实静默安装、校验关键文件、安全停止已启动实例并卸载。首次交互安装、覆盖升级、连接、异常退出、重启与系统代理恢复仍需干净 Windows 设备。
 
 ### 发布与文档
@@ -91,10 +105,10 @@ scripts/workspace.sh pub-get
 scripts/workspace.sh analyze
 scripts/workspace.sh test
 
-# 单平台示例
-cd SSRVPN_Android && flutter test --coverage
-cd SSRVPN_MacOS && flutter test --coverage
-cd SSRVPN_Windows && flutter test --coverage
+# 单平台覆盖率（macOS/Windows 需要 wrapper 纳入跨包 owned parts）
+scripts/run-flutter-coverage.sh SSRVPN_Android
+scripts/run-flutter-coverage.sh SSRVPN_MacOS
+scripts/run-flutter-coverage.sh SSRVPN_Windows
 
 # Android 原生
 scripts/test-android-native.sh

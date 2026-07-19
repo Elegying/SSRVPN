@@ -69,14 +69,33 @@ if source.count("await _verifyCoreForExecution();") < 3:
 
 if "/usr/bin/pkill" in lifecycle_source or "['-f', _corePath]" in lifecycle_source:
     raise SystemExit(f"{lifecycle_path}: broad pkill core cleanup is forbidden")
+for forbidden in (
+    "/bin/ps",
+    "/bin/kill",
+    "Process.start(",
+    "Process.killPid",
+    "process.kill",
+    "terminateMacosCoreProcess",
+    "'persistOwnedCoreRecord'",
+    "writeAsString('$corePid\\n'",
+):
+    if forbidden in lifecycle_source:
+        raise SystemExit(f"{lifecycle_path}: obsolete PID-only lifecycle remains: {forbidden}")
 
 required_lifecycle = (
-    "['-p', '$pid', '-o', 'lstart=', '-o', 'command=']",
-    "environment: const {'LC_ALL': 'C'}",
-    "macosKillProbeShowsProcessAbsent",
-    "['-0', '$pid']",
-    "遗留核心 PID 文件无效，已保留以阻止不安全启动",
-    "await readIdentity() != identity",
+    "MethodChannel('ssrvpn/core_process')",
+    "'launchOwnedCore'",
+    "'ownedCoreStatus'",
+    "'terminateOwnedCore'",
+    "'terminateOwnedCoreRecord'",
+    "'removeOwnedCorePidRecord'",
+    "MacosNativeCoreHandle? _clashProcess",
+    "String? _corePidRecordContents",
+    "await _cancelNativeCoreStatusWatch()",
+    "await _terminateOrphanedCores()",
+    "_proxyService.recoveryPending",
+    "expectedContents': expectedRecord",
+    "contents == 'v2 $recordedPid $startSeconds $startMicroseconds\\n'",
 )
 missing_lifecycle = [
     token for token in required_lifecycle if token not in lifecycle_source
@@ -91,21 +110,172 @@ app_delegate = Path("SSRVPN_MacOS/macos/Runner/AppDelegate.swift").read_text(
     encoding="utf-8"
 )
 required_native = (
+    "func acquireInstanceLease(at url: URL? = nil) -> Bool",
+    "flock(descriptor, LOCK_EX | LOCK_NB)",
+    "performTerminationCleanupIfLeaseOwner",
+    "private let coreProcessOperationQueue = DispatchQueue(",
+    "func enqueueCoreProcessOperation(_ operation: @escaping () -> Void)",
+    "func performCoreProcessOperationAndWait(_ operation: () -> Void)",
+    "override func applicationShouldTerminate(",
+    "return .terminateLater",
+    "func beginProxyLifecycleTransaction() -> String",
+    "func endProxyLifecycleTransaction(token: String) -> Bool",
     "runtimeDirectoryForTermination(proxyStateURL:",
     "terminateOwnedCore(in: runtimeDirectory)",
     "struct CoreProcessIdentity: Equatable",
+    "struct CoreProcessGeneration: Equatable",
+    "struct CorePidRecord: Equatable",
+    "struct CoreLaunchResult: Equatable",
+    "struct CoreProcessStatus: Equatable",
+    "private final class NativeOwnedCoreProcess",
+    "private final class CoreOutputCapture",
+    "func launchOwnedCore(",
+    "identityPollCount: Int = 51",
+    "containLaunchedCoreProcess(process)",
+    "containTrackedCoreWithoutRecord(in: directory)",
+    '"v2 \\(pid) \\(startSeconds) \\(startMicroseconds)\\n"',
     "proc_pidinfo(pid, PROC_PIDTBSDINFO",
     "proc_pidpath(pid",
+    "generationBefore == generationAfter",
     "processInfo.pbi_start_tvsec",
-    "identityForProcess(pid, corePath) == identity",
+    "record.identity(executablePath: corePath)",
     "canSignalProcess: (Int32, Int32) -> Bool,",
+    "expectedPidContents: String",
+    "text == expectedContents",
+    "Darwin.lstat",
+    "O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK",
+    "fileInfo.st_size <= 128",
+    "O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW",
+    ".pending-\\(UUID().uuidString)",
+    "writePidRecordAtomically",
+    "S_IRUSR | S_IWUSR",
     "UInt32(RENAME_EXCL)",
+    "func readProxyStateData(at url: URL) -> Data?",
+    "func proxyStatePathEntryExists(at url: URL) -> Bool",
+    "fileInfo.st_mode & (S_IWGRP | S_IWOTH) == 0",
+    "fileInfo.st_size <= 1_048_576",
+    "Proxy restore state has no ownership proof; preserving it",
+    "validatedProxyServices(in: root)",
 )
 missing_native = [token for token in required_native if token not in app_delegate]
 if missing_native:
     raise SystemExit(
         "AppDelegate.swift: missing exact owned-core termination guard(s): "
         + ", ".join(missing_native)
+    )
+
+main_window = Path("SSRVPN_MacOS/macos/Runner/MainFlutterWindow.swift").read_text(
+    encoding="utf-8"
+)
+required_channel = (
+    'name: "ssrvpn/core_process"',
+    'call.method == "beginProxyLifecycleTransaction"',
+    'call.method == "endProxyLifecycleTransaction"',
+    'case "launchOwnedCore"',
+    'case "ownedCoreStatus"',
+    'case "terminateOwnedCore"',
+    'case "terminateOwnedCoreRecord"',
+    'case "removeOwnedCorePidRecord"',
+)
+missing_channel = [token for token in required_channel if token not in main_window]
+if missing_channel:
+    raise SystemExit(
+        "MainFlutterWindow.swift: missing native process channel guard(s): "
+        + ", ".join(missing_channel)
+    )
+
+channel_cases = (
+    "launchOwnedCore",
+    "ownedCoreStatus",
+    "terminateOwnedCore",
+    "terminateOwnedCoreRecord",
+    "removeOwnedCorePidRecord",
+)
+for index, method in enumerate(channel_cases):
+    start = main_window.index(f'case "{method}"')
+    if index + 1 < len(channel_cases):
+        end = main_window.index(f'case "{channel_cases[index + 1]}"', start)
+    else:
+        end = main_window.index("default:", start)
+    if "delegate.enqueueCoreProcessOperation" not in main_window[start:end]:
+        raise SystemExit(
+            f"MainFlutterWindow.swift: {method} must use the serial core operation queue"
+        )
+
+if 'case "persistOwnedCoreRecord"' in main_window:
+    raise SystemExit(
+        "MainFlutterWindow.swift: obsolete two-step spawn/persist channel remains"
+    )
+
+begin_start = main_window.index('call.method == "beginProxyLifecycleTransaction"')
+begin_end = main_window.index('call.method == "endProxyLifecycleTransaction"')
+if "delegate.performCoreProcessOperationAndWait" not in main_window[begin_start:begin_end]:
+    raise SystemExit(
+        "MainFlutterWindow.swift: proxy lifecycle begin must publish synchronously"
+    )
+end_end = main_window.index("guard\n        let arguments", begin_end)
+if "delegate.enqueueCoreProcessOperation" not in main_window[begin_end:end_end]:
+    raise SystemExit(
+        "MainFlutterWindow.swift: proxy lifecycle end must use the serial queue"
+    )
+
+awake_body = main_window[main_window.index("override func awakeFromNib()"):]
+if awake_body.index("delegate.acquireInstanceLease()") > awake_body.index(
+    "FlutterViewController()"
+):
+    raise SystemExit(
+        "MainFlutterWindow.swift: instance lease must precede Flutter engine creation"
+    )
+
+termination_body = app_delegate[
+    app_delegate.index("override func applicationWillTerminate"):
+]
+if termination_body.index("performTerminationCleanupIfLeaseOwner") > termination_body.index(
+    "restoreSavedProxyState()"
+):
+    raise SystemExit(
+        "AppDelegate.swift: lease ownership must gate termination cleanup"
+    )
+if termination_body.index("performCoreProcessOperationAndWait") > termination_body.index(
+    "restoreSavedProxyState()"
+):
+    raise SystemExit(
+        "AppDelegate.swift: termination must drain core operations before proxy/core cleanup"
+    )
+
+proxy_service = Path(
+    "SSRVPN_MacOS/lib/services/system_proxy_service.dart"
+).read_text(encoding="utf-8")
+required_proxy_guards = (
+    "Future<bool>? _clearSystemProxyInFlight",
+    "return _clearSystemProxyInFlight ??= _runClearSystemProxy()",
+    "_clearSystemProxyInFlight = null",
+    "FileSystemEntity.type(\n        file.path,\n        followLinks: false",
+    "stat.size > _maxStateFileBytes",
+    "stat.mode & _groupOrOtherWriteMask != 0",
+    "无法确认代理归属，已保留恢复快照并阻止核心清理",
+    "_runWithNativeProxyLifecycleLease(",
+    "'beginProxyLifecycleTransaction'",
+    "'endProxyLifecycleTransaction'",
+    "_snapshotMetadataKeys.contains(service)",
+    "_validatedSavedServiceStates(raw)",
+    "_isValidProxyState(value['web'])",
+)
+missing_proxy_guards = [
+    token for token in required_proxy_guards if token not in proxy_service
+]
+if missing_proxy_guards:
+    raise SystemExit(
+        "system_proxy_service.dart: missing fail-closed proxy guard(s): "
+        + ", ".join(missing_proxy_guards)
+    )
+
+prepare = main_source.index("Future<void> _prepareCoreAssetsAfterProxyRecovery")
+install = main_source.index("await _installCoreAsset", prepare)
+orphan_cleanup = main_source.index("await _terminateOrphanedCores()", prepare)
+if orphan_cleanup > install:
+    raise SystemExit(
+        f"{path}: orphan identity must be handled before replacing AtlasCore"
     )
 
 print("macOS core privilege guards passed.")

@@ -69,6 +69,7 @@ for path in paths:
     termination_calls = (
         "terminateCoreProcess(coreProcess)",
         "terminateMacosCoreProcess(",
+        "'terminateOwnedCoreRecord'",
         ".kill(",
     )
     process_kill = min(
@@ -161,22 +162,38 @@ if positions != sorted(positions):
     raise SystemExit("Windows core termination signal/wait order is unsafe")
 
 macos_source = paths[0].read_text(encoding="utf-8")
-helper_start = macos_source.index("Future<bool> terminateMacosCoreProcess(")
-helper_end = macos_source.index("mixin _MacosCoreLifecycle", helper_start)
-helper = macos_source[helper_start:helper_end]
-missing = [token for token in required_termination_guards if token not in helper]
-if missing:
-    raise SystemExit(
-        "macOS core termination does not wait after SIGKILL: "
-        + ", ".join(missing)
-    )
-positions = [helper.index(token) for token in required_termination_guards[:4]]
-if positions != sorted(positions):
-    raise SystemExit("macOS core termination signal/wait order is unsafe")
+macos_start = macos_source[
+    macos_source.index("Future<bool> _startInternal(") :
+    macos_source.index("Future<void> stop()")
+]
+for token in ("'launchOwnedCore'", "_readNativeCoreStatus(startedProcess)"):
+    if token not in macos_start:
+        raise SystemExit(
+            f"macOS startup is missing native atomic launch/status guard: {token}"
+        )
 macos_stop = macos_source[
     macos_source.index("Future<bool> _stopInternal()") :
     macos_source.index("Future<bool> _startTunCore")
 ]
+for token in (
+    "'terminateOwnedCoreRecord'",
+    "'expectedContents': expectedRecord",
+    "await _cancelNativeCoreStatusWatch()",
+    "if (!terminated)",
+):
+    if token not in macos_stop:
+        raise SystemExit(
+            f"macOS normal stop is missing native full-record guard: {token}"
+        )
+for forbidden in (
+    "terminateMacosCoreProcess(",
+    "Process.start(",
+    "'persistOwnedCoreRecord'",
+    "process.kill",
+    "Process.killPid",
+):
+    if forbidden in macos_source:
+        raise SystemExit(f"macOS PID-only termination remains: {forbidden}")
 if macos_stop.index("if (!terminated)") > macos_stop.index("_clashProcess = null"):
     raise SystemExit("macOS drops core ownership before confirming process exit")
 
