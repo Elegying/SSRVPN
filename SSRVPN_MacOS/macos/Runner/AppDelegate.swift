@@ -2,6 +2,13 @@ import Cocoa
 import Darwin
 import FlutterMacOS
 
+struct CoreProcessIdentity: Equatable {
+  let pid: Int32
+  let executablePath: String
+  let startSeconds: UInt64
+  let startMicroseconds: UInt64
+}
+
 @main
 class AppDelegate: FlutterAppDelegate {
   // 返回 false：退出由 Flutter 侧 _quitApp() 主动调用 SystemNavigator.pop() 控制，
@@ -80,23 +87,228 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   @discardableResult
-  func terminateOwnedCore(in directory: URL?) -> Bool {
+  func terminateOwnedCore(
+    in directory: URL?,
+    identityForProcess: (Int32, String) -> CoreProcessIdentity? = {
+      AppDelegate.currentCoreProcessIdentity(pid: $0, expectedExecutablePath: $1)
+    },
+    signalProcess: (Int32, Int32) -> Int32 = { Darwin.kill($0, $1) },
+    isProcessAlive: (Int32) -> Bool = { AppDelegate.processIsAlive($0) },
+    sleep: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+  ) -> Bool {
     guard let directory else { return false }
     let pidURL = directory.appendingPathComponent("AtlasCore.pid")
     let corePath = directory.appendingPathComponent("AtlasCore").path
-    guard
-      let text = try? String(contentsOf: pidURL, encoding: .utf8),
-      let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
-      pid > 1,
-      let command = runProcessOutput("/bin/ps", ["-p", "\(pid)", "-o", "command="]),
-      isOwnedCoreCommand(command, corePath: corePath)
-    else {
-      try? FileManager.default.removeItem(at: pidURL)
+    guard let text = try? String(contentsOf: pidURL, encoding: .utf8) else {
+      NSLog("[AppDelegate] AtlasCore PID file is unreadable; preserving it")
       return false
     }
-    let stopped = kill(pid, SIGTERM) == 0 || errno == ESRCH
-    if stopped { try? FileManager.default.removeItem(at: pidURL) }
-    return stopped
+    guard
+      let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+      pid > 1
+    else {
+      NSLog("[AppDelegate] AtlasCore PID file is invalid; preserving it")
+      return false
+    }
+    guard let identity = identityForProcess(pid, corePath) else {
+      if !isProcessAlive(pid) {
+        _ = removePidFileIfMatching(at: pidURL, expectedPid: pid)
+        return true
+      }
+      NSLog("[AppDelegate] AtlasCore identity could not be confirmed; preserving PID file")
+      return false
+    }
+    return terminateConfirmedCoreProcess(
+      pid: pid,
+      pidURL: pidURL,
+      signalProcess: signalProcess,
+      isProcessAlive: isProcessAlive,
+      canSignalProcess: { pid, _ in identityForProcess(pid, corePath) == identity },
+      sleep: sleep
+    )
+  }
+
+  @discardableResult
+  func terminateConfirmedCoreProcess(
+    pid: Int32,
+    pidURL: URL,
+    signalProcess: (Int32, Int32) -> Int32 = { Darwin.kill($0, $1) },
+    isProcessAlive: (Int32) -> Bool = { AppDelegate.processIsAlive($0) },
+    canSignalProcess: (Int32, Int32) -> Bool,
+    sleep: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
+    gracefulPollCount: Int = 21,
+    forcedPollCount: Int = 11,
+    pollInterval: TimeInterval = 0.1
+  ) -> Bool {
+    // A delivered signal is not proof that the process exited. The default
+    // polling budget is bounded to 2 seconds for TERM and 1 second for KILL.
+    guard canSignalProcess(pid, SIGTERM) else {
+      if !isProcessAlive(pid) {
+        _ = removePidFileIfMatching(at: pidURL, expectedPid: pid)
+        return true
+      }
+      NSLog("[AppDelegate] AtlasCore ownership changed before SIGTERM; preserving PID file")
+      return false
+    }
+
+    let termResult = signalProcess(pid, SIGTERM)
+    if termResult != 0 {
+      let signalError = errno
+      if signalError == ESRCH || !isProcessAlive(pid) {
+        _ = removePidFileIfMatching(at: pidURL, expectedPid: pid)
+        return true
+      }
+      NSLog("[AppDelegate] SIGTERM was rejected (errno \(signalError)); preserving PID file")
+      return false
+    }
+    if waitForCoreExit(
+      pid: pid,
+      isProcessAlive: isProcessAlive,
+      sleep: sleep,
+      pollCount: gracefulPollCount,
+      pollInterval: pollInterval
+    ) {
+      _ = removePidFileIfMatching(at: pidURL, expectedPid: pid)
+      return true
+    }
+
+    guard canSignalProcess(pid, SIGKILL) else {
+      if !isProcessAlive(pid) {
+        _ = removePidFileIfMatching(at: pidURL, expectedPid: pid)
+        return true
+      }
+      NSLog("[AppDelegate] AtlasCore ownership changed before SIGKILL; preserving PID file")
+      return false
+    }
+
+    let killResult = signalProcess(pid, SIGKILL)
+    if killResult != 0 {
+      let signalError = errno
+      if signalError == ESRCH || !isProcessAlive(pid) {
+        _ = removePidFileIfMatching(at: pidURL, expectedPid: pid)
+        return true
+      }
+      NSLog("[AppDelegate] SIGKILL was rejected (errno \(signalError)); preserving PID file")
+      return false
+    }
+    if waitForCoreExit(
+      pid: pid,
+      isProcessAlive: isProcessAlive,
+      sleep: sleep,
+      pollCount: forcedPollCount,
+      pollInterval: pollInterval
+    ) {
+      _ = removePidFileIfMatching(at: pidURL, expectedPid: pid)
+      return true
+    }
+
+    NSLog("[AppDelegate] AtlasCore exit could not be confirmed; preserving PID file")
+    return false
+  }
+
+  @discardableResult
+  func removePidFileIfMatching(
+    at pidURL: URL,
+    expectedPid: Int32,
+    afterQuarantine: ((URL) -> Void)? = nil
+  ) -> Bool {
+    let quarantineURL = pidURL.deletingLastPathComponent().appendingPathComponent(
+      ".\(pidURL.lastPathComponent).cleanup-\(UUID().uuidString)"
+    )
+    let quarantineResult = renameExclusively(from: pidURL, to: quarantineURL)
+    guard quarantineResult == 0 else {
+      if errno == ENOENT { return true }
+      NSLog("[AppDelegate] AtlasCore PID file could not be quarantined; preserving it")
+      return false
+    }
+
+    afterQuarantine?(quarantineURL)
+    guard
+      let text = try? String(contentsOf: quarantineURL, encoding: .utf8),
+      Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) == expectedPid
+    else {
+      if renameExclusively(from: quarantineURL, to: pidURL) != 0 {
+        NSLog("[AppDelegate] Newer AtlasCore PID state preserved in quarantine")
+      }
+      return false
+    }
+
+    do {
+      try FileManager.default.removeItem(at: quarantineURL)
+      return true
+    } catch {
+      NSLog("[AppDelegate] Quarantined AtlasCore PID file could not be removed")
+      return false
+    }
+  }
+
+  private func renameExclusively(from source: URL, to destination: URL) -> Int32 {
+    source.path.withCString { sourcePath in
+      destination.path.withCString { destinationPath in
+        renameatx_np(
+          AT_FDCWD,
+          sourcePath,
+          AT_FDCWD,
+          destinationPath,
+          UInt32(RENAME_EXCL)
+        )
+      }
+    }
+  }
+
+  private func waitForCoreExit(
+    pid: Int32,
+    isProcessAlive: (Int32) -> Bool,
+    sleep: (TimeInterval) -> Void,
+    pollCount: Int,
+    pollInterval: TimeInterval
+  ) -> Bool {
+    let checks = max(1, pollCount)
+    for check in 0..<checks {
+      if !isProcessAlive(pid) { return true }
+      if check + 1 < checks {
+        sleep(max(0, pollInterval))
+      }
+    }
+    return false
+  }
+
+  private static func processIsAlive(_ pid: Int32) -> Bool {
+    errno = 0
+    if Darwin.kill(pid, 0) == 0 { return true }
+    return errno != ESRCH
+  }
+
+  static func currentCoreProcessIdentity(
+    pid: Int32,
+    expectedExecutablePath: String
+  ) -> CoreProcessIdentity? {
+    var processInfo = proc_bsdinfo()
+    let expectedInfoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
+    let infoSize = withUnsafeMutablePointer(to: &processInfo) {
+      proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, $0, expectedInfoSize)
+    }
+    guard
+      infoSize == expectedInfoSize,
+      processInfo.pbi_pid == UInt32(pid)
+    else {
+      return nil
+    }
+
+    var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+    let pathLength = pathBuffer.withUnsafeMutableBufferPointer {
+      proc_pidpath(pid, $0.baseAddress, UInt32($0.count))
+    }
+    guard pathLength > 0 else { return nil }
+    let executablePath = String(cString: pathBuffer)
+    guard executablePath == expectedExecutablePath else { return nil }
+
+    return CoreProcessIdentity(
+      pid: pid,
+      executablePath: executablePath,
+      startSeconds: processInfo.pbi_start_tvsec,
+      startMicroseconds: processInfo.pbi_start_tvusec
+    )
   }
 
   func runtimeDirectoryForTermination(proxyStateURL: URL?) -> URL? {
@@ -114,11 +326,6 @@ class AppDelegate: FlutterAppDelegate {
     return candidates.first {
       fm.fileExists(atPath: $0.appendingPathComponent("AtlasCore.pid").path)
     }
-  }
-
-  func isOwnedCoreCommand(_ command: String, corePath: String) -> Bool {
-    let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines)
-    return normalized == corePath || normalized.hasPrefix(corePath + " ")
   }
 
   private func restoreSavedProxyState() -> Bool {

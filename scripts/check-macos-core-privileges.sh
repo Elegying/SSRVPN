@@ -70,13 +70,36 @@ if source.count("await _verifyCoreForExecution();") < 3:
 if "/usr/bin/pkill" in lifecycle_source or "['-f', _corePath]" in lifecycle_source:
     raise SystemExit(f"{lifecycle_path}: broad pkill core cleanup is forbidden")
 
+required_lifecycle = (
+    "['-p', '$pid', '-o', 'lstart=', '-o', 'command=']",
+    "environment: const {'LC_ALL': 'C'}",
+    "macosKillProbeShowsProcessAbsent",
+    "['-0', '$pid']",
+    "遗留核心 PID 文件无效，已保留以阻止不安全启动",
+    "await readIdentity() != identity",
+)
+missing_lifecycle = [
+    token for token in required_lifecycle if token not in lifecycle_source
+]
+if missing_lifecycle:
+    raise SystemExit(
+        f"{lifecycle_path}: missing process-generation guard(s): "
+        + ", ".join(missing_lifecycle)
+    )
+
 app_delegate = Path("SSRVPN_MacOS/macos/Runner/AppDelegate.swift").read_text(
     encoding="utf-8"
 )
 required_native = (
     "runtimeDirectoryForTermination(proxyStateURL:",
     "terminateOwnedCore(in: runtimeDirectory)",
-    "isOwnedCoreCommand(command, corePath: corePath)",
+    "struct CoreProcessIdentity: Equatable",
+    "proc_pidinfo(pid, PROC_PIDTBSDINFO",
+    "proc_pidpath(pid",
+    "processInfo.pbi_start_tvsec",
+    "identityForProcess(pid, corePath) == identity",
+    "canSignalProcess: (Int32, Int32) -> Bool,",
+    "UInt32(RENAME_EXCL)",
 )
 missing_native = [token for token in required_native if token not in app_delegate]
 if missing_native:

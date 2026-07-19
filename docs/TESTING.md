@@ -21,7 +21,7 @@ make verify
 - Flutter workspace 依赖解析与零 analyzer finding。
 - 订阅解析、合并与配置生成关键路径的可执行性能冒烟及结构校验。
 - `ssrvpn_shared`、Android、macOS、Windows 的覆盖率测试。
-- Android Kotlin/JUnit 原生测试。
+- Android Kotlin/JUnit 与 macOS Swift/XCTest 原生测试。
 
 行为、原生集成或打包有变化时，`make verify` 只是最低要求，还必须运行下面的目标平台检查。
 
@@ -35,6 +35,20 @@ make verify
 | Android | 50% |
 | macOS | 30% |
 | Windows | 30% |
+
+平台总覆盖率容易掩盖低覆盖的关键生命周期文件，因此门禁还会检查以下基于完整测试套件实测后
+锁定的渐进下限：
+
+| 关键文件 | 最低行覆盖率 | 当前锁定证据 |
+| --- | ---: | ---: |
+| Windows `clash_service_lifecycle.dart` | 4.19% | `21/501` |
+| macOS `clash_service_lifecycle.dart` | 16.98% | `71/418`（16.99%） |
+| macOS `system_proxy_service.dart` | 17.75% | `30/169` |
+
+这些下限不把当前仍偏低的数值包装成目标值，只防止已有证据悄然倒退；关键文件从 LCOV 中消失
+同样会使门禁失败。新增生命周期行为时应先提高对应测试与下限，而不是依靠平台总覆盖率吸收
+未测试代码。macOS 当前额外覆盖了 TERM/KILL 后仍未退出、信号发送异常，以及无所有权的旧代理
+快照只能被安全丢弃而不得恢复到系统等失败路径。
 
 不得通过排除生产源码、删除分支或添加无有效断言的测试来满足门槛。若行为新增导致覆盖率下降，应优先覆盖用户结果与错误路径；确需调整门槛时，在 PR 中写明可执行行变化和风险。
 
@@ -59,6 +73,7 @@ scripts/check-coverage-thresholds.sh SSRVPN_MacOS
 
 - Android Kotlin/JUnit 覆盖 VPN Service 代际、更新安装身份和 Mihomo API 健康检查；静态门禁要求应用模块使用 AGP 9 内置 Kotlin、Gradle/JVM 17 和新原生库打包 DSL。第三方插件迁移完成前保留逐模块兼容开关，删除开关时必须重新跑 APK 构建和原生测试。涉及 Service、磁贴、通知或 MethodChannel 时还需真机回归。
 - macOS Swift/XCTest 覆盖窗口/Dock 生命周期等原生行为；TUN、管理员授权、系统代理和打包必须在 macOS 实际运行。
+  统一入口为 `scripts/test-macos-native.sh`；非 Darwin 主机会明确跳过，CI 与 Release 的 macOS job 必须执行而不能用 Flutter build 代替。
 - Windows launcher、安装器、代理恢复和进程路径需要 Windows CI。CI 必须用 `powershell.exe` 5.1 执行全部脚本兼容性测试，并在每个子进程后检查退出码，不能只看最后一条打包命令；生成安装包后还必须在隔离 runner 上按默认每用户路径真实静默安装、校验关键文件、安全停止已启动实例并卸载。首次交互安装、覆盖升级、连接、异常退出、重启与系统代理恢复仍需干净 Windows 设备。
 
 ### 发布与文档
@@ -84,6 +99,9 @@ cd SSRVPN_Windows && flutter test --coverage
 # Android 原生
 scripts/test-android-native.sh
 scripts/check-android-built-in-kotlin.sh
+
+# macOS 原生（仅 Darwin 执行 RunnerTests）
+scripts/test-macos-native.sh
 
 # 免费桌面分发策略
 python3 -m unittest scripts/test_free_desktop_distribution.py

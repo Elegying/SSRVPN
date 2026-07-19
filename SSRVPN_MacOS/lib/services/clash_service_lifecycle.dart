@@ -25,8 +25,89 @@ Future<bool> terminateMacosCoreProcess({
   }
 }
 
+typedef MacosProcessIdentity = ({String startTime, String command});
+
+MacosProcessIdentity? ownedMacosCoreIdentityFromPsOutput(
+  String output,
+  String executablePath,
+) {
+  final identity = macosProcessIdentityFromPsOutput(output);
+  if (identity == null) return null;
+  final owned = identity.command == executablePath ||
+      identity.command.startsWith('$executablePath ');
+  return owned ? identity : null;
+}
+
+MacosProcessIdentity? macosProcessIdentityFromPsOutput(String output) {
+  final line = output.trimRight();
+  const startFieldLength = 24;
+  if (line.length <= startFieldLength || line.contains('\n')) return null;
+
+  final startTime = line.substring(0, startFieldLength);
+  if (!RegExp(
+    r'^[A-Z][a-z]{2} [A-Z][a-z]{2} [ 0-9][0-9] '
+    r'[0-9]{2}:[0-9]{2}:[0-9]{2} [0-9]{4}$',
+  ).hasMatch(startTime)) {
+    return null;
+  }
+  final command = line.substring(startFieldLength).trimLeft();
+  if (command.isEmpty) return null;
+  return (startTime: startTime, command: command);
+}
+
+bool macosKillProbeShowsProcessAbsent(int exitCode, String stderr) =>
+    exitCode != 0 &&
+    RegExp(r'(^|:) No such process\s*$').hasMatch(stderr.trim());
+
+Future<bool> terminateOwnedMacosCoreProcess({
+  required Future<MacosProcessIdentity?> Function() readIdentity,
+  required bool Function(ProcessSignal signal) sendSignal,
+  Duration gracefulTimeout = const Duration(seconds: 3),
+  Duration forcedTimeout = const Duration(seconds: 3),
+  Duration pollInterval = const Duration(milliseconds: 100),
+}) async {
+  final identity = await readIdentity();
+  if (identity == null || await readIdentity() != identity) return true;
+  if (!sendSignal(ProcessSignal.sigterm)) {
+    return await readIdentity() != identity;
+  }
+  if (await _waitForMacosCoreIdentityExit(
+    identity,
+    readIdentity,
+    gracefulTimeout,
+    pollInterval,
+  )) {
+    return true;
+  }
+  if (await readIdentity() != identity) return true;
+  if (!sendSignal(ProcessSignal.sigkill)) {
+    return await readIdentity() != identity;
+  }
+  return _waitForMacosCoreIdentityExit(
+    identity,
+    readIdentity,
+    forcedTimeout,
+    pollInterval,
+  );
+}
+
+Future<bool> _waitForMacosCoreIdentityExit(
+  MacosProcessIdentity identity,
+  Future<MacosProcessIdentity?> Function() readIdentity,
+  Duration timeout,
+  Duration pollInterval,
+) async {
+  final deadline = DateTime.now().add(timeout);
+  while (true) {
+    if (await readIdentity() != identity) return true;
+    if (!DateTime.now().isBefore(deadline)) return false;
+    await Future<void>.delayed(pollInterval);
+  }
+}
+
 mixin _MacosCoreLifecycle on ClashServiceBase {
   static const _filePath = '/usr/bin/file';
+  static const _killPath = '/bin/kill';
   static const _psPath = '/bin/ps';
 
   Process? _clashProcess;
@@ -178,32 +259,13 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     try {
       final pid = int.tryParse((await pidFile.readAsString()).trim());
       if (pid == null || pid <= 1) {
-        await _deleteCorePid();
-        return;
+        throw StateError('遗留核心 PID 文件无效，已保留以阻止不安全启动');
       }
-      final result = await _runProcess(
-        _psPath,
-        ['-p', '$pid', '-o', 'command='],
-        timeout: const Duration(seconds: 5),
+      final terminated = await terminateOwnedMacosCoreProcess(
+        readIdentity: () => _readOwnedCoreIdentity(pid),
+        sendSignal: (signal) => Process.killPid(pid, signal),
       );
-      final command = result.stdout.toString().trim();
-      if (result.exitCode == 124) {
-        throw StateError('确认遗留核心归属超时');
-      }
-      final owned = command == _corePath || command.startsWith('$_corePath ');
-      if (result.exitCode != 0 || command.isEmpty || !owned) {
-        await _deleteCorePid();
-        return;
-      }
-      if (!Process.killPid(pid, ProcessSignal.sigterm)) {
-        throw StateError('无法向遗留核心发送终止信号');
-      }
-      if (!await _waitForOwnedCoreExit(pid)) {
-        if (!Process.killPid(pid, ProcessSignal.sigkill) ||
-            !await _waitForOwnedCoreExit(pid)) {
-          throw StateError('遗留核心未能终止');
-        }
-      }
+      if (!terminated) throw StateError('遗留核心未能终止');
       await _deleteCorePid();
       log('已清理遗留的 Mihomo 进程');
     } catch (e) {
@@ -211,26 +273,41 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     }
   }
 
-  Future<bool> _waitForOwnedCoreExit(int pid) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 3));
-    while (DateTime.now().isBefore(deadline)) {
-      final result = await _runProcess(
-        _psPath,
-        ['-p', '$pid', '-o', 'command='],
+  Future<MacosProcessIdentity?> _readOwnedCoreIdentity(int pid) async {
+    final result = await _runProcess(
+      _psPath,
+      ['-p', '$pid', '-o', 'lstart=', '-o', 'command='],
+      includeParentEnvironment: true,
+      environment: const {'LC_ALL': 'C'},
+      timeout: const Duration(seconds: 2),
+    );
+    if (result.exitCode == 124) {
+      throw StateError('确认遗留核心归属超时');
+    }
+    if (result.exitCode != 0) {
+      final probe = await _runProcess(
+        _killPath,
+        ['-0', '$pid'],
+        includeParentEnvironment: true,
+        environment: const {'LC_ALL': 'C'},
         timeout: const Duration(seconds: 2),
       );
-      final command = result.stdout.toString().trim();
-      if (result.exitCode == 124) {
-        throw StateError('等待遗留核心退出超时');
+      if (probe.exitCode == 124) {
+        throw StateError('确认遗留核心是否存在超时');
       }
-      if (result.exitCode != 0 ||
-          command.isEmpty ||
-          (command != _corePath && !command.startsWith('$_corePath '))) {
-        return true;
+      if (macosKillProbeShowsProcessAbsent(
+        probe.exitCode,
+        probe.stderr.toString(),
+      )) {
+        return null;
       }
-      await Future.delayed(const Duration(milliseconds: 100));
+      throw StateError('无法确认遗留核心是否仍存在');
     }
-    return false;
+    final output = result.stdout.toString();
+    if (macosProcessIdentityFromPsOutput(output) == null) {
+      throw StateError('遗留核心进程身份输出无效');
+    }
+    return ownedMacosCoreIdentityFromPsOutput(output, _corePath);
   }
 
   void setCorePath(String path) {
