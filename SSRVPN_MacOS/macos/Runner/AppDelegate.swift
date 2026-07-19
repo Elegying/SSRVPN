@@ -2,6 +2,14 @@ import Cocoa
 import Darwin
 import FlutterMacOS
 
+protocol WindowRevealTarget: AnyObject {
+  var isMiniaturized: Bool { get }
+  func deminiaturize(_ sender: Any?)
+  func makeKeyAndOrderFront(_ sender: Any?)
+}
+
+extension NSWindow: WindowRevealTarget {}
+
 struct CoreProcessIdentity: Equatable {
   let pid: Int32
   let executablePath: String
@@ -465,7 +473,14 @@ class AppDelegate: FlutterAppDelegate {
     _ sender: NSApplication,
     hasVisibleWindows flag: Bool
   ) -> Bool {
-    revealMainWindow(in: sender)
+    return handleApplicationReopen {
+      _ = revealMainWindow(in: sender)
+    }
+  }
+
+  @discardableResult
+  func handleApplicationReopen(_ reveal: () -> Void) -> Bool {
+    reveal()
     return true
   }
 
@@ -479,7 +494,7 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   @discardableResult
-  func revealWindow(_ window: NSWindow?) -> Bool {
+  func revealWindow(_ window: WindowRevealTarget?) -> Bool {
     guard let window else { return false }
     if window.isMiniaturized {
       window.deminiaturize(nil)
