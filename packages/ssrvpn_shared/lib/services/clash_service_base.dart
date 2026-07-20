@@ -516,7 +516,6 @@ abstract class ClashServiceBase
   String userConnectivityProxyConfig() =>
       _settings.enableTun ? 'DIRECT' : _localHttpProxyConfig();
 
-  /// 系统代理走 mixed-port；TUN 走普通系统网络路径。只有连续失败才返回提示。
   Future<String?> verifyUserConnectivity({
     int maxAttempts = 3,
     Duration retryDelay = const Duration(seconds: 2),
@@ -546,8 +545,9 @@ abstract class ClashServiceBase
         try {
           final response = await send(endpoint);
           if (shouldContinue?.call() == false) return null;
-          if (response.statusCode == 204 || response.statusCode == 200)
+          if (response.statusCode == 204 || response.statusCode == 200) {
             return null;
+          }
           lastStatusCode = response.statusCode;
         } catch (_) {
           lastStatusCode = null;
