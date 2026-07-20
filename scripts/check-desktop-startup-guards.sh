@@ -58,7 +58,7 @@ for path in paths:
             f"{path}: missing post-proxy process guard(s): {', '.join(missing)}"
         )
 
-    stop_start = source.index("Future<bool> _stopInternal()")
+    stop_start = source.index("Future<bool> _stopInternal(")
     stop_end_candidates = [
         source.find(marker, stop_start + 1)
         for marker in ("void _ensureStartCurrent", "Future<bool> _startTunCore")
@@ -131,7 +131,7 @@ if "unawaited(_deleteCorePid())" in windows_source:
     raise SystemExit("Windows exited-core PID cleanup can race a new PID write")
 if "if (pidCleanup != null) await pidCleanup" not in windows_start_body:
     raise SystemExit("Windows startup does not await the previous PID cleanup")
-windows_stop_internal = windows_source.index("Future<bool> _stopInternal()")
+windows_stop_internal = windows_source.index("Future<bool> _stopInternal(")
 windows_stop_internal_end = windows_source.index(
     "void _ensureStartCurrent", windows_stop_internal
 )
@@ -172,7 +172,7 @@ for token in ("'launchOwnedCore'", "_readNativeCoreStatus(startedProcess)"):
             f"macOS startup is missing native atomic launch/status guard: {token}"
         )
 macos_stop = macos_source[
-    macos_source.index("Future<bool> _stopInternal()") :
+    macos_source.index("Future<bool> _stopInternal(") :
     macos_source.index("Future<bool> _startTunCore")
 ]
 for token in (
