@@ -511,19 +511,12 @@ abstract class ClashServiceBase
     }
   }
 
-  // ── 连通性验证 ──
-
   String _localHttpProxyConfig() => 'PROXY 127.0.0.1:${_settings.proxyPort}';
-
   @visibleForTesting
   String userConnectivityProxyConfig() =>
       _settings.enableTun ? 'DIRECT' : _localHttpProxyConfig();
 
-  /// 验证用户连通性。系统代理模式通过本地 mixed-port 探测；TUN 模式
-  /// 必须走普通系统网络路径，才能覆盖路由和系统 DNS 泄漏。
-  ///
-  /// 核心/TUN 刚启动时 DNS 和连接池仍可能预热，单次 5xx 或超时不能判定
-  /// 节点不可用；只有连续失败才返回非阻断提示。
+  /// 系统代理走 mixed-port；TUN 走普通系统网络路径。只有连续失败才返回提示。
   Future<String?> verifyUserConnectivity({
     int maxAttempts = 3,
     Duration retryDelay = const Duration(seconds: 2),
@@ -553,9 +546,8 @@ abstract class ClashServiceBase
         try {
           final response = await send(endpoint);
           if (shouldContinue?.call() == false) return null;
-          if (response.statusCode == 204 || response.statusCode == 200) {
+          if (response.statusCode == 204 || response.statusCode == 200)
             return null;
-          }
           lastStatusCode = response.statusCode;
         } catch (_) {
           lastStatusCode = null;
