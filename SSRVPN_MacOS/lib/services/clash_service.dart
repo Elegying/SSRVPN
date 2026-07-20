@@ -21,8 +21,12 @@ part 'clash_service_lifecycle.dart';
 /// 仅保留 macOS 特有的进程管理、资源释放和系统代理集成。
 class ClashService extends ClashServiceBase
     with _MacosClashConfig, _MacosCoreLifecycle {
-  ClashService({SystemProxyService? proxyService}) {
+  ClashService({
+    SystemProxyService? proxyService,
+    @visibleForTesting MacosTunSession? tunSession,
+  }) {
     _proxyService = proxyService ?? SystemProxyService();
+    _tunSession = tunSession;
   }
 
   // ── macOS 静态路径 ──
@@ -90,7 +94,7 @@ class ClashService extends ClashServiceBase
     setPaths(configDir: configDir, configPath: configPath);
 
     await _ensureRealDirectory(configDir);
-    _tunSession = MacosTunSession(dataDir: configDir);
+    _tunSession ??= MacosTunSession(dataDir: configDir);
     await _tunSession!.clearStaleRequest();
     await Directory(
       '$configDir${Platform.pathSeparator}providers',

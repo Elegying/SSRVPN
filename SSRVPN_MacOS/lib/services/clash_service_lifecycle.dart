@@ -683,9 +683,22 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       while (DateTime.now().isBefore(deadline)) {
         _ensureStartCurrent(startToken);
         if (await healthCheck()) {
+          final connectivityWarning = await verifyUserConnectivity(
+            shouldContinue: () => startToken == _startGeneration,
+          );
+          _ensureStartCurrent(startToken);
+          if (connectivityWarning != null) {
+            setLastStartError('TUN 数据通道验证失败：$connectivityWarning');
+            log('❌ $lastStartError');
+            await tunSession.stop();
+            return false;
+          }
           setRunning(true);
           resetHealthCheckFailures();
-          log('macOS TUN 核心已就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');
+          log(
+            'macOS TUN 核心与数据通道已就绪，耗时 '
+            '${startupWatch.elapsedMilliseconds}ms',
+          );
           notifyStatusChanged();
           startStatusMonitor();
           return true;

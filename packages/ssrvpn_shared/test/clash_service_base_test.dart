@@ -88,6 +88,38 @@ void main() {
   });
 
   group('ClashServiceBase connectivity verification', () {
+    test('TUN verification uses the ordinary route and a YouTube endpoint',
+        () async {
+      Uri? requestedUri;
+      final service = _TestClashService()
+        ..updateSettings(AppSettings(enableTun: true));
+      addTearDown(service.dispose);
+
+      final warning = await service.verifyUserConnectivity(
+        maxAttempts: 1,
+        retryDelay: Duration.zero,
+        request: (uri) async {
+          requestedUri = uri;
+          return http.Response('', 204);
+        },
+      );
+
+      expect(warning, isNull);
+      expect(requestedUri, Uri.parse('https://www.youtube.com/generate_204'));
+      expect(service.userConnectivityProxyConfig(), 'DIRECT');
+    });
+
+    test('system-proxy verification keeps using the local mixed port', () {
+      final service = _TestClashService()
+        ..updateSettings(AppSettings(proxyPort: 17890));
+      addTearDown(service.dispose);
+
+      expect(
+        service.userConnectivityProxyConfig(),
+        'PROXY 127.0.0.1:17890',
+      );
+    });
+
     test('suppresses a transient HTTP failure after a successful retry',
         () async {
       final statuses = [502, 204];

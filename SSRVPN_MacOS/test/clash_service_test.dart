@@ -5,8 +5,10 @@ import 'dart:io';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/services.dart' show MethodChannel, rootBundle;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:ssrvpn_macos/models/app_settings.dart';
 import 'package:ssrvpn_macos/services/clash_service.dart';
+import 'package:ssrvpn_macos/services/macos_tun_session.dart';
 import 'package:ssrvpn_macos/services/system_proxy_service.dart';
 
 const _subscriptionYaml = '''
@@ -277,6 +279,9 @@ void main() {
       expect(systemProxyConfig, isNot(contains('\ntun:\n')));
       expect(tunConfig, contains('\ntun:\n'));
       expect(tunConfig, contains('  enable: true'));
+      expect(tunConfig, contains('  listen: 127.0.0.1:53'));
+      expect(tunConfig, contains('    - any:53'));
+      expect(tunConfig, contains('    - tcp://any:53'));
       expect(tunConfig, contains('  inet6-address:'));
       expect(tunConfig, contains('    - fc00::/7'));
       expect(tunConfig, contains('    - fe80::/10'));
@@ -784,6 +789,36 @@ void main() {
       expect(service.lastStartError, 'Mihomo service is not initialized');
     });
 
+    test('TUN startup stays disconnected when the real data path fails',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_data_path_',
+      );
+      final tunSession = _FakeMacosTunSession(tempDir.path);
+      final service = _TunDataPathClashService(tunSession: tunSession);
+      addTearDown(() async {
+        await service.stop();
+        service.dispose();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final settings = AppSettings(enableTun: true);
+      await service.init(
+        settings,
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      await service.writeConfig(
+        service.generateClashConfig(_subscriptionYaml, settings),
+      );
+
+      expect(await service.start(), isFalse);
+      expect(service.isRunning, isFalse);
+      expect(service.lastStartError, contains('TUN 数据通道验证失败'));
+      expect(tunSession.stopCalls, 1);
+    });
+
     test('system proxy mode keeps the normal startup path', () async {
       final service = ClashService()
         ..updateSettings(AppSettings(enableTun: false));
@@ -926,4 +961,46 @@ class _AlwaysHealthyClashService extends ClashService {
 
   @override
   Future<bool> healthCheck() async => true;
+}
+
+class _TunDataPathClashService extends ClashService {
+  _TunDataPathClashService({required super.tunSession});
+
+  @override
+  Future<bool> healthCheck() async => true;
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async =>
+      '已连接，但连续 3 次网络验证失败，请尝试切换节点或刷新订阅';
+}
+
+class _FakeMacosTunSession extends MacosTunSession {
+  _FakeMacosTunSession(String dataDir)
+      : super(
+          dataDir: dataDir,
+          resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+          runnerPath: '$dataDir/macos_tun_runner.sh',
+        );
+
+  int stopCalls = 0;
+
+  @override
+  Future<void> clearStaleRequest() async {}
+
+  @override
+  Future<bool> start() async => true;
+
+  @override
+  Future<MacosTunStartupState> startupState() async =>
+      MacosTunStartupState.running;
+
+  @override
+  Future<void> stop() async {
+    stopCalls++;
+  }
 }

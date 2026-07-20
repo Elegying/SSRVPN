@@ -49,7 +49,7 @@ void main() {
     expect(
       arguments!.last,
       contains(
-        '7dc9ed9c0503c857edd3929b70b829f459fc7d0940006641e6a19ca7b64dc36f',
+        'b2494ee09d9a7c03dd7292285d23e6a5e41c33cd977672c204084efacb628833',
       ),
     );
     expect(arguments!.last, isNot(contains('/usr/bin/nohup')));
@@ -209,6 +209,29 @@ void main() {
 
     expect(await session.startupState(), MacosTunStartupState.failed);
     expect(session.lastError, contains('TUN 网卡或路由'));
+  });
+
+  test('TUN startup status reports a categorized DNS failure', () async {
+    final dataDir = await Directory.systemTemp.createTemp('ssrvpn_tun_dns_');
+    addTearDown(() => dataDir.delete(recursive: true));
+    final status = File('${dataDir.path}/status')
+      ..writeAsStringSync('error:dns\n');
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: '${dataDir.path}/runner.sh',
+      statusPath: status.path,
+      appPid: 123,
+      routeProbe: (_, __) async =>
+          ProcessResult(1, 0, '  interface: en0\n', ''),
+      authorizationLauncher: (_, __) async => TunAuthorizationHandle(
+        exitCode: Future<int>.value(0),
+        terminate: () {},
+      ),
+    );
+
+    expect(await session.startupState(), MacosTunStartupState.failed);
+    expect(session.lastError, contains('DNS'));
   });
 
   test('TUN startup status ignores linked and malformed status files',

@@ -306,6 +306,10 @@ for required in \
   'kill -0 "$app_pid"' \
   '/var/run/ssrvpn-tun-status-$app_pid' \
   'write_status "error:tun"' \
+  'write_status "error:dns"' \
+  '/usr/sbin/networksetup' \
+  'configure_tun_dns' \
+  'restore_tun_dns' \
   'for _ in {1..24}'; do
   if ! grep -Fq -- "$required" "$runner"; then
     echo "macOS TUN runner guard failed: missing $required" >&2

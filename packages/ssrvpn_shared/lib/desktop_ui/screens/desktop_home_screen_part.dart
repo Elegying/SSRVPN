@@ -160,6 +160,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
     final wasConnected = clashService.isRunning || _isConnected;
+    var reconnectAfterUpdate = false;
     setState(() {
       _isConnecting = true;
       _errorMessage = null;
@@ -183,12 +184,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _latencyController.clear();
         _resetPublicIpState();
       });
-
-      if (wasConnected) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('网络设置已更新，请重新连接')),
-        );
-      }
+      reconnectAfterUpdate = wasConnected;
     } catch (error, stack) {
       recordDesktopConnectionFailure(
         '更新网络设置失败',
@@ -205,6 +201,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (mounted && !_disposed) {
         setState(() => _isConnecting = false);
       }
+    }
+
+    if (reconnectAfterUpdate && mounted && !_disposed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('网络设置已更新，正在重新连接')),
+      );
+      await _handleConnectToggle();
     }
   }
 
@@ -503,9 +506,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         unawaited(_autoTestAllNodes());
         _checkUpdateDelayed();
 
-        // Core/API/system proxy success is the user-visible connection
-        // boundary. Connectivity probing is advisory and must not leave the
-        // UI looking stuck on slower or probe-blocking networks.
+        // TUN startup already gates on its real system-network data path.
+        // This post-start check remains advisory for system-proxy mode and
+        // catches connectivity that degrades immediately after startup.
         final connectivityWarning = await clashService.verifyUserConnectivity(
           shouldContinue: () => clashService.isConnectionIntentCurrent(
             connectionGeneration,

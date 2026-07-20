@@ -71,7 +71,10 @@ config_path=$staged_config
 [[ $(/usr/bin/tr -d '[:space:]' < "$request_path") == "$app_pid" ]] || \
   die "TUN request does not match the requesting app"
 
-script_dir=$(CDPATH= cd -- "$(/usr/bin/dirname -- "$0")" && /bin/pwd -P)
+script_dir=$(
+  CDPATH=''
+  cd -- "$(/usr/bin/dirname -- "$0")" && /bin/pwd -P
+)
 core_gzip="$script_dir/AtlasCore.gz"
 core_manifest="$script_dir/AtlasCore-source.txt"
 [[ -f $core_gzip && ! -L $core_gzip && -f $core_manifest && ! -L $core_manifest ]] || \
@@ -83,7 +86,108 @@ lock_dir="$runtime_dir.lock"
 child_pid=
 validator_pid=
 remove_status_on_exit=false
+dns_service=
+dns_original_mode=
+dns_configured=false
+dns_state_path=
+dns_original_servers=()
+
+is_dns_server() {
+  [[ $1 =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ || \
+     $1 =~ ^[0-9A-Fa-f:.]+(%[A-Za-z0-9._-]+)?$ ]]
+}
+
+active_network_service() {
+  local device service
+  device=$(/sbin/route -n get default 2>/dev/null | \
+    /usr/bin/awk '/^[[:space:]]*interface:/{print $2; exit}')
+  [[ $device =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+  service=$(/usr/sbin/networksetup -listnetworkserviceorder | \
+    /usr/bin/awk -v device="$device" '
+      /^\([0-9]+\) / { service = substr($0, index($0, ") ") + 2); next }
+      index($0, "Device: " device ")") > 0 { print service; exit }
+    ')
+  [[ -n $service && $service != *$'\n'* && $service != \** ]] || return 1
+  /usr/bin/printf '%s\n' "$service"
+}
+
+read_dns_servers() {
+  /usr/sbin/networksetup -getdnsservers "$1" 2>/dev/null
+}
+
+configure_tun_dns() {
+  local output line
+  dns_service=$(active_network_service) || return 1
+  output=$(read_dns_servers "$dns_service") || return 1
+  if [[ $output == "There aren't any DNS Servers set on "* ]]; then
+    dns_original_mode=automatic
+  else
+    dns_original_mode=manual
+    while IFS= read -r line; do
+      [[ -n $line ]] || continue
+      is_dns_server "$line" || return 1
+      dns_original_servers+=("$line")
+    done <<< "$output"
+    ((${#dns_original_servers[@]} > 0)) || return 1
+  fi
+
+  dns_state_path="$runtime_dir/dns-state"
+  (set -o noclobber; : > "$dns_state_path") 2>/dev/null || return 1
+  /bin/chmod 600 "$dns_state_path"
+  {
+    /usr/bin/printf 'service=%s\nmode=%s\n' "$dns_service" "$dns_original_mode"
+    /usr/bin/printf 'server=%s\n' "${dns_original_servers[@]}"
+  } > "$dns_state_path"
+
+  dns_configured=true
+  /usr/sbin/networksetup -setdnsservers "$dns_service" 127.0.0.1 \
+    >/dev/null 2>&1 || return 1
+  [[ $(read_dns_servers "$dns_service") == 127.0.0.1 ]] || return 1
+  /usr/bin/dscacheutil -flushcache >/dev/null 2>&1 || true
+}
+
+restore_tun_dns() {
+  local current restored
+  [[ $dns_configured == true ]] || return 0
+  current=$(read_dns_servers "$dns_service") || return 1
+  if [[ $current != 127.0.0.1 ]]; then
+    echo "SSRVPN TUN: DNS ownership changed; preserving current settings" >&2
+    dns_configured=false
+    return 0
+  fi
+
+  if [[ $dns_original_mode == automatic ]]; then
+    /usr/sbin/networksetup -setdnsservers "$dns_service" empty \
+      >/dev/null 2>&1 || return 1
+    restored=$(read_dns_servers "$dns_service") || return 1
+    [[ $restored == "There aren't any DNS Servers set on "* ]] || return 1
+  elif [[ $dns_original_mode == manual && ${#dns_original_servers[@]} -gt 0 ]]; then
+    /usr/sbin/networksetup -setdnsservers "$dns_service" \
+      "${dns_original_servers[@]}" >/dev/null 2>&1 || return 1
+    restored=$(read_dns_servers "$dns_service") || return 1
+    [[ $restored == $(/usr/bin/printf '%s\n' "${dns_original_servers[@]}") ]] || \
+      return 1
+  else
+    return 1
+  fi
+  dns_configured=false
+  /usr/bin/dscacheutil -flushcache >/dev/null 2>&1 || true
+}
+
+restore_tun_dns_with_retry() {
+  for _ in {1..5}; do
+    restore_tun_dns && return 0
+    /bin/sleep 0.2
+  done
+  return 1
+}
+
 cleanup() {
+  if ! restore_tun_dns_with_retry; then
+    write_status "error:dns" || true
+    remove_status_on_exit=false
+    echo "SSRVPN TUN: failed to restore DNS settings" >&2
+  fi
   if [[ -n ${validator_pid:-} ]] && /bin/kill -0 "$validator_pid" 2>/dev/null; then
     /bin/kill -TERM "$validator_pid" 2>/dev/null || true
     /bin/sleep 0.2
@@ -192,6 +296,10 @@ for _ in {1..10}; do
   fi
   /bin/sleep 0.2
 done
+if ! configure_tun_dns; then
+  write_status "error:dns"
+  exit 1
+fi
 write_status "running"
 
 while [[ -f $request_path ]] && /bin/kill -0 "$app_pid" 2>/dev/null; do

@@ -167,6 +167,61 @@ void main() {
     expect(find.text('SUBSCRIPTION_CHANGED'), findsOneWidget);
   });
 
+  testWidgets('switching a connected session to TUN restarts transactionally',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixtureFromIoZone = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    fixtureFromIoZone.settings.dispose();
+    final settings = await SettingsService.createForTesting(
+      settings: AppSettings(),
+      dataDir: fixtureFromIoZone.directory.path,
+      settingsPath: '${fixtureFromIoZone.directory.path}/settings.json',
+      writeSettings: (_) async {},
+      readApiSecret: () async => '',
+      writeApiSecret: (_) async {},
+    );
+    final fixture = _HomeFixture(
+      directory: fixtureFromIoZone.directory,
+      subscription: fixtureFromIoZone.subscription,
+      settings: settings,
+      clash: fixtureFromIoZone.clash,
+    );
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(find.text('已连接'), findsWidgets);
+
+    await tester.tap(find.text('TUN 模式（连接时需管理员授权）'));
+    await tester.pump();
+    for (var attempt = 0;
+        attempt < 60 &&
+            !(fixture.settings.settings.enableTun &&
+                fixture.clash.startCalls == 1);
+        attempt++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(
+      fixture.settings.settings.enableTun && fixture.clash.startCalls == 1,
+      isTrue,
+      reason: 'enableTun=${fixture.settings.settings.enableTun}, '
+          'startCalls=${fixture.clash.startCalls}, '
+          'events=${fixture.clash.transitionEvents}, '
+          'visible=${tester.widgetList<Text>(find.byType(Text)).map((text) => text.data).whereType<String>().join(' | ')}',
+    );
+
+    expect(fixture.clash.isRunning, isTrue);
+    expect(find.text('已连接'), findsWidgets);
+    expect(
+      fixture.clash.transitionEvents,
+      containsAllInOrder(['interrupt', 'stop', 'start']),
+    );
+  });
+
   testWidgets('cancelling a stalled start interrupts it before queued cleanup',
       (tester) async {
     final fixture =
@@ -474,6 +529,7 @@ class _FakeClashService extends ClashService {
       _stalledStartCancellation = null;
       return false;
     }
+    transitionEvents.add('start');
     _running = true;
     return true;
   }

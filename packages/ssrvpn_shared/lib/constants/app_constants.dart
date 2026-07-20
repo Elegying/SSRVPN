@@ -23,6 +23,8 @@ class AppConstants {
   static const int defaultLatencyTestTimeout = 5000; // 毫秒
   static const String defaultLatencyTestUrl =
       'https://www.gstatic.com/generate_204';
+  static const String tunConnectivityTestUrl =
+      'https://www.youtube.com/generate_204';
   static const int latencyTestInterval = 300; // 秒
 
   // ── 重试机制 ──

@@ -57,7 +57,7 @@ class MacosTunSession {
   static const _osascriptPath = '/usr/bin/osascript';
   static const _requestName = '.tun-session-request';
   static const _runnerSha256 =
-      '7dc9ed9c0503c857edd3929b70b829f459fc7d0940006641e6a19ca7b64dc36f';
+      'b2494ee09d9a7c03dd7292285d23e6a5e41c33cd977672c204084efacb628833';
   static const _coreArchiveSha256 =
       '3617c9d8a5a55aecfe1ebd0f55ff59f2706c8ad68fd65c6c4e5f7cf2b74263f1';
   static const _coreManifestSha256 =
@@ -341,6 +341,9 @@ check_hash "$stage/config.yaml" "$expected_config"
           return MacosTunStartupState.failed;
         case 'error:tun':
           lastError = 'TUN 网卡或路由创建失败，请重启电脑后重试';
+          return MacosTunStartupState.failed;
+        case 'error:dns':
+          lastError = 'TUN DNS 接管或恢复失败，请断开后重试';
           return MacosTunStartupState.failed;
         case 'error:core':
           lastError = 'TUN 核心启动失败，请查看运行日志';
