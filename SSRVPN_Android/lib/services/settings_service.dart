@@ -7,7 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ssrvpn_shared/ssrvpn_shared.dart' show AppLogger, AsyncLazy;
+import 'package:ssrvpn_shared/ssrvpn_shared.dart'
+    show AppLogger, AsyncLazy, RecoveringSerialQueue;
 import '../models/app_settings.dart';
 
 /// 设置管理服务 — Android 版本
@@ -22,6 +23,7 @@ class SettingsService extends ChangeNotifier {
   late String _configPath;
   final Future<String?> Function() _readSecureApiSecret;
   final Future<void> Function(String value) _writeSecureApiSecret;
+  final RecoveringSerialQueue _saveQueue = RecoveringSerialQueue();
 
   /// Android Keystore backed secure storage.
   static const _secureStorage = FlutterSecureStorage(
@@ -134,60 +136,50 @@ class SettingsService extends ChangeNotifier {
 
   /// ── 批量更新设置 ──
 
-  Future<void> updateSettings(AppSettings newSettings) async {
-    final previousSecret = _settings.apiSecret;
-    final secret = newSettings.apiSecret.isNotEmpty
-        ? newSettings.apiSecret
-        : previousSecret;
-    _settings = newSettings.copyWith(
-      apiSecret: secret.isNotEmpty ? secret : _generateSecret(),
-    );
-    try {
-      await _save(persistApiSecret: _settings.apiSecret != previousSecret);
-    } catch (_) {
-      _settings = _settings.copyWith(apiSecret: previousSecret);
-      rethrow;
-    }
-    notifyListeners();
+  Future<void> updateSettings(AppSettings newSettings) {
+    // AppSettings is mutable. Snapshot the caller-owned value before it waits
+    // in the serial queue, and keep API-secret rotation on setApiSecret so a
+    // normal settings write never spans JSON and Android Keystore storage.
+    final snapshot = AppSettings.fromJson(newSettings.toJson());
+    return _saveQueue.add(() async {
+      final candidate = snapshot.copyWith(
+        apiSecret: _settings.apiSecret,
+      );
+      if (candidate == _settings) return;
+      await _saveSettings(candidate);
+      _settings = candidate;
+      notifyListeners();
+    });
   }
 
   /// ── 单项设置更新 ──
 
-  Future<void> setProxyMode(String mode) async {
+  Future<void> setProxyMode(String mode) {
     final pm = mode == 'global' ? ProxyMode.global : ProxyMode.rule;
-    if (_settings.proxyMode == pm) return;
-    _settings = _settings.copyWith(proxyMode: pm);
-    await _save();
-    notifyListeners();
+    return _updateSettings((settings) => settings.copyWith(proxyMode: pm));
   }
 
-  Future<void> setTunEnabled(bool value) async {
-    if (_settings.enableTun == value) return;
-    _settings = _settings.copyWith(enableTun: value);
-    await _save();
-    notifyListeners();
-  }
+  Future<void> setTunEnabled(bool value) =>
+      _updateSettings((settings) => settings.copyWith(enableTun: value));
 
-  Future<void> setLastSelectedNodeName(String name) async {
-    if (_settings.lastSelectedNodeName == name) return;
-    _settings = _settings.copyWith(lastSelectedNodeName: name);
-    await _save();
-    notifyListeners();
-  }
+  Future<void> setLastSelectedNodeName(String name) => _updateSettings(
+        (settings) => settings.copyWith(lastSelectedNodeName: name),
+      );
 
   /// 重命名上次选择的节点
-  Future<void> renameLastSelectedNode(String oldName, String newName) async {
-    if (_settings.lastSelectedNodeName == oldName) {
-      _settings = _settings.copyWith(lastSelectedNodeName: newName);
-      await _save();
-      notifyListeners();
-    }
-  }
+  Future<void> renameLastSelectedNode(String oldName, String newName) =>
+      _updateSettings((settings) {
+        if (settings.lastSelectedNodeName != oldName) return settings;
+        return settings.copyWith(lastSelectedNodeName: newName);
+      });
 
-  Future<void> setForceProxySites(List<String> sites) async {
-    _settings = _settings.copyWith(forceProxySites: sites);
-    await _save();
-    notifyListeners();
+  Future<void> setForceProxySites(List<String> sites) {
+    final snapshot = AppSettings.normalizeForceProxySites(
+      List<String>.of(sites),
+    );
+    return _updateSettings(
+      (settings) => settings.copyWith(forceProxySites: snapshot),
+    );
   }
 
   /// 别名：供 home_screen 使用
@@ -291,13 +283,31 @@ class SettingsService extends ChangeNotifier {
     }
   }
 
-  Future<void> _save({bool persistApiSecret = false}) async {
+  Future<void> _updateSettings(
+    AppSettings Function(AppSettings settings) update,
+  ) {
+    return _saveQueue.add(() async {
+      final candidate = update(_settings);
+      if (candidate == _settings) return;
+      await _saveSettings(candidate);
+      _settings = candidate;
+      notifyListeners();
+    });
+  }
+
+  Future<void> _save({bool persistApiSecret = false}) =>
+      _saveSettings(_settings, persistApiSecret: persistApiSecret);
+
+  Future<void> _saveSettings(
+    AppSettings settings, {
+    bool persistApiSecret = false,
+  }) async {
     try {
       final file = File(_configPath);
       await file.parent.create(recursive: true);
 
       // apiSecret 不写入 JSON 明文
-      final jsonMap = _settings.toJson();
+      final jsonMap = settings.toJson();
       jsonMap.remove('apiSecret');
 
       final jsonStr = await Isolate.run(() => jsonEncode(jsonMap));
@@ -306,7 +316,7 @@ class SettingsService extends ChangeNotifier {
       await temp.rename(file.path);
 
       if (persistApiSecret) {
-        await _writeApiSecret(_settings.apiSecret);
+        await _writeApiSecret(settings.apiSecret);
       }
     } catch (_) {
       AppLogger.warning('Settings', '保存失败');
@@ -318,18 +328,22 @@ class SettingsService extends ChangeNotifier {
   Future<String> getApiSecret() => _readApiSecret();
 
   /// apiSecret setter — 写入安全存储
-  Future<void> setApiSecret(String value) async {
-    final previousSecret = _settings.apiSecret;
-    _settings = _settings.copyWith(
-      apiSecret: value.isNotEmpty ? value : _generateSecret(),
-    );
+  Future<void> setApiSecret(String value) => _saveQueue.add(() async {
+        final candidate = _settings.copyWith(
+          apiSecret: value.isNotEmpty ? value : _generateSecret(),
+        );
+        await _persistApiSecret(candidate.apiSecret);
+        _settings = candidate;
+        notifyListeners();
+      });
+
+  Future<void> _persistApiSecret(String value) async {
     try {
-      await _save(persistApiSecret: true);
+      await _writeApiSecret(value);
     } catch (_) {
-      _settings = _settings.copyWith(apiSecret: previousSecret);
+      AppLogger.warning('Settings', '保存失败');
       rethrow;
     }
-    notifyListeners();
   }
 
   @visibleForTesting

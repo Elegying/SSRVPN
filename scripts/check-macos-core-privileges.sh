@@ -10,7 +10,8 @@ runtime=(
 )
 native="SSRVPN_MacOS/macos/Runner"
 runner="SSRVPN_MacOS/assets/macos_tun_runner.sh"
-connection_options="packages/ssrvpn_shared/lib/desktop_ui/widgets/desktop_home_connection_options_part.dart"
+desktop_home="packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_screen_part.dart"
+node_selection_controls="packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_controls.dart"
 
 for forbidden in \
   '_grantRootPrivilege' \
@@ -307,15 +308,64 @@ for required in \
   '/var/run/ssrvpn-tun-status-$app_pid' \
   'write_status "error:tun"' \
   'write_status "error:dns"' \
+  'write_status "error:stale"' \
   '/usr/sbin/networksetup' \
+  '/Library/Application Support/SSRVPN' \
+  'lock_dir="/var/run/ssrvpn-tun.lock"' \
+  'capture_tun_dns_state' \
+  'dns_snapshot_matches' \
   'configure_tun_dns' \
-  'restore_tun_dns' \
+  'restore_persisted_tun_dns' \
   'for _ in {1..24}'; do
   if ! grep -Fq -- "$required" "$runner"; then
     echo "macOS TUN runner guard failed: missing $required" >&2
     exit 1
   fi
 done
+
+python3 - <<'PY'
+from pathlib import Path
+
+path = Path("SSRVPN_MacOS/assets/macos_tun_runner.sh")
+source = path.read_text(encoding="utf-8")
+
+lock = source.index("acquire_tun_lock ||")
+restore = source.index("if ! restore_persisted_tun_dns_with_retry", lock)
+capture = source.index("if ! capture_tun_dns_state")
+core_start = source.index(
+    'TMPDIR="$runtime_dir/tmp" "$runtime_core" -d "$runtime_dir"'
+)
+configure = source.index("if ! configure_tun_dns", core_start)
+running = source.index('write_status "running"', configure)
+if not restore < capture < core_start < configure < running:
+    raise SystemExit(
+        f"{path}: DNS recovery/capture/core/configure/running order is unsafe"
+    )
+
+journal = 'dns_state_dir="/Library/Application Support/SSRVPN"'
+if journal not in source:
+    raise SystemExit(f"{path}: DNS recovery journal must survive /var/run cleanup")
+if 'dns_state_path="$runtime_dir/' in source:
+    raise SystemExit(f"{path}: DNS recovery journal must not live under /var/run")
+if 'current != 127.0.0.1' not in source or 'remove_dns_state' not in source:
+    raise SystemExit(
+        f"{path}: changed user DNS must be preserved and retire stale ownership"
+    )
+if 'LC_ALL=C' not in source:
+    raise SystemExit(f"{path}: networksetup parsing must use a stable locale")
+if '/bin/rm -rf "$dns_state_dir"' in source:
+    raise SystemExit(f"{path}: runtime cleanup must retain failed DNS recovery state")
+
+apply_body = source[
+    source.index("configure_tun_dns()"):
+    source.index("restore_persisted_tun_dns()")
+]
+for guard in ("load_persisted_tun_dns", "network_service_for_device", "dns_snapshot_matches"):
+    if guard not in apply_body:
+        raise SystemExit(f"{path}: DNS apply is missing pre-mutation guard {guard}")
+
+print("macOS TUN DNS transaction guards passed.")
+PY
 
 python3 - <<'PY'
 from hashlib import sha256
@@ -356,9 +406,20 @@ print("macOS TUN staged resource digests passed.")
 PY
 
 for required in \
-  'TUN 模式（连接时需管理员授权）'; do
-  if ! grep -Fq -- "$required" "$connection_options"; then
+  'enableTunOf:' \
+  "tunLabel: 'TUN 模式（需管理员权限）'" \
+  'onEnableTunChanged:'; do
+  if ! grep -Fq -- "$required" "$desktop_home"; then
     echo "macOS TUN UI guard failed: missing $required" >&2
+    exit 1
+  fi
+done
+
+for required in \
+  "tunLabel ?? 'TUN 模式'" \
+  'onEnableTunChanged'; do
+  if ! grep -Fq -- "$required" "$node_selection_controls"; then
+    echo "macOS shared TUN control guard failed: missing $required" >&2
     exit 1
   fi
 done

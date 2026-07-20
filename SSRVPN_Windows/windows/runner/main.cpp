@@ -130,7 +130,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
+  Win32Window::Size size(440, 720);
   startup_diagnostics::Log(L"window create start");
   if (!window.Create(L"SSRVPN", origin, size)) {
     startup_diagnostics::Log(L"window create failed");

@@ -2,7 +2,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
-    show AppLogger, AppModalCoordinator, AppUpdateInfo, HomeNodeController;
+    show
+        AppConstants,
+        AppLogger,
+        AppModalCoordinator,
+        AppUpdateInfo,
+        HomeNodeController,
+        SsrvpnAppBackdrop,
+        SsrvpnBottomNavigation;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'services/settings_service.dart';
 import 'services/clash_service.dart' as clash;
@@ -16,21 +23,7 @@ import 'startup/startup_flags.dart';
 import 'startup/startup_orchestrator.dart';
 import 'theme/app_theme.dart';
 import 'utils/responsive.dart';
-import 'widgets/liquid_glass.dart' hide GlassInputDecoration;
 import 'widgets/glass_container.dart';
-
-const _androidPrimaryNavigationItems = <NavItem>[
-  NavItem(
-    icon: Icons.home_outlined,
-    activeIcon: Icons.home_rounded,
-    label: '主页',
-  ),
-  NavItem(
-    icon: Icons.rss_feed_outlined,
-    activeIcon: Icons.rss_feed_rounded,
-    label: '订阅',
-  ),
-];
 
 class SSRVpnApp extends StatefulWidget {
   final StartupFlags startupFlags;
@@ -290,7 +283,6 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
       );
     }
 
-    const isDark = true;
     return MultiProvider(
       providers: [
         // 只注册 ChangeNotifierProvider，避免重复注册
@@ -307,33 +299,20 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.dark,
         home: CrashReportPrompt(
-          child: _InitialSubscriptionPrompt(child: _buildMainScreen(isDark)),
+          child: _InitialSubscriptionPrompt(child: _buildMainScreen()),
         ),
       ),
     );
   }
 
-  Widget _buildMainScreen(bool isDark) {
+  Widget _buildMainScreen() {
     return Builder(
       builder: (context) {
         Responsive.init(context);
-        return Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: isDark
-                  ? [
-                      const Color(0xFF0B0D14),
-                      const Color(0xFF0F1119),
-                      const Color(0xFF111320)
-                    ]
-                  : [const Color(0xFFF8FAFC), const Color(0xFFF1F5F9)],
-            ),
-          ),
-          child: Stack(
+        return SsrvpnAppBackdrop(
+          child: Column(
             children: [
-              Positioned.fill(
+              Expanded(
                 child: PageView(
                   controller: _pageController,
                   onPageChanged: (i) {
@@ -346,23 +325,18 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                   ],
                 ),
               ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: LiquidGlassNavBar(
-                  currentIndex: _currentIndex,
-                  onTap: (i) {
-                    if (i == 0) _homeKey.currentState?.refreshNodes();
-                    setState(() => _currentIndex = i);
-                    _pageController.animateToPage(
-                      i,
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeOutCubic,
-                    );
-                  },
-                  items: _androidPrimaryNavigationItems,
-                ),
+              SsrvpnBottomNavigation(
+                currentIndex: _currentIndex,
+                version: AppConstants.appVersion,
+                onTap: (i) {
+                  if (i == 0) _homeKey.currentState?.refreshNodes();
+                  setState(() => _currentIndex = i);
+                  _pageController.animateToPage(
+                    i,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOutCubic,
+                  );
+                },
               ),
             ],
           ),

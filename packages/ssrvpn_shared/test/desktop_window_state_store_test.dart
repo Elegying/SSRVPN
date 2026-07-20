@@ -29,6 +29,17 @@ void main() {
     }
   });
 
+  test('desktop defaults use a compact portrait-friendly width', () {
+    expect(
+      DesktopWindowStateStore.defaultSize,
+      const Size(440, 720),
+    );
+    expect(
+      DesktopWindowStateStore.minimumSize,
+      const Size(380, 560),
+    );
+  });
+
   test('round-trips valid bounds through an atomic save', () async {
     const bounds = Rect.fromLTWH(24, 48, 1180, 760);
 
@@ -49,6 +60,79 @@ void main() {
       startsWith('${stateFile.path}.bad-'),
     );
     expect(errors, ['Invalid window state; backing it up']);
+  });
+
+  test('migrates legacy wide bounds to the compact desktop width', () async {
+    await stateFile.writeAsString(
+      '{"schemaVersion":1,"left":100,"top":48,'
+      '"width":1180,"height":760}',
+    );
+
+    expect(
+      await store.load(),
+      const Rect.fromLTWH(470, 48, 440, 720),
+    );
+    expect(
+      await stateFile.readAsString(),
+      '{"schemaVersion":4,"left":470.0,"top":48.0,'
+      '"width":440.0,"height":720.0}',
+    );
+    expect(errors, isEmpty);
+  });
+
+  test('migrates the previous compact schema to the portrait width', () async {
+    await stateFile.writeAsString(
+      '{"schemaVersion":2,"left":330,"top":48,'
+      '"width":720,"height":760}',
+    );
+
+    expect(
+      await store.load(),
+      const Rect.fromLTWH(470, 48, 440, 720),
+    );
+    expect(
+      await stateFile.readAsString(),
+      '{"schemaVersion":4,"left":470.0,"top":48.0,'
+      '"width":440.0,"height":720.0}',
+    );
+    expect(errors, isEmpty);
+  });
+
+  test('migrates the interim 500px schema to the reference width', () async {
+    await stateFile.writeAsString(
+      '{"schemaVersion":3,"left":359,"top":54,'
+      '"width":500,"height":760}',
+    );
+
+    expect(
+      await store.load(),
+      const Rect.fromLTWH(389, 54, 440, 720),
+    );
+    expect(
+      await stateFile.readAsString(),
+      '{"schemaVersion":4,"left":389.0,"top":54.0,'
+      '"width":440.0,"height":720.0}',
+    );
+    expect(errors, isEmpty);
+  });
+
+  test('legacy migration preserves a user window narrower than default',
+      () async {
+    await stateFile.writeAsString(
+      '{"schemaVersion":3,"left":359,"top":54,'
+      '"width":420,"height":760}',
+    );
+
+    expect(
+      await store.load(),
+      const Rect.fromLTWH(359, 54, 420, 720),
+    );
+    expect(
+      await stateFile.readAsString(),
+      '{"schemaVersion":4,"left":359.0,"top":54.0,'
+      '"width":420.0,"height":720.0}',
+    );
+    expect(errors, isEmpty);
   });
 
   test('ignores bounds smaller than the desktop minimum', () async {

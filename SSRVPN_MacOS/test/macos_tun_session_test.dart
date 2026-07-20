@@ -45,11 +45,11 @@ void main() {
     expect(arguments!.last, contains('--app-pid'));
     expect(arguments!.last, contains('123 2>&1'));
     expect(arguments!.last, contains('/var/run/ssrvpn-tun-launch-'));
-    expect(arguments!.last, contains('check_hash'));
+    expect(arguments!.last, contains('/usr/bin/shasum -a 256'));
     expect(
       arguments!.last,
       contains(
-        'b2494ee09d9a7c03dd7292285d23e6a5e41c33cd977672c204084efacb628833',
+        'b42eccaede42bdb9d254d5b7399491235c95366316feeac1751d7b1f6f4eacff',
       ),
     );
     expect(arguments!.last, isNot(contains('/usr/bin/nohup')));
@@ -58,6 +58,169 @@ void main() {
     authorizationExit.complete(0);
     await session.stop();
     expect(await File(session.requestPath).exists(), isFalse);
+  });
+
+  test('stop reports a privileged DNS restoration failure', () async {
+    final dataDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_tun_stop_dns_failure_',
+    );
+    addTearDown(() => dataDir.delete(recursive: true));
+    final runner = _writeTunAssets(dataDir);
+    File('${dataDir.path}/config.yaml').writeAsStringSync('proxies: []\n');
+    final status = File('${dataDir.path}/status');
+    final authorizationExit = Completer<int>();
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      statusPath: status.path,
+      appPid: 123,
+      routeProbe: (_, __) async =>
+          ProcessResult(1, 0, '  interface: en0\n', ''),
+      authorizationLauncher: (_, __) async {
+        await status.writeAsString('starting\n', flush: true);
+        return TunAuthorizationHandle(
+          exitCode: authorizationExit.future,
+          terminate: () {},
+        );
+      },
+    );
+
+    expect(await session.start(), isTrue);
+    await status.writeAsString('error:dns\n', flush: true);
+    authorizationExit.complete(1);
+
+    await expectLater(session.stop(), throwsA(isA<StateError>()));
+    expect(session.lastError, contains('DNS'));
+    expect(await File(session.requestPath).readAsString(), '123\n');
+  });
+
+  test('startup DNS recovery is skipped without a stale TUN request', () async {
+    final dataDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_tun_no_recovery_',
+    );
+    addTearDown(() => dataDir.delete(recursive: true));
+    var launched = false;
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/tmp/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: '${dataDir.path}/missing.sh',
+      appPid: 123,
+      authorizationLauncher: (_, __) async {
+        launched = true;
+        return TunAuthorizationHandle(
+          exitCode: Future<int>.value(0),
+          terminate: () {},
+        );
+      },
+    );
+
+    expect(await session.recoverStaleDnsIfNeeded(), isTrue);
+    expect(launched, isFalse);
+  });
+
+  test('startup DNS recovery uses the trusted recovery-only runner mode',
+      () async {
+    final dataDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_tun_recovery_',
+    );
+    addTearDown(() => dataDir.delete(recursive: true));
+    final runner = _writeTunAssets(dataDir);
+    final request = File('${dataDir.path}/.tun-session-request')
+      ..writeAsStringSync('777\n');
+    String? executable;
+    List<String>? arguments;
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      appPid: 123,
+      authorizationLauncher: (path, args) async {
+        executable = path;
+        arguments = args;
+        return TunAuthorizationHandle(
+          exitCode: Future<int>.value(0),
+          terminate: () {},
+        );
+      },
+    );
+
+    expect(await session.recoverStaleDnsIfNeeded(), isTrue);
+    expect(executable, '/usr/bin/osascript');
+    expect(arguments, hasLength(2));
+    expect(
+      arguments!.last,
+      contains(r'--recover-dns --app-pid \"$app_pid\"'),
+    );
+    expect(arguments!.last, contains(' 123 2>&1'));
+    expect(arguments!.last, contains('/usr/bin/shasum -a 256'));
+    expect(
+      arguments!.last,
+      contains(
+        'b42eccaede42bdb9d254d5b7399491235c95366316feeac1751d7b1f6f4eacff',
+      ),
+    );
+    expect(await request.exists(), isFalse);
+  });
+
+  test('startup DNS recovery also detects the supported legacy data directory',
+      () async {
+    final home = await Directory.systemTemp.createTemp(
+      'ssrvpn_tun_legacy_recovery_',
+    );
+    addTearDown(() => home.delete(recursive: true));
+    final support = Directory('${home.path}/Library/Application Support');
+    final currentDataDir = Directory(
+      '${support.path}/com.ssrvpn.ssrvpnClient/SSRVPN',
+    )..createSync(recursive: true);
+    final legacyDataDir = Directory('${support.path}/SSRVPN')
+      ..createSync(recursive: true);
+    final runner = _writeTunAssets(currentDataDir);
+    final legacyRequest = File('${legacyDataDir.path}/.tun-session-request')
+      ..writeAsStringSync('777\n');
+    var launched = false;
+    final session = MacosTunSession(
+      dataDir: currentDataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      appPid: 123,
+      authorizationLauncher: (_, __) async {
+        launched = true;
+        return TunAuthorizationHandle(
+          exitCode: Future<int>.value(0),
+          terminate: () {},
+        );
+      },
+    );
+
+    expect(await File(session.requestPath).exists(), isFalse);
+    expect(await session.recoverStaleDnsIfNeeded(), isTrue);
+    expect(launched, isTrue);
+    expect(await legacyRequest.exists(), isFalse);
+  });
+
+  test('failed startup DNS recovery preserves the stale TUN request', () async {
+    final dataDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_tun_recovery_failure_',
+    );
+    addTearDown(() => dataDir.delete(recursive: true));
+    final runner = _writeTunAssets(dataDir);
+    final request = File('${dataDir.path}/.tun-session-request')
+      ..writeAsStringSync('777\n');
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      appPid: 123,
+      authorizationLauncher: (_, __) async => TunAuthorizationHandle(
+        exitCode: Future<int>.value(1),
+        terminate: () {},
+      ),
+    );
+
+    expect(await session.recoverStaleDnsIfNeeded(), isFalse);
+    expect(session.lastError, contains('DNS'));
+    expect(await request.exists(), isTrue);
   });
 
   test('cancelled authorization removes the pending TUN request', () async {
@@ -232,6 +395,29 @@ void main() {
 
     expect(await session.startupState(), MacosTunStartupState.failed);
     expect(session.lastError, contains('DNS'));
+  });
+
+  test('TUN startup status reports a stale privileged session', () async {
+    final dataDir = await Directory.systemTemp.createTemp('ssrvpn_tun_stale_');
+    addTearDown(() => dataDir.delete(recursive: true));
+    final status = File('${dataDir.path}/status')
+      ..writeAsStringSync('error:stale\n');
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: '${dataDir.path}/runner.sh',
+      statusPath: status.path,
+      appPid: 123,
+      routeProbe: (_, __) async =>
+          ProcessResult(1, 0, '  interface: en0\n', ''),
+      authorizationLauncher: (_, __) async => TunAuthorizationHandle(
+        exitCode: Future<int>.value(0),
+        terminate: () {},
+      ),
+    );
+
+    expect(await session.startupState(), MacosTunStartupState.failed);
+    expect(session.lastError, contains('重启 Mac'));
   });
 
   test('TUN startup status ignores linked and malformed status files',

@@ -128,9 +128,18 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   late final SystemProxyService _proxyService;
   bool _coreAssetsPrepared = false;
   bool _startupBlockedByProxyRecovery = false;
+  bool _startupBlockedByTunDnsRecovery = false;
   bool _runCoreProbesAfterRecovery = true;
   Future<bool>? _proxyRecoveryOperation;
   String? _lastUnexpectedExitNotice;
+  DateTime? _lastTunDataPathProbeAt;
+  bool _lastTunDataPathHealthy = true;
+  String? _lastTunDataPathError;
+  Future<bool>? _tunDataPathProbe;
+  int _tunDataPathProbeGeneration = 0;
+
+  @protected
+  Duration get tunDataPathProbeInterval => const Duration(seconds: 45);
 
   bool get isStartupDisabled => _startupDisabledReason != null;
   String? get startupDisabledReason => _startupDisabledReason;
@@ -249,6 +258,91 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       notifyStatusChanged();
       return false;
     }
+  }
+
+  @protected
+  Future<bool> checkMihomoApiHealth() => super.healthCheck();
+
+  @override
+  Future<bool> healthCheck() async {
+    if (!await checkMihomoApiHealth()) return false;
+    if (!settings.enableTun || !isRunning) return true;
+
+    final tunSession = _tunSession;
+    if (tunSession == null) {
+      setLastHealthCheckError('TUN 授权会话不存在');
+      return false;
+    }
+    final runnerState = await tunSession.startupState();
+    if (runnerState != MacosTunStartupState.running) {
+      setLastHealthCheckError(
+        runnerState == MacosTunStartupState.failed
+            ? (tunSession.lastError ?? 'TUN 授权会话已失败')
+            : 'TUN 授权会话已停止响应',
+      );
+      return false;
+    }
+    return _checkThrottledTunDataPath();
+  }
+
+  Future<bool> _checkThrottledTunDataPath() async {
+    final activeProbe = _tunDataPathProbe;
+    if (activeProbe != null) return activeProbe;
+
+    final now = DateTime.now();
+    final lastProbeAt = _lastTunDataPathProbeAt;
+    if (lastProbeAt != null &&
+        now.difference(lastProbeAt) < tunDataPathProbeInterval) {
+      if (!_lastTunDataPathHealthy) {
+        setLastHealthCheckError(
+          _lastTunDataPathError ?? 'TUN 数据通道仍未恢复',
+        );
+      }
+      return _lastTunDataPathHealthy;
+    }
+
+    final probeGeneration = _tunDataPathProbeGeneration;
+    final probe = _probeTunDataPath(probeGeneration);
+    _tunDataPathProbe = probe;
+    try {
+      return await probe;
+    } finally {
+      if (identical(_tunDataPathProbe, probe)) _tunDataPathProbe = null;
+    }
+  }
+
+  Future<bool> _probeTunDataPath(int probeGeneration) async {
+    final warning = await verifyUserConnectivity(
+      maxAttempts: 1,
+      retryDelay: Duration.zero,
+      shouldContinue: () => isRunning && settings.enableTun,
+    );
+    if (probeGeneration != _tunDataPathProbeGeneration) return true;
+    if (!isRunning || !settings.enableTun) return false;
+    _lastTunDataPathProbeAt = DateTime.now();
+    _lastTunDataPathHealthy = warning == null;
+    _lastTunDataPathError = warning;
+    if (warning != null) {
+      setLastHealthCheckError(warning);
+      log('TUN 数据通道持续健康检查失败: $warning');
+    } else {
+      setLastHealthCheckError(null);
+    }
+    return _lastTunDataPathHealthy;
+  }
+
+  Future<bool> _verifyTunFinalControlPlaneHealth(
+    MacosTunSession tunSession,
+  ) async {
+    if (!await checkMihomoApiHealth()) return false;
+    final runnerState = await tunSession.startupState();
+    if (runnerState == MacosTunStartupState.running) return true;
+    setLastHealthCheckError(
+      runnerState == MacosTunStartupState.failed
+          ? (tunSession.lastError ?? 'TUN 授权会话已失败')
+          : 'TUN 授权会话尚未完成网络接管',
+    );
+    return false;
   }
 
   Future<void> _verifyCoreForExecution();
@@ -535,15 +629,27 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       await _stopInternal();
       return false;
     } on _DesktopStartCancelled {
-      setLastStartError('连接已取消');
+      final tunStopError = _startupBlockedByTunDnsRecovery
+          ? StateError(_startupDisabledReason ?? 'TUN DNS 恢复失败')
+          : null;
+      setLastStartError(
+        tunStopError == null
+            ? '连接已取消'
+            : (_startupDisabledReason ?? 'TUN DNS 恢复失败'),
+      );
       log('Mihomo 启动已取消');
-      await _stopInternal();
+      await _stopInternal(priorTunStopError: tunStopError);
       return false;
     } catch (e, stack) {
-      setLastStartError(_friendlyStartException(e));
+      final tunStopError = _startupBlockedByTunDnsRecovery ? e : null;
+      setLastStartError(
+        tunStopError == null
+            ? _friendlyStartException(e)
+            : (_startupDisabledReason ?? 'TUN DNS 恢复失败'),
+      );
       log('启动核心异常: $e');
       log('堆栈: $stack');
-      await _stopInternal();
+      await _stopInternal(priorTunStopError: tunStopError);
       return false;
     }
   }
@@ -574,11 +680,21 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
   Future<void> _stopAfterStart() async {
     final starting = _startOperation;
+    Object? tunStopError;
     if (starting != null) {
-      await _tunSession?.stop();
+      final tunSession = _tunSession;
+      if (tunSession != null && tunSession.isRequested) {
+        try {
+          await _stopTunSession(tunSession);
+        } catch (error) {
+          tunStopError = error;
+        }
+      }
       await starting;
     }
-    final proxyCleared = await _stopInternal();
+    final proxyCleared = await _stopInternal(
+      priorTunStopError: tunStopError,
+    );
     if (!proxyCleared) {
       throw StateError(
         lastStartError ??
@@ -588,22 +704,28 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     }
   }
 
-  Future<bool> _stopInternal() async {
+  Future<bool> _stopInternal({Object? priorTunStopError}) async {
     final exitCleanup = _exitCleanupOperation;
     if (exitCleanup != null) await exitCleanup;
     await _cancelNativeCoreStatusWatch();
     stopStatusMonitor();
     resetHealthCheckFailures();
+    _invalidateTunDataPathProbe();
 
     final tunSession = _tunSession;
-    if (tunSession != null && tunSession.isRequested) {
-      await tunSession.stop();
-      final deadline = DateTime.now().add(const Duration(seconds: 4));
-      while (DateTime.now().isBefore(deadline)) {
-        if (!await healthCheck()) break;
-        await Future.delayed(const Duration(milliseconds: 100));
+    var tunStopError = priorTunStopError;
+    if (tunStopError == null && tunSession != null && tunSession.isRequested) {
+      try {
+        await _stopTunSession(tunSession);
+        final deadline = DateTime.now().add(const Duration(seconds: 4));
+        while (DateTime.now().isBefore(deadline)) {
+          if (!await healthCheck()) break;
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+        log('macOS TUN 授权会话已停止');
+      } catch (error) {
+        tunStopError ??= error;
       }
-      log('macOS TUN 授权会话已停止');
     }
 
     final proxyCleared = await _proxyService.clearSystemProxy();
@@ -659,7 +781,26 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     setRunning(false);
     notifyStatusChanged();
     log('Mihomo 核心已停止');
-    return true;
+    return tunStopError == null;
+  }
+
+  Future<void> _stopTunSession(MacosTunSession tunSession) async {
+    try {
+      await tunSession.stop();
+    } catch (_) {
+      _markTunDnsRecoveryRequired(tunSession);
+      rethrow;
+    }
+  }
+
+  void _markTunDnsRecoveryRequired(MacosTunSession tunSession) {
+    _invalidateTunDataPathProbe();
+    _startupBlockedByTunDnsRecovery = true;
+    final reason =
+        tunSession.lastError ?? 'TUN DNS 未能安全恢复，已阻止重新连接；请重启 SSRVPN 完成恢复';
+    disableStartup(reason);
+    setRunning(false);
+    notifyStatusChanged();
   }
 
   Future<bool> _startTunCore(int startToken, Stopwatch startupWatch) async {
@@ -669,6 +810,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       return false;
     }
 
+    _beginTunDataPathSession();
+
     log('正在请求 macOS 管理员授权以启动本次 TUN 连接...');
     if (!await tunSession.start()) {
       _ensureStartCurrent(startToken);
@@ -677,11 +820,30 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       return false;
     }
 
+    var stopAttempted = false;
+    Future<void> stopTunAfterStart() async {
+      if (stopAttempted || !tunSession.isRequested) return;
+      stopAttempted = true;
+      await _stopTunSession(tunSession);
+    }
+
     try {
       _ensureStartCurrent(startToken);
       final deadline = DateTime.now().add(const Duration(seconds: 20));
       while (DateTime.now().isBefore(deadline)) {
         _ensureStartCurrent(startToken);
+        final startupState = await tunSession.startupState();
+        _ensureStartCurrent(startToken);
+        if (startupState == MacosTunStartupState.failed) {
+          setLastStartError(tunSession.lastError ?? 'TUN 核心启动失败');
+          log(lastStartError!);
+          await stopTunAfterStart();
+          return false;
+        }
+        if (startupState != MacosTunStartupState.running) {
+          await Future.delayed(const Duration(milliseconds: 250));
+          continue;
+        }
         if (await healthCheck()) {
           final connectivityWarning = await verifyUserConnectivity(
             shouldContinue: () => startToken == _startGeneration,
@@ -690,7 +852,19 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
           if (connectivityWarning != null) {
             setLastStartError('TUN 数据通道验证失败：$connectivityWarning');
             log('❌ $lastStartError');
-            await tunSession.stop();
+            await stopTunAfterStart();
+            return false;
+          }
+          _lastTunDataPathProbeAt = DateTime.now();
+          _lastTunDataPathHealthy = true;
+          _lastTunDataPathError = null;
+          final finalControlPlaneHealthy =
+              await _verifyTunFinalControlPlaneHealth(tunSession);
+          _ensureStartCurrent(startToken);
+          if (!finalControlPlaneHealthy) {
+            setLastStartError(lastHealthCheckError ?? 'TUN 启动最终复核失败');
+            log(lastStartError!);
+            await stopTunAfterStart();
             return false;
           }
           setRunning(true);
@@ -703,12 +877,6 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
           startStatusMonitor();
           return true;
         }
-        if (await tunSession.startupState() == MacosTunStartupState.failed) {
-          setLastStartError(tunSession.lastError ?? 'TUN 核心启动失败');
-          log(lastStartError!);
-          await tunSession.stop();
-          return false;
-        }
         await Future.delayed(const Duration(milliseconds: 250));
       }
       final healthDetail = lastHealthCheckError;
@@ -718,15 +886,28 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
             : 'TUN 核心未能通过健康检查：$healthDetail',
       );
       log(lastStartError!);
-      await tunSession.stop();
+      await stopTunAfterStart();
       return false;
     } on _DesktopStartCancelled {
-      await tunSession.stop();
+      await stopTunAfterStart();
       rethrow;
     } catch (error) {
-      await tunSession.stop();
+      await stopTunAfterStart();
       rethrow;
     }
+  }
+
+  void _beginTunDataPathSession() {
+    _tunDataPathProbeGeneration++;
+    _tunDataPathProbe = null;
+    _lastTunDataPathProbeAt = null;
+    _lastTunDataPathHealthy = true;
+    _lastTunDataPathError = null;
+  }
+
+  void _invalidateTunDataPathProbe() {
+    _tunDataPathProbeGeneration++;
+    _tunDataPathProbe = null;
   }
 
   void _ensureStartCurrent(int startToken) {

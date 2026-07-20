@@ -41,6 +41,8 @@ class ClashService extends ClashServiceBase
   // ── Getters ──
   String get logPath => _logFile?.path ?? '';
 
+  Future<void> flushLogs() async => _fileLogger?.flush();
+
   // ═══════════════════════════════════════════════════════════
   // 覆写：Base 方法
   // ═══════════════════════════════════════════════════════════
@@ -80,6 +82,7 @@ class ClashService extends ClashServiceBase
     updateSettings(settings);
     _startupDisabledReason = null;
     _startupBlockedByProxyRecovery = false;
+    _startupBlockedByTunDnsRecovery = false;
     _coreAssetsPrepared = false;
     _runCoreProbesAfterRecovery = !skipCoreProbes;
 
@@ -95,7 +98,13 @@ class ClashService extends ClashServiceBase
 
     await _ensureRealDirectory(configDir);
     _tunSession ??= MacosTunSession(dataDir: configDir);
-    await _tunSession!.clearStaleRequest();
+    final tunDnsRecovered = await _tunSession!.recoverStaleDnsIfNeeded();
+    if (!tunDnsRecovered) {
+      _startupBlockedByTunDnsRecovery = true;
+      disableStartup(
+        _tunSession!.lastError ?? '检测到未恢复的 TUN DNS 状态，已暂停新连接',
+      );
+    }
     await Directory(
       '$configDir${Platform.pathSeparator}providers',
     ).create(recursive: true);
@@ -114,6 +123,8 @@ class ClashService extends ClashServiceBase
       disableStartup(
         _proxyService.lastError ?? '检测到未恢复的 macOS 系统代理状态，已保留现有核心并暂停启动',
       );
+    } else if (_startupBlockedByTunDnsRecovery) {
+      log(_startupDisabledReason!);
     } else {
       await _prepareCoreAssetsAfterProxyRecovery(
         runVersionProbe: !skipCoreProbes,

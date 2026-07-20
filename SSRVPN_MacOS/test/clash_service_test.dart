@@ -691,9 +691,6 @@ void main() {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_native_status_stop_',
       );
-      addTearDown(() async {
-        if (await tempDir.exists()) await tempDir.delete(recursive: true);
-      });
       var statusCalls = 0;
       var removeCalls = 0;
       var terminateCalls = 0;
@@ -755,6 +752,11 @@ void main() {
         },
       );
       final service = _AlwaysHealthyClashService(proxyService: proxyService);
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
       await service.init(
         AppSettings(),
         dataDir: tempDir.path,
@@ -787,6 +789,366 @@ void main() {
 
       expect(await service.start(), isFalse);
       expect(service.lastStartError, 'Mihomo service is not initialized');
+    });
+
+    test('core startup is blocked when stale TUN DNS recovery fails', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_startup_recovery_',
+      );
+      final tunSession = _FakeMacosTunSession(
+        tempDir.path,
+        recoveryResult: false,
+        recoveryFailureMessage: 'TUN DNS 启动恢复失败，已保留恢复标记',
+      );
+      final service = ClashService(tunSession: tunSession);
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+
+      expect(tunSession.recoveryCalls, 1);
+      expect(service.isStartupDisabled, isTrue);
+      expect(service.startupDisabledReason, contains('DNS'));
+      expect(await service.start(), isFalse);
+    });
+
+    test('TUN stays disconnected until the privileged runner is ready',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_runner_gate_',
+      );
+      final tunSession = _SequencedMacosTunSession(
+        tempDir.path,
+        const [
+          MacosTunStartupState.starting,
+          MacosTunStartupState.failed,
+        ],
+        failureMessage: 'TUN DNS 接管或恢复失败，请断开后重试',
+      );
+      final service = _TunHealthyClashService(tunSession: tunSession);
+      addTearDown(() async {
+        await service.stop();
+        service.dispose();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final settings = AppSettings(enableTun: true);
+      await service.init(
+        settings,
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      await service.writeConfig(
+        service.generateClashConfig(_subscriptionYaml, settings),
+      );
+
+      expect(await service.start(), isFalse);
+      expect(service.isRunning, isFalse);
+      expect(service.lastStartError, contains('DNS'));
+      expect(service.healthChecks, 0);
+      expect(tunSession.stopCalls, 1);
+    });
+
+    test('TUN does not commit after the privileged runner loses readiness',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_runner_commit_',
+      );
+      final tunSession = _SequencedMacosTunSession(
+        tempDir.path,
+        const [
+          MacosTunStartupState.running,
+          MacosTunStartupState.failed,
+        ],
+        failureMessage: 'TUN DNS 接管或恢复失败，请断开后重试',
+      );
+      final service = _TunHealthyClashService(tunSession: tunSession);
+      addTearDown(() async {
+        await service.stop();
+        service.dispose();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final settings = AppSettings(enableTun: true);
+      await service.init(
+        settings,
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      await service.writeConfig(
+        service.generateClashConfig(_subscriptionYaml, settings),
+      );
+
+      expect(await service.start(), isFalse);
+      expect(service.isRunning, isFalse);
+      expect(service.lastStartError, contains('DNS'));
+      expect(service.healthChecks, 2);
+      expect(tunSession.stopCalls, 1);
+    });
+
+    test('TUN performs a final composite health check before committing',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_final_health_',
+      );
+      final tunSession = _FakeMacosTunSession(tempDir.path);
+      final service = _SequencedTunHealthClashService(
+        tunSession: tunSession,
+        healthResults: const [true, false],
+      );
+      addTearDown(() async {
+        await service.stop();
+        service.dispose();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final settings = AppSettings(enableTun: true);
+      await service.init(
+        settings,
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      await service.writeConfig(
+        service.generateClashConfig(_subscriptionYaml, settings),
+      );
+
+      expect(await service.start(), isFalse);
+      expect(service.isRunning, isFalse);
+      expect(service.healthChecks, 2);
+      expect(tunSession.stopCalls, 1);
+    });
+
+    test('running TUN health combines API, runner and throttled data path',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_runtime_health_',
+      );
+      final tunSession = _FakeMacosTunSession(tempDir.path);
+      final service = _TunProbeClashService(
+        tunSession: tunSession,
+        connectivityWarnings: const [null],
+      );
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      service.setRunning(true);
+
+      expect(await service.healthCheck(), isTrue);
+      expect(await service.healthCheck(), isTrue);
+      expect(service.connectivityProbes, 1);
+    });
+
+    test('a failed TUN data path remains unhealthy between probes', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_sticky_data_health_',
+      );
+      final tunSession = _FakeMacosTunSession(tempDir.path);
+      final service = _TunProbeClashService(
+        tunSession: tunSession,
+        connectivityWarnings: const ['TUN data path failed'],
+      );
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      service.setRunning(true);
+
+      expect(await service.healthCheck(), isFalse);
+      expect(await service.healthCheck(), isFalse);
+      expect(service.connectivityProbes, 1);
+      expect(service.lastHealthCheckError, contains('TUN data path failed'));
+    });
+
+    test('a stale TUN data probe cannot poison a reconnected session',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_stale_data_probe_',
+      );
+      final tunSession = _FakeMacosTunSession(tempDir.path);
+      final service = _ControllableTunProbeClashService(
+        tunSession: tunSession,
+      );
+      addTearDown(() async {
+        await service.stop();
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final settings = AppSettings(enableTun: true);
+      await service.init(
+        settings,
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      await service.writeConfig(
+        service.generateClashConfig(_subscriptionYaml, settings),
+      );
+      service.setRunning(true);
+
+      final staleHealth = service.healthCheck();
+      await service.staleProbeStarted.future;
+      await service.stop();
+      expect(await service.start(), isTrue);
+
+      service.staleProbe.complete('old session data path failed');
+      expect(await staleHealth, isTrue);
+      expect(await service.healthCheck(), isTrue);
+      expect(service.connectivityProbes, 2);
+      expect(
+        service.lastHealthCheckError,
+        isNot(contains('old session data path failed')),
+      );
+    });
+
+    test('running TUN health fails when the privileged runner is not running',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_runner_runtime_health_',
+      );
+      final tunSession = _SequencedMacosTunSession(
+        tempDir.path,
+        const [MacosTunStartupState.failed],
+        failureMessage: 'TUN DNS 接管或恢复失败，请断开后重试',
+      );
+      final service = _TunProbeClashService(
+        tunSession: tunSession,
+        connectivityWarnings: const [null],
+      );
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      service.setRunning(true);
+
+      expect(await service.healthCheck(), isFalse);
+      expect(service.connectivityProbes, 0);
+      expect(service.lastHealthCheckError, contains('DNS'));
+    });
+
+    test('TUN DNS stop failure disconnects locally and blocks a new start',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_stop_dns_failure_',
+      );
+      final tunSession = _FailingStopMacosTunSession(tempDir.path);
+      final service = _TunProbeClashService(
+        tunSession: tunSession,
+        connectivityWarnings: const [null],
+      );
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      service.setRunning(true);
+
+      await expectLater(service.stop(), throwsA(isA<StateError>()));
+      expect(service.isRunning, isFalse);
+      expect(service.isStartupDisabled, isTrue);
+      expect(service.lastStartError, contains('DNS'));
+      expect(tunSession.stopCalls, 1);
+    });
+
+    test('TUN startup cleanup attempts a failing DNS restore only once',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_start_stop_failure_',
+      );
+      final tunSession = _FailingStartupStopMacosTunSession(tempDir.path);
+      final service = _TunHealthyClashService(tunSession: tunSession);
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final settings = AppSettings(enableTun: true);
+      await service.init(
+        settings,
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      await service.writeConfig(
+        service.generateClashConfig(_subscriptionYaml, settings),
+      );
+
+      expect(await service.start(), isFalse);
+      expect(service.isRunning, isFalse);
+      expect(service.isStartupDisabled, isTrue);
+      expect(service.lastStartError, contains('DNS'));
+      expect(tunSession.stopCalls, 1);
+    });
+
+    test('cancelling TUN startup preserves one failing DNS restore reason',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_cancel_stop_failure_',
+      );
+      final tunSession = _BlockingFailingStopMacosTunSession(tempDir.path);
+      final service = _TunHealthyClashService(tunSession: tunSession);
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final settings = AppSettings(enableTun: true);
+      await service.init(
+        settings,
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      await service.writeConfig(
+        service.generateClashConfig(_subscriptionYaml, settings),
+      );
+
+      final start = service.start();
+      await tunSession.startupStateEntered.future;
+      await expectLater(service.stop(), throwsA(isA<StateError>()));
+      expect(await start, isFalse);
+      expect(service.isRunning, isFalse);
+      expect(service.isStartupDisabled, isTrue);
+      expect(service.lastStartError, contains('DNS'));
+      expect(tunSession.stopCalls, 1);
     });
 
     test('TUN startup stays disconnected when the real data path fails',
@@ -967,7 +1329,7 @@ class _TunDataPathClashService extends ClashService {
   _TunDataPathClashService({required super.tunSession});
 
   @override
-  Future<bool> healthCheck() async => true;
+  Future<bool> checkMihomoApiHealth() async => true;
 
   @override
   Future<String?> verifyUserConnectivity({
@@ -979,21 +1341,149 @@ class _TunDataPathClashService extends ClashService {
       '已连接，但连续 3 次网络验证失败，请尝试切换节点或刷新订阅';
 }
 
+class _TunHealthyClashService extends ClashService {
+  _TunHealthyClashService({required super.tunSession});
+
+  int healthChecks = 0;
+
+  @override
+  Future<bool> checkMihomoApiHealth() async {
+    healthChecks++;
+    return true;
+  }
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async =>
+      null;
+}
+
+class _SequencedTunHealthClashService extends ClashService {
+  _SequencedTunHealthClashService({
+    required super.tunSession,
+    required List<bool> healthResults,
+  }) : _healthResults = List.of(healthResults);
+
+  final List<bool> _healthResults;
+  int healthChecks = 0;
+
+  @override
+  Future<bool> checkMihomoApiHealth() async {
+    final index = healthChecks < _healthResults.length
+        ? healthChecks
+        : _healthResults.length - 1;
+    healthChecks++;
+    return _healthResults[index];
+  }
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async =>
+      null;
+}
+
+class _TunProbeClashService extends ClashService {
+  _TunProbeClashService({
+    required super.tunSession,
+    required List<String?> connectivityWarnings,
+  }) : _connectivityWarnings = List.of(connectivityWarnings);
+
+  final List<String?> _connectivityWarnings;
+  int connectivityProbes = 0;
+
+  @override
+  Future<bool> checkMihomoApiHealth() async {
+    setLastHealthCheckError(null);
+    return true;
+  }
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async {
+    final index = connectivityProbes < _connectivityWarnings.length
+        ? connectivityProbes
+        : _connectivityWarnings.length - 1;
+    connectivityProbes++;
+    return _connectivityWarnings[index];
+  }
+}
+
+class _ControllableTunProbeClashService extends ClashService {
+  _ControllableTunProbeClashService({required super.tunSession});
+
+  final Completer<String?> staleProbe = Completer<String?>();
+  final Completer<void> staleProbeStarted = Completer<void>();
+  int connectivityProbes = 0;
+
+  @override
+  Future<bool> checkMihomoApiHealth() async {
+    setLastHealthCheckError(null);
+    return true;
+  }
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async {
+    connectivityProbes++;
+    if (connectivityProbes == 1) {
+      staleProbeStarted.complete();
+      return staleProbe.future;
+    }
+    return null;
+  }
+}
+
 class _FakeMacosTunSession extends MacosTunSession {
-  _FakeMacosTunSession(String dataDir)
-      : super(
+  _FakeMacosTunSession(
+    String dataDir, {
+    this.recoveryResult = true,
+    this.recoveryFailureMessage,
+  }) : super(
           dataDir: dataDir,
           resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
           runnerPath: '$dataDir/macos_tun_runner.sh',
         );
 
   int stopCalls = 0;
+  bool requested = false;
+  final bool recoveryResult;
+  final String? recoveryFailureMessage;
+  int recoveryCalls = 0;
+
+  @override
+  Future<bool> recoverStaleDnsIfNeeded() async {
+    recoveryCalls++;
+    if (!recoveryResult) lastError = recoveryFailureMessage;
+    return recoveryResult;
+  }
 
   @override
   Future<void> clearStaleRequest() async {}
 
   @override
-  Future<bool> start() async => true;
+  Future<bool> start() async {
+    requested = true;
+    return true;
+  }
+
+  @override
+  bool get isRequested => requested;
 
   @override
   Future<MacosTunStartupState> startupState() async =>
@@ -1002,5 +1492,63 @@ class _FakeMacosTunSession extends MacosTunSession {
   @override
   Future<void> stop() async {
     stopCalls++;
+    requested = false;
+  }
+}
+
+class _SequencedMacosTunSession extends _FakeMacosTunSession {
+  _SequencedMacosTunSession(
+    super.dataDir,
+    List<MacosTunStartupState> states, {
+    this.failureMessage,
+  }) : _states = List.of(states);
+
+  final List<MacosTunStartupState> _states;
+  final String? failureMessage;
+  int _stateIndex = 0;
+
+  @override
+  Future<MacosTunStartupState> startupState() async {
+    final index =
+        _stateIndex < _states.length ? _stateIndex++ : _states.length - 1;
+    final state = _states[index];
+    if (state == MacosTunStartupState.failed) lastError = failureMessage;
+    return state;
+  }
+}
+
+class _FailingStopMacosTunSession extends _FakeMacosTunSession {
+  _FailingStopMacosTunSession(super.dataDir) {
+    requested = true;
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCalls++;
+    requested = false;
+    lastError = 'TUN DNS 接管或恢复失败，请重启 SSRVPN 后重试';
+    throw StateError(lastError!);
+  }
+}
+
+class _FailingStartupStopMacosTunSession extends _FailingStopMacosTunSession {
+  _FailingStartupStopMacosTunSession(super.dataDir);
+
+  @override
+  Future<MacosTunStartupState> startupState() async {
+    lastError = 'TUN DNS 接管或恢复失败，请重启 SSRVPN 后重试';
+    return MacosTunStartupState.failed;
+  }
+}
+
+class _BlockingFailingStopMacosTunSession extends _FailingStopMacosTunSession {
+  _BlockingFailingStopMacosTunSession(super.dataDir);
+
+  final Completer<void> startupStateEntered = Completer<void>();
+
+  @override
+  Future<MacosTunStartupState> startupState() async {
+    if (!startupStateEntered.isCompleted) startupStateEntered.complete();
+    return MacosTunStartupState.starting;
   }
 }

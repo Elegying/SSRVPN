@@ -57,7 +57,7 @@ class MacosTunSession {
   static const _osascriptPath = '/usr/bin/osascript';
   static const _requestName = '.tun-session-request';
   static const _runnerSha256 =
-      'b2494ee09d9a7c03dd7292285d23e6a5e41c33cd977672c204084efacb628833';
+      'b42eccaede42bdb9d254d5b7399491235c95366316feeac1751d7b1f6f4eacff';
   static const _coreArchiveSha256 =
       '3617c9d8a5a55aecfe1ebd0f55ff59f2706c8ad68fd65c6c4e5f7cf2b74263f1';
   static const _coreManifestSha256 =
@@ -101,6 +101,24 @@ check_hash "$stage/config.yaml" "$expected_config"
 /bin/bash "$stage/macos_tun_runner.sh" --app-pid "$app_pid" \
   --staged-config "$stage/config.yaml"
 ''';
+  static const _privilegedRecoveryScript = r'''
+set -euo pipefail
+runner_source=$1
+expected_runner=$2
+app_pid=$3
+stage=/var/run/ssrvpn-tun-recovery-$app_pid
+[[ ! -e $stage && ! -L $stage ]] || exit 73
+/bin/mkdir -m 700 "$stage"
+cleanup() { /bin/rm -rf "$stage"; }
+trap cleanup EXIT INT TERM HUP
+[[ -f $runner_source && ! -L $runner_source ]] || exit 74
+/bin/cp "$runner_source" "$stage/macos_tun_runner.sh"
+/bin/chmod 700 "$stage/macos_tun_runner.sh"
+actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
+  /usr/bin/awk '{print $1}')
+[[ $actual == "$expected_runner" ]] || exit 74
+/bin/bash "$stage/macos_tun_runner.sh" --recover-dns --app-pid "$app_pid"
+''';
 
   final String dataDir;
   final String resolvedExecutable;
@@ -120,6 +138,34 @@ check_hash "$stage/config.yaml" "$expected_config"
 
   String get requestPath => '$dataDir${Platform.pathSeparator}$_requestName';
   bool get isRequested => _requested;
+
+  List<String> get _recoveryRequestPaths {
+    final separator = Platform.pathSeparator;
+    const bundleDirectory = 'com.ssrvpn.ssrvpnClient';
+    final bundledSuffix = '$separator$bundleDirectory${separator}SSRVPN';
+    final legacySuffix = '${separator}SSRVPN';
+    if (dataDir.endsWith(bundledSuffix)) {
+      final supportDirectory = dataDir.substring(
+        0,
+        dataDir.length - bundledSuffix.length,
+      );
+      return [
+        '$supportDirectory$legacySuffix$separator$_requestName',
+        requestPath,
+      ];
+    }
+    if (dataDir.endsWith(legacySuffix)) {
+      final supportDirectory = dataDir.substring(
+        0,
+        dataDir.length - legacySuffix.length,
+      );
+      return [
+        requestPath,
+        '$supportDirectory$bundledSuffix$separator$_requestName',
+      ];
+    }
+    return [requestPath];
+  }
 
   Future<bool> start() async {
     final startEpoch = ++_startEpoch;
@@ -302,10 +348,82 @@ check_hash "$stage/config.yaml" "$expected_config"
       handle.terminate();
       return;
     }
+    int exitCode;
     try {
-      await handle.exitCode.timeout(const Duration(seconds: 15));
+      exitCode = await handle.exitCode.timeout(const Duration(seconds: 15));
     } on TimeoutException {
       handle.terminate();
+      await _preserveRecoveryRequest();
+      lastError = 'TUN 授权会话停止超时，已保留 DNS 恢复标记';
+      throw StateError(lastError!);
+    }
+
+    final state = await startupState();
+    if (exitCode != 0 || state == MacosTunStartupState.failed) {
+      await _preserveRecoveryRequest();
+      lastError ??= 'TUN 授权会话未能安全停止，已保留 DNS 恢复标记';
+      throw StateError(lastError!);
+    }
+  }
+
+  Future<bool> recoverStaleDnsIfNeeded() async {
+    final recoveryRequestPaths = _recoveryRequestPaths;
+    var foundRecoveryRequest = false;
+    for (final path in recoveryRequestPaths) {
+      final requestType = await FileSystemEntity.type(path, followLinks: false);
+      if (requestType == FileSystemEntityType.notFound) continue;
+      if (requestType != FileSystemEntityType.file) {
+        lastError = '检测到不安全的 TUN 恢复标记，已暂停自动恢复';
+        return false;
+      }
+      foundRecoveryRequest = true;
+    }
+    if (!foundRecoveryRequest) return true;
+    if (!_isInstalledApplication(resolvedExecutable)) {
+      lastError = '检测到待恢复的 TUN DNS，请先把 SSRVPN 拖到 Applications 文件夹';
+      return false;
+    }
+    if (await FileSystemEntity.type(runnerPath, followLinks: false) !=
+        FileSystemEntityType.file) {
+      lastError = 'TUN DNS 恢复组件缺失，请重新安装 SSRVPN';
+      return false;
+    }
+
+    final command = '/bin/bash -c '
+        '${_shellQuote(_privilegedRecoveryScript)} ssrvpn-tun-recovery '
+        '${_shellQuote(runnerPath)} $_runnerSha256 $appPid 2>&1';
+    final appleScript = 'do shell script "${_appleScriptEscape(command)}" '
+        'with administrator privileges '
+        'with prompt "SSRVPN 检测到上次异常退出，需要恢复 TUN DNS 设置"';
+    TunAuthorizationHandle? handle;
+    try {
+      handle = await _authorizationLauncher(
+        _osascriptPath,
+        ['-e', appleScript],
+      );
+      final exitCode =
+          await handle.exitCode.timeout(const Duration(minutes: 2));
+      if (exitCode != 0) {
+        lastError = 'TUN DNS 启动恢复失败或授权已取消，已保留恢复标记';
+        return false;
+      }
+      for (final path in recoveryRequestPaths) {
+        await _removeRequestAt(path);
+        if (await FileSystemEntity.type(path, followLinks: false) !=
+            FileSystemEntityType.notFound) {
+          lastError = 'TUN DNS 已恢复，但恢复标记未能清理';
+          return false;
+        }
+      }
+      lastError = null;
+      return true;
+    } on TimeoutException {
+      handle?.terminate();
+      lastError = 'TUN DNS 启动恢复授权超时，已保留恢复标记';
+      return false;
+    } catch (_) {
+      lastError = '无法启动 TUN DNS 恢复授权，已保留恢复标记';
+      return false;
     }
   }
 
@@ -345,6 +463,9 @@ check_hash "$stage/config.yaml" "$expected_config"
         case 'error:dns':
           lastError = 'TUN DNS 接管或恢复失败，请断开后重试';
           return MacosTunStartupState.failed;
+        case 'error:stale':
+          lastError = '检测到上次异常退出的 TUN 会话，请重启 Mac 后重试';
+          return MacosTunStartupState.failed;
         case 'error:core':
           lastError = 'TUN 核心启动失败，请查看运行日志';
           return MacosTunStartupState.failed;
@@ -360,9 +481,19 @@ check_hash "$stage/config.yaml" "$expected_config"
   }
 
   Future<void> _removeRequest() async {
-    final request = File(requestPath);
+    await _removeRequestAt(requestPath);
+  }
+
+  Future<void> _removeRequestAt(String path) async {
+    final request = File(path);
     try {
       if (await request.exists()) await request.delete();
+    } catch (_) {}
+  }
+
+  Future<void> _preserveRecoveryRequest() async {
+    try {
+      await File(requestPath).writeAsString('$appPid\n', flush: true);
     } catch (_) {}
   }
 

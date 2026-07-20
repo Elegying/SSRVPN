@@ -10,7 +10,8 @@ import 'update_checker.dart';
 import '../utils/app_modal_coordinator.dart';
 
 typedef DownloadOpener = Future<void> Function(String url);
-typedef VerifiedUpdateOpener = Future<void> Function(File file);
+typedef VerifiedUpdateHandler = Future<void> Function(File file);
+typedef VerifiedUpdateOpener = VerifiedUpdateHandler;
 
 class VerifiedUpdateCancelled implements Exception {
   @override
@@ -115,18 +116,16 @@ class SharedUpdateService {
       cancellation,
     );
     final destination = File('${outputDirectory.path}/$fileName');
-    final temporary = File('${destination.path}.part');
-    if (await _awaitWithCancellation(temporary.exists(), cancellation)) {
-      await _awaitWithCancellation(temporary.delete(), cancellation);
-    }
-    if (await _awaitWithCancellation(destination.exists(), cancellation)) {
-      await _awaitWithCancellation(destination.delete(), cancellation);
-    }
+    await _recoverInterruptedPublication(destination);
+    final publicationId = '${pid}_${DateTime.now().microsecondsSinceEpoch}_'
+        '${math.Random.secure().nextInt(0x7fffffff)}';
+    final temporary = File('${destination.path}.part.$publicationId');
     cancellation?.throwIfCancelled();
     final ownsClient = client == null;
     final httpClient = client ?? http.Client();
     try {
       if (ownsClient) cancellation?._attach(httpClient.close);
+      var verifiedDownloadReady = false;
       for (var attempt = 0; attempt < uris.length; attempt++) {
         cancellation?.throwIfCancelled();
         final attemptClock = Stopwatch()..start();
@@ -191,20 +190,102 @@ class SharedUpdateService {
             throw StateError('更新文件 SHA256 校验失败，已取消更新');
           }
           cancellation?.throwIfCancelled();
-          await temporary.rename(destination.path);
-          cancellation?.throwIfCancelled();
-          return destination;
+          verifiedDownloadReady = true;
+          break;
         } catch (_) {
           if (await temporary.exists()) await temporary.delete();
-          if (await destination.exists()) await destination.delete();
           cancellation?.throwIfCancelled();
           if (attempt == uris.length - 1) rethrow;
         }
       }
-      throw StateError('没有可用的更新下载地址');
+      if (!verifiedDownloadReady) {
+        throw StateError('没有可用的更新下载地址');
+      }
+
+      cancellation?.throwIfCancelled();
+      try {
+        await _publishVerifiedFile(
+          temporary: temporary,
+          destination: destination,
+          publicationId: publicationId,
+        );
+      } catch (_) {
+        if (await temporary.exists()) await temporary.delete();
+        rethrow;
+      }
+      return destination;
     } finally {
       cancellation?._detach();
       if (ownsClient) httpClient.close();
+    }
+  }
+
+  static Future<void> _publishVerifiedFile({
+    required File temporary,
+    required File destination,
+    required String publicationId,
+  }) async {
+    if (!await destination.exists()) {
+      await temporary.rename(destination.path);
+      return;
+    }
+
+    final backup = File('${destination.path}.previous.$publicationId');
+    await destination.rename(backup.path);
+    try {
+      await temporary.rename(destination.path);
+    } catch (_) {
+      if (!await destination.exists() && await backup.exists()) {
+        await backup.rename(destination.path);
+      }
+      rethrow;
+    }
+
+    try {
+      await backup.delete();
+    } catch (_) {
+      // The verified installer has already been published. A best-effort
+      // cleanup failure must not make the completed update look unsuccessful.
+    }
+  }
+
+  static Future<void> _recoverInterruptedPublication(File destination) async {
+    final destinationType = await FileSystemEntity.type(
+      destination.path,
+      followLinks: false,
+    );
+    if (destinationType != FileSystemEntityType.notFound &&
+        destinationType != FileSystemEntityType.file) {
+      return;
+    }
+
+    final prefix = '${destination.path}.previous.';
+    final backups = <(File, DateTime)>[];
+    await for (final entity in destination.parent.list(followLinks: false)) {
+      if (entity is! File || !entity.path.startsWith(prefix)) continue;
+      final suffix = entity.path.substring(prefix.length);
+      if (!RegExp(r'^\d+_\d+_\d+$').hasMatch(suffix)) continue;
+      if (await FileSystemEntity.type(entity.path, followLinks: false) !=
+          FileSystemEntityType.file) {
+        continue;
+      }
+      backups.add((entity, (await entity.stat()).modified));
+    }
+    if (backups.isEmpty) return;
+
+    backups.sort((left, right) => right.$2.compareTo(left.$2));
+    var firstUnusedBackup = 0;
+    if (destinationType == FileSystemEntityType.notFound) {
+      await backups.first.$1.rename(destination.path);
+      firstUnusedBackup = 1;
+    }
+
+    // A verified destination is available again. Any older private backups are
+    // now redundant, so clean them up without turning recovery into a failure.
+    for (final backup in backups.skip(firstUnusedBackup)) {
+      try {
+        await backup.$1.delete();
+      } catch (_) {}
     }
   }
 
@@ -296,6 +377,26 @@ class SharedUpdateService {
     required VerifiedUpdateOpener openFile,
     Directory? outputDirectory,
     http.Client? client,
+  }) {
+    return downloadVerifiedUpdateWithProgress(
+      context,
+      update,
+      fileName: fileName,
+      onVerified: openFile,
+      outputDirectory: outputDirectory,
+      client: client,
+      progressDescription: '下载完成并通过 SHA256 校验后才会打开安装包。',
+    );
+  }
+
+  static Future<void> downloadVerifiedUpdateWithProgress(
+    BuildContext context,
+    AppUpdateInfo update, {
+    required String fileName,
+    required VerifiedUpdateHandler onVerified,
+    required String progressDescription,
+    Directory? outputDirectory,
+    http.Client? client,
   }) async {
     if (!context.mounted || _verifiedDownloadInProgress) return;
     _verifiedDownloadInProgress = true;
@@ -349,7 +450,7 @@ class SharedUpdateService {
                         const SizedBox(height: 12),
                         Text(_formatProgress(receivedBytes, totalBytes)),
                         const SizedBox(height: 8),
-                        const Text('下载完成并通过 SHA256 校验后才会打开安装包。'),
+                        Text(progressDescription),
                       ],
                     ),
                     actions: [
@@ -381,10 +482,12 @@ class SharedUpdateService {
               if (progressDialogOpen) updateDialogState?.call(() {});
             },
           );
-          cancellation.throwIfCancelled();
+          // Returning from downloadVerifiedUpdate means the verified file has
+          // crossed its publication commit point. A cancel click racing with
+          // that final rename can no longer roll the file back, so the UI must
+          // still acknowledge the completed download.
           await closeProgressDialog();
-          cancellation.throwIfCancelled();
-          await openFile(file);
+          await onVerified(file);
         } catch (error) {
           final cancelled = cancelledByUser || error is VerifiedUpdateCancelled;
           await closeProgressDialog();
@@ -442,6 +545,7 @@ class SharedUpdateService {
     required Color lightTextPrimary,
     required Color lightTextSecondary,
     required DownloadOpener openDownload,
+    String primaryActionLabel = '立即更新',
   }) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     await AppModalCoordinator.run<void>(() {
@@ -567,10 +671,12 @@ class SharedUpdateService {
                               ),
                               elevation: 0,
                             ),
-                            child: const Text(
-                              '立即更新',
-                              style:
-                                  TextStyle(fontSize: 14, color: Colors.white),
+                            child: Text(
+                              primaryActionLabel,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                         ),

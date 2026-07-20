@@ -243,24 +243,24 @@ initial_subscription = Path(
 public_ip_actions = Path(
     "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_public_ip_part.dart"
 )
-dashboard = Path(
-    "packages/ssrvpn_shared/lib/desktop_ui/widgets/desktop_home_dashboard_part.dart"
-)
-status_widgets = Path(
-    "packages/ssrvpn_shared/lib/desktop_ui/widgets/desktop_home_status_widgets_part.dart"
-)
-connection_options = Path(
-    "packages/ssrvpn_shared/lib/desktop_ui/widgets/desktop_home_connection_options_part.dart"
-)
 part_limits = {
     home: 900,
     runtime_actions: 600,
     background_tasks: 300,
     initial_subscription: 300,
     public_ip_actions: 600,
-    dashboard: 600,
-    status_widgets: 600,
-    connection_options: 600,
+    Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_app_surface.dart"): 400,
+    Path(
+        "packages/ssrvpn_shared/lib/widgets/ssrvpn_subscription_error_dialog.dart"
+    ): 200,
+    Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_home_overview.dart"): 600,
+    Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_page.dart"): 360,
+    Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_controls.dart"): 400,
+    Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_node_card.dart"): 250,
+    Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_subscription_view.dart"): 600,
+    Path(
+        "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_subscription_screen_part.dart"
+    ): 450,
 }
 for path, limit in part_limits.items():
     if not path.is_file():
@@ -290,11 +290,29 @@ for entrypoint in (
         "desktop_home_initial_subscription_part.dart",
         "desktop_home_background_tasks_part.dart",
         "desktop_home_public_ip_part.dart",
-        "desktop_home_status_widgets_part.dart",
-        "desktop_home_connection_options_part.dart",
+        "desktop_force_proxy_sites_dialog_part.dart",
+        "desktop_home_dialogs_part.dart",
     ):
         if required_part not in entrypoint_source:
             raise SystemExit(f"{entrypoint}: missing {required_part}")
+    for legacy_part in (
+        "desktop_home_dashboard_part.dart",
+        "desktop_home_status_widgets_part.dart",
+        "desktop_home_connection_options_part.dart",
+        "desktop_home_node_list_part.dart",
+    ):
+        if legacy_part in entrypoint_source:
+            raise SystemExit(f"{entrypoint}: legacy presentation part is still active: {legacy_part}")
+
+for entrypoint in (
+    Path("SSRVPN_MacOS/lib/screens/subscription_screen.dart"),
+    Path("SSRVPN_Windows/lib/screens/subscription_screen.dart"),
+):
+    entrypoint_source = entrypoint.read_text(encoding="utf-8")
+    if "desktop_subscription_screen_part.dart" not in entrypoint_source:
+        raise SystemExit(f"{entrypoint}: missing shared subscription screen adapter")
+    if "desktop_subscription_sections_part.dart" in entrypoint_source:
+        raise SystemExit(f"{entrypoint}: legacy subscription sections are still active")
 
 source = home.read_text(encoding="utf-8")
 start = source.index("Future<void> _applyNetworkSetting(")
@@ -346,7 +364,7 @@ for token in (
     if token not in runtime_source:
         raise SystemExit(f"{runtime_actions}: private-node latency policy changed: {token}")
 
-print("Desktop screen boundary and latency-policy guards passed.")
+print("Shared desktop surface boundary and latency-policy guards passed.")
 
 coordinator = Path(
     "packages/ssrvpn_shared/lib/services/desktop_connection_coordinator.dart"

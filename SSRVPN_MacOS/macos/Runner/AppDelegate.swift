@@ -281,10 +281,22 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   private var isRunningUnderXCTest: Bool {
+    Self.isXCTestEnvironment(ProcessInfo.processInfo.environment)
+  }
+
+  static func isXCTestEnvironment(_ environment: [String: String]) -> Bool {
 #if DEBUG
-    let environment = ProcessInfo.processInfo.environment
-    return environment["XCTestBundlePath"]?.hasSuffix(".xctest") == true &&
-      environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTestBundleInject") == true
+    guard environment["XCTestBundlePath"]?.hasSuffix(".xctest") == true else {
+      return false
+    }
+    let sessionIdentifier = environment["XCTestSessionIdentifier"]?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let hasSession = sessionIdentifier?.isEmpty == false
+    let hasInjectedBundle = environment["DYLD_INSERT_LIBRARIES"]?
+      .contains("libXCTestBundleInject") == true
+    // Hardened launch services may strip DYLD_* variables before Swift reads
+    // ProcessInfo. Xcode still provides the XCTest bundle and session pair.
+    return hasSession || hasInjectedBundle
 #else
     return false
 #endif

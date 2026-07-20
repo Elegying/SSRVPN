@@ -6,6 +6,7 @@ import '../models/proxy_node.dart';
 import '../models/subscription.dart';
 import '../services/subscription_service_base.dart';
 import '../services/subscription_refresh_control.dart';
+import '../utils/log_redactor.dart';
 import '../utils/proxy_node_usage_policy.dart';
 import '../utils/subscription_url_policy.dart';
 
@@ -113,6 +114,13 @@ class SubscriptionAddResult {
   final Object? error;
   final bool clearInput;
 
+  static const int maxDisplayErrorCharacters = 512;
+
+  String get displayError => _sanitizeRefreshDisplayText(
+        error,
+        maxCharacters: maxDisplayErrorCharacters,
+      ).replaceFirst('Exception: ', '');
+
   bool get isSuccess =>
       status == SubscriptionAddStatus.singleNodeImported ||
       status == SubscriptionAddStatus.subscriptionAdded;
@@ -121,12 +129,28 @@ class SubscriptionAddResult {
 enum SubscriptionRefreshStatus { success, partialSuccess, cancelled, failure }
 
 class SubscriptionRefreshResult {
-  const SubscriptionRefreshResult({
-    required this.message,
+  SubscriptionRefreshResult({
+    required String message,
     required this.status,
-    this.networkErrorDetail,
-    this.failureDetails = const [],
-  });
+    String? networkErrorDetail,
+    List<String> failureDetails = const [],
+  })  : message = _sanitizeRefreshDisplayText(
+          message,
+          maxCharacters: maxMessageCharacters,
+        ),
+        networkErrorDetail = networkErrorDetail == null
+            ? null
+            : _sanitizeRefreshDisplayText(
+                networkErrorDetail,
+                maxCharacters: maxNetworkErrorDetailCharacters,
+              ),
+        failureDetails = _sanitizeRefreshFailureDetails(failureDetails);
+
+  static const int maxMessageCharacters = 1024;
+  static const int maxNetworkErrorDetailCharacters = 1024;
+  static const int maxFailureDetails = 20;
+  static const int maxFailureDetailCharacters = 512;
+  static const int maxFailureDetailsTotalCharacters = 4096;
 
   final String message;
   final SubscriptionRefreshStatus status;
@@ -139,6 +163,53 @@ class SubscriptionRefreshResult {
   bool get shouldShowNetworkHelp => networkErrorDetail != null;
 }
 
+String _sanitizeRefreshDisplayText(
+  Object? value, {
+  required int maxCharacters,
+}) {
+  final safe = LogRedactor.sanitizeForDisplay(value);
+  if (safe.length <= maxCharacters) return safe;
+  if (maxCharacters <= 1) return '…'.substring(0, maxCharacters);
+
+  var end = maxCharacters - 1;
+  if (end < safe.length &&
+      end > 0 &&
+      _isHighSurrogate(safe.codeUnitAt(end - 1)) &&
+      _isLowSurrogate(safe.codeUnitAt(end))) {
+    end--;
+  }
+  return '${safe.substring(0, end)}…';
+}
+
+List<String> _sanitizeRefreshFailureDetails(List<String> details) {
+  final safeDetails = <String>[];
+  var totalCharacters = 0;
+  for (final detail
+      in details.take(SubscriptionRefreshResult.maxFailureDetails)) {
+    final separatorCharacters = safeDetails.isEmpty ? 0 : 1;
+    final remaining =
+        SubscriptionRefreshResult.maxFailureDetailsTotalCharacters -
+            totalCharacters -
+            separatorCharacters;
+    if (remaining <= 0) break;
+    final itemLimit =
+        remaining < SubscriptionRefreshResult.maxFailureDetailCharacters
+            ? remaining
+            : SubscriptionRefreshResult.maxFailureDetailCharacters;
+    final safeDetail = _sanitizeRefreshDisplayText(
+      detail,
+      maxCharacters: itemLimit,
+    );
+    safeDetails.add(safeDetail);
+    totalCharacters += separatorCharacters + safeDetail.length;
+  }
+  return List.unmodifiable(safeDetails);
+}
+
+bool _isHighSurrogate(int codeUnit) => codeUnit >= 0xD800 && codeUnit <= 0xDBFF;
+
+bool _isLowSurrogate(int codeUnit) => codeUnit >= 0xDC00 && codeUnit <= 0xDFFF;
+
 class SubscriptionDeleteResult {
   const SubscriptionDeleteResult({
     required this.removed,
@@ -149,6 +220,13 @@ class SubscriptionDeleteResult {
   final bool removed;
   final bool stoppedClash;
   final Object? error;
+
+  static const int maxDisplayErrorCharacters = 512;
+
+  String get displayError => _sanitizeRefreshDisplayText(
+        error,
+        maxCharacters: maxDisplayErrorCharacters,
+      ).replaceFirst('Exception: ', '');
 }
 
 class SubscriptionScreenController {
@@ -231,12 +309,12 @@ class SubscriptionScreenController {
           status: SubscriptionRefreshStatus.success,
         );
       }
-      return const SubscriptionRefreshResult(
+      return SubscriptionRefreshResult(
         message: '刷新失败: 没有可用的订阅',
         status: SubscriptionRefreshStatus.failure,
       );
     } on SubscriptionRefreshCancelled {
-      return const SubscriptionRefreshResult(
+      return SubscriptionRefreshResult(
         message: '刷新已取消',
         status: SubscriptionRefreshStatus.cancelled,
       );
@@ -253,7 +331,7 @@ class SubscriptionScreenController {
         networkErrorDetail: e.message,
       );
     } on TimeoutException {
-      return const SubscriptionRefreshResult(
+      return SubscriptionRefreshResult(
         message: '刷新失败: 连接超时',
         status: SubscriptionRefreshStatus.failure,
         networkErrorDetail: '连接超时，请检查网络',

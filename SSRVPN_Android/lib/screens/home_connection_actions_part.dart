@@ -159,7 +159,10 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         }
         final autoSelect = _resolveDefaultNode(
           nodes,
-          settingsService.settings.lastSelectedNodeName,
+          resolveAndroidPreferredNodeName(
+            selectedNodeName: _selectedNode?.name,
+            rememberedNodeName: settingsService.settings.lastSelectedNodeName,
+          ),
         );
         connectionGeneration = clashService.requestConnectionIntent(true);
         final result = await _orchestrator.connect(

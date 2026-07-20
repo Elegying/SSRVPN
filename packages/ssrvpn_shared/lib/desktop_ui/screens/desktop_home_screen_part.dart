@@ -22,13 +22,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   PublicIpInfo? _publicIpInfo;
   bool _isRefreshingPublicIp = false;
   String? _publicIpError;
-  final Set<String> _expandedSubscriptionGroups = {};
 
   final HomeLatencyController _latencyController = HomeLatencyController();
+  final ValueNotifier<int> _nodeSelectionRefresh = ValueNotifier<int>(0);
   final Map<String, String> _exitCountryCodes = {};
   Timer? _latencyBatchTimer;
   int? _latencyBatchGeneration;
   int _singleLatencyGeneration = 0;
+  String? _disconnectedPreferredNodeName;
   Timer? _publicIpTimer;
   int _lastRevision = -1;
   int _publicIpGeneration = 0;
@@ -45,6 +46,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _updateCheckCompleted = false;
   int _updateCheckAttempts = 0;
   late AnimationController _glowController;
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _nodeSelectionRefresh.value++;
+  }
 
   @override
   void initState() {
@@ -82,9 +89,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _onSubscriptionChanged(SubscriptionService subService) {
     final controller = HomeNodeController(
       nodes: _nodes,
-      latencies: _latencyController.latencies,
       lastRevision: _lastRevision,
-      selectedNode: _selectedNode,
     );
     final sync = controller.syncSubscriptionSnapshot(
       revision: subService.revision,
@@ -97,6 +102,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
     _lastRevision = controller.lastRevision;
     _nodes = controller.nodes;
+    if (_disconnectedPreferredNodeName != null &&
+        !_nodes.any((node) => node.name == _disconnectedPreferredNodeName)) {
+      _disconnectedPreferredNodeName = null;
+    }
     final nodeNames = _nodes.map((node) => node.name).toSet();
     _exitCountryCodes.removeWhere((name, _) => !nodeNames.contains(name));
     if (sync.shouldPromptForImport) {
@@ -122,6 +131,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _updateCheckTimer?.cancel();
     _clashService?.removeStatusListener(_clashStatusListener);
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
+    _nodeSelectionRefresh.dispose();
     _glowController.dispose();
     super.dispose();
   }
@@ -391,7 +401,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }
         final autoSelect = _resolveDefaultNode(
           nodes,
-          settingsService.settings.lastSelectedNodeName,
+          _disconnectedPreferredNodeName ??
+              settingsService.settings.lastSelectedNodeName,
         );
         ProxyNode? runtimeSelectedNode;
         final connectionResult = await clashService.runConnectionTransition(
@@ -498,6 +509,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _errorMessage = null;
           _nodes = nodes;
           _selectedNode = runtimeSelectedNode;
+          _disconnectedPreferredNodeName = null;
         });
         _glowController.repeat();
         _showRuntimePortAdjustmentNotice(connectionResult.runtimeNotice);
@@ -568,73 +580,104 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsService>().settings;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? AppTheme.textPrimary : AppTheme.lightTextPrimary;
-    final subColor =
-        isDark ? AppTheme.textSecondary : AppTheme.lightTextSecondary;
+    final displayNode = _isConnected
+        ? HomeNodeController.resolveRuntimeSelectedNodeFrom(
+            _nodes,
+            _selectedNode?.name,
+          )
+        : HomeNodeController.resolveDefaultNodeFrom(
+            _nodes,
+            _disconnectedPreferredNodeName ?? settings.lastSelectedNodeName,
+          );
+    final selectedLatency =
+        displayNode == null ? null : _latencyController.latencyFor(displayNode);
+    final selectedCountryCode = displayNode == null
+        ? null
+        : _exitCountryCodes[displayNode.name] ??
+            countryCodeForProxyNode(displayNode);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: _DesktopHomeDashboard(
-        isDark: isDark,
-        textColor: textColor,
-        subColor: subColor,
-        settings: settings,
-        nodeList: _buildNodeList(textColor, subColor, isDark),
+      body: SsrvpnHomeOverview(
         isConnected: _isConnected,
         isConnecting: _isConnecting,
+        selectedNode: displayNode,
+        selectedLatency: selectedLatency,
+        selectedCountryCode: selectedCountryCode,
         errorMessage: _errorMessage,
-        publicIpInfo: _publicIpInfo,
+        publicIpv4: _publicIpInfo?.displayText,
         isRefreshingPublicIp: _isRefreshingPublicIp,
         publicIpError: _publicIpError,
-        glowAnimation: _glowController,
         onToggleConnection: _handleConnectToggle,
+        onOpenNodes: _openNodeSelection,
+        onShowAbout: () => showSsrvpnAboutDialog(context),
         onShowTutorial: () => _showDesktopHomeTutorialDialog(context),
-        onShowForceProxySites: _showForceProxySitesDialog,
         onShowLogs: () => _showDesktopHomeLogsDialog(context),
         onRefreshPublicIp: () => unawaited(_refreshPublicIpInfo()),
-        onProxyModeChanged: (proxyMode) {
-          _applyNetworkSetting(
-            (service) => service.updateProxyMode(proxyMode),
-          );
-        },
-        onEnableTunChanged: (enableTun) {
-          _applyNetworkSetting(
-            (service) => service.updateEnableTun(enableTun),
-          );
-        },
       ),
     );
   }
 
-  Widget _buildNodeList(Color textColor, Color subColor, bool isDark) {
-    return _DesktopHomeNodeList(
-      nodes: _nodes,
-      latencyController: _latencyController,
-      exitCountryCodes: _exitCountryCodes,
-      expandedSubscriptionGroups: _expandedSubscriptionGroups,
-      selectedNode: _selectedNode,
-      testingNodeName: _testingNodeName,
-      isConnecting: _isConnecting,
-      isBatchTesting: _isBatchTesting,
-      isConnected: _isConnected,
-      textColor: textColor,
-      subColor: subColor,
-      isDark: isDark,
-      onTestAllLatency: _handleTestAllLatency,
-      onTestLatency: (node) =>
-          _handleTestLatency(node.name, node.server, node.port),
-      onSelectNode: _handleSelectNode,
-      onSecondaryTapDown: _showNodeContextMenu,
-      onToggleSubscriptionGroup: (title, expanded) {
-        setState(() {
-          if (!expanded) {
-            _expandedSubscriptionGroups.add(title);
-          } else {
-            _expandedSubscriptionGroups.remove(title);
-          }
-        });
-      },
+  Future<void> _openNodeSelection() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (routeContext) => SsrvpnNodeSelectionPage(
+          ownerStateListenable: Listenable.merge([
+            _nodeSelectionRefresh,
+            context.read<SettingsService>(),
+          ]),
+          nodesOf: () => _nodes,
+          selectedNodeNameOf: () {
+            final settings = context.read<SettingsService>().settings;
+            return _isConnected
+                ? HomeNodeController.resolveRuntimeSelectedNodeFrom(
+                    _nodes,
+                    _selectedNode?.name,
+                  )?.name
+                : HomeNodeController.resolveDefaultNodeFrom(
+                    _nodes,
+                    _disconnectedPreferredNodeName ??
+                        settings.lastSelectedNodeName,
+                  )?.name;
+          },
+          proxyModeOf: () => context.read<SettingsService>().settings.proxyMode,
+          enableTunOf: () => context.read<SettingsService>().settings.enableTun,
+          testingNodeNameOf: () => _testingNodeName,
+          isBatchTestingOf: () => _isBatchTesting,
+          isConnectingOf: () => _isConnecting,
+          countryCodeOf: (node) =>
+              _exitCountryCodes[node.name] ?? countryCodeForProxyNode(node),
+          latencyOf: _latencyController.latencyFor,
+          canSelectNode: (node) =>
+              !_isConnected || _latencyController.canSelect(node),
+          onClose: () => Navigator.of(routeContext).pop(),
+          onRefresh: _loadInitialData,
+          onTestAll: _handleTestAllLatency,
+          onTestLatency: (node) =>
+              _handleTestLatency(node.name, node.server, node.port),
+          onSelectNode: _handleSelectNode,
+          onProxyModeChanged: (proxyMode) => _applyNetworkSetting(
+            (service) => service.updateProxyMode(proxyMode),
+          ),
+          onEnableTunChanged: (enableTun) => _applyNetworkSetting(
+            (service) => service.updateEnableTun(enableTun),
+          ),
+          tunLabel: 'TUN 模式（需管理员权限）',
+          onShowForceProxySites: _showForceProxySitesDialog,
+          onShowLogs: () => _showDesktopHomeLogsDialog(context),
+          onSecondaryTapDown: _showNodeContextMenu,
+          onLongPressNode: (node) {
+            unawaited(
+              Navigator.of(context).push<bool>(
+                MaterialPageRoute(
+                  builder: (_) => NodeEditScreen(node: node),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
+    if (mounted && !_disposed) setState(() {});
   }
 }

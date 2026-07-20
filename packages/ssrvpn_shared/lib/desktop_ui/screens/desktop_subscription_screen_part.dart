@@ -103,20 +103,19 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       case SubscriptionAddStatus.singleNodeNoData:
         _showSnack('SSR链接已添加，但未获取到数据', AppTheme.warning);
       case SubscriptionAddStatus.singleNodeImportFailed:
-        _showSnack('导入失败: ${result.error}', AppTheme.error);
+        _showSnack('导入失败: ${result.displayError}', AppTheme.error);
       case SubscriptionAddStatus.subscriptionAdded:
         _showSnack('订阅成功，获取到 ${result.nodeCount} 个节点', AppTheme.success);
       case SubscriptionAddStatus.subscriptionNoData:
         _showSnack('订阅已添加，但未获取到数据', AppTheme.warning);
       case SubscriptionAddStatus.refreshFailed:
-        final msg = result.error.toString().replaceFirst('Exception: ', '');
         _showSnack(
-          '刷新失败: $msg',
+          '刷新失败: ${result.displayError}',
           AppTheme.error,
           duration: const Duration(seconds: 4),
         );
       case SubscriptionAddStatus.failed:
-        _showSnack('添加失败: ${result.error}', AppTheme.error);
+        _showSnack('添加失败: ${result.displayError}', AppTheme.error);
     }
   }
 
@@ -140,93 +139,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     if (!mounted) return;
     showDialog(
       context: context,
-      builder: (ctx) {
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
-        return Dialog(
-          backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.88),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: AppTheme.warning.withValues(alpha: 20 / 255),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.wifi_off_rounded,
-                        size: 28, color: AppTheme.warning),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '网络连接异常',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: isDark
-                          ? AppTheme.textPrimary
-                          : AppTheme.lightTextPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '请检查网络连接后重试',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: isDark
-                          ? AppTheme.textSecondary
-                          : AppTheme.lightTextSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: AppTheme.error.withValues(alpha: 10 / 255),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      detail,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.error.withValues(alpha: 180 / 255)),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        backgroundColor: AppTheme.primary
-                            .withValues(alpha: (isDark ? 25 : 15) / 255),
-                      ),
-                      child: const Text('知道了',
-                          style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.primary)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+      builder: (_) => SsrvpnSubscriptionErrorDialog(detail: detail),
     );
   }
 
@@ -317,12 +230,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
         if (!result.removed) {
           _showSnack(
-            '删除失败：${result.error.toString().replaceFirst("Exception: ", "")}',
+            '删除失败：${result.displayError}',
             AppTheme.error,
           );
         } else if (result.error != null) {
           _showSnack(
-            '订阅已删除，但断开 VPN 失败：${result.error.toString().replaceFirst("Exception: ", "")}',
+            '订阅已删除，但断开 VPN 失败：${result.displayError}',
             AppTheme.warning,
           );
         } else if (result.stoppedClash) {
@@ -339,60 +252,29 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   @override
   Widget build(BuildContext context) {
     final subService = context.watch<SubscriptionService>();
-    final subscriptions = subService.subscriptions;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final refreshResult = _refreshResult;
+    final refreshColor = switch (refreshResult?.status) {
+      SubscriptionRefreshStatus.success => SsrvpnUiTokens.success,
+      SubscriptionRefreshStatus.partialSuccess => SsrvpnUiTokens.warning,
+      SubscriptionRefreshStatus.failure => SsrvpnUiTokens.error,
+      SubscriptionRefreshStatus.cancelled => SsrvpnUiTokens.textSecondary,
+      null => null,
+    };
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final horizontalPadding = constraints.maxWidth < 420 ? 16.0 : 24.0;
-            return SingleChildScrollView(
-              padding: EdgeInsets.symmetric(
-                horizontal: horizontalPadding,
-                vertical: 16,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 920),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _DesktopSubscriptionHeader(
-                        isDark: isDark,
-                        onAboutTap: () =>
-                            _showDesktopSubscriptionAboutDialog(context),
-                      ),
-                      const SizedBox(height: 24),
-                      _DesktopSubscriptionAddCard(
-                        isDark: isDark,
-                        urlController: _urlController,
-                        isAdding: _isAdding,
-                        isBusy: _hasBlockingOperation,
-                        onAdd: _addSubscription,
-                      ),
-                      const SizedBox(height: 28),
-                      if (subscriptions.isNotEmpty)
-                        _DesktopSubscriptionListSection(
-                          subscriptions: subscriptions,
-                          isDark: isDark,
-                          isRefreshing: _isRefreshing,
-                          isBusy: _hasBlockingOperation,
-                          refreshResult: _refreshResult,
-                          onRefresh: _refreshAll,
-                          onCancelRefresh: _cancelRefresh,
-                          onDelete: _deleteSubscription,
-                        ),
-                      if (subscriptions.isEmpty)
-                        _DesktopSubscriptionEmptyState(isDark: isDark),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
+      body: SsrvpnSubscriptionView(
+        subscriptions: subService.subscriptions,
+        urlController: _urlController,
+        isAdding: _isAdding,
+        isRefreshing: _isRefreshing,
+        isBusy: _hasBlockingOperation,
+        refreshMessage: refreshResult?.message,
+        refreshMessageColor: refreshColor,
+        onAdd: _addSubscription,
+        onRefresh: _refreshAll,
+        onCancelRefresh: _cancelRefresh,
+        onDelete: _deleteSubscription,
       ),
     );
   }

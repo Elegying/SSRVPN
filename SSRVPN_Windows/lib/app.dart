@@ -10,10 +10,13 @@ import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
 import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show
+        AppConstants,
         AppErrorCode,
         AppFailure,
         DesktopConnectionCoordinator,
         DesktopConnectionFailure,
+        SsrvpnAppBackdrop,
+        SsrvpnBottomNavigation,
         desktopSubscriptionChangedMessage;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
@@ -25,13 +28,11 @@ import 'services/clash_service.dart' as clash;
 import 'services/settings_service.dart';
 import 'services/subscription_service.dart';
 import 'services/tray_manager.dart';
-import 'services/update_service.dart';
 import 'startup/startup_flags.dart';
 import 'startup/startup_logger.dart';
 import 'startup/startup_status.dart';
 import 'startup/window_state_store.dart';
 import 'theme/app_theme.dart';
-import 'widgets/liquid_glass.dart';
 
 part 'package:ssrvpn_shared/desktop_ui/desktop_app_shell_part.dart';
 part 'app_runtime_actions_part.dart';
@@ -58,24 +59,16 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   SettingsService? _settingsService;
   clash.ClashService? _clashService;
   SubscriptionService? _subscriptionService;
-  late final Future<bool> Function() _updateHandoffShutdown = _quitApp;
 
   @override
   void initState() {
     super.initState();
-    UpdateService.onInstallerHandoff = _updateHandoffShutdown;
     StartupStatus.instance.addListener(_handleStartupStatusChanged);
     _handleStartupStatusChanged();
   }
 
   @override
   void dispose() {
-    if (identical(
-      UpdateService.onInstallerHandoff,
-      _updateHandoffShutdown,
-    )) {
-      UpdateService.onInstallerHandoff = null;
-    }
     StartupStatus.instance.removeListener(_handleStartupStatusChanged);
     _runtimeNoticeAutoClearTimer?.cancel();
     _windowStateSaveDebounce?.cancel();
@@ -359,7 +352,6 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         themeMode: ThemeMode.dark,
         home: CrashReportPrompt(
           child: _DesktopAppShell(
-            isDark: true,
             safeMode: widget.startupFlags.safeMode,
             startupFailureMessages: StartupStatus.instance.failures
                 .map((failure) => failure.userSummary)

@@ -64,6 +64,66 @@ void main() {
     expect(tempDir.listSync(), isEmpty);
   });
 
+  test('checksum mismatch preserves an existing verified installer', () async {
+    final existing = File('${tempDir.path}/SSRVPN_Setup.exe');
+    final previousBytes = utf8.encode('previous-verified-installer');
+    await existing.writeAsBytes(previousBytes, flush: true);
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: '0' * 64,
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup.exe',
+        client: MockClient(
+          (_) async => http.Response.bytes(
+            utf8.encode('tampered-new-installer'),
+            HttpStatus.ok,
+          ),
+        ),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(await existing.readAsBytes(), previousBytes);
+    expect(
+      tempDir.listSync().map((entry) => entry.path),
+      [existing.path],
+    );
+  });
+
+  test('verified replacement removes its private backup after publication',
+      () async {
+    final existing = File('${tempDir.path}/SSRVPN_Setup.exe');
+    await existing.writeAsString('previous-verified-installer', flush: true);
+    final replacementBytes = utf8.encode('latest-verified-installer');
+
+    final published = await SharedUpdateService.downloadVerifiedUpdate(
+      AppUpdateInfo(
+        version: '9.9.9',
+        downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+        changelog: '',
+        sha256: sha256.convert(replacementBytes).toString(),
+      ),
+      outputDirectory: tempDir,
+      fileName: 'SSRVPN_Setup.exe',
+      client: MockClient(
+        (_) async => http.Response.bytes(replacementBytes, HttpStatus.ok),
+      ),
+    );
+
+    expect(published.path, existing.path);
+    expect(await existing.readAsBytes(), replacementBytes);
+    expect(
+      tempDir.listSync().map((entry) => entry.path),
+      [existing.path],
+    );
+  });
+
   test('verified desktop download falls back after an OSS failure', () async {
     final bytes = utf8.encode('github-installer');
     final hosts = <String>[];
@@ -118,6 +178,100 @@ void main() {
 
     expect(hosts, ['github.com']);
     expect(update.fallbackDownloadUrl, 'https://oss.example/SSRVPN_Setup.exe');
+  });
+
+  test('a publication failure does not retry from another download source',
+      () async {
+    final bytes = utf8.encode('verified-installer');
+    final destinationDirectory = Directory('${tempDir.path}/SSRVPN_Setup.exe');
+    await destinationDirectory.create();
+    final hosts = <String>[];
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://oss.example/SSRVPN_Setup.exe',
+          fallbackDownloadUrl:
+              'https://github.com/Elegying/SSRVPN/releases/download/v9.9.9/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(bytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup.exe',
+        client: MockClient((request) async {
+          hosts.add(request.url.host);
+          return http.Response.bytes(bytes, HttpStatus.ok);
+        }),
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    expect(hosts, ['oss.example']);
+    expect(destinationDirectory.existsSync(), isTrue);
+    expect(
+      tempDir.listSync().whereType<File>(),
+      isEmpty,
+    );
+  });
+
+  test('HTTP failure preserves an existing installer', () async {
+    final existing = File('${tempDir.path}/SSRVPN_Setup.exe');
+    final previousBytes = utf8.encode('previous-verified-installer');
+    await existing.writeAsBytes(previousBytes, flush: true);
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        const AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256:
+              '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup.exe',
+        client: MockClient(
+          (_) async => http.Response('unavailable', HttpStatus.badGateway),
+        ),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(await existing.readAsBytes(), previousBytes);
+    expect(tempDir.listSync().map((entry) => entry.path), [existing.path]);
+  });
+
+  test('an interrupted replacement is restored before the next download',
+      () async {
+    final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
+    final backup = File(
+      '${destination.path}.previous.123_456_789',
+    );
+    final previousBytes = utf8.encode('previous-verified-installer');
+    await backup.writeAsBytes(previousBytes, flush: true);
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        const AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256:
+              '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        client: MockClient(
+          (_) async => http.Response('unavailable', HttpStatus.badGateway),
+        ),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(await destination.readAsBytes(), previousBytes);
+    expect(await backup.exists(), isFalse);
+    expect(tempDir.listSync().map((entry) => entry.path), [destination.path]);
   });
 
   test('verified desktop download cancellation interrupts a stalled request',
@@ -185,6 +339,9 @@ void main() {
       () async {
     final bytes = utf8.encode('verified-installer');
     final cancellation = VerifiedUpdateCancellation();
+    final existing = File('${tempDir.path}/SSRVPN.dmg');
+    final previousBytes = utf8.encode('previous-verified-installer');
+    await existing.writeAsBytes(previousBytes, flush: true);
 
     await expectLater(
       SharedUpdateService.downloadVerifiedUpdate(
@@ -205,13 +362,17 @@ void main() {
       throwsA(isA<VerifiedUpdateCancelled>()),
     );
 
-    expect(tempDir.listSync(), isEmpty);
+    expect(await existing.readAsBytes(), previousBytes);
+    expect(tempDir.listSync().map((entry) => entry.path), [existing.path]);
   });
 
   test('verified desktop download enforces one absolute attempt deadline',
       () async {
     final chunks = List<List<int>>.generate(6, (index) => [index]);
     final bytes = chunks.expand((chunk) => chunk).toList();
+    final existing = File('${tempDir.path}/SSRVPN.dmg');
+    final previousBytes = utf8.encode('previous-verified-installer');
+    await existing.writeAsBytes(previousBytes, flush: true);
     final client = _StreamClient(
       (_) async => http.StreamedResponse(
         Stream<List<int>>.periodic(
@@ -237,7 +398,8 @@ void main() {
       ),
       throwsA(isA<TimeoutException>()),
     );
-    expect(tempDir.listSync(), isEmpty);
+    expect(await existing.readAsBytes(), previousBytes);
+    expect(tempDir.listSync().map((entry) => entry.path), [existing.path]);
   });
 }
 

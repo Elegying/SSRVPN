@@ -1,9 +1,12 @@
 import importlib.util
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
 
 SCRIPT = Path(__file__).with_name("verify-release-transition.py")
+TAG_SOURCE_GUARD = Path(__file__).with_name("verify-release-tag-source.sh")
 SPEC = importlib.util.spec_from_file_location("release_transition", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -152,6 +155,19 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
             verify_step,
         )
 
+    def test_release_workflow_peels_an_annotated_tag_before_main_comparison(
+        self,
+    ) -> None:
+        workflow = (SCRIPT.parents[1] / ".github/workflows/release.yml").read_text(
+            encoding="utf-8"
+        )
+        resolve_tag = 'scripts/verify-release-tag-source.sh "$GITHUB_REF"'
+        self.assertIn(resolve_tag, workflow)
+        self.assertLess(
+            workflow.index(resolve_tag),
+            workflow.index('if [ "$release_commit" != "$main_tip" ]'),
+        )
+
     def test_rollback_restores_stable_assets_before_latest_pointer(self) -> None:
         rollback = (
             SCRIPT.parents[1] / ".github" / "workflows" / "oss-rollback.yml"
@@ -163,6 +179,58 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         self.assertIn("scripts/promote-oss-public-channel.sh", rollback)
         self.assertIn("Preserve OSS recovery backup", rollback)
         self.assertNotIn("Download and verify immutable rollback bundle", rollback)
+
+
+class VerifyReleaseTagSourceTest(unittest.TestCase):
+    def _git(self, repo: Path, *args: str) -> str:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
+    def _repository(self, root: Path) -> tuple[Path, str]:
+        repo = root / "repo"
+        repo.mkdir()
+        self._git(repo, "init", "--quiet")
+        self._git(repo, "config", "user.name", "Release Test")
+        self._git(repo, "config", "user.email", "release-test@example.invalid")
+        (repo / "tracked.txt").write_text("release\n", encoding="utf-8")
+        self._git(repo, "add", "tracked.txt")
+        self._git(repo, "commit", "--quiet", "-m", "release")
+        return repo, self._git(repo, "rev-parse", "HEAD")
+
+    def _guard(self, repo: Path, tag: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", str(TAG_SOURCE_GUARD), f"refs/tags/{tag}"],
+            cwd=repo,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_annotated_tag_resolves_to_its_peeled_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            repo, commit = self._repository(Path(raw_root))
+            self._git(repo, "tag", "-a", "v1.0.0", "-m", "Release v1.0.0")
+
+            result = self._guard(repo, "v1.0.0")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), commit)
+
+    def test_lightweight_tag_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            repo, _ = self._repository(Path(raw_root))
+            self._git(repo, "tag", "v1.0.0")
+
+            result = self._guard(repo, "v1.0.0")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("annotated tag", result.stderr)
 
 
 if __name__ == "__main__":

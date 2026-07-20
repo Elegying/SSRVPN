@@ -55,6 +55,12 @@ class ClashService extends ClashServiceBase {
       await FileSystemEntity.type(_corePath, followLinks: false) ==
           FileSystemEntityType.file;
 
+  @override
+  String get diagnosticConfigPath => _runningConfigPath ?? configPath;
+
+  @override
+  bool get diagnosticConfigRequired => isRunning;
+
   // ── onStopRequired ──
 
   @override

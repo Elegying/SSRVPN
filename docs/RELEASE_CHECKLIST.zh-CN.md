@@ -73,20 +73,34 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    LocalAppData 回退数据和窗口状态，前后哈希一致；程序文件、旧恢复状态和两个已知
    WebView 缓存目录必须清理。交互安装只在完成页勾选后启动，静默安装不得启动 GUI。
    另保持已安装实例占用文件，确认安装器会在修改程序文件前阻断；退出实例后重试必须成功。
-11. 检查应用内更新优先从 OSS 下载并校验 `SSRVPN_Setup.exe`，OSS 异常时能使用 GitHub
-   备用下载；安装器确认接管后应用必须安全恢复代理并退出，交接失败不得修改程序文件。
-   日志可提交排查，但不要公开发送 `.dmp` 文件。
+11. 检查应用内更新优先从 OSS 的固定资产 `SSRVPN_Setup.exe` 下载并校验，OSS
+   异常时能使用 GitHub 备用下载。校验通过后必须使用 Windows Known Folder
+   定位当前用户的真实桌面（包括重定向桌面），并保存为
+   `SSRVPN_Setup_vX.Y.Z.exe`。完成后必须提示“最新版安装包已下载到桌面，请直接安装”；
+   SSRVPN 保持运行，不自动打开或安装文件，由用户手动安装。取消、摘要不匹配或下载失败不得损坏
+   已有目标文件。日志可提交排查，但不要公开发送 `.dmp` 文件。
 
 ## 发布
 
-1. 在 `main` 上创建版本 tag，例如：
+1. 切换到已通过必需 CI 的 `main`，更新远程引用，并确认工作树干净、本地 `HEAD`
+   与当前 `origin/main` 完全一致：
 
    ```bash
-   git tag vX.Y.Z
+   git switch main
+   git fetch origin
+   test -z "$(git status --porcelain)"
+   test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+   ```
+
+2. 在该提交上创建 annotated tag，再复核 tag 目标就是当前已测试的 `main`：
+
+   ```bash
+   git tag -a vX.Y.Z -m "SSRVPN vX.Y.Z"
+   test "$(git rev-list -n 1 vX.Y.Z)" = "$(git rev-parse HEAD)"
    git push origin vX.Y.Z
    ```
 
-2. 等待 GitHub Actions 的 `Release` workflow 完成。
+3. 等待 GitHub Actions 的 `Release` workflow 完成。
    工作流会先创建 Draft Release、上传并验证 OSS 不可变目录，然后备份并推广
    OSS 固定下载通道，最后公开 GitHub Release。GitHub 未能明确转为正式 Release
    时不得人工推进；按失败日志确认自动恢复结果或使用保留的恢复 Artifact。
@@ -107,7 +121,8 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    scripts/check-release-assets.sh vX.Y.Z
    ```
 2. 下载每个平台产物，至少做一次启动检查。
-3. 检查应用内更新是否能读到最新版本，并打开正确下载链接。
+3. 检查应用内更新是否能读到最新版本；Windows 应将经校验的当前版本安装包保存到
+   真实桌面，显示手动安装提示并保持客户端运行，不打开外部下载链接。
 4. 按 `docs/PRODUCT_REQUIREMENTS.zh-CN.md` 检查安装包、首次导入、节点排序和记忆节点行为。
 5. 检查 SHA256 校验文件可用：
 

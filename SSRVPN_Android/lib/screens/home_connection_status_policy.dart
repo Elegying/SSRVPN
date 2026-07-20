@@ -1,5 +1,35 @@
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
+enum AndroidNodeSelectionIntent {
+  ignore,
+  rememberForNextConnection,
+  switchLive,
+}
+
+AndroidNodeSelectionIntent resolveAndroidNodeSelectionIntent({
+  required bool isConnected,
+  required bool isConnecting,
+}) {
+  if (isConnecting) return AndroidNodeSelectionIntent.ignore;
+  return isConnected
+      ? AndroidNodeSelectionIntent.switchLive
+      : AndroidNodeSelectionIntent.rememberForNextConnection;
+}
+
+String? resolveAndroidPreferredNodeName({
+  required String? selectedNodeName,
+  required String? rememberedNodeName,
+}) =>
+    selectedNodeName ?? rememberedNodeName;
+
+ProxyNode? rollbackAndroidOfflineNodeSelection({
+  required ProxyNode? previousNode,
+  required ProxyNode attemptedNode,
+  required ProxyNode? currentNode,
+}) {
+  return currentNode?.name == attemptedNode.name ? previousNode : currentNode;
+}
+
 bool shouldHandleAndroidHomeConnectionStatus({
   required bool uiConnected,
   required bool runtimeRunning,
@@ -32,12 +62,21 @@ class AndroidHomeConnectionStatusTransition {
 AndroidHomeConnectionStatusTransition transitionAndroidHomeConnectionStatus({
   required bool running,
   required bool connecting,
+  required bool connectionDesired,
   required String? errorMessage,
   required ProxyNode? selectedNode,
   required Iterable<ProxyNode> nodes,
   required String? runtimeSelectedNodeName,
 }) {
   if (!running) {
+    if (connecting && connectionDesired) {
+      return AndroidHomeConnectionStatusTransition(
+        connected: false,
+        connecting: true,
+        errorMessage: errorMessage,
+        selectedNode: selectedNode,
+      );
+    }
     return AndroidHomeConnectionStatusTransition(
       connected: false,
       connecting: false,

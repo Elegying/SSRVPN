@@ -11,8 +11,11 @@ import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
 import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show
+        AppConstants,
         DesktopConnectionCoordinator,
         DesktopConnectionFailure,
+        SsrvpnAppBackdrop,
+        SsrvpnBottomNavigation,
         desktopSubscriptionChangedMessage;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
@@ -29,7 +32,6 @@ import 'startup/startup_logger.dart';
 import 'startup/startup_status.dart';
 import 'startup/window_state_store.dart';
 import 'theme/app_theme.dart';
-import 'widgets/liquid_glass.dart';
 
 part 'package:ssrvpn_shared/desktop_ui/desktop_app_shell_part.dart';
 part 'app_runtime_actions_part.dart';
@@ -220,7 +222,6 @@ class _SSRVpnAppState extends State<SSRVpnApp>
         themeMode: ThemeMode.dark,
         home: CrashReportPrompt(
           child: _DesktopAppShell(
-            isDark: true,
             safeMode: widget.startupFlags.safeMode,
             startupFailureMessages: StartupStatus.instance.failures
                 .map(_startupFailureSummary)

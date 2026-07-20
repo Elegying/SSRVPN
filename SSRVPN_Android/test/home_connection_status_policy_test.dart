@@ -23,6 +23,7 @@ void main() {
     final stopped = transitionAndroidHomeConnectionStatus(
       running: false,
       connecting: false,
+      connectionDesired: false,
       errorMessage: '连接已中断，请重新连接',
       selectedNode: remembered,
       nodes: [remembered, nativeSelected],
@@ -31,6 +32,7 @@ void main() {
     final recovered = transitionAndroidHomeConnectionStatus(
       running: true,
       connecting: stopped.connecting,
+      connectionDesired: false,
       errorMessage: stopped.errorMessage,
       selectedNode: stopped.selectedNode,
       nodes: [remembered, nativeSelected],
@@ -47,6 +49,7 @@ void main() {
     final transition = transitionAndroidHomeConnectionStatus(
       running: true,
       connecting: true,
+      connectionDesired: true,
       errorMessage: null,
       selectedNode: null,
       nodes: [remembered],
@@ -55,6 +58,38 @@ void main() {
 
     expect(transition.connected, isTrue);
     expect(transition.connecting, isTrue);
+    expect(transition.selectedNode, isNull);
+  });
+
+  test('automatic reload preserves its busy state while stop is reported', () {
+    final transition = transitionAndroidHomeConnectionStatus(
+      running: false,
+      connecting: true,
+      connectionDesired: true,
+      errorMessage: null,
+      selectedNode: remembered,
+      nodes: [remembered],
+      runtimeSelectedNodeName: null,
+    );
+
+    expect(transition.connected, isFalse);
+    expect(transition.connecting, isTrue);
+    expect(transition.selectedNode, same(remembered));
+  });
+
+  test('manual cancellation clears busy state and the selected node', () {
+    final transition = transitionAndroidHomeConnectionStatus(
+      running: false,
+      connecting: true,
+      connectionDesired: false,
+      errorMessage: null,
+      selectedNode: remembered,
+      nodes: [remembered],
+      runtimeSelectedNodeName: null,
+    );
+
+    expect(transition.connected, isFalse);
+    expect(transition.connecting, isFalse);
     expect(transition.selectedNode, isNull);
   });
 
@@ -82,5 +117,73 @@ void main() {
     );
 
     expect(resolved, same(nativeSelected));
+  });
+
+  test('disconnected node selection is remembered without a live switch', () {
+    expect(
+      resolveAndroidNodeSelectionIntent(
+        isConnected: false,
+        isConnecting: false,
+      ),
+      AndroidNodeSelectionIntent.rememberForNextConnection,
+    );
+    expect(
+      resolveAndroidNodeSelectionIntent(
+        isConnected: true,
+        isConnecting: false,
+      ),
+      AndroidNodeSelectionIntent.switchLive,
+    );
+    expect(
+      resolveAndroidNodeSelectionIntent(
+        isConnected: false,
+        isConnecting: true,
+      ),
+      AndroidNodeSelectionIntent.ignore,
+    );
+  });
+
+  test('the pending UI selection wins when the next connection starts', () {
+    expect(
+      resolveAndroidPreferredNodeName(
+        selectedNodeName: nativeSelected.name,
+        rememberedNodeName: remembered.name,
+      ),
+      nativeSelected.name,
+    );
+    expect(
+      resolveAndroidPreferredNodeName(
+        selectedNodeName: null,
+        rememberedNodeName: remembered.name,
+      ),
+      remembered.name,
+    );
+  });
+
+  test('failed offline preference persistence rolls back only its own intent',
+      () {
+    expect(
+      rollbackAndroidOfflineNodeSelection(
+        previousNode: remembered,
+        attemptedNode: nativeSelected,
+        currentNode: nativeSelected,
+      ),
+      same(remembered),
+    );
+
+    final newerSelection = ProxyNode(
+      name: 'Newer Selection',
+      type: 'ss',
+      server: 'newer.example.com',
+      port: 443,
+    );
+    expect(
+      rollbackAndroidOfflineNodeSelection(
+        previousNode: remembered,
+        attemptedNode: nativeSelected,
+        currentNode: newerSelection,
+      ),
+      same(newerSelection),
+    );
   });
 }

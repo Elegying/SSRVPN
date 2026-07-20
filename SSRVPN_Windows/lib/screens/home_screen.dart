@@ -15,9 +15,7 @@ import '../services/subscription_service.dart';
 import '../services/settings_service.dart';
 import '../services/update_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/connection_button.dart';
 import '../widgets/glass_container.dart';
-import '../widgets/liquid_glass.dart';
 import 'node_edit_screen.dart';
 
 import '../startup/startup_logger.dart';
@@ -28,11 +26,7 @@ part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_initial_subscription
 part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_runtime_actions_part.dart';
 part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_public_ip_part.dart';
 part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_force_proxy_sites_dialog_part.dart';
-part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_home_connection_options_part.dart';
-part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_home_dashboard_part.dart';
 part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_home_dialogs_part.dart';
-part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_home_node_list_part.dart';
-part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_home_status_widgets_part.dart';
 
 const String desktopPlatformLabel = 'Windows';
 

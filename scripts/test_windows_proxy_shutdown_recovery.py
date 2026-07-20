@@ -1376,20 +1376,16 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("现有进程未被终止", failure)
         self.assertIn("assigned_to_job = true", failure)
 
-    def test_in_app_installer_handoff_cannot_fall_back_into_the_job(self) -> None:
-        handoff = (
-            ROOT
-            / "SSRVPN_Windows"
-            / "lib"
-            / "services"
-            / "windows_detached_installer_launcher.dart"
+    def test_in_app_update_never_launches_the_downloaded_installer(self) -> None:
+        update_service = (
+            ROOT / "SSRVPN_Windows" / "lib" / "services" / "update_service.dart"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("WindowsProcessCommand('explorer.exe', [path])", handoff)
-        self.assertIn("GetShellWindow", handoff)
-        self.assertIn("if (!shellAvailable())", handoff)
-        self.assertNotIn("powershell.exe", handoff.lower())
-        self.assertNotIn("Start-Process", handoff)
+        self.assertIn("downloadUpdateToDesktop", update_service)
+        self.assertIn("下载到桌面", update_service)
+        self.assertNotIn("explorer.exe", update_service)
+        self.assertNotIn("WindowsDetachedInstallerLauncher", update_service)
+        self.assertNotIn("onInstallerHandoff", update_service)
 
     def test_windows_powershell_calls_force_utf8_output(self) -> None:
         helper = (
@@ -1675,7 +1671,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             home_connect[home_recovery:],
         )
 
-    def test_windows_surfaces_runtime_ports_and_recovers_one_core_exit(self) -> None:
+    def test_windows_notifies_runtime_ports_and_recovers_one_core_exit(self) -> None:
         lifecycle = (
             ROOT
             / "SSRVPN_Windows"
@@ -1684,15 +1680,6 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             / "clash_service_lifecycle.dart"
         ).read_text(encoding="utf-8")
         app = windows_app_runtime_source()
-        summary = (
-            ROOT
-            / "packages"
-            / "ssrvpn_shared"
-            / "lib"
-            / "desktop_ui"
-            / "widgets"
-            / "desktop_home_status_widgets_part.dart"
-        ).read_text(encoding="utf-8")
         tray = (
             ROOT / "SSRVPN_Windows" / "lib" / "services" / "tray_manager.dart"
         ).read_text(encoding="utf-8")
@@ -1705,9 +1692,10 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
                 "String? _defaultNodeName()"
             )
         ]
+        # The shared Home stays concise. A runtime port adjustment must instead
+        # be disclosed by the runtime notice and the Windows tray status.
         self.assertIn("lastRuntimePortAdjustmentMessage", tray_connect)
         self.assertIn("_presentRuntimeNotice", tray_connect)
-        self.assertIn("runtimeProxyPort", summary)
         self.assertIn("runtimeProxyPort", tray)
         self.assertIn("HTTP 代理：127.0.0.1:$port", tray)
         self.assertIn("enabled: false", tray)

@@ -24,6 +24,23 @@ void main() {
     }
   });
 
+  test('selected node preference is committed to memory and disk', () async {
+    final service = await SettingsService.createForTesting(
+      settings: AppSettings(),
+      dataDir: tempDirectory.path,
+      settingsPath: settingsPath,
+      readApiSecret: () async => '',
+      writeApiSecret: (_) async {},
+    );
+
+    await service.updateLastSelectedNodeName('新加坡节点');
+
+    expect(service.settings.lastSelectedNodeName, '新加坡节点');
+    final persisted = jsonDecode(await File(settingsPath).readAsString())
+        as Map<String, dynamic>;
+    expect(persisted['lastSelectedNodeName'], '新加坡节点');
+  });
+
   test('legacy JSON secret is moved to secure storage and scrubbed from disk',
       () async {
     await File(settingsPath).writeAsString(

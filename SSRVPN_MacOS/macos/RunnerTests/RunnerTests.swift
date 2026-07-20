@@ -888,6 +888,34 @@ class RunnerTests: XCTestCase {
     ])
   }
 
+  func testXCTestEnvironmentSurvivesDyldVariableSanitization() {
+    XCTAssertTrue(AppDelegate.isXCTestEnvironment([
+      "XCTestBundlePath": "Contents/PlugIns/RunnerTests.xctest",
+      "XCTestSessionIdentifier": "session-id",
+    ]))
+  }
+
+  func testXCTestEnvironmentRejectsOrdinaryAndIncompleteDebugLaunches() {
+    XCTAssertFalse(AppDelegate.isXCTestEnvironment([:]))
+    XCTAssertFalse(AppDelegate.isXCTestEnvironment([
+      "XCTestBundlePath": "Contents/PlugIns/RunnerTests.xctest",
+    ]))
+    XCTAssertFalse(AppDelegate.isXCTestEnvironment([
+      "XCTestBundlePath": "Contents/PlugIns/RunnerTests.xctest",
+      "XCTestSessionIdentifier": " \n\t ",
+    ]))
+    XCTAssertFalse(AppDelegate.isXCTestEnvironment([
+      "XCTestSessionIdentifier": "session-id",
+    ]))
+  }
+
+  func testXCTestEnvironmentAcceptsLegacyBundleInjectionMarker() {
+    XCTAssertTrue(AppDelegate.isXCTestEnvironment([
+      "XCTestBundlePath": "Contents/PlugIns/RunnerTests.xctest",
+      "DYLD_INSERT_LIBRARIES": "/tmp/libXCTestBundleInject.dylib",
+    ]))
+  }
+
   func testInstanceLeaseExcludesASecondProcessAndTransfersAfterRelease() throws {
     let first = AppDelegate()
     let second = AppDelegate()

@@ -81,6 +81,18 @@ void main() {
     );
   });
 
+  test('sanitizes URLs embedded in display errors without exposing paths', () {
+    final sanitized = LogRedactor.sanitizeForDisplay(
+      'request failed for '
+      'https://user:password@sub.example.com/private-path-token?token=secret',
+    );
+
+    expect(sanitized, contains('https://sub.example.com/***'));
+    expect(sanitized, isNot(contains('password')));
+    expect(sanitized, isNot(contains('private-path-token')));
+    expect(sanitized, isNot(contains('secret')));
+  });
+
   test('bounds hostile log lines before applying redaction regexes', () {
     final sanitized = LogRedactor.sanitize(
       '${'x' * (LogRedactor.maxInputCharacters * 2)} token=secret',

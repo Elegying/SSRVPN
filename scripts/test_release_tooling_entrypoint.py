@@ -70,6 +70,22 @@ python3 -m unittest \\
 """
         self.assertEqual(listed_python_tests(entrypoint), ["test_real.py"])
 
+    def test_tun_dns_behavior_test_is_a_local_and_online_release_gate(self) -> None:
+        expected_invocations = {
+            ROOT / "scripts" / "verify-all.sh": (
+                "scripts/test-macos-tun-dns-transaction.sh"
+            ),
+            ROOT / ".github" / "workflows" / "ci.yml": (
+                "bash scripts/test-macos-tun-dns-transaction.sh"
+            ),
+            ROOT / ".github" / "workflows" / "release.yml": (
+                "bash ../../scripts/test-macos-tun-dns-transaction.sh"
+            ),
+        }
+        for path, invocation in expected_invocations.items():
+            with self.subTest(caller=path.name):
+                self.assertIn(invocation, path.read_text(encoding="utf-8"))
+
     def test_publish_job_requires_the_release_environment(self) -> None:
         workflow = (
             ROOT / ".github" / "workflows" / "release.yml"

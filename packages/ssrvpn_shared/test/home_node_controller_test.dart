@@ -32,7 +32,6 @@ void main() {
       expect(empty.isFirstSync, isTrue);
       expect(empty.hasNodes, isFalse);
       expect(empty.shouldPromptForImport, isTrue);
-      expect(empty.shouldAutoTest, isFalse);
 
       final imported = controller.syncSubscriptionSnapshot(
         revision: 1,
@@ -42,18 +41,28 @@ void main() {
       expect(imported.isFirstSync, isFalse);
       expect(imported.hasNodes, isTrue);
       expect(imported.shouldPromptForImport, isFalse);
-      expect(imported.shouldAutoTest, isTrue);
       expect(controller.nodes.map((node) => node.name), ['A', 'B']);
     });
 
-    test('resolves remembered selectable node and skips timed-out nodes', () {
+    test('keeps a remembered runnable node even when its latency timed out',
+        () {
       final controller = HomeNodeController(nodes: [
         node('A', latency: 65535),
         node('B', latency: 30),
       ]);
 
-      expect(controller.resolveDefaultNode('A')?.name, 'B');
-      expect(controller.resolveDefaultNode('B')?.name, 'B');
+      expect(
+        HomeNodeController.resolveDefaultNodeFrom(controller.nodes, 'A')?.name,
+        'A',
+      );
+      expect(
+        HomeNodeController.resolveDefaultNodeFrom(controller.nodes, 'B')?.name,
+        'B',
+      );
+      expect(
+        HomeNodeController.resolveDefaultNodeFrom(controller.nodes, null)?.name,
+        'B',
+      );
     });
 
     test('resolves runtime selected node from Mihomo state', () {
@@ -88,10 +97,19 @@ void main() {
       ];
       final controller = HomeNodeController(nodes: nodes);
 
-      expect(controller.resolveDefaultNode('套餐到期：长期有效')?.name, 'Real Node');
+      expect(
+        HomeNodeController.resolveDefaultNodeFrom(
+          controller.nodes,
+          '套餐到期：长期有效',
+        )?.name,
+        'Real Node',
+      );
       expect(controller.nodes.map((node) => node.name), ['Real Node']);
       expect(HomeNodeController.canSelectNode(nodes.first, const {}), isFalse);
-      expect(controller.canSelect(controller.nodes.single), isTrue);
+      expect(
+        HomeNodeController.canSelectNode(controller.nodes.single, const {}),
+        isTrue,
+      );
     });
 
     test('returns only runnable nodes from subscription snapshots', () {
@@ -117,82 +135,24 @@ void main() {
     });
 
     test('applies latency batch and moves only timed-out nodes to bottom', () {
-      final controller = HomeNodeController(nodes: [
+      final nodes = [
         node('A'),
         node('B'),
         node('C'),
         node('D'),
-      ]);
-
-      controller.applyLatencies({'B': 65535, 'D': -1, 'A': 25, 'C': 80});
-      controller.sortTimeoutLast();
-
-      expect(controller.nodes.map((node) => node.name), ['A', 'C', 'B', 'D']);
-      expect(controller.canSelect(controller.nodes[0]), isTrue);
-      expect(controller.canSelect(controller.nodes[2]), isFalse);
-    });
-
-    test('builds collapsed subscription sections and keeps single nodes first',
-        () {
-      final sections = HomeNodeController.buildDisplaySections([
-        node('Sub A 1', group: 'Feed A'),
-        node('Single', group: '单独节点'),
-        node('Sub B 1', group: 'Feed B'),
-        node('Sub A 2', group: 'Feed A'),
-      ]);
-
-      expect(sections, hasLength(3));
-      expect(sections[0].title, isNull);
-      expect(sections[0].nodes.map((node) => node.name), ['Single']);
-      expect(sections[1].title, 'Feed A');
-      expect(sections[1].collapsible, isTrue);
-      expect(sections[1].nodes.map((node) => node.name), [
-        'Sub A 1',
-        'Sub A 2',
-      ]);
-      expect(sections[2].title, 'Feed B');
-    });
-
-    test('keeps a single subscription flat', () {
-      final sections = HomeNodeController.buildDisplaySections([
-        node('Single', group: '单独节点'),
-        node('Sub A 1', group: 'Feed A'),
-        node('Sub A 2', group: 'Feed A'),
-      ]);
-
-      expect(sections, hasLength(2));
-      expect(sections[0].nodes.map((node) => node.name), ['Single']);
-      expect(sections[1].title, isNull);
-      expect(sections[1].collapsible, isFalse);
-      expect(sections[1].nodes.map((node) => node.name), [
-        'Sub A 1',
-        'Sub A 2',
-      ]);
-    });
-
-    test('builds display rows from expanded subscription groups', () {
-      final nodes = [
-        node('Single', group: '单独节点'),
-        node('Sub A 1', group: 'Feed A'),
-        node('Sub B 1', group: 'Feed B'),
-        node('Sub A 2', group: 'Feed A'),
       ];
+      final latencies = <String, int>{};
 
-      final collapsed = HomeNodeController.buildDisplayRows(nodes, {});
-      expect(collapsed.map((row) => row.section?.title ?? row.node?.name), [
-        'Single',
-        'Feed A',
-        'Feed B',
-      ]);
+      HomeNodeController.applyLatenciesTo(
+        nodes,
+        latencies,
+        {'B': 65535, 'D': -1, 'A': 25, 'C': 80},
+      );
+      final sorted = HomeNodeController.timeoutLast(nodes, latencies);
 
-      final expanded = HomeNodeController.buildDisplayRows(nodes, {'Feed A'});
-      expect(expanded.map((row) => row.section?.title ?? row.node?.name), [
-        'Single',
-        'Feed A',
-        'Sub A 1',
-        'Sub A 2',
-        'Feed B',
-      ]);
+      expect(sorted.map((node) => node.name), ['A', 'C', 'B', 'D']);
+      expect(HomeNodeController.canSelectNode(sorted[0], latencies), isTrue);
+      expect(HomeNodeController.canSelectNode(sorted[2], latencies), isFalse);
     });
   });
 }

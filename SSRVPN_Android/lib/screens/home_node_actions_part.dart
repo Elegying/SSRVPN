@@ -46,20 +46,51 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     });
   }
 
-  Future<void> _handleSelectNode(ProxyNode node) {
-    if (!_latencyController.canSelect(node)) return Future<void>.value();
-    if (!_isConnected) {
-      if (mounted) {
+  Future<void> _handleSelectNode(ProxyNode node) async {
+    final intent = resolveAndroidNodeSelectionIntent(
+      isConnected: _isConnected,
+      isConnecting: _isConnecting,
+    );
+    if (intent == AndroidNodeSelectionIntent.ignore) return;
+    if (intent == AndroidNodeSelectionIntent.rememberForNextConnection) {
+      // Keep offline selection entirely local: no ClashService lookup or live
+      // proxy switch is allowed until a connection exists.
+      final previousNode = _selectedNode;
+      _updateHomeState(() => _selectedNode = node);
+      try {
+        await _rememberSelectedNode(
+          node,
+          shouldContinue: () => mounted && !_disposed,
+        );
+        if (!mounted || _disposed) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+            content: Text('已选择: ${node.name}，连接时生效'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } catch (error) {
+        AppLogger.warning('NodeSelection', '保存首选节点失败: $error');
+        if (!mounted || _disposed) return;
+        _updateHomeState(() {
+          _selectedNode = rollbackAndroidOfflineNodeSelection(
+            previousNode: previousNode,
+            attemptedNode: node,
+            currentNode: _selectedNode,
+          );
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
-            content: Text('请先连接VPN'),
-            duration: Duration(seconds: 4),
+            content: Text('保存首选节点失败，请重试'),
+            duration: Duration(seconds: 3),
           ),
         );
       }
-      return Future<void>.value();
+      return;
     }
+    if (!_latencyController.canSelect(node)) return;
     final clashService = context.read<ClashService>();
     final generation = clashService.requestConnectionIntent(true);
     final statusEpoch = _connectionStatusEpoch;
@@ -72,7 +103,18 @@ extension _AndroidHomeNodeActions on HomeScreenState {
         AppLogger.warning('NodeSelection', '节点切换事务失败: $error');
       },
     );
-    return operation;
+    try {
+      await operation;
+    } catch (_) {
+      if (!mounted || _disposed) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
+          content: Text('节点切换失败，请稍后重试'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   Future<void> _performSelectNode(

@@ -37,7 +37,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
-          release_commit="$(git rev-list -n 1 "$GITHUB_SHA")"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            release_commit="$(bash scripts/verify-release-tag-source.sh "$GITHUB_REF")"
+          else
+            release_commit="$(git rev-parse --verify "$GITHUB_SHA^{commit}")"
+          fi
           main_tip="$(git rev-parse origin/main)"
           if [ "$release_commit" != "$main_tip" ]; then
             retry_release="$RUNNER_TEMP/existing-release-retry.json"
@@ -123,6 +127,7 @@ jobs:
       - run: bash ../../scripts/check-desktop-secure-storage.sh
       - run: bash ../../scripts/check-clash-service-boundaries.sh
       - run: bash ../../scripts/check-macos-core-privileges.sh
+      - run: bash ../../scripts/test-macos-tun-dns-transaction.sh
       - run: bash ../../scripts/check-windows-launcher-security.sh
       - run: bash ../../scripts/check-secrets.sh
       - run: bash ../../scripts/test-release-tooling.sh

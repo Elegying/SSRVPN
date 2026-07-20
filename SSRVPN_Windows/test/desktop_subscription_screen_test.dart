@@ -1,8 +1,6 @@
 import 'dart:io';
-import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_windows/screens/subscription_screen.dart';
@@ -27,9 +25,7 @@ void main() {
 
   tearDown(SubscriptionService.resetInstanceForTesting);
 
-  testWidgets('about action exposes semantics and opens from the keyboard',
-      (tester) async {
-    final semantics = tester.ensureSemantics();
+  testWidgets('subscription page has no about action', (tester) async {
     final fixture =
         (await tester.runAsync(() => _SubscriptionFixture.create()))!;
     addTearDown(fixture.dispose);
@@ -37,16 +33,10 @@ void main() {
     await tester.pumpWidget(fixture.build());
     await tester.pump();
 
-    final aboutAction = find.bySemanticsLabel('打开关于 SSRVPN');
-    expect(aboutAction, findsOneWidget);
-    expect(tester.getSemantics(aboutAction).flagsCollection.isButton, isTrue);
-    await _focusSemanticAction(tester, aboutAction);
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pumpAndSettle();
-
-    expect(find.text('免责声明'), findsOneWidget);
-    expect(find.text('知道了'), findsOneWidget);
-    semantics.dispose();
+    expect(find.text('订阅管理'), findsOneWidget);
+    expect(find.text('添加订阅'), findsOneWidget);
+    expect(find.text('关于'), findsNothing);
+    expect(find.bySemanticsLabel('打开关于 SSRVPN'), findsNothing);
   });
 
   testWidgets('ordinary deletion confirms success to the user', (tester) async {
@@ -61,18 +51,6 @@ void main() {
     await tester.tap(find.byTooltip('删除订阅'));
     await tester.pumpAndSettle();
     expect(find.text('确认删除'), findsOneWidget);
-    final deleteButton = tester.widget<IconButton>(
-      find.widgetWithIcon(IconButton, Icons.delete_outline),
-    );
-    expect(deleteButton.onPressed, isNull);
-    expect(
-      deleteButton.disabledColor,
-      AppTheme.lightTextHint.withValues(alpha: 100 / 255),
-    );
-    expect(
-      tester.widget<Icon>(find.byIcon(Icons.delete_outline)).color,
-      isNull,
-    );
 
     await tester.tap(find.widgetWithText(ElevatedButton, '删除'));
     await tester.pumpAndSettle();
@@ -91,18 +69,6 @@ Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
     );
     await tester.pump();
   }
-}
-
-Future<void> _focusSemanticAction(WidgetTester tester, Finder action) async {
-  for (var attempt = 0; attempt < 40; attempt++) {
-    if (tester.getSemantics(action).flagsCollection.isFocused ==
-        Tristate.isTrue) {
-      return;
-    }
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-    await tester.pump();
-  }
-  fail('Could not focus requested semantic action with keyboard traversal');
 }
 
 class _SubscriptionFixture {
