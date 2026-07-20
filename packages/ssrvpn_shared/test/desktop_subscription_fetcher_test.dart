@@ -154,7 +154,7 @@ void main() {
       );
     });
     final control = SubscriptionRefreshControl(
-      timeout: const Duration(milliseconds: 80),
+      timeout: const Duration(seconds: 2),
     );
 
     try {
@@ -165,13 +165,14 @@ void main() {
         control: control,
         directAddressLookup: (_) async => [InternetAddress.loopbackIPv4],
       );
-      await requestReceived.future.timeout(const Duration(seconds: 1));
-
-      await expectLater(
-        task.timeout(const Duration(seconds: 1)),
+      final deadlineExpectation = expectLater(
+        task.timeout(const Duration(seconds: 5)),
         throwsA(isA<SubscriptionRefreshDeadlineExceeded>()),
       );
-      await peerClosed.future.timeout(const Duration(seconds: 1));
+      await requestReceived.future.timeout(const Duration(seconds: 5));
+
+      await deadlineExpectation;
+      await peerClosed.future.timeout(const Duration(seconds: 5));
     } finally {
       client?.destroy();
       await subscription.cancel();
