@@ -47,7 +47,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('SSRVPN'), findsOneWidget);
-    expect(find.text('v3.4.7'), findsOneWidget);
+    expect(find.text('v3.4.8'), findsOneWidget);
     expect(find.text('添加订阅'), findsOneWidget);
 
     await tester.tap(find.text('确定'));
