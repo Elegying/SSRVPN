@@ -55,7 +55,7 @@ void main() {
       expect(parsed['external-controller'], contains('127.0.0.1'));
     });
 
-    test('DNS fallback targets Google/Cloudflare', () {
+    test('DNS separates trusted proxy resolution from domestic bootstrap', () {
       final config = ClashService().generateClashConfig(
         _testProxies,
         AppSettings(),
@@ -65,14 +65,21 @@ void main() {
       final dns = parsed['dns'] as YamlMap;
 
       expect(dns['enhanced-mode'], 'fake-ip');
-      expect(
-        (dns['fallback'] as YamlList).cast<String>(),
-        containsAll(['https://dns.google/dns-query', '8.8.8.8', '1.1.1.1']),
-      );
+      expect(dns['respect-rules'], isTrue);
       expect(
         (dns['nameserver'] as YamlList).cast<String>(),
-        containsAll(['223.5.5.5', '119.29.29.29']),
+        everyElement(contains('#PROXY')),
       );
+      expect(
+        (dns['proxy-server-nameserver'] as YamlList).cast<String>(),
+        contains('https://dns.alidns.com/dns-query'),
+      );
+      final policy = dns['nameserver-policy'] as YamlMap;
+      expect(
+        (policy['+.chatgpt.com'] as YamlList).cast<String>(),
+        everyElement(contains('#PROXY')),
+      );
+      expect(dns.containsKey('fallback'), isFalse);
     });
 
     test('preferred node is placed first in PROXY group', () {

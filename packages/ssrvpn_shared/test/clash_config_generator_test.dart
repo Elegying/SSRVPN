@@ -163,6 +163,56 @@ proxies:
       expect(config, contains('Test Node'));
     });
 
+    test('OpenAI DNS and routing never fall through to domestic resolvers', () {
+      const yaml = '''
+proxies:
+  - name: "Test Node"
+    type: ss
+    server: node.example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+''';
+
+      final parsed = loadYaml(
+        ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+      ) as YamlMap;
+      final dns = parsed['dns'] as YamlMap;
+      final nameservers = (dns['nameserver'] as YamlList).cast<String>();
+      final proxyNameservers =
+          (dns['proxy-server-nameserver'] as YamlList).cast<String>();
+      final policy = dns['nameserver-policy'] as YamlMap;
+      final rules = (parsed['rules'] as YamlList).cast<String>();
+
+      expect(dns['respect-rules'], isTrue);
+      expect(
+        nameservers,
+        everyElement(allOf(contains('#PROXY'), isNot(contains('alidns')))),
+      );
+      expect(proxyNameservers, contains('https://dns.alidns.com/dns-query'));
+      for (final domain in [
+        '+.chatgpt.com',
+        '+.openai.com',
+        '+.oaistatic.com',
+        '+.oaiusercontent.com',
+      ]) {
+        final resolvers = (policy[domain] as YamlList).cast<String>();
+        expect(resolvers, everyElement(contains('#PROXY')));
+      }
+      for (final rule in [
+        'DOMAIN-SUFFIX,chatgpt.com,PROXY',
+        'DOMAIN-SUFFIX,openai.com,PROXY',
+        'DOMAIN-SUFFIX,oaistatic.com,PROXY',
+        'DOMAIN-SUFFIX,oaiusercontent.com,PROXY',
+      ]) {
+        expect(rules, contains(rule));
+        expect(
+          rules.indexOf(rule),
+          lessThan(rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT')),
+        );
+      }
+    });
+
     test('generateConfig writes a dual-stack generic TUN configuration', () {
       const yaml = '''
 proxies:

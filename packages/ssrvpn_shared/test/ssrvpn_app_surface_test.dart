@@ -150,6 +150,34 @@ void main() {
     expect(openedNodes, isTrue);
   });
 
+  testWidgets('connected data-plane warning is shown as node recovery',
+      (tester) async {
+    await tester.pumpWidget(
+      host(
+        SsrvpnHomeOverview(
+          isConnected: true,
+          isConnecting: false,
+          selectedNode: null,
+          selectedLatency: null,
+          selectedCountryCode: null,
+          connectionNotice: 'TUN 保持连接，正在热切换节点',
+          onToggleConnection: () {},
+          onOpenNodes: () {},
+          onShowAbout: () {},
+          onShowTutorial: () {},
+          onShowLogs: () {},
+          onRefreshPublicIp: () {},
+        ),
+      ),
+    );
+
+    expect(find.text('节点恢复中'), findsOneWidget);
+    expect(find.text('TUN 保持连接，正在热切换节点'), findsOneWidget);
+    expect(find.text('连接异常'), findsNothing);
+    expect(find.byIcon(Icons.sync_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.error_outline_rounded), findsNothing);
+  });
+
   testWidgets('home node latency distinguishes unknown from timeout',
       (tester) async {
     final node = ProxyNode(

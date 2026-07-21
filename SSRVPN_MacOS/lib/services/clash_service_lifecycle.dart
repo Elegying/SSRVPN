@@ -134,12 +134,15 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   String? _lastUnexpectedExitNotice;
   DateTime? _lastTunDataPathProbeAt;
   bool _lastTunDataPathHealthy = true;
-  String? _lastTunDataPathError;
   Future<bool>? _tunDataPathProbe;
   int _tunDataPathProbeGeneration = 0;
+  int _consecutiveTunDataPathFailures = 0;
 
   @protected
-  Duration get tunDataPathProbeInterval => const Duration(seconds: 45);
+  Duration get tunDataPathProbeInterval => const Duration(seconds: 30);
+
+  @protected
+  int get tunDataPathFailureThreshold => 2;
 
   bool get isStartupDisabled => _startupDisabledReason != null;
   String? get startupDisabledReason => _startupDisabledReason;
@@ -263,9 +266,22 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   @protected
   Future<bool> checkMihomoApiHealth() => super.healthCheck();
 
+  Future<bool> _verifyTunRuntimeConfig() async {
+    final tun = (await getConfigs())?['tun'];
+    if (tun is Map && tun['enable'] == true) return true;
+    setLastHealthCheckError(
+      'TUN_CONFIG_MISMATCH: Mihomo API 已就绪，但 TUN listener 未启用',
+    );
+    return false;
+  }
+
   @override
   Future<bool> healthCheck() async {
-    if (!await checkMihomoApiHealth()) return false;
+    if (!await checkMihomoApiHealth()) {
+      final detail = lastHealthCheckError ?? 'Mihomo API 不可用';
+      setLastHealthCheckError('CORE_API_UNAVAILABLE: $detail');
+      return false;
+    }
     if (!settings.enableTun) {
       if (isRunning && !await _proxyService.isCurrentSystemProxyOwned()) {
         setLastHealthCheckError(
@@ -273,25 +289,33 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         );
         return false;
       }
+      setLastHealthCheckError(null);
       return true;
     }
+    if (!await _verifyTunRuntimeConfig()) return false;
     if (!isRunning) return true;
 
     final tunSession = _tunSession;
     if (tunSession == null) {
-      setLastHealthCheckError('TUN 授权会话不存在');
+      setLastHealthCheckError('TUN_SERVICE_LOST: TUN 授权会话不存在');
       return false;
     }
     final runnerState = await tunSession.startupState();
     if (runnerState != MacosTunStartupState.running) {
       setLastHealthCheckError(
-        runnerState == MacosTunStartupState.failed
-            ? (tunSession.lastError ?? 'TUN 授权会话已失败')
-            : 'TUN 授权会话已停止响应',
+        'TUN_SERVICE_LOST: ${runnerState == MacosTunStartupState.failed ? (tunSession.lastError ?? 'TUN 授权会话已失败') : 'TUN 授权会话已停止响应'}',
       );
       return false;
     }
-    return _checkThrottledTunDataPath();
+    setLastHealthCheckError(null);
+    return true;
+  }
+
+  @override
+  @protected
+  Future<void> observeDataPlaneHealth() async {
+    if (!isRunning || !settings.enableTun) return;
+    await _checkThrottledTunDataPath();
   }
 
   Future<bool> _checkThrottledTunDataPath() async {
@@ -302,11 +326,6 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     final lastProbeAt = _lastTunDataPathProbeAt;
     if (lastProbeAt != null &&
         now.difference(lastProbeAt) < tunDataPathProbeInterval) {
-      if (!_lastTunDataPathHealthy) {
-        setLastHealthCheckError(
-          _lastTunDataPathError ?? 'TUN 数据通道仍未恢复',
-        );
-      }
       return _lastTunDataPathHealthy;
     }
 
@@ -322,28 +341,134 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
   Future<bool> _probeTunDataPath(int probeGeneration) async {
     final warning = await verifyUserConnectivity(
-      maxAttempts: 1,
-      retryDelay: Duration.zero,
+      maxAttempts: 2,
+      retryDelay: const Duration(seconds: 1),
       shouldContinue: () => isRunning && settings.enableTun,
     );
     if (probeGeneration != _tunDataPathProbeGeneration) return true;
     if (!isRunning || !settings.enableTun) return false;
     _lastTunDataPathProbeAt = DateTime.now();
     _lastTunDataPathHealthy = warning == null;
-    _lastTunDataPathError = warning;
     if (warning != null) {
-      setLastHealthCheckError(warning);
-      log('TUN 数据通道持续健康检查失败: $warning');
+      _consecutiveTunDataPathFailures++;
+      setConnectivityWarning(
+        '节点或外部网络暂时不可用，TUN 保持连接并继续恢复：$warning',
+      );
+      log(
+        'EXTERNAL_CHECK_BLOCKED '
+        '($_consecutiveTunDataPathFailures/$tunDataPathFailureThreshold): '
+        '$warning',
+      );
+      if (_consecutiveTunDataPathFailures >= tunDataPathFailureThreshold) {
+        await _attemptTunNodeRecovery(probeGeneration);
+      }
     } else {
-      setLastHealthCheckError(null);
+      if (_consecutiveTunDataPathFailures > 0) {
+        log('TUN 数据通道已恢复，核心和 TUN 会话始终保持运行');
+      }
+      _consecutiveTunDataPathFailures = 0;
+      setConnectivityWarning(null);
     }
     return _lastTunDataPathHealthy;
+  }
+
+  Future<void> _attemptTunNodeRecovery(int probeGeneration) async {
+    if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
+    final groups = await getProxies();
+    ProxyGroup? proxyGroup;
+    for (final group in groups) {
+      if (group.name == 'PROXY') {
+        proxyGroup = group;
+        break;
+      }
+    }
+    if (proxyGroup == null || proxyGroup.nodes.length < 2) {
+      log('NODE_RECOVERY_UNAVAILABLE: 没有其他可切换节点，TUN 保持受限连接');
+      return;
+    }
+    final original = await currentSelectedProxyName();
+    if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
+    if (original == null) {
+      setConnectivityWarning(
+        '无法确认当前节点，未执行自动切换；TUN 仍保持接管，请手动选择节点',
+      );
+      log('NODE_RECOVERY_UNAVAILABLE: 无法确认当前节点，未执行自动切换');
+      return;
+    }
+    final candidates = proxyGroup.nodes
+        .where((node) => node.name != original)
+        .take(3)
+        .toList(growable: false);
+    var recoveryOwnedSelection = original;
+    setConnectivityWarning('当前节点不可用，TUN 保持接管并正在热切换节点…');
+    for (final candidate in candidates) {
+      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
+      final selectedBeforeSwitch = await currentSelectedProxyName();
+      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
+      if (selectedBeforeSwitch != recoveryOwnedSelection) {
+        _handleExternalNodeSelectionDuringRecovery();
+        return;
+      }
+      final switched = await switchSelectedProxy(candidate.name);
+      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
+      if (!switched) continue;
+      recoveryOwnedSelection = candidate.name;
+      final warning = await verifyUserConnectivity(
+        maxAttempts: 2,
+        retryDelay: const Duration(seconds: 1),
+        shouldContinue: () =>
+            probeGeneration == _tunDataPathProbeGeneration && isRunning,
+      );
+      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
+      final selectedAfterProbe = await currentSelectedProxyName();
+      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
+      if (selectedAfterProbe != recoveryOwnedSelection) {
+        _handleExternalNodeSelectionDuringRecovery();
+        return;
+      }
+      if (warning == null) {
+        _lastTunDataPathHealthy = true;
+        _consecutiveTunDataPathFailures = 0;
+        setConnectivityWarning(null);
+        log('NODE_RECOVERED: 已热切换到 ${candidate.name}，TUN 会话未重建');
+        notifyStatusChanged();
+        return;
+      }
+      log('NODE_RECOVERY_FAILED: ${candidate.name}: $warning');
+    }
+    if (probeGeneration == _tunDataPathProbeGeneration && isRunning) {
+      final selectedBeforeRestore = await currentSelectedProxyName();
+      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
+      if (selectedBeforeRestore != recoveryOwnedSelection) {
+        _handleExternalNodeSelectionDuringRecovery();
+        return;
+      }
+      final restored = await switchSelectedProxy(original);
+      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
+      if (!restored) {
+        setConnectivityWarning(
+          '节点自动恢复未成功，且未能恢复原节点；TUN 仍保持接管，请手动选择节点',
+        );
+        log('NODE_ROLLBACK_FAILED: 自动恢复失败后未能恢复原节点 $original');
+        return;
+      }
+    }
+    if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
+    setConnectivityWarning('节点自动恢复未成功，TUN 仍保持接管；请手动切换节点或刷新订阅');
+  }
+
+  void _handleExternalNodeSelectionDuringRecovery() {
+    _lastTunDataPathProbeAt = null;
+    _consecutiveTunDataPathFailures = 0;
+    setConnectivityWarning('节点已切换，TUN 保持连接并等待重新验证…');
+    log('NODE_RECOVERY_CANCELLED: 检测到其他节点选择，未覆盖当前选择');
   }
 
   Future<bool> _verifyTunFinalControlPlaneHealth(
     MacosTunSession tunSession,
   ) async {
     if (!await checkMihomoApiHealth()) return false;
+    if (!await _verifyTunRuntimeConfig()) return false;
     final runnerState = await tunSession.startupState();
     if (runnerState == MacosTunStartupState.running) return true;
     setLastHealthCheckError(
@@ -928,14 +1053,23 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
           );
           _ensureStartCurrent(startToken);
           if (connectivityWarning != null) {
-            setLastStartError('TUN 数据通道验证失败：$connectivityWarning');
-            log('❌ $lastStartError');
-            await stopTunAfterStart();
-            return false;
+            _lastTunDataPathProbeAt = DateTime.now();
+            _lastTunDataPathHealthy = false;
+            _consecutiveTunDataPathFailures = 1;
+            setConnectivityWarning(
+              '节点或外部网络暂时不可用，TUN 保持连接并继续恢复：'
+              '$connectivityWarning',
+            );
+            log(
+              'EXTERNAL_CHECK_BLOCKED (startup advisory): '
+              '$connectivityWarning',
+            );
+          } else {
+            _lastTunDataPathProbeAt = DateTime.now();
+            _lastTunDataPathHealthy = true;
+            _consecutiveTunDataPathFailures = 0;
+            setConnectivityWarning(null);
           }
-          _lastTunDataPathProbeAt = DateTime.now();
-          _lastTunDataPathHealthy = true;
-          _lastTunDataPathError = null;
           final finalControlPlaneHealthy =
               await _verifyTunFinalControlPlaneHealth(tunSession);
           _ensureStartCurrent(startToken);
@@ -948,7 +1082,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
           setRunning(true);
           resetHealthCheckFailures();
           log(
-            'macOS TUN 核心与数据通道已就绪，耗时 '
+            'macOS TUN 核心、服务与配置已就绪，耗时 '
             '${startupWatch.elapsedMilliseconds}ms',
           );
           notifyStatusChanged();
@@ -980,7 +1114,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     _tunDataPathProbe = null;
     _lastTunDataPathProbeAt = null;
     _lastTunDataPathHealthy = true;
-    _lastTunDataPathError = null;
+    _consecutiveTunDataPathFailures = 0;
+    setConnectivityWarning(null);
   }
 
   void _invalidateTunDataPathProbe() {

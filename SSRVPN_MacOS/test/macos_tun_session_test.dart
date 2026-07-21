@@ -1083,6 +1083,46 @@ void main() {
     expect(session.lastError, contains('TUN 网卡或路由'));
   });
 
+  test('authorization exit overrides a stale running status', () async {
+    final dataDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_tun_authorization_exit_',
+    );
+    addTearDown(() => dataDir.delete(recursive: true));
+    final runner = _writeTunAssets(dataDir);
+    File('${dataDir.path}/config.yaml').writeAsStringSync('proxies: []\n');
+    final status = File('${dataDir.path}/status');
+    final authorizationExit = Completer<int>();
+    final exitObserved = Completer<void>();
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      statusPath: status.path,
+      appPid: 123,
+      routeProbe: (_, __) async =>
+          ProcessResult(1, 0, '  interface: en0\n', ''),
+      authorizationLauncher: (_, __) async {
+        await status.writeAsString('running\n', flush: true);
+        return TunAuthorizationHandle(
+          exitCode:
+              authorizationExit.future.whenComplete(exitObserved.complete),
+          terminate: () {},
+        );
+      },
+    );
+
+    expect(await session.start(), isTrue);
+    expect(await session.startupState(), MacosTunStartupState.running);
+
+    authorizationExit.complete(17);
+    await exitObserved.future;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(await session.startupState(), MacosTunStartupState.failed);
+    expect(session.lastError, contains('授权会话已退出'));
+    expect(session.lastError, contains('17'));
+  });
+
   test('TUN startup status reports a categorized DNS failure', () async {
     final dataDir = await Directory.systemTemp.createTemp('ssrvpn_tun_dns_');
     addTearDown(() => dataDir.delete(recursive: true));

@@ -17,6 +17,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isConnecting = false;
   bool _isBatchTesting = false;
   String? _errorMessage;
+  String? _connectivityWarning;
   String? _testingNodeName;
   ProxyNode? _selectedNode;
   PublicIpInfo? _publicIpInfo;
@@ -520,25 +521,27 @@ class _HomeScreenState extends State<HomeScreen> {
         unawaited(_autoTestAllNodes());
         _checkUpdateDelayed();
 
-        // TUN startup already gates on its real system-network data path.
-        // This post-start check remains advisory for system-proxy mode and
-        // catches connectivity that degrades immediately after startup.
-        final connectivityWarning = await clashService.verifyUserConnectivity(
-          shouldContinue: () => clashService.isConnectionIntentCurrent(
-            connectionGeneration,
-            connected: true,
-          ),
-        );
-        if (!mounted ||
-            _disposed ||
-            !clashService.isRunning ||
-            !clashService.isConnectionIntentCurrent(
+        // TUN data-plane observations belong to the service lifecycle. The
+        // desktop layer must not duplicate them or turn an advisory warning
+        // into a connection error after startup.
+        if (!clashService.settings.enableTun) {
+          final connectivityWarning = await clashService.verifyUserConnectivity(
+            shouldContinue: () => clashService.isConnectionIntentCurrent(
               connectionGeneration,
               connected: true,
-            )) {
-          return;
+            ),
+          );
+          if (!mounted ||
+              _disposed ||
+              !clashService.isRunning ||
+              !clashService.isConnectionIntentCurrent(
+                connectionGeneration,
+                connected: true,
+              )) {
+            return;
+          }
+          setState(() => _errorMessage = connectivityWarning);
         }
-        setState(() => _errorMessage = connectivityWarning);
       } catch (e, stack) {
         final isCurrent = clashService.isConnectionIntentCurrent(
           requestedGeneration,
@@ -607,6 +610,7 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedLatency: selectedLatency,
         selectedCountryCode: selectedCountryCode,
         errorMessage: _errorMessage,
+        connectionNotice: _connectivityWarning,
         publicIpv4: _publicIpInfo?.displayText,
         isRefreshingPublicIp: _isRefreshingPublicIp,
         publicIpError: _publicIpError,

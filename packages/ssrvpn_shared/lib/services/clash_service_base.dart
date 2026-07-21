@@ -23,6 +23,7 @@ import 'public_ip_info_service.dart';
 part 'clash_service_config_support.dart';
 part 'clash_service_diagnostics.dart';
 part 'clash_service_runtime_support.dart';
+part 'clash_service_data_plane_support.dart';
 
 /// Clash API 交互的公共逻辑基类
 ///
@@ -33,7 +34,11 @@ part 'clash_service_runtime_support.dart';
 ///
 /// 公共能力（API 调用、延迟测试、日志、状态管理）全部在此实现。
 abstract class ClashServiceBase
-    with _ClashConfigSupport, _ClashRuntimeSupport, _ClashDiagnosticsSupport {
+    with
+        _ClashConfigSupport,
+        _ClashRuntimeSupport,
+        _ClashDataPlaneSupport,
+        _ClashDiagnosticsSupport {
   // ── 状态 ──
   bool _isRunning = false;
   bool _healthCheckInProgress = false;
@@ -104,6 +109,7 @@ abstract class ClashServiceBase
   int get runtimeProxyPort => _settings.proxyPort;
   int get runtimeSocksPort => _settings.socksPort;
   int get runtimeApiPort => _settings.apiPort;
+  @override
   AppSettings get settings => _settings;
   bool get connectionDesired => _connectionIntent.desired;
   String get configDir => _configDir;
@@ -511,82 +517,12 @@ abstract class ClashServiceBase
     }
   }
 
+  @override
   String _localHttpProxyConfig() => 'PROXY 127.0.0.1:${_settings.proxyPort}';
   @visibleForTesting
+  @override
   String userConnectivityProxyConfig() =>
       _settings.enableTun ? 'DIRECT' : _localHttpProxyConfig();
-
-  Future<String?> verifyUserConnectivity({
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(seconds: 2),
-    Future<http.Response> Function(Uri uri)? request,
-    bool Function()? shouldContinue,
-  }) async {
-    IOClient? client;
-    if (request == null) {
-      client = IOClient(
-        HttpClient()
-          ..connectionTimeout = const Duration(seconds: 5)
-          ..findProxy = (_) => userConnectivityProxyConfig(),
-      );
-    }
-    final send = request ??
-        (Uri uri) => client!.get(uri).timeout(const Duration(seconds: 6));
-    final attempts = maxAttempts.clamp(1, 5).toInt();
-    final endpoint = Uri.parse(
-      _settings.enableTun
-          ? AppConstants.tunConnectivityTestUrl
-          : AppConstants.defaultLatencyTestUrl,
-    );
-    int? lastStatusCode;
-    try {
-      for (var attempt = 1; attempt <= attempts; attempt++) {
-        if (shouldContinue?.call() == false) return null;
-        try {
-          final response = await send(endpoint);
-          if (shouldContinue?.call() == false) return null;
-          if (response.statusCode == 204 || response.statusCode == 200) {
-            return null;
-          }
-          lastStatusCode = response.statusCode;
-        } catch (_) {
-          lastStatusCode = null;
-        }
-        if (attempt < attempts && retryDelay > Duration.zero) {
-          await Future<void>.delayed(retryDelay);
-        }
-      }
-      if (shouldContinue?.call() == false) return null;
-      if (lastStatusCode != null) {
-        return '已连接，但连续 $attempts 次网络验证返回 HTTP '
-            '$lastStatusCode，请尝试切换节点';
-      }
-      return '已连接，但连续 $attempts 次网络验证失败，请尝试切换节点或刷新订阅';
-    } finally {
-      client?.close();
-    }
-  }
-
-  Future<PublicIpInfo> fetchCurrentPublicIpInfo() async {
-    final client = IOClient(
-      HttpClient()
-        ..connectionTimeout = const Duration(seconds: 5)
-        ..findProxy = (_) => _localHttpProxyConfig(),
-    );
-    try {
-      return await PublicIpInfoService(client: client).fetch();
-    } finally {
-      client.close();
-    }
-  }
-
-  String? normalizeCountryCode(String? value) {
-    final code = value?.trim().toUpperCase() ?? '';
-    if (!RegExp(r'^[A-Z]{2}$').hasMatch(code)) return null;
-    if (code == 'UK') return 'GB';
-    if (code == 'EL') return 'GR';
-    return code;
-  }
 
   // ── 健康检查 ──
 
@@ -628,6 +564,7 @@ abstract class ClashServiceBase
         final healthy = await healthCheck();
         if (healthy) {
           _consecutiveHealthCheckFailures = 0;
+          scheduleDataPlaneObservation();
         } else if (_isRunning) {
           _consecutiveHealthCheckFailures++;
           log(
@@ -694,6 +631,7 @@ abstract class ClashServiceBase
 
   void setRunning(bool running) {
     _isRunning = running;
+    if (!running) clearConnectivityWarningSilently();
   }
 
   /// Records an unexpected core loss. Unlike an intentional stop during an
@@ -703,6 +641,7 @@ abstract class ClashServiceBase
   void markConnectionLost() {
     _connectionIntent.request(false);
     _isRunning = false;
+    clearConnectivityWarningSilently();
     _notifyStatusChanged();
   }
 
@@ -729,6 +668,7 @@ abstract class ClashServiceBase
     }
   }
 
+  @override
   void notifyStatusChanged() {
     _notifyStatusChanged();
   }

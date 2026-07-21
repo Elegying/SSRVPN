@@ -126,19 +126,23 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       }
       if (!success) return;
 
-      final connectivityWarning = await clashService.verifyUserConnectivity(
-        shouldContinue: () => clashService.isConnectionIntentCurrent(
-          connectionGeneration,
-          connected: true,
-        ),
-      );
-      if (mounted &&
-          !_disposed &&
-          clashService.isConnectionIntentCurrent(
+      // TUN data-plane checks are owned by ClashService so reload cannot
+      // promote an advisory warning into a desktop connection error.
+      if (!clashService.settings.enableTun) {
+        final connectivityWarning = await clashService.verifyUserConnectivity(
+          shouldContinue: () => clashService.isConnectionIntentCurrent(
             connectionGeneration,
             connected: true,
-          )) {
-        setState(() => _errorMessage = connectivityWarning);
+          ),
+        );
+        if (mounted &&
+            !_disposed &&
+            clashService.isConnectionIntentCurrent(
+              connectionGeneration,
+              connected: true,
+            )) {
+          setState(() => _errorMessage = connectivityWarning);
+        }
       }
     } catch (e) {
       AppLogger.warning('Connection', '重载配置失败: $e');

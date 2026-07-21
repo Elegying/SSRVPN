@@ -5,6 +5,7 @@ mixin _ClashDiagnosticsSupport {
   bool get isRunning;
   String? get lastStartError;
   String? get lastRuntimePortAdjustmentMessage;
+  String? get connectivityWarning;
   String get recentLogs;
   String get configPath;
 
@@ -111,6 +112,19 @@ mixin _ClashDiagnosticsSupport {
               healthy ? AppDiagnosticStatus.passed : AppDiagnosticStatus.failed,
           summary: healthy ? '本地核心 API 响应正常' : '本地核心 API 无法访问',
           errorCode: healthy ? null : AppErrorCode.coreUnavailable,
+        ),
+      );
+    }
+
+    final dataPlaneWarning = connectivityWarning?.trim();
+    if (isRunning && dataPlaneWarning != null && dataPlaneWarning.isNotEmpty) {
+      checks.add(
+        const AppDiagnosticCheck(
+          id: 'data_plane',
+          title: '节点与外部网络',
+          status: AppDiagnosticStatus.warning,
+          summary: '数据通道处于降级恢复状态；核心、系统服务和运行配置仍保持连接',
+          errorCode: AppErrorCode.dataPlaneDegraded,
         ),
       );
     }

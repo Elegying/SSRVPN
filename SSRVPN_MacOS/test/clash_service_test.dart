@@ -6,10 +6,10 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/services.dart' show MethodChannel, rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:ssrvpn_macos/models/app_settings.dart';
 import 'package:ssrvpn_macos/services/clash_service.dart';
 import 'package:ssrvpn_macos/services/macos_tun_session.dart';
 import 'package:ssrvpn_macos/services/system_proxy_service.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 const _subscriptionYaml = '''
 proxies:
@@ -1051,8 +1051,7 @@ void main() {
       expect(tunSession.stopCalls, 1);
     });
 
-    test('running TUN health combines API, runner and throttled data path',
-        () async {
+    test('running TUN health keeps data-path observation advisory', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_tun_runtime_health_',
       );
@@ -1076,10 +1075,13 @@ void main() {
 
       expect(await service.healthCheck(), isTrue);
       expect(await service.healthCheck(), isTrue);
+      expect(service.connectivityProbes, 0);
+      await service.runDataPlaneObservation();
       expect(service.connectivityProbes, 1);
+      expect(service.lastMaxAttempts, 2);
     });
 
-    test('a failed TUN data path remains unhealthy between probes', () async {
+    test('a failed TUN data path remains connected between probes', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_tun_sticky_data_health_',
       );
@@ -1101,10 +1103,14 @@ void main() {
       );
       service.setRunning(true);
 
-      expect(await service.healthCheck(), isFalse);
-      expect(await service.healthCheck(), isFalse);
+      expect(await service.healthCheck(), isTrue);
+      await service.runDataPlaneObservation();
+      expect(await service.healthCheck(), isTrue);
+      await service.runDataPlaneObservation();
       expect(service.connectivityProbes, 1);
-      expect(service.lastHealthCheckError, contains('TUN data path failed'));
+      expect(service.connectivityWarning, contains('TUN data path failed'));
+      expect(service.lastHealthCheckError, isNull);
+      expect(service.isRunning, isTrue);
     });
 
     test('a stale TUN data probe cannot poison a reconnected session',
@@ -1134,17 +1140,18 @@ void main() {
       );
       service.setRunning(true);
 
-      final staleHealth = service.healthCheck();
+      final staleHealth = service.runDataPlaneObservation();
       await service.staleProbeStarted.future;
       await service.stop();
       expect(await service.start(), isTrue);
 
       service.staleProbe.complete('old session data path failed');
-      expect(await staleHealth, isTrue);
+      await staleHealth;
       expect(await service.healthCheck(), isTrue);
+      await service.runDataPlaneObservation();
       expect(service.connectivityProbes, 2);
       expect(
-        service.lastHealthCheckError,
+        service.connectivityWarning,
         isNot(contains('old session data path failed')),
       );
     });
@@ -1179,6 +1186,154 @@ void main() {
       expect(await service.healthCheck(), isFalse);
       expect(service.connectivityProbes, 0);
       expect(service.lastHealthCheckError, contains('DNS'));
+    });
+
+    test('running TUN health fails when the runtime config disables TUN',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_config_health_',
+      );
+      final tunSession = _FakeMacosTunSession(tempDir.path);
+      final service = _TunConfigMismatchClashService(tunSession: tunSession);
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      service.setRunning(true);
+
+      expect(await service.healthCheck(), isFalse);
+      expect(service.lastHealthCheckError, contains('TUN_CONFIG_MISMATCH'));
+    });
+
+    test('persistent data-plane failure hot-switches a node without TUN exit',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_node_recovery_',
+      );
+      final tunSession = _FakeMacosTunSession(tempDir.path);
+      final service = _FailoverTunProbeClashService(tunSession: tunSession);
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      service.setRunning(true);
+
+      await service.runDataPlaneObservation();
+      expect(service.connectivityWarning, isNotNull);
+      await service.runDataPlaneObservation();
+
+      expect(service.isRunning, isTrue);
+      expect(tunSession.stopCalls, 0);
+      expect(service.switchedNodes, ['Node B']);
+      expect(service.connectivityWarning, isNull);
+      expect(service.connectivityProbes, 3);
+    });
+
+    test('automatic node recovery never overrides a concurrent node choice',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_node_recovery_ownership_',
+      );
+      final tunSession = _FakeMacosTunSession(tempDir.path);
+      final service =
+          _ConcurrentSelectionTunProbeClashService(tunSession: tunSession);
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      service.setRunning(true);
+
+      await service.runDataPlaneObservation();
+      await service.runDataPlaneObservation();
+
+      expect(service.isRunning, isTrue);
+      expect(tunSession.stopCalls, 0);
+      expect(service.switchedNodes, ['Node B']);
+      expect(service.selectedNode, 'User Node');
+      expect(service.connectivityWarning, contains('节点已切换'));
+    });
+
+    test('automatic node recovery does not switch when ownership is unknown',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_node_recovery_unknown_owner_',
+      );
+      final tunSession = _FakeMacosTunSession(tempDir.path);
+      final service = _RecoveryFailureTunProbeClashService(
+        tunSession: tunSession,
+        initialSelection: null,
+      );
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      service.setRunning(true);
+
+      await service.runDataPlaneObservation();
+      await service.runDataPlaneObservation();
+
+      expect(service.switchedNodes, isEmpty);
+      expect(service.connectivityWarning, contains('无法确认当前节点'));
+    });
+
+    test('automatic node recovery reports a failed rollback explicitly',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_node_recovery_rollback_',
+      );
+      final tunSession = _FakeMacosTunSession(tempDir.path);
+      final service = _RecoveryFailureTunProbeClashService(
+        tunSession: tunSession,
+        initialSelection: 'Node A',
+        failedSwitches: const {'Node A'},
+      );
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      service.setRunning(true);
+
+      await service.runDataPlaneObservation();
+      await service.runDataPlaneObservation();
+
+      expect(service.switchedNodes, ['Node B', 'Node A']);
+      expect(service.selectedNode, 'Node B');
+      expect(service.connectivityWarning, contains('未能恢复原节点'));
     });
 
     test('TUN DNS stop failure disconnects locally and blocks a new start',
@@ -1304,7 +1459,7 @@ void main() {
       expect(tunSession.stopCalls, 1);
     });
 
-    test('TUN startup stays disconnected when the real data path fails',
+    test('TUN startup stays connected when only the real data path fails',
         () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_tun_data_path_',
@@ -1328,10 +1483,11 @@ void main() {
         service.generateClashConfig(_subscriptionYaml, settings),
       );
 
-      expect(await service.start(), isFalse);
-      expect(service.isRunning, isFalse);
-      expect(service.lastStartError, contains('TUN 数据通道验证失败'));
-      expect(tunSession.stopCalls, 1);
+      expect(await service.start(), isTrue);
+      expect(service.isRunning, isTrue);
+      expect(service.connectivityWarning, contains('连续 3 次网络验证失败'));
+      expect(service.lastStartError, isNull);
+      expect(tunSession.stopCalls, 0);
     });
 
     test('system proxy mode keeps the normal startup path', () async {
@@ -1497,7 +1653,15 @@ String _effectiveProxyOutput(int port) => '''<dictionary> {
   SOCKSProxy : 127.0.0.1
 }''';
 
-class _TunDataPathClashService extends ClashService {
+mixin _HealthyTunRuntimeConfig on ClashService {
+  @override
+  Future<Map<String, dynamic>?> getConfigs() async => {
+        'tun': {'enable': true},
+      };
+}
+
+class _TunDataPathClashService extends ClashService
+    with _HealthyTunRuntimeConfig {
   _TunDataPathClashService({required super.tunSession});
 
   @override
@@ -1513,7 +1677,8 @@ class _TunDataPathClashService extends ClashService {
       '已连接，但连续 3 次网络验证失败，请尝试切换节点或刷新订阅';
 }
 
-class _TunHealthyClashService extends ClashService {
+class _TunHealthyClashService extends ClashService
+    with _HealthyTunRuntimeConfig {
   _TunHealthyClashService({required super.tunSession});
 
   int healthChecks = 0;
@@ -1534,7 +1699,8 @@ class _TunHealthyClashService extends ClashService {
       null;
 }
 
-class _SequencedTunHealthClashService extends ClashService {
+class _SequencedTunHealthClashService extends ClashService
+    with _HealthyTunRuntimeConfig {
   _SequencedTunHealthClashService({
     required super.tunSession,
     required List<bool> healthResults,
@@ -1562,7 +1728,7 @@ class _SequencedTunHealthClashService extends ClashService {
       null;
 }
 
-class _TunProbeClashService extends ClashService {
+class _TunProbeClashService extends ClashService with _HealthyTunRuntimeConfig {
   _TunProbeClashService({
     required super.tunSession,
     required List<String?> connectivityWarnings,
@@ -1570,6 +1736,9 @@ class _TunProbeClashService extends ClashService {
 
   final List<String?> _connectivityWarnings;
   int connectivityProbes = 0;
+  int? lastMaxAttempts;
+
+  Future<void> runDataPlaneObservation() => observeDataPlaneHealth();
 
   @override
   Future<bool> checkMihomoApiHealth() async {
@@ -1584,6 +1753,7 @@ class _TunProbeClashService extends ClashService {
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
+    lastMaxAttempts = maxAttempts;
     final index = connectivityProbes < _connectivityWarnings.length
         ? connectivityProbes
         : _connectivityWarnings.length - 1;
@@ -1592,12 +1762,77 @@ class _TunProbeClashService extends ClashService {
   }
 }
 
-class _ControllableTunProbeClashService extends ClashService {
+class _ConcurrentSelectionTunProbeClashService extends ClashService
+    with _HealthyTunRuntimeConfig {
+  _ConcurrentSelectionTunProbeClashService({required super.tunSession});
+
+  final List<String> switchedNodes = [];
+  int connectivityProbes = 0;
+  String _selected = 'Node A';
+
+  String get selectedNode => _selected;
+
+  Future<void> runDataPlaneObservation() => observeDataPlaneHealth();
+
+  @override
+  Duration get tunDataPathProbeInterval => Duration.zero;
+
+  @override
+  Future<bool> checkMihomoApiHealth() async => true;
+
+  @override
+  Future<List<ProxyGroup>> getProxies() async => [
+        ProxyGroup(
+          name: 'PROXY',
+          type: 'selector',
+          selectedNode: _selected,
+          nodes: [
+            for (final name in const ['Node A', 'Node B', 'User Node'])
+              ProxyNode(
+                name: name,
+                type: 'ss',
+                server:
+                    '${name.toLowerCase().replaceAll(' ', '-')}.example.com',
+                port: 443,
+              ),
+          ],
+        ),
+      ];
+
+  @override
+  Future<String?> currentSelectedProxyName() async => _selected;
+
+  @override
+  Future<bool> switchSelectedProxy(String nodeName) async {
+    switchedNodes.add(nodeName);
+    _selected = nodeName;
+    return true;
+  }
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async {
+    connectivityProbes++;
+    if (connectivityProbes == 1) return 'first external failure';
+    if (connectivityProbes == 2) return 'second external failure';
+    _selected = 'User Node';
+    return 'candidate still unavailable';
+  }
+}
+
+class _ControllableTunProbeClashService extends ClashService
+    with _HealthyTunRuntimeConfig {
   _ControllableTunProbeClashService({required super.tunSession});
 
   final Completer<String?> staleProbe = Completer<String?>();
   final Completer<void> staleProbeStarted = Completer<void>();
   int connectivityProbes = 0;
+
+  Future<void> runDataPlaneObservation() => observeDataPlaneHealth();
 
   @override
   Future<bool> checkMihomoApiHealth() async {
@@ -1618,6 +1853,154 @@ class _ControllableTunProbeClashService extends ClashService {
       return staleProbe.future;
     }
     return null;
+  }
+}
+
+class _RecoveryFailureTunProbeClashService extends ClashService
+    with _HealthyTunRuntimeConfig {
+  _RecoveryFailureTunProbeClashService({
+    required super.tunSession,
+    required String? initialSelection,
+    this.failedSwitches = const {},
+  }) : _selected = initialSelection;
+
+  final Set<String> failedSwitches;
+  final List<String> switchedNodes = [];
+  String? _selected;
+  int connectivityProbes = 0;
+
+  String? get selectedNode => _selected;
+
+  Future<void> runDataPlaneObservation() => observeDataPlaneHealth();
+
+  @override
+  Duration get tunDataPathProbeInterval => Duration.zero;
+
+  @override
+  Future<bool> checkMihomoApiHealth() async => true;
+
+  @override
+  Future<List<ProxyGroup>> getProxies() async => [
+        ProxyGroup(
+          name: 'PROXY',
+          type: 'selector',
+          selectedNode: _selected,
+          nodes: [
+            ProxyNode(
+              name: 'Node A',
+              type: 'ss',
+              server: 'a.example.com',
+              port: 443,
+            ),
+            ProxyNode(
+              name: 'Node B',
+              type: 'ss',
+              server: 'b.example.com',
+              port: 443,
+            ),
+          ],
+        ),
+      ];
+
+  @override
+  Future<String?> currentSelectedProxyName() async => _selected;
+
+  @override
+  Future<bool> switchSelectedProxy(String nodeName) async {
+    switchedNodes.add(nodeName);
+    if (failedSwitches.contains(nodeName)) return false;
+    _selected = nodeName;
+    return true;
+  }
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async {
+    connectivityProbes++;
+    return 'external failure $connectivityProbes';
+  }
+}
+
+class _TunConfigMismatchClashService extends ClashService {
+  _TunConfigMismatchClashService({required super.tunSession});
+
+  @override
+  Future<bool> checkMihomoApiHealth() async => true;
+
+  @override
+  Future<Map<String, dynamic>?> getConfigs() async => {
+        'tun': {'enable': false},
+      };
+}
+
+class _FailoverTunProbeClashService extends ClashService
+    with _HealthyTunRuntimeConfig {
+  _FailoverTunProbeClashService({required super.tunSession});
+
+  final List<String> switchedNodes = [];
+  final List<String?> _warnings = [
+    'first external failure',
+    'second external failure',
+    null,
+  ];
+  int connectivityProbes = 0;
+  String _selected = 'Node A';
+
+  Future<void> runDataPlaneObservation() => observeDataPlaneHealth();
+
+  @override
+  Duration get tunDataPathProbeInterval => Duration.zero;
+
+  @override
+  Future<bool> checkMihomoApiHealth() async => true;
+
+  @override
+  Future<List<ProxyGroup>> getProxies() async => [
+        ProxyGroup(
+          name: 'PROXY',
+          type: 'selector',
+          selectedNode: _selected,
+          nodes: [
+            ProxyNode(
+              name: 'Node A',
+              type: 'ss',
+              server: 'a.example.com',
+              port: 443,
+            ),
+            ProxyNode(
+              name: 'Node B',
+              type: 'ss',
+              server: 'b.example.com',
+              port: 443,
+            ),
+          ],
+        ),
+      ];
+
+  @override
+  Future<String?> currentSelectedProxyName() async => _selected;
+
+  @override
+  Future<bool> switchSelectedProxy(String nodeName) async {
+    switchedNodes.add(nodeName);
+    _selected = nodeName;
+    return true;
+  }
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async {
+    final warning = _warnings[connectivityProbes];
+    connectivityProbes++;
+    return warning;
   }
 }
 
