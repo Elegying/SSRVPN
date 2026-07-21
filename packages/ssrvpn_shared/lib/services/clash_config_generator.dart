@@ -114,6 +114,7 @@ class ClashConfigGenerator {
       }
       result.writeln('  ipv6: true');
       result.writeln('  enhanced-mode: fake-ip');
+      result.writeln('  respect-rules: true');
       result.writeln('  fake-ip-range: ${AppConstants.fakeIpRange}');
       result.writeln('  fake-ip-range6: ${AppConstants.fakeIpRange6}');
       result.writeln('  default-nameserver:');
@@ -121,27 +122,32 @@ class ClashConfigGenerator {
         result.writeln('    - $ns');
       }
       result.writeln('  nameserver:');
-      for (final ns in AppConstants.dohNameservers) {
-        result.writeln('    - $ns');
+      for (final ns in AppConstants.trustedProxyNameservers) {
+        result.writeln('    - ${_quote(ns)}');
+      }
+      result.writeln('  proxy-server-nameserver:');
+      for (final ns in AppConstants.domesticDohNameservers) {
+        result.writeln('    - ${_quote(ns)}');
       }
       for (final ns in AppConstants.defaultNameservers) {
         result.writeln('    - $ns');
       }
-      result.writeln('  fallback:');
-      for (final ns in AppConstants.fallbackNameservers) {
-        result.writeln('    - $ns');
+      result.writeln('  direct-nameserver:');
+      for (final ns in AppConstants.domesticDohNameservers) {
+        result.writeln('    - ${_quote(ns)}');
       }
-      result.writeln('  fallback-filter:');
-      result.writeln('    geoip: true');
-      result.writeln('    geoip-code: CN');
-      result.writeln('    ipcidr:');
-      result.writeln('      - 240.0.0.0/4');
-      result.writeln('    domain:');
-      result.writeln("      - '*.google.com'");
-      result.writeln("      - '*.googlevideo.com'");
-      result.writeln("      - '*.youtube.com'");
-      result.writeln("      - '*.ytimg.com'");
-      result.writeln("      - '*.ggpht.com'");
+      result.writeln('  direct-nameserver-follow-policy: true');
+      result.writeln('  nameserver-policy:');
+      result.writeln("    '+.cn':");
+      for (final ns in AppConstants.domesticDohNameservers) {
+        result.writeln('      - ${_quote(ns)}');
+      }
+      for (final domain in AppConstants.openAiDomainSuffixes) {
+        result.writeln("    '+.$domain':");
+        for (final ns in AppConstants.trustedProxyNameservers) {
+          result.writeln('      - ${_quote(ns)}');
+        }
+      }
       result.writeln('  fake-ip-filter:');
       for (final filter in AppConstants.fakeIpFilter) {
         result.writeln("    - '$filter'");
@@ -224,6 +230,9 @@ class ClashConfigGenerator {
     }
     for (final rule in extraRulesBeforeDirect.map((rule) => rule.trim())) {
       if (rule.isEmpty) continue;
+      result.writeln('  - ${_quote(rule)}');
+    }
+    for (final rule in AppConstants.openAiProxyRules) {
       result.writeln('  - ${_quote(rule)}');
     }
     for (final rule in AppConstants.defaultRuleProviderDirectRules) {

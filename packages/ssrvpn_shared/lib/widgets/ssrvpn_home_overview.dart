@@ -21,6 +21,7 @@ class SsrvpnHomeOverview extends StatelessWidget {
     required this.onShowLogs,
     required this.onRefreshPublicIp,
     this.errorMessage,
+    this.connectionNotice,
     this.publicIpv4,
     this.publicIpError,
     this.isRefreshingPublicIp = false,
@@ -32,6 +33,7 @@ class SsrvpnHomeOverview extends StatelessWidget {
   final int? selectedLatency;
   final String? selectedCountryCode;
   final String? errorMessage;
+  final String? connectionNotice;
   final String? publicIpv4;
   final String? publicIpError;
   final bool isRefreshingPublicIp;
@@ -45,6 +47,7 @@ class SsrvpnHomeOverview extends StatelessWidget {
   String get _statusText {
     if (isConnecting) return isConnected ? '正在断开' : '正在连接';
     if (errorMessage != null) return '连接异常';
+    if (isConnected && connectionNotice != null) return '节点恢复中';
     if (isConnected) return '已连接';
     return '未连接';
   }
@@ -52,6 +55,7 @@ class SsrvpnHomeOverview extends StatelessWidget {
   Color get _statusColor {
     if (isConnecting) return SsrvpnUiTokens.warning;
     if (errorMessage != null) return SsrvpnUiTokens.error;
+    if (isConnected && connectionNotice != null) return SsrvpnUiTokens.warning;
     if (isConnected) return SsrvpnUiTokens.success;
     return SsrvpnUiTokens.textSecondary;
   }
@@ -114,10 +118,13 @@ class SsrvpnHomeOverview extends StatelessWidget {
                         onTap: onOpenNodes,
                       ),
                     ),
-                    if (isConnected || errorMessage != null) ...[
+                    if (isConnected ||
+                        errorMessage != null ||
+                        connectionNotice != null) ...[
                       const SizedBox(height: 14),
                       _ConnectionDetails(
                         errorMessage: errorMessage,
+                        connectionNotice: connectionNotice,
                         publicIpv4: publicIpv4,
                         publicIpError: publicIpError,
                         isRefreshingPublicIp: isRefreshingPublicIp,
@@ -489,6 +496,7 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
 class _ConnectionDetails extends StatelessWidget {
   const _ConnectionDetails({
     required this.errorMessage,
+    required this.connectionNotice,
     required this.publicIpv4,
     required this.publicIpError,
     required this.isRefreshingPublicIp,
@@ -497,6 +505,7 @@ class _ConnectionDetails extends StatelessWidget {
   });
 
   final String? errorMessage;
+  final String? connectionNotice;
   final String? publicIpv4;
   final String? publicIpError;
   final bool isRefreshingPublicIp;
@@ -515,6 +524,18 @@ class _ConnectionDetails extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
         ),
         style: TextButton.styleFrom(foregroundColor: SsrvpnUiTokens.error),
+      );
+    }
+    if (connectionNotice != null) {
+      return TextButton.icon(
+        onPressed: onShowLogs,
+        icon: const Icon(Icons.sync_rounded, size: 18),
+        label: Text(
+          connectionNotice!,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        style: TextButton.styleFrom(foregroundColor: SsrvpnUiTokens.warning),
       );
     }
     final label = isRefreshingPublicIp

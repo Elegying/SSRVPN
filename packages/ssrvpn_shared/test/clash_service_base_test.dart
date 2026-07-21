@@ -109,6 +109,28 @@ void main() {
       expect(service.userConnectivityProxyConfig(), 'DIRECT');
     });
 
+    test('TUN retries rotate independent connectivity endpoints', () async {
+      final requestedUris = <Uri>[];
+      final service = _TestClashService()
+        ..updateSettings(AppSettings(enableTun: true));
+      addTearDown(service.dispose);
+
+      final warning = await service.verifyUserConnectivity(
+        maxAttempts: 2,
+        retryDelay: Duration.zero,
+        request: (uri) async {
+          requestedUris.add(uri);
+          return http.Response('', requestedUris.length == 1 ? 502 : 204);
+        },
+      );
+
+      expect(warning, isNull);
+      expect(requestedUris, [
+        Uri.parse('https://www.youtube.com/generate_204'),
+        Uri.parse('https://www.gstatic.com/generate_204'),
+      ]);
+    });
+
     test('system-proxy verification keeps using the local mixed port', () {
       final service = _TestClashService()
         ..updateSettings(AppSettings(proxyPort: 17890));
@@ -381,6 +403,21 @@ proxies:
     expect(service.isRunning, isFalse);
   });
 
+  test('status monitor keeps advisory data-plane failures connected', () async {
+    final service = _AdvisoryDataPlaneClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    service.startStatusMonitor();
+    await service.observed.future.timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+    expect(service.stopCalls, 0);
+  });
+
   group('ClashServiceBase diagnostics', () {
     test('reports missing core and config with stable error codes', () async {
       final tempDir =
@@ -426,6 +463,24 @@ proxies:
       expect(runtime.status, AppDiagnosticStatus.failed);
       expect(runtime.errorCode, AppErrorCode.coreUnavailable);
       expect(service.healthCalls, 1);
+    });
+
+    test('reports data-plane degradation separately from core health',
+        () async {
+      final service = _DiagnosticClashService();
+      addTearDown(service.dispose);
+      service.setRunning(true);
+      service.publishConnectivityWarning('external endpoint unavailable');
+
+      final report = await service.runDiagnostics();
+      final runtime =
+          report.checks.singleWhere((check) => check.id == 'runtime');
+      final dataPlane =
+          report.checks.singleWhere((check) => check.id == 'data_plane');
+
+      expect(runtime.status, AppDiagnosticStatus.passed);
+      expect(dataPlane.status, AppDiagnosticStatus.warning);
+      expect(dataPlane.summary, contains('核心、系统服务和运行配置仍保持连接'));
     });
 
     test('checks the platform active config instead of a stale base path',
@@ -681,6 +736,9 @@ class _DiagnosticClashService extends _TestClashService {
   final bool configRequired;
   int healthCalls = 0;
 
+  void publishConnectivityWarning(String? warning) =>
+      setConnectivityWarning(warning);
+
   @override
   String get diagnosticConfigPath => activeDiagnosticConfigPath ?? configPath;
 
@@ -733,5 +791,27 @@ class _NativeHealthClashService extends _TestClashService {
   Future<bool> healthCheck() async {
     healthCalls++;
     return true;
+  }
+}
+
+class _AdvisoryDataPlaneClashService extends _TestClashService {
+  final Completer<void> observed = Completer<void>();
+  int stopCalls = 0;
+
+  @override
+  Duration get statusMonitorInterval => const Duration(milliseconds: 1);
+
+  @override
+  Future<bool> healthCheck() async => true;
+
+  @override
+  Future<void> observeDataPlaneHealth() async {
+    if (!observed.isCompleted) observed.complete();
+    setConnectivityWarning('EXTERNAL_CHECK_BLOCKED: advisory failure');
+  }
+
+  @override
+  Future<void> onStopRequired() async {
+    stopCalls++;
   }
 }

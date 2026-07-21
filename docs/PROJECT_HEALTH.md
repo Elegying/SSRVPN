@@ -114,7 +114,7 @@ make verify
 
 当次真实结果：
 
-- workspace analyze 为 0 issue；版本 `3.4.9+349`、文档、包指南、密钥扫描、核心资产、产品表面、
+- workspace analyze 为 0 issue；版本 `3.4.10+3410`、文档、包指南、密钥扫描、核心资产、产品表面、
   性能与结构守卫、`git diff --check` 全部通过。
 - 发布工具 223/223、macOS TUN DNS shell 行为 22/22 通过；特权 runner 的语法、ShellCheck、固定摘要
   和静态权限守卫通过，runner SHA-256 为

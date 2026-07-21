@@ -4,6 +4,7 @@ enum AppErrorCode {
   coreMissing('CORE_MISSING'),
   coreStartTimeout('CORE_START_TIMEOUT'),
   coreUnavailable('CORE_UNAVAILABLE'),
+  dataPlaneDegraded('DATA_PLANE_DEGRADED'),
   portOccupied('PORT_OCCUPIED'),
   permissionRequired('PERMISSION_REQUIRED'),
   proxyRecoveryPending('PROXY_RECOVERY_PENDING'),
@@ -54,6 +55,12 @@ class AppFailure {
           title: '核心连接中断',
           message: '应用暂时无法访问本地运行核心。',
           recommendedAction: '请断开后重新连接，或运行诊断确认核心状态。',
+        ),
+      AppErrorCode.dataPlaneDegraded => const AppFailure(
+          code: AppErrorCode.dataPlaneDegraded,
+          title: '节点连接正在恢复',
+          message: '核心与系统网络接管仍正常，节点或外部网络暂时不可用。',
+          recommendedAction: '请等待自动切换；若持续失败，可手动切换节点。',
         ),
       AppErrorCode.portOccupied => const AppFailure(
           code: AppErrorCode.portOccupied,

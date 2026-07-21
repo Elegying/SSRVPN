@@ -142,6 +142,8 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
   bool _markerCleanupFailed = false;
   String? _requestNonce;
   TunAuthorizationHandle? _authorizationHandle;
+  int? _authorizationExitCode;
+  bool _stopRequested = false;
   DateTime? _statusNotBefore;
   int _startEpoch = 0;
   Completer<void>? _startCancellation;
@@ -191,6 +193,8 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
     lastError = null;
     _dnsRecoveryRequired = false;
     _markerCleanupFailed = false;
+    _authorizationExitCode = null;
+    _stopRequested = false;
     try {
       final priorCleanup = _interruptCleanup;
       if (priorCleanup != null) await priorCleanup;
@@ -296,7 +300,14 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
       }
       _authorizationHandle = handle;
       int? exitCode;
-      unawaited(handle.exitCode.then((value) => exitCode = value));
+      unawaited(
+        handle.exitCode.then((value) {
+          exitCode = value;
+          if (identical(_authorizationHandle, handle)) {
+            _authorizationExitCode = value;
+          }
+        }),
+      );
       final deadline = DateTime.now().add(const Duration(minutes: 2));
       while (DateTime.now().isBefore(deadline)) {
         _ensureStartCurrent(startEpoch);
@@ -337,6 +348,7 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
           identical(_authorizationHandle, handle)) {
         handle.terminate();
         _authorizationHandle = null;
+        _authorizationExitCode = null;
       }
       if (requestNonce == null || _requestNonce == requestNonce) {
         lastError = 'TUN 连接已取消';
@@ -407,46 +419,52 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
       }
       return;
     }
-    if (!await _transitionRequestToRecovery(requestNonce)) {
-      _dnsRecoveryRequired = true;
-      lastError = '无法持久化 TUN DNS 恢复标记，已保留当前授权会话';
-      throw StateError(lastError!);
-    }
-    int exitCode;
+    _stopRequested = true;
     try {
-      exitCode = await handle.exitCode.timeout(_stopTimeout);
-    } on TimeoutException {
-      _dnsRecoveryRequired = true;
-      lastError = 'TUN 授权会话停止超时，已保留 DNS 恢复标记';
-      throw StateError(lastError!);
-    }
-
-    final state = await startupState();
-    final ownedMarkerRemains =
-        await _currentGenerationRequestExists(requestNonce);
-    if (identical(_authorizationHandle, handle) &&
-        _requestNonce == requestNonce) {
-      _authorizationHandle = null;
-      _requested = false;
-      if (!ownedMarkerRemains) _requestNonce = null;
-    }
-    if (exitCode != 0 || state == MacosTunStartupState.failed) {
-      if (_dnsRecoveryRequired ||
-          (ownedMarkerRemains && !_markerCleanupFailed)) {
+      if (!await _transitionRequestToRecovery(requestNonce)) {
         _dnsRecoveryRequired = true;
-        lastError ??= 'TUN 授权会话未能安全停止，已保留 DNS 恢复标记';
-      } else {
-        _dnsRecoveryRequired = false;
-        lastError ??= 'TUN 授权会话停止失败，请修复问题后重试';
+        lastError = '无法持久化 TUN DNS 恢复标记，已保留当前授权会话';
+        throw StateError(lastError!);
       }
-      throw StateError(lastError!);
+      int exitCode;
+      try {
+        exitCode = await handle.exitCode.timeout(_stopTimeout);
+      } on TimeoutException {
+        _dnsRecoveryRequired = true;
+        lastError = 'TUN 授权会话停止超时，已保留 DNS 恢复标记';
+        throw StateError(lastError!);
+      }
+
+      final state = await startupState();
+      final ownedMarkerRemains =
+          await _currentGenerationRequestExists(requestNonce);
+      if (identical(_authorizationHandle, handle) &&
+          _requestNonce == requestNonce) {
+        _authorizationHandle = null;
+        _authorizationExitCode = null;
+        _requested = false;
+        if (!ownedMarkerRemains) _requestNonce = null;
+      }
+      if (exitCode != 0 || state == MacosTunStartupState.failed) {
+        if (_dnsRecoveryRequired ||
+            (ownedMarkerRemains && !_markerCleanupFailed)) {
+          _dnsRecoveryRequired = true;
+          lastError ??= 'TUN 授权会话未能安全停止，已保留 DNS 恢复标记';
+        } else {
+          _dnsRecoveryRequired = false;
+          lastError ??= 'TUN 授权会话停止失败，请修复问题后重试';
+        }
+        throw StateError(lastError!);
+      }
+      if (ownedMarkerRemains) {
+        lastError = 'TUN 已停止，但特权会话标记未能安全退役';
+        throw StateError(lastError!);
+      }
+      _dnsRecoveryRequired = false;
+      _markerCleanupFailed = false;
+    } finally {
+      _stopRequested = false;
     }
-    if (ownedMarkerRemains) {
-      lastError = 'TUN 已停止，但特权会话标记未能安全退役';
-      throw StateError(lastError!);
-    }
-    _dnsRecoveryRequired = false;
-    _markerCleanupFailed = false;
   }
 
   Future<bool> recoverStaleDnsIfNeeded() async {
@@ -610,6 +628,11 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
   /// fixed vocabulary is accepted so privileged logs, node names and secrets
   /// can never be reflected into the application UI.
   Future<MacosTunStartupState> startupState() async {
+    final authorizationExitCode = _authorizationExitCode;
+    if (_requested && !_stopRequested && authorizationExitCode != null) {
+      lastError = 'TUN 授权会话已退出（退出码 $authorizationExitCode），核心服务不再受本次会话管理';
+      return MacosTunStartupState.failed;
+    }
     try {
       if (await FileSystemEntity.type(statusPath, followLinks: false) !=
           FileSystemEntityType.file) {

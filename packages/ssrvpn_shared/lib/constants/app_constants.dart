@@ -25,6 +25,10 @@ class AppConstants {
       'https://www.gstatic.com/generate_204';
   static const String tunConnectivityTestUrl =
       'https://www.youtube.com/generate_204';
+  static const List<String> tunConnectivityTestUrls = [
+    tunConnectivityTestUrl,
+    defaultLatencyTestUrl,
+  ];
   static const int latencyTestInterval = 300; // 秒
 
   // ── 重试机制 ──
@@ -38,16 +42,25 @@ class AppConstants {
   // ── DNS 配置 ──
   static const List<String> defaultNameservers = ['223.5.5.5', '119.29.29.29'];
 
-  static const List<String> fallbackNameservers = [
-    'https://dns.google/dns-query',
-    'https://cloudflare-dns.com/dns-query',
-    '8.8.8.8',
-    '1.1.1.1',
-  ];
-
-  static const List<String> dohNameservers = [
+  /// Domestic resolvers are limited to proxy-server bootstrap and explicit
+  /// CN policy. They are never the general resolver for international names.
+  static const List<String> domesticDohNameservers = [
     'https://dns.alidns.com/dns-query',
     'https://doh.pub/dns-query',
+  ];
+
+  /// International DNS is sent through the active proxy. IP-literal DoH
+  /// endpoints avoid bootstrapping these resolvers through domestic DNS.
+  static const List<String> trustedProxyNameservers = [
+    'https://1.1.1.1/dns-query#PROXY',
+    'https://8.8.8.8/dns-query#PROXY',
+  ];
+
+  static const List<String> openAiDomainSuffixes = [
+    'chatgpt.com',
+    'openai.com',
+    'oaistatic.com',
+    'oaiusercontent.com',
   ];
 
   // ── 文件路径 ──
@@ -58,7 +71,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '3.4.9';
+  static const String appVersion = '3.4.10';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 
@@ -116,6 +129,13 @@ class AppConstants {
       '$metaRulesCommit/geo/geoip/cn.mrs';
 
   static const List<String> defaultDirectRules = ['DOMAIN-SUFFIX,cn,DIRECT'];
+
+  static const List<String> openAiProxyRules = [
+    'DOMAIN-SUFFIX,chatgpt.com,PROXY',
+    'DOMAIN-SUFFIX,openai.com,PROXY',
+    'DOMAIN-SUFFIX,oaistatic.com,PROXY',
+    'DOMAIN-SUFFIX,oaiusercontent.com,PROXY',
+  ];
 
   static const List<String> defaultRuleProviderDirectRules = [
     'RULE-SET,$geositeCnRuleProviderName,DIRECT',

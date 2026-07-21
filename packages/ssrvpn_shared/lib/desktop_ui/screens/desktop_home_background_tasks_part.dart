@@ -46,7 +46,10 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
       });
     }
     if (statusIsCurrent && wasRunning) {
-      setState(() => _isConnected = true);
+      setState(() {
+        _isConnected = true;
+        _connectivityWarning = clashService.connectivityWarning;
+      });
       _schedulePublicIpRefresh();
     }
 
@@ -60,11 +63,18 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     if (clashService == null || !mounted || _disposed) return;
     final statusEpoch = ++_connectionStatusEpoch;
     final running = clashService.isRunning;
+    final connectivityWarning =
+        running ? clashService.connectivityWarning : null;
     final cancelledWhileConnecting =
         _isConnecting && !clashService.connectionDesired;
-    if (_isConnected == running && !cancelledWhileConnecting) return;
+    if (_isConnected == running &&
+        _connectivityWarning == connectivityWarning &&
+        !cancelledWhileConnecting) {
+      return;
+    }
     setState(() {
       _isConnected = running;
+      _connectivityWarning = connectivityWarning;
       if (cancelledWhileConnecting) _isConnecting = false;
       if (!running) {
         _latencyController.clear();
