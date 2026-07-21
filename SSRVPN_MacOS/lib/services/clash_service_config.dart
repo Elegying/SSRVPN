@@ -17,6 +17,7 @@ mixin _MacosClashConfig on ClashServiceBase {
     buffer
       ..writeln('  dns-hijack:')
       ..writeln('    - any:53')
+      ..writeln('    - tcp://any:53')
       ..writeln('  route-address-set:')
       ..writeln('    - ${AppConstants.geoipCnRuleProviderName}')
       ..writeln('    - ${AppConstants.geositeCnRuleProviderName}');
@@ -34,6 +35,7 @@ mixin _MacosClashConfig on ClashServiceBase {
       preferredNodeName: preferredNodeName,
       platformHeader: '# ===== SSRVPN 配置（规则内置，订阅仅加载节点） =====',
       tunConfig: settings.enableTun ? _macosTunConfig(settings) : null,
+      dnsListen: settings.enableTun ? '127.0.0.1:53' : null,
       latencyTestUrl: settings.latencyTestUrl,
       includeFallbackGroup: true,
       includeGeoIpRules: true,
@@ -51,6 +53,7 @@ mixin _MacosClashConfig on ClashServiceBase {
       preferredNodeName: preferredNodeName,
       platformHeader: '# ===== SSRVPN 配置（规则内置，订阅仅加载节点） =====',
       tunConfig: settings.enableTun ? _macosTunConfig(settings) : null,
+      dnsListen: settings.enableTun ? '127.0.0.1:53' : null,
       latencyTestUrl: settings.latencyTestUrl,
       includeFallbackGroup: true,
       includeGeoIpRules: true,

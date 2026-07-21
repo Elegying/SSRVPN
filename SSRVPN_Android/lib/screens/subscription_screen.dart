@@ -4,11 +4,9 @@ import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/clash_service.dart';
 import '../services/subscription_service.dart';
-import '../services/update_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_container.dart';
-import '../widgets/liquid_glass.dart' hide GlassInputDecoration;
-import '../widgets/subscription_screen_sections.dart';
+import '../widgets/subscription_network_error_dialog.dart';
 
 /// 订阅管理页面 - 液态玻璃风格
 class SubscriptionScreen extends StatefulWidget {
@@ -236,8 +234,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         );
       } catch (e) {
         if (mounted) {
+          final displayError = SubscriptionDeleteResult(
+            removed: false,
+            error: e,
+          ).displayError;
           _showSnack(
-            '删除失败：${e.toString().replaceFirst("Exception: ", "")}',
+            '删除失败：$displayError',
             AppTheme.errorColor,
           );
         }
@@ -250,12 +252,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
       if (!result.removed) {
         _showSnack(
-          '删除失败：${result.error.toString().replaceFirst("Exception: ", "")}',
+          '删除失败：${result.displayError}',
           AppTheme.errorColor,
         );
       } else if (result.error != null) {
         _showSnack(
-          '订阅已删除，但断开 VPN 失败：${result.error.toString().replaceFirst("Exception: ", "")}',
+          '订阅已删除，但断开 VPN 失败：${result.displayError}',
           AppTheme.warningColor,
         );
       } else if (result.stoppedClash) {
@@ -270,215 +272,29 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
   Widget build(BuildContext context) {
     super.build(context);
     final subService = context.watch<SubscriptionService>();
-    final subscriptions = subService.subscriptions;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final refreshResult = _refreshResult;
+    final refreshColor = switch (refreshResult?.status) {
+      SubscriptionRefreshStatus.success => SsrvpnUiTokens.success,
+      SubscriptionRefreshStatus.partialSuccess => SsrvpnUiTokens.warning,
+      SubscriptionRefreshStatus.failure => SsrvpnUiTokens.error,
+      SubscriptionRefreshStatus.cancelled => SsrvpnUiTokens.textSecondary,
+      null => null,
+    };
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-              16,
-              12,
-              16,
-              MediaQuery.of(context).padding.bottom +
-                  LiquidGlassNavBar.height +
-                  20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SubscriptionHeader(
-                isDark: isDark,
-                onAboutTap: () => _showAboutDialog(context),
-              ),
-              const SizedBox(height: 20),
-              SubscriptionAddCard(
-                isDark: isDark,
-                urlController: _urlController,
-                isAdding: _isAdding,
-                isBusy: _isBusy,
-                onAdd: _addSubscription,
-              ),
-              const SizedBox(height: 24),
-              if (subscriptions.isNotEmpty)
-                SubscriptionListSection(
-                  subscriptions: subscriptions,
-                  isDark: isDark,
-                  isAdding: _isAdding,
-                  isRefreshing: _isRefreshing,
-                  isDeleting: _isDeleting,
-                  refreshResult: _refreshResult,
-                  onRefresh: _refreshAll,
-                  onCancelRefresh: _cancelRefresh,
-                  onDelete: _deleteSubscription,
-                ),
-              if (subscriptions.isEmpty) SubscriptionEmptyState(isDark: isDark),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showAboutDialog(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: GlassContainer(
-          borderRadius: 16,
-          enablePress: false,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(ctx).size.width * 0.88,
-            ),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(24, 24, 24, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [AppTheme.primaryColor, AppTheme.accentColor],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.vpn_lock_rounded,
-                        size: 28, color: Colors.white),
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    'SSRVPN',
-                    style: TextStyle(
-                      fontSize: Responsive.sp(20),
-                      fontWeight: FontWeight.w800,
-                      color: isDark
-                          ? AppTheme.darkTextPrimary
-                          : AppTheme.lightTextPrimary,
-                    ),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    'v${UpdateService.appVersion}',
-                    style: TextStyle(
-                      fontSize: Responsive.sp(13),
-                      color: AppTheme.primaryColor,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 5 / 255)
-                          : Colors.black.withValues(alpha: 5 / 255),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '项目地址',
-                          style: TextStyle(
-                            fontSize: Responsive.sp(12),
-                            fontWeight: FontWeight.w700,
-                            color: isDark
-                                ? AppTheme.darkTextPrimary
-                                : AppTheme.lightTextPrimary,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'https://github.com/Elegying/SSRVPN',
-                          style: TextStyle(
-                            fontSize: Responsive.sp(12),
-                            height: 1.4,
-                            color: AppTheme.accentColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 5 / 255)
-                          : Colors.black.withValues(alpha: 5 / 255),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '免责声明',
-                          style: TextStyle(
-                            fontSize: Responsive.sp(12),
-                            fontWeight: FontWeight.w700,
-                            color: isDark
-                                ? AppTheme.darkTextPrimary
-                                : AppTheme.lightTextPrimary,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          '本软件仅供学习与研究使用，请遵守当地法律法规。\n使用者应对自身行为承担全部责任，开发者不对因使用本软件产生的任何后果负责。',
-                          style: TextStyle(
-                            fontSize: Responsive.sp(12),
-                            height: 1.5,
-                            color: isDark
-                                ? AppTheme.darkTextSecondary
-                                : AppTheme.lightTextSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    'By--两颗西柚',
-                    style: TextStyle(
-                      fontSize: Responsive.sp(13),
-                      fontWeight: FontWeight.w600,
-                      color: isDark
-                          ? AppTheme.darkTextSecondary
-                          : AppTheme.lightTextSecondary,
-                    ),
-                  ),
-                  SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        backgroundColor: AppTheme.primaryColor
-                            .withValues(alpha: (isDark ? 25 : 15) / 255),
-                      ),
-                      child: Text('知道了',
-                          style: TextStyle(
-                              fontSize: Responsive.sp(14),
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.primaryColor)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+      body: SsrvpnSubscriptionView(
+        subscriptions: subService.subscriptions,
+        urlController: _urlController,
+        isAdding: _isAdding,
+        isRefreshing: _isRefreshing,
+        isBusy: _isBusy,
+        refreshMessage: refreshResult?.message,
+        refreshMessageColor: refreshColor,
+        onAdd: _addSubscription,
+        onRefresh: _refreshAll,
+        onCancelRefresh: _cancelRefresh,
+        onDelete: _deleteSubscription,
       ),
     );
   }

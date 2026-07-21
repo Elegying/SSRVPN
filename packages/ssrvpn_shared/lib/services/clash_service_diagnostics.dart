@@ -14,6 +14,16 @@ mixin _ClashDiagnosticsSupport {
   @protected
   Future<bool> diagnosticCoreAvailable() async => true;
 
+  /// Platforms with versioned runtime snapshots can expose the file that the
+  /// active core actually owns instead of the nominal next-start path.
+  @protected
+  String get diagnosticConfigPath => configPath;
+
+  /// A platform can skip this check when it creates an ephemeral runtime
+  /// config only as part of a connection attempt.
+  @protected
+  bool get diagnosticConfigRequired => true;
+
   /// Platforms can append checks for state they exclusively own, such as the
   /// system-proxy recovery journal. Diagnostics must not mutate that state.
   @protected
@@ -40,8 +50,17 @@ mixin _ClashDiagnosticsSupport {
       ),
     );
 
-    final configuredPath = configPath.trim();
-    if (configuredPath.isEmpty) {
+    final configuredPath = diagnosticConfigPath.trim();
+    if (!diagnosticConfigRequired) {
+      checks.add(
+        const AppDiagnosticCheck(
+          id: 'config',
+          title: '运行配置',
+          status: AppDiagnosticStatus.skipped,
+          summary: '当前未连接，无需检查运行配置',
+        ),
+      );
+    } else if (configuredPath.isEmpty) {
       checks.add(
         const AppDiagnosticCheck(
           id: 'config',

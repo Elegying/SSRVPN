@@ -137,6 +137,18 @@ internal object NativeConnectionSnapshotStore {
         return true
     }
 
+    @Synchronized
+    fun clearAll(context: Context) {
+        check(preferences(context).edit().clear().commit()) {
+            "Unable to clear the native connection snapshot"
+        }
+        try {
+            deleteKey()
+        } catch (error: Exception) {
+            Log.w(TAG, "Unable to delete the retired snapshot key", error)
+        }
+    }
+
     private fun encrypt(plaintext: ByteArray, key: SecretKey): EncryptedValue {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key)

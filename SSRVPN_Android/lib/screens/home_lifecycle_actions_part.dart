@@ -4,9 +4,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
   bool _onSubscriptionChanged(SubscriptionService subService) {
     final controller = HomeNodeController(
       nodes: _nodes,
-      latencies: _latencyController.latencies,
       lastRevision: _lastRevision,
-      selectedNode: _selectedNode,
     );
     final sync = controller.syncSubscriptionSnapshot(
       revision: subService.revision,
@@ -108,7 +106,6 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     }
     if (statusIsCurrent && running) {
       _updateHomeState(() => _isConnected = true);
-      _glowController.repeat();
       _schedulePublicIpRefresh();
     }
 
@@ -159,6 +156,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     final transition = transitionAndroidHomeConnectionStatus(
       running: running,
       connecting: _isConnecting,
+      connectionDesired: clashService.connectionDesired,
       errorMessage: _errorMessage,
       selectedNode: _selectedNode,
       nodes: _nodes,
@@ -175,10 +173,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
       }
     });
     if (running) {
-      _glowController.repeat();
       _schedulePublicIpRefresh();
-    } else {
-      _glowController.stop();
     }
   }
 

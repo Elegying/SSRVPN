@@ -8,6 +8,7 @@ import 'package:ssrvpn_macos/src/services/system_proxy_ownership.dart';
 typedef MacNetworkSetupRunner = Future<ProcessResult> Function(
   List<String> arguments,
 );
+typedef MacEffectiveProxyRunner = Future<ProcessResult> Function();
 typedef MacProxyLifecycleBegin = Future<String> Function();
 typedef MacProxyLifecycleEnd = Future<bool> Function(String token);
 
@@ -19,13 +20,16 @@ typedef MacProxyLifecycleEnd = Future<bool> Function(String token);
 class SystemProxyService {
   SystemProxyService({
     MacNetworkSetupRunner? networkSetupRunner,
+    MacEffectiveProxyRunner? effectiveProxyRunner,
     MacProxyLifecycleBegin? beginProxyLifecycleTransaction,
     MacProxyLifecycleEnd? endProxyLifecycleTransaction,
   })  : _networkSetupRunner = networkSetupRunner,
+        _effectiveProxyRunner = effectiveProxyRunner,
         _beginProxyLifecycleTransaction = beginProxyLifecycleTransaction,
         _endProxyLifecycleTransaction = endProxyLifecycleTransaction;
 
   static const _networkSetupPath = '/usr/sbin/networksetup';
+  static const _scutilPath = '/usr/sbin/scutil';
   static const _coreProcessChannel = MethodChannel('ssrvpn/core_process');
   static const _commandTimeout = Duration(seconds: 4);
   static const _maxStateFileBytes = 1024 * 1024;
@@ -36,6 +40,7 @@ class SystemProxyService {
     '_ownerPid',
   };
   final MacNetworkSetupRunner? _networkSetupRunner;
+  final MacEffectiveProxyRunner? _effectiveProxyRunner;
   final MacProxyLifecycleBegin? _beginProxyLifecycleTransaction;
   final MacProxyLifecycleEnd? _endProxyLifecycleTransaction;
   File? _stateFile;
@@ -49,6 +54,67 @@ class SystemProxyService {
   bool get isProxyEnabled => _proxyEnabled;
   bool get recoveryPending => _recoveryPending;
   String? get lastError => _lastError;
+
+  /// Verifies the effective proxy of the currently active macOS network
+  /// service without changing it. `scutil --proxy` follows service priority,
+  /// so switching to a newly-created service cannot silently bypass SSRVPN.
+  Future<bool> isCurrentSystemProxyOwned() async {
+    if (!Platform.isMacOS) return false;
+    final ownedHost = _ownedProxyHost;
+    final ownedPort = _ownedProxyPort;
+    if (!_proxyEnabled ||
+        ownedHost == null ||
+        ownedHost.isEmpty ||
+        ownedPort == null ||
+        ownedPort < 1 ||
+        ownedPort > 65535) {
+      _lastError = 'macOS 系统代理所有权信息不可用';
+      return false;
+    }
+
+    try {
+      final result = await _runEffectiveProxyProbe();
+      if (result.exitCode != 0) {
+        final stderr = result.stderr.toString().trim();
+        _lastError = stderr.isEmpty ? '无法读取 macOS 当前系统代理' : stderr;
+        return false;
+      }
+      final values = _parseEffectiveProxy(result.stdout.toString());
+      final owned = _effectiveProxyEntryIsOwned(
+            values,
+            enableKey: 'HTTPEnable',
+            hostKey: 'HTTPProxy',
+            portKey: 'HTTPPort',
+            ownedHost: ownedHost,
+            ownedPort: ownedPort,
+          ) &&
+          _effectiveProxyEntryIsOwned(
+            values,
+            enableKey: 'HTTPSEnable',
+            hostKey: 'HTTPSProxy',
+            portKey: 'HTTPSPort',
+            ownedHost: ownedHost,
+            ownedPort: ownedPort,
+          ) &&
+          _effectiveProxyEntryIsOwned(
+            values,
+            enableKey: 'SOCKSEnable',
+            hostKey: 'SOCKSProxy',
+            portKey: 'SOCKSPort',
+            ownedHost: ownedHost,
+            ownedPort: ownedPort,
+          );
+      if (!owned) {
+        _lastError = 'macOS 当前网络服务的系统代理已被关闭或修改';
+        return false;
+      }
+      _lastError = null;
+      return true;
+    } catch (error) {
+      _lastError = '读取 macOS 当前系统代理失败: $error';
+      return false;
+    }
+  }
 
   Future<void> initialize(String configDir) async {
     _stateFile = File('$configDir${Platform.pathSeparator}system_proxy.json');
@@ -504,6 +570,45 @@ class SystemProxyService {
       }
     }
     return '';
+  }
+
+  Map<String, String> _parseEffectiveProxy(String text) {
+    final values = <String, String>{};
+    final entryPattern = RegExp(
+      r'^\s*([A-Za-z][A-Za-z0-9]*)\s*:\s*(.*?)\s*$',
+    );
+    for (final line in text.split('\n')) {
+      final match = entryPattern.firstMatch(line);
+      if (match != null) values[match.group(1)!] = match.group(2)!;
+    }
+    return values;
+  }
+
+  bool _effectiveProxyEntryIsOwned(
+    Map<String, String> values, {
+    required String enableKey,
+    required String hostKey,
+    required String portKey,
+    required String ownedHost,
+    required int ownedPort,
+  }) =>
+      isOwnedMacProxy(
+        enabled: values[enableKey] == '1',
+        server: values[hostKey] ?? '',
+        port: int.tryParse(values[portKey] ?? '') ?? 0,
+        ownedHost: ownedHost,
+        ownedPort: ownedPort,
+      );
+
+  Future<ProcessResult> _runEffectiveProxyProbe() {
+    final runner = _effectiveProxyRunner;
+    if (runner != null) return runner();
+    return TimedProcessRunner.run(
+      _scutilPath,
+      const ['--proxy'],
+      timeout: _commandTimeout,
+      timeoutStderr: 'scutil --proxy 命令超时',
+    );
   }
 
   Future<void> _checkedRun(List<String> args) async {

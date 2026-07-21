@@ -216,36 +216,64 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
   }
 
   Future<void> _handleSelectNode(ProxyNode node) async {
-    if (!_latencyController.canSelect(node)) return;
+    if (!mounted || _disposed || _isConnecting) return;
     if (!_isConnected) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('请先连接VPN'),
-            duration: Duration(seconds: 1),
-          ),
-        );
+      setState(() => _disconnectedPreferredNodeName = node.name);
+      final saved = await _rememberSelectedNode(node);
+      if (!mounted || _disposed) return;
+      if (!saved && _disconnectedPreferredNodeName == node.name) {
+        setState(() => _disconnectedPreferredNodeName = null);
       }
-      return;
-    }
-    _exitCountryResolveGeneration++;
-    final ok = await context.read<ClashService>().switchSelectedProxy(
-          node.name,
-        );
-    if (ok) {
-      await _rememberSelectedNode(node);
-      if (mounted) setState(() => _selectedNode = node);
-      _scheduleExitCountryResolution();
-      _schedulePublicIpRefresh();
-    }
-    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(ok ? '已切换: ${node.name}' : '切换失败: ${node.name}'),
-          duration: const Duration(seconds: 1),
+          content: Text(
+            saved ? '已选择: ${node.name}，连接时生效' : '保存首选节点失败，请重试',
+          ),
+          duration: const Duration(seconds: 2),
         ),
       );
+      return;
     }
+    if (!_latencyController.canSelect(node)) return;
+    final clashService = context.read<ClashService>();
+    final statusEpoch = _connectionStatusEpoch;
+    final connectionGeneration = clashService.captureAutomaticRestartIntent();
+    if (connectionGeneration == null) return;
+
+    bool isCurrent() =>
+        mounted &&
+        !_disposed &&
+        _isConnected &&
+        !_isConnecting &&
+        clashService.isRunning &&
+        identical(_clashService, clashService) &&
+        statusEpoch == _connectionStatusEpoch &&
+        clashService.isConnectionIntentCurrent(
+          connectionGeneration,
+          connected: true,
+        );
+
+    if (!isCurrent()) return;
+    _exitCountryResolveGeneration++;
+    final ok = await clashService.switchSelectedProxy(node.name);
+    if (!isCurrent()) return;
+    if (ok) {
+      if (!isCurrent()) return;
+      await _rememberSelectedNode(node);
+      if (!isCurrent()) return;
+      setState(() => _selectedNode = node);
+      if (!isCurrent()) return;
+      _scheduleExitCountryResolution();
+      if (!isCurrent()) return;
+      _schedulePublicIpRefresh();
+    }
+    if (!isCurrent()) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? '已切换: ${node.name}' : '切换失败: ${node.name}'),
+        duration: const Duration(seconds: 1),
+      ),
+    );
   }
 
   Future<void> _showNodeContextMenu(

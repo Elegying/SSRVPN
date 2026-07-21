@@ -11,8 +11,11 @@ import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
 import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show
+        AppConstants,
         DesktopConnectionCoordinator,
         DesktopConnectionFailure,
+        SsrvpnAppBackdrop,
+        SsrvpnBottomNavigation,
         desktopSubscriptionChangedMessage;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
@@ -26,10 +29,10 @@ import 'services/subscription_service.dart';
 import 'services/tray_manager.dart';
 import 'startup/startup_flags.dart';
 import 'startup/startup_logger.dart';
+import 'startup/startup_orchestrator.dart';
 import 'startup/startup_status.dart';
 import 'startup/window_state_store.dart';
 import 'theme/app_theme.dart';
-import 'widgets/liquid_glass.dart';
 
 part 'package:ssrvpn_shared/desktop_ui/desktop_app_shell_part.dart';
 part 'app_runtime_actions_part.dart';
@@ -47,6 +50,7 @@ class _SSRVpnAppState extends State<SSRVpnApp>
     with WindowListener, _MacosAppRuntimeActions {
   bool _windowListenerAttached = false;
   Timer? _windowStateSaveDebounce;
+  bool _startupRetryInProgress = false;
 
   @override
   void initState() {
@@ -197,6 +201,16 @@ class _SSRVpnAppState extends State<SSRVpnApp>
     }
   }
 
+  Future<void> _retryCoreInitialization() async {
+    if (_startupRetryInProgress) return;
+    setState(() => _startupRetryInProgress = true);
+    try {
+      await StartupOrchestrator(widget.startupFlags).retryCoreInitialization();
+    } finally {
+      if (mounted) setState(() => _startupRetryInProgress = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final status = StartupStatus.instance;
@@ -220,7 +234,6 @@ class _SSRVpnAppState extends State<SSRVpnApp>
         themeMode: ThemeMode.dark,
         home: CrashReportPrompt(
           child: _DesktopAppShell(
-            isDark: true,
             safeMode: widget.startupFlags.safeMode,
             startupFailureMessages: StartupStatus.instance.failures
                 .map(_startupFailureSummary)
@@ -242,62 +255,91 @@ class _SSRVpnAppState extends State<SSRVpnApp>
       theme: AppTheme.dark,
       home: Scaffold(
         backgroundColor: const Color(0xFF050508),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    startupFailed
-                        ? Icons.error_outline_rounded
-                        : Icons.shield_outlined,
-                    color: startupFailed ? AppTheme.error : AppTheme.primary,
-                    size: 42,
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    startupFailed ? '启动失败' : 'SSRVPN',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color:
-                          startupFailed ? AppTheme.error : AppTheme.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    startupFailed ? '初始化服务失败，请稍后查看诊断日志。' : '正在加载必要组件...',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                  if (!startupFailed) ...[
-                    const SizedBox(height: 18),
-                    SizedBox(
-                      width: 260,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
-                        child: LinearProgressIndicator(
-                          value: _startupProgress(status),
-                          minHeight: 6,
-                          backgroundColor:
-                              AppTheme.primary.withValues(alpha: 32 / 255),
-                          color: AppTheme.primary,
-                        ),
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final minContentHeight =
+                  constraints.maxHeight > 64 ? constraints.maxHeight - 64 : 0.0;
+              return SingleChildScrollView(
+                key: const Key('macos-startup-shell-scroll'),
+                padding: const EdgeInsets.all(32),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: minContentHeight),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 560),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            startupFailed
+                                ? Icons.error_outline_rounded
+                                : Icons.shield_outlined,
+                            color: startupFailed
+                                ? AppTheme.error
+                                : AppTheme.primary,
+                            size: 42,
+                          ),
+                          const SizedBox(height: 24),
+                          Text(
+                            startupFailed ? '启动失败' : 'SSRVPN',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w800,
+                              color: startupFailed
+                                  ? AppTheme.error
+                                  : AppTheme.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            startupFailed
+                                ? '初始化服务失败，请稍后查看诊断日志。'
+                                : '正在加载必要组件...',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
+                          if (!startupFailed) ...[
+                            const SizedBox(height: 18),
+                            SizedBox(
+                              width: 260,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(999),
+                                child: LinearProgressIndicator(
+                                  value: _startupProgress(status),
+                                  minHeight: 6,
+                                  backgroundColor: AppTheme.primary
+                                      .withValues(alpha: 32 / 255),
+                                  color: AppTheme.primary,
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (failures.isNotEmpty) ...[
+                            const SizedBox(height: 18),
+                            _StartupProblemPanel(failures: failures),
+                          ],
+                          if (startupFailed) ...[
+                            const SizedBox(height: 16),
+                            FilledButton(
+                              key: const Key('macos-startup-retry-button'),
+                              onPressed: _startupRetryInProgress
+                                  ? null
+                                  : _retryCoreInitialization,
+                              child: Text(
+                                _startupRetryInProgress ? '正在重试…' : '重试初始化',
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
-                  ],
-                  if (failures.isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    _StartupProblemPanel(failures: failures),
-                  ],
-                ],
-              ),
-            ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),

@@ -12,6 +12,19 @@ typedef _SnapshotCleanupMarker = ({
 });
 
 extension AndroidSnapshotCleanup on ClashService {
+  /// Invalidates a disconnected quick-start snapshot before a setting that
+  /// changes generated configuration is committed. This prevents the Android
+  /// tile from replaying an older mode, rule set, or preferred node.
+  Future<void> _invalidateIdleNativeConnectionSnapshot() async {
+    if (isRunning) {
+      throw StateError('VPN 已在连接，不能清理快速启动信息');
+    }
+    final cleared = await clearNativeConnectionSnapshot();
+    if (!cleared || isRunning) {
+      throw StateError('快速启动信息已被新的连接更新，请重试');
+    }
+  }
+
   Future<T> _serializeNativeSnapshotOperation<T>(
     Future<T> Function() operation,
   ) {
@@ -32,7 +45,7 @@ extension AndroidSnapshotCleanup on ClashService {
     return result;
   }
 
-  Future<void> clearNativeConnectionSnapshot() =>
+  Future<bool> clearNativeConnectionSnapshot() =>
       _serializeNativeSnapshotOperation(() async {
         final expectedGeneration = await _readNativeSnapshotGeneration();
         final fileNames = await _collectSnapshotConfigFileNames();
@@ -56,6 +69,7 @@ extension AndroidSnapshotCleanup on ClashService {
           _nativeSnapshotGeneration = null;
         }
         if (!isRunning) await _completePendingSnapshotFileCleanup();
+        return cleared == true;
       });
 
   Future<void> _pruneVersionedConfigs(Set<String> keepPaths) async {

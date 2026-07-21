@@ -88,6 +88,38 @@ void main() {
   });
 
   group('ClashServiceBase connectivity verification', () {
+    test('TUN verification uses the ordinary route and a YouTube endpoint',
+        () async {
+      Uri? requestedUri;
+      final service = _TestClashService()
+        ..updateSettings(AppSettings(enableTun: true));
+      addTearDown(service.dispose);
+
+      final warning = await service.verifyUserConnectivity(
+        maxAttempts: 1,
+        retryDelay: Duration.zero,
+        request: (uri) async {
+          requestedUri = uri;
+          return http.Response('', 204);
+        },
+      );
+
+      expect(warning, isNull);
+      expect(requestedUri, Uri.parse('https://www.youtube.com/generate_204'));
+      expect(service.userConnectivityProxyConfig(), 'DIRECT');
+    });
+
+    test('system-proxy verification keeps using the local mixed port', () {
+      final service = _TestClashService()
+        ..updateSettings(AppSettings(proxyPort: 17890));
+      addTearDown(service.dispose);
+
+      expect(
+        service.userConnectivityProxyConfig(),
+        'PROXY 127.0.0.1:17890',
+      );
+    });
+
     test('suppresses a transient HTTP failure after a successful retry',
         () async {
       final statuses = [502, 204];
@@ -396,6 +428,49 @@ proxies:
       expect(service.healthCalls, 1);
     });
 
+    test('checks the platform active config instead of a stale base path',
+        () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('ssrvpn-active-config');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final activeConfig = File('${tempDir.path}/config-1.yaml');
+      await activeConfig.writeAsString('mixed-port: 7890');
+      final service = _DiagnosticClashService(
+        activeDiagnosticConfigPath: activeConfig.path,
+      );
+      addTearDown(service.dispose);
+      service.setPaths(
+        configDir: tempDir.path,
+        configPath: '${tempDir.path}/config.yaml',
+      );
+
+      final report = await service.runDiagnostics();
+      final config = report.checks.singleWhere((check) => check.id == 'config');
+
+      expect(config.status, AppDiagnosticStatus.passed);
+      expect(config.errorCode, isNull);
+    });
+
+    test('allows a platform to skip runtime config while disconnected',
+        () async {
+      final tempDir =
+          await Directory.systemTemp.createTemp('ssrvpn-idle-config');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final service = _DiagnosticClashService(configRequired: false);
+      addTearDown(service.dispose);
+      service.setPaths(
+        configDir: tempDir.path,
+        configPath: '${tempDir.path}/config.yaml',
+      );
+
+      final report = await service.runDiagnostics();
+      final config = report.checks.singleWhere((check) => check.id == 'config');
+
+      expect(config.status, AppDiagnosticStatus.skipped);
+      expect(config.summary, '当前未连接，无需检查运行配置');
+      expect(config.errorCode, isNull);
+    });
+
     test('redacts recent logs and includes platform-owned checks', () async {
       final service = _DiagnosticClashService(
         platformChecks: const [
@@ -595,12 +670,22 @@ class _DiagnosticClashService extends _TestClashService {
     this.coreAvailable = true,
     this.healthHealthy = true,
     this.platformChecks = const [],
+    this.activeDiagnosticConfigPath,
+    this.configRequired = true,
   });
 
   final bool coreAvailable;
   final bool healthHealthy;
   final List<AppDiagnosticCheck> platformChecks;
+  final String? activeDiagnosticConfigPath;
+  final bool configRequired;
   int healthCalls = 0;
+
+  @override
+  String get diagnosticConfigPath => activeDiagnosticConfigPath ?? configPath;
+
+  @override
+  bool get diagnosticConfigRequired => configRequired;
 
   @override
   Future<bool> diagnosticCoreAvailable() async => coreAvailable;

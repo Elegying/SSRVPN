@@ -262,6 +262,28 @@ class RunnerTests: XCTestCase {
     XCTAssertTrue(failure?.contains("重试退出") == true)
   }
 
+  func testTerminationPreflightLeavesActiveTunForPrivilegedDnsCleanup() {
+    let delegate = AppDelegate()
+    var events: [String] = []
+
+    let safe = delegate.performSafeTerminationPreflight(
+      hadProxyState: false,
+      hasTunSessionRequest: true,
+      restoreProxy: {
+        events.append("restore")
+        return true
+      },
+      terminateCore: {
+        events.append("terminate")
+        return true
+      },
+      onFailure: { _ in XCTFail("TUN handoff should be safe") }
+    )
+
+    XCTAssertTrue(safe)
+    XCTAssertEqual(events, [])
+  }
+
   func testNativeLaunchPublishesIdentityAndDrainsDiagnosticsBeforeReturning() throws {
     let delegate = AppDelegate()
     let directory = FileManager.default.temporaryDirectory
@@ -886,6 +908,34 @@ class RunnerTests: XCTestCase {
       ["-getsocksfirewallproxy", "_Wi-Fi"],
       ["-setsocksfirewallproxystate", "_Wi-Fi", "off"],
     ])
+  }
+
+  func testXCTestEnvironmentSurvivesDyldVariableSanitization() {
+    XCTAssertTrue(AppDelegate.isXCTestEnvironment([
+      "XCTestBundlePath": "Contents/PlugIns/RunnerTests.xctest",
+      "XCTestSessionIdentifier": "session-id",
+    ]))
+  }
+
+  func testXCTestEnvironmentRejectsOrdinaryAndIncompleteDebugLaunches() {
+    XCTAssertFalse(AppDelegate.isXCTestEnvironment([:]))
+    XCTAssertFalse(AppDelegate.isXCTestEnvironment([
+      "XCTestBundlePath": "Contents/PlugIns/RunnerTests.xctest",
+    ]))
+    XCTAssertFalse(AppDelegate.isXCTestEnvironment([
+      "XCTestBundlePath": "Contents/PlugIns/RunnerTests.xctest",
+      "XCTestSessionIdentifier": " \n\t ",
+    ]))
+    XCTAssertFalse(AppDelegate.isXCTestEnvironment([
+      "XCTestSessionIdentifier": "session-id",
+    ]))
+  }
+
+  func testXCTestEnvironmentAcceptsLegacyBundleInjectionMarker() {
+    XCTAssertTrue(AppDelegate.isXCTestEnvironment([
+      "XCTestBundlePath": "Contents/PlugIns/RunnerTests.xctest",
+      "DYLD_INSERT_LIBRARIES": "/tmp/libXCTestBundleInject.dylib",
+    ]))
   }
 
   func testInstanceLeaseExcludesASecondProcessAndTransfersAfterRelease() throws {

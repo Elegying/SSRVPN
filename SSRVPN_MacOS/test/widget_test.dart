@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_macos/services/settings_service.dart';
-import 'package:ssrvpn_macos/widgets/connection_button.dart';
 
 void main() {
   testWidgets('desktop connecting button is keyboard cancellable',
@@ -16,17 +15,18 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: ConnectionButton(
+          body: SsrvpnPowerButton(
+            size: 160,
             isConnected: false,
             isConnecting: true,
+            hasConnectionError: false,
             onTap: () => taps++,
           ),
         ),
       ),
     );
 
-    expect(find.text('取消'), findsOneWidget);
-    expect(find.bySemanticsLabel(RegExp('取消连接')), findsOneWidget);
+    expect(find.bySemanticsLabel('取消当前连接操作'), findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.tab);
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     expect(taps, 1);

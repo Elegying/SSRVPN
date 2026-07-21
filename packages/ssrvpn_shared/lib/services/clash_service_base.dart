@@ -511,14 +511,11 @@ abstract class ClashServiceBase
     }
   }
 
-  // ── 连通性验证 ──
-
   String _localHttpProxyConfig() => 'PROXY 127.0.0.1:${_settings.proxyPort}';
+  @visibleForTesting
+  String userConnectivityProxyConfig() =>
+      _settings.enableTun ? 'DIRECT' : _localHttpProxyConfig();
 
-  /// 验证用户连通性（通过代理访问 generate_204）。
-  ///
-  /// 核心/TUN 刚启动时 DNS 和连接池仍可能预热，单次 5xx 或超时不能判定
-  /// 节点不可用；只有连续失败才返回非阻断提示。
   Future<String?> verifyUserConnectivity({
     int maxAttempts = 3,
     Duration retryDelay = const Duration(seconds: 2),
@@ -530,13 +527,17 @@ abstract class ClashServiceBase
       client = IOClient(
         HttpClient()
           ..connectionTimeout = const Duration(seconds: 5)
-          ..findProxy = (_) => _localHttpProxyConfig(),
+          ..findProxy = (_) => userConnectivityProxyConfig(),
       );
     }
     final send = request ??
         (Uri uri) => client!.get(uri).timeout(const Duration(seconds: 6));
     final attempts = maxAttempts.clamp(1, 5).toInt();
-    final endpoint = Uri.parse('https://www.gstatic.com/generate_204');
+    final endpoint = Uri.parse(
+      _settings.enableTun
+          ? AppConstants.tunConnectivityTestUrl
+          : AppConstants.defaultLatencyTestUrl,
+    );
     int? lastStatusCode;
     try {
       for (var attempt = 1; attempt <= attempts; attempt++) {

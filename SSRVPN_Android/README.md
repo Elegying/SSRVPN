@@ -104,9 +104,8 @@ lib/
 ├── utils/
 │   └── responsive.dart           # 响应式布局
 └── widgets/
-    ├── connection_button.dart     # 连接按钮（带动画）
     ├── glass_container.dart       # 毛玻璃容器
-    └── liquid_glass.dart          # 液态玻璃效果
+    └── subscription_network_error_dialog.dart # 订阅网络异常提示
 ```
 
 ## 技术栈

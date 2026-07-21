@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ssrvpn_android/models/app_settings.dart';
 import 'package:ssrvpn_android/services/clash_service.dart';
@@ -131,6 +132,163 @@ void main() {
     );
     expect(clashService.connectionDesired, isTrue);
   });
+
+  test('connection waits for a pending network settings transaction', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_connection_settings_snapshot_',
+    );
+    final releaseSecureWrite = Completer<void>();
+    var blockSecureWrite = false;
+    addTearDown(() async {
+      SubscriptionService.resetInstanceForTesting();
+      if (!releaseSecureWrite.isCompleted) releaseSecureWrite.complete();
+      await tempDir.delete(recursive: true);
+    });
+    SubscriptionService.resetInstanceForTesting();
+    final subscriptionService =
+        await SubscriptionService.getInstance(tempDir.path);
+    await subscriptionService.setRawYaml(_yaml('Node', 'node.example.com'));
+    final settingsService = await SettingsService.createForTesting(
+      configPath: '${tempDir.path}/settings.json',
+      readApiSecret: () async => 'test-secret',
+      writeApiSecret: (_) async {
+        if (blockSecureWrite) await releaseSecureWrite.future;
+      },
+    );
+    blockSecureWrite = true;
+    final blockingWrite = settingsService.setApiSecret('rotated-secret');
+    final modeWrite = settingsService.setProxyMode('global');
+    final clashService = _SettingsSnapshotClashService();
+    final generation = clashService.requestConnectionIntent(true);
+    final orchestrator = ConnectionOrchestrator(
+      clashService: clashService,
+      settingsService: settingsService,
+      subscriptionService: subscriptionService,
+    );
+
+    final connecting = orchestrator.connect(
+      null,
+      connectionGeneration: generation,
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(clashService.generatedSettings, isNull);
+
+    releaseSecureWrite.complete();
+    await blockingWrite;
+    await modeWrite;
+    expect(await connecting, isNull);
+    expect(clashService.generatedSettings?.proxyMode, ProxyMode.global);
+    expect(clashService.startCalls, 1);
+  });
+
+  test('cancelled connection does not resume after pending settings commit',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_cancelled_settings_snapshot_',
+    );
+    final releaseSecureWrite = Completer<void>();
+    var blockSecureWrite = false;
+    addTearDown(() async {
+      SubscriptionService.resetInstanceForTesting();
+      if (!releaseSecureWrite.isCompleted) releaseSecureWrite.complete();
+      await tempDir.delete(recursive: true);
+    });
+    SubscriptionService.resetInstanceForTesting();
+    final subscriptionService =
+        await SubscriptionService.getInstance(tempDir.path);
+    await subscriptionService.setRawYaml(_yaml('Node', 'node.example.com'));
+    final settingsService = await SettingsService.createForTesting(
+      configPath: '${tempDir.path}/settings.json',
+      readApiSecret: () async => 'test-secret',
+      writeApiSecret: (_) async {
+        if (blockSecureWrite) await releaseSecureWrite.future;
+      },
+    );
+    blockSecureWrite = true;
+    final blockingWrite = settingsService.setApiSecret('rotated-secret');
+    final modeWrite = settingsService.setProxyMode('global');
+    final clashService = _SettingsSnapshotClashService();
+    final generation = clashService.requestConnectionIntent(true);
+    final orchestrator = ConnectionOrchestrator(
+      clashService: clashService,
+      settingsService: settingsService,
+      subscriptionService: subscriptionService,
+    );
+
+    final connecting = orchestrator.connect(
+      null,
+      connectionGeneration: generation,
+    );
+    await Future<void>.delayed(Duration.zero);
+    clashService.requestConnectionIntent(false);
+    releaseSecureWrite.complete();
+
+    await blockingWrite;
+    await modeWrite;
+    expect(await connecting, isNull);
+    expect(clashService.generatedSettings, isNull);
+    expect(clashService.startCalls, 0);
+  });
+
+  test('completed settings failure does not poison a later connect retry',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_failed_settings_retry_',
+    );
+    final releaseSecureWrite = Completer<void>();
+    var failSecureWrite = false;
+    addTearDown(() async {
+      SubscriptionService.resetInstanceForTesting();
+      if (!releaseSecureWrite.isCompleted) releaseSecureWrite.complete();
+      await tempDir.delete(recursive: true);
+    });
+    SubscriptionService.resetInstanceForTesting();
+    final subscriptionService =
+        await SubscriptionService.getInstance(tempDir.path);
+    await subscriptionService.setRawYaml(_yaml('Node', 'node.example.com'));
+    final settingsService = await SettingsService.createForTesting(
+      configPath: '${tempDir.path}/settings.json',
+      readApiSecret: () async => 'test-secret',
+      writeApiSecret: (_) async {
+        if (!failSecureWrite) return;
+        await releaseSecureWrite.future;
+        throw StateError('keystore unavailable');
+      },
+    );
+    failSecureWrite = true;
+    final failedWrite = settingsService.setApiSecret('rotated-secret');
+    final failedWriteExpectation = expectLater(failedWrite, throwsStateError);
+    final clashService = _SettingsSnapshotClashService();
+    final generation = clashService.requestConnectionIntent(true);
+    final orchestrator = ConnectionOrchestrator(
+      clashService: clashService,
+      settingsService: settingsService,
+      subscriptionService: subscriptionService,
+    );
+
+    final firstConnect = orchestrator.connect(
+      null,
+      connectionGeneration: generation,
+    );
+    final firstConnectExpectation = expectLater(firstConnect, throwsStateError);
+    releaseSecureWrite.complete();
+    await failedWriteExpectation;
+    await firstConnectExpectation;
+
+    expect(
+      await orchestrator.connect(
+        null,
+        connectionGeneration: generation,
+      ),
+      isNull,
+    );
+    expect(clashService.generatedSettings?.apiSecret, 'test-secret');
+    expect(clashService.startCalls, 1);
+  });
 }
 
 String _yaml(String name, String server) => '''
@@ -215,4 +373,39 @@ class _DelayedSwitchClashService extends ClashService {
     stopCalls++;
     setRunning(false);
   }
+}
+
+class _SettingsSnapshotClashService extends ClashService {
+  AppSettings? generatedSettings;
+  int startCalls = 0;
+
+  @override
+  Future<String> generateClashConfigAsync(
+    String rawYaml,
+    AppSettings settings, {
+    String? preferredNodeName,
+  }) async {
+    generatedSettings = settings;
+    return 'generated-config';
+  }
+
+  @override
+  Future<String> writeConfig(String configContent) async =>
+      '/tmp/ssrvpn-settings-snapshot-test.yaml';
+
+  @override
+  Future<bool> start({String? nodeName, String? preparedConfigPath}) async {
+    startCalls++;
+    setRunning(true);
+    return true;
+  }
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async =>
+      null;
 }

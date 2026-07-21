@@ -1,9 +1,17 @@
 import importlib.util
+import os
+import subprocess
+import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
 
 SCRIPT = Path(__file__).with_name("verify-release-transition.py")
+TAG_SOURCE_GUARD = Path(__file__).with_name("verify-release-tag-source.sh")
+WAIT_FOR_PUBLIC_RELEASE = Path(__file__).with_name(
+    "wait-for-github-release-public.sh"
+)
 SPEC = importlib.util.spec_from_file_location("release_transition", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -115,7 +123,14 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         self.assertIn("OSS_PRESERVE_BACKUP=1", workflow)
         self.assertIn('--restore "$backup_dir"', workflow)
         self.assertIn("--prerelease=false --latest", workflow)
-        self.assertIn("--json isDraft,isPrerelease", workflow)
+        self.assertIn("scripts/wait-for-github-release-public.sh", workflow)
+        self.assertRegex(
+            workflow,
+            r'scripts/wait-for-github-release-public\.sh\s+\\?\s*'
+            r'"\$tag" 5 attempted',
+        )
+        publication_poll = WAIT_FOR_PUBLIC_RELEASE.read_text(encoding="utf-8")
+        self.assertIn("--json isDraft,isPrerelease", publication_poll)
         self.assertIn("Preserve OSS recovery backup", workflow)
 
         published_verify = workflow.index(
@@ -152,6 +167,143 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
             verify_step,
         )
 
+    def _poll_public_release(
+        self,
+        root: Path,
+        states: list[str],
+        mutation_state: str = "attempted",
+    ) -> tuple[subprocess.CompletedProcess[str], int]:
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        state_file = root / "states"
+        state_file.write_text("\n".join(states) + "\n", encoding="utf-8")
+        counter_file = root / "counter"
+        fake_gh = bin_dir / "gh"
+        fake_gh.write_text(
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env bash
+                set -euo pipefail
+                count=0
+                if [ -f "$FAKE_GH_COUNTER" ]; then
+                  count="$(cat "$FAKE_GH_COUNTER")"
+                fi
+                count=$((count + 1))
+                printf '%s\n' "$count" > "$FAKE_GH_COUNTER"
+                state="$(sed -n "${count}p" "$FAKE_GH_STATES")"
+                if [ "$state" = FAIL ]; then
+                  exit 1
+                fi
+                printf '%b\n' "$state"
+                """
+            ),
+            encoding="utf-8",
+        )
+        fake_sleep = bin_dir / "sleep"
+        fake_sleep.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        fake_gh.chmod(0o755)
+        fake_sleep.chmod(0o755)
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": f"{bin_dir}:{env['PATH']}",
+                "FAKE_GH_STATES": str(state_file),
+                "FAKE_GH_COUNTER": str(counter_file),
+            }
+        )
+        result = subprocess.run(
+            [
+                "bash",
+                str(WAIT_FOR_PUBLIC_RELEASE),
+                "v9.9.9",
+                "5",
+                mutation_state,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        count = int(counter_file.read_text(encoding="utf-8").strip())
+        return result, count
+
+    def test_release_publication_poll_waits_through_stale_draft_reads(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            result, count = self._poll_public_release(
+                Path(raw_root),
+                [
+                    r"true\tfalse",
+                    r"true\tfalse",
+                    r"true\tfalse",
+                    r"true\tfalse",
+                    r"false\tfalse",
+                ],
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "false\tfalse")
+        self.assertEqual(count, 5)
+
+    def test_release_publication_poll_keeps_stale_non_public_reads_ambiguous_after_mutation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            result, count = self._poll_public_release(
+                Path(raw_root),
+                [r"true\tfalse"] * 5,
+            )
+        self.assertEqual(result.returncode, 87)
+        self.assertEqual(result.stdout.strip(), "true\tfalse")
+        self.assertEqual(count, 5)
+
+    def test_release_publication_poll_confirms_non_public_before_mutation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            result, count = self._poll_public_release(
+                Path(raw_root),
+                [r"true\tfalse"] * 5,
+                mutation_state="not-attempted",
+            )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout.strip(), "true\tfalse")
+        self.assertEqual(count, 5)
+
+    def test_release_publication_poll_keeps_api_failure_ambiguous(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            result, count = self._poll_public_release(
+                Path(raw_root),
+                ["FAIL"] * 5,
+            )
+        self.assertEqual(result.returncode, 87)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(count, 5)
+
+    def test_release_publication_poll_keeps_malformed_state_ambiguous(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            result, count = self._poll_public_release(
+                Path(raw_root),
+                ["unexpected-state"] * 5,
+                mutation_state="not-attempted",
+            )
+        self.assertEqual(result.returncode, 87)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(count, 5)
+
+    def test_release_workflow_peels_an_annotated_tag_before_main_comparison(
+        self,
+    ) -> None:
+        workflow = (SCRIPT.parents[1] / ".github/workflows/release.yml").read_text(
+            encoding="utf-8"
+        )
+        resolve_tag = 'scripts/verify-release-tag-source.sh "$GITHUB_REF"'
+        self.assertIn(resolve_tag, workflow)
+        self.assertLess(
+            workflow.index(resolve_tag),
+            workflow.index('if [ "$release_commit" != "$main_tip" ]'),
+        )
+
     def test_rollback_restores_stable_assets_before_latest_pointer(self) -> None:
         rollback = (
             SCRIPT.parents[1] / ".github" / "workflows" / "oss-rollback.yml"
@@ -163,6 +315,73 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         self.assertIn("scripts/promote-oss-public-channel.sh", rollback)
         self.assertIn("Preserve OSS recovery backup", rollback)
         self.assertNotIn("Download and verify immutable rollback bundle", rollback)
+
+    def test_recovery_backup_artifacts_include_the_hidden_validity_marker(
+        self,
+    ) -> None:
+        for workflow_path in (
+            SCRIPT.parents[1] / ".github" / "workflows" / "release.yml",
+            SCRIPT.parents[1] / ".github" / "workflows" / "oss-rollback.yml",
+        ):
+            workflow = workflow_path.read_text(encoding="utf-8")
+            start = workflow.index("      - name: Preserve OSS recovery backup\n")
+            end = workflow.find("\n      - name:", start + 1)
+            step = workflow[start:] if end == -1 else workflow[start:end]
+            with self.subTest(workflow=workflow_path.name):
+                self.assertIn("include-hidden-files: true", step)
+                self.assertIn("OSS_PRESERVE_BACKUP=1", workflow)
+
+
+class VerifyReleaseTagSourceTest(unittest.TestCase):
+    def _git(self, repo: Path, *args: str) -> str:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
+    def _repository(self, root: Path) -> tuple[Path, str]:
+        repo = root / "repo"
+        repo.mkdir()
+        self._git(repo, "init", "--quiet")
+        self._git(repo, "config", "user.name", "Release Test")
+        self._git(repo, "config", "user.email", "release-test@example.invalid")
+        (repo / "tracked.txt").write_text("release\n", encoding="utf-8")
+        self._git(repo, "add", "tracked.txt")
+        self._git(repo, "commit", "--quiet", "-m", "release")
+        return repo, self._git(repo, "rev-parse", "HEAD")
+
+    def _guard(self, repo: Path, tag: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", str(TAG_SOURCE_GUARD), f"refs/tags/{tag}"],
+            cwd=repo,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_annotated_tag_resolves_to_its_peeled_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            repo, commit = self._repository(Path(raw_root))
+            self._git(repo, "tag", "-a", "v1.0.0", "-m", "Release v1.0.0")
+
+            result = self._guard(repo, "v1.0.0")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), commit)
+
+    def test_lightweight_tag_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            repo, _ = self._repository(Path(raw_root))
+            self._git(repo, "tag", "v1.0.0")
+
+            result = self._guard(repo, "v1.0.0")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("annotated tag", result.stderr)
 
 
 if __name__ == "__main__":

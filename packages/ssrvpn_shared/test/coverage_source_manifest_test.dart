@@ -53,9 +53,13 @@ import 'package:ssrvpn_shared/utils/proxy_node_usage_policy.dart';
 import 'package:ssrvpn_shared/utils/recovering_serial_queue.dart';
 import 'package:ssrvpn_shared/utils/subscription_url_policy.dart';
 import 'package:ssrvpn_shared/widgets/app_diagnostics_view.dart';
-import 'package:ssrvpn_shared/widgets/app_title_with_version.dart';
 import 'package:ssrvpn_shared/widgets/country_flag_icon.dart';
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_app_surface.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_home_overview.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_node_selection_page.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_subscription_error_dialog.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_subscription_view.dart';
 
 void main() {
   test('loads the auditable production source manifest', () {

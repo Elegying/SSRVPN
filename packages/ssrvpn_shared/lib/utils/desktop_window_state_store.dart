@@ -19,8 +19,11 @@ class DesktopWindowStateStore {
     this.onError,
   });
 
-  static const Size defaultSize = Size(1180, 760);
-  static const Size minimumSize = Size(820, 560);
+  static const Size defaultSize = Size(440, 720);
+  static const Size minimumSize = Size(380, 560);
+
+  static const _currentSchemaVersion = 4;
+  static const _legacySchemaVersions = <int>{1, 2, 3};
 
   final File file;
   final WindowStateInfoLogger? onInfo;
@@ -45,17 +48,36 @@ class DesktopWindowStateStore {
       if (decoded is! Map<String, dynamic>) {
         throw const FormatException('window state must be a JSON object');
       }
-      if (decoded['schemaVersion'] != 1) {
+      final schemaVersion = decoded['schemaVersion'];
+      if (schemaVersion != _currentSchemaVersion &&
+          !_legacySchemaVersions.contains(schemaVersion)) {
         throw const FormatException('unsupported window state schema');
       }
-      final rect = Rect.fromLTWH(
+      var rect = Rect.fromLTWH(
         _readDouble(decoded['left']),
         _readDouble(decoded['top']),
         _readDouble(decoded['width']),
         _readDouble(decoded['height']),
       );
+      final isLegacySchema = _legacySchemaVersions.contains(schemaVersion);
+      if (isLegacySchema) {
+        final migratedWidth =
+            rect.width > defaultSize.width ? defaultSize.width : rect.width;
+        final migratedHeight =
+            rect.height > defaultSize.height ? defaultSize.height : rect.height;
+        rect = Rect.fromLTWH(
+          rect.left + ((rect.width - migratedWidth) / 2),
+          rect.top,
+          migratedWidth,
+          migratedHeight,
+        );
+        onInfo?.call('Migrated legacy window state to the portrait layout');
+      }
       if (!_isSane(rect)) {
         throw FormatException('invalid window bounds: $rect');
+      }
+      if (isLegacySchema) {
+        await save(rect);
       }
       return rect;
     } catch (error, stack) {
@@ -68,7 +90,7 @@ class DesktopWindowStateStore {
   Future<void> save(Rect bounds) async {
     if (!_isSane(bounds)) return;
     final payload = jsonEncode({
-      'schemaVersion': 1,
+      'schemaVersion': _currentSchemaVersion,
       'left': bounds.left,
       'top': bounds.top,
       'width': bounds.width,

@@ -8,7 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
-    show AsyncLazy, RecoveringSerialQueue;
+    show AppLogger, AsyncLazy, RecoveringSerialQueue;
 import '../models/app_settings.dart';
 
 part 'macos_private_file_store.dart';
@@ -38,15 +38,18 @@ class SettingsService extends ChangeNotifier {
   final Future<String?> Function()? _readApiSecretOverride;
   final Future<void> Function(String value)? _writeApiSecretOverride;
   final Future<void> Function(AppSettings settings)? _writeSettingsOverride;
+  final Future<bool> Function()? _removeLegacyPreferencesOverride;
   late final _privateFileStore = _MacosPrivateFileStore(() => _dataDir);
 
   SettingsService._({
     Future<String?> Function()? readApiSecret,
     Future<void> Function(String value)? writeApiSecret,
     Future<void> Function(AppSettings settings)? writeSettings,
+    Future<bool> Function()? removeLegacyPreferences,
   })  : _readApiSecretOverride = readApiSecret,
         _writeApiSecretOverride = writeApiSecret,
-        _writeSettingsOverride = writeSettings;
+        _writeSettingsOverride = writeSettings,
+        _removeLegacyPreferencesOverride = removeLegacyPreferences;
 
   @visibleForTesting
   static Future<SettingsService> createForTesting({
@@ -56,11 +59,13 @@ class SettingsService extends ChangeNotifier {
     Future<String?> Function()? readApiSecret,
     Future<void> Function(String value)? writeApiSecret,
     Future<void> Function(AppSettings settings)? writeSettings,
+    Future<bool> Function()? removeLegacyPreferences,
   }) async {
     final service = SettingsService._(
       readApiSecret: readApiSecret,
       writeApiSecret: writeApiSecret,
       writeSettings: writeSettings,
+      removeLegacyPreferences: removeLegacyPreferences,
     )
       .._dataDir = dataDir
       .._settingsPath = settingsPath;
@@ -230,12 +235,7 @@ class SettingsService extends ChangeNotifier {
     }
 
     final legacySnapshot = await _loadLegacySharedPreferences();
-    if (legacySnapshot?.parseError case final error?) {
-      throw FormatException(
-        'legacy app_settings could not be parsed (${error.runtimeType})',
-      );
-    }
-    if (!hadSettingsFile) {
+    if (!hadSettingsFile && legacySnapshot?.parseError == null) {
       _settings = legacySnapshot?.settings ?? AppSettings();
     }
 
@@ -301,8 +301,21 @@ class SettingsService extends ChangeNotifier {
   Future<_LegacyPreferencesSnapshot?> _loadLegacySharedPreferences() async {
     if (!Platform.isMacOS) return null;
     final prefs = await SharedPreferences.getInstance();
-    final jsonStr = prefs.getString('app_settings');
-    if (jsonStr == null || jsonStr.trim().isEmpty) return null;
+    final rawValue = prefs.get('app_settings');
+    if (rawValue == null) return null;
+    if (rawValue is! String) {
+      return const _LegacyPreferencesSnapshot(
+        apiSecret: '',
+        parseError: FormatException('app_settings must be a JSON string'),
+      );
+    }
+    final jsonStr = rawValue;
+    if (jsonStr.trim().isEmpty) {
+      return const _LegacyPreferencesSnapshot(
+        apiSecret: '',
+        parseError: FormatException('app_settings must not be empty'),
+      );
+    }
 
     Object? decoded;
     try {
@@ -333,10 +346,25 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> _removeLegacySharedPreferences() async {
     if (!Platform.isMacOS) return;
-    final prefs = await SharedPreferences.getInstance();
-    if (!prefs.containsKey('app_settings')) return;
-    if (!await prefs.remove('app_settings')) {
-      throw StateError('failed to remove legacy app_settings preferences');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!prefs.containsKey('app_settings')) return;
+      final removed = _removeLegacyPreferencesOverride != null
+          ? await _removeLegacyPreferencesOverride()
+          : await prefs.remove('app_settings');
+      if (!removed) {
+        AppLogger.warning(
+          'Settings',
+          '旧版 app_settings 清理失败，将在下次启动重试',
+        );
+      }
+    } catch (_) {
+      // This is a retired duplicate. Once modern settings and the private
+      // secret are durable, cleanup failure must not become a startup loop.
+      AppLogger.warning(
+        'Settings',
+        '旧版 app_settings 清理失败，将在下次启动重试',
+      );
     }
   }
 
@@ -346,18 +374,23 @@ class SettingsService extends ChangeNotifier {
     required Map<String, dynamic>? decoded,
   }) async {
     if (!await file.exists()) return;
-    if (decoded == null) {
-      throw FormatException(
-        'settings.json could not be safely scrubbed; startup stopped '
-        'instead of archiving an unsanitized copy ($reason)',
-      );
-    }
-
-    final sanitized = Map<String, dynamic>.from(decoded)..remove('apiSecret');
     final stamp = DateTime.now()
         .toIso8601String()
         .replaceAll(':', '')
         .replaceAll('.', '');
+    if (decoded == null) {
+      // A syntactically damaged legacy file can still contain a plaintext API
+      // secret that cannot be parsed and scrubbed safely. Keep only diagnostic
+      // metadata, retire the raw file, then let _load rebuild defaults around
+      // the independently stored secret.
+      await File('${file.path}.bad-$stamp.reason.txt')
+          .writeAsString(reason, flush: true);
+      await file.delete();
+      _syncDataDirectory();
+      return;
+    }
+
+    final sanitized = Map<String, dynamic>.from(decoded)..remove('apiSecret');
     final backup = File('${file.path}.bad-$stamp');
     final scrubbedTemp = File(
       '${file.path}.scrubbed.$pid.${DateTime.now().microsecondsSinceEpoch}',

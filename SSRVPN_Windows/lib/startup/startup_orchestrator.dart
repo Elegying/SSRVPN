@@ -40,6 +40,15 @@ class StartupOrchestrator {
     _writeDesktopReportForCriticalFailures(status);
   }
 
+  Future<void> retryCoreInitialization() async {
+    final status = StartupStatus.instance;
+    status.prepareCoreRetry();
+    StartupLogger.info('Retrying mihomo_core after local secret recovery');
+    await runStep('mihomo_core', initCoreService, timeout: null);
+    status.markCompleted();
+    _writeDesktopReportForCriticalFailures(status);
+  }
+
   Future<void> runStep(
     String name,
     Future<void> Function() step, {

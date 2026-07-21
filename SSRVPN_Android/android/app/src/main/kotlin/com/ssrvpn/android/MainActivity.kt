@@ -109,6 +109,7 @@ class MainActivity : FlutterActivity() {
             "syncSettings" -> handleSyncSettings(call, result)
             "getConnectionSnapshotGeneration" -> handleSnapshotGeneration(result)
             "clearConnectionSnapshot" -> handleClearConnectionSnapshot(call, result)
+            "prepareApiSecretRecovery" -> handlePrepareApiSecretRecovery(result)
             "notifyVpnStateChanged" -> {
                 SsrvpnVpnService.broadcastState(this)
                 result.success(true)
@@ -158,6 +159,19 @@ class MainActivity : FlutterActivity() {
             result.error(
                 "NATIVE_SNAPSHOT_CLEAR_FAILED",
                 "无法清除原生 VPN 快速启动数据",
+                null
+            )
+        }
+    }
+
+    private fun handlePrepareApiSecretRecovery(result: MethodChannel.Result) {
+        try {
+            result.success(NativeVpnSessionCoordinator.prepareApiSecretRecovery(this))
+        } catch (error: Exception) {
+            Log.e("MainActivity", "Unable to prepare API secret recovery", error)
+            result.error(
+                "API_SECRET_RECOVERY_PREPARE_FAILED",
+                "无法安全清除旧连接状态",
                 null
             )
         }

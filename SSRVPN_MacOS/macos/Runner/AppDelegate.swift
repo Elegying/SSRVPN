@@ -281,10 +281,22 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   private var isRunningUnderXCTest: Bool {
+    Self.isXCTestEnvironment(ProcessInfo.processInfo.environment)
+  }
+
+  static func isXCTestEnvironment(_ environment: [String: String]) -> Bool {
 #if DEBUG
-    let environment = ProcessInfo.processInfo.environment
-    return environment["XCTestBundlePath"]?.hasSuffix(".xctest") == true &&
-      environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTestBundleInject") == true
+    guard environment["XCTestBundlePath"]?.hasSuffix(".xctest") == true else {
+      return false
+    }
+    let sessionIdentifier = environment["XCTestSessionIdentifier"]?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let hasSession = sessionIdentifier?.isEmpty == false
+    let hasInjectedBundle = environment["DYLD_INSERT_LIBRARIES"]?
+      .contains("libXCTestBundleInject") == true
+    // Hardened launch services may strip DYLD_* variables before Swift reads
+    // ProcessInfo. Xcode still provides the XCTest bundle and session pair.
+    return hasSession || hasInjectedBundle
 #else
     return false
 #endif
@@ -488,6 +500,7 @@ class AppDelegate: FlutterAppDelegate {
   @discardableResult
   func performSafeTerminationPreflight(
     hadProxyState: Bool,
+    hasTunSessionRequest: Bool = false,
     restoreProxy: () -> Bool,
     terminateCore: () -> Bool,
     onFailure: (String) -> Void
@@ -495,6 +508,13 @@ class AppDelegate: FlutterAppDelegate {
     if hadProxyState && !restoreProxy() {
       onFailure("系统代理恢复失败。SSRVPN 已保留窗口和菜单栏图标，未继续终止当前 Mihomo 核心；请修复网络后重试退出。")
       return false
+    }
+    if hasTunSessionRequest {
+      // The privileged runner owns the TUN core and must restore DNS before it
+      // retires the exact session marker. App termination is the stop signal;
+      // native cleanup must not delete that recovery evidence or kill the DNS
+      // listener ahead of the runner's commit point.
+      return true
     }
     if !terminateCore() {
       onFailure("Mihomo 安全停止失败。SSRVPN 已保留窗口和菜单栏图标，请稍后重试退出。")
@@ -512,12 +532,12 @@ class AppDelegate: FlutterAppDelegate {
       let runtimeDirectory = runtimeDirectoryForTermination(proxyStateURL: proxyStateURL)
       safe = performSafeTerminationPreflight(
         hadProxyState: proxyStateURL != nil,
+        hasTunSessionRequest: hasTunSessionRequest(),
         restoreProxy: {
           guard let proxyStateURL else { return true }
           return restoreSavedProxyState(at: proxyStateURL)
         },
         terminateCore: {
-          removeTunSessionRequests()
           guard let runtimeDirectory else { return true }
           return terminateOwnedCore(in: runtimeDirectory)
         },
@@ -592,13 +612,15 @@ class AppDelegate: FlutterAppDelegate {
       // guarantees that a just-started core has either published its identity
       // record or been terminated before Cmd+Q performs the final cleanup.
       performCoreProcessOperationAndWait {
-        removeTunSessionRequests()
+        let hasTunRequest = hasTunSessionRequest()
         let proxyStateURL = findProxyStateFile()
         let runtimeDirectory = runtimeDirectoryForTermination(proxyStateURL: proxyStateURL)
         let hadProxyState = proxyStateURL != nil
         let proxyRestored = restoreSavedProxyState()
-        if !hadProxyState || proxyRestored {
+        if (!hadProxyState || proxyRestored) && !hasTunRequest {
           _ = terminateOwnedCore(in: runtimeDirectory)
+        } else if hasTunRequest {
+          NSLog("[AppDelegate] Leaving TUN teardown to the privileged DNS recovery runner")
         } else {
           NSLog("[AppDelegate] Keeping AtlasCore alive because proxy restore failed")
         }
@@ -621,14 +643,12 @@ class AppDelegate: FlutterAppDelegate {
     return urls
   }
 
-  private func removeTunSessionRequests() {
+  private func hasTunSessionRequest() -> Bool {
     let fm = FileManager.default
     guard let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-      return
+      return false
     }
-    for url in tunRequestURLs(in: support) {
-      try? fm.removeItem(at: url)
-    }
+    return tunRequestURLs(in: support).contains { pathEntryExists(at: $0) }
   }
 
   @discardableResult

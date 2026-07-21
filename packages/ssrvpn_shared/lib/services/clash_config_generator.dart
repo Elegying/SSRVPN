@@ -41,6 +41,7 @@ class ClashConfigGenerator {
     String? platformHeader,
     String? tunConfig,
     String? dnsConfig,
+    String? dnsListen,
     String? latencyTestUrl,
     bool includeFallbackGroup = false,
     Iterable<String> extraSelectGroupNames = const [],
@@ -108,6 +109,9 @@ class ClashConfigGenerator {
       result.writeln();
       result.writeln('dns:');
       result.writeln('  enable: true');
+      if (dnsListen != null && dnsListen.isNotEmpty) {
+        result.writeln('  listen: $dnsListen');
+      }
       result.writeln('  ipv6: true');
       result.writeln('  enhanced-mode: fake-ip');
       result.writeln('  fake-ip-range: ${AppConstants.fakeIpRange}');
@@ -250,6 +254,7 @@ class ClashConfigGenerator {
     String? platformHeader,
     String? tunConfig,
     String? dnsConfig,
+    String? dnsListen,
     String? latencyTestUrl,
     bool includeFallbackGroup = false,
     Iterable<String> extraSelectGroupNames = const [],
@@ -266,6 +271,7 @@ class ClashConfigGenerator {
           platformHeader: platformHeader,
           tunConfig: tunConfig,
           dnsConfig: dnsConfig,
+          dnsListen: dnsListen,
           latencyTestUrl: latencyTestUrl,
           includeFallbackGroup: includeFallbackGroup,
           extraSelectGroupNames: extraGroups,

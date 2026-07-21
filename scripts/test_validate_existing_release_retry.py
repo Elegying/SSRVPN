@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
 import unittest
 from pathlib import Path
 
@@ -52,22 +54,43 @@ class ExistingReleaseRetryTest(unittest.TestCase):
             release(), provenance(), expected_tag="v3.2.0", expected_commit=COMMIT
         )
 
-    def test_draft_release_cannot_authorize_stale_source_retry(self) -> None:
-        with self.assertRaisesRegex(ValueError, "draft"):
+    def test_complete_verified_draft_can_resume_after_main_advances(self) -> None:
+        MODULE.validate_release_metadata(
+            release(draft=True),
+            provenance(),
+            expected_tag="v3.2.0",
+            expected_commit=COMMIT,
+        )
+
+    def test_empty_or_partial_draft_cannot_bypass_main_tip(self) -> None:
+        with self.assertRaisesRegex(ValueError, "incomplete"):
             MODULE.validate_release_metadata(
-                release(draft=True),
+                release(missing="SSRVPN.dmg", draft=True),
                 provenance(),
                 expected_tag="v3.2.0",
                 expected_commit=COMMIT,
             )
 
-    def test_empty_or_partial_draft_cannot_bypass_main_tip(self) -> None:
-        with self.assertRaisesRegex(ValueError, "incomplete"):
-            MODULE.validate_release_metadata(
-                release(missing="SSRVPN.dmg"),
-                provenance(),
-                expected_tag="v3.2.0",
-                expected_commit=COMMIT,
+    def test_downloaded_provenance_must_match_the_github_asset_digest(self) -> None:
+        payload = json.dumps(provenance(), sort_keys=True).encode("utf-8")
+        data = release(draft=True)
+        provenance_asset = next(
+            asset
+            for asset in data["assets"]
+            if asset["name"] == "SSRVPN-release-provenance.json"
+        )
+        provenance_asset["digest"] = "sha256:" + hashlib.sha256(payload).hexdigest()
+
+        MODULE.validate_downloaded_asset_digest(
+            data,
+            "SSRVPN-release-provenance.json",
+            payload,
+        )
+        with self.assertRaisesRegex(ValueError, "downloaded asset digest"):
+            MODULE.validate_downloaded_asset_digest(
+                data,
+                "SSRVPN-release-provenance.json",
+                payload + b"\n",
             )
 
     def test_release_with_retired_asset_cannot_authorize_retry(self) -> None:

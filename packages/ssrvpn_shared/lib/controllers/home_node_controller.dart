@@ -1,29 +1,6 @@
 import '../models/proxy_node.dart';
-import '../services/subscription_parser.dart';
 import '../utils/node_display_policy.dart';
 import '../utils/proxy_node_usage_policy.dart';
-
-class HomeNodeSection {
-  const HomeNodeSection({
-    required this.title,
-    required this.nodes,
-    required this.collapsible,
-  });
-
-  final String? title;
-  final List<ProxyNode> nodes;
-  final bool collapsible;
-}
-
-class HomeNodeDisplayRow {
-  const HomeNodeDisplayRow.section(this.section) : node = null;
-  const HomeNodeDisplayRow.node(this.node) : section = null;
-
-  final HomeNodeSection? section;
-  final ProxyNode? node;
-
-  bool get isSection => section != null;
-}
 
 class HomeNodeSyncResult {
   const HomeNodeSyncResult({
@@ -37,22 +14,16 @@ class HomeNodeSyncResult {
   final bool hasNodes;
 
   bool get shouldPromptForImport => changed && !hasNodes;
-  bool get shouldAutoTest => changed && hasNodes;
 }
 
 class HomeNodeController {
   HomeNodeController({
     Iterable<ProxyNode> nodes = const [],
-    Map<String, int>? latencies,
     this.lastRevision = -1,
-    this.selectedNode,
-  })  : nodes = runnableNodesFrom(nodes),
-        latencies = latencies ?? <String, int>{};
+  }) : nodes = runnableNodesFrom(nodes);
 
   List<ProxyNode> nodes;
-  final Map<String, int> latencies;
   int lastRevision;
-  ProxyNode? selectedNode;
 
   HomeNodeSyncResult syncSubscriptionSnapshot({
     required int revision,
@@ -76,37 +47,24 @@ class HomeNodeController {
     );
   }
 
-  ProxyNode? resolveDefaultNode(String? rememberedNodeName) {
-    return resolveDefaultNodeFrom(nodes, rememberedNodeName);
-  }
-
-  bool canSelect(ProxyNode node) {
-    return canSelectNode(node, latencies);
-  }
-
-  void applyLatencies(Map<String, int> batch, {DateTime? testedAt}) {
-    applyLatenciesTo(nodes, latencies, batch, testedAt: testedAt);
-  }
-
-  void sortTimeoutLast() {
-    nodes = timeoutLast(nodes, latencies);
-  }
-
   static ProxyNode? resolveDefaultNodeFrom(
     Iterable<ProxyNode> nodes,
     String? rememberedNodeName,
   ) {
-    final selectable = runnableNodesFrom(nodes)
+    final runnable = runnableNodesFrom(nodes);
+    if (rememberedNodeName != null && rememberedNodeName.isNotEmpty) {
+      for (final node in runnable) {
+        // A user can deliberately preselect an offline/timed-out node. Keep
+        // that intent for the next connection; latency only guides fallback.
+        if (node.name == rememberedNodeName) return node;
+      }
+    }
+    final selectable = runnable
         .where(
           (node) => NodeDisplayPolicy.isSelectableLatency(node.latency),
         )
         .toList();
     if (selectable.isEmpty) return null;
-    if (rememberedNodeName != null && rememberedNodeName.isNotEmpty) {
-      for (final node in selectable) {
-        if (node.name == rememberedNodeName) return node;
-      }
-    }
     return selectable.first;
   }
 
@@ -163,90 +121,5 @@ class HomeNodeController {
       nodes,
       latencyOf: (node) => latencies[node.name] ?? node.latency,
     );
-  }
-
-  static List<HomeNodeSection> buildDisplaySections(
-    Iterable<ProxyNode> nodes,
-  ) {
-    final standalone = <ProxyNode>[];
-    final regular = <ProxyNode>[];
-    final groups = <String, List<ProxyNode>>{};
-
-    for (final node in nodes) {
-      if (!ProxyNodeUsagePolicy.isRunnableNode(node)) continue;
-      final group = node.group.trim();
-      if (group == SubscriptionParser.standaloneGroupName) {
-        standalone.add(node);
-        continue;
-      }
-      regular.add(node);
-      if (_isSubscriptionGroup(group)) {
-        groups.putIfAbsent(group, () => <ProxyNode>[]).add(node);
-      }
-    }
-
-    final sections = <HomeNodeSection>[];
-    if (standalone.isNotEmpty) {
-      sections.add(
-        HomeNodeSection(
-          title: null,
-          nodes: standalone,
-          collapsible: false,
-        ),
-      );
-    }
-
-    if (groups.length < 2) {
-      if (regular.isNotEmpty) {
-        sections.add(
-          HomeNodeSection(title: null, nodes: regular, collapsible: false),
-        );
-      }
-      return sections;
-    }
-
-    for (final entry in groups.entries) {
-      sections.add(
-        HomeNodeSection(
-          title: entry.key,
-          nodes: entry.value,
-          collapsible: true,
-        ),
-      );
-    }
-
-    final groupedNodes = groups.values.expand((nodes) => nodes).toSet();
-    final ungrouped = regular
-        .where((node) => !groupedNodes.contains(node))
-        .toList(growable: false);
-    if (ungrouped.isNotEmpty) {
-      sections.add(
-        HomeNodeSection(title: null, nodes: ungrouped, collapsible: false),
-      );
-    }
-    return sections;
-  }
-
-  static List<HomeNodeDisplayRow> buildDisplayRows(
-    Iterable<ProxyNode> nodes,
-    Set<String> expandedGroups,
-  ) {
-    final rows = <HomeNodeDisplayRow>[];
-    for (final section in buildDisplaySections(nodes)) {
-      if (!section.collapsible) {
-        rows.addAll(section.nodes.map(HomeNodeDisplayRow.node));
-        continue;
-      }
-
-      final title = section.title!;
-      rows.add(HomeNodeDisplayRow.section(section));
-      if (!expandedGroups.contains(title)) continue;
-      rows.addAll(section.nodes.map(HomeNodeDisplayRow.node));
-    }
-    return rows;
-  }
-
-  static bool _isSubscriptionGroup(String group) {
-    return group.isNotEmpty && group != '默认' && group != '全部节点';
   }
 }

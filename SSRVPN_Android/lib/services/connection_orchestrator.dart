@@ -46,6 +46,9 @@ class ConnectionOrchestrator {
     String? nodeName, {
     required int connectionGeneration,
   }) async {
+    await settingsService.waitForPendingWrites();
+    if (!_isCurrent(connectionGeneration)) return null;
+
     final rawYaml = subscriptionService.rawYaml;
     if (rawYaml == null || rawYaml.isEmpty) {
       return '请先添加并刷新订阅';

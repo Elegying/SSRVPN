@@ -10,16 +10,12 @@ import '../services/update_service.dart';
 import '../services/connection_orchestrator.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
-import '../widgets/connection_button.dart';
 import '../widgets/force_proxy_sites_dialog.dart';
 import '../widgets/glass_container.dart';
-import '../widgets/home_node_list.dart';
 import 'home_latency_result_guard.dart';
-import '../widgets/proxy_mode_selector.dart';
 import 'home_connection_status_policy.dart';
 import 'node_edit_screen.dart';
 
-part 'home_dashboard_part.dart';
 part 'home_dialogs_part.dart';
 part 'home_connection_actions_part.dart';
 part 'home_lifecycle_actions_part.dart';
@@ -43,11 +39,14 @@ const _homeTutorialSteps = [
 ];
 
 class HomeScreenState extends State<HomeScreen>
-    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
 
-  void _updateHomeState(VoidCallback update) => setState(update);
+  void _updateHomeState(VoidCallback update) {
+    setState(update);
+    _nodeSelectionRefresh.value++;
+  }
 
   List<ProxyNode> _nodes = [];
   bool _isConnected = false;
@@ -60,9 +59,9 @@ class HomeScreenState extends State<HomeScreen>
   PublicIpInfo? _publicIpInfo;
   bool _isRefreshingPublicIp = false;
   String? _publicIpError;
-  final Set<String> _expandedSubscriptionGroups = {};
 
   final HomeLatencyController _latencyController = HomeLatencyController();
+  final ValueNotifier<int> _nodeSelectionRefresh = ValueNotifier<int>(0);
   Timer? _latencyBatchTimer;
   int? _latencyBatchGeneration;
   Timer? _publicIpTimer;
@@ -78,15 +77,9 @@ class HomeScreenState extends State<HomeScreen>
   late final VoidCallback _onClashAutoConnect = _handleClashAutoConnect;
   late final VoidCallback _onClashStatusChanged = _handleClashStatusChanged;
 
-  late AnimationController _glowController;
-
   @override
   void initState() {
     super.initState();
-    _glowController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 3000),
-    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _disposed) return;
       unawaited(_loadInitialData());
@@ -108,7 +101,7 @@ class HomeScreenState extends State<HomeScreen>
     final subService = _subscriptionService;
     if (subService == null || !mounted || _disposed) return;
     if (_onSubscriptionChanged(subService)) {
-      setState(() {});
+      _updateHomeState(() {});
     }
   }
 
@@ -123,7 +116,7 @@ class HomeScreenState extends State<HomeScreen>
       _cancelSingleLatencyTest();
       _cancelLatencyBatch();
       _lastRevision = revision;
-      setState(() {
+      _updateHomeState(() {
         _nodes = latestNodes;
         // 如果已连接且有节点，更新选中节点
         if (_isConnected && latestNodes.isNotEmpty && _selectedNode != null) {
@@ -159,7 +152,7 @@ class HomeScreenState extends State<HomeScreen>
     _publicIpTimer?.cancel();
     _updateCheckTimer?.cancel();
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
-    _glowController.dispose();
+    _nodeSelectionRefresh.dispose();
     super.dispose();
   }
 
@@ -169,66 +162,90 @@ class HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     super.build(context);
     final settings = context.watch<SettingsService>().settings;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor =
-        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final subColor =
-        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final displayNode = _isConnected
+        ? HomeNodeController.resolveRuntimeSelectedNodeFrom(
+            _nodes,
+            _selectedNode?.name,
+          )
+        : HomeNodeController.resolveDefaultNodeFrom(
+            _nodes,
+            resolveAndroidPreferredNodeName(
+              selectedNodeName: _selectedNode?.name,
+              rememberedNodeName: settings.lastSelectedNodeName,
+            ),
+          );
+    final selectedLatency =
+        displayNode == null ? null : _latencyController.latencyFor(displayNode);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: _AndroidHomeDashboard(
-        isDark: isDark,
-        textColor: textColor,
-        subColor: subColor,
-        settings: settings,
-        nodeList: _buildNodeList(textColor, subColor, isDark),
+      body: SsrvpnHomeOverview(
         isConnected: _isConnected,
         isConnecting: _isConnecting,
+        selectedNode: displayNode,
+        selectedLatency: selectedLatency,
+        selectedCountryCode:
+            displayNode == null ? null : countryCodeForProxyNode(displayNode),
         errorMessage: _errorMessage,
-        publicIpInfo: _publicIpInfo,
+        publicIpv4: _publicIpInfo?.displayText,
         isRefreshingPublicIp: _isRefreshingPublicIp,
         publicIpError: _publicIpError,
-        glowAnimation: _glowController,
         onToggleConnection: _handleConnectToggle,
+        onOpenNodes: _openNodeSelection,
+        onShowAbout: () => showSsrvpnAboutDialog(context),
         onShowTutorial: () => _showAndroidHomeTutorialDialog(context),
-        onShowForceProxySites: _showForceProxySitesDialog,
         onShowLogs: () => _showAndroidHomeLogsSheet(context),
         onRefreshPublicIp: () => unawaited(_refreshPublicIpInfo()),
-        onProxyModeChanged: _handleProxyModeChanged,
       ),
     );
   }
 
-  Widget _buildNodeList(Color textColor, Color subColor, bool isDark) {
-    return HomeNodeList(
-      nodes: _nodes,
-      latencyController: _latencyController,
-      expandedSubscriptionGroups: _expandedSubscriptionGroups,
-      selectedNode: _selectedNode,
-      testingNodeName: _testingNodeName,
-      isConnecting: _isConnecting,
-      isBatchTesting: _isBatchTesting,
-      isConnected: _isConnected,
-      textColor: textColor,
-      subColor: subColor,
-      isDark: isDark,
-      onTestAllLatency: _handleTestAllLatency,
-      onTestLatency: (node) =>
-          _handleTestLatency(node.name, node.server, node.port),
-      onSelectNode: _handleSelectNode,
-      onLongPressNode: _editNode,
-      onEditNode: _editNode,
-      onToggleSubscriptionGroup: (title, expanded) {
-        setState(() {
-          if (!expanded) {
-            _expandedSubscriptionGroups.add(title);
-          } else {
-            _expandedSubscriptionGroups.remove(title);
-          }
-        });
-      },
+  Future<void> _openNodeSelection() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (routeContext) => SsrvpnNodeSelectionPage(
+          ownerStateListenable: Listenable.merge([
+            _nodeSelectionRefresh,
+            context.read<SettingsService>(),
+          ]),
+          nodesOf: () => _nodes,
+          selectedNodeNameOf: () {
+            final settings = context.read<SettingsService>().settings;
+            return _isConnected
+                ? HomeNodeController.resolveRuntimeSelectedNodeFrom(
+                    _nodes,
+                    _selectedNode?.name,
+                  )?.name
+                : HomeNodeController.resolveDefaultNodeFrom(
+                    _nodes,
+                    resolveAndroidPreferredNodeName(
+                      selectedNodeName: _selectedNode?.name,
+                      rememberedNodeName: settings.lastSelectedNodeName,
+                    ),
+                  )?.name;
+          },
+          proxyModeOf: () => context.read<SettingsService>().settings.proxyMode,
+          testingNodeNameOf: () => _testingNodeName,
+          isBatchTestingOf: () => _isBatchTesting,
+          isConnectingOf: () => _isConnecting,
+          countryCodeOf: countryCodeForProxyNode,
+          latencyOf: _latencyController.latencyFor,
+          canSelectNode: (node) =>
+              !_isConnected || _latencyController.canSelect(node),
+          onClose: () => Navigator.of(routeContext).pop(),
+          onRefresh: _loadInitialData,
+          onTestAll: _handleTestAllLatency,
+          onTestLatency: (node) =>
+              _handleTestLatency(node.name, node.server, node.port),
+          onSelectNode: _handleSelectNode,
+          onProxyModeChanged: (mode) => _handleProxyModeChanged(mode.name),
+          onShowForceProxySites: _showForceProxySitesDialog,
+          onShowLogs: () => _showAndroidHomeLogsSheet(context),
+          onLongPressNode: (node) => unawaited(_editNode(node)),
+        ),
+      ),
     );
+    if (mounted && !_disposed) _updateHomeState(() {});
   }
 }
 

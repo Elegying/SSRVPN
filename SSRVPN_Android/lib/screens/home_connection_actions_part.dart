@@ -126,7 +126,6 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           _latencyController.clear();
           _resetPublicIpState();
         });
-        _glowController.stop();
       } catch (e) {
         if (mounted && !_disposed) {
           _updateHomeState(() {
@@ -159,7 +158,10 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         }
         final autoSelect = _resolveDefaultNode(
           nodes,
-          settingsService.settings.lastSelectedNodeName,
+          resolveAndroidPreferredNodeName(
+            selectedNodeName: _selectedNode?.name,
+            rememberedNodeName: settingsService.settings.lastSelectedNodeName,
+          ),
         );
         connectionGeneration = clashService.requestConnectionIntent(true);
         final result = await _orchestrator.connect(
@@ -216,7 +218,6 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
             _nodes = nodes;
             _selectedNode = autoSelect;
           });
-          _glowController.repeat();
           _schedulePublicIpRefresh();
           unawaited(_autoTestAllNodes());
           _checkUpdateDelayed();
@@ -274,16 +275,34 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
 
   Future<void> _handleProxyModeChanged(String mode) async {
     final settingsService = context.read<SettingsService>();
+    final clashService = context.read<ClashService>();
     final targetMode = mode == 'global' ? ProxyMode.global : ProxyMode.rule;
     if (_isConnecting || settingsService.settings.proxyMode == targetMode) {
       return;
     }
 
-    await settingsService.setProxyMode(mode);
+    final shouldReload = _isConnected || clashService.isRunning;
+    try {
+      if (!shouldReload) {
+        await clashService.invalidateIdleNativeConnectionSnapshot();
+      }
+      await settingsService.setProxyMode(mode);
+    } catch (error) {
+      AppLogger.warning('ProxyMode', '保存代理模式失败: $error');
+      if (!mounted || _disposed) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
+          content: Text('代理模式保存失败，请重试'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
     if (!mounted || _disposed) return;
-    context.read<ClashService>().updateSettings(settingsService.settings);
+    clashService.updateSettings(settingsService.settings);
 
-    if (_isConnected) {
+    if (shouldReload) {
       await _reloadConfig();
     }
   }
@@ -298,16 +317,36 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
       savedSites: savedSites,
     );
     if (sites == null || !mounted || _disposed) return;
-    await _applyForceProxySites(sites);
+    try {
+      await _applyForceProxySites(sites);
+    } catch (error) {
+      AppLogger.warning('ForceProxySites', '保存强制代理网站失败: $error');
+      if (!mounted || _disposed) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
+          content: Text('强制代理网站保存失败，请重试'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   Future<void> _applyForceProxySites(List<String> sites) async {
     final settingsService = context.read<SettingsService>();
     final clashService = context.read<ClashService>();
-    await settingsService.updateForceProxySites(sites);
+    final normalizedSites = AppSettings.normalizeForceProxySites(sites);
+    final settingsChanged =
+        settingsService.settings.copyWith(forceProxySites: normalizedSites) !=
+            settingsService.settings;
+    final shouldReload =
+        (_isConnected || clashService.isRunning) && !_isConnecting;
+    if (settingsChanged && !shouldReload) {
+      await clashService.invalidateIdleNativeConnectionSnapshot();
+    }
+    await settingsService.updateForceProxySites(normalizedSites);
     clashService.updateSettings(settingsService.settings);
 
-    final shouldReload = _isConnected && !_isConnecting;
     var reloadSucceeded = false;
     if (shouldReload) {
       await _reloadConfig();

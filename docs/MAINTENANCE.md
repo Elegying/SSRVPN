@@ -58,18 +58,32 @@ Use these boundaries before adding or removing home-screen behavior:
 | `SSRVPN_MacOS/lib/app.dart`, `SSRVPN_Windows/lib/app.dart` | Platform startup, shutdown, window state, and OS-specific failure policy |
 | `SSRVPN_MacOS/lib/app_runtime_actions_part.dart`, `SSRVPN_Windows/lib/app_runtime_actions_part.dart` | Platform tray connection workflow, runtime notices, and user-facing recovery actions |
 | `packages/ssrvpn_shared/lib/services/desktop_connection_coordinator.dart` | Revision- and intent-guarded desktop config preparation, start, preferred-node switch, and owned rollback transaction |
-| `packages/ssrvpn_shared/lib/desktop_ui/desktop_app_shell_part.dart` | Shared responsive navigation shell, page stack, side rail, and startup banners |
-| `desktop_home_screen_part.dart` | Shared desktop home state, lifecycle, connection entrypoint, and page composition |
+| `SSRVPN_Android/lib/app.dart`, `packages/ssrvpn_shared/lib/desktop_ui/desktop_app_shell_part.dart` | Two-page Home/Subscription composition, shared bottom navigation, synchronized version, and platform startup banners |
+| `packages/ssrvpn_shared/lib/widgets/ssrvpn_app_surface.dart` | Shared visual tokens, backdrop, cards, and exactly two bottom-navigation destinations |
+| `packages/ssrvpn_shared/lib/widgets/ssrvpn_home_overview.dart` | Shared home header, connection action, selected-node summary, About, diagnostics, tutorial, and log entry points |
+| `packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_page.dart` and its local parts | Shared node browsing, offline preselection, latency actions, proxy mode, and optional desktop TUN controls |
+| `packages/ssrvpn_shared/lib/widgets/ssrvpn_subscription_view.dart` | Shared subscription add, list, refresh, delete, and empty-state presentation |
+| `desktop_home_screen_part.dart` | Shared desktop home state, lifecycle, connection entrypoint, and adapters for the shared Home/Node Selection surfaces |
 | `desktop_home_background_tasks_part.dart` | Initial runtime synchronization, status listeners, latency flushing, and update scheduling |
 | `desktop_home_runtime_actions_part.dart` | Shared desktop reload, node selection, latency, update, and runtime actions |
 | `desktop_home_public_ip_part.dart` | Shared desktop public-IP refresh state |
-| `desktop_home_dashboard_part.dart` | Desktop dashboard composition, top bar, and status-panel layout |
-| `desktop_home_status_widgets_part.dart` | Connection summary, mode/IP status, and connection errors |
-| `desktop_home_connection_options_part.dart` | Proxy mode, proxy method, and forced-proxy entry controls |
-| `SSRVPN_Android/lib/screens/home_screen.dart` | Android home state ownership, lifecycle, update scheduling, and page composition |
+| `desktop_subscription_screen_part.dart` | Shared desktop subscription state, dialogs, and adapter for `SsrvpnSubscriptionView` |
+| `SSRVPN_Android/lib/screens/home_screen.dart` | Android home state ownership, lifecycle, update scheduling, and adapters for the shared Home/Node Selection surfaces |
+| `SSRVPN_Android/lib/screens/subscription_screen.dart` | Android subscription state, dialogs, and adapter for `SsrvpnSubscriptionView` |
 | `home_connection_actions_part.dart` | Android connect, reload, proxy mode, and forced-proxy actions |
 | `home_node_actions_part.dart` | Android node selection, editing, persistence, and latency actions |
 | `home_public_ip_part.dart` | Android public-IP refresh state |
+
+Primary navigation is intentionally limited to Home and Subscription. About is
+a Home-only utility and must not appear in Subscription or become a navigation
+destination. While disconnected, the remembered/default node remains selectable
+and is shown as the pending connection choice; connected node switching
+continues to follow the latency and runtime safety policies.
+
+Keep the shared Home concise: it does not permanently show the local runtime
+proxy port. If Windows moves a conflicting port, the runtime notice and tray
+status must both disclose the actual port. Preserve those assertions in
+`scripts/test_windows_proxy_shutdown_recovery.py` when changing the Home layout.
 
 The existing log entry opens the shared diagnostics center. Keep stable failure
 codes and report redaction in `models/app_diagnostics.dart`; keep shared checks
@@ -114,7 +128,7 @@ and run both platform suites for shared desktop changes.
 5. Create and push a version tag:
 
    ```bash
-   git tag vX.Y.Z
+   git tag -a vX.Y.Z -m "SSRVPN vX.Y.Z"
    git push origin vX.Y.Z
    ```
 

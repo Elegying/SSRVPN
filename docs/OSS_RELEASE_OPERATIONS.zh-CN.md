@@ -40,18 +40,24 @@ ssrvpn/
 `releases/vX.Y.Z/` 是不可变版本目录；`ssrvpn/latest.json` 是客户端读取的
 唯一最新版本指针。工作流总是先上传并验证不可变产物，再以带备份的事务推广
 固定下载文件和指针，最后把对应 GitHub Draft Release 转为正式版本。若 GitHub
-明确仍是 draft 或 prerelease，工作流自动恢复 OSS；若 GitHub 状态无法确认，
+公开 mutation 尚未尝试且已权威确认仍为非公开状态，工作流才允许自动恢复 OSS；
+mutation 一旦尝试，后续连续读到 draft、prerelease 或 API 失败都视为状态不明，
 不会盲目回滚，而是失败并保留 7 天恢复 Artifact 等待人工核实。同一 tag 重跑时
-只接受字节完全相同的文件，禁止覆盖已存在但内容不同的版本对象。
+只接受字节完全相同的文件，禁止覆盖已存在但内容不同的版本对象。即使 `main` 已
+前进，完整 draft 也只有在资产集合、GitHub digest、下载后的 provenance digest、
+标签和原提交全部匹配时才允许继续；部分 draft 仍然拒绝旧源码重建。
 
 `ssrvpn/downloads/` 是网站和人工分享使用的固定下载地址。每次正式发布都会
 用已经校验过的同一批文件覆盖并重新下载比对，同时设置 `Cache-Control:
-no-cache`。因此网站不需要随版本号修改链接。GitHub 备用地址使用
+no-cache`。事务备份使用带 RAM 凭据的 OSS 源端读取，公开回读同时携带
+`no-cache` 请求头和唯一查询参数，避免把代理或边缘缓存当作恢复真相。因此网站
+不需要随版本号修改链接。GitHub 备用地址使用
 `https://github.com/Elegying/SSRVPN/releases/latest/download/<文件名>`。推广新版本时会在同一
 备份事务内退役旧的 `downloads/SSRVPN.zip` 及校验文件：有删除权限时直接删除；若 RAM
 策略拒绝删除但仍允许覆盖，则写入固定、不可执行的退役标记并重新下载逐字节确认。若后续
-步骤失败，原对象和 `latest.json` 会一起恢复。历史不可变版本目录与旧 GitHub Release
-资产保留作审计记录，不会被修改。
+步骤失败，三个受支持平台均以“安装包 + SHA-256 文件”为一组恢复；某组任一对象
+恢复失败时会保留或补偿回一致的一代，并停止回退 `latest.json`。恢复备份会保留供
+人工处理。历史不可变版本目录与旧 GitHub Release 资产保留作审计记录，不会被修改。
 
 ## 正常发布
 
@@ -98,10 +104,12 @@ Bucket、Endpoint、公开读取和上传权限都可用。
 - Release workflow 在 OSS 步骤失败：不要手工改 `latest.json`；修复配置后
   重新运行失败任务。旧指针仍然有效，客户端会继续使用旧 OSS 版本或 GitHub
   备用源。若固定下载文件推广阶段恢复失败，工作流会失败并上传保留 7 天的
-  `oss-public-channel-recovery-*` 备份 Artifact，按日志中对象清单恢复后再重跑。
-- GitHub Release 最终状态无法读取：先在 GitHub 页面确认该 tag 是 draft、
-  prerelease 还是正式版本，再决定是否使用恢复 Artifact；不得在状态不明时直接
-  回滚，否则可能造成已公开 GitHub 版本再次指向旧 OSS 通道。
+  `oss-public-channel-recovery-*` 备份 Artifact。此时各平台包与校验文件仍必须成对，
+  且 `latest.json` 不会在不完整恢复后继续回退；按日志中对象清单恢复后再重跑。
+- GitHub Release 公开 mutation 已尝试后，无论最终状态无法读取，还是连续读到可能
+  陈旧的 draft/prerelease，都先在 GitHub 页面确认该 tag 的真实状态，再决定是否使用
+  恢复 Artifact；不得在状态不明时直接回滚，否则可能造成已公开 GitHub 版本再次指向
+  旧 OSS 通道。
 - 已发布版本确认有严重问题：先把 GitHub Release 标记为 prerelease，再在
   GitHub Actions 手动运行 `Roll back OSS public channel`，输入上一个稳定 tag。
   该工作流会先验证不可变版本目录，恢复网站使用的三个固定下载包及校验文件，

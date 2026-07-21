@@ -102,4 +102,62 @@ class NativeConnectionSessionTest {
         )
         config.delete()
     }
+
+    @Test
+    fun `API secret recovery clears an idle pending claim before it can start`() {
+        val gate = StartGenerationGate()
+        val config = java.io.File.createTempFile("ssrvpn-secret-recovery", ".yaml")
+        config.writeText("proxies: []")
+        NativeConnectionSession.clearRecovery()
+        NativeConnectionSession.clearStarting()
+
+        val claimId = NativeConnectionSession.claimPendingStart(
+            config.absolutePath,
+            gate,
+            { false }
+        )
+        var snapshotCleared = false
+
+        val prepared = NativeConnectionSession.prepareApiSecretRecovery(
+            gate,
+            { false },
+            { snapshotCleared = true }
+        )
+
+        assertTrue(prepared)
+        assertTrue(snapshotCleared)
+        var accepted = false
+        gate.beginStart {
+            accepted = NativeConnectionSession.beginStarting(claimId)
+        }
+        assertFalse(accepted)
+        assertFalse(
+            NativeConnectionSession.snapshotConsistently(gate) { false }["transitioning"]
+                as Boolean
+        )
+        config.delete()
+    }
+
+    @Test
+    fun `API secret recovery rejects a live native session without clearing state`() {
+        val gate = StartGenerationGate()
+        val runningToken = gate.beginStart()
+        NativeConnectionSession.clearRecovery()
+        NativeConnectionSession.clearStarting()
+        NativeConnectionSession.publishRunning("/data/config-running.yaml")
+        var snapshotCleared = false
+
+        val prepared = NativeConnectionSession.prepareApiSecretRecovery(
+            gate,
+            { true },
+            { snapshotCleared = true }
+        )
+
+        assertFalse(prepared)
+        assertFalse(snapshotCleared)
+        val state = NativeConnectionSession.snapshotConsistently(gate) { true }
+        assertEquals(runningToken, state["sessionGeneration"])
+        assertEquals("/data/config-running.yaml", state["protectedConfigPath"])
+        NativeConnectionSession.clearRunning()
+    }
 }

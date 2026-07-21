@@ -25,9 +25,8 @@ class StartupFailure {
 
   String get userSummary {
     if (requiresWindowsSecretRecovery) {
-      return '当前 Windows 账户无法解密本机密钥。关闭 SSRVPN，将 '
-          '$windowsSecretRecoveryPath 重命名为 .api-secret.dpapi.unreadable '
-          '后再启动；旧密文不会被自动删除。';
+      return '当前 Windows 账户无法解密本机密钥。可使用“保留旧密文并重建密钥”'
+          '恢复启动；旧密文位于 $windowsSecretRecoveryPath，绝不会被自动删除。';
     }
     switch (step) {
       case 'window_manager':
@@ -79,6 +78,19 @@ class StartupStatus extends ChangeNotifier {
   void markStarting() {
     starting = true;
     completed = false;
+    notifyListeners();
+  }
+
+  void prepareCoreRetry() {
+    starting = true;
+    completed = false;
+    currentStep = null;
+    coreInitialized = false;
+    _stepStates.remove('mihomo_core');
+    _failures.removeWhere((failure) => failure.step == 'mihomo_core');
+    settingsService = null;
+    clashService = null;
+    subscriptionService = null;
     notifyListeners();
   }
 

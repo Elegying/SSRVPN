@@ -47,7 +47,6 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     }
     if (statusIsCurrent && wasRunning) {
       setState(() => _isConnected = true);
-      _glowController.repeat();
       _schedulePublicIpRefresh();
     }
 
@@ -72,9 +71,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
         _selectedNode = null;
         _resetPublicIpState();
         _exitCountryResolveGeneration++;
-        _glowController.stop();
       } else {
-        _glowController.repeat();
         _scheduleExitCountryResolution();
         _schedulePublicIpRefresh();
         unawaited(_syncSelectedNodeFromRuntime(statusEpoch));
@@ -99,16 +96,18 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     setState(() => _selectedNode = runtimeSelectedNode);
   }
 
-  Future<void> _rememberSelectedNode(ProxyNode node) async {
+  Future<bool> _rememberSelectedNode(ProxyNode node) async {
     final settingsService = context.read<SettingsService>();
-    if (settingsService.settings.lastSelectedNodeName == node.name) return;
+    if (settingsService.settings.lastSelectedNodeName == node.name) return true;
     try {
       await settingsService.updateLastSelectedNodeName(node.name);
+      return settingsService.settings.lastSelectedNodeName == node.name;
     } catch (error, stack) {
       AppLogger.warning(
         'Settings',
         '保存首选节点失败，不影响当前连接: $error\n$stack',
       );
+      return false;
     }
   }
 

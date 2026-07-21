@@ -103,7 +103,7 @@ jobs:
       - name: Promote OSS public channel
         id: promote_oss
         run: |
-          bash scripts/promote-oss-public-channel.sh \
+          OSS_PRESERVE_BACKUP=1 bash scripts/promote-oss-public-channel.sh \
             "$RUNNER_TEMP/rollback-release" \
             "$RUNNER_TEMP/rollback-latest.json"
 
@@ -113,5 +113,6 @@ jobs:
         with:
           name: oss-rollback-recovery-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ssrvpn-oss-backup.*
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7

@@ -39,6 +39,14 @@ class StartupOrchestrator {
     StartupLogger.info('Startup orchestration completed');
   }
 
+  Future<void> retryCoreInitialization() async {
+    final status = StartupStatus.instance;
+    status.prepareCoreRetry();
+    StartupLogger.info('Retrying mihomo_core initialization');
+    await runStep('mihomo_core', initCoreService, timeout: null);
+    status.markCompleted();
+  }
+
   Future<void> runStep(
     String name,
     Future<void> Function() step, {
@@ -231,7 +239,11 @@ class StartupOrchestrator {
         if (core == null) return;
         core.requestConnectionIntent(false);
         core.interruptPendingStart();
-        await core.runConnectionTransition(core.stop);
+        try {
+          await core.runConnectionTransition(core.stop);
+        } finally {
+          await core.flushLogs();
+        }
       },
       allowWindowClose: () => windowManager.setPreventClose(false),
       destroyWindow: windowManager.destroy,

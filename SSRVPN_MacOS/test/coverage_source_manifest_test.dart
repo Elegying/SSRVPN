@@ -27,9 +27,7 @@ import 'package:ssrvpn_macos/startup/startup_status.dart';
 import 'package:ssrvpn_macos/startup/window_state_store.dart';
 import 'package:ssrvpn_macos/theme/app_theme.dart';
 import 'package:ssrvpn_macos/utils/responsive.dart';
-import 'package:ssrvpn_macos/widgets/connection_button.dart';
 import 'package:ssrvpn_macos/widgets/glass_container.dart';
-import 'package:ssrvpn_macos/widgets/liquid_glass.dart';
 
 void main() {
   test('loads the auditable production source manifest', () {

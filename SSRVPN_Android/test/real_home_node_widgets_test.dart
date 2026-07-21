@@ -1,345 +1,667 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:ui' show Tristate;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ssrvpn_android/screens/home_screen.dart';
+import 'package:ssrvpn_android/services/clash_service.dart';
+import 'package:ssrvpn_android/services/settings_service.dart';
+import 'package:ssrvpn_android/services/subscription_service.dart';
 import 'package:ssrvpn_android/theme/app_theme.dart';
-import 'package:ssrvpn_android/utils/responsive.dart';
-import 'package:ssrvpn_android/widgets/home_node_list.dart';
-import 'package:ssrvpn_android/widgets/node_list_tile.dart';
-import 'package:ssrvpn_android/widgets/proxy_mode_selector.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
+const _nodeYaml = '''
+proxies:
+  - name: 东京节点
+    type: ss
+    server: 127.0.0.1
+    port: 8388
+    cipher: aes-128-gcm
+    password: test-password
+  - name: 新加坡节点
+    type: ss
+    server: 127.0.0.2
+    port: 8389
+    cipher: aes-128-gcm
+    password: test-password
+''';
+
 void main() {
-  Widget host(
-    Widget child, {
-    ThemeMode themeMode = ThemeMode.light,
-    Size size = const Size(600, 900),
-  }) {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  tearDown(SubscriptionService.resetInstanceForTesting);
+
+  Widget host(Widget child, {Size size = const Size(430, 900)}) {
     return MaterialApp(
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: themeMode,
+      theme: AppTheme.darkTheme,
       home: MediaQuery(
         data: MediaQueryData(size: size),
-        child: Builder(
-          builder: (context) {
-            Responsive.init(context);
-            return Scaffold(body: SizedBox.expand(child: child));
-          },
-        ),
+        child: Scaffold(body: child),
       ),
     );
   }
 
   ProxyNode node(
     String name, {
-    String type = 'ss',
     String server = 'example.com',
     int port = 8388,
-    String group = '默认',
+    String group = '默认订阅',
     int? latency,
   }) {
     return ProxyNode(
       name: name,
-      type: type,
+      type: 'ss',
       server: server,
       port: port,
       group: group,
       latency: latency,
       extra: {
         'name': name,
-        'type': type,
+        'type': 'ss',
         'server': server,
         'port': port,
       },
     );
   }
 
-  testWidgets('proxy mode selector changes only while enabled', (tester) async {
-    final selections = <String>[];
-    await tester.pumpWidget(
-      host(
-        Center(
-          child: SizedBox(
-            width: 360,
-            child: ProxyModeSelector(
-              isDark: false,
-              settings: AppSettings(proxyMode: ProxyMode.rule),
-              enabled: true,
-              onChanged: selections.add,
-            ),
-          ),
-        ),
-      ),
-    );
-
-    expect(find.text('规则'), findsOneWidget);
-    expect(find.text('全局'), findsOneWidget);
-    await tester.tap(find.text('全局'));
-    expect(selections, ['global']);
-
-    await tester.pumpWidget(
-      host(
-        Center(
-          child: SizedBox(
-            width: 360,
-            child: ProxyModeSelector(
-              isDark: true,
-              settings: AppSettings(proxyMode: ProxyMode.global),
-              enabled: false,
-              onChanged: selections.add,
-            ),
-          ),
-        ),
-        themeMode: ThemeMode.dark,
-      ),
-    );
-    await tester.tap(find.text('规则'));
-    expect(selections, ['global']);
-  });
-
-  testWidgets('node tile exposes identity, endpoint, latency and gestures',
+  testWidgets('home overview preserves all primary Android actions',
       (tester) async {
-    var taps = 0;
-    var longPresses = 0;
-    await tester.pumpWidget(
-      host(
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              NodeListTile(
-                node: node(
-                  'JP - Tokyo',
-                  type: 'hysteria2',
-                  server: '2001:db8::1',
-                ),
-                latency: 128,
-                isTesting: false,
-                isSelected: true,
-                isTimeout: false,
-                isConnected: true,
-                onTestLatency: () {},
-                onTap: () => taps++,
-                onLongPress: () => longPresses++,
-                textColor: Colors.black,
-                subColor: Colors.black54,
-                isDark: false,
-              ),
-              NodeListTile(
-                node: node('Plain node', type: 'vmess'),
-                latency: null,
-                isTesting: false,
-                isSelected: false,
-                isTimeout: false,
-                isConnected: true,
-                onTestLatency: () => taps += 10,
-                onTap: () => taps++,
-                onLongPress: () => longPresses++,
-                textColor: Colors.black,
-                subColor: Colors.black54,
-                isDark: false,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    expect(find.text('Tokyo'), findsOneWidget);
-    expect(find.text('🇯🇵'), findsOneWidget);
-    expect(find.text('[2001:db8::1]:8388'), findsOneWidget);
-    expect(find.text('HYST'), findsOneWidget);
-    expect(find.text('128ms'), findsOneWidget);
-    expect(find.byIcon(Icons.check_circle), findsOneWidget);
-    expect(find.text('测速'), findsOneWidget);
-
-    await tester.tap(find.text('Tokyo'));
-    await tester.longPress(find.text('Tokyo'));
-    await tester.tap(find.text('测速'));
-    expect(taps, 11);
-    expect(longPresses, 1);
-  });
-
-  testWidgets('timed out nodes cannot be selected but remain inspectable',
-      (tester) async {
-    var taps = 0;
-    var longPresses = 0;
-    await tester.pumpWidget(
-      host(
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              NodeListTile(
-                node: node('US — Timeout', type: 'trojan'),
-                latency: 65535,
-                isTesting: false,
-                isSelected: false,
-                isTimeout: true,
-                isConnected: true,
-                onTestLatency: () {},
-                onTap: () => taps++,
-                onLongPress: () => longPresses++,
-                textColor: Colors.white,
-                subColor: Colors.white70,
-                isDark: true,
-              ),
-              NodeListTile(
-                node: node('Testing node'),
-                latency: null,
-                isTesting: true,
-                isSelected: false,
-                isTimeout: false,
-                isConnected: true,
-                onTestLatency: () {},
-                onTap: () {},
-                onLongPress: () {},
-                textColor: Colors.white,
-                subColor: Colors.white70,
-                isDark: true,
-              ),
-              NodeListTile(
-                node: node('Slow node'),
-                latency: 800,
-                isTesting: false,
-                isSelected: false,
-                isTimeout: false,
-                isConnected: false,
-                onTestLatency: () {},
-                onTap: () {},
-                onLongPress: () {},
-                textColor: Colors.white,
-                subColor: Colors.white70,
-                isDark: true,
-              ),
-            ],
-          ),
-        ),
-        themeMode: ThemeMode.dark,
-      ),
-    );
-
-    expect(find.text('Timeout'), findsOneWidget);
-    expect(find.text('超时'), findsOneWidget);
-    expect(find.text('800ms'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    await tester.tap(find.text('Timeout'));
-    await tester.longPress(find.text('Timeout'));
-    expect(taps, 0);
-    expect(longPresses, 1);
-  });
-
-  testWidgets('home node list distinguishes connecting and empty states',
-      (tester) async {
-    HomeNodeList buildList({required bool connecting}) {
-      return HomeNodeList(
-        nodes: const [],
-        latencyController: HomeLatencyController(),
-        expandedSubscriptionGroups: const {},
-        selectedNode: null,
-        testingNodeName: null,
-        isConnecting: connecting,
-        isBatchTesting: false,
-        isConnected: false,
-        textColor: Colors.black,
-        subColor: Colors.black54,
-        isDark: false,
-        onTestAllLatency: () {},
-        onTestLatency: (_) {},
-        onSelectNode: (_) {},
-        onLongPressNode: (_) {},
-        onEditNode: (_) {},
-        onToggleSubscriptionGroup: (_, __) {},
-      );
-    }
-
-    await tester.pumpWidget(host(buildList(connecting: true)));
-    expect(find.text('正在启动VPN核心...'), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-
-    await tester.pumpWidget(host(buildList(connecting: false)));
-    expect(find.text('暂无节点'), findsOneWidget);
-    expect(find.text('请先在订阅页面添加订阅链接'), findsOneWidget);
-  });
-
-  testWidgets('home node list groups subscriptions and forwards actions',
-      (tester) async {
-    final alpha = node('JP - Alpha Tokyo', group: '订阅 A');
-    final beta = node('US - Beta Seattle', group: '订阅 B');
-    final selected = <String>[];
-    final held = <String>[];
-    final tested = <String>[];
-    final toggles = <String>[];
-    var batchTests = 0;
+    final selected = node('新加坡 | IEPL ①', latency: 55);
+    var connectionToggles = 0;
+    var nodeOpens = 0;
+    var aboutOpens = 0;
+    var tutorialOpens = 0;
 
     await tester.pumpWidget(
       host(
-        HomeNodeList(
-          nodes: [alpha, beta],
-          latencyController: HomeLatencyController(
-            latencies: {'JP - Alpha Tokyo': 88},
-          ),
-          expandedSubscriptionGroups: const {'订阅 A'},
-          selectedNode: alpha,
-          testingNodeName: null,
+        SsrvpnHomeOverview(
+          isConnected: false,
           isConnecting: false,
-          isBatchTesting: false,
-          isConnected: true,
-          textColor: Colors.black,
-          subColor: Colors.black54,
-          isDark: false,
-          onTestAllLatency: () => batchTests++,
-          onTestLatency: (value) => tested.add(value.name),
-          onSelectNode: (value) => selected.add(value.name),
-          onLongPressNode: (value) => held.add(value.name),
-          onEditNode: (_) {},
-          onToggleSubscriptionGroup: (title, expanded) {
-            toggles.add('$title:$expanded');
+          selectedNode: selected,
+          selectedLatency: 55,
+          selectedCountryCode: 'SG',
+          onToggleConnection: () => connectionToggles++,
+          onOpenNodes: () => nodeOpens++,
+          onShowAbout: () => aboutOpens++,
+          onShowTutorial: () => tutorialOpens++,
+          onShowLogs: () {},
+          onRefreshPublicIp: () {},
+        ),
+      ),
+    );
+
+    expect(find.text('SSRVPN'), findsOneWidget);
+    expect(find.text('未连接'), findsOneWidget);
+    expect(find.text('新加坡 | IEPL ①'), findsOneWidget);
+    expect(find.text('55ms'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.tap(find.byKey(const Key('ssrvpn-about-button')));
+    await tester.tap(find.byKey(const Key('ssrvpn-tutorial-button')));
+    expect(connectionToggles, 1);
+    expect(nodeOpens, 1);
+    expect(aboutOpens, 1);
+    expect(tutorialOpens, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Android Home keeps an open selector live during auto latency',
+      (tester) async {
+    final clash = _DelayedAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await _pumpUntil(tester, () => clash.latencyStarted.isCompleted);
+
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    expect(find.text('--'), findsNWidgets(2));
+    expect(
+      tester
+          .widget<IconButton>(
+            find.widgetWithIcon(IconButton, Icons.refresh_rounded),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.runAsync(() => fixture.settings.setProxyMode('global'));
+    await tester.pump();
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel('全局'))
+          .flagsCollection
+          .isSelected,
+      Tristate.isTrue,
+    );
+
+    clash.releaseLatency.complete();
+    await tester.pump();
+    await _pumpUntil(
+      tester,
+      () => find.text('42ms').evaluate().isNotEmpty,
+      maxPumps: 60,
+    );
+
+    expect(find.text('42ms'), findsOneWidget);
+    expect(find.text('68ms'), findsOneWidget);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.widgetWithIcon(IconButton, Icons.refresh_rounded),
+          )
+          .onPressed,
+      isNotNull,
+    );
+
+    await tester.runAsync(
+      () => fixture.subscription.setRawYaml(
+        _nodeYaml.replaceFirst('东京节点', '美国节点'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('美国节点'), findsWidgets);
+    expect(find.text('东京节点'), findsNothing);
+    expect(find.bySemanticsLabel('US 国旗'), findsWidgets);
+
+    clash.publishRunning();
+    await _pumpUntil(
+      tester,
+      () => find
+          .descendant(
+            of: find.byKey(
+              const ValueKey('ssrvpn-node-card-新加坡节点'),
+            ),
+            matching: find.byIcon(Icons.check_circle_rounded),
+          )
+          .evaluate()
+          .isNotEmpty,
+    );
+  });
+
+  testWidgets(
+      'Android Home persists an offline node and feeds it into the next connection config',
+      (tester) async {
+    final clash = _RecordingAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('ssrvpn-node-select-新加坡节点')),
+    );
+    await _waitForAsyncCondition(
+      tester,
+      () => fixture.settings.settings.lastSelectedNodeName == '新加坡节点',
+    );
+
+    final persistedName = await tester.runAsync(() async {
+      final json = jsonDecode(
+        await File(fixture.settingsPath).readAsString(),
+      ) as Map<String, dynamic>;
+      return json['lastSelectedNodeName'] as String?;
+    });
+    expect(persistedName, '新加坡节点');
+    expect(clash.liveSwitchCalls, 0);
+    expect(clash.idleSnapshotInvalidations, 1);
+
+    await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
+    await tester.pumpAndSettle();
+    expect(find.text('新加坡节点'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await _waitForAsyncCondition(
+      tester,
+      () => clash.generatedPreferredNodeName != null,
+    );
+    expect(clash.generatedPreferredNodeName, '新加坡节点');
+    expect(clash.liveSwitchCalls, 0);
+
+    // Cancel the intentionally paused connection and let its obsolete config
+    // generation finish so the widget test leaves no pending operation.
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await tester.pump();
+    clash.releaseConfigGeneration.complete();
+    await tester.pump();
+  });
+
+  testWidgets('offline proxy-mode change invalidates the native tile snapshot',
+      (tester) async {
+    final clash = _RecordingAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('全局'));
+    await _waitForAsyncCondition(
+      tester,
+      () => fixture.settings.settings.proxyMode == ProxyMode.global,
+    );
+
+    expect(clash.idleSnapshotInvalidations, 1);
+    expect(clash.liveSwitchCalls, 0);
+  });
+
+  testWidgets(
+      'failed offline snapshot invalidation keeps the old proxy mode visible',
+      (tester) async {
+    final clash = _RecordingAndroidClashService()
+      ..failIdleSnapshotInvalidation = true;
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('全局'));
+    await _waitForWidget(tester, find.text('代理模式保存失败，请重试'));
+
+    expect(fixture.settings.settings.proxyMode, ProxyMode.rule);
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel('智能'))
+          .flagsCollection
+          .isSelected,
+      Tristate.isTrue,
+    );
+    expect(clash.idleSnapshotInvalidations, 1);
+  });
+
+  testWidgets('offline force-proxy change invalidates the native tile snapshot',
+      (tester) async {
+    final clash = _RecordingAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('强制代理网站'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'youtube.com');
+    await tester.tap(find.text('确定'));
+    await _waitForAsyncCondition(
+      tester,
+      () => fixture.settings.settings.forceProxySites.first == 'youtube.com',
+    );
+
+    expect(clash.idleSnapshotInvalidations, 1);
+    expect(clash.liveSwitchCalls, 0);
+  });
+
+  testWidgets('unchanged force-proxy settings keep the valid tile snapshot',
+      (tester) async {
+    final clash = _RecordingAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('强制代理网站'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确定'));
+    await _waitForWidget(tester, find.text('强制代理网站已保存'));
+
+    expect(clash.idleSnapshotInvalidations, 0);
+  });
+
+  testWidgets(
+      'Android Home rolls back only its offline selection when persistence fails',
+      (tester) async {
+    final clash = _RecordingAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+    await tester.runAsync(
+      () => fixture.settings.setLastSelectedNodeName('东京节点'),
+    );
+    await tester.runAsync(() async {
+      final settingsFile = File(fixture.settingsPath);
+      await settingsFile.delete();
+      await Directory(fixture.settingsPath).create();
+    });
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('ssrvpn-node-select-新加坡节点')),
+    );
+    await _waitForWidget(tester, find.text('保存首选节点失败，请重试'));
+
+    expect(fixture.settings.settings.lastSelectedNodeName, '东京节点');
+    expect(clash.liveSwitchCalls, 0);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('ssrvpn-node-card-东京节点')),
+        matching: find.byIcon(Icons.check_circle_rounded),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
+    await tester.pumpAndSettle();
+    expect(find.text('东京节点'), findsOneWidget);
+    expect(find.text('新加坡节点'), findsNothing);
+  });
+
+  testWidgets(
+      'Android selector shows intelligent/global only and permits offline preselection during batch latency tests',
+      (tester) async {
+    final singapore = node('新加坡 | IEPL ①', latency: 55);
+    final japan = node('日本 | IEPL ①', latency: 65535);
+    var selectedName = singapore.name;
+    var selectionCalls = 0;
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnNodeSelectionPage(
+          nodesOf: () => [singapore, japan],
+          selectedNodeNameOf: () => selectedName,
+          proxyModeOf: () => ProxyMode.rule,
+          testingNodeNameOf: () => null,
+          isBatchTestingOf: () => true,
+          isConnectingOf: () => false,
+          countryCodeOf: (node) => node == singapore ? 'SG' : 'JP',
+          latencyOf: (node) => node.latency,
+          canSelectNode: (_) => true,
+          onClose: () {},
+          onRefresh: () async {},
+          onTestAll: () async {},
+          onTestLatency: (_) async {},
+          onSelectNode: (node) async {
+            selectionCalls++;
+            selectedName = node.name;
           },
+          onProxyModeChanged: (_) async {},
+          onShowForceProxySites: () {},
+          onShowLogs: () {},
         ),
       ),
     );
 
-    expect(find.text('全部节点'), findsOneWidget);
-    expect(find.text('订阅 A'), findsOneWidget);
-    expect(find.text('订阅 B'), findsOneWidget);
-    expect(find.text('Alpha Tokyo'), findsOneWidget);
-    expect(find.text('Beta Seattle'), findsNothing);
-    expect(find.text('88ms'), findsOneWidget);
+    expect(find.text('智能'), findsOneWidget);
+    expect(find.text('全局'), findsOneWidget);
+    expect(find.text('系统代理'), findsNothing);
+    expect(find.textContaining('TUN'), findsNothing);
+    expect(find.text('强制代理网站'), findsOneWidget);
+    expect(find.text('运行日志'), findsOneWidget);
+    expect(find.text('超时'), findsOneWidget);
 
-    await tester.tap(find.text('测速'));
-    await tester.tap(find.text('订阅 A'));
-    await tester.tap(find.text('Alpha Tokyo'));
-    await tester.longPress(find.text('Alpha Tokyo'));
-    expect(batchTests, 1);
-    expect(toggles, ['订阅 A:true']);
-    expect(selected, ['JP - Alpha Tokyo']);
-    expect(held, ['JP - Alpha Tokyo']);
-    expect(tested, isEmpty);
+    await tester.tap(
+      find.byKey(ValueKey('ssrvpn-node-select-${japan.name}')),
+    );
+    await tester.pump();
+    expect(selectionCalls, 1);
+    expect(selectedName, japan.name);
+    expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('selector subscription filter limits visible nodes',
+      (tester) async {
+    final alpha = node('新加坡 A', group: '订阅 A');
+    final beta = node('日本 B', group: '订阅 B');
 
     await tester.pumpWidget(
       host(
-        HomeNodeList(
-          nodes: [alpha, beta],
-          latencyController: HomeLatencyController(),
-          expandedSubscriptionGroups: const {'订阅 A'},
-          selectedNode: null,
-          testingNodeName: null,
-          isConnecting: false,
-          isBatchTesting: true,
-          isConnected: true,
-          textColor: Colors.white,
-          subColor: Colors.white70,
-          isDark: true,
-          onTestAllLatency: () {},
-          onTestLatency: (_) {},
-          onSelectNode: (_) {},
-          onLongPressNode: (_) {},
-          onEditNode: (_) {},
-          onToggleSubscriptionGroup: (_, __) {},
+        SsrvpnNodeSelectionPage(
+          nodesOf: () => [alpha, beta],
+          selectedNodeNameOf: () => alpha.name,
+          proxyModeOf: () => ProxyMode.rule,
+          testingNodeNameOf: () => null,
+          isBatchTestingOf: () => false,
+          isConnectingOf: () => false,
+          countryCodeOf: (_) => 'UN',
+          latencyOf: (_) => null,
+          onClose: () {},
+          onRefresh: () async {},
+          onTestAll: () async {},
+          onTestLatency: (_) async {},
+          onSelectNode: (_) async {},
+          onProxyModeChanged: (_) async {},
         ),
-        themeMode: ThemeMode.dark,
       ),
     );
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    await tester.tap(find.text('全部订阅'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('订阅 B').last);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(ValueKey('ssrvpn-node-select-${alpha.name}')),
+      findsNothing,
+    );
+    expect(find.text('日本 B'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
+}
+
+Future<void> _pumpUntil(
+  WidgetTester tester,
+  bool Function() condition, {
+  int maxPumps = 30,
+}) async {
+  for (var attempt = 0; attempt < maxPumps && !condition(); attempt++) {
+    await tester.pump();
+  }
+  expect(condition(), isTrue, reason: 'condition did not become true');
+}
+
+Future<void> _waitForAsyncCondition(
+  WidgetTester tester,
+  bool Function() condition, {
+  int maxAttempts = 100,
+}) async {
+  for (var attempt = 0; attempt < maxAttempts && !condition(); attempt++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump();
+  }
+  expect(condition(), isTrue, reason: 'async condition did not become true');
+}
+
+Future<void> _waitForWidget(
+  WidgetTester tester,
+  Finder finder, {
+  int maxAttempts = 100,
+}) async {
+  for (var attempt = 0;
+      attempt < maxAttempts && finder.evaluate().isEmpty;
+      attempt++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump();
+  }
+  expect(finder, findsWidgets);
+}
+
+class _AndroidHomeFixture {
+  _AndroidHomeFixture({
+    required this.directory,
+    required this.subscription,
+    required this.settings,
+    required this.clash,
+  });
+
+  final Directory directory;
+  final SubscriptionService subscription;
+  final SettingsService settings;
+  final ClashService clash;
+  String get settingsPath => '${directory.path}/settings.json';
+
+  static Future<_AndroidHomeFixture> create(
+    ClashService clash,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    SubscriptionService.resetInstanceForTesting();
+    final directory = Directory.systemTemp.createTempSync('ssrvpn_android_ui_');
+    final subscription = await SubscriptionService.getInstance(directory.path);
+    await subscription.setRawYaml(_nodeYaml);
+    final settings = await SettingsService.createForTesting(
+      configPath: '${directory.path}/settings.json',
+      readApiSecret: () async => 'test-secret',
+      writeApiSecret: (_) async {},
+    );
+    return _AndroidHomeFixture(
+      directory: directory,
+      subscription: subscription,
+      settings: settings,
+      clash: clash,
+    );
+  }
+
+  Widget build() {
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<SubscriptionService>.value(value: subscription),
+        ChangeNotifierProvider<SettingsService>.value(value: settings),
+        Provider<ClashService>.value(value: clash),
+      ],
+      child: MaterialApp(
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        home: const HomeScreen(),
+      ),
+    );
+  }
+
+  void dispose() {
+    subscription.dispose();
+    settings.dispose();
+    if (directory.existsSync()) directory.deleteSync(recursive: true);
+  }
+}
+
+class _RecordingAndroidClashService extends ClashService {
+  final Completer<void> releaseConfigGeneration = Completer<void>();
+  String? generatedPreferredNodeName;
+  int liveSwitchCalls = 0;
+  int idleSnapshotInvalidations = 0;
+  bool failIdleSnapshotInvalidation = false;
+
+  @override
+  Future<void> invalidateIdleNativeConnectionSnapshot() async {
+    idleSnapshotInvalidations++;
+    if (failIdleSnapshotInvalidation) {
+      throw StateError('native snapshot unavailable');
+    }
+  }
+
+  @override
+  Future<void> testAllLatencies(
+    List<ProxyNode> nodes,
+    void Function(String name, int latency) onResult, {
+    int concurrency = 10,
+    int timeoutMs = 5000,
+    bool Function()? shouldContinue,
+  }) async {}
+
+  @override
+  Future<String> generateClashConfigAsync(
+    String rawYaml,
+    AppSettings settings, {
+    String? preferredNodeName,
+  }) async {
+    generatedPreferredNodeName = preferredNodeName;
+    await releaseConfigGeneration.future;
+    return 'generated-config';
+  }
+
+  @override
+  Future<AndroidProxySwitchResult> switchSelectedProxyForConnection(
+    String nodeName, {
+    required int connectionGeneration,
+  }) async {
+    liveSwitchCalls++;
+    return const AndroidProxySwitchResult(
+      liveSwitched: true,
+      snapshotPersisted: true,
+      intentCurrent: true,
+    );
+  }
+
+  @override
+  Future<void> stop() async => setRunning(false);
+}
+
+class _DelayedAndroidClashService extends ClashService {
+  final Completer<void> latencyStarted = Completer<void>();
+  final Completer<void> releaseLatency = Completer<void>();
+  bool _running = false;
+
+  @override
+  bool get isRunning => _running;
+
+  void publishRunning() {
+    _running = true;
+    onStatusChanged?.call();
+  }
+
+  @override
+  Future<String?> currentSelectedProxyName() async => '新加坡节点';
+
+  @override
+  Future<void> testAllLatencies(
+    List<ProxyNode> nodes,
+    void Function(String name, int latency) onResult, {
+    int concurrency = 10,
+    int timeoutMs = 5000,
+    bool Function()? shouldContinue,
+  }) async {
+    if (!latencyStarted.isCompleted) latencyStarted.complete();
+    await releaseLatency.future;
+    for (var index = 0; index < nodes.length; index++) {
+      if (shouldContinue?.call() == false) return;
+      onResult(nodes[index].name, index == 0 ? 42 : 68);
+    }
+  }
 }

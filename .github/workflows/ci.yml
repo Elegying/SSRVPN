@@ -64,6 +64,7 @@ jobs:
       - run: bash scripts/check-desktop-secure-storage.sh
       - run: bash scripts/check-clash-service-boundaries.sh
       - run: bash scripts/check-macos-core-privileges.sh
+      - run: bash scripts/test-macos-tun-dns-transaction.sh
       - run: bash scripts/check-windows-launcher-security.sh
       - run: bash scripts/check-secrets.sh
       - run: bash scripts/test-release-tooling.sh

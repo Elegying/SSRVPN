@@ -18,6 +18,10 @@ class LogRedactor {
     r"""\b(ss|ssr|trojan|vless|vmess|hysteria2|hy2|tuic|anytls)://[^\s<>"']+""",
     caseSensitive: false,
   );
+  static final _httpUrlPattern = RegExp(
+    r'''https?://[^\s<>"']+''',
+    caseSensitive: false,
+  );
   static final _urlUserInfoPattern = RegExp(
     r'([a-z][a-z0-9+.-]*://)([^/\s:@?#]+):([^/\s@?#]+)@',
     caseSensitive: false,
@@ -116,6 +120,14 @@ class LogRedactor {
 
   static bool _isLowSurrogate(int codeUnit) =>
       codeUnit >= 0xDC00 && codeUnit <= 0xDFFF;
+
+  static String sanitizeForDisplay(Object? value) {
+    final safe = sanitize(value);
+    return safe.replaceAllMapped(
+      _httpUrlPattern,
+      (match) => subscriptionUrlForDisplay(match.group(0)),
+    );
+  }
 
   static String subscriptionUrlForDisplay(Object? value) {
     var text = value?.toString().trim() ?? '';

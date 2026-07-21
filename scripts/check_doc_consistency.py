@@ -41,6 +41,29 @@ CURRENT_2X = re.compile(
     r"\bv?2(?:\.x|\.\d+(?:\.\d+)?)\b",
     re.IGNORECASE,
 )
+LEGACY_WINDOWS_UPDATE_HANDOFF = re.compile(
+    r"安装器[^\u3002！？.!?]{0,16}(?:确认)?接管|"
+    r"(?:更新|安装包)[^\u3002！？.!?]{0,24}交接|"
+    r"(?:Windows|客户端|应用内)[^\u3002！？.!?]{0,48}更新"
+    r"[^\u3002！？.!?]{0,64}安全[^\u3002！？.!?]{0,16}退出|"
+    r"(?:handoff|launch(?:es|ed|ing)?)[^.!?]{0,24}(?:Windows[ \t]+)?installer",
+    re.IGNORECASE,
+)
+LEGACY_WINDOWS_UPDATE_LINK_OPEN = re.compile(
+    r"(?:Windows|应用内|客户端)[^\u3002！？.!?]{0,48}更新"
+    r"[^\u3002！？.!?]{0,32}(?:打开|跳转)[^\u3002！？.!?]{0,16}(?:下载)?链接",
+    re.IGNORECASE,
+)
+NEGATED_LINK_OPEN = re.compile(
+    r"(?:不|不会|不得|禁止)[^\u3002！？.!?]{0,8}(?:打开|跳转)",
+    re.IGNORECASE,
+)
+LIGHTWEIGHT_VERSION_TAG = re.compile(
+    r"^[ \t]*(?:[$>]\s*)?git[ \t]+tag[ \t]+"
+    r"(?!(?:-[as]|--(?:annotate|sign))(?:[ \t]|$))"
+    r"(?P<target>v(?:X\.Y\.Z|\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?))\b",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def _blank_preserving_newlines(value: str) -> str:
@@ -177,7 +200,21 @@ def stale_claims(markdown: str) -> list[str]:
 
         if CURRENT_2X.search(sentence):
             findings.append(f"stale current-version claim: {sentence}")
+
+        stale_link_open = LEGACY_WINDOWS_UPDATE_LINK_OPEN.search(sentence)
+        if LEGACY_WINDOWS_UPDATE_HANDOFF.search(sentence) or (
+            stale_link_open and not NEGATED_LINK_OPEN.search(sentence)
+        ):
+            findings.append(f"stale Windows update handoff claim: {sentence}")
     return findings
+
+
+def stale_release_instructions(markdown: str) -> list[str]:
+    """Return release commands that would create an unannotated version tag."""
+    return [
+        f"lightweight release tag command: {match.group(0).strip()}"
+        for match in LIGHTWEIGHT_VERSION_TAG.finditer(markdown)
+    ]
 
 
 def _is_external(target: str) -> bool:
@@ -220,6 +257,8 @@ def validate(root: Path, docs: list[str]) -> list[str]:
 
         for finding in stale_claims(markdown):
             errors.append(f"{relative_name}: {finding}")
+        for finding in stale_release_instructions(markdown):
+            errors.append(f"{relative_name}: {finding}")
     return sorted(set(errors))
 
 
@@ -246,6 +285,20 @@ def self_test() -> None:
     assert stale_claims("当前版本仍为v2.4.5。")
     assert not stale_claims("迁移来源是不可变的 v2.4.5 APK。")
     assert not stale_claims("`macOS TUN 当前不可用。`")
+    assert stale_claims(
+        "检查 Windows 应用内更新；安装器确认接管后应用必须安全恢复代理并退出。"
+    )
+    assert not stale_claims(
+        "Windows 更新包校验后保存到真实桌面，客户端提示用户手动安装并保持运行。"
+    )
+    assert stale_claims("Windows 应用内更新会打开正确下载链接。")
+    assert stale_release_instructions("```bash\ngit tag v3.4.8\n```")
+    assert stale_release_instructions("git tag vX.Y.Z")
+    assert not stale_release_instructions(
+        '```bash\ngit tag -a v3.4.8 -m "SSRVPN v3.4.8"\n```'
+    )
+    assert not stale_release_instructions("git tag --annotate v3.4.8")
+    assert not stale_release_instructions("git tag -l 'v*'")
 
 
 def main() -> int:

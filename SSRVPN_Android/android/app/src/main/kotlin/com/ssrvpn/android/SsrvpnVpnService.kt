@@ -449,22 +449,20 @@ class SsrvpnVpnService : VpnService() {
         val packageName = packageName
         try {
             ensureStartCurrent(startToken)
-            // Step 1: Initialize protect pipe
             Log.d(TAG, "Initializing protect pipe...")
             val protectReadFd = bridge.Bridge.initProtect()
             Log.d(TAG, "Protect pipe fd=$protectReadFd")
 
-            // Step 2: Start protect monitor thread (reads fd, calls protect, sends result)
             protectThread = VpnProtectMonitor.start(
                 protectReadFd,
                 protectSocket = { socketFd -> protect(socketFd) },
                 reportResult = { protected -> bridge.Bridge.setProtectResult(protected) }
             )
-            if (protectThread != null) {
-                Log.d(TAG, "Protect monitor started")
+            if (!VpnRuntimeHealth.hasProtectMonitor(protectThread)) {
+                return rejectCoreStart(requestId, "VPN 网络保护服务启动失败，请重新连接", recoveryAttempt)
             }
+            Log.d(TAG, "Protect monitor started")
 
-            // Step 3: Establish VPN
             ensureStartCurrent(startToken)
             Log.d(TAG, "Establishing VPN...")
             val builder = Builder()
@@ -484,9 +482,7 @@ class SsrvpnVpnService : VpnService() {
             vpnFd = builder.establish()
             if (vpnFd == null) {
                 Log.e(TAG, "VPN establish returned null!")
-                consumeStartResult(requestId, false, "VPN establish failed")
-                stopAfterStartFailure(recoveryAttempt)
-                return
+                return rejectCoreStart(requestId, "VPN establish failed", recoveryAttempt)
             }
 
             ensureStartCurrent(startToken)
@@ -495,31 +491,23 @@ class SsrvpnVpnService : VpnService() {
 
             if (tunFd <= 0) {
                 Log.e(TAG, "Invalid VPN fd")
-                consumeStartResult(requestId, false, "Invalid VPN fd")
-                stopAfterStartFailure(recoveryAttempt)
-                return
+                return rejectCoreStart(requestId, "Invalid VPN fd", recoveryAttempt)
             }
 
-            // Step 4: Initialize and start Mihomo
             ensureStartCurrent(startToken)
             Log.d(TAG, "Initializing Mihomo...")
             val startErr = startBridgeWithTimeout(configDir, configPath, tunFd)
             if (startErr == null) {
                 Log.e(TAG, "Mihomo start timed out")
-                consumeStartResult(requestId, false, "设备性能不足，请重新连接")
-                stopAfterStartFailure(recoveryAttempt)
-                return
+                return rejectCoreStart(requestId, "设备性能不足，请重新连接", recoveryAttempt)
             }
             if (startErr.isNotEmpty()) {
                 Log.e(TAG, "Mihomo start failed: $startErr")
-                consumeStartResult(requestId, false, "Mihomo: $startErr")
-                stopAfterStartFailure(recoveryAttempt)
-                return
+                return rejectCoreStart(requestId, "Mihomo: $startErr", recoveryAttempt)
             }
             ensureStartCurrent(startToken)
             Log.d(TAG, "Mihomo started with TUN fd=$tunFd")
 
-            // Step 5: Wait for API health (use dynamic port)
             Log.d(TAG, "Waiting for API on port $apiPort...")
             val healthDeadlineNanos =
                 System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(API_HEALTH_TIMEOUT_MS)
@@ -531,6 +519,10 @@ class SsrvpnVpnService : VpnService() {
                 ensureCurrent = { ensureStartCurrent(startToken) }
             )
             if (healthy) Log.d(TAG, "Mihomo API /version is healthy")
+
+            if (healthy && !VpnRuntimeHealth.hasProtectMonitor(protectThread)) {
+                return rejectCoreStart(requestId, "VPN 网络保护服务异常，请重新连接", recoveryAttempt)
+            }
 
             if (healthy) {
                 ensureStartCurrent(startToken)
@@ -568,8 +560,7 @@ class SsrvpnVpnService : VpnService() {
                 }
             } else {
                 Log.e(TAG, "Health check timeout")
-                consumeStartResult(requestId, false, "设备性能不足，请重新连接")
-                stopAfterStartFailure(recoveryAttempt)
+                rejectCoreStart(requestId, "设备性能不足，请重新连接", recoveryAttempt)
             }
         } catch (e: StartCancelledException) {
             Log.d(TAG, "VPN start cancelled")
@@ -577,8 +568,7 @@ class SsrvpnVpnService : VpnService() {
             stopAll()
         } catch (e: Exception) {
             Log.e(TAG, "startCoreWithVpn error", e)
-            consumeStartResult(requestId, false, "Error: ${e.message}")
-            stopAfterStartFailure(recoveryAttempt)
+            rejectCoreStart(requestId, "Error: ${e.message}", recoveryAttempt)
         }
     }
 
@@ -642,7 +632,13 @@ class SsrvpnVpnService : VpnService() {
                     startToken,
                     startGeneration::current,
                     { isRunning },
-                    ::isBridgeRunningWithTimeout
+                    ::isBridgeRunningWithTimeout,
+                    isProtectMonitorRunning = {
+                        VpnRuntimeHealth.hasProtectMonitor(protectThread)
+                    },
+                    isApiHealthy = {
+                        VpnRuntimeHealth.isApiHealthy(request.apiPort, request.apiSecret)
+                    }
                 )
             ) {
                 Log.e(TAG, "Mihomo stopped unexpectedly")
@@ -715,6 +711,9 @@ class SsrvpnVpnService : VpnService() {
 
     private fun stopAfterStartFailure(recoveryAttempt: Int) =
         if (recoveryAttempt > 0) stopAll { showCoreRecoveryFailedNotification() } else stopAll()
+
+    private fun rejectCoreStart(requestId: String?, message: String, recoveryAttempt: Int) =
+        consumeStartResult(requestId, false, message).also { stopAfterStartFailure(recoveryAttempt) }
 
     private fun showCoreRecoveryFailedNotification() =
         getSystemService(NotificationManager::class.java).notify(

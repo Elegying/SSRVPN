@@ -54,7 +54,11 @@ export 'utils/desktop_window_state_store.dart';
 export 'utils/desktop_startup_file_logger.dart';
 export 'widgets/country_flag_icon.dart';
 export 'widgets/app_diagnostics_view.dart';
-export 'widgets/app_title_with_version.dart';
+export 'widgets/ssrvpn_app_surface.dart';
+export 'widgets/ssrvpn_subscription_error_dialog.dart';
+export 'widgets/ssrvpn_home_overview.dart';
+export 'widgets/ssrvpn_node_selection_page.dart';
+export 'widgets/ssrvpn_subscription_view.dart';
 
 // 常量
 export 'constants/app_constants.dart';

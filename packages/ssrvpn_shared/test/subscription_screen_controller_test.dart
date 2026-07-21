@@ -123,6 +123,103 @@ void main() {
       expect(result.shouldShowNetworkHelp, isTrue);
     });
 
+    test('refresh result redacts and bounds every display detail', () {
+      final secretUrl =
+          'https://user:password@example.com/private-path-token?token=top-secret';
+      final result = SubscriptionRefreshResult(
+        message: '刷新失败: $secretUrl ${'m' * 2000}',
+        status: SubscriptionRefreshStatus.failure,
+        networkErrorDetail:
+            'Socket failed $secretUrl Authorization: Bearer bearer-secret '
+            '${'n' * 2000}',
+        failureDetails: List.generate(
+          30,
+          (index) => '订阅 $index: $secretUrl apiKey=key-$index ${'d' * 1000}',
+        ),
+      );
+
+      expect(result.message.length, lessThanOrEqualTo(1024));
+      expect(result.networkErrorDetail!.length, lessThanOrEqualTo(1024));
+      expect(result.failureDetails, isNotEmpty);
+      expect(result.failureDetails.length, lessThanOrEqualTo(20));
+      expect(
+        result.failureDetails.every((detail) => detail.length <= 512),
+        isTrue,
+      );
+      expect(
+        result.failureDetails
+            .fold<int>(0, (total, item) => total + item.length),
+        lessThanOrEqualTo(4096),
+      );
+      expect(result.failureDetails.join('\n').length, lessThanOrEqualTo(4096));
+      for (final visibleText in [
+        result.message,
+        result.networkErrorDetail!,
+        ...result.failureDetails,
+      ]) {
+        expect(visibleText, isNot(contains('password')));
+        expect(visibleText, isNot(contains('private-path-token')));
+        expect(visibleText, isNot(contains('top-secret')));
+        expect(visibleText, isNot(contains('bearer-secret')));
+        expect(visibleText, isNot(matches(RegExp(r'key-\d+'))));
+      }
+      expect(
+        () => result.failureDetails.add('late unredacted detail'),
+        throwsUnsupportedError,
+      );
+    });
+
+    test('refresh sanitizes exception text before returning it to the UI',
+        () async {
+      final controller = SubscriptionScreenController(
+        subscriptionService: _FakeSubscriptionService(
+          refreshError: Exception(
+            'Socket failed for '
+            'https://user:password@example.com/private-path-token?token=top-secret',
+          ),
+        ),
+      );
+
+      final result = await controller.refreshAll();
+
+      expect(result.shouldShowNetworkHelp, isTrue);
+      expect(result.message, contains('***'));
+      expect(result.networkErrorDetail, contains('***'));
+      expect(result.message, isNot(contains('password')));
+      expect(result.message, isNot(contains('private-path-token')));
+      expect(result.message, isNot(contains('top-secret')));
+      expect(result.networkErrorDetail, isNot(contains('password')));
+      expect(result.networkErrorDetail, isNot(contains('private-path-token')));
+      expect(result.networkErrorDetail, isNot(contains('top-secret')));
+    });
+
+    test('add and delete results expose bounded redacted display errors', () {
+      final error = Exception(
+        'request failed for '
+        'https://user:password@example.com/private-path-token?token=top-secret '
+        '${'x' * 2000}',
+      );
+      final addResult = SubscriptionAddResult(
+        status: SubscriptionAddStatus.failed,
+        error: error,
+      );
+      final deleteResult = SubscriptionDeleteResult(
+        removed: false,
+        error: error,
+      );
+
+      for (final displayError in [
+        addResult.displayError,
+        deleteResult.displayError,
+      ]) {
+        expect(displayError.length, lessThanOrEqualTo(512));
+        expect(displayError, isNot(contains('Exception: ')));
+        expect(displayError, isNot(contains('password')));
+        expect(displayError, isNot(contains('private-path-token')));
+        expect(displayError, isNot(contains('top-secret')));
+      }
+    });
+
     test('refresh reports structured partial success as a warning', () async {
       final controller = SubscriptionScreenController(
         subscriptionService: _FakeSubscriptionService(
@@ -150,6 +247,39 @@ void main() {
       expect(result.message, contains('已保留上次有效节点'));
       expect(result.message, contains('Backup'));
       expect(result.shouldShowNetworkHelp, isFalse);
+    });
+
+    test('partial refresh bounds and redacts large failure collections',
+        () async {
+      final failures = List.generate(
+        40,
+        (index) => SubscriptionRefreshFailure(
+          subscriptionName:
+              'Backup $index https://user:password@example.com/private-name-$index?token=name-$index',
+          message: 'timeout apiKey=detail-$index ${'failure detail ' * 100}',
+        ),
+      );
+      final controller = SubscriptionScreenController(
+        subscriptionService: _FakeSubscriptionService(
+          nodes: [node('Cached')],
+          refreshOutcome: SubscriptionBatchRefreshResult(
+            status: SubscriptionBatchRefreshStatus.partialSuccess,
+            yaml: 'cached yaml',
+            successfulSubscriptionNames: const ['Primary'],
+            failures: failures,
+          ),
+        ),
+      );
+
+      final result = await controller.refreshAll();
+
+      expect(result.message.length, lessThanOrEqualTo(1024));
+      expect(result.failureDetails, isNotEmpty);
+      expect(result.failureDetails.length, lessThanOrEqualTo(20));
+      expect(result.message, isNot(contains('password')));
+      expect(result.message, isNot(contains('private-name-0')));
+      expect(result.message, isNot(contains('name-0')));
+      expect(result.failureDetails.join('\n'), isNot(contains('detail-0')));
     });
 
     test('refresh forwards cancellation and reports user cancellation',

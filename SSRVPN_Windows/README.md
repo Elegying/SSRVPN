@@ -33,6 +33,13 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
 
 构建机访问 `pub.dev` 不稳定时，可为载荷脚本加 `-ChinaMirror` 或 `-OfflinePub`。
 
+## 在线更新
+
+客户端仍从 OSS/GitHub Release 的固定资产 `SSRVPN_Setup.exe` 下载更新，因此官网和发布
+链接无需随版本变化。安装包通过 SHA256 校验后，以
+`SSRVPN_Setup_v<版本号>.exe` 保存到当前 Windows 用户的真实桌面目录；客户端只提示用户
+手动安装，不会自动运行安装包或退出 SSRVPN。
+
 ## 安装数据边界
 
 安装器固定写入 `%LOCALAPPDATA%\Programs\SSRVPN`，无需管理员权限。覆盖升级只替换已知

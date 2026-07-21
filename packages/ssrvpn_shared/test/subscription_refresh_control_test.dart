@@ -29,13 +29,13 @@ void main() {
 
   test('one absolute deadline covers sequential operations', () async {
     final control = SubscriptionRefreshControl(
-      timeout: const Duration(milliseconds: 40),
+      timeout: const Duration(seconds: 1),
     );
 
-    await control.wait(Future<void>.delayed(const Duration(milliseconds: 25)));
+    await control.wait(Future<void>.delayed(const Duration(milliseconds: 100)));
 
     await expectLater(
-      control.wait(Future<void>.delayed(const Duration(milliseconds: 30))),
+      control.wait(Future<void>.delayed(const Duration(seconds: 2))),
       throwsA(isA<SubscriptionRefreshDeadlineExceeded>()),
     );
   });

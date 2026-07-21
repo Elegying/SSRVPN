@@ -23,14 +23,9 @@ import 'package:ssrvpn_android/startup/startup_orchestrator.dart';
 import 'package:ssrvpn_android/startup/startup_status.dart';
 import 'package:ssrvpn_android/theme/app_theme.dart';
 import 'package:ssrvpn_android/utils/responsive.dart';
-import 'package:ssrvpn_android/widgets/connection_button.dart';
 import 'package:ssrvpn_android/widgets/force_proxy_sites_dialog.dart';
 import 'package:ssrvpn_android/widgets/glass_container.dart';
-import 'package:ssrvpn_android/widgets/home_node_list.dart';
-import 'package:ssrvpn_android/widgets/liquid_glass.dart';
-import 'package:ssrvpn_android/widgets/node_list_tile.dart';
-import 'package:ssrvpn_android/widgets/proxy_mode_selector.dart';
-import 'package:ssrvpn_android/widgets/subscription_screen_sections.dart';
+import 'package:ssrvpn_android/widgets/subscription_network_error_dialog.dart';
 
 void main() {
   test('loads the auditable production source manifest', () {

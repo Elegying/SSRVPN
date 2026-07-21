@@ -36,9 +36,11 @@ class WindowsDpapiSecretStore {
     SecretCipher? protect,
     SecretCipher? unprotect,
     AtomicFileReplace? replaceFile,
+    AtomicFileReplace? isolateFile,
   })  : _protect = protect ?? _protectWithDpapi,
         _unprotect = unprotect ?? _unprotectWithDpapi,
-        _replaceFile = replaceFile ?? _replaceWithMoveFileEx;
+        _replaceFile = replaceFile ?? _replaceWithMoveFileEx,
+        _isolateFile = isolateFile ?? _moveExclusivelyWithMoveFileEx;
 
   static const _fileName = '.api-secret.dpapi';
   static const _maxPlainTextBytes = 4096;
@@ -49,6 +51,7 @@ class WindowsDpapiSecretStore {
   final SecretCipher _protect;
   final SecretCipher _unprotect;
   final AtomicFileReplace _replaceFile;
+  final AtomicFileReplace _isolateFile;
 
   String get _path => '$dataDirectory${Platform.pathSeparator}$_fileName';
 
@@ -153,6 +156,50 @@ class WindowsDpapiSecretStore {
     }
   }
 
+  /// Atomically retires an unreadable DPAPI envelope without deleting it.
+  /// A later SettingsService initialization can then generate a fresh secret.
+  Future<String?> isolateUnreadableEnvelope() async {
+    await _ensureRealDataDirectory();
+    await _removeTemporaryFiles();
+    final sourceType = await FileSystemEntity.type(_path, followLinks: false);
+    if (sourceType == FileSystemEntityType.notFound) return null;
+    if (sourceType != FileSystemEntityType.file) {
+      throw FileSystemException(
+        'Windows secret storage must be a regular file',
+        _path,
+      );
+    }
+
+    final stamp = DateTime.now()
+        .toUtc()
+        .toIso8601String()
+        .replaceAll(RegExp(r'[:.]'), '-');
+    final randomSuffix = Random.secure().nextInt(0x7fffffff).toRadixString(16);
+    final isolated = File(
+      '$_path.unreadable.$stamp.$pid.$randomSuffix',
+    );
+    if (await FileSystemEntity.type(isolated.path, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      throw FileSystemException(
+        'Windows secret recovery destination already exists',
+        isolated.path,
+      );
+    }
+
+    await _isolateFile(File(_path), isolated);
+    final sourceAfter = await FileSystemEntity.type(_path, followLinks: false);
+    final isolatedAfter =
+        await FileSystemEntity.type(isolated.path, followLinks: false);
+    if (sourceAfter != FileSystemEntityType.notFound ||
+        isolatedAfter != FileSystemEntityType.file) {
+      throw FileSystemException(
+        'Windows secret recovery isolation could not be verified',
+        isolated.path,
+      );
+    }
+    return isolated.path;
+  }
+
   Future<void> _ensureRealDataDirectory() async {
     var type = await FileSystemEntity.type(
       dataDirectory,
@@ -210,6 +257,34 @@ class WindowsDpapiSecretStore {
         throw WindowsException(
           result.error.toHRESULT(),
           message: 'Failed to atomically replace the Windows API secret',
+        );
+      }
+    } finally {
+      calloc.free(sourcePath);
+      calloc.free(destinationPath);
+    }
+  }
+
+  static Future<void> _moveExclusivelyWithMoveFileEx(
+    File source,
+    File destination,
+  ) async {
+    if (!Platform.isWindows) {
+      throw UnsupportedError('DPAPI secret storage is Windows-only');
+    }
+
+    final sourcePath = source.path.toNativeUtf16(allocator: calloc);
+    final destinationPath = destination.path.toNativeUtf16(allocator: calloc);
+    try {
+      final result = MoveFileEx(
+        PCWSTR(sourcePath),
+        PCWSTR(destinationPath),
+        MOVEFILE_WRITE_THROUGH,
+      );
+      if (!result.value) {
+        throw WindowsException(
+          result.error.toHRESULT(),
+          message: 'Failed to isolate the unreadable Windows API secret',
         );
       }
     } finally {
