@@ -40,7 +40,7 @@ bash tool/package_macos.sh
 
 ## Mihomo 核心
 
-应用内置 `assets/AtlasCore.gz`，当前为 MetaCubeX/mihomo `v1.19.27`
+应用内置 `assets/AtlasCore.gz`，当前为 MetaCubeX/mihomo `v1.19.29`
 darwin arm64 构建。来源、版本和 SHA256 记录在
 `assets/AtlasCore-source.txt`。
 

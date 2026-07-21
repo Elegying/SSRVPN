@@ -65,22 +65,27 @@ check_dmg() {
     return 0
   fi
   hdiutil verify "$dmg" >/dev/null
-  local mount_dir
-  mount_dir="$(mktemp -d)"
+  local MOUNT_DIR
+  MOUNT_DIR="$(mktemp -d)"
   cleanup() {
-    if mount | grep -qF "$mount_dir"; then
-      hdiutil detach "$mount_dir" -force >/dev/null 2>&1 || true
+    if mount | grep -qF "$MOUNT_DIR"; then
+      hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true
     fi
-    rm -rf "$mount_dir"
+    rm -rf "$MOUNT_DIR"
   }
   trap cleanup RETURN
-  hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "$dmg" >/dev/null
-  test -d "$mount_dir/SSRVPN.app"
-  test -L "$mount_dir/Applications"
-  test -f "$mount_dir/使用教程.txt"
-  grep -Fqx '1、双击 DMG 文件打开后，拖动 SSRVPN 图标到 Applications 里。' \
-    "$mount_dir/使用教程.txt"
-  grep -Fqx '4、点击连接按钮即可。' "$mount_dir/使用教程.txt"
+  hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_DIR" "$dmg" >/dev/null
+  test -d "$MOUNT_DIR/SSRVPN.app"
+  test -L "$MOUNT_DIR/Applications"
+  test -f "$MOUNT_DIR/.background/background.png"
+  test -f "$MOUNT_DIR/.DS_Store"
+  grep -aFq "background.png" "$MOUNT_DIR/.DS_Store"
+  test ! -e "$MOUNT_DIR/安装教程.txt"
+  test ! -e "$MOUNT_DIR/使用教程.txt"
+  local top_level_count
+  top_level_count="$(find "$MOUNT_DIR" -mindepth 1 -maxdepth 1 \
+    ! -name '.*' -print | wc -l | tr -d ' ')"
+  [[ "$top_level_count" -eq 2 ]]
   echo "smoke: DMG ok: $dmg"
 }
 

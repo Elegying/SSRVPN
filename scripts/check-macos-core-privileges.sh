@@ -347,10 +347,19 @@ if journal not in source:
     raise SystemExit(f"{path}: DNS recovery journal must survive /var/run cleanup")
 if 'dns_state_path="$runtime_dir/' in source:
     raise SystemExit(f"{path}: DNS recovery journal must not live under /var/run")
-if 'current != 127.0.0.1' not in source or 'remove_dns_state' not in source:
+if ('if ! is_owned_tun_dns_value "$current"' not in source or
+        'remove_dns_state' not in source):
     raise SystemExit(
         f"{path}: changed user DNS must be preserved and retire stale ownership"
     )
+for required_dns_guard in (
+    'tun_dns_server=114.114.114.114',
+    'legacy_tun_dns_server=127.0.0.1',
+):
+    if required_dns_guard not in source:
+        raise SystemExit(
+            f"{path}: missing managed DNS compatibility guard {required_dns_guard}"
+        )
 if 'LC_ALL=C' not in source:
     raise SystemExit(f"{path}: networksetup parsing must use a stable locale")
 if '/bin/rm -rf "$dns_state_dir"' in source:

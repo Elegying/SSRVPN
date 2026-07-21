@@ -37,6 +37,9 @@ done
 # shellcheck source=/dev/null
 source "$LIBRARY"
 
+tun_dns_server=114.114.114.114
+legacy_tun_dns_server=127.0.0.1
+
 write_status() {
   MOCK_STATUS_HISTORY="${MOCK_STATUS_HISTORY}${MOCK_STATUS_HISTORY:+,}$1"
   printf '%s\n' "$1" > "$status_path"
@@ -46,6 +49,7 @@ AUTOMATIC_DNS="There aren't any DNS Servers set on Wi-Fi."
 MOCK_DNS_CURRENT=
 MOCK_DNS_SET_FAILURE=false
 MOCK_DNS_SET_FAILURES_REMAINING=0
+MOCK_DNS_GET_FAILURE=false
 MOCK_DNS_SET_CALLS=0
 MOCK_LAST_DNS_SET=
 MOCK_UNSAFE_PATH=
@@ -56,6 +60,7 @@ MOCK_LOCK_SECOND_BEHAVIOR=normal
 MOCK_COMPETITOR_PID=424242
 MOCK_NETWORK_SERVICE=Wi-Fi
 MOCK_ACTIVE_NETWORK_DEVICE=en0
+MOCK_SCUTIL_CALLS=0
 MOCK_CHILD_PID=31337
 MOCK_CHILD_ALIVE=false
 MOCK_CHILD_KILL_CALLS=0
@@ -71,6 +76,7 @@ MOCK_STATUS_HISTORY=
 
 /usr/sbin/scutil() {
   [[ ${1:-} == --nwi ]] || return 1
+  MOCK_SCUTIL_CALLS=$((MOCK_SCUTIL_CALLS + 1))
   printf '%s\n' \
     'Network information' \
     '' \
@@ -93,6 +99,7 @@ MOCK_STATUS_HISTORY=
         "$MOCK_NETWORK_SERVICE"
       ;;
     -getdnsservers)
+      [[ $MOCK_DNS_GET_FAILURE == false ]] || return 1
       printf '%s\n' "$MOCK_DNS_CURRENT"
       ;;
     -setdnsservers)
@@ -167,7 +174,7 @@ MOCK_STATUS_HISTORY=
   fi
   if [[ ${2:-} == "$MOCK_CHILD_PID" ]]; then
     MOCK_CHILD_KILL_CALLS=$((MOCK_CHILD_KILL_CALLS + 1))
-    if [[ $MOCK_DNS_CURRENT == 127.0.0.1 ]]; then
+    if [[ $MOCK_DNS_CURRENT == "$tun_dns_server" ]]; then
       MOCK_CHILD_KILLED_BEFORE_DNS_RESTORE=true
     fi
     MOCK_CHILD_ALIVE=false
@@ -224,6 +231,7 @@ setup_case() {
   MOCK_DNS_CURRENT=
   MOCK_DNS_SET_FAILURE=false
   MOCK_DNS_SET_FAILURES_REMAINING=0
+  MOCK_DNS_GET_FAILURE=false
   MOCK_DNS_SET_CALLS=0
   MOCK_LAST_DNS_SET=
   MOCK_UNSAFE_PATH=
@@ -236,6 +244,10 @@ setup_case() {
   MOCK_LOCK_SECOND_BEHAVIOR=normal
   MOCK_NETWORK_SERVICE=Wi-Fi
   MOCK_ACTIVE_NETWORK_DEVICE=en0
+  MOCK_SCUTIL_CALLS=0
+  runtime_health_failure_count=0
+  runtime_health_failure_status=
+  runtime_health_failure_limit=3
   MOCK_CHILD_ALIVE=false
   MOCK_CHILD_KILL_CALLS=0
   MOCK_CHILD_KILLED_BEFORE_DNS_RESTORE=false
@@ -307,12 +319,39 @@ test_automatic_dns_capture_and_restore() {
     return 1
   fi
 
-  MOCK_DNS_CURRENT=127.0.0.1
+  MOCK_DNS_CURRENT=$tun_dns_server
   restore_persisted_tun_dns || return 1
   assert_equal "$AUTOMATIC_DNS" "$MOCK_DNS_CURRENT" \
     'automatic DNS must be restored exactly' || return 1
   assert_file_absent "$dns_state_path" \
     'successful automatic restoration must retire the journal' || return 1
+}
+
+test_tun_dns_uses_routable_hijack_target() {
+  setup_case routable-target
+  MOCK_DNS_CURRENT=$AUTOMATIC_DNS
+
+  capture_tun_dns_state || return 1
+  configure_tun_dns || return 1
+
+  assert_equal "$tun_dns_server" "$MOCK_DNS_CURRENT" \
+    'TUN must publish a routable DNS target for system resolvers' || return 1
+  assert_equal "$tun_dns_server" "$MOCK_LAST_DNS_SET" \
+    'networksetup must receive the managed DNS target' || return 1
+  tun_dns_ownership_healthy || return 1
+}
+
+test_legacy_loopback_dns_is_recovered() {
+  setup_case legacy-loopback
+  write_journal automatic
+  MOCK_DNS_CURRENT=$legacy_tun_dns_server
+
+  restore_persisted_tun_dns || return 1
+
+  assert_equal "$AUTOMATIC_DNS" "$MOCK_DNS_CURRENT" \
+    'an interrupted v3.4.8 loopback DNS transaction must be restored' || return 1
+  assert_file_absent "$dns_state_path" \
+    'legacy DNS recovery must retire its journal' || return 1
 }
 
 test_manual_multi_dns_restores_exact_order() {
@@ -322,7 +361,7 @@ test_manual_multi_dns_restores_exact_order() {
   MOCK_DNS_CURRENT=$original
 
   capture_tun_dns_state || return 1
-  MOCK_DNS_CURRENT=127.0.0.1
+  MOCK_DNS_CURRENT=$tun_dns_server
   restore_persisted_tun_dns || return 1
 
   assert_equal "$original" "$MOCK_DNS_CURRENT" \
@@ -351,7 +390,7 @@ test_user_dns_change_is_preserved_and_retires_journal() {
 test_restore_failure_keeps_journal() {
   setup_case restore-failure
   write_journal manual 1.1.1.1 8.8.8.8
-  MOCK_DNS_CURRENT=127.0.0.1
+  MOCK_DNS_CURRENT=$tun_dns_server
   MOCK_DNS_SET_FAILURE=true
 
   if restore_persisted_tun_dns; then
@@ -360,14 +399,14 @@ test_restore_failure_keeps_journal() {
   fi
 
   [[ -f $dns_state_path ]] || return 1
-  assert_equal 127.0.0.1 "$MOCK_DNS_CURRENT" \
+  assert_equal "$tun_dns_server" "$MOCK_DNS_CURRENT" \
     'failed restoration must leave the owned DNS value unchanged' || return 1
 }
 
 test_cleanup_failure_is_observable() {
   setup_case cleanup-failure
   write_journal manual 1.1.1.1 8.8.8.8
-  MOCK_DNS_CURRENT=127.0.0.1
+  MOCK_DNS_CURRENT=$tun_dns_server
   MOCK_DNS_SET_FAILURES_REMAINING=6
   lock_acquired=true
 
@@ -386,9 +425,9 @@ test_cleanup_failure_is_observable() {
 test_cleanup_keeps_dns_core_until_restore_recovers() {
   setup_case cleanup-transient-failure
   write_journal manual 1.1.1.1 8.8.8.8
-  MOCK_DNS_CURRENT=127.0.0.1
+  MOCK_DNS_CURRENT=$tun_dns_server
   # Exhaust the bounded first pass. The recovery supervisor must keep the
-  # local DNS listener alive and retry before it tears the core down.
+  # managed DNS transaction intact before it tears the core down.
   MOCK_DNS_SET_FAILURES_REMAINING=5
   lock_acquired=true
   child_pid=$MOCK_CHILD_PID
@@ -399,7 +438,7 @@ test_cleanup_keeps_dns_core_until_restore_recovers() {
   cleanup || return 1
 
   assert_equal false "$MOCK_CHILD_KILLED_BEFORE_DNS_RESTORE" \
-    'cleanup must not terminate the DNS listener while DNS still points to localhost' || return 1
+    'cleanup must not terminate the core before managed DNS is restored' || return 1
   ((MOCK_CHILD_KILL_CALLS > 0)) || {
     echo 'assertion failed: core must be terminated after DNS recovery' >&2
     return 1
@@ -488,7 +527,7 @@ test_recovery_only_lock_rejection_preserves_recovery_owner() {
   printf '%s\n' "$request_value" > "$request_path"
   chmod 600 "$request_path"
   write_journal manual 1.1.1.1 8.8.8.8
-  MOCK_DNS_CURRENT=127.0.0.1
+  MOCK_DNS_CURRENT=$tun_dns_server
 
   # A live privileged runner owns the global transaction. This recovery-only
   # contender must fail to acquire the lock and must not retire or tear down
@@ -519,7 +558,7 @@ test_recovery_only_lock_rejection_preserves_recovery_owner() {
     echo 'assertion failed: runner without the lock must preserve the DNS journal' >&2
     failed=true
   fi
-  if [[ $MOCK_DNS_SET_CALLS -ne 0 || $MOCK_DNS_CURRENT != 127.0.0.1 ]]; then
+  if [[ $MOCK_DNS_SET_CALLS -ne 0 || $MOCK_DNS_CURRENT != "$tun_dns_server" ]]; then
     echo 'assertion failed: runner without the lock must not mutate DNS' >&2
     failed=true
   fi
@@ -537,7 +576,7 @@ test_recovery_only_lock_rejection_preserves_recovery_owner() {
 test_runtime_dns_ownership_checks_service_and_value() {
   setup_case runtime-ownership
   write_journal automatic
-  MOCK_DNS_CURRENT=127.0.0.1
+  MOCK_DNS_CURRENT=$tun_dns_server
   tun_dns_ownership_healthy || return 1
 
   MOCK_DNS_CURRENT=9.9.9.9
@@ -546,7 +585,7 @@ test_runtime_dns_ownership_checks_service_and_value() {
     return 1
   fi
 
-  MOCK_DNS_CURRENT=127.0.0.1
+  MOCK_DNS_CURRENT=$tun_dns_server
   MOCK_NETWORK_SERVICE=Renamed
   if tun_dns_ownership_healthy; then
     echo 'assertion failed: remapped service must fail runtime ownership health' >&2
@@ -554,10 +593,50 @@ test_runtime_dns_ownership_checks_service_and_value() {
   fi
 }
 
+test_runtime_health_debounces_transient_dns_probe_failures() {
+  setup_case runtime-health-debounce
+  write_journal automatic
+  MOCK_DNS_CURRENT=$tun_dns_server
+  printf 'running\n' > "$status_path"
+  load_persisted_tun_dns || return 1
+
+  check_runtime_tun_dns_health || {
+    echo 'assertion failed: healthy runtime probe must succeed' >&2
+    return 1
+  }
+
+  MOCK_DNS_GET_FAILURE=true
+  check_runtime_tun_dns_health || {
+    echo 'assertion failed: first transient DNS probe failure must be tolerated' >&2
+    return 1
+  }
+  check_runtime_tun_dns_health || {
+    echo 'assertion failed: second transient DNS probe failure must be tolerated' >&2
+    return 1
+  }
+  assert_equal running "$(tr -d '[:space:]' < "$status_path")" \
+    'transient probe failures must not publish a terminal status' || return 1
+
+  MOCK_DNS_GET_FAILURE=false
+  check_runtime_tun_dns_health || {
+    echo 'assertion failed: a successful probe must reset the failure streak' >&2
+    return 1
+  }
+  MOCK_DNS_GET_FAILURE=true
+  check_runtime_tun_dns_health || return 1
+  check_runtime_tun_dns_health || return 1
+  if check_runtime_tun_dns_health; then
+    echo 'assertion failed: three consecutive DNS probe failures must stop the runner' >&2
+    return 1
+  fi
+  assert_equal error:dns "$(tr -d '[:space:]' < "$status_path")" \
+    'terminal DNS failure must remain observable to the app' || return 1
+}
+
 test_runtime_dns_ownership_fails_when_active_physical_device_changes() {
   setup_case runtime-network-change
   write_journal automatic
-  MOCK_DNS_CURRENT=127.0.0.1
+  MOCK_DNS_CURRENT=$tun_dns_server
   tun_dns_ownership_healthy || return 1
 
   MOCK_ACTIVE_NETWORK_DEVICE=en1
@@ -565,8 +644,10 @@ test_runtime_dns_ownership_fails_when_active_physical_device_changes() {
     echo 'assertion failed: switching the active physical interface must fail DNS ownership health' >&2
     return 1
   fi
+  check_runtime_tun_dns_health || return 1
+  check_runtime_tun_dns_health || return 1
   if check_runtime_tun_dns_health; then
-    echo 'assertion failed: runtime network change must fail the runner health gate' >&2
+    echo 'assertion failed: a persistent network change must fail the runner health gate' >&2
     return 1
   fi
   assert_equal error:network-change "$(tr -d '[:space:]' < "$status_path")" \
@@ -586,7 +667,7 @@ test_malformed_journal_fails_closed() {
   setup_case malformed
   printf 'schema=2\nservice=Wi-Fi\n' > "$dns_state_path"
   chmod 600 "$dns_state_path"
-  MOCK_DNS_CURRENT=127.0.0.1
+  MOCK_DNS_CURRENT=$tun_dns_server
 
   if restore_persisted_tun_dns; then
     echo 'assertion failed: malformed journal must fail closed' >&2
@@ -603,7 +684,7 @@ test_symlink_journal_fails_closed() {
   local target="$CASE_ROOT/attacker-state"
   printf 'schema=1\nservice=Wi-Fi\ndevice=en0\nmode=automatic\n' > "$target"
   ln -s "$target" "$dns_state_path"
-  MOCK_DNS_CURRENT=127.0.0.1
+  MOCK_DNS_CURRENT=$tun_dns_server
 
   if restore_persisted_tun_dns; then
     echo 'assertion failed: symlink journal must fail closed' >&2
@@ -619,7 +700,7 @@ test_wrong_permission_journal_fails_closed() {
   write_journal automatic
   MOCK_UNSAFE_PATH=$dns_state_path
   MOCK_UNSAFE_MODE=644
-  MOCK_DNS_CURRENT=127.0.0.1
+  MOCK_DNS_CURRENT=$tun_dns_server
 
   if restore_persisted_tun_dns; then
     echo 'assertion failed: group/world-readable journal must fail closed' >&2
@@ -685,6 +766,8 @@ failures=0
 tests=0
 for entry in \
   'automatic DNS capture and restore:test_automatic_dns_capture_and_restore' \
+  'routable DNS hijack target:test_tun_dns_uses_routable_hijack_target' \
+  'legacy loopback DNS recovery:test_legacy_loopback_dns_is_recovered' \
   'manual multi-DNS exact restore:test_manual_multi_dns_restores_exact_order' \
   'user DNS change preservation:test_user_dns_change_is_preserved_and_retires_journal' \
   'restore failure journal retention:test_restore_failure_keeps_journal' \
@@ -695,6 +778,7 @@ for entry in \
   'recovery-only conflicting generations:test_recovery_only_retires_conflicting_legacy_generations' \
   'recovery-only live lock preservation:test_recovery_only_lock_rejection_preserves_recovery_owner' \
   'runtime DNS ownership:test_runtime_dns_ownership_checks_service_and_value' \
+  'runtime health debounce:test_runtime_health_debounces_transient_dns_probe_failures' \
   'runtime physical network change:test_runtime_dns_ownership_fails_when_active_physical_device_changes' \
   'recovery-only ownership validation:test_recovery_only_entrypoint_validates_marker_and_journal' \
   'malformed journal fail-closed:test_malformed_journal_fails_closed' \

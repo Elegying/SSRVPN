@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.9] - 2026-07-21
+
+### 修复
+
+- macOS TUN 改用更稳健的运行期 DNS 与物理网络健康判断：同类异常必须连续出现三次才结束当前会话，单次 `networksetup` 读取抖动或瞬时网络状态变化不再导致核心被主动停止；成功样本会立即清零失败计数。
+- macOS TUN 继续接管系统级路由与 DNS，使不读取系统代理的桌面应用也由 Mihomo 转发；Codex 等桌面客户端可与浏览器共用同一条 TUN 数据通道。
+
+### 变更
+
+- macOS DMG 改为带 SSRVPN 品牌背景、安装箭头及中英文拖拽提示的标准安装窗口，顶层只保留 `SSRVPN.app` 与 `Applications` 两个可见项目，不再附带安装教程文件。
+- Windows TUN 同步完成运行期审计：它没有 macOS 提权 runner 的单次 DNS 终止路径，接口、路由与 Mihomo API 异常继续由共享健康监控累计三次后才触发断开，因此无需引入额外的 Windows 行为变更。
+
+### 测试
+
+- 新增 macOS TUN 瞬时 DNS 读取失败回归测试和 DMG 布局静态门禁；本地构建会校验 `.DS_Store`、背景资源、顶层可见项目数量及教程文件缺失，GitHub Release 构建执行同一套检查。
+
 ## [3.4.8] - 2026-07-21
 
 ### 新增

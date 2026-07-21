@@ -35,7 +35,7 @@ before CI tests and release packaging.
 - Geo database: `SSRVPN_MacOS/assets/geoip.metadb.gz`
 - Source record: `SSRVPN_MacOS/assets/AtlasCore-source.txt`
 - Geo source record: `docs/GEOIP_SOURCE.txt`
-- Current source: MetaCubeX/mihomo `v1.19.27`
+- Current source: MetaCubeX/mihomo `v1.19.29`
 - Required asset family: `mihomo-darwin-arm64-*.gz`
 
 The stored gzip is the official release asset. Verification checks both its
