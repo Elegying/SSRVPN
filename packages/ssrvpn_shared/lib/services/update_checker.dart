@@ -58,31 +58,23 @@ class UpdateChecker {
     final ownsClient = client == null;
     final httpClient = client ?? http.Client();
     try {
-      AppUpdateInfo? primary;
       try {
-        primary = await _checkPrimaryManifest(
+        return await _checkPrimaryManifest(
           currentVersion: currentVersion,
           assetExtension: assetExtension,
           client: httpClient,
           timeout: timeout,
         );
       } catch (_) {
-        // GitHub is the independent fallback and authority for release
-        // metadata. A primary failure must not suppress that attempt.
+        // GitHub is used only when the OSS manifest cannot be fetched or
+        // validated. A primary failure must not suppress that fallback.
       }
-      // Desktop installers are opened outside the app. Do not trust the OSS
-      // manifest alone; GitHub must independently publish the same digest.
-      if (primary != null && !_isDesktopAsset(assetExtension)) return primary;
-
-      final github = await _checkGitHub(
+      return await _checkGitHub(
         currentVersion: currentVersion,
         assetExtension: assetExtension,
         client: httpClient,
         timeout: timeout,
       );
-      if (primary == null) return github;
-      if (_sameReleaseDigest(primary, github)) return primary;
-      return github;
     } finally {
       if (ownsClient) httpClient.close();
     }
@@ -112,14 +104,16 @@ class UpdateChecker {
     }
 
     final data = jsonDecode(response.body);
-    if (data is! Map<String, dynamic>) return null;
+    if (data is! Map<String, dynamic>) {
+      throw const FormatException('OSS update metadata is not an object');
+    }
 
     final version = (data['version']?.toString() ?? '')
         .trim()
         .replaceFirst(RegExp(r'^v'), '');
-    if (!_isValidVersion(version)) return null;
-    // A stale pointer can remain when GitHub publishing succeeds but the OSS
-    // upload fails. Let GitHub act as the backup detector in that case.
+    if (!_isValidVersion(version)) {
+      throw const FormatException('OSS release version is invalid');
+    }
     if (compareVersions(version, currentVersion) <= 0) return null;
 
     final asset = _manifestAssetFor(
@@ -127,7 +121,12 @@ class UpdateChecker {
       assetExtension,
       version,
     );
-    if (asset == null) return null;
+    if (asset == null) {
+      throw FormatException(
+        'OSS manifest has no valid ${_assetNameForExtension(assetExtension)} '
+        'asset for v$version',
+      );
+    }
     final sourceHost = Uri.parse(asset.downloadUrl).host;
     final fallbackUrl = Uri.https(
       'github.com',
@@ -222,20 +221,6 @@ class UpdateChecker {
 
   static bool _isValidVersion(String version) =>
       RegExp(r'^\d+(?:\.\d+){1,3}$').hasMatch(version);
-
-  static bool _isDesktopAsset(String assetExtension) =>
-      const {'.dmg', '.exe', '.zip'}.contains(
-        assetExtension.trim().toLowerCase(),
-      );
-
-  static bool _sameReleaseDigest(
-    AppUpdateInfo primary,
-    AppUpdateInfo? github,
-  ) =>
-      github != null &&
-      primary.version == github.version &&
-      primary.sha256 != null &&
-      primary.sha256 == github.sha256;
 
   static _ReleaseAsset? _manifestAssetFor(
     Object? assets,
