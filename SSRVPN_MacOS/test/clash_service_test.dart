@@ -509,8 +509,10 @@ void main() {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_native_pid_cleanup_',
       );
+      final service = ClashService();
       addTearDown(() async {
         messenger.setMockMethodCallHandler(channel, null);
+        await service.flushLogs();
         if (await tempDir.exists()) await tempDir.delete(recursive: true);
       });
       final pidFile = File('${tempDir.path}/AtlasCore.pid');
@@ -527,7 +529,7 @@ void main() {
         return true;
       });
 
-      await ClashService().init(AppSettings(), dataDir: tempDir.path);
+      await service.init(AppSettings(), dataDir: tempDir.path);
 
       expect(await pidFile.exists(), isFalse);
     });
