@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.11] - 2026-07-22
+
+### 修复
+
+- Android、macOS 与 Windows 的启动更新检查统一以阿里云 OSS `latest.json` 为主更新源：有效清单会直接决定是否提醒和下载，不再要求 GitHub 提供同版本、同摘要的二次确认。
+- 只有 OSS 清单不可访问、格式或版本无效，或者缺少当前平台的规范安装包时才回退到 GitHub；有效但没有新版本的 OSS 清单不会产生额外 GitHub 请求。
+- 保留 HTTPS、OSS 域名、版本目录、标准文件名和 SHA-256 校验，并修正备用请求完成前网络客户端可能提前关闭的资源释放顺序。
+
+### 测试
+
+- 新增 OSS 主源直返、GitHub 不参与有效清单、OSS 无效时回退 GitHub 及三端规范安装包选择回归；共享层完整门禁通过。
+
+### 兼容性边界
+
+- 本版本没有修改 HTTP 订阅的兼容与安全策略；既有 HTTP/HTTPS 订阅处理保持不变。
+
 ## [3.4.10] - 2026-07-21
 
 ### 修复
