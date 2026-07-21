@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -42,7 +41,8 @@ void main() {
     expect(UpdateChecker.compareVersions('2.0.0', '2.1.0'), -1);
   });
 
-  test('checkLatest prefers OSS after GitHub digest corroboration', () async {
+  test('checkLatest returns a valid OSS update without contacting GitHub',
+      () async {
     final requestedHosts = <String>[];
     final client = MockClient((request) async {
       requestedHosts.add(request.url.host);
@@ -64,7 +64,7 @@ void main() {
 }
 ''', 200);
       }
-      return githubReleaseResponse(request, assetName: 'SSRVPN_Setup.exe');
+      fail('GitHub must not be contacted when the OSS manifest is valid');
     });
 
     final update = await UpdateChecker.checkLatest(
@@ -88,14 +88,11 @@ void main() {
       update.fallbackDownloadUrl,
       'https://github.com/Elegying/SSRVPN/releases/download/v3.1.0/SSRVPN_Setup.exe',
     );
-    expect(requestedHosts, [
-      'nikuaimobi.oss-cn-qingdao.aliyuncs.com',
-      'api.github.com',
-      'github.com',
-    ]);
+    expect(requestedHosts, ['nikuaimobi.oss-cn-qingdao.aliyuncs.com']);
   });
 
-  test('checkLatest exposes a GitHub outage so desktop can retry', () async {
+  test('checkLatest does not let a GitHub outage block an OSS update',
+      () async {
     final requestedHosts = <String>[];
     final client = MockClient((request) async {
       requestedHosts.add(request.url.host);
@@ -113,22 +110,18 @@ void main() {
 }
 ''', 200);
       }
-      return http.Response('GitHub unavailable', 503);
+      fail('GitHub must not be contacted when the OSS manifest is valid');
     });
 
-    await expectLater(
-      UpdateChecker.checkLatest(
-        currentVersion: '3.0.0',
-        assetExtension: '.exe',
-        client: client,
-      ),
-      throwsA(isA<HttpException>()),
+    final update = await UpdateChecker.checkLatest(
+      currentVersion: '3.0.0',
+      assetExtension: '.exe',
+      client: client,
     );
 
-    expect(requestedHosts, [
-      'nikuaimobi.oss-cn-qingdao.aliyuncs.com',
-      'api.github.com',
-    ]);
+    expect(update, isNotNull);
+    expect(update!.sourceHost, 'nikuaimobi.oss-cn-qingdao.aliyuncs.com');
+    expect(requestedHosts, ['nikuaimobi.oss-cn-qingdao.aliyuncs.com']);
   });
 
   test('metadata timeout cancels the stalled response stream', () async {
@@ -160,8 +153,11 @@ void main() {
     await streamCancelled.future.timeout(const Duration(seconds: 1));
   });
 
-  test('checkLatest uses GitHub when the desktop OSS digest differs', () async {
+  test('checkLatest treats the OSS digest as authoritative for desktop',
+      () async {
+    final requestedHosts = <String>[];
     final client = MockClient((request) async {
+      requestedHosts.add(request.url.host);
       if (request.url.host == 'nikuaimobi.oss-cn-qingdao.aliyuncs.com') {
         return http.Response('''
 {
@@ -176,11 +172,7 @@ void main() {
 }
 ''', 200);
       }
-      return githubReleaseResponse(
-        request,
-        assetName: 'SSRVPN_Setup.exe',
-        digest: _digestB,
-      );
+      fail('GitHub must not corroborate a valid OSS digest');
     });
 
     final update = await UpdateChecker.checkLatest(
@@ -190,8 +182,9 @@ void main() {
     );
 
     expect(update, isNotNull);
-    expect(update!.sourceHost, 'github.com');
-    expect(update.sha256, _digestB);
+    expect(update!.sourceHost, 'nikuaimobi.oss-cn-qingdao.aliyuncs.com');
+    expect(update.sha256, _digestA);
+    expect(requestedHosts, ['nikuaimobi.oss-cn-qingdao.aliyuncs.com']);
   });
 
   test('checkLatest selects the canonical Windows installer', () async {
@@ -227,7 +220,7 @@ void main() {
     expect(update!.downloadUrl, endsWith('/v3.1.0/SSRVPN_Setup.exe'));
   });
 
-  test('checkLatest checks GitHub when the OSS pointer has no newer release',
+  test('checkLatest accepts a valid OSS pointer with no newer release',
       () async {
     final requestedHosts = <String>[];
     final client = MockClient((request) async {
@@ -247,14 +240,7 @@ void main() {
 }
 ''', 200);
       }
-      expect(request.url.host, 'api.github.com');
-      return http.Response('''
-{
-  "tag_name": "v3.0.0",
-  "body": "current",
-  "assets": []
-}
-''', 200);
+      fail('GitHub must not be contacted when the OSS manifest is current');
     });
 
     final update = await UpdateChecker.checkLatest(
@@ -264,10 +250,7 @@ void main() {
     );
 
     expect(update, isNull);
-    expect(requestedHosts, [
-      'nikuaimobi.oss-cn-qingdao.aliyuncs.com',
-      'api.github.com',
-    ]);
+    expect(requestedHosts, ['nikuaimobi.oss-cn-qingdao.aliyuncs.com']);
   });
 
   test('checkLatest rejects off-bucket OSS assets and falls back to GitHub',
@@ -371,6 +354,33 @@ void main() {
   ]
 }
 ''', 200);
+    });
+
+    final update = await UpdateChecker.checkLatest(
+      currentVersion: '3.0.0',
+      assetExtension: '.dmg',
+      client: client,
+    );
+
+    expect(update, isNotNull);
+    expect(update!.version, '3.1.0');
+    expect(update.sourceHost, 'github.com');
+    expect(requestedHosts, [
+      'nikuaimobi.oss-cn-qingdao.aliyuncs.com',
+      'api.github.com',
+      'github.com',
+    ]);
+  });
+
+  test('checkLatest falls back to GitHub when the OSS manifest is invalid',
+      () async {
+    final requestedHosts = <String>[];
+    final client = MockClient((request) async {
+      requestedHosts.add(request.url.host);
+      if (request.url.host == 'nikuaimobi.oss-cn-qingdao.aliyuncs.com') {
+        return http.Response('{"version":"not-a-version","assets":[]}', 200);
+      }
+      return githubReleaseResponse(request, assetName: 'SSRVPN.dmg');
     });
 
     final update = await UpdateChecker.checkLatest(
