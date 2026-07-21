@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import 'windows_desktop_directory.dart';
 /// 在线更新服务 - OSS 主源，GitHub Releases 备用。
 class UpdateService {
   static const String appVersion = AppConstants.appVersion;
+  static Future<void>? _desktopArtifactCleanup;
 
   static Future<AppUpdateInfo?> checkForUpdate(
     String currentVersion,
@@ -77,18 +79,19 @@ class UpdateService {
     }
     if (!context.mounted) return;
 
-    await recoverStaleDesktopArtifacts(desktop);
-    if (!context.mounted) return;
-
-    await SharedUpdateService.downloadVerifiedUpdateWithProgress(
-      context,
-      update,
-      outputDirectory: desktop,
-      fileName: _installerFileName(update.version),
-      client: client,
-      progressDescription: '下载完成并通过 SHA256 校验后会保存到桌面，不会自动启动安装程序。',
-      onVerified: (file) => _showDesktopDownloadComplete(context, file),
-    );
+    try {
+      await SharedUpdateService.downloadVerifiedUpdateWithProgress(
+        context,
+        update,
+        outputDirectory: desktop,
+        fileName: _installerFileName(update.version),
+        client: client,
+        progressDescription: '下载完成并通过 SHA256 校验后会保存到桌面，不会自动启动安装程序。',
+        onVerified: (file) => _showDesktopDownloadComplete(context, file),
+      );
+    } finally {
+      _scheduleStaleDesktopArtifactCleanup(desktop);
+    }
   }
 
   static String _installerFileName(String version) {
@@ -107,14 +110,18 @@ class UpdateService {
     Directory desktop, {
     DateTime? now,
     Duration staleAfter = const Duration(days: 1),
+    int maxEntries = 256,
   }) async {
+    if (maxEntries <= 0) return;
     final cutoff = (now ?? DateTime.now()).subtract(staleAfter);
     final artifactPattern = RegExp(
       r'^(SSRVPN_Setup(?:_v[A-Za-z0-9._-]+)?\.exe)\.(part|previous)\.'
       r'\d+_\d+_\d+$',
     );
     try {
+      var inspectedEntries = 0;
       await for (final entity in desktop.list(followLinks: false)) {
+        if (inspectedEntries++ >= maxEntries) break;
         try {
           if (entity is! File ||
               await FileSystemEntity.type(entity.path, followLinks: false) !=
@@ -146,6 +153,19 @@ class UpdateService {
         }
       }
     } catch (_) {}
+  }
+
+  static void _scheduleStaleDesktopArtifactCleanup(Directory desktop) {
+    if (_desktopArtifactCleanup != null) return;
+    final cleanup = recoverStaleDesktopArtifacts(desktop);
+    _desktopArtifactCleanup = cleanup;
+    unawaited(
+      cleanup.whenComplete(() {
+        if (identical(_desktopArtifactCleanup, cleanup)) {
+          _desktopArtifactCleanup = null;
+        }
+      }),
+    );
   }
 
   static Future<void> _showDesktopDownloadComplete(

@@ -3,6 +3,7 @@
 library desktop_app;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -28,14 +29,17 @@ import 'services/clash_service.dart' as clash;
 import 'services/settings_service.dart';
 import 'services/subscription_service.dart';
 import 'services/tray_manager.dart';
+import 'services/windows_dpapi_secret_store.dart';
 import 'startup/startup_flags.dart';
 import 'startup/startup_logger.dart';
+import 'startup/startup_orchestrator.dart';
 import 'startup/startup_status.dart';
 import 'startup/window_state_store.dart';
 import 'theme/app_theme.dart';
 
 part 'package:ssrvpn_shared/desktop_ui/desktop_app_shell_part.dart';
 part 'app_runtime_actions_part.dart';
+part 'app_startup_shell_part.dart';
 
 class SSRVpnApp extends StatefulWidget {
   const SSRVpnApp({super.key, required this.startupFlags});
@@ -55,6 +59,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   Timer? _runtimeNoticeAutoClearTimer;
   bool _windowListenerAttached = false;
   Timer? _windowStateSaveDebounce;
+  bool _secretRecoveryInProgress = false;
+  String? _secretRecoveryError;
 
   SettingsService? _settingsService;
   clash.ClashService? _clashService;
@@ -329,6 +335,39 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     }
   }
 
+  Future<void> _confirmWindowsSecretRecovery(
+    BuildContext context,
+    String secretPath,
+  ) async {
+    if (_secretRecoveryInProgress) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: buildWindowsApiSecretRecoveryDialog,
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _secretRecoveryInProgress = true;
+      _secretRecoveryError = null;
+    });
+    try {
+      final store = WindowsDpapiSecretStore(File(secretPath).parent.path);
+      await store.isolateUnreadableEnvelope();
+      SettingsService.resetInstanceForRecovery();
+      await StartupOrchestrator(widget.startupFlags).retryCoreInitialization();
+      if (mounted) {
+        setState(() => _secretRecoveryInProgress = false);
+      }
+    } catch (error, stack) {
+      StartupLogger.error('Windows API secret recovery failed', error, stack);
+      if (!mounted) return;
+      setState(() {
+        _secretRecoveryInProgress = false;
+        _secretRecoveryError = '恢复失败：$error。旧密文和用户数据仍已保留，请重试。';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final status = StartupStatus.instance;
@@ -368,135 +407,21 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   Widget _buildStartupShell(StartupStatus status) {
     final failures = status.failures;
     final startupFailed = status.completed && !status.servicesReady;
-    final requiresSecretRecovery =
-        failures.any((failure) => failure.requiresWindowsSecretRecovery);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
-      home: Scaffold(
-        backgroundColor: const Color(0xFF050508),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    startupFailed
-                        ? Icons.error_outline_rounded
-                        : Icons.shield_outlined,
-                    color: startupFailed ? AppTheme.error : AppTheme.primary,
-                    size: 42,
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    startupFailed ? '启动失败' : 'SSRVPN',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color:
-                          startupFailed ? AppTheme.error : AppTheme.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    startupFailed
-                        ? (requiresSecretRecovery
-                            ? '本机密钥无法解密，请按下方步骤保留旧密文并恢复启动。'
-                            : '初始化服务失败，请稍后查看诊断日志。')
-                        : '正在加载必要组件...',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                  if (!startupFailed) ...[
-                    const SizedBox(height: 18),
-                    SizedBox(
-                      width: 260,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
-                        child: LinearProgressIndicator(
-                          value: _startupProgress(status),
-                          minHeight: 6,
-                          backgroundColor:
-                              AppTheme.primary.withValues(alpha: 32 / 255),
-                          color: AppTheme.primary,
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (failures.isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    _StartupProblemPanel(failures: failures),
-                  ],
-                ],
-              ),
-            ),
-          ),
+      home: buildWindowsStartupScaffold(
+        startupFailed: startupFailed,
+        startupProgress: _startupProgress(status),
+        failures: failures,
+        secretRecoveryError: _secretRecoveryError,
+        secretRecoveryInProgress: _secretRecoveryInProgress,
+        onSecretRecovery: (buttonContext, secretPath) =>
+            _confirmWindowsSecretRecovery(
+          buttonContext,
+          secretPath,
         ),
       ),
     );
   }
-}
-
-class _StartupProblemPanel extends StatelessWidget {
-  const _StartupProblemPanel({required this.failures});
-
-  final List<StartupFailure> failures;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.error.withValues(alpha: 18 / 255),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppTheme.error.withValues(alpha: 50 / 255),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '启动过程中发现问题，但应用仍会继续尝试打开。',
-            style: TextStyle(
-              color: AppTheme.error,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 8),
-          for (final failure in failures.take(3))
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: SelectableText(
-                failure.userSummary,
-                maxLines: failure.requiresWindowsSecretRecovery ? null : 2,
-                style: const TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-const _startupStepCount = 4;
-
-double? _startupProgress(StartupStatus status) {
-  if (status.completed) return 1;
-  final finishedSteps = status.stepStates.values
-      .where((state) => state == 'ok' || state == 'failed')
-      .length;
-  if (finishedSteps == 0 && status.currentStep == null) return null;
-  final runningStep = status.currentStep == null ? 0 : 0.35;
-  return ((finishedSteps + runningStep) / _startupStepCount).clamp(0.08, 0.95);
 }

@@ -1192,6 +1192,45 @@ void main() {
     expect(await marker.exists(), isFalse);
   });
 
+  test('idle snapshot invalidation rejects a concurrent newer generation',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'getConnectionSnapshotGeneration':
+          return 'old-generation';
+        case 'clearConnectionSnapshot':
+          return false;
+        case 'getConnectionState':
+          return <String, Object?>{
+            'running': false,
+            'transitioning': false,
+            'protectedConfigPath': null,
+            'sessionGeneration': null,
+          };
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_idle_snapshot_invalidation_',
+    );
+    addTearDown(() => dir.delete(recursive: true));
+    final service = ClashService()
+      ..setPaths(
+        configDir: dir.path,
+        configPath: '${dir.path}${Platform.pathSeparator}config.yaml',
+      );
+
+    await expectLater(
+      service.invalidateIdleNativeConnectionSnapshot(),
+      throwsA(isA<StateError>()),
+    );
+  });
+
   test('recovery reservation blocks pending snapshot file cleanup', () async {
     SharedPreferences.setMockInitialValues({});
     const channel = MethodChannel('com.ssrvpn/native');

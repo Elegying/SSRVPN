@@ -58,6 +58,12 @@ extension _AndroidHomeNodeActions on HomeScreenState {
       final previousNode = _selectedNode;
       _updateHomeState(() => _selectedNode = node);
       try {
+        final settingsService = context.read<SettingsService>();
+        if (settingsService.settings.lastSelectedNodeName != node.name) {
+          await context
+              .read<ClashService>()
+              .invalidateIdleNativeConnectionSnapshot();
+        }
         await _rememberSelectedNode(
           node,
           shouldContinue: () => mounted && !_disposed,

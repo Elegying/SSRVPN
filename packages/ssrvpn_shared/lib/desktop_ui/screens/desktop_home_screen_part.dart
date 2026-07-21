@@ -11,7 +11,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> {
   List<ProxyNode> _nodes = [];
   bool _isConnected = false;
   bool _isConnecting = false;
@@ -45,8 +45,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _updateCheckInProgress = false;
   bool _updateCheckCompleted = false;
   int _updateCheckAttempts = 0;
-  late AnimationController _glowController;
-
   @override
   void setState(VoidCallback fn) {
     super.setState(fn);
@@ -56,10 +54,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _glowController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 3000),
-    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _disposed) return;
       unawaited(_loadInitialData());
@@ -132,7 +126,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _clashService?.removeStatusListener(_clashStatusListener);
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
     _nodeSelectionRefresh.dispose();
-    _glowController.dispose();
     super.dispose();
   }
 
@@ -170,7 +163,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
     final wasConnected = clashService.isRunning || _isConnected;
-    var reconnectAfterUpdate = false;
+    int? automaticReconnectGeneration;
+    var transactionCommitted = false;
     setState(() {
       _isConnecting = true;
       _errorMessage = null;
@@ -178,14 +172,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     try {
       if (wasConnected) {
-        clashService.requestConnectionIntent(false);
+        automaticReconnectGeneration =
+            clashService.requestConnectionIntent(false);
         clashService.interruptPendingStart();
-        await clashService.runConnectionTransition(clashService.stop);
-        _resetPublicIpState();
       }
 
-      await update(settingsService);
-      clashService.updateSettings(settingsService.settings);
+      await clashService.runConnectionTransition(() async {
+        if (wasConnected) await clashService.stop();
+        await update(settingsService);
+        clashService.updateSettings(settingsService.settings);
+      });
+      transactionCommitted = true;
+      if (wasConnected) _resetPublicIpState();
 
       if (!mounted || _disposed) return;
       setState(() {
@@ -194,7 +192,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _latencyController.clear();
         _resetPublicIpState();
       });
-      reconnectAfterUpdate = wasConnected;
     } catch (error, stack) {
       recordDesktopConnectionFailure(
         '更新网络设置失败',
@@ -213,7 +210,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
     }
 
-    if (reconnectAfterUpdate && mounted && !_disposed) {
+    final reconnectGeneration = automaticReconnectGeneration;
+    if (transactionCommitted &&
+        reconnectGeneration != null &&
+        mounted &&
+        !_disposed &&
+        clashService.isConnectionIntentCurrent(
+          reconnectGeneration,
+          connected: false,
+        )) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('网络设置已更新，正在重新连接')),
       );
@@ -297,7 +302,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             if (!_isConnected) {
               _selectedNode = null;
               _resetPublicIpState();
-              _glowController.stop();
             }
           });
         }
@@ -320,7 +324,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _latencyController.clear();
           _exitCountryResolveGeneration++;
           _resetPublicIpState();
-          _glowController.stop();
         });
       } catch (error, stack) {
         recordDesktopConnectionFailure(
@@ -511,7 +514,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _selectedNode = runtimeSelectedNode;
           _disconnectedPreferredNodeName = null;
         });
-        _glowController.repeat();
         _showRuntimePortAdjustmentNotice(connectionResult.runtimeNotice);
         _scheduleExitCountryResolution();
         _schedulePublicIpRefresh();

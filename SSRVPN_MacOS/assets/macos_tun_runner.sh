@@ -26,10 +26,12 @@ die() {
 [[ ${EUID:-$(id -u)} -eq 0 ]] || die "administrator authorization is required"
 recovery_only=false
 staged_config=
-if [[ $# -eq 4 && $1 == "--app-pid" && $2 =~ ^[0-9]+$ && $2 -gt 1 && \
-      $3 == "--staged-config" ]]; then
+expected_request_value=
+if [[ $# -eq 6 && $1 == "--app-pid" && $2 =~ ^[0-9]+$ && $2 -gt 1 && \
+      $3 == "--staged-config" && $5 == "--request-token" ]]; then
   app_pid=$2
   staged_config=$4
+  expected_request_value=$6
 elif [[ $# -eq 3 && $1 == "--recover-dns" && $2 == "--app-pid" && \
         $3 =~ ^[0-9]+$ && $3 -gt 1 ]]; then
   recovery_only=true
@@ -61,34 +63,77 @@ user_home=${home_line#*: }
 
 request_name=.tun-session-request
 data_dir=
+request_paths=()
 for candidate in \
   "$user_home/Library/Application Support/SSRVPN" \
   "$user_home/Library/Application Support/com.ssrvpn.ssrvpnClient/SSRVPN"; do
-  if [[ -d $candidate && ! -L $candidate && \
-        $(/usr/bin/stat -f '%u' "$candidate") == "$user_id" && \
-        -f "$candidate/$request_name" && ! -L "$candidate/$request_name" ]]; then
-    data_dir=$candidate
-    break
+  [[ -d $candidate && ! -L $candidate && \
+      $(/usr/bin/stat -f '%u' "$candidate") == "$user_id" ]] || continue
+  candidate_request="$candidate/$request_name"
+  if [[ -e $candidate_request || -L $candidate_request ]]; then
+    [[ -f $candidate_request && ! -L $candidate_request && \
+        $(/usr/bin/stat -f '%u' "$candidate_request") == "$user_id" ]] || \
+      die "unsafe TUN request path"
+    request_paths+=("$candidate_request")
+    [[ -n $data_dir ]] || data_dir=$candidate
   fi
 done
 [[ -n $data_dir && -d $data_dir && ! -L $data_dir ]] || die "invalid SSRVPN data directory"
 [[ $(/usr/bin/stat -f '%u' "$data_dir") == "$user_id" ]] || die "data directory owner mismatch"
 
 request_path="$data_dir/$request_name"
-[[ $(/usr/bin/stat -f '%u' "$request_path") == "$user_id" ]] || \
-  die "TUN request owner mismatch"
 request_size=$(/usr/bin/stat -f '%z' "$request_path")
-request_value=$(/usr/bin/tr -d '[:space:]' < "$request_path")
+request_value=$(/bin/cat "$request_path") || die "cannot read TUN request"
 [[ $request_size =~ ^[0-9]+$ && $request_size -le 64 && \
-    $request_value =~ ^[0-9]+$ && $request_value -gt 1 ]] || \
+    $request_size -eq $((${#request_value} + 1)) ]] || \
   die "invalid TUN recovery request"
+request_format=
+request_phase=
+request_app_pid=
+request_nonce=
+if [[ $request_value =~ ^v2:(active|recovery):([0-9]+):([0-9a-f]{32})$ ]]; then
+  request_format=v2
+  request_phase=${BASH_REMATCH[1]}
+  request_app_pid=${BASH_REMATCH[2]}
+  request_nonce=${BASH_REMATCH[3]}
+elif [[ $request_value =~ ^[0-9]+$ ]]; then
+  request_format=legacy
+  request_app_pid=$request_value
+else
+  die "invalid TUN recovery request"
+fi
+[[ $request_app_pid -gt 1 ]] || die "invalid TUN recovery request"
+request_values=("$request_value")
+for candidate_request in "${request_paths[@]}"; do
+  [[ $candidate_request == "$request_path" ]] && continue
+  candidate_size=$(/usr/bin/stat -f '%z' "$candidate_request") || \
+    die "cannot inspect TUN request"
+  candidate_value=$(/bin/cat "$candidate_request") || \
+    die "cannot read TUN request"
+  [[ $candidate_size =~ ^[0-9]+$ && $candidate_size -le 64 && \
+      $candidate_size -eq $((${#candidate_value} + 1)) ]] || \
+    die "invalid TUN recovery request"
+  if [[ $candidate_value =~ ^v2:(active|recovery):([0-9]+):[0-9a-f]{32}$ ]]; then
+    [[ ${BASH_REMATCH[2]} -gt 1 ]] || die "invalid TUN recovery request"
+  elif [[ $candidate_value =~ ^[0-9]+$ && $candidate_value -gt 1 ]]; then
+    :
+  else
+    die "invalid TUN recovery request"
+  fi
+  if [[ $recovery_only == false && $candidate_value != "$request_value" ]]; then
+    die "conflicting TUN requests during active launch"
+  fi
+  request_values+=("$candidate_value")
+done
 if [[ $recovery_only == false ]]; then
   expected_staged_config="/var/run/ssrvpn-tun-launch-$app_pid/config.yaml"
   [[ $staged_config == "$expected_staged_config" && -f $staged_config && \
       ! -L $staged_config && $(/usr/bin/stat -f '%u' "$staged_config") == 0 ]] || \
     die "invalid staged Mihomo config"
   config_path=$staged_config
-  [[ $request_value == "$app_pid" ]] || \
+  [[ $request_format == v2 && $request_phase == active && \
+      $request_app_pid == "$app_pid" && \
+      $request_value == "$expected_request_value" ]] || \
     die "TUN request does not match the requesting app"
 fi
 
@@ -131,6 +176,32 @@ active_network_device() {
     /usr/bin/awk '/^[[:space:]]*interface:/{print $2; exit}')
   [[ $device =~ ^[A-Za-z0-9._-]+$ && $device != utun* ]] || return 1
   /usr/bin/printf '%s\n' "$device"
+}
+
+# Once Mihomo installs its default route, `route get default` points at utun.
+# `scutil --nwi` still lists the effective physical path after the transient
+# tunnel interfaces. The first reachable IPv4 interface that is not utun is
+# therefore the service whose DNS must remain under this transaction.
+active_physical_network_device() {
+  local device
+  device=$(/usr/sbin/scutil --nwi 2>/dev/null | /usr/bin/awk '
+    /^IPv4 network interface information/ { in_ipv4 = 1; next }
+    /^IPv6 network interface information/ { exit }
+    in_ipv4 && $2 == ":" && $3 == "flags" && \
+      $1 ~ /^[A-Za-z0-9._-]+$/ && $1 !~ /^utun/ {
+      print $1
+      exit
+    }
+  ') || return 1
+  [[ $device =~ ^[A-Za-z0-9._-]+$ && $device != utun* ]] || return 1
+  /usr/bin/printf '%s\n' "$device"
+}
+
+active_physical_network_unchanged() {
+  local current_device
+  [[ -n ${dns_device:-} ]] || return 1
+  current_device=$(active_physical_network_device) || return 1
+  [[ $current_device == "$dns_device" ]]
 }
 
 network_service_for_device() {
@@ -306,6 +377,7 @@ capture_tun_dns_state() {
 configure_tun_dns() {
   local mapped_service
   load_persisted_tun_dns || return 1
+  active_physical_network_unchanged || return 1
   mapped_service=$(network_service_for_device "$dns_device") || return 1
   [[ $mapped_service == "$dns_service" ]] || return 1
   dns_snapshot_matches || return 1
@@ -318,10 +390,22 @@ configure_tun_dns() {
 tun_dns_ownership_healthy() {
   local mapped_service current
   load_persisted_tun_dns || return 1
+  active_physical_network_unchanged || return 1
   mapped_service=$(network_service_for_device "$dns_device") || return 1
   [[ $mapped_service == "$dns_service" ]] || return 1
   current=$(read_dns_servers "$dns_service") || return 1
   [[ $current == 127.0.0.1 ]]
+}
+
+check_runtime_tun_dns_health() {
+  if ! active_physical_network_unchanged; then
+    write_status "error:network-change"
+    return 1
+  fi
+  if ! tun_dns_ownership_healthy; then
+    write_status "error:dns"
+    return 1
+  fi
 }
 
 restore_persisted_tun_dns() {
@@ -411,14 +495,125 @@ acquire_tun_lock() {
   [[ $(read_lock_owner) == "$$" ]]
 }
 
+read_safe_user_request() {
+  local path=$1 owner size value
+  [[ -f $path && ! -L $path ]] || return 1
+  owner=$(/usr/bin/stat -f '%u' "$path") || return 1
+  size=$(/usr/bin/stat -f '%z' "$path") || return 1
+  value=$(/bin/cat "$path") || return 1
+  [[ $owner == "$user_id" && $size =~ ^[0-9]+$ && $size -le 64 && \
+      $size -eq $((${#value} + 1)) ]] || return 1
+  /usr/bin/printf '%s' "$value"
+}
+
+request_matches_runner_generation() {
+  local value=$1
+  if [[ $request_format == legacy ]]; then
+    [[ $value == "$request_value" ]]
+    return
+  fi
+  [[ $value =~ ^v2:(active|recovery):([0-9]+):([0-9a-f]{32})$ && \
+      ${BASH_REMATCH[2]} == "$request_app_pid" && \
+      ${BASH_REMATCH[3]} == "$request_nonce" ]]
+}
+
+active_request_matches() {
+  local value
+  [[ $request_format == v2 && $request_phase == active ]] || return 1
+  value=$(read_safe_user_request "$request_path") || return 1
+  [[ $value == "$request_value" ]]
+}
+
+retire_owned_tun_request_at() {
+  local path=$1 expected_value=$2 value retired_path marker_still_owned
+  [[ -n ${path:-} && -n ${request_value:-} && -n ${user_id:-} ]] || \
+    return 0
+  if [[ ! -e $path && ! -L $path ]]; then
+    return 0
+  fi
+  value=$(read_safe_user_request "$path") || return 1
+  # A newly launched app may already own this path. Only the exact generation
+  # accepted by this runner may be retired.
+  if [[ $recovery_only == true ]]; then
+    [[ $value == "$expected_value" ]] || return 0
+  else
+    request_matches_runner_generation "$value" || return 0
+  fi
+  retired_path="$path.retired-$$"
+  [[ ! -e $retired_path && ! -L $retired_path ]] || return 1
+  /bin/mv "$path" "$retired_path" || return 1
+  value=
+  value=$(read_safe_user_request "$retired_path") || value=
+  if [[ $recovery_only == true ]]; then
+    marker_still_owned=false
+    [[ $value == "$expected_value" ]] && marker_still_owned=true
+  else
+    marker_still_owned=false
+    request_matches_runner_generation "$value" && marker_still_owned=true
+  fi
+  if [[ $marker_still_owned == true ]]; then
+    /bin/rm -f "$retired_path"
+    return
+  fi
+  # The path changed between validation and quarantine. Restore it only via an
+  # atomic no-clobber hard link; if a newer marker already exists, preserve
+  # both entries for diagnosis instead of overwriting that generation.
+  echo "SSRVPN TUN: request marker changed during cleanup; preserving it" >&2
+  if [[ -f $retired_path && ! -L $retired_path && \
+        ! -e $path && ! -L $path ]] && \
+      /bin/ln "$retired_path" "$path" 2>/dev/null; then
+    /bin/rm -f "$retired_path"
+  fi
+  return 1
+}
+
+retire_owned_tun_requests() {
+  local index path failed=false
+  for index in "${!request_paths[@]}"; do
+    path=${request_paths[$index]}
+    if ! retire_owned_tun_request_at "$path" "${request_values[$index]}"; then
+      failed=true
+    fi
+  done
+  [[ $failed == false ]]
+}
+
 cleanup() {
   local cleanup_failed=false
+  local dns_restored=true
+  local dns_recovery_was_delayed=false
+  # Every resource below belongs to the global TUN transaction. A contender
+  # that never acquired the lock must not retire another runner's marker,
+  # signal its core, remove its runtime, or mutate its DNS journal.
+  if [[ $lock_acquired != true ]]; then
+    return 0
+  fi
   if [[ $lock_acquired == true ]] && \
       ! restore_persisted_tun_dns_with_retry; then
-    write_status "error:dns" || true
+    write_status "error:dns-recovery" || true
     remove_status_on_exit=false
     echo "SSRVPN TUN: failed to restore DNS settings" >&2
+    dns_restored=false
+    dns_recovery_was_delayed=true
+  fi
+  # DNS may still point at 127.0.0.1. Retain the privileged runner as a
+  # recovery supervisor even if Mihomo dies independently. Teardown is allowed
+  # only after the original DNS is restored or ownership moves away.
+  while [[ $dns_restored == false ]]; do
+    if restore_persisted_tun_dns_with_retry; then
+      dns_restored=true
+      remove_status_on_exit=true
+      break
+    fi
+    /bin/sleep 1
+  done
+  if ! retire_owned_tun_requests; then
+    write_status "error:marker" || true
+    remove_status_on_exit=false
     cleanup_failed=true
+  fi
+  if [[ $dns_recovery_was_delayed == true ]]; then
+    echo "SSRVPN TUN: DNS settings recovered; continuing safe teardown" >&2
   fi
   if [[ -n ${validator_pid:-} ]] && /bin/kill -0 "$validator_pid" 2>/dev/null; then
     /bin/kill -TERM "$validator_pid" 2>/dev/null || true
@@ -453,7 +648,10 @@ cleanup() {
 
 on_exit() {
   local exit_code=$?
-  trap - EXIT INT TERM HUP
+  # Once teardown begins, repeated terminal signals must not interrupt the
+  # DNS-before-core ordering. SIGKILL remains the unavoidable system boundary.
+  trap '' INT TERM HUP
+  trap - EXIT
   cleanup || exit_code=1
   exit "$exit_code"
 }
@@ -515,7 +713,7 @@ for _ in {1..120}; do
     validation_timed_out=false
     break
   fi
-  if [[ ! -f $request_path ]] || ! /bin/kill -0 "$app_pid" 2>/dev/null; then
+  if ! active_request_matches || ! /bin/kill -0 "$app_pid" 2>/dev/null; then
     remove_status_on_exit=true
     exit 0
   fi
@@ -568,12 +766,16 @@ for _ in {1..10}; do
     report_core_failure
     exit 1
   fi
-  if [[ ! -f $request_path ]] || ! /bin/kill -0 "$app_pid" 2>/dev/null; then
+  if ! active_request_matches || ! /bin/kill -0 "$app_pid" 2>/dev/null; then
     remove_status_on_exit=true
     exit 0
   fi
   /bin/sleep 0.2
 done
+if ! active_physical_network_unchanged; then
+  write_status "error:network-change"
+  exit 1
+fi
 if ! configure_tun_dns; then
   write_status "error:dns"
   exit 1
@@ -581,14 +783,13 @@ fi
 write_status "running"
 
 health_tick=0
-while [[ -f $request_path ]] && /bin/kill -0 "$app_pid" 2>/dev/null; do
+while active_request_matches && /bin/kill -0 "$app_pid" 2>/dev/null; do
   if ! /bin/kill -0 "$child_pid" 2>/dev/null; then
     report_core_failure
     exit 1
   fi
   ((health_tick += 1))
-  if ((health_tick % 4 == 0)) && ! tun_dns_ownership_healthy; then
-    write_status "error:dns"
+  if ((health_tick % 4 == 0)) && ! check_runtime_tun_dns_health; then
     exit 1
   fi
   /bin/sleep 0.5

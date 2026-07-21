@@ -266,7 +266,16 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   @override
   Future<bool> healthCheck() async {
     if (!await checkMihomoApiHealth()) return false;
-    if (!settings.enableTun || !isRunning) return true;
+    if (!settings.enableTun) {
+      if (isRunning && !await _proxyService.isCurrentSystemProxyOwned()) {
+        setLastHealthCheckError(
+          _proxyService.lastError ?? 'macOS 系统代理已被关闭或修改',
+        );
+        return false;
+      }
+      return true;
+    }
+    if (!isRunning) return true;
 
     final tunSession = _tunSession;
     if (tunSession == null) {
@@ -456,6 +465,23 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     _ensureStartCurrent(startToken);
     setLastStartError(null);
 
+    try {
+      if (_startupBlockedByTunDnsRecovery &&
+          !await _recoverPendingTunDnsInternal(startToken)) {
+        return false;
+      }
+    } on _DesktopStartCancelled {
+      setLastStartError('连接已取消');
+      log('TUN DNS 恢复重试已取消');
+      return false;
+    } catch (error, stack) {
+      const reason = 'TUN DNS 恢复重试失败，已暂停新连接；请再次点击连接重试';
+      disableStartup(reason);
+      log('TUN DNS 恢复重试异常: $error');
+      log('堆栈: $stack');
+      notifyStatusChanged();
+      return false;
+    }
     if (_startupDisabledReason != null) {
       setLastStartError(_startupDisabledReason);
       log(_startupDisabledReason!);
@@ -654,6 +680,54 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     }
   }
 
+  Future<bool> _recoverPendingTunDnsInternal(int startToken) async {
+    final tunSession = _tunSession;
+    if (tunSession == null) {
+      const reason = 'TUN DNS 恢复服务尚未初始化';
+      disableStartup(reason);
+      notifyStatusChanged();
+      return false;
+    }
+
+    log('检测到待恢复的 TUN DNS，正在当前进程重试恢复...');
+    final recovered = await tunSession.recoverStaleDnsIfNeeded();
+    _ensureStartCurrent(startToken);
+    if (!recovered) {
+      final reason = tunSession.lastError ?? 'TUN DNS 恢复尚未完成，已暂停新连接';
+      disableStartup(reason);
+      notifyStatusChanged();
+      return false;
+    }
+
+    _startupBlockedByTunDnsRecovery = false;
+    if (_startupBlockedByProxyRecovery || _proxyService.recoveryPending) {
+      notifyStatusChanged();
+      return true;
+    }
+
+    try {
+      if (!_coreAssetsPrepared) {
+        await _prepareCoreAssetsAfterProxyRecovery(
+          runVersionProbe: _runCoreProbesAfterRecovery,
+        );
+        _ensureStartCurrent(startToken);
+      }
+      _startupDisabledReason = null;
+      setLastStartError(null);
+      log('✅ TUN DNS 已恢复，可继续连接');
+      notifyStatusChanged();
+      return true;
+    } catch (error) {
+      // Keep the same retry path active. The DNS marker is already safe, but a
+      // later click can retry the core preparation without restarting the app.
+      _startupBlockedByTunDnsRecovery = true;
+      final reason = 'TUN DNS 已恢复，但 Mihomo 核心安全准备失败: $error';
+      disableStartup(reason);
+      notifyStatusChanged();
+      return false;
+    }
+  }
+
   @override
   void interruptPendingStart() {
     _startGeneration++;
@@ -788,7 +862,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     try {
       await tunSession.stop();
     } catch (_) {
-      _markTunDnsRecoveryRequired(tunSession);
+      if (tunSession.requiresDnsRecovery) {
+        _markTunDnsRecoveryRequired(tunSession);
+      } else if (tunSession.lastError != null) {
+        setLastStartError(tunSession.lastError);
+      }
       rethrow;
     }
   }

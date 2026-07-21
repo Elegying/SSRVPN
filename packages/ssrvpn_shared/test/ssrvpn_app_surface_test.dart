@@ -638,6 +638,110 @@ void main() {
     );
   });
 
+  testWidgets('critical actions support the maximum accessibility text size',
+      (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnBottomNavigation(
+          currentIndex: 0,
+          version: '3.4.8',
+          onTap: (_) {},
+        ),
+        size: const Size(320, 568),
+        textScaleFactor: 3.2,
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.text('主页').hitTestable(), findsOneWidget);
+    expect(find.text('订阅').hitTestable(), findsOneWidget);
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnSubscriptionView(
+          subscriptions: const [],
+          urlController: controller,
+          isAdding: false,
+          isRefreshing: false,
+          isBusy: false,
+          refreshMessage: null,
+          refreshMessageColor: null,
+          onAdd: () {},
+          onRefresh: () {},
+          onCancelRefresh: () {},
+          onDelete: (_) {},
+        ),
+        size: const Size(320, 568),
+        textScaleFactor: 3.2,
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    await tester.ensureVisible(
+      find.byKey(const Key('ssrvpn-subscription-add')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('ssrvpn-subscription-add')).hitTestable(),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('connection and subscription results are live regions',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnHomeOverview(
+          isConnected: false,
+          isConnecting: false,
+          selectedNode: null,
+          selectedLatency: null,
+          selectedCountryCode: null,
+          onToggleConnection: () {},
+          onOpenNodes: () {},
+          onShowAbout: () {},
+          onShowTutorial: () {},
+          onShowLogs: () {},
+          onRefreshPublicIp: () {},
+        ),
+      ),
+    );
+    final connectionStatus = tester.getSemantics(
+      find.bySemanticsLabel('连接状态：未连接'),
+    );
+    expect(connectionStatus.flagsCollection.isLiveRegion, isTrue);
+
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      host(
+        SsrvpnSubscriptionView(
+          subscriptions: const [],
+          urlController: controller,
+          isAdding: false,
+          isRefreshing: false,
+          isBusy: false,
+          refreshMessage: '全部订阅刷新成功',
+          refreshMessageColor: SsrvpnUiTokens.success,
+          onAdd: () {},
+          onRefresh: () {},
+          onCancelRefresh: () {},
+          onDelete: (_) {},
+        ),
+      ),
+    );
+    final refreshResult = tester.getSemantics(
+      find.bySemanticsLabel('订阅刷新结果：全部订阅刷新成功'),
+    );
+    expect(refreshResult.flagsCollection.isLiveRegion, isTrue);
+    semantics.dispose();
+  });
+
   testWidgets(
       'shared subscription error dialog scrolls large details at accessibility size',
       (tester) async {

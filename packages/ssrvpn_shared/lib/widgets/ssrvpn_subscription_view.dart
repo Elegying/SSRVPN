@@ -189,12 +189,14 @@ class _SubscriptionAddCard extends StatelessWidget {
                 size: 24,
               ),
               SizedBox(width: 10),
-              Text(
-                '添加订阅',
-                style: TextStyle(
-                  color: SsrvpnUiTokens.textPrimary,
-                  fontSize: 19,
-                  fontWeight: FontWeight.w700,
+              Expanded(
+                child: Text(
+                  '添加订阅',
+                  style: TextStyle(
+                    color: SsrvpnUiTokens.textPrimary,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
@@ -229,35 +231,41 @@ class _SubscriptionAddCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: FilledButton(
-              key: const Key('ssrvpn-subscription-add'),
-              onPressed: isBusy ? null : onAdd,
-              style: FilledButton.styleFrom(
-                backgroundColor: SsrvpnUiTokens.primaryBlue,
-                foregroundColor: Colors.white,
-                disabledBackgroundColor:
-                    SsrvpnUiTokens.primaryBlue.withValues(alpha: 0.42),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 52),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                key: const Key('ssrvpn-subscription-add'),
+                onPressed: isBusy ? null : onAdd,
+                style: FilledButton.styleFrom(
+                  backgroundColor: SsrvpnUiTokens.primaryBlue,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor:
+                      SsrvpnUiTokens.primaryBlue.withValues(alpha: 0.42),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
                 ),
-              ),
-              child: isAdding
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
+                child: isAdding
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text(
+                        '添加',
+                        style: TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.w700),
                       ),
-                    )
-                  : const Text(
-                      '添加',
-                      style:
-                          TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-                    ),
+              ),
             ),
           ),
         ],
@@ -289,8 +297,10 @@ class _SubscriptionListHeader extends StatelessWidget {
       spacing: 12,
       runSpacing: 4,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 9,
+          runSpacing: 4,
           children: [
             const Text(
               '我的订阅',
@@ -300,7 +310,6 @@ class _SubscriptionListHeader extends StatelessWidget {
                 fontWeight: FontWeight.w800,
               ),
             ),
-            const SizedBox(width: 9),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
               decoration: BoxDecoration(
@@ -342,15 +351,21 @@ class _RefreshMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: '订阅刷新结果：$message',
+      excludeSemantics: true,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Text(message, style: TextStyle(color: color, fontSize: 13)),
       ),
-      child: Text(message, style: TextStyle(color: color, fontSize: 13)),
     );
   }
 }

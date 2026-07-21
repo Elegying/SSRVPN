@@ -25,6 +25,8 @@ import 'theme/app_theme.dart';
 import 'utils/responsive.dart';
 import 'widgets/glass_container.dart';
 
+part 'app_initialization_failure_part.dart';
+
 class SSRVpnApp extends StatefulWidget {
   final StartupFlags startupFlags;
   const SSRVpnApp({super.key, this.startupFlags = const StartupFlags()});
@@ -39,6 +41,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
   bool _appInitialized = false;
   bool _initError = false;
   String _initErrorMsg = '';
+  bool _apiSecretRecoveryRequired = false;
+  bool _apiSecretRecoveryInProgress = false;
   // 不能用 late final：初始化中途失败后点"重试"会二次赋值直接抛 LateInitializationError
   SettingsService? _settingsService;
   clash.ClashService? _clashService;
@@ -121,8 +125,11 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         if (mounted) {
           setState(() {
             _initError = true;
-            _initErrorMsg =
-                '${e.toString().replaceFirst("Exception: ", "")}\n\n自动重试 $_initRetryCount 次后仍失败';
+            _apiSecretRecoveryRequired = e is AndroidApiSecretRecoveryRequired;
+            final reason = _apiSecretRecoveryRequired
+                ? 'Android 安全存储中的本机密钥无法读取。普通重试不会自动重建密钥。'
+                : e.toString().replaceFirst('Exception: ', '');
+            _initErrorMsg = '$reason\n\n自动重试 $_initRetryCount 次后仍失败';
           });
         }
         return;
@@ -185,67 +192,59 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
     });
   }
 
+  void _retryInitialization() {
+    setState(() {
+      _initRetryCount = 0;
+      _initError = false;
+      _initErrorMsg = '';
+      _apiSecretRecoveryRequired = false;
+      _appInitialized = false;
+    });
+    unawaited(_initApp());
+  }
+
+  Future<void> _confirmApiSecretRecovery() async {
+    if (_apiSecretRecoveryInProgress) return;
+    final dialogContext = _navigatorKey.currentContext;
+    if (dialogContext == null) return;
+    final confirmed = await showDialog<bool>(
+      context: dialogContext,
+      builder: buildAndroidApiSecretRecoveryDialog,
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _apiSecretRecoveryInProgress = true;
+      _initErrorMsg = '正在安全清理旧连接状态并重建本机密钥…';
+    });
+    try {
+      await SettingsService.rebuildApiSecretForRecovery();
+      if (!mounted) return;
+      _apiSecretRecoveryInProgress = false;
+      _retryInitialization();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _apiSecretRecoveryInProgress = false;
+        _apiSecretRecoveryRequired = true;
+        _initErrorMsg = '本机密钥恢复失败：$error\n\n未删除订阅和普通设置，请稍后重试。';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_initError) {
       return MaterialApp(
+        navigatorKey: _navigatorKey,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
-        home: Scaffold(
-          backgroundColor: const Color(0xFF0B0D14),
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      color: AppTheme.errorColor.withValues(alpha: 20 / 255),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.error_outline,
-                        size: 32, color: AppTheme.errorColor),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text('初始化失败',
-                      style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.darkTextPrimary)),
-                  const SizedBox(height: 8),
-                  Text(_initErrorMsg,
-                      style: const TextStyle(
-                          fontSize: 13, color: AppTheme.darkTextSecondary),
-                      textAlign: TextAlign.center),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: 120,
-                    height: 44,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          _initRetryCount = 0;
-                          _initError = false;
-                          _initErrorMsg = '';
-                          _appInitialized = false;
-                        });
-                        unawaited(_initApp());
-                      },
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryColor,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12))),
-                      child: const Text('重试',
-                          style: TextStyle(color: Colors.white)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        home: buildAndroidInitializationFailureScaffold(
+          message: _initErrorMsg,
+          recoveryRequired: _apiSecretRecoveryRequired,
+          recoveryInProgress: _apiSecretRecoveryInProgress,
+          onRetry: _retryInitialization,
+          onRecover: _confirmApiSecretRecovery,
         ),
       );
     }
@@ -390,7 +389,7 @@ class _InitialSubscriptionPromptState
         return showDialog<String>(
           context: context,
           barrierDismissible: false,
-          builder: (_) => _InitialSubscriptionDialog(
+          builder: (_) => buildInitialSubscriptionDialog(
             isValidInput: _isValidSubscriptionInput,
           ),
         );
@@ -473,6 +472,12 @@ class _InitialSubscriptionDialog extends StatefulWidget {
       _InitialSubscriptionDialogState();
 }
 
+@visibleForTesting
+Widget buildInitialSubscriptionDialog({
+  required bool Function(String value) isValidInput,
+}) =>
+    _InitialSubscriptionDialog(isValidInput: isValidInput);
+
 class _InitialSubscriptionDialogState
     extends State<_InitialSubscriptionDialog> {
   final _controller = TextEditingController();
@@ -501,7 +506,8 @@ class _InitialSubscriptionDialogState
           constraints: BoxConstraints(
             maxWidth: MediaQuery.of(context).size.width * 0.88,
           ),
-          child: Padding(
+          child: SingleChildScrollView(
+            key: const Key('initial-subscription-dialog-scroll'),
             padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
             child: Column(
               mainAxisSize: MainAxisSize.min,

@@ -64,6 +64,50 @@ void main() {
     expect(find.text('添加订阅'), findsNothing);
   });
 
+  testWidgets(
+      'initial subscription dialog remains usable with compact large text and '
+      'a wrapped error', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(380, 560));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: false)))!;
+    addTearDown(fixture.dispose);
+    await tester.runAsync(
+      () => fixture.subscription.setRawYaml('proxies: []'),
+    );
+
+    await tester.pumpWidget(fixture.build(textScaleFactor: 2));
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(
+      find.byType(TextField).last,
+      'this is not a subscription and must show a wrapped validation error',
+    );
+    tester
+        .widget<ElevatedButton>(
+          find.widgetWithText(ElevatedButton, '确定'),
+        )
+        .onPressed!();
+    await tester.pump();
+
+    expect(find.text('请输入有效的 SSR 代码或 HTTP/HTTPS 订阅链接'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(SingleChildScrollView),
+      ),
+      findsOneWidget,
+    );
+    final cancel = find.widgetWithText(TextButton, '取消');
+    await tester.ensureVisible(cancel);
+    await tester.pump();
+    expect(tester.getBottomRight(cancel).dy, lessThanOrEqualTo(560));
+    await tester.tap(cancel);
+    await tester.pumpAndSettle();
+    expect(find.text('添加订阅'), findsNothing);
+  });
+
   testWidgets('home supports its primary desktop connection journey',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 800));
@@ -237,6 +281,171 @@ void main() {
     });
   }
 
+  testWidgets(
+      'a later user cancellation suppresses stale reconnect after a slow '
+      'network setting write', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final writeStarted = Completer<void>();
+    final releaseWrite = Completer<void>();
+    final baseFixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    baseFixture.settings.dispose();
+    final gatedSettings = await SettingsService.createForTesting(
+      settings: AppSettings(),
+      dataDir: baseFixture.directory.path,
+      settingsPath: '${baseFixture.directory.path}/settings.json',
+      writeSettings: (_) {
+        if (!writeStarted.isCompleted) writeStarted.complete();
+        return releaseWrite.future;
+      },
+      readApiSecret: () async => '',
+      writeApiSecret: (_) async {},
+    );
+    final fixture = _HomeFixture(
+      directory: baseFixture.directory,
+      subscription: baseFixture.subscription,
+      settings: gatedSettings,
+      clash: baseFixture.clash,
+    );
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('TUN 模式（需管理员权限）'));
+    await tester.pump();
+    await _pumpUntil(tester, () => writeStarted.isCompleted);
+
+    await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await tester.pump();
+
+    releaseWrite.complete();
+    await tester.pump();
+    await _pumpUntil(tester, () => fixture.settings.settings.enableTun);
+    await _pumpUntil(tester, () => fixture.clash.stopCalls >= 2);
+
+    expect(fixture.clash.startCalls, 0);
+    expect(fixture.clash.isRunning, isFalse);
+    expect(find.text('未连接'), findsOneWidget);
+  });
+
+  testWidgets(
+      'failed network setting write does not reconnect or report success',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final baseFixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    baseFixture.settings.dispose();
+    final failingSettings = await SettingsService.createForTesting(
+      settings: AppSettings(),
+      dataDir: baseFixture.directory.path,
+      settingsPath: '${baseFixture.directory.path}/settings.json',
+      writeSettings: (_) async => throw StateError('disk full'),
+      readApiSecret: () async => '',
+      writeApiSecret: (_) async {},
+    );
+    final fixture = _HomeFixture(
+      directory: baseFixture.directory,
+      subscription: baseFixture.subscription,
+      settings: failingSettings,
+      clash: baseFixture.clash,
+    );
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(fixture.clash.isRunning, isTrue);
+
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('TUN 模式（需管理员权限）'));
+    await tester.pump();
+    await _pumpUntil(
+      tester,
+      () => !tester
+          .widget<SsrvpnNodeSelectionPage>(
+            find.byType(SsrvpnNodeSelectionPage),
+          )
+          .isConnectingOf(),
+      maxPumps: 60,
+    );
+
+    expect(fixture.settings.settings.enableTun, isFalse);
+    expect(fixture.clash.startCalls, 0);
+    expect(fixture.clash.isRunning, isFalse);
+    expect(fixture.clash.stopCalls, 1);
+    expect(find.text('网络设置已更新，正在重新连接'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('更新网络设置失败，请重试'), findsOneWidget);
+    expect(find.text('网络设置已更新，正在重新连接'), findsNothing);
+  });
+
+  testWidgets('tray connection transition waits for a network setting commit',
+      (tester) async {
+    final writeStarted = Completer<void>();
+    final releaseWrite = Completer<void>();
+    final baseFixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+    baseFixture.settings.dispose();
+    final gatedSettings = await SettingsService.createForTesting(
+      settings: AppSettings(),
+      dataDir: baseFixture.directory.path,
+      settingsPath: '${baseFixture.directory.path}/settings.json',
+      writeSettings: (_) {
+        if (!writeStarted.isCompleted) writeStarted.complete();
+        return releaseWrite.future;
+      },
+      readApiSecret: () async => '',
+      writeApiSecret: (_) async {},
+    );
+    final fixture = _HomeFixture(
+      directory: baseFixture.directory,
+      subscription: baseFixture.subscription,
+      settings: gatedSettings,
+      clash: baseFixture.clash,
+    );
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('TUN 模式（需管理员权限）'));
+    await tester.pump();
+    await _pumpUntil(tester, () => writeStarted.isCompleted);
+
+    bool? trayObservedTun;
+    var trayTransitionCompleted = false;
+    unawaited(
+      fixture.clash.runConnectionTransition(() async {
+        trayObservedTun = fixture.settings.settings.enableTun;
+        trayTransitionCompleted = true;
+      }),
+    );
+    await tester.pump();
+    expect(trayTransitionCompleted, isFalse);
+
+    releaseWrite.complete();
+    await tester.pump();
+    await _pumpUntil(
+      tester,
+      () => fixture.settings.settings.enableTun && trayTransitionCompleted,
+    );
+    expect(trayObservedTun, isTrue);
+  });
+
   testWidgets('node and latency actions are keyboard accessible',
       (tester) async {
     final semantics = tester.ensureSemantics();
@@ -348,6 +557,7 @@ class _HomeFixture {
   static Future<_HomeFixture> create({
     required bool withNodes,
     bool recordBatchLatencyResults = true,
+    bool running = false,
   }) async {
     SubscriptionService.resetInstanceForTesting();
     final directory = Directory.systemTemp.createTempSync('ssrvpn_home_');
@@ -367,11 +577,12 @@ class _HomeFixture {
       settings: settings,
       clash: _FakeClashService(
         recordBatchLatencyResults: recordBatchLatencyResults,
+        running: running,
       ),
     );
   }
 
-  Widget build() {
+  Widget build({double textScaleFactor = 1}) {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<SubscriptionService>.value(value: subscription),
@@ -379,6 +590,12 @@ class _HomeFixture {
         Provider<ClashService>.value(value: clash),
       ],
       child: MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaler: TextScaler.linear(textScaleFactor),
+          ),
+          child: child!,
+        ),
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
         home: const HomeScreen(),
@@ -394,14 +611,19 @@ class _HomeFixture {
 }
 
 class _FakeClashService extends ClashService {
-  _FakeClashService({this.recordBatchLatencyResults = true});
+  _FakeClashService({
+    this.recordBatchLatencyResults = true,
+    bool running = false,
+  }) : _running = running;
 
   final bool recordBatchLatencyResults;
-  bool _running = false;
+  bool _running;
   String? lastSwitchAttempt;
   String? lastPreferredNodeName;
   int batchLatencyRuns = 0;
   int singleLatencyRuns = 0;
+  int startCalls = 0;
+  int stopCalls = 0;
   Completer<void>? switchStarted;
   Completer<void>? switchRelease;
   bool switchResult = false;
@@ -443,12 +665,14 @@ class _FakeClashService extends ClashService {
 
   @override
   Future<bool> start() async {
+    startCalls++;
     _running = true;
     return true;
   }
 
   @override
   Future<void> stop() async {
+    stopCalls++;
     _running = false;
   }
 

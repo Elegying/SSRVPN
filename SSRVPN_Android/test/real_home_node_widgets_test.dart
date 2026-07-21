@@ -219,6 +219,7 @@ void main() {
     });
     expect(persistedName, '新加坡节点');
     expect(clash.liveSwitchCalls, 0);
+    expect(clash.idleSnapshotInvalidations, 1);
 
     await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
     await tester.pumpAndSettle();
@@ -238,6 +239,112 @@ void main() {
     await tester.pump();
     clash.releaseConfigGeneration.complete();
     await tester.pump();
+  });
+
+  testWidgets('offline proxy-mode change invalidates the native tile snapshot',
+      (tester) async {
+    final clash = _RecordingAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('全局'));
+    await _waitForAsyncCondition(
+      tester,
+      () => fixture.settings.settings.proxyMode == ProxyMode.global,
+    );
+
+    expect(clash.idleSnapshotInvalidations, 1);
+    expect(clash.liveSwitchCalls, 0);
+  });
+
+  testWidgets(
+      'failed offline snapshot invalidation keeps the old proxy mode visible',
+      (tester) async {
+    final clash = _RecordingAndroidClashService()
+      ..failIdleSnapshotInvalidation = true;
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('全局'));
+    await _waitForWidget(tester, find.text('代理模式保存失败，请重试'));
+
+    expect(fixture.settings.settings.proxyMode, ProxyMode.rule);
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel('智能'))
+          .flagsCollection
+          .isSelected,
+      Tristate.isTrue,
+    );
+    expect(clash.idleSnapshotInvalidations, 1);
+  });
+
+  testWidgets('offline force-proxy change invalidates the native tile snapshot',
+      (tester) async {
+    final clash = _RecordingAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('强制代理网站'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'youtube.com');
+    await tester.tap(find.text('确定'));
+    await _waitForAsyncCondition(
+      tester,
+      () => fixture.settings.settings.forceProxySites.first == 'youtube.com',
+    );
+
+    expect(clash.idleSnapshotInvalidations, 1);
+    expect(clash.liveSwitchCalls, 0);
+  });
+
+  testWidgets('unchanged force-proxy settings keep the valid tile snapshot',
+      (tester) async {
+    final clash = _RecordingAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('强制代理网站'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确定'));
+    await _waitForWidget(tester, find.text('强制代理网站已保存'));
+
+    expect(clash.idleSnapshotInvalidations, 0);
   });
 
   testWidgets(
@@ -478,6 +585,16 @@ class _RecordingAndroidClashService extends ClashService {
   final Completer<void> releaseConfigGeneration = Completer<void>();
   String? generatedPreferredNodeName;
   int liveSwitchCalls = 0;
+  int idleSnapshotInvalidations = 0;
+  bool failIdleSnapshotInvalidation = false;
+
+  @override
+  Future<void> invalidateIdleNativeConnectionSnapshot() async {
+    idleSnapshotInvalidations++;
+    if (failIdleSnapshotInvalidation) {
+      throw StateError('native snapshot unavailable');
+    }
+  }
 
   @override
   Future<void> testAllLatencies(

@@ -25,6 +25,15 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
 
             return StatefulBuilder(
               builder: (builderContext, setDialogState) {
+                final mediaQuery = MediaQuery.of(builderContext);
+                final maxDialogHeight = math.max(
+                  160.0,
+                  mediaQuery.size.height -
+                      mediaQuery.padding.vertical -
+                      mediaQuery.viewInsets.vertical -
+                      48,
+                );
+
                 Future<void> submit() async {
                   final input = controller.text.trim();
                   final subService = builderContext.read<SubscriptionService>();
@@ -101,117 +110,125 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 420),
+                    constraints: BoxConstraints(
+                      maxWidth: 420,
+                      maxHeight: maxDialogHeight,
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  color: AppTheme.primary.withValues(
-                                    alpha: 22 / 255,
+                      child: SingleChildScrollView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.primary.withValues(
+                                      alpha: 22 / 255,
+                                    ),
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: const Icon(
-                                  Icons.rss_feed_rounded,
-                                  color: AppTheme.primary,
-                                  size: 22,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  '添加订阅',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
-                                    color: titleColor,
+                                  child: const Icon(
+                                    Icons.rss_feed_rounded,
+                                    color: AppTheme.primary,
+                                    size: 22,
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 18),
-                          Text(
-                            '请粘贴你的SSR代码或订阅链接',
-                            style:
-                                TextStyle(fontSize: 13, color: subtitleColor),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: controller,
-                            minLines: 1,
-                            maxLines: 4,
-                            enabled: !isSubmitting,
-                            decoration: InputDecoration(
-                              hintText: 'ssr:// 或 https://...',
-                              prefixIcon: const Icon(Icons.link_rounded),
-                              errorText: inputError,
-                              filled: true,
-                              fillColor: isDark
-                                  ? Colors.white.withValues(alpha: 6 / 255)
-                                  : Colors.black.withValues(alpha: 4 / 255),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(
-                                  color: isDark
-                                      ? AppTheme.border
-                                      : AppTheme.lightBorder,
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    '添加订阅',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w700,
+                                      color: titleColor,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                              ],
                             ),
-                            keyboardType: TextInputType.url,
-                            onSubmitted: (_) {
-                              if (!isSubmitting) submit();
-                            },
-                          ),
-                          const SizedBox(height: 20),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextButton(
-                                  onPressed: isSubmitting
-                                      ? null
-                                      : () => Navigator.of(dialogContext).pop(),
-                                  child: const Text('取消'),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: isSubmitting ? null : submit,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppTheme.primary,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
+                            const SizedBox(height: 18),
+                            Text(
+                              '请粘贴你的SSR代码或订阅链接',
+                              style:
+                                  TextStyle(fontSize: 13, color: subtitleColor),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: controller,
+                              minLines: 1,
+                              maxLines: 4,
+                              enabled: !isSubmitting,
+                              decoration: InputDecoration(
+                                hintText: 'ssr:// 或 https://...',
+                                prefixIcon: const Icon(Icons.link_rounded),
+                                errorText: inputError,
+                                filled: true,
+                                fillColor: isDark
+                                    ? Colors.white.withValues(alpha: 6 / 255)
+                                    : Colors.black.withValues(alpha: 4 / 255),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide(
+                                    color: isDark
+                                        ? AppTheme.border
+                                        : AppTheme.lightBorder,
                                   ),
-                                  child: isSubmitting
-                                      ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : const Text('确定'),
                                 ),
                               ),
-                            ],
-                          ),
-                        ],
+                              keyboardType: TextInputType.url,
+                              onSubmitted: (_) {
+                                if (!isSubmitting) submit();
+                              },
+                            ),
+                            const SizedBox(height: 20),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextButton(
+                                    onPressed: isSubmitting
+                                        ? null
+                                        : () =>
+                                            Navigator.of(dialogContext).pop(),
+                                    child: const Text('取消'),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: ElevatedButton(
+                                    onPressed: isSubmitting ? null : submit,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppTheme.primary,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
+                                    child: isSubmitting
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
+                                          )
+                                        : const Text('确定'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

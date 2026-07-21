@@ -23,6 +23,7 @@ void main() {
 
   WindowsDpapiSecretStore createStore({
     Future<void> Function(File source, File destination)? replaceFile,
+    Future<void> Function(File source, File destination)? isolateFile,
     Future<Uint8List> Function(Uint8List encrypted)? unprotect,
   }) {
     return WindowsDpapiSecretStore(
@@ -31,6 +32,7 @@ void main() {
       unprotect:
           unprotect ?? (encrypted) async => Uint8List.fromList(encrypted),
       replaceFile: replaceFile,
+      isolateFile: isolateFile,
     );
   }
 
@@ -90,6 +92,48 @@ void main() {
     );
 
     expect(await secretFile.readAsBytes(), [1, 2, 3]);
+  });
+
+  test('confirmed recovery atomically isolates the unreadable envelope',
+      () async {
+    final encrypted = [1, 2, 3, 4];
+    await secretFile.writeAsBytes(encrypted, flush: true);
+    final store = createStore(
+      isolateFile: (source, destination) async {
+        expect(await destination.exists(), isFalse);
+        await source.rename(destination.path);
+      },
+    );
+
+    final isolatedPath = await store.isolateUnreadableEnvelope();
+
+    expect(isolatedPath, isNotNull);
+    expect(await secretFile.exists(), isFalse);
+    expect(isolatedPath, contains('.api-secret.dpapi.unreadable.'));
+    expect(await File(isolatedPath!).readAsBytes(), encrypted);
+  });
+
+  test('failed unreadable-envelope isolation preserves the original bytes',
+      () async {
+    await secretFile.writeAsBytes([9, 8, 7], flush: true);
+    final store = createStore(
+      isolateFile: (_, __) async =>
+          throw const FileSystemException('isolation failed'),
+    );
+
+    await expectLater(
+      store.isolateUnreadableEnvelope(),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    expect(await secretFile.readAsBytes(), [9, 8, 7]);
+    expect(
+      await tempDirectory
+          .list()
+          .where((entry) => entry.path.contains('.unreadable.'))
+          .isEmpty,
+      isTrue,
+    );
   });
 
   test('read removes a crash-left encrypted temporary file', () async {

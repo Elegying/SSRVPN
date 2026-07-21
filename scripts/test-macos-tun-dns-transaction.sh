@@ -38,12 +38,14 @@ done
 source "$LIBRARY"
 
 write_status() {
+  MOCK_STATUS_HISTORY="${MOCK_STATUS_HISTORY}${MOCK_STATUS_HISTORY:+,}$1"
   printf '%s\n' "$1" > "$status_path"
 }
 
 AUTOMATIC_DNS="There aren't any DNS Servers set on Wi-Fi."
 MOCK_DNS_CURRENT=
 MOCK_DNS_SET_FAILURE=false
+MOCK_DNS_SET_FAILURES_REMAINING=0
 MOCK_DNS_SET_CALLS=0
 MOCK_LAST_DNS_SET=
 MOCK_UNSAFE_PATH=
@@ -53,12 +55,33 @@ MOCK_LOCK_MKDIR_CALLS=0
 MOCK_LOCK_SECOND_BEHAVIOR=normal
 MOCK_COMPETITOR_PID=424242
 MOCK_NETWORK_SERVICE=Wi-Fi
+MOCK_ACTIVE_NETWORK_DEVICE=en0
+MOCK_CHILD_PID=31337
+MOCK_CHILD_ALIVE=false
+MOCK_CHILD_KILL_CALLS=0
+MOCK_CHILD_KILLED_BEFORE_DNS_RESTORE=false
+MOCK_STATUS_HISTORY=
 
 # Absolute command names in the production runner are deliberately retained.
 # Bash functions with the same names inject deterministic platform boundaries
 # while file type and journal contents still use real temporary files.
 /sbin/route() {
   printf '   route to: default\ninterface: en0\n'
+}
+
+/usr/sbin/scutil() {
+  [[ ${1:-} == --nwi ]] || return 1
+  printf '%s\n' \
+    'Network information' \
+    '' \
+    'IPv4 network interface information' \
+    '   utun9 : flags      : 0x7 (IPv4,IPv6,DNS)' \
+    '           address    : 198.18.0.1' \
+    '           reach      : 0x00000003 (Reachable,Transient Connection)' \
+    "     $MOCK_ACTIVE_NETWORK_DEVICE : flags      : 0x5 (IPv4,DNS)" \
+    '           address    : 192.168.100.185' \
+    '           reach      : 0x00000002 (Reachable)' \
+    'IPv6 network interface information'
 }
 
 /usr/sbin/networksetup() {
@@ -74,7 +97,11 @@ MOCK_NETWORK_SERVICE=Wi-Fi
       ;;
     -setdnsservers)
       MOCK_DNS_SET_CALLS=$((MOCK_DNS_SET_CALLS + 1))
-      if [[ $MOCK_DNS_SET_FAILURE == true ]]; then
+      if [[ $MOCK_DNS_SET_FAILURE == true || \
+            $MOCK_DNS_SET_FAILURES_REMAINING -gt 0 ]]; then
+        if ((MOCK_DNS_SET_FAILURES_REMAINING > 0)); then
+          MOCK_DNS_SET_FAILURES_REMAINING=$((MOCK_DNS_SET_FAILURES_REMAINING - 1))
+        fi
         return 1
       fi
       local service=${1:-}
@@ -131,9 +158,19 @@ MOCK_NETWORK_SERVICE=Wi-Fi
 
 /bin/kill() {
   if [[ ${1:-} == -0 ]]; then
+    if [[ ${2:-} == "$MOCK_CHILD_PID" && $MOCK_CHILD_ALIVE == true ]]; then
+      return 0
+    fi
     # Existing fixture owners are stale. A concurrently-created owner is live.
     [[ ${2:-} == "$MOCK_COMPETITOR_PID" ]]
     return
+  fi
+  if [[ ${2:-} == "$MOCK_CHILD_PID" ]]; then
+    MOCK_CHILD_KILL_CALLS=$((MOCK_CHILD_KILL_CALLS + 1))
+    if [[ $MOCK_DNS_CURRENT == 127.0.0.1 ]]; then
+      MOCK_CHILD_KILLED_BEFORE_DNS_RESTORE=true
+    fi
+    MOCK_CHILD_ALIVE=false
   fi
   return 0
 }
@@ -186,6 +223,7 @@ setup_case() {
   dns_original_server_count=0
   MOCK_DNS_CURRENT=
   MOCK_DNS_SET_FAILURE=false
+  MOCK_DNS_SET_FAILURES_REMAINING=0
   MOCK_DNS_SET_CALLS=0
   MOCK_LAST_DNS_SET=
   MOCK_UNSAFE_PATH=
@@ -197,12 +235,27 @@ setup_case() {
   MOCK_LOCK_MKDIR_CALLS=0
   MOCK_LOCK_SECOND_BEHAVIOR=normal
   MOCK_NETWORK_SERVICE=Wi-Fi
+  MOCK_ACTIVE_NETWORK_DEVICE=en0
+  MOCK_CHILD_ALIVE=false
+  MOCK_CHILD_KILL_CALLS=0
+  MOCK_CHILD_KILLED_BEFORE_DNS_RESTORE=false
+  MOCK_STATUS_HISTORY=
   runtime_dir="$CASE_ROOT/runtime"
   runtime_created=false
   child_pid=
   validator_pid=
   remove_status_on_exit=false
   status_path="$CASE_ROOT/status"
+  request_path="$CASE_ROOT/.tun-session-request"
+  request_format=v2
+  request_phase=active
+  request_app_pid=777
+  request_nonce=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  request_value=v2:active:777:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  request_paths=("$request_path")
+  request_values=("$request_value")
+  recovery_only=false
+  user_id=0
 }
 
 write_journal() {
@@ -315,17 +368,170 @@ test_cleanup_failure_is_observable() {
   setup_case cleanup-failure
   write_journal manual 1.1.1.1 8.8.8.8
   MOCK_DNS_CURRENT=127.0.0.1
-  MOCK_DNS_SET_FAILURE=true
+  MOCK_DNS_SET_FAILURES_REMAINING=6
   lock_acquired=true
 
-  if cleanup; then
-    echo 'assertion failed: cleanup must fail when DNS restoration fails' >&2
+  cleanup || return 1
+
+  [[ $MOCK_STATUS_HISTORY == *error:dns-recovery* ]] || {
+    echo 'assertion failed: cleanup must publish the transient DNS restoration failure' >&2
+    return 1
+  }
+  assert_equal $'1.1.1.1\n8.8.8.8' "$MOCK_DNS_CURRENT" \
+    'cleanup recovery supervisor must keep retrying without a live child' || return 1
+  assert_file_absent "$dns_state_path" \
+    'eventual cleanup recovery must retire the journal' || return 1
+}
+
+test_cleanup_keeps_dns_core_until_restore_recovers() {
+  setup_case cleanup-transient-failure
+  write_journal manual 1.1.1.1 8.8.8.8
+  MOCK_DNS_CURRENT=127.0.0.1
+  # Exhaust the bounded first pass. The recovery supervisor must keep the
+  # local DNS listener alive and retry before it tears the core down.
+  MOCK_DNS_SET_FAILURES_REMAINING=5
+  lock_acquired=true
+  child_pid=$MOCK_CHILD_PID
+  MOCK_CHILD_ALIVE=true
+  mkdir -p "$runtime_dir"
+  runtime_created=true
+
+  cleanup || return 1
+
+  assert_equal false "$MOCK_CHILD_KILLED_BEFORE_DNS_RESTORE" \
+    'cleanup must not terminate the DNS listener while DNS still points to localhost' || return 1
+  ((MOCK_CHILD_KILL_CALLS > 0)) || {
+    echo 'assertion failed: core must be terminated after DNS recovery' >&2
+    return 1
+  }
+  assert_equal $'1.1.1.1\n8.8.8.8' "$MOCK_DNS_CURRENT" \
+    'cleanup must eventually restore the original DNS before teardown' || return 1
+  assert_file_absent "$dns_state_path" \
+    'successful supervised recovery must retire the DNS journal' || return 1
+}
+
+test_successful_cleanup_retires_only_its_request_generation() {
+  setup_case cleanup-request
+  lock_acquired=true
+  printf '%s\n' "$request_value" > "$request_path"
+  chmod 600 "$request_path"
+
+  cleanup || return 1
+
+  assert_file_absent "$request_path" \
+    'verified cleanup must retire its own recovery marker' || return 1
+
+  setup_case cleanup-newer-request
+  lock_acquired=true
+  printf 'v2:active:777:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' > "$request_path"
+  chmod 600 "$request_path"
+
+  cleanup || return 1
+
+  [[ -f $request_path ]] || return 1
+  assert_equal v2:active:777:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+    "$(tr -d '[:space:]' < "$request_path")" \
+    'cleanup must preserve a marker from a newer app generation' || return 1
+}
+
+test_recovery_phase_stops_and_retires_the_same_generation() {
+  setup_case cleanup-recovery-phase
+  lock_acquired=true
+  printf '%s\n' "$request_value" > "$request_path"
+  chmod 600 "$request_path"
+  active_request_matches || return 1
+
+  printf 'v2:recovery:777:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' > "$request_path"
+  if active_request_matches; then
+    echo 'assertion failed: recovery phase must stop the active runner loop' >&2
     return 1
   fi
 
-  assert_equal error:dns "$(tr -d '[:space:]' < "$status_path")" \
-    'cleanup must publish the DNS restoration failure' || return 1
-  [[ -f $dns_state_path ]] || return 1
+  cleanup || return 1
+  assert_file_absent "$request_path" \
+    'cleanup must retire the same nonce in recovery phase' || return 1
+}
+
+test_recovery_only_retires_conflicting_legacy_generations() {
+  setup_case cleanup-recovery-conflict
+  lock_acquired=true
+  recovery_only=true
+  local second_path="$CASE_ROOT/legacy/.tun-session-request"
+  mkdir -p "$(dirname "$second_path")"
+  printf '777\n' > "$request_path"
+  printf 'v2:recovery:888:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' > "$second_path"
+  chmod 600 "$request_path" "$second_path"
+  request_paths=("$request_path" "$second_path")
+  request_values=(
+    '777'
+    'v2:recovery:888:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  )
+  request_format=legacy
+  request_value=777
+  request_app_pid=777
+  request_nonce=
+
+  cleanup || return 1
+
+  assert_file_absent "$request_path" \
+    'recovery-only cleanup must retire the first captured generation' || return 1
+  assert_file_absent "$second_path" \
+    'recovery-only cleanup must retire the second captured generation' || return 1
+}
+
+test_recovery_only_lock_rejection_preserves_recovery_owner() {
+  setup_case recovery-lock-rejected
+  recovery_only=true
+  request_phase=recovery
+  request_value=v2:recovery:777:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  request_values=("$request_value")
+  printf '%s\n' "$request_value" > "$request_path"
+  chmod 600 "$request_path"
+  write_journal manual 1.1.1.1 8.8.8.8
+  MOCK_DNS_CURRENT=127.0.0.1
+
+  # A live privileged runner owns the global transaction. This recovery-only
+  # contender must fail to acquire the lock and must not retire or tear down
+  # any state that only the lock owner can prove safe.
+  mkdir -m 700 "$lock_dir"
+  printf '%s\n' "$MOCK_COMPETITOR_PID" > "$lock_owner_path"
+  chmod 600 "$lock_owner_path"
+  if acquire_tun_lock; then
+    echo 'assertion failed: live lock owner must reject recovery-only acquisition' >&2
+    return 1
+  fi
+  assert_equal false "$lock_acquired" \
+    'rejected recovery-only runner must remain outside the global transaction' || return 1
+
+  child_pid=$MOCK_CHILD_PID
+  MOCK_CHILD_ALIVE=true
+  mkdir -p "$runtime_dir"
+  runtime_created=true
+
+  cleanup || true
+
+  local failed=false
+  if [[ ! -f $request_path ]]; then
+    echo 'assertion failed: runner without the lock must preserve the recovery marker' >&2
+    failed=true
+  fi
+  if [[ ! -f $dns_state_path ]]; then
+    echo 'assertion failed: runner without the lock must preserve the DNS journal' >&2
+    failed=true
+  fi
+  if [[ $MOCK_DNS_SET_CALLS -ne 0 || $MOCK_DNS_CURRENT != 127.0.0.1 ]]; then
+    echo 'assertion failed: runner without the lock must not mutate DNS' >&2
+    failed=true
+  fi
+  if [[ $MOCK_CHILD_KILL_CALLS -ne 0 || $MOCK_CHILD_ALIVE != true ]]; then
+    echo 'assertion failed: runner without the lock must not signal the DNS core' >&2
+    failed=true
+  fi
+  if [[ ! -d $runtime_dir || $runtime_created != true ]]; then
+    echo 'assertion failed: runner without the lock must not remove core runtime state' >&2
+    failed=true
+  fi
+  [[ $failed == false ]]
 }
 
 test_runtime_dns_ownership_checks_service_and_value() {
@@ -348,11 +554,32 @@ test_runtime_dns_ownership_checks_service_and_value() {
   fi
 }
 
+test_runtime_dns_ownership_fails_when_active_physical_device_changes() {
+  setup_case runtime-network-change
+  write_journal automatic
+  MOCK_DNS_CURRENT=127.0.0.1
+  tun_dns_ownership_healthy || return 1
+
+  MOCK_ACTIVE_NETWORK_DEVICE=en1
+  if tun_dns_ownership_healthy; then
+    echo 'assertion failed: switching the active physical interface must fail DNS ownership health' >&2
+    return 1
+  fi
+  if check_runtime_tun_dns_health; then
+    echo 'assertion failed: runtime network change must fail the runner health gate' >&2
+    return 1
+  fi
+  assert_equal error:network-change "$(tr -d '[:space:]' < "$status_path")" \
+    'runtime network change must tell the app to reconnect' || return 1
+}
+
 test_recovery_only_entrypoint_validates_marker_and_journal() {
   grep -Fq -- '--recover-dns' "$RUNNER" || return 1
-  grep -Fq 'request owner mismatch' "$RUNNER" || return 1
+  grep -Fq 'unsafe TUN request path' "$RUNNER" || return 1
   grep -Fq 'load_persisted_tun_dns || return 1' "$RUNNER" || return 1
   grep -Fq 'restore_persisted_tun_dns_with_retry' "$RUNNER" || return 1
+  grep -Fq 'v2:(active|recovery)' "$RUNNER" || return 1
+  grep -Fq -- '--request-token' "$RUNNER" || return 1
 }
 
 test_malformed_journal_fails_closed() {
@@ -462,7 +689,13 @@ for entry in \
   'user DNS change preservation:test_user_dns_change_is_preserved_and_retires_journal' \
   'restore failure journal retention:test_restore_failure_keeps_journal' \
   'cleanup failure propagation:test_cleanup_failure_is_observable' \
+  'cleanup keeps DNS core until recovery:test_cleanup_keeps_dns_core_until_restore_recovers' \
+  'cleanup request generation safety:test_successful_cleanup_retires_only_its_request_generation' \
+  'active to recovery phase handoff:test_recovery_phase_stops_and_retires_the_same_generation' \
+  'recovery-only conflicting generations:test_recovery_only_retires_conflicting_legacy_generations' \
+  'recovery-only live lock preservation:test_recovery_only_lock_rejection_preserves_recovery_owner' \
   'runtime DNS ownership:test_runtime_dns_ownership_checks_service_and_value' \
+  'runtime physical network change:test_runtime_dns_ownership_fails_when_active_physical_device_changes' \
   'recovery-only ownership validation:test_recovery_only_entrypoint_validates_marker_and_journal' \
   'malformed journal fail-closed:test_malformed_journal_fails_closed' \
   'symlink journal fail-closed:test_symlink_journal_fails_closed' \

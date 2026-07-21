@@ -124,6 +124,20 @@ internal object NativeConnectionSession {
         }
     }
 
+    fun prepareApiSecretRecovery(
+        gate: StartGenerationGate,
+        running: () -> Boolean,
+        clearSnapshot: () -> Unit
+    ): Boolean = gate.withCurrent {
+        if (running() || starting || stopping || recoveryConfigPath != null) {
+            return@withCurrent false
+        }
+        clearSnapshot()
+        pendingStartClaimId = null
+        pendingStartConfigPath = null
+        true
+    }
+
     fun clearIdleSnapshot(
         context: Context,
         gate: StartGenerationGate,

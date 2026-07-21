@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -28,6 +29,26 @@ CANONICAL_BINARIES = {
 }
 
 
+def validate_downloaded_asset_digest(
+    release: object,
+    asset_name: str,
+    payload: bytes,
+) -> None:
+    if not isinstance(release, dict) or not isinstance(release.get("assets"), list):
+        raise ValueError("GitHub release has no asset list")
+    matches = [
+        item
+        for item in release["assets"]
+        if isinstance(item, dict) and item.get("name") == asset_name
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"GitHub release asset is missing or duplicated: {asset_name}")
+    expected = str(matches[0].get("digest") or "")
+    actual = "sha256:" + hashlib.sha256(payload).hexdigest()
+    if expected != actual:
+        raise ValueError(f"downloaded asset digest mismatch: {asset_name}")
+
+
 def validate_release_metadata(
     release: object,
     provenance: object,
@@ -37,9 +58,11 @@ def validate_release_metadata(
 ) -> None:
     if not isinstance(release, dict):
         raise ValueError("GitHub release response is not an object")
-    if release.get("draft") is not False:
-        raise ValueError("draft release cannot authorize a stale-source retry")
-    if release.get("prerelease") is True:
+    if not isinstance(release.get("draft"), bool):
+        raise ValueError("GitHub release draft state is invalid")
+    if not isinstance(release.get("prerelease"), bool):
+        raise ValueError("GitHub release prerelease state is invalid")
+    if release["prerelease"] is True:
         raise ValueError("prerelease cannot be retried into the stable channel")
     raw_assets = release.get("assets")
     if not isinstance(raw_assets, list):
@@ -49,6 +72,8 @@ def validate_release_metadata(
         for item in raw_assets
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     }
+    if len(assets) != len(raw_assets):
+        raise ValueError("GitHub release has invalid or duplicated assets")
     missing = sorted(REQUIRED_ASSETS - set(assets))
     if missing:
         raise ValueError("GitHub release is incomplete: " + ", ".join(missing))
@@ -94,9 +119,18 @@ def main() -> None:
     parser.add_argument("--expected-tag", required=True)
     parser.add_argument("--expected-commit", required=True)
     args = parser.parse_args()
+    release_payload = args.release_json.read_bytes()
+    provenance_payload = args.provenance_json.read_bytes()
+    release_data = json.loads(release_payload)
+    provenance_data = json.loads(provenance_payload)
+    validate_downloaded_asset_digest(
+        release_data,
+        "SSRVPN-release-provenance.json",
+        provenance_payload,
+    )
     validate_release_metadata(
-        json.loads(args.release_json.read_text(encoding="utf-8")),
-        json.loads(args.provenance_json.read_text(encoding="utf-8")),
+        release_data,
+        provenance_data,
         expected_tag=args.expected_tag,
         expected_commit=args.expected_commit,
     )

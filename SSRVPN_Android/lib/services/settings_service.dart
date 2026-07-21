@@ -4,12 +4,20 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show AppLogger, AsyncLazy, RecoveringSerialQueue;
 import '../models/app_settings.dart';
+
+class AndroidApiSecretRecoveryRequired implements Exception {
+  const AndroidApiSecretRecoveryRequired();
+
+  @override
+  String toString() => 'ANDROID_API_SECRET_RECOVERY_REQUIRED';
+}
 
 /// 设置管理服务 — Android 版本
 ///
@@ -25,10 +33,19 @@ class SettingsService extends ChangeNotifier {
   final Future<void> Function(String value) _writeSecureApiSecret;
   final RecoveringSerialQueue _saveQueue = RecoveringSerialQueue();
 
-  /// Android Keystore backed secure storage.
+  /// Normal reads fail closed. A transient Keystore error must never rotate the
+  /// local API identity without an explicit user-confirmed recovery action.
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(resetOnError: false),
   );
+
+  /// Used only after the recovery confirmation. This permits the plugin to
+  /// discard an unreadable encrypted envelope before writing the replacement.
+  static const _recoverySecureStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(resetOnError: true),
+  );
+
+  static const _nativeChannel = MethodChannel('com.ssrvpn/native');
 
   /// 安全存储中的 key
   static const _secretKey = 'api_secret';
@@ -43,6 +60,14 @@ class SettingsService extends ChangeNotifier {
         _writeSecureApiSecret = writeApiSecret ?? _writeDefaultApiSecret;
 
   AppSettings get settings => _settings;
+
+  /// Waits until every settings mutation already requested by the UI has
+  /// either committed to disk or failed.
+  ///
+  /// Connection setup uses this as a snapshot barrier so a mode change and a
+  /// connect tap cannot produce a config from the old settings while the UI
+  /// later publishes the new settings.
+  Future<void> waitForPendingWrites() => _saveQueue.waitForPendingOperations();
 
   static Future<SettingsService> getInstance() => _instance.get(() async {
         final service = SettingsService._();
@@ -86,7 +111,11 @@ class SettingsService extends ChangeNotifier {
 
   /// 从安全存储读取 apiSecret
   Future<String> _readApiSecret() async {
-    return await _readSecureApiSecret() ?? '';
+    try {
+      return await _readSecureApiSecret() ?? '';
+    } catch (_) {
+      throw const AndroidApiSecretRecoveryRequired();
+    }
   }
 
   /// 写入 apiSecret 到安全存储
@@ -95,17 +124,32 @@ class SettingsService extends ChangeNotifier {
   /// 清理旧版 SharedPreferences 中的 Base64 编码密钥
   Future<bool> _migrateLegacySecret() async {
     final prefs = await SharedPreferences.getInstance();
-    final legacy = prefs.getString('api_secret_enc');
-    if (legacy == null || legacy.isEmpty) return false;
+    final rawLegacy = prefs.get('api_secret_enc');
+    if (rawLegacy == null) return false;
+    if (rawLegacy is! String || rawLegacy.isEmpty) {
+      await _removeLegacySecretCopy(prefs);
+      AppLogger.warning('Settings', '已忽略损坏的旧版 apiSecret');
+      return false;
+    }
+    final legacy = rawLegacy;
 
     // 解码旧值
     final String decoded;
-    if (legacy.startsWith(_legacyPrefix)) {
-      decoded = utf8.decode(
-        base64Decode(legacy.substring(_legacyPrefix.length)),
-      );
-    } else {
-      decoded = legacy; // 旧版明文
+    try {
+      if (legacy.startsWith(_legacyPrefix)) {
+        decoded = utf8.decode(
+          base64Decode(legacy.substring(_legacyPrefix.length)),
+        );
+      } else {
+        decoded = legacy; // 旧版明文
+      }
+    } on FormatException {
+      // This retired value is not recoverable as an API credential. Leaving it
+      // in place would replay the same parse failure on every startup and keep
+      // the app permanently behind the initialization error screen.
+      await _removeLegacySecretCopy(prefs);
+      AppLogger.warning('Settings', '已忽略损坏的旧版 apiSecret');
+      return false;
     }
     if (decoded.isEmpty) return false;
 
@@ -223,6 +267,7 @@ class SettingsService extends ChangeNotifier {
 
   Future<void> _load() async {
     final file = File(_configPath);
+    var settingsFileInvalid = false;
     if (await file.exists()) {
       try {
         final content = await Isolate.run(() => file.readAsString());
@@ -232,6 +277,7 @@ class SettingsService extends ChangeNotifier {
         // JSON 解析异常可能包含原始内容，避免把旧版明文密钥写入日志。
         AppLogger.warning('Settings', '加载失败');
         _settings = AppSettings();
+        settingsFileInvalid = true;
       }
     } else {
       _settings = AppSettings();
@@ -242,17 +288,122 @@ class SettingsService extends ChangeNotifier {
     if (_settings.apiSecret.isEmpty) {
       _settings = _settings.copyWith(apiSecret: _generateSecret());
       await _save(persistApiSecret: true);
-    } else if (shouldScrubJsonSecret) {
+    } else if (shouldScrubJsonSecret || settingsFileInvalid) {
       await _save();
     }
   }
 
   String _generateSecret() {
+    return _generateSecretValue();
+  }
+
+  static String _generateSecretValue() {
     final rand = Random.secure();
     return List.generate(
       16,
       (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
+  }
+
+  /// Rebuilds only the app-local API identity after explicit confirmation.
+  /// Subscription and ordinary settings files are intentionally out of scope.
+  static Future<void> rebuildApiSecretForRecovery({
+    Future<bool> Function()? stopNativeConnection,
+    Future<bool> Function()? clearNativeConnectionState,
+    Future<void> Function()? deleteApiSecret,
+    Future<void> Function(String value)? writeApiSecret,
+    Future<String?> Function()? readApiSecret,
+    Directory? configDirectory,
+    String? replacementSecret,
+  }) async {
+    final stopNative =
+        stopNativeConnection ?? _stopNativeConnectionForApiSecretRecovery;
+    if (!await stopNative()) {
+      throw StateError('无法安全停止旧 VPN 会话，请稍后重试');
+    }
+
+    final nativeReset = clearNativeConnectionState ??
+        () async =>
+            await _nativeChannel.invokeMethod<bool>(
+              'prepareApiSecretRecovery',
+            ) ==
+            true;
+    if (!await nativeReset()) {
+      throw StateError('VPN 仍在运行或启动中，请先断开后重试');
+    }
+
+    final runtimeDirectory = configDirectory ??
+        Directory(
+          '${(await getApplicationDocumentsDirectory()).path}'
+          '${Platform.pathSeparator}ssrvpn',
+        );
+    await _deleteGeneratedConnectionState(runtimeDirectory);
+
+    final removeSecret =
+        deleteApiSecret ?? () => _recoverySecureStorage.delete(key: _secretKey);
+    final storeSecret = writeApiSecret ??
+        (value) => _recoverySecureStorage.write(key: _secretKey, value: value);
+    final loadSecret =
+        readApiSecret ?? () => _recoverySecureStorage.read(key: _secretKey);
+    final nextSecret = replacementSecret ?? _generateSecretValue();
+
+    await removeSecret();
+    await storeSecret(nextSecret);
+    if (await loadSecret() != nextSecret) {
+      throw StateError('重建后的本机 API 密钥校验失败');
+    }
+    _instance.reset();
+  }
+
+  static Future<bool> _stopNativeConnectionForApiSecretRecovery() async {
+    if (await _nativeChannel.invokeMethod<bool>('stopCore') != true) {
+      return false;
+    }
+    final deadline = DateTime.now().add(const Duration(seconds: 15));
+    while (DateTime.now().isBefore(deadline)) {
+      final state = await _nativeChannel.invokeMapMethod<String, dynamic>(
+        'getConnectionState',
+      );
+      final running = state?['running'] == true;
+      final transitioning = state?['transitioning'] == true;
+      if (!running && !transitioning) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    return false;
+  }
+
+  static Future<void> _deleteGeneratedConnectionState(
+    Directory directory,
+  ) async {
+    final directoryType = await FileSystemEntity.type(
+      directory.path,
+      followLinks: false,
+    );
+    if (directoryType == FileSystemEntityType.notFound) return;
+    if (directoryType != FileSystemEntityType.directory) {
+      throw FileSystemException(
+        'Generated connection state directory must be a real directory',
+        directory.path,
+      );
+    }
+    await for (final entry in directory.list(followLinks: false)) {
+      final name = entry.uri.pathSegments.last;
+      final generatedConfig = name == 'config.yaml' ||
+          (name.startsWith('config-') && name.endsWith('.yaml'));
+      final cleanupMarker = name == '.snapshot-cleanup.pending' ||
+          name == '.snapshot-cleanup.pending.tmp';
+      if (!generatedConfig && !cleanupMarker) continue;
+      final type = await FileSystemEntity.type(entry.path, followLinks: false);
+      if (type == FileSystemEntityType.file ||
+          type == FileSystemEntityType.link) {
+        await File(entry.path).delete();
+      } else if (type != FileSystemEntityType.notFound) {
+        throw FileSystemException(
+          'Generated connection state must be a file',
+          entry.path,
+        );
+      }
+    }
   }
 
   /// 迁移：旧 Base64/明文 apiSecret → Android Keystore 安全存储

@@ -234,31 +234,31 @@ void main() {
     expect(persisted.containsKey('apiSecret'), isFalse);
   });
 
-  test(
-      'invalid legacy SharedPreferences is preserved and startup fails '
-      'without generating replacement settings', () async {
+  test('invalid legacy SharedPreferences keeps its secret and self-recovers',
+      () async {
     SharedPreferences.setMockInitialValues({
       'app_settings': jsonEncode({
         ...AppSettings(apiSecret: 'preferences-secret').toJson(),
         'lastSelectedNodeName': 42,
       }),
     });
-    final writes = <String>[];
+    String? secureSecret;
 
-    await expectLater(
-      SettingsService.createForTesting(
-        dataDir: tempDirectory.path,
-        settingsPath: settingsPath,
-        readApiSecret: () async => null,
-        writeApiSecret: (value) async => writes.add(value),
-      ),
-      throwsA(isA<FormatException>()),
+    final service = await SettingsService.createForTesting(
+      dataDir: tempDirectory.path,
+      settingsPath: settingsPath,
+      readApiSecret: () async => secureSecret,
+      writeApiSecret: (value) async => secureSecret = value,
     );
 
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.containsKey('app_settings'), isTrue);
-    expect(writes, isEmpty);
-    expect(await File(settingsPath).exists(), isFalse);
+    expect(prefs.containsKey('app_settings'), isFalse);
+    expect(secureSecret, 'preferences-secret');
+    expect(service.settings.apiSecret, 'preferences-secret');
+    expect(service.settings.lastSelectedNodeName, isNull);
+    final persisted = await File(settingsPath).readAsString();
+    expect(persisted, isNot(contains('preferences-secret')));
+    expect(persisted, isNot(contains('apiSecret')));
   });
 
   test('valid modern settings ignore and remove malformed legacy preferences',
@@ -289,6 +289,38 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.containsKey('app_settings'), isFalse);
   });
+
+  for (final removalFailure in <String, Future<bool> Function()>{
+    'returns false': () async => false,
+    'throws': () async => throw StateError('preference store unavailable'),
+  }.entries) {
+    test(
+        'valid modern state still starts when retired preference cleanup '
+        '${removalFailure.key}', () async {
+      await File(settingsPath).writeAsString(
+        jsonEncode(AppSettings(proxyPort: 7899).toJson()..remove('apiSecret')),
+        flush: true,
+      );
+      SharedPreferences.setMockInitialValues({
+        'app_settings': jsonEncode(
+          AppSettings(apiSecret: 'retired-plaintext-secret').toJson(),
+        ),
+      });
+
+      final service = await SettingsService.createForTesting(
+        dataDir: tempDirectory.path,
+        settingsPath: settingsPath,
+        readApiSecret: () async => 'secure-secret',
+        writeApiSecret: (_) async => fail('secure secret must be preserved'),
+        removeLegacyPreferences: removalFailure.value,
+      );
+
+      expect(service.settings.apiSecret, 'secure-secret');
+      expect(service.settings.proxyPort, 7899);
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.containsKey('app_settings'), isTrue);
+    });
+  }
 
   test('typed-invalid settings backup is scrubbed before startup recovers',
       () async {
@@ -321,6 +353,75 @@ void main() {
     final persisted = await File(settingsPath).readAsString();
     expect(persisted, isNot(contains('plaintext-secret')));
     expect(persisted, isNot(contains('apiSecret')));
+  });
+
+  test(
+      'truncated modern settings self-recovers without retaining raw plaintext',
+      () async {
+    await File(settingsPath).writeAsString(
+      '{"apiSecret":"plaintext-secret"',
+      flush: true,
+    );
+
+    final service = await SettingsService.createForTesting(
+      dataDir: tempDirectory.path,
+      settingsPath: settingsPath,
+      readApiSecret: () async => 'secure-secret',
+      writeApiSecret: (_) async => fail('secure secret must be preserved'),
+    );
+
+    expect(service.settings.apiSecret, 'secure-secret');
+    final entries = await tempDirectory
+        .list()
+        .where((entry) => entry is File)
+        .cast<File>()
+        .toList();
+    for (final entry in entries) {
+      expect(
+        await entry.readAsString(),
+        isNot(contains('plaintext-secret')),
+        reason: entry.path,
+      );
+    }
+    final persisted = jsonDecode(await File(settingsPath).readAsString())
+        as Map<String, dynamic>;
+    expect(persisted.containsKey('apiSecret'), isFalse);
+  });
+
+  test('syntactically malformed legacy preferences are retired safely',
+      () async {
+    SharedPreferences.setMockInitialValues({'app_settings': '{'});
+    String? secureSecret;
+
+    final service = await SettingsService.createForTesting(
+      dataDir: tempDirectory.path,
+      settingsPath: settingsPath,
+      readApiSecret: () async => secureSecret,
+      writeApiSecret: (value) async => secureSecret = value,
+    );
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.containsKey('app_settings'), isFalse);
+    expect(secureSecret, service.settings.apiSecret);
+    expect(secureSecret, isNotEmpty);
+    expect(await File(settingsPath).exists(), isTrue);
+  });
+
+  test('wrongly typed legacy preferences cannot permanently block startup',
+      () async {
+    SharedPreferences.setMockInitialValues({'app_settings': 42});
+
+    final service = await SettingsService.createForTesting(
+      dataDir: tempDirectory.path,
+      settingsPath: settingsPath,
+      readApiSecret: () async => 'secure-secret',
+      writeApiSecret: (_) async => fail('secure secret must be preserved'),
+    );
+
+    expect(service.settings.apiSecret, 'secure-secret');
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.containsKey('app_settings'), isFalse);
+    expect(await File(settingsPath).exists(), isTrue);
   });
 
   test('typed-invalid settings stays intact when secret migration fails',

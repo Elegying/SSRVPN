@@ -1,9 +1,13 @@
 class RecoveringSerialQueue {
   Future<void> _tail = Future<void>.value();
+  Future<void> _latestOperation = Future<void>.value();
   Object? _lastError;
   StackTrace? _lastStackTrace;
+  int _enqueuedOperations = 0;
+  int _completedOperations = 0;
 
   Future<void> add(Future<void> Function() operation) {
+    final operationNumber = ++_enqueuedOperations;
     final current = _tail.then((_) async {
       try {
         await operation();
@@ -15,8 +19,23 @@ class RecoveringSerialQueue {
         Error.throwWithStackTrace(error, stackTrace);
       }
     });
-    _tail = current.then<void>((_) {}, onError: (_, __) {});
-    return current;
+    final tracked = current.whenComplete(() {
+      _completedOperations = operationNumber;
+    });
+    _latestOperation = tracked;
+    _tail = tracked.then<void>((_) {}, onError: (_, __) {});
+    return tracked;
+  }
+
+  /// Waits only for operations that were still pending when this method was
+  /// called. A failure that already completed (and was returned to its caller)
+  /// must not permanently block an unrelated retry such as a later connect.
+  Future<void> waitForPendingOperations() {
+    final targetOperation = _enqueuedOperations;
+    if (_completedOperations >= targetOperation) {
+      return Future<void>.value();
+    }
+    return _latestOperation;
   }
 
   Future<void> flush() async {

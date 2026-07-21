@@ -44,6 +44,9 @@ class ClashService extends ClashServiceBase {
   bool get coreExists => File(_corePath).existsSync();
   void setCorePath(String path) => _corePath = path;
 
+  Future<void> invalidateIdleNativeConnectionSnapshot() =>
+      _invalidateIdleNativeConnectionSnapshot();
+
   // The native VPN service owns the authoritative 3-second Bridge monitor and
   // tears down the TUN fd when the core exits, including while Flutter sleeps.
   @override

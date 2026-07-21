@@ -39,7 +39,7 @@ const _homeTutorialSteps = [
 ];
 
 class HomeScreenState extends State<HomeScreen>
-    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
 
@@ -77,15 +77,9 @@ class HomeScreenState extends State<HomeScreen>
   late final VoidCallback _onClashAutoConnect = _handleClashAutoConnect;
   late final VoidCallback _onClashStatusChanged = _handleClashStatusChanged;
 
-  late AnimationController _glowController;
-
   @override
   void initState() {
     super.initState();
-    _glowController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 3000),
-    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _disposed) return;
       unawaited(_loadInitialData());
@@ -159,7 +153,6 @@ class HomeScreenState extends State<HomeScreen>
     _updateCheckTimer?.cancel();
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
     _nodeSelectionRefresh.dispose();
-    _glowController.dispose();
     super.dispose();
   }
 

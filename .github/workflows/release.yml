@@ -664,23 +664,17 @@ jobs:
           gh release edit "$tag" --draft=false --prerelease=false --latest || \
             finalize_status=$?
 
-          release_state=""
-          for attempt in 1 2 3; do
-            if release_state="$(gh release view "$tag" \
-              --json isDraft,isPrerelease \
-              --jq '[.isDraft, .isPrerelease] | @tsv' 2>/dev/null)"; then
-              break
-            fi
-            release_state=""
-            sleep "$attempt"
-          done
+          poll_status=0
+          bash scripts/wait-for-github-release-public.sh \
+            "$tag" 5 attempted >/dev/null \
+            || poll_status=$?
 
-          if [ "$release_state" = $'false\tfalse' ]; then
+          if [ "$poll_status" -eq 0 ]; then
             rm -rf "$backup_dir"
             exit 0
           fi
 
-          if [ -n "$release_state" ]; then
+          if [ "$poll_status" -eq 1 ]; then
             echo "::error::GitHub release did not become public; restoring OSS."
             bash scripts/promote-oss-public-channel.sh --restore "$backup_dir"
             if [ "$finalize_status" -eq 0 ]; then
@@ -689,6 +683,9 @@ jobs:
             exit "$finalize_status"
           fi
 
+          if [ "$poll_status" -ne 87 ]; then
+            echo "::error::GitHub release publication poll failed (status $poll_status)."
+          fi
           echo "::error::GitHub release state is ambiguous; OSS was not rolled back automatically."
           echo "::error::Use the preserved backup only after confirming the GitHub release state."
           exit 87
@@ -865,5 +862,6 @@ jobs:
         with:
           name: oss-public-channel-recovery-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ssrvpn-oss-backup.*
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7

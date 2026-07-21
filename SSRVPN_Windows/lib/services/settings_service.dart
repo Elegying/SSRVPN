@@ -77,6 +77,8 @@ class SettingsService extends ChangeNotifier {
         return service;
       });
 
+  static void resetInstanceForRecovery() => _instance.reset();
+
   Future<void> _init() async {
     _dataDir = await _resolveDataDirectory();
     _settingsPath = '$_dataDir${Platform.pathSeparator}settings.json';

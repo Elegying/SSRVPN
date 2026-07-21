@@ -6,6 +6,74 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_macos/services/system_proxy_service.dart';
 
 void main() {
+  test(
+      'effective proxy ownership detects an external change without mutating it',
+      () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'ssrvpn_macos_proxy_effective_ownership_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    var effectiveProxyOwned = true;
+    final mutationCommands = <List<String>>[];
+    final service = SystemProxyService(
+      beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
+      endProxyLifecycleTransaction: (_) async => true,
+      effectiveProxyRunner: () async => ProcessResult(
+        1,
+        0,
+        effectiveProxyOwned
+            ? '''<dictionary> {
+  HTTPEnable : 1
+  HTTPPort : 7890
+  HTTPProxy : 127.0.0.1
+  HTTPSEnable : 1
+  HTTPSPort : 7890
+  HTTPSProxy : 127.0.0.1
+  SOCKSEnable : 1
+  SOCKSPort : 7890
+  SOCKSProxy : 127.0.0.1
+}'''
+            : '''<dictionary> {
+  HTTPEnable : 1
+  HTTPPort : 8888
+  HTTPProxy : 127.0.0.1
+  HTTPSEnable : 1
+  HTTPSPort : 8888
+  HTTPSProxy : 127.0.0.1
+  SOCKSEnable : 1
+  SOCKSPort : 8888
+  SOCKSProxy : 127.0.0.1
+}''',
+        '',
+      ),
+      networkSetupRunner: (arguments) async {
+        if (arguments.first == '-listallnetworkservices') {
+          return ProcessResult(1, 0, 'Wi-Fi\n', '');
+        }
+        if (arguments.first.startsWith('-get')) {
+          return ProcessResult(
+            1,
+            0,
+            'Enabled: No\nServer: \nPort: 0\n',
+            '',
+          );
+        }
+        mutationCommands.add(List<String>.from(arguments));
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+    await service.initialize(tempDirectory.path);
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+    final mutationsAfterSetup = mutationCommands.length;
+
+    expect(await service.isCurrentSystemProxyOwned(), isTrue);
+
+    effectiveProxyOwned = false;
+    expect(await service.isCurrentSystemProxyOwned(), isFalse);
+    expect(mutationCommands, hasLength(mutationsAfterSetup));
+    expect(service.lastError, contains('关闭或修改'));
+  });
+
   test('native lifecycle lease brackets every proxy mutation', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'ssrvpn_macos_proxy_lifecycle_lease_',
@@ -287,6 +355,53 @@ void main() {
         '-setsocksfirewallproxystate _Wi-Fi off',
       ],
     );
+  });
+
+  test('recovery preserves an externally replaced proxy endpoint', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'ssrvpn_macos_proxy_external_replacement_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final snapshot = File('${tempDirectory.path}/system_proxy.json');
+    await _writeOwnedSnapshot(snapshot);
+    final commands = <String>[];
+    final service = _testSystemProxyService(
+      networkSetupRunner: (arguments) async {
+        commands.add(arguments.join(' '));
+        switch (arguments.first) {
+          case '-listallnetworkservices':
+            return ProcessResult(1, 0, 'Wi-Fi\n', '');
+          case '-getwebproxy':
+            return ProcessResult(
+              1,
+              0,
+              'Enabled: Yes\nServer: 127.0.0.1\nPort: 8888\n',
+              '',
+            );
+          case '-getsecurewebproxy':
+          case '-getsocksfirewallproxy':
+            return ProcessResult(
+              1,
+              0,
+              'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n',
+              '',
+            );
+          default:
+            return ProcessResult(1, 0, '', '');
+        }
+      },
+    );
+
+    await service.initialize(tempDirectory.path);
+
+    expect(await snapshot.exists(), isFalse);
+    expect(service.recoveryPending, isFalse);
+    expect(
+      commands.where((command) => command.startsWith('-setwebproxy')),
+      isEmpty,
+    );
+    expect(commands, contains('-setsecurewebproxystate Wi-Fi off'));
+    expect(commands, contains('-setsocksfirewallproxystate Wi-Fi off'));
   });
 
   for (final reservedName in const [

@@ -71,4 +71,11 @@ internal object NativeVpnSessionCoordinator {
             { SsrvpnVpnService.isRunning },
             expectedGeneration
         )
+
+    fun prepareApiSecretRecovery(context: Context): Boolean =
+        NativeConnectionSession.prepareApiSecretRecovery(
+            SsrvpnVpnService.startGeneration,
+            { SsrvpnVpnService.isRunning },
+            { NativeConnectionSnapshotStore.clearAll(context) }
+        )
 }

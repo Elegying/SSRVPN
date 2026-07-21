@@ -156,12 +156,31 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
             (self.objects / "ssrvpn" / "latest.json").read_bytes(),
             self.old["latest.json"],
         )
+        self.assertEqual(list(self.root.glob("ssrvpn-oss-backup.*")), [])
+
+    def test_checksum_publish_failure_restores_the_complete_previous_channel(
+        self,
+    ) -> None:
+        backup = self.root / "transaction-backup-checksum-publish-failure"
+        before = self._snapshot_public_channel()
+
+        result = self._run(
+            fail_on="SSRVPN.dmg.sha256",
+            backup=backup,
+            preserve_backup=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(backup.is_dir())
+        self.assertEqual(self._snapshot_public_channel(), before)
+        self._assert_published_pairs_consistent()
+        self.assertEqual(self._recovery_scratch_files(backup), [])
 
     def test_backup_read_failure_never_mutates_the_public_channel(self) -> None:
         result = self._run(backup_fail_on="SSRVPN.dmg")
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Cannot back up current OSS object", result.stderr)
+        self.assertIn("Cannot authoritatively back up", result.stderr)
         for name in MANAGED_FILES:
             self.assertEqual(
                 (self.objects / "ssrvpn" / "downloads" / name).read_bytes(),
@@ -173,6 +192,24 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
         )
         self.assertEqual(list(self.root.glob("ssrvpn-oss-backup.*")), [])
 
+    def test_public_404_cannot_override_authoritative_backup_failure(self) -> None:
+        result = self._run(
+            backup_fail_on="SSRVPN.zip",
+            public_missing_on="SSRVPN.zip",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Cannot authoritatively back up", result.stderr)
+        for name in MANAGED_FILES:
+            self.assertEqual(
+                (self.objects / "ssrvpn" / "downloads" / name).read_bytes(),
+                self.old[name],
+            )
+        self.assertEqual(
+            (self.objects / "ssrvpn" / "latest.json").read_bytes(),
+            self.old["latest.json"],
+        )
+
     def test_restore_failure_is_reported_instead_of_silently_succeeding(self) -> None:
         result = self._run(
             fail_on="SSRVPN.dmg",
@@ -180,9 +217,176 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 86)
         self.assertIn("recovery is incomplete", result.stderr)
-        self.assertNotEqual(
-            (self.objects / "ssrvpn" / "downloads" / "SSRVPN.apk").read_bytes(),
-            self.old["SSRVPN.apk"],
+        self._assert_published_pairs_consistent()
+        self.assertEqual(
+            (self.objects / "ssrvpn" / "latest.json").read_bytes(),
+            self.old["latest.json"],
+        )
+
+    def test_explicit_restore_keeps_pairs_consistent_and_latest_new_on_any_pair_failure(
+        self,
+    ) -> None:
+        for failed_name in PUBLISHED_FILES:
+            with self.subTest(failed_name=failed_name):
+                self.old = self._write_channel(self.objects / "ssrvpn", b"old")
+                backup = self.root / f"transaction-backup-{failed_name}"
+                result = self._run(
+                    backup=backup,
+                    preserve_backup=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+                restore = self._restore(
+                    backup,
+                    restore_fail_on=failed_name,
+                )
+
+                self.assertEqual(restore.returncode, 86, restore.stderr)
+                self._assert_published_pairs_consistent()
+                self.assertEqual(
+                    (self.objects / "ssrvpn" / "latest.json").read_bytes(),
+                    self.manifest.read_bytes(),
+                )
+
+    def test_explicit_restore_failure_rolls_back_the_complete_current_channel(
+        self,
+    ) -> None:
+        backup = self.root / "transaction-backup-global-restore-rollback"
+        result = self._run(backup=backup, preserve_backup=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        before = self._snapshot_public_channel()
+
+        restore = self._restore(
+            backup,
+            restore_fail_on="SSRVPN.dmg.sha256",
+        )
+
+        self.assertEqual(restore.returncode, 86, restore.stderr)
+        self.assertTrue(backup.is_dir())
+        self.assertEqual(self._snapshot_public_channel(), before)
+        self._assert_published_pairs_consistent()
+        self.assertEqual(self._recovery_scratch_files(backup), [])
+
+    def test_restore_rolls_back_pair_when_checksum_write_lands_but_readback_fails(
+        self,
+    ) -> None:
+        backup = self.root / "transaction-backup-write-read-race"
+        result = self._run(backup=backup, preserve_backup=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        restore = self._restore(
+            backup,
+            write_then_verify_fail_on="SSRVPN.apk.sha256",
+        )
+
+        self.assertEqual(restore.returncode, 86, restore.stderr)
+        self.assertTrue(backup.is_dir())
+        self._assert_published_pairs_consistent()
+        for name in ("SSRVPN.apk", "SSRVPN.apk.sha256"):
+            self.assertEqual(
+                (self.objects / "ssrvpn" / "downloads" / name).read_bytes(),
+                (self.source / name).read_bytes(),
+            )
+        self.assertEqual(
+            (self.objects / "ssrvpn" / "latest.json").read_bytes(),
+            self.manifest.read_bytes(),
+        )
+
+    def test_restore_reports_when_the_current_pair_cannot_be_reinstated(
+        self,
+    ) -> None:
+        backup = self.root / "transaction-backup-pair-rollback-failure"
+        result = self._run(backup=backup, preserve_backup=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        restore = self._restore(
+            backup,
+            write_then_verify_fail_on="SSRVPN.apk.sha256",
+            fail_current_pair_rollback=True,
+        )
+
+        self.assertEqual(restore.returncode, 86, restore.stderr)
+        self.assertTrue(backup.is_dir())
+        self.assertIn("channel safety rollback failed", restore.stderr)
+        self.assertEqual(
+            (self.objects / "ssrvpn" / "latest.json").read_bytes(),
+            self.manifest.read_bytes(),
+        )
+
+    def test_restore_rolls_back_to_an_absent_current_pair_on_target_failure(
+        self,
+    ) -> None:
+        backup = self.root / "transaction-backup-absent-current-pair"
+        result = self._run(backup=backup, preserve_backup=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        downloads = self.objects / "ssrvpn" / "downloads"
+        for name in ("SSRVPN.apk", "SSRVPN.apk.sha256"):
+            (downloads / name).unlink()
+
+        restore = self._restore(
+            backup,
+            restore_fail_on="SSRVPN.apk.sha256",
+        )
+
+        self.assertEqual(restore.returncode, 86, restore.stderr)
+        self.assertTrue(backup.is_dir())
+        for name in ("SSRVPN.apk", "SSRVPN.apk.sha256"):
+            self.assertFalse((downloads / name).exists())
+        self.assertEqual(
+            (self.objects / "ssrvpn" / "latest.json").read_bytes(),
+            self.manifest.read_bytes(),
+        )
+
+    def test_backup_uses_authoritative_oss_bytes_instead_of_stale_public_reads(
+        self,
+    ) -> None:
+        stale_objects = self.root / "stale-objects"
+        self._write_channel(stale_objects / "ssrvpn", b"stale")
+        backup = self.root / "authoritative-backup"
+
+        result = self._run(
+            backup=backup,
+            preserve_backup=True,
+            stale_backup_root=stale_objects,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in MANAGED_FILES:
+            self.assertEqual((backup / name).read_bytes(), self.old[name])
+        self.assertEqual(
+            (backup / "latest.json").read_bytes(),
+            self.old["latest.json"],
+        )
+
+    def test_public_verification_requests_bypass_caches(self) -> None:
+        result = self._run(require_no_cache=True)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_incoherent_authoritative_backup_fails_before_any_mutation(self) -> None:
+        channel = self.objects / "ssrvpn"
+        (channel / "downloads" / "SSRVPN.apk.sha256").write_text(
+            "0" * 64 + "  SSRVPN.apk\n",
+            encoding="utf-8",
+        )
+        before = {
+            name: (channel / "downloads" / name).read_bytes()
+            for name in MANAGED_FILES
+        }
+        before["latest.json"] = (channel / "latest.json").read_bytes()
+
+        result = self._run()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("backup pair", result.stderr)
+        for name in MANAGED_FILES:
+            self.assertEqual(
+                (channel / "downloads" / name).read_bytes(),
+                before[name],
+            )
+        self.assertEqual(
+            (channel / "latest.json").read_bytes(),
+            before["latest.json"],
         )
 
     def _run(
@@ -193,6 +397,9 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
         backup: Optional[Path] = None,
         preserve_backup: bool = False,
         deny_retired_delete: bool = False,
+        stale_backup_root: Optional[Path] = None,
+        require_no_cache: bool = False,
+        public_missing_on: str = "",
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
@@ -208,6 +415,9 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                 "FAKE_BACKUP_FAIL_ON": backup_fail_on,
                 "FAKE_NEW_SOURCE": str(self.source),
                 "FAKE_DENY_RETIRED_DELETE": "1" if deny_retired_delete else "0",
+                "FAKE_STALE_BACKUP_ROOT": str(stale_backup_root or ""),
+                "FAKE_REQUIRE_NO_CACHE": "1" if require_no_cache else "0",
+                "FAKE_PUBLIC_MISSING_ON": public_missing_on,
                 "RUNNER_TEMP": str(self.root),
                 "OSS_PRESERVE_BACKUP": "1" if preserve_backup else "0",
             }
@@ -222,7 +432,13 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
             check=False,
         )
 
-    def _restore(self, backup: Path) -> subprocess.CompletedProcess[str]:
+    def _restore(
+        self,
+        backup: Path,
+        restore_fail_on: str = "",
+        write_then_verify_fail_on: str = "",
+        fail_current_pair_rollback: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
             {
@@ -233,6 +449,13 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                 "CURL_BIN": str(self.bin / "curl"),
                 "FAKE_OSS_ROOT": str(self.objects),
                 "FAKE_NEW_SOURCE": str(self.source),
+                "FAKE_RESTORE_FAIL_ON": restore_fail_on,
+                "FAKE_RESTORE_WRITE_THEN_READ_FAIL_ON": (
+                    write_then_verify_fail_on
+                ),
+                "FAKE_FAIL_CURRENT_PAIR_ROLLBACK": (
+                    "1" if fail_current_pair_rollback else "0"
+                ),
             }
         )
         return subprocess.run(
@@ -241,6 +464,33 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
             capture_output=True,
             env=env,
             check=False,
+        )
+
+    def _assert_published_pairs_consistent(self) -> None:
+        downloads = self.objects / "ssrvpn" / "downloads"
+        for name in ("SSRVPN.apk", "SSRVPN.dmg", "SSRVPN_Setup.exe"):
+            payload = (downloads / name).read_bytes()
+            checksum = (downloads / f"{name}.sha256").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn(hashlib.sha256(payload).hexdigest(), checksum.split())
+
+    def _snapshot_public_channel(self) -> dict[str, Optional[bytes]]:
+        channel = self.objects / "ssrvpn"
+        snapshot: dict[str, Optional[bytes]] = {}
+        for name in MANAGED_FILES:
+            path = channel / "downloads" / name
+            snapshot[name] = path.read_bytes() if path.is_file() else None
+        latest = channel / "latest.json"
+        snapshot["latest.json"] = latest.read_bytes() if latest.is_file() else None
+        return snapshot
+
+    def _recovery_scratch_files(self, backup: Path) -> list[str]:
+        return sorted(
+            entry.name
+            for entry in backup.iterdir()
+            if entry.name.startswith(("restore-", "match-"))
+            or entry.name.endswith(".current")
         )
 
     def _write_channel(self, root: Path, prefix: bytes) -> dict[str, bytes]:
@@ -274,19 +524,56 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                 import os, pathlib, shutil, sys
                 root = pathlib.Path(os.environ['FAKE_OSS_ROOT'])
                 command = sys.argv[1]
+                state = root / '.fake-state'
+                state.mkdir(exist_ok=True)
                 def object_path(value):
                     return root / value.split('/', 3)[3]
                 if command == 'cp':
                     source, destination = sys.argv[2], sys.argv[3]
+                    if source.startswith('oss://'):
+                        if os.environ.get('FAKE_BACKUP_FAIL_ON') == pathlib.Path(source).name:
+                            raise SystemExit(13)
+                        remote = object_path(source)
+                        if not remote.is_file():
+                            raise SystemExit(12)
+                        remaining = state / ('read-fail-' + remote.name)
+                        if remaining.is_file():
+                            count = int(remaining.read_text())
+                            if count > 0:
+                                count -= 1
+                                if count:
+                                    remaining.write_text(str(count))
+                                else:
+                                    remaining.unlink()
+                                raise SystemExit(13)
+                        target = pathlib.Path(destination)
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(remote, target)
+                        raise SystemExit(0)
                     if (os.environ.get('FAKE_FAIL_ON') == pathlib.Path(destination).name
                             and source.startswith(os.environ.get('FAKE_NEW_SOURCE', '') + os.sep)):
                         raise SystemExit(9)
                     if (os.environ.get('FAKE_RESTORE_FAIL_ON') == pathlib.Path(destination).name
+                            and destination.startswith('oss://')
                             and not source.startswith(os.environ.get('FAKE_NEW_SOURCE', '') + os.sep)):
                         raise SystemExit(10)
+                    if (os.environ.get('FAKE_FAIL_CURRENT_PAIR_ROLLBACK') == '1'
+                            and ('.restore-current-' in source
+                                 or 'current-pair-' in source)):
+                        raise SystemExit(14)
                     target = object_path(destination)
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(source, target)
+                    fail_after_write = os.environ.get(
+                        'FAKE_RESTORE_WRITE_THEN_READ_FAIL_ON')
+                    triggered = state / ('read-fail-triggered-' + target.name)
+                    if fail_after_write == target.name and not triggered.exists():
+                        triggered.touch()
+                        (state / ('read-fail-' + target.name)).write_text('3')
+                elif command == 'stat':
+                    if not object_path(sys.argv[2]).is_file():
+                        print('ServerError: code: NoSuchKey', file=sys.stderr)
+                        raise SystemExit(12)
                 elif command == 'rm':
                     if (os.environ.get('FAKE_DENY_RETIRED_DELETE') == '1'
                             and pathlib.Path(sys.argv[2]).name in {
@@ -304,13 +591,38 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
             textwrap.dedent(
                 """\
                 #!/usr/bin/env python3
-                import os, pathlib, shutil, sys
+                import os, pathlib, shutil, sys, urllib.parse
                 root = pathlib.Path(os.environ['FAKE_OSS_ROOT'])
                 args = sys.argv[1:]
                 destination = pathlib.Path(args[args.index('-o') + 1])
                 url = next(value for value in reversed(args) if value.startswith('https://'))
-                path = root / url.split('/', 3)[3]
-                if os.environ.get('FAKE_BACKUP_FAIL_ON') == destination.name:
+                parsed = urllib.parse.urlsplit(url)
+                if os.environ.get('FAKE_REQUIRE_NO_CACHE') == '1':
+                    headers = [
+                        args[index + 1]
+                        for index, value in enumerate(args[:-1])
+                        if value == '-H'
+                    ]
+                    if ('Cache-Control: no-cache' not in headers
+                            or 'Pragma: no-cache' not in headers
+                            or not parsed.query):
+                        print('500', end='')
+                        raise SystemExit(0)
+                object_root = root
+                stale_root = os.environ.get('FAKE_STALE_BACKUP_ROOT', '')
+                if (stale_root and destination.name in {
+                        'SSRVPN.apk', 'SSRVPN.apk.sha256',
+                        'SSRVPN.dmg', 'SSRVPN.dmg.sha256',
+                        'SSRVPN_Setup.exe', 'SSRVPN_Setup.exe.sha256',
+                        'SSRVPN.zip', 'SSRVPN.zip.sha256', 'latest.json'}):
+                    object_root = pathlib.Path(stale_root)
+                path = object_root / parsed.path.lstrip('/')
+                if os.environ.get('FAKE_PUBLIC_MISSING_ON') == path.name:
+                    print('404', end='')
+                    raise SystemExit(0)
+                backup_failure = os.environ.get('FAKE_BACKUP_FAIL_ON')
+                if backup_failure and destination.name in {
+                        backup_failure, f'public-{backup_failure}'}:
                     print('500', end='')
                     raise SystemExit(0)
                 if not path.is_file():

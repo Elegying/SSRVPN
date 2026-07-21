@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
@@ -31,5 +33,34 @@ void main() {
 
     await queue.add(() async {});
     await queue.flush();
+  });
+
+  test('pending barrier reports a write that fails while it is waiting',
+      () async {
+    final queue = RecoveringSerialQueue();
+    final release = Completer<void>();
+    final operation = queue.add(() async {
+      await release.future;
+      throw StateError('disk full');
+    });
+    final barrier = queue.waitForPendingOperations();
+
+    release.complete();
+
+    await expectLater(operation, throwsStateError);
+    await expectLater(barrier, throwsStateError);
+  });
+
+  test('completed failure does not poison a later pending-write barrier',
+      () async {
+    final queue = RecoveringSerialQueue();
+
+    await expectLater(
+      queue.add(() async => throw StateError('disk full')),
+      throwsStateError,
+    );
+
+    await queue.waitForPendingOperations();
+    await expectLater(queue.flush(), throwsStateError);
   });
 }

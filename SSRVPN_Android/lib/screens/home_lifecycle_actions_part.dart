@@ -106,7 +106,6 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     }
     if (statusIsCurrent && running) {
       _updateHomeState(() => _isConnected = true);
-      _glowController.repeat();
       _schedulePublicIpRefresh();
     }
 
@@ -174,10 +173,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
       }
     });
     if (running) {
-      _glowController.repeat();
       _schedulePublicIpRefresh();
-    } else {
-      _glowController.stop();
     }
   }
 

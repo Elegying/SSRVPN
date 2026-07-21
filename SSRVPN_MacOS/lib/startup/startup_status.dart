@@ -25,6 +25,9 @@ class StartupFailure {
 class StartupStatus extends ChangeNotifier {
   StartupStatus._();
 
+  @visibleForTesting
+  factory StartupStatus.forTesting() => StartupStatus._();
+
   static final StartupStatus instance = StartupStatus._();
 
   final List<StartupFailure> _failures = [];
@@ -52,6 +55,19 @@ class StartupStatus extends ChangeNotifier {
   void markStarting() {
     starting = true;
     completed = false;
+    notifyListeners();
+  }
+
+  void prepareCoreRetry() {
+    starting = true;
+    completed = false;
+    currentStep = null;
+    coreInitialized = false;
+    _stepStates.remove('mihomo_core');
+    _failures.removeWhere((failure) => failure.step == 'mihomo_core');
+    settingsService = null;
+    clashService = null;
+    subscriptionService = null;
     notifyListeners();
   }
 

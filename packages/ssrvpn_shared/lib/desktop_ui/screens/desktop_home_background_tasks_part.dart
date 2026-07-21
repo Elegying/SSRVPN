@@ -47,7 +47,6 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     }
     if (statusIsCurrent && wasRunning) {
       setState(() => _isConnected = true);
-      _glowController.repeat();
       _schedulePublicIpRefresh();
     }
 
@@ -72,9 +71,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
         _selectedNode = null;
         _resetPublicIpState();
         _exitCountryResolveGeneration++;
-        _glowController.stop();
       } else {
-        _glowController.repeat();
         _scheduleExitCountryResolution();
         _schedulePublicIpRefresh();
         unawaited(_syncSelectedNodeFromRuntime(statusEpoch));

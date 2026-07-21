@@ -262,6 +262,28 @@ class RunnerTests: XCTestCase {
     XCTAssertTrue(failure?.contains("重试退出") == true)
   }
 
+  func testTerminationPreflightLeavesActiveTunForPrivilegedDnsCleanup() {
+    let delegate = AppDelegate()
+    var events: [String] = []
+
+    let safe = delegate.performSafeTerminationPreflight(
+      hadProxyState: false,
+      hasTunSessionRequest: true,
+      restoreProxy: {
+        events.append("restore")
+        return true
+      },
+      terminateCore: {
+        events.append("terminate")
+        return true
+      },
+      onFailure: { _ in XCTFail("TUN handoff should be safe") }
+    )
+
+    XCTAssertTrue(safe)
+    XCTAssertEqual(events, [])
+  }
+
   func testNativeLaunchPublishesIdentityAndDrainsDiagnosticsBeforeReturning() throws {
     let delegate = AppDelegate()
     let directory = FileManager.default.temporaryDirectory

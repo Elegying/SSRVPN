@@ -39,6 +39,14 @@ class StartupOrchestrator {
     StartupLogger.info('Startup orchestration completed');
   }
 
+  Future<void> retryCoreInitialization() async {
+    final status = StartupStatus.instance;
+    status.prepareCoreRetry();
+    StartupLogger.info('Retrying mihomo_core initialization');
+    await runStep('mihomo_core', initCoreService, timeout: null);
+    status.markCompleted();
+  }
+
   Future<void> runStep(
     String name,
     Future<void> Function() step, {

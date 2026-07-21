@@ -35,10 +35,190 @@ void main() {
         readApiSecret: () async => throw StateError('keystore unavailable'),
         writeApiSecret: (_) async => writes += 1,
       ),
-      throwsA(isA<StateError>()),
+      throwsA(isA<AndroidApiSecretRecoveryRequired>()),
     );
 
     expect(writes, 0);
+  });
+
+  test('malformed ordinary settings are replaced after secure-key recovery',
+      () async {
+    await File(configPath).writeAsString('{"proxyPort":', flush: true);
+
+    final service = await SettingsService.createForTesting(
+      configPath: configPath,
+      readApiSecret: () async => 'secure-secret',
+      writeApiSecret: (_) async => fail('existing secret must be preserved'),
+    );
+
+    expect(service.settings.apiSecret, 'secure-secret');
+    final persisted = jsonDecode(await File(configPath).readAsString())
+        as Map<String, dynamic>;
+    expect(persisted['proxyPort'], AppSettings().proxyPort);
+    expect(persisted.containsKey('apiSecret'), isFalse);
+  });
+
+  test(
+      'confirmed API-secret recovery clears only native configs and preserves user data',
+      () async {
+    final subscriptions = File(
+      '${tempDirectory.path}${Platform.pathSeparator}subscriptions.json',
+    );
+    final settingsText =
+        jsonEncode(AppSettings(proxyPort: 8890).toJson()..remove('apiSecret'));
+    await File(configPath).writeAsString(settingsText, flush: true);
+    await subscriptions.writeAsString('keep-subscriptions', flush: true);
+    final runtime = Directory(
+      '${tempDirectory.path}${Platform.pathSeparator}runtime',
+    );
+    await runtime.create();
+    await File('${runtime.path}${Platform.pathSeparator}config.yaml')
+        .writeAsString('old-api-secret');
+    await File('${runtime.path}${Platform.pathSeparator}config-123.yaml')
+        .writeAsString('old-api-secret');
+    final mmdb = File('${runtime.path}${Platform.pathSeparator}country.mmdb');
+    await mmdb.writeAsString('keep-runtime-asset');
+    String? secureSecret = 'unreadable-envelope';
+    var nativeStateCleared = false;
+    final recoveryOrder = <String>[];
+
+    await SettingsService.rebuildApiSecretForRecovery(
+      stopNativeConnection: () async {
+        recoveryOrder.add('stop');
+        return true;
+      },
+      clearNativeConnectionState: () async {
+        recoveryOrder.add('clear');
+        nativeStateCleared = true;
+        return true;
+      },
+      deleteApiSecret: () async {
+        recoveryOrder.add('delete');
+        secureSecret = null;
+      },
+      writeApiSecret: (value) async {
+        recoveryOrder.add('write');
+        secureSecret = value;
+      },
+      readApiSecret: () async {
+        recoveryOrder.add('read');
+        return secureSecret;
+      },
+      configDirectory: runtime,
+      replacementSecret: 'replacement-secret',
+    );
+
+    expect(nativeStateCleared, isTrue);
+    expect(recoveryOrder, ['stop', 'clear', 'delete', 'write', 'read']);
+    expect(secureSecret, 'replacement-secret');
+    expect(await File(configPath).readAsString(), settingsText);
+    expect(await subscriptions.readAsString(), 'keep-subscriptions');
+    expect(
+      await File('${runtime.path}${Platform.pathSeparator}config.yaml')
+          .exists(),
+      isFalse,
+    );
+    expect(
+      await File('${runtime.path}${Platform.pathSeparator}config-123.yaml')
+          .exists(),
+      isFalse,
+    );
+    expect(await mmdb.readAsString(), 'keep-runtime-asset');
+  });
+
+  test('failed native reset leaves the secure key and local files unchanged',
+      () async {
+    final runtime = Directory(
+      '${tempDirectory.path}${Platform.pathSeparator}runtime',
+    );
+    await runtime.create();
+    final config = File('${runtime.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('old-config', flush: true);
+    var secretDeleted = false;
+
+    await expectLater(
+      SettingsService.rebuildApiSecretForRecovery(
+        stopNativeConnection: () async => true,
+        clearNativeConnectionState: () async => false,
+        deleteApiSecret: () async => secretDeleted = true,
+        writeApiSecret: (_) async {},
+        readApiSecret: () async => null,
+        configDirectory: runtime,
+        replacementSecret: 'replacement-secret',
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(secretDeleted, isFalse);
+    expect(await config.readAsString(), 'old-config');
+  });
+
+  test('API-secret recovery refuses a symlinked runtime directory', () async {
+    final target = Directory(
+      '${tempDirectory.path}${Platform.pathSeparator}runtime-target',
+    );
+    await target.create();
+    final targetConfig = File(
+      '${target.path}${Platform.pathSeparator}config.yaml',
+    );
+    await targetConfig.writeAsString('must-survive', flush: true);
+    final runtimeLink = Link(
+      '${tempDirectory.path}${Platform.pathSeparator}runtime-link',
+    );
+    await runtimeLink.create(target.path);
+    var secretDeleted = false;
+
+    await expectLater(
+      SettingsService.rebuildApiSecretForRecovery(
+        stopNativeConnection: () async => true,
+        clearNativeConnectionState: () async => true,
+        deleteApiSecret: () async => secretDeleted = true,
+        writeApiSecret: (_) async {},
+        readApiSecret: () async => null,
+        configDirectory: Directory(runtimeLink.path),
+        replacementSecret: 'replacement-secret',
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    expect(secretDeleted, isFalse);
+    expect(await targetConfig.readAsString(), 'must-survive');
+  });
+
+  test('confirmed recovery stops an old native session before key rotation',
+      () async {
+    var nativeRunning = true;
+    var secureSecret = 'old-secret';
+    final order = <String>[];
+
+    await SettingsService.rebuildApiSecretForRecovery(
+      stopNativeConnection: () async {
+        order.add('stop');
+        nativeRunning = false;
+        return true;
+      },
+      clearNativeConnectionState: () async {
+        order.add('clear');
+        expect(nativeRunning, isFalse);
+        return true;
+      },
+      deleteApiSecret: () async {
+        order.add('delete');
+        secureSecret = '';
+      },
+      writeApiSecret: (value) async {
+        order.add('write');
+        secureSecret = value;
+      },
+      readApiSecret: () async => secureSecret,
+      configDirectory: Directory(
+        '${tempDirectory.path}${Platform.pathSeparator}empty-runtime',
+      ),
+      replacementSecret: 'new-secret',
+    );
+
+    expect(secureSecret, 'new-secret');
+    expect(order, ['stop', 'clear', 'delete', 'write']);
   });
 
   test('failed legacy migration keeps the legacy secret', () async {
@@ -74,6 +254,40 @@ void main() {
     expect(writes, ['legacy-secret']);
     expect(preferences.containsKey('api_secret_enc'), isFalse);
     expect(service.settings.apiSecret, 'legacy-secret');
+  });
+
+  test('malformed legacy secret cannot permanently block startup', () async {
+    SharedPreferences.setMockInitialValues(
+        {'api_secret_enc': 'b64:not-valid-base64!'});
+    String? secureSecret;
+
+    final service = await SettingsService.createForTesting(
+      configPath: configPath,
+      readApiSecret: () async => secureSecret,
+      writeApiSecret: (value) async => secureSecret = value,
+    );
+
+    final preferences = await SharedPreferences.getInstance();
+    expect(service.settings.apiSecret, isNotEmpty);
+    expect(secureSecret, service.settings.apiSecret);
+    expect(preferences.containsKey('api_secret_enc'), isFalse);
+  });
+
+  test('wrongly typed legacy secret cannot permanently block startup',
+      () async {
+    SharedPreferences.setMockInitialValues({'api_secret_enc': 42});
+    String? secureSecret;
+
+    final service = await SettingsService.createForTesting(
+      configPath: configPath,
+      readApiSecret: () async => secureSecret,
+      writeApiSecret: (value) async => secureSecret = value,
+    );
+
+    final preferences = await SharedPreferences.getInstance();
+    expect(service.settings.apiSecret, isNotEmpty);
+    expect(secureSecret, service.settings.apiSecret);
+    expect(preferences.containsKey('api_secret_enc'), isFalse);
   });
 
   test('existing secure secret removes a stale legacy copy', () async {

@@ -14,7 +14,8 @@ void main() {
 
     expect(failure.requiresWindowsSecretRecovery, isTrue);
     expect(failure.message, contains('WINDOWS_DPAPI_RECOVERY_REQUIRED'));
-    expect(failure.userSummary, contains('重命名'));
+    expect(failure.userSummary, contains('保留旧密文'));
+    expect(failure.userSummary, contains('重建'));
     expect(failure.userSummary, contains('.api-secret.dpapi'));
     expect(
       failure.userSummary,

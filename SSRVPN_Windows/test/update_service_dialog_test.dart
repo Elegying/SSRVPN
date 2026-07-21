@@ -63,6 +63,13 @@ void main() {
       if (desktop.existsSync()) desktop.deleteSync(recursive: true);
     });
     final bytes = utf8.encode('verified-windows-installer');
+    final stalePart = File(
+      '${desktop.path}/SSRVPN_Setup_v8.8.8.exe.part.1_2_3',
+    );
+    stalePart.writeAsStringSync('stale partial download', flush: true);
+    stalePart.setLastModifiedSync(
+      DateTime.now().subtract(const Duration(days: 2)),
+    );
     final response = Completer<http.Response>();
     Uri? requestedUrl;
     addTearDown(() {
@@ -115,6 +122,7 @@ void main() {
 
     final showedDesktopProgress =
         find.text('下载完成并通过 SHA256 校验后会保存到桌面，不会自动启动安装程序。').evaluate().isNotEmpty;
+    final stalePartSurvivedUntilDownloadStarted = stalePart.existsSync();
 
     response.complete(http.Response.bytes(bytes, HttpStatus.ok));
     for (var attempt = 0; attempt < 100; attempt++) {
@@ -149,8 +157,14 @@ void main() {
       await tester.pump(const Duration(milliseconds: 20));
     }
     await updateDialog;
+    for (var attempt = 0; attempt < 100 && stalePart.existsSync(); attempt++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+    }
 
     expect(showedDesktopProgress, isTrue);
+    expect(stalePartSurvivedUntilDownloadStarted, isTrue);
     expect(showedCompletion, isTrue);
     expect(SharedUpdateService.isVerifiedDownloadInProgress, isFalse);
     expect(
@@ -160,6 +174,7 @@ void main() {
     expect(installers, hasLength(1));
     expect(installers.single.readAsBytesSync(), bytes);
     expect(installers.single.path, contains('SSRVPN_Setup_v9.9.9.exe'));
+    expect(stalePart.existsSync(), isFalse);
     expect(desktop.listSync(), hasLength(1));
   });
 }
