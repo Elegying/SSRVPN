@@ -114,15 +114,15 @@ make verify
 
 当次真实结果：
 
-- workspace analyze 为 0 issue；版本 `3.4.8+348`、文档、包指南、密钥扫描、核心资产、产品表面、
+- workspace analyze 为 0 issue；版本 `3.4.9+349`、文档、包指南、密钥扫描、核心资产、产品表面、
   性能与结构守卫、`git diff --check` 全部通过。
-- 发布工具 220/220、macOS TUN DNS shell 行为 19/19 通过；特权 runner 的语法、ShellCheck、固定摘要
+- 发布工具 223/223、macOS TUN DNS shell 行为 22/22 通过；特权 runner 的语法、ShellCheck、固定摘要
   和静态权限守卫通过，runner SHA-256 为
-  `2c8cd7bcaf8f3b40738845205f23050523b92219c92d349d2c6a09db6d186b3f`。
-- Shared 381/381，覆盖率 `80.33%`（`4325/5384`，门槛 65%）。
+  `54326c00360586675d671750faf586e2b677dfad377079880d2f4625c06a808b`。
+- Shared 381/381，覆盖率 `80.31%`（`4324/5384`，门槛 65%）。
 - Android Flutter 195/195，覆盖率 `59.13%`（`1845/3120`，门槛 30%）；Gradle/JUnit
   `BUILD SUCCESSFUL`。
-- macOS Flutter 201/201，覆盖率 `60.98%`（`2768/4539`，门槛 30%）；生命周期
+- macOS Flutter 201/201，覆盖率 `60.93%`（`2760/4530`，门槛 30%）；生命周期
   `75.76%`（`472/623`，下限 60%），系统代理 `85.32%`（`250/293`，下限 80%）；
   RunnerTests 与测试后 CrashReporter/残留进程门禁通过。
 - Windows Flutter 158/158，另有 7 项仅限 Windows 主机的测试在 macOS 按条件跳过；覆盖率

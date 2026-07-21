@@ -341,6 +341,13 @@ jobs:
           hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_DIR" SSRVPN_MacOS/SSRVPN.dmg
           test -d "$MOUNT_DIR/SSRVPN.app"
           test -L "$MOUNT_DIR/Applications"
+          test -f "$MOUNT_DIR/.background/background.png"
+          test -f "$MOUNT_DIR/.DS_Store"
+          grep -aFq "background.png" "$MOUNT_DIR/.DS_Store"
+          test ! -e "$MOUNT_DIR/安装教程.txt"
+          test ! -e "$MOUNT_DIR/使用教程.txt"
+          top_level_count="$(find "$MOUNT_DIR" -mindepth 1 -maxdepth 1 ! -name '.*' -print | wc -l | tr -d ' ')"
+          [[ "$top_level_count" -eq 2 ]]
 
       - name: Smoke release artifact
         run: bash scripts/smoke-release-artifacts.sh --allow-missing

@@ -166,6 +166,9 @@ dns_original_servers=()
 dns_original_server_count=0
 tun_dns_server=114.114.114.114
 legacy_tun_dns_server=127.0.0.1
+runtime_health_failure_count=0
+runtime_health_failure_status=
+runtime_health_failure_limit=3
 
 is_dns_server() {
   [[ $1 =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ || \
@@ -393,25 +396,45 @@ configure_tun_dns() {
   /usr/bin/dscacheutil -flushcache >/dev/null 2>&1 || true
 }
 
-tun_dns_ownership_healthy() {
+tun_dns_service_ownership_healthy() {
   local mapped_service current
   load_persisted_tun_dns || return 1
-  active_physical_network_unchanged || return 1
   mapped_service=$(network_service_for_device "$dns_device") || return 1
   [[ $mapped_service == "$dns_service" ]] || return 1
   current=$(read_dns_servers "$dns_service") || return 1
   [[ $current == "$tun_dns_server" ]]
 }
 
+tun_dns_ownership_healthy() {
+  load_persisted_tun_dns || return 1
+  active_physical_network_unchanged || return 1
+  tun_dns_service_ownership_healthy
+}
+
 check_runtime_tun_dns_health() {
+  local failure_status=
   if ! active_physical_network_unchanged; then
-    write_status "error:network-change"
-    return 1
+    failure_status=error:network-change
+  elif ! tun_dns_service_ownership_healthy; then
+    failure_status=error:dns
+  else
+    runtime_health_failure_count=0
+    runtime_health_failure_status=
+    return 0
   fi
-  if ! tun_dns_ownership_healthy; then
-    write_status "error:dns"
-    return 1
+
+  if [[ $failure_status == "$runtime_health_failure_status" ]]; then
+    ((runtime_health_failure_count += 1))
+  else
+    runtime_health_failure_status=$failure_status
+    runtime_health_failure_count=1
   fi
+  if ((runtime_health_failure_count < runtime_health_failure_limit)); then
+    return 0
+  fi
+
+  write_status "$failure_status"
+  return 1
 }
 
 restore_persisted_tun_dns() {

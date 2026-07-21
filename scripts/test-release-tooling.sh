@@ -13,6 +13,7 @@ python3 -m unittest \
   scripts/test_generate_oss_release_manifest.py \
   scripts/test_generate_release_notes.py \
   scripts/test_generate_release_provenance.py \
+  scripts/test_macos_dmg_layout.py \
   scripts/test_promote_oss_public_channel.py \
   scripts/test_release_tooling_entrypoint.py \
   scripts/test_reuse_github_release_assets.py \

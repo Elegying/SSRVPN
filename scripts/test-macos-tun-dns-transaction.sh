@@ -49,6 +49,7 @@ AUTOMATIC_DNS="There aren't any DNS Servers set on Wi-Fi."
 MOCK_DNS_CURRENT=
 MOCK_DNS_SET_FAILURE=false
 MOCK_DNS_SET_FAILURES_REMAINING=0
+MOCK_DNS_GET_FAILURE=false
 MOCK_DNS_SET_CALLS=0
 MOCK_LAST_DNS_SET=
 MOCK_UNSAFE_PATH=
@@ -59,6 +60,7 @@ MOCK_LOCK_SECOND_BEHAVIOR=normal
 MOCK_COMPETITOR_PID=424242
 MOCK_NETWORK_SERVICE=Wi-Fi
 MOCK_ACTIVE_NETWORK_DEVICE=en0
+MOCK_SCUTIL_CALLS=0
 MOCK_CHILD_PID=31337
 MOCK_CHILD_ALIVE=false
 MOCK_CHILD_KILL_CALLS=0
@@ -74,6 +76,7 @@ MOCK_STATUS_HISTORY=
 
 /usr/sbin/scutil() {
   [[ ${1:-} == --nwi ]] || return 1
+  MOCK_SCUTIL_CALLS=$((MOCK_SCUTIL_CALLS + 1))
   printf '%s\n' \
     'Network information' \
     '' \
@@ -96,6 +99,7 @@ MOCK_STATUS_HISTORY=
         "$MOCK_NETWORK_SERVICE"
       ;;
     -getdnsservers)
+      [[ $MOCK_DNS_GET_FAILURE == false ]] || return 1
       printf '%s\n' "$MOCK_DNS_CURRENT"
       ;;
     -setdnsservers)
@@ -227,6 +231,7 @@ setup_case() {
   MOCK_DNS_CURRENT=
   MOCK_DNS_SET_FAILURE=false
   MOCK_DNS_SET_FAILURES_REMAINING=0
+  MOCK_DNS_GET_FAILURE=false
   MOCK_DNS_SET_CALLS=0
   MOCK_LAST_DNS_SET=
   MOCK_UNSAFE_PATH=
@@ -239,6 +244,10 @@ setup_case() {
   MOCK_LOCK_SECOND_BEHAVIOR=normal
   MOCK_NETWORK_SERVICE=Wi-Fi
   MOCK_ACTIVE_NETWORK_DEVICE=en0
+  MOCK_SCUTIL_CALLS=0
+  runtime_health_failure_count=0
+  runtime_health_failure_status=
+  runtime_health_failure_limit=3
   MOCK_CHILD_ALIVE=false
   MOCK_CHILD_KILL_CALLS=0
   MOCK_CHILD_KILLED_BEFORE_DNS_RESTORE=false
@@ -584,6 +593,46 @@ test_runtime_dns_ownership_checks_service_and_value() {
   fi
 }
 
+test_runtime_health_debounces_transient_dns_probe_failures() {
+  setup_case runtime-health-debounce
+  write_journal automatic
+  MOCK_DNS_CURRENT=$tun_dns_server
+  printf 'running\n' > "$status_path"
+  load_persisted_tun_dns || return 1
+
+  check_runtime_tun_dns_health || {
+    echo 'assertion failed: healthy runtime probe must succeed' >&2
+    return 1
+  }
+
+  MOCK_DNS_GET_FAILURE=true
+  check_runtime_tun_dns_health || {
+    echo 'assertion failed: first transient DNS probe failure must be tolerated' >&2
+    return 1
+  }
+  check_runtime_tun_dns_health || {
+    echo 'assertion failed: second transient DNS probe failure must be tolerated' >&2
+    return 1
+  }
+  assert_equal running "$(tr -d '[:space:]' < "$status_path")" \
+    'transient probe failures must not publish a terminal status' || return 1
+
+  MOCK_DNS_GET_FAILURE=false
+  check_runtime_tun_dns_health || {
+    echo 'assertion failed: a successful probe must reset the failure streak' >&2
+    return 1
+  }
+  MOCK_DNS_GET_FAILURE=true
+  check_runtime_tun_dns_health || return 1
+  check_runtime_tun_dns_health || return 1
+  if check_runtime_tun_dns_health; then
+    echo 'assertion failed: three consecutive DNS probe failures must stop the runner' >&2
+    return 1
+  fi
+  assert_equal error:dns "$(tr -d '[:space:]' < "$status_path")" \
+    'terminal DNS failure must remain observable to the app' || return 1
+}
+
 test_runtime_dns_ownership_fails_when_active_physical_device_changes() {
   setup_case runtime-network-change
   write_journal automatic
@@ -595,8 +644,10 @@ test_runtime_dns_ownership_fails_when_active_physical_device_changes() {
     echo 'assertion failed: switching the active physical interface must fail DNS ownership health' >&2
     return 1
   fi
+  check_runtime_tun_dns_health || return 1
+  check_runtime_tun_dns_health || return 1
   if check_runtime_tun_dns_health; then
-    echo 'assertion failed: runtime network change must fail the runner health gate' >&2
+    echo 'assertion failed: a persistent network change must fail the runner health gate' >&2
     return 1
   fi
   assert_equal error:network-change "$(tr -d '[:space:]' < "$status_path")" \
@@ -727,6 +778,7 @@ for entry in \
   'recovery-only conflicting generations:test_recovery_only_retires_conflicting_legacy_generations' \
   'recovery-only live lock preservation:test_recovery_only_lock_rejection_preserves_recovery_owner' \
   'runtime DNS ownership:test_runtime_dns_ownership_checks_service_and_value' \
+  'runtime health debounce:test_runtime_health_debounces_transient_dns_probe_failures' \
   'runtime physical network change:test_runtime_dns_ownership_fails_when_active_physical_device_changes' \
   'recovery-only ownership validation:test_recovery_only_entrypoint_validates_marker_and_journal' \
   'malformed journal fail-closed:test_malformed_journal_fails_closed' \
