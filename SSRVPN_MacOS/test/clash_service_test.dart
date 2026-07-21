@@ -279,16 +279,14 @@ void main() {
       expect(systemProxyConfig, isNot(contains('\ntun:\n')));
       expect(tunConfig, contains('\ntun:\n'));
       expect(tunConfig, contains('  enable: true'));
-      expect(tunConfig, contains('  listen: 127.0.0.1:53'));
+      expect(tunConfig, contains('  strict-route: false'));
       expect(tunConfig, contains('    - any:53'));
-      expect(tunConfig, contains('    - tcp://any:53'));
-      expect(tunConfig, contains('  inet6-address:'));
-      expect(tunConfig, contains('    - fc00::/7'));
-      expect(tunConfig, contains('    - fe80::/10'));
-      expect(tunConfig, contains('    - ssrvpn-geoip-cn'));
-      expect(tunConfig, contains('    - ssrvpn-geosite-cn'));
-      expect(tunConfig, isNot(contains('    - geoip-cn\n')));
-      expect(tunConfig, isNot(contains('    - geosite-cn\n')));
+      expect(tunConfig, contains('  enhanced-mode: fake-ip'));
+      expect(tunConfig, isNot(contains('  listen: 127.0.0.1:53')));
+      expect(tunConfig, isNot(contains('    - tcp://any:53')));
+      expect(tunConfig, isNot(contains('  inet6-address:')));
+      expect(tunConfig, isNot(contains('  route-exclude-address:')));
+      expect(tunConfig, isNot(contains('  route-address-set:')));
     });
 
     test('上次节点已失效时回退到第一个节点', () {

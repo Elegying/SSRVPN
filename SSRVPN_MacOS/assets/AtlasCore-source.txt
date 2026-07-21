@@ -1,7 +1,7 @@
-Mihomo version: v1.19.27
-Official asset: mihomo-darwin-arm64-v1.19.27.gz
-Official asset URL: https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/mihomo-darwin-arm64-v1.19.27.gz
-Official asset SHA256: 3617c9d8a5a55aecfe1ebd0f55ff59f2706c8ad68fd65c6c4e5f7cf2b74263f1
-Bundled gzip SHA256: 3617c9d8a5a55aecfe1ebd0f55ff59f2706c8ad68fd65c6c4e5f7cf2b74263f1
-Executable SHA256: 6f01da0543dc3043b7e1a79fae421f0f3003cc05bcd6a1d0a211eb9ddc5656d6
-Version output: Mihomo Meta v1.19.27 darwin arm64 with go1.26.4 Sat Jun  6 07:49:01 UTC 2026
+Mihomo version: v1.19.29
+Official asset: mihomo-darwin-arm64-v1.19.29.gz
+Official asset URL: https://github.com/MetaCubeX/mihomo/releases/download/v1.19.29/mihomo-darwin-arm64-v1.19.29.gz
+Official asset SHA256: 4dc25df9e899f14161911302a8ee5fc9e202ed9c976fc405bf82c50ff27466ca
+Bundled gzip SHA256: 4dc25df9e899f14161911302a8ee5fc9e202ed9c976fc405bf82c50ff27466ca
+Executable SHA256: ec66e3e883bdc3fca06753784e324e08921e13239f8e945587cb1bfbf4c6b936
+Version output: Mihomo Meta v1.19.29 darwin arm64 with go1.26.5 Sat Jul 18 12:19:57 UTC 2026

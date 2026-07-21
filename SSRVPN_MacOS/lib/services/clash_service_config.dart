@@ -2,26 +2,17 @@ part of 'clash_service.dart';
 
 mixin _MacosClashConfig on ClashServiceBase {
   String _macosTunConfig(AppSettings settings) {
-    final buffer = StringBuffer()
-      ..writeln('tun:')
-      ..writeln('  enable: true')
-      ..writeln('  stack: ${settings.tunStack}')
-      ..writeln('  auto-route: true')
-      ..writeln('  auto-detect-interface: true')
-      ..writeln('  inet6-address:')
-      ..writeln('    - ${AppConstants.tunInet6Address}')
-      ..writeln('  route-exclude-address:');
-    for (final address in AppConstants.routeExcludeAddresses) {
-      buffer.writeln('    - $address');
-    }
-    buffer
-      ..writeln('  dns-hijack:')
-      ..writeln('    - any:53')
-      ..writeln('    - tcp://any:53')
-      ..writeln('  route-address-set:')
-      ..writeln('    - ${AppConstants.geoipCnRuleProviderName}')
-      ..writeln('    - ${AppConstants.geositeCnRuleProviderName}');
-    return buffer.toString().trimRight();
+    return (StringBuffer()
+          ..writeln('tun:')
+          ..writeln('  enable: true')
+          ..writeln('  stack: ${settings.tunStack}')
+          ..writeln('  auto-route: true')
+          ..writeln('  strict-route: false')
+          ..writeln('  auto-detect-interface: true')
+          ..writeln('  dns-hijack:')
+          ..writeln('    - any:53'))
+        .toString()
+        .trimRight();
   }
 
   String generateClashConfig(
@@ -35,7 +26,6 @@ mixin _MacosClashConfig on ClashServiceBase {
       preferredNodeName: preferredNodeName,
       platformHeader: '# ===== SSRVPN 配置（规则内置，订阅仅加载节点） =====',
       tunConfig: settings.enableTun ? _macosTunConfig(settings) : null,
-      dnsListen: settings.enableTun ? '127.0.0.1:53' : null,
       latencyTestUrl: settings.latencyTestUrl,
       includeFallbackGroup: true,
       includeGeoIpRules: true,
@@ -53,7 +43,6 @@ mixin _MacosClashConfig on ClashServiceBase {
       preferredNodeName: preferredNodeName,
       platformHeader: '# ===== SSRVPN 配置（规则内置，订阅仅加载节点） =====',
       tunConfig: settings.enableTun ? _macosTunConfig(settings) : null,
-      dnsListen: settings.enableTun ? '127.0.0.1:53' : null,
       latencyTestUrl: settings.latencyTestUrl,
       includeFallbackGroup: true,
       includeGeoIpRules: true,

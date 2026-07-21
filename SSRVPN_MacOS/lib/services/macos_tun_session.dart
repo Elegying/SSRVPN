@@ -62,11 +62,11 @@ class MacosTunSession {
   static const _osascriptPath = '/usr/bin/osascript';
   static const _requestName = '.tun-session-request';
   static const _runnerSha256 =
-      '2c8cd7bcaf8f3b40738845205f23050523b92219c92d349d2c6a09db6d186b3f';
+      'c6223ead5b9879f0a130b5f1b2bcc8dc16affea506e7b36ed23f7e0c0d392691';
   static const _coreArchiveSha256 =
-      '3617c9d8a5a55aecfe1ebd0f55ff59f2706c8ad68fd65c6c4e5f7cf2b74263f1';
+      '4dc25df9e899f14161911302a8ee5fc9e202ed9c976fc405bf82c50ff27466ca';
   static const _coreManifestSha256 =
-      '7dbe93c9b2f05b4761898dbb0980c16b2abc73a0e785aeede186972fd0294f51';
+      '4b96479ee77e07195bb662312d734699dd5b77e88df2f69ad697999a50749bc9';
   static const _privilegedLauncherScript = r'''
 set -euo pipefail
 runner_source=$1

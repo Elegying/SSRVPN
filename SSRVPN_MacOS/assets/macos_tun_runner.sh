@@ -164,10 +164,16 @@ dns_state_path="$dns_state_dir/tun-dns-state-v1"
 dns_state_temp="$dns_state_path.tmp"
 dns_original_servers=()
 dns_original_server_count=0
+tun_dns_server=114.114.114.114
+legacy_tun_dns_server=127.0.0.1
 
 is_dns_server() {
   [[ $1 =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ || \
      $1 =~ ^[0-9A-Fa-f:.]+(%[A-Za-z0-9._-]+)?$ ]]
+}
+
+is_owned_tun_dns_value() {
+  [[ $1 == "$tun_dns_server" || $1 == "$legacy_tun_dns_server" ]]
 }
 
 active_network_device() {
@@ -381,9 +387,9 @@ configure_tun_dns() {
   mapped_service=$(network_service_for_device "$dns_device") || return 1
   [[ $mapped_service == "$dns_service" ]] || return 1
   dns_snapshot_matches || return 1
-  /usr/sbin/networksetup -setdnsservers "$dns_service" 127.0.0.1 \
+  /usr/sbin/networksetup -setdnsservers "$dns_service" "$tun_dns_server" \
     >/dev/null 2>&1 || return 1
-  [[ $(read_dns_servers "$dns_service") == 127.0.0.1 ]] || return 1
+  [[ $(read_dns_servers "$dns_service") == "$tun_dns_server" ]] || return 1
   /usr/bin/dscacheutil -flushcache >/dev/null 2>&1 || true
 }
 
@@ -394,7 +400,7 @@ tun_dns_ownership_healthy() {
   mapped_service=$(network_service_for_device "$dns_device") || return 1
   [[ $mapped_service == "$dns_service" ]] || return 1
   current=$(read_dns_servers "$dns_service") || return 1
-  [[ $current == 127.0.0.1 ]]
+  [[ $current == "$tun_dns_server" ]]
 }
 
 check_runtime_tun_dns_health() {
@@ -416,7 +422,7 @@ restore_persisted_tun_dns() {
   ensure_dns_state_directory || return 1
   load_persisted_tun_dns || return 1
   current=$(read_dns_servers "$dns_service") || return 1
-  if [[ $current != 127.0.0.1 ]]; then
+  if ! is_owned_tun_dns_value "$current"; then
     echo "SSRVPN TUN: DNS ownership changed; preserving current settings" >&2
     remove_dns_state || return 1
     return 0
@@ -596,9 +602,9 @@ cleanup() {
     dns_restored=false
     dns_recovery_was_delayed=true
   fi
-  # DNS may still point at 127.0.0.1. Retain the privileged runner as a
-  # recovery supervisor even if Mihomo dies independently. Teardown is allowed
-  # only after the original DNS is restored or ownership moves away.
+  # Keep the privileged runner as a recovery supervisor until the original DNS
+  # is restored or ownership moves away. The legacy loopback value remains
+  # recognized so an interrupted v3.4.8 session cannot strand system DNS.
   while [[ $dns_restored == false ]]; do
     if restore_persisted_tun_dns_with_retry; then
       dns_restored=true
