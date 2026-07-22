@@ -111,16 +111,19 @@ class _NodeSelectionCard extends StatelessWidget {
                                 ),
                                 SizedBox(width: compact ? 12 : 16),
                                 Expanded(
-                                  child: Text(
-                                    displayName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: selected
-                                          ? SsrvpnUiTokens.primary
-                                          : SsrvpnUiTokens.textPrimary,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
+                                  child: Tooltip(
+                                    message: displayName,
+                                    child: Text(
+                                      displayName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: selected
+                                            ? SsrvpnUiTokens.primary
+                                            : SsrvpnUiTokens.textPrimary,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
                                 ),

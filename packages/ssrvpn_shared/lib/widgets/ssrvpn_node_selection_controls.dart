@@ -40,14 +40,17 @@ class _NodeSelectionHeader extends StatelessWidget {
                 CountryFlagIcon(countryCode: countryCode, size: 28),
                 const SizedBox(width: 10),
                 Flexible(
-                  child: Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: SsrvpnUiTokens.textPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
+                  child: Tooltip(
+                    message: name,
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: SsrvpnUiTokens.textPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
@@ -365,10 +368,13 @@ class _SubscriptionFilter extends StatelessWidget {
         ...groups.map(
           (group) => DropdownMenuItem(
             value: group,
-            child: Text(
-              group,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            child: Tooltip(
+              message: group,
+              child: Text(
+                group,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
         ),

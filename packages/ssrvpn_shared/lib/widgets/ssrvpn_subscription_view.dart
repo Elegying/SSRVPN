@@ -409,24 +409,34 @@ class _SubscriptionCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        subscription.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: SsrvpnUiTokens.textPrimary,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
+                      Tooltip(
+                        message: subscription.name,
+                        child: Text(
+                          subscription.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: SsrvpnUiTokens.textPrimary,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        LogRedactor.subscriptionUrlForDisplay(subscription.url),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: SsrvpnUiTokens.textTertiary,
-                          fontSize: 12,
+                      Tooltip(
+                        message: LogRedactor.subscriptionUrlForDisplay(
+                          subscription.url,
+                        ),
+                        child: Text(
+                          LogRedactor.subscriptionUrlForDisplay(
+                            subscription.url,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: SsrvpnUiTokens.textTertiary,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                     ],
