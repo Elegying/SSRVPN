@@ -12,6 +12,21 @@ typedef _SnapshotCleanupMarker = ({
 });
 
 extension AndroidSnapshotCleanup on ClashService {
+  Future<String> _writeConfigSnapshot(String config) async {
+    final revision = ++_configRevision;
+    final path = '$configDir/config-'
+        '${DateTime.now().microsecondsSinceEpoch}-$revision.yaml';
+    final absolutePath = File(path).absolute.path;
+    _preparedConfigPaths.add(absolutePath);
+    try {
+      await writeStringAtomically(File(absolutePath), config);
+      return absolutePath;
+    } catch (_) {
+      _preparedConfigPaths.remove(absolutePath);
+      rethrow;
+    }
+  }
+
   /// Invalidates a disconnected quick-start snapshot before a setting that
   /// changes generated configuration is committed. This prevents the Android
   /// tile from replaying an older mode, rule set, or preferred node.

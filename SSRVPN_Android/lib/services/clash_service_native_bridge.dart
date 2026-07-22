@@ -1,5 +1,14 @@
 part of 'clash_service.dart';
 
+const _nativeStateRetryDelays = <Duration>[
+  Duration(milliseconds: 100),
+  Duration(milliseconds: 300),
+];
+
+// Align deferred reconciliation with the native liveness cadence. A failed
+// platform-channel read must not create a tight, indefinite polling loop.
+const _deferredNativeStateRetryDelay = Duration(seconds: 3);
+
 class AndroidProxySwitchResult {
   const AndroidProxySwitchResult({
     required this.liveSwitched,
@@ -24,6 +33,44 @@ typedef _NativeConnectionState = ({
 });
 
 extension AndroidNativeBridge on ClashService {
+  Future<bool> _recoverNativeAfterHealthCheckFailure(
+    int connectionGeneration,
+  ) async {
+    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+      await stop();
+      return false;
+    }
+    if (await healthCheck()) {
+      setRunning(true);
+      return true;
+    }
+    if (!_healthRecoveryPolicy.tryAcquire()) {
+      await stop();
+      return false;
+    }
+
+    final activeConfigPath =
+        _runningConfigPath ?? _nativeSnapshotConfigPath ?? configPath;
+    _notifyNativeRuntimeNotice('Mihomo 持续失去响应，正在执行一次安全重启…');
+    try {
+      await stop();
+    } catch (error) {
+      log('健康检查恢复时停止 Mihomo 失败: $error');
+      return false;
+    }
+    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+      return false;
+    }
+    if (activeConfigPath.isEmpty || !File(activeConfigPath).existsSync()) {
+      setLastStartError('自动恢复所需的运行配置已不存在');
+      return false;
+    }
+    return _start(
+      preparedConfigPath: activeConfigPath,
+      automaticRecovery: true,
+    );
+  }
+
   void _clearStopOperation(Future<void> operation) {
     if (identical(_stopOperation, operation)) _stopOperation = null;
   }
@@ -106,7 +153,7 @@ extension AndroidNativeBridge on ClashService {
     int nativeStateEpoch, {
     required bool Function() isStillCurrent,
   }) async {
-    for (final delay in ClashService._nativeStateRetryDelays) {
+    for (final delay in _nativeStateRetryDelays) {
       await Future<void>.delayed(delay);
       if (!isStillCurrent()) return false;
       final synchronized = await _refreshNativeConnectionState(
@@ -126,7 +173,7 @@ extension AndroidNativeBridge on ClashService {
   }) {
     _nativeStateReconciliationTimer?.cancel();
     _nativeStateReconciliationTimer = Timer(
-      ClashService._deferredNativeStateRetryDelay,
+      _deferredNativeStateRetryDelay,
       () async {
         _nativeStateReconciliationTimer = null;
         if (!isStillCurrent()) return;

@@ -26,6 +26,7 @@ part 'clash_service_config_support.dart';
 part 'clash_service_diagnostics.dart';
 part 'clash_service_runtime_support.dart';
 part 'clash_service_data_plane_support.dart';
+part 'clash_service_health_monitor.dart';
 
 /// Clash API 交互的公共逻辑基类
 ///
@@ -649,129 +650,6 @@ abstract class ClashServiceBase
   }
 
   // ── 状态监控 ──
-
-  void startStatusMonitor() {
-    _statusTimer?.cancel();
-    _scheduleRuleProviderRefreshOnce();
-    if (!enablePeriodicHealthMonitor) {
-      _statusTimer = null;
-      return;
-    }
-    _statusTimer = Timer.periodic(statusMonitorInterval, (_) async {
-      if (!_isRunning || _healthCheckInProgress) return;
-      _healthCheckInProgress = true;
-      try {
-        final healthy = await healthCheck();
-        if (healthy) {
-          _consecutiveHealthCheckFailures = 0;
-          scheduleDataPlaneObservation();
-        } else if (_isRunning) {
-          _consecutiveHealthCheckFailures++;
-          log(
-            'Mihomo 健康检查失败 ($_consecutiveHealthCheckFailures/'
-            '$maxConsecutiveHealthCheckFailures): $_lastHealthCheckError',
-          );
-          if (_consecutiveHealthCheckFailures >=
-              maxConsecutiveHealthCheckFailures) {
-            final recoveryGeneration = captureAutomaticRestartIntent();
-            stopStatusMonitor();
-            _notifyStatusChanged();
-            log('Mihomo 控制面持续失联，进入串行恢复');
-            if (recoveryGeneration != null &&
-                isConnectionIntentCurrent(
-                  recoveryGeneration,
-                  connected: true,
-                )) {
-              notifyRuntimeNotice('Mihomo 暂时失去响应，正在自动恢复连接…');
-            }
-            var recovered = false;
-            try {
-              recovered = await runConnectionTransition(() async {
-                if (recoveryGeneration == null ||
-                    !isConnectionIntentCurrent(
-                      recoveryGeneration,
-                      connected: true,
-                    )) {
-                  await onStopRequired();
-                  return false;
-                }
-                return recoverAfterHealthCheckFailure(recoveryGeneration);
-              });
-            } catch (error) {
-              log('Mihomo 失联后的恢复失败: $error');
-            }
-
-            var intentCurrent = recoveryGeneration != null &&
-                isConnectionIntentCurrent(
-                  recoveryGeneration,
-                  connected: true,
-                );
-            if (recovered && intentCurrent && _isRunning) {
-              _consecutiveHealthCheckFailures = 0;
-              log('Mihomo 连接已自动恢复');
-              notifyRuntimeNotice('连接已自动恢复');
-              startStatusMonitor();
-              return;
-            }
-
-            // A disconnect or quit may win while recovery is in flight. If a
-            // late platform restart nevertheless succeeded, stop it before
-            // publishing the final state.
-            if (_isRunning) {
-              try {
-                await runConnectionTransition(onStopRequired);
-              } catch (error) {
-                log('取消过期自动恢复时停止核心失败: $error');
-              }
-            }
-            intentCurrent = recoveryGeneration != null &&
-                isConnectionIntentCurrent(
-                  recoveryGeneration,
-                  connected: true,
-                );
-            if (_isRunning) {
-              log('Mihomo 自动恢复失败，平台仍报告核心或服务正在运行');
-              notifyRuntimeNotice(
-                intentCurrent
-                    ? '自动恢复失败，后台核心仍在运行且清理未完成，请点击断开重试'
-                    : '断开尚未完成，后台核心仍在运行，请再次点击断开',
-              );
-              _notifyStatusChanged();
-              return;
-            }
-            if (intentCurrent) {
-              markConnectionLost();
-              notifyRuntimeNotice(
-                '连接已断开：Mihomo 自动恢复失败，请重新连接',
-              );
-            } else {
-              setRunning(false);
-              _notifyStatusChanged();
-            }
-          }
-        }
-      } finally {
-        _healthCheckInProgress = false;
-      }
-    });
-  }
-
-  void stopStatusMonitor() {
-    _statusTimer?.cancel();
-    _statusTimer = null;
-    _ruleProviderRefreshTimer?.cancel();
-    _ruleProviderRefreshTimer = null;
-  }
-
-  void _scheduleRuleProviderRefreshOnce() {
-    _ruleProviderRefreshTimer?.cancel();
-    if (!_isRunning) return;
-
-    _ruleProviderRefreshTimer = Timer(ruleProviderStartupRefreshDelay, () {
-      _ruleProviderRefreshTimer = null;
-      unawaited(refreshRuleProvidersOnce());
-    });
-  }
 
   /// 子类实现：当健康检查连续失败时需要停止核心
   Future<void> onStopRequired();
