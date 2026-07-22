@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:ffi';
 import 'dart:io';
 
+import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:win32/win32.dart';
 
 import '../theme/app_theme.dart';
 import 'windows_desktop_directory.dart';
@@ -88,6 +91,7 @@ class UpdateService {
         outputDirectory: desktop,
         fileName: _installerFileName(update.version),
         client: client,
+        filePublisher: Platform.isWindows ? publishVerifiedInstaller : null,
         progressDescription: '下载完成并通过 SHA256 校验后会保存到桌面，不会自动启动安装程序。',
         onVerified: (file) => _showDesktopDownloadComplete(context, file),
       );
@@ -106,6 +110,44 @@ class UpdateService {
         ? 'SSRVPN_Setup.exe'
         : 'SSRVPN_Setup_v$safeVersion.exe';
   }
+
+  static Future<void> publishVerifiedInstaller(
+    File source,
+    File destination,
+  ) async {
+    if (!Platform.isWindows) {
+      throw UnsupportedError('Windows installer publication is Windows-only');
+    }
+    final sourcePath = source.absolute.path.toNativeUtf16(allocator: calloc);
+    final destinationPath =
+        destination.absolute.path.toNativeUtf16(allocator: calloc);
+    try {
+      // Resolve GetLastError before the native call so symbol lookup cannot
+      // overwrite the error produced by CreateHardLinkW.
+      GetLastError();
+      final created = _createHardLinkW(
+        destinationPath,
+        sourcePath,
+        nullptr,
+      );
+      final error = GetLastError();
+      if (created == 0) {
+        throw WindowsException(
+          error.toHRESULT(),
+          message: 'Failed to publish the verified Windows installer',
+        );
+      }
+    } finally {
+      calloc.free(sourcePath);
+      calloc.free(destinationPath);
+    }
+  }
+
+  static final _createHardLinkW = DynamicLibrary.open('kernel32.dll')
+      .lookupFunction<
+          Int32 Function(Pointer<Utf16>, Pointer<Utf16>, Pointer<Void>),
+          int Function(Pointer<Utf16>, Pointer<Utf16>,
+              Pointer<Void>)>('CreateHardLinkW');
 
   @visibleForTesting
   static Future<void> recoverStaleDesktopArtifacts(

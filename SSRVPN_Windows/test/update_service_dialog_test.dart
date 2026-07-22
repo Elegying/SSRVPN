@@ -72,6 +72,7 @@ void main() {
         ),
         outputDirectory: desktop,
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        filePublisher: UpdateService.publishVerifiedInstaller,
         client: MockClient(
           (_) async => http.Response.bytes(bytes, HttpStatus.ok),
         ),

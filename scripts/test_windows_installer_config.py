@@ -1766,10 +1766,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
 
         self.assertRegex(service, re.compile(r"assetExtension:\s*'\.exe'"))
 
-    def test_windows_verified_update_hard_link_uses_literal_environment_paths(
+    def test_windows_verified_update_uses_native_no_replace_publication(
         self,
     ) -> None:
-        service = (
+        shared_service = (
             ROOT
             / "packages"
             / "ssrvpn_shared"
@@ -1777,17 +1777,18 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             / "services"
             / "update_service.dart"
         ).read_text(encoding="utf-8")
+        windows_service = (
+            ROOT / "SSRVPN_Windows" / "lib" / "services" / "update_service.dart"
+        ).read_text(encoding="utf-8")
 
+        self.assertIn("VerifiedUpdateFilePublisher? filePublisher", shared_service)
+        self.assertIn("filePublisher(source, destination)", shared_service)
+        self.assertIn("CreateHardLinkW", windows_service)
         self.assertIn(
-            "-LiteralPath $env:SSRVPN_UPDATE_DESTINATION",
-            service,
+            "filePublisher: Platform.isWindows ? publishVerifiedInstaller : null",
+            windows_service,
         )
-        self.assertIn("-Target $env:SSRVPN_UPDATE_SOURCE", service)
-        self.assertIn("environment: environment", service)
-        self.assertNotIn(
-            "param([string]$SourcePath, [string]$DestinationPath)",
-            service,
-        )
+        self.assertNotIn("New-Item -ItemType HardLink", shared_service)
 
     def test_windows_runtime_records_full_core_identity_for_safe_cleanup(self) -> None:
         lifecycle = (
