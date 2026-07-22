@@ -571,7 +571,7 @@ void main() {
       'shared surfaces stay overflow-free on compact large-text screens',
       (tester) async {
     final node = ProxyNode(
-      name: '新加坡 | IEPL ①',
+      name: '新加坡 | IEPL ① | 这是一个用于验证窄窗口排版的超长节点名称',
       type: 'ss',
       server: 'sg.example.com',
       port: 443,
@@ -686,6 +686,36 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('主页').hitTestable(), findsOneWidget);
     expect(find.text('订阅').hitTestable(), findsOneWidget);
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnHomeOverview(
+          isConnected: false,
+          isConnecting: false,
+          selectedNode: null,
+          selectedLatency: null,
+          selectedCountryCode: null,
+          onToggleConnection: () {},
+          onOpenNodes: () {},
+          onShowAbout: () {},
+          onShowTutorial: () {},
+          onShowLogs: () {},
+          onRefreshPublicIp: () {},
+        ),
+        size: const Size(320, 568),
+        textScaleFactor: 3.2,
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const Key('ssrvpn-about-button')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('ssrvpn-tutorial-button')).hitTestable(),
+      findsOneWidget,
+    );
 
     await tester.pumpWidget(
       host(

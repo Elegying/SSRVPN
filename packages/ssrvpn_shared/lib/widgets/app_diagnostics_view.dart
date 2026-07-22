@@ -127,49 +127,60 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
         : warningCount > 0
             ? '检查完成，发现 $warningCount 项提醒'
             : '检查完成，未发现异常';
+    final stackSummaryActions = MediaQuery.textScalerOf(context).scale(14) > 24;
+    final summaryText = Text(summary, style: theme.textTheme.titleSmall);
+    final summaryActions = <Widget>[
+      Semantics(
+        button: true,
+        label: '复制脱敏诊断报告',
+        child: ExcludeSemantics(
+          child: IconButton(
+            tooltip: '复制脱敏诊断报告',
+            onPressed: _copyReport,
+            icon: const Icon(Icons.copy, size: 19),
+          ),
+        ),
+      ),
+      Semantics(
+        button: true,
+        label: '重新运行诊断',
+        child: ExcludeSemantics(
+          child: IconButton(
+            tooltip: '重新运行诊断',
+            onPressed: _loading ? null : _load,
+            icon: _loading
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh, size: 20),
+          ),
+        ),
+      ),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Semantics(
           liveRegion: true,
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  summary,
-                  style: theme.textTheme.titleSmall,
+          child: stackSummaryActions
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    summaryText,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: summaryActions,
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: summaryText),
+                    ...summaryActions,
+                  ],
                 ),
-              ),
-              Semantics(
-                button: true,
-                label: '复制脱敏诊断报告',
-                child: ExcludeSemantics(
-                  child: IconButton(
-                    tooltip: '复制脱敏诊断报告',
-                    onPressed: _copyReport,
-                    icon: const Icon(Icons.copy, size: 19),
-                  ),
-                ),
-              ),
-              Semantics(
-                button: true,
-                label: '重新运行诊断',
-                child: ExcludeSemantics(
-                  child: IconButton(
-                    tooltip: '重新运行诊断',
-                    onPressed: _loading ? null : _load,
-                    icon: _loading
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.refresh, size: 20),
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
         const SizedBox(height: 8),
         Expanded(

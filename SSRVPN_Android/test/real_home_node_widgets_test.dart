@@ -109,6 +109,70 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'Android tutorial remains dismissible in a compact large-text window',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 360));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture = (await tester.runAsync(
+      () => _AndroidHomeFixture.create(_RecordingAndroidClashService()),
+    ))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build(textScaleFactor: 2));
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-tutorial-button')),
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-tutorial-button')));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(SingleChildScrollView),
+      ),
+      findsOneWidget,
+    );
+    final dismiss = find.widgetWithText(TextButton, '知道了');
+    expect(dismiss.hitTestable(), findsOneWidget);
+  });
+
+  testWidgets(
+      'Android diagnostics header keeps its close action at maximum text scale',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(380, 568));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture = (await tester.runAsync(
+      () => _AndroidHomeFixture.create(_RecordingAndroidClashService()),
+    ))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build(textScaleFactor: 3.2));
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+    final currentNode = find.byKey(const Key('ssrvpn-current-node-card'));
+    await tester.ensureVisible(currentNode);
+    await tester.pump();
+    await tester.tap(currentNode);
+    await tester.pumpAndSettle();
+    final logs = find.text('运行日志');
+    await tester.ensureVisible(logs);
+    await tester.pump();
+    await tester.tap(logs);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('诊断与运行日志'), findsOneWidget);
+    expect(
+      find.widgetWithIcon(IconButton, Icons.close).hitTestable(),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('Android Home keeps an open selector live during auto latency',
       (tester) async {
     final clash = _DelayedAndroidClashService();
@@ -559,7 +623,7 @@ class _AndroidHomeFixture {
     );
   }
 
-  Widget build() {
+  Widget build({double textScaleFactor = 1}) {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<SubscriptionService>.value(value: subscription),
@@ -567,6 +631,12 @@ class _AndroidHomeFixture {
         Provider<ClashService>.value(value: clash),
       ],
       child: MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaler: TextScaler.linear(textScaleFactor),
+          ),
+          child: child!,
+        ),
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         home: const HomeScreen(),

@@ -9,10 +9,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import 'package:ssrvpn_macos/app.dart' as desktop_app;
 import 'package:ssrvpn_macos/screens/home_screen.dart';
 import 'package:ssrvpn_macos/services/clash_service.dart';
 import 'package:ssrvpn_macos/services/settings_service.dart';
 import 'package:ssrvpn_macos/services/subscription_service.dart';
+import 'package:ssrvpn_macos/startup/startup_flags.dart';
+import 'package:ssrvpn_macos/startup/startup_status.dart';
 import 'package:ssrvpn_macos/theme/app_theme.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
@@ -106,6 +109,112 @@ void main() {
     await tester.tap(cancel);
     await tester.pumpAndSettle();
     expect(find.text('添加订阅'), findsNothing);
+  });
+
+  testWidgets(
+      'desktop tutorial remains dismissible in a compact large-text window',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(380, 560));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build(textScaleFactor: 2));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.tap(find.byTooltip('使用教程'));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(SingleChildScrollView),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.widgetWithText(TextButton, '知道了').hitTestable(),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'desktop diagnostics header keeps its close action at maximum text scale',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(380, 560));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build(textScaleFactor: 3.2));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    final currentNode = find.byKey(const Key('ssrvpn-current-node-card'));
+    await tester.ensureVisible(currentNode);
+    await tester.pump();
+    await tester.tap(currentNode);
+    await tester.pumpAndSettle();
+    final logs = find.text('运行日志');
+    await tester.ensureVisible(logs);
+    await tester.pump();
+    await tester.tap(logs);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('诊断与运行日志'), findsOneWidget);
+    expect(
+      find.widgetWithIcon(IconButton, Icons.close).hitTestable(),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'desktop status banners preserve navigation in a compact maximum-text window',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(380, 560));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.platformDispatcher.textScaleFactorTestValue = 3.2;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final fixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+    addTearDown(fixture.dispose);
+    final status = StartupStatus.instance;
+    status.prepareCoreRetry();
+    status.reportFailure(
+      'mihomo_core',
+      StateError('core initialization failed while preserving user settings'),
+    );
+    status.setServices(
+      settings: fixture.settings,
+      clash: fixture.clash,
+      subscription: fixture.subscription,
+    );
+    status.markCompleted();
+    addTearDown(status.prepareCoreRetry);
+
+    await tester.pumpWidget(
+      desktop_app.SSRVpnApp(
+        startupFlags: StartupFlags.parse(const ['--safe-mode']),
+      ),
+    );
+    await tester.pump();
+    fixture.clash.onRuntimeNotice?.call(
+      '连接未完成：本地端口被其他应用占用，已保留原有配置与系统代理恢复状态，请稍后重试连接。',
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const Key('desktop-startup-banner-scroll')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('ssrvpn-bottom-navigation')).hitTestable(),
+      findsOneWidget,
+    );
   });
 
   testWidgets('home supports its primary desktop connection journey',
