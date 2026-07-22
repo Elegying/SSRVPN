@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -8,6 +10,74 @@ import 'package:ssrvpn_shared/services/update_checker.dart';
 import 'package:ssrvpn_shared/services/update_service.dart';
 
 void main() {
+  testWidgets('verified update refuses to open when safe preparation fails',
+      (tester) async {
+    final outputDirectory =
+        Directory.systemTemp.createTempSync('ssrvpn-update-prepare-');
+    addTearDown(() {
+      if (outputDirectory.existsSync()) {
+        outputDirectory.deleteSync(recursive: true);
+      }
+    });
+    final bytes = utf8.encode('verified-dmg');
+    final client = _StreamClient(
+      (_) async => http.StreamedResponse(
+        Stream<List<int>>.value(bytes),
+        HttpStatus.ok,
+        contentLength: bytes.length,
+      ),
+    );
+    var prepared = 0;
+    var opened = false;
+    late BuildContext context;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (value) {
+            context = value;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    final task = SharedUpdateService.downloadAndOpenVerifiedUpdate(
+      context,
+      AppUpdateInfo(
+        version: '9.9.9',
+        downloadUrl: 'https://example.com/SSRVPN.dmg',
+        changelog: '',
+        sha256: sha256.convert(bytes).toString(),
+      ),
+      fileName: 'SSRVPN.dmg',
+      outputDirectory: outputDirectory,
+      client: client,
+      beforeOpen: () async {
+        prepared++;
+        return false;
+      },
+      openFile: (_) async {
+        opened = true;
+      },
+    );
+    for (var attempt = 0;
+        attempt < 100 && find.text('更新失败').evaluate().isEmpty;
+        attempt++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+
+    expect(prepared, 1);
+    expect(opened, isFalse);
+    expect(find.text('更新失败'), findsOneWidget);
+    expect(find.textContaining('无法安全断开当前连接'), findsOneWidget);
+    await tester.tap(find.text('知道了'));
+    await tester.pumpAndSettle();
+    await task;
+  });
+
   testWidgets('cancelling a desktop update closes the progress dialog',
       (tester) async {
     final outputDirectory =
