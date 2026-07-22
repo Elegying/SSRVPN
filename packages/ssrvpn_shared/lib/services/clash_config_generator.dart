@@ -6,6 +6,7 @@ import '../models/app_settings.dart';
 import '../constants/app_constants.dart';
 import '../utils/bounded_yaml.dart';
 import '../utils/proxy_node_usage_policy.dart';
+import '../utils/runtime_config_name_policy.dart';
 
 /// Clash 配置生成器 - 跨平台共享的核心逻辑
 ///
@@ -52,6 +53,29 @@ class ClashConfigGenerator {
     final proxiesText = buildProxiesText(rawYaml);
     if (proxyNames.isEmpty || proxiesText.isEmpty) {
       throw Exception('订阅中没有可用节点，请先刷新订阅');
+    }
+    final normalizedExtraGroupNames =
+        RuntimeConfigNamePolicy.normalizeExtraGroupNames(
+      extraSelectGroupNames,
+    );
+    final generatedGroupNames = <String>{
+      'PROXY',
+      'GLOBAL',
+      '自动选择',
+      if (includeFallbackGroup) '故障转移',
+      ...normalizedExtraGroupNames,
+    };
+    String? conflictingProxyName;
+    for (final proxyName in proxyNames) {
+      if (generatedGroupNames.contains(proxyName)) {
+        conflictingProxyName = proxyName;
+        break;
+      }
+    }
+    if (conflictingProxyName != null) {
+      throw FormatException(
+        '节点名称“$conflictingProxyName”与 SSRVPN 内置代理组冲突，请刷新订阅后重试',
+      );
     }
 
     final selectedProxyNames = List<String>.from(proxyNames);
@@ -193,8 +217,7 @@ class ClashConfigGenerator {
       result.writeln("    url: ${_quote(healthCheckUrl)}");
       result.writeln('    interval: ${AppConstants.latencyTestInterval}');
     }
-    for (final groupName in extraSelectGroupNames.map((name) => name.trim())) {
-      if (groupName.isEmpty) continue;
+    for (final groupName in normalizedExtraGroupNames) {
       result.writeln('  - name: ${_quote(groupName)}');
       result.writeln('    type: select');
       result.writeln('    proxies:');
@@ -222,31 +245,28 @@ class ClashConfigGenerator {
       url: AppConstants.geoipCnRuleProviderUrl,
     );
 
-    // 规则
+    // 规则。按首次出现顺序去重，确保用户强制代理优先于内置直连，
+    // 同时避免重复 matcher 让运行配置含义变得含混。
+    final orderedRules = <String>{};
+    orderedRules.addAll(buildForceProxyRules(settings));
+    orderedRules.addAll(
+      extraRulesBeforeDirect.map((rule) => rule.trim()).where(
+            (rule) => rule.isNotEmpty,
+          ),
+    );
+    orderedRules.addAll(AppConstants.openAiProxyRules);
+    orderedRules.addAll(AppConstants.defaultRuleProviderDirectRules);
+    orderedRules.addAll(AppConstants.defaultDirectRules);
+    if (includeGeoIpRules) {
+      orderedRules.addAll(AppConstants.defaultGeoipRules);
+    }
+    orderedRules.add(AppConstants.defaultMatchRule);
+
     result.writeln();
     result.writeln('rules:');
-    for (final rule in buildForceProxyRules(settings)) {
+    for (final rule in orderedRules) {
       result.writeln('  - ${_quote(rule)}');
     }
-    for (final rule in extraRulesBeforeDirect.map((rule) => rule.trim())) {
-      if (rule.isEmpty) continue;
-      result.writeln('  - ${_quote(rule)}');
-    }
-    for (final rule in AppConstants.openAiProxyRules) {
-      result.writeln('  - ${_quote(rule)}');
-    }
-    for (final rule in AppConstants.defaultRuleProviderDirectRules) {
-      result.writeln('  - ${_quote(rule)}');
-    }
-    for (final rule in AppConstants.defaultDirectRules) {
-      result.writeln("  - '$rule'");
-    }
-    if (includeGeoIpRules) {
-      for (final rule in AppConstants.defaultGeoipRules) {
-        result.writeln("  - '$rule'");
-      }
-    }
-    result.writeln("  - '${AppConstants.defaultMatchRule}'");
 
     return result.toString();
   }

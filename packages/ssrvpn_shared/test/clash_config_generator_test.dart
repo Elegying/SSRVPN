@@ -284,6 +284,70 @@ proxies:
       );
     });
 
+    test('generateConfig emits each exact rule only once', () {
+      const yaml = '''
+proxies:
+  - name: Test Node
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: test123
+''';
+      final parsed = loadYaml(
+        ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(forceProxySites: const ['openai.com']),
+          extraRulesBeforeDirect: const [
+            'DOMAIN-SUFFIX,openai.com,PROXY',
+            'DOMAIN-SUFFIX,openai.com,PROXY',
+          ],
+        ),
+      ) as YamlMap;
+      final rules = (parsed['rules'] as YamlList).cast<String>();
+
+      expect(
+        rules.where((rule) => rule == 'DOMAIN-SUFFIX,openai.com,PROXY'),
+        hasLength(1),
+      );
+      expect(
+        rules.indexOf('DOMAIN-SUFFIX,openai.com,PROXY'),
+        lessThan(rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT')),
+      );
+    });
+
+    test('generateConfig deduplicates extra groups and rejects collisions', () {
+      const yaml = '''
+proxies:
+  - name: Test Node
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: test123
+''';
+      final parsed = loadYaml(
+        ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(),
+          extraSelectGroupNames: const ['SSRVPN-GEO', ' SSRVPN-GEO '],
+        ),
+      ) as YamlMap;
+      final names = (parsed['proxy-groups'] as YamlList)
+          .map((group) => (group as YamlMap)['name'])
+          .cast<String>();
+      expect(names.where((name) => name == 'SSRVPN-GEO'), hasLength(1));
+
+      expect(
+        () => ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(),
+          extraSelectGroupNames: const ['PROXY'],
+        ),
+        throwsArgumentError,
+      );
+    });
+
     test('generateConfig enables externally refreshed CN rule providers', () {
       final yaml = '''
 proxies:

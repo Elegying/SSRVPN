@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import '../constants/app_constants.dart';
 import '../utils/bounded_yaml.dart';
+import '../utils/runtime_config_name_policy.dart';
 import 'subscription_parser.dart';
 
 class SubscriptionYamlMerger {
@@ -40,7 +41,9 @@ class SubscriptionYamlMerger {
       standaloneGroupName,
     );
 
-    final usedNames = <String>{};
+    final usedNames = <String>{
+      ...RuntimeConfigNamePolicy.reservedProxyNames,
+    };
     final nextSuffixByBase = <String, int>{};
     final fingerprintsByName = <String, Set<String>>{};
     final usedSourceNames = <String>{};

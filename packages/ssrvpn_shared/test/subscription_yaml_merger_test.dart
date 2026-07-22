@@ -1,7 +1,10 @@
 import 'dart:collection';
 
+import 'package:ssrvpn_shared/models/app_settings.dart';
+import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/services/subscription_yaml_merger.dart';
 import 'package:test/test.dart';
+import 'package:yaml/yaml.dart';
 
 void main() {
   group('SubscriptionYamlMerger', () {
@@ -100,6 +103,46 @@ proxy-groups:
       // This is deliberately generous: the deterministic probe-count test
       // proves complexity, while this only guards against an input freeze.
       expect(stopwatch.elapsed, lessThan(const Duration(seconds: 20)));
+    });
+
+    test('reserves every SSRVPN runtime proxy-group name', () {
+      const yaml = '''
+proxies:
+  - {name: PROXY, type: trojan, server: proxy.example.com, port: 443, password: secret}
+  - {name: GLOBAL, type: trojan, server: global.example.com, port: 443, password: secret}
+  - {name: 自动选择, type: trojan, server: auto.example.com, port: 443, password: secret}
+  - {name: 故障转移, type: trojan, server: fallback.example.com, port: 443, password: secret}
+  - {name: SSRVPN-GEO, type: trojan, server: geo.example.com, port: 443, password: secret}
+''';
+
+      final merged = SubscriptionYamlMerger.mergeYamlConfigs([yaml]);
+      expect(ClashConfigGenerator.extractProxyNames(merged), [
+        'PROXY (2)',
+        'GLOBAL (2)',
+        '自动选择 (2)',
+        '故障转移 (2)',
+        'SSRVPN-GEO (2)',
+      ]);
+
+      final generated = loadYaml(
+        ClashConfigGenerator.generateConfig(
+          merged,
+          AppSettings(),
+          includeFallbackGroup: true,
+          extraSelectGroupNames: const ['SSRVPN-GEO'],
+        ),
+      ) as YamlMap;
+      final proxyNames = (generated['proxies'] as YamlList)
+          .map((proxy) => (proxy as YamlMap)['name'])
+          .cast<String>()
+          .toSet();
+      final groupNames = (generated['proxy-groups'] as YamlList)
+          .map((group) => (group as YamlMap)['name'])
+          .cast<String>()
+          .toList();
+
+      expect(groupNames.toSet(), hasLength(groupNames.length));
+      expect(proxyNames.intersection(groupNames.toSet()), isEmpty);
     });
 
     test('rejects a merged subscription with too many proxy items', () {
