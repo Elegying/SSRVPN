@@ -59,6 +59,8 @@ MOCK_LOCK_MKDIR_CALLS=0
 MOCK_LOCK_SECOND_BEHAVIOR=normal
 MOCK_COMPETITOR_PID=424242
 MOCK_NETWORK_SERVICE=Wi-Fi
+MOCK_NETWORK_SERVICE_LIST=Wi-Fi
+MOCK_NETWORK_SERVICE_LIST_FAILURE=false
 MOCK_ACTIVE_NETWORK_DEVICE=en0
 MOCK_SCUTIL_CALLS=0
 MOCK_CHILD_PID=31337
@@ -94,6 +96,12 @@ MOCK_STATUS_HISTORY=
   local operation=${1:-}
   shift || true
   case "$operation" in
+    -listallnetworkservices)
+      [[ $MOCK_NETWORK_SERVICE_LIST_FAILURE == false ]] || return 1
+      printf '%s\n' \
+        'An asterisk (*) denotes that a network service is disabled.' \
+        "$MOCK_NETWORK_SERVICE_LIST"
+      ;;
     -listnetworkserviceorder)
       printf '(1) %s\n(Hardware Port: Wi-Fi, Device: en0)\n' \
         "$MOCK_NETWORK_SERVICE"
@@ -243,6 +251,8 @@ setup_case() {
   MOCK_LOCK_MKDIR_CALLS=0
   MOCK_LOCK_SECOND_BEHAVIOR=normal
   MOCK_NETWORK_SERVICE=Wi-Fi
+  MOCK_NETWORK_SERVICE_LIST=Wi-Fi
+  MOCK_NETWORK_SERVICE_LIST_FAILURE=false
   MOCK_ACTIVE_NETWORK_DEVICE=en0
   MOCK_SCUTIL_CALLS=0
   runtime_health_failure_count=0
@@ -401,6 +411,84 @@ test_restore_failure_keeps_journal() {
   [[ -f $dns_state_path ]] || return 1
   assert_equal "$tun_dns_server" "$MOCK_DNS_CURRENT" \
     'failed restoration must leave the owned DNS value unchanged' || return 1
+}
+
+test_missing_network_service_retires_journal_and_unblocks_cleanup() {
+  setup_case missing-network-service
+  write_journal manual 1.1.1.1 8.8.8.8
+  MOCK_DNS_CURRENT=$tun_dns_server
+  # The captured service was renamed or deleted. The exact old name is absent
+  # from a successful networksetup enumeration, and querying it now fails.
+  MOCK_NETWORK_SERVICE='Home Wi-Fi'
+  MOCK_NETWORK_SERVICE_LIST='Home Wi-Fi'
+  MOCK_DNS_GET_FAILURE=true
+
+  # This assertion is deliberately before cleanup: on the old implementation
+  # it fails immediately instead of entering cleanup's unbounded supervisor.
+  restore_persisted_tun_dns || {
+    echo 'assertion failed: a confirmed-missing network service must retire its journal' >&2
+    return 1
+  }
+  assert_file_absent "$dns_state_path" \
+    'a confirmed-missing service must retire the stale DNS journal' || return 1
+
+  command /bin/mkdir -m 700 "$lock_dir"
+  printf '%s\n' "$$" > "$lock_owner_path"
+  chmod 600 "$lock_owner_path"
+  lock_acquired=true
+  child_pid=$MOCK_CHILD_PID
+  MOCK_CHILD_ALIVE=true
+  mkdir -p "$runtime_dir"
+  runtime_created=true
+
+  cleanup || return 1
+
+  ((MOCK_CHILD_KILL_CALLS > 0)) || {
+    echo 'assertion failed: missing-service recovery must not strand the core' >&2
+    return 1
+  }
+  assert_file_absent "$lock_dir" \
+    'missing-service recovery must release the TUN lock' || return 1
+  assert_file_absent "$runtime_dir" \
+    'missing-service recovery must release the core runtime and ports' || return 1
+}
+
+test_network_service_enumeration_failure_keeps_journal() {
+  setup_case network-service-enumeration-failure
+  write_journal automatic
+  MOCK_DNS_CURRENT=$tun_dns_server
+  MOCK_DNS_GET_FAILURE=true
+  MOCK_NETWORK_SERVICE_LIST_FAILURE=true
+
+  if restore_persisted_tun_dns; then
+    echo 'assertion failed: failed service enumeration must remain recoverable' >&2
+    return 1
+  fi
+
+  [[ -f $dns_state_path ]] || {
+    echo 'assertion failed: failed service enumeration must preserve the journal' >&2
+    return 1
+  }
+  assert_equal 0 "$MOCK_DNS_SET_CALLS" \
+    'failed service enumeration must not mutate DNS' || return 1
+}
+
+test_disabled_network_service_is_not_treated_as_missing() {
+  setup_case disabled-network-service
+  write_journal automatic
+  MOCK_DNS_CURRENT=$tun_dns_server
+  MOCK_DNS_GET_FAILURE=true
+  MOCK_NETWORK_SERVICE_LIST='*Wi-Fi'
+
+  if restore_persisted_tun_dns; then
+    echo 'assertion failed: a disabled existing service must remain recoverable' >&2
+    return 1
+  fi
+
+  [[ -f $dns_state_path ]] || {
+    echo 'assertion failed: a disabled existing service must preserve the journal' >&2
+    return 1
+  }
 }
 
 test_cleanup_failure_is_observable() {
@@ -771,6 +859,9 @@ for entry in \
   'manual multi-DNS exact restore:test_manual_multi_dns_restores_exact_order' \
   'user DNS change preservation:test_user_dns_change_is_preserved_and_retires_journal' \
   'restore failure journal retention:test_restore_failure_keeps_journal' \
+  'missing service cleanup release:test_missing_network_service_retires_journal_and_unblocks_cleanup' \
+  'service enumeration failure retention:test_network_service_enumeration_failure_keeps_journal' \
+  'disabled service retention:test_disabled_network_service_is_not_treated_as_missing' \
   'cleanup failure propagation:test_cleanup_failure_is_observable' \
   'cleanup keeps DNS core until recovery:test_cleanup_keeps_dns_core_until_restore_recovers' \
   'cleanup request generation safety:test_successful_cleanup_retires_only_its_request_generation' \

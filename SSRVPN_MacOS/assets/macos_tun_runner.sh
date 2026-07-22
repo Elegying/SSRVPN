@@ -231,6 +231,27 @@ read_dns_servers() {
   /usr/sbin/networksetup -getdnsservers "$1" 2>/dev/null
 }
 
+# Returns success only when networksetup itself completed successfully, emitted
+# its expected service-list header, and the exact captured service name is no
+# longer present. Command or output failures remain indistinguishable from an
+# existing service so DNS recovery keeps retrying conservatively.
+network_service_is_confirmed_missing() {
+  local expected_service=$1 output service saw_header=false
+  output=$(/usr/sbin/networksetup -listallnetworkservices 2>/dev/null) || return 1
+  while IFS= read -r service || [[ -n $service ]]; do
+    service=${service%$'\r'}
+    if [[ $service == 'An asterisk (*) denotes that a network service is disabled.' ]]; then
+      saw_header=true
+      continue
+    fi
+    if [[ $service == \** ]]; then
+      service=${service#\*}
+    fi
+    [[ $service == "$expected_service" ]] && return 1
+  done <<< "$output"
+  [[ $saw_header == true ]]
+}
+
 is_secure_root_directory() {
   local path=$1 owner mode permissions
   [[ -d $path && ! -L $path ]] || return 1
@@ -444,7 +465,14 @@ restore_persisted_tun_dns() {
   fi
   ensure_dns_state_directory || return 1
   load_persisted_tun_dns || return 1
-  current=$(read_dns_servers "$dns_service") || return 1
+  if ! current=$(read_dns_servers "$dns_service"); then
+    if network_service_is_confirmed_missing "$dns_service"; then
+      echo "SSRVPN TUN: captured DNS service no longer exists; retiring recovery state" >&2
+      remove_dns_state || return 1
+      return 0
+    fi
+    return 1
+  fi
   if ! is_owned_tun_dns_value "$current"; then
     echo "SSRVPN TUN: DNS ownership changed; preserving current settings" >&2
     remove_dns_state || return 1

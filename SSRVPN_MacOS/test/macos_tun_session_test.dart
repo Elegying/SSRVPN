@@ -54,7 +54,7 @@ void main() {
     expect(
       arguments!.last,
       contains(
-        '54326c00360586675d671750faf586e2b677dfad377079880d2f4625c06a808b',
+        'a1c5748f62c061686a8ebc3881c8f4b97c258323cf8f2cbad02ad0277d63f3f6',
       ),
     );
     expect(arguments!.last, isNot(contains('/usr/bin/nohup')));
@@ -485,7 +485,7 @@ void main() {
     expect(
       arguments!.last,
       contains(
-        '54326c00360586675d671750faf586e2b677dfad377079880d2f4625c06a808b',
+        'a1c5748f62c061686a8ebc3881c8f4b97c258323cf8f2cbad02ad0277d63f3f6',
       ),
     );
     expect(await request.exists(), isFalse);
