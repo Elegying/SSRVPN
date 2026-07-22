@@ -2,7 +2,27 @@ import Cocoa
 import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
+  static let integratedBackgroundColor = NSColor(
+    srgbRed: 24.0 / 255.0,
+    green: 27.0 / 255.0,
+    blue: 59.0 / 255.0,
+    alpha: 1.0
+  )
+
+  func configureIntegratedTitlebar() {
+    title = ""
+    titleVisibility = .hidden
+    titlebarAppearsTransparent = true
+    styleMask.insert(.fullSizeContentView)
+    backgroundColor = Self.integratedBackgroundColor
+    if #available(macOS 11.0, *) {
+      titlebarSeparatorStyle = .none
+    }
+  }
+
   override func awakeFromNib() {
+    configureIntegratedTitlebar()
+
     guard let delegate = NSApp.delegate as? AppDelegate else {
       super.awakeFromNib()
       orderOut(nil)

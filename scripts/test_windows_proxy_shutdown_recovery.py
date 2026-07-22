@@ -15,6 +15,22 @@ def windows_app_runtime_source() -> str:
 
 
 class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
+    def test_native_window_requests_windows_11_round_corners(self) -> None:
+        source = (
+            ROOT / "SSRVPN_Windows" / "windows" / "runner" / "win32_window.cpp"
+        ).read_text(encoding="utf-8")
+        startup = (
+            ROOT / "SSRVPN_Windows" / "lib" / "startup" / "startup_orchestrator.dart"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("kDwmwaWindowCornerPreference", source)
+        self.assertIn("kDwmWindowCornerPreferenceRound", source)
+        self.assertIn(
+            "DwmSetWindowAttribute(window, kDwmwaWindowCornerPreference",
+            source,
+        )
+        self.assertIn("setBackgroundColor(Colors.transparent)", startup)
+
     def test_launcher_contention_never_silently_succeeds_without_activation(
         self,
     ) -> None:

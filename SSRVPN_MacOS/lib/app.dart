@@ -16,6 +16,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         DesktopConnectionFailure,
         SsrvpnAppBackdrop,
         SsrvpnBottomNavigation,
+        SsrvpnDesktopTitlebarInset,
         desktopSubscriptionChangedMessage;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
@@ -36,6 +37,15 @@ import 'theme/app_theme.dart';
 
 part 'package:ssrvpn_shared/desktop_ui/desktop_app_shell_part.dart';
 part 'app_runtime_actions_part.dart';
+
+const double _macosIntegratedTitlebarHeight = 28;
+
+Widget _buildMacosIntegratedWindow(BuildContext context, Widget? child) {
+  return SsrvpnDesktopTitlebarInset(
+    top: _macosIntegratedTitlebarHeight,
+    child: child ?? const SizedBox.shrink(),
+  );
+}
 
 class SSRVpnApp extends StatefulWidget {
   const SSRVpnApp({super.key, required this.startupFlags});
@@ -237,6 +247,7 @@ class _SSRVpnAppState extends State<SSRVpnApp>
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
         themeMode: ThemeMode.dark,
+        builder: _buildMacosIntegratedWindow,
         home: CrashReportPrompt(
           child: _DesktopAppShell(
             safeMode: widget.startupFlags.safeMode,
@@ -258,6 +269,7 @@ class _SSRVpnAppState extends State<SSRVpnApp>
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
+      builder: _buildMacosIntegratedWindow,
       home: Scaffold(
         backgroundColor: const Color(0xFF050508),
         body: SafeArea(

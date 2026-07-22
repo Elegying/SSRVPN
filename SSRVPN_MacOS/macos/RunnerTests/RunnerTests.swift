@@ -25,6 +25,25 @@ private final class FakeWindowRevealTarget: WindowRevealTarget {
 
 class RunnerTests: XCTestCase {
 
+  func testMainWindowUsesIntegratedTitlebarAppearance() {
+    let window = MainFlutterWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 480, height: 720),
+      styleMask: [.titled, .closable, .miniaturizable, .resizable],
+      backing: .buffered,
+      defer: false
+    )
+
+    window.configureIntegratedTitlebar()
+
+    XCTAssertEqual(window.titleVisibility, .hidden)
+    XCTAssertTrue(window.titlebarAppearsTransparent)
+    XCTAssertTrue(window.styleMask.contains(.fullSizeContentView))
+    XCTAssertEqual(window.backgroundColor, MainFlutterWindow.integratedBackgroundColor)
+    if #available(macOS 11.0, *) {
+      XCTAssertEqual(window.titlebarSeparatorStyle, .none)
+    }
+  }
+
   private func buildNativeCoreFixture(at executableURL: URL) throws {
     let sourceURL = executableURL
       .deletingLastPathComponent()

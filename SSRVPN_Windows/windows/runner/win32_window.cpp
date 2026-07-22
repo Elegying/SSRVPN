@@ -32,6 +32,13 @@ namespace {
 #define DWMWA_TEXT_COLOR 36
 #endif
 
+// Windows 11 DWM attributes are expressed as numeric values so the runner can
+// still compile with older Windows SDKs. Unsupported systems simply ignore the
+// request and keep their native window shape.
+constexpr auto kDwmwaWindowCornerPreference =
+    static_cast<DWMWINDOWATTRIBUTE>(33);
+constexpr DWORD kDwmWindowCornerPreferenceRound = 2;
+
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
 /// Registry key for app theme preference.
@@ -310,6 +317,13 @@ void Win32Window::UpdateTheme(HWND const window) {
     DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1,
                           &enable_dark_mode, sizeof(enable_dark_mode));
   }
+
+  // Let DWM clip and shadow the complete native window. Windows automatically
+  // removes this radius while maximized, so a maximized client still fills the
+  // work area without transparent gaps.
+  const DWORD corner_preference = kDwmWindowCornerPreferenceRound;
+  DwmSetWindowAttribute(window, kDwmwaWindowCornerPreference,
+                        &corner_preference, sizeof(corner_preference));
 
   const COLORREF caption_color =
       enable_dark_mode ? RGB(11, 13, 20) : RGB(248, 250, 252);

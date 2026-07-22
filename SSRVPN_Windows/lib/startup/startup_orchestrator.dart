@@ -79,6 +79,7 @@ class StartupOrchestrator {
 
     await windowManager.ensureInitialized();
     try {
+      await windowManager.setBackgroundColor(Colors.transparent);
       await windowManager.setTitleBarStyle(
         TitleBarStyle.hidden,
         windowButtonVisibility: false,
