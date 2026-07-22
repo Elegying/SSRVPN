@@ -603,8 +603,20 @@ function Write-JsonAtomic {
 function Invoke-RegExe {
   param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-  $output = @(& $script:regExe @Arguments 2>&1)
-  $exitCode = $LASTEXITCODE
+  # Windows PowerShell 5.1 converts native stderr into ErrorRecord objects.
+  # With the script-wide Stop preference, reg.exe can therefore throw before
+  # LASTEXITCODE is inspected even when it exits 0 (notably, `reg delete` has
+  # emitted "The operation completed successfully" on hosted Windows 2025).
+  # Capture the complete native output under Continue, then decide solely from
+  # the process exit code and the verified registry postconditions.
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $output = @(& $script:regExe @Arguments 2>&1)
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
   if ($exitCode -ne 0) {
     $details = ($output | ForEach-Object { [string]$_ }) -join ' '
     throw "Registry command failed with exit code $exitCode`: $details"
