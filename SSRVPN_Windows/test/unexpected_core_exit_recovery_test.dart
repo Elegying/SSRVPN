@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ssrvpn_shared/models/app_settings.dart';
-import 'package:ssrvpn_shared/services/system_proxy_ownership_status.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/services/clash_service.dart';
 
 void main() {
