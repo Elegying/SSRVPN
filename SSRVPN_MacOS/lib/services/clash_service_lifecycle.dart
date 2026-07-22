@@ -555,8 +555,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
     notifyRuntimeNotice(
       'Mihomo 持续失去响应，正在执行安全重启'
-      '（${_unexpectedExitRecoveryPolicy.attempts}/'
-      '${_unexpectedExitRecoveryPolicy.maxAttempts}）…',
+      '（${_automaticRecoveryPolicy.attempts}/'
+      '${_automaticRecoveryPolicy.maxAttempts}）…',
     );
     try {
       await stop();
