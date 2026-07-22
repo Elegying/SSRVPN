@@ -11,8 +11,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/services/update_service.dart';
 
 void main() {
-  test(
-      'stale private update artifacts are recovered without touching user files',
+  test('stale private update artifacts never publish an unverified installer',
       () async {
     final desktop =
         Directory.systemTemp.createTempSync('ssrvpn-windows-artifacts-');
@@ -47,8 +46,7 @@ void main() {
       staleAfter: const Duration(days: 1),
     );
 
-    expect(await previousDestination.readAsString(),
-        'previous verified installer');
+    expect(await previousDestination.exists(), isFalse);
     expect(await previous.exists(), isFalse);
     expect(await stalePart.exists(), isFalse);
     expect(await recentPart.exists(), isTrue);

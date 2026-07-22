@@ -133,20 +133,10 @@ class UpdateService {
               !(await entity.stat()).modified.isBefore(cutoff)) {
             continue;
           }
-          if (match.group(2) == 'previous') {
-            final destination = File(p.join(desktop.path, match.group(1)!));
-            final destinationType = await FileSystemEntity.type(
-              destination.path,
-              followLinks: false,
-            );
-            if (destinationType == FileSystemEntityType.notFound) {
-              await entity.rename(destination.path);
-            } else if (destinationType == FileSystemEntityType.file) {
-              await entity.delete();
-            }
-          } else {
-            await entity.delete();
-          }
+          // A stale backup has no trusted digest attached to it, so it must
+          // never regain the canonical installer name. The verified download
+          // path performs its own digest-aware interrupted-publication recovery.
+          await entity.delete();
         } catch (_) {
           // Cleanup is best-effort; update download and verification remain
           // authoritative even when an artifact is locked by another process.
@@ -176,6 +166,7 @@ class UpdateService {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        scrollable: true,
         title: const Text('下载完成'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -208,6 +199,7 @@ class UpdateService {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
+          scrollable: true,
           title: const Text('更新失败'),
           content: Text(error.toString().replaceFirst('Bad state: ', '')),
           actions: [
