@@ -155,6 +155,65 @@ proxies:
       expect(proxyNames.intersection(groupNames.toSet()), isEmpty);
     });
 
+    test('canonicalizes control characters before collision allocation', () {
+      const yaml = r'''
+proxies:
+  - {name: Node, type: trojan, server: first.example.com, port: 443, password: secret}
+  - {name: "\u0001Node", type: trojan, server: second.example.com, port: 443, password: secret}
+  - {name: "P\u0001ROXY", type: trojan, server: reserved.example.com, port: 443, password: secret}
+  - {name: Line, type: trojan, server: line.example.com, port: 443, password: secret}
+  - {name: "L\tine", type: trojan, server: tab.example.com, port: 443, password: secret}
+  - {name: "L\nine", type: trojan, server: newline.example.com, port: 443, password: secret}
+  - {name: "L\rine", type: trojan, server: carriage-return.example.com, port: 443, password: secret}
+''';
+
+      final merged = SubscriptionYamlMerger.mergeYamlConfigs([yaml]);
+
+      expect(
+        ClashConfigGenerator.extractProxyNames(merged),
+        [
+          'Node',
+          'Node (2)',
+          'PROXY (2)',
+          'Line',
+          'Line (2)',
+          'Line (3)',
+          'Line (4)',
+        ],
+      );
+      expect(
+        () => ClashConfigGenerator.generateConfig(merged, AppSettings()),
+        returnsNormally,
+      );
+      expect(
+        () => ClashConfigGenerator.generateConfig(
+          merged,
+          AppSettings(),
+          extraSelectGroupNames: const ['P\u0001ROXY'],
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('canonicalizes source names before stable suffix allocation', () {
+      const yamlA = '''
+proxies:
+  - {name: One, type: ss, server: one.example.com, port: 443, cipher: aes-128-gcm, password: secret}
+''';
+      const yamlB = '''
+proxies:
+  - {name: Two, type: ss, server: two.example.com, port: 443, cipher: aes-128-gcm, password: secret}
+''';
+
+      final merged = SubscriptionYamlMerger.mergeYamlConfigs(
+        [yamlA, yamlB],
+        sourceNames: const ['Primary', '\u0001Primary'],
+      );
+
+      expect(merged, contains('"ssrvpn-subscription":"Primary"'));
+      expect(merged, contains('"ssrvpn-subscription":"Primary (2)"'));
+    });
+
     test('rejects a merged subscription with too many proxy items', () {
       final yaml = StringBuffer('proxies:\n');
       for (var i = 0; i <= SubscriptionYamlMerger.maxMergedProxyNodes; i++) {

@@ -76,22 +76,32 @@ mixin _ClashRuntimeSupport {
     ];
     for (final port in candidates) {
       if (reserved.contains(port)) continue;
-      if (await _canBindPort(port)) return port;
+      if (await canBindRuntimePort(port)) return port;
     }
 
     while (true) {
-      final socket = await ServerSocket.bind(
-        InternetAddress.loopbackIPv4,
-        0,
-        shared: false,
-      );
-      final port = socket.port;
-      await socket.close();
-      if (!reserved.contains(port)) return port;
+      final port = await allocateEphemeralPortCandidate();
+      if (reserved.contains(port)) continue;
+      if (await canBindRuntimePort(port)) return port;
     }
   }
 
-  Future<bool> _canBindPort(int port) async {
+  /// Allocates a candidate only; [findAvailablePort] still rechecks both
+  /// loopback stacks after releasing this temporary IPv4 reservation.
+  @protected
+  Future<int> allocateEphemeralPortCandidate() async {
+    final socket = await ServerSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+      shared: false,
+    );
+    final port = socket.port;
+    await socket.close();
+    return port;
+  }
+
+  @protected
+  Future<bool> canBindRuntimePort(int port) async {
     ServerSocket? ipv4;
     ServerSocket? ipv6;
     try {

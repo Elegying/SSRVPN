@@ -106,6 +106,28 @@ void main() {
 
       expect(selected, isNot(occupied.port));
     });
+
+    test('ephemeral fallback rechecks both loopback stacks', () async {
+      const preferredPort = 32000;
+      final service = _FallbackPortClashService(
+        unavailablePorts: {
+          for (var port = preferredPort; port <= preferredPort + 50; port++)
+            port,
+          45000,
+        },
+        ephemeralCandidates: [45000, 45001],
+      );
+      addTearDown(service.dispose);
+
+      final selected = await service.findAvailablePort(preferredPort, {});
+
+      expect(selected, 45001);
+      expect(service.checkedPorts, [
+        for (var port = preferredPort; port <= preferredPort + 50; port++) port,
+        45000,
+        45001,
+      ]);
+    });
   });
 
   group('ClashServiceBase connectivity verification', () {
@@ -774,6 +796,31 @@ class _PlannedPortClashService extends _TestClashService {
       candidate++;
     }
     return candidate;
+  }
+}
+
+class _FallbackPortClashService extends _TestClashService {
+  _FallbackPortClashService({
+    required this.unavailablePorts,
+    required List<int> ephemeralCandidates,
+  }) : _ephemeralCandidates = List<int>.of(ephemeralCandidates);
+
+  final Set<int> unavailablePorts;
+  final List<int> _ephemeralCandidates;
+  final List<int> checkedPorts = [];
+
+  @override
+  Future<bool> canBindRuntimePort(int port) async {
+    checkedPorts.add(port);
+    return !unavailablePorts.contains(port);
+  }
+
+  @override
+  Future<int> allocateEphemeralPortCandidate() async {
+    if (_ephemeralCandidates.isEmpty) {
+      throw StateError('No planned ephemeral port candidate');
+    }
+    return _ephemeralCandidates.removeAt(0);
   }
 }
 

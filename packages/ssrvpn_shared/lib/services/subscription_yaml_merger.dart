@@ -74,10 +74,14 @@ class SubscriptionYamlMerger {
         _checkItemSize(item);
 
         final proxy = parseProxyItem(item);
-        final originalName = proxy?['name']?.toString().trim();
-        if (proxy == null || originalName == null || originalName.isEmpty) {
+        final originalName = RuntimeConfigNamePolicy.canonicalName(
+          proxy?['name'],
+        );
+        if (proxy == null || originalName.isEmpty) {
           continue;
         }
+
+        proxy['name'] = originalName;
 
         final fingerprint = jsonEncode(_canonicalJsonValue(proxy));
         final fingerprints = fingerprintsByName.putIfAbsent(
@@ -170,7 +174,7 @@ class SubscriptionYamlMerger {
     Map<String, int> nextSuffixByBase,
     String standaloneGroupName,
   ) {
-    final base = sourceName.trim();
+    final base = RuntimeConfigNamePolicy.canonicalName(sourceName);
     if (base.isEmpty || base == standaloneGroupName) return base;
     return uniqueProxyName(
       base,

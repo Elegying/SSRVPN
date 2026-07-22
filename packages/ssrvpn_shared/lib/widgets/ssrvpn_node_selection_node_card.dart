@@ -113,6 +113,10 @@ class _NodeSelectionCard extends StatelessWidget {
                                 Expanded(
                                   child: Tooltip(
                                     message: displayName,
+                                    // Mouse hover remains available, while
+                                    // touch long-press belongs exclusively to
+                                    // the surrounding node edit action.
+                                    triggerMode: TooltipTriggerMode.manual,
                                     child: Text(
                                       displayName,
                                       maxLines: 1,

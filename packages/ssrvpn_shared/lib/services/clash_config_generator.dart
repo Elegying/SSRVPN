@@ -479,10 +479,10 @@ class ClashConfigGenerator {
   }
 
   static String _sanitizeScalar(String value) =>
-      value.replaceAll(RegExp(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]'), '');
+      RuntimeConfigNamePolicy.sanitizeScalar(value);
 
   static String _canonicalProxyName(Object? value) =>
-      _sanitizeScalar(value?.toString() ?? '').trim();
+      RuntimeConfigNamePolicy.canonicalName(value);
 
   /// 构建强制代理规则
   static List<String> buildForceProxyRules(AppSettings settings) {
@@ -534,9 +534,8 @@ class ClashConfigGenerator {
 
   /// 为 YAML 字符串添加引号（如果需要）
   static String _quote(String value) {
-    final sanitized = value
-        .replaceAll('\\', '\\\\')
-        .replaceAll(RegExp(r'[\x00-\x1f\x7f]'), '');
+    final sanitized =
+        RuntimeConfigNamePolicy.sanitizeScalar(value).replaceAll('\\', '\\\\');
     return "'${sanitized.replaceAll("'", "''")}'";
   }
 }
