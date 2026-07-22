@@ -53,6 +53,36 @@ void main() {
     expect(await unrelated.exists(), isTrue);
   });
 
+  test(
+    'real Windows verified installer publication completes atomically',
+    () async {
+      final desktop =
+          Directory.systemTemp.createTempSync('ssrvpn-windows-publish-');
+      addTearDown(() {
+        if (desktop.existsSync()) desktop.deleteSync(recursive: true);
+      });
+      final bytes = utf8.encode('verified-windows-installer');
+
+      final published = await SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(bytes).toString(),
+        ),
+        outputDirectory: desktop,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        client: MockClient(
+          (_) async => http.Response.bytes(bytes, HttpStatus.ok),
+        ),
+      );
+
+      expect(published.readAsBytesSync(), bytes);
+      expect(desktop.listSync(), hasLength(1));
+    },
+    skip: !Platform.isWindows,
+  );
+
   testWidgets('Windows update action downloads to Desktop without changing URL',
       (tester) async {
     final desktop =
