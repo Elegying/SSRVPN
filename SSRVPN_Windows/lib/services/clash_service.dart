@@ -8,6 +8,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../services/system_proxy_service.dart';
 import '../services/windows_tun_runtime_probe.dart';
+import '../src/services/windows_core_pid_record.dart';
 import '../src/services/windows_powershell.dart';
 
 part 'clash_service_config.dart';

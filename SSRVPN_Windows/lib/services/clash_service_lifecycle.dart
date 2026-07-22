@@ -2,6 +2,12 @@ part of 'clash_service.dart';
 
 class _DesktopStartCancelled implements Exception {}
 
+enum _VerifiedCoreTermination {
+  terminatedOrGone,
+  liveIdentityMismatch,
+  wrongInstallation,
+}
+
 const _tunTeardownTimeoutError = '核心已停止，但 Windows TUN 网卡未在超时前移除；'
     '为避免路由冲突，已阻止再次连接，请保持 SSRVPN 打开并重试断开';
 const _tunResidualProbeError = '无法确认旧 Windows TUN 网卡和路由已清理；'
@@ -31,6 +37,8 @@ Future<bool> terminateCoreProcess(
 mixin _WindowsCoreLifecycle on ClashServiceBase {
   // ── Process management ──
   Process? _coreProcess;
+  WindowsCorePidRecord? _corePidRecord;
+  WindowsCoreIdentityEstablishment? _coreIdentityEstablishment;
   Future<bool>? _startOperation;
   Completer<void>? _startCancellation;
   Future<void>? _stopOperation;
@@ -164,6 +172,36 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
     await stop();
   }
 
+  @override
+  Future<bool> recoverAfterHealthCheckFailure(
+    int connectionGeneration,
+  ) async {
+    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+      await stop();
+      return false;
+    }
+    if (await healthCheck()) {
+      setRunning(true);
+      return true;
+    }
+    if (!_unexpectedExitRecoveryPolicy.tryAcquire()) {
+      await stop();
+      return false;
+    }
+
+    notifyRuntimeNotice('Mihomo 持续失去响应，正在执行一次安全重启…');
+    try {
+      await stop();
+    } catch (error) {
+      log('健康检查恢复时停止 Mihomo 失败: $error');
+      return false;
+    }
+    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+      return false;
+    }
+    return _start(automaticRecovery: true);
+  }
+
   // ── Windows process management ──
 
   void disableStartup(String reason) {
@@ -212,15 +250,58 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   Future<void> _terminateOrphanedCores() async {
     if (!Platform.isWindows || _corePath.isEmpty) return;
     final pidFile = File('$configDir${Platform.pathSeparator}mihomo.pid');
-    if (!await pidFile.exists()) return;
-    final pid = int.tryParse((await pidFile.readAsString()).trim());
-    if (pid == null || pid <= 1) {
-      await _deleteCorePid();
-      return;
+    final pidFileType = await FileSystemEntity.type(
+      pidFile.path,
+      followLinks: false,
+    );
+    if (pidFileType == FileSystemEntityType.notFound) return;
+    if (pidFileType != FileSystemEntityType.file) {
+      throw StateError('Mihomo 进程身份记录不是普通文件，已拒绝自动清理');
     }
-    final encodedPath = base64Encode(utf8.encode(_corePath));
+    final pidFileLength = await pidFile.length();
+    if (pidFileLength <= 0 || pidFileLength > maxWindowsCorePidRecordBytes) {
+      throw StateError('Mihomo 进程身份记录大小异常，已拒绝自动清理');
+    }
+    final record = WindowsCorePidRecord.tryParse(
+      await pidFile.readAsString(),
+    );
+    if (record == null) {
+      throw StateError(
+        'Mihomo 进程身份记录为旧格式或已损坏，无法确认进程归属；'
+        '记录已保留，请重新安装或联系支持',
+      );
+    }
+    try {
+      final disposition = await _terminateVerifiedCore(record);
+      if (disposition == _VerifiedCoreTermination.wrongInstallation) {
+        throw StateError('进程身份记录指向其他安装目录，已拒绝清理');
+      }
+      final recordDeleted = await _deleteCorePid(
+        expectedRecord: record,
+      );
+      if (!recordDeleted) {
+        throw StateError('进程身份记录在清理期间发生变化，已拒绝删除');
+      }
+      if (disposition == _VerifiedCoreTermination.terminatedOrGone) {
+        log('已完成遗留 Mihomo 进程清理');
+      }
+    } catch (error) {
+      throw StateError('无法安全确认并清理遗留核心: $error');
+    }
+  }
+
+  Future<_VerifiedCoreTermination> _terminateVerifiedCore(
+    WindowsCorePidRecord record,
+  ) async {
+    final encodedExpectedPath = base64Encode(
+      utf8.encode(record.canonicalExecutablePath),
+    );
+    final encodedTrustedPath = base64Encode(utf8.encode(_corePath));
     final script = '''
-\$target = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encodedPath'))
+\$expectedPath = [Text.Encoding]::UTF8.GetString(
+  [Convert]::FromBase64String('$encodedExpectedPath'))
+\$trustedPath = [Text.Encoding]::UTF8.GetString(
+  [Convert]::FromBase64String('$encodedTrustedPath'))
 Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
@@ -235,6 +316,12 @@ public static class SsrvpnVerifiedProcessTerminator {
   private const uint StillActive = 259;
   private const uint WaitObject0 = 0;
   private const uint WaitTimeout = 258;
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct FileTimeParts {
+    public uint LowDateTime;
+    public uint HighDateTime;
+  }
 
   [DllImport("kernel32.dll", SetLastError = true)]
   private static extern IntPtr OpenProcess(
@@ -251,6 +338,14 @@ public static class SsrvpnVerifiedProcessTerminator {
       IntPtr process, uint flags, StringBuilder imageName, ref uint size);
   [DllImport("kernel32.dll", SetLastError = true)]
   [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool GetProcessTimes(
+      IntPtr process,
+      out FileTimeParts creationTime,
+      out FileTimeParts exitTime,
+      out FileTimeParts kernelTime,
+      out FileTimeParts userTime);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
   private static extern bool GetExitCodeProcess(
       IntPtr process, out uint exitCode);
   [DllImport("kernel32.dll", SetLastError = true)]
@@ -263,9 +358,20 @@ public static class SsrvpnVerifiedProcessTerminator {
   [return: MarshalAs(UnmanagedType.Bool)]
   private static extern bool CloseHandle(IntPtr handle);
 
-  // 0 = terminated, 1 = already gone, 2 = identity mismatch.
+  // 0 = terminated, 1 = already gone, 2 = live identity mismatch,
+  // 3 = durable record does not belong to this installation.
   public static int Terminate(
-      uint expectedProcessId, string expectedPath, uint expectedSessionId) {
+      uint expectedProcessId,
+      string expectedPath,
+      string trustedPath,
+      uint expectedSessionId,
+      ulong expectedCreationTimeUtcFileTime) {
+    string canonicalExpectedPath = Path.GetFullPath(expectedPath);
+    string canonicalTrustedPath = Path.GetFullPath(trustedPath);
+    if (!canonicalExpectedPath.Equals(
+        canonicalTrustedPath, StringComparison.OrdinalIgnoreCase)) {
+      return 3;
+    }
     IntPtr process = OpenProcess(
         ProcessQueryLimitedInformation | ProcessTerminate | Synchronize,
         false,
@@ -277,7 +383,10 @@ public static class SsrvpnVerifiedProcessTerminator {
     }
     try {
       uint exitCode;
-      if (GetExitCodeProcess(process, out exitCode) && exitCode != StillActive) {
+      if (!GetExitCodeProcess(process, out exitCode)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      if (exitCode != StillActive) {
         return 1;
       }
       uint liveProcessId = GetProcessId(process);
@@ -294,11 +403,26 @@ public static class SsrvpnVerifiedProcessTerminator {
           process, 0, imageName, ref imageNameSize)) {
         throw new Win32Exception(Marshal.GetLastWin32Error());
       }
+      FileTimeParts creationTime;
+      FileTimeParts exitTime;
+      FileTimeParts kernelTime;
+      FileTimeParts userTime;
+      if (!GetProcessTimes(
+          process,
+          out creationTime,
+          out exitTime,
+          out kernelTime,
+          out userTime)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      ulong liveCreationTimeUtcFileTime =
+          ((ulong)creationTime.HighDateTime << 32) | creationTime.LowDateTime;
       if (liveProcessId != expectedProcessId ||
           liveSessionId != expectedSessionId ||
           !Path.GetFullPath(imageName.ToString()).Equals(
-              Path.GetFullPath(expectedPath),
-              StringComparison.OrdinalIgnoreCase)) {
+              canonicalExpectedPath,
+              StringComparison.OrdinalIgnoreCase) ||
+          liveCreationTimeUtcFileTime != expectedCreationTimeUtcFileTime) {
         return 2;
       }
       if (!TerminateProcess(process, 1)) {
@@ -317,27 +441,26 @@ public static class SsrvpnVerifiedProcessTerminator {
 }
 '@
 \$result = [SsrvpnVerifiedProcessTerminator]::Terminate(
-  [uint32]$pid,
-  \$target,
-  [uint32][Diagnostics.Process]::GetCurrentProcess().SessionId)
+  [uint32]${record.pid},
+  \$expectedPath,
+  \$trustedPath,
+  [uint32][Diagnostics.Process]::GetCurrentProcess().SessionId,
+  [uint64]${record.creationTimeUtcFileTime})
 if (\$result -eq 0 -or \$result -eq 1) { exit 0 }
 if (\$result -eq 2) { exit 3 }
+if (\$result -eq 3) { exit 5 }
 exit 4
 ''';
-    try {
-      final result = await _runPowerShell(
-        script,
-        timeout: const Duration(seconds: 8),
-      );
-      if (result.exitCode == 0 || result.exitCode == 3) {
-        await _deleteCorePid();
-        if (result.exitCode == 0) log('已清理遗留的 Mihomo 进程');
-        return;
-      }
-      throw StateError('PowerShell 返回 ${result.exitCode}');
-    } catch (e) {
-      throw StateError('无法安全确认并清理遗留核心: $e');
-    }
+    final result = await _runPowerShell(
+      script,
+      timeout: const Duration(seconds: 8),
+    );
+    return switch (result.exitCode) {
+      0 => _VerifiedCoreTermination.terminatedOrGone,
+      3 => _VerifiedCoreTermination.liveIdentityMismatch,
+      5 => _VerifiedCoreTermination.wrongInstallation,
+      _ => throw StateError('PowerShell 返回 ${result.exitCode}'),
+    };
   }
 
   Future<ProcessResult> _runPowerShell(
@@ -358,6 +481,61 @@ exit 4
         timeoutStderr: '电脑性能不足，请重新连接',
         cancellation: cancellation,
       );
+
+  Future<WindowsCorePidRecord> _captureCorePidRecord(int corePid) async {
+    final encodedTrustedPath = base64Encode(utf8.encode(_corePath));
+    final script = '''
+\$trustedPath = [Text.Encoding]::UTF8.GetString(
+  [Convert]::FromBase64String('$encodedTrustedPath'))
+\$process = [Diagnostics.Process]::GetProcessById([int]$corePid)
+try {
+  \$process.Refresh()
+  if (\$process.HasExited) {
+    throw 'Mihomo exited before its durable identity was captured.'
+  }
+  \$livePath = [IO.Path]::GetFullPath(\$process.MainModule.FileName)
+  \$canonicalTrustedPath = [IO.Path]::GetFullPath(\$trustedPath)
+  \$currentSessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
+  if (\$process.Id -ne [int]$corePid -or
+      \$process.SessionId -ne \$currentSessionId -or
+      -not \$livePath.Equals(
+        \$canonicalTrustedPath,
+        [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Mihomo identity did not match the process started by SSRVPN.'
+  }
+  \$creationTime = \$process.StartTime.ToUniversalTime().ToFileTimeUtc()
+  if (\$creationTime -le 0) {
+    throw 'Mihomo creation time was invalid.'
+  }
+  [ordered]@{
+    version = $windowsCorePidRecordVersion
+    pid = [int]$corePid
+    creationTimeUtcFileTime = \$creationTime.ToString(
+      [Globalization.CultureInfo]::InvariantCulture)
+    canonicalExecutablePath = \$livePath
+  } | ConvertTo-Json -Compress
+} finally {
+  \$process.Dispose()
+}
+''';
+    final result = await _runPowerShell(
+      script,
+      timeout: const Duration(seconds: 8),
+    );
+    if (result.exitCode != 0) {
+      throw StateError('无法读取新启动 Mihomo 的完整进程身份');
+    }
+    final record = WindowsCorePidRecord.tryParse(
+      result.stdout.toString().trim(),
+    );
+    if (record == null ||
+        record.pid != corePid ||
+        record.canonicalExecutablePath.toLowerCase() !=
+            _corePath.toLowerCase()) {
+      throw StateError('新启动 Mihomo 的进程身份校验失败');
+    }
+    return record;
+  }
 
   // ── clang-format off: Start / Stop ──
 
@@ -504,6 +682,19 @@ exit 4
         return false;
       }
       _ensureStartCurrent(startToken);
+      final pidFile = File('$configDir${Platform.pathSeparator}mihomo.pid');
+      final pidFileType = await FileSystemEntity.type(
+        pidFile.path,
+        followLinks: false,
+      );
+      if (_corePidRecord != null ||
+          pidFileType != FileSystemEntityType.notFound) {
+        setLastStartError(
+          '检测到尚未安全清理的 Mihomo 进程身份记录，已拒绝启动新的核心',
+        );
+        log('❌ $lastStartError');
+        return false;
+      }
 
       // 启动 mihomo 子进程（运行数据位于安装版数据目录）
       if (_coreProcess != null) {
@@ -560,8 +751,16 @@ exit 4
       log('Mihomo 进程已创建，耗时 ${processStartWatch.elapsedMilliseconds}ms');
       _coreProcess = startedProcess;
       _coreUsesTun = startedWithTun;
-      await _writeCorePid(startedProcess.pid);
-      _ensureStartCurrent(startToken);
+      final identityEstablishment =
+          WindowsCoreIdentityEstablishment(startedProcess);
+      _coreIdentityEstablishment = identityEstablishment;
+      final startedPidRecord = await identityEstablishment.establish(
+        capture: _captureCorePidRecord,
+        persist: _writeCorePid,
+        ensureStartCurrent: () => _ensureStartCurrent(startToken),
+      );
+      _corePidRecord = startedPidRecord;
+      _coreIdentityEstablishment = null;
       int? startupExitCode;
       final startupOutput = <String>[];
 
@@ -597,6 +796,7 @@ exit 4
         )) {
           return;
         }
+        final wasRunning = isRunning;
 
         log('❌ Mihomo 进程已退出，退出码: $code');
         final recoveryListenerWasActive = _proxyRecoveryListenerActive;
@@ -609,21 +809,46 @@ exit 4
         if (recoveryListenerWasActive) {
           log('⚠️ 系统代理保护监听已退出，重新执行安全恢复');
         }
-        final cleanup = _deleteCorePid().then<void>((_) {
-          if (!isUnexpectedCoreExit(
-            ownsProcess: identical(_coreProcess, startedProcess),
+        final cleanup = _deleteCorePid(
+          expectedRecord: startedPidRecord,
+        ).then<void>((recordDeleted) {
+          final ownsExitedProcess = identical(_coreProcess, startedProcess);
+          final ownsPidRecord = identical(_corePidRecord, startedPidRecord);
+          final exitStillUnexpected = isUnexpectedCoreExit(
+            ownsProcess: ownsExitedProcess,
             stoppingCore: _stoppingCore,
             stopInProgress: _stopOperation != null,
-          )) {
+          );
+          final memoryCleanup = classifyExitedCoreMemoryCleanup(
+            ownsExitedProcess: ownsExitedProcess,
+            ownsPidRecord: ownsPidRecord,
+            pidRecordDeleted: recordDeleted,
+            wasRunning: wasRunning,
+          );
+          if (memoryCleanup.releaseProcessReference) {
+            _corePidRecord = null;
+            _coreProcess = null;
+            if (memoryCleanup.clearTunOwnership) {
+              _coreUsesTun = false;
+            }
+          }
+          if (!exitStillUnexpected) {
             return;
           }
           if (isRunning) {
-            final restartGeneration = captureAutomaticRestartIntent();
+            final restartGeneration = memoryCleanup.releaseProcessReference
+                ? captureAutomaticRestartIntent()
+                : null;
+            if (!memoryCleanup.releaseProcessReference) {
+              setLastStartError('Mihomo 进程身份清理无法安全完成，已阻止自动重启');
+              notifyRuntimeNotice(
+                '连接已断开；检测到进程身份记录异常，为避免误清理其他进程，'
+                '本次不会自动重连。请重新安装或联系支持。',
+              );
+            }
             setRunning(false);
             notifyStatusChanged();
             stopStatusMonitor();
-            _coreProcess = null;
-            _coreUsesTun = false;
             _scheduleUnexpectedExitRecovery(
               restartGeneration,
               code,
@@ -850,26 +1075,81 @@ exit 4
     notifyStatusChanged();
 
     final coreProcess = _coreProcess;
+    final identityEstablishment = _coreIdentityEstablishment;
+    final pendingIdentity = coreProcess != null &&
+            identityEstablishment != null &&
+            identityEstablishment.ownsProcess(coreProcess)
+        ? identityEstablishment.capturedIdentity
+        : null;
+    final expectedPidRecord = _corePidRecord ?? pendingIdentity;
     if (coreProcess != null) {
       _stoppingCore = true;
       try {
-        final stopped = await terminateCoreProcess(coreProcess);
-        if (!stopped) {
-          _lastStopError = 'Mihomo 强制停止后仍未退出，代理已断开但核心清理未完成';
-          log('❌ $_lastStopError');
-          return false;
+        if (expectedPidRecord == null) {
+          if (identityEstablishment == null ||
+              !identityEstablishment.ownsUnidentifiedProcess(coreProcess)) {
+            _lastStopError = '缺少 Mihomo 完整进程身份，且无法确认原始启动句柄，已拒绝终止';
+            log('❌ $_lastStopError');
+            return false;
+          }
+          final stopped =
+              await identityEstablishment.terminateUnidentifiedProcess(
+            coreProcess,
+            terminate: terminateCoreProcess,
+          );
+          if (!stopped) {
+            _lastStopError = '新启动的 Mihomo 在强制停止后仍未退出';
+            log('❌ $_lastStopError');
+            return false;
+          }
+        } else {
+          final disposition = await _terminateVerifiedCore(expectedPidRecord);
+          if (disposition == _VerifiedCoreTermination.wrongInstallation) {
+            _lastStopError = 'Mihomo 进程身份不属于当前安装，已拒绝终止';
+            log('❌ $_lastStopError');
+            return false;
+          }
+          if (disposition == _VerifiedCoreTermination.liveIdentityMismatch) {
+            log('Mihomo 原进程已退出；检测到 PID 被复用，未终止新进程');
+          }
         }
       } catch (e) {
-        _lastStopError = '无法确认 Mihomo 已停止: $e';
+        _lastStopError = expectedPidRecord == null
+            ? '无法通过原始启动句柄确认 Mihomo 已停止: $e'
+            : '无法按完整进程身份确认 Mihomo 已停止: $e';
         log('❌ $_lastStopError');
         return false;
       } finally {
         _stoppingCore = false;
       }
       _coreProcess = null;
+      if (identityEstablishment?.ownsProcess(coreProcess) ?? false) {
+        _coreIdentityEstablishment = null;
+      }
     }
     if (_coreProcess == null) _coreUsesTun = false;
-    await _deleteCorePid();
+    var pidRecordCleaned = true;
+    if (expectedPidRecord != null) {
+      pidRecordCleaned = await _deleteCorePid(
+        expectedRecord: expectedPidRecord,
+      );
+      if (pidRecordCleaned && identical(_corePidRecord, expectedPidRecord)) {
+        _corePidRecord = null;
+      }
+    } else {
+      final pidFile = File('$configDir${Platform.pathSeparator}mihomo.pid');
+      final pidFileType = await FileSystemEntity.type(
+        pidFile.path,
+        followLinks: false,
+      );
+      pidRecordCleaned = pidFileType == FileSystemEntityType.notFound;
+      if (!pidRecordCleaned) {
+        log('存在无法归属的核心进程身份记录，已保留');
+      }
+    }
+    if (!pidRecordCleaned) {
+      _lastStopError = 'Mihomo 已停止，但进程身份记录无法安全删除；已阻止再次连接';
+    }
 
     if (needsTunTeardown) {
       _tunTeardownGate.markPending(
@@ -885,6 +1165,10 @@ exit 4
       }
     }
     _tunInterfacesBeforeStart = const <WindowsTunInterfaceIdentity>{};
+    if (!pidRecordCleaned) {
+      log('❌ $_lastStopError');
+      return false;
+    }
 
     setRunning(false);
     notifyStatusChanged();
@@ -896,19 +1180,93 @@ exit 4
     if (startToken != _startGeneration) throw _DesktopStartCancelled();
   }
 
-  Future<void> _writeCorePid(int corePid) async {
+  Future<void> _writeCorePid(WindowsCorePidRecord record) async {
     final file = File('$configDir${Platform.pathSeparator}mihomo.pid');
-    final temp = File('${file.path}.tmp');
-    await temp.writeAsString('$corePid\n', flush: true);
-    await temp.rename(file.path);
+    final existingType = await FileSystemEntity.type(
+      file.path,
+      followLinks: false,
+    );
+    if (existingType != FileSystemEntityType.notFound) {
+      throw StateError('已有 Mihomo 进程身份记录，已拒绝覆盖');
+    }
+
+    final temp = File(
+      '${file.path}.${record.pid}.'
+      '${DateTime.now().microsecondsSinceEpoch}.tmp',
+    );
+    try {
+      final tempType = await FileSystemEntity.type(
+        temp.path,
+        followLinks: false,
+      );
+      if (tempType != FileSystemEntityType.notFound) {
+        throw StateError('Mihomo 进程身份临时记录已存在');
+      }
+      await temp.writeAsString(record.encode(), flush: true);
+      final publishTargetType = await FileSystemEntity.type(
+        file.path,
+        followLinks: false,
+      );
+      if (publishTargetType != FileSystemEntityType.notFound) {
+        throw StateError('Mihomo 进程身份记录在写入期间出现，已拒绝覆盖');
+      }
+      await temp.rename(file.path);
+      final persisted = WindowsCorePidRecord.tryParse(
+        await file.readAsString(),
+      );
+      if (persisted == null || !persisted.hasSameIdentity(record)) {
+        throw StateError('Mihomo 进程身份记录写入后校验失败');
+      }
+    } finally {
+      final tempType = await FileSystemEntity.type(
+        temp.path,
+        followLinks: false,
+      );
+      if (tempType == FileSystemEntityType.file) {
+        try {
+          await temp.delete();
+        } catch (error) {
+          log('删除核心身份临时文件失败: $error');
+        }
+      }
+    }
   }
 
-  Future<void> _deleteCorePid() async {
+  Future<bool> _deleteCorePid({
+    required WindowsCorePidRecord expectedRecord,
+  }) async {
     final file = File('$configDir${Platform.pathSeparator}mihomo.pid');
     try {
-      if (await file.exists()) await file.delete();
+      final type = await FileSystemEntity.type(
+        file.path,
+        followLinks: false,
+      );
+      if (type == FileSystemEntityType.notFound) return true;
+      if (type != FileSystemEntityType.file) {
+        log('核心进程身份记录不是普通文件，已保留');
+        return false;
+      }
+      final length = await file.length();
+      if (length <= 0 || length > maxWindowsCorePidRecordBytes) {
+        log('核心进程身份记录大小异常，已保留');
+        return false;
+      }
+      final current = WindowsCorePidRecord.tryParse(
+        await file.readAsString(),
+      );
+      if (current == null || !current.hasSameIdentity(expectedRecord)) {
+        log('核心进程身份记录无法验证或已发生变化，已保留');
+        return false;
+      }
+      await file.delete();
+      return await FileSystemEntity.type(
+            file.path,
+            followLinks: false,
+          ) ==
+          FileSystemEntityType.notFound;
     } catch (error) {
-      log('删除核心 PID 文件失败: $error');
+      log('删除核心进程身份记录失败，已保留: $error');
+      return false;
     }
   }
 
