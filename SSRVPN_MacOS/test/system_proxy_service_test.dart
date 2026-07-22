@@ -413,6 +413,7 @@ void main() {
 
     expect(await snapshot.exists(), isFalse);
     expect(service.recoveryPending, isFalse);
+    expect(service.ownershipChangedSinceLastAcquisition, isTrue);
     expect(
       commands.where((command) => command.startsWith('-setwebproxy')),
       isEmpty,
