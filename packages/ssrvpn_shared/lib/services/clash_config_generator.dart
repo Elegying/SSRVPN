@@ -110,8 +110,10 @@ class ClashConfigGenerator {
     result.writeln('# SSRVPN IPv4 / IPv6 双栈配置');
     result.writeln('ipv6: true');
     result.writeln('etag-support: true');
-    if (settings.apiSecret.isNotEmpty) {
-      result.writeln('secret: ${_quote(settings.apiSecret)}');
+    final apiSecret =
+        RuntimeConfigNamePolicy.canonicalApiSecret(settings.apiSecret);
+    if (apiSecret.isNotEmpty) {
+      result.writeln('secret: ${_quote(apiSecret)}');
     }
 
     // TUN 配置
@@ -328,16 +330,16 @@ class ClashConfigGenerator {
   static List<String> extractProxyNames(String rawYaml) {
     try {
       final proxies = _parseProxyList(rawYaml);
-      if (proxies != null) {
-        return proxies
-            .whereType<Map>()
-            .where(ProxyNodeUsagePolicy.isRunnableProxyMap)
-            .map((proxy) => _canonicalProxyName(proxy['name']))
-            .where((name) => name.isNotEmpty)
-            .toList();
-      }
-    } catch (_) {}
-    return _extractProxyNamesFromText(rawYaml);
+      if (proxies == null) return [];
+      return proxies
+          .whereType<Map>()
+          .where(ProxyNodeUsagePolicy.isRunnableProxyMap)
+          .map((proxy) => _canonicalProxyName(proxy['name']))
+          .where((name) => name.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   /// 安全重建 `proxies` 段内容。
@@ -362,8 +364,12 @@ class ClashConfigGenerator {
         final text = buffer.toString().trimRight();
         if (text.isNotEmpty) return text;
       }
-    } catch (_) {}
-    return extractSection(rawYaml, 'proxies').trimRight();
+    } on FormatException {
+      rethrow;
+    } catch (_) {
+      return '';
+    }
+    return '';
   }
 
   /// 从 YAML 中提取指定部分
@@ -410,76 +416,31 @@ class ClashConfigGenerator {
     return proxies is List ? proxies : null;
   }
 
-  static List<String> _extractProxyNamesFromText(String rawYaml) {
-    try {
-      final lines = rawYaml.split('\n');
-      final names = <String>[];
-      var inProxies = false;
-      var proxiesIndent = 0;
-
-      for (final line in lines) {
-        final trimmed = line.trim();
-        if (trimmed == 'proxies:') {
-          inProxies = true;
-          proxiesIndent = line.indexOf('proxies:');
-          continue;
-        }
-
-        if (!inProxies || trimmed.isEmpty || trimmed.startsWith('#')) {
-          continue;
-        }
-
-        final currentIndent = line.indexOf(trimmed);
-        if (currentIndent <= proxiesIndent && trimmed.isNotEmpty) {
-          inProxies = false;
-          continue;
-        }
-
-        if (trimmed.startsWith('- name:')) {
-          final name = trimmed.substring(7).trim();
-          final unquotedName = _unquoteName(name);
-          if (ProxyNodeUsagePolicy.isSubscriptionInfoName(unquotedName)) {
-            continue;
-          }
-          final canonicalName = _canonicalProxyName(unquotedName);
-          if (canonicalName.isNotEmpty) names.add(canonicalName);
-        }
-      }
-
-      return names;
-    } catch (_) {
-      return [];
-    }
-  }
-
-  static String _unquoteName(String name) {
-    if (name.startsWith('"') && name.endsWith('"')) {
-      return name.substring(1, name.length - 1);
-    }
-    if (name.startsWith("'") && name.endsWith("'")) {
-      return name.substring(1, name.length - 1);
-    }
-    return name;
-  }
-
   static Object? _plainYamlValue(Object? value) {
     if (value == null || value is num || value is bool) return value;
-    if (value is String) return _sanitizeScalar(value);
+    if (value is String) return _sanitizeDataScalar(value);
     if (value is Map) {
-      return {
-        for (final entry in value.entries)
-          if (!_internalProxyKeys.contains(entry.key.toString()))
-            entry.key.toString(): _plainYamlValue(entry.value),
-      };
+      final result = <String, Object?>{};
+      final seenKeys = <String>{};
+      for (final entry in value.entries) {
+        final key = _sanitizeDataScalar(entry.key.toString());
+        if (key.isEmpty) continue;
+        if (!seenKeys.add(key)) {
+          throw FormatException('代理字段清理后名称冲突：“$key”');
+        }
+        if (_internalProxyKeys.contains(key)) continue;
+        result[key] = _plainYamlValue(entry.value);
+      }
+      return result;
     }
     if (value is Iterable) {
       return value.map(_plainYamlValue).toList();
     }
-    return _sanitizeScalar(value.toString());
+    return _sanitizeDataScalar(value.toString());
   }
 
-  static String _sanitizeScalar(String value) =>
-      RuntimeConfigNamePolicy.sanitizeScalar(value);
+  static String _sanitizeDataScalar(String value) =>
+      RuntimeConfigNamePolicy.sanitizeDataScalar(value);
 
   static String _canonicalProxyName(Object? value) =>
       RuntimeConfigNamePolicy.canonicalName(value);
@@ -533,9 +494,6 @@ class ClashConfigGenerator {
   }
 
   /// 为 YAML 字符串添加引号（如果需要）
-  static String _quote(String value) {
-    final sanitized =
-        RuntimeConfigNamePolicy.sanitizeScalar(value).replaceAll('\\', '\\\\');
-    return "'${sanitized.replaceAll("'", "''")}'";
-  }
+  static String _quote(String value) =>
+      jsonEncode(RuntimeConfigNamePolicy.sanitizeDataScalar(value));
 }

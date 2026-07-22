@@ -4,6 +4,7 @@ import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/services/clash_config_generator.dart';
+import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
 void main() {
   group('ClashConfigGenerator', () {
@@ -61,6 +62,25 @@ proxies:
     test('extractProxyNames returns empty for invalid YAML', () {
       final names = ClashConfigGenerator.extractProxyNames('invalid yaml');
       expect(names, isEmpty);
+    });
+
+    test('generateConfig rejects YAML instead of mixing fallback name paths',
+        () {
+      const yaml = r'''
+proxies:
+  - name: "Fallback\u0001Node"
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: secret
+broken: [
+''';
+
+      expect(
+        () => ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+        throwsException,
+      );
     });
 
     test('extractSection extracts proxies section', () {
@@ -398,6 +418,25 @@ proxies:
       );
     });
 
+    test('generateConfig rejects proxy field collisions after sanitization',
+        () {
+      const yaml = r'''
+proxies:
+  - name: Collision Node
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: visible
+    "pass\u0000word": hidden
+''';
+
+      expect(
+        () => ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+        throwsFormatException,
+      );
+    });
+
     test('proxy names are canonicalized identically in nodes and groups', () {
       const yaml = r'''
 proxies:
@@ -490,7 +529,7 @@ proxies:
       expect(rules, contains('GEOIP,CN,DIRECT'));
     });
 
-    test('generateConfig safely quotes API secret', () {
+    test('generateConfig preserves a visible ASCII API secret exactly', () {
       final yaml = '''
 proxies:
   - name: "Test Node"
@@ -500,12 +539,113 @@ proxies:
     cipher: aes-256-gcm
     password: "test123"
 ''';
-      final settings = AppSettings(apiSecret: 'a"b\\c\'d');
+      const apiSecret = 'a"b\\c\'d~+/_=-.';
+      final settings = AppSettings(apiSecret: apiSecret);
 
       final config = ClashConfigGenerator.generateConfig(yaml, settings);
+      final parsed = loadYaml(config) as YamlMap;
 
-      expect(config, contains("secret: 'a\"b\\\\c''d'"));
+      expect(parsed['secret'], apiSecret);
     });
+
+    test('canonical API secret is deterministic and HTTP-header safe', () {
+      const unsafeSecret = 'a\tb\nc\rd 密钥';
+      final canonical = RuntimeConfigNamePolicy.canonicalApiSecret(
+        unsafeSecret,
+      );
+
+      expect(RuntimeConfigNamePolicy.canonicalApiSecret(''), isEmpty);
+      expect(canonical, matches(RegExp(r'^ssrvpn-sha256-[0-9a-f]{64}$')));
+      expect(canonical, isNotEmpty);
+      expect(
+        RuntimeConfigNamePolicy.canonicalApiSecret('\r\n\t'),
+        matches(RegExp(r'^ssrvpn-sha256-[0-9a-f]{64}$')),
+      );
+      expect(
+        RuntimeConfigNamePolicy.canonicalApiSecret(unsafeSecret),
+        canonical,
+      );
+      expect(
+        RuntimeConfigNamePolicy.canonicalApiSecret('$unsafeSecret!'),
+        isNot(canonical),
+      );
+    });
+
+    test('canonical API secret bounds inline HTTP header length', () {
+      final maximumInlineSecret = 'a' * 256;
+      final oversizedSecret = 'a' * 257;
+
+      expect(
+        RuntimeConfigNamePolicy.canonicalApiSecret(maximumInlineSecret),
+        maximumInlineSecret,
+      );
+      final canonical = RuntimeConfigNamePolicy.canonicalApiSecret(
+        oversizedSecret,
+      );
+      expect(canonical, matches(RegExp(r'^ssrvpn-sha256-[0-9a-f]{64}$')));
+      expect(canonical, hasLength(78));
+      expect(canonical,
+          RuntimeConfigNamePolicy.canonicalApiSecret(oversizedSecret));
+    });
+
+    test('generateConfig round-trips the canonical unsafe API secret', () {
+      const yaml = '''
+proxies:
+  - name: Test Node
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: test123
+''';
+      const unsafeSecret = 'header\r\nvalue\t密钥';
+      final parsed = loadYaml(
+        ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(apiSecret: unsafeSecret),
+        ),
+      ) as YamlMap;
+
+      expect(
+        parsed['secret'],
+        RuntimeConfigNamePolicy.canonicalApiSecret(unsafeSecret),
+      );
+      expect(parsed['secret'], isNot(unsafeSecret));
+    });
+
+    test(
+      'generateConfig round-trips valid whitespace in ordinary proxy fields',
+      () {
+        const password = 'pass\tword\nnext\rreturn';
+        const authentication = 'auth\tvalue\nnext\rreturn';
+        const nestedHeader = 'Bearer\ttoken\nnext\rreturn';
+        const yaml = r'''
+proxies:
+  - name: "Whitespace Node"
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "pass\tword\nnext\rreturn"
+    auth-str: "auth\tvalue\nnext\rreturn"
+    ws-opts:
+      headers:
+        "Authori\u0000zation": "Bearer\ttoken\nnext\rreturn"
+''';
+
+        final parsed = loadYaml(
+          ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+        ) as YamlMap;
+        final proxy = (parsed['proxies'] as YamlList).single as YamlMap;
+        final wsOptions = proxy['ws-opts'] as YamlMap;
+        final headers = wsOptions['headers'] as YamlMap;
+
+        expect(proxy['password'], password);
+        expect(proxy['auth-str'], authentication);
+        expect(headers.keys, ['Authorization']);
+        expect(headers['Authorization'], nestedHeader);
+      },
+    );
 
     test('generateConfig safely rebuilds user-controlled proxy fields', () {
       final yaml = '''
