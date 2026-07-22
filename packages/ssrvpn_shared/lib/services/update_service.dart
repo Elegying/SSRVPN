@@ -17,6 +17,13 @@ typedef VerifiedUpdateHandler = Future<void> Function(File file);
 typedef VerifiedUpdateOpener = VerifiedUpdateHandler;
 typedef VerifiedUpdatePreparer = Future<bool> Function();
 
+/// Atomically publishes [source] at [destination] without replacing an
+/// existing path.
+typedef VerifiedUpdateFilePublisher = Future<void> Function(
+  File source,
+  File destination,
+);
+
 class VerifiedUpdateCancelled implements Exception {
   @override
   String toString() => '更新已取消';
@@ -157,6 +164,7 @@ class SharedUpdateService {
     Duration timeout = const Duration(minutes: 2),
     void Function(int receivedBytes, int? totalBytes)? onProgress,
     VerifiedUpdateCancellation? cancellation,
+    VerifiedUpdateFilePublisher? filePublisher,
   }) async {
     cancellation?.throwIfCancelled();
     if (!RegExp(r'^[A-Za-z0-9._-]+$').hasMatch(fileName)) {
@@ -187,6 +195,7 @@ class SharedUpdateService {
         expectedSha256: expectedSha256,
         maxBytes: maxBytes,
         cancellation: cancellation,
+        filePublisher: filePublisher,
       ),
     );
     if (recovered) {
@@ -294,6 +303,7 @@ class SharedUpdateService {
             expectedLength: verifiedLength,
             maxBytes: maxBytes,
             cancellation: cancellation,
+            filePublisher: filePublisher,
           ),
         );
       } catch (_) {
@@ -314,6 +324,7 @@ class SharedUpdateService {
     required int expectedLength,
     required int maxBytes,
     VerifiedUpdateCancellation? cancellation,
+    VerifiedUpdateFilePublisher? filePublisher,
   }) async {
     cancellation?.throwIfCancelled();
     final destinationType = await _awaitWithCancellation(
@@ -353,6 +364,7 @@ class SharedUpdateService {
       source: temporary,
       destination: destination,
       cancellation: cancellation,
+      filePublisher: filePublisher,
     );
     if (!linked) {
       final matches = await _verifiedFileMatches(
@@ -395,42 +407,40 @@ class SharedUpdateService {
     required File source,
     required File destination,
     required VerifiedUpdateCancellation? cancellation,
+    required VerifiedUpdateFilePublisher? filePublisher,
   }) async {
     cancellation?.throwIfCancelled();
+    if (filePublisher != null) {
+      try {
+        await _awaitWithCancellation(
+          filePublisher(source, destination),
+          cancellation,
+        );
+        cancellation?.throwIfCancelled();
+        return true;
+      } catch (_) {
+        cancellation?.throwIfCancelled();
+        final destinationType = await _awaitWithCancellation(
+          FileSystemEntity.type(destination.path, followLinks: false),
+          cancellation,
+        );
+        if (destinationType != FileSystemEntityType.notFound) return false;
+        rethrow;
+      }
+    }
     late final ProcessResult result;
     if (Platform.isWindows) {
-      const script = r'''
-$ErrorActionPreference = 'Stop'
-New-Item -ItemType HardLink -LiteralPath $env:SSRVPN_UPDATE_DESTINATION -Target $env:SSRVPN_UPDATE_SOURCE -ErrorAction Stop | Out-Null
-''';
-      final environment = Map<String, String>.from(Platform.environment)
-        ..['SSRVPN_UPDATE_SOURCE'] = source.absolute.path
-        ..['SSRVPN_UPDATE_DESTINATION'] = destination.absolute.path;
-      result = await _awaitWithCancellation(
-        Process.run(
-          'powershell.exe',
-          <String>[
-            '-NoLogo',
-            '-NoProfile',
-            '-NonInteractive',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-Command',
-            script,
-          ],
-          environment: environment,
-        ),
-        cancellation,
-      );
-    } else {
-      result = await _awaitWithCancellation(
-        Process.run(
-          '/bin/ln',
-          <String>[source.absolute.path, destination.absolute.path],
-        ),
-        cancellation,
+      throw UnsupportedError(
+        'Windows verified update publication requires a native publisher',
       );
     }
+    result = await _awaitWithCancellation(
+      Process.run(
+        '/bin/ln',
+        <String>[source.absolute.path, destination.absolute.path],
+      ),
+      cancellation,
+    );
     cancellation?.throwIfCancelled();
     if (result.exitCode == 0) return true;
     final destinationType = await _awaitWithCancellation(
@@ -450,6 +460,7 @@ New-Item -ItemType HardLink -LiteralPath $env:SSRVPN_UPDATE_DESTINATION -Target 
     required String expectedSha256,
     required int maxBytes,
     VerifiedUpdateCancellation? cancellation,
+    VerifiedUpdateFilePublisher? filePublisher,
   }) async {
     cancellation?.throwIfCancelled();
     final destinationType = await _awaitWithCancellation(
@@ -591,6 +602,7 @@ New-Item -ItemType HardLink -LiteralPath $env:SSRVPN_UPDATE_DESTINATION -Target 
           expectedLength: result.bytesRead,
           maxBytes: maxBytes,
           cancellation: cancellation,
+          filePublisher: filePublisher,
         );
         published = true;
         recovered = true;
@@ -1163,6 +1175,7 @@ New-Item -ItemType HardLink -LiteralPath $env:SSRVPN_UPDATE_DESTINATION -Target 
     required String progressDescription,
     Directory? outputDirectory,
     http.Client? client,
+    VerifiedUpdateFilePublisher? filePublisher,
   }) async {
     if (!context.mounted || _verifiedDownloadInProgress) return;
     _verifiedDownloadInProgress = true;
@@ -1243,6 +1256,7 @@ New-Item -ItemType HardLink -LiteralPath $env:SSRVPN_UPDATE_DESTINATION -Target 
             fileName: fileName,
             client: client,
             cancellation: cancellation,
+            filePublisher: filePublisher,
             onProgress: (received, total) {
               receivedBytes = received;
               totalBytes = total;
