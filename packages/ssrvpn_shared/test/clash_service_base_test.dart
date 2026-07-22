@@ -4,11 +4,13 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:http/http.dart' as http;
+import 'package:yaml/yaml.dart';
 import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
+import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
 void main() {
   group('ClashServiceBase batch latency', () {
@@ -324,9 +326,260 @@ void main() {
       expect(api.proxyNow, 'Node B');
       expect(await service.currentSelectedProxyName(), 'Node B');
     });
+
+    test('automatic recovery follows the latest confirmed node selection',
+        () async {
+      final api = await _ProxyApiServer.start(proxyNow: 'Node A');
+      addTearDown(api.close);
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      service.initHttpClient();
+      final settings = AppSettings(apiPort: api.port);
+      service.updateSettings(settings);
+      final generatedForNodes = <String?>[];
+      service.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: settings,
+        generateConfig: (runtimeSettings, preferredNodeName) async {
+          generatedForNodes.add(preferredNodeName);
+          return 'mixed-port: ${runtimeSettings.proxyPort}';
+        },
+        isRevisionCurrent: () => true,
+        preferredNodeName: 'Node A',
+      );
+      final generation = service.requestConnectionIntent(true);
+
+      expect(await service.switchSelectedProxy('Node B'), isTrue);
+      service.setRunning(false);
+      final recovered = await service.runDesktopRecovery(generation);
+
+      expect(recovered, isTrue);
+      expect(generatedForNodes, ['Node B']);
+      expect(await service.currentSelectedProxyName(), 'Node B');
+    });
+
+    test('automatic recovery keeps the successful connection settings snapshot',
+        () async {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      final originalSettings = AppSettings(
+        proxyPort: 17890,
+        socksPort: 17891,
+        apiPort: 19090,
+        enableTun: false,
+        forceProxySites: const ['chatgpt.com'],
+      );
+      final sitesAtSuccessfulConnect = AppSettings.normalizeForceProxySites(
+        const ['chatgpt.com'],
+      );
+      AppSettings? generatedSettings;
+      service.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: originalSettings,
+        generateConfig: (runtimeSettings, preferredNodeName) async {
+          generatedSettings = runtimeSettings;
+          return 'mixed-port: ${runtimeSettings.proxyPort}';
+        },
+        isRevisionCurrent: () => true,
+      );
+
+      originalSettings
+        ..proxyPort = 27890
+        ..socksPort = 27891
+        ..apiPort = 29090
+        ..enableTun = true
+        ..forceProxySites = AppSettings.normalizeForceProxySites(
+          const ['example.com'],
+        );
+      final generation = service.requestConnectionIntent(true);
+
+      expect(await service.runDesktopRecovery(generation), isTrue);
+      expect(generatedSettings, isNotNull);
+      expect(generatedSettings!.proxyPort, 17890);
+      expect(generatedSettings!.socksPort, 17891);
+      expect(generatedSettings!.apiPort, 19090);
+      expect(generatedSettings!.enableTun, isFalse);
+      expect(generatedSettings!.forceProxySites, sitesAtSuccessfulConnect);
+      expect(
+        generatedSettings!.forceProxySites,
+        isNot(same(originalSettings.forceProxySites)),
+      );
+    });
+
+    test('subscription provider replacement invalidates automatic recovery',
+        () async {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      var configGenerationCalls = 0;
+      service.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: AppSettings(),
+        generateConfig: (runtimeSettings, preferredNodeName) async {
+          configGenerationCalls++;
+          return 'mixed-port: ${runtimeSettings.proxyPort}';
+        },
+        isRevisionCurrent: () => true,
+      );
+      service.clearDesktopConnectionRecoveryPlan();
+      final generation = service.requestConnectionIntent(true);
+
+      expect(await service.runDesktopRecovery(generation), isFalse);
+      expect(configGenerationCalls, 0);
+      expect(service.lastStartError, contains('缺少可验证'));
+      expect(service.connectionDesired, isTrue);
+    });
+
+    test('manual disconnect clears the previous automatic recovery source',
+        () async {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      var configGenerationCalls = 0;
+      service.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: AppSettings(),
+        generateConfig: (runtimeSettings, preferredNodeName) async {
+          configGenerationCalls++;
+          return 'mixed-port: ${runtimeSettings.proxyPort}';
+        },
+        isRevisionCurrent: () => true,
+      );
+      service.requestConnectionIntent(true);
+
+      service.requestConnectionIntent(false);
+      final replacementGeneration = service.requestConnectionIntent(true);
+
+      expect(
+        await service.runDesktopRecovery(replacementGeneration),
+        isFalse,
+      );
+      expect(configGenerationCalls, 0);
+      expect(service.lastStartError, contains('缺少可验证'));
+    });
+
+    test('terminal connection loss clears the automatic recovery source',
+        () async {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      var configGenerationCalls = 0;
+      service.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: AppSettings(),
+        generateConfig: (runtimeSettings, preferredNodeName) async {
+          configGenerationCalls++;
+          return 'mixed-port: ${runtimeSettings.proxyPort}';
+        },
+        isRevisionCurrent: () => true,
+      );
+      service.requestConnectionIntent(true);
+
+      service.simulateTerminalConnectionLoss();
+      final replacementGeneration = service.requestConnectionIntent(true);
+
+      expect(
+        await service.runDesktopRecovery(replacementGeneration),
+        isFalse,
+      );
+      expect(configGenerationCalls, 0);
+      expect(service.lastStartError, contains('缺少可验证'));
+    });
+
+    test('an internal stop preserves the plan for automatic recovery',
+        () async {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      var configGenerationCalls = 0;
+      service.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: AppSettings(),
+        generateConfig: (runtimeSettings, preferredNodeName) async {
+          configGenerationCalls++;
+          return 'mixed-port: ${runtimeSettings.proxyPort}';
+        },
+        isRevisionCurrent: () => true,
+      );
+      final generation = service.requestConnectionIntent(true);
+      service.setRunning(true);
+
+      await service.stop();
+
+      expect(await service.runDesktopRecovery(generation), isTrue);
+      expect(configGenerationCalls, 1);
+      expect(service.connectionDesired, isTrue);
+      expect(service.isRunning, isTrue);
+    });
   });
 
   group('ClashServiceBase rule provider refresh', () {
+    test('keeps a visible ASCII API secret byte-for-byte in authorization', () {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      service.updateSettings(AppSettings(apiSecret: r'safe-Token_123!'));
+
+      expect(
+        service.apiHeaders()['Authorization'],
+        r'Bearer safe-Token_123!',
+      );
+    });
+
+    test('omits authorization when the configured API secret is empty', () {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      service.updateSettings(AppSettings(apiSecret: ''));
+
+      expect(
+        service.apiHeaders(),
+        isNot(contains('Authorization')),
+      );
+    });
+
+    for (final unsafeSecretCase in <String, String>{
+      'CRLF controls': 'line\r\nInjected: yes',
+      'Unicode characters': '密钥-🔐',
+    }.entries) {
+      test(
+        'uses the config canonical API secret for '
+        '${unsafeSecretCase.key} in authorization',
+        () {
+          final service = _ApiClashService();
+          addTearDown(service.dispose);
+          final unsafeSecret = unsafeSecretCase.value;
+          service.updateSettings(AppSettings(apiSecret: unsafeSecret));
+
+          final canonical = RuntimeConfigNamePolicy.canonicalApiSecret(
+            unsafeSecret,
+          );
+          expect(canonical, startsWith('ssrvpn-sha256-'));
+          expect(
+            service.apiHeaders()['Authorization'],
+            'Bearer $canonical',
+          );
+          expect(
+            service.apiHeaders()['Authorization'],
+            isNot(contains(RegExp(r'[\r\n\x80-\uffff]'))),
+          );
+        },
+      );
+    }
+
+    test('authorization exactly matches the generated Mihomo API secret', () {
+      const yaml = '''
+proxies:
+  - name: Node A
+    type: ss
+    server: 1.2.3.4
+    port: 443
+    cipher: aes-128-gcm
+    password: secret
+''';
+      const unsafeSecret = 'header\r\nvalue\t密钥';
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      final settings = AppSettings(apiSecret: unsafeSecret);
+      service.updateSettings(settings);
+
+      final generated =
+          loadYaml(service.buildConfig(yaml, settings)) as YamlMap;
+
+      expect(
+        service.apiHeaders()['Authorization'],
+        'Bearer ${generated['secret']}',
+      );
+    });
+
     test('updates both configured provider endpoints through Mihomo API',
         () async {
       final requests = <String>[];
@@ -742,6 +995,11 @@ Future<void> _recordRequests(
 class _ApiClashService extends ClashServiceBase {
   Future<void> runRuleProviderRefresh() => refreshRuleProvidersOnce();
 
+  Future<bool> runDesktopRecovery(int generation) =>
+      recoverDesktopConnection(generation);
+
+  void simulateTerminalConnectionLoss() => markConnectionLost();
+
   String buildConfig(String yaml, AppSettings settings) => buildClashConfig(
         yaml,
         settings,
@@ -750,6 +1008,24 @@ class _ApiClashService extends ClashServiceBase {
 
   @override
   Future<void> onStopRequired() async {}
+
+  @override
+  Future<AppSettings> prepareForStart(AppSettings preferred) async {
+    updateSettings(preferred);
+    return preferred;
+  }
+
+  @override
+  Future<void> writeDesktopRecoveryConfig(String config) async {}
+
+  @override
+  Future<bool> startForAutomaticRecovery() async {
+    setRunning(true);
+    return true;
+  }
+
+  @override
+  Future<void> stop() async => setRunning(false);
 }
 
 class _ControlledLatencyClashService extends _TestClashService {

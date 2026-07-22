@@ -62,6 +62,7 @@ class SystemProxyService {
   bool _ownsProxy = false;
   bool _recoveryPending = false;
   bool _endpointSafeWithPendingRecovery = false;
+  bool _ownershipChangedSinceLastAcquisition = false;
   String? _dataDir;
   Future<bool>? _recoveryOperation;
   final ConnectionTransitionQueue _transactionQueue =
@@ -78,6 +79,8 @@ class SystemProxyService {
   bool get recoveryPending => _recoveryPending;
   bool get endpointSafeWithPendingRecovery =>
       _recoveryPending && _endpointSafeWithPendingRecovery;
+  bool get ownershipChangedSinceLastAcquisition =>
+      _ownershipChangedSinceLastAcquisition;
   String? get lastError => _lastError;
 
   /// Restores proxy settings left behind by an abnormal previous shutdown.
@@ -255,14 +258,18 @@ class SystemProxyService {
     }
   }
 
-  Future<bool> isCurrentSystemProxyOwned() async {
-    if (!_isWindows) return false;
-    if (!await _awaitPendingCancelledProxyCommandExit()) return false;
+  Future<SystemProxyOwnershipStatus> currentSystemProxyOwnershipStatus() async {
+    if (!_isWindows) return SystemProxyOwnershipStatus.unavailable;
+    if (!await _awaitPendingCancelledProxyCommandExit()) {
+      return SystemProxyOwnershipStatus.unavailable;
+    }
     try {
       return await _withProxyTransactionLock(
         () async {
-          if (!await _awaitPendingCancelledProxyCommandExit()) return false;
-          return _isCurrentSystemProxyOwnedUnlocked();
+          if (!await _awaitPendingCancelledProxyCommandExit()) {
+            return SystemProxyOwnershipStatus.unavailable;
+          }
+          return _currentSystemProxyOwnershipStatusUnlocked();
         },
       );
     } on ProcessTerminationNotConfirmedException catch (error) {
@@ -271,30 +278,36 @@ class SystemProxyService {
         context: '检查 Windows 系统代理状态',
         recoveryStateExists: _ownsProxy || _recoveryPending,
       );
-      return false;
+      return SystemProxyOwnershipStatus.unavailable;
     } catch (e) {
       _lastError = '系统代理状态检查失败: $e';
-      return false;
+      return SystemProxyOwnershipStatus.unavailable;
     }
   }
 
-  Future<bool> _isCurrentSystemProxyOwnedUnlocked({
+  Future<bool> isCurrentSystemProxyOwned() async =>
+      await currentSystemProxyOwnershipStatus() ==
+      SystemProxyOwnershipStatus.owned;
+
+  Future<SystemProxyOwnershipStatus>
+      _currentSystemProxyOwnershipStatusUnlocked({
     Future<void>? cancellation,
   }) async {
     if (!_ownsProxy) {
       _lastError = 'SSRVPN 当前未持有 Windows 系统代理';
-      return false;
+      return SystemProxyOwnershipStatus.unavailable;
     }
     final current = await _readCurrentProxy(cancellation: cancellation);
     if (current == null) {
       _lastError ??= '无法读取当前 Windows 系统代理设置';
-      return false;
+      return SystemProxyOwnershipStatus.unavailable;
     }
     if (!_isOwnedProxy(current, _ownedProxyServer)) {
       _lastError = 'Windows 系统代理已被关闭或修改';
-      return false;
+      return SystemProxyOwnershipStatus.externallyChanged;
     }
-    return true;
+    _lastError = null;
+    return SystemProxyOwnershipStatus.owned;
   }
 
   Future<bool> _setSystemProxyUnlocked(
@@ -393,9 +406,10 @@ ${_notifyWinInetScript()}
         return _rollbackFailedAcquisition('提交 Windows 系统代理状态失败: $e');
       }
 
-      if (!await _isCurrentSystemProxyOwnedUnlocked(
-        cancellation: cancellation.future,
-      )) {
+      if (await _currentSystemProxyOwnershipStatusUnlocked(
+            cancellation: cancellation.future,
+          ) !=
+          SystemProxyOwnershipStatus.owned) {
         cancellation.throwIfRequested();
         final verificationError = _lastError ?? '无法确认 Windows 系统代理已生效';
         final released = await _clearSystemProxyUnlocked();
@@ -408,6 +422,7 @@ ${_notifyWinInetScript()}
       cancellation.throwIfRequested();
 
       _proxyEnabled = true;
+      _ownershipChangedSinceLastAcquisition = false;
       return true;
     } on ProcessTerminationNotConfirmedException catch (error) {
       if (preparedThisAttempt && !proxyMutationStarted) {
@@ -508,6 +523,10 @@ ${_notifyWinInetScript()}
         _recoveryPending = true;
         _lastError ??= '无法读取当前 Windows 系统代理设置，稍后重试恢复';
         return false;
+      }
+      if (!_isOwnedProxy(current, _ownedProxyServer) &&
+          current.toWindowsProxyState() != snapshot.toWindowsProxyState()) {
+        _ownershipChangedSinceLastAcquisition = true;
       }
       final recoveryAction = await _classifyRecoveryAction(
         current: current,

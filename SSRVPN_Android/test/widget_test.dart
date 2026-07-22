@@ -99,8 +99,8 @@ proxies:
     );
 
     final groupStart = config.indexOf('  - name: PROXY');
-    final remembered = config.indexOf("      - 'Second'", groupStart);
-    final first = config.indexOf("      - 'First'", groupStart);
+    final remembered = config.indexOf('      - "Second"', groupStart);
+    final first = config.indexOf('      - "First"', groupStart);
     expect(remembered, greaterThan(groupStart));
     expect(remembered, lessThan(first));
   });
@@ -126,7 +126,7 @@ proxies:
       config.indexOf('  - name: 自动选择'),
     );
     expect(globalGroup, contains("      - 'PROXY'"));
-    expect(globalGroup, contains("      - 'First'"));
+    expect(globalGroup, contains('      - "First"'));
   });
 
   test('global mode selects the built-in GLOBAL group through PROXY', () async {
@@ -250,9 +250,9 @@ proxies:
       ),
     );
 
-    final blocked = config.indexOf("'DOMAIN-SUFFIX,blocked.example,PROXY'");
-    final youtube = config.indexOf("'DOMAIN-SUFFIX,youtube.com,PROXY'");
-    final cnDirect = config.indexOf("'DOMAIN-SUFFIX,cn,DIRECT'");
+    final blocked = config.indexOf('"DOMAIN-SUFFIX,blocked.example,PROXY"');
+    final youtube = config.indexOf('"DOMAIN-SUFFIX,youtube.com,PROXY"');
+    final cnDirect = config.indexOf('"DOMAIN-SUFFIX,cn,DIRECT"');
     expect(blocked, greaterThan(0));
     expect(youtube, greaterThan(blocked));
     expect(youtube, lessThan(cnDirect));

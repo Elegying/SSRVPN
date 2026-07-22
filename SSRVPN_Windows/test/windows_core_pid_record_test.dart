@@ -145,7 +145,11 @@ void main() {
     final process = _FakeProcess();
     final capture = Completer<WindowsCorePidRecord>();
     final persisted = <WindowsCorePidRecord>[];
-    final establishment = WindowsCoreIdentityEstablishment(process);
+    final establishment = WindowsCoreIdentityEstablishment(
+      process,
+      spawnStartedAtUtcFileTime: BigInt.parse('134145678901234000'),
+      spawnReturnedAtUtcFileTime: BigInt.parse('134145678901235000'),
+    );
     var cancelled = false;
     var connectedPublished = false;
 
@@ -185,7 +189,11 @@ void main() {
       },
     );
     final otherProcess = _FakeProcess();
-    final establishment = WindowsCoreIdentityEstablishment(process);
+    final establishment = WindowsCoreIdentityEstablishment(
+      process,
+      spawnStartedAtUtcFileTime: BigInt.parse('134145678901234000'),
+      spawnReturnedAtUtcFileTime: BigInt.parse('134145678901235000'),
+    );
 
     await expectLater(
       establishment.establish(
@@ -220,6 +228,95 @@ void main() {
     expect(process.signals, [ProcessSignal.sigterm]);
     expect(otherProcess.signals, isEmpty);
   });
+
+  test('an exited spawn cannot publish identity captured from a reused PID',
+      () async {
+    const replacementIdentity = WindowsCorePidRecord(
+      pid: 4242,
+      creationTimeUtcFileTime: '134145678901234999',
+      canonicalExecutablePath: canonicalPath,
+    );
+    final process = _FakeProcess();
+    final capture = Completer<WindowsCorePidRecord>();
+    final persisted = <WindowsCorePidRecord>[];
+    final establishment = WindowsCoreIdentityEstablishment(
+      process,
+      spawnStartedAtUtcFileTime: BigInt.parse('134145678901234000'),
+      spawnReturnedAtUtcFileTime: BigInt.parse('134145678901235000'),
+    );
+
+    final result = establishment.establish(
+      capture: (_) => capture.future,
+      persist: (identity) async => persisted.add(identity),
+      ensureStartCurrent: () {},
+    );
+    process.completeExit(1);
+    capture.complete(replacementIdentity);
+
+    await expectLater(result, throwsStateError);
+    expect(persisted, isEmpty);
+    expect(establishment.capturedIdentity, isNull);
+  });
+
+  test('identity outside the exact spawn window fails closed', () async {
+    const tooNewIdentity = WindowsCorePidRecord(
+      pid: 4242,
+      creationTimeUtcFileTime: '134145678901235001',
+      canonicalExecutablePath: canonicalPath,
+    );
+    final process = _FakeProcess();
+    final persisted = <WindowsCorePidRecord>[];
+    final establishment = WindowsCoreIdentityEstablishment(
+      process,
+      spawnStartedAtUtcFileTime: BigInt.parse('134145678901234000'),
+      spawnReturnedAtUtcFileTime: BigInt.parse('134145678901235000'),
+    );
+
+    await expectLater(
+      establishment.establish(
+        capture: (_) async => tooNewIdentity,
+        persist: (identity) async => persisted.add(identity),
+        ensureStartCurrent: () {},
+      ),
+      throwsStateError,
+    );
+
+    expect(persisted, isEmpty);
+    expect(establishment.capturedIdentity, isNull);
+  });
+
+  test('exit during persistence cannot publish a connected process', () async {
+    const identity = WindowsCorePidRecord(
+      pid: 4242,
+      creationTimeUtcFileTime: '134145678901234567',
+      canonicalExecutablePath: canonicalPath,
+    );
+    final process = _FakeProcess();
+    final persistEntered = Completer<void>();
+    final releasePersist = Completer<void>();
+    final establishment = WindowsCoreIdentityEstablishment(
+      process,
+      spawnStartedAtUtcFileTime: BigInt.parse('134145678901234000'),
+      spawnReturnedAtUtcFileTime: BigInt.parse('134145678901235000'),
+    );
+
+    final result = establishment.establish(
+      capture: (_) async => identity,
+      persist: (_) async {
+        persistEntered.complete();
+        await releasePersist.future;
+      },
+      ensureStartCurrent: () {},
+    );
+    await persistEntered.future;
+    process.completeExit(23);
+    releasePersist.complete();
+
+    await expectLater(result, throwsStateError);
+    // The captured identity remains available only so failed-start cleanup can
+    // remove the exact durable record; establish never returns it as running.
+    expect(establishment.capturedIdentity, identity);
+  });
 }
 
 final class _TestStartCancelled implements Exception {}
@@ -230,6 +327,10 @@ class _FakeProcess implements Process {
   final void Function(ProcessSignal, Completer<int>)? onKill;
   final Completer<int> _exit = Completer<int>();
   final List<ProcessSignal> signals = [];
+
+  void completeExit(int code) {
+    if (!_exit.isCompleted) _exit.complete(code);
+  }
 
   @override
   Future<int> get exitCode => _exit.future;

@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
-    show ProcessTerminationNotConfirmedException;
+    show ProcessTerminationNotConfirmedException, SystemProxyOwnershipStatus;
 import 'package:ssrvpn_windows/services/system_proxy_service.dart';
 
 void main() {
@@ -59,6 +59,74 @@ void main() {
       );
       expect(script, contains(r'$OutputEncoding = [Console]::OutputEncoding'));
     }
+  });
+
+  test('proxy ownership reports owned, external change, and unavailable',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_proxy_ownership_status_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    var proxyReads = 0;
+    var externallyChanged = false;
+    var readable = true;
+    const ownedOverride =
+        '<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;'
+        '172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;'
+        '172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*';
+    final service = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: temp.path,
+      scriptRunner: (script) async {
+        if (!script.contains('ConvertTo-Json -Compress')) {
+          return ProcessResult(1, 0, '', '');
+        }
+        proxyReads++;
+        if (!readable) {
+          return ProcessResult(1, 124, '', 'controlled read timeout');
+        }
+        final initialRead = proxyReads == 1;
+        return ProcessResult(
+          1,
+          0,
+          jsonEncode({
+            'proxyEnable': initialRead ? 0 : 1,
+            'hasProxyServer': !initialRead,
+            'proxyServer': initialRead
+                ? ''
+                : externallyChanged
+                    ? '127.0.0.1:8888'
+                    : '127.0.0.1:7890',
+            'hasProxyOverride': !initialRead,
+            'proxyOverride': initialRead ? '' : ownedOverride,
+            'hasAutoConfigUrl': false,
+            'autoConfigUrl': '',
+            'hasAutoDetect': true,
+            'autoDetect': 0,
+          }),
+          '',
+        );
+      },
+    );
+
+    await service.initialize(temp.path);
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+    expect(
+      await service.currentSystemProxyOwnershipStatus(),
+      SystemProxyOwnershipStatus.owned,
+    );
+
+    externallyChanged = true;
+    expect(
+      await service.currentSystemProxyOwnershipStatus(),
+      SystemProxyOwnershipStatus.externallyChanged,
+    );
+
+    readable = false;
+    expect(
+      await service.currentSystemProxyOwnershipStatus(),
+      SystemProxyOwnershipStatus.unavailable,
+    );
   });
 
   test('a transient startup read failure is retried before connecting',

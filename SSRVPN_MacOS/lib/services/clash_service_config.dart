@@ -49,6 +49,10 @@ mixin _MacosClashConfig on ClashServiceBase {
     );
   }
 
+  @override
+  Future<void> writeDesktopRecoveryConfig(String configContent) =>
+      writeConfig(configContent);
+
   Future<void> writeConfig(String configContent) async {
     await writeStringAtomically(
       File(configPath),

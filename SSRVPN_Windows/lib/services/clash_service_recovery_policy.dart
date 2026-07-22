@@ -33,6 +33,7 @@ bool isUnexpectedCoreExit({
 typedef ExitedCoreMemoryCleanup = ({
   bool releaseProcessReference,
   bool clearTunOwnership,
+  bool clearConnectionIntent,
 });
 
 ExitedCoreMemoryCleanup classifyExitedCoreMemoryCleanup({
@@ -46,6 +47,7 @@ ExitedCoreMemoryCleanup classifyExitedCoreMemoryCleanup({
   return (
     releaseProcessReference: releaseProcessReference,
     clearTunOwnership: releaseProcessReference && wasRunning,
+    clearConnectionIntent: wasRunning && !releaseProcessReference,
   );
 }
 

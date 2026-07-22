@@ -74,13 +74,31 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   String get corePath => _corePath;
   bool get hasPendingSystemProxyRecovery => _proxyService.recoveryPending;
 
+  @protected
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() =>
+      _proxyService.currentSystemProxyOwnershipStatus();
+
+  @protected
+  bool get systemProxyOwnershipChangedSinceLastAcquisition =>
+      _proxyService.ownershipChangedSinceLastAcquisition;
+
   @override
   Future<bool> healthCheck() async {
     if (!await super.healthCheck()) return false;
     if (!settings.enableTun) {
-      if (isRunning && !await _proxyService.isCurrentSystemProxyOwned()) {
+      if (isRunning) {
+        final ownershipStatus = await inspectSystemProxyOwnership();
+        if (ownershipStatus == SystemProxyOwnershipStatus.owned) {
+          setLastHealthCheckError(null);
+          return true;
+        }
+        final ownershipError = _proxyService.lastError ?? 'Windows 系统代理所有权无法确认';
+        final prefix =
+            ownershipStatus == SystemProxyOwnershipStatus.externallyChanged
+                ? desktopSystemProxyOwnershipLostPrefix
+                : desktopSystemProxyOwnershipUnavailablePrefix;
         setLastHealthCheckError(
-          _proxyService.lastError ?? 'Windows 系统代理已被关闭或修改',
+          '$prefix $ownershipError',
         );
         return false;
       }
@@ -184,6 +202,35 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       setRunning(true);
       return true;
     }
+    if (!settings.enableTun) {
+      // The API and the system proxy can fail at the same time. healthCheck()
+      // returns as soon as the API is unavailable, so inspect ownership again
+      // immediately before any stop/restart that could reacquire the proxy.
+      final ownershipStatus = await inspectSystemProxyOwnership();
+      if (ownershipStatus != SystemProxyOwnershipStatus.owned) {
+        final externallyChanged =
+            ownershipStatus == SystemProxyOwnershipStatus.externallyChanged;
+        // Invalidate intent before asynchronous cleanup so neither the health
+        // monitor nor an in-flight recovery can reacquire the system proxy.
+        markConnectionLost();
+        try {
+          await stop();
+        } catch (error) {
+          log('系统代理所有权失效后的核心清理未完成: $error');
+          notifyRuntimeNotice(
+            '已取消自动重连，但系统代理或 Mihomo 核心清理状态无法确认；'
+            '请在诊断页检查并重试断开，SSRVPN 不会重新接管代理。',
+          );
+          return false;
+        }
+        notifyRuntimeNotice(
+          externallyChanged
+              ? '检测到系统代理已被其他程序接管，SSRVPN 已安全断开且不会覆盖当前代理。'
+              : '无法确认当前系统代理所有权，SSRVPN 已安全断开且不会覆盖未知代理状态。',
+        );
+        return false;
+      }
+    }
     if (!_unexpectedExitRecoveryPolicy.tryAcquire()) {
       await stop();
       return false;
@@ -199,7 +246,16 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
     if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
       return false;
     }
-    return _start(automaticRecovery: true);
+    if (!settings.enableTun &&
+        systemProxyOwnershipChangedSinceLastAcquisition) {
+      markConnectionLost();
+      notifyRuntimeNotice(
+        '系统代理在清理期间发生变化，已取消自动重连；'
+        'SSRVPN 不会重新接管当前代理。',
+      );
+      return false;
+    }
+    return recoverDesktopConnection(connectionGeneration);
   }
 
   // ── Windows process management ──
@@ -540,7 +596,11 @@ try {
   // ── clang-format off: Start / Stop ──
 
   /// 启动核心
+  @override
   Future<bool> start() => _start();
+
+  @override
+  Future<bool> startForAutomaticRecovery() => _start(automaticRecovery: true);
 
   Future<bool> _start({
     bool automaticRecovery = false,
@@ -741,6 +801,7 @@ try {
         return false;
       }
       _ensureStartCurrent(startToken);
+      final coreSpawnStartedAtUtcFileTime = currentWindowsUtcFileTime();
       final startedProcess = await Process.start(
         _corePath,
         ['-d', configDir, '-f', configPath],
@@ -748,11 +809,15 @@ try {
         includeParentEnvironment: true,
         environment: environment,
       );
+      final coreSpawnReturnedAtUtcFileTime = currentWindowsUtcFileTime();
       log('Mihomo 进程已创建，耗时 ${processStartWatch.elapsedMilliseconds}ms');
       _coreProcess = startedProcess;
       _coreUsesTun = startedWithTun;
-      final identityEstablishment =
-          WindowsCoreIdentityEstablishment(startedProcess);
+      final identityEstablishment = WindowsCoreIdentityEstablishment(
+        startedProcess,
+        spawnStartedAtUtcFileTime: coreSpawnStartedAtUtcFileTime,
+        spawnReturnedAtUtcFileTime: coreSpawnReturnedAtUtcFileTime,
+      );
       _coreIdentityEstablishment = identityEstablishment;
       final startedPidRecord = await identityEstablishment.establish(
         capture: _captureCorePidRecord,
@@ -846,8 +911,12 @@ try {
                 '本次不会自动重连。请重新安装或联系支持。',
               );
             }
-            setRunning(false);
-            notifyStatusChanged();
+            if (memoryCleanup.clearConnectionIntent) {
+              markConnectionLost();
+            } else {
+              setRunning(false);
+              notifyStatusChanged();
+            }
             stopStatusMonitor();
             _scheduleUnexpectedExitRecovery(
               restartGeneration,
@@ -996,6 +1065,7 @@ try {
   }
 
   /// 停止核心
+  @override
   Future<void> stop() {
     interruptPendingStart();
     final current = _stopOperation;
@@ -1275,15 +1345,13 @@ try {
     int exitCode,
     Future<Set<WindowsTunInterfaceIdentity>>? tunInterfaces,
   ) {
-    final cleanup = retryUnexpectedExitSystemProxyRecovery(
-      clearProxy: _clearProxyAfterUnexpectedExit,
-      onAttemptFailed: (attempt, totalAttempts) {
-        log('⚠️ 核心退出后的系统代理恢复未完成 ($attempt/$totalAttempts)');
-      },
+    final cleanup = _prepareUnexpectedExitProxyCleanup(
+      generation,
+      usedSystemProxy: tunInterfaces == null,
     );
     final operation = cleanup.then<void>((_) {});
     _exitCleanupOperation = operation;
-    cleanup.then((proxyCleared) {
+    cleanup.then((proxyCleanup) {
       if (identical(_exitCleanupOperation, operation)) {
         _exitCleanupOperation = null;
       }
@@ -1291,14 +1359,57 @@ try {
         _recoverFromUnexpectedExit(
           generation,
           exitCode,
-          proxyCleared,
+          proxyCleanup,
           tunInterfaces,
         ),
       );
     });
   }
 
-  Future<bool> _clearProxyAfterUnexpectedExit() async {
+  Future<DesktopUnexpectedExitProxyCleanupResult>
+      _prepareUnexpectedExitProxyCleanup(
+    int? generation, {
+    required bool usedSystemProxy,
+  }) async {
+    SystemProxyOwnershipStatus? ownershipBeforeClear;
+    if (usedSystemProxy) {
+      try {
+        ownershipBeforeClear = await inspectSystemProxyOwnership();
+      } catch (error) {
+        ownershipBeforeClear = SystemProxyOwnershipStatus.unavailable;
+        log('⚠️ 核心异常退出前无法确认系统代理所有权: $error');
+      }
+      if (ownershipBeforeClear != SystemProxyOwnershipStatus.owned &&
+          generation != null &&
+          isConnectionIntentCurrent(generation, connected: true)) {
+        // Cleanup/discard remains allowed, but invalidate automatic restart
+        // before the asynchronous registry transaction can race with it.
+        markConnectionLost();
+      }
+    }
+
+    final proxyCleared = await retryUnexpectedExitSystemProxyRecovery(
+      clearProxy: clearSystemProxyAfterUnexpectedExit,
+      onAttemptFailed: (attempt, totalAttempts) {
+        log('⚠️ 核心退出后的系统代理恢复未完成 ($attempt/$totalAttempts)');
+      },
+    );
+    final ownershipChangedDuringClear =
+        usedSystemProxy && systemProxyOwnershipChangedSinceLastAcquisition;
+    if (ownershipChangedDuringClear &&
+        generation != null &&
+        isConnectionIntentCurrent(generation, connected: true)) {
+      markConnectionLost();
+    }
+    return DesktopUnexpectedExitProxyCleanupResult(
+      proxyCleared: proxyCleared,
+      ownershipBeforeClear: ownershipBeforeClear,
+      ownershipChangedDuringClear: ownershipChangedDuringClear,
+    );
+  }
+
+  @protected
+  Future<bool> clearSystemProxyAfterUnexpectedExit() async {
     try {
       final cleared = await _proxyService.clearSystemProxy();
       if (_proxyService.lastError != null &&
@@ -1315,18 +1426,36 @@ try {
   Future<void> _recoverFromUnexpectedExit(
     int? generation,
     int exitCode,
-    bool proxyCleared,
+    DesktopUnexpectedExitProxyCleanupResult proxyCleanup,
     Future<Set<WindowsTunInterfaceIdentity>>? tunInterfaces,
   ) async {
+    final proxyCleared = proxyCleanup.proxyCleared;
     if (tunInterfaces != null) {
       _tunTeardownGate.markPending(await tunInterfaces);
+    }
+    if (proxyCleanup.hasUnsafeSystemProxyOwnership) {
+      final changedDuringClear = proxyCleanup.ownershipChangedDuringClear;
+      final externallyChanged = proxyCleanup.ownershipBeforeClear ==
+          SystemProxyOwnershipStatus.externallyChanged;
+      notifyRuntimeNotice(
+        proxyCleared
+            ? (changedDuringClear
+                ? '核心异常退出；系统代理在清理期间发生变化，SSRVPN '
+                    '已取消自动重连，不会重新接管当前代理。'
+                : externallyChanged
+                    ? '核心异常退出；检测到系统代理已由其他程序接管，SSRVPN 已清理自身恢复状态并取消自动重连，未覆盖当前代理。'
+                    : '核心异常退出；此前无法确认系统代理所有权，SSRVPN 已完成清理并取消自动重连，不会重新接管代理。')
+            : '核心异常退出；已取消自动重连，但系统代理恢复状态清理无法确认。'
+                '请在诊断页检查并重试断开，SSRVPN 不会重新接管代理。',
+      );
+      return;
     }
     final hasRecoveryIntent = hasActiveUnexpectedExitRecoveryIntent(
       generation,
       (value) => isConnectionIntentCurrent(value, connected: true),
     );
     if (!hasRecoveryIntent) {
-      if (!proxyCleared) await _clearProxyAfterUnexpectedExit();
+      if (!proxyCleared) await clearSystemProxyAfterUnexpectedExit();
       return;
     }
     if (!proxyCleared) {
@@ -1339,7 +1468,7 @@ try {
           await stopping;
         } catch (_) {}
         _clearStopOperation(stopping);
-        if (await _clearProxyAfterUnexpectedExit()) return;
+        if (await clearSystemProxyAfterUnexpectedExit()) return;
       }
 
       final recoveryReason = _proxyService.lastError ?? '无法恢复 Windows 系统代理旧状态';
@@ -1404,7 +1533,7 @@ try {
     }
 
     notifyRuntimeNotice('核心异常退出，正在自动恢复（退出码 $exitCode）');
-    final restarted = await _start(automaticRecovery: true);
+    final restarted = await recoverDesktopConnection(generation!);
 
     if (!hasActiveUnexpectedExitRecoveryIntent(
       generation,
@@ -1420,6 +1549,24 @@ try {
     final reason = lastStartError ?? 'Mihomo 未能重新启动';
     markConnectionLost();
     notifyRuntimeNotice('连接已断开：核心自动恢复失败（$reason），请重新连接');
+  }
+
+  @protected
+  Future<void> runUnexpectedExitRecovery({
+    required int? generation,
+    required int exitCode,
+    bool usedTun = false,
+  }) async {
+    final proxyCleanup = await _prepareUnexpectedExitProxyCleanup(
+      generation,
+      usedSystemProxy: !usedTun,
+    );
+    await _recoverFromUnexpectedExit(
+      generation,
+      exitCode,
+      proxyCleanup,
+      usedTun ? Future<Set<WindowsTunInterfaceIdentity>>.value(const {}) : null,
+    );
   }
 
   void _clearStartOperation(Future<bool> operation) {

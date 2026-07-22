@@ -105,6 +105,21 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
               connected: true,
             );
       }
+      if (success) {
+        clashService.rememberDesktopConnectionRecoveryPlan(
+          preferredSettings: settingsService.settings,
+          generateConfig: (runtimeSettings, preferredNodeName) =>
+              clashService.generateClashConfigAsync(
+            rawYaml,
+            runtimeSettings,
+            preferredNodeName: preferredNodeName,
+          ),
+          isRevisionCurrent: () =>
+              subService.revision == subscriptionRevision &&
+              subService.rawYaml == rawYaml,
+          preferredNodeName: runtimeSelectedNode?.name ?? preferredNode?.name,
+        );
+      }
       if (mounted && !_disposed) {
         if (!success) {
           clashService.requestConnectionIntent(false);

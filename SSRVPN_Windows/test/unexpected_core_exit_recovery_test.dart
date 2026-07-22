@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_shared/models/app_settings.dart';
+import 'package:ssrvpn_shared/services/system_proxy_ownership_status.dart';
 import 'package:ssrvpn_windows/services/clash_service.dart';
 
 void main() {
@@ -33,6 +35,7 @@ void main() {
 
     expect(cleanedBeforeConnected.releaseProcessReference, isTrue);
     expect(cleanedBeforeConnected.clearTunOwnership, isFalse);
+    expect(cleanedBeforeConnected.clearConnectionIntent, isFalse);
 
     for (final unsafe in <ExitedCoreMemoryCleanup>[
       classifyExitedCoreMemoryCleanup(
@@ -56,6 +59,7 @@ void main() {
     ]) {
       expect(unsafe.releaseProcessReference, isFalse);
       expect(unsafe.clearTunOwnership, isFalse);
+      expect(unsafe.clearConnectionIntent, isFalse);
     }
 
     final cleanedAfterConnected = classifyExitedCoreMemoryCleanup(
@@ -66,6 +70,17 @@ void main() {
     );
     expect(cleanedAfterConnected.releaseProcessReference, isTrue);
     expect(cleanedAfterConnected.clearTunOwnership, isTrue);
+    expect(cleanedAfterConnected.clearConnectionIntent, isFalse);
+
+    final unsafeAfterConnected = classifyExitedCoreMemoryCleanup(
+      ownsExitedProcess: true,
+      ownsPidRecord: true,
+      pidRecordDeleted: false,
+      wasRunning: true,
+    );
+    expect(unsafeAfterConnected.releaseProcessReference, isFalse);
+    expect(unsafeAfterConnected.clearTunOwnership, isFalse);
+    expect(unsafeAfterConnected.clearConnectionIntent, isTrue);
   });
 
   test('manual disconnect cancels unexpected-exit recovery fallback', () {
@@ -171,4 +186,299 @@ void main() {
     expect(recovered, isTrue);
     expect(attempts, 2);
   });
+
+  test(
+      'API failure plus external proxy takeover disconnects without reacquiring proxy',
+      () async {
+    final notices = <String>[];
+    final service = _ExternalProxyTakeoverRecoveryClashService()
+      ..onRuntimeNotice = notices.add;
+    addTearDown(service.dispose);
+    var configGenerationCalls = 0;
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async {
+        configGenerationCalls++;
+        return 'mixed-port: ${runtimeSettings.proxyPort}';
+      },
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    final recovered = await service.recoverAfterHealthCheckFailure(generation);
+
+    expect(recovered, isFalse);
+    expect(service.stopCalls, 1);
+    expect(service.proxyOwnershipInspectionCalls, 1);
+    expect(service.prepareCalls, 0);
+    expect(configGenerationCalls, 0);
+    expect(service.automaticRecoveryStartCalls, 0);
+    expect(service.connectionDesired, isFalse);
+    expect(service.isRunning, isFalse);
+    expect(
+      notices.single,
+      allOf(contains('其他程序'), contains('不会覆盖')),
+    );
+  });
+
+  test(
+      'unexpected core exit clears external takeover state without restarting or reacquiring',
+      () async {
+    final notices = <String>[];
+    final service = _ExternalProxyTakeoverRecoveryClashService()
+      ..onRuntimeNotice = notices.add;
+    addTearDown(service.dispose);
+    var configGenerationCalls = 0;
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async {
+        configGenerationCalls++;
+        return 'mixed-port: ${runtimeSettings.proxyPort}';
+      },
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    await service.simulateUnexpectedExit(generation);
+
+    expect(service.proxyOwnershipInspectionCalls, 1);
+    expect(service.unexpectedExitProxyClearCalls, 1);
+    expect(service.prepareCalls, 0);
+    expect(configGenerationCalls, 0);
+    expect(service.automaticRecoveryStartCalls, 0);
+    expect(service.connectionDesired, isFalse);
+    expect(service.isRunning, isFalse);
+    expect(
+      notices.single,
+      allOf(contains('其他程序接管'), contains('取消自动重连'), contains('未覆盖')),
+    );
+  });
+
+  test(
+      'proxy ownership change during health cleanup blocks automatic reacquisition',
+      () async {
+    final notices = <String>[];
+    final service = _ProxyChangedDuringCleanupRecoveryClashService()
+      ..onRuntimeNotice = notices.add;
+    addTearDown(service.dispose);
+    var configGenerationCalls = 0;
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async {
+        configGenerationCalls++;
+        return 'mixed-port: ${runtimeSettings.proxyPort}';
+      },
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    final recovered = await service.recoverAfterHealthCheckFailure(generation);
+
+    expect(recovered, isFalse);
+    expect(service.stopCalls, 1);
+    expect(service.prepareCalls, 0);
+    expect(configGenerationCalls, 0);
+    expect(service.automaticRecoveryStartCalls, 0);
+    expect(service.connectionDesired, isFalse);
+    expect(
+      notices.last,
+      allOf(contains('清理期间'), contains('不会重新接管')),
+    );
+  });
+
+  test('proxy ownership change during unexpected-exit cleanup blocks restart',
+      () async {
+    final notices = <String>[];
+    final service = _ProxyChangedDuringCleanupRecoveryClashService()
+      ..onRuntimeNotice = notices.add;
+    addTearDown(service.dispose);
+    var configGenerationCalls = 0;
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async {
+        configGenerationCalls++;
+        return 'mixed-port: ${runtimeSettings.proxyPort}';
+      },
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    await service.simulateUnexpectedExit(generation);
+
+    expect(service.proxyOwnershipInspectionCalls, 1);
+    expect(service.unexpectedExitProxyClearCalls, 1);
+    expect(service.prepareCalls, 0);
+    expect(configGenerationCalls, 0);
+    expect(service.automaticRecoveryStartCalls, 0);
+    expect(service.connectionDesired, isFalse);
+    expect(
+      notices.single,
+      allOf(contains('清理期间'), contains('取消自动重连')),
+    );
+  });
+
+  test('unavailable proxy ownership disconnects without reacquiring proxy',
+      () async {
+    final notices = <String>[];
+    final service = _UnavailableProxyOwnershipRecoveryClashService()
+      ..onRuntimeNotice = notices.add;
+    addTearDown(service.dispose);
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async =>
+          'mixed-port: ${runtimeSettings.proxyPort}',
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    final recovered = await service.recoverAfterHealthCheckFailure(generation);
+
+    expect(recovered, isFalse);
+    expect(service.stopCalls, 1);
+    expect(service.proxyOwnershipInspectionCalls, 1);
+    expect(service.prepareCalls, 0);
+    expect(service.automaticRecoveryStartCalls, 0);
+    expect(service.connectionDesired, isFalse);
+    expect(notices.single, allOf(contains('无法确认'), contains('不会覆盖')));
+  });
+
+  test('health recovery rebuilds runtime config before automatic start',
+      () async {
+    final service = _PlannedHealthRecoveryClashService();
+    addTearDown(service.dispose);
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async {
+        service.calls.add('generate');
+        return 'mixed-port: ${runtimeSettings.proxyPort}';
+      },
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    final recovered = await service.recoverAfterHealthCheckFailure(generation);
+
+    expect(recovered, isTrue);
+    expect(service.connectionDesired, isTrue);
+    expect(service.isRunning, isTrue);
+    expect(
+      service.calls,
+      ['health', 'stop', 'prepare', 'generate', 'write', 'recovery-start'],
+    );
+  });
+}
+
+class _ExternalProxyTakeoverRecoveryClashService extends ClashService {
+  int stopCalls = 0;
+  int prepareCalls = 0;
+  int proxyOwnershipInspectionCalls = 0;
+  int unexpectedExitProxyClearCalls = 0;
+  int automaticRecoveryStartCalls = 0;
+
+  Future<void> simulateUnexpectedExit(int generation) =>
+      runUnexpectedExitRecovery(generation: generation, exitCode: 17);
+
+  @override
+  Future<bool> healthCheck() async {
+    setLastHealthCheckError('CORE_API_UNAVAILABLE: Mihomo API 不可用');
+    return false;
+  }
+
+  @override
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async {
+    proxyOwnershipInspectionCalls++;
+    return SystemProxyOwnershipStatus.externallyChanged;
+  }
+
+  @override
+  Future<AppSettings> prepareForStart(AppSettings preferred) async {
+    prepareCalls++;
+    return preferred;
+  }
+
+  @override
+  Future<bool> clearSystemProxyAfterUnexpectedExit() async {
+    unexpectedExitProxyClearCalls++;
+    return true;
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCalls++;
+    setRunning(false);
+  }
+
+  @override
+  Future<bool> startForAutomaticRecovery() async {
+    automaticRecoveryStartCalls++;
+    setRunning(true);
+    return true;
+  }
+}
+
+class _UnavailableProxyOwnershipRecoveryClashService
+    extends _ExternalProxyTakeoverRecoveryClashService {
+  @override
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async {
+    proxyOwnershipInspectionCalls++;
+    return SystemProxyOwnershipStatus.unavailable;
+  }
+}
+
+class _ProxyChangedDuringCleanupRecoveryClashService
+    extends _ExternalProxyTakeoverRecoveryClashService {
+  @override
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async {
+    proxyOwnershipInspectionCalls++;
+    return SystemProxyOwnershipStatus.owned;
+  }
+
+  @override
+  bool get systemProxyOwnershipChangedSinceLastAcquisition => true;
+}
+
+class _PlannedHealthRecoveryClashService extends ClashService {
+  final List<String> calls = [];
+
+  @override
+  Future<bool> healthCheck() async {
+    calls.add('health');
+    setLastHealthCheckError('Mihomo API unavailable');
+    return false;
+  }
+
+  @override
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async =>
+      SystemProxyOwnershipStatus.owned;
+
+  @override
+  Future<void> stop() async {
+    calls.add('stop');
+    setRunning(false);
+  }
+
+  @override
+  Future<AppSettings> prepareForStart(AppSettings preferred) async {
+    calls.add('prepare');
+    updateSettings(preferred);
+    return preferred;
+  }
+
+  @override
+  Future<void> writeConfig(String configContent) async {
+    calls.add('write');
+  }
+
+  @override
+  Future<bool> startForAutomaticRecovery() async {
+    calls.add('recovery-start');
+    setRunning(true);
+    return true;
+  }
 }

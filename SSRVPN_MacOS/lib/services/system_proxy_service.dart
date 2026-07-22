@@ -47,19 +47,22 @@ class SystemProxyService {
   Future<bool>? _clearSystemProxyInFlight;
   bool _proxyEnabled = false;
   bool _recoveryPending = false;
+  bool _ownershipChangedSinceLastAcquisition = false;
   String? _ownedProxyHost;
   int? _ownedProxyPort;
   String? _lastError;
 
   bool get isProxyEnabled => _proxyEnabled;
   bool get recoveryPending => _recoveryPending;
+  bool get ownershipChangedSinceLastAcquisition =>
+      _ownershipChangedSinceLastAcquisition;
   String? get lastError => _lastError;
 
   /// Verifies the effective proxy of the currently active macOS network
   /// service without changing it. `scutil --proxy` follows service priority,
   /// so switching to a newly-created service cannot silently bypass SSRVPN.
-  Future<bool> isCurrentSystemProxyOwned() async {
-    if (!Platform.isMacOS) return false;
+  Future<SystemProxyOwnershipStatus> currentSystemProxyOwnershipStatus() async {
+    if (!Platform.isMacOS) return SystemProxyOwnershipStatus.unavailable;
     final ownedHost = _ownedProxyHost;
     final ownedPort = _ownedProxyPort;
     if (!_proxyEnabled ||
@@ -69,7 +72,7 @@ class SystemProxyService {
         ownedPort < 1 ||
         ownedPort > 65535) {
       _lastError = 'macOS 系统代理所有权信息不可用';
-      return false;
+      return SystemProxyOwnershipStatus.unavailable;
     }
 
     try {
@@ -77,7 +80,7 @@ class SystemProxyService {
       if (result.exitCode != 0) {
         final stderr = result.stderr.toString().trim();
         _lastError = stderr.isEmpty ? '无法读取 macOS 当前系统代理' : stderr;
-        return false;
+        return SystemProxyOwnershipStatus.unavailable;
       }
       final values = _parseEffectiveProxy(result.stdout.toString());
       final owned = _effectiveProxyEntryIsOwned(
@@ -106,15 +109,19 @@ class SystemProxyService {
           );
       if (!owned) {
         _lastError = 'macOS 当前网络服务的系统代理已被关闭或修改';
-        return false;
+        return SystemProxyOwnershipStatus.externallyChanged;
       }
       _lastError = null;
-      return true;
+      return SystemProxyOwnershipStatus.owned;
     } catch (error) {
       _lastError = '读取 macOS 当前系统代理失败: $error';
-      return false;
+      return SystemProxyOwnershipStatus.unavailable;
     }
   }
+
+  Future<bool> isCurrentSystemProxyOwned() async =>
+      await currentSystemProxyOwnershipStatus() ==
+      SystemProxyOwnershipStatus.owned;
 
   Future<void> initialize(String configDir) async {
     _stateFile = File('$configDir${Platform.pathSeparator}system_proxy.json');
@@ -194,6 +201,7 @@ class SystemProxyService {
       }
       _proxyEnabled = true;
       _recoveryPending = false;
+      _ownershipChangedSinceLastAcquisition = false;
       _ownedProxyHost = host;
       _ownedProxyPort = port;
       return true;
@@ -532,6 +540,9 @@ class SystemProxyService {
       ownedHost: ownedHost,
       ownedPort: ownedPort,
     )) {
+      if (!_proxyStatesEquivalent(current, value)) {
+        _ownershipChangedSinceLastAcquisition = true;
+      }
       return;
     }
     await _restoreProxyState(
@@ -540,6 +551,18 @@ class SystemProxyService {
       setCommand: setCommand,
       stateCommand: stateCommand,
     );
+  }
+
+  bool _proxyStatesEquivalent(Map<String, dynamic> current, Object? saved) {
+    final expected = saved is Map ? saved : const {};
+    final currentEnabled = current['enabled'] == true;
+    final expectedEnabled = expected['enabled'] == true;
+    if (currentEnabled != expectedEnabled) return false;
+    if (!currentEnabled) return true;
+    return (current['server']?.toString().trim() ?? '') ==
+            (expected['server']?.toString().trim() ?? '') &&
+        (int.tryParse(current['port']?.toString() ?? '') ?? 0) ==
+            (int.tryParse(expected['port']?.toString() ?? '') ?? 0);
   }
 
   Future<void> _restoreProxyState(

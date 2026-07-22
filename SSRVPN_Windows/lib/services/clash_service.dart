@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:flutter/foundation.dart' show protected;
 import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
@@ -180,6 +181,10 @@ class ClashService extends ClashServiceBase
   }
 
   /// 写入配置
+  @override
+  Future<void> writeDesktopRecoveryConfig(String configContent) =>
+      writeConfig(configContent);
+
   Future<void> writeConfig(String configContent) async {
     if (_startupDisabledReason != null) {
       throw StateError(_startupDisabledReason!);

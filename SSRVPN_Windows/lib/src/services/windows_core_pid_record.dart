@@ -1,8 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 const int windowsCorePidRecordVersion = 1;
 const int maxWindowsCorePidRecordBytes = 4096;
+final BigInt _windowsFileTimeUnixEpochOffset =
+    BigInt.parse('116444736000000000');
+
+/// Current UTC timestamp in the same 100-nanosecond epoch used by Windows
+/// process creation FILETIME values.
+BigInt currentWindowsUtcFileTime() =>
+    BigInt.from(DateTime.now().toUtc().microsecondsSinceEpoch) *
+        BigInt.from(10) +
+    _windowsFileTimeUnixEpochOffset;
 
 /// Durable identity for the exact Mihomo process started by SSRVPN.
 ///
@@ -125,9 +135,18 @@ class WindowsCorePidRecord {
 /// identity must either be captured and persisted or the exact held [Process]
 /// object must remain available for confirmed cleanup.
 final class WindowsCoreIdentityEstablishment {
-  WindowsCoreIdentityEstablishment(this.process);
+  WindowsCoreIdentityEstablishment(
+    this.process, {
+    required this.spawnStartedAtUtcFileTime,
+    required this.spawnReturnedAtUtcFileTime,
+  })  : assert(spawnStartedAtUtcFileTime > BigInt.zero),
+        assert(spawnReturnedAtUtcFileTime >= spawnStartedAtUtcFileTime),
+        _processExit = process.exitCode;
 
   final Process process;
+  final BigInt spawnStartedAtUtcFileTime;
+  final BigInt spawnReturnedAtUtcFileTime;
+  final Future<int> _processExit;
   WindowsCorePidRecord? _capturedIdentity;
 
   WindowsCorePidRecord? get capturedIdentity => _capturedIdentity;
@@ -142,14 +161,79 @@ final class WindowsCoreIdentityEstablishment {
     required Future<void> Function(WindowsCorePidRecord identity) persist,
     required void Function() ensureStartCurrent,
   }) async {
-    final identity = await capture(process.pid);
+    final identity = await _completeWhileSpawnIsAlive(
+      capture(process.pid),
+      phase: 'capturing its durable identity',
+    );
     if (identity.pid != process.pid) {
       throw StateError('Captured Mihomo identity did not match the spawn PID');
     }
-    _capturedIdentity = identity;
+    final creationTime = BigInt.parse(identity.creationTimeUtcFileTime);
+    if (creationTime < spawnStartedAtUtcFileTime ||
+        creationTime > spawnReturnedAtUtcFileTime) {
+      throw StateError(
+        'Captured Mihomo identity was outside the exact spawn window',
+      );
+    }
+
+    // Process.exitCode is bound to the original Process handle. Waiting one
+    // event-loop turn after the PID-based capture lets an already-signalled
+    // original exit win before a reused PID can be persisted as ours.
+    await _completeWhileSpawnIsAlive(
+      Future<void>.delayed(Duration.zero),
+      phase: 'validating its durable identity',
+    );
+
     await persist(identity);
+    // Once persistence succeeds, retain the exact record even when the child
+    // exits immediately: failed-start cleanup needs it to remove the durable
+    // record without ever targeting a different PID occupant.
+    _capturedIdentity = identity;
+    await _completeWhileSpawnIsAlive(
+      Future<void>.delayed(Duration.zero),
+      phase: 'publishing its durable identity',
+    );
     ensureStartCurrent();
     return identity;
+  }
+
+  Future<T> _completeWhileSpawnIsAlive<T>(
+    Future<T> operation, {
+    required String phase,
+  }) {
+    final completion = Completer<T>();
+
+    // Register the held Process exit first. If both Futures were already
+    // completed, fail closed instead of accepting a result for a recycled PID.
+    _processExit.then<void>(
+      (exitCode) {
+        if (!completion.isCompleted) {
+          completion.completeError(
+            StateError(
+                'Spawned Mihomo exited with code $exitCode while $phase'),
+          );
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!completion.isCompleted) {
+          completion.completeError(
+            StateError('Could not observe spawned Mihomo while $phase: $error'),
+            stackTrace,
+          );
+        }
+      },
+    );
+    operation.then<void>(
+      (value) {
+        if (!completion.isCompleted) completion.complete(value);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!completion.isCompleted) {
+          completion.completeError(error, stackTrace);
+        }
+      },
+    );
+    return completion.future;
   }
 
   Future<bool> terminateUnidentifiedProcess(

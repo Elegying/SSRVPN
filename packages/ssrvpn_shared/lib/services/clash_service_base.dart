@@ -18,6 +18,8 @@ import '../utils/log_redactor.dart';
 import '../utils/private_node_latency_policy.dart';
 import '../utils/connection_intent_tracker.dart';
 import '../utils/connection_transition_queue.dart';
+import '../utils/runtime_config_name_policy.dart';
+import 'desktop_connection_coordinator.dart';
 import 'public_ip_info_service.dart';
 
 part 'clash_service_config_support.dart';
@@ -49,6 +51,8 @@ abstract class ClashServiceBase
   final ConnectionIntentTracker _connectionIntent = ConnectionIntentTracker();
   final ConnectionTransitionQueue _connectionTransitions =
       ConnectionTransitionQueue();
+  DesktopConnectionRecoveryPlan? _desktopConnectionRecoveryPlan;
+  String? _desktopRecoveryPreferredNodeName;
   Future<void> _proxySelectionTail = Future<void>.value();
 
   AppSettings _settings = AppSettings();
@@ -116,8 +120,10 @@ abstract class ClashServiceBase
   @override
   String get configPath => _configPath;
 
-  int requestConnectionIntent(bool connected) =>
-      _connectionIntent.request(connected);
+  int requestConnectionIntent(bool connected) {
+    if (!connected) clearDesktopConnectionRecoveryPlan();
+    return _connectionIntent.request(connected);
+  }
 
   int? captureAutomaticRestartIntent() =>
       _connectionIntent.captureAutomaticRestart();
@@ -127,6 +133,95 @@ abstract class ClashServiceBase
 
   Future<T> runConnectionTransition<T>(Future<T> Function() transition) =>
       _connectionTransitions.run(transition);
+
+  /// Installs the latest successful desktop connection's immutable recovery
+  /// source. Callers must pass closures that capture services/snapshots only,
+  /// never a widget State object.
+  void rememberDesktopConnectionRecoveryPlan({
+    required AppSettings preferredSettings,
+    required Future<String> Function(
+      AppSettings runtimeSettings,
+      String? preferredNodeName,
+    ) generateConfig,
+    required bool Function() isRevisionCurrent,
+    String? preferredNodeName,
+  }) {
+    final settingsSnapshot = preferredSettings.copyWith(
+      forceProxySites: List<String>.of(preferredSettings.forceProxySites),
+    );
+    _desktopRecoveryPreferredNodeName = preferredNodeName;
+    _desktopConnectionRecoveryPlan = DesktopConnectionRecoveryPlan(
+      preferredSettings: settingsSnapshot,
+      prepareForStart: prepareForStart,
+      generateConfig: (runtimeSettings) => generateConfig(
+        runtimeSettings,
+        _desktopRecoveryPreferredNodeName,
+      ),
+      writeConfig: writeDesktopRecoveryConfig,
+      start: startForAutomaticRecovery,
+      stop: stop,
+      isRevisionCurrent: isRevisionCurrent,
+      isIntentCurrent: (generation) => isConnectionIntentCurrent(
+        generation,
+        connected: true,
+      ),
+      shouldRollbackStaleIntent: () => !connectionDesired,
+      cancelIntent: () {
+        requestConnectionIntent(false);
+        interruptPendingStart();
+      },
+      readStartFailureReason: () => lastStartError,
+      readRuntimeNotice: () => lastRuntimePortAdjustmentMessage,
+      switchPreferredNode: () async {
+        final currentPreferredNode = _desktopRecoveryPreferredNodeName;
+        return currentPreferredNode == null
+            ? true
+            : switchSelectedProxy(currentPreferredNode);
+      },
+    );
+  }
+
+  /// Invalidates only the long-lived automatic-recovery source. The active
+  /// core and current connection intent are deliberately left untouched.
+  void clearDesktopConnectionRecoveryPlan() {
+    _desktopConnectionRecoveryPlan = null;
+    _desktopRecoveryPreferredNodeName = null;
+  }
+
+  @protected
+  Future<bool> recoverDesktopConnection(int connectionGeneration) async {
+    final plan = _desktopConnectionRecoveryPlan;
+    if (plan == null) {
+      setLastStartError('缺少可验证的桌面连接配置，已阻止自动恢复');
+      return false;
+    }
+    try {
+      final result = await plan.recover(connectionGeneration);
+      final connected = result.connected &&
+          isRunning &&
+          isConnectionIntentCurrent(connectionGeneration, connected: true);
+      if (!connected && result.failureReason != null) {
+        setLastStartError(result.failureReason);
+      }
+      return connected;
+    } catch (error) {
+      setLastStartError('重新生成并启动桌面连接失败: $error');
+      return false;
+    }
+  }
+
+  @protected
+  Future<void> writeDesktopRecoveryConfig(String config) =>
+      Future<void>.error(UnsupportedError('Config writer is not available'));
+
+  Future<bool> start() => Future<bool>.value(false);
+
+  Future<void> stop() => onStopRequired();
+
+  /// Desktop implementations override this to preserve the bounded recovery
+  /// attempt counter. Non-desktop services retain the normal start behavior.
+  @protected
+  Future<bool> startForAutomaticRecovery() => start();
 
   /// Synchronously asks an in-flight platform start to abort.
   ///
@@ -168,9 +263,11 @@ abstract class ClashServiceBase
   }
 
   Map<String, String> apiHeaders({bool json = false}) {
+    final apiSecret = RuntimeConfigNamePolicy.canonicalApiSecret(
+      _settings.apiSecret,
+    );
     return {
-      if (_settings.apiSecret.isNotEmpty)
-        'Authorization': 'Bearer ${_settings.apiSecret}',
+      if (apiSecret.isNotEmpty) 'Authorization': 'Bearer $apiSecret',
       if (json) 'Content-Type': 'application/json',
     };
   }
@@ -337,6 +434,9 @@ abstract class ClashServiceBase
     final effectiveOk =
         proxyOk && globalOk && (await currentSelectedProxyName()) == nodeName;
     if (effectiveOk) {
+      if (_desktopConnectionRecoveryPlan != null) {
+        _desktopRecoveryPreferredNodeName = nodeName;
+      }
       await _closeConnections();
       // 轮询等待核心清空连接，最多等 250ms
       final deadline = DateTime.now().add(const Duration(milliseconds: 250));
@@ -725,7 +825,7 @@ abstract class ClashServiceBase
   /// intent so tray/UI actions do not require a second disconnect click.
   @protected
   void markConnectionLost() {
-    _connectionIntent.request(false);
+    requestConnectionIntent(false);
     _isRunning = false;
     clearConnectivityWarningSilently();
     _notifyStatusChanged();
@@ -768,6 +868,7 @@ abstract class ClashServiceBase
 
   void dispose() {
     stopStatusMonitor();
+    clearDesktopConnectionRecoveryPlan();
     _directHttpClient?.close();
     _apiClient?.close();
     onRuntimeNotice = null;
