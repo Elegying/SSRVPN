@@ -53,6 +53,8 @@ extension AndroidNativeBridge on ClashService {
       _handleNativeStateChanged(connected);
 
   Future<void> _handleNativeStateChanged(bool connected) async {
+    _nativeStateReconciliationTimer?.cancel();
+    _nativeStateReconciliationTimer = null;
     final nativeStateEpoch = ++_nativeStateEpoch;
     final startGeneration = _startGeneration;
     final connectionWasDesired = connectionDesired;
@@ -74,46 +76,86 @@ extension AndroidNativeBridge on ClashService {
     );
     if (!reconciliationIsCurrent() || synchronized) return;
 
-    // A false broadcast can mean either a short recovery gap or a terminal
-    // stop. Without the authoritative `transitioning` bit, changing the Dart
-    // state would make a recovery look like a new connection opportunity. A
-    // terminal broadcast is not guaranteed to repeat, so retry the
-    // authoritative snapshot with a small bounded backoff instead of leaving
-    // the Dart state connected forever.
-    if (!connected) {
-      log('原生通知 VPN 已断开，但会话状态查询失败，正在有限重试');
-      await _retryTerminalNativeStateSync(
-        nativeStateEpoch,
-        isStillCurrent: reconciliationIsCurrent,
-      );
+    // Broadcast booleans omit the authoritative `transitioning` bit and can
+    // arrive late. They are wake-up hints only: retry the complete snapshot,
+    // then use isCoreRunning solely as a positive degraded confirmation.
+    log('原生通知 VPN 状态=$connected，但会话状态查询失败，正在有限重试');
+    final synchronizedAfterRetry = await _retryNativeStateSync(
+      nativeStateEpoch,
+      isStillCurrent: reconciliationIsCurrent,
+    );
+    if (!reconciliationIsCurrent() || synchronizedAfterRetry) return;
+
+    final nativeRunning = await _queryNativeRunningState();
+    if (!reconciliationIsCurrent()) return;
+    if (nativeRunning == true) {
+      _applyNativeRunningFallback(source: '原生运行状态降级确认');
       return;
     }
 
-    final changed = !isRunning || _nativeConnectionTransitioning;
-    _nativeConnectionTransitioning = false;
-    setRunning(true);
-    startStatusMonitor();
-    log('原生通知: VPN 已连接（会话详情稍后同步）');
-    if (changed) notifyStatusChanged();
+    // `false` cannot distinguish a terminal stop from the native recovery gap,
+    // so keep the last trusted state and retry at a low frequency until a full
+    // snapshot arrives or a newer intent/broadcast invalidates this epoch.
+    _scheduleDeferredNativeStateSync(
+      nativeStateEpoch,
+      isStillCurrent: reconciliationIsCurrent,
+    );
   }
 
-  Future<void> _retryTerminalNativeStateSync(
+  Future<bool> _retryNativeStateSync(
     int nativeStateEpoch, {
     required bool Function() isStillCurrent,
   }) async {
-    for (final delay in ClashService._terminalNativeStateRetryDelays) {
+    for (final delay in ClashService._nativeStateRetryDelays) {
       await Future<void>.delayed(delay);
-      if (!isStillCurrent()) return;
+      if (!isStillCurrent()) return false;
       final synchronized = await _refreshNativeConnectionState(
         nativeStateEpoch,
-        source: '原生终止状态重试',
+        source: '原生状态重试',
         isStillCurrent: isStillCurrent,
       );
-      if (!isStillCurrent() || synchronized) return;
+      if (!isStillCurrent()) return false;
+      if (synchronized) return true;
     }
-    if (isStillCurrent()) {
-      log('原生 VPN 终止状态连续查询失败，保留最后可信状态等待下次同步');
-    }
+    return false;
+  }
+
+  void _scheduleDeferredNativeStateSync(
+    int nativeStateEpoch, {
+    required bool Function() isStillCurrent,
+  }) {
+    _nativeStateReconciliationTimer?.cancel();
+    _nativeStateReconciliationTimer = Timer(
+      ClashService._deferredNativeStateRetryDelay,
+      () async {
+        _nativeStateReconciliationTimer = null;
+        if (!isStillCurrent()) return;
+        final synchronized = await _refreshNativeConnectionState(
+          nativeStateEpoch,
+          source: '原生状态低频复核',
+          isStillCurrent: isStillCurrent,
+        );
+        if (!synchronized && isStillCurrent()) {
+          _scheduleDeferredNativeStateSync(
+            nativeStateEpoch,
+            isStillCurrent: isStillCurrent,
+          );
+        }
+      },
+    );
+  }
+
+  void _applyNativeRunningFallback({required String source}) {
+    final changed = !isRunning || _nativeConnectionTransitioning;
+    final adoptedIntent = !connectionDesired;
+    _nativeSessionProtocolAvailable = false;
+    _nativeConnectionTransitioning = false;
+    _nativeSessionGeneration = null;
+    if (adoptedIntent) requestConnectionIntent(true);
+    setRunning(true);
+    startStatusMonitor();
+    log('$source: VPN 已连接（完整会话详情等待同步）');
+    if (changed || adoptedIntent) notifyStatusChanged();
   }
 
   Future<void> _syncNativeState() async {
