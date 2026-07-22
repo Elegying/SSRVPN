@@ -127,3 +127,85 @@ Subscriptions.
 - [x] At the original review checkpoint, no commit, push, tag, release, or
   release artifact build was performed; the user's later explicit publication
   request supersedes that temporary delivery boundary.
+
+---
+
+# Implementation Plan: 2026-07-22 Deep Reliability Hardening
+
+## Objective
+
+Complete a code-level, three-platform review and repair of connection
+lifecycles, port ownership, responsive UI, verified updates/overwrite installs,
+and subscription-to-runtime configuration generation. Real-device acceptance
+is intentionally deferred to the user; automated and static evidence must not
+be described as device evidence.
+
+## Architecture Decisions
+
+- Preserve connection intent separately from observed core health. A bounded,
+  cancellable recovery may continue only while the same user connect intent is
+  current; disconnect and quit always win.
+- Treat ports, core/service identity, active config, and system proxy/TUN state
+  as one lifecycle transaction. Never terminate or overwrite an unowned
+  process merely because it occupies a preferred port.
+- Keep the current HTTP subscription policy, installer-only unsigned Windows
+  distribution, free macOS signing boundary, and Home/Subscriptions product
+  surface unchanged.
+- Keep user data outside Windows program-file rollback. Update recovery may
+  publish only an artifact whose expected SHA-256 is known and revalidated.
+- Ignore subscription rule/group sections by design; import runnable proxy
+  nodes, reserve SSRVPN runtime group names, and write one deterministic,
+  validated rule order with user force-proxy entries before direct rules.
+- Use bounded scroll regions and flexible text for constrained windows and
+  large text scaling without truncating the underlying node/subscription value.
+
+## Phases and Checkpoints
+
+1. Freeze `origin/main` v3.4.11 and collect read-only findings across the four
+   requested areas.
+2. Add failing regression tests for every confirmed defect before changing its
+   production path.
+3. Repair lifecycle/port cleanup and bounded intent-preserving recovery on all
+   three platforms.
+4. Repair constrained-window dialogs, stacked notices, diagnostic headers, and
+   long update-error presentation.
+5. Repair checksum-bound interrupted-download recovery and Windows overwrite
+   installation rollback while preserving installed user data.
+6. Reserve runtime proxy-group names, deduplicate generated groups/rules, and
+   validate deterministic subscription/config output.
+7. Run focused suites after each slice, then analyzers, native/static guards,
+   installer tests, and repository-wide `make verify`.
+8. Perform a fresh-context adversarial review of the complete diff, repair any
+   confirmed regression, and produce a detailed Chinese audit report.
+
+## Risks and Mitigations
+
+| Risk | Mitigation |
+| --- | --- |
+| Recovery fights a manual disconnect or quit | Generation-bound cancellation checked before every restart commit |
+| Port preflight races another process | Detect explicit bind/start conflicts, regenerate runtime config, and retry only within a bounded transaction |
+| DNS recovery loops forever after a network service disappears | Distinguish confirmed service removal from transient command failure; preserve fail-closed behavior for uncertainty |
+| PID reuse terminates an unrelated process | Versioned identity includes creation time and canonical executable identity; legacy records fail closed |
+| Installer failure destroys the working version | Program-only rollback journal on the same volume; never include `bin\\ssrvpn` user data |
+| Interrupted download restores a misleading artifact | Recompute expected SHA-256 before publishing any `.previous` file |
+| Large text hides actions | Viewport-bounded scrolling plus widget tests at constrained sizes and high text scale |
+| Subscription names collide with generated groups | Stable reserved-name allocation and parsed-config assertions |
+
+## Acceptance
+
+- [x] Every confirmed P1/P2 issue has a regression test or a target-specific
+      structural guard.
+- [x] Manual disconnect, normal quit, forced-exit recovery, port collision, and
+      restart semantics remain mutually consistent in code and tests.
+- [x] Update recovery never promotes an unverified artifact; failed Windows
+      overwrite installation restores the previous runnable program without
+      modifying installed user data.
+- [x] Constrained-window/high-text-scale UI tests have no overflow and retain
+      reachable primary actions.
+- [x] Generated Mihomo YAML parses deterministically with unique runtime names
+      and force-proxy precedence intact.
+- [x] Focused suites, platform static/native guards, and final `make verify`
+      pass; any OS-only skips are listed explicitly.
+- [x] Fresh-context review has no unresolved Critical/Required finding.
+- [x] No push, tag, release, or online build is performed in this task unless
+      separately requested.
