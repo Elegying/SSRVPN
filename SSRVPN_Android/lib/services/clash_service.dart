@@ -36,6 +36,7 @@ class ClashService extends ClashServiceBase {
   int _nativeStateEpoch = 0;
   int? _nativeSessionGeneration;
   bool _nativeSessionProtocolAvailable = false;
+  bool _nativeConnectionTransitioning = false;
   String? _runningConfigPath;
   final Set<String> _preparedConfigPaths = <String>{};
 
@@ -44,10 +45,13 @@ class ClashService extends ClashServiceBase {
 
   String get corePath => _corePath;
   bool get coreExists => File(_corePath).existsSync();
+  bool get nativeConnectionTransitioning => _nativeConnectionTransitioning;
   void setCorePath(String path) => _corePath = path;
 
   Future<void> invalidateIdleNativeConnectionSnapshot() =>
       _invalidateIdleNativeConnectionSnapshot();
+
+  void _markNativeConnectionLost() => markConnectionLost();
 
   // The native VPN service owns the authoritative 3-second Bridge monitor and
   // tears down the TUN fd when the core exits, including while Flutter sleeps.
@@ -411,6 +415,7 @@ class ClashService extends ClashServiceBase {
       final returnedState = await _parseNativeConnectionState(result);
       if (result == true || returnedState?.running == true) {
         setRunning(true);
+        _nativeConnectionTransitioning = returnedState?.transitioning ?? false;
         if (returnedState == null) {
           _runningConfigPath = startConfigPath;
           _nativeSessionGeneration = null;
@@ -507,6 +512,7 @@ class ClashService extends ClashServiceBase {
         : (await _queryNativeRunningState() ?? isRunning);
     setRunning(runningAfterStop);
     if (!runningAfterStop) {
+      _nativeConnectionTransitioning = false;
       _runningConfigPath = null;
       await _completePendingSnapshotFileCleanup();
       if (_nativeSnapshotOperationCount == 0) {

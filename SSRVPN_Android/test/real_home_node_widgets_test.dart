@@ -305,6 +305,29 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('Android native recovery stays visible and power cancels it',
+      (tester) async {
+    final clash = _RecoveryAndroidClashService()..setRunning(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+    expect(clash.connectionDesired, isFalse);
+
+    clash.publishRecoveryGap();
+    await _waitForWidget(tester, find.text('正在连接'));
+    expect(find.text('东京节点'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await _waitForAsyncCondition(tester, () => clash.stopCalls == 1);
+    await _waitForWidget(tester, find.text('未连接'));
+
+    expect(clash.connectionDesired, isFalse);
+    expect(find.text('未连接'), findsOneWidget);
+  });
+
   testWidgets('offline proxy-mode change invalidates the native tile snapshot',
       (tester) async {
     final clash = _RecordingAndroidClashService();
@@ -733,5 +756,39 @@ class _DelayedAndroidClashService extends ClashService {
       if (shouldContinue?.call() == false) return;
       onResult(nodes[index].name, index == 0 ? 42 : 68);
     }
+  }
+}
+
+class _RecoveryAndroidClashService extends ClashService {
+  bool _transitioning = false;
+  int stopCalls = 0;
+
+  @override
+  bool get nativeConnectionTransitioning => _transitioning;
+
+  @override
+  Future<String?> currentSelectedProxyName() async => '东京节点';
+
+  @override
+  Future<void> testAllLatencies(
+    List<ProxyNode> nodes,
+    void Function(String name, int latency) onResult, {
+    int concurrency = 10,
+    int timeoutMs = 5000,
+    bool Function()? shouldContinue,
+  }) async {}
+
+  void publishRecoveryGap() {
+    _transitioning = true;
+    setRunning(false);
+    onStatusChanged?.call();
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCalls++;
+    _transitioning = false;
+    setRunning(false);
+    onStatusChanged?.call();
   }
 }

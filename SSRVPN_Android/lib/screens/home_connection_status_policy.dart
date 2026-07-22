@@ -32,9 +32,16 @@ ProxyNode? rollbackAndroidOfflineNodeSelection({
 
 bool shouldHandleAndroidHomeConnectionStatus({
   required bool uiConnected,
+  required bool uiConnecting,
+  required bool uiNativeRecoveryActive,
   required bool runtimeRunning,
+  required bool runtimeTransitioning,
 }) =>
-    runtimeRunning || uiConnected != runtimeRunning;
+    runtimeRunning ||
+    runtimeTransitioning ||
+    uiConnecting ||
+    uiNativeRecoveryActive ||
+    uiConnected != runtimeRunning;
 
 ProxyNode? resolveAndroidHomeNodeAfterFailedSwitch({
   required Iterable<ProxyNode> nodes,
@@ -49,12 +56,14 @@ class AndroidHomeConnectionStatusTransition {
   const AndroidHomeConnectionStatusTransition({
     required this.connected,
     required this.connecting,
+    required this.nativeRecoveryActive,
     required this.errorMessage,
     required this.selectedNode,
   });
 
   final bool connected;
   final bool connecting;
+  final bool nativeRecoveryActive;
   final String? errorMessage;
   final ProxyNode? selectedNode;
 }
@@ -63,16 +72,19 @@ AndroidHomeConnectionStatusTransition transitionAndroidHomeConnectionStatus({
   required bool running,
   required bool connecting,
   required bool connectionDesired,
+  required bool nativeTransitioning,
+  required bool nativeRecoveryActive,
   required String? errorMessage,
   required ProxyNode? selectedNode,
   required Iterable<ProxyNode> nodes,
   required String? runtimeSelectedNodeName,
 }) {
   if (!running) {
-    if (connecting && connectionDesired) {
+    if (nativeTransitioning || (connecting && connectionDesired)) {
       return AndroidHomeConnectionStatusTransition(
         connected: false,
         connecting: true,
+        nativeRecoveryActive: nativeTransitioning,
         errorMessage: errorMessage,
         selectedNode: selectedNode,
       );
@@ -80,6 +92,7 @@ AndroidHomeConnectionStatusTransition transitionAndroidHomeConnectionStatus({
     return AndroidHomeConnectionStatusTransition(
       connected: false,
       connecting: false,
+      nativeRecoveryActive: false,
       errorMessage: errorMessage,
       selectedNode: null,
     );
@@ -88,10 +101,24 @@ AndroidHomeConnectionStatusTransition transitionAndroidHomeConnectionStatus({
   // During an ordinary connect, the initiating continuation still owns final
   // publication. A false -> true transition while no connect is pending is a
   // native recovery and must retire the stale interruption UI itself.
+  if (nativeRecoveryActive) {
+    return AndroidHomeConnectionStatusTransition(
+      connected: true,
+      connecting: false,
+      nativeRecoveryActive: false,
+      errorMessage: null,
+      selectedNode: HomeNodeController.resolveRuntimeSelectedNodeFrom(
+            nodes,
+            runtimeSelectedNodeName,
+          ) ??
+          selectedNode,
+    );
+  }
   if (connecting) {
     return AndroidHomeConnectionStatusTransition(
       connected: true,
       connecting: true,
+      nativeRecoveryActive: false,
       errorMessage: errorMessage,
       selectedNode: selectedNode,
     );
@@ -99,6 +126,7 @@ AndroidHomeConnectionStatusTransition transitionAndroidHomeConnectionStatus({
   return AndroidHomeConnectionStatusTransition(
     connected: true,
     connecting: false,
+    nativeRecoveryActive: false,
     errorMessage: null,
     selectedNode: HomeNodeController.resolveRuntimeSelectedNodeFrom(
           nodes,

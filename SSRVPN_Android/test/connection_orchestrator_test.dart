@@ -262,6 +262,7 @@ void main() {
     expect(result, isNull);
     expect(clashService.prepareCalls, 2);
     expect(clashService.startCalls, 2);
+    expect(clashService.stopCalls, 1);
     expect(clashService.generatedPorts, [32000, 32001]);
   });
 
@@ -494,6 +495,8 @@ class _SettingsSnapshotClashService extends ClashService {
 
 class _PortRaceClashService extends _SettingsSnapshotClashService {
   int prepareCalls = 0;
+  int stopCalls = 0;
+  bool cleanupPending = false;
   final List<int> generatedPorts = [];
 
   @override
@@ -518,11 +521,23 @@ class _PortRaceClashService extends _SettingsSnapshotClashService {
   Future<bool> start({String? nodeName, String? preparedConfigPath}) async {
     startCalls++;
     if (startCalls == 1) {
+      cleanupPending = true;
       setLastStartError('listen tcp: address already in use');
+      return false;
+    }
+    if (cleanupPending) {
+      setLastStartError('VPN 核心正在启动或停止，请稍后重试');
       return false;
     }
     setLastStartError(null);
     setRunning(true);
     return true;
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCalls++;
+    cleanupPending = false;
+    setRunning(false);
   }
 }

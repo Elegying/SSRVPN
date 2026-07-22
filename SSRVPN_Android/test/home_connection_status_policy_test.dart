@@ -23,16 +23,25 @@ void main() {
     final stopped = transitionAndroidHomeConnectionStatus(
       running: false,
       connecting: false,
-      connectionDesired: false,
+      connectionDesired: true,
+      nativeTransitioning: true,
+      nativeRecoveryActive: false,
       errorMessage: '连接已中断，请重新连接',
       selectedNode: remembered,
       nodes: [remembered, nativeSelected],
       runtimeSelectedNodeName: nativeSelected.name,
     );
+    expect(stopped.connected, isFalse);
+    expect(stopped.connecting, isTrue);
+    expect(stopped.nativeRecoveryActive, isTrue);
+    expect(stopped.selectedNode, same(remembered));
+
     final recovered = transitionAndroidHomeConnectionStatus(
       running: true,
       connecting: stopped.connecting,
-      connectionDesired: false,
+      connectionDesired: true,
+      nativeTransitioning: false,
+      nativeRecoveryActive: stopped.nativeRecoveryActive,
       errorMessage: stopped.errorMessage,
       selectedNode: stopped.selectedNode,
       nodes: [remembered, nativeSelected],
@@ -50,6 +59,8 @@ void main() {
       running: true,
       connecting: true,
       connectionDesired: true,
+      nativeTransitioning: false,
+      nativeRecoveryActive: false,
       errorMessage: null,
       selectedNode: null,
       nodes: [remembered],
@@ -66,6 +77,8 @@ void main() {
       running: false,
       connecting: true,
       connectionDesired: true,
+      nativeTransitioning: false,
+      nativeRecoveryActive: false,
       errorMessage: null,
       selectedNode: remembered,
       nodes: [remembered],
@@ -77,11 +90,32 @@ void main() {
     expect(transition.selectedNode, same(remembered));
   });
 
+  test('native recovery is cancellable even before Dart adopts intent', () {
+    final transition = transitionAndroidHomeConnectionStatus(
+      running: false,
+      connecting: false,
+      connectionDesired: false,
+      nativeTransitioning: true,
+      nativeRecoveryActive: false,
+      errorMessage: null,
+      selectedNode: remembered,
+      nodes: [remembered],
+      runtimeSelectedNodeName: null,
+    );
+
+    expect(transition.connected, isFalse);
+    expect(transition.connecting, isTrue);
+    expect(transition.nativeRecoveryActive, isTrue);
+    expect(transition.selectedNode, same(remembered));
+  });
+
   test('manual cancellation clears busy state and the selected node', () {
     final transition = transitionAndroidHomeConnectionStatus(
       running: false,
       connecting: true,
       connectionDesired: false,
+      nativeTransitioning: false,
+      nativeRecoveryActive: false,
       errorMessage: null,
       selectedNode: remembered,
       nodes: [remembered],
@@ -97,17 +131,52 @@ void main() {
     expect(
       shouldHandleAndroidHomeConnectionStatus(
         uiConnected: true,
+        uiConnecting: false,
+        uiNativeRecoveryActive: false,
         runtimeRunning: true,
+        runtimeTransitioning: false,
       ),
       isTrue,
     );
     expect(
       shouldHandleAndroidHomeConnectionStatus(
         uiConnected: false,
+        uiConnecting: false,
+        uiNativeRecoveryActive: false,
         runtimeRunning: false,
+        runtimeTransitioning: false,
       ),
       isFalse,
     );
+  });
+
+  test('terminal native stop clears a recovery busy state', () {
+    expect(
+      shouldHandleAndroidHomeConnectionStatus(
+        uiConnected: false,
+        uiConnecting: true,
+        uiNativeRecoveryActive: true,
+        runtimeRunning: false,
+        runtimeTransitioning: false,
+      ),
+      isTrue,
+    );
+
+    final transition = transitionAndroidHomeConnectionStatus(
+      running: false,
+      connecting: true,
+      connectionDesired: false,
+      nativeTransitioning: false,
+      nativeRecoveryActive: true,
+      errorMessage: null,
+      selectedNode: remembered,
+      nodes: [remembered],
+      runtimeSelectedNodeName: null,
+    );
+
+    expect(transition.connected, isFalse);
+    expect(transition.connecting, isFalse);
+    expect(transition.selectedNode, isNull);
   });
 
   test('failed latest switch resolves the node Mihomo actually uses', () {

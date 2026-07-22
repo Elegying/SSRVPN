@@ -99,6 +99,15 @@ class ConnectionOrchestrator {
         final reason = clashService.lastStartError ?? '无法启动VPN核心';
         if (attempt == 0 &&
             RuntimePortConflictPolicy.isExplicitBindConflict(reason)) {
+          // Native Android reports the bind failure before its worker has
+          // finished releasing the bridge, VPN fd, and operation lease. Wait
+          // for that cleanup barrier before regenerating ports; an immediate
+          // retry would otherwise be rejected as CORE_BUSY.
+          await clashService.stop();
+          if (!_isCurrent(connectionGeneration)) return null;
+          if (!_isSubscriptionCurrent(subscriptionRevision)) {
+            return '订阅已更新，请重新连接';
+          }
           await clashService.discardPreparedConfig(preparedConfigPath);
           preparedConfigPath = null;
           continue;

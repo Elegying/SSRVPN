@@ -137,9 +137,13 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     int statusEpoch,
   ) async {
     final running = clashService.isRunning;
+    final nativeTransitioning = clashService.nativeConnectionTransitioning;
     if (!shouldHandleAndroidHomeConnectionStatus(
       uiConnected: _isConnected,
+      uiConnecting: _isConnecting,
+      uiNativeRecoveryActive: _nativeRecoveryInProgress,
       runtimeRunning: running,
+      runtimeTransitioning: nativeTransitioning,
     )) {
       return;
     }
@@ -150,13 +154,16 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
         _disposed ||
         statusEpoch != _connectionStatusEpoch ||
         !identical(_registeredClashService, clashService) ||
-        clashService.isRunning != running) {
+        clashService.isRunning != running ||
+        clashService.nativeConnectionTransitioning != nativeTransitioning) {
       return;
     }
     final transition = transitionAndroidHomeConnectionStatus(
       running: running,
       connecting: _isConnecting,
       connectionDesired: clashService.connectionDesired,
+      nativeTransitioning: nativeTransitioning,
+      nativeRecoveryActive: _nativeRecoveryInProgress,
       errorMessage: _errorMessage,
       selectedNode: _selectedNode,
       nodes: _nodes,
@@ -165,6 +172,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     _updateHomeState(() {
       _isConnected = transition.connected;
       _isConnecting = transition.connecting;
+      _nativeRecoveryInProgress = transition.nativeRecoveryActive;
       _errorMessage = transition.errorMessage;
       _selectedNode = transition.selectedNode;
       if (!running) {
