@@ -321,6 +321,7 @@ void main() {
       await _pumpUntil(tester, () => switchStarted.isCompleted);
       expect(fixture.clash.lastSwitchAttempt, '新加坡节点');
 
+      fixture.clash.requestConnectionIntent(false);
       fixture.clash.publishRunning(false);
       await tester.pump();
       releaseSwitch.complete();

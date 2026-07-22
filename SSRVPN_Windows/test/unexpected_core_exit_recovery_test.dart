@@ -21,6 +21,53 @@ void main() {
     );
   });
 
+  test(
+      'pre-connected exit releases the exact process only after PID cleanup and keeps TUN teardown',
+      () {
+    final cleanedBeforeConnected = classifyExitedCoreMemoryCleanup(
+      ownsExitedProcess: true,
+      ownsPidRecord: true,
+      pidRecordDeleted: true,
+      wasRunning: false,
+    );
+
+    expect(cleanedBeforeConnected.releaseProcessReference, isTrue);
+    expect(cleanedBeforeConnected.clearTunOwnership, isFalse);
+
+    for (final unsafe in <ExitedCoreMemoryCleanup>[
+      classifyExitedCoreMemoryCleanup(
+        ownsExitedProcess: true,
+        ownsPidRecord: true,
+        pidRecordDeleted: false,
+        wasRunning: false,
+      ),
+      classifyExitedCoreMemoryCleanup(
+        ownsExitedProcess: false,
+        ownsPidRecord: true,
+        pidRecordDeleted: true,
+        wasRunning: false,
+      ),
+      classifyExitedCoreMemoryCleanup(
+        ownsExitedProcess: true,
+        ownsPidRecord: false,
+        pidRecordDeleted: true,
+        wasRunning: false,
+      ),
+    ]) {
+      expect(unsafe.releaseProcessReference, isFalse);
+      expect(unsafe.clearTunOwnership, isFalse);
+    }
+
+    final cleanedAfterConnected = classifyExitedCoreMemoryCleanup(
+      ownsExitedProcess: true,
+      ownsPidRecord: true,
+      pidRecordDeleted: true,
+      wasRunning: true,
+    );
+    expect(cleanedAfterConnected.releaseProcessReference, isTrue);
+    expect(cleanedAfterConnected.clearTunOwnership, isTrue);
+  });
+
   test('manual disconnect cancels unexpected-exit recovery fallback', () {
     expect(hasActiveUnexpectedExitRecoveryIntent(null, (_) => true), isFalse);
     expect(

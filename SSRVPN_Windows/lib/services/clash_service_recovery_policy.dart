@@ -30,6 +30,25 @@ bool isUnexpectedCoreExit({
 }) =>
     ownsProcess && !stoppingCore && !stopInProgress;
 
+typedef ExitedCoreMemoryCleanup = ({
+  bool releaseProcessReference,
+  bool clearTunOwnership,
+});
+
+ExitedCoreMemoryCleanup classifyExitedCoreMemoryCleanup({
+  required bool ownsExitedProcess,
+  required bool ownsPidRecord,
+  required bool pidRecordDeleted,
+  required bool wasRunning,
+}) {
+  final releaseProcessReference =
+      ownsExitedProcess && ownsPidRecord && pidRecordDeleted;
+  return (
+    releaseProcessReference: releaseProcessReference,
+    clearTunOwnership: releaseProcessReference && wasRunning,
+  );
+}
+
 bool hasActiveUnexpectedExitRecoveryIntent(
   int? generation,
   bool Function(int generation) isCurrent,
