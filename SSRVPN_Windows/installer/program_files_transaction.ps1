@@ -33,7 +33,19 @@ $uninstallRegistrySnapshotFileName = 'uninstall-registry.json'
 $uninstallRegistryExportFileName = 'uninstall-registry.reg'
 $externalFilesSnapshotFileName = 'external-files.json'
 $externalFilesBackupDirectoryName = 'external-files'
+# Resource ceilings are intentionally generous for a Flutter desktop bundle,
+# but finite so a corrupted/tampered install or recovery tree cannot make the
+# installer recurse, allocate, hash, or copy without bound. Keep these limits
+# together: every program inventory, backup, restore, and manifest uses them.
+$maxMetadataDocumentBytes = 8MB
+$maxProgramRelativePathChars = 1024
+$maxProgramRelativePathDepth = 64
+$maxProgramDirectoryCount = 50000
+$maxProgramFileCount = 50000
+$maxProgramFileBytes = 2GB
+$maxProgramTotalBytes = 8GB
 $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+$strictUtf8 = New-Object System.Text.UTF8Encoding -ArgumentList $false, $true
 
 function Get-SafeDirectoryPath {
   param(
@@ -108,6 +120,182 @@ function Get-PathItem {
   }
 }
 
+function Assert-ExactObjectSchema {
+  param(
+    [Parameter(Mandatory = $true)]$Value,
+    [Parameter(Mandatory = $true)]
+    [AllowEmptyCollection()]
+    [string[]]$RequiredProperties,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  if ($null -eq $Value -or
+      $Value -isnot [System.Management.Automation.PSCustomObject]) {
+    throw "$Name must be a JSON object."
+  }
+  $actualProperties = @(
+    $Value.PSObject.Properties | ForEach-Object { [string]$_.Name }
+  )
+  if ($actualProperties.Count -ne $RequiredProperties.Count) {
+    throw "$Name has an unexpected schema."
+  }
+  foreach ($requiredProperty in $RequiredProperties) {
+    if ($actualProperties -cnotcontains $requiredProperty) {
+      throw "$Name has an unexpected schema."
+    }
+  }
+}
+
+function Read-BoundedUtf8Text {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][long]$MaxBytes,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  $item = Get-PathItem -Path $Path
+  if ($null -eq $item -or $item.PSIsContainer -or
+      (Test-ReparsePoint -Item $item)) {
+    throw "$Name is missing or unsafe."
+  }
+
+  $stream = $null
+  try {
+    $stream = New-Object System.IO.FileStream -ArgumentList @(
+      $item.FullName,
+      [System.IO.FileMode]::Open,
+      [System.IO.FileAccess]::Read,
+      [System.IO.FileShare]::Read
+    )
+    $length = [long]$stream.Length
+    if ($length -le 0 -or $length -gt $MaxBytes) {
+      throw "$Name exceeds its size limit."
+    }
+    $bytes = New-Object byte[] ([int]$length)
+    $offset = 0
+    while ($offset -lt $bytes.Length) {
+      $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+      if ($read -le 0) {
+        throw "$Name changed while it was being read."
+      }
+      $offset += $read
+    }
+    return $script:strictUtf8.GetString($bytes)
+  } finally {
+    if ($null -ne $stream) { $stream.Dispose() }
+  }
+}
+
+function Read-BoundedJsonDocument {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [long]$MaxBytes = $script:maxMetadataDocumentBytes,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  $text = Read-BoundedUtf8Text -Path $Path -MaxBytes $MaxBytes -Name $Name
+  try {
+    return ($text | ConvertFrom-Json -ErrorAction Stop)
+  } catch {
+    throw "$Name is not valid JSON: $($_.Exception.Message)"
+  }
+}
+
+function Assert-BoundedProgramRelativePath {
+  param(
+    [Parameter(Mandatory = $true)][string]$RelativePath,
+    [Parameter(Mandatory = $true)][string]$Root,
+    [string]$ExcludedRoot = '',
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  if ([string]::IsNullOrWhiteSpace($RelativePath) -or
+      $RelativePath.Length -gt $script:maxProgramRelativePathChars -or
+      [System.IO.Path]::IsPathRooted($RelativePath) -or
+      $RelativePath -match '[\x00-\x1f/:]' -or
+      $RelativePath.StartsWith('\') -or $RelativePath.EndsWith('\')) {
+    throw "$Name contains an invalid or oversized relative path."
+  }
+  $segments = @($RelativePath.Split(
+      [char[]]@('\'),
+      [System.StringSplitOptions]::None
+    ))
+  if ($segments.Count -gt $script:maxProgramRelativePathDepth) {
+    throw "$Name exceeds the maximum relative path depth."
+  }
+  foreach ($segment in $segments) {
+    if ([string]::IsNullOrEmpty($segment) -or
+        $segment -ceq '.' -or $segment -ceq '..' -or
+        $segment.TrimEnd([char[]]@(' ', '.')).Length -ne $segment.Length) {
+      throw "$Name contains an ambiguous relative path."
+    }
+  }
+
+  $rootPath = [System.IO.Path]::GetFullPath($Root).TrimEnd(
+    [char[]]@('\', '/'))
+  try {
+    $fullPath = [System.IO.Path]::GetFullPath(
+      (Join-Path $rootPath $RelativePath))
+  } catch {
+    throw "$Name contains an invalid relative path."
+  }
+  if (-not (Test-PathWithin -Candidate $fullPath -Parent $rootPath)) {
+    throw "$Name escaped its root."
+  }
+  $normalizedRelativePath = $fullPath.Substring($rootPath.Length).TrimStart(
+    [char[]]@('\', '/'))
+  if (-not [string]::Equals(
+        $RelativePath,
+        $normalizedRelativePath,
+        [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "$Name contains an ambiguous relative path."
+  }
+  if (-not [string]::IsNullOrEmpty($ExcludedRoot) -and
+      (Test-PathWithin -Candidate $fullPath -Parent $ExcludedRoot)) {
+    throw "$Name entered preserved user data."
+  }
+  return $normalizedRelativePath
+}
+
+function Get-BoundedFileMetadata {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][long]$MaxBytes,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+
+  $item = Get-PathItem -Path $Path
+  if ($null -eq $item -or $item.PSIsContainer -or
+      (Test-ReparsePoint -Item $item)) {
+    throw "$Name is missing or unsafe: $Path"
+  }
+  $stream = $null
+  $sha256 = $null
+  try {
+    $stream = New-Object System.IO.FileStream -ArgumentList @(
+      $item.FullName,
+      [System.IO.FileMode]::Open,
+      [System.IO.FileAccess]::Read,
+      [System.IO.FileShare]::Read
+    )
+    $length = [long]$stream.Length
+    if ($length -gt $script:maxProgramFileBytes -or $length -gt $MaxBytes) {
+      throw "$Name exceeds the program-file size limit: $($item.FullName)"
+    }
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $hashBytes = $sha256.ComputeHash($stream)
+    $digest = [System.BitConverter]::ToString($hashBytes).Replace(
+      '-', '').ToLowerInvariant()
+    return [pscustomobject][ordered]@{
+      length = $length
+      sha256 = $digest
+    }
+  } finally {
+    if ($null -ne $sha256) { $sha256.Dispose() }
+    if ($null -ne $stream) { $stream.Dispose() }
+  }
+}
+
 function Remove-SafeTree {
   param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -125,8 +313,10 @@ function Remove-SafeTree {
 
 function Copy-SafeEntry {
   param(
+    [Parameter(Mandatory = $true)][string]$SourceRoot,
+    [Parameter(Mandatory = $true)][string]$DestinationRoot,
     [Parameter(Mandatory = $true)][string]$Source,
-    [Parameter(Mandatory = $true)][string]$Destination,
+    [Parameter(Mandatory = $true)]$Limits,
     [switch]$ExcludePreservedData
   )
 
@@ -142,21 +332,79 @@ function Copy-SafeEntry {
   if (Test-ReparsePoint -Item $item) {
     throw "Program-file transaction refuses reparse point: $sourcePath"
   }
+  $relativePath = $item.FullName.Substring($SourceRoot.Length).TrimStart(
+    [char[]]@('\', '/'))
+  $relativePath = Assert-BoundedProgramRelativePath `
+    -RelativePath $relativePath -Root $SourceRoot `
+    -ExcludedRoot $(if ($ExcludePreservedData) {
+        $script:preservedDataRoot
+      } else { '' }) `
+    -Name 'Program-file backup'
+  $destination = Join-Path $DestinationRoot $relativePath
   if ($item.PSIsContainer) {
+    if ([long]$Limits.directoryCount -ge $script:maxProgramDirectoryCount) {
+      throw 'Program-file backup exceeds the directory-count limit.'
+    }
+    $Limits.directoryCount = [long]$Limits.directoryCount + 1
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     foreach ($child in @(
         Get-ChildItem -LiteralPath $item.FullName -Force | Sort-Object Name
       )) {
-      Copy-SafeEntry -Source $child.FullName `
-        -Destination (Join-Path $Destination $child.Name) `
+      Copy-SafeEntry -SourceRoot $SourceRoot `
+        -DestinationRoot $DestinationRoot -Source $child.FullName `
+        -Limits $Limits `
         -ExcludePreservedData:$ExcludePreservedData
     }
     return
   }
 
+  if ([long]$Limits.fileCount -ge $script:maxProgramFileCount) {
+    throw 'Program-file backup exceeds the file-count limit.'
+  }
+  $remainingBytes = $script:maxProgramTotalBytes - [long]$Limits.totalBytes
+  if ($remainingBytes -lt 0) {
+    throw 'Program-file backup exceeds the total-size limit.'
+  }
   $destinationParent = [System.IO.Path]::GetDirectoryName($Destination)
   New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
-  [System.IO.File]::Copy($item.FullName, $Destination, $true)
+  $sourceStream = $null
+  $destinationStream = $null
+  try {
+    $sourceStream = New-Object System.IO.FileStream -ArgumentList @(
+      $item.FullName,
+      [System.IO.FileMode]::Open,
+      [System.IO.FileAccess]::Read,
+      [System.IO.FileShare]::Read
+    )
+    $length = [long]$sourceStream.Length
+    if ($length -gt $script:maxProgramFileBytes -or
+        $length -gt $remainingBytes) {
+      throw "Program-file backup exceeds its size limit: $($item.FullName)"
+    }
+    $Limits.fileCount = [long]$Limits.fileCount + 1
+    $Limits.totalBytes = [long]$Limits.totalBytes + $length
+    $destinationStream = New-Object System.IO.FileStream -ArgumentList @(
+      $Destination,
+      [System.IO.FileMode]::Create,
+      [System.IO.FileAccess]::Write,
+      [System.IO.FileShare]::None
+    )
+    $buffer = New-Object byte[] (1MB)
+    $remaining = $length
+    while ($remaining -gt 0) {
+      $requested = [int][Math]::Min([long]$buffer.Length, $remaining)
+      $read = $sourceStream.Read($buffer, 0, $requested)
+      if ($read -le 0) {
+        throw "Program file changed during backup: $($item.FullName)"
+      }
+      $destinationStream.Write($buffer, 0, $read)
+      $remaining -= $read
+    }
+    $destinationStream.Flush($true)
+  } finally {
+    if ($null -ne $destinationStream) { $destinationStream.Dispose() }
+    if ($null -ne $sourceStream) { $sourceStream.Dispose() }
+  }
 }
 
 function Copy-SafeContents {
@@ -171,12 +419,22 @@ function Copy-SafeContents {
       (Test-ReparsePoint -Item $sourceItem)) {
     throw "Program-file transaction source is not a real directory: $SourceRoot"
   }
+  $sourceRootPath = [System.IO.Path]::GetFullPath($SourceRoot).TrimEnd(
+    [char[]]@('\', '/'))
+  $destinationRootPath = [System.IO.Path]::GetFullPath(
+    $DestinationRoot).TrimEnd([char[]]@('\', '/'))
+  $limits = [pscustomobject]@{
+    directoryCount = [long]0
+    fileCount = [long]0
+    totalBytes = [long]0
+  }
   New-Item -ItemType Directory -Path $DestinationRoot -Force | Out-Null
   foreach ($child in @(
       Get-ChildItem -LiteralPath $SourceRoot -Force | Sort-Object Name
     )) {
-    Copy-SafeEntry -Source $child.FullName `
-      -Destination (Join-Path $DestinationRoot $child.Name) `
+    Copy-SafeEntry -SourceRoot $sourceRootPath `
+      -DestinationRoot $destinationRootPath -Source $child.FullName `
+      -Limits $limits `
       -ExcludePreservedData:$ExcludePreservedData
   }
 }
@@ -186,6 +444,7 @@ function Add-InventoryEntry {
     [Parameter(Mandatory = $true)][string]$Root,
     [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $true)][System.Collections.ArrayList]$Entries,
+    [Parameter(Mandatory = $true)]$Limits,
     [switch]$ExcludePreservedData,
     [switch]$ExcludeInstallerMetadata
   )
@@ -202,28 +461,49 @@ function Add-InventoryEntry {
   if (Test-ReparsePoint -Item $item) {
     throw "Program-file inventory refuses reparse point: $fullPath"
   }
+  $relativePath = $item.FullName.Substring($Root.Length).TrimStart(
+    [char[]]@('\', '/'))
+  $relativePath = Assert-BoundedProgramRelativePath `
+    -RelativePath $relativePath -Root $Root `
+    -ExcludedRoot $(if ($ExcludePreservedData) {
+        $script:preservedDataRoot
+      } else { '' }) `
+    -Name 'Program-file inventory'
   if ($item.PSIsContainer) {
+    if ([long]$Limits.directoryCount -ge $script:maxProgramDirectoryCount) {
+      throw 'Program-file inventory exceeds the directory-count limit.'
+    }
+    $Limits.directoryCount = [long]$Limits.directoryCount + 1
     foreach ($child in @(
         Get-ChildItem -LiteralPath $item.FullName -Force | Sort-Object Name
       )) {
       Add-InventoryEntry -Root $Root -Path $child.FullName -Entries $Entries `
+        -Limits $Limits `
         -ExcludePreservedData:$ExcludePreservedData `
         -ExcludeInstallerMetadata:$ExcludeInstallerMetadata
     }
     return
   }
 
-  $relativePath = $item.FullName.Substring($Root.Length).TrimStart(
-    [char[]]@('\', '/'))
   if ($ExcludeInstallerMetadata -and
       $relativePath -match '^unins\d+\.(?:exe|dat|msg)$') {
     return
   }
-  $digest = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
+  if ([long]$Limits.fileCount -ge $script:maxProgramFileCount) {
+    throw 'Program-file inventory exceeds the file-count limit.'
+  }
+  $remainingBytes = $script:maxProgramTotalBytes - [long]$Limits.totalBytes
+  if ($remainingBytes -lt 0) {
+    throw 'Program-file inventory exceeds the total-size limit.'
+  }
+  $metadata = Get-BoundedFileMetadata -Path $item.FullName `
+    -MaxBytes $remainingBytes -Name 'Program-file inventory entry'
+  $Limits.fileCount = [long]$Limits.fileCount + 1
+  $Limits.totalBytes = [long]$Limits.totalBytes + [long]$metadata.length
   [void]$Entries.Add([pscustomobject][ordered]@{
       path = $relativePath
-      length = [long]$item.Length
-      sha256 = $digest.ToLowerInvariant()
+      length = [long]$metadata.length
+      sha256 = [string]$metadata.sha256
     })
 }
 
@@ -235,15 +515,23 @@ function Get-ProgramInventory {
   )
 
   $entries = New-Object System.Collections.ArrayList
-  $rootItem = Get-PathItem -Path $Root
+  $rootPath = [System.IO.Path]::GetFullPath($Root).TrimEnd(
+    [char[]]@('\', '/'))
+  $rootItem = Get-PathItem -Path $rootPath
   if ($null -eq $rootItem) { return @() }
   if (-not $rootItem.PSIsContainer -or (Test-ReparsePoint -Item $rootItem)) {
     throw "Program-file inventory root is not a real directory: $Root"
   }
+  $limits = [pscustomobject]@{
+    directoryCount = [long]0
+    fileCount = [long]0
+    totalBytes = [long]0
+  }
   foreach ($child in @(
-      Get-ChildItem -LiteralPath $Root -Force | Sort-Object Name
+      Get-ChildItem -LiteralPath $rootPath -Force | Sort-Object Name
     )) {
-    Add-InventoryEntry -Root $Root -Path $child.FullName -Entries $entries `
+    Add-InventoryEntry -Root $rootPath -Path $child.FullName -Entries $entries `
+      -Limits $limits `
       -ExcludePreservedData:$ExcludePreservedData `
       -ExcludeInstallerMetadata:$ExcludeInstallerMetadata
   }
@@ -274,6 +562,18 @@ function Test-InventoriesEqual {
   return $true
 }
 
+function ConvertTo-BoundedJsonText {
+  param([Parameter(Mandatory = $true)]$Value)
+
+  $json = $Value | ConvertTo-Json -Depth 8
+  $text = "$json`n"
+  if ($script:utf8NoBom.GetByteCount($text) -gt
+      $script:maxMetadataDocumentBytes) {
+    throw 'Program-file transaction metadata exceeds its size limit.'
+  }
+  return $text
+}
+
 function Write-JsonAtomic {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
@@ -284,8 +584,8 @@ function Write-JsonAtomic {
   New-Item -ItemType Directory -Path $parent -Force | Out-Null
   $temporary = "$Path.tmp.$([Guid]::NewGuid().ToString('N'))"
   try {
-    $json = $Value | ConvertTo-Json -Depth 8
-    [System.IO.File]::WriteAllText($temporary, "$json`n", $script:utf8NoBom)
+    $text = ConvertTo-BoundedJsonText -Value $Value
+    [System.IO.File]::WriteAllText($temporary, $text, $script:utf8NoBom)
     if (Test-Path -LiteralPath $Path -PathType Leaf) {
       [System.IO.File]::Replace($temporary, $Path, $null)
     } else {
@@ -356,22 +656,26 @@ function New-UninstallRegistrySnapshot {
 function Read-UninstallRegistrySnapshot {
   $snapshotPath = Join-Path $script:recoveryRoot `
     $script:uninstallRegistrySnapshotFileName
-  $snapshotItem = Get-PathItem -Path $snapshotPath
-  if ($null -eq $snapshotItem -or $snapshotItem.PSIsContainer -or
-      (Test-ReparsePoint -Item $snapshotItem) -or
-      [long]$snapshotItem.Length -gt 1MB) {
-    throw 'The uninstall registry snapshot is missing or unsafe.'
-  }
-  $snapshot = Get-Content -LiteralPath $snapshotPath -Encoding UTF8 -Raw |
-    ConvertFrom-Json
-  if ([int]$snapshot.schemaVersion -ne $script:schemaVersion -or
+  $snapshot = Read-BoundedJsonDocument -Path $snapshotPath -MaxBytes 1MB `
+    -Name 'The uninstall registry snapshot'
+  Assert-ExactObjectSchema -Value $snapshot `
+    -Name 'The uninstall registry snapshot' `
+    -RequiredProperties @(
+      'schemaVersion', 'subkey', 'exists', 'exportFile', 'length', 'sha256'
+    )
+  if ($snapshot.schemaVersion -isnot [int] -or
+      [int]$snapshot.schemaVersion -ne $script:schemaVersion -or
+      $snapshot.subkey -isnot [string] -or
+      $snapshot.exists -isnot [bool] -or
+      $snapshot.exportFile -isnot [string] -or
+      ($snapshot.length -isnot [int] -and
+        $snapshot.length -isnot [long]) -or
+      $snapshot.sha256 -isnot [string] -or
       -not [string]::Equals(
-        [string]$snapshot.subkey,
+        $snapshot.subkey,
         $script:uninstallRegistrySubkey,
         [System.StringComparison]::OrdinalIgnoreCase) -or
-      $snapshot.exists -isnot [bool] -or
-      [string]$snapshot.exportFile -cne
-        $script:uninstallRegistryExportFileName) {
+      $snapshot.exportFile -cne $script:uninstallRegistryExportFileName) {
     throw 'The uninstall registry snapshot is invalid.'
   }
 
@@ -515,14 +819,15 @@ function New-ExternalFilesSnapshot {
 function Read-ExternalFilesSnapshot {
   $snapshotPath = Join-Path $script:recoveryRoot `
     $script:externalFilesSnapshotFileName
-  $snapshotItem = Get-PathItem -Path $snapshotPath
-  if ($null -eq $snapshotItem -or $snapshotItem.PSIsContainer -or
-      (Test-ReparsePoint -Item $snapshotItem) -or
-      [long]$snapshotItem.Length -gt 1MB) {
-    throw 'The external installer metadata snapshot is missing or unsafe.'
+  $snapshot = Read-BoundedJsonDocument -Path $snapshotPath -MaxBytes 1MB `
+    -Name 'The external installer metadata snapshot'
+  Assert-ExactObjectSchema -Value $snapshot `
+    -Name 'The external installer metadata snapshot' `
+    -RequiredProperties @('schemaVersion', 'files')
+  if ($snapshot.schemaVersion -isnot [int] -or
+      $snapshot.files -isnot [System.Array]) {
+    throw 'The external installer metadata snapshot is invalid.'
   }
-  $snapshot = Get-Content -LiteralPath $snapshotPath -Encoding UTF8 -Raw |
-    ConvertFrom-Json
   $files = @($snapshot.files)
   if ([int]$snapshot.schemaVersion -ne $script:schemaVersion -or
       $files.Count -ne $script:externalFileSpecs.Count) {
@@ -538,12 +843,22 @@ function Read-ExternalFilesSnapshot {
       throw 'The external installer metadata snapshot has invalid entries.'
     }
     $entry = $matches[0]
-    if (-not [string]::Equals(
-          [string]$entry.path,
+    Assert-ExactObjectSchema -Value $entry `
+      -Name 'The external installer metadata snapshot entry' `
+      -RequiredProperties @(
+        'name', 'path', 'exists', 'backupName', 'length', 'sha256'
+      )
+    if ($entry.name -isnot [string] -or
+        $entry.path -isnot [string] -or
+        $entry.exists -isnot [bool] -or
+        $entry.backupName -isnot [string] -or
+        ($entry.length -isnot [int] -and $entry.length -isnot [long]) -or
+        $entry.sha256 -isnot [string] -or
+        -not [string]::Equals(
+          $entry.path,
           [string]$spec.path,
           [System.StringComparison]::OrdinalIgnoreCase) -or
-        [string]$entry.backupName -cne [string]$spec.backupName -or
-        $entry.exists -isnot [bool]) {
+        $entry.backupName -cne [string]$spec.backupName) {
       throw 'The external installer metadata snapshot entry is invalid.'
     }
     $backupPath = Join-Path (
@@ -620,23 +935,33 @@ function Read-TransactionState {
     throw 'Program-file recovery root is not a real directory.'
   }
   $statePath = Join-Path $script:recoveryRoot $script:stateFileName
-  $stateItem = Get-PathItem -Path $statePath
-  if ($null -eq $stateItem -or $stateItem.PSIsContainer -or
-      (Test-ReparsePoint -Item $stateItem)) {
-    throw 'Program-file recovery state is missing or unsafe.'
-  }
-  $state = Get-Content -LiteralPath $statePath -Encoding UTF8 -Raw |
-    ConvertFrom-Json
-  if ([int]$state.schemaVersion -ne $script:schemaVersion -or
-      [string]$state.installDir -ine $script:installDir -or
-      [string]$state.uninstallRegistrySubkey -ine
+  $state = Read-BoundedJsonDocument -Path $statePath `
+    -Name 'Program-file recovery state'
+  Assert-ExactObjectSchema -Value $state -Name 'Program-file recovery state' `
+    -RequiredProperties @(
+      'schemaVersion',
+      'phase',
+      'installDir',
+      'uninstallRegistrySubkey',
+      'desktopShortcutPath',
+      'startMenuShortcutPath'
+    )
+  if ($state.schemaVersion -isnot [int] -or
+      [int]$state.schemaVersion -ne $script:schemaVersion -or
+      $state.phase -isnot [string] -or
+      $state.installDir -isnot [string] -or
+      $state.uninstallRegistrySubkey -isnot [string] -or
+      $state.desktopShortcutPath -isnot [string] -or
+      $state.startMenuShortcutPath -isnot [string] -or
+      $state.installDir -ine $script:installDir -or
+      $state.uninstallRegistrySubkey -ine
         $script:uninstallRegistrySubkey -or
-      [string]$state.desktopShortcutPath -ine
+      $state.desktopShortcutPath -ine
         $script:desktopShortcutPath -or
-      [string]$state.startMenuShortcutPath -ine
+      $state.startMenuShortcutPath -ine
         $script:startMenuShortcutPath -or
       @('prepared', 'cleared', 'validated', 'committed', 'restored') `
-        -cnotcontains [string]$state.phase) {
+        -cnotcontains $state.phase) {
     throw 'Program-file recovery state is invalid.'
   }
   return $state
@@ -644,45 +969,54 @@ function Read-TransactionState {
 
 function Read-Manifest {
   $manifestPath = Join-Path $script:recoveryRoot $script:manifestFileName
-  $manifestItem = Get-PathItem -Path $manifestPath
-  if ($null -eq $manifestItem -or $manifestItem.PSIsContainer -or
-      (Test-ReparsePoint -Item $manifestItem)) {
-    throw 'Program-file recovery manifest is missing or unsafe.'
-  }
-  $manifest = Get-Content -LiteralPath $manifestPath -Encoding UTF8 -Raw |
-    ConvertFrom-Json
-  if ([int]$manifest.schemaVersion -ne $script:schemaVersion) {
+  $manifest = Read-BoundedJsonDocument -Path $manifestPath `
+    -Name 'Program-file recovery manifest'
+  Assert-ExactObjectSchema -Value $manifest `
+    -Name 'Program-file recovery manifest' `
+    -RequiredProperties @('schemaVersion', 'files')
+  if ($manifest.schemaVersion -isnot [int] -or
+      [int]$manifest.schemaVersion -ne $script:schemaVersion -or
+      $manifest.files -isnot [System.Array]) {
     throw 'Program-file recovery manifest version is invalid.'
   }
 
+  $files = @($manifest.files)
+  if ($files.Count -gt $script:maxProgramFileCount) {
+    throw 'Program-file recovery manifest exceeds the file-count limit.'
+  }
   $validated = New-Object System.Collections.ArrayList
   $seen = @{}
-  foreach ($entry in @($manifest.files)) {
-    $relativePath = [string]$entry.path
-    if ([string]::IsNullOrWhiteSpace($relativePath) -or
-        [System.IO.Path]::IsPathRooted($relativePath)) {
-      throw 'Program-file recovery manifest contains an invalid path.'
+  $totalBytes = [long]0
+  foreach ($entry in $files) {
+    Assert-ExactObjectSchema -Value $entry `
+      -Name 'Program-file recovery manifest entry' `
+      -RequiredProperties @('path', 'length', 'sha256')
+    if ($entry.path -isnot [string] -or
+        ($entry.length -isnot [int] -and $entry.length -isnot [long]) -or
+        $entry.sha256 -isnot [string]) {
+      throw 'Program-file recovery manifest contains an invalid entry type.'
     }
-    $fullPath = [System.IO.Path]::GetFullPath(
-      (Join-Path $script:backupProgramRoot $relativePath))
-    if (-not (Test-PathWithin -Candidate $fullPath `
-        -Parent $script:backupProgramRoot) -or
-        (Test-PathWithin -Candidate $fullPath `
-        -Parent (Join-Path $script:backupProgramRoot `
-          $script:preservedDataRelativePath))) {
-      throw 'Program-file recovery manifest escaped its backup root.'
-    }
+    $relativePath = Assert-BoundedProgramRelativePath `
+      -RelativePath $entry.path -Root $script:backupProgramRoot `
+      -ExcludedRoot (Join-Path $script:backupProgramRoot `
+        $script:preservedDataRelativePath) `
+      -Name 'Program-file recovery manifest'
+    $length = [long]$entry.length
     $key = $relativePath.ToLowerInvariant()
     if ($seen.ContainsKey($key) -or
-        [long]$entry.length -lt 0 -or
-        [string]$entry.sha256 -cnotmatch '^[0-9a-f]{64}$') {
+        $length -lt 0 -or $length -gt $script:maxProgramFileBytes -or
+        $entry.sha256 -cnotmatch '^[0-9a-f]{64}$') {
       throw 'Program-file recovery manifest contains an invalid entry.'
     }
+    if ($length -gt ($script:maxProgramTotalBytes - $totalBytes)) {
+      throw 'Program-file recovery manifest exceeds the total-size limit.'
+    }
+    $totalBytes += $length
     $seen[$key] = $true
     [void]$validated.Add([pscustomobject][ordered]@{
         path = $relativePath
-        length = [long]$entry.length
-        sha256 = [string]$entry.sha256
+        length = $length
+        sha256 = $entry.sha256
       })
   }
   return @($validated.ToArray() | Sort-Object path)
@@ -694,19 +1028,13 @@ function Read-ExpectedPayloadManifest {
     throw 'A trusted expected payload manifest is required for commit.'
   }
   $manifestPath = [System.IO.Path]::GetFullPath($ExpectedPayloadManifestPath)
-  $manifestItem = Get-PathItem -Path $manifestPath
-  if ($null -eq $manifestItem -or $manifestItem.PSIsContainer -or
-      (Test-ReparsePoint -Item $manifestItem) -or
-      [long]$manifestItem.Length -gt 16MB) {
-    throw 'The trusted expected payload manifest is missing or unsafe.'
-  }
+  $manifestText = Read-BoundedUtf8Text -Path $manifestPath `
+    -MaxBytes $script:maxMetadataDocumentBytes `
+    -Name 'The trusted expected payload manifest'
 
   $entries = New-Object System.Collections.ArrayList
   $seen = @{}
-  foreach ($line in [System.IO.File]::ReadAllLines(
-      $manifestPath,
-      [System.Text.Encoding]::UTF8
-    )) {
+  foreach ($line in @($manifestText -split "\r?\n")) {
     if ([string]::IsNullOrWhiteSpace($line)) { continue }
     $lineMatch = [System.Text.RegularExpressions.Regex]::Match(
       $line,
@@ -716,27 +1044,15 @@ function Read-ExpectedPayloadManifest {
     if (-not $lineMatch.Success) {
       throw 'The trusted expected payload manifest contains an invalid line.'
     }
-    $sha256 = $lineMatch.Groups[1].Value
-    $relativePath = $lineMatch.Groups[2].Value
-    if ([string]::IsNullOrWhiteSpace($relativePath) -or
-        [System.IO.Path]::IsPathRooted($relativePath) -or
-        $relativePath -match '[\r\n]') {
-      throw 'The trusted expected payload manifest contains an invalid path.'
+    if ($entries.Count -ge $script:maxProgramFileCount) {
+      throw 'The trusted expected payload manifest exceeds the file-count limit.'
     }
-    $fullPath = [System.IO.Path]::GetFullPath(
-      (Join-Path $script:installDir $relativePath))
-    if (-not (Test-PathWithin -Candidate $fullPath `
-        -Parent $script:installDir) -or
-        (Test-PathWithin -Candidate $fullPath `
-        -Parent $script:preservedDataRoot)) {
-      throw 'The trusted expected payload manifest escaped the install root.'
-    }
-    $normalizedRelativePath = $fullPath.Substring(
-      $script:installDir.Length).TrimStart([char[]]@('\', '/'))
-    if (-not [string]::Equals(
-          $relativePath,
-          $normalizedRelativePath,
-          [System.StringComparison]::OrdinalIgnoreCase) -or
+    $sha256 = [string]$lineMatch.Groups[1].Value
+    $normalizedRelativePath = Assert-BoundedProgramRelativePath `
+      -RelativePath ([string]$lineMatch.Groups[2].Value) `
+      -Root $script:installDir -ExcludedRoot $script:preservedDataRoot `
+      -Name 'The trusted expected payload manifest'
+    if (
         $normalizedRelativePath -match '^unins\d+\.(?:exe|dat|msg)$') {
       throw 'The trusted expected payload manifest path is ambiguous.'
     }
@@ -813,6 +1129,10 @@ function Remove-CurrentProgramFiles {
   if (-not $installItem.PSIsContainer -or (Test-ReparsePoint -Item $installItem)) {
     throw 'Install directory is not a real directory.'
   }
+  # Inventory immediately before deletion. This repeats the bounded traversal
+  # at the destructive boundary so a tree that changed after Begin cannot make
+  # cleanup recurse through an unbounded number of entries.
+  [void](Get-ProgramInventory -Root $script:installDir -ExcludePreservedData)
   foreach ($child in @(Get-ChildItem -LiteralPath $script:installDir -Force)) {
     Remove-ProgramEntry -Path $child.FullName
   }
@@ -960,6 +1280,17 @@ function Begin-ProgramFilesTransaction {
     if ($null -ne $installItem) {
       $sourceInventory = @(Get-ProgramInventory -Root $script:installDir `
         -ExcludePreservedData)
+    }
+    $manifestValue = [pscustomobject][ordered]@{
+      schemaVersion = $script:schemaVersion
+      files = @($sourceInventory)
+    }
+    # Serialize the complete bounded inventory before copying a byte. This is
+    # the metadata-size preflight and prevents a large/pathological tree from
+    # being copied only to discover that its durable manifest cannot be stored.
+    Write-JsonAtomic -Path (Join-Path $stageRoot $script:manifestFileName) `
+      -Value $manifestValue
+    if ($null -ne $installItem) {
       Copy-SafeContents -SourceRoot $script:installDir `
         -DestinationRoot $stageProgramRoot -ExcludePreservedData
     }
@@ -972,11 +1303,6 @@ function Begin-ProgramFilesTransaction {
         -Actual $backupInventory)) {
       throw 'Program-file backup verification failed.'
     }
-    Write-JsonAtomic -Path (Join-Path $stageRoot $script:manifestFileName) `
-      -Value ([pscustomobject][ordered]@{
-        schemaVersion = $script:schemaVersion
-        files = @($sourceInventory)
-      })
     New-UninstallRegistrySnapshot -StageRoot $stageRoot
     New-ExternalFilesSnapshot -StageRoot $stageRoot
     Write-JsonAtomic -Path (Join-Path $stageRoot $script:stateFileName) `

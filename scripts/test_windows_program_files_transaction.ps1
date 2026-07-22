@@ -278,6 +278,47 @@ try {
     throw 'an intact current program did not finalize recovery as a no-op.'
   }
 
+  $oversizedSourceRoot = Join-Path $installDir 'oversized-depth'
+  $oversizedSourcePath = $oversizedSourceRoot
+  for ($depth = 0; $depth -lt 65; $depth++) {
+    $oversizedSourcePath = Join-Path $oversizedSourcePath 'd'
+  }
+  Write-TestFile (Join-Path $oversizedSourcePath 'sentinel.bin') 'bounded'
+  Invoke-Transaction -Action Begin -ExpectFailure
+  if (Test-Path -LiteralPath $recoveryRoot) {
+    throw 'oversized source was copied into recovery.'
+  }
+  Assert-Text $userDataPath 'user-owned-data' `
+    'oversized source inventory changed bin\ssrvpn user data.'
+  Remove-Item -LiteralPath $oversizedSourceRoot -Recurse -Force
+
+  Invoke-Transaction -Action Begin
+  $statePath = Join-Path $recoveryRoot 'state.json'
+  $validStateBytes = [System.IO.File]::ReadAllBytes($statePath)
+  $oversizedStateBytes = New-Object byte[] (8MB + 1)
+  [System.IO.File]::WriteAllBytes($statePath, $oversizedStateBytes)
+  Invoke-Transaction -Action Recover -ExpectFailure
+  Assert-Text (Join-Path $installDir 'ssrvpn_windows.exe') 'old-launcher' `
+    'oversized recovery state changed the installed program.'
+  Assert-Text $userDataPath 'user-owned-data' `
+    'oversized recovery state changed bin\ssrvpn user data.'
+  [System.IO.File]::WriteAllBytes($statePath, $validStateBytes)
+
+  $manifestPath = Join-Path $recoveryRoot 'manifest.json'
+  $validManifestBytes = [System.IO.File]::ReadAllBytes($manifestPath)
+  $invalidManifest = Get-Content -LiteralPath $manifestPath -Encoding UTF8 -Raw |
+    ConvertFrom-Json
+  $invalidManifest | Add-Member -NotePropertyName unexpected `
+    -NotePropertyValue $true
+  Write-TestFile $manifestPath ($invalidManifest | ConvertTo-Json -Depth 8)
+  Invoke-Transaction -Action Recover -ExpectFailure
+  Assert-Text (Join-Path $installDir 'ssrvpn_windows.exe') 'old-launcher' `
+    'invalid manifest schema changed the installed program.'
+  Assert-Text $userDataPath 'user-owned-data' `
+    'invalid manifest schema changed bin\ssrvpn user data.'
+  [System.IO.File]::WriteAllBytes($manifestPath, $validManifestBytes)
+  Invoke-Transaction -Action Recover
+
   Invoke-Transaction -Action Begin
   Write-ExpectedPayloadManifest
   Remove-Item -LiteralPath $recoveryRoot -Recurse -Force
