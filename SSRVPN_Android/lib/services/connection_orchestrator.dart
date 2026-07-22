@@ -1,4 +1,4 @@
-import 'package:ssrvpn_shared/utils/runtime_port_conflict_policy.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../services/clash_service.dart';
 import '../services/settings_service.dart';

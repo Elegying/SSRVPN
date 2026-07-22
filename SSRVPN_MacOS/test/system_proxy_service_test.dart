@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_macos/services/system_proxy_service.dart';
-import 'package:ssrvpn_shared/services/system_proxy_ownership_status.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
   test(
