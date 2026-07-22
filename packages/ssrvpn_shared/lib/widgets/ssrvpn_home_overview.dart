@@ -161,6 +161,24 @@ class _HomeHeader extends StatelessWidget {
       padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 10, vertical: 8),
       minimumSize: const Size(48, 40),
     );
+    final aboutAction = Tooltip(
+      message: '关于',
+      child: TextButton(
+        key: const Key('ssrvpn-about-button'),
+        onPressed: onShowAbout,
+        style: actionStyle,
+        child: const Text('关于'),
+      ),
+    );
+    final tutorialAction = Tooltip(
+      message: '使用教程',
+      child: TextButton(
+        key: const Key('ssrvpn-tutorial-button'),
+        onPressed: onShowTutorial,
+        style: actionStyle,
+        child: const Text('使用教程'),
+      ),
+    );
     final title = Text(
       'SSRVPN',
       style: TextStyle(
@@ -170,28 +188,25 @@ class _HomeHeader extends StatelessWidget {
         letterSpacing: 0.4,
       ),
     );
-    final actions = Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Tooltip(
-          message: '关于',
-          child: TextButton(
-            key: const Key('ssrvpn-about-button'),
-            onPressed: onShowAbout,
-            style: actionStyle,
-            child: const Text('关于'),
-          ),
-        ),
-        Tooltip(
-          message: '使用教程',
-          child: TextButton(
-            key: const Key('ssrvpn-tutorial-button'),
-            onPressed: onShowTutorial,
-            style: actionStyle,
-            child: const Text('使用教程'),
-          ),
-        ),
-      ],
+    final scaledActionTextSize = MediaQuery.textScalerOf(context).scale(14);
+    final actions = LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontalPadding = compact ? 4.0 : 10.0;
+        final requiredWidth = scaledActionTextSize * 6 + horizontalPadding * 4;
+        if (requiredWidth > constraints.maxWidth) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(alignment: Alignment.centerLeft, child: aboutAction),
+              Align(alignment: Alignment.centerRight, child: tutorialAction),
+            ],
+          );
+        }
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [aboutAction, tutorialAction],
+        );
+      },
     );
     final scaledTitleSize = MediaQuery.textScalerOf(context).scale(
       compact ? 29 : 34,

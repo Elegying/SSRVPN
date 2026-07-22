@@ -108,6 +108,66 @@ void main() {
     expect(find.text('添加订阅'), findsNothing);
   });
 
+  testWidgets(
+      'desktop tutorial remains dismissible in a compact large-text window',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(380, 560));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build(textScaleFactor: 2));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.tap(find.byTooltip('使用教程'));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(SingleChildScrollView),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.widgetWithText(TextButton, '知道了').hitTestable(),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'desktop diagnostics header keeps its close action at maximum text scale',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(380, 560));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build(textScaleFactor: 3.2));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    final currentNode = find.byKey(const Key('ssrvpn-current-node-card'));
+    await tester.ensureVisible(currentNode);
+    await tester.pump();
+    await tester.tap(currentNode);
+    await tester.pumpAndSettle();
+    final logs = find.text('运行日志');
+    await tester.ensureVisible(logs);
+    await tester.pump();
+    await tester.tap(logs);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('诊断与运行日志'), findsOneWidget);
+    expect(
+      find.widgetWithIcon(IconButton, Icons.close).hitTestable(),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('home supports its primary desktop connection journey',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 800));

@@ -69,55 +69,74 @@ void _showAndroidHomeTutorialDialog(BuildContext context) {
         child: ConstrainedBox(
           constraints: BoxConstraints(
             maxWidth: MediaQuery.of(ctx).size.width * 0.88,
+            maxHeight: (MediaQuery.of(ctx).size.height -
+                    MediaQuery.of(ctx).viewInsets.vertical -
+                    48)
+                .clamp(160.0, double.infinity)
+                .toDouble(),
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [
-                            AppTheme.primaryColor,
-                            AppTheme.accentColor,
+                Flexible(
+                  child: SingleChildScrollView(
+                    key: const Key('android-home-tutorial-scroll'),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    AppTheme.primaryColor,
+                                    AppTheme.accentColor,
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.menu_book_rounded,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                '使用教程',
+                                style: TextStyle(
+                                  fontSize: Responsive.sp(18),
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark
+                                      ? AppTheme.darkTextPrimary
+                                      : AppTheme.lightTextPrimary,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.menu_book_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
+                        const SizedBox(height: 20),
+                        for (var i = 0;
+                            i < _homeTutorialSteps.length;
+                            i++) ...[
+                          _AndroidTutorialStep(
+                            step: '${i + 1}',
+                            text: _homeTutorialSteps[i].text,
+                          ),
+                          if (i != _homeTutorialSteps.length - 1)
+                            const SizedBox(height: 12),
+                        ],
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      '使用教程',
-                      style: TextStyle(
-                        fontSize: Responsive.sp(18),
-                        fontWeight: FontWeight.w700,
-                        color: isDark
-                            ? AppTheme.darkTextPrimary
-                            : AppTheme.lightTextPrimary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                for (var i = 0; i < _homeTutorialSteps.length; i++) ...[
-                  _AndroidTutorialStep(
-                    step: '${i + 1}',
-                    text: _homeTutorialSteps[i].text,
                   ),
-                  if (i != _homeTutorialSteps.length - 1)
-                    const SizedBox(height: 12),
-                ],
-                const SizedBox(height: 20),
+                ),
+                const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: TextButton(
@@ -174,15 +193,18 @@ void _showAndroidHomeLogsSheet(BuildContext context) {
               children: [
                 Icon(Icons.bug_report, size: 18, color: AppTheme.warningColor),
                 const SizedBox(width: 8),
-                Text(
-                  '诊断与运行日志',
-                  style: TextStyle(
-                    fontSize: Responsive.sp(16),
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.darkTextPrimary,
+                Expanded(
+                  child: Text(
+                    '诊断与运行日志',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: Responsive.sp(16),
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.darkTextPrimary,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 IconButton(
                   tooltip: '关闭诊断中心',
                   icon: Icon(

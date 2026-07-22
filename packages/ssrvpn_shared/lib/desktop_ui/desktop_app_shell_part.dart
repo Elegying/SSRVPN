@@ -18,6 +18,31 @@ class _DesktopAppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final runtimeNoticeSuccessful = isSuccessfulRuntimeNotice(runtimeNotice);
+    final statusBanners = <Widget>[
+      if (safeMode)
+        const _StartupBanner(
+          icon: Icons.health_and_safety_outlined,
+          color: AppTheme.warning,
+          title: '安全模式已启用',
+          message: '托盘、旧窗口位置和 Mihomo 自动初始化已跳过。',
+        ),
+      if (startupFailureMessages.isNotEmpty)
+        _StartupBanner(
+          icon: Icons.error_outline,
+          color: AppTheme.error,
+          title: '部分启动步骤失败',
+          message: startupFailureMessages.join('\n'),
+        ),
+      if (runtimeNotice != null)
+        _StartupBanner(
+          icon: runtimeNoticeSuccessful
+              ? Icons.check_circle_outline
+              : Icons.error_outline,
+          color: runtimeNoticeSuccessful ? AppTheme.success : AppTheme.error,
+          title: runtimeNoticeSuccessful ? '连接已恢复' : '连接未完成',
+          message: runtimeNotice!,
+        ),
+    ];
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: DefaultTextStyle.merge(
@@ -25,31 +50,8 @@ class _DesktopAppShell extends StatelessWidget {
         child: SsrvpnAppBackdrop(
           child: Column(
             children: [
-              if (safeMode)
-                const _StartupBanner(
-                  icon: Icons.health_and_safety_outlined,
-                  color: AppTheme.warning,
-                  title: '安全模式已启用',
-                  message: '托盘、旧窗口位置和 Mihomo 自动初始化已跳过。',
-                ),
-              if (startupFailureMessages.isNotEmpty)
-                _StartupBanner(
-                  icon: Icons.error_outline,
-                  color: AppTheme.error,
-                  title: '部分启动步骤失败',
-                  message: startupFailureMessages.join('\n'),
-                ),
-              if (runtimeNotice != null)
-                _StartupBanner(
-                  icon: runtimeNoticeSuccessful
-                      ? Icons.check_circle_outline
-                      : Icons.error_outline,
-                  color: runtimeNoticeSuccessful
-                      ? AppTheme.success
-                      : AppTheme.error,
-                  title: runtimeNoticeSuccessful ? '连接已恢复' : '连接未完成',
-                  message: runtimeNotice!,
-                ),
+              if (statusBanners.isNotEmpty)
+                _DesktopStartupBannerRegion(children: statusBanners),
               Expanded(child: _PageStack(currentIndex: currentIndex)),
               SsrvpnBottomNavigation(
                 currentIndex: currentIndex,
@@ -59,6 +61,27 @@ class _DesktopAppShell extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _DesktopStartupBannerRegion extends StatelessWidget {
+  const _DesktopStartupBannerRegion({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.35,
+      ),
+      child: ListView(
+        key: const Key('desktop-startup-banner-scroll'),
+        shrinkWrap: true,
+        padding: EdgeInsets.zero,
+        children: children,
       ),
     );
   }
