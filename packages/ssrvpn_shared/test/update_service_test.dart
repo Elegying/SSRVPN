@@ -242,23 +242,22 @@ void main() {
     expect(tempDir.listSync().map((entry) => entry.path), [existing.path]);
   });
 
-  test('an interrupted replacement is restored before the next download',
+  test('an interrupted replacement with a mismatched digest is not restored',
       () async {
     final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
     final backup = File(
       '${destination.path}.previous.123_456_789',
     );
-    final previousBytes = utf8.encode('previous-verified-installer');
-    await backup.writeAsBytes(previousBytes, flush: true);
+    final expectedBytes = utf8.encode('expected-verified-installer');
+    await backup.writeAsString('unverified-installer', flush: true);
 
     await expectLater(
       SharedUpdateService.downloadVerifiedUpdate(
-        const AppUpdateInfo(
+        AppUpdateInfo(
           version: '9.9.9',
           downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
           changelog: '',
-          sha256:
-              '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+          sha256: sha256.convert(expectedBytes).toString(),
         ),
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
@@ -269,7 +268,70 @@ void main() {
       throwsA(isA<StateError>()),
     );
 
-    expect(await destination.readAsBytes(), previousBytes);
+    expect(await destination.exists(), isFalse);
+    expect(await backup.exists(), isFalse);
+    expect(tempDir.listSync(), isEmpty);
+  });
+
+  test('an interrupted replacement with the expected digest is restored',
+      () async {
+    final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
+    final backup = File(
+      '${destination.path}.previous.123_456_789',
+    );
+    final expectedBytes = utf8.encode('expected-verified-installer');
+    await backup.writeAsBytes(expectedBytes, flush: true);
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(expectedBytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        client: MockClient(
+          (_) async => http.Response('unavailable', HttpStatus.badGateway),
+        ),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(await destination.readAsBytes(), expectedBytes);
+    expect(await backup.exists(), isFalse);
+    expect(tempDir.listSync().map((entry) => entry.path), [destination.path]);
+  });
+
+  test('recovery never overwrites an existing destination', () async {
+    final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
+    final destinationBytes = utf8.encode('existing-installer');
+    await destination.writeAsBytes(destinationBytes, flush: true);
+    final backup = File(
+      '${destination.path}.previous.123_456_789',
+    );
+    final backupBytes = utf8.encode('expected-verified-installer');
+    await backup.writeAsBytes(backupBytes, flush: true);
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(backupBytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        client: MockClient(
+          (_) async => http.Response('unavailable', HttpStatus.badGateway),
+        ),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(await destination.readAsBytes(), destinationBytes);
     expect(await backup.exists(), isFalse);
     expect(tempDir.listSync().map((entry) => entry.path), [destination.path]);
   });

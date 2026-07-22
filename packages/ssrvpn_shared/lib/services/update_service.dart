@@ -116,7 +116,11 @@ class SharedUpdateService {
       cancellation,
     );
     final destination = File('${outputDirectory.path}/$fileName');
-    await _recoverInterruptedPublication(destination);
+    await _recoverInterruptedPublication(
+      destination,
+      expectedSha256: expectedSha256,
+      maxBytes: maxBytes,
+    );
     final publicationId = '${pid}_${DateTime.now().microsecondsSinceEpoch}_'
         '${math.Random.secure().nextInt(0x7fffffff)}';
     final temporary = File('${destination.path}.part.$publicationId');
@@ -249,7 +253,11 @@ class SharedUpdateService {
     }
   }
 
-  static Future<void> _recoverInterruptedPublication(File destination) async {
+  static Future<void> _recoverInterruptedPublication(
+    File destination, {
+    required String expectedSha256,
+    required int maxBytes,
+  }) async {
     final destinationType = await FileSystemEntity.type(
       destination.path,
       followLinks: false,
@@ -274,18 +282,53 @@ class SharedUpdateService {
     if (backups.isEmpty) return;
 
     backups.sort((left, right) => right.$2.compareTo(left.$2));
-    var firstUnusedBackup = 0;
     if (destinationType == FileSystemEntityType.notFound) {
-      await backups.first.$1.rename(destination.path);
-      firstUnusedBackup = 1;
+      for (final backup in backups) {
+        if (!await _matchesExpectedDigest(
+          backup.$1,
+          expectedSha256: expectedSha256,
+          maxBytes: maxBytes,
+        )) {
+          continue;
+        }
+        if (await FileSystemEntity.type(
+              destination.path,
+              followLinks: false,
+            ) !=
+            FileSystemEntityType.notFound) {
+          break;
+        }
+        await backup.$1.rename(destination.path);
+        break;
+      }
     }
 
-    // A verified destination is available again. Any older private backups are
-    // now redundant, so clean them up without turning recovery into a failure.
-    for (final backup in backups.skip(firstUnusedBackup)) {
+    // A backup is publishable only when it matches the digest from trusted
+    // update metadata. All remaining private artifacts are stale or unverified.
+    for (final backup in backups) {
       try {
         await backup.$1.delete();
       } catch (_) {}
+    }
+  }
+
+  static Future<bool> _matchesExpectedDigest(
+    File file, {
+    required String expectedSha256,
+    required int maxBytes,
+  }) async {
+    try {
+      if (await FileSystemEntity.type(file.path, followLinks: false) !=
+          FileSystemEntityType.file) {
+        return false;
+      }
+      if (await file.length() > maxBytes) return false;
+      final digest = await sha256.bind(file.openRead()).first;
+      return digest.toString() == expectedSha256 &&
+          await FileSystemEntity.type(file.path, followLinks: false) ==
+              FileSystemEntityType.file;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -441,6 +484,7 @@ class SharedUpdateService {
                 return PopScope(
                   canPop: false,
                   child: AlertDialog(
+                    scrollable: true,
                     title: const Text('正在下载更新'),
                     content: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -495,6 +539,7 @@ class SharedUpdateService {
             await showDialog<void>(
               context: context,
               builder: (dialogContext) => AlertDialog(
+                scrollable: true,
                 title: const Text('更新失败'),
                 content: Text(
                   error.toString().replaceFirst('Bad state: ', ''),

@@ -512,8 +512,13 @@ void main() {
       expect(find.text('正在更新'), findsNothing);
     });
 
-    testWidgets('installer failure does not pop the current application page',
+    testWidgets(
+        'long installer failure remains dismissible without popping the current page',
         (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 360));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       final bytes = utf8.encode('apk-from-release');
       final navigatorKey = GlobalKey<NavigatorState>();
       BuildContext? updatePageContext;
@@ -550,7 +555,12 @@ void main() {
           ),
           installApk: (_) async {
             installAttempted.complete();
-            throw StateError('installer failed');
+            throw StateError(
+              List<String>.generate(
+                40,
+                (index) => '安装程序响应异常 ${index + 1}',
+              ).join('\n'),
+            );
           },
         );
         await installAttempted.future.timeout(const Duration(seconds: 5));
@@ -558,9 +568,17 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      expect(tester.takeException(), isNull);
       expect(find.text('update-page'), findsOneWidget);
       expect(find.textContaining('更新失败'), findsOneWidget);
-      await tester.tap(find.text('知道了'));
+      expect(
+        tester.widget<AlertDialog>(find.byType(AlertDialog)).scrollable,
+        isTrue,
+      );
+      final dismiss = find.widgetWithText(TextButton, '知道了');
+      await tester.ensureVisible(dismiss);
+      expect(dismiss.hitTestable(), findsOneWidget);
+      await tester.tap(dismiss);
       await tester.pumpAndSettle();
       await tester.runAsync(
         () => task.timeout(const Duration(seconds: 5)),
