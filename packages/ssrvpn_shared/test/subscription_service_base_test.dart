@@ -561,6 +561,28 @@ proxies:
       originalState.expectUnchanged(service);
     });
 
+    test('edited node cannot claim an SSRVPN runtime group name', () async {
+      await expectLater(
+        service.updateNode('Old Node', {
+          'name': 'PROXY',
+          'type': 'ss',
+          'server': 'edited.example.com',
+          'port': 443,
+          'cipher': 'aes-256-gcm',
+          'password': 'secret',
+        }),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('运行时保留名称'),
+          ),
+        ),
+      );
+
+      originalState.expectUnchanged(service);
+    });
+
     test('failed raw YAML cache write preserves live node state', () async {
       service.failCacheWrites = true;
 

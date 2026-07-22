@@ -54,27 +54,33 @@ class ClashConfigGenerator {
     if (proxyNames.isEmpty || proxiesText.isEmpty) {
       throw Exception('订阅中没有可用节点，请先刷新订阅');
     }
+    final seenProxyNames = <String>{};
+    for (final proxyName in proxyNames) {
+      if (!seenProxyNames.add(proxyName)) {
+        throw FormatException(
+          '订阅中的节点名称重复：“$proxyName”，请刷新订阅或修改节点名称后重试',
+        );
+      }
+    }
     final normalizedExtraGroupNames =
         RuntimeConfigNamePolicy.normalizeExtraGroupNames(
       extraSelectGroupNames,
     );
-    final generatedGroupNames = <String>{
-      'PROXY',
-      'GLOBAL',
-      '自动选择',
-      if (includeFallbackGroup) '故障转移',
+    final reservedRuntimeNames = <String>{
+      ...RuntimeConfigNamePolicy.reservedProxyNames,
       ...normalizedExtraGroupNames,
     };
     String? conflictingProxyName;
     for (final proxyName in proxyNames) {
-      if (generatedGroupNames.contains(proxyName)) {
+      if (reservedRuntimeNames.contains(proxyName)) {
         conflictingProxyName = proxyName;
         break;
       }
     }
     if (conflictingProxyName != null) {
       throw FormatException(
-        '节点名称“$conflictingProxyName”与 SSRVPN 内置代理组冲突，请刷新订阅后重试',
+        '节点名称“$conflictingProxyName”属于 Mihomo/SSRVPN 运行时保留名称，'
+        '请刷新订阅或修改节点名称后重试',
       );
     }
 

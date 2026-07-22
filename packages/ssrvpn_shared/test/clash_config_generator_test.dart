@@ -346,6 +346,56 @@ proxies:
         ),
         throwsArgumentError,
       );
+      expect(
+        () => ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(),
+          extraSelectGroupNames: const ['DIRECT'],
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('generateConfig rejects raw proxies using reserved runtime names', () {
+      const yaml = '''
+proxies:
+  - name: DIRECT
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: test123
+''';
+
+      expect(
+        () => ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('运行时保留名称'),
+          ),
+        ),
+      );
+    });
+
+    test('generateConfig rejects duplicate raw proxy names', () {
+      const yaml = '''
+proxies:
+  - {name: Duplicate, type: ss, server: a.example.com, port: 443, cipher: aes-256-gcm, password: one}
+  - {name: Duplicate, type: ss, server: b.example.com, port: 443, cipher: aes-256-gcm, password: two}
+''';
+
+      expect(
+        () => ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('节点名称重复'),
+          ),
+        ),
+      );
     });
 
     test('generateConfig enables externally refreshed CN rule providers', () {
