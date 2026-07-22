@@ -539,7 +539,7 @@ void main() {
     );
     final states = await Future.wait(
       results.values.map(
-        (item) => item.future.timeout(const Duration(seconds: 10)),
+        (item) => item.future.timeout(const Duration(seconds: 20)),
       ),
     );
 
@@ -1149,7 +1149,10 @@ Future<void> _runIsolateUpdate(List<Object?> arguments) async {
 Future<void> _waitForFile(File file) async {
   final deadline = Stopwatch()..start();
   while (!await file.exists()) {
-    if (deadline.elapsed > const Duration(seconds: 5)) {
+    // This handshake surrounds production code whose publication-lock timeout
+    // is 15 seconds. Keep the test deadline above that bound so a loaded test
+    // host does not fail before the production operation can resolve itself.
+    if (deadline.elapsed > const Duration(seconds: 20)) {
       throw TimeoutException('Timed out waiting for ${file.path}');
     }
     await Future<void>.delayed(const Duration(milliseconds: 5));
