@@ -90,6 +90,11 @@ class _SSRVpnAppState extends State<SSRVpnApp>
 
   void _handleStartupStatusChanged() {
     final status = StartupStatus.instance;
+    final nextSubscriptionService = status.subscriptionService;
+    if (_subscriptionService != null &&
+        !identical(_subscriptionService, nextSubscriptionService)) {
+      _clashService?.clearDesktopConnectionRecoveryPlan();
+    }
 
     if (status.windowManagerReady && !_windowListenerAttached) {
       try {
@@ -129,7 +134,7 @@ class _SSRVpnAppState extends State<SSRVpnApp>
     }
 
     _settingsService = status.settingsService;
-    _subscriptionService = status.subscriptionService;
+    _subscriptionService = nextSubscriptionService;
 
     if (mounted) setState(() {});
   }

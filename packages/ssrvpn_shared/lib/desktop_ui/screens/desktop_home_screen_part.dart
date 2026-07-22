@@ -72,6 +72,10 @@ class _HomeScreenState extends State<HomeScreen> {
     super.didChangeDependencies();
     final subService = context.read<SubscriptionService>();
     if (identical(_subscriptionService, subService)) return;
+    if (_subscriptionService != null) {
+      (_clashService ?? context.read<ClashService>())
+          .clearDesktopConnectionRecoveryPlan();
+    }
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
     _subscriptionService = subService;
     subService.addListener(_handleSubscriptionServiceChanged);
@@ -512,6 +516,19 @@ class _HomeScreenState extends State<HomeScreen> {
           }
           return;
         }
+        clashService.rememberDesktopConnectionRecoveryPlan(
+          preferredSettings: settingsService.settings,
+          generateConfig: (runtimeSettings, preferredNodeName) =>
+              clashService.generateClashConfigAsync(
+            rawYaml,
+            runtimeSettings,
+            preferredNodeName: preferredNodeName,
+          ),
+          isRevisionCurrent: () =>
+              subService.revision == subscriptionRevision &&
+              subService.rawYaml == rawYaml,
+          preferredNodeName: runtimeSelectedNode?.name ?? autoSelect?.name,
+        );
         setState(() {
           _isConnected = true;
           _isConnecting = false;

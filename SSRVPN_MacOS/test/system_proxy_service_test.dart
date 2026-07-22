@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_macos/services/system_proxy_service.dart';
+import 'package:ssrvpn_shared/services/system_proxy_ownership_status.dart';
 
 void main() {
   test(
@@ -14,13 +15,14 @@ void main() {
     );
     addTearDown(() => tempDirectory.delete(recursive: true));
     var effectiveProxyOwned = true;
+    var effectiveProxyReadable = true;
     final mutationCommands = <List<String>>[];
     final service = SystemProxyService(
       beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
       endProxyLifecycleTransaction: (_) async => true,
       effectiveProxyRunner: () async => ProcessResult(
         1,
-        0,
+        effectiveProxyReadable ? 0 : 124,
         effectiveProxyOwned
             ? '''<dictionary> {
   HTTPEnable : 1
@@ -66,12 +68,27 @@ void main() {
     expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
     final mutationsAfterSetup = mutationCommands.length;
 
+    expect(
+      await service.currentSystemProxyOwnershipStatus(),
+      SystemProxyOwnershipStatus.owned,
+    );
     expect(await service.isCurrentSystemProxyOwned(), isTrue);
 
     effectiveProxyOwned = false;
+    expect(
+      await service.currentSystemProxyOwnershipStatus(),
+      SystemProxyOwnershipStatus.externallyChanged,
+    );
     expect(await service.isCurrentSystemProxyOwned(), isFalse);
     expect(mutationCommands, hasLength(mutationsAfterSetup));
     expect(service.lastError, contains('关闭或修改'));
+
+    effectiveProxyReadable = false;
+    expect(
+      await service.currentSystemProxyOwnershipStatus(),
+      SystemProxyOwnershipStatus.unavailable,
+    );
+    expect(mutationCommands, hasLength(mutationsAfterSetup));
   });
 
   test('native lifecycle lease brackets every proxy mutation', () async {

@@ -125,6 +125,25 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
         );
         return;
       }
+      if (core.isRunning &&
+          core.isConnectionIntentCurrent(
+            connectionGeneration,
+            connected: true,
+          )) {
+        core.rememberDesktopConnectionRecoveryPlan(
+          preferredSettings: settings.settings,
+          generateConfig: (runtimeSettings, recoveryNodeName) =>
+              core.generateClashConfigAsync(
+            rawYaml,
+            runtimeSettings,
+            preferredNodeName: recoveryNodeName,
+          ),
+          isRevisionCurrent: () =>
+              subscriptionService.revision == subscriptionRevision &&
+              subscriptionService.rawYaml == rawYaml,
+          preferredNodeName: preferredNodeName,
+        );
+      }
       if (preferredNodeName != null &&
           connectionResult.preferredNodeSwitchSucceeded == true &&
           core.isConnectionIntentCurrent(

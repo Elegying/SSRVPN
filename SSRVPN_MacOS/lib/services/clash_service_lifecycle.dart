@@ -268,6 +268,14 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   @protected
   Future<bool> checkMihomoApiHealth() => super.healthCheck();
 
+  @protected
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() =>
+      _proxyService.currentSystemProxyOwnershipStatus();
+
+  @protected
+  bool get systemProxyOwnershipChangedSinceLastAcquisition =>
+      _proxyService.ownershipChangedSinceLastAcquisition;
+
   Future<bool> _verifyTunRuntimeConfig() async {
     final tun = (await getConfigs())?['tun'];
     if (tun is Map && tun['enable'] == true) return true;
@@ -285,9 +293,19 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       return false;
     }
     if (!settings.enableTun) {
-      if (isRunning && !await _proxyService.isCurrentSystemProxyOwned()) {
+      if (isRunning) {
+        final ownershipStatus = await inspectSystemProxyOwnership();
+        if (ownershipStatus == SystemProxyOwnershipStatus.owned) {
+          setLastHealthCheckError(null);
+          return true;
+        }
+        final ownershipError = _proxyService.lastError ?? 'macOS 系统代理所有权无法确认';
+        final prefix =
+            ownershipStatus == SystemProxyOwnershipStatus.externallyChanged
+                ? desktopSystemProxyOwnershipLostPrefix
+                : desktopSystemProxyOwnershipUnavailablePrefix;
         setLastHealthCheckError(
-          _proxyService.lastError ?? 'macOS 系统代理已被关闭或修改',
+          '$prefix $ownershipError',
         );
         return false;
       }
@@ -501,6 +519,35 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       setRunning(true);
       return true;
     }
+    if (!settings.enableTun) {
+      // The API and the system proxy can fail at the same time. healthCheck()
+      // returns as soon as the API is unavailable, so inspect ownership again
+      // immediately before any stop/restart that could reacquire the proxy.
+      final ownershipStatus = await inspectSystemProxyOwnership();
+      if (ownershipStatus != SystemProxyOwnershipStatus.owned) {
+        final externallyChanged =
+            ownershipStatus == SystemProxyOwnershipStatus.externallyChanged;
+        // Invalidate intent before asynchronous cleanup so neither the health
+        // monitor nor an in-flight recovery can reacquire the system proxy.
+        markConnectionLost();
+        try {
+          await stop();
+        } catch (error) {
+          log('系统代理所有权失效后的核心清理未完成: $error');
+          notifyRuntimeNotice(
+            '已取消自动重连，但系统代理或 Mihomo 核心清理状态无法确认；'
+            '请在诊断页检查并重试断开，SSRVPN 不会重新接管代理。',
+          );
+          return false;
+        }
+        notifyRuntimeNotice(
+          externallyChanged
+              ? '检测到系统代理已被其他程序接管，SSRVPN 已安全断开且不会覆盖当前代理。'
+              : '无法确认当前系统代理所有权，SSRVPN 已安全断开且不会覆盖未知代理状态。',
+        );
+        return false;
+      }
+    }
     if (!_automaticRecoveryPolicy.tryAcquire()) {
       await stop();
       return false;
@@ -516,7 +563,16 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
       return false;
     }
-    return _start(automaticRecovery: true);
+    if (!settings.enableTun &&
+        systemProxyOwnershipChangedSinceLastAcquisition) {
+      markConnectionLost();
+      notifyRuntimeNotice(
+        '系统代理在清理期间发生变化，已取消自动重连；'
+        'SSRVPN 不会重新接管当前代理。',
+      );
+      return false;
+    }
+    return recoverDesktopConnection(connectionGeneration);
   }
 
   void disableStartup(String reason) {
@@ -598,7 +654,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     _corePath = path;
   }
 
+  @override
   Future<bool> start() => _start();
+
+  @override
+  Future<bool> startForAutomaticRecovery() => _start(automaticRecovery: true);
 
   Future<bool> _start({bool automaticRecovery = false}) {
     if (!automaticRecovery) _automaticRecoveryPolicy.reset();
@@ -898,6 +958,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     _tunSession?.interruptPendingStart();
   }
 
+  @override
   Future<void> stop() {
     interruptPendingStart();
     final current = _stopOperation;
@@ -1252,7 +1313,13 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         setRunning(false);
         notifyStatusChanged();
         stopStatusMonitor();
-        _scheduleUnexpectedExitCleanup(exitCode, recoveryGeneration);
+        _scheduleUnexpectedExitCleanup(
+          exitCode,
+          recoveryGeneration,
+          // Only the non-TUN native core is watched through _clashProcess;
+          // TUN lifecycle is owned by MacosTunSession.
+          usedSystemProxy: true,
+        );
       }
       return;
     }
@@ -1280,46 +1347,106 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     }
   }
 
-  void _scheduleUnexpectedExitCleanup(
-    int exitCode,
-    int? recoveryGeneration,
-  ) {
-    final cleanup = _clearProxyAfterUnexpectedExit();
+  void _scheduleUnexpectedExitCleanup(int exitCode, int? recoveryGeneration,
+      {required bool usedSystemProxy}) {
+    final cleanup = _prepareUnexpectedExitProxyCleanup(
+      recoveryGeneration,
+      usedSystemProxy: usedSystemProxy,
+    );
     final cleanupBarrier = cleanup.then<void>((_) {});
     _exitCleanupOperation = cleanupBarrier;
     unawaited(() async {
-      final proxyRecovered = await cleanup;
+      final proxyCleanup = await cleanup;
       if (identical(_exitCleanupOperation, cleanupBarrier)) {
         _exitCleanupOperation = null;
       }
       await _recoverAfterUnexpectedExit(
         exitCode,
         recoveryGeneration,
-        proxyRecovered,
+        proxyCleanup,
       );
     }());
   }
 
-  Future<bool> _clearProxyAfterUnexpectedExit() async {
+  Future<DesktopUnexpectedExitProxyCleanupResult>
+      _prepareUnexpectedExitProxyCleanup(
+    int? recoveryGeneration, {
+    required bool usedSystemProxy,
+  }) async {
+    SystemProxyOwnershipStatus? ownershipBeforeClear;
+    if (usedSystemProxy) {
+      try {
+        ownershipBeforeClear = await inspectSystemProxyOwnership();
+      } catch (error) {
+        ownershipBeforeClear = SystemProxyOwnershipStatus.unavailable;
+        log('核心异常退出前无法确认系统代理所有权: $error');
+      }
+      if (ownershipBeforeClear != SystemProxyOwnershipStatus.owned &&
+          recoveryGeneration != null &&
+          isConnectionIntentCurrent(recoveryGeneration, connected: true)) {
+        // Clear/discard SSRVPN's recovery state, but invalidate restart intent
+        // before that asynchronous cleanup can race with another recovery.
+        markConnectionLost();
+      }
+    }
+
     var proxyRecovered = false;
     try {
-      proxyRecovered = await _proxyService.clearSystemProxy();
+      proxyRecovered = await clearSystemProxyAfterUnexpectedExit();
       if (!proxyRecovered && _proxyService.lastError != null) {
         log(_proxyService.lastError!);
       }
     } catch (error) {
       log('核心异常退出后清理系统代理失败: $error');
     }
-    return proxyRecovered;
+    final ownershipChangedDuringClear =
+        usedSystemProxy && systemProxyOwnershipChangedSinceLastAcquisition;
+    if (ownershipChangedDuringClear &&
+        recoveryGeneration != null &&
+        isConnectionIntentCurrent(recoveryGeneration, connected: true)) {
+      markConnectionLost();
+    }
+    return DesktopUnexpectedExitProxyCleanupResult(
+      proxyCleared: proxyRecovered,
+      ownershipBeforeClear: ownershipBeforeClear,
+      ownershipChangedDuringClear: ownershipChangedDuringClear,
+    );
   }
+
+  @protected
+  Future<bool> clearSystemProxyAfterUnexpectedExit() =>
+      _proxyService.clearSystemProxy();
 
   Future<void> _recoverAfterUnexpectedExit(
     int exitCode,
     int? recoveryGeneration,
-    bool proxyRecovered,
+    DesktopUnexpectedExitProxyCleanupResult proxyCleanup,
   ) async {
+    if (proxyCleanup.hasUnsafeSystemProxyOwnership) {
+      final changedDuringClear = proxyCleanup.ownershipChangedDuringClear;
+      final externallyChanged = proxyCleanup.ownershipBeforeClear ==
+          SystemProxyOwnershipStatus.externallyChanged;
+      _lastUnexpectedExitNotice = proxyCleanup.proxyCleared
+          ? (changedDuringClear
+              ? 'Mihomo 异常退出（退出码 $exitCode）；系统代理在清理期间发生变化，'
+                  'SSRVPN 已取消自动重连，不会重新接管当前代理。'
+              : externallyChanged
+                  ? 'Mihomo 异常退出（退出码 $exitCode）；检测到系统代理已由其他程序接管，'
+                      'SSRVPN 已清理自身恢复状态并取消自动重连，未覆盖当前代理。'
+                  : 'Mihomo 异常退出（退出码 $exitCode）；此前无法确认系统代理所有权，'
+                      'SSRVPN 已完成清理并取消自动重连，不会重新接管代理。')
+          : 'Mihomo 异常退出（退出码 $exitCode）；已取消自动重连，但系统代理恢复状态'
+              '清理无法确认。请在诊断页检查并重试断开，SSRVPN 不会重新接管代理。';
+      try {
+        onProcessExit?.call();
+      } catch (error) {
+        log('核心退出回调失败: $error');
+      }
+      return;
+    }
+
     var automaticallyRecovered = false;
-    if (proxyRecovered &&
+    if (proxyCleanup.permitsAutomaticRestart &&
         recoveryGeneration != null &&
         isConnectionIntentCurrent(recoveryGeneration, connected: true) &&
         _automaticRecoveryPolicy.tryAcquire()) {
@@ -1331,7 +1458,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         )) {
           return false;
         }
-        return _start(automaticRecovery: true);
+        return recoverDesktopConnection(recoveryGeneration);
       });
     }
 
@@ -1343,7 +1470,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       if (intentCurrent) markConnectionLost();
       _lastUnexpectedExitNotice = buildMacosUnexpectedExitNotice(
         exitCode: exitCode,
-        proxyRecovered: proxyRecovered,
+        proxyRecovered: proxyCleanup.proxyCleared,
       );
     }
     try {
@@ -1351,6 +1478,23 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     } catch (error) {
       log('核心退出回调失败: $error');
     }
+  }
+
+  @protected
+  Future<void> runUnexpectedExitRecovery({
+    required int? generation,
+    required int exitCode,
+    bool usedTun = false,
+  }) async {
+    final proxyCleanup = await _prepareUnexpectedExitProxyCleanup(
+      generation,
+      usedSystemProxy: !usedTun,
+    );
+    await _recoverAfterUnexpectedExit(
+      exitCode,
+      generation,
+      proxyCleanup,
+    );
   }
 
   void _clearStartOperation(Future<bool> operation) {

@@ -3,9 +3,44 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/services/desktop_connection_coordinator.dart';
+import 'package:ssrvpn_shared/services/system_proxy_ownership_status.dart';
 import 'package:ssrvpn_shared/utils/connection_transition_queue.dart';
 
 void main() {
+  test('unexpected-exit ownership gate permits TUN and owned proxy only', () {
+    const tunCleanup = DesktopUnexpectedExitProxyCleanupResult(
+      proxyCleared: true,
+      ownershipBeforeClear: null,
+      ownershipChangedDuringClear: false,
+    );
+    const ownedProxyCleanup = DesktopUnexpectedExitProxyCleanupResult(
+      proxyCleared: true,
+      ownershipBeforeClear: SystemProxyOwnershipStatus.owned,
+      ownershipChangedDuringClear: false,
+    );
+    const externallyChangedCleanup = DesktopUnexpectedExitProxyCleanupResult(
+      proxyCleared: true,
+      ownershipBeforeClear: SystemProxyOwnershipStatus.externallyChanged,
+      ownershipChangedDuringClear: false,
+    );
+    const unavailableCleanup = DesktopUnexpectedExitProxyCleanupResult(
+      proxyCleared: true,
+      ownershipBeforeClear: SystemProxyOwnershipStatus.unavailable,
+      ownershipChangedDuringClear: false,
+    );
+    const failedOwnedProxyCleanup = DesktopUnexpectedExitProxyCleanupResult(
+      proxyCleared: false,
+      ownershipBeforeClear: SystemProxyOwnershipStatus.owned,
+      ownershipChangedDuringClear: false,
+    );
+
+    expect(tunCleanup.permitsAutomaticRestart, isTrue);
+    expect(ownedProxyCleanup.permitsAutomaticRestart, isTrue);
+    expect(externallyChangedCleanup.permitsAutomaticRestart, isFalse);
+    expect(unavailableCleanup.permitsAutomaticRestart, isFalse);
+    expect(failedOwnedProxyCleanup.permitsAutomaticRestart, isFalse);
+  });
+
   group('DesktopConnectionCoordinator', () {
     test('rejects a revision change during prepare before generating config',
         () async {
@@ -125,6 +160,63 @@ void main() {
       expect(calls.where((call) => call == 'prepare'), hasLength(2));
       expect(calls, containsAllInOrder(['generate:32000', 'generate:32001']));
       expect(calls, isNot(contains('cancel-intent')));
+    });
+
+    test(
+        'automatic recovery rebuilds config and retries one explicit bind clash',
+        () async {
+      final calls = <String>[];
+      var runtimePort = 33000;
+      var startCalls = 0;
+      String? startError;
+      var intentCurrent = true;
+
+      final plan = DesktopConnectionRecoveryPlan(
+        preferredSettings: AppSettings(proxyPort: runtimePort),
+        prepareForStart: (settings) async {
+          calls.add('prepare');
+          return settings.copyWith(proxyPort: runtimePort++);
+        },
+        generateConfig: (settings) async {
+          calls.add('generate:${settings.proxyPort}');
+          return 'config:${settings.proxyPort}';
+        },
+        writeConfig: (config) async => calls.add('write:$config'),
+        start: () async {
+          calls.add('recovery-start');
+          startCalls++;
+          if (startCalls == 1) {
+            startError = 'listen tcp [::1]:33000: bind: address already in use';
+            return false;
+          }
+          startError = null;
+          return true;
+        },
+        stop: () async => calls.add('stop'),
+        isRevisionCurrent: () => true,
+        isIntentCurrent: (_) => intentCurrent,
+        shouldRollbackStaleIntent: () => !intentCurrent,
+        cancelIntent: () => intentCurrent = false,
+        readStartFailureReason: () => startError,
+      );
+
+      final result = await plan.recover(7);
+
+      expect(result.connected, isTrue);
+      expect(startCalls, 2);
+      expect(calls.where((call) => call == 'prepare'), hasLength(2));
+      expect(
+        calls,
+        containsAllInOrder([
+          'generate:33000',
+          'write:config:33000',
+          'recovery-start',
+          'generate:33001',
+          'write:config:33001',
+          'recovery-start',
+        ]),
+      );
+      expect(intentCurrent, isTrue);
     });
 
     test(

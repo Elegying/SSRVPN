@@ -313,7 +313,6 @@ class ClashService extends ClashServiceBase {
     );
   }
 
-  @override
   Future<String> writeConfig(String config) async {
     final revision = ++_configRevision;
     final path = '$configDir/config-'
