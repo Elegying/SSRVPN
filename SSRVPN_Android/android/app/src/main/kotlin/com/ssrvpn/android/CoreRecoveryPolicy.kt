@@ -9,7 +9,7 @@ internal data class CoreRecoveryRequest(
 )
 
 internal object CoreRecoveryPolicy {
-    private const val MAX_ATTEMPTS = 1
+    private const val MAX_ATTEMPTS = 2
 
     fun nextAttempt(currentAttempt: Int): Int? =
         (currentAttempt + 1).takeIf { it <= MAX_ATTEMPTS }

@@ -55,7 +55,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   bool _stoppingCore = false;
   bool _proxyRecoveryListenerActive = false;
   final CoreRecoveryPolicy _unexpectedExitRecoveryPolicy =
-      CoreRecoveryPolicy(maxAttempts: 1);
+      CoreRecoveryPolicy(maxAttempts: 2);
 
   // ── Startup disabled ──
   String? _startupDisabledReason;

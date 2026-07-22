@@ -371,6 +371,34 @@ void main() {
       ['health', 'stop', 'prepare', 'generate', 'write', 'recovery-start'],
     );
   });
+
+  test('health recovery allows two bounded automatic rebuilds', () async {
+    final service = _PlannedHealthRecoveryClashService();
+    addTearDown(service.dispose);
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async {
+        service.calls.add('generate');
+        return 'mixed-port: ${runtimeSettings.proxyPort}';
+      },
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    expect(
+      await service.recoverAfterHealthCheckFailure(generation),
+      isTrue,
+    );
+    expect(
+      await service.recoverAfterHealthCheckFailure(generation),
+      isTrue,
+    );
+    expect(
+      service.calls.where((call) => call == 'recovery-start'),
+      hasLength(2),
+    );
+  });
 }
 
 class _ExternalProxyTakeoverRecoveryClashService extends ClashService {
