@@ -8,16 +8,16 @@ import org.junit.Test
 
 class CoreRecoveryPolicyTest {
     @Test
-    fun `unexpected core exit retries exactly once`() {
+    fun `unexpected core exit allows two bounded retries`() {
         assertEquals(1, CoreRecoveryPolicy.nextAttempt(0))
-        assertNull(CoreRecoveryPolicy.nextAttempt(1))
+        assertEquals(2, CoreRecoveryPolicy.nextAttempt(1))
         assertNull(CoreRecoveryPolicy.nextAttempt(2))
     }
 
     @Test
     fun `recovery messages are explicit for users`() {
         assertEquals(
-            "核心异常，正在自动恢复（1/1）",
+            "核心异常，正在自动恢复（1/2）",
             CoreRecoveryPolicy.recoveringMessage(1)
         )
         assertEquals(

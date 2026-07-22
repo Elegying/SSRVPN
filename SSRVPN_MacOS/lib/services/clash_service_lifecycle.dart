@@ -132,7 +132,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   bool _runCoreProbesAfterRecovery = true;
   Future<bool>? _proxyRecoveryOperation;
   final CoreRecoveryPolicy _automaticRecoveryPolicy =
-      CoreRecoveryPolicy(maxAttempts: 1);
+      CoreRecoveryPolicy(maxAttempts: 2);
   String? _lastUnexpectedExitNotice;
   DateTime? _lastTunDataPathProbeAt;
   bool _lastTunDataPathHealthy = true;
