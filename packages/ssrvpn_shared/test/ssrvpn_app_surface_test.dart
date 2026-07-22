@@ -220,6 +220,7 @@ void main() {
     var selectedName = '新加坡 | IEPL ①';
     var proxyMode = ProxyMode.rule;
     var tunEnabled = false;
+    ProxyNode? longPressedNode;
     final nodes = [
       ProxyNode(
         name: '新加坡 | IEPL ①',
@@ -258,6 +259,7 @@ void main() {
           onSelectNode: (node) async => selectedName = node.name,
           onProxyModeChanged: (value) async => proxyMode = value,
           onEnableTunChanged: (value) async => tunEnabled = value,
+          onLongPressNode: (node) => longPressedNode = node,
           tunLabel: 'TUN 模式（需管理员权限）',
         ),
       ),
@@ -372,6 +374,17 @@ void main() {
       latencySemantics.getSemanticsData().hasAction(SemanticsAction.tap),
       isTrue,
     );
+
+    await tester.longPress(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey('ssrvpn-node-card-日本 | IEPL ①'),
+        ),
+        matching: find.text('日本 | IEPL ①'),
+      ),
+    );
+    await tester.pump();
+    expect(longPressedNode?.name, '日本 | IEPL ①');
   });
 
   testWidgets('mounted selector refreshes every owner-backed state',

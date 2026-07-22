@@ -1,6 +1,17 @@
 class RuntimeConfigNamePolicy {
   const RuntimeConfigNamePolicy._();
 
+  static final RegExp _unsafeScalarControls = RegExp(r'[\x00-\x1f\x7f]');
+
+  /// Uses the same scalar normalization everywhere a subscription-provided
+  /// name enters Mihomo's shared proxy/group namespace. Collision checks must
+  /// run after this step because Mihomo receives the sanitized value.
+  static String canonicalName(Object? value) =>
+      sanitizeScalar(value?.toString() ?? '').trim();
+
+  static String sanitizeScalar(String value) =>
+      value.replaceAll(_unsafeScalarControls, '');
+
   /// Names emitted by the shared generator on one or more platforms.
   /// Subscription nodes must never use these names because Mihomo resolves
   /// proxies and proxy groups in the same runtime namespace.
@@ -32,7 +43,7 @@ class RuntimeConfigNamePolicy {
     final normalized = <String>[];
     final seen = <String>{};
     for (final value in names) {
-      final name = value.trim();
+      final name = canonicalName(value);
       if (name.isEmpty) continue;
       if (standardGroupNames.contains(name) ||
           mihomoBuiltinPolicyNames.contains(name)) {
