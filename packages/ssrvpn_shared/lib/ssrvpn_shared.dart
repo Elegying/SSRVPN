@@ -23,6 +23,7 @@ export 'services/subscription_yaml_merger.dart';
 export 'services/clash_config_generator.dart';
 export 'services/clash_service_base.dart';
 export 'services/desktop_connection_coordinator.dart';
+export 'services/desktop_connection_recovery_plan.dart';
 export 'services/system_proxy_ownership_status.dart';
 export 'services/subscription_service_base.dart';
 export 'services/subscription_refresh_control.dart';
