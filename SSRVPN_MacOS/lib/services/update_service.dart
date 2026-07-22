@@ -55,7 +55,7 @@ class UpdateService {
           SharedUpdateService.downloadAndOpenVerifiedUpdate(
             context,
             SharedUpdateService.preferDownloadUrl(update, url),
-            fileName: 'SSRVPN.dmg',
+            fileName: _dmgFileName(latestVersion),
             openFile: (file) async {
               await Process.start(_openPath, [file.path]);
             },
@@ -129,5 +129,14 @@ class UpdateService {
         ),
       );
     });
+  }
+
+  static String _dmgFileName(String version) {
+    final normalized = version.trim().replaceFirst(RegExp(r'^[vV]'), '');
+    final safeVersion = normalized.replaceAll(
+      RegExp(r'[^A-Za-z0-9._-]'),
+      '_',
+    );
+    return safeVersion.isEmpty ? 'SSRVPN.dmg' : 'SSRVPN_v$safeVersion.dmg';
   }
 }

@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
@@ -52,6 +55,13 @@ enum VerifiedUpdateRecoveryTestStep {
   committed,
 }
 
+@visibleForTesting
+enum VerifiedUpdatePublicationTestStep {
+  beforeDestinationCommit,
+  committed,
+  reused,
+}
+
 class SharedUpdateService {
   static const int maxDesktopUpdateBytes = 300 * 1024 * 1024;
   // Recovery runs before the network request and scans a user-writable
@@ -60,9 +70,16 @@ class SharedUpdateService {
   static const int _recoveryCandidateLimit = 16;
   static const int _recoveryTotalByteLimit = 2 * maxDesktopUpdateBytes;
   static const int _recoveryHashChunkBytes = 64 * 1024;
+  static const Duration _publicationLockTimeout = Duration(seconds: 15);
+  static const Duration _publicationLockRetryDelay = Duration(
+    milliseconds: 25,
+  );
+  static const Duration _publicationLeaseProbeTimeout = Duration(seconds: 5);
   static bool _verifiedDownloadInProgress = false;
   static int? _recoveryDirectoryEntryLimitForTesting;
   static void Function(VerifiedUpdateRecoveryTestStep)? _recoveryStepForTesting;
+  static FutureOr<void> Function(VerifiedUpdatePublicationTestStep)?
+      _publicationStepForTesting;
 
   static bool get isVerifiedDownloadInProgress => _verifiedDownloadInProgress;
 
@@ -84,6 +101,13 @@ class SharedUpdateService {
     void Function(VerifiedUpdateRecoveryTestStep)? callback,
   ) {
     _recoveryStepForTesting = callback;
+  }
+
+  @visibleForTesting
+  static set publicationStepForTesting(
+    FutureOr<void> Function(VerifiedUpdatePublicationTestStep)? callback,
+  ) {
+    _publicationStepForTesting = callback;
   }
 
   static Future<AppUpdateInfo?> checkForUpdate({
@@ -154,12 +178,20 @@ class SharedUpdateService {
       cancellation,
     );
     final destination = File('${outputDirectory.path}/$fileName');
-    await _recoverInterruptedPublication(
+    final recovered = await _withPublicationLock(
       destination,
-      expectedSha256: expectedSha256,
-      maxBytes: maxBytes,
       cancellation: cancellation,
+      action: () => _recoverInterruptedPublicationLocked(
+        destination,
+        expectedSha256: expectedSha256,
+        maxBytes: maxBytes,
+        cancellation: cancellation,
+      ),
     );
+    if (recovered) {
+      cancellation?.throwIfCancelled();
+      return destination;
+    }
     final publicationId = '${pid}_${DateTime.now().microsecondsSinceEpoch}_'
         '${math.Random.secure().nextInt(0x7fffffff)}';
     final temporary = File('${destination.path}.part.$publicationId');
@@ -246,14 +278,25 @@ class SharedUpdateService {
       }
 
       cancellation?.throwIfCancelled();
+      final verifiedLength = await _awaitWithCancellation(
+        temporary.length(),
+        cancellation,
+      );
       try {
-        await _publishVerifiedFile(
-          temporary: temporary,
-          destination: destination,
-          publicationId: publicationId,
+        await _withPublicationLock<void>(
+          destination,
+          cancellation: cancellation,
+          action: () => _publishVerifiedFileLocked(
+            temporary: temporary,
+            destination: destination,
+            expectedSha256: expectedSha256,
+            expectedLength: verifiedLength,
+            maxBytes: maxBytes,
+            cancellation: cancellation,
+          ),
         );
       } catch (_) {
-        if (await temporary.exists()) await temporary.delete();
+        await _deleteRecoveryBackupBestEffort(temporary, null);
         rethrow;
       }
       return destination;
@@ -263,36 +306,144 @@ class SharedUpdateService {
     }
   }
 
-  static Future<void> _publishVerifiedFile({
+  static Future<_VerifiedPublicationOutcome> _publishVerifiedFileLocked({
     required File temporary,
     required File destination,
-    required String publicationId,
+    required String expectedSha256,
+    required int expectedLength,
+    required int maxBytes,
+    VerifiedUpdateCancellation? cancellation,
   }) async {
-    if (!await destination.exists()) {
-      await temporary.rename(destination.path);
-      return;
-    }
-
-    final backup = File('${destination.path}.previous.$publicationId');
-    await destination.rename(backup.path);
-    try {
-      await temporary.rename(destination.path);
-    } catch (_) {
-      if (!await destination.exists() && await backup.exists()) {
-        await backup.rename(destination.path);
+    cancellation?.throwIfCancelled();
+    final destinationType = await _awaitWithCancellation(
+      FileSystemEntity.type(destination.path, followLinks: false),
+      cancellation,
+    );
+    cancellation?.throwIfCancelled();
+    if (destinationType == FileSystemEntityType.file) {
+      final matches = await _verifiedFileMatches(
+        destination,
+        expectedSha256: expectedSha256,
+        expectedLength: expectedLength,
+        maxBytes: maxBytes,
+        cancellation: cancellation,
+      );
+      if (!matches) {
+        throw StateError('目标更新文件已存在且校验不一致，已拒绝覆盖');
       }
-      rethrow;
+      await _deleteRecoveryBackupBestEffort(temporary, null);
+      await _notifyPublicationStep(
+        VerifiedUpdatePublicationTestStep.reused,
+      );
+      return _VerifiedPublicationOutcome.reused;
     }
-
-    try {
-      await backup.delete();
-    } catch (_) {
-      // The verified installer has already been published. A best-effort
-      // cleanup failure must not make the completed update look unsuccessful.
+    if (destinationType != FileSystemEntityType.notFound) {
+      throw FileSystemException(
+        '目标更新路径不是普通文件，已拒绝覆盖',
+        destination.path,
+      );
     }
+    cancellation?.throwIfCancelled();
+    await _notifyPublicationStep(
+      VerifiedUpdatePublicationTestStep.beforeDestinationCommit,
+    );
+    cancellation?.throwIfCancelled();
+    final linked = await _createHardLinkNoReplace(
+      source: temporary,
+      destination: destination,
+      cancellation: cancellation,
+    );
+    if (!linked) {
+      final matches = await _verifiedFileMatches(
+        destination,
+        expectedSha256: expectedSha256,
+        expectedLength: expectedLength,
+        maxBytes: maxBytes,
+        cancellation: cancellation,
+      );
+      if (!matches) {
+        throw StateError('目标更新文件在发布时已存在且校验不一致，已拒绝覆盖');
+      }
+      await _deleteRecoveryBackupBestEffort(temporary, null);
+      await _notifyPublicationStep(
+        VerifiedUpdatePublicationTestStep.reused,
+      );
+      return _VerifiedPublicationOutcome.reused;
+    }
+    final committedMatches = await _verifiedFileMatches(
+      destination,
+      expectedSha256: expectedSha256,
+      expectedLength: expectedLength,
+      maxBytes: maxBytes,
+      cancellation: cancellation,
+    );
+    if (!committedMatches) {
+      throw StateError('更新文件原子发布后的校验失败，已拒绝使用');
+    }
+    await _deleteRecoveryBackupBestEffort(temporary, null);
+    await _notifyPublicationStep(
+      VerifiedUpdatePublicationTestStep.committed,
+    );
+    return _VerifiedPublicationOutcome.committed;
   }
 
-  static Future<void> _recoverInterruptedPublication(
+  /// Creates the destination as a hard link to the already verified staging
+  /// inode. Hard-link creation is atomic and fails when the destination exists,
+  /// so the commit point can never replace a user or another process's file.
+  static Future<bool> _createHardLinkNoReplace({
+    required File source,
+    required File destination,
+    required VerifiedUpdateCancellation? cancellation,
+  }) async {
+    cancellation?.throwIfCancelled();
+    late final ProcessResult result;
+    if (Platform.isWindows) {
+      const script = r'''
+param([string]$SourcePath, [string]$DestinationPath)
+$ErrorActionPreference = 'Stop'
+New-Item -ItemType HardLink -Path $DestinationPath -Target $SourcePath -ErrorAction Stop | Out-Null
+''';
+      result = await _awaitWithCancellation(
+        Process.run(
+          'powershell.exe',
+          <String>[
+            '-NoLogo',
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-Command',
+            script,
+            source.absolute.path,
+            destination.absolute.path,
+          ],
+        ),
+        cancellation,
+      );
+    } else {
+      result = await _awaitWithCancellation(
+        Process.run(
+          '/bin/ln',
+          <String>[source.absolute.path, destination.absolute.path],
+        ),
+        cancellation,
+      );
+    }
+    cancellation?.throwIfCancelled();
+    if (result.exitCode == 0) return true;
+    final destinationType = await _awaitWithCancellation(
+      FileSystemEntity.type(destination.path, followLinks: false),
+      cancellation,
+    );
+    if (destinationType != FileSystemEntityType.notFound) return false;
+    final details = result.stderr.toString().trim();
+    throw FileSystemException(
+      details.isEmpty ? '无法原子发布更新文件' : details,
+      destination.path,
+    );
+  }
+
+  static Future<bool> _recoverInterruptedPublicationLocked(
     File destination, {
     required String expectedSha256,
     required int maxBytes,
@@ -306,8 +457,19 @@ class SharedUpdateService {
     cancellation?.throwIfCancelled();
     if (destinationType != FileSystemEntityType.notFound &&
         destinationType != FileSystemEntityType.file) {
-      return;
+      throw FileSystemException(
+        '目标更新路径不是普通文件，已拒绝覆盖',
+        destination.path,
+      );
     }
+    final destinationMatches = destinationType == FileSystemEntityType.file
+        ? await _verifiedFileMatches(
+            destination,
+            expectedSha256: expectedSha256,
+            maxBytes: maxBytes,
+            cancellation: cancellation,
+          )
+        : false;
 
     final prefix = '${destination.path}.previous.';
     final backups = <({File file, DateTime modified, int length})>[];
@@ -369,66 +531,328 @@ class SharedUpdateService {
         await entries.cancel();
       } catch (_) {}
     }
-    if (backups.isEmpty) return;
+    if (backups.isEmpty) {
+      if (destinationType == FileSystemEntityType.file) {
+        if (destinationMatches) return true;
+        throw StateError('目标更新文件已存在且校验不一致，已拒绝覆盖');
+      }
+      return false;
+    }
 
-    if (destinationType == FileSystemEntityType.notFound) {
-      final recoveryByteBudget = maxBytes <= 0
-          ? 0
-          : math.min(maxBytes * 2, _recoveryTotalByteLimit).toInt();
-      var hashedBytes = 0;
+    Future<void> cleanBackups() async {
+      // A backup is publishable only when it matches trusted update metadata.
+      // Everything left after recovery is stale or unverified private state.
       for (final backup in backups) {
         cancellation?.throwIfCancelled();
-        final remainingBytes = recoveryByteBudget - hashedBytes;
-        if (remainingBytes <= 0) break;
-        if (backup.length > remainingBytes) continue;
-        File? verifiedCopy;
-        var committed = false;
-        try {
-          final result = await _createVerifiedRecoveryCopy(
-            source: backup.file,
-            destination: destination,
-            expectedSha256: expectedSha256,
-            maxBytes: math.min(maxBytes, remainingBytes).toInt(),
-            cancellation: cancellation,
-          );
-          hashedBytes += result.bytesRead;
-          verifiedCopy = result.verifiedCopy;
-          if (verifiedCopy == null) continue;
+        await _deleteRecoveryBackupBestEffort(backup.file, cancellation);
+      }
+    }
 
-          _recoveryStepForTesting?.call(
-            VerifiedUpdateRecoveryTestStep.verifiedCopy,
-          );
-          cancellation?.throwIfCancelled();
-          if (await _awaitWithCancellation(
-                FileSystemEntity.type(destination.path, followLinks: false),
-                cancellation,
-              ) !=
-              FileSystemEntityType.notFound) {
-            break;
-          }
-          cancellation?.throwIfCancelled();
-          // The commit source is the exclusive staging file whose successful
-          // writes were hashed, never the mutable source candidate path.
-          await verifiedCopy.rename(destination.path);
-          committed = true;
+    if (destinationType == FileSystemEntityType.file) {
+      await cleanBackups();
+      if (destinationMatches) return true;
+      throw StateError('目标更新文件已存在且校验不一致，已拒绝覆盖');
+    }
+
+    var recovered = false;
+    final recoveryByteBudget = maxBytes <= 0
+        ? 0
+        : math.min(maxBytes * 2, _recoveryTotalByteLimit).toInt();
+    var hashedBytes = 0;
+    for (final backup in backups) {
+      cancellation?.throwIfCancelled();
+      final remainingBytes = recoveryByteBudget - hashedBytes;
+      if (remainingBytes <= 0) break;
+      if (backup.length > remainingBytes) continue;
+      File? verifiedCopy;
+      var published = false;
+      try {
+        final result = await _createVerifiedRecoveryCopy(
+          source: backup.file,
+          destination: destination,
+          expectedSha256: expectedSha256,
+          maxBytes: math.min(maxBytes, remainingBytes).toInt(),
+          cancellation: cancellation,
+        );
+        hashedBytes += result.bytesRead;
+        verifiedCopy = result.verifiedCopy;
+        if (verifiedCopy == null) continue;
+
+        _recoveryStepForTesting?.call(
+          VerifiedUpdateRecoveryTestStep.verifiedCopy,
+        );
+        cancellation?.throwIfCancelled();
+        final outcome = await _publishVerifiedFileLocked(
+          temporary: verifiedCopy,
+          destination: destination,
+          expectedSha256: expectedSha256,
+          expectedLength: result.bytesRead,
+          maxBytes: maxBytes,
+          cancellation: cancellation,
+        );
+        published = true;
+        recovered = true;
+        if (outcome == _VerifiedPublicationOutcome.committed) {
           _recoveryStepForTesting?.call(
             VerifiedUpdateRecoveryTestStep.committed,
           );
-          break;
-        } finally {
-          if (verifiedCopy != null && !committed) {
-            await _deleteRecoveryBackupBestEffort(verifiedCopy, null);
-          }
+        }
+        break;
+      } finally {
+        if (verifiedCopy != null && !published) {
+          await _deleteRecoveryBackupBestEffort(verifiedCopy, null);
         }
       }
     }
 
-    // A backup is publishable only when it matches the digest from trusted
-    // update metadata. All remaining private artifacts are stale or unverified.
-    for (final backup in backups) {
+    await cleanBackups();
+    return recovered;
+  }
+
+  static Future<bool> _verifiedFileMatches(
+    File file, {
+    required String expectedSha256,
+    int? expectedLength,
+    required int maxBytes,
+    VerifiedUpdateCancellation? cancellation,
+  }) async {
+    RandomAccessFile? input;
+    final digestSink = _UpdateDigestSink();
+    final hashSink = sha256.startChunkedConversion(digestSink);
+    var hashClosed = false;
+    try {
       cancellation?.throwIfCancelled();
-      await _deleteRecoveryBackupBestEffort(backup.file, cancellation);
+      if (maxBytes < 0 ||
+          await _awaitWithCancellation(
+                FileSystemEntity.type(file.path, followLinks: false),
+                cancellation,
+              ) !=
+              FileSystemEntityType.file) {
+        return false;
+      }
+      input = await _openRecoveryFile(file, cancellation);
+      cancellation?.throwIfCancelled();
+      final initialLength = await _awaitWithCancellation(
+        input.length(),
+        cancellation,
+      );
+      if (initialLength < 0 ||
+          initialLength > maxBytes ||
+          (expectedLength != null && initialLength != expectedLength)) {
+        return false;
+      }
+
+      var bytesRead = 0;
+      while (true) {
+        cancellation?.throwIfCancelled();
+        final chunk = await _awaitWithCancellation(
+          input.read(_recoveryHashChunkBytes),
+          cancellation,
+        );
+        cancellation?.throwIfCancelled();
+        if (chunk.isEmpty) break;
+        bytesRead += chunk.length;
+        if (bytesRead > maxBytes ||
+            (expectedLength != null && bytesRead > expectedLength)) {
+          return false;
+        }
+        hashSink.add(chunk);
+      }
+      final finalLength = await _awaitWithCancellation(
+        input.length(),
+        cancellation,
+      );
+      cancellation?.throwIfCancelled();
+      hashSink.close();
+      hashClosed = true;
+      return bytesRead == initialLength &&
+          finalLength == initialLength &&
+          (expectedLength == null || bytesRead == expectedLength) &&
+          digestSink.value.toString() == expectedSha256;
+    } on VerifiedUpdateCancelled {
+      rethrow;
+    } on FileSystemException {
+      cancellation?.throwIfCancelled();
+      return false;
+    } finally {
+      if (!hashClosed) hashSink.close();
+      if (input != null) {
+        try {
+          await input.close();
+        } catch (_) {}
+      }
     }
+  }
+
+  static Future<T> _withPublicationLock<T>(
+    File destination, {
+    required VerifiedUpdateCancellation? cancellation,
+    required Future<T> Function() action,
+  }) async {
+    final lease = await _acquirePublicationLock(destination, cancellation);
+    try {
+      cancellation?.throwIfCancelled();
+      return await action();
+    } finally {
+      await lease.release();
+    }
+  }
+
+  static Future<_VerifiedUpdatePublicationLease> _acquirePublicationLock(
+    File destination,
+    VerifiedUpdateCancellation? cancellation,
+  ) async {
+    final canonicalParent = await _awaitWithCancellation(
+      destination.parent.resolveSymbolicLinks(),
+      cancellation,
+    );
+    final destinationSuffix = destination.absolute.path.substring(
+      destination.absolute.parent.path.length,
+    );
+    final canonicalPath = '$canonicalParent$destinationSuffix';
+    final normalizedPath =
+        Platform.isWindows ? canonicalPath.toLowerCase() : canonicalPath;
+    final lockKey = sha256.convert(utf8.encode(normalizedPath)).toString();
+    final isolateLockName = 'ssrvpn.update.publication.$lockKey';
+    final waitClock = Stopwatch()..start();
+
+    while (waitClock.elapsed < _publicationLockTimeout) {
+      cancellation?.throwIfCancelled();
+      final receivePort = ReceivePort();
+      if (IsolateNameServer.registerPortWithName(
+        receivePort.sendPort,
+        isolateLockName,
+      )) {
+        final subscription = receivePort.listen((message) {
+          if (message is SendPort) message.send(true);
+        });
+        try {
+          final lockFile = await _acquirePublicationFileLock(
+            lockKey,
+            waitClock: waitClock,
+            cancellation: cancellation,
+          );
+          return _VerifiedUpdatePublicationLease(
+            isolateLockName: isolateLockName,
+            receivePort: receivePort,
+            subscription: subscription,
+            lockFile: lockFile,
+          );
+        } catch (_) {
+          if (IsolateNameServer.lookupPortByName(isolateLockName) ==
+              receivePort.sendPort) {
+            IsolateNameServer.removePortNameMapping(isolateLockName);
+          }
+          await subscription.cancel();
+          receivePort.close();
+          rethrow;
+        }
+      }
+      receivePort.close();
+
+      await _waitForIsolatePublicationLease(
+        isolateLockName,
+        waitClock: waitClock,
+        cancellation: cancellation,
+      );
+    }
+    throw TimeoutException('等待更新文件发布锁超时');
+  }
+
+  static Future<RandomAccessFile> _acquirePublicationFileLock(
+    String lockKey, {
+    required Stopwatch waitClock,
+    required VerifiedUpdateCancellation? cancellation,
+  }) async {
+    final lockDirectory = Directory(
+      '${Directory.systemTemp.path}/ssrvpn_update_publication_locks',
+    );
+    await _awaitWithCancellation(
+      lockDirectory.create(recursive: true),
+      cancellation,
+    );
+    final lockFile = await _openRecoveryFile(
+      File('${lockDirectory.path}/$lockKey.lock'),
+      cancellation,
+      mode: FileMode.append,
+    );
+    try {
+      while (waitClock.elapsed < _publicationLockTimeout) {
+        cancellation?.throwIfCancelled();
+        try {
+          await _awaitWithCancellation(
+            lockFile.lock(FileLock.exclusive),
+            cancellation,
+          );
+          return lockFile;
+        } on VerifiedUpdateCancelled {
+          rethrow;
+        } on FileSystemException {
+          await _publicationLockDelay(waitClock, cancellation);
+        }
+      }
+    } catch (_) {
+      try {
+        await lockFile.close();
+      } catch (_) {}
+      rethrow;
+    }
+    try {
+      await lockFile.close();
+    } catch (_) {}
+    throw TimeoutException('等待更新文件发布锁超时');
+  }
+
+  static Future<void> _waitForIsolatePublicationLease(
+    String isolateLockName, {
+    required Stopwatch waitClock,
+    required VerifiedUpdateCancellation? cancellation,
+  }) async {
+    final existing = IsolateNameServer.lookupPortByName(isolateLockName);
+    if (existing == null) return;
+    final reply = ReceivePort();
+    try {
+      existing.send(reply.sendPort);
+      final remaining = _publicationLockTimeout - waitClock.elapsed;
+      if (remaining <= Duration.zero) return;
+      final probeTimeout = remaining < _publicationLeaseProbeTimeout
+          ? remaining
+          : _publicationLeaseProbeTimeout;
+      try {
+        await _awaitWithCancellation(
+          reply.first.timeout(probeTimeout),
+          cancellation,
+        );
+      } on TimeoutException {
+        // IsolateNameServer mappings can outlive an abruptly terminated
+        // isolate. Remove only the exact unresponsive mapping we probed.
+        if (IsolateNameServer.lookupPortByName(isolateLockName) == existing) {
+          IsolateNameServer.removePortNameMapping(isolateLockName);
+        }
+      }
+    } finally {
+      reply.close();
+    }
+    await _publicationLockDelay(waitClock, cancellation);
+  }
+
+  static Future<void> _publicationLockDelay(
+    Stopwatch waitClock,
+    VerifiedUpdateCancellation? cancellation,
+  ) async {
+    final remaining = _publicationLockTimeout - waitClock.elapsed;
+    if (remaining <= Duration.zero) return;
+    final delay = remaining < _publicationLockRetryDelay
+        ? remaining
+        : _publicationLockRetryDelay;
+    await _awaitWithCancellation(Future<void>.delayed(delay), cancellation);
+  }
+
+  static Future<void> _notifyPublicationStep(
+    VerifiedUpdatePublicationTestStep step,
+  ) async {
+    final callback = _publicationStepForTesting;
+    if (callback != null) await callback(step);
   }
 
   static Future<({File? verifiedCopy, int bytesRead})>
@@ -602,9 +1026,10 @@ class SharedUpdateService {
 
   static Future<RandomAccessFile> _openRecoveryFile(
     File file,
-    VerifiedUpdateCancellation? cancellation,
-  ) async {
-    final opening = file.open();
+    VerifiedUpdateCancellation? cancellation, {
+    FileMode mode = FileMode.read,
+  }) async {
+    final opening = file.open(mode: mode);
     try {
       return await _awaitWithCancellation(opening, cancellation);
     } catch (_) {
@@ -1036,6 +1461,39 @@ class SharedUpdateService {
         },
       );
     });
+  }
+}
+
+enum _VerifiedPublicationOutcome { committed, reused }
+
+class _VerifiedUpdatePublicationLease {
+  _VerifiedUpdatePublicationLease({
+    required this.isolateLockName,
+    required this.receivePort,
+    required this.subscription,
+    required this.lockFile,
+  });
+
+  final String isolateLockName;
+  final ReceivePort receivePort;
+  final StreamSubscription<Object?> subscription;
+  final RandomAccessFile lockFile;
+
+  Future<void> release() async {
+    try {
+      await lockFile.unlock();
+    } catch (_) {}
+    try {
+      await lockFile.close();
+    } catch (_) {}
+    if (IsolateNameServer.lookupPortByName(isolateLockName) ==
+        receivePort.sendPort) {
+      IsolateNameServer.removePortNameMapping(isolateLockName);
+    }
+    try {
+      await subscription.cancel();
+    } catch (_) {}
+    receivePort.close();
   }
 }
 
