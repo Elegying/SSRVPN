@@ -85,6 +85,27 @@ void main() {
 
       expect(selected, isNot(occupied.port));
     });
+
+    test('skips a port occupied only on IPv6 loopback', () async {
+      ServerSocket? occupied;
+      try {
+        occupied = await ServerSocket.bind(
+          InternetAddress.loopbackIPv6,
+          0,
+          shared: false,
+          v6Only: true,
+        );
+      } on SocketException {
+        return;
+      }
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      addTearDown(occupied.close);
+
+      final selected = await service.findAvailablePort(occupied.port, {});
+
+      expect(selected, isNot(occupied.port));
+    });
   });
 
   group('ClashServiceBase connectivity verification', () {
@@ -389,7 +410,8 @@ proxies:
     expect(service.connectionDesired, isFalse);
   });
 
-  test('status monitor contains platform stop failures', () async {
+  test('status monitor preserves observed running state when stop fails',
+      () async {
     final service = _FailingHealthClashService();
     addTearDown(service.dispose);
     service.requestConnectionIntent(true);
@@ -399,8 +421,43 @@ proxies:
     await service.stopRequested.future.timeout(const Duration(seconds: 1));
     await Future<void>.delayed(const Duration(milliseconds: 10));
 
+    expect(service.connectionDesired, isTrue);
+    expect(service.isRunning, isTrue);
+    expect(service.stopCalls, 2);
+  });
+
+  test('status monitor preserves connect intent when bounded recovery succeeds',
+      () async {
+    final service = _RecoveringHealthClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    service.startStatusMonitor();
+    await service.recovered.future.timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(service.connectionDesired, isTrue);
+    expect(service.isRunning, isTrue);
+    expect(service.recoveryCalls, 1);
+  });
+
+  test('manual disconnect wins while health recovery is in flight', () async {
+    final service = _CancellableHealthRecoveryClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    service.startStatusMonitor();
+    await service.recoveryStarted.future.timeout(const Duration(seconds: 1));
+    service.requestConnectionIntent(false);
+    service.allowRecovery.complete();
+    await service.recoveryFinished.future.timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
     expect(service.connectionDesired, isFalse);
     expect(service.isRunning, isFalse);
+    expect(service.stopCalls, 2);
   });
 
   test('status monitor keeps advisory data-plane failures connected', () async {
@@ -761,6 +818,7 @@ class _DiagnosticClashService extends _TestClashService {
 
 class _FailingHealthClashService extends ClashServiceBase {
   final Completer<void> stopRequested = Completer<void>();
+  int stopCalls = 0;
 
   @override
   Duration get statusMonitorInterval => const Duration(milliseconds: 1);
@@ -773,8 +831,59 @@ class _FailingHealthClashService extends ClashServiceBase {
 
   @override
   Future<void> onStopRequired() async {
+    stopCalls++;
     if (!stopRequested.isCompleted) stopRequested.complete();
     throw StateError('native stop failed');
+  }
+}
+
+class _RecoveringHealthClashService extends ClashServiceBase {
+  final Completer<void> recovered = Completer<void>();
+  int recoveryCalls = 0;
+
+  @override
+  Duration get statusMonitorInterval => const Duration(milliseconds: 1);
+
+  @override
+  int get maxConsecutiveHealthCheckFailures => 1;
+
+  @override
+  Future<bool> healthCheck() async => recoveryCalls > 0;
+
+  @override
+  Future<void> onStopRequired() async {
+    recoveryCalls++;
+    setRunning(true);
+    if (!recovered.isCompleted) recovered.complete();
+  }
+}
+
+class _CancellableHealthRecoveryClashService extends ClashServiceBase {
+  final Completer<void> recoveryStarted = Completer<void>();
+  final Completer<void> allowRecovery = Completer<void>();
+  final Completer<void> recoveryFinished = Completer<void>();
+  int stopCalls = 0;
+
+  @override
+  Duration get statusMonitorInterval => const Duration(milliseconds: 1);
+
+  @override
+  int get maxConsecutiveHealthCheckFailures => 1;
+
+  @override
+  Future<bool> healthCheck() async => false;
+
+  @override
+  Future<void> onStopRequired() async {
+    stopCalls++;
+    if (stopCalls == 1) {
+      if (!recoveryStarted.isCompleted) recoveryStarted.complete();
+      await allowRecovery.future;
+      setRunning(true);
+      return;
+    }
+    setRunning(false);
+    if (!recoveryFinished.isCompleted) recoveryFinished.complete();
   }
 }
 

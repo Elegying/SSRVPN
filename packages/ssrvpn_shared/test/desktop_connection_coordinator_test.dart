@@ -84,6 +84,49 @@ void main() {
       expect(harness.stopCalls, 0);
     });
 
+    test('retries once with fresh runtime ports after an explicit bind clash',
+        () async {
+      final calls = <String>[];
+      var startCalls = 0;
+      var runtimePort = 32000;
+      String? startError;
+
+      final result = await const DesktopConnectionCoordinator().connect(
+        preferredSettings: AppSettings(proxyPort: runtimePort),
+        prepareForStart: (settings) async {
+          calls.add('prepare');
+          return settings.copyWith(proxyPort: runtimePort++);
+        },
+        generateConfig: (settings) async {
+          calls.add('generate:${settings.proxyPort}');
+          return 'config:${settings.proxyPort}';
+        },
+        writeConfig: (config) async => calls.add('write:$config'),
+        start: () async {
+          calls.add('start');
+          startCalls++;
+          if (startCalls == 1) {
+            startError = 'listen tcp 127.0.0.1:32000: address already in use';
+            return false;
+          }
+          startError = null;
+          return true;
+        },
+        stop: () async => calls.add('stop'),
+        isRevisionCurrent: () => true,
+        isIntentCurrent: () => true,
+        shouldRollbackStaleIntent: () => true,
+        cancelIntent: () => calls.add('cancel-intent'),
+        readStartFailureReason: () => startError,
+      );
+
+      expect(result.connected, isTrue);
+      expect(startCalls, 2);
+      expect(calls.where((call) => call == 'prepare'), hasLength(2));
+      expect(calls, containsAllInOrder(['generate:32000', 'generate:32001']));
+      expect(calls, isNot(contains('cancel-intent')));
+    });
+
     test(
         'keeps the generated preferred node when runtime switch is transiently unavailable',
         () async {
@@ -235,8 +278,7 @@ void main() {
             },
             stop: () async => running = false,
             isRevisionCurrent: () => true,
-            isIntentCurrent: () =>
-                generation == capturedGeneration && desired,
+            isIntentCurrent: () => generation == capturedGeneration && desired,
             shouldRollbackStaleIntent: () => !desired,
             cancelIntent: () {
               generation++;

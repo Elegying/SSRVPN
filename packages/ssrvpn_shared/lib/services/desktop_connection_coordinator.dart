@@ -1,4 +1,5 @@
 import '../models/app_settings.dart';
+import '../utils/runtime_port_conflict_policy.dart';
 
 const desktopSubscriptionChangedMessage = '订阅已更新，请重新连接以使用最新配置';
 
@@ -95,43 +96,52 @@ class DesktopConnectionCoordinator {
     }
 
     try {
-      var rejected = await rejectStaleState();
-      if (rejected != null) return rejected;
+      String? runtimeNotice;
+      for (var attempt = 0; attempt < 2; attempt++) {
+        var rejected = await rejectStaleState();
+        if (rejected != null) return rejected;
 
-      final runtimeSettings = await prepareForStart(preferredSettings);
-      rejected = await rejectStaleState();
-      if (rejected != null) return rejected;
-      final runtimeNotice = readRuntimeNotice?.call();
+        final runtimeSettings = await prepareForStart(preferredSettings);
+        rejected = await rejectStaleState();
+        if (rejected != null) return rejected;
+        runtimeNotice = readRuntimeNotice?.call();
 
-      final config = await generateConfig(runtimeSettings);
-      rejected = await rejectStaleState();
-      if (rejected != null) return rejected;
+        final config = await generateConfig(runtimeSettings);
+        rejected = await rejectStaleState();
+        if (rejected != null) return rejected;
 
-      await writeConfig(config);
-      rejected = await rejectStaleState();
-      if (rejected != null) return rejected;
+        await writeConfig(config);
+        rejected = await rejectStaleState();
+        if (rejected != null) return rejected;
 
-      final started = await start();
-      startedByTransaction = started;
-      rejected = await rejectStaleState();
-      if (rejected != null) return rejected;
-      if (!started) {
-        await rollback();
-        return DesktopConnectionResult.failed(
-          DesktopConnectionFailure.startFailed,
-          reason: readStartFailureReason() ?? '无法启动核心',
+        final started = await start();
+        startedByTransaction = started;
+        rejected = await rejectStaleState();
+        if (rejected != null) return rejected;
+        if (!started) {
+          final reason = readStartFailureReason() ?? '无法启动核心';
+          if (attempt == 0 &&
+              RuntimePortConflictPolicy.isExplicitBindConflict(reason)) {
+            continue;
+          }
+          await rollback();
+          return DesktopConnectionResult.failed(
+            DesktopConnectionFailure.startFailed,
+            reason: reason,
+          );
+        }
+
+        final switchNode = switchPreferredNode;
+        final switchSucceeded = switchNode == null ? null : await switchNode();
+        rejected = await rejectStaleState();
+        if (rejected != null) return rejected;
+
+        return DesktopConnectionResult.connected(
+          runtimeNotice: runtimeNotice,
+          preferredNodeSwitchSucceeded: switchSucceeded,
         );
       }
-
-      final switchNode = switchPreferredNode;
-      final switchSucceeded = switchNode == null ? null : await switchNode();
-      rejected = await rejectStaleState();
-      if (rejected != null) return rejected;
-
-      return DesktopConnectionResult.connected(
-        runtimeNotice: runtimeNotice,
-        preferredNodeSwitchSucceeded: switchSucceeded,
-      );
+      throw StateError('unreachable connection retry state');
     } catch (error, stack) {
       if (!rollbackAttempted) await rollback();
       Error.throwWithStackTrace(error, stack);

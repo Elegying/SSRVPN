@@ -573,12 +573,80 @@ abstract class ClashServiceBase
           );
           if (_consecutiveHealthCheckFailures >=
               maxConsecutiveHealthCheckFailures) {
-            markConnectionLost();
-            log('Mihomo 核心连接丢失');
+            final recoveryGeneration = captureAutomaticRestartIntent();
+            stopStatusMonitor();
+            _notifyStatusChanged();
+            log('Mihomo 控制面持续失联，进入串行恢复');
+            if (recoveryGeneration != null &&
+                isConnectionIntentCurrent(
+                  recoveryGeneration,
+                  connected: true,
+                )) {
+              notifyRuntimeNotice('Mihomo 暂时失去响应，正在自动恢复连接…');
+            }
+            var recovered = false;
             try {
-              await onStopRequired();
+              recovered = await runConnectionTransition(() async {
+                if (recoveryGeneration == null ||
+                    !isConnectionIntentCurrent(
+                      recoveryGeneration,
+                      connected: true,
+                    )) {
+                  await onStopRequired();
+                  return false;
+                }
+                return recoverAfterHealthCheckFailure(recoveryGeneration);
+              });
             } catch (error) {
-              log('Mihomo 丢失后的清理失败: $error');
+              log('Mihomo 失联后的恢复失败: $error');
+            }
+
+            var intentCurrent = recoveryGeneration != null &&
+                isConnectionIntentCurrent(
+                  recoveryGeneration,
+                  connected: true,
+                );
+            if (recovered && intentCurrent && _isRunning) {
+              _consecutiveHealthCheckFailures = 0;
+              log('Mihomo 连接已自动恢复');
+              notifyRuntimeNotice('连接已自动恢复');
+              startStatusMonitor();
+              return;
+            }
+
+            // A disconnect or quit may win while recovery is in flight. If a
+            // late platform restart nevertheless succeeded, stop it before
+            // publishing the final state.
+            if (_isRunning) {
+              try {
+                await runConnectionTransition(onStopRequired);
+              } catch (error) {
+                log('取消过期自动恢复时停止核心失败: $error');
+              }
+            }
+            intentCurrent = recoveryGeneration != null &&
+                isConnectionIntentCurrent(
+                  recoveryGeneration,
+                  connected: true,
+                );
+            if (_isRunning) {
+              log('Mihomo 自动恢复失败，平台仍报告核心或服务正在运行');
+              notifyRuntimeNotice(
+                intentCurrent
+                    ? '自动恢复失败，后台核心仍在运行且清理未完成，请点击断开重试'
+                    : '断开尚未完成，后台核心仍在运行，请再次点击断开',
+              );
+              _notifyStatusChanged();
+              return;
+            }
+            if (intentCurrent) {
+              markConnectionLost();
+              notifyRuntimeNotice(
+                '连接已断开：Mihomo 自动恢复失败，请重新连接',
+              );
+            } else {
+              setRunning(false);
+              _notifyStatusChanged();
             }
           }
         }
@@ -607,6 +675,24 @@ abstract class ClashServiceBase
 
   /// 子类实现：当健康检查连续失败时需要停止核心
   Future<void> onStopRequired();
+
+  /// Gives a platform one bounded, generation-aware opportunity to recover a
+  /// core or service whose control plane stayed unhealthy. The default keeps
+  /// backward compatibility: it performs the required cleanup and reports a
+  /// recovery only if the platform deliberately left itself running.
+  @protected
+  Future<bool> recoverAfterHealthCheckFailure(int connectionGeneration) async {
+    if (await healthCheck()) {
+      setRunning(true);
+      return isConnectionIntentCurrent(
+        connectionGeneration,
+        connected: true,
+      );
+    }
+    await onStopRequired();
+    return _isRunning &&
+        isConnectionIntentCurrent(connectionGeneration, connected: true);
+  }
 
   // ── 日志 ──
 

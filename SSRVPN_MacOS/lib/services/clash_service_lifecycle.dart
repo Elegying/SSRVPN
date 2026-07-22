@@ -131,6 +131,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   bool _startupBlockedByTunDnsRecovery = false;
   bool _runCoreProbesAfterRecovery = true;
   Future<bool>? _proxyRecoveryOperation;
+  final CoreRecoveryPolicy _automaticRecoveryPolicy =
+      CoreRecoveryPolicy(maxAttempts: 1);
   String? _lastUnexpectedExitNotice;
   DateTime? _lastTunDataPathProbeAt;
   bool _lastTunDataPathHealthy = true;
@@ -487,6 +489,36 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   @override
   Future<void> onStopRequired() => stop();
 
+  @override
+  Future<bool> recoverAfterHealthCheckFailure(
+    int connectionGeneration,
+  ) async {
+    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+      await stop();
+      return false;
+    }
+    if (await healthCheck()) {
+      setRunning(true);
+      return true;
+    }
+    if (!_automaticRecoveryPolicy.tryAcquire()) {
+      await stop();
+      return false;
+    }
+
+    notifyRuntimeNotice('Mihomo 持续失去响应，正在执行一次安全重启…');
+    try {
+      await stop();
+    } catch (error) {
+      log('健康检查恢复时停止 Mihomo 失败: $error');
+      return false;
+    }
+    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+      return false;
+    }
+    return _start(automaticRecovery: true);
+  }
+
   void disableStartup(String reason) {
     _startupDisabledReason = reason;
     setLastStartError(reason);
@@ -566,7 +598,10 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     _corePath = path;
   }
 
-  Future<bool> start() {
+  Future<bool> start() => _start();
+
+  Future<bool> _start({bool automaticRecovery = false}) {
+    if (!automaticRecovery) _automaticRecoveryPolicy.reset();
     final current = _startOperation;
     if (current != null) return current;
 
@@ -1213,9 +1248,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       _clashProcess = null;
       if (_stoppingCore) return;
       if (isRunning) {
-        markConnectionLost();
+        final recoveryGeneration = captureAutomaticRestartIntent();
+        setRunning(false);
+        notifyStatusChanged();
         stopStatusMonitor();
-        _scheduleUnexpectedExitCleanup(exitCode);
+        _scheduleUnexpectedExitCleanup(exitCode, recoveryGeneration);
       }
       return;
     }
@@ -1243,17 +1280,27 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     }
   }
 
-  void _scheduleUnexpectedExitCleanup(int exitCode) {
-    final operation = _clearProxyAfterUnexpectedExit(exitCode);
-    _exitCleanupOperation = operation;
-    operation.whenComplete(() {
-      if (identical(_exitCleanupOperation, operation)) {
+  void _scheduleUnexpectedExitCleanup(
+    int exitCode,
+    int? recoveryGeneration,
+  ) {
+    final cleanup = _clearProxyAfterUnexpectedExit();
+    final cleanupBarrier = cleanup.then<void>((_) {});
+    _exitCleanupOperation = cleanupBarrier;
+    unawaited(() async {
+      final proxyRecovered = await cleanup;
+      if (identical(_exitCleanupOperation, cleanupBarrier)) {
         _exitCleanupOperation = null;
       }
-    });
+      await _recoverAfterUnexpectedExit(
+        exitCode,
+        recoveryGeneration,
+        proxyRecovered,
+      );
+    }());
   }
 
-  Future<void> _clearProxyAfterUnexpectedExit(int exitCode) async {
+  Future<bool> _clearProxyAfterUnexpectedExit() async {
     var proxyRecovered = false;
     try {
       proxyRecovered = await _proxyService.clearSystemProxy();
@@ -1262,16 +1309,47 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       }
     } catch (error) {
       log('核心异常退出后清理系统代理失败: $error');
-    } finally {
+    }
+    return proxyRecovered;
+  }
+
+  Future<void> _recoverAfterUnexpectedExit(
+    int exitCode,
+    int? recoveryGeneration,
+    bool proxyRecovered,
+  ) async {
+    var automaticallyRecovered = false;
+    if (proxyRecovered &&
+        recoveryGeneration != null &&
+        isConnectionIntentCurrent(recoveryGeneration, connected: true) &&
+        _automaticRecoveryPolicy.tryAcquire()) {
+      notifyRuntimeNotice('Mihomo 异常退出（退出码 $exitCode），正在自动恢复…');
+      automaticallyRecovered = await runConnectionTransition(() async {
+        if (!isConnectionIntentCurrent(
+          recoveryGeneration,
+          connected: true,
+        )) {
+          return false;
+        }
+        return _start(automaticRecovery: true);
+      });
+    }
+
+    final intentCurrent = recoveryGeneration != null &&
+        isConnectionIntentCurrent(recoveryGeneration, connected: true);
+    if (automaticallyRecovered && intentCurrent && isRunning) {
+      _lastUnexpectedExitNotice = 'Mihomo 异常退出（退出码 $exitCode），连接已自动恢复。';
+    } else {
+      if (intentCurrent) markConnectionLost();
       _lastUnexpectedExitNotice = buildMacosUnexpectedExitNotice(
         exitCode: exitCode,
         proxyRecovered: proxyRecovered,
       );
-      try {
-        onProcessExit?.call();
-      } catch (error) {
-        log('核心退出回调失败: $error');
-      }
+    }
+    try {
+      onProcessExit?.call();
+    } catch (error) {
+      log('核心退出回调失败: $error');
     }
   }
 
