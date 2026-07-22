@@ -622,6 +622,15 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             registry_remove,
         )
 
+        reg_invoke = helper.split("function Invoke-RegExe", 1)[1].split(
+            "function Test-UninstallRegistryKeyExists", 1
+        )[0]
+        self.assertIn("$ErrorActionPreference = 'Continue'", reg_invoke)
+        self.assertIn(
+            "$ErrorActionPreference = $previousErrorActionPreference",
+            reg_invoke,
+        )
+
         expected_manifest = helper.split(
             "function Read-ExpectedPayloadManifest", 1
         )[1].split("function Test-InstalledPayload", 1)[0]
