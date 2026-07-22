@@ -142,9 +142,9 @@ be described as device evidence.
 
 ## Architecture Decisions
 
-- Preserve connection intent separately from observed core health. A bounded,
-  cancellable recovery may continue only while the same user connect intent is
-  current; disconnect and quit always win.
+- Preserve connection intent separately from observed core health. At most two
+  bounded, cancellable recoveries may continue only while the same user connect
+  intent is current; disconnect and quit always win.
 - Treat ports, core/service identity, active config, and system proxy/TUN state
   as one lifecycle transaction. Never terminate or overwrite an unowned
   process merely because it occupies a preferred port.

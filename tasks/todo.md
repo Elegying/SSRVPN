@@ -76,8 +76,8 @@
 
 - [x] Retire a macOS TUN DNS journal when its captured network service is
       conclusively gone, then release the core, lock, runtime files, and ports
-- [x] Preserve user connection intent through one bounded control-plane/core
-      recovery; cancel immediately on disconnect or quit
+- [x] Preserve user connection intent through two bounded control-plane/core
+      recoveries; cancel immediately on disconnect or quit
 - [x] Connect Android to runtime port preparation and cover a pre-start port
       collision without taking ownership of another process
 - [x] Upgrade Windows stale-core identity from PID-only to generation-aware and
@@ -113,3 +113,12 @@
 - [x] Run analyzers, format checks, shell/native/static guards, and `make verify`
 - [x] Complete fresh-context adversarial diff review and repair findings
 - [x] Produce the detailed Chinese code-audit and repair report
+
+## 2026-07-22 Nine-item follow-up verification
+
+- [x] Allow two bounded recovery attempts across Android, macOS, and Windows
+- [x] Gate macOS DMG opening on a successful safe disconnect and require quit
+      before replacing the running app
+- [x] Confirm desktop runtime notices, long-node overflow, missing SHA failure,
+      Windows update startup, subscription name merge, and force-rule ordering
+- [x] Rerun repository-wide `make verify` and record the final evidence
