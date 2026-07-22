@@ -527,6 +527,97 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             ),
         )
 
+    def test_program_file_transaction_bounds_untrusted_recovery_inputs(
+        self,
+    ) -> None:
+        helper = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "installer"
+            / "program_files_transaction.ps1"
+        ).read_text(encoding="utf-8")
+
+        # Keep every resource ceiling together so packaging and recovery reviews
+        # cannot silently harden one path while leaving another unbounded.
+        for declaration in (
+            "$maxMetadataDocumentBytes = 8MB",
+            "$maxProgramRelativePathChars = 1024",
+            "$maxProgramRelativePathDepth = 64",
+            "$maxProgramDirectoryCount = 50000",
+            "$maxProgramFileCount = 50000",
+            "$maxProgramFileBytes = 2GB",
+            "$maxProgramTotalBytes = 8GB",
+        ):
+            self.assertIn(declaration, helper)
+
+        self.assertIn("function Read-BoundedJsonDocument", helper)
+        self.assertIn("function Assert-ExactObjectSchema", helper)
+        self.assertIn("function Assert-BoundedProgramRelativePath", helper)
+        self.assertIn("function Get-BoundedFileMetadata", helper)
+
+        state_reader = helper.split("function Read-TransactionState", 1)[1].split(
+            "function Read-Manifest", 1
+        )[0]
+        self.assertIn("Read-BoundedJsonDocument", state_reader)
+        self.assertIn("Assert-ExactObjectSchema", state_reader)
+        self.assertIn("$state.schemaVersion -isnot [int]", state_reader)
+        self.assertIn("$state.phase -isnot [string]", state_reader)
+
+        manifest_reader = helper.split("function Read-Manifest", 1)[1].split(
+            "function Read-ExpectedPayloadManifest", 1
+        )[0]
+        self.assertIn("Read-BoundedJsonDocument", manifest_reader)
+        self.assertGreaterEqual(manifest_reader.count("Assert-ExactObjectSchema"), 2)
+        self.assertIn("$files.Count -gt $script:maxProgramFileCount", manifest_reader)
+        self.assertIn("$entry.length -isnot [long]", manifest_reader)
+        self.assertIn("Assert-BoundedProgramRelativePath", manifest_reader)
+        self.assertIn("$script:maxProgramTotalBytes", manifest_reader)
+
+        inventory = helper.split("function Add-InventoryEntry", 1)[1].split(
+            "function Get-ProgramInventory", 1
+        )[0]
+        self.assertIn("Assert-BoundedProgramRelativePath", inventory)
+        self.assertIn("$Limits.directoryCount", inventory)
+        self.assertIn("$script:maxProgramDirectoryCount", inventory)
+        self.assertIn("$Limits.fileCount", inventory)
+        self.assertIn("$script:maxProgramFileCount", inventory)
+        self.assertIn("$script:maxProgramTotalBytes", inventory)
+        self.assertIn("Get-BoundedFileMetadata", inventory)
+
+        begin = helper.split("function Begin-ProgramFilesTransaction", 1)[1].split(
+            "function Recover-ProgramFilesTransaction", 1
+        )[0]
+        self.assertLess(
+            begin.index("Get-ProgramInventory"),
+            begin.index("Copy-SafeContents"),
+        )
+
+        destructive_clear = helper.split(
+            "function Remove-CurrentProgramFiles", 1
+        )[1].split("function Clear-StaleStagingDirectories", 1)[0]
+        self.assertIn("Get-ProgramInventory", destructive_clear)
+        self.assertIn("-ExcludePreservedData", destructive_clear)
+
+        json_writer = helper.split("function ConvertTo-BoundedJsonText", 1)[1].split(
+            "function Invoke-RegExe", 1
+        )[0]
+        self.assertIn("$script:maxMetadataDocumentBytes", json_writer)
+        self.assertIn("GetByteCount", json_writer)
+
+        expected_manifest = helper.split(
+            "function Read-ExpectedPayloadManifest", 1
+        )[1].split("function Test-InstalledPayload", 1)[0]
+        self.assertIn("$script:maxMetadataDocumentBytes", expected_manifest)
+        self.assertIn("$script:maxProgramFileCount", expected_manifest)
+        self.assertIn("Assert-BoundedProgramRelativePath", expected_manifest)
+
+        runtime = (
+            ROOT / "scripts" / "test_windows_program_files_transaction.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("oversized source was copied into recovery", runtime)
+        self.assertIn("oversized recovery state changed the installed program", runtime)
+        self.assertIn("invalid manifest schema changed the installed program", runtime)
+
     def test_windows_jobs_run_program_file_transaction_fault_injection(self) -> None:
         runtime_test = (
             ROOT / "scripts" / "test_windows_program_files_transaction.ps1"
@@ -1686,9 +1777,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
 
         self.assertIn("mihomo.pid", lifecycle)
         self.assertIn("_captureCorePidRecord(", lifecycle)
-        identity_start = lifecycle.index(
-            "WindowsCoreIdentityEstablishment(startedProcess)"
-        )
+        identity_start = lifecycle.index("WindowsCoreIdentityEstablishment(")
+        self.assertIn("startedProcess,", lifecycle[identity_start:])
+        self.assertIn("spawnStartedAtUtcFileTime", lifecycle[identity_start:])
+        self.assertIn("spawnReturnedAtUtcFileTime", lifecycle[identity_start:])
         establish = lifecycle.index(
             "await identityEstablishment.establish(", identity_start
         )
