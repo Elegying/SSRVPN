@@ -683,6 +683,114 @@ void main() {
       );
     });
 
+    test('native unexpected exit restarts once while connect intent is current',
+        () async {
+      const channel = MethodChannel('ssrvpn/core_process');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_native_status_recovery_',
+      );
+      final secondLaunch = Completer<void>();
+      var launchCalls = 0;
+      var firstStatusCalls = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'launchOwnedCore':
+            launchCalls++;
+            if (launchCalls == 2 && !secondLaunch.isCompleted) {
+              secondLaunch.complete();
+            }
+            final pid = launchCalls == 1 ? 4242 : 4343;
+            return {
+              'pid': pid,
+              'pidRecordContents': 'v2 $pid ${100 + launchCalls} 123456\n',
+            };
+          case 'ownedCoreStatus':
+            final expected = (call.arguments
+                as Map<Object?, Object?>)['expectedContents'] as String;
+            if (expected.contains(' 4242 ')) {
+              firstStatusCalls++;
+              if (firstStatusCalls > 2) {
+                return {
+                  'isRunning': false,
+                  'exitCode': 17,
+                  'standardOutput': '',
+                  'standardError': 'native failed\n',
+                };
+              }
+            }
+            return {
+              'isRunning': true,
+              'standardOutput': '',
+              'standardError': '',
+            };
+          case 'removeOwnedCorePidRecord':
+          case 'terminateOwnedCoreRecord':
+            return true;
+          case 'beginProxyLifecycleTransaction':
+            return 'test-proxy-lease';
+          case 'endProxyLifecycleTransaction':
+            return true;
+        }
+        return null;
+      });
+      var proxyOwned = false;
+      final proxyService = SystemProxyService(
+        beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
+        endProxyLifecycleTransaction: (_) async => true,
+        networkSetupRunner: (arguments) async {
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, 'Wi-Fi\n', '');
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(
+              1,
+              0,
+              proxyOwned
+                  ? 'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n'
+                  : 'Enabled: No\nServer: \nPort: 0\n',
+              '',
+            );
+          }
+          if (arguments.first.endsWith('state')) {
+            proxyOwned = arguments.last == 'on';
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+      final service = _AlwaysHealthyClashService(proxyService: proxyService);
+      addTearDown(() async {
+        service.requestConnectionIntent(false);
+        try {
+          await service.stop();
+        } catch (_) {}
+        service.dispose();
+        messenger.setMockMethodCallHandler(channel, null);
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      await service.init(
+        AppSettings(),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      await service.writeConfig(
+        service.generateClashConfig(_subscriptionYaml, AppSettings()),
+      );
+      final generation = service.requestConnectionIntent(true);
+
+      expect(await service.start(), isTrue);
+      await secondLaunch.future.timeout(const Duration(seconds: 3));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(launchCalls, 2);
+      expect(service.isRunning, isTrue);
+      expect(
+        service.isConnectionIntentCurrent(generation, connected: true),
+        isTrue,
+      );
+    });
+
     test('stop cancels and drains native status watch before termination',
         () async {
       const channel = MethodChannel('ssrvpn/core_process');

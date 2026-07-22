@@ -25,6 +25,8 @@ class ClashService extends ClashServiceBase {
   String _nativeLibDir = '';
   Future<bool>? _startOperation;
   Future<void>? _stopOperation;
+  final CoreRecoveryPolicy _healthRecoveryPolicy =
+      CoreRecoveryPolicy(maxAttempts: 1);
   Future<void> _nativeSnapshotOperationTail = Future<void>.value();
   int _nativeSnapshotOperationCount = 0;
   String? _nativeSnapshotConfigPath;
@@ -68,6 +70,45 @@ class ClashService extends ClashServiceBase {
 
   @override
   Future<void> onStopRequired() => stop();
+
+  @override
+  Future<bool> recoverAfterHealthCheckFailure(
+    int connectionGeneration,
+  ) async {
+    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+      await stop();
+      return false;
+    }
+    if (await healthCheck()) {
+      setRunning(true);
+      return true;
+    }
+    if (!_healthRecoveryPolicy.tryAcquire()) {
+      await stop();
+      return false;
+    }
+
+    final activeConfigPath =
+        _runningConfigPath ?? _nativeSnapshotConfigPath ?? configPath;
+    notifyRuntimeNotice('Mihomo 持续失去响应，正在执行一次安全重启…');
+    try {
+      await stop();
+    } catch (error) {
+      log('健康检查恢复时停止 Mihomo 失败: $error');
+      return false;
+    }
+    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+      return false;
+    }
+    if (activeConfigPath.isEmpty || !File(activeConfigPath).existsSync()) {
+      setLastStartError('自动恢复所需的运行配置已不存在');
+      return false;
+    }
+    return _start(
+      preparedConfigPath: activeConfigPath,
+      automaticRecovery: true,
+    );
+  }
 
   // ── 平台调试日志 ──
 
@@ -298,7 +339,17 @@ class ClashService extends ClashServiceBase {
 
   // ── 进程控制 ──
 
-  Future<bool> start({String? nodeName, String? preparedConfigPath}) {
+  Future<bool> start({String? nodeName, String? preparedConfigPath}) => _start(
+        nodeName: nodeName,
+        preparedConfigPath: preparedConfigPath,
+      );
+
+  Future<bool> _start({
+    String? nodeName,
+    String? preparedConfigPath,
+    bool automaticRecovery = false,
+  }) {
+    if (!automaticRecovery) _healthRecoveryPolicy.reset();
     final current = _startOperation;
     if (current != null) return current;
 

@@ -92,16 +92,40 @@ mixin _ClashRuntimeSupport {
   }
 
   Future<bool> _canBindPort(int port) async {
+    ServerSocket? ipv4;
+    ServerSocket? ipv6;
     try {
-      final socket = await ServerSocket.bind(
+      ipv4 = await ServerSocket.bind(
         InternetAddress.loopbackIPv4,
         port,
         shared: false,
       );
-      await socket.close();
+      try {
+        ipv6 = await ServerSocket.bind(
+          InternetAddress.loopbackIPv6,
+          port,
+          shared: false,
+          v6Only: true,
+        );
+      } on SocketException catch (error) {
+        if (!_isIpv6Unavailable(error)) return false;
+      }
       return true;
-    } catch (_) {
+    } on SocketException {
       return false;
+    } finally {
+      await ipv6?.close();
+      await ipv4?.close();
     }
+  }
+
+  bool _isIpv6Unavailable(SocketException error) {
+    final code = error.osError?.errorCode;
+    return code == 47 ||
+        code == 49 ||
+        code == 97 ||
+        code == 99 ||
+        code == 10047 ||
+        code == 10049;
   }
 }

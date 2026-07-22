@@ -1,3 +1,5 @@
+import 'package:ssrvpn_shared/utils/runtime_port_conflict_policy.dart';
+
 import '../services/clash_service.dart';
 import '../services/settings_service.dart';
 import '../services/subscription_service.dart';
@@ -54,46 +56,56 @@ class ConnectionOrchestrator {
       return '请先添加并刷新订阅';
     }
     final subscriptionRevision = subscriptionService.revision;
-
-    final settings = settingsService.settings;
-    clashService.updateSettings(settings);
-
-    // 生成配置
-    final config = await clashService.generateClashConfigAsync(
-      rawYaml,
-      settings,
-      preferredNodeName: nodeName,
-    );
-    if (!_isCurrent(connectionGeneration)) return null;
-    if (!_isSubscriptionCurrent(subscriptionRevision)) {
-      return '订阅已更新，请重新连接';
-    }
+    final preferredSettings = settingsService.settings;
 
     String? preparedConfigPath;
+    String? runtimePortNotice;
     try {
-      // 写入配置
-      preparedConfigPath = await clashService.writeConfig(config);
-      if (!_isCurrent(connectionGeneration)) return null;
-      if (!_isSubscriptionCurrent(subscriptionRevision)) {
-        return '订阅已更新，请重新连接';
-      }
+      var started = false;
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final settings = await clashService.prepareForStart(preferredSettings);
+        if (!_isCurrent(connectionGeneration)) return null;
+        if (!_isSubscriptionCurrent(subscriptionRevision)) {
+          return '订阅已更新，请重新连接';
+        }
+        runtimePortNotice = clashService.lastRuntimePortAdjustmentMessage;
 
-      // 启动核心
-      final success = await clashService.start(
-        nodeName: nodeName,
-        preparedConfigPath: preparedConfigPath,
-      );
+        final config = await clashService.generateClashConfigAsync(
+          rawYaml,
+          settings,
+          preferredNodeName: nodeName,
+        );
+        if (!_isCurrent(connectionGeneration)) return null;
+        if (!_isSubscriptionCurrent(subscriptionRevision)) {
+          return '订阅已更新，请重新连接';
+        }
 
-      if (!_isCurrent(connectionGeneration)) {
-        return null;
-      }
-      final staleAfterStart =
-          await _handleStaleSubscription(subscriptionRevision);
-      if (staleAfterStart != null) return staleAfterStart;
+        preparedConfigPath = await clashService.writeConfig(config);
+        if (!_isCurrent(connectionGeneration)) return null;
+        if (!_isSubscriptionCurrent(subscriptionRevision)) {
+          return '订阅已更新，请重新连接';
+        }
 
-      if (!success) {
-        return '连接失败: ${clashService.lastStartError ?? "无法启动VPN核心"}';
+        started = await clashService.start(
+          nodeName: nodeName,
+          preparedConfigPath: preparedConfigPath,
+        );
+        if (!_isCurrent(connectionGeneration)) return null;
+        final staleAfterStart =
+            await _handleStaleSubscription(subscriptionRevision);
+        if (staleAfterStart != null) return staleAfterStart;
+        if (started) break;
+
+        final reason = clashService.lastStartError ?? '无法启动VPN核心';
+        if (attempt == 0 &&
+            RuntimePortConflictPolicy.isExplicitBindConflict(reason)) {
+          await clashService.discardPreparedConfig(preparedConfigPath);
+          preparedConfigPath = null;
+          continue;
+        }
+        return '连接失败: $reason';
       }
+      if (!started) return '连接失败: 无法启动VPN核心';
 
       // 切换选中节点
       String? snapshotWarning;
@@ -127,7 +139,9 @@ class ConnectionOrchestrator {
       final staleAfterVerification =
           await _handleStaleSubscription(subscriptionRevision);
       if (staleAfterVerification != null) return staleAfterVerification;
-      return connectivityWarning ?? snapshotWarning; // null = 完全成功
+      return connectivityWarning ??
+          snapshotWarning ??
+          runtimePortNotice; // null = 完全成功
     } finally {
       if (preparedConfigPath != null) {
         await clashService.discardPreparedConfig(preparedConfigPath);

@@ -49,6 +49,7 @@ export 'utils/bounded_yaml.dart';
 export 'utils/connection_intent_tracker.dart';
 export 'utils/connection_transition_queue.dart';
 export 'utils/core_recovery_policy.dart';
+export 'utils/runtime_port_conflict_policy.dart';
 export 'utils/recovering_serial_queue.dart';
 export 'utils/desktop_window_state_store.dart';
 export 'utils/desktop_startup_file_logger.dart';
