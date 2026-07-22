@@ -197,7 +197,8 @@ void main() {
     );
   });
 
-  test('residual probe requires captured adapter and routes to disappear', () {
+  test('residual probe ignores a captured adapter shell without networking',
+      () {
     WindowsTunResidualProbeResult evaluate(
       List<WindowsTunResidualInterfaceSnapshot> interfaces,
       Set<int> routeInterfaceIndexes,
@@ -220,7 +221,9 @@ void main() {
         ],
         const {},
       ).status,
-      WindowsTunResidualStatus.present,
+      WindowsTunResidualStatus.gone,
+      reason: 'a hidden or phantom adapter without addresses or routes cannot '
+          'black-hole traffic and must not block a new Mihomo instance',
     );
     expect(
       evaluate(const [], const {7}).status,

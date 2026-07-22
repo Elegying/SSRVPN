@@ -456,7 +456,9 @@ $routes = @($allRoutes | Where-Object {
   $candidateIndexes -contains [int]$_.InterfaceIndex
 })
 
-if (($ownedInterfaces.Count + $addresses.Count + $routes.Count) -eq 0) {
+# A hidden/phantom adapter shell without addresses or routes cannot black-hole
+# traffic and must not prevent Mihomo from creating or reopening its adapter.
+if (($addresses.Count + $routes.Count) -eq 0) {
   'GONE'
   exit 0
 }
@@ -629,7 +631,9 @@ WindowsTunResidualProbeResult evaluateWindowsTunResidual({
         interfaceGuid: interface.interfaceGuid.toLowerCase(),
       );
       candidateInterfaces.add(identity);
-      residualInterfaces.add(identity);
+      if (interface.addresses.isNotEmpty) {
+        residualInterfaces.add(identity);
+      }
     } else if (baselineInterfaces.isNotEmpty &&
         !baselineGuids.contains(interface.interfaceGuid.toLowerCase()) &&
         interface.addresses.any(
