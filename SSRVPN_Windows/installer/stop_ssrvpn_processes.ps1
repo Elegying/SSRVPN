@@ -203,10 +203,16 @@ function Get-ProcessesByName {
             -Expected ([string]$candidate.ExecutablePath))) {
         throw "Process identity changed while verifying PID $processId."
       }
+      $liveCreationTimeUtcFileTime =
+        [uint64]($live.StartTime.ToUniversalTime().ToFileTimeUtc())
+      if ($liveCreationTimeUtcFileTime -le 0) {
+        throw "Process creation time is invalid for PID $processId."
+      }
       [pscustomobject]@{
         ProcessId = $processId
         ExecutablePath = [System.IO.Path]::GetFullPath($livePath)
         SessionId = [int]$live.SessionId
+        CreationTimeUtcFileTime = $liveCreationTimeUtcFileTime
       }
     }
   )
@@ -244,6 +250,12 @@ public static class SsrvpnVerifiedProcessTerminator {
   private const uint WaitObject0 = 0;
   private const uint WaitTimeout = 258;
 
+  [StructLayout(LayoutKind.Sequential)]
+  private struct FileTimeParts {
+    public uint LowDateTime;
+    public uint HighDateTime;
+  }
+
   [DllImport("kernel32.dll", SetLastError = true)]
   private static extern IntPtr OpenProcess(
       uint desiredAccess, bool inheritHandle, uint processId);
@@ -257,6 +269,14 @@ public static class SsrvpnVerifiedProcessTerminator {
   [return: MarshalAs(UnmanagedType.Bool)]
   private static extern bool QueryFullProcessImageNameW(
       IntPtr process, uint flags, StringBuilder imageName, ref uint size);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool GetProcessTimes(
+      IntPtr process,
+      out FileTimeParts creationTime,
+      out FileTimeParts exitTime,
+      out FileTimeParts kernelTime,
+      out FileTimeParts userTime);
   [DllImport("kernel32.dll", SetLastError = true)]
   [return: MarshalAs(UnmanagedType.Bool)]
   private static extern bool GetExitCodeProcess(
@@ -273,7 +293,10 @@ public static class SsrvpnVerifiedProcessTerminator {
 
   // 0 = terminated, 1 = already gone, 2 = identity mismatch.
   public static int Terminate(
-      uint expectedProcessId, string expectedPath, uint expectedSessionId) {
+      uint expectedProcessId,
+      string expectedPath,
+      uint expectedSessionId,
+      ulong expectedCreationTimeUtcFileTime) {
     IntPtr process = OpenProcess(
         ProcessQueryLimitedInformation | ProcessTerminate | Synchronize,
         false,
@@ -285,7 +308,10 @@ public static class SsrvpnVerifiedProcessTerminator {
     }
     try {
       uint exitCode;
-      if (GetExitCodeProcess(process, out exitCode) && exitCode != StillActive) {
+      if (!GetExitCodeProcess(process, out exitCode)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      if (exitCode != StillActive) {
         return 1;
       }
       uint liveProcessId = GetProcessId(process);
@@ -302,11 +328,26 @@ public static class SsrvpnVerifiedProcessTerminator {
           process, 0, imageName, ref imageNameSize)) {
         throw new Win32Exception(Marshal.GetLastWin32Error());
       }
+      FileTimeParts creationTime;
+      FileTimeParts exitTime;
+      FileTimeParts kernelTime;
+      FileTimeParts userTime;
+      if (!GetProcessTimes(
+          process,
+          out creationTime,
+          out exitTime,
+          out kernelTime,
+          out userTime)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+      }
+      ulong liveCreationTimeUtcFileTime =
+          ((ulong)creationTime.HighDateTime << 32) | creationTime.LowDateTime;
       if (liveProcessId != expectedProcessId ||
           liveSessionId != expectedSessionId ||
           !Path.GetFullPath(imageName.ToString()).Equals(
               Path.GetFullPath(expectedPath),
-              StringComparison.OrdinalIgnoreCase)) {
+              StringComparison.OrdinalIgnoreCase) ||
+          liveCreationTimeUtcFileTime != expectedCreationTimeUtcFileTime) {
         return 2;
       }
       if (!TerminateProcess(process, 1)) {
@@ -328,13 +369,15 @@ public static class SsrvpnVerifiedProcessTerminator {
 function Stop-VerifiedProcess {
   param(
     [Parameter(Mandatory = $true)][int]$ProcessId,
-    [Parameter(Mandatory = $true)][string]$ExpectedPath
+    [Parameter(Mandatory = $true)][string]$ExpectedPath,
+    [Parameter(Mandatory = $true)][uint64]$ExpectedCreationTimeUtcFileTime
   )
 
   $result = [SsrvpnVerifiedProcessTerminator]::Terminate(
     [uint32]$ProcessId,
     $ExpectedPath,
-    [uint32]$currentSessionId
+    [uint32]$currentSessionId,
+    $ExpectedCreationTimeUtcFileTime
   )
   if ($result -eq 0 -or $result -eq 1) { return }
   throw "Process identity changed before terminating PID $ProcessId."
@@ -1134,7 +1177,9 @@ $proxyBackup = Get-ProxyRecoveryState
 foreach ($app in $installedApps) {
   try {
     Stop-VerifiedProcess -ProcessId ([int]$app.ProcessId) `
-      -ExpectedPath $InstalledAppPath
+      -ExpectedPath $InstalledAppPath `
+      -ExpectedCreationTimeUtcFileTime `
+        ([uint64]$app.CreationTimeUtcFileTime)
   } catch {
     Write-Warning "Could not stop SSRVPN app PID $($app.ProcessId)."
   }
@@ -1188,7 +1233,9 @@ if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup `
 foreach ($launcher in $installedLaunchers) {
   try {
     Stop-VerifiedProcess -ProcessId ([int]$launcher.ProcessId) `
-      -ExpectedPath $InstalledLauncherPath
+      -ExpectedPath $InstalledLauncherPath `
+      -ExpectedCreationTimeUtcFileTime `
+        ([uint64]$launcher.CreationTimeUtcFileTime)
   } catch {
     Write-Warning "Could not stop SSRVPN launcher PID $($launcher.ProcessId)."
   }
@@ -1209,7 +1256,9 @@ $installedCores = @(
 foreach ($core in $installedCores) {
   try {
     Stop-VerifiedProcess -ProcessId ([int]$core.ProcessId) `
-      -ExpectedPath $InstalledCorePath
+      -ExpectedPath $InstalledCorePath `
+      -ExpectedCreationTimeUtcFileTime `
+        ([uint64]$core.CreationTimeUtcFileTime)
   } catch {
     Write-Warning "Could not stop installed mihomo PID $($core.ProcessId)."
   }

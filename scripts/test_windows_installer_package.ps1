@@ -26,6 +26,15 @@ $installDir = Join-Path $env:LOCALAPPDATA 'Programs\SSRVPN'
 $uninstallRegistryPath =
   'Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
   '{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1'
+$uninstallRegistrySubkey =
+  'Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
+  '{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1'
+$desktopShortcutPath = Join-Path (
+  [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
+) 'SSRVPN.lnk'
+$startMenuShortcutPath = Join-Path (
+  [Environment]::GetFolderPath([Environment+SpecialFolder]::Programs)
+) 'SSRVPN.lnk'
 if (Test-Path -LiteralPath $installDir) {
   throw "Refusing to overwrite a pre-existing smoke-test install: $installDir"
 }
@@ -41,6 +50,10 @@ $installLog = Join-Path $logDir 'install.log'
 $upgradeLog = Join-Path $logDir 'upgrade.log'
 $uninstallLog = Join-Path $logDir 'uninstall.log'
 $uninstaller = Join-Path $installDir 'unins000.exe'
+$programTransactionHelper = Join-Path $installDir `
+  'installer\program_files_transaction.ps1'
+$programRecoveryRoot = Join-Path $env:LOCALAPPDATA `
+  'SSRVPN\installer-recovery'
 $uninstallFailure = $null
 $installedAppProcessId = $null
 $upgradeAppProcess = $null
@@ -116,6 +129,37 @@ function Invoke-SmokeProcess {
     return [int]$process.ExitCode
   } finally {
     $process.Dispose()
+  }
+}
+
+function New-PendingProgramFileTransaction {
+  if (-not (Test-Path -LiteralPath $programTransactionHelper -PathType Leaf)) {
+    throw "Installed program transaction helper is missing: $programTransactionHelper"
+  }
+  if (Test-Path -LiteralPath $programRecoveryRoot) {
+    throw "Unexpected pre-existing program recovery root: $programRecoveryRoot"
+  }
+  $statusPath = Join-Path $logDir 'program-transaction-begin.status'
+  & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+    -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+    -File $programTransactionHelper `
+    -Action Begin `
+    -InstallDir $installDir `
+    -RecoveryRoot $programRecoveryRoot `
+    -StatusPath $statusPath `
+    -UninstallRegistrySubkey $uninstallRegistrySubkey `
+    -DesktopShortcutPath $desktopShortcutPath `
+    -StartMenuShortcutPath $startMenuShortcutPath
+  if ($LASTEXITCODE -ne 0) {
+    $status = if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+      [System.IO.File]::ReadAllText($statusPath)
+    } else {
+      'missing status'
+    }
+    throw "Could not create pending program transaction: $status"
+  }
+  if (-not (Test-Path -LiteralPath $programRecoveryRoot -PathType Container)) {
+    throw 'Program transaction helper did not publish its durable recovery root.'
   }
 }
 
@@ -198,6 +242,7 @@ try {
   $runningInstalledApp = Start-InstalledApp
   $installedAppProcessId = [int]$runningInstalledApp.Id
   $runningInstalledApp.Dispose()
+  New-PendingProgramFileTransaction
 } finally {
   if ($null -ne $upgradeAppProcess) {
     $upgradeAppProcess.Dispose()
@@ -220,6 +265,9 @@ try {
           "SSRVPN uninstaller exited with code $uninstallExitCode. " +
           "Log: $uninstallLog"
       } else {
+        if (Test-Path -LiteralPath $programRecoveryRoot) {
+          throw 'SSRVPN uninstall left old program recovery binaries behind.'
+        }
         foreach ($sentinel in $preservedSentinels) {
           if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) {
             throw "SSRVPN uninstall deleted preserved data: $sentinel"

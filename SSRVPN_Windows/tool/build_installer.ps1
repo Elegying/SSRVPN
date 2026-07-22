@@ -41,6 +41,88 @@ if (-not (Test-Path -LiteralPath $OutputDir -PathType Container)) {
   New-Item -ItemType Directory -Path $OutputDir | Out-Null
 }
 
+function New-TrustedPayloadManifest {
+  param(
+    [Parameter(Mandatory = $true)][string]$PayloadRoot,
+    [Parameter(Mandatory = $true)][string]$ManifestPath
+  )
+
+  $payloadPrefix = [System.IO.Path]::GetFullPath($PayloadRoot).TrimEnd('\') + '\'
+  $entries = New-Object System.Collections.ArrayList
+  $targetPaths = @{}
+
+  function Add-TrustedPayloadFile {
+    param(
+      [Parameter(Mandatory = $true)][string]$SourcePath,
+      [Parameter(Mandatory = $true)][string]$RelativePath
+    )
+
+    if ($RelativePath -match '[\r\n]' -or
+        [System.IO.Path]::IsPathRooted($RelativePath) -or
+        $RelativePath.StartsWith('..\')) {
+      throw "Unsafe installer payload path: $RelativePath"
+    }
+    if ($RelativePath -imatch '^bin\\ssrvpn(?:\\|$)') {
+      throw "Installer payload must not contain user-owned data: $RelativePath"
+    }
+    if ($RelativePath -imatch '^unins\d+\.(?:exe|dat|msg)$') {
+      throw "Installer payload collides with Inno metadata: $RelativePath"
+    }
+    $pathKey = $RelativePath.ToLowerInvariant()
+    if ($targetPaths.ContainsKey($pathKey)) {
+      throw "Duplicate installer payload path: $RelativePath"
+    }
+    if (-not (Test-Path -LiteralPath $SourcePath -PathType Leaf)) {
+      throw "Installer payload file is missing: $SourcePath"
+    }
+    $targetPaths[$pathKey] = $true
+    $hash = (Get-FileHash -LiteralPath $SourcePath -Algorithm SHA256).Hash
+    [void]$entries.Add([pscustomobject]@{
+        Path = $RelativePath
+        Hash = $hash.ToLowerInvariant()
+      })
+  }
+
+  foreach ($file in @(
+      Get-ChildItem -LiteralPath $PayloadRoot -Recurse -File -Force |
+        Sort-Object FullName
+    )) {
+    $fullPath = [System.IO.Path]::GetFullPath($file.FullName)
+    if (-not $fullPath.StartsWith(
+        $payloadPrefix,
+        [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw "Installer payload escaped its source root: $fullPath"
+    }
+    Add-TrustedPayloadFile -SourcePath $fullPath `
+      -RelativePath $fullPath.Substring($payloadPrefix.Length)
+  }
+
+  foreach ($helperName in @(
+      'stop_ssrvpn_processes.ps1',
+      'proxy_transaction_state.ps1',
+      'tun_ownership.ps1',
+      'program_files_transaction.ps1'
+    )) {
+    Add-TrustedPayloadFile `
+      -SourcePath (Join-Path $projectRoot "installer\$helperName") `
+      -RelativePath "installer\$helperName"
+  }
+
+  $manifestParent = [System.IO.Path]::GetDirectoryName($ManifestPath)
+  New-Item -ItemType Directory -Path $manifestParent -Force | Out-Null
+  $manifestLines = @(
+    $entries | Sort-Object Path | ForEach-Object {
+      "$($_.Hash)  $($_.Path)"
+    }
+  )
+  $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+  [System.IO.File]::WriteAllText(
+    $ManifestPath,
+    (($manifestLines -join "`n") + "`n"),
+    $utf8NoBom
+  )
+}
+
 $compilerCandidates = @($InnoCompiler, $env:INNO_SETUP_COMPILER)
 if ($env:LOCALAPPDATA) {
   $compilerCandidates += Join-Path `
@@ -124,14 +206,24 @@ if ($compilerVersion -lt $minimumCompilerVersion) {
 }
 
 $installerScript = Join-Path $projectRoot 'installer\SSRVPN.iss'
-& $compiler `
-  "/DAppVersion=$Version" `
-  "/DSourceDir=$SourceDir" `
-  "/DOutputDir=$OutputDir" `
-  "/DProjectDir=$projectRoot" `
-  $installerScript
-if ($LASTEXITCODE -ne 0) {
-  throw "Inno Setup failed with exit code $LASTEXITCODE"
+$payloadManifestPath = Join-Path ([System.IO.Path]::GetTempPath()) `
+  "ssrvpn-expected-payload-$([Guid]::NewGuid().ToString('N')).sha256"
+try {
+  New-TrustedPayloadManifest -PayloadRoot $SourceDir `
+    -ManifestPath $payloadManifestPath
+  & $compiler `
+    "/DAppVersion=$Version" `
+    "/DSourceDir=$SourceDir" `
+    "/DOutputDir=$OutputDir" `
+    "/DProjectDir=$projectRoot" `
+    "/DPayloadManifestPath=$payloadManifestPath" `
+    $installerScript
+  if ($LASTEXITCODE -ne 0) {
+    throw "Inno Setup failed with exit code $LASTEXITCODE"
+  }
+} finally {
+  Remove-Item -LiteralPath $payloadManifestPath -Force `
+    -ErrorAction SilentlyContinue
 }
 
 $installerPath = Join-Path $OutputDir 'SSRVPN_Setup.exe'

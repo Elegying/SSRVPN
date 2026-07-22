@@ -13,6 +13,47 @@ $testRoot = Join-Path $tempRoot `
 $heldTransactionLock = $null
 $heldTransactionLockAcquired = $false
 
+$stopSource = [System.IO.File]::ReadAllText($stopScript)
+if ($stopSource -notmatch
+    'if \(!GetExitCodeProcess\(process, out exitCode\)\)' -or
+    $stopSource -match
+    'if \(GetExitCodeProcess\(process, out exitCode\) &&') {
+  throw 'Verified process termination does not fail closed on exit-code query errors.'
+}
+
+function Write-CorePidRecord {
+  param(
+    [Parameter(Mandatory = $true)][string]$PidPath,
+    [Parameter(Mandatory = $true)][Diagnostics.Process]$Process,
+    [Parameter(Mandatory = $true)][string]$ExpectedCorePath
+  )
+
+  $Process.Refresh()
+  if ($Process.HasExited) {
+    throw 'Cannot write a core identity record for an exited process.'
+  }
+  $livePath = [IO.Path]::GetFullPath($Process.MainModule.FileName)
+  $expectedPath = [IO.Path]::GetFullPath($ExpectedCorePath)
+  if (-not $livePath.Equals(
+      $expectedPath,
+      [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'The core identity fixture resolved an unexpected executable path.'
+  }
+  $record = [ordered]@{
+    version = 1
+    pid = [int]$Process.Id
+    creationTimeUtcFileTime = (
+      $Process.StartTime.ToUniversalTime().ToFileTimeUtc()
+    ).ToString([Globalization.CultureInfo]::InvariantCulture)
+    canonicalExecutablePath = $livePath
+  } | ConvertTo-Json -Compress
+  [IO.File]::WriteAllText(
+    $PidPath,
+    "$record`n",
+    [Text.UTF8Encoding]::new($false)
+  )
+}
+
 try {
   New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 
@@ -244,7 +285,10 @@ exit $LASTEXITCODE
   $pidFile = Join-Path $processBin 'ssrvpn\mihomo.pid'
   New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName(
     $pidFile)) -Force | Out-Null
-  [System.IO.File]::WriteAllText($pidFile, "$($ownedA.Id)`n")
+  Write-CorePidRecord `
+    -PidPath $pidFile `
+    -Process $ownedA `
+    -ExpectedCorePath $corePath
   $tunMarkerPath = Join-Path (
     [System.IO.Path]::GetDirectoryName($pidFile)
   ) 'tun_teardown.pending'
@@ -334,7 +378,10 @@ exit $LASTEXITCODE
   $installedApp = Start-Process -FilePath $appPath -PassThru
   $installedLauncher = Start-Process -FilePath $launcherPath -PassThru
   Start-Sleep -Milliseconds 300
-  [System.IO.File]::WriteAllText($pidFile, "$($ownedA.Id)`n")
+  Write-CorePidRecord `
+    -PidPath $pidFile `
+    -Process $ownedA `
+    -ExpectedCorePath $corePath
 
   $noTunStatusPath = Join-Path $testRoot 'no-tun.status'
   $stop = Start-Process powershell.exe -ArgumentList @(
@@ -542,7 +589,10 @@ exit $LASTEXITCODE
   $installedApp = Start-Process -FilePath $appPath -PassThru
   $installedLauncher = Start-Process -FilePath $launcherPath -PassThru
   Start-Sleep -Milliseconds 300
-  [System.IO.File]::WriteAllText($pidFile, "$($ownedA.Id)`n")
+  Write-CorePidRecord `
+    -PidPath $pidFile `
+    -Process $ownedA `
+    -ExpectedCorePath $corePath
   [System.IO.File]::WriteAllText(
     $tunMarkerPath,
     '{"version":2,"interfaces":[],"baselineInterfaces":[{"index":1,"guid":"44444444-4444-4444-8444-444444444444"}]}',

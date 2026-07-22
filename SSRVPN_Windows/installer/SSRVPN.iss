@@ -10,6 +10,9 @@
 #ifndef ProjectDir
   #error ProjectDir is required
 #endif
+#ifndef PayloadManifestPath
+  #error PayloadManifestPath is required
+#endif
 
 [Setup]
 AppId={{299A3A12-B4A8-4120-9A62-CB274F328FE6}
@@ -33,8 +36,7 @@ UninstallDisplayIcon={app}\ssrvpn_windows.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-CloseApplications=force
-CloseApplicationsFilter=ssrvpn_windows.exe,ssrvpn_windows_app.exe
+CloseApplications=no
 RestartApplications=no
 UsePreviousAppDir=no
 InfoBeforeFile={#ProjectDir}\installer\overwrite_notice.zh-CN.txt
@@ -50,7 +52,6 @@ Type: files; Name: "{app}\*"
 Type: files; Name: "{app}\bin\*"
 Type: filesandordirs; Name: "{app}\bin\data"
 Type: filesandordirs; Name: "{app}\installer"
-Type: filesandordirs; Name: "{localappdata}\SSRVPN\installer-recovery"
 Type: files; Name: "{localappdata}\SSRVPN\installer\rebuild-state.json"
 Type: dirifempty; Name: "{localappdata}\SSRVPN\installer"
 Type: filesandordirs; Name: "{userappdata}\SSRVPN.exe\EBWebView"
@@ -61,13 +62,16 @@ Type: filesandordirs; Name: "{userappdata}\SSRVPN.exe\EBWebView"
 Type: filesandordirs; Name: "{localappdata}\vip.ssrvpn.windows\EBWebView"
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs overwritereadonly
-Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; Flags: dontcopy
+Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; Flags: dontcopy noencryption
+Source: "{#ProjectDir}\installer\proxy_transaction_state.ps1"; Flags: dontcopy noencryption
+Source: "{#ProjectDir}\installer\tun_ownership.ps1"; Flags: dontcopy noencryption
+Source: "{#ProjectDir}\installer\program_files_transaction.ps1"; Flags: dontcopy noencryption
+Source: "{#PayloadManifestPath}"; DestName: "ssrvpn_expected_payload.sha256"; Flags: dontcopy noencryption
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "bin\ssrvpn,bin\ssrvpn\*"; Flags: ignoreversion recursesubdirs createallsubdirs overwritereadonly
 Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
-Source: "{#ProjectDir}\installer\proxy_transaction_state.ps1"; Flags: dontcopy
 Source: "{#ProjectDir}\installer\proxy_transaction_state.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
-Source: "{#ProjectDir}\installer\tun_ownership.ps1"; Flags: dontcopy
 Source: "{#ProjectDir}\installer\tun_ownership.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
+Source: "{#ProjectDir}\installer\program_files_transaction.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion; AfterInstall: ValidateProgramFilesTransaction
 
 [Icons]
 Name: "{autoprograms}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
@@ -89,6 +93,7 @@ const
   UpdateHandoffRequestSuffix = '.ssrvpn-handoff';
   UpdateHandoffStatusSuffix = '.ssrvpn-handoff-status';
   StopStatusSuffix = '.ssrvpn-stop-status';
+  ProgramFilesTransactionStatusSuffix = '.ssrvpn-program-files-status';
   UninstallRegistryKey =
     'Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
     '{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1';
@@ -102,6 +107,9 @@ var
   UpdateHandoffToken: AnsiString;
   UpdateHandoffStatusPath: String;
   LastStopStatus: String;
+  ProgramFilesRecoveryPending: Boolean;
+  ProgramFilesTransactionPrepared: Boolean;
+  LastProgramFilesTransactionStatus: String;
 
 function WinCreateMutex(Attributes: Cardinal; InitialOwner: BOOL;
   Name: String): THandle;
@@ -145,6 +153,11 @@ var
   RequestPath: String;
   Token: AnsiString;
 begin
+  ProgramFilesRecoveryPending := DirExists(
+    ExpandConstant('{localappdata}\SSRVPN\installer-recovery'));
+  ProgramFilesTransactionPrepared := False;
+  if ProgramFilesRecoveryPending then
+    Log('SSRVPN detected a pending program-file installation transaction.');
   RequestPath := ExpandConstant('{srcexe}') + UpdateHandoffRequestSuffix;
   UpdateHandoffStatusPath :=
     ExpandConstant('{srcexe}') + UpdateHandoffStatusSuffix;
@@ -312,9 +325,164 @@ begin
     ExpandConstant('{tmp}\stop_ssrvpn_processes.ps1'), False);
 end;
 
+function ProgramFilesRecoveryRoot: String;
+begin
+  Result := ExpandConstant('{localappdata}\SSRVPN\installer-recovery');
+end;
+
+function RunProgramFilesTransactionScript(Action: String; ScriptPath: String;
+  ExpectedPayloadManifestPath: String): Boolean;
+var
+  ResultCode: Integer;
+  Started: Boolean;
+  PowerShellPath: String;
+  StatusPath: String;
+  RawStatus: AnsiString;
+  Parameters: String;
+begin
+  Result := False;
+  ResultCode := -1;
+  LastProgramFilesTransactionStatus := 'STATUS_MISSING';
+  PowerShellPath := ExpandConstant(
+    '{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  StatusPath := GenerateUniqueName(
+    ExpandConstant('{tmp}'), ProgramFilesTransactionStatusSuffix);
+  try
+    if not FileExists(ScriptPath) then
+    begin
+      LastProgramFilesTransactionStatus := 'HELPER_MISSING';
+      Log('SSRVPN program-file transaction helper is missing: ' + ScriptPath);
+      exit;
+    end;
+    Parameters := '-NoLogo -NoProfile -NonInteractive ' +
+      '-ExecutionPolicy Bypass -File ' + AddQuotes(ScriptPath) +
+      ' -Action ' + AddQuotes(Action) +
+      ' -InstallDir ' + AddQuotes(ExpandConstant('{app}')) +
+      ' -RecoveryRoot ' + AddQuotes(ProgramFilesRecoveryRoot) +
+      ' -StatusPath ' + AddQuotes(StatusPath) +
+      ' -UninstallRegistrySubkey ' + AddQuotes(UninstallRegistryKey) +
+      ' -DesktopShortcutPath ' +
+        AddQuotes(ExpandConstant('{autodesktop}\SSRVPN.lnk')) +
+      ' -StartMenuShortcutPath ' +
+        AddQuotes(ExpandConstant('{autoprograms}\SSRVPN.lnk'));
+    if ExpectedPayloadManifestPath <> '' then
+      Parameters := Parameters + ' -ExpectedPayloadManifestPath ' +
+        AddQuotes(ExpectedPayloadManifestPath);
+    Started := Exec(PowerShellPath, Parameters, '', SW_HIDE,
+      ewWaitUntilTerminated, ResultCode);
+    if LoadStringFromFile(StatusPath, RawStatus) then
+      LastProgramFilesTransactionStatus := Trim(String(RawStatus));
+    Result := Started and (ResultCode = 0);
+    Log('SSRVPN program-file transaction action=' + Action +
+      ' exit=' + IntToStr(ResultCode) +
+      ' stage=' + LastProgramFilesTransactionStatus);
+  except
+    Log('SSRVPN program-file transaction action=' + Action +
+      ' raised an internal exception.');
+    Result := False;
+  end;
+  DeleteFile(StatusPath);
+end;
+
+function RunProgramFilesTransaction(Action: String;
+  ExpectedPayloadManifestName: String): Boolean;
+var
+  ScriptPath: String;
+  ExpectedPayloadManifestPath: String;
+begin
+  Result := False;
+  ScriptPath := ExpandConstant('{tmp}\program_files_transaction.ps1');
+  try
+    if not FileExists(ScriptPath) then
+      ExtractTemporaryFile('program_files_transaction.ps1');
+    ExpectedPayloadManifestPath := '';
+    if ExpectedPayloadManifestName <> '' then
+    begin
+      ExpectedPayloadManifestPath := ExpandConstant('{tmp}\') +
+        ExpectedPayloadManifestName;
+      if not FileExists(ExpectedPayloadManifestPath) then
+        ExtractTemporaryFile(ExpectedPayloadManifestName);
+    end;
+    Result := RunProgramFilesTransactionScript(
+      Action, ScriptPath, ExpectedPayloadManifestPath);
+  except
+    LastProgramFilesTransactionStatus := 'EMBEDDED_HELPER_EXTRACTION_FAILED';
+    Log('SSRVPN could not extract the program-file transaction helper.');
+  end;
+end;
+
+function RunInstalledProgramFilesTransaction(Action: String): Boolean;
+begin
+  Result := RunProgramFilesTransactionScript(
+    Action,
+    ExpandConstant('{app}\installer\program_files_transaction.ps1'),
+    '');
+end;
+
+function RecoverPendingProgramFilesTransaction: Boolean;
+begin
+  if not DirExists(ProgramFilesRecoveryRoot) then
+  begin
+    ProgramFilesRecoveryPending := False;
+    ProgramFilesTransactionPrepared := False;
+    Result := True;
+    exit;
+  end;
+  Result := RunProgramFilesTransaction('Recover', '') and
+    (not DirExists(ProgramFilesRecoveryRoot));
+  ProgramFilesRecoveryPending := DirExists(ProgramFilesRecoveryRoot);
+  if Result then
+    ProgramFilesTransactionPrepared := False
+  else
+    ProgramFilesTransactionPrepared := ProgramFilesRecoveryPending;
+end;
+
+function BeginProgramFilesTransaction: Boolean;
+var
+  HelperSucceeded: Boolean;
+begin
+  HelperSucceeded := RunProgramFilesTransaction('Begin', '');
+  ProgramFilesTransactionPrepared := DirExists(ProgramFilesRecoveryRoot);
+  ProgramFilesRecoveryPending := ProgramFilesTransactionPrepared;
+  Result := HelperSucceeded and ProgramFilesTransactionPrepared;
+end;
+
+function CommitProgramFilesTransaction: Boolean;
+var
+  HelperSucceeded: Boolean;
+begin
+  HelperSucceeded := RunProgramFilesTransaction('Commit', '');
+  Result := HelperSucceeded;
+  if Result then
+  begin
+    ProgramFilesTransactionPrepared := False;
+    ProgramFilesRecoveryPending := DirExists(ProgramFilesRecoveryRoot);
+  end;
+end;
+
+function ClearProgramFilesForInstall: Boolean;
+begin
+  Result := RunProgramFilesTransaction('Clear', '') and
+    DirExists(ProgramFilesRecoveryRoot);
+  ProgramFilesTransactionPrepared := DirExists(ProgramFilesRecoveryRoot);
+  ProgramFilesRecoveryPending := ProgramFilesTransactionPrepared;
+end;
+
+procedure ValidateProgramFilesTransaction;
+begin
+  if (not ProgramFilesTransactionPrepared) or
+    (not RunProgramFilesTransaction(
+      'Validate', 'ssrvpn_expected_payload.sha256')) then
+    RaiseException(
+      'SSRVPN 新程序文件未通过完整性校验，无法继续更新。' +
+      '旧程序将自动恢复。诊断阶段码：' +
+      LastProgramFilesTransactionStatus + '。');
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   StopResult: Integer;
+  BeginFailureStatus: String;
 begin
   if not HoldInstallGateHandles then
   begin
@@ -362,7 +530,40 @@ begin
     end;
   end;
   if StopResult = 0 then
-    Result := ''
+  begin
+    if not RecoverPendingProgramFilesTransaction then
+    begin
+      ReleaseInstallGates;
+      Result := '检测到上次中断的覆盖安装，但无法完成程序文件恢复。' + #13#10 +
+        '为避免覆盖可恢复副本，本次安装已停止。诊断阶段码：' +
+        LastProgramFilesTransactionStatus + '。' + #13#10 +
+        '请重试安装；如果仍然失败，请重启 Windows 后再次安装。';
+      exit;
+    end;
+    if not BeginProgramFilesTransaction then
+    begin
+      BeginFailureStatus := LastProgramFilesTransactionStatus;
+      if ProgramFilesTransactionPrepared then
+        RecoverPendingProgramFilesTransaction;
+      ReleaseInstallGates;
+      Result := '无法建立 SSRVPN 程序文件回滚点，安装尚未开始覆盖。' + #13#10 +
+        '旧程序已尽力恢复；恢复副本会保留到后续安装完成处理。' + #13#10 +
+        '诊断阶段码：' + BeginFailureStatus + '。';
+      exit;
+    end;
+    if not ClearProgramFilesForInstall then
+    begin
+      BeginFailureStatus := LastProgramFilesTransactionStatus;
+      if ProgramFilesTransactionPrepared then
+        RecoverPendingProgramFilesTransaction;
+      ReleaseInstallGates;
+      Result := '无法在回滚点保护下清理旧版程序文件，安装尚未写入新版本。' +
+        #13#10 + '旧程序已尽力恢复；恢复副本会保留到后续安装完成处理。' +
+        #13#10 + '诊断阶段码：' + BeginFailureStatus + '。';
+      exit;
+    end;
+    Result := '';
+  end
   else if StopResult = 3 then
   begin
     ReleaseInstallGates;
@@ -383,7 +584,17 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
+    if ProgramFilesTransactionPrepared then
+    begin
+      if not CommitProgramFilesTransaction then
+        RaiseException(
+          'SSRVPN 无法完成程序文件事务提交。' +
+          '旧程序将自动恢复。诊断阶段码：' +
+          LastProgramFilesTransactionStatus + '。');
+    end;
     ReleaseInstallGates;
+  end;
 end;
 
 procedure DeinitializeSetup;
@@ -391,6 +602,12 @@ begin
   if UpdateHandoffDetected and (not UpdateHandoffReady) then
     SaveStringToFile(
       UpdateHandoffStatusPath, 'cancelled:' + UpdateHandoffToken, False);
+  if ProgramFilesTransactionPrepared then
+  begin
+    if not RecoverPendingProgramFilesTransaction then
+      Log(
+        'SSRVPN could not finish program-file recovery; the durable backup was retained.');
+  end;
   ReleaseInstallGates;
 end;
 
@@ -410,6 +627,20 @@ begin
     ExpandConstant('{app}\installer\stop_ssrvpn_processes.ps1'), True);
   Result := (StopResult = 0) and
     AcquireLauncherGate(GateWaitMilliseconds);
+  if Result then
+  begin
+    if not RunInstalledProgramFilesTransaction('Discard') then
+    begin
+      ReleaseInstallGates;
+      MsgBox('无法安全清理上次中断安装留下的程序文件副本，' +
+        '卸载尚未删除程序文件。' + #13#10 +
+        '诊断阶段码：' + LastProgramFilesTransactionStatus + '。' + #13#10 +
+        '请重试卸载；如果仍然失败，请重启 Windows 后再次卸载。',
+        mbError, MB_OK);
+      Result := False;
+    end;
+    exit;
+  end;
   if not Result then
   begin
     ReleaseInstallGates;
