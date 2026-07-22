@@ -7,7 +7,7 @@ import 'package:ssrvpn_windows/services/clash_service.dart';
 import 'package:ssrvpn_windows/services/windows_tun_runtime_probe.dart';
 
 void main() {
-  test('TUN health requires the runtime listener and Windows route', () async {
+  test('TUN health treats the Windows adapter probe as advisory', () async {
     Map<String, dynamic> configs = {};
     var runtimeStatus = WindowsTunRuntimeStatus.adapterMissing;
     var probeCalls = 0;
@@ -52,17 +52,17 @@ void main() {
       configs = {
         'tun': {'enable': true},
       };
-      expect(await service.healthCheck(), isFalse);
-      expect(service.lastHealthCheckError, contains('网卡'));
+      expect(await service.healthCheck(), isTrue);
+      expect(service.lastHealthCheckError, isNull);
       expect(probeCalls, 1);
 
       runtimeStatus = WindowsTunRuntimeStatus.routeMissing;
-      expect(await service.healthCheck(), isFalse);
-      expect(service.lastHealthCheckError, contains('路由'));
+      expect(await service.healthCheck(), isTrue);
+      expect(service.lastHealthCheckError, isNull);
 
       runtimeStatus = WindowsTunRuntimeStatus.probeFailed;
-      expect(await service.healthCheck(), isFalse);
-      expect(service.lastHealthCheckError, contains('安全中止'));
+      expect(await service.healthCheck(), isTrue);
+      expect(service.lastHealthCheckError, isNull);
 
       runtimeStatus = WindowsTunRuntimeStatus.ready;
       expect(await service.healthCheck(), isTrue);
@@ -74,7 +74,7 @@ void main() {
     }
   });
 
-  test('TUN health fails closed when the Windows probe throws', () async {
+  test('TUN health remains available when the Windows probe throws', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final subscription = server.listen((request) async {
       request.response.headers.contentType = ContentType.json;
@@ -96,8 +96,8 @@ void main() {
       );
 
     try {
-      expect(await service.healthCheck(), isFalse);
-      expect(service.lastHealthCheckError, contains('安全中止'));
+      expect(await service.healthCheck(), isTrue);
+      expect(service.lastHealthCheckError, isNull);
     } finally {
       service.dispose();
       await subscription.cancel();

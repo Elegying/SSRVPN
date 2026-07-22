@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 桌面连接成功后的运行期端口调整会明确提示；三端长节点名、紧凑窗口和大字体界面补充省略、展开、滚动与可达性处理，避免文字挤压关键按钮。
 - macOS 更新包完成 SHA-256 校验后会先安全断开当前连接，断开失败时禁止打开 DMG；安装提示明确要求彻底退出旧进程后再覆盖应用。Windows 覆盖安装改为可恢复事务，并继续只发布 `SSRVPN_Setup.exe` 安装版。
 - 多订阅合并会提前去重完全相同的节点，并为同名但配置不同的节点确定性追加序号；运行配置会拒绝歧义名称和保留名称。用户强制代理规则固定排在订阅附加规则、OpenAI 规则与所有直连规则之前，并按首次出现顺序去重。
+- Windows TUN 生命周期不再把系统 API 对隐藏网卡、双栈地址或分段路由的可见性误差当成断开依据；Mihomo API 与实际 `tun.enable` 已就绪时，额外网卡/路由探针只记录诊断告警。无地址、无路由的隐藏空壳网卡和暂时无法持久化的网卡身份不再阻止连接或重连，真正的残留网络路由、核心/API 失败和 TUN listener 未启用仍会失败关闭。
+- Windows 已校验安装包改用原生 `CreateHardLinkW` 原子发布，并支持扩展长度桌面路径，避免 PowerShell 5.1 参数差异和传统 260 字符路径限制导致更新下载完成后无法落盘。
 
 ### 安全
 
@@ -28,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 兼容性边界
 
 - 本版本没有修改 HTTP 订阅的兼容与安全策略；既有 HTTP/HTTPS 订阅处理保持不变。
+- Windows 的 `gVisor` 仍通过 Mihomo/sing-tun 的 Wintun 设备收发数据；本版本修复的是 GUI 额外探针的误阻断，不宣称移除内核 TUN 设备依赖或提供上游尚未发布的新 Wintun 驱动。
 
 ## [3.4.11] - 2026-07-22
 

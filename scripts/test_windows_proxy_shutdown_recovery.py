@@ -318,6 +318,9 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         commit_running = lifecycle.index("setRunning(true)", persist_index)
         self.assertLess(spawn, persist_index)
         self.assertLess(persist_index, commit_running)
+        identity_fallback = lifecycle[persist_index:commit_running]
+        self.assertNotIn("return false", identity_fallback)
+        self.assertIn("仅记录诊断告警", identity_fallback)
 
         wait = tun_recovery[
             tun_recovery.index("Future<bool> _waitForTunTeardown()") :
@@ -368,7 +371,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
 
         script = probe[
             probe.index("$expected = @(") : probe.index(
-                "if (($ownedInterfaces.Count"
+                "if (($addresses.Count + $routes.Count) -eq 0)"
             )
         ]
         route_query = script[script.index("$routes =") :]

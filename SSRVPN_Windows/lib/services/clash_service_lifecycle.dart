@@ -54,6 +54,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   bool _coreUsesTun = false;
   bool _stoppingCore = false;
   bool _proxyRecoveryListenerActive = false;
+  WindowsTunRuntimeStatus? _lastTunRuntimeObservation;
   final CoreRecoveryPolicy _unexpectedExitRecoveryPolicy =
       CoreRecoveryPolicy(maxAttempts: 2);
 
@@ -110,18 +111,32 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       return false;
     }
     final runtimeStatus = await _probeTunRuntime();
-    if (runtimeStatus == WindowsTunRuntimeStatus.ready) return true;
-    setLastHealthCheckError(
-      switch (runtimeStatus) {
-        WindowsTunRuntimeStatus.adapterMissing =>
-          'Mihomo TUN listener 已启用，但 Windows TUN 网卡尚未就绪',
-        WindowsTunRuntimeStatus.routeMissing =>
-          'Mihomo TUN listener 已启用，但 Windows TUN 路由不完整',
-        WindowsTunRuntimeStatus.probeFailed => '无法确认 Windows TUN 网卡和路由状态，已安全中止',
-        WindowsTunRuntimeStatus.ready => null,
-      },
-    );
-    return false;
+    _recordTunRuntimeObservation(runtimeStatus);
+    // Mihomo's API and runtime config are the authoritative lifecycle signal.
+    // Windows can temporarily expose a working Wintun adapter as hidden or
+    // incomplete, especially on preview builds. Keep the OS-level adapter and
+    // route probe advisory so a false negative cannot tear down live traffic.
+    setLastHealthCheckError(null);
+    return true;
+  }
+
+  void _recordTunRuntimeObservation(WindowsTunRuntimeStatus status) {
+    if (_lastTunRuntimeObservation == status) return;
+    final previous = _lastTunRuntimeObservation;
+    _lastTunRuntimeObservation = status;
+    if (status == WindowsTunRuntimeStatus.ready) {
+      if (previous != null && previous != WindowsTunRuntimeStatus.ready) {
+        log('Windows TUN 网卡和路由诊断已恢复');
+      }
+      return;
+    }
+    final detail = switch (status) {
+      WindowsTunRuntimeStatus.adapterMissing => '未观察到预期 TUN 网卡地址',
+      WindowsTunRuntimeStatus.routeMissing => '未观察到完整 TUN 路由',
+      WindowsTunRuntimeStatus.probeFailed => 'Windows TUN 状态探针不可用',
+      WindowsTunRuntimeStatus.ready => '',
+    };
+    log('⚠️ $detail；Mihomo API 与 TUN listener 已就绪，本项仅记录诊断告警');
   }
 
   @override
@@ -995,10 +1010,10 @@ try {
             !tunIdentityPersisted &&
             !await _persistTunInterfaceIdentities()) {
           _ensureStartCurrent(startToken);
-          setLastStartError('TUN 已启动，但无法持久化网卡身份，连接已安全取消');
-          log('❌ $lastStartError');
-          await _cleanupFailedStart();
-          return false;
+          log(
+            '⚠️ TUN 已启动，但 Windows 未暴露可持久化的网卡身份；'
+            '已保留启动前基线，本项仅记录诊断告警',
+          );
         }
 
         _proxyRecoveryListenerActive = preserveSystemProxyRecovery;
