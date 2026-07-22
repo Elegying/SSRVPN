@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 /// Converts user-editable node data into bounded, Mihomo-ready values.
+import '../utils/runtime_config_name_policy.dart';
+
 class SubscriptionNodeCodec {
   const SubscriptionNodeCodec._();
 
@@ -148,7 +150,7 @@ class SubscriptionNodeCodec {
   }
 
   static String _sanitizeScalar(String value) =>
-      value.replaceAll(RegExp(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]'), '');
+      RuntimeConfigNamePolicy.sanitizeScalar(value);
 
   static String _requiredText(
     Map<String, dynamic> config,

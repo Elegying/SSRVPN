@@ -583,6 +583,59 @@ proxies:
       originalState.expectUnchanged(service);
     });
 
+    test('edited node cannot obfuscate a reserved runtime name', () async {
+      await expectLater(
+        service.updateNode('Old Node', {
+          'name': 'P\tROXY',
+          'type': 'ss',
+          'server': 'edited.example.com',
+          'port': 443,
+          'cipher': 'aes-256-gcm',
+          'password': 'secret',
+        }),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('运行时保留名称'),
+          ),
+        ),
+      );
+
+      originalState.expectUnchanged(service);
+    });
+
+    test('edited node detects duplicates after name canonicalization',
+        () async {
+      const yaml = r'''
+proxies:
+  - {name: Old Node, type: ss, server: old.example.com, port: 443, cipher: aes-256-gcm, password: secret}
+  - {name: "D\u0001uplicate", type: ss, server: duplicate.example.com, port: 443, cipher: aes-256-gcm, password: secret}
+''';
+      await service.setRawYaml(yaml);
+      final before = service.rawYaml;
+
+      await expectLater(
+        service.updateNode('Old Node', {
+          'name': 'Duplicate',
+          'type': 'ss',
+          'server': 'edited.example.com',
+          'port': 443,
+          'cipher': 'aes-256-gcm',
+          'password': 'secret',
+        }),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('节点备注名已存在'),
+          ),
+        ),
+      );
+
+      expect(service.rawYaml, before);
+    });
+
     test('failed raw YAML cache write preserves live node state', () async {
       service.failCacheWrites = true;
 

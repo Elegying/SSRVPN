@@ -394,13 +394,21 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     }
 
     final proxies = parsed['proxies'] as List;
+    final canonicalOriginalName =
+        RuntimeConfigNamePolicy.canonicalName(originalName);
     final index = proxies.indexWhere(
-      (proxy) => proxy is Map && proxy['name']?.toString() == originalName,
+      (proxy) =>
+          proxy is Map &&
+          RuntimeConfigNamePolicy.canonicalName(proxy['name']) ==
+              canonicalOriginalName,
     );
     if (index < 0) throw StateError('找不到要修改的节点');
 
     final normalizedConfig = normalizeProxyConfig(updatedConfig);
-    final newName = normalizedConfig['name']?.toString().trim() ?? '';
+    final newName = RuntimeConfigNamePolicy.canonicalName(
+      normalizedConfig['name'],
+    );
+    normalizedConfig['name'] = newName;
     if (RuntimeConfigNamePolicy.reservedProxyNames.contains(newName)) {
       throw FormatException(
         '节点名称“$newName”属于 Mihomo/SSRVPN 运行时保留名称，请使用其他名称',
@@ -410,19 +418,25 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
           (entry) =>
               entry.key != index &&
               entry.value is Map &&
-              (entry.value as Map)['name']?.toString() == newName,
+              RuntimeConfigNamePolicy.canonicalName(
+                    (entry.value as Map)['name'],
+                  ) ==
+                  newName,
         );
     if (duplicate) throw const FormatException('节点备注名已存在');
 
     proxies[index] = normalizedConfig;
 
     final groups = parsed['proxy-groups'];
-    if (newName != originalName && groups is List) {
+    if (newName != canonicalOriginalName && groups is List) {
       for (final group in groups) {
         if (group is! Map || group['proxies'] is! List) continue;
         final names = group['proxies'] as List;
         for (var i = 0; i < names.length; i++) {
-          if (names[i]?.toString() == originalName) names[i] = newName;
+          if (RuntimeConfigNamePolicy.canonicalName(names[i]) ==
+              canonicalOriginalName) {
+            names[i] = newName;
+          }
         }
       }
     }
