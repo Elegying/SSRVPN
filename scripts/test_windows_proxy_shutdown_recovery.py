@@ -274,7 +274,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         intent = recovery.index("isConnectionIntentCurrent")
         teardown = recovery.index("!await _waitForTunTeardown()", intent)
         budget = recovery.index("_unexpectedExitRecoveryPolicy.tryAcquire()", teardown)
-        restart = recovery.index("_start(automaticRecovery: true)", budget)
+        restart = recovery.index("recoverDesktopConnection(generation!)", budget)
         self.assertLess(intent, teardown)
         self.assertLess(teardown, budget)
         self.assertLess(budget, restart)
@@ -1729,9 +1729,15 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("enabled: false", tray)
         self.assertIn("HTTP 127.0.0.1:$port", app)
         self.assertIn("CoreRecoveryPolicy(maxAttempts: 1)", lifecycle)
-        self.assertIn("isCurrentSystemProxyOwned", lifecycle)
+        self.assertIn("inspectSystemProxyOwnership", lifecycle)
+        self.assertIn("SystemProxyOwnershipStatus.owned", lifecycle)
         self.assertIn("Future<bool> start() => _start();", lifecycle)
-        self.assertIn("_start(automaticRecovery: true)", lifecycle)
+        self.assertIn(
+            "Future<bool> startForAutomaticRecovery() => "
+            "_start(automaticRecovery: true)",
+            lifecycle,
+        )
+        self.assertIn("recoverDesktopConnection(generation!)", lifecycle)
         self.assertLess(
             lifecycle.index("_unexpectedExitRecoveryPolicy.reset()"),
             lifecycle.index("final current = _startOperation"),
