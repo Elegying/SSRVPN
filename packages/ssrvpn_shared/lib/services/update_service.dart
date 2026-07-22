@@ -400,10 +400,12 @@ class SharedUpdateService {
     late final ProcessResult result;
     if (Platform.isWindows) {
       const script = r'''
-param([string]$SourcePath, [string]$DestinationPath)
 $ErrorActionPreference = 'Stop'
-New-Item -ItemType HardLink -Path $DestinationPath -Target $SourcePath -ErrorAction Stop | Out-Null
+New-Item -ItemType HardLink -LiteralPath $env:SSRVPN_UPDATE_DESTINATION -Target $env:SSRVPN_UPDATE_SOURCE -ErrorAction Stop | Out-Null
 ''';
+      final environment = Map<String, String>.from(Platform.environment)
+        ..['SSRVPN_UPDATE_SOURCE'] = source.absolute.path
+        ..['SSRVPN_UPDATE_DESTINATION'] = destination.absolute.path;
       result = await _awaitWithCancellation(
         Process.run(
           'powershell.exe',
@@ -415,9 +417,8 @@ New-Item -ItemType HardLink -Path $DestinationPath -Target $SourcePath -ErrorAct
             'Bypass',
             '-Command',
             script,
-            source.absolute.path,
-            destination.absolute.path,
           ],
+          environment: environment,
         ),
         cancellation,
       );
