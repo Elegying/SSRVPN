@@ -51,7 +51,10 @@ extension AndroidNativeBridge on ClashService {
 
     final activeConfigPath =
         _runningConfigPath ?? _nativeSnapshotConfigPath ?? configPath;
-    _notifyNativeRuntimeNotice('Mihomo 持续失去响应，正在执行一次安全重启…');
+    _notifyNativeRuntimeNotice(
+      'Mihomo 持续失去响应，正在执行安全重启'
+      '（${_healthRecoveryPolicy.attempts}/${_healthRecoveryPolicy.maxAttempts}）…',
+    );
     try {
       await stop();
     } catch (error) {

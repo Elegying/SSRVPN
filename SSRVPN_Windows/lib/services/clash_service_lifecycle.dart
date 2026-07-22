@@ -236,7 +236,11 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       return false;
     }
 
-    notifyRuntimeNotice('Mihomo 持续失去响应，正在执行一次安全重启…');
+    notifyRuntimeNotice(
+      'Mihomo 持续失去响应，正在执行安全重启'
+      '（${_unexpectedExitRecoveryPolicy.attempts}/'
+      '${_unexpectedExitRecoveryPolicy.maxAttempts}）…',
+    );
     try {
       await stop();
     } catch (error) {
