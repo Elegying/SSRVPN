@@ -616,6 +616,7 @@ void main() {
       ),
       const Size(320, 568),
     );
+    expect(find.byTooltip(node.name), findsOneWidget);
 
     await expectNoLayoutFailure(
       'node selector landscape',
@@ -640,14 +641,16 @@ void main() {
       ),
       const Size(844, 390),
     );
+    expect(find.byTooltip(node.name), findsAtLeastNWidgets(1));
 
+    const longSubscriptionName = '一个非常长的订阅名称用于测试排版';
     await expectNoLayoutFailure(
       'subscriptions portrait',
       SsrvpnSubscriptionView(
         subscriptions: [
           Subscription(
             id: 'one',
-            name: '一个非常长的订阅名称用于测试排版',
+            name: longSubscriptionName,
             url: 'https://example.com/private-token',
           ),
         ],
@@ -664,6 +667,7 @@ void main() {
       ),
       const Size(320, 568),
     );
+    expect(find.byTooltip(longSubscriptionName), findsOneWidget);
   });
 
   testWidgets('critical actions support the maximum accessibility text size',
