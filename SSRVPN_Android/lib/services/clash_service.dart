@@ -11,6 +11,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 part 'clash_service_snapshot_cleanup.dart';
 part 'clash_service_native_bridge.dart';
+part 'clash_service_config.dart';
 
 class _AndroidStartCancelled implements Exception {}
 
@@ -21,13 +22,6 @@ class _AndroidStartCancelled implements Exception {}
 /// MMDB 解压、TUN 配置、磁贴/通知集成。
 class ClashService extends ClashServiceBase {
   static const _channel = MethodChannel('com.ssrvpn/native');
-  static const _nativeStateRetryDelays = <Duration>[
-    Duration(milliseconds: 100),
-    Duration(milliseconds: 300),
-  ];
-  // Align deferred reconciliation with the native liveness cadence. A failed
-  // platform-channel read must not create a tight, indefinite polling loop.
-  static const _deferredNativeStateRetryDelay = Duration(seconds: 3);
 
   String _corePath = '';
   String _nativeLibDir = '';
@@ -61,6 +55,8 @@ class ClashService extends ClashServiceBase {
       _invalidateIdleNativeConnectionSnapshot();
 
   void _markNativeConnectionLost() => markConnectionLost();
+  void _notifyNativeRuntimeNotice(String message) =>
+      notifyRuntimeNotice(message);
 
   // The native VPN service owns the authoritative 3-second Bridge monitor and
   // tears down the TUN fd when the core exits, including while Flutter sleeps.
@@ -95,41 +91,8 @@ class ClashService extends ClashServiceBase {
   @override
   Future<bool> recoverAfterHealthCheckFailure(
     int connectionGeneration,
-  ) async {
-    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
-      await stop();
-      return false;
-    }
-    if (await healthCheck()) {
-      setRunning(true);
-      return true;
-    }
-    if (!_healthRecoveryPolicy.tryAcquire()) {
-      await stop();
-      return false;
-    }
-
-    final activeConfigPath =
-        _runningConfigPath ?? _nativeSnapshotConfigPath ?? configPath;
-    notifyRuntimeNotice('Mihomo 持续失去响应，正在执行一次安全重启…');
-    try {
-      await stop();
-    } catch (error) {
-      log('健康检查恢复时停止 Mihomo 失败: $error');
-      return false;
-    }
-    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
-      return false;
-    }
-    if (activeConfigPath.isEmpty || !File(activeConfigPath).existsSync()) {
-      setLastStartError('自动恢复所需的运行配置已不存在');
-      return false;
-    }
-    return _start(
-      preparedConfigPath: activeConfigPath,
-      automaticRecovery: true,
-    );
-  }
+  ) =>
+      _recoverNativeAfterHealthCheckFailure(connectionGeneration);
 
   // ── 平台调试日志 ──
 
@@ -261,26 +224,6 @@ class ClashService extends ClashServiceBase {
     return false;
   }
 
-  String _androidTunConfig(AppSettings settings) {
-    final buffer = StringBuffer()
-      ..writeln('tun:')
-      ..writeln('  enable: true')
-      ..writeln('  stack: ${settings.tunStack}')
-      ..writeln('  dns-hijack:')
-      ..writeln('    - any:53')
-      ..writeln('  auto-route: true')
-      ..writeln('  auto-detect-interface: true')
-      ..writeln('  inet6-address:')
-      ..writeln('    - ${AppConstants.tunInet6Address}')
-      ..writeln('  route-exclude-address:');
-    for (final address in AppConstants.routeExcludeAddresses) {
-      // Android 原生 VPN 接管 ::/0；不排除 IPv6，避免绕过或黑洞。
-      if (address.contains(':')) continue;
-      buffer.writeln('    - $address');
-    }
-    return buffer.toString().trimRight();
-  }
-
   String generateClashConfig(
     String rawYaml,
     AppSettings settings, {
@@ -313,20 +256,7 @@ class ClashService extends ClashServiceBase {
     );
   }
 
-  Future<String> writeConfig(String config) async {
-    final revision = ++_configRevision;
-    final path = '$configDir/config-'
-        '${DateTime.now().microsecondsSinceEpoch}-$revision.yaml';
-    final absolutePath = File(path).absolute.path;
-    _preparedConfigPaths.add(absolutePath);
-    try {
-      await writeStringAtomically(File(absolutePath), config);
-      return absolutePath;
-    } catch (_) {
-      _preparedConfigPaths.remove(absolutePath);
-      rethrow;
-    }
-  }
+  Future<String> writeConfig(String config) => _writeConfigSnapshot(config);
 
   Future<String> writePreferredNodeConfig(
     String rawYaml,

@@ -13,14 +13,16 @@ services = {
         (
             "clash_service_native_bridge.dart",
             "clash_service_snapshot_cleanup.dart",
+            "clash_service_config.dart",
         ),
     ),
     Path("packages/ssrvpn_shared/lib/services/clash_service_base.dart"): (
-        750,
+        760,
         (
             "clash_service_config_support.dart",
             "clash_service_diagnostics.dart",
             "clash_service_runtime_support.dart",
+            "clash_service_health_monitor.dart",
         ),
     ),
     Path("SSRVPN_MacOS/lib/services/clash_service.dart"): (
