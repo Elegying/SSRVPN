@@ -36,6 +36,7 @@ import 'startup/startup_orchestrator.dart';
 import 'startup/startup_status.dart';
 import 'startup/window_state_store.dart';
 import 'theme/app_theme.dart';
+import 'widgets/windows_desktop_frame.dart';
 
 part 'package:ssrvpn_shared/desktop_ui/desktop_app_shell_part.dart';
 part 'app_runtime_actions_part.dart';
@@ -380,6 +381,18 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       return _buildStartupShell(status);
     }
 
+    final desktopShell = CrashReportPrompt(
+      child: _DesktopAppShell(
+        safeMode: widget.startupFlags.safeMode,
+        startupFailureMessages: StartupStatus.instance.failures
+            .map((failure) => failure.userSummary)
+            .toList(growable: false),
+        runtimeNotice: _runtimeNotice,
+        currentIndex: _currentIndex,
+        onIndexChanged: (index) => setState(() => _currentIndex = index),
+      ),
+    );
+
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<SettingsService>.value(value: _settingsService!),
@@ -394,39 +407,35 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
         themeMode: ThemeMode.dark,
-        home: CrashReportPrompt(
-          child: _DesktopAppShell(
-            safeMode: widget.startupFlags.safeMode,
-            startupFailureMessages: StartupStatus.instance.failures
-                .map((failure) => failure.userSummary)
-                .toList(growable: false),
-            runtimeNotice: _runtimeNotice,
-            currentIndex: _currentIndex,
-            onIndexChanged: (index) => setState(() => _currentIndex = index),
-          ),
-        ),
+        home: _withWindowsFrame(status, desktopShell),
       ),
     );
+  }
+
+  Widget _withWindowsFrame(StartupStatus status, Widget child) {
+    if (!status.windowManagerReady) return child;
+    return WindowsDesktopFrame(child: child);
   }
 
   Widget _buildStartupShell(StartupStatus status) {
     final failures = status.failures;
     final startupFailed = status.completed && !status.servicesReady;
+    final startupShell = buildWindowsStartupScaffold(
+      startupFailed: startupFailed,
+      startupProgress: _startupProgress(status),
+      failures: failures,
+      secretRecoveryError: _secretRecoveryError,
+      secretRecoveryInProgress: _secretRecoveryInProgress,
+      onSecretRecovery: (buttonContext, secretPath) =>
+          _confirmWindowsSecretRecovery(
+        buttonContext,
+        secretPath,
+      ),
+    );
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
-      home: buildWindowsStartupScaffold(
-        startupFailed: startupFailed,
-        startupProgress: _startupProgress(status),
-        failures: failures,
-        secretRecoveryError: _secretRecoveryError,
-        secretRecoveryInProgress: _secretRecoveryInProgress,
-        onSecretRecovery: (buttonContext, secretPath) =>
-            _confirmWindowsSecretRecovery(
-          buttonContext,
-          secretPath,
-        ),
-      ),
+      home: _withWindowsFrame(status, startupShell),
     );
   }
 }

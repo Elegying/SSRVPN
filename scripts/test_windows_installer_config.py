@@ -611,6 +611,17 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("$script:maxMetadataDocumentBytes", json_writer)
         self.assertIn("GetByteCount", json_writer)
 
+        registry_remove = helper.split(
+            "function Remove-UninstallRegistryKey", 1
+        )[1].split("function Restore-UninstallRegistrySnapshot", 1)[0]
+        self.assertIn("Invoke-RegExe -Arguments", registry_remove)
+        self.assertIn("'delete'", registry_remove)
+        self.assertIn("Test-UninstallRegistryKeyExists", registry_remove)
+        self.assertNotIn(
+            "[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree",
+            registry_remove,
+        )
+
         expected_manifest = helper.split(
             "function Read-ExpectedPayloadManifest", 1
         )[1].split("function Test-InstalledPayload", 1)[0]
