@@ -228,6 +228,35 @@ for path in orchestrators:
             f"{path}: services are published before core initialization completes"
         )
 
+windows_orchestrator = orchestrators[1].read_text(encoding="utf-8")
+hidden_title_bar = "windowManager.setTitleBarStyle("
+if hidden_title_bar not in windows_orchestrator:
+    raise SystemExit("Windows does not hide the native title bar")
+title_bar_call = windows_orchestrator.index(hidden_title_bar)
+show_call = windows_orchestrator.index("windowManager.show()", title_bar_call)
+title_bar_body = windows_orchestrator[title_bar_call:show_call]
+for token in ("TitleBarStyle.hidden", "windowButtonVisibility: false"):
+    if token not in title_bar_body:
+        raise SystemExit(f"Windows native title bar is not fully hidden: {token}")
+for token in (
+    "TitleBarStyle.normal",
+    "windowButtonVisibility: true",
+    "Restore native title bar after startup failure failed",
+    "Error.throwWithStackTrace(error, stack)",
+):
+    if token not in windows_orchestrator[title_bar_call:]:
+        raise SystemExit(
+            f"Windows failed startup cannot restore the native title bar: {token}"
+        )
+
+windows_app = Path("SSRVPN_Windows/lib/app.dart").read_text(encoding="utf-8")
+if "return WindowsDesktopFrame(child: child);" not in windows_app:
+    raise SystemExit("Windows custom title bar wrapper is missing")
+if windows_app.count("_withWindowsFrame(status,") < 2:
+    raise SystemExit(
+        "Windows custom title bar does not wrap both startup and main shells"
+    )
+
 print("Desktop orchestration publication guards passed.")
 
 home = Path(

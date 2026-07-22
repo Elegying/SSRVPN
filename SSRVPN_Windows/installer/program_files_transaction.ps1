@@ -733,8 +733,18 @@ function Read-UninstallRegistrySnapshot {
 
 function Remove-UninstallRegistryKey {
   if (-not (Test-UninstallRegistryKeyExists)) { return }
-  [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
-    $script:uninstallRegistrySubkey)
+  # RegistryKey.DeleteSubKeyTree can surface a spurious Win32 error 0
+  # ("The operation completed successfully") in this Windows Server 2025
+  # recovery path. Use the already-pinned system reg.exe path and verify the
+  # postcondition instead of relying on that wrapper.
+  Invoke-RegExe -Arguments @(
+    'delete',
+    "HKCU\$($script:uninstallRegistrySubkey)",
+    '/f'
+  )
+  if (Test-UninstallRegistryKeyExists) {
+    throw 'The uninstall registry key could not be removed.'
+  }
 }
 
 function Restore-UninstallRegistrySnapshot {

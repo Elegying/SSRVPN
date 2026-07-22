@@ -78,33 +78,53 @@ class StartupOrchestrator {
     }
 
     await windowManager.ensureInitialized();
-    await windowManager.setPreventClose(true);
-    await windowManager.setMinimumSize(WindowStateStore.minimumSize);
+    try {
+      await windowManager.setTitleBarStyle(
+        TitleBarStyle.hidden,
+        windowButtonVisibility: false,
+      );
+      await windowManager.setPreventClose(true);
+      await windowManager.setMinimumSize(WindowStateStore.minimumSize);
 
-    final savedBounds =
-        flags.resetWindow ? null : await WindowStateStore.load();
-    final useSavedBounds =
-        savedBounds != null && await _intersectsAnyDisplay(savedBounds);
+      final savedBounds =
+          flags.resetWindow ? null : await WindowStateStore.load();
+      final useSavedBounds =
+          savedBounds != null && await _intersectsAnyDisplay(savedBounds);
 
-    if (useSavedBounds) {
-      await windowManager.setBounds(savedBounds);
-      StartupLogger.info('Restored window bounds: $savedBounds');
-    } else {
-      if (savedBounds != null) {
-        StartupLogger.warning(
-          'Saved window bounds are outside current displays: $savedBounds',
+      if (useSavedBounds) {
+        await windowManager.setBounds(savedBounds);
+        StartupLogger.info('Restored window bounds: $savedBounds');
+      } else {
+        if (savedBounds != null) {
+          StartupLogger.warning(
+            'Saved window bounds are outside current displays: $savedBounds',
+          );
+        }
+        await windowManager.setSize(WindowStateStore.defaultSize);
+        try {
+          await windowManager.center();
+        } catch (error, stack) {
+          StartupLogger.error('windowManager.center failed', error, stack);
+        }
+      }
+
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (error, stack) {
+      try {
+        await windowManager.setTitleBarStyle(
+          TitleBarStyle.normal,
+          windowButtonVisibility: true,
+        );
+      } catch (restoreError, restoreStack) {
+        StartupLogger.error(
+          'Restore native title bar after startup failure failed',
+          restoreError,
+          restoreStack,
         );
       }
-      await windowManager.setSize(WindowStateStore.defaultSize);
-      try {
-        await windowManager.center();
-      } catch (error, stack) {
-        StartupLogger.error('windowManager.center failed', error, stack);
-      }
+      Error.throwWithStackTrace(error, stack);
     }
-
-    await windowManager.show();
-    await windowManager.focus();
   }
 
   Future<void> initScreenRetriever() async {
