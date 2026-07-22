@@ -583,6 +583,13 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("$script:maxProgramFileCount", inventory)
         self.assertIn("$script:maxProgramTotalBytes", inventory)
         self.assertIn("Get-BoundedFileMetadata", inventory)
+        self.assertRegex(
+            inventory,
+            re.compile(
+                r"\[AllowEmptyCollection\(\)\]\s*"
+                r"\[System\.Collections\.ArrayList\]\$Entries"
+            ),
+        )
 
         begin = helper.split("function Begin-ProgramFilesTransaction", 1)[1].split(
             "function Recover-ProgramFilesTransaction", 1

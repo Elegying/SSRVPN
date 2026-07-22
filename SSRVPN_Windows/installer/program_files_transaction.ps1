@@ -443,7 +443,9 @@ function Add-InventoryEntry {
   param(
     [Parameter(Mandatory = $true)][string]$Root,
     [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][System.Collections.ArrayList]$Entries,
+    [Parameter(Mandatory = $true)]
+    [AllowEmptyCollection()]
+    [System.Collections.ArrayList]$Entries,
     [Parameter(Mandatory = $true)]$Limits,
     [switch]$ExcludePreservedData,
     [switch]$ExcludeInstallerMetadata
