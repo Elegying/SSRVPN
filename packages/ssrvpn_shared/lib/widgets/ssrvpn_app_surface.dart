@@ -78,6 +78,39 @@ class SsrvpnAppBackdrop extends StatelessWidget {
   }
 }
 
+/// Reserves the native/custom caption area without moving the app backdrop.
+///
+/// The window surface can therefore render edge-to-edge while widgets that use
+/// [SafeArea] stay clear of the platform window controls.
+class SsrvpnDesktopTitlebarInset extends StatelessWidget {
+  const SsrvpnDesktopTitlebarInset({
+    super.key,
+    required this.top,
+    required this.child,
+  });
+
+  final double top;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final currentPadding = mediaQuery.padding;
+    final resolvedTop = currentPadding.top > top ? currentPadding.top : top;
+    return MediaQuery(
+      data: mediaQuery.copyWith(
+        padding: EdgeInsets.fromLTRB(
+          currentPadding.left,
+          resolvedTop,
+          currentPadding.right,
+          currentPadding.bottom,
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
 class SsrvpnSurfaceCard extends StatelessWidget {
   const SsrvpnSurfaceCard({
     super.key,

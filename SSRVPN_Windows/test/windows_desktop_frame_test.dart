@@ -3,6 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_windows/widgets/windows_desktop_frame.dart';
 
 void main() {
+  test('window corner radius is removed only while maximized', () {
+    expect(resolveWindowsWindowCornerRadius(false), windowsWindowCornerRadius);
+    expect(resolveWindowsWindowCornerRadius(true), 0);
+  });
+
   testWidgets('custom title bar exposes accessible window controls',
       (tester) async {
     var minimized = false;
@@ -23,7 +28,7 @@ void main() {
     );
 
     expect(find.byKey(const Key('windows-custom-title-bar')), findsOneWidget);
-    expect(find.text('SSRVPN'), findsOneWidget);
+    expect(find.text('SSRVPN'), findsNothing);
     expect(find.byTooltip('最小化'), findsOneWidget);
     expect(find.byTooltip('最大化'), findsOneWidget);
     expect(find.byTooltip('关闭'), findsOneWidget);
@@ -35,6 +40,52 @@ void main() {
     expect(minimized, isTrue);
     expect(maximized, isTrue);
     expect(closed, isTrue);
+  });
+
+  testWidgets('content extends behind the title bar with a safe top inset',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: WindowsDesktopFrame(
+          child: Builder(
+            builder: (context) => ColoredBox(
+              key: const Key('desktop-backdrop-probe'),
+              color: const Color(0xFF181B3B),
+              child: Text('${MediaQuery.paddingOf(context).top}'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(Stack), findsWidgets);
+    expect(find.byType(ClipRRect), findsOneWidget);
+    expect(find.text('$windowsTitleBarHeight'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const Key('desktop-backdrop-probe'))).dy,
+      0,
+    );
+  });
+
+  testWidgets('title bar keeps a larger platform safe inset', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            padding: EdgeInsets.only(top: 64),
+          ),
+          child: WindowsDesktopFrame(
+            child: Builder(
+              builder: (context) => Text(
+                '${MediaQuery.paddingOf(context).top}',
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('64.0'), findsOneWidget);
   });
 
   testWidgets('maximized title bar offers restore and fits compact windows',

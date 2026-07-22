@@ -1,12 +1,19 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart'
+    show SsrvpnDesktopTitlebarInset;
 import 'package:window_manager/window_manager.dart';
 
 import '../startup/startup_logger.dart';
 import '../theme/app_theme.dart';
 
 const double windowsTitleBarHeight = 40;
+const double windowsWindowCornerRadius = 14;
+
+double resolveWindowsWindowCornerRadius(bool isMaximized) {
+  return isMaximized ? 0 : windowsWindowCornerRadius;
+}
 
 class WindowsDesktopFrame extends StatefulWidget {
   const WindowsDesktopFrame({
@@ -86,22 +93,37 @@ class _WindowsDesktopFrameState extends State<WindowsDesktopFrame>
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppTheme.bg,
-      child: Column(
-        children: [
-          WindowsTitleBar(
-            isMaximized: _isMaximized,
-            onMinimize: () =>
-                _runWindowAction('Minimize', windowManager.minimize),
-            onToggleMaximize: () => _runWindowAction(
-              _isMaximized ? 'Restore' : 'Maximize',
-              _isMaximized ? windowManager.unmaximize : windowManager.maximize,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(
+        resolveWindowsWindowCornerRadius(_isMaximized),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            SsrvpnDesktopTitlebarInset(
+              top: windowsTitleBarHeight,
+              child: widget.child,
             ),
-            onClose: () => _runWindowAction('Close', windowManager.close),
-          ),
-          Expanded(child: widget.child),
-        ],
+            Align(
+              alignment: Alignment.topCenter,
+              child: WindowsTitleBar(
+                isMaximized: _isMaximized,
+                onMinimize: () =>
+                    _runWindowAction('Minimize', windowManager.minimize),
+                onToggleMaximize: () => _runWindowAction(
+                  _isMaximized ? 'Restore' : 'Maximize',
+                  _isMaximized
+                      ? windowManager.unmaximize
+                      : windowManager.maximize,
+                ),
+                onClose: () => _runWindowAction('Close', windowManager.close),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -123,78 +145,34 @@ class WindowsTitleBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    return SizedBox(
       key: const Key('windows-custom-title-bar'),
-      decoration: const BoxDecoration(
-        color: AppTheme.bg,
-        border: Border(bottom: BorderSide(color: AppTheme.border, width: 0.5)),
-      ),
-      child: SizedBox(
-        height: windowsTitleBarHeight,
-        child: Row(
-          children: [
-            Expanded(
-              child: DragToMoveArea(
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 12),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 22,
-                        height: 22,
-                        decoration: BoxDecoration(
-                          color: AppTheme.primary.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: AppTheme.primary.withValues(alpha: 0.28),
-                            width: 0.5,
-                          ),
-                        ),
-                        alignment: Alignment.center,
-                        child: const Icon(
-                          Icons.shield_rounded,
-                          size: 14,
-                          color: AppTheme.primaryHover,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'SSRVPN',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.1,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+      height: windowsTitleBarHeight,
+      child: Row(
+        children: [
+          const Expanded(
+            child: DragToMoveArea(
+              child: SizedBox.expand(),
             ),
-            _CaptionButton(
-              tooltip: '最小化',
-              icon: Icons.remove_rounded,
-              onPressed: onMinimize,
-            ),
-            _CaptionButton(
-              tooltip: isMaximized ? '还原' : '最大化',
-              icon: isMaximized ? Icons.filter_none_rounded : Icons.crop_square,
-              iconSize: isMaximized ? 13 : 12,
-              onPressed: onToggleMaximize,
-            ),
-            _CaptionButton(
-              tooltip: '关闭',
-              icon: Icons.close_rounded,
-              destructive: true,
-              onPressed: onClose,
-            ),
-          ],
-        ),
+          ),
+          _CaptionButton(
+            tooltip: '最小化',
+            icon: Icons.remove_rounded,
+            onPressed: onMinimize,
+          ),
+          _CaptionButton(
+            tooltip: isMaximized ? '还原' : '最大化',
+            icon: isMaximized ? Icons.filter_none_rounded : Icons.crop_square,
+            iconSize: isMaximized ? 13 : 12,
+            onPressed: onToggleMaximize,
+          ),
+          _CaptionButton(
+            tooltip: '关闭',
+            icon: Icons.close_rounded,
+            destructive: true,
+            onPressed: onClose,
+          ),
+        ],
       ),
     );
   }
