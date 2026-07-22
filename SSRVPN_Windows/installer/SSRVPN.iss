@@ -557,9 +557,9 @@ begin
       if ProgramFilesTransactionPrepared then
         RecoverPendingProgramFilesTransaction;
       ReleaseInstallGates;
-      Result := '无法在回滚点保护下清理旧版程序文件，安装尚未写入新版本。' +
-        #13#10 + '旧程序已尽力恢复；恢复副本会保留到后续安装完成处理。' +
-        #13#10 + '诊断阶段码：' + BeginFailureStatus + '。';
+      Result := '无法在回滚点保护下清理旧版程序文件，安装尚未写入新版本。' + #13#10 +
+        '旧程序已尽力恢复；恢复副本会保留到后续安装完成处理。' + #13#10 +
+        '诊断阶段码：' + BeginFailureStatus + '。';
       exit;
     end;
     Result := '';
