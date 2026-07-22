@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsInstallerConfigTest(unittest.TestCase):
-    def test_installer_code_does_not_start_continuation_lines_with_brackets(
+    def test_installer_code_avoids_preprocessor_ambiguous_continuations(
         self,
     ) -> None:
         script = (ROOT / "SSRVPN_Windows" / "installer" / "SSRVPN.iss").read_text(
@@ -16,6 +16,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         code = script.split("[Code]", 1)[1]
 
         self.assertNotRegex(code, re.compile(r"^\s+\[[^\]]+\]", re.MULTILINE))
+        self.assertNotRegex(code, re.compile(r"^\s+#\d", re.MULTILINE))
 
     def test_installer_always_creates_desktop_shortcut(self) -> None:
         script = (ROOT / "SSRVPN_Windows" / "installer" / "SSRVPN.iss").read_text(
