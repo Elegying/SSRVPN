@@ -1728,7 +1728,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("HTTP 代理：127.0.0.1:$port", tray)
         self.assertIn("enabled: false", tray)
         self.assertIn("HTTP 127.0.0.1:$port", app)
-        self.assertIn("CoreRecoveryPolicy(maxAttempts: 1)", lifecycle)
+        self.assertIn("CoreRecoveryPolicy(maxAttempts: 2)", lifecycle)
         self.assertIn("inspectSystemProxyOwnership", lifecycle)
         self.assertIn("SystemProxyOwnershipStatus.owned", lifecycle)
         self.assertIn("Future<bool> start() => _start();", lifecycle)

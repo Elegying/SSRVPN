@@ -28,7 +28,7 @@ class ClashService extends ClashServiceBase {
   Future<bool>? _startOperation;
   Future<void>? _stopOperation;
   final CoreRecoveryPolicy _healthRecoveryPolicy =
-      CoreRecoveryPolicy(maxAttempts: 1);
+      CoreRecoveryPolicy(maxAttempts: 2);
   Future<void> _nativeSnapshotOperationTail = Future<void>.value();
   int _nativeSnapshotOperationCount = 0;
   String? _nativeSnapshotConfigPath;
