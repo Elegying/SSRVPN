@@ -172,7 +172,7 @@ void main() {
   });
 
   testWidgets(
-      'desktop status banners preserve navigation in a compact maximum-text window',
+      'desktop status banners preserve full instructions and navigation in a compact maximum-text window',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(380, 560));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -201,9 +201,8 @@ void main() {
       ),
     );
     await tester.pump();
-    fixture.clash.onRuntimeNotice?.call(
-      '连接未完成：本地端口被其他应用占用，已保留原有配置与系统代理恢复状态，请稍后重试连接。',
-    );
+    const runtimeNotice = '连接未完成：本地端口被其他应用占用，已保留原有配置与系统代理恢复状态，请稍后重试连接。';
+    fixture.clash.onRuntimeNotice?.call(runtimeNotice);
     await tester.pump();
 
     expect(tester.takeException(), isNull);
@@ -215,6 +214,51 @@ void main() {
       find.byKey(const Key('ssrvpn-bottom-navigation')).hitTestable(),
       findsOneWidget,
     );
+    final bannerTextFinder = find.descendant(
+      of: find.byKey(const Key('desktop-startup-banner-scroll')),
+      matching: find.byType(Text),
+    );
+    final bannerTexts = tester.widgetList<Text>(bannerTextFinder).toList();
+    expect(bannerTexts, isNotEmpty);
+    expect(
+      bannerTexts.where(
+        (text) =>
+            text.maxLines != null || text.overflow == TextOverflow.ellipsis,
+      ),
+      isEmpty,
+    );
+  });
+
+  testWidgets(
+      'power button cancels a service-owned unexpected-exit recovery window',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    fixture.clash.requestConnectionIntent(true);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(find.text('已连接'), findsWidgets);
+
+    fixture.clash.publishRunning(false);
+    await tester.pump();
+    expect(fixture.clash.connectionDesired, isTrue);
+    expect(find.text('正在连接'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await tester.pump();
+    await _pumpUntil(
+      tester,
+      () => fixture.clash.transitionEvents.contains('stop'),
+    );
+
+    expect(fixture.clash.connectionDesired, isFalse);
+    expect(fixture.clash.startCalls, 0);
+    expect(fixture.clash.transitionEvents, isNot(contains('start')));
+    expect(find.text('未连接'), findsOneWidget);
   });
 
   testWidgets('home supports its primary desktop connection journey',
@@ -376,6 +420,7 @@ void main() {
       await _pumpUntil(tester, () => switchStarted.isCompleted);
       expect(fixture.clash.lastSwitchAttempt, '新加坡节点');
 
+      fixture.clash.requestConnectionIntent(false);
       fixture.clash.publishRunning(false);
       await tester.pump();
       releaseSwitch.complete();

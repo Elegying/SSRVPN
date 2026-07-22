@@ -151,8 +151,6 @@ class _StartupBanner extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     message,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: isDark
                           ? AppTheme.textSecondary
