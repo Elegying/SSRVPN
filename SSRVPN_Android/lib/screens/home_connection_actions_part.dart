@@ -102,6 +102,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           _updateHomeState(() {
             _isConnected = clashService.isRunning;
             _isConnecting = false;
+            _nativeRecoveryInProgress = false;
             if (!_isConnected) {
               _latencyController.clear();
               _resetPublicIpState();

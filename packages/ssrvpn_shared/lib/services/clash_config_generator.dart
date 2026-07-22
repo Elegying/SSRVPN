@@ -85,9 +85,13 @@ class ClashConfigGenerator {
     }
 
     final selectedProxyNames = List<String>.from(proxyNames);
-    if (preferredNodeName != null &&
-        selectedProxyNames.remove(preferredNodeName)) {
-      selectedProxyNames.insert(0, preferredNodeName);
+    final canonicalPreferredNodeName = preferredNodeName == null
+        ? null
+        : _canonicalProxyName(preferredNodeName);
+    if (canonicalPreferredNodeName != null &&
+        canonicalPreferredNodeName.isNotEmpty &&
+        selectedProxyNames.remove(canonicalPreferredNodeName)) {
+      selectedProxyNames.insert(0, canonicalPreferredNodeName);
     }
     final healthCheckUrl = latencyTestUrl ?? settings.latencyTestUrl;
 
@@ -328,7 +332,7 @@ class ClashConfigGenerator {
         return proxies
             .whereType<Map>()
             .where(ProxyNodeUsagePolicy.isRunnableProxyMap)
-            .map((proxy) => proxy['name']?.toString().trim() ?? '')
+            .map((proxy) => _canonicalProxyName(proxy['name']))
             .where((name) => name.isNotEmpty)
             .toList();
       }
@@ -347,9 +351,13 @@ class ClashConfigGenerator {
         final buffer = StringBuffer();
         for (final proxy in proxies.whereType<Map>()) {
           if (!ProxyNodeUsagePolicy.isRunnableProxyMap(proxy)) continue;
-          final name = proxy['name']?.toString().trim();
-          if (name == null || name.isEmpty) continue;
-          buffer.writeln('  - ${jsonEncode(_plainYamlValue(proxy))}');
+          final name = _canonicalProxyName(proxy['name']);
+          if (name.isEmpty) continue;
+          final normalizedProxy = Map<Object?, Object?>.from(proxy)
+            ..['name'] = name;
+          buffer.writeln(
+            '  - ${jsonEncode(_plainYamlValue(normalizedProxy))}',
+          );
         }
         final text = buffer.toString().trimRight();
         if (text.isNotEmpty) return text;
@@ -433,7 +441,8 @@ class ClashConfigGenerator {
           if (ProxyNodeUsagePolicy.isSubscriptionInfoName(unquotedName)) {
             continue;
           }
-          names.add(unquotedName);
+          final canonicalName = _canonicalProxyName(unquotedName);
+          if (canonicalName.isNotEmpty) names.add(canonicalName);
         }
       }
 
@@ -471,6 +480,9 @@ class ClashConfigGenerator {
 
   static String _sanitizeScalar(String value) =>
       value.replaceAll(RegExp(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]'), '');
+
+  static String _canonicalProxyName(Object? value) =>
+      _sanitizeScalar(value?.toString() ?? '').trim();
 
   /// 构建强制代理规则
   static List<String> buildForceProxyRules(AppSettings settings) {

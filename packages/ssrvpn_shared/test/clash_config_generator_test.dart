@@ -398,6 +398,38 @@ proxies:
       );
     });
 
+    test('proxy names are canonicalized identically in nodes and groups', () {
+      const yaml = r'''
+proxies:
+  - name: "  \u0001Canonical Node\u0002  "
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: test123
+''';
+
+      final parsed = loadYaml(
+        ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+      ) as YamlMap;
+      final emittedProxyNames = (parsed['proxies'] as YamlList)
+          .map((proxy) => (proxy as YamlMap)['name'])
+          .cast<String>()
+          .toSet();
+      final groups = (parsed['proxy-groups'] as YamlList).cast<YamlMap>();
+      final groupNames =
+          groups.map((group) => group['name']).cast<String>().toSet();
+
+      expect(emittedProxyNames, {'Canonical Node'});
+      for (final group in groups) {
+        final members = (group['proxies'] as YamlList).cast<String>();
+        expect(
+          members.where((member) => !groupNames.contains(member)),
+          everyElement(isIn(emittedProxyNames)),
+        );
+      }
+    });
+
     test('generateConfig enables externally refreshed CN rule providers', () {
       final yaml = '''
 proxies:

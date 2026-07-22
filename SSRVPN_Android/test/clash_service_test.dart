@@ -30,6 +30,149 @@ class _RealHttpOverrides extends HttpOverrides {}
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('authoritative native recovery state preserves then retires intent',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var nativeState = <String, Object?>{
+      'running': false,
+      'transitioning': true,
+      'protectedConfigPath': null,
+      'sessionGeneration': null,
+    };
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getConnectionState') return nativeState;
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final service = ClashService()..requestConnectionIntent(true);
+    addTearDown(service.dispose);
+
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(service.isRunning, isFalse);
+    expect(service.nativeConnectionTransitioning, isTrue);
+    expect(service.connectionDesired, isTrue);
+
+    nativeState = <String, Object?>{
+      'running': false,
+      'transitioning': false,
+      'protectedConfigPath': null,
+      'sessionGeneration': null,
+    };
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(service.nativeConnectionTransitioning, isFalse);
+    expect(service.connectionDesired, isFalse);
+  });
+
+  test('native running sync adopts the externally started session', () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getConnectionState') {
+        return <String, Object?>{
+          'running': true,
+          'transitioning': false,
+          'protectedConfigPath': null,
+          'sessionGeneration': 7,
+        };
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final service = ClashService();
+    addTearDown(service.dispose);
+
+    expect(service.connectionDesired, isFalse);
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+  });
+
+  test('terminal state during an owned start does not cancel retry intent',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final startCalled = Completer<void>();
+    final startResult = Completer<Object?>();
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+          if (!startCalled.isCompleted) startCalled.complete();
+          return startResult.future;
+        case 'getConnectionState':
+          return <String, Object?>{
+            'running': false,
+            'transitioning': false,
+            'protectedConfigPath': null,
+            'sessionGeneration': null,
+          };
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_owned_start_state_',
+    );
+    addTearDown(() => dir.delete(recursive: true));
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString(_testProxies);
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..requestConnectionIntent(true);
+    addTearDown(service.dispose);
+
+    final start = service.start(preparedConfigPath: config.path);
+    await startCalled.future;
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(service.connectionDesired, isTrue);
+
+    startResult.complete('address already in use');
+    expect(await start, isFalse);
+  });
+
+  test('terminal state during an owned stop preserves reload intent', () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final stopCalled = Completer<void>();
+    final stopResult = Completer<void>();
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'stopCore':
+          if (!stopCalled.isCompleted) stopCalled.complete();
+          await stopResult.future;
+          return null;
+        case 'getConnectionState':
+          return <String, Object?>{
+            'running': false,
+            'transitioning': false,
+            'protectedConfigPath': null,
+            'sessionGeneration': null,
+          };
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final service = ClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    addTearDown(service.dispose);
+
+    final stop = service.stop();
+    await stopCalled.future;
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(service.connectionDesired, isTrue);
+
+    stopResult.complete();
+    await stop;
+    expect(service.connectionDesired, isTrue);
+  });
+
   group('ClashService Android config generation', () {
     test('generates valid YAML with TUN enabled', () {
       final config = ClashService().generateClashConfig(

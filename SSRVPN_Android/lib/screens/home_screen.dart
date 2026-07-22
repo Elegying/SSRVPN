@@ -51,6 +51,7 @@ class HomeScreenState extends State<HomeScreen>
   List<ProxyNode> _nodes = [];
   bool _isConnected = false;
   bool _isConnecting = false;
+  bool _nativeRecoveryInProgress = false;
   bool _isBatchTesting = false;
   String? _errorMessage;
   String? _testingNodeName;

@@ -47,39 +47,114 @@ extension AndroidNativeBridge on ClashService {
     if (call.method != 'vpnStateChanged') return;
     final connected = call.arguments == true;
     final nativeStateEpoch = ++_nativeStateEpoch;
-    if (!connected) _nativeSessionGeneration = null;
-    unawaited(_restoreNativeConnectionState(nativeStateEpoch));
-    if (isRunning == connected) return;
-    setRunning(connected);
-    log(connected ? '原生通知: VPN 已连接' : '原生通知: VPN 已断开');
-    if (connected) {
-      startStatusMonitor();
-    } else {
-      stopStatusMonitor();
+    final synchronized = await _refreshNativeConnectionState(
+      nativeStateEpoch,
+      source: '原生通知',
+    );
+    if (nativeStateEpoch != _nativeStateEpoch || synchronized) return;
+
+    // A false broadcast can mean either a short recovery gap or a terminal
+    // stop. Without the authoritative `transitioning` bit, changing the Dart
+    // state would make a recovery look like a new connection opportunity.
+    // Keep the last safe state; a later recovery/terminal broadcast will retry.
+    if (!connected) {
+      log('原生通知 VPN 已断开，但会话状态查询失败，暂不推断恢复结果');
+      return;
     }
-    notifyStatusChanged();
+
+    final changed = !isRunning || _nativeConnectionTransitioning;
+    _nativeConnectionTransitioning = false;
+    setRunning(true);
+    startStatusMonitor();
+    log('原生通知: VPN 已连接（会话详情稍后同步）');
+    if (changed) notifyStatusChanged();
   }
 
   Future<void> _syncNativeState() async {
-    final nativeStateEpoch = _nativeStateEpoch;
-    final state = await _queryNativeConnectionState();
-    if (nativeStateEpoch != _nativeStateEpoch || state == null) return;
-    _nativeSessionProtocolAvailable = true;
-    _runningConfigPath = state.protectedConfigPath;
-    _nativeSessionGeneration = state.sessionGeneration;
-    if (state.running && !isRunning) {
-      setRunning(true);
-      log('检测到 VPN 已在运行（磁贴启动），同步状态');
-      startStatusMonitor();
-    }
+    await refreshNativeConnectionState(source: '启动同步');
   }
 
-  Future<void> _restoreNativeConnectionState(int nativeStateEpoch) async {
+  /// Refreshes the native VPN session as one authoritative state snapshot.
+  ///
+  /// Native recovery deliberately reports `running=false` while keeping
+  /// `transitioning=true`. Consumers must never publish the running flag
+  /// before this method has also applied the transition bit.
+  Future<bool> refreshNativeConnectionState({String source = '主动同步'}) {
+    final nativeStateEpoch = ++_nativeStateEpoch;
+    return _refreshNativeConnectionState(
+      nativeStateEpoch,
+      source: source,
+    );
+  }
+
+  Future<bool> _refreshNativeConnectionState(
+    int nativeStateEpoch, {
+    required String source,
+  }) async {
     final state = await _queryNativeConnectionState();
-    if (state != null && nativeStateEpoch == _nativeStateEpoch) {
-      _nativeSessionProtocolAvailable = true;
-      _runningConfigPath = state.protectedConfigPath;
-      _nativeSessionGeneration = state.sessionGeneration;
+    if (state == null || nativeStateEpoch != _nativeStateEpoch) return false;
+    _applyNativeConnectionState(state, source: source);
+    return true;
+  }
+
+  void _applyNativeConnectionState(
+    _NativeConnectionState state, {
+    required String source,
+  }) {
+    final nativeWasRunning = isRunning;
+    final recoveryWasObserved = _nativeConnectionTransitioning;
+    final dartOwnsStart = _startOperation != null;
+    final dartOwnsStop = _stopOperation != null;
+    final statusChanged = isRunning != state.running;
+    final transitionChanged =
+        _nativeConnectionTransitioning != state.transitioning;
+    final sessionChanged =
+        _nativeSessionGeneration != state.sessionGeneration ||
+            _runningConfigPath != state.protectedConfigPath;
+    _nativeSessionProtocolAvailable = true;
+    _nativeConnectionTransitioning = state.transitioning;
+    _runningConfigPath = state.protectedConfigPath;
+    _nativeSessionGeneration = state.sessionGeneration;
+
+    if (state.running &&
+        !connectionDesired &&
+        !dartOwnsStart &&
+        !dartOwnsStop) {
+      // A quick tile or a surviving native session can exist before this Dart
+      // process has a connection intent. Adopt it so a later recovery remains
+      // cancellable from the application UI.
+      requestConnectionIntent(true);
+    }
+    final terminalUnexpectedStop = !state.running &&
+        !state.transitioning &&
+        connectionDesired &&
+        !dartOwnsStart &&
+        !dartOwnsStop &&
+        (nativeWasRunning || recoveryWasObserved);
+    if (state.running) {
+      setRunning(true);
+      startStatusMonitor();
+    } else {
+      stopStatusMonitor();
+      if (terminalUnexpectedStop) {
+        _markNativeConnectionLost();
+      } else {
+        setRunning(false);
+      }
+    }
+
+    if (statusChanged || transitionChanged) {
+      if (state.running) {
+        log('$source: VPN 已连接');
+      } else if (state.transitioning) {
+        log('$source: VPN 核心正在自动恢复');
+      } else {
+        log('$source: VPN 已断开');
+      }
+    }
+    if (!terminalUnexpectedStop &&
+        (statusChanged || transitionChanged || sessionChanged)) {
+      notifyStatusChanged();
     }
   }
 
@@ -89,37 +164,20 @@ extension AndroidNativeBridge on ClashService {
     }
     final state = await _queryNativeConnectionState();
     if (state == null || !state.running || state.sessionGeneration == null) {
+      if (state != null) {
+        _applyNativeConnectionState(state, source: '会话校验');
+      }
       return false;
     }
-    _nativeSessionProtocolAvailable = true;
-    _runningConfigPath = state.protectedConfigPath;
-    _nativeSessionGeneration = state.sessionGeneration;
+    _applyNativeConnectionState(state, source: '会话校验');
     return true;
   }
 
   Future<bool> _isNativeSessionCurrent(int expectedGeneration) async {
     final state = await _queryNativeConnectionState();
-    if (state?.running == true &&
-        state?.sessionGeneration == expectedGeneration) {
-      _runningConfigPath = state?.protectedConfigPath;
-      return true;
-    }
     if (state != null) {
-      final statusChanged = isRunning != state.running;
-      final sessionChanged =
-          _nativeSessionGeneration != state.sessionGeneration;
-      _nativeSessionProtocolAvailable = true;
-      _runningConfigPath = state.protectedConfigPath;
-      _nativeSessionGeneration = state.sessionGeneration;
-      if (statusChanged) {
-        setRunning(state.running);
-        if (state.running) {
-          startStatusMonitor();
-        } else {
-          stopStatusMonitor();
-        }
-      }
-      if (statusChanged || sessionChanged) notifyStatusChanged();
+      _applyNativeConnectionState(state, source: '会话校验');
+      return state.running && state.sessionGeneration == expectedGeneration;
     }
     return false;
   }
