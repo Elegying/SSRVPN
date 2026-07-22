@@ -46,6 +46,11 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _updateCheckInProgress = false;
   bool _updateCheckCompleted = false;
   int _updateCheckAttempts = 0;
+
+  bool _isConnectionTransitionActive(ClashService clashService) =>
+      _isConnecting ||
+      (!clashService.isRunning && clashService.connectionDesired);
+
   @override
   void setState(VoidCallback fn) {
     super.setState(fn);
@@ -278,7 +283,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final subService = context.read<SubscriptionService>();
     final settingsService = context.read<SettingsService>();
 
-    if (_isConnecting) {
+    if (_isConnectionTransitionActive(clashService)) {
       clashService.requestConnectionIntent(false);
       clashService.interruptPendingStart();
       try {
@@ -585,6 +590,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsService>().settings;
+    final clashService = _clashService ?? context.read<ClashService>();
+    final isConnectionTransition = _isConnectionTransitionActive(clashService);
     final displayNode = _isConnected
         ? HomeNodeController.resolveRuntimeSelectedNodeFrom(
             _nodes,
@@ -605,7 +612,7 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
         isConnected: _isConnected,
-        isConnecting: _isConnecting,
+        isConnecting: isConnectionTransition,
         selectedNode: displayNode,
         selectedLatency: selectedLatency,
         selectedCountryCode: selectedCountryCode,
@@ -650,7 +657,9 @@ class _HomeScreenState extends State<HomeScreen> {
           enableTunOf: () => context.read<SettingsService>().settings.enableTun,
           testingNodeNameOf: () => _testingNodeName,
           isBatchTestingOf: () => _isBatchTesting,
-          isConnectingOf: () => _isConnecting,
+          isConnectingOf: () => _isConnectionTransitionActive(
+            _clashService ?? context.read<ClashService>(),
+          ),
           countryCodeOf: (node) =>
               _exitCountryCodes[node.name] ?? countryCodeForProxyNode(node),
           latencyOf: _latencyController.latencyFor,
