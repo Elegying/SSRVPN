@@ -90,6 +90,132 @@ void main() {
     expect(service.connectionDesired, isTrue);
   });
 
+  test(
+      'terminal false broadcast retries transient state failures and retires intent',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var stateReads = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method != 'getConnectionState') return null;
+      stateReads += 1;
+      if (stateReads <= 2) {
+        throw PlatformException(code: 'TRANSIENT_STATE_READ');
+      }
+      return <String, Object?>{
+        'running': false,
+        'transitioning': false,
+        'protectedConfigPath': null,
+        'sessionGeneration': null,
+      };
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final service = ClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    addTearDown(service.dispose);
+
+    await service.handleNativeStateChangedForTesting(false);
+
+    expect(stateReads, 3);
+    expect(service.isRunning, isFalse);
+    expect(service.nativeConnectionTransitioning, isFalse);
+    expect(service.connectionDesired, isFalse);
+  });
+
+  test('terminal retry cannot overwrite a newer reconnect intent', () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var stateReads = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method != 'getConnectionState') return null;
+      stateReads += 1;
+      if (stateReads == 1) {
+        throw PlatformException(code: 'TRANSIENT_STATE_READ');
+      }
+      return <String, Object?>{
+        'running': false,
+        'transitioning': false,
+        'protectedConfigPath': null,
+        'sessionGeneration': null,
+      };
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final service = ClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    addTearDown(service.dispose);
+
+    final staleTerminalSync = service.handleNativeStateChangedForTesting(false);
+    await Future<void>.delayed(Duration.zero);
+    service.requestConnectionIntent(true);
+    await staleTerminalSync;
+
+    expect(stateReads, 1);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+  });
+
+  test('terminal state retry is bounded when every query fails', () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var stateReads = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method != 'getConnectionState') return null;
+      stateReads += 1;
+      throw PlatformException(code: 'PERSISTENT_STATE_READ_FAILURE');
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final service = ClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    addTearDown(service.dispose);
+
+    await service.handleNativeStateChangedForTesting(false);
+
+    expect(stateReads, 3);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+  });
+
+  test('newer native broadcast invalidates an older terminal retry', () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var stateReads = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method != 'getConnectionState') return null;
+      stateReads += 1;
+      if (stateReads == 1) {
+        throw PlatformException(code: 'TRANSIENT_STATE_READ');
+      }
+      return <String, Object?>{
+        'running': true,
+        'transitioning': false,
+        'protectedConfigPath': null,
+        'sessionGeneration': 9,
+      };
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final service = ClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    addTearDown(service.dispose);
+
+    final staleTerminalSync = service.handleNativeStateChangedForTesting(false);
+    await Future<void>.delayed(Duration.zero);
+    await service.handleNativeStateChangedForTesting(true);
+    await staleTerminalSync;
+
+    expect(stateReads, 2);
+    expect(service.isRunning, isTrue);
+    expect(service.nativeConnectionTransitioning, isFalse);
+    expect(service.connectionDesired, isTrue);
+  });
+
   test('terminal state during an owned start does not cancel retry intent',
       () async {
     const channel = MethodChannel('com.ssrvpn/native');

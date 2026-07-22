@@ -45,20 +45,47 @@ extension AndroidNativeBridge on ClashService {
       return;
     }
     if (call.method != 'vpnStateChanged') return;
-    final connected = call.arguments == true;
+    await _handleNativeStateChanged(call.arguments == true);
+  }
+
+  @visibleForTesting
+  Future<void> handleNativeStateChangedForTesting(bool connected) =>
+      _handleNativeStateChanged(connected);
+
+  Future<void> _handleNativeStateChanged(bool connected) async {
     final nativeStateEpoch = ++_nativeStateEpoch;
+    final startGeneration = _startGeneration;
+    final connectionWasDesired = connectionDesired;
+    final connectionGeneration = captureAutomaticRestartIntent();
+    bool reconciliationIsCurrent() =>
+        nativeStateEpoch == _nativeStateEpoch &&
+        startGeneration == _startGeneration &&
+        (connectionWasDesired
+            ? connectionGeneration != null &&
+                isConnectionIntentCurrent(
+                  connectionGeneration,
+                  connected: true,
+                )
+            : !connectionDesired);
     final synchronized = await _refreshNativeConnectionState(
       nativeStateEpoch,
       source: '原生通知',
+      isStillCurrent: reconciliationIsCurrent,
     );
-    if (nativeStateEpoch != _nativeStateEpoch || synchronized) return;
+    if (!reconciliationIsCurrent() || synchronized) return;
 
     // A false broadcast can mean either a short recovery gap or a terminal
     // stop. Without the authoritative `transitioning` bit, changing the Dart
-    // state would make a recovery look like a new connection opportunity.
-    // Keep the last safe state; a later recovery/terminal broadcast will retry.
+    // state would make a recovery look like a new connection opportunity. A
+    // terminal broadcast is not guaranteed to repeat, so retry the
+    // authoritative snapshot with a small bounded backoff instead of leaving
+    // the Dart state connected forever.
     if (!connected) {
-      log('原生通知 VPN 已断开，但会话状态查询失败，暂不推断恢复结果');
+      log('原生通知 VPN 已断开，但会话状态查询失败，正在有限重试');
+      await _retryTerminalNativeStateSync(
+        nativeStateEpoch,
+        isStillCurrent: reconciliationIsCurrent,
+      );
       return;
     }
 
@@ -68,6 +95,25 @@ extension AndroidNativeBridge on ClashService {
     startStatusMonitor();
     log('原生通知: VPN 已连接（会话详情稍后同步）');
     if (changed) notifyStatusChanged();
+  }
+
+  Future<void> _retryTerminalNativeStateSync(
+    int nativeStateEpoch, {
+    required bool Function() isStillCurrent,
+  }) async {
+    for (final delay in ClashService._terminalNativeStateRetryDelays) {
+      await Future<void>.delayed(delay);
+      if (!isStillCurrent()) return;
+      final synchronized = await _refreshNativeConnectionState(
+        nativeStateEpoch,
+        source: '原生终止状态重试',
+        isStillCurrent: isStillCurrent,
+      );
+      if (!isStillCurrent() || synchronized) return;
+    }
+    if (isStillCurrent()) {
+      log('原生 VPN 终止状态连续查询失败，保留最后可信状态等待下次同步');
+    }
   }
 
   Future<void> _syncNativeState() async {
@@ -90,9 +136,14 @@ extension AndroidNativeBridge on ClashService {
   Future<bool> _refreshNativeConnectionState(
     int nativeStateEpoch, {
     required String source,
+    bool Function()? isStillCurrent,
   }) async {
     final state = await _queryNativeConnectionState();
-    if (state == null || nativeStateEpoch != _nativeStateEpoch) return false;
+    if (state == null ||
+        nativeStateEpoch != _nativeStateEpoch ||
+        isStillCurrent?.call() == false) {
+      return false;
+    }
     _applyNativeConnectionState(state, source: source);
     return true;
   }
