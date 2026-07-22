@@ -118,9 +118,10 @@ class UpdateService {
     if (!Platform.isWindows) {
       throw UnsupportedError('Windows installer publication is Windows-only');
     }
-    final sourcePath = source.absolute.path.toNativeUtf16(allocator: calloc);
-    final destinationPath =
-        destination.absolute.path.toNativeUtf16(allocator: calloc);
+    final sourcePath = _toExtendedLengthPath(source.absolute.path)
+        .toNativeUtf16(allocator: calloc);
+    final destinationPath = _toExtendedLengthPath(destination.absolute.path)
+        .toNativeUtf16(allocator: calloc);
     try {
       // Resolve GetLastError before the native call so symbol lookup cannot
       // overwrite the error produced by CreateHardLinkW.
@@ -148,6 +149,15 @@ class UpdateService {
           Int32 Function(Pointer<Utf16>, Pointer<Utf16>, Pointer<Void>),
           int Function(Pointer<Utf16>, Pointer<Utf16>,
               Pointer<Void>)>('CreateHardLinkW');
+
+  static String _toExtendedLengthPath(String path) {
+    if (path.startsWith('\\\\?\\')) return path;
+    final normalized = p.windows.normalize(path);
+    if (normalized.startsWith('\\\\')) {
+      return '\\\\?\\UNC\\${normalized.substring(2)}';
+    }
+    return '\\\\?\\$normalized';
+  }
 
   @visibleForTesting
   static Future<void> recoverStaleDesktopArtifacts(

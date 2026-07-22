@@ -1784,6 +1784,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("VerifiedUpdateFilePublisher? filePublisher", shared_service)
         self.assertIn("filePublisher(source, destination)", shared_service)
         self.assertIn("CreateHardLinkW", windows_service)
+        self.assertIn("_toExtendedLengthPath(source.absolute.path)", windows_service)
+        self.assertIn("\\\\\\\\?\\\\UNC\\\\", windows_service)
         self.assertIn(
             "filePublisher: Platform.isWindows ? publishVerifiedInstaller : null",
             windows_service,
