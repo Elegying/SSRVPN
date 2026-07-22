@@ -1786,6 +1786,15 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("CreateHardLinkW", windows_service)
         self.assertIn("_toExtendedLengthPath(source.absolute.path)", windows_service)
         self.assertIn("\\\\\\\\?\\\\UNC\\\\", windows_service)
+        runner_manifest = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "windows"
+            / "runner"
+            / "runner.exe.manifest"
+        ).read_text(encoding="utf-8")
+        self.assertIn("<longPathAware", runner_manifest)
+        self.assertIn(">true</longPathAware>", runner_manifest)
         self.assertIn(
             "filePublisher: Platform.isWindows ? publishVerifiedInstaller : null",
             windows_service,
