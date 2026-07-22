@@ -39,6 +39,7 @@ class UpdateService {
     required String changelog,
     required String? sha256,
     String? fallbackDownloadUrl,
+    VerifiedUpdatePreparer? prepareForInstall,
   }) async {
     final update = AppUpdateInfo(
       version: latestVersion,
@@ -56,6 +57,7 @@ class UpdateService {
             context,
             SharedUpdateService.preferDownloadUrl(update, url),
             fileName: _dmgFileName(latestVersion),
+            beforeOpen: prepareForInstall,
             openFile: (file) async {
               await Process.start(_openPath, [file.path]);
             },
@@ -83,7 +85,9 @@ class UpdateService {
                   ),
                   const SizedBox(height: 12),
                   const Text(
-                    '下载并校验完成后会打开 DMG。请将 SSRVPN 拖入“应用程序”文件夹，替换旧版本，然后重新启动 SSRVPN。',
+                    '下载并校验完成后会先安全断开当前连接，再打开 DMG。'
+                    '拖入“应用程序”文件夹替换旧版本前，请先彻底退出当前 SSRVPN，'
+                    '不要在旧进程仍运行时覆盖；替换完成后再重新启动 SSRVPN。',
                   ),
                   if (changelog.trim().isNotEmpty) ...[
                     const SizedBox(height: 16),

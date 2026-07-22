@@ -15,6 +15,7 @@ import '../utils/app_modal_coordinator.dart';
 typedef DownloadOpener = Future<void> Function(String url);
 typedef VerifiedUpdateHandler = Future<void> Function(File file);
 typedef VerifiedUpdateOpener = VerifiedUpdateHandler;
+typedef VerifiedUpdatePreparer = Future<bool> Function();
 
 class VerifiedUpdateCancelled implements Exception {
   @override
@@ -1133,6 +1134,7 @@ New-Item -ItemType HardLink -Path $DestinationPath -Target $SourcePath -ErrorAct
     AppUpdateInfo update, {
     required String fileName,
     required VerifiedUpdateOpener openFile,
+    VerifiedUpdatePreparer? beforeOpen,
     Directory? outputDirectory,
     http.Client? client,
   }) {
@@ -1140,7 +1142,12 @@ New-Item -ItemType HardLink -Path $DestinationPath -Target $SourcePath -ErrorAct
       context,
       update,
       fileName: fileName,
-      onVerified: openFile,
+      onVerified: (file) async {
+        if (beforeOpen != null && !await beforeOpen()) {
+          throw StateError('无法安全断开当前连接，已阻止打开更新安装包');
+        }
+        await openFile(file);
+      },
       outputDirectory: outputDirectory,
       client: client,
       progressDescription: '下载完成并通过 SHA256 校验后才会打开安装包。',

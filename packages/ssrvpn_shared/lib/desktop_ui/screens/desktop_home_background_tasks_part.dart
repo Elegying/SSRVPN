@@ -180,6 +180,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
           changelog: update.changelog,
           sha256: update.sha256,
           fallbackDownloadUrl: update.fallbackDownloadUrl,
+          prepareForInstall: _prepareForUpdateInstall,
         );
       }
       _updateCheckCompleted = true;
@@ -192,5 +193,38 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     if (shouldRetry && mounted && !_disposed) {
       _checkUpdateDelayed(delay: const Duration(minutes: 1));
     }
+  }
+
+  Future<bool> _prepareForUpdateInstall() async {
+    if (!mounted || _disposed) return false;
+    final clashService = _clashService ?? context.read<ClashService>();
+    if (!clashService.isRunning && !clashService.connectionDesired) return true;
+
+    clashService.requestConnectionIntent(false);
+    clashService.interruptPendingStart();
+    try {
+      await clashService.runConnectionTransition(clashService.stop);
+    } catch (error, stack) {
+      recordDesktopConnectionFailure(
+        '更新前安全断开失败',
+        error: error,
+        stack: stack,
+      );
+    }
+
+    final stopped = !clashService.isRunning;
+    if (mounted && !_disposed) {
+      setState(() {
+        _isConnected = clashService.isRunning;
+        _isConnecting = false;
+        if (stopped) {
+          _selectedNode = null;
+          _resetPublicIpState();
+        } else {
+          _errorMessage = '更新前无法安全断开连接，已阻止打开安装包。请先手动断开后重试';
+        }
+      });
+    }
+    return stopped;
   }
 }

@@ -30,6 +30,8 @@ void main() {
 
     expect(find.text('下载并打开 DMG'), findsOneWidget);
     expect(find.textContaining('拖入“应用程序”'), findsOneWidget);
+    expect(find.textContaining('先安全断开当前连接'), findsOneWidget);
+    expect(find.textContaining('彻底退出当前 SSRVPN'), findsOneWidget);
     expect(find.textContaining('重新启动'), findsOneWidget);
     expect(find.text('立即更新'), findsNothing);
     await tester.tap(find.text('稍后再说'));

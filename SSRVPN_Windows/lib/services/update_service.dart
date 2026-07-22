@@ -33,6 +33,8 @@ class UpdateService {
     String? fallbackDownloadUrl,
     Directory? desktopDirectory,
     http.Client? client,
+    // Kept in the shared desktop API; Windows only downloads the installer.
+    VerifiedUpdatePreparer? prepareForInstall,
   }) async {
     final update = AppUpdateInfo(
       version: latestVersion,
