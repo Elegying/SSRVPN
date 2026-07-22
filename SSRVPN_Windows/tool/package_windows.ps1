@@ -14,6 +14,11 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = [System.IO.Path]::GetFullPath(
   (Join-Path $PSScriptRoot '..')
 )
+$payloadGuardPath = Join-Path $PSScriptRoot 'assert_clean_package_payload.ps1'
+if (-not (Test-Path -LiteralPath $payloadGuardPath -PathType Leaf)) {
+  throw "Package payload guard was not found: $payloadGuardPath"
+}
+. $payloadGuardPath
 $buildDir = Join-Path $projectRoot 'build\windows\x64\runner\Release'
 $releaseDir = Join-Path $projectRoot 'SSRVPN_Windows_Release'
 $binDir = Join-Path $releaseDir 'bin'
@@ -630,6 +635,8 @@ Try one of these fixes on the build machine:
 function Test-ReleaseContents {
   param([Parameter(Mandatory = $true)][string]$Root)
 
+  Assert-CleanPackagePayload -Root $Root
+
   $rootExeFiles = @(Get-ChildItem -LiteralPath $Root -File -Filter '*.exe')
   if ($rootExeFiles.Count -ne 1 -or $rootExeFiles[0].Name -ne 'ssrvpn_windows.exe') {
     $names = ($rootExeFiles | ForEach-Object { $_.Name }) -join ', '
@@ -804,6 +811,7 @@ try {
   if (-not (Test-Path -LiteralPath $buildDir -PathType Container)) {
     throw "Release build directory not found: $buildDir"
   }
+  Assert-CleanPackagePayload -Root $buildDir
 
   $expectedReleaseDir = [System.IO.Path]::GetFullPath(
     (Join-Path $projectRoot 'SSRVPN_Windows_Release')

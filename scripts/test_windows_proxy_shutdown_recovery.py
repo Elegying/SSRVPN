@@ -237,11 +237,20 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
                 "void _ensureStartCurrent"
             )
         ]
-        core_exit = stop.index("await terminateCoreProcess(coreProcess)")
-        pid_cleanup = stop.index("await _deleteCorePid()", core_exit)
+        missing_identity = stop.index("if (expectedPidRecord == null)")
+        core_exit = stop.index("await _terminateVerifiedCore(expectedPidRecord)")
+        pid_cleanup = stop.index("await _deleteCorePid(", core_exit)
+        expected_identity = stop.index(
+            "expectedRecord: expectedPidRecord", pid_cleanup
+        )
         teardown = stop.index("!await _waitForTunTeardown()", pid_cleanup)
         stopped = stop.index("setRunning(false)", teardown)
+        self.assertLess(missing_identity, core_exit)
+        self.assertIn("return false", stop[missing_identity:core_exit])
+        self.assertNotIn("terminateCoreProcess(", stop)
         self.assertLess(core_exit, pid_cleanup)
+        self.assertLess(pid_cleanup, expected_identity)
+        self.assertLess(expected_identity, teardown)
         self.assertLess(pid_cleanup, teardown)
         self.assertLess(teardown, stopped)
         self.assertIn(
@@ -1444,10 +1453,17 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             "GetProcessId(process)",
             "ProcessIdToSessionId(liveProcessId",
             "QueryFullProcessImageNameW(",
+            "GetProcessTimes(",
             "TerminateProcess(process, 1)",
             "WaitForSingleObject(process, 8000)",
         ):
             self.assertIn(api, termination)
+        self.assertIn("ulong expectedCreationTimeUtcFileTime", termination)
+        self.assertIn("liveCreationTimeUtcFileTime", termination)
+        self.assertIn(
+            "liveCreationTimeUtcFileTime != expectedCreationTimeUtcFileTime",
+            termination,
+        )
         self.assertEqual(1, termination.count("OpenProcess("))
         self.assertLess(
             termination.index("OpenProcess("),
@@ -1459,6 +1475,18 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         )
         self.assertLess(
             termination.index("QueryFullProcessImageNameW("),
+            termination.index("GetProcessTimes("),
+        )
+        self.assertLess(
+            termination.index("GetProcessTimes("),
+            termination.index(
+                "liveCreationTimeUtcFileTime != expectedCreationTimeUtcFileTime"
+            ),
+        )
+        self.assertLess(
+            termination.index(
+                "liveCreationTimeUtcFileTime != expectedCreationTimeUtcFileTime"
+            ),
             termination.index("TerminateProcess(process, 1)"),
         )
         self.assertLess(

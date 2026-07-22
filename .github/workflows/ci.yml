@@ -171,6 +171,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_installer_runtime.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_program_files_transaction.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_package_payload_guard.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $smokeRoot = Join-Path $env:RUNNER_TEMP 'ssrvpn-process-smoke'
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\stop_ssrvpn_processes.ps1 -InstalledAppPath "$smokeRoot\bin\ssrvpn_windows_app.exe" -InstalledLauncherPath "$smokeRoot\ssrvpn_windows.exe" -InstalledCorePath "$smokeRoot\bin\mihomo.exe" -InstalledCorePidPath "$smokeRoot\mihomo.pid"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
