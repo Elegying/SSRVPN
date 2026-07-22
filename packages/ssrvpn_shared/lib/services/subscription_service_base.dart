@@ -17,6 +17,7 @@ import '../services/subscription_refresh_result.dart';
 import '../services/subscription_yaml_merger.dart';
 import '../utils/app_logger.dart';
 import '../utils/bounded_yaml.dart';
+import '../utils/runtime_config_name_policy.dart';
 
 export 'subscription_refresh_result.dart';
 
@@ -400,6 +401,11 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
 
     final normalizedConfig = normalizeProxyConfig(updatedConfig);
     final newName = normalizedConfig['name']?.toString().trim() ?? '';
+    if (RuntimeConfigNamePolicy.reservedProxyNames.contains(newName)) {
+      throw FormatException(
+        '节点名称“$newName”属于 Mihomo/SSRVPN 运行时保留名称，请使用其他名称',
+      );
+    }
     final duplicate = proxies.asMap().entries.any(
           (entry) =>
               entry.key != index &&

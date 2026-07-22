@@ -105,7 +105,7 @@ proxy-groups:
       expect(stopwatch.elapsed, lessThan(const Duration(seconds: 20)));
     });
 
-    test('reserves every SSRVPN runtime proxy-group name', () {
+    test('reserves every runtime group and built-in policy name', () {
       const yaml = '''
 proxies:
   - {name: PROXY, type: trojan, server: proxy.example.com, port: 443, password: secret}
@@ -113,6 +113,11 @@ proxies:
   - {name: 自动选择, type: trojan, server: auto.example.com, port: 443, password: secret}
   - {name: 故障转移, type: trojan, server: fallback.example.com, port: 443, password: secret}
   - {name: SSRVPN-GEO, type: trojan, server: geo.example.com, port: 443, password: secret}
+  - {name: DIRECT, type: trojan, server: direct.example.com, port: 443, password: secret}
+  - {name: REJECT, type: trojan, server: reject.example.com, port: 443, password: secret}
+  - {name: REJECT-DROP, type: trojan, server: reject-drop.example.com, port: 443, password: secret}
+  - {name: PASS, type: trojan, server: pass.example.com, port: 443, password: secret}
+  - {name: COMPATIBLE, type: trojan, server: compatible.example.com, port: 443, password: secret}
 ''';
 
       final merged = SubscriptionYamlMerger.mergeYamlConfigs([yaml]);
@@ -122,6 +127,11 @@ proxies:
         '自动选择 (2)',
         '故障转移 (2)',
         'SSRVPN-GEO (2)',
+        'DIRECT (2)',
+        'REJECT (2)',
+        'REJECT-DROP (2)',
+        'PASS (2)',
+        'COMPATIBLE (2)',
       ]);
 
       final generated = loadYaml(

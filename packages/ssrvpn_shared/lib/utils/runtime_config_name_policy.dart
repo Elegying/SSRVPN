@@ -4,12 +4,15 @@ class RuntimeConfigNamePolicy {
   /// Names emitted by the shared generator on one or more platforms.
   /// Subscription nodes must never use these names because Mihomo resolves
   /// proxies and proxy groups in the same runtime namespace.
-  static const Set<String> reservedProxyNames = {
-    'PROXY',
-    'GLOBAL',
-    '自动选择',
-    '故障转移',
-    'SSRVPN-GEO',
+  static const Set<String> mihomoBuiltinPolicyNames = {
+    // Mihomo built-in policy names share the same lookup surface as proxy
+    // names. Keeping them available for rules and group membership avoids a
+    // user node silently resolving to DIRECT/REJECT instead of that node.
+    'DIRECT',
+    'REJECT',
+    'REJECT-DROP',
+    'PASS',
+    'COMPATIBLE',
   };
 
   static const Set<String> standardGroupNames = {
@@ -19,13 +22,20 @@ class RuntimeConfigNamePolicy {
     '故障转移',
   };
 
+  static const Set<String> reservedProxyNames = {
+    ...mihomoBuiltinPolicyNames,
+    ...standardGroupNames,
+    'SSRVPN-GEO',
+  };
+
   static List<String> normalizeExtraGroupNames(Iterable<String> names) {
     final normalized = <String>[];
     final seen = <String>{};
     for (final value in names) {
       final name = value.trim();
       if (name.isEmpty) continue;
-      if (standardGroupNames.contains(name)) {
+      if (standardGroupNames.contains(name) ||
+          mihomoBuiltinPolicyNames.contains(name)) {
         throw ArgumentError.value(
           value,
           'extraSelectGroupNames',
