@@ -1766,6 +1766,29 @@ class WindowsInstallerConfigTest(unittest.TestCase):
 
         self.assertRegex(service, re.compile(r"assetExtension:\s*'\.exe'"))
 
+    def test_windows_verified_update_hard_link_uses_literal_environment_paths(
+        self,
+    ) -> None:
+        service = (
+            ROOT
+            / "packages"
+            / "ssrvpn_shared"
+            / "lib"
+            / "services"
+            / "update_service.dart"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "-LiteralPath $env:SSRVPN_UPDATE_DESTINATION",
+            service,
+        )
+        self.assertIn("-Target $env:SSRVPN_UPDATE_SOURCE", service)
+        self.assertIn("environment: environment", service)
+        self.assertNotIn(
+            "param([string]$SourcePath, [string]$DestinationPath)",
+            service,
+        )
+
     def test_windows_runtime_records_full_core_identity_for_safe_cleanup(self) -> None:
         lifecycle = (
             ROOT
