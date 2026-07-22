@@ -42,11 +42,49 @@ class VerifiedUpdateCancellation {
   }
 }
 
+@visibleForTesting
+enum VerifiedUpdateRecoveryTestStep {
+  scanEntry,
+  beforeSourceRead,
+  beforeStagingWrite,
+  hashedChunk,
+  verifiedCopy,
+  committed,
+}
+
 class SharedUpdateService {
   static const int maxDesktopUpdateBytes = 300 * 1024 * 1024;
+  // Recovery runs before the network request and scans a user-writable
+  // directory, so every dimension needs a hard upper bound.
+  static const int _recoveryDirectoryEntryLimit = 4096;
+  static const int _recoveryCandidateLimit = 16;
+  static const int _recoveryTotalByteLimit = 2 * maxDesktopUpdateBytes;
+  static const int _recoveryHashChunkBytes = 64 * 1024;
   static bool _verifiedDownloadInProgress = false;
+  static int? _recoveryDirectoryEntryLimitForTesting;
+  static void Function(VerifiedUpdateRecoveryTestStep)? _recoveryStepForTesting;
 
   static bool get isVerifiedDownloadInProgress => _verifiedDownloadInProgress;
+
+  @visibleForTesting
+  static set recoveryDirectoryEntryLimitForTesting(int? limit) {
+    if (limit != null && (limit <= 0 || limit > _recoveryDirectoryEntryLimit)) {
+      throw RangeError.range(
+        limit,
+        1,
+        _recoveryDirectoryEntryLimit,
+        'limit',
+      );
+    }
+    _recoveryDirectoryEntryLimitForTesting = limit;
+  }
+
+  @visibleForTesting
+  static set recoveryStepForTesting(
+    void Function(VerifiedUpdateRecoveryTestStep)? callback,
+  ) {
+    _recoveryStepForTesting = callback;
+  }
 
   static Future<AppUpdateInfo?> checkForUpdate({
     required String currentVersion,
@@ -120,6 +158,7 @@ class SharedUpdateService {
       destination,
       expectedSha256: expectedSha256,
       maxBytes: maxBytes,
+      cancellation: cancellation,
     );
     final publicationId = '${pid}_${DateTime.now().microsecondsSinceEpoch}_'
         '${math.Random.secure().nextInt(0x7fffffff)}';
@@ -257,78 +296,329 @@ class SharedUpdateService {
     File destination, {
     required String expectedSha256,
     required int maxBytes,
+    VerifiedUpdateCancellation? cancellation,
   }) async {
-    final destinationType = await FileSystemEntity.type(
-      destination.path,
-      followLinks: false,
+    cancellation?.throwIfCancelled();
+    final destinationType = await _awaitWithCancellation(
+      FileSystemEntity.type(destination.path, followLinks: false),
+      cancellation,
     );
+    cancellation?.throwIfCancelled();
     if (destinationType != FileSystemEntityType.notFound &&
         destinationType != FileSystemEntityType.file) {
       return;
     }
 
     final prefix = '${destination.path}.previous.';
-    final backups = <(File, DateTime)>[];
-    await for (final entity in destination.parent.list(followLinks: false)) {
-      if (entity is! File || !entity.path.startsWith(prefix)) continue;
-      final suffix = entity.path.substring(prefix.length);
-      if (!RegExp(r'^\d+_\d+_\d+$').hasMatch(suffix)) continue;
-      if (await FileSystemEntity.type(entity.path, followLinks: false) !=
-          FileSystemEntityType.file) {
-        continue;
+    final backups = <({File file, DateTime modified, int length})>[];
+    final entries = StreamIterator<FileSystemEntity>(
+      destination.parent.list(followLinks: false),
+    );
+    var scannedEntries = 0;
+    try {
+      while (scannedEntries <
+              (_recoveryDirectoryEntryLimitForTesting ??
+                  _recoveryDirectoryEntryLimit) &&
+          await _awaitWithCancellation(entries.moveNext(), cancellation)) {
+        cancellation?.throwIfCancelled();
+        scannedEntries++;
+        _recoveryStepForTesting?.call(
+          VerifiedUpdateRecoveryTestStep.scanEntry,
+        );
+        cancellation?.throwIfCancelled();
+
+        final entity = entries.current;
+        if (entity is! File || !entity.path.startsWith(prefix)) continue;
+        final suffix = entity.path.substring(prefix.length);
+        if (!RegExp(r'^\d+_\d+_\d+$').hasMatch(suffix)) continue;
+        if (await _awaitWithCancellation(
+              FileSystemEntity.type(entity.path, followLinks: false),
+              cancellation,
+            ) !=
+            FileSystemEntityType.file) {
+          continue;
+        }
+        cancellation?.throwIfCancelled();
+        final stat = await _awaitWithCancellation(entity.stat(), cancellation);
+        cancellation?.throwIfCancelled();
+        if (stat.size < 0 || stat.size > maxBytes) {
+          await _deleteRecoveryBackupBestEffort(entity, cancellation);
+          continue;
+        }
+
+        backups.add((
+          file: entity,
+          modified: stat.modified,
+          length: stat.size,
+        ));
+        backups.sort((left, right) {
+          final byModified = right.modified.compareTo(left.modified);
+          if (byModified != 0) return byModified;
+          return right.file.path.compareTo(left.file.path);
+        });
+        if (backups.length > _recoveryCandidateLimit) {
+          final discarded = backups.removeLast();
+          await _deleteRecoveryBackupBestEffort(
+            discarded.file,
+            cancellation,
+          );
+        }
       }
-      backups.add((entity, (await entity.stat()).modified));
+    } finally {
+      try {
+        await entries.cancel();
+      } catch (_) {}
     }
     if (backups.isEmpty) return;
 
-    backups.sort((left, right) => right.$2.compareTo(left.$2));
     if (destinationType == FileSystemEntityType.notFound) {
+      final recoveryByteBudget = maxBytes <= 0
+          ? 0
+          : math.min(maxBytes * 2, _recoveryTotalByteLimit).toInt();
+      var hashedBytes = 0;
       for (final backup in backups) {
-        if (!await _matchesExpectedDigest(
-          backup.$1,
-          expectedSha256: expectedSha256,
-          maxBytes: maxBytes,
-        )) {
-          continue;
-        }
-        if (await FileSystemEntity.type(
-              destination.path,
-              followLinks: false,
-            ) !=
-            FileSystemEntityType.notFound) {
+        cancellation?.throwIfCancelled();
+        final remainingBytes = recoveryByteBudget - hashedBytes;
+        if (remainingBytes <= 0) break;
+        if (backup.length > remainingBytes) continue;
+        File? verifiedCopy;
+        var committed = false;
+        try {
+          final result = await _createVerifiedRecoveryCopy(
+            source: backup.file,
+            destination: destination,
+            expectedSha256: expectedSha256,
+            maxBytes: math.min(maxBytes, remainingBytes).toInt(),
+            cancellation: cancellation,
+          );
+          hashedBytes += result.bytesRead;
+          verifiedCopy = result.verifiedCopy;
+          if (verifiedCopy == null) continue;
+
+          _recoveryStepForTesting?.call(
+            VerifiedUpdateRecoveryTestStep.verifiedCopy,
+          );
+          cancellation?.throwIfCancelled();
+          if (await _awaitWithCancellation(
+                FileSystemEntity.type(destination.path, followLinks: false),
+                cancellation,
+              ) !=
+              FileSystemEntityType.notFound) {
+            break;
+          }
+          cancellation?.throwIfCancelled();
+          // The commit source is the exclusive staging file whose successful
+          // writes were hashed, never the mutable source candidate path.
+          await verifiedCopy.rename(destination.path);
+          committed = true;
+          _recoveryStepForTesting?.call(
+            VerifiedUpdateRecoveryTestStep.committed,
+          );
           break;
+        } finally {
+          if (verifiedCopy != null && !committed) {
+            await _deleteRecoveryBackupBestEffort(verifiedCopy, null);
+          }
         }
-        await backup.$1.rename(destination.path);
-        break;
       }
     }
 
     // A backup is publishable only when it matches the digest from trusted
     // update metadata. All remaining private artifacts are stale or unverified.
     for (final backup in backups) {
-      try {
-        await backup.$1.delete();
-      } catch (_) {}
+      cancellation?.throwIfCancelled();
+      await _deleteRecoveryBackupBestEffort(backup.file, cancellation);
     }
   }
 
-  static Future<bool> _matchesExpectedDigest(
-    File file, {
+  static Future<({File? verifiedCopy, int bytesRead})>
+      _createVerifiedRecoveryCopy({
+    required File source,
+    required File destination,
     required String expectedSha256,
     required int maxBytes,
+    VerifiedUpdateCancellation? cancellation,
   }) async {
+    RandomAccessFile? input;
+    RandomAccessFile? output;
+    File? staging;
+    final digestSink = _UpdateDigestSink();
+    final hashSink = sha256.startChunkedConversion(digestSink);
+    var hashClosed = false;
+    var keepStaging = false;
+    var bytesWritten = 0;
     try {
-      if (await FileSystemEntity.type(file.path, followLinks: false) !=
-          FileSystemEntityType.file) {
-        return false;
+      late final FileStat initialStat;
+      try {
+        cancellation?.throwIfCancelled();
+        if (await _awaitWithCancellation(
+              FileSystemEntity.type(source.path, followLinks: false),
+              cancellation,
+            ) !=
+            FileSystemEntityType.file) {
+          return (verifiedCopy: null, bytesRead: bytesWritten);
+        }
+        cancellation?.throwIfCancelled();
+        initialStat = await _awaitWithCancellation(
+          source.stat(),
+          cancellation,
+        );
+        cancellation?.throwIfCancelled();
+      } on FileSystemException {
+        cancellation?.throwIfCancelled();
+        // A stale or locked source is only one recovery candidate. It must not
+        // prevent trying another candidate or starting a fresh download.
+        return (verifiedCopy: null, bytesRead: bytesWritten);
       }
-      if (await file.length() > maxBytes) return false;
-      final digest = await sha256.bind(file.openRead()).first;
-      return digest.toString() == expectedSha256 &&
-          await FileSystemEntity.type(file.path, followLinks: false) ==
-              FileSystemEntityType.file;
+      if (initialStat.size < 0 || initialStat.size > maxBytes) {
+        return (verifiedCopy: null, bytesRead: bytesWritten);
+      }
+
+      late final RandomAccessFile openedInput;
+      try {
+        openedInput = await _openRecoveryFile(source, cancellation);
+      } on FileSystemException {
+        cancellation?.throwIfCancelled();
+        return (verifiedCopy: null, bytesRead: bytesWritten);
+      }
+      input = openedInput;
+      cancellation?.throwIfCancelled();
+      // From this point, staging storage failures are surfaced: silently
+      // retrying a download cannot repair a full or unwritable destination.
+      staging = await _createUniqueRecoveryStagingFile(
+        destination,
+        cancellation,
+      );
+      cancellation?.throwIfCancelled();
+      final openedOutput = await staging.open(mode: FileMode.write);
+      output = openedOutput;
+      cancellation?.throwIfCancelled();
+
+      while (bytesWritten < initialStat.size) {
+        cancellation?.throwIfCancelled();
+        late final List<int> chunk;
+        try {
+          _recoveryStepForTesting?.call(
+            VerifiedUpdateRecoveryTestStep.beforeSourceRead,
+          );
+          chunk = await openedInput.read(
+            math
+                .min(
+                  _recoveryHashChunkBytes,
+                  initialStat.size - bytesWritten,
+                )
+                .toInt(),
+          );
+        } on FileSystemException {
+          cancellation?.throwIfCancelled();
+          return (verifiedCopy: null, bytesRead: bytesWritten);
+        }
+        cancellation?.throwIfCancelled();
+        if (chunk.isEmpty) {
+          return (verifiedCopy: null, bytesRead: bytesWritten);
+        }
+        _recoveryStepForTesting?.call(
+          VerifiedUpdateRecoveryTestStep.beforeStagingWrite,
+        );
+        await openedOutput.writeFrom(chunk);
+        cancellation?.throwIfCancelled();
+        hashSink.add(chunk);
+        bytesWritten += chunk.length;
+        _recoveryStepForTesting?.call(
+          VerifiedUpdateRecoveryTestStep.hashedChunk,
+        );
+        cancellation?.throwIfCancelled();
+      }
+      await openedOutput.flush();
+      cancellation?.throwIfCancelled();
+      await openedOutput.close();
+      output = null;
+      hashSink.close();
+      hashClosed = true;
+
+      if (digestSink.value.toString() != expectedSha256) {
+        return (verifiedCopy: null, bytesRead: bytesWritten);
+      }
+      keepStaging = true;
+      return (verifiedCopy: staging, bytesRead: bytesWritten);
+    } finally {
+      if (!hashClosed) hashSink.close();
+      if (output != null) {
+        try {
+          await output.close();
+        } catch (_) {}
+      }
+      if (input != null) {
+        try {
+          await input.close();
+        } catch (_) {}
+      }
+      if (staging != null && !keepStaging) {
+        await _deleteRecoveryBackupBestEffort(staging, null);
+      }
+    }
+  }
+
+  static Future<File> _createUniqueRecoveryStagingFile(
+    File destination,
+    VerifiedUpdateCancellation? cancellation,
+  ) async {
+    final random = math.Random.secure();
+    for (var attempt = 0; attempt < 8; attempt++) {
+      cancellation?.throwIfCancelled();
+      final entropy = List<String>.generate(
+        4,
+        (_) => random.nextInt(0x7fffffff).toString().padLeft(10, '0'),
+        growable: false,
+      ).join();
+      final publicationId = '${pid}_${DateTime.now().microsecondsSinceEpoch}_'
+          '$entropy';
+      final staging = File('${destination.path}.previous.$publicationId');
+      try {
+        await staging.create(exclusive: true);
+        return staging;
+      } on FileSystemException {
+        if (await FileSystemEntity.type(staging.path, followLinks: false) ==
+            FileSystemEntityType.notFound) {
+          rethrow;
+        }
+      }
+    }
+    throw StateError('无法创建唯一的更新恢复暂存文件');
+  }
+
+  static Future<void> _deleteRecoveryBackupBestEffort(
+    File backup,
+    VerifiedUpdateCancellation? cancellation,
+  ) async {
+    try {
+      await _awaitWithCancellation(backup.delete(), cancellation);
+    } on VerifiedUpdateCancelled {
+      rethrow;
     } catch (_) {
-      return false;
+      // Private recovery artifacts are best-effort cleanup only.
+    }
+  }
+
+  static Future<RandomAccessFile> _openRecoveryFile(
+    File file,
+    VerifiedUpdateCancellation? cancellation,
+  ) async {
+    final opening = file.open();
+    try {
+      return await _awaitWithCancellation(opening, cancellation);
+    } catch (_) {
+      unawaited(
+        opening.then<void>(
+          (lateInput) async {
+            try {
+              await lateInput.close();
+            } catch (_) {}
+          },
+          onError: (Object _, StackTrace __) {},
+        ),
+      );
+      rethrow;
     }
   }
 

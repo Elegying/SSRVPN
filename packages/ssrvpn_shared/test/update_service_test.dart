@@ -17,6 +17,8 @@ void main() {
   });
 
   tearDown(() async {
+    SharedUpdateService.recoveryDirectoryEntryLimitForTesting = null;
+    SharedUpdateService.recoveryStepForTesting = null;
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
@@ -300,6 +302,378 @@ void main() {
     );
 
     expect(await destination.readAsBytes(), expectedBytes);
+    expect(await backup.exists(), isFalse);
+    expect(tempDir.listSync().map((entry) => entry.path), [destination.path]);
+  });
+
+  test('recovery finds a verified backup among multiple previous files',
+      () async {
+    final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
+    final expectedBytes = utf8.encode('expected-verified-installer');
+    final matchingBackup = File(
+      '${destination.path}.previous.123_456_789',
+    );
+    final newerMismatch = File(
+      '${destination.path}.previous.223_556_889',
+    );
+    await matchingBackup.writeAsBytes(expectedBytes, flush: true);
+    await newerMismatch.writeAsString('mismatched-installer', flush: true);
+    await matchingBackup.setLastModified(DateTime.utc(2026));
+    await newerMismatch.setLastModified(
+      DateTime.utc(2026).add(const Duration(seconds: 1)),
+    );
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(expectedBytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        client: MockClient(
+          (_) async => http.Response('unavailable', HttpStatus.badGateway),
+        ),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(await destination.readAsBytes(), expectedBytes);
+    expect(await matchingBackup.exists(), isFalse);
+    expect(await newerMismatch.exists(), isFalse);
+  });
+
+  test('interrupted publication recovery only considers 16 newest backups',
+      () async {
+    final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
+    final expectedBytes = <int>[9, 9, 9, 9];
+    final oldestMatchingBackup = File(
+      '${destination.path}.previous.100_100_100',
+    );
+    await oldestMatchingBackup.writeAsBytes(expectedBytes, flush: true);
+    await oldestMatchingBackup.setLastModified(DateTime.utc(2026));
+
+    for (var index = 0; index < 16; index++) {
+      final backup = File(
+        '${destination.path}.previous.${200 + index}_${300 + index}_${400 + index}',
+      );
+      await backup.writeAsBytes(<int>[index, 1, 2, 3], flush: true);
+      await backup.setLastModified(
+        DateTime.utc(2026).add(Duration(seconds: index + 1)),
+      );
+    }
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(expectedBytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        client: MockClient(
+          (_) async => http.Response('unavailable', HttpStatus.badGateway),
+        ),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(await destination.exists(), isFalse);
+  });
+
+  test('interrupted publication recovery hashes at most twice maxBytes',
+      () async {
+    final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
+    final expectedBytes = <int>[9, 9, 9, 9];
+    final backups = <File>[
+      File('${destination.path}.previous.100_100_100'),
+      File('${destination.path}.previous.200_200_200'),
+      File('${destination.path}.previous.300_300_300'),
+    ];
+    await backups[0].writeAsBytes(expectedBytes, flush: true);
+    await backups[1].writeAsBytes(<int>[1, 1, 1, 1], flush: true);
+    await backups[2].writeAsBytes(<int>[2, 2, 2, 2], flush: true);
+    for (var index = 0; index < backups.length; index++) {
+      await backups[index].setLastModified(
+        DateTime.utc(2026).add(Duration(seconds: index)),
+      );
+    }
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(expectedBytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        maxBytes: expectedBytes.length,
+        client: MockClient(
+          (_) async => http.Response('unavailable', HttpStatus.badGateway),
+        ),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(await destination.exists(), isFalse);
+  });
+
+  test('cancellation interrupts an in-progress recovery directory scan',
+      () async {
+    final cancellation = VerifiedUpdateCancellation();
+    final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
+    final expectedBytes = utf8.encode('expected-verified-installer');
+    final backups = <File>[];
+    for (var index = 0; index < 4; index++) {
+      final backup = File(
+        '${destination.path}.previous.${100 + index}_${200 + index}_${300 + index}',
+      );
+      await backup.writeAsBytes(
+        index == 0 ? expectedBytes : utf8.encode('mismatch-$index'),
+        flush: true,
+      );
+      backups.add(backup);
+    }
+    var scannedEntries = 0;
+    SharedUpdateService.recoveryStepForTesting = (step) {
+      if (step != VerifiedUpdateRecoveryTestStep.scanEntry) return;
+      scannedEntries++;
+      if (scannedEntries == 2) cancellation.cancel();
+    };
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(expectedBytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        cancellation: cancellation,
+        client: MockClient(
+          (_) async => http.Response('unavailable', HttpStatus.badGateway),
+        ),
+      ),
+      throwsA(isA<VerifiedUpdateCancelled>()),
+    );
+
+    expect(await destination.exists(), isFalse);
+    expect(await backups[0].exists(), isTrue);
+  });
+
+  test('interrupted publication recovery bounds directory entries scanned',
+      () async {
+    for (var index = 0; index < 4; index++) {
+      await File('${tempDir.path}/unrelated-$index.txt')
+          .writeAsString('$index');
+    }
+    SharedUpdateService.recoveryDirectoryEntryLimitForTesting = 2;
+    var scannedEntries = 0;
+    SharedUpdateService.recoveryStepForTesting = (step) {
+      if (step == VerifiedUpdateRecoveryTestStep.scanEntry) scannedEntries++;
+    };
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        const AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256:
+              '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        client: MockClient(
+          (_) async => http.Response('unavailable', HttpStatus.badGateway),
+        ),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(scannedEntries, 2);
+  });
+
+  test('cancellation interrupts chunked hashing of a recovery candidate',
+      () async {
+    final cancellation = VerifiedUpdateCancellation();
+    final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
+    final expectedBytes = List<int>.filled(128 * 1024, 7);
+    final backup = File(
+      '${destination.path}.previous.123_456_789',
+    );
+    await backup.writeAsBytes(expectedBytes, flush: true);
+    SharedUpdateService.recoveryStepForTesting = (step) {
+      if (step == VerifiedUpdateRecoveryTestStep.hashedChunk) {
+        cancellation.cancel();
+      }
+    };
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(expectedBytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        cancellation: cancellation,
+        client: MockClient(
+          (_) async => http.Response('unavailable', HttpStatus.badGateway),
+        ),
+      ),
+      throwsA(isA<VerifiedUpdateCancelled>()),
+    );
+
+    expect(await destination.exists(), isFalse);
+    expect(await backup.exists(), isTrue);
+    expect(tempDir.listSync().map((entry) => entry.path), [backup.path]);
+  });
+
+  test('cancellation after recovery rename keeps the verified destination',
+      () async {
+    final cancellation = VerifiedUpdateCancellation();
+    final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
+    final expectedBytes = utf8.encode('expected-verified-installer');
+    final backup = File(
+      '${destination.path}.previous.123_456_789',
+    );
+    await backup.writeAsBytes(expectedBytes, flush: true);
+    SharedUpdateService.recoveryStepForTesting = (step) {
+      if (step == VerifiedUpdateRecoveryTestStep.committed) {
+        cancellation.cancel();
+      }
+    };
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(expectedBytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        cancellation: cancellation,
+        client: MockClient((_) async => throw StateError('unexpected request')),
+      ),
+      throwsA(isA<VerifiedUpdateCancelled>()),
+    );
+
+    expect(await destination.readAsBytes(), expectedBytes);
+    expect(await backup.readAsBytes(), expectedBytes);
+  });
+
+  test('recovery commits the same private file object that was verified',
+      () async {
+    final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
+    final expectedBytes = <int>[1, 2, 3, 4];
+    final replacementBytes = <int>[4, 3, 2, 1];
+    final backup = File(
+      '${destination.path}.previous.123_456_789',
+    );
+    await backup.writeAsBytes(expectedBytes, flush: true);
+    SharedUpdateService.recoveryStepForTesting = (step) {
+      if (step == VerifiedUpdateRecoveryTestStep.verifiedCopy) {
+        backup.writeAsBytesSync(replacementBytes, flush: true);
+      }
+    };
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(expectedBytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        client: MockClient(
+          (_) async => http.Response('unavailable', HttpStatus.badGateway),
+        ),
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(await destination.readAsBytes(), expectedBytes);
+    expect(await backup.exists(), isFalse);
+  });
+
+  test('recovery write failure removes staging and preserves the source backup',
+      () async {
+    final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
+    final expectedBytes = utf8.encode('expected-verified-installer');
+    final backup = File(
+      '${destination.path}.previous.123_456_789',
+    );
+    await backup.writeAsBytes(expectedBytes, flush: true);
+    SharedUpdateService.recoveryStepForTesting = (step) {
+      if (step == VerifiedUpdateRecoveryTestStep.beforeStagingWrite) {
+        throw FileSystemException('No space left on device');
+      }
+    };
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+          changelog: '',
+          sha256: sha256.convert(expectedBytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup_v9.9.9.exe',
+        client: MockClient((_) async => throw StateError('unexpected request')),
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    expect(await destination.exists(), isFalse);
+    expect(await backup.readAsBytes(), expectedBytes);
+    expect(tempDir.listSync().map((entry) => entry.path), [backup.path]);
+  });
+
+  test('unreadable recovery source does not block the verified download',
+      () async {
+    final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
+    final expectedBytes = utf8.encode('expected-verified-installer');
+    final backup = File(
+      '${destination.path}.previous.123_456_789',
+    );
+    await backup.writeAsBytes(expectedBytes, flush: true);
+    SharedUpdateService.recoveryStepForTesting = (step) {
+      if (step == VerifiedUpdateRecoveryTestStep.beforeSourceRead) {
+        throw FileSystemException('source read failed');
+      }
+    };
+
+    final published = await SharedUpdateService.downloadVerifiedUpdate(
+      AppUpdateInfo(
+        version: '9.9.9',
+        downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+        changelog: '',
+        sha256: sha256.convert(expectedBytes).toString(),
+      ),
+      outputDirectory: tempDir,
+      fileName: 'SSRVPN_Setup_v9.9.9.exe',
+      client: MockClient(
+        (_) async => http.Response.bytes(expectedBytes, HttpStatus.ok),
+      ),
+    );
+
+    expect(await published.readAsBytes(), expectedBytes);
     expect(await backup.exists(), isFalse);
     expect(tempDir.listSync().map((entry) => entry.path), [destination.path]);
   });
