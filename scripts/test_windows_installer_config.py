@@ -610,6 +610,11 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )[0]
         self.assertIn("$script:maxMetadataDocumentBytes", json_writer)
         self.assertIn("GetByteCount", json_writer)
+        self.assertIn("$replacementBackup", json_writer)
+        self.assertNotIn(
+            "[System.IO.File]::Replace($temporary, $Path, $null)",
+            json_writer,
+        )
 
         registry_remove = helper.split(
             "function Remove-UninstallRegistryKey", 1

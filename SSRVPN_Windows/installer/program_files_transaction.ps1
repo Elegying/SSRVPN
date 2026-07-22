@@ -584,18 +584,26 @@ function Write-JsonAtomic {
 
   $parent = [System.IO.Path]::GetDirectoryName($Path)
   New-Item -ItemType Directory -Path $parent -Force | Out-Null
-  $temporary = "$Path.tmp.$([Guid]::NewGuid().ToString('N'))"
+  $token = [Guid]::NewGuid().ToString('N')
+  $temporary = "$Path.tmp.$token"
+  $replacementBackup = "$Path.replace-backup.$token"
   try {
     $text = ConvertTo-BoundedJsonText -Value $Value
     [System.IO.File]::WriteAllText($temporary, $text, $script:utf8NoBom)
     if (Test-Path -LiteralPath $Path -PathType Leaf) {
-      [System.IO.File]::Replace($temporary, $Path, $null)
+      # .NET Framework on Windows PowerShell 5.1 rejects a null backup path
+      # for this overload on hosted Windows Server. A unique same-directory
+      # backup preserves the atomic replacement contract and is removed below.
+      [System.IO.File]::Replace($temporary, $Path, $replacementBackup)
     } else {
       [System.IO.File]::Move($temporary, $Path)
     }
   } finally {
     if (Test-Path -LiteralPath $temporary -PathType Leaf) {
       Remove-Item -LiteralPath $temporary -Force
+    }
+    if (Test-Path -LiteralPath $replacementBackup -PathType Leaf) {
+      Remove-Item -LiteralPath $replacementBackup -Force
     }
   }
 }

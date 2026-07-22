@@ -779,7 +779,7 @@ void main() {
         } catch (_) {}
         service.dispose();
         messenger.setMockMethodCallHandler(channel, null);
-        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+        await _deleteTemporaryDirectoryWithRetry(tempDir);
       });
       await service.init(
         AppSettings(),
@@ -2014,6 +2014,21 @@ void main() {
       );
     });
   });
+}
+
+Future<void> _deleteTemporaryDirectoryWithRetry(Directory directory) async {
+  for (var attempt = 0; attempt < 5; attempt++) {
+    if (!await directory.exists()) return;
+    try {
+      await directory.delete(recursive: true);
+      return;
+    } on FileSystemException {
+      if (attempt == 4) rethrow;
+      // A drained native-status watcher can finish its final diagnostic-log
+      // write in the same event-loop turn as teardown on a busy CI runner.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+  }
 }
 
 class _AlwaysHealthyClashService extends ClashService {
