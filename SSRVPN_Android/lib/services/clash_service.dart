@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:path_provider/path_provider.dart';
@@ -20,6 +21,10 @@ class _AndroidStartCancelled implements Exception {}
 /// MMDB 解压、TUN 配置、磁贴/通知集成。
 class ClashService extends ClashServiceBase {
   static const _channel = MethodChannel('com.ssrvpn/native');
+  static const _terminalNativeStateRetryDelays = <Duration>[
+    Duration(milliseconds: 100),
+    Duration(milliseconds: 300),
+  ];
 
   String _corePath = '';
   String _nativeLibDir = '';
