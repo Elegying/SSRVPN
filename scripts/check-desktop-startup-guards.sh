@@ -68,6 +68,8 @@ for path in paths:
     proxy_clear = stop_body.index("_proxyService.clearSystemProxy()")
     termination_calls = (
         "terminateCoreProcess(coreProcess)",
+        "terminate: terminateCoreProcess",
+        "_terminateVerifiedCore(",
         "terminateMacosCoreProcess(",
         "'terminateOwnedCoreRecord'",
         ".kill(",
