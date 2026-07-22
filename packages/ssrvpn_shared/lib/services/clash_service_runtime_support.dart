@@ -2,6 +2,8 @@ part of 'clash_service_base.dart';
 
 /// Atomic runtime files and collision-free ephemeral port selection.
 mixin _ClashRuntimeSupport {
+  static const int _maxEphemeralPortAttempts = 32;
+
   void updateSettings(AppSettings settings);
   void log(String message);
   void setRuntimePortAdjustmentMessage(String? message);
@@ -79,11 +81,12 @@ mixin _ClashRuntimeSupport {
       if (await canBindRuntimePort(port)) return port;
     }
 
-    while (true) {
+    for (var attempt = 0; attempt < _maxEphemeralPortAttempts; attempt++) {
       final port = await allocateEphemeralPortCandidate();
       if (reserved.contains(port)) continue;
       if (await canBindRuntimePort(port)) return port;
     }
+    throw StateError('无法分配同时可用于 IPv4/IPv6 的可用运行端口');
   }
 
   /// Allocates a candidate only; [findAvailablePort] still rechecks both

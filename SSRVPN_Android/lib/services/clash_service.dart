@@ -21,10 +21,13 @@ class _AndroidStartCancelled implements Exception {}
 /// MMDB 解压、TUN 配置、磁贴/通知集成。
 class ClashService extends ClashServiceBase {
   static const _channel = MethodChannel('com.ssrvpn/native');
-  static const _terminalNativeStateRetryDelays = <Duration>[
+  static const _nativeStateRetryDelays = <Duration>[
     Duration(milliseconds: 100),
     Duration(milliseconds: 300),
   ];
+  // Align deferred reconciliation with the native liveness cadence. A failed
+  // platform-channel read must not create a tight, indefinite polling loop.
+  static const _deferredNativeStateRetryDelay = Duration(seconds: 3);
 
   String _corePath = '';
   String _nativeLibDir = '';
@@ -39,6 +42,7 @@ class ClashService extends ClashServiceBase {
   int _startGeneration = 0;
   int _configRevision = 0;
   int _nativeStateEpoch = 0;
+  Timer? _nativeStateReconciliationTimer;
   int? _nativeSessionGeneration;
   bool _nativeSessionProtocolAvailable = false;
   bool _nativeConnectionTransitioning = false;
@@ -79,6 +83,14 @@ class ClashService extends ClashServiceBase {
 
   @override
   Future<void> onStopRequired() => stop();
+
+  @override
+  void dispose() {
+    _nativeStateEpoch++;
+    _nativeStateReconciliationTimer?.cancel();
+    _nativeStateReconciliationTimer = null;
+    super.dispose();
+  }
 
   @override
   Future<bool> recoverAfterHealthCheckFailure(
@@ -301,14 +313,15 @@ class ClashService extends ClashServiceBase {
     );
   }
 
-  Future<String> writeConfig(String configContent) async {
+  @override
+  Future<String> writeConfig(String config) async {
     final revision = ++_configRevision;
     final path = '$configDir/config-'
         '${DateTime.now().microsecondsSinceEpoch}-$revision.yaml';
     final absolutePath = File(path).absolute.path;
     _preparedConfigPaths.add(absolutePath);
     try {
-      await writeStringAtomically(File(absolutePath), configContent);
+      await writeStringAtomically(File(absolutePath), config);
       return absolutePath;
     } catch (_) {
       _preparedConfigPaths.remove(absolutePath);
@@ -348,6 +361,7 @@ class ClashService extends ClashServiceBase {
 
   // ── 进程控制 ──
 
+  @override
   Future<bool> start({String? nodeName, String? preparedConfigPath}) => _start(
         nodeName: nodeName,
         preparedConfigPath: preparedConfigPath,
@@ -483,6 +497,7 @@ class ClashService extends ClashServiceBase {
     }
   }
 
+  @override
   Future<void> stop() {
     _startGeneration++;
     final current = _stopOperation;

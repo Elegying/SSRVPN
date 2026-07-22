@@ -181,6 +181,74 @@ void main() {
     expect(service.connectionDesired, isTrue);
   });
 
+  test('positive broadcast cannot invent a connection when state reads fail',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var stateReads = 0;
+    var runningReads = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getConnectionState') {
+        stateReads++;
+        throw PlatformException(code: 'PERSISTENT_STATE_READ_FAILURE');
+      }
+      if (call.method == 'isCoreRunning') {
+        runningReads++;
+        return false;
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final service = ClashService();
+    addTearDown(service.dispose);
+
+    await service.handleNativeStateChangedForTesting(true);
+
+    expect(stateReads, 3);
+    expect(runningReads, 1);
+    expect(service.isRunning, isFalse);
+    expect(service.connectionDesired, isFalse);
+  });
+
+  test('low-frequency reconciliation eventually applies terminal native state',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var stateReads = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getConnectionState') {
+        stateReads++;
+        if (stateReads <= 3) {
+          throw PlatformException(code: 'TRANSIENT_STATE_READ_FAILURE');
+        }
+        return <String, Object?>{
+          'running': false,
+          'transitioning': false,
+          'protectedConfigPath': null,
+          'sessionGeneration': null,
+        };
+      }
+      if (call.method == 'isCoreRunning') return false;
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final service = ClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    addTearDown(service.dispose);
+
+    await service.handleNativeStateChangedForTesting(false);
+    expect(service.isRunning, isTrue);
+
+    await Future<void>.delayed(const Duration(milliseconds: 3200));
+
+    expect(stateReads, 4);
+    expect(service.isRunning, isFalse);
+    expect(service.connectionDesired, isFalse);
+  });
+
   test('newer native broadcast invalidates an older terminal retry', () async {
     const channel = MethodChannel('com.ssrvpn/native');
     final messenger =
