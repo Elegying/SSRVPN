@@ -18,6 +18,22 @@ class _DesktopAppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final runtimeNoticeSuccessful = isSuccessfulRuntimeNotice(runtimeNotice);
+    final runtimeNoticeInProgress = isInProgressRuntimeNotice(runtimeNotice);
+    final runtimeNoticeIcon = runtimeNoticeSuccessful
+        ? Icons.check_circle_outline
+        : runtimeNoticeInProgress
+            ? Icons.admin_panel_settings_outlined
+            : Icons.error_outline;
+    final runtimeNoticeColor = runtimeNoticeSuccessful
+        ? AppTheme.success
+        : runtimeNoticeInProgress
+            ? AppTheme.primary
+            : AppTheme.error;
+    final runtimeNoticeTitle = runtimeNoticeSuccessful
+        ? '连接已恢复'
+        : runtimeNoticeInProgress
+            ? '正在切换管理员模式'
+            : '连接未完成';
     final statusBanners = <Widget>[
       if (safeMode)
         const _StartupBanner(
@@ -35,11 +51,9 @@ class _DesktopAppShell extends StatelessWidget {
         ),
       if (runtimeNotice != null)
         _StartupBanner(
-          icon: runtimeNoticeSuccessful
-              ? Icons.check_circle_outline
-              : Icons.error_outline,
-          color: runtimeNoticeSuccessful ? AppTheme.success : AppTheme.error,
-          title: runtimeNoticeSuccessful ? '连接已恢复' : '连接未完成',
+          icon: runtimeNoticeIcon,
+          color: runtimeNoticeColor,
+          title: runtimeNoticeTitle,
           message: runtimeNotice!,
         ),
     ];

@@ -577,6 +577,36 @@ bool IsNamedMutexOwned(const wchar_t* name) {
   return owned;
 }
 
+bool WaitForNamedMutexRelease(const wchar_t* name, DWORD timeout_ms,
+                              DWORD* error_code) {
+  HANDLE mutex =
+      ::OpenMutexW(SYNCHRONIZE | MUTEX_MODIFY_STATE, FALSE, name);
+  if (mutex == nullptr) {
+    const DWORD error = ::GetLastError();
+    if (error == ERROR_FILE_NOT_FOUND) {
+      if (error_code != nullptr) *error_code = ERROR_SUCCESS;
+      return true;
+    }
+    if (error_code != nullptr) *error_code = error;
+    return false;
+  }
+
+  const DWORD wait_result = ::WaitForSingleObject(mutex, timeout_ms);
+  if (wait_result == WAIT_OBJECT_0 || wait_result == WAIT_ABANDONED) {
+    const bool released = ::ReleaseMutex(mutex) != FALSE;
+    const DWORD release_error = released ? ERROR_SUCCESS : ::GetLastError();
+    ::CloseHandle(mutex);
+    if (error_code != nullptr) *error_code = release_error;
+    return released;
+  }
+
+  const DWORD wait_error =
+      wait_result == WAIT_TIMEOUT ? ERROR_TIMEOUT : ::GetLastError();
+  ::CloseHandle(mutex);
+  if (error_code != nullptr) *error_code = wait_error;
+  return false;
+}
+
 void ShowInstanceContentionNotice(InstanceContentionAction action) {
   std::wstring message;
   switch (action) {

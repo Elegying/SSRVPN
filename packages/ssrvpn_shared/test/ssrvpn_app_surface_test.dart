@@ -215,7 +215,7 @@ void main() {
     expect(unknown.style?.color, SsrvpnUiTokens.textSecondary);
   });
 
-  testWidgets('node selection keeps rule and desktop connection choices',
+  testWidgets('node selection keeps rule choices and the TUN header switch',
       (tester) async {
     var selectedName = '新加坡 | IEPL ①';
     var proxyMode = ProxyMode.rule;
@@ -268,8 +268,8 @@ void main() {
     expect(find.text('代理模式'), findsOneWidget);
     expect(find.text('智能'), findsOneWidget);
     expect(find.text('全局'), findsOneWidget);
-    expect(find.text('系统代理'), findsOneWidget);
-    expect(find.textContaining('TUN 模式'), findsOneWidget);
+    expect(find.text('系统代理'), findsNothing);
+    expect(find.text('TUN'), findsOneWidget);
     expect(find.text('全部订阅'), findsOneWidget);
     expect(find.text('日本 | IEPL ①'), findsOneWidget);
     expect(find.textContaining('1x'), findsNothing);
@@ -289,6 +289,15 @@ void main() {
     expect(globalModeSemantics.flagsCollection.isSelected, Tristate.isFalse);
     expect(
       globalModeSemantics.flagsCollection.isInMutuallyExclusiveGroup,
+      isTrue,
+    );
+    final tunSemantics = tester.getSemantics(
+      find.bySemanticsLabel('TUN 模式（需管理员权限）'),
+    );
+    expect(tunSemantics.flagsCollection.isEnabled, Tristate.isTrue);
+    expect(tunSemantics.flagsCollection.isToggled, Tristate.isFalse);
+    expect(
+      tunSemantics.getSemanticsData().hasAction(SemanticsAction.tap),
       isTrue,
     );
     expect(
@@ -463,7 +472,7 @@ void main() {
       tester
           .getSemantics(find.bySemanticsLabel('TUN 模式（需管理员权限）'))
           .flagsCollection
-          .isSelected,
+          .isToggled,
       Tristate.isTrue,
     );
     final selectedCard = find.byKey(

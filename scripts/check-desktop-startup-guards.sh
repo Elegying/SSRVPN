@@ -287,6 +287,9 @@ part_limits = {
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_home_overview.dart"): 600,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_page.dart"): 360,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_controls.dart"): 400,
+    Path(
+        "packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_support_controls.dart"
+    ): 200,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_node_card.dart"): 250,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_subscription_view.dart"): 600,
     Path(

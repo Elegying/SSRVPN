@@ -21,6 +21,8 @@ bool AdoptExistingChildProcessTree(HANDLE process_job, HANDLE child_process,
                                    const std::wstring& expected_core_path,
                                    DWORD* error_code);
 bool IsNamedMutexOwned(const wchar_t* name);
+bool WaitForNamedMutexRelease(const wchar_t* name, DWORD timeout_ms,
+                              DWORD* error_code);
 void ShowInstanceContentionNotice(InstanceContentionAction action);
 bool ChildExitRequiresProxyPreservation(DWORD exit_code);
 DWORD ResolveChildExitCode(DWORD exit_code, bool proxy_recovery_running,

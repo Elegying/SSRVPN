@@ -19,7 +19,11 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
         native = (runner / "flutter_window.cpp").read_text(encoding="utf-8")
         launcher = (runner / "launcher_main.cpp").read_text(encoding="utf-8-sig")
+        instance_control = (runner / "launcher_instance_control.cpp").read_text(
+            encoding="utf-8"
+        )
         manifest = (runner / "runner.exe.manifest").read_text(encoding="utf-8")
+        cmake = (runner / "CMakeLists.txt").read_text(encoding="utf-8")
         lifecycle = (
             ROOT / "SSRVPN_Windows" / "lib" / "services" / "clash_service_lifecycle.dart"
         ).read_text(encoding="utf-8")
@@ -35,6 +39,12 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         app = (ROOT / "SSRVPN_Windows" / "lib" / "app.dart").read_text(
             encoding="utf-8"
         )
+        runtime_actions = (
+            ROOT / "SSRVPN_Windows" / "lib" / "app_runtime_actions_part.dart"
+        ).read_text(encoding="utf-8")
+        runtime_notice = (
+            ROOT / "packages" / "ssrvpn_shared" / "lib" / "runtime_notice.dart"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("TokenElevationTypeLimited", native)
         self.assertIn('request.lpVerb = L"runas"', native)
@@ -57,9 +67,22 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("::_wcsicmp(expected_user_sid.c_str()", launcher)
         self.assertIn("::OpenEventW(EVENT_MODIFY_STATE", launcher)
         self.assertIn("::SetEvent(ready_event)", launcher)
-        self.assertIn("kElevationRelaunchWaitMilliseconds = 45000", launcher)
-        self.assertIn("elevated_tun_relaunch ?", launcher)
+        self.assertIn(
+            "kElevationRelaunchTotalWaitMilliseconds = 90000", launcher
+        )
+        self.assertIn(
+            "RemainingWaitMilliseconds(elevated_tun_handoff_deadline)",
+            launcher,
+        )
         self.assertIn("ERROR_TIMEOUT", launcher)
+        self.assertIn("WaitForNamedMutexRelease", launcher)
+        self.assertIn("kGuardianMutexName", launcher)
+        self.assertIn("kProxyRecoveryMutexName", launcher)
+        self.assertIn("kAppMutexName", launcher)
+        self.assertIn("bool WaitForNamedMutexRelease(", instance_control)
+        self.assertIn("::WaitForSingleObject(mutex, timeout_ms)", instance_control)
+        self.assertIn("wait_result == WAIT_ABANDONED", instance_control)
+        self.assertIn("wait_result == WAIT_TIMEOUT ? ERROR_TIMEOUT", instance_control)
         mutex_created = launcher.index("HANDLE launcher_mutex")
         handoff_accepted = launcher.index(
             "::OpenEventW(EVENT_MODIFY_STATE", mutex_created
@@ -67,16 +90,39 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         mutex_wait = launcher.index("::WaitForSingleObject(", handoff_accepted)
         self.assertLess(mutex_created, handoff_accepted)
         self.assertLess(handoff_accepted, mutex_wait)
+        cleanup_wait = launcher.index("WaitForNamedMutexRelease", mutex_wait)
+        contention_check = launcher.index(
+            "const bool guardian_already_running", cleanup_wait
+        )
+        self.assertLess(cleanup_wait, contention_check)
 
-        self.assertIn('level="asInvoker"', manifest)
-        self.assertNotIn('level="requireAdministrator"', manifest)
+        self.assertIn('level="requireAdministrator"', manifest)
+        self.assertNotIn('level="asInvoker"', manifest)
+        self.assertIn(
+            "\"/MANIFESTUAC:level='requireAdministrator' uiAccess='false'\"",
+            cmake,
+        )
+        self.assertEqual(cmake.count('"${SSRVPN_UAC_LINK_OPTION}"'), 2)
         self.assertIn("WindowsTunElevationRequestResult.launched", lifecycle)
         self.assertIn("_tunElevationRelaunchPending = true", lifecycle)
         self.assertIn("consumeTunElevationRelaunchRequest()", shared_home)
         self.assertIn("resumeTunAfterElevation", app)
         self.assertIn("_handleTrayConnectToggle()", app)
+        self.assertIn("_handoffToElevatedTunApp()", app)
+        self.assertIn(
+            "await _presentRuntimeNotice("
+            "windowsTunElevationHandoffRuntimeNotice",
+            app,
+        )
+        self.assertIn("windowsTunElevationHandoffNoticeDuration", app)
+        self.assertGreaterEqual(
+            runtime_actions.count("await _handoffToElevatedTunApp()"),
+            2,
+        )
+        self.assertIn("Duration(seconds: 3)", runtime_notice)
+        self.assertIn("不要重复启动软件", runtime_notice)
 
-    def test_native_window_requests_square_windows_11_corners(self) -> None:
+    def test_native_window_requests_small_windows_11_corners(self) -> None:
         source = (
             ROOT / "SSRVPN_Windows" / "windows" / "runner" / "win32_window.cpp"
         ).read_text(encoding="utf-8")
@@ -85,7 +131,13 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("kDwmwaWindowCornerPreference", source)
-        self.assertIn("kDwmWindowCornerPreferenceDoNotRound", source)
+        self.assertIn("kDwmWindowCornerPreferenceRoundSmall", source)
+        self.assertIn(
+            "const DWORD corner_preference = "
+            "kDwmWindowCornerPreferenceRoundSmall",
+            source,
+        )
+        self.assertNotIn("kDwmWindowCornerPreferenceDoNotRound", source)
         self.assertNotIn("kDwmWindowCornerPreferenceRound = 2", source)
         self.assertIn(
             "DwmSetWindowAttribute(window, kDwmwaWindowCornerPreference",
