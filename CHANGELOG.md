@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.16] - 2026-07-23
+
+### 修复
+
+- Windows 安装器移除完成页的“运行 SSRVPN”复选框，不再在安装结束时自动启动需要管理员权限的客户端，避免安装器低权限上下文触发管理员启动错误；用户可在安装完成后从桌面或开始菜单自行打开并确认 UAC。
+
 ## [3.4.15] - 2026-07-23
 
 ### 修复
