@@ -183,9 +183,21 @@ class SsrvpnBottomNavigation extends StatelessWidget {
                   border: Border.all(color: SsrvpnUiTokens.border),
                   boxShadow: const [
                     BoxShadow(
-                      color: Color(0x55000000),
-                      blurRadius: 26,
-                      offset: Offset(0, 14),
+                      color: Color(0x66000000),
+                      blurRadius: 30,
+                      spreadRadius: 1,
+                      offset: Offset(0, 16),
+                    ),
+                    BoxShadow(
+                      color: Color(0x242F5BFF),
+                      blurRadius: 20,
+                      spreadRadius: 1,
+                      offset: Offset(0, 5),
+                    ),
+                    BoxShadow(
+                      color: Color(0x33000000),
+                      blurRadius: 6,
+                      offset: Offset(0, 3),
                     ),
                   ],
                 ),

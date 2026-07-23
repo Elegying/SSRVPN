@@ -8,6 +8,7 @@ import 'country_flag_icon.dart';
 import 'ssrvpn_app_surface.dart';
 
 part 'ssrvpn_node_selection_controls.dart';
+part 'ssrvpn_node_selection_support_controls.dart';
 part 'ssrvpn_node_selection_node_card.dart';
 
 typedef SsrvpnNodeAction = Future<void> Function(ProxyNode node);

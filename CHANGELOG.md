@@ -5,7 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.4.16] - 2026-07-23
+
+### 修复
+
+- Windows 安装器移除完成页的“运行 SSRVPN”复选框，不再在安装结束时自动启动需要管理员权限的客户端，避免安装器低权限上下文触发管理员启动错误；用户可在安装完成后从桌面或开始菜单自行打开并确认 UAC。
+
+## [3.4.15] - 2026-07-23
+
+### 修复
+
+- 作为普通权限启动的兼容回退，Windows 启用 TUN 并确认 UAC 后，管理员启动器会在同一个 90 秒交接期限内继续等待旧实例的 guardian、代理恢复和应用互斥锁释放，不再因旧清理进程短暂存活而退出，避免旧窗口关闭后没有管理员实例接续。
+
+### 改进
+
+- Windows 11 顶层窗口改用 DWM 原生“小圆角”档位，在保留轻微弧度的同时避免恢复此前较明显的 14px 自定义圆角和透明边缘。
+- 普通权限兼容回退触发 TUN 的 UAC 授权后，旧窗口会置前显示“正在切换管理员模式”提示三秒，明确说明窗口将短暂关闭、管理员实例会自动重新打开并继续连接，同时提醒用户不要重复启动软件。
+- Windows 安装版客户端默认请求管理员权限，每次启动统一显示 UAC，系统代理与 TUN 在同一管理员实例中运行。
+- Windows 与 macOS 的代理模式选择器按“标题与 TUN 开关在上、智能与全局分段选择在下”的紧凑卡片重新布局；主页与订阅切换容器增加柔和环境阴影和近景阴影。
 
 ## [3.4.14] - 2026-07-23
 

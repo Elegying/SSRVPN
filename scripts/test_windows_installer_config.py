@@ -84,12 +84,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("ssrvpn_windows_app.exe", script)
         self.assertIn("ssrvpn_windows.exe", script)
         self.assertNotRegex(script, r"taskkill[^\n]+mihomo\.exe")
-        run_entry = next(
-            line for line in script.splitlines() if line.startswith('Filename: "{app}')
-        )
-        self.assertIn('Description: "{cm:LaunchProgram,SSRVPN}"', run_entry)
-        self.assertIn("postinstall", run_entry)
-        self.assertIn("skipifsilent", run_entry)
+        self.assertNotIn("[Run]", script)
+        self.assertNotIn("{cm:LaunchProgram,SSRVPN}", script)
+        self.assertNotIn("postinstall", script)
 
     def test_installer_ignores_portable_data_and_blocks_before_destructive_copy(
         self,
@@ -219,7 +216,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "procedure DeinitializeUninstall;\nbegin\n  ReleaseInstallGates;",
             installer,
         )
-        self.assertIn("nowait postinstall skipifsilent", installer)
+        self.assertNotIn("nowait postinstall skipifsilent", installer)
 
     def test_verified_update_handoff_waits_for_elevated_launcher_exit(self) -> None:
         installer = (

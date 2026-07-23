@@ -30,7 +30,7 @@ constexpr wchar_t kElevatedTunReadyArgumentPrefix[] =
     L"--ssrvpn-elevated-tun-ready=";
 constexpr wchar_t kElevatedTunReadyEventPrefix[] =
     L"Local\\SSRVPN_Windows_TunElevationReady_";
-constexpr DWORD kElevationRelaunchWaitMilliseconds = 45000;
+constexpr DWORD kElevationRelaunchTotalWaitMilliseconds = 90000;
 
 // ── Error formatting ──
 
@@ -235,6 +235,15 @@ std::wstring QueryCurrentUserSid() {
   const std::wstring result(sid_string);
   ::LocalFree(sid_string);
   return result;
+}
+
+DWORD RemainingWaitMilliseconds(ULONGLONG deadline) {
+  const ULONGLONG now = ::GetTickCount64();
+  if (now >= deadline) {
+    return 0;
+  }
+  const ULONGLONG remaining = deadline - now;
+  return remaining > MAXDWORD ? MAXDWORD : static_cast<DWORD>(remaining);
 }
 
 bool HasUsableStandardHandle(DWORD id) {
@@ -1001,6 +1010,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
   const bool elevated_tun_relaunch =
       HasExactCommandLineArgument(kElevatedTunRelaunchArgument);
   std::wstring elevated_tun_ready_event;
+  ULONGLONG elevated_tun_handoff_deadline = 0;
   if (elevated_tun_relaunch) {
     const std::wstring expected_user_sid =
         CommandLineArgumentValue(kElevatedTunUserArgumentPrefix);
@@ -1016,6 +1026,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
           L"did not match the requesting user.\n");
       return ERROR_ACCESS_DENIED;
     }
+    elevated_tun_handoff_deadline =
+        ::GetTickCount64() + kElevationRelaunchTotalWaitMilliseconds;
   }
 
   if (::GetFileAttributesW(child_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
@@ -1053,7 +1065,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
   }
   const DWORD launcher_wait = ::WaitForSingleObject(
       launcher_mutex,
-      elevated_tun_relaunch ? kElevationRelaunchWaitMilliseconds : 0);
+      elevated_tun_relaunch
+          ? RemainingWaitMilliseconds(elevated_tun_handoff_deadline)
+          : 0);
   if (launcher_wait == WAIT_TIMEOUT) {
     if (elevated_tun_relaunch) {
       ::CloseHandle(launcher_mutex);
@@ -1094,6 +1108,31 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
               L"无法取得 SSRVPN 启动保护：\n\n" +
                   GetLastErrorMessage(error));
     return static_cast<int>(error);
+  }
+  if (elevated_tun_relaunch) {
+    const wchar_t* cleanup_mutexes[] = {
+        kGuardianMutexName,
+        kProxyRecoveryMutexName,
+        kAppMutexName,
+    };
+    DWORD cleanup_wait_error = ERROR_SUCCESS;
+    for (const wchar_t* cleanup_mutex : cleanup_mutexes) {
+      const DWORD remaining =
+          RemainingWaitMilliseconds(elevated_tun_handoff_deadline);
+      if (!WaitForNamedMutexRelease(cleanup_mutex, remaining,
+                                    &cleanup_wait_error)) {
+        ::ReleaseMutex(launcher_mutex);
+        ::CloseHandle(launcher_mutex);
+        ShowError(
+            L"SSRVPN TUN",
+            L"旧的 SSRVPN 实例尚未完成安全清理，因此管理员实例没有启动。\n\n"
+            L"请等待清理完成后重新尝试 TUN 模式；不要在任务管理器中强制结束"
+            L"正在恢复网络的 SSRVPN 进程。");
+        return static_cast<int>(
+            cleanup_wait_error == ERROR_SUCCESS ? ERROR_TIMEOUT
+                                                : cleanup_wait_error);
+      }
+    }
   }
 
   DWORD child_process_id = 0;

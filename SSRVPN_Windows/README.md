@@ -2,9 +2,10 @@
 
 [![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml)
 
-SSRVPN Windows 客户端支持系统代理、按需 UAC 授权的 TUN、系统托盘与在线更新。管理员
-账户以普通权限运行时可直接授权并由客户端安全重启后继续 TUN 连接。Windows 对外只发布
-每用户安装器 `SSRVPN_Setup.exe`；不再构建或发布便携 ZIP。
+SSRVPN Windows 客户端支持系统代理、TUN、系统托盘与在线更新。安装后的客户端默认请求
+Windows 管理员权限，因此每次启动都会显示 UAC；授权后系统代理与 TUN 均在同一管理员
+实例中运行。安装完成后不会自动启动客户端，用户需从桌面或开始菜单自行打开并确认 UAC。
+Windows 对外只发布每用户安装器 `SSRVPN_Setup.exe`；不再构建或发布便携 ZIP。
 
 ## 构建要求
 

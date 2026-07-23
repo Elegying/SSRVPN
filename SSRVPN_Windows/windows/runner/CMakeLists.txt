@@ -22,6 +22,9 @@ add_executable(${BINARY_NAME} WIN32
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
 target_compile_options(${BINARY_NAME} PRIVATE "/utf-8")
+set(SSRVPN_UAC_LINK_OPTION
+  "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'")
+target_link_options(${BINARY_NAME} PRIVATE "${SSRVPN_UAC_LINK_OPTION}")
 
 # Add preprocessor definitions for the build version.
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
@@ -74,3 +77,4 @@ target_link_libraries(${LAUNCHER_TARGET} PRIVATE "wininet.lib")
 # not CET compatibility, and can make a normal desktop launcher unloadable.
 target_compile_options(${LAUNCHER_TARGET} PRIVATE "/guard:cf")
 target_link_options(${LAUNCHER_TARGET} PRIVATE "/CETCOMPAT" "/GUARD:CF")
+target_link_options(${LAUNCHER_TARGET} PRIVATE "${SSRVPN_UAC_LINK_OPTION}")

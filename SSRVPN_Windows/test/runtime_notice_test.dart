@@ -9,6 +9,21 @@ void main() {
     expect(isSuccessfulRuntimeNotice(null), isFalse);
   });
 
+  test('only the exact TUN elevation handoff notice is in progress', () {
+    expect(
+      isInProgressRuntimeNotice(windowsTunElevationHandoffRuntimeNotice),
+      isTrue,
+    );
+    expect(
+      isInProgressRuntimeNotice(
+        '$windowsTunElevationHandoffRuntimeNotice ',
+      ),
+      isFalse,
+    );
+    expect(isInProgressRuntimeNotice(coreAutoRecoveredRuntimeNotice), isFalse);
+    expect(isInProgressRuntimeNotice(null), isFalse);
+  });
+
   testWidgets('successful notice clears after its display duration', (
     tester,
   ) async {
