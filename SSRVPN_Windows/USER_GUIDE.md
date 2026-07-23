@@ -9,6 +9,8 @@ Windows 只发布 `SSRVPN_Setup.exe`。安装器按当前用户安装到
 `%LOCALAPPDATA%\Programs\SSRVPN`，创建桌面和开始菜单入口，不需要管理员权限。
 请只从正式 Release 或官网固定地址下载安装器，并按发布页校验 SHA256。当前安装器没有
 Authenticode 签名；只有在来源和哈希都确认无误时才继续处理 SmartScreen 提示。
+安装完成后安装器不会自动运行 SSRVPN，也不会显示“运行 SSRVPN”复选框；请关闭安装器后
+从桌面或开始菜单手动打开，并在 Windows UAC 中确认管理员授权。
 
 覆盖运行新版安装器只替换已知程序文件，并保留：
 

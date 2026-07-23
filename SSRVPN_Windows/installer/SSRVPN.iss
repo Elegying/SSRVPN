@@ -77,9 +77,6 @@ Source: "{#ProjectDir}\installer\program_files_transaction.ps1"; DestDir: "{app}
 Name: "{autoprograms}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
 Name: "{autodesktop}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
 
-[Run]
-Filename: "{app}\ssrvpn_windows.exe"; Description: "{cm:LaunchProgram,SSRVPN}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
-
 [Code]
 const
   AppInstanceMutexName = 'Local\SSRVPN_Windows_SingleInstance';
