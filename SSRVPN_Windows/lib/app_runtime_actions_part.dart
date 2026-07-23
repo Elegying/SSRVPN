@@ -89,6 +89,9 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
         ),
       );
       if (connectionResult.failure == DesktopConnectionFailure.cancelled) {
+        if (core.consumeTunElevationRelaunchRequest()) {
+          await _quitApp();
+        }
         return;
       }
       if (connectionResult.failure ==
@@ -99,6 +102,10 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
       }
       if (!connectionResult.connected) {
         final reason = connectionResult.failureReason ?? '无法启动核心';
+        if (core.consumeTunElevationRelaunchRequest()) {
+          await _quitApp();
+          return;
+        }
         if (AppFailure.fromMessage(reason).code ==
             AppErrorCode.permissionRequired) {
           StartupLogger.warning('Tray connection refused: $reason');
@@ -119,10 +126,10 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
           preferredSettings: settings.settings,
           generateConfig: (runtimeSettings, recoveryNodeName) =>
               core.generateClashConfigAsync(
-            rawYaml,
-            runtimeSettings,
-            preferredNodeName: recoveryNodeName,
-          ),
+                rawYaml,
+                runtimeSettings,
+                preferredNodeName: recoveryNodeName,
+              ),
           isRevisionCurrent: () =>
               subscriptionService.revision == subscriptionRevision &&
               subscriptionService.rawYaml == rawYaml,
@@ -150,11 +157,9 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
         await _presentRuntimeNotice(portAdjustmentNotice);
       }
     } catch (error, stack) {
-      final isCurrent = connectionGeneration != null &&
-          core.isConnectionIntentCurrent(
-            connectionGeneration,
-            connected: true,
-          );
+      final isCurrent =
+          connectionGeneration != null &&
+          core.isConnectionIntentCurrent(connectionGeneration, connected: true);
       if (!isCurrent && core.connectionDesired) return;
       if (isCurrent) {
         core.requestConnectionIntent(false);

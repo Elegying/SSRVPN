@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
@@ -20,10 +21,14 @@ class TrayManager {
   // 回调
   void Function()? onShowApp;
   void Function()? onHideApp;
-  void Function()? onQuit;
+  Future<void> Function()? onQuit;
   void Function()? onConnectToggle;
   bool Function()? isConnected;
   int Function()? runtimeProxyPort;
+
+  Future<void> requestQuit() async {
+    await onQuit?.call();
+  }
 
   /// 初始化系统托盘，返回是否成功
   Future<bool> init() async {
@@ -79,9 +84,7 @@ class TrayManager {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
     final flutterAssetsDir = p.join(exeDir, 'data', 'flutter_assets');
 
-    final candidates = [
-      p.join('assets', 'icon.ico'),
-    ];
+    final candidates = [p.join('assets', 'icon.ico')];
 
     for (final assetPath in candidates) {
       final filePath = p.join(flutterAssetsDir, assetPath);
@@ -99,16 +102,10 @@ class TrayManager {
 
     final menu = Menu();
     await menu.buildFrom([
-      MenuItemLabel(
-        label: '显示主窗口',
-        onClicked: (_) => onShowApp?.call(),
-      ),
+      MenuItemLabel(label: '显示主窗口', onClicked: (_) => onShowApp?.call()),
       MenuSeparator(),
       if (port != null) ...[
-        MenuItemLabel(
-          label: 'HTTP 代理：127.0.0.1:$port',
-          enabled: false,
-        ),
+        MenuItemLabel(label: 'HTTP 代理：127.0.0.1:$port', enabled: false),
         MenuSeparator(),
       ],
       MenuItemLabel(
@@ -118,7 +115,7 @@ class TrayManager {
       MenuSeparator(),
       MenuItemLabel(
         label: '退出 SSRVPN',
-        onClicked: (_) => onQuit?.call(),
+        onClicked: (_) => unawaited(requestQuit()),
       ),
     ]);
 

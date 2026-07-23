@@ -1,4 +1,5 @@
 ﻿#include <windows.h>
+#include <sddl.h>
 #include <shellapi.h>
 
 #include <cstdlib>
@@ -21,6 +22,15 @@ constexpr wchar_t kProcessJobName[] = L"Local\\SSRVPN_Windows_ProcessJob";
 constexpr wchar_t kGuardianArgument[] = L"--ssrvpn-native-guardian";
 constexpr wchar_t kGuardianReadyPrefix[] = L"Local\\SSRVPN_Windows_GuardianReady_";
 constexpr wchar_t kGuardianCommitPrefix[] = L"Local\\SSRVPN_Windows_GuardianCommit_";
+constexpr wchar_t kElevatedTunRelaunchArgument[] =
+    L"--ssrvpn-elevated-tun-relaunch";
+constexpr wchar_t kElevatedTunUserArgumentPrefix[] =
+    L"--ssrvpn-elevated-tun-user=";
+constexpr wchar_t kElevatedTunReadyArgumentPrefix[] =
+    L"--ssrvpn-elevated-tun-ready=";
+constexpr wchar_t kElevatedTunReadyEventPrefix[] =
+    L"Local\\SSRVPN_Windows_TunElevationReady_";
+constexpr DWORD kElevationRelaunchWaitMilliseconds = 45000;
 
 // ── Error formatting ──
 
@@ -138,6 +148,93 @@ std::wstring BuildChildCommandLine(const std::wstring& child_path) {
     ::LocalFree(argv);
   }
   return command_line;
+}
+
+bool HasExactCommandLineArgument(const wchar_t* expected) {
+  if (expected == nullptr) {
+    return false;
+  }
+  int argc = 0;
+  wchar_t** argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
+  if (argv == nullptr) {
+    return false;
+  }
+  bool found = false;
+  for (int i = 1; i < argc; ++i) {
+    if (::wcscmp(argv[i], expected) == 0) {
+      found = true;
+      break;
+    }
+  }
+  ::LocalFree(argv);
+  return found;
+}
+
+std::wstring CommandLineArgumentValue(const wchar_t* prefix) {
+  if (prefix == nullptr) {
+    return std::wstring();
+  }
+  const size_t prefix_length = ::wcslen(prefix);
+  int argc = 0;
+  wchar_t** argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
+  if (argv == nullptr) {
+    return std::wstring();
+  }
+  std::wstring value;
+  for (int i = 1; i < argc; ++i) {
+    if (::wcsncmp(argv[i], prefix, prefix_length) == 0) {
+      value.assign(argv[i] + prefix_length);
+      break;
+    }
+  }
+  ::LocalFree(argv);
+  return value;
+}
+
+bool IsCurrentProcessElevated() {
+  HANDLE token = nullptr;
+  if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
+    return false;
+  }
+  TOKEN_ELEVATION elevation = {};
+  DWORD bytes = 0;
+  const bool elevated =
+      ::GetTokenInformation(token, TokenElevation, &elevation,
+                            sizeof(elevation), &bytes) != FALSE &&
+      elevation.TokenIsElevated != 0;
+  ::CloseHandle(token);
+  return elevated;
+}
+
+std::wstring QueryCurrentUserSid() {
+  HANDLE token = nullptr;
+  if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
+    return std::wstring();
+  }
+  DWORD bytes = 0;
+  ::GetTokenInformation(token, TokenUser, nullptr, 0, &bytes);
+  if (bytes == 0 || ::GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+    ::CloseHandle(token);
+    return std::wstring();
+  }
+  std::vector<BYTE> token_user_buffer(bytes);
+  if (!::GetTokenInformation(token, TokenUser, token_user_buffer.data(),
+                             bytes, &bytes)) {
+    ::CloseHandle(token);
+    return std::wstring();
+  }
+  ::CloseHandle(token);
+
+  const auto* token_user =
+      reinterpret_cast<const TOKEN_USER*>(token_user_buffer.data());
+  wchar_t* sid_string = nullptr;
+  if (!::ConvertSidToStringSidW(token_user->User.Sid, &sid_string) ||
+      sid_string == nullptr) {
+    return std::wstring();
+  }
+  const std::wstring result(sid_string);
+  ::LocalFree(sid_string);
+  return result;
 }
 
 bool HasUsableStandardHandle(DWORD id) {
@@ -901,6 +998,26 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
                        guardian_commit_event_name);
   }
 
+  const bool elevated_tun_relaunch =
+      HasExactCommandLineArgument(kElevatedTunRelaunchArgument);
+  std::wstring elevated_tun_ready_event;
+  if (elevated_tun_relaunch) {
+    const std::wstring expected_user_sid =
+        CommandLineArgumentValue(kElevatedTunUserArgumentPrefix);
+    const std::wstring current_user_sid = QueryCurrentUserSid();
+    elevated_tun_ready_event =
+        CommandLineArgumentValue(kElevatedTunReadyArgumentPrefix);
+    if (!IsCurrentProcessElevated() || expected_user_sid.empty() ||
+        current_user_sid.empty() ||
+        ::_wcsicmp(expected_user_sid.c_str(), current_user_sid.c_str()) != 0 ||
+        elevated_tun_ready_event.rfind(kElevatedTunReadyEventPrefix, 0) != 0) {
+      ::OutputDebugStringW(
+          L"SSRVPN refused a TUN elevation relaunch whose token or user SID "
+          L"did not match the requesting user.\n");
+      return ERROR_ACCESS_DENIED;
+    }
+  }
+
   if (::GetFileAttributesW(child_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
     ShowError(L"SSRVPN",
               L"找不到 SSRVPN 主程序：\n\n" + child_path +
@@ -918,8 +1035,34 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
                   GetLastErrorMessage(error));
     return static_cast<int>(error);
   }
-  const DWORD launcher_wait = ::WaitForSingleObject(launcher_mutex, 0);
+  if (elevated_tun_relaunch) {
+    HANDLE ready_event = ::OpenEventW(EVENT_MODIFY_STATE, FALSE,
+                                      elevated_tun_ready_event.c_str());
+    if (ready_event == nullptr) {
+      const DWORD error = ::GetLastError();
+      ::CloseHandle(launcher_mutex);
+      return static_cast<int>(error);
+    }
+    const bool accepted = ::SetEvent(ready_event) != FALSE;
+    const DWORD acceptance_error = accepted ? ERROR_SUCCESS : ::GetLastError();
+    ::CloseHandle(ready_event);
+    if (!accepted) {
+      ::CloseHandle(launcher_mutex);
+      return static_cast<int>(acceptance_error);
+    }
+  }
+  const DWORD launcher_wait = ::WaitForSingleObject(
+      launcher_mutex,
+      elevated_tun_relaunch ? kElevationRelaunchWaitMilliseconds : 0);
   if (launcher_wait == WAIT_TIMEOUT) {
+    if (elevated_tun_relaunch) {
+      ::CloseHandle(launcher_mutex);
+      ShowError(
+          L"SSRVPN TUN",
+          L"旧的 SSRVPN 实例未能在安全时限内退出，因此管理员实例没有启动。\n\n"
+          L"请确认旧实例已断开连接，再重新尝试 TUN 模式。");
+      return ERROR_TIMEOUT;
+    }
     bool existing_window_activated = false;
     HANDLE existing_process =
         OpenExistingChildProcess(child_path, true, nullptr, nullptr,

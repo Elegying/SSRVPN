@@ -135,6 +135,10 @@ abstract class ClashServiceBase
   Future<T> runConnectionTransition<T>(Future<T> Function() transition) =>
       _connectionTransitions.run(transition);
 
+  /// Returns true once when a platform has already started a privileged
+  /// replacement process and the current desktop instance should shut down.
+  bool consumeTunElevationRelaunchRequest() => false;
+
   /// Installs the latest successful desktop connection's immutable recovery
   /// source. Callers must pass closures that capture services/snapshots only,
   /// never a widget State object.
@@ -143,7 +147,8 @@ abstract class ClashServiceBase
     required Future<String> Function(
       AppSettings runtimeSettings,
       String? preferredNodeName,
-    ) generateConfig,
+    )
+    generateConfig,
     required bool Function() isRevisionCurrent,
     String? preferredNodeName,
   }) {
@@ -154,18 +159,14 @@ abstract class ClashServiceBase
     _desktopConnectionRecoveryPlan = DesktopConnectionRecoveryPlan(
       preferredSettings: settingsSnapshot,
       prepareForStart: prepareForStart,
-      generateConfig: (runtimeSettings) => generateConfig(
-        runtimeSettings,
-        _desktopRecoveryPreferredNodeName,
-      ),
+      generateConfig: (runtimeSettings) =>
+          generateConfig(runtimeSettings, _desktopRecoveryPreferredNodeName),
       writeConfig: writeDesktopRecoveryConfig,
       start: startForAutomaticRecovery,
       stop: stop,
       isRevisionCurrent: isRevisionCurrent,
-      isIntentCurrent: (generation) => isConnectionIntentCurrent(
-        generation,
-        connected: true,
-      ),
+      isIntentCurrent: (generation) =>
+          isConnectionIntentCurrent(generation, connected: true),
       shouldRollbackStaleIntent: () => !connectionDesired,
       cancelIntent: () {
         requestConnectionIntent(false);
@@ -198,7 +199,8 @@ abstract class ClashServiceBase
     }
     try {
       final result = await plan.recover(connectionGeneration);
-      final connected = result.connected &&
+      final connected =
+          result.connected &&
           isRunning &&
           isConnectionIntentCurrent(connectionGeneration, connected: true);
       if (!connected && result.failureReason != null) {
@@ -286,7 +288,8 @@ abstract class ClashServiceBase
             .put(
               Uri.parse(
                 _apiUrl(
-                    '/providers/rules/${Uri.encodeComponent(providerName)}'),
+                  '/providers/rules/${Uri.encodeComponent(providerName)}',
+                ),
               ),
               headers: apiHeaders(),
             )
@@ -528,9 +531,7 @@ abstract class ClashServiceBase
       if (lastSeen == expectedNodeName) return true;
       await Future<void>.delayed(const Duration(milliseconds: 40));
     }
-    log(
-      '代理组状态未生效 $groupName: expected=$expectedNodeName, actual=$lastSeen',
-    );
+    log('代理组状态未生效 $groupName: expected=$expectedNodeName, actual=$lastSeen');
     return false;
   }
 
@@ -662,10 +663,7 @@ abstract class ClashServiceBase
   Future<bool> recoverAfterHealthCheckFailure(int connectionGeneration) async {
     if (await healthCheck()) {
       setRunning(true);
-      return isConnectionIntentCurrent(
-        connectionGeneration,
-        connected: true,
-      );
+      return isConnectionIntentCurrent(connectionGeneration, connected: true);
     }
     await onStopRequired();
     return _isRunning &&

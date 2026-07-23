@@ -35,6 +35,8 @@ Future<bool> terminateCoreProcess(
 }
 
 mixin _WindowsCoreLifecycle on ClashServiceBase {
+  late final WindowsTunElevationService _tunElevationService;
+  bool _tunElevationRelaunchPending = false;
   // ── Process management ──
   Process? _coreProcess;
   WindowsCorePidRecord? _corePidRecord;
@@ -55,8 +57,9 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   bool _stoppingCore = false;
   bool _proxyRecoveryListenerActive = false;
   WindowsTunRuntimeStatus? _lastTunRuntimeObservation;
-  final CoreRecoveryPolicy _unexpectedExitRecoveryPolicy =
-      CoreRecoveryPolicy(maxAttempts: 2);
+  final CoreRecoveryPolicy _unexpectedExitRecoveryPolicy = CoreRecoveryPolicy(
+    maxAttempts: 2,
+  );
 
   // ── Startup disabled ──
   String? _startupDisabledReason;
@@ -98,9 +101,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
             ownershipStatus == SystemProxyOwnershipStatus.externallyChanged
                 ? desktopSystemProxyOwnershipLostPrefix
                 : desktopSystemProxyOwnershipUnavailablePrefix;
-        setLastHealthCheckError(
-          '$prefix $ownershipError',
-        );
+        setLastHealthCheckError('$prefix $ownershipError');
         return false;
       }
       return true;
@@ -206,9 +207,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   }
 
   @override
-  Future<bool> recoverAfterHealthCheckFailure(
-    int connectionGeneration,
-  ) async {
+  Future<bool> recoverAfterHealthCheckFailure(int connectionGeneration) async {
     if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
       await stop();
       return false;
@@ -337,9 +336,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
     if (pidFileLength <= 0 || pidFileLength > maxWindowsCorePidRecordBytes) {
       throw StateError('Mihomo 进程身份记录大小异常，已拒绝自动清理');
     }
-    final record = WindowsCorePidRecord.tryParse(
-      await pidFile.readAsString(),
-    );
+    final record = WindowsCorePidRecord.tryParse(await pidFile.readAsString());
     if (record == null) {
       throw StateError(
         'Mihomo 进程身份记录为旧格式或已损坏，无法确认进程归属；'
@@ -351,9 +348,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       if (disposition == _VerifiedCoreTermination.wrongInstallation) {
         throw StateError('进程身份记录指向其他安装目录，已拒绝清理');
       }
-      final recordDeleted = await _deleteCorePid(
-        expectedRecord: record,
-      );
+      final recordDeleted = await _deleteCorePid(expectedRecord: record);
       if (!recordDeleted) {
         throw StateError('进程身份记录在清理期间发生变化，已拒绝删除');
       }
@@ -658,6 +653,7 @@ try {
     if (stopping != null) await stopping;
     _ensureStartCurrent(startToken);
     setLastStartError(null);
+    _tunElevationRelaunchPending = false;
 
     if (_startupDisabledReason != null) {
       setLastStartError(_startupDisabledReason);
@@ -679,9 +675,7 @@ try {
         final stoppedSafely = await _stopInternal();
         _ensureStartCurrent(startToken);
         if (!stoppedSafely) {
-          setLastStartError(
-            _lastStopError ?? '现有 Mihomo 连接无法安全停止，已拒绝启动新的核心',
-          );
+          setLastStartError(_lastStopError ?? '现有 Mihomo 连接无法安全停止，已拒绝启动新的核心');
           log('❌ $lastStartError');
           return false;
         }
@@ -692,9 +686,7 @@ try {
         final stoppedSafely = await _stopInternal();
         _ensureStartCurrent(startToken);
         if (!stoppedSafely || _coreProcess != null) {
-          setLastStartError(
-            _lastStopError ?? '上一个 Mihomo 进程尚未退出，已拒绝启动新的核心',
-          );
+          setLastStartError(_lastStopError ?? '上一个 Mihomo 进程尚未退出，已拒绝启动新的核心');
           log('❌ $lastStartError');
           return false;
         }
@@ -719,9 +711,7 @@ try {
       if (!File(_corePath).existsSync()) {
         log('❌ 核心文件不存在: $_corePath');
         log('请下载 mihomo-windows-amd64 并重命名为 mihomo.exe 放到应用目录');
-        setLastStartError(
-          '找不到 mihomo.exe，文件可能未完整解压或被安全软件隔离',
-        );
+        setLastStartError('找不到 mihomo.exe，文件可能未完整解压或被安全软件隔离');
         return false;
       }
 
@@ -738,11 +728,27 @@ try {
         );
         _ensureStartCurrent(startToken);
         if (isAdministrator != true) {
-          setLastStartError(
-            isAdministrator == false
-                ? 'TUN 模式需要以管理员身份运行 SSRVPN'
-                : '无法确认管理员权限，TUN 模式已安全中止，请重新以管理员身份运行 SSRVPN',
-          );
+          WindowsTunElevationRequestResult? elevationRequest;
+          if (isAdministrator == false) {
+            elevationRequest = await _awaitStartOperation(
+              _tunElevationService.requestRelaunch(),
+              startToken,
+            );
+            _ensureStartCurrent(startToken);
+          }
+          if (elevationRequest == WindowsTunElevationRequestResult.launched) {
+            _tunElevationRelaunchPending = true;
+          }
+          setLastStartError(switch (elevationRequest) {
+            WindowsTunElevationRequestResult.launched =>
+              'TUN 模式需要管理员权限，SSRVPN 正在自动重启并继续连接',
+            WindowsTunElevationRequestResult.cancelled => '已取消管理员授权，TUN 模式未启动',
+            WindowsTunElevationRequestResult.standardUser =>
+              '当前 Windows 账户不能直接提升为管理员；TUN 模式未启动，请使用管理员账户运行 SSRVPN',
+            WindowsTunElevationRequestResult.failed =>
+              '无法打开管理员授权窗口，TUN 模式未启动，请手动以管理员身份运行 SSRVPN',
+            null => '无法确认管理员权限，TUN 模式已安全中止，请重新以管理员身份运行 SSRVPN',
+          });
           log('❌ $lastStartError');
           return false;
         }
@@ -755,9 +761,7 @@ try {
       final environment = {'TMPDIR': tmpDir, 'TMP': tmpDir, 'TEMP': tmpDir};
 
       if (!await _validateConfig(environment)) {
-        setLastStartError(
-          lastStartError ?? 'Mihomo 配置校验失败，请打开运行日志查看具体配置错误',
-        );
+        setLastStartError(lastStartError ?? 'Mihomo 配置校验失败，请打开运行日志查看具体配置错误');
         return false;
       }
       _ensureStartCurrent(startToken);
@@ -768,9 +772,7 @@ try {
       );
       if (_corePidRecord != null ||
           pidFileType != FileSystemEntityType.notFound) {
-        setLastStartError(
-          '检测到尚未安全清理的 Mihomo 进程身份记录，已拒绝启动新的核心',
-        );
+        setLastStartError('检测到尚未安全清理的 Mihomo 进程身份记录，已拒绝启动新的核心');
         log('❌ $lastStartError');
         return false;
       }
@@ -893,9 +895,8 @@ try {
         if (recoveryListenerWasActive) {
           log('⚠️ 系统代理保护监听已退出，重新执行安全恢复');
         }
-        final cleanup = _deleteCorePid(
-          expectedRecord: startedPidRecord,
-        ).then<void>((recordDeleted) {
+        final cleanup = _deleteCorePid(expectedRecord: startedPidRecord)
+            .then<void>((recordDeleted) {
           final ownsExitedProcess = identical(_coreProcess, startedProcess);
           final ownsPidRecord = identical(_corePidRecord, startedPidRecord);
           final exitStillUnexpected = isUnexpectedCoreExit(
@@ -982,9 +983,7 @@ try {
           if (proxySet) {
             log('✅ 系统代理已设置，耗时 ${proxyWatch.elapsedMilliseconds}ms');
           } else {
-            setLastStartError(
-              _proxyService.lastError ?? 'Windows 系统代理设置失败',
-            );
+            setLastStartError(_proxyService.lastError ?? 'Windows 系统代理设置失败');
             log('❌ $lastStartError，连接已取消');
             await _cleanupFailedStart();
             return false;
@@ -1027,9 +1026,7 @@ try {
       } else {
         if (startupExitCode != null) {
           final detail = startupOutput.isEmpty ? '' : ': ${startupOutput.last}';
-          setLastStartError(
-            'Mihomo 提前退出（退出码 $startupExitCode）$detail',
-          );
+          setLastStartError('Mihomo 提前退出（退出码 $startupExitCode）$detail');
           log('❌ 核心启动失败: $lastStartError');
         } else {
           setLastStartError(
@@ -1241,10 +1238,7 @@ try {
     }
 
     if (needsTunTeardown) {
-      _tunTeardownGate.markPending(
-        tunInterfaces,
-        _tunInterfacesBeforeStart,
-      );
+      _tunTeardownGate.markPending(tunInterfaces, _tunInterfacesBeforeStart);
       if (!await _waitForTunTeardown()) {
         _lastStopError = _tunTeardownTimeoutError;
         setRunning(false);
@@ -1326,10 +1320,7 @@ try {
   }) async {
     final file = File('$configDir${Platform.pathSeparator}mihomo.pid');
     try {
-      final type = await FileSystemEntity.type(
-        file.path,
-        followLinks: false,
-      );
+      final type = await FileSystemEntity.type(file.path, followLinks: false);
       if (type == FileSystemEntityType.notFound) return true;
       if (type != FileSystemEntityType.file) {
         log('核心进程身份记录不是普通文件，已保留');
@@ -1340,18 +1331,13 @@ try {
         log('核心进程身份记录大小异常，已保留');
         return false;
       }
-      final current = WindowsCorePidRecord.tryParse(
-        await file.readAsString(),
-      );
+      final current = WindowsCorePidRecord.tryParse(await file.readAsString());
       if (current == null || !current.hasSameIdentity(expectedRecord)) {
         log('核心进程身份记录无法验证或已发生变化，已保留');
         return false;
       }
       await file.delete();
-      return await FileSystemEntity.type(
-            file.path,
-            followLinks: false,
-          ) ==
+      return await FileSystemEntity.type(file.path, followLinks: false) ==
           FileSystemEntityType.notFound;
     } catch (error) {
       log('删除核心进程身份记录失败，已保留: $error');
@@ -1506,9 +1492,7 @@ try {
         );
         return;
       }
-      notifyRuntimeNotice(
-        '系统代理恢复未完成，正在恢复本地保护监听…',
-      );
+      notifyRuntimeNotice('系统代理恢复未完成，正在恢复本地保护监听…');
       final listenerRestored = await _start(
         automaticRecovery: true,
         preserveSystemProxyRecovery: true,
@@ -1545,9 +1529,7 @@ try {
     }
     if (!_unexpectedExitRecoveryPolicy.tryAcquire()) {
       markConnectionLost();
-      notifyRuntimeNotice(
-        '连接已断开：核心再次异常退出，自动恢复失败，请重新连接',
-      );
+      notifyRuntimeNotice('连接已断开：核心再次异常退出，自动恢复失败，请重新连接');
       return;
     }
 
@@ -1605,6 +1587,15 @@ try {
 
   Future<bool?> _isAdministrator({Future<void>? cancellation}) async {
     if (!Platform.isWindows) return null;
+    try {
+      final nativeResult = await _tunElevationService.queryIsElevated().timeout(
+            const Duration(seconds: 2),
+          );
+      if (nativeResult != null) return nativeResult;
+    } catch (_) {
+      // Flutter unit tests and damaged native runners may not expose the
+      // channel. Keep the bounded PowerShell probe as a compatibility fallback.
+    }
     const script = r'''
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
@@ -1626,10 +1617,7 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     }
   }
 
-  Future<T> _awaitStartOperation<T>(
-    Future<T> operation,
-    int startToken,
-  ) async {
+  Future<T> _awaitStartOperation<T>(Future<T> operation, int startToken) async {
     final cancellation = _startCancellation?.future;
     if (cancellation == null) {
       final value = await operation;

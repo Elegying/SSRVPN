@@ -9,17 +9,9 @@ import '../startup/startup_logger.dart';
 import '../theme/app_theme.dart';
 
 const double windowsTitleBarHeight = 40;
-const double windowsWindowCornerRadius = 14;
-
-double resolveWindowsWindowCornerRadius(bool isMaximized) {
-  return isMaximized ? 0 : windowsWindowCornerRadius;
-}
 
 class WindowsDesktopFrame extends StatefulWidget {
-  const WindowsDesktopFrame({
-    super.key,
-    required this.child,
-  });
+  const WindowsDesktopFrame({super.key, required this.child});
 
   final Widget child;
 
@@ -51,7 +43,10 @@ class _WindowsDesktopFrameState extends State<WindowsDesktopFrame>
         windowManager.removeListener(this);
       } catch (error, stack) {
         StartupLogger.error(
-            'Detach custom window listener failed', error, stack);
+          'Detach custom window listener failed',
+          error,
+          stack,
+        );
       }
     }
     super.dispose();
@@ -68,10 +63,7 @@ class _WindowsDesktopFrameState extends State<WindowsDesktopFrame>
     }
   }
 
-  void _runWindowAction(
-    String actionName,
-    Future<void> Function() action,
-  ) {
+  void _runWindowAction(String actionName, Future<void> Function() action) {
     unawaited(() async {
       try {
         await action();
@@ -93,37 +85,31 @@ class _WindowsDesktopFrameState extends State<WindowsDesktopFrame>
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(
-        resolveWindowsWindowCornerRadius(_isMaximized),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Material(
-        color: Colors.transparent,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            SsrvpnDesktopTitlebarInset(
-              top: windowsTitleBarHeight,
-              child: widget.child,
-            ),
-            Align(
-              alignment: Alignment.topCenter,
-              child: WindowsTitleBar(
-                isMaximized: _isMaximized,
-                onMinimize: () =>
-                    _runWindowAction('Minimize', windowManager.minimize),
-                onToggleMaximize: () => _runWindowAction(
-                  _isMaximized ? 'Restore' : 'Maximize',
-                  _isMaximized
-                      ? windowManager.unmaximize
-                      : windowManager.maximize,
-                ),
-                onClose: () => _runWindowAction('Close', windowManager.close),
+    return Material(
+      color: AppTheme.bg,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          SsrvpnDesktopTitlebarInset(
+            top: windowsTitleBarHeight,
+            child: widget.child,
+          ),
+          Align(
+            alignment: Alignment.topCenter,
+            child: WindowsTitleBar(
+              isMaximized: _isMaximized,
+              onMinimize: () =>
+                  _runWindowAction('Minimize', windowManager.minimize),
+              onToggleMaximize: () => _runWindowAction(
+                _isMaximized ? 'Restore' : 'Maximize',
+                _isMaximized
+                    ? windowManager.unmaximize
+                    : windowManager.maximize,
               ),
+              onClose: () => _runWindowAction('Close', windowManager.close),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -150,11 +136,7 @@ class WindowsTitleBar extends StatelessWidget {
       height: windowsTitleBarHeight,
       child: Row(
         children: [
-          const Expanded(
-            child: DragToMoveArea(
-              child: SizedBox.expand(),
-            ),
-          ),
+          const Expanded(child: DragToMoveArea(child: SizedBox.expand())),
           _CaptionButton(
             tooltip: '最小化',
             icon: Icons.remove_rounded,
@@ -214,14 +196,16 @@ class _CaptionButton extends StatelessWidget {
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         shape: const WidgetStatePropertyAll(RoundedRectangleBorder()),
         foregroundColor: WidgetStateProperty.resolveWith((states) {
-          final highlighted = states.contains(WidgetState.hovered) ||
+          final highlighted =
+              states.contains(WidgetState.hovered) ||
               states.contains(WidgetState.focused) ||
               states.contains(WidgetState.pressed);
           if (destructive && highlighted) return Colors.white;
           return AppTheme.textSecondary;
         }),
         backgroundColor: WidgetStateProperty.resolveWith((states) {
-          final highlighted = states.contains(WidgetState.hovered) ||
+          final highlighted =
+              states.contains(WidgetState.hovered) ||
               states.contains(WidgetState.focused) ||
               states.contains(WidgetState.pressed);
           if (!highlighted) return Colors.transparent;

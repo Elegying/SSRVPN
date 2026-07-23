@@ -4,11 +4,12 @@ class StartupFlags {
     required bool disableTray,
     required bool resetWindow,
     required bool disableCoreAutostart,
+    required this.resumeTunAfterElevation,
     required this.verbose,
     required this.rawArgs,
-  })  : _disableTray = disableTray,
-        _resetWindow = resetWindow,
-        _disableCoreAutostart = disableCoreAutostart;
+  }) : _disableTray = disableTray,
+       _resetWindow = resetWindow,
+       _disableCoreAutostart = disableCoreAutostart;
 
   factory StartupFlags.parse(List<String> args) {
     final normalized = args.map((arg) => arg.trim().toLowerCase()).toSet();
@@ -18,6 +19,9 @@ class StartupFlags {
       disableTray: normalized.contains('--disable-tray'),
       resetWindow: normalized.contains('--reset-window'),
       disableCoreAutostart: normalized.contains('--disable-core-autostart'),
+      resumeTunAfterElevation: normalized.contains(
+        '--ssrvpn-elevated-tun-relaunch',
+      ),
       verbose: normalized.contains('--verbose'),
       rawArgs: List.unmodifiable(args),
     );
@@ -27,6 +31,7 @@ class StartupFlags {
   final bool _disableTray;
   final bool _resetWindow;
   final bool _disableCoreAutostart;
+  final bool resumeTunAfterElevation;
   final bool verbose;
   final List<String> rawArgs;
 
@@ -41,6 +46,7 @@ class StartupFlags {
         'disableTray=$disableTray, '
         'resetWindow=$resetWindow, '
         'disableCoreAutostart=$disableCoreAutostart, '
+        'resumeTunAfterElevation=$resumeTunAfterElevation, '
         'verbose=$verbose)';
   }
 }

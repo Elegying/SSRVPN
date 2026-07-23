@@ -28,6 +28,8 @@ part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_home_dialogs_part.dart';
 
 const String desktopPlatformLabel = 'MacOS';
 
+Future<void> handleDesktopTunElevationRelaunch() async {}
+
 void recordDesktopConnectionFailure(
   String message, {
   Object? error,

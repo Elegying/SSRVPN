@@ -37,7 +37,7 @@ namespace {
 // request and keep their native window shape.
 constexpr auto kDwmwaWindowCornerPreference =
     static_cast<DWMWINDOWATTRIBUTE>(33);
-constexpr DWORD kDwmWindowCornerPreferenceRound = 2;
+constexpr DWORD kDwmWindowCornerPreferenceDoNotRound = 1;
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
@@ -318,10 +318,9 @@ void Win32Window::UpdateTheme(HWND const window) {
                           &enable_dark_mode, sizeof(enable_dark_mode));
   }
 
-  // Let DWM clip and shadow the complete native window. Windows automatically
-  // removes this radius while maximized, so a maximized client still fills the
-  // work area without transparent gaps.
-  const DWORD corner_preference = kDwmWindowCornerPreferenceRound;
+  // Keep the application window square even on Windows 11, whose default DWM
+  // policy may otherwise round top-level application windows.
+  const DWORD corner_preference = kDwmWindowCornerPreferenceDoNotRound;
   DwmSetWindowAttribute(window, kDwmwaWindowCornerPreference,
                         &corner_preference, sizeof(corner_preference));
 

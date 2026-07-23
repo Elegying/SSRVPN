@@ -62,6 +62,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   Timer? _windowStateSaveDebounce;
   bool _secretRecoveryInProgress = false;
   String? _secretRecoveryError;
+  bool _elevatedTunResumeTriggered = false;
 
   SettingsService? _settingsService;
   clash.ClashService? _clashService;
@@ -91,9 +92,10 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       core.requestConnectionIntent(false);
       core.interruptPendingStart();
       unawaited(
-        core
-            .runConnectionTransition(core.stop)
-            .catchError((Object error, StackTrace stack) {
+        core.runConnectionTransition(core.stop).catchError((
+          Object error,
+          StackTrace stack,
+        ) {
           StartupLogger.error('Dispose core cleanup failed', error, stack);
         }),
       );
@@ -134,8 +136,31 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
 
     _settingsService = status.settingsService;
     _subscriptionService = nextSubscriptionService;
+    _scheduleElevatedTunResume(status);
 
     if (mounted) setState(() {});
+  }
+
+  void _scheduleElevatedTunResume(StartupStatus status) {
+    if (!widget.startupFlags.resumeTunAfterElevation ||
+        _elevatedTunResumeTriggered ||
+        !status.servicesReady) {
+      return;
+    }
+    _elevatedTunResumeTriggered = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isQuitting) return;
+      if (_settingsService?.settings.enableTun != true) {
+        StartupLogger.warning(
+          'Ignoring elevated TUN resume because TUN is no longer enabled',
+        );
+        return;
+      }
+      StartupLogger.info(
+        'Elevated TUN relaunch is ready; resuming the requested connection',
+      );
+      unawaited(_handleTrayConnectToggle());
+    });
   }
 
   void _configureTrayCallbacks() {
@@ -427,10 +452,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       secretRecoveryError: _secretRecoveryError,
       secretRecoveryInProgress: _secretRecoveryInProgress,
       onSecretRecovery: (buttonContext, secretPath) =>
-          _confirmWindowsSecretRecovery(
-        buttonContext,
-        secretPath,
-      ),
+          _confirmWindowsSecretRecovery(buttonContext, secretPath),
     );
     return MaterialApp(
       debugShowCheckedModeBanner: false,
