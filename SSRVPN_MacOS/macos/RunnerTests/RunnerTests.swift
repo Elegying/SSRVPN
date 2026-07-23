@@ -156,7 +156,13 @@ class RunnerTests: XCTestCase {
   func testActiveProxyLifecycleLeaseDefersTerminationUntilExactTokenEnds() throws {
     let delegate = AppDelegate()
     var replies: [Bool] = []
-    delegate.replyToPendingApplicationTermination = { replies.append($0) }
+    let terminationReply = expectation(
+      description: "application termination receives its final reply"
+    )
+    delegate.replyToPendingApplicationTermination = {
+      replies.append($0)
+      terminationReply.fulfill()
+    }
     let token = try XCTUnwrap(delegate.beginProxyLifecycleTransaction())
 
     XCTAssertTrue(delegate.hasActiveProxyLifecycleTransaction)
@@ -170,10 +176,7 @@ class RunnerTests: XCTestCase {
 
     XCTAssertTrue(delegate.endProxyLifecycleTransaction(token: token))
     XCTAssertFalse(delegate.hasActiveProxyLifecycleTransaction)
-    let deadline = Date().addingTimeInterval(1)
-    while replies.isEmpty && Date() < deadline {
-      RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-    }
+    wait(for: [terminationReply], timeout: 5)
     XCTAssertEqual(replies, [true])
   }
 
@@ -181,7 +184,13 @@ class RunnerTests: XCTestCase {
     let delegate = AppDelegate()
     var replies: [Bool] = []
     var timeout: (() -> Void)?
-    delegate.replyToPendingApplicationTermination = { replies.append($0) }
+    let terminationReply = expectation(
+      description: "committed application termination receives its final reply"
+    )
+    delegate.replyToPendingApplicationTermination = {
+      replies.append($0)
+      terminationReply.fulfill()
+    }
     delegate.schedulePendingApplicationTerminationTimeout = { timeout = $0 }
     let token = try XCTUnwrap(delegate.beginProxyLifecycleTransaction())
 
@@ -197,10 +206,7 @@ class RunnerTests: XCTestCase {
     XCTAssertNil(delegate.beginProxyLifecycleTransaction())
     XCTAssertFalse(delegate.hasActiveProxyLifecycleTransaction)
 
-    let deadline = Date().addingTimeInterval(1)
-    while replies.isEmpty && Date() < deadline {
-      RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-    }
+    wait(for: [terminationReply], timeout: 5)
     XCTAssertEqual(replies, [true])
     XCTAssertNil(delegate.beginProxyLifecycleTransaction())
     timeout?()
