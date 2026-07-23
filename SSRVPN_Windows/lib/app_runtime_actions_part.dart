@@ -2,7 +2,7 @@ part of 'app.dart';
 
 extension _WindowsAppRuntimeActions on _SSRVpnAppState {
   Future<void> _handleTrayConnectToggle() async {
-    if (_isQuitting) return;
+    if (_isQuitting || _elevatedTunHandoffInProgress) return;
     final core = _clashService;
     final settings = _settingsService;
     if (core == null || settings == null) {
@@ -90,7 +90,7 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
       );
       if (connectionResult.failure == DesktopConnectionFailure.cancelled) {
         if (core.consumeTunElevationRelaunchRequest()) {
-          await _quitApp();
+          await _handoffToElevatedTunApp();
         }
         return;
       }
@@ -103,7 +103,7 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
       if (!connectionResult.connected) {
         final reason = connectionResult.failureReason ?? '无法启动核心';
         if (core.consumeTunElevationRelaunchRequest()) {
-          await _quitApp();
+          await _handoffToElevatedTunApp();
           return;
         }
         if (AppFailure.fromMessage(reason).code ==

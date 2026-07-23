@@ -63,6 +63,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   bool _secretRecoveryInProgress = false;
   String? _secretRecoveryError;
   bool _elevatedTunResumeTriggered = false;
+  bool _elevatedTunHandoffInProgress = false;
 
   SettingsService? _settingsService;
   clash.ClashService? _clashService;
@@ -221,6 +222,22 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       await windowManager.focus();
     } catch (error, stack) {
       StartupLogger.error('Present tray failure failed', error, stack);
+    }
+  }
+
+  Future<void> _handoffToElevatedTunApp() async {
+    if (_isQuitting || _elevatedTunHandoffInProgress) return;
+    _elevatedTunHandoffInProgress = true;
+    StartupLogger.info(
+      'TUN elevation accepted; showing the restart handoff notice',
+    );
+    await _presentRuntimeNotice(windowsTunElevationHandoffRuntimeNotice);
+    await Future<void>.delayed(windowsTunElevationHandoffNoticeDuration);
+    if (!mounted) return;
+
+    final exited = await _quitApp();
+    if (!exited) {
+      _elevatedTunHandoffInProgress = false;
     }
   }
 

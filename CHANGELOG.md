@@ -5,7 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.4.15] - 2026-07-23
+
+### 修复
+
+- Windows 普通权限启用 TUN 并确认 UAC 后，管理员启动器会在同一个 90 秒交接期限内继续等待旧实例的 guardian、代理恢复和应用互斥锁释放，不再因旧清理进程短暂存活而退出，避免旧窗口关闭后没有管理员实例接续。
+
+### 改进
+
+- Windows 11 顶层窗口改用 DWM 原生“小圆角”档位，在保留轻微弧度的同时避免恢复此前较明显的 14px 自定义圆角和透明边缘。
+- Windows TUN 的 UAC 授权成功后，旧窗口会置前显示“正在切换管理员模式”提示三秒，明确说明窗口将短暂关闭、管理员实例会自动重新打开并继续连接，同时提醒用户不要重复启动软件。
 
 ## [3.4.14] - 2026-07-23
 

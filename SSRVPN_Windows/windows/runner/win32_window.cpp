@@ -37,7 +37,7 @@ namespace {
 // request and keep their native window shape.
 constexpr auto kDwmwaWindowCornerPreference =
     static_cast<DWMWINDOWATTRIBUTE>(33);
-constexpr DWORD kDwmWindowCornerPreferenceDoNotRound = 1;
+constexpr DWORD kDwmWindowCornerPreferenceRoundSmall = 3;
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
@@ -318,9 +318,9 @@ void Win32Window::UpdateTheme(HWND const window) {
                           &enable_dark_mode, sizeof(enable_dark_mode));
   }
 
-  // Keep the application window square even on Windows 11, whose default DWM
-  // policy may otherwise round top-level application windows.
-  const DWORD corner_preference = kDwmWindowCornerPreferenceDoNotRound;
+  // Use Windows 11's compact native radius: visibly softer than a square
+  // window without returning to the earlier prominent custom 14px clipping.
+  const DWORD corner_preference = kDwmWindowCornerPreferenceRoundSmall;
   DwmSetWindowAttribute(window, kDwmwaWindowCornerPreference,
                         &corner_preference, sizeof(corner_preference));
 
