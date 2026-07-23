@@ -425,7 +425,7 @@ for required in \
 done
 
 for required in \
-  "tunLabel ?? 'TUN 模式'" \
+  "tunLabel ?? 'TUN'" \
   'onEnableTunChanged'; do
   if ! grep -Fq -- "$required" "$node_selection_controls"; then
     echo "macOS shared TUN control guard failed: missing $required" >&2
