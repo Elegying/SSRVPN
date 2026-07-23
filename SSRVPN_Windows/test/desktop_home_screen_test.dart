@@ -197,7 +197,8 @@ void main() {
     expect(find.text('东京节点'), findsWidgets);
     expect(find.text('新加坡节点'), findsOneWidget);
     expect(find.text('智能'), findsOneWidget);
-    expect(find.text('系统代理'), findsOneWidget);
+    expect(find.text('系统代理'), findsNothing);
+    expect(find.text('TUN'), findsOneWidget);
 
     await tester.tap(find.text('强制代理网站'));
     await tester.pump();
@@ -377,7 +378,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('TUN 模式（需管理员权限）'));
+    await tester.tap(find.byKey(const Key('ssrvpn-tun-toggle')));
     await tester.pump();
     await _pumpUntil(tester, () => writeStarted.isCompleted);
 
@@ -428,7 +429,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('TUN 模式（需管理员权限）'));
+    await tester.tap(find.byKey(const Key('ssrvpn-tun-toggle')));
     await tester.pump();
     await _pumpUntil(
       tester,
@@ -483,7 +484,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('TUN 模式（需管理员权限）'));
+    await tester.tap(find.byKey(const Key('ssrvpn-tun-toggle')));
     await tester.pump();
     await _pumpUntil(tester, () => writeStarted.isCompleted);
 

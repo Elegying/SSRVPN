@@ -95,8 +95,8 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         )
         self.assertLess(cleanup_wait, contention_check)
 
-        self.assertIn('level="asInvoker"', manifest)
-        self.assertNotIn('level="requireAdministrator"', manifest)
+        self.assertIn('level="requireAdministrator"', manifest)
+        self.assertNotIn('level="asInvoker"', manifest)
         self.assertIn("WindowsTunElevationRequestResult.launched", lifecycle)
         self.assertIn("_tunElevationRelaunchPending = true", lifecycle)
         self.assertIn("consumeTunElevationRelaunchRequest()", shared_home)
