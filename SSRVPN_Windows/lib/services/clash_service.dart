@@ -8,6 +8,7 @@ import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../services/system_proxy_service.dart';
+import '../services/windows_tun_elevation_service.dart';
 import '../services/windows_tun_runtime_probe.dart';
 import '../src/services/windows_core_pid_record.dart';
 import '../src/services/windows_powershell.dart';
@@ -34,10 +35,19 @@ class ClashService extends ClashServiceBase
     WindowsTunRuntimeProbe? tunRuntimeProbe,
     WindowsTunResidualProbe? tunResidualProbe,
     WindowsNetworkInterfaceIdentityProbe? networkInterfaceIdentityProbe,
+    WindowsTunElevationService? tunElevationService,
   }) {
     _tunRuntimeProbeOverride = tunRuntimeProbe;
     _tunResidualProbeOverride = tunResidualProbe;
     _networkInterfaceIdentityProbeOverride = networkInterfaceIdentityProbe;
+    _tunElevationService = tunElevationService ?? WindowsTunElevationService();
+  }
+
+  @override
+  bool consumeTunElevationRelaunchRequest() {
+    final pending = _tunElevationRelaunchPending;
+    _tunElevationRelaunchPending = false;
+    return pending;
   }
 
   // ── File logging ──

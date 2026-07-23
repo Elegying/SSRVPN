@@ -3,13 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_windows/widgets/windows_desktop_frame.dart';
 
 void main() {
-  test('window corner radius is removed only while maximized', () {
-    expect(resolveWindowsWindowCornerRadius(false), windowsWindowCornerRadius);
-    expect(resolveWindowsWindowCornerRadius(true), 0);
-  });
-
-  testWidgets('custom title bar exposes accessible window controls',
-      (tester) async {
+  testWidgets('custom title bar exposes accessible window controls', (
+    tester,
+  ) async {
     var minimized = false;
     var maximized = false;
     var closed = false;
@@ -42,8 +38,9 @@ void main() {
     expect(closed, isTrue);
   });
 
-  testWidgets('content extends behind the title bar with a safe top inset',
-      (tester) async {
+  testWidgets('content extends behind the title bar with a safe top inset', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: WindowsDesktopFrame(
@@ -59,7 +56,7 @@ void main() {
     );
 
     expect(find.byType(Stack), findsWidgets);
-    expect(find.byType(ClipRRect), findsOneWidget);
+    expect(find.byType(ClipRRect), findsNothing);
     expect(find.text('$windowsTitleBarHeight'), findsOneWidget);
     expect(
       tester.getTopLeft(find.byKey(const Key('desktop-backdrop-probe'))).dy,
@@ -71,14 +68,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: MediaQuery(
-          data: const MediaQueryData(
-            padding: EdgeInsets.only(top: 64),
-          ),
+          data: const MediaQueryData(padding: EdgeInsets.only(top: 64)),
           child: WindowsDesktopFrame(
             child: Builder(
-              builder: (context) => Text(
-                '${MediaQuery.paddingOf(context).top}',
-              ),
+              builder: (context) =>
+                  Text('${MediaQuery.paddingOf(context).top}'),
             ),
           ),
         ),
@@ -88,8 +82,9 @@ void main() {
     expect(find.text('64.0'), findsOneWidget);
   });
 
-  testWidgets('maximized title bar offers restore and fits compact windows',
-      (tester) async {
+  testWidgets('maximized title bar offers restore and fits compact windows', (
+    tester,
+  ) async {
     await tester.binding.setSurfaceSize(const Size(360, 220));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 

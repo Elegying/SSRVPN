@@ -182,8 +182,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       if (wasConnected) {
-        automaticReconnectGeneration =
-            clashService.requestConnectionIntent(false);
+        automaticReconnectGeneration = clashService.requestConnectionIntent(
+          false,
+        );
         clashService.interruptPendingStart();
       }
 
@@ -203,11 +204,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _resetPublicIpState();
       });
     } catch (error, stack) {
-      recordDesktopConnectionFailure(
-        '更新网络设置失败',
-        error: error,
-        stack: stack,
-      );
+      recordDesktopConnectionFailure('更新网络设置失败', error: error, stack: stack);
       if (mounted && !_disposed) {
         setState(() {
           _isConnected = clashService.isRunning;
@@ -229,9 +226,9 @@ class _HomeScreenState extends State<HomeScreen> {
           reconnectGeneration,
           connected: false,
         )) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('网络设置已更新，正在重新连接')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('网络设置已更新，正在重新连接')));
       await _handleConnectToggle();
     }
   }
@@ -259,7 +256,8 @@ class _HomeScreenState extends State<HomeScreen> {
     var reloadSucceeded = false;
     if (shouldReload) {
       await _reloadConfig();
-      reloadSucceeded = mounted &&
+      reloadSucceeded =
+          mounted &&
           !_disposed &&
           _isConnected &&
           context.read<ClashService>().isRunning;
@@ -271,12 +269,13 @@ class _HomeScreenState extends State<HomeScreen> {
         content: Text(
           shouldReload
               ? reloadSucceeded
-                  ? '强制代理网站已实时生效'
-                  : '强制代理网站已保存，当前连接重载失败，请重新连接'
+                    ? '强制代理网站已实时生效'
+                    : '强制代理网站已保存，当前连接重载失败，请重新连接'
               : '强制代理网站已保存',
         ),
-        backgroundColor:
-            shouldReload && !reloadSucceeded ? AppTheme.warning : null,
+        backgroundColor: shouldReload && !reloadSucceeded
+            ? AppTheme.warning
+            : null,
         duration: const Duration(seconds: 2),
       ),
     );
@@ -293,11 +292,7 @@ class _HomeScreenState extends State<HomeScreen> {
       try {
         await clashService.runConnectionTransition(clashService.stop);
       } catch (error, stack) {
-        recordDesktopConnectionFailure(
-          '取消连接失败',
-          error: error,
-          stack: stack,
-        );
+        recordDesktopConnectionFailure('取消连接失败', error: error, stack: stack);
         if (mounted && !_disposed) {
           setState(() {
             _errorMessage =
@@ -336,11 +331,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _resetPublicIpState();
         });
       } catch (error, stack) {
-        recordDesktopConnectionFailure(
-          '断开连接失败',
-          error: error,
-          stack: stack,
-        );
+        recordDesktopConnectionFailure('断开连接失败', error: error, stack: stack);
         if (mounted && !_disposed) {
           setState(() {
             _isConnected = clashService.isRunning;
@@ -399,9 +390,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         final subscriptionRevision = subService.revision;
 
-        final nodes = HomeNodeController.runnableNodesFrom(
-          subService.allNodes,
-        );
+        final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
         if (nodes.isEmpty) {
           clashService.requestConnectionIntent(false);
           clashService.interruptPendingStart();
@@ -424,10 +413,10 @@ class _HomeScreenState extends State<HomeScreen> {
             prepareForStart: clashService.prepareForStart,
             generateConfig: (runtimeSettings) =>
                 clashService.generateClashConfigAsync(
-              rawYaml,
-              runtimeSettings,
-              preferredNodeName: autoSelect?.name,
-            ),
+                  rawYaml,
+                  runtimeSettings,
+                  preferredNodeName: autoSelect?.name,
+                ),
             writeConfig: clashService.writeConfig,
             start: clashService.start,
             stop: clashService.stop,
@@ -465,6 +454,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
         if (connectionResult.failure == DesktopConnectionFailure.cancelled) {
+          if (clashService.consumeTunElevationRelaunchRequest()) {
+            await handleDesktopTunElevationRelaunch();
+          }
           return;
         }
         if (connectionResult.failure ==
@@ -475,9 +467,12 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         if (!connectionResult.connected) {
           final reason = connectionResult.failureReason ?? '无法启动核心';
+          final elevationRelaunch = clashService
+              .consumeTunElevationRelaunchRequest();
           recordDesktopConnectionFailure(
             'Connection failed: $reason',
-            expected: AppFailure.fromMessage(reason).code ==
+            expected:
+                AppFailure.fromMessage(reason).code ==
                 AppErrorCode.permissionRequired,
           );
           if (!mounted || _disposed) return;
@@ -487,6 +482,9 @@ class _HomeScreenState extends State<HomeScreen> {
             _errorMessage = '连接失败: $reason';
             _resetPublicIpState();
           });
+          if (elevationRelaunch) {
+            await handleDesktopTunElevationRelaunch();
+          }
           return;
         }
         if (autoSelect != null &&
@@ -520,10 +518,10 @@ class _HomeScreenState extends State<HomeScreen> {
           preferredSettings: settingsService.settings,
           generateConfig: (runtimeSettings, preferredNodeName) =>
               clashService.generateClashConfigAsync(
-            rawYaml,
-            runtimeSettings,
-            preferredNodeName: preferredNodeName,
-          ),
+                rawYaml,
+                runtimeSettings,
+                preferredNodeName: preferredNodeName,
+              ),
           isRevisionCurrent: () =>
               subService.revision == subscriptionRevision &&
               subService.rawYaml == rawYaml,
@@ -618,12 +616,13 @@ class _HomeScreenState extends State<HomeScreen> {
             _nodes,
             _disconnectedPreferredNodeName ?? settings.lastSelectedNodeName,
           );
-    final selectedLatency =
-        displayNode == null ? null : _latencyController.latencyFor(displayNode);
+    final selectedLatency = displayNode == null
+        ? null
+        : _latencyController.latencyFor(displayNode);
     final selectedCountryCode = displayNode == null
         ? null
         : _exitCountryCodes[displayNode.name] ??
-            countryCodeForProxyNode(displayNode);
+              countryCodeForProxyNode(displayNode);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -701,9 +700,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onLongPressNode: (node) {
             unawaited(
               Navigator.of(context).push<bool>(
-                MaterialPageRoute(
-                  builder: (_) => NodeEditScreen(node: node),
-                ),
+                MaterialPageRoute(builder: (_) => NodeEditScreen(node: node)),
               ),
             );
           },

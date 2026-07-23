@@ -15,7 +15,68 @@ def windows_app_runtime_source() -> str:
 
 
 class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
-    def test_native_window_requests_windows_11_round_corners(self) -> None:
+    def test_tun_elevation_relaunch_is_bounded_and_same_account_only(self) -> None:
+        runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
+        native = (runner / "flutter_window.cpp").read_text(encoding="utf-8")
+        launcher = (runner / "launcher_main.cpp").read_text(encoding="utf-8-sig")
+        manifest = (runner / "runner.exe.manifest").read_text(encoding="utf-8")
+        lifecycle = (
+            ROOT / "SSRVPN_Windows" / "lib" / "services" / "clash_service_lifecycle.dart"
+        ).read_text(encoding="utf-8")
+        shared_home = (
+            ROOT
+            / "packages"
+            / "ssrvpn_shared"
+            / "lib"
+            / "desktop_ui"
+            / "screens"
+            / "desktop_home_screen_part.dart"
+        ).read_text(encoding="utf-8")
+        app = (ROOT / "SSRVPN_Windows" / "lib" / "app.dart").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("TokenElevationTypeLimited", native)
+        self.assertIn('request.lpVerb = L"runas"', native)
+        self.assertIn("::ShellExecuteExW(&request)", native)
+        self.assertIn("error == ERROR_CANCELLED", native)
+        self.assertIn('return "standardUser"', native)
+        self.assertIn('launcher_directory + L"\\\\ssrvpn_windows.exe"', native)
+        self.assertIn("QueryCurrentUserSid()", native)
+        self.assertIn("kElevatedTunUserArgumentPrefix + current_user_sid", native)
+        self.assertIn("kElevatedLauncherValidationMilliseconds = 10000", native)
+        self.assertIn('L"D:P(A;;0x00100000;;;"', native)
+        self.assertIn("(A;;0x0002;;;BA)", native)
+        self.assertIn("::CreateEventW(", native)
+        self.assertIn("::WaitForMultipleObjects(", native)
+
+        self.assertIn("HasExactCommandLineArgument", launcher)
+        self.assertIn("IsCurrentProcessElevated()", launcher)
+        self.assertIn("CommandLineArgumentValue", launcher)
+        self.assertIn("QueryCurrentUserSid()", launcher)
+        self.assertIn("::_wcsicmp(expected_user_sid.c_str()", launcher)
+        self.assertIn("::OpenEventW(EVENT_MODIFY_STATE", launcher)
+        self.assertIn("::SetEvent(ready_event)", launcher)
+        self.assertIn("kElevationRelaunchWaitMilliseconds = 45000", launcher)
+        self.assertIn("elevated_tun_relaunch ?", launcher)
+        self.assertIn("ERROR_TIMEOUT", launcher)
+        mutex_created = launcher.index("HANDLE launcher_mutex")
+        handoff_accepted = launcher.index(
+            "::OpenEventW(EVENT_MODIFY_STATE", mutex_created
+        )
+        mutex_wait = launcher.index("::WaitForSingleObject(", handoff_accepted)
+        self.assertLess(mutex_created, handoff_accepted)
+        self.assertLess(handoff_accepted, mutex_wait)
+
+        self.assertIn('level="asInvoker"', manifest)
+        self.assertNotIn('level="requireAdministrator"', manifest)
+        self.assertIn("WindowsTunElevationRequestResult.launched", lifecycle)
+        self.assertIn("_tunElevationRelaunchPending = true", lifecycle)
+        self.assertIn("consumeTunElevationRelaunchRequest()", shared_home)
+        self.assertIn("resumeTunAfterElevation", app)
+        self.assertIn("_handleTrayConnectToggle()", app)
+
+    def test_native_window_requests_square_windows_11_corners(self) -> None:
         source = (
             ROOT / "SSRVPN_Windows" / "windows" / "runner" / "win32_window.cpp"
         ).read_text(encoding="utf-8")
@@ -24,12 +85,14 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("kDwmwaWindowCornerPreference", source)
-        self.assertIn("kDwmWindowCornerPreferenceRound", source)
+        self.assertIn("kDwmWindowCornerPreferenceDoNotRound", source)
+        self.assertNotIn("kDwmWindowCornerPreferenceRound = 2", source)
         self.assertIn(
             "DwmSetWindowAttribute(window, kDwmwaWindowCornerPreference",
             source,
         )
-        self.assertIn("setBackgroundColor(Colors.transparent)", startup)
+        self.assertIn("setBackgroundColor(AppTheme.bg)", startup)
+        self.assertNotIn("setBackgroundColor(Colors.transparent)", startup)
 
     def test_launcher_contention_never_silently_succeeds_without_activation(
         self,
@@ -181,10 +244,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             shared_home.index("final reason = clashService.lastStartError") :
             shared_home.index("} catch (e, stack)")
         ]
-        self.assertIn(
-            "expected: AppFailure.fromMessage(reason).code ==",
-            expected_failure,
-        )
+        self.assertIn("AppFailure.fromMessage(reason).code", expected_failure)
         self.assertIn("AppErrorCode.permissionRequired", expected_failure)
         caught_exception = shared_home[
             shared_home.index("} catch (e, stack)") :
@@ -1747,7 +1807,8 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("HTTP 代理：127.0.0.1:$port", tray)
         self.assertIn("enabled: false", tray)
         self.assertIn("HTTP 127.0.0.1:$port", app)
-        self.assertIn("CoreRecoveryPolicy(maxAttempts: 2)", lifecycle)
+        self.assertIn("CoreRecoveryPolicy(", lifecycle)
+        self.assertIn("maxAttempts: 2", lifecycle)
         self.assertIn("inspectSystemProxyOwnership", lifecycle)
         self.assertIn("SystemProxyOwnershipStatus.owned", lifecycle)
         self.assertIn("Future<bool> start() => _start();", lifecycle)

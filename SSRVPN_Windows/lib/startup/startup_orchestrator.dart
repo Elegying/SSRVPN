@@ -9,6 +9,7 @@ import '../services/clash_service.dart' as clash;
 import '../services/settings_service.dart';
 import '../services/subscription_service.dart';
 import '../services/tray_manager.dart';
+import '../theme/app_theme.dart';
 import 'startup_flags.dart';
 import 'startup_logger.dart';
 import 'startup_status.dart';
@@ -79,7 +80,7 @@ class StartupOrchestrator {
 
     await windowManager.ensureInitialized();
     try {
-      await windowManager.setBackgroundColor(Colors.transparent);
+      await windowManager.setBackgroundColor(AppTheme.bg);
       await windowManager.setTitleBarStyle(
         TitleBarStyle.hidden,
         windowButtonVisibility: false,
@@ -87,8 +88,9 @@ class StartupOrchestrator {
       await windowManager.setPreventClose(true);
       await windowManager.setMinimumSize(WindowStateStore.minimumSize);
 
-      final savedBounds =
-          flags.resetWindow ? null : await WindowStateStore.load();
+      final savedBounds = flags.resetWindow
+          ? null
+          : await WindowStateStore.load();
       final useSavedBounds =
           savedBounds != null && await _intersectsAnyDisplay(savedBounds);
 
@@ -168,8 +170,8 @@ class StartupOrchestrator {
     tray.onQuit = () async {
       await _quitFromTray();
     };
-    tray.isConnected =
-        () => StartupStatus.instance.clashService?.isRunning ?? false;
+    tray.isConnected = () =>
+        StartupStatus.instance.clashService?.isRunning ?? false;
 
     final ok = await tray.init();
     if (!ok) {
@@ -245,12 +247,7 @@ class StartupOrchestrator {
   Rect _displayBounds(Display display) {
     final size = display.visibleSize ?? display.size;
     final position = display.visiblePosition ?? Offset.zero;
-    return Rect.fromLTWH(
-      position.dx,
-      position.dy,
-      size.width,
-      size.height,
-    );
+    return Rect.fromLTWH(position.dx, position.dy, size.width, size.height);
   }
 
   Future<void> _quitFromTray() async {

@@ -13,6 +13,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/clash_service.dart';
 import '../services/subscription_service.dart';
 import '../services/settings_service.dart';
+import '../services/tray_manager.dart';
 import '../services/update_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_container.dart';
@@ -29,6 +30,8 @@ part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_force_proxy_sites_dialog_
 part 'package:ssrvpn_shared/desktop_ui/widgets/desktop_home_dialogs_part.dart';
 
 const String desktopPlatformLabel = 'Windows';
+
+Future<void> handleDesktopTunElevationRelaunch() => TrayManager().requestQuit();
 
 void recordDesktopConnectionFailure(
   String message, {

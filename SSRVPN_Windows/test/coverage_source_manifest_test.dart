@@ -19,6 +19,7 @@ import 'package:ssrvpn_windows/services/tray_manager.dart';
 import 'package:ssrvpn_windows/services/update_service.dart';
 import 'package:ssrvpn_windows/services/windows_desktop_directory.dart';
 import 'package:ssrvpn_windows/services/windows_dpapi_secret_store.dart';
+import 'package:ssrvpn_windows/services/windows_tun_elevation_service.dart';
 import 'package:ssrvpn_windows/services/windows_tun_runtime_probe.dart';
 import 'package:ssrvpn_windows/src/services/system_proxy_ownership.dart';
 import 'package:ssrvpn_windows/src/services/windows_powershell.dart';

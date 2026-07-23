@@ -63,7 +63,7 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    重试、退出连接状态并提示最终失败，不得留下半连接或循环拉起。
 7. 再次连接后从托盘选择“退出 SSRVPN”；应用和 Mihomo 都应退出，系统代理必须恢复，`%LOCALAPPDATA%\SSRVPN\crashes` 不应新增转储。
 8. 再次连接后只从任务管理器结束 `bin\ssrvpn_windows_app.exe`，保留外层 `ssrvpn_windows.exe` 等待子进程退出；外层启动器必须自动恢复系统代理。随后重启 Windows，在未重新打开 SSRVPN 前确认浏览器可直接联网，系统代理不得仍指向 SSRVPN 的本地端口。
-9. Windows 分别用普通权限和管理员权限检查 TUN：普通权限必须明确失败且不残留代理；管理员权限下应能连接、断开并恢复网络。macOS TUN 必须显示管理员授权框；取消授权、启动超时、正常断开和退出均不得遗留 root Mihomo、utun 默认路由、暂存目录或系统代理。
+9. Windows 分别用普通权限和管理员权限检查 TUN：管理员账户普通启动时必须显示 UAC，确认后安全重启并自动继续连接；取消、标准用户、其他账户凭据和交接失败时旧实例必须保留且不残留代理。管理员权限下应能连接、断开并恢复网络。macOS TUN 必须显示管理员授权框；取消授权、启动超时、正常断开和退出均不得遗留 root Mihomo、utun 默认路由、暂存目录或系统代理。
 10. 在系统自带 Windows PowerShell 5.1 中确认 `$PSVersionTable.PSVersion` 后，创建两个带
    `settings.json` 的旧独立副本，并在 `%LOCALAPPDATA%\Programs\SSRVPN\bin\ssrvpn`、
    `%LOCALAPPDATA%\SSRVPN\ssrvpn` 和窗口状态文件中放置可识别旧配置，记录这些文件的
