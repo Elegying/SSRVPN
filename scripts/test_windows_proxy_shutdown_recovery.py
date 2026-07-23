@@ -23,6 +23,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             encoding="utf-8"
         )
         manifest = (runner / "runner.exe.manifest").read_text(encoding="utf-8")
+        cmake = (runner / "CMakeLists.txt").read_text(encoding="utf-8")
         lifecycle = (
             ROOT / "SSRVPN_Windows" / "lib" / "services" / "clash_service_lifecycle.dart"
         ).read_text(encoding="utf-8")
@@ -97,6 +98,11 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
 
         self.assertIn('level="requireAdministrator"', manifest)
         self.assertNotIn('level="asInvoker"', manifest)
+        self.assertIn(
+            "\"/MANIFESTUAC:level='requireAdministrator' uiAccess='false'\"",
+            cmake,
+        )
+        self.assertEqual(cmake.count('"${SSRVPN_UAC_LINK_OPTION}"'), 2)
         self.assertIn("WindowsTunElevationRequestResult.launched", lifecycle)
         self.assertIn("_tunElevationRelaunchPending = true", lifecycle)
         self.assertIn("consumeTunElevationRelaunchRequest()", shared_home)
