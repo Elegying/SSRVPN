@@ -49,6 +49,15 @@ This guide keeps local development, GitHub automation, and releases aligned.
 - Include the verification commands in the PR template.
 - Do not include local `dist/` files, signing material, or generated build caches.
 
+## GitHub Actions Rules
+
+- Keep pull-request and branch checks in `ci.yml`.
+- Keep tag-triggered publishing in `release.yml`.
+- Add scheduled or manual operator tasks to `maintenance.yml`; prefer a new task
+  over another workflow file.
+- Split a workflow only when it needs an incompatible trigger, permission boundary,
+  or concurrency lock.
+
 ## UI Responsibility Map
 
 Use these boundaries before adding or removing home-screen behavior:

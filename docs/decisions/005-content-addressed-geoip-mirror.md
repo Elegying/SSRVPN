@@ -37,7 +37,8 @@ freshness 任务把未经校验的上游内容直接带入发布构建。
    路径，限制下载大小、协议和超时，并同时验证 gzip SHA-256 与有界解压后的原始 SHA-256。
    镜像回读只允许 `github.com`、`release-assets.githubusercontent.com` 和
    `objects.githubusercontent.com` 的 HTTPS 链路，拒绝降级到 HTTP 或跳转到其他主机。
-5. `GeoIP Freshness` 是唯一主动读取上游 `latest` 的自动化边界。它按以下顺序执行：
+5. `Maintenance` 的 `geoip-refresh` 任务是唯一主动读取上游 `latest` 的自动化边界。
+   它按以下顺序执行：
    上游 checksum/API digest/实际内容校验 → deterministic gzip → 缺失时上传内容寻址镜像
    → 从公共镜像 URL 回读并验证双 SHA-256 → 创建只修改来源记录的 PR。旧来源记录中的
    upstream URL 即使已返回 404，也不得在这条自愈链路开始前被 bootstrap 访问。

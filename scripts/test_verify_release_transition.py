@@ -306,7 +306,7 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
 
     def test_rollback_restores_stable_assets_before_latest_pointer(self) -> None:
         rollback = (
-            SCRIPT.parents[1] / ".github" / "workflows" / "oss-rollback.yml"
+            SCRIPT.parents[1] / ".github" / "workflows" / "maintenance.yml"
         ).read_text(encoding="utf-8")
         self.assertIn("group: ssrvpn-public-release", rollback)
         self.assertIn("gh release download", rollback)
@@ -321,7 +321,7 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
     ) -> None:
         for workflow_path in (
             SCRIPT.parents[1] / ".github" / "workflows" / "release.yml",
-            SCRIPT.parents[1] / ".github" / "workflows" / "oss-rollback.yml",
+            SCRIPT.parents[1] / ".github" / "workflows" / "maintenance.yml",
         ):
             workflow = workflow_path.read_text(encoding="utf-8")
             start = workflow.index("      - name: Preserve OSS recovery backup\n")

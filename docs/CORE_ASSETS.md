@@ -62,8 +62,8 @@ the `Elegying/SSRVPN/releases/download/core-assets-v1/` path and verifies both
 hashes before installing the same bytes for all three platforms. It never needs
 the upstream project's mutable Release during a normal CI or release build.
 
-The daily `GeoIP Freshness` workflow independently downloads and verifies the
-latest upstream checksum, API digest, and database, produces deterministic gzip,
+The daily `Maintenance` workflow's `geoip-refresh` task independently downloads
+and verifies the latest upstream checksum, API digest, and database, produces deterministic gzip,
 uploads a missing content-addressed mirror asset without overwrite, and reads it
 back through the public bootstrap URL. Only after that verification succeeds may
 it open a uniquely named PR changing `GEOIP_SOURCE.txt`. An expired Asset ID in
