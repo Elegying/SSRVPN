@@ -3,7 +3,7 @@
 这里是仓库内当前有效文档的统一入口。正在开发的行为以当前源码和验证结果为准；用户
 已经安装或下载到的行为以对应正式 Release、产物和发布工作流结果为准。
 
-历史审查报告记录的是特定日期与提交上的判断，不代表当前版本状态，也不能替代重新验证。
+过期审查报告和一次性执行计划不保留在当前文档树中；需要追溯时使用 Git 历史。
 
 ## 用户文档
 
@@ -21,8 +21,6 @@
 - [Monorepo 迁移说明](../MIGRATION.md)
 - [项目管理](PROJECT_MANAGEMENT.md)：分支、源码与产物边界。
 - [维护指南](MAINTENANCE.md)：日常维护和合并要求。
-- [历史执行计划](../tasks/plan.md)与[完成清单](../tasks/todo.md)：v3.4.0 Windows
-  加固与发布的留档证据，不代表当前待办。
 - [测试策略](TESTING.md)：本地、CI、原生与覆盖率验证。
 - [性能基线](PERFORMANCE.md)：关键路径测量方法、比较边界与回归处置。
 - [项目健康状态](PROJECT_HEALTH.md)：最近一次审查基线、证据与已知风险。
@@ -48,18 +46,9 @@
 - [ADR-005：使用 SSRVPN 自控的内容寻址 GeoIP 镜像](decisions/005-content-addressed-geoip-mirror.md)
 - [ADR-006：macOS 核心进程所有权使用持久化原生代际](decisions/006-macos-core-process-identity.md)
 
-## 历史材料
+## 文档维护规则
 
-以下文件只保存审查当时的证据和背景。阅读时必须同时查看其审查日期、基线提交和
-后续变更；其中的版本号、测试数量、功能开关和风险状态可能已经失效。
-
-- [全面评估历史快照](FULL_ASSESSMENT.md)
-- [综合代码审查历史快照](AUDIT_REPORT.md)
-- [包内教程、国旗与解锁审查快照](AUDIT_PACKAGE_UNLOCK_2026-07-10.zh-CN.md)
-- [三端正式版本审查快照](FORMAL_REVIEW_2026-07-13.zh-CN.md)
-- [GitHub 仓库整理快照](GITHUB_REPOSITORY_AUDIT.zh-CN.md)
-- [macOS 旧审查结论](../SSRVPN_MacOS/PROJECT_REPORT.md)
-- [旧项目记忆](../MEMORY.md)
-
-这些历史材料不属于“当前有效状态”检查范围。需要引用结论时，应先在当前提交上
-重新执行对应测试或检查。
+- 当前状态只写入本索引列出的文档，避免在审查报告中维护第二份事实。
+- 已完成事项写入根 `CHANGELOG.md`；未完成事项写入 `ROADMAP.md`。
+- 一次性审查证据保留在对应提交、Issue 或 Pull Request，不新增快照型 Markdown。
+- 引用历史结论前，必须在当前提交上重新执行对应测试或检查。

@@ -22,7 +22,7 @@ class CheckReleaseAssetsTests(unittest.TestCase):
 
     def test_only_rollback_may_tolerate_retired_windows_zip_assets(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
-        rollback = (ROOT / ".github" / "workflows" / "oss-rollback.yml").read_text(
+        rollback = (ROOT / ".github" / "workflows" / "maintenance.yml").read_text(
             encoding="utf-8"
         )
 

@@ -1,0 +1,250 @@
+name: Maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Maintenance task to run
+        required: true
+        type: choice
+        options:
+          - geoip-refresh
+          - oss-smoke
+          - oss-rollback
+      tag:
+        description: Immutable release tag required by oss-rollback, for example v3.1.1
+        required: false
+        type: string
+  schedule:
+    - cron: '17 1 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  geoip-refresh:
+    name: Propose a verified GeoIP refresh
+    if: github.event_name == 'schedule' || inputs.task == 'geoip-refresh'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: geoip-freshness
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: main
+
+      - name: Synchronize upstream and publish the immutable mirror
+        id: sync
+        run: |
+          python3 scripts/sync-geoip-metadb.py
+          python3 scripts/ensure-geoip-mirror.py --upload
+
+          unexpected="$(git diff --name-only -- . ':!docs/GEOIP_SOURCE.txt')"
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected tracked files changed:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          if git diff --quiet -- docs/GEOIP_SOURCE.txt; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          source_tag="$(awk -F': ' '$1 == "Release tag" { print $2; exit }' docs/GEOIP_SOURCE.txt)"
+          upstream_sha="$(awk -F': ' '$1 == "Upstream SHA256" { print $2; exit }' docs/GEOIP_SOURCE.txt)"
+          safe_tag="$(printf '%s' "$source_tag" | tr -cs '[:alnum:]._' '-')"
+          test -n "$source_tag" && test -n "$upstream_sha"
+          {
+            echo "changed=true"
+            echo "source_tag=$source_tag"
+            echo "branch=automation/geoip-${safe_tag}-${upstream_sha:0:12}"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create an immutable update pull request
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.sync.outputs.branch }}
+          SOURCE_TAG: ${{ steps.sync.outputs.source_tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add -- docs/GEOIP_SOURCE.txt
+          git commit -m "chore(assets): refresh GeoIP to $SOURCE_TAG"
+
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            pr_state="$(
+              gh pr view "$BRANCH" --json state --jq .state 2>/dev/null || true
+            )"
+            pr_action="$(
+              python3 scripts/geoip-pr-state-policy.py "$pr_state"
+            )"
+            if [ "$pr_action" = "reuse" ]; then
+              echo "GeoIP refresh pull request already exists for $SOURCE_TAG"
+              exit 0
+            fi
+            echo "Remote branch exists without an open pull request: $BRANCH" >&2
+            exit 1
+          fi
+
+          git push origin "HEAD:$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(assets): refresh GeoIP to $SOURCE_TAG" \
+            --body "Automated verified GeoIP snapshot refresh. Upstream provenance, the raw and deterministic gzip SHA-256 values, and the immutable SSRVPN mirror URL are pinned in docs/GEOIP_SOURCE.txt."
+
+  oss-smoke:
+    name: Verify OSS publishing
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'oss-smoke'
+    runs-on: ubuntu-latest
+    env:
+      OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+      OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+      OSS_REGION: cn-qingdao
+      OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+      OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Validate OSS configuration
+        run: |
+          set -euo pipefail
+          for name in OSS_ACCESS_KEY_ID OSS_ACCESS_KEY_SECRET OSS_ENDPOINT OSS_BUCKET OSS_PREFIX; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured"
+              exit 1
+            fi
+          done
+
+      - name: Install pinned ossutil
+        run: |
+          bash scripts/install-ossutil.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Upload and verify health object
+        run: |
+          set -euo pipefail
+          printf '{"repository":"%s","commit":"%s"}\n' \
+            "$GITHUB_REPOSITORY" "$GITHUB_SHA" > "$RUNNER_TEMP/health.json"
+          ossutil cp "$RUNNER_TEMP/health.json" \
+            "oss://$OSS_BUCKET/$OSS_PREFIX/ops/health.json" --force
+          public_url="https://$OSS_BUCKET.$OSS_ENDPOINT/$OSS_PREFIX/ops/health.json"
+          curl -fsSL --retry 3 "$public_url" -o "$RUNNER_TEMP/public-health.json"
+          cmp "$RUNNER_TEMP/health.json" "$RUNNER_TEMP/public-health.json"
+
+  oss-rollback:
+    name: Roll back the OSS public channel
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'oss-rollback'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ssrvpn-public-release
+      cancel-in-progress: false
+    env:
+      OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+      OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+      OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+      OSS_REGION: cn-qingdao
+      OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+      OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+      ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Validate rollback target and OSS configuration
+        env:
+          ROLLBACK_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ROLLBACK_TAG" =~ ^v[0-9]+(\.[0-9]+){1,3}$ ]]; then
+            echo "::error::Invalid rollback tag: $ROLLBACK_TAG"
+            exit 1
+          fi
+          for name in OSS_ACCESS_KEY_ID OSS_ACCESS_KEY_SECRET OSS_ENDPOINT OSS_BUCKET OSS_PREFIX ANDROID_RELEASE_CERT_SHA256; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured"
+              exit 1
+            fi
+          done
+
+      - name: Install pinned ossutil
+        run: |
+          bash scripts/install-ossutil.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Download and verify GitHub rollback release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROLLBACK_TAG: ${{ inputs.tag }}
+          SSRVPN_ALLOW_RETIRED_WINDOWS_ZIP: '1'
+        run: |
+          set -euo pipefail
+          release_dir="$RUNNER_TEMP/rollback-release"
+          mkdir -p "$release_dir"
+          test "$(gh release view "$ROLLBACK_TAG" --json isDraft --jq '.isDraft')" = false
+          test "$(gh release view "$ROLLBACK_TAG" --json isPrerelease --jq '.isPrerelease')" = false
+          SSRVPN_REPO="$GITHUB_REPOSITORY" GITHUB_TOKEN="$GH_TOKEN" \
+            bash scripts/check-release-assets.sh "$ROLLBACK_TAG"
+          gh release download "$ROLLBACK_TAG" --dir "$release_dir" \
+            --pattern 'SSRVPN.apk' --pattern 'SSRVPN.apk.sha256' \
+            --pattern 'SSRVPN.dmg' --pattern 'SSRVPN.dmg.sha256' \
+            --pattern 'SSRVPN_Setup.exe' --pattern 'SSRVPN_Setup.exe.sha256'
+          for name in SSRVPN.apk SSRVPN.dmg SSRVPN_Setup.exe; do
+            (cd "$release_dir" && sha256sum -c "$name.sha256")
+          done
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          test -n "$APKSIGNER"
+          cert_output="$("$APKSIGNER" verify --print-certs "$release_dir/SSRVPN.apk")"
+          actual="$(printf '%s\n' "$cert_output" |
+            sed -n 's/^.*certificate SHA-256 digest: //p' |
+            head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          expected="$(printf '%s' "$ANDROID_RELEASE_CERT_SHA256" |
+            tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test -n "$actual" && test "$actual" = "$expected"
+
+          gh release view "$ROLLBACK_TAG" --json body --jq '.body' \
+            > "$RUNNER_TEMP/rollback-release-notes.md"
+          base_url="https://$OSS_BUCKET.$OSS_ENDPOINT/$OSS_PREFIX/releases/$ROLLBACK_TAG"
+          python3 scripts/generate-oss-release-manifest.py \
+            --tag "$ROLLBACK_TAG" \
+            --base-url "$base_url" \
+            --release-notes "$RUNNER_TEMP/rollback-release-notes.md" \
+            --asset "$release_dir/SSRVPN.apk" \
+            --asset "$release_dir/SSRVPN.dmg" \
+            --asset "$release_dir/SSRVPN_Setup.exe" \
+            --output "$RUNNER_TEMP/rollback-latest.json"
+
+          for name in SSRVPN.apk SSRVPN.dmg SSRVPN_Setup.exe; do
+            curl -fsSL --retry 3 --connect-timeout 10 --max-time 180 \
+              --max-filesize 314572800 "$base_url/$name" \
+              -o "$RUNNER_TEMP/oss-$name"
+            cmp "$release_dir/$name" "$RUNNER_TEMP/oss-$name"
+          done
+
+      - name: Promote OSS public channel
+        id: promote_oss
+        run: |
+          OSS_PRESERVE_BACKUP=1 bash scripts/promote-oss-public-channel.sh \
+            "$RUNNER_TEMP/rollback-release" \
+            "$RUNNER_TEMP/rollback-latest.json"
+
+      - name: Preserve OSS recovery backup
+        if: always() && steps.promote_oss.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: oss-rollback-recovery-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ssrvpn-oss-backup.*
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

@@ -703,7 +703,7 @@ cp "$FAKE_MIRROR_FILE" "$output"
                     )
 
     def test_freshness_workflow_opens_scoped_immutable_update_prs(self) -> None:
-        workflow = (ROOT / ".github/workflows/geoip-check.yml").read_text(
+        workflow = (ROOT / ".github/workflows/maintenance.yml").read_text(
             encoding="utf-8"
         )
 
@@ -762,7 +762,7 @@ cp "$FAKE_MIRROR_FILE" "$output"
                 with self.assertRaisesRegex(ValueError, state):
                     policy.classify_pr_state(state)
 
-        workflow = (ROOT / ".github/workflows/geoip-check.yml").read_text(
+        workflow = (ROOT / ".github/workflows/maintenance.yml").read_text(
             encoding="utf-8"
         )
         self.assertIn(

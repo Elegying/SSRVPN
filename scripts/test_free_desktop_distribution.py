@@ -65,7 +65,7 @@ class FreeDesktopDistributionTest(unittest.TestCase):
         active_release_files = (
             ROOT / ".github" / "workflows" / "ci.yml",
             ROOT / ".github" / "workflows" / "release.yml",
-            ROOT / ".github" / "workflows" / "oss-rollback.yml",
+            ROOT / ".github" / "workflows" / "maintenance.yml",
             ROOT / "scripts" / "generate-release-notes.py",
             ROOT / "scripts" / "reuse-github-release-assets.sh",
             ROOT / "scripts" / "validate-existing-release-retry.py",

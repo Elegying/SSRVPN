@@ -5,6 +5,8 @@
 .flutter-plugins-dependencies
 build/
 coverage/
+__pycache__/
+*.py[cod]
 **/android/app/.cxx/
 **/android/app/Users/
 **/macos/Flutter/ephemeral/
