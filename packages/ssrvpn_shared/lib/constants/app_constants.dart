@@ -71,7 +71,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '3.5.1';
+  static const String appVersion = '3.5.2';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 
@@ -112,7 +112,6 @@ class AppConstants {
   static const String geositeCnRuleProviderPath =
       './providers/ssrvpn-geosite-cn.mrs';
   // Pin the upstream commit so a mutable branch cannot silently change routing.
-  // Runtime routing intentionally does not depend on GeoIP.
   static const String metaRulesCommit =
       '200e6a86736cfab29aae7b07dc266e59f13bc13d';
   static const String geositeCnRuleProviderUrl =
@@ -151,5 +150,8 @@ class AppConstants {
     'RULE-SET,$geositeCnRuleProviderName,DIRECT',
   ];
 
+  // All three clients install the verified geoip.metadb beside the Mihomo
+  // runtime config, so this rule works offline without another provider.
+  static const String defaultGeoIpDirectRule = 'GEOIP,CN,DIRECT';
   static const String defaultMatchRule = 'MATCH,PROXY';
 }

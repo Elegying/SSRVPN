@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.2] - 2026-07-25
+
+### 修复
+
+- 三端运行配置将用户填写的强制代理网站同时置于路由与 DNS 策略最高优先级；即使域名属于 `.cn` 或国内域名集，也会使用代理 DNS 并进入 `PROXY`，避免和国内直连规则冲突。
+- 国内域名规则集与 `.cn` 查询改用国内 DoH，用户强制代理和 OpenAI 域名继续使用经代理访问的可信 DoH，减少 DNS 解析路径与最终路由方向不一致。
+- 三端 `sniffer` 补齐 HTTP、TLS 与 QUIC，显式启用 DNS 映射和纯 IP 解析，并限制目的地址改写范围；fake-ip 或直接访问 IP 时可恢复更多真实域名供国内域名规则匹配。
+- 默认路由统一为“用户强制代理 → 内置强制代理 → 国内域名直连 → 国内 IP 直连 → 其余代理”；本地 `geoip.metadb` 解压失败时会明确提示国内纯 IP 流量可能回退到代理。
+- Android 核心存活检测增加 TCP 端口探活兜底：API 健康检查连续 3 次失败后探测 API 端口可达性，端口不可达则立即触发恢复；端口可达但 API 无响应（僵尸 socket）则再等 1 个周期确认后恢复。
+
 ## [3.5.1] - 2026-07-25
 
 ### 修复

@@ -92,6 +92,13 @@ class ClashConfigGenerator {
       selectedProxyNames.insert(0, canonicalPreferredNodeName);
     }
     final healthCheckUrl = latencyTestUrl ?? settings.latencyTestUrl;
+    final forceProxyDomainSuffixes = <String>{};
+    for (final site in settings.forceProxySites) {
+      final host = AppSettings.extractForceProxyHost(site);
+      if (host != null && InternetAddress.tryParse(host) == null) {
+        forceProxyDomainSuffixes.add(host);
+      }
+    }
 
     final result = StringBuffer();
 
@@ -171,14 +178,23 @@ class ClashConfigGenerator {
         result.writeln('    - ${_quote(ns)}');
       }
       result.writeln('  direct-nameserver-follow-policy: true');
-      result.writeln('  nameserver-policy:');
-      result.writeln("    '+.cn':");
-      for (final ns in AppConstants.domesticDohNameservers) {
-        result.writeln('      - ${_quote(ns)}');
+      final nameserverPolicies = <String, List<String>>{};
+      for (final domain in forceProxyDomainSuffixes) {
+        nameserverPolicies['+.$domain'] = AppConstants.trustedProxyNameservers;
       }
       for (final domain in AppConstants.openAiDomainSuffixes) {
-        result.writeln("    '+.$domain':");
-        for (final ns in AppConstants.trustedProxyNameservers) {
+        nameserverPolicies.putIfAbsent(
+          '+.$domain',
+          () => AppConstants.trustedProxyNameservers,
+        );
+      }
+      nameserverPolicies['rule-set:${AppConstants.geositeCnRuleProviderName}'] =
+          AppConstants.domesticDohNameservers;
+      nameserverPolicies['+.cn'] = AppConstants.domesticDohNameservers;
+      result.writeln('  nameserver-policy:');
+      for (final policy in nameserverPolicies.entries) {
+        result.writeln("    '${policy.key}':");
+        for (final ns in policy.value) {
           result.writeln('      - ${_quote(ns)}');
         }
       }
@@ -187,6 +203,23 @@ class ClashConfigGenerator {
         result.writeln("    - '$filter'");
       }
     }
+
+    // Mihomo domain sniffing schema:
+    // https://wiki.metacubex.one/en/config/sniff/
+    result.writeln();
+    result.writeln('sniffer:');
+    result.writeln('  enable: true');
+    result.writeln('  force-dns-mapping: true');
+    result.writeln('  parse-pure-ip: true');
+    result.writeln('  override-destination: false');
+    result.writeln('  sniff:');
+    result.writeln('    HTTP:');
+    result.writeln('      ports: [80, 8080]');
+    result.writeln('      override-destination: true');
+    result.writeln('    TLS:');
+    result.writeln('      ports: [443, 8443]');
+    result.writeln('    QUIC:');
+    result.writeln('      ports: [443, 8443]');
 
     // 代理节点
     result.writeln();
@@ -259,6 +292,7 @@ class ClashConfigGenerator {
     orderedRules.addAll(AppConstants.openAiProxyRules);
     orderedRules.addAll(AppConstants.defaultRuleProviderDirectRules);
     orderedRules.addAll(AppConstants.defaultDirectRules);
+    orderedRules.add(AppConstants.defaultGeoIpDirectRule);
     orderedRules.add(AppConstants.defaultMatchRule);
 
     result.writeln();

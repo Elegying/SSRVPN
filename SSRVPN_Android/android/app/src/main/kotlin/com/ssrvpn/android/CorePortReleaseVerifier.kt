@@ -34,4 +34,7 @@ internal object CorePortReleaseVerifier {
         } catch (_: Exception) {
             false
         }
+
+    /** 端口是否仍有人监听（与 [waitUntilReleased] 语义相反）。 */
+    fun isPortListening(port: Int): Boolean = canConnect(port)
 }

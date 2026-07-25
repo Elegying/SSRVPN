@@ -183,6 +183,37 @@ proxies:
       expect(config, contains('Test Node'));
     });
 
+    test('generateConfig enables bounded HTTP TLS and QUIC domain sniffing',
+        () {
+      const yaml = '''
+proxies:
+  - name: "Test Node"
+    type: ss
+    server: node.example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+''';
+
+      final parsed = loadYaml(
+        ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+      ) as YamlMap;
+      final sniffer = parsed['sniffer'] as YamlMap;
+      final sniff = sniffer['sniff'] as YamlMap;
+
+      expect(sniffer['enable'], isTrue);
+      expect(sniffer['force-dns-mapping'], isTrue);
+      expect(sniffer['parse-pure-ip'], isTrue);
+      expect(sniffer['override-destination'], isFalse);
+      expect((sniff['HTTP'] as YamlMap)['ports'], [80, 8080]);
+      expect(
+        (sniff['HTTP'] as YamlMap)['override-destination'],
+        isTrue,
+      );
+      expect((sniff['TLS'] as YamlMap)['ports'], [443, 8443]);
+      expect((sniff['QUIC'] as YamlMap)['ports'], [443, 8443]);
+    });
+
     test('OpenAI DNS and routing never fall through to domestic resolvers', () {
       const yaml = '''
 proxies:
@@ -232,6 +263,75 @@ proxies:
         );
       }
     });
+
+    test(
+      'force-proxy domains override domestic DNS and routing without duplicates',
+      () {
+        const yaml = '''
+proxies:
+  - name: "Test Node"
+    type: ss
+    server: node.example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+''';
+        final settings = AppSettings(
+          forceProxySites: const [
+            'https://shop.example.cn/path',
+            'openai.com',
+            '192.0.2.1',
+          ],
+        );
+
+        final parsed = loadYaml(
+          ClashConfigGenerator.generateConfig(yaml, settings),
+        ) as YamlMap;
+        final dns = parsed['dns'] as YamlMap;
+        final policy = dns['nameserver-policy'] as YamlMap;
+        final policyKeys = policy.keys.cast<String>().toList();
+        final rules = (parsed['rules'] as YamlList).cast<String>();
+
+        final forcedDomainIndex =
+            rules.indexOf('DOMAIN-SUFFIX,shop.example.cn,PROXY');
+        final forcedIpIndex =
+            rules.indexOf('IP-CIDR,192.0.2.1/32,PROXY,no-resolve');
+        final domesticDomainIndex =
+            rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT');
+        final domesticIpIndex = rules.indexOf('GEOIP,CN,DIRECT');
+        expect(forcedDomainIndex, isNonNegative);
+        expect(forcedIpIndex, isNonNegative);
+        expect(forcedDomainIndex, lessThan(domesticDomainIndex));
+        expect(forcedDomainIndex, lessThan(domesticIpIndex));
+        expect(forcedIpIndex, lessThan(domesticIpIndex));
+
+        final forcedResolvers =
+            (policy['+.shop.example.cn'] as YamlList).cast<String>();
+        expect(forcedResolvers, everyElement(contains('#PROXY')));
+        expect(
+            policyKeys.indexOf('+.shop.example.cn'),
+            lessThan(
+              policyKeys.indexOf('rule-set:ssrvpn-geosite-cn'),
+            ));
+        expect(
+            policyKeys.indexOf('+.shop.example.cn'),
+            lessThan(
+              policyKeys.indexOf('+.cn'),
+            ));
+        expect(
+          (policy['rule-set:ssrvpn-geosite-cn'] as YamlList).cast<String>(),
+          containsAll([
+            'https://dns.alidns.com/dns-query',
+            'https://doh.pub/dns-query',
+          ]),
+        );
+        expect(
+          policyKeys.where((key) => key == '+.openai.com'),
+          hasLength(1),
+        );
+        expect(policy.containsKey('+.192.0.2.1'), isFalse);
+      },
+    );
 
     test('generateConfig writes a dual-stack generic TUN configuration', () {
       const yaml = '''
@@ -469,8 +569,7 @@ proxies:
       }
     });
 
-    test('generateConfig routes domestic domains directly without GeoIP rules',
-        () {
+    test('generateConfig routes domestic domains and IPs directly', () {
       final yaml = '''
 proxies:
   - name: "Test Node"
@@ -502,14 +601,24 @@ proxies:
       );
       expect(domainProvider['url'], isNot(contains('/meta/')));
       expect(providers, isNot(contains('ssrvpn-geoip-cn')));
+      final openAiProxyIndex = rules.indexOf('DOMAIN-SUFFIX,openai.com,PROXY');
+      final domainDirectIndex =
+          rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT');
+      final geoIpDirectIndex = rules.indexOf('GEOIP,CN,DIRECT');
+      final matchIndex = rules.indexOf('MATCH,PROXY');
+      expect(openAiProxyIndex, isNonNegative);
+      expect(domainDirectIndex, isNonNegative);
+      expect(geoIpDirectIndex, isNonNegative);
+      expect(matchIndex, isNonNegative);
       expect(
-        rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT'),
-        lessThan(rules.indexOf('MATCH,PROXY')),
+        openAiProxyIndex,
+        lessThan(geoIpDirectIndex),
       );
+      expect(domainDirectIndex, lessThan(geoIpDirectIndex));
+      expect(geoIpDirectIndex, lessThan(matchIndex));
       expect(rules, contains('DOMAIN-SUFFIX,cn,DIRECT'));
       expect(rules, contains('DOMAIN-SUFFIX,snssdk.com,DIRECT'));
       expect(rules, contains('IP-CIDR,192.168.0.0/16,DIRECT,no-resolve'));
-      expect(rules, isNot(anyElement(startsWith('GEOIP,'))));
       expect(rules, isNot(anyElement(contains('ssrvpn-geoip-cn'))));
       expect(rules.last, 'MATCH,PROXY');
     });
