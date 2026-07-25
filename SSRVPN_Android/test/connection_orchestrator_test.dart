@@ -156,6 +156,7 @@ void main() {
         if (blockSecureWrite) await releaseSecureWrite.future;
       },
     );
+    await _assignCurrentlyFreeRuntimePorts(settingsService);
     blockSecureWrite = true;
     final blockingWrite = settingsService.setApiSecret('rotated-secret');
     final modeWrite = settingsService.setProxyMode('global');
@@ -342,6 +343,7 @@ void main() {
         throw StateError('keystore unavailable');
       },
     );
+    await _assignCurrentlyFreeRuntimePorts(settingsService);
     failSecureWrite = true;
     final failedWrite = settingsService.setApiSecret('rotated-secret');
     final failedWriteExpectation = expectLater(failedWrite, throwsStateError);
@@ -372,6 +374,31 @@ void main() {
     expect(clashService.generatedSettings?.apiSecret, 'test-secret');
     expect(clashService.startCalls, 1);
   });
+}
+
+Future<void> _assignCurrentlyFreeRuntimePorts(
+  SettingsService settingsService,
+) async {
+  final reservations = <ServerSocket>[];
+  try {
+    for (var index = 0; index < 3; index++) {
+      reservations.add(
+        await ServerSocket.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+          shared: false,
+        ),
+      );
+    }
+    settingsService.settings
+      ..proxyPort = reservations[0].port
+      ..socksPort = reservations[1].port
+      ..apiPort = reservations[2].port;
+  } finally {
+    for (final reservation in reservations) {
+      await reservation.close();
+    }
+  }
 }
 
 String _yaml(String name, String server) => '''

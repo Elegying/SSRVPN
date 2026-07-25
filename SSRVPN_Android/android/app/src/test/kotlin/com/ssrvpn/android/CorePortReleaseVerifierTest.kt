@@ -3,6 +3,8 @@ package com.ssrvpn.android
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.net.InetAddress
+import java.net.ServerSocket
 
 class CorePortReleaseVerifierTest {
     @Test
@@ -34,10 +36,15 @@ class CorePortReleaseVerifierTest {
 
     @Test
     fun `isPortListening returns true when port is open`() {
-        // 使用 canConnect 参数注入
-        val verifier = CorePortReleaseVerifier
-        // isPortListening 内部用 canConnect，这里通过端口 0 测试边界
-        // 直接用一个肯定失败的端口验证 false 分支
-        assertFalse(verifier.isPortListening(0))
+        val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        val port = server.localPort
+
+        try {
+            assertTrue(CorePortReleaseVerifier.isPortListening(port))
+        } finally {
+            server.close()
+        }
+
+        assertFalse(CorePortReleaseVerifier.isPortListening(port))
     }
 }
