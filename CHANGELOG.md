@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.4] - 2026-07-25
+
+### 修复
+
+- 三端 Mihomo 配置启用双栈 TCP 并发连接：国内 `DIRECT` 域名同时解析出 IPv4 与 IPv6 时采用最先成功的地址，底层 Wi-Fi 缺少可用 IPv6 出口时能够自动回退 IPv4，不改变“用户强制代理优先、国内直连、国外代理”的规则顺序。
+- Android 断开连接为内嵌核心 API 端口提供 5 秒释放宽限期，避免 `Bridge.stop()` 已返回但端口仍在短暂收尾时错误终止前台进程；待启动任务无法停止、Bridge 停止无法验证或端口超过完整宽限期仍监听时，继续保留进程级安全兜底。
+- Windows TUN 启动前网卡基线探测遇到一次 PowerShell 冷启动超时或瞬时空结果时会自动重试，避免把正常机器上的临时探测失败误判为无法安全建立 TUN。
+
+### 测试
+
+- 新增双栈竞速与强制代理优先级、Android 停止决策、端口旧阈值和 Windows 网卡基线瞬时失败重试回归测试，并更新 Android 原生发布守卫。
+
+### 兼容性边界
+
+- 裸 IPv6 地址和仅支持 IPv6 的目标仍需要底层网络提供真实 IPv6 出口；客户端的双栈 IPv4 回退不能替代路由器或 AP 的 IPv6 RA 转发修复。
+- 本版本没有修改 HTTP 订阅的兼容与安全策略；Windows 继续只发布未签名的 `SSRVPN_Setup.exe` 安装版，不提供便携 ZIP。
+
 ## [3.5.3] - 2026-07-25
 
 ### 修复
