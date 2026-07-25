@@ -114,6 +114,9 @@ class ClashConfigGenerator {
     result.writeln("external-controller: '127.0.0.1:${settings.apiPort}'");
     result.writeln('# SSRVPN IPv4 / IPv6 双栈配置');
     result.writeln('ipv6: true');
+    // Race every resolved address so a broken IPv6 underlay cannot turn a
+    // dual-stack DIRECT destination into a black hole.
+    result.writeln('tcp-concurrent: true');
     result.writeln('etag-support: true');
     final apiSecret =
         RuntimeConfigNamePolicy.canonicalApiSecret(settings.apiSecret);

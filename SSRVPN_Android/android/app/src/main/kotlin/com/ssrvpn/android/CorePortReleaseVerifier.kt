@@ -4,10 +4,15 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 internal object CorePortReleaseVerifier {
+    // Bridge.stop can return before its listener closes. Allow five seconds
+    // before treating the detached TUN/core shutdown as genuinely stuck.
+    private const val DEFAULT_RELEASE_ATTEMPTS = 51
+    private const val DEFAULT_RETRY_DELAY_MILLIS = 100L
+
     fun waitUntilReleased(
         port: Int,
-        attempts: Int = 6,
-        retryDelayMillis: Long = 100,
+        attempts: Int = DEFAULT_RELEASE_ATTEMPTS,
+        retryDelayMillis: Long = DEFAULT_RETRY_DELAY_MILLIS,
         canConnect: (Int) -> Boolean = ::canConnect,
     ): Boolean {
         if (port !in 1..65535) return true
