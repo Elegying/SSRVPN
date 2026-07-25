@@ -34,7 +34,6 @@ class ClashConfigGenerator {
   /// [includeFallbackGroup] 是否额外写入故障转移组
   /// [extraSelectGroupNames] 额外的 select 代理组名称
   /// [extraRulesBeforeDirect] 插入在内置直连规则前的平台规则
-  /// [includeGeoIpRules] 平台已确认 GEOIP 数据可用时写入 GEOIP 规则
   static String generateConfig(
     String rawYaml,
     AppSettings settings, {
@@ -47,7 +46,6 @@ class ClashConfigGenerator {
     bool includeFallbackGroup = false,
     Iterable<String> extraSelectGroupNames = const [],
     Iterable<String> extraRulesBeforeDirect = const [],
-    bool includeGeoIpRules = false,
   }) {
     final proxyNames = extractProxyNames(rawYaml);
     final proxiesText = buildProxiesText(rawYaml);
@@ -249,14 +247,6 @@ class ClashConfigGenerator {
       path: AppConstants.geositeCnRuleProviderPath,
       url: AppConstants.geositeCnRuleProviderUrl,
     );
-    _writeRuleProvider(
-      result,
-      name: AppConstants.geoipCnRuleProviderName,
-      behavior: 'ipcidr',
-      path: AppConstants.geoipCnRuleProviderPath,
-      url: AppConstants.geoipCnRuleProviderUrl,
-    );
-
     // 规则。按首次出现顺序去重，确保用户强制代理优先于内置直连，
     // 同时避免重复 matcher 让运行配置含义变得含混。
     final orderedRules = <String>{};
@@ -269,9 +259,6 @@ class ClashConfigGenerator {
     orderedRules.addAll(AppConstants.openAiProxyRules);
     orderedRules.addAll(AppConstants.defaultRuleProviderDirectRules);
     orderedRules.addAll(AppConstants.defaultDirectRules);
-    if (includeGeoIpRules) {
-      orderedRules.addAll(AppConstants.defaultGeoipRules);
-    }
     orderedRules.add(AppConstants.defaultMatchRule);
 
     result.writeln();
@@ -300,7 +287,6 @@ class ClashConfigGenerator {
     bool includeFallbackGroup = false,
     Iterable<String> extraSelectGroupNames = const [],
     Iterable<String> extraRulesBeforeDirect = const [],
-    bool includeGeoIpRules = false,
   }) {
     final extraGroups = List<String>.of(extraSelectGroupNames);
     final extraRules = List<String>.of(extraRulesBeforeDirect);
@@ -317,7 +303,6 @@ class ClashConfigGenerator {
           includeFallbackGroup: includeFallbackGroup,
           extraSelectGroupNames: extraGroups,
           extraRulesBeforeDirect: extraRules,
-          includeGeoIpRules: includeGeoIpRules,
         );
 
     if (rawYaml.length < isolateThreshold) {

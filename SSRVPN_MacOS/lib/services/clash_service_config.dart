@@ -28,7 +28,6 @@ mixin _MacosClashConfig on ClashServiceBase {
       tunConfig: settings.enableTun ? _macosTunConfig(settings) : null,
       latencyTestUrl: settings.latencyTestUrl,
       includeFallbackGroup: true,
-      includeGeoIpRules: true,
     );
   }
 
@@ -45,7 +44,6 @@ mixin _MacosClashConfig on ClashServiceBase {
       tunConfig: settings.enableTun ? _macosTunConfig(settings) : null,
       latencyTestUrl: settings.latencyTestUrl,
       includeFallbackGroup: true,
-      includeGeoIpRules: true,
     );
   }
 

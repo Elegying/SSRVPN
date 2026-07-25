@@ -580,7 +580,7 @@ proxies:
       );
     });
 
-    test('updates both configured provider endpoints through Mihomo API',
+    test('updates only the domain-based CN provider through Mihomo API',
         () async {
       final requests = <String>[];
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -605,7 +605,6 @@ proxies:
 
       expect(requests, [
         'PUT /providers/rules/ssrvpn-geosite-cn Bearer test-token',
-        'PUT /providers/rules/ssrvpn-geoip-cn Bearer test-token',
       ]);
     });
 

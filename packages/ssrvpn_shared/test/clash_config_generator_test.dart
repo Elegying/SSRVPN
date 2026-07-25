@@ -469,7 +469,8 @@ proxies:
       }
     });
 
-    test('generateConfig enables externally refreshed CN rule providers', () {
+    test('generateConfig routes domestic domains directly without GeoIP rules',
+        () {
       final yaml = '''
 proxies:
   - name: "Test Node"
@@ -481,15 +482,10 @@ proxies:
 ''';
 
       final parsed = loadYaml(
-        ClashConfigGenerator.generateConfig(
-          yaml,
-          AppSettings(),
-          includeGeoIpRules: true,
-        ),
+        ClashConfigGenerator.generateConfig(yaml, AppSettings()),
       ) as YamlMap;
       final providers = parsed['rule-providers'] as YamlMap;
       final domainProvider = providers['ssrvpn-geosite-cn'] as YamlMap;
-      final ipProvider = providers['ssrvpn-geoip-cn'] as YamlMap;
       final rules = (parsed['rules'] as YamlList).cast<String>();
 
       expect(parsed['etag-support'], isTrue);
@@ -504,29 +500,18 @@ proxies:
         '200e6a86736cfab29aae7b07dc266e59f13bc13d/'
         'geo/geosite/cn.mrs',
       );
-      expect(ipProvider['type'], 'http');
-      expect(ipProvider['behavior'], 'ipcidr');
-      expect(ipProvider['format'], 'mrs');
-      expect(ipProvider.containsKey('interval'), isFalse);
-      expect(ipProvider['proxy'], 'PROXY');
-      expect(
-        ipProvider['url'],
-        'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
-        '200e6a86736cfab29aae7b07dc266e59f13bc13d/'
-        'geo/geoip/cn.mrs',
-      );
       expect(domainProvider['url'], isNot(contains('/meta/')));
-      expect(ipProvider['url'], isNot(contains('/meta/')));
+      expect(providers, isNot(contains('ssrvpn-geoip-cn')));
       expect(
         rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT'),
         lessThan(rules.indexOf('MATCH,PROXY')),
       );
-      expect(
-        rules.indexOf('RULE-SET,ssrvpn-geoip-cn,DIRECT,no-resolve'),
-        lessThan(rules.indexOf('MATCH,PROXY')),
-      );
       expect(rules, contains('DOMAIN-SUFFIX,cn,DIRECT'));
-      expect(rules, contains('GEOIP,CN,DIRECT'));
+      expect(rules, contains('DOMAIN-SUFFIX,snssdk.com,DIRECT'));
+      expect(rules, contains('IP-CIDR,192.168.0.0/16,DIRECT,no-resolve'));
+      expect(rules, isNot(anyElement(startsWith('GEOIP,'))));
+      expect(rules, isNot(anyElement(contains('ssrvpn-geoip-cn'))));
+      expect(rules.last, 'MATCH,PROXY');
     });
 
     test('generateConfig preserves a visible ASCII API secret exactly', () {

@@ -71,7 +71,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '3.4.16';
+  static const String appVersion = '3.5.0';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 
@@ -108,27 +108,37 @@ class AppConstants {
   static const Duration ruleProviderStartupRefreshDelay = Duration(minutes: 10);
   static const String ruleProviderDownloadProxy = 'PROXY';
   static const String geositeCnRuleProviderName = 'ssrvpn-geosite-cn';
-  static const String geoipCnRuleProviderName = 'ssrvpn-geoip-cn';
-  static const List<String> ruleProviderNames = [
-    geositeCnRuleProviderName,
-    geoipCnRuleProviderName,
-  ];
+  static const List<String> ruleProviderNames = [geositeCnRuleProviderName];
   static const String geositeCnRuleProviderPath =
       './providers/ssrvpn-geosite-cn.mrs';
-  static const String geoipCnRuleProviderPath =
-      './providers/ssrvpn-geoip-cn.mrs';
   // Pin the upstream commit so a mutable branch cannot silently change routing.
-  // The built-in DOMAIN-SUFFIX/CN GeoIP rules below remain the offline fallback.
+  // Runtime routing intentionally does not depend on GeoIP.
   static const String metaRulesCommit =
       '200e6a86736cfab29aae7b07dc266e59f13bc13d';
   static const String geositeCnRuleProviderUrl =
       'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
       '$metaRulesCommit/geo/geosite/cn.mrs';
-  static const String geoipCnRuleProviderUrl =
-      'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
-      '$metaRulesCommit/geo/geoip/cn.mrs';
-
-  static const List<String> defaultDirectRules = ['DOMAIN-SUFFIX,cn,DIRECT'];
+  // High-traffic domestic suffixes stay local so apps such as Douyin remain
+  // direct even when an externally refreshed CN domain set misses one.
+  static const List<String> defaultDirectRules = [
+    'DOMAIN-SUFFIX,cn,DIRECT',
+    'DOMAIN-SUFFIX,douyin.com,DIRECT',
+    'DOMAIN-SUFFIX,amemv.com,DIRECT',
+    'DOMAIN-SUFFIX,snssdk.com,DIRECT',
+    'DOMAIN-SUFFIX,douyincdn.com,DIRECT',
+    'DOMAIN-SUFFIX,byteimg.com,DIRECT',
+    'DOMAIN-SUFFIX,bytedance.com,DIRECT',
+    'DOMAIN-SUFFIX,bytedance.net,DIRECT',
+    'DOMAIN-SUFFIX,toutiao.com,DIRECT',
+    'DOMAIN-SUFFIX,ixigua.com,DIRECT',
+    'DOMAIN-SUFFIX,pstatp.com,DIRECT',
+    'IP-CIDR,10.0.0.0/8,DIRECT,no-resolve',
+    'IP-CIDR,172.16.0.0/12,DIRECT,no-resolve',
+    'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve',
+    'IP-CIDR,100.64.0.0/10,DIRECT,no-resolve',
+    'IP-CIDR6,fc00::/7,DIRECT,no-resolve',
+    'IP-CIDR6,fe80::/10,DIRECT,no-resolve',
+  ];
 
   static const List<String> openAiProxyRules = [
     'DOMAIN-SUFFIX,chatgpt.com,PROXY',
@@ -139,12 +149,6 @@ class AppConstants {
 
   static const List<String> defaultRuleProviderDirectRules = [
     'RULE-SET,$geositeCnRuleProviderName,DIRECT',
-    'RULE-SET,$geoipCnRuleProviderName,DIRECT,no-resolve',
-  ];
-
-  static const List<String> defaultGeoipRules = [
-    'GEOIP,CN,DIRECT',
-    'GEOIP,LAN,DIRECT,no-resolve',
   ];
 
   static const String defaultMatchRule = 'MATCH,PROXY';

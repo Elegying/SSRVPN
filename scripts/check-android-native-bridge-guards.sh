@@ -218,6 +218,7 @@ require_text "BRIDGE_IS_RUNNING_TIMEOUT_MS"
 require_text "startBridgeWithTimeout"
 require_text "stopBridgeWithTimeout"
 require_text "isBridgeRunningWithTimeout"
+require_text "CorePortReleaseVerifier.waitUntilReleased(currentApiPort)"
 require_text "SSRVPN-bridge-start"
 require_text "SSRVPN-bridge-stop"
 require_text "SSRVPN-bridge-is-running"
@@ -229,6 +230,31 @@ require_count "bridge.Bridge.init(configDir, \"config.yaml\")" 1
 require_count "bridge.Bridge.start(configPath, tunFd)" 1
 require_count "bridge.Bridge.stop()" 1
 require_count "bridge.Bridge.isRunning()" 1
+
+python3 - "$SERVICE" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+start = source.index("private fun stopBridgeWithTimeout(): Boolean")
+stop = source[start:]
+if "isBridgeRunningWithTimeout()" not in stop:
+    raise SystemExit(
+        "Android stop completion is not verified against Bridge.isRunning"
+    )
+if stop.index("isBridgeRunningWithTimeout()") < stop.index("bridge.Bridge.stop()"):
+    raise SystemExit(
+        "Android verifies Bridge state before asking the core to stop"
+    )
+
+running_start = source.index("private fun isBridgeRunningWithTimeout(): Boolean")
+running_end = source.index("\n    private fun ", running_start + 1)
+running_check = source[running_start:running_end]
+if "error = e\n                result = true" not in running_check:
+    raise SystemExit(
+        "Android treats a failed Bridge.isRunning query as a verified stop"
+    )
+PY
 
 require_activity_text '"syncSettings"'
 require_activity_text '"getConnectionState"'
@@ -299,7 +325,7 @@ PY
 
 require_text "Bridge.isRunning already in progress; deferring verdict"
 require_text "Bridge.isRunning timed out after"
-require_text "treating as stopped"
+require_text "treating stop as unverified"
 require_text "Bridge.stop failed or timed out; terminating process to release the detached TUN fd"
 require_text "android.os.Process.killProcess(android.os.Process.myPid())"
 require_text "VpnRouteInstaller.configure(builder)"

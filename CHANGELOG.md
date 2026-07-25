@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-07-25
+
+### 修复
+
+- Android 断开 VPN 时会在 `Bridge.stop()` 返回后继续确认内嵌 Mihomo 已真正退出；核心仍运行、状态查询超时或无法确认时进入既有的进程级兜底清理，不再把仍占用 mixed、SOCKS、API 端口的状态当作断开成功。
+
+### 改进
+
+- Android、macOS 与 Windows 的默认规则统一为“国内直连、其余代理”：用户强制代理与 OpenAI 规则保持最高优先级，国内域名集、`.cn`、抖音/字节常用域名和局域网地址直连，最终由 `MATCH,PROXY` 承接国外及未命中流量。
+- 三端运行配置不再生成 GeoIP 规则、GeoIP CN 规则提供器或对应启动刷新请求；GeoIP 资源仅保留给与代理路由无关的地址归属显示和发布资产校验。
+
+### 测试
+
+- 新增 Android 停止终态守卫，以及无 GeoIP 配置、单一国内域名规则集刷新、抖音域名直连、局域网直连和国外兜底代理回归；macOS 与 Windows 继续验证核心进程退出确认和失败时阻止重连。
+
+### 兼容性边界
+
+- 本版本没有修改 HTTP 订阅的兼容与安全策略；既有 HTTP/HTTPS 订阅处理保持不变。
+- Windows 继续只发布未签名的 `SSRVPN_Setup.exe` 安装版，不提供便携 ZIP。
+
 ## [3.4.16] - 2026-07-23
 
 ### 修复
