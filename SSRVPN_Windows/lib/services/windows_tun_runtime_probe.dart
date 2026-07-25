@@ -209,9 +209,37 @@ if ($identities.Count -eq 0) {
   }
 }
 
+Future<Set<WindowsTunInterfaceIdentity>>
+    retryWindowsNetworkInterfaceIdentityProbe({
+  required WindowsNetworkInterfaceIdentityProbe probe,
+  int maxAttempts = 2,
+}) async {
+  if (maxAttempts < 1) {
+    throw ArgumentError.value(maxAttempts, 'maxAttempts', 'must be positive');
+  }
+  for (var attempt = 0; attempt < maxAttempts; attempt++) {
+    final identities = await probe();
+    if (identities.isNotEmpty) return identities;
+  }
+  return const <WindowsTunInterfaceIdentity>{};
+}
+
 Future<Set<WindowsTunInterfaceIdentity>> probeWindowsNetworkInterfaceIdentities(
-    {Future<void>? cancellation}) async {
-  if (!Platform.isWindows) return const <WindowsTunInterfaceIdentity>{};
+    {Future<void>? cancellation}) {
+  if (!Platform.isWindows) {
+    return Future.value(const <WindowsTunInterfaceIdentity>{});
+  }
+  return retryWindowsNetworkInterfaceIdentityProbe(
+    probe: () => _probeWindowsNetworkInterfaceIdentitiesOnce(
+      cancellation: cancellation,
+    ),
+  );
+}
+
+Future<Set<WindowsTunInterfaceIdentity>>
+    _probeWindowsNetworkInterfaceIdentitiesOnce({
+  Future<void>? cancellation,
+}) async {
   try {
     const script = r'''
 $ErrorActionPreference = 'Stop'

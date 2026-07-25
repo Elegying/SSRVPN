@@ -21,6 +21,23 @@ void main() {
   ]) =>
       (status: status, interfaces: interfaces);
 
+  test('network interface baseline retries one transient empty probe',
+      () async {
+    var calls = 0;
+
+    final baseline = await retryWindowsNetworkInterfaceIdentityProbe(
+      probe: () async {
+        calls++;
+        return calls == 1
+            ? const <WindowsTunInterfaceIdentity>{}
+            : const {identity7};
+      },
+    );
+
+    expect(baseline, const {identity7});
+    expect(calls, 2);
+  });
+
   test('TUN teardown waits until the residual probe reports gone', () async {
     final statuses = <WindowsTunResidualProbeResult>[
       residual(WindowsTunResidualStatus.present, const {identity7}),
