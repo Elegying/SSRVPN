@@ -35,6 +35,20 @@ class CorePortReleaseVerifierTest {
     }
 
     @Test
+    fun `default grace period tolerates release after the former six checks`() {
+        var checks = 0
+
+        val released = CorePortReleaseVerifier.waitUntilReleased(
+            port = 9090,
+            retryDelayMillis = 0,
+            canConnect = { ++checks <= 8 },
+        )
+
+        assertTrue(released)
+        assertTrue(checks > 6)
+    }
+
+    @Test
     fun `isPortListening returns true when port is open`() {
         val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
         val port = server.localPort

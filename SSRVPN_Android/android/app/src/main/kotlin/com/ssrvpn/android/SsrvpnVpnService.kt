@@ -802,10 +802,8 @@ class SsrvpnVpnService : VpnService() {
                 stopOperation.complete()
             }
             if (terminateProcess) {
-                Log.e(
-                    TAG,
-                    "Bridge.stop failed or timed out; terminating process to release the detached TUN fd"
-                )
+                Log.e(TAG,
+                    "Core shutdown incomplete; terminating process to release the detached TUN fd")
                 notificationHandler.postDelayed({
                     android.os.Process.killProcess(android.os.Process.myPid())
                 }, 750L)
@@ -822,14 +820,17 @@ class SsrvpnVpnService : VpnService() {
         protectThread?.interrupt()
         protectThread = null
         val pendingStartStopped = waitForPendingStart()
-        val bridgeStopped = pendingStartStopped && stopBridgeWithTimeout() &&
-            CorePortReleaseVerifier.waitUntilReleased(currentApiPort)
+        val bridgeStopped = pendingStartStopped && stopBridgeWithTimeout()
+        val stopDecision = CoreStopDecision.afterBridgeCheck(
+            pendingStartStopped, bridgeStopped, currentApiPort
+        )
+        if (stopDecision.terminateProcess) Log.e(TAG, stopDecision.terminationMessage(currentApiPort))
         try {
             vpnFd?.close()
         } catch (_: Exception) {}
         vpnFd = null
         isRunning = false
-        if (bridgeStopped) NativeConnectionSession.clearRunning()
+        if (stopDecision.clearRunningSession) NativeConnectionSession.clearRunning()
         broadcastState(this)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -842,7 +843,7 @@ class SsrvpnVpnService : VpnService() {
             Log.w(TAG, "stopForeground failed: ${e.message}")
         }
         Log.d(TAG, "Stopped")
-        return !bridgeStopped
+        return stopDecision.terminateProcess
     }
 
     private fun waitForPendingStart(): Boolean {

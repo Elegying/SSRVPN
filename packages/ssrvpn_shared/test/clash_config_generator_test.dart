@@ -183,6 +183,34 @@ proxies:
       expect(config, contains('Test Node'));
     });
 
+    test('dual-stack direct traffic races every resolved address', () {
+      const yaml = '''
+proxies:
+  - name: "Test Node"
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+''';
+
+      final parsed = loadYaml(
+        ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+      ) as YamlMap;
+      final rules = (parsed['rules'] as YamlList).cast<String>();
+
+      expect(parsed['ipv6'], isTrue);
+      expect(parsed['tcp-concurrent'], isTrue);
+      expect(rules, contains('RULE-SET,ssrvpn-geosite-cn,DIRECT'));
+      expect(rules, contains('GEOIP,CN,DIRECT'));
+      expect(
+        rules.indexOf('DOMAIN-SUFFIX,openai.com,PROXY'),
+        lessThan(
+          rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT'),
+        ),
+      );
+    });
+
     test('generateConfig enables bounded HTTP TLS and QUIC domain sniffing',
         () {
       const yaml = '''

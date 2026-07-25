@@ -19,6 +19,8 @@ VPN_ROUTE_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
 NOTIFICATION_GATE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NotificationGenerationGate.kt"
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
+CORE_PORT_RELEASE_VERIFIER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CorePortReleaseVerifier.kt"
+CORE_STOP_DECISION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreStopDecision.kt"
 NATIVE_SNAPSHOT_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSnapshotStore.kt"
 NATIVE_CONNECTION_SESSION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSession.kt"
 NATIVE_SESSION_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeVpnSessionCoordinator.kt"
@@ -121,7 +123,7 @@ grep -Fq "fun connectionState(): Map<String, Any?>" "$NATIVE_SESSION_COORDINATOR
 require_text "NativeConnectionSession.publishRunning(configPath)"
 require_text "NativeVpnSessionCoordinator.reserveRecovery(request.configPath)"
 require_text "NativeConnectionSession.clearRunning()"
-require_text "if (bridgeStopped) NativeConnectionSession.clearRunning()"
+require_text "if (stopDecision.clearRunningSession)"
 require_text "NativeConnectionSession.clearRecovery()"
 require_text "CoreRecoveryPolicy.nextAttempt(request.attempt)"
 require_text "stopForRecovery"
@@ -218,7 +220,17 @@ require_text "BRIDGE_IS_RUNNING_TIMEOUT_MS"
 require_text "startBridgeWithTimeout"
 require_text "stopBridgeWithTimeout"
 require_text "isBridgeRunningWithTimeout"
-require_text "CorePortReleaseVerifier.waitUntilReleased(currentApiPort)"
+grep -Fq "CorePortReleaseVerifier::waitUntilReleased" "$CORE_STOP_DECISION" || {
+  echo "Android stop decision no longer verifies API port release" >&2
+  exit 1
+}
+grep -Fq "DEFAULT_RELEASE_ATTEMPTS = 51" "$CORE_PORT_RELEASE_VERIFIER" || {
+  echo "Android core port release grace period regressed below five seconds" >&2
+  exit 1
+}
+require_text "CoreStopDecision.afterBridgeCheck("
+require_text "stopDecision.terminationMessage(currentApiPort)"
+require_text "return stopDecision.terminateProcess"
 require_text "SSRVPN-bridge-start"
 require_text "SSRVPN-bridge-stop"
 require_text "SSRVPN-bridge-is-running"
@@ -326,7 +338,7 @@ PY
 require_text "Bridge.isRunning already in progress; deferring verdict"
 require_text "Bridge.isRunning timed out after"
 require_text "treating stop as unverified"
-require_text "Bridge.stop failed or timed out; terminating process to release the detached TUN fd"
+require_text "Core shutdown incomplete; terminating process to release the detached TUN fd"
 require_text "android.os.Process.killProcess(android.os.Process.myPid())"
 require_text "VpnRouteInstaller.configure(builder)"
 require_route_text "PublicIpv4Routes.routes"

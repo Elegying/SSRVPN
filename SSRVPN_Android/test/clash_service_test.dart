@@ -386,6 +386,7 @@ void main() {
       expect(parsed['socks-port'], isA<int>());
       expect(parsed['allow-lan'], isFalse);
       expect(parsed['ipv6'], isTrue);
+      expect(parsed['tcp-concurrent'], isTrue);
       expect(parsed['dns']['ipv6'], isTrue);
       expect(parsed['dns']['fake-ip-range6'], isNotEmpty);
       expect(parsed['tun']['inet6-address'], isNotEmpty);
