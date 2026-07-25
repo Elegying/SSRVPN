@@ -637,12 +637,8 @@ class SsrvpnVpnService : VpnService() {
                     isProtectMonitorRunning = {
                         VpnRuntimeHealth.hasProtectMonitor(protectThread)
                     },
-                    isApiHealthy = {
-                        VpnRuntimeHealth.isApiHealthy(request.apiPort, request.apiSecret)
-                    },
-                    isApiPortReachable = {
-                        CorePortReleaseVerifier.isPortListening(request.apiPort)
-                    }
+                    isApiHealthy = { VpnRuntimeHealth.isApiHealthy(request.apiPort, request.apiSecret) },
+                    isApiPortReachable = { CorePortReleaseVerifier.isPortListening(request.apiPort) }
                 )
             ) {
                 Log.e(TAG, "Mihomo stopped unexpectedly")
