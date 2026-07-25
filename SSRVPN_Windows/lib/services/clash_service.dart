@@ -186,7 +186,7 @@ class ClashService extends ClashServiceBase
       );
     } catch (e) {
       log('⚠️ MMDB 资源复制失败: $e');
-      log('❌ IP 归属数据库不可用；代理路由不受影响');
+      log('❌ IP 归属数据库不可用；国内纯 IP 流量可能回退到代理');
     }
   }
 

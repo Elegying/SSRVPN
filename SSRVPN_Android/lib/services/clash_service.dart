@@ -206,7 +206,7 @@ class ClashService extends ClashServiceBase {
       log('✅ MMDB 已从内置资源解压 (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB)');
     } catch (e) {
       log('⚠️ 内置资源复制失败: $e');
-      log('❌ IP 归属数据库不可用；代理路由不受影响');
+      log('❌ IP 归属数据库不可用；国内纯 IP 流量可能回退到代理');
     }
   }
 
