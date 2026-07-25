@@ -4,18 +4,6 @@ mixin _WindowsClashConfig on ClashServiceBase {
   // ── Config generation ──
 
   /// 生成 Clash 配置（Windows 专用：含 SSRVPN-GEO 组和 Windows 专用规则）
-  bool _geoipDatabaseExists() {
-    try {
-      final mmdb = File('$configDir${Platform.pathSeparator}country.mmdb');
-      if (mmdb.existsSync() && mmdb.lengthSync() > 1024 * 1024) return true;
-      final metadb = File('$configDir${Platform.pathSeparator}geoip.metadb');
-      if (metadb.existsSync() && metadb.lengthSync() > 1024 * 1024) {
-        return true;
-      }
-    } catch (_) {}
-    return false;
-  }
-
   String _windowsTunConfig(AppSettings settings) {
     final buffer = StringBuffer()
       ..writeln('tun:')
@@ -52,7 +40,6 @@ mixin _WindowsClashConfig on ClashServiceBase {
       extraRulesBeforeDirect: _geoLookupHosts.map(
         (host) => 'DOMAIN,$host,$_geoProxyGroupName',
       ),
-      includeGeoIpRules: _geoipDatabaseExists(),
     );
   }
 
@@ -72,7 +59,6 @@ mixin _WindowsClashConfig on ClashServiceBase {
       extraRulesBeforeDirect: _geoLookupHosts.map(
         (host) => 'DOMAIN,$host,$_geoProxyGroupName',
       ),
-      includeGeoIpRules: _geoipDatabaseExists(),
     );
   }
 }

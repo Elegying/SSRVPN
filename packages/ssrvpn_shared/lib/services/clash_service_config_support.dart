@@ -11,7 +11,6 @@ mixin _ClashConfigSupport {
     String? dnsListen,
     String? latencyTestUrl,
     bool includeFallbackGroup = false,
-    bool includeGeoIpRules = false,
     Iterable<String> extraSelectGroupNames = const [],
     Iterable<String> extraRulesBeforeDirect = const [],
   }) {
@@ -27,7 +26,6 @@ mixin _ClashConfigSupport {
       dnsListen: dnsListen,
       latencyTestUrl: latencyTestUrl,
       includeFallbackGroup: includeFallbackGroup,
-      includeGeoIpRules: includeGeoIpRules,
       extraSelectGroupNames: extraGroups,
       extraRulesBeforeDirect: extraRules,
     );
@@ -43,7 +41,6 @@ mixin _ClashConfigSupport {
     String? dnsListen,
     String? latencyTestUrl,
     bool includeFallbackGroup = false,
-    bool includeGeoIpRules = false,
     Iterable<String> extraSelectGroupNames = const [],
     Iterable<String> extraRulesBeforeDirect = const [],
   }) {
@@ -57,7 +54,6 @@ mixin _ClashConfigSupport {
       dnsListen: dnsListen,
       latencyTestUrl: latencyTestUrl,
       includeFallbackGroup: includeFallbackGroup,
-      includeGeoIpRules: includeGeoIpRules,
       extraSelectGroupNames: extraSelectGroupNames,
       extraRulesBeforeDirect: extraRulesBeforeDirect,
     );

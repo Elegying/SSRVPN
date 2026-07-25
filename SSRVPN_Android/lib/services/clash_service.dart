@@ -206,23 +206,11 @@ class ClashService extends ClashServiceBase {
       log('✅ MMDB 已从内置资源解压 (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB)');
     } catch (e) {
       log('⚠️ 内置资源复制失败: $e');
-      log('❌ MMDB 不可用，GEOIP 规则将跳过');
+      log('❌ IP 归属数据库不可用；代理路由不受影响');
     }
   }
 
   // ── 配置生成 ──
-
-  bool _geoipDatabaseExists() {
-    try {
-      final mmdb = File('$configDir/country.mmdb');
-      if (mmdb.existsSync() && mmdb.lengthSync() > 1024 * 1024) return true;
-      final metadb = File('$configDir/geoip.metadb');
-      if (metadb.existsSync() && metadb.lengthSync() > 1024 * 1024) {
-        return true;
-      }
-    } catch (_) {}
-    return false;
-  }
 
   String generateClashConfig(
     String rawYaml,
@@ -236,7 +224,6 @@ class ClashService extends ClashServiceBase {
       platformHeader: '# ===== SSRVPN Android =====',
       tunConfig: _androidTunConfig(settings),
       latencyTestUrl: settings.latencyTestUrl,
-      includeGeoIpRules: _geoipDatabaseExists(),
     );
   }
 
@@ -252,7 +239,6 @@ class ClashService extends ClashServiceBase {
       platformHeader: '# ===== SSRVPN Android =====',
       tunConfig: _androidTunConfig(settings),
       latencyTestUrl: settings.latencyTestUrl,
-      includeGeoIpRules: _geoipDatabaseExists(),
     );
   }
 

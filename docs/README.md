@@ -45,6 +45,7 @@
 - [ADR-004：三端只保留首页与订阅](decisions/004-two-page-product-surface.md)
 - [ADR-005：使用 SSRVPN 自控的内容寻址 GeoIP 镜像](decisions/005-content-addressed-geoip-mirror.md)
 - [ADR-006：macOS 核心进程所有权使用持久化原生代际](decisions/006-macos-core-process-identity.md)
+- [ADR-007：默认路由使用国内域名直连与国外兜底代理](decisions/007-domain-based-domestic-routing.md)
 
 ## 文档维护规则
 

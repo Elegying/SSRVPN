@@ -133,6 +133,7 @@ class SsrvpnVpnService : VpnService() {
     private var serviceStartThread: Thread? = null
     private val notificationHandler = Handler(Looper.getMainLooper())
     private var currentNodeName = "SSRVPN"
+    private var currentApiPort = 0
     private var connectionStartedAt = 0L
     private val nativeSessionCommitter by lazy {
         NativeSessionCommitter(this, startGeneration, { isRunning }) {
@@ -189,7 +190,6 @@ class SsrvpnVpnService : VpnService() {
         super.onCreate()
         instance = this
         VpnNotificationSupport.createChannel(this, CHANNEL_ID)
-        // 注册断开广播
         val filter = IntentFilter(ACTION_DISCONNECT)
         ContextCompat.registerReceiver(
             this,
@@ -284,6 +284,7 @@ class SsrvpnVpnService : VpnService() {
         val apiSecret = NativeApiSecretResolver.resolve(explicitApiSecret) {
             snapshot?.apiSecret
         }
+        currentApiPort = apiPort
         configPath?.let(NativeConnectionSession::reserveStarting)
 
         currentNodeName = intent?.getStringExtra(EXTRA_NODE_NAME)
@@ -733,7 +734,7 @@ class SsrvpnVpnService : VpnService() {
                 result = bridge.Bridge.isRunning()
             } catch (e: Exception) {
                 error = e
-                result = false
+                result = true
             } finally {
                 bridgeRunningCheckInProgress.set(false)
             }
@@ -744,13 +745,13 @@ class SsrvpnVpnService : VpnService() {
         try {
             bridgeThread.join(BRIDGE_IS_RUNNING_TIMEOUT_MS)
             if (bridgeThread.isAlive) {
-                Log.e(TAG, "Bridge.isRunning timed out after ${BRIDGE_IS_RUNNING_TIMEOUT_MS}ms; treating as stopped")
-                return false
+                Log.e(TAG, "Bridge.isRunning timed out after ${BRIDGE_IS_RUNNING_TIMEOUT_MS}ms; treating stop as unverified")
+                return true
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
             Log.e(TAG, "Interrupted while waiting for Bridge.isRunning", e)
-            return false
+            return true
         }
         error?.let { Log.e(TAG, "Bridge.isRunning error", it) }
         return result
@@ -822,7 +823,8 @@ class SsrvpnVpnService : VpnService() {
         protectThread?.interrupt()
         protectThread = null
         val pendingStartStopped = waitForPendingStart()
-        val bridgeStopped = pendingStartStopped && stopBridgeWithTimeout()
+        val bridgeStopped = pendingStartStopped && stopBridgeWithTimeout() &&
+            CorePortReleaseVerifier.waitUntilReleased(currentApiPort)
         try {
             vpnFd?.close()
         } catch (_: Exception) {}
@@ -831,7 +833,6 @@ class SsrvpnVpnService : VpnService() {
         if (bridgeStopped) NativeConnectionSession.clearRunning()
         broadcastState(this)
         try {
-            // 修复: 使用兼容 Android 13+ 的方式停止前台服务
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
             } else {
@@ -899,7 +900,7 @@ class SsrvpnVpnService : VpnService() {
             Log.e(TAG, "Interrupted while waiting for Bridge.stop", e)
             return false
         }
-        return bridgeStopSucceeded.get()
+        return bridgeStopSucceeded.get() && !isBridgeRunningWithTimeout()
     }
 
     override fun onDestroy() {
