@@ -188,6 +188,17 @@ class ClashConfigGenerator {
       }
     }
 
+    // Sniffer：从 TLS ClientHello / HTTP Host 头嗅探真实域名，
+    // 使 fake-ip 模式下域名规则（geosite-cn 等）仍能正确匹配。
+    result.writeln();
+    result.writeln('sniffer:');
+    result.writeln('  enable: true');
+    result.writeln('  sniff:');
+    result.writeln('    TLS:');
+    result.writeln('      ports: [443, 8443]');
+    result.writeln('    HTTP:');
+    result.writeln('      ports: [80, 8080]');
+
     // 代理节点
     result.writeln();
     result.writeln('proxies:');
@@ -259,6 +270,7 @@ class ClashConfigGenerator {
     orderedRules.addAll(AppConstants.openAiProxyRules);
     orderedRules.addAll(AppConstants.defaultRuleProviderDirectRules);
     orderedRules.addAll(AppConstants.defaultDirectRules);
+    orderedRules.add(AppConstants.defaultGeoIpDirectRule);
     orderedRules.add(AppConstants.defaultMatchRule);
 
     result.writeln();

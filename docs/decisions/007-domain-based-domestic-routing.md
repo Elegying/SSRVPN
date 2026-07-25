@@ -65,3 +65,17 @@ MMDB，macOS 则固定启用。相同用户设置因此可能得到不同的路�
   `ssrvpn-geoip-cn` 或任何 `GEOIP` 规则。
 - 测试固定校验 `snssdk.com`、局域网 CIDR 和最终 `MATCH,PROXY` 的顺序与存在性。
 - 规则提供器刷新测试只允许请求国内域名提供器。
+
+## 后续问题记录 (2026-07-25)
+
+### 问题 1: 运行中 mihomo 核心崩溃但 app 未感知
+- **现象**: mihomo 进程已退出，但 TUN 接口 (tun0 198.18.0.1) 和 API 端口 (9090/7890/7891) 仍残留
+- **影响**: 所有流量被 TUN 劫持后无核心处理，全部断网
+- **根因**: v3.5.1 的 CorePortReleaseVerifier 仅在主动 stop 时生效，核心被动崩溃无检测
+- **需要**: 核心存活心跳检测 — 定时检查 mihomo 进程或 API，发现死亡后自动触发清理
+
+### 问题 2: 国内 .com 域名走代理
+- **现象**: 瑞幸咖啡工作站 (com.lucky.luckyemployee) 无法联网，因 luckincoffee.com 走了代理
+- **根因**: luckincoffee.com 不在 geosite-cn 规则集中，也不在 defaultDirectRules 静态列表
+- **路由链**: geosite-cn miss → GEOIP 无法匹配 (fake-ip) → MATCH,PROXY 兜底
+- **需要**: 补充常见国内生活服务域名到 defaultDirectRules，或增加 DOMAIN-SUFFIX,.com,DIRECT 的白名单机制

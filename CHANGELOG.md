@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.2] - 2026-07-25
+
+### 修复
+
+- 三端运行配置新增 `sniffer` 段，启用 TLS/HTTP 嗅探；fake-ip 模式下 mihomo 从 TLS ClientHello 提取真实域名，使 geosite-cn 规则集能正确匹配 `.com` 结尾的国内站点（如 luckincoffee.com、meituan.com），无需逐个枚举域名。
+- Android 核心存活检测增加 TCP 端口探活兜底：API 健康检查连续 3 次失败后探测 API 端口可达性，端口不可达则立即触发恢复；端口可达但 API 无响应（僵尸 socket）则再等 1 个周期确认后恢复。
+
 ## [3.5.1] - 2026-07-25
 
 ### 修复

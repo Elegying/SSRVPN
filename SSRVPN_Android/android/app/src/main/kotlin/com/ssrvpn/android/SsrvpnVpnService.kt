@@ -639,6 +639,9 @@ class SsrvpnVpnService : VpnService() {
                     },
                     isApiHealthy = {
                         VpnRuntimeHealth.isApiHealthy(request.apiPort, request.apiSecret)
+                    },
+                    isApiPortReachable = {
+                        CorePortReleaseVerifier.isPortListening(request.apiPort)
                     }
                 )
             ) {

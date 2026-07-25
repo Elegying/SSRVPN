@@ -469,8 +469,7 @@ proxies:
       }
     });
 
-    test('generateConfig routes domestic domains directly without GeoIP rules',
-        () {
+    test('generateConfig routes domestic domains and IPs directly', () {
       final yaml = '''
 proxies:
   - name: "Test Node"
@@ -502,14 +501,25 @@ proxies:
       );
       expect(domainProvider['url'], isNot(contains('/meta/')));
       expect(providers, isNot(contains('ssrvpn-geoip-cn')));
+      final openAiProxyIndex =
+          rules.indexOf('DOMAIN-SUFFIX,openai.com,PROXY');
+      final domainDirectIndex =
+          rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT');
+      final geoIpDirectIndex = rules.indexOf('GEOIP,CN,DIRECT');
+      final matchIndex = rules.indexOf('MATCH,PROXY');
+      expect(openAiProxyIndex, isNonNegative);
+      expect(domainDirectIndex, isNonNegative);
+      expect(geoIpDirectIndex, isNonNegative);
+      expect(matchIndex, isNonNegative);
       expect(
-        rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT'),
-        lessThan(rules.indexOf('MATCH,PROXY')),
+        openAiProxyIndex,
+        lessThan(geoIpDirectIndex),
       );
+      expect(domainDirectIndex, lessThan(geoIpDirectIndex));
+      expect(geoIpDirectIndex, lessThan(matchIndex));
       expect(rules, contains('DOMAIN-SUFFIX,cn,DIRECT'));
       expect(rules, contains('DOMAIN-SUFFIX,snssdk.com,DIRECT'));
       expect(rules, contains('IP-CIDR,192.168.0.0/16,DIRECT,no-resolve'));
-      expect(rules, isNot(anyElement(startsWith('GEOIP,'))));
       expect(rules, isNot(anyElement(contains('ssrvpn-geoip-cn'))));
       expect(rules.last, 'MATCH,PROXY');
     });

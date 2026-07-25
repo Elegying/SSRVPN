@@ -63,7 +63,34 @@ class CoreLivenessMonitorTest {
     }
 
     @Test
-    fun `requires three consecutive local API failures before recovery`() {
+    fun `requires three consecutive local API failures before port probe`() {
+        var apiChecks = 0
+        var portProbes = 0
+
+        assertTrue(
+            CoreLivenessMonitor.waitForUnexpectedExit(
+                startToken = 7,
+                currentGeneration = { 7 },
+                isRunning = { true },
+                isBridgeRunning = { true },
+                isProtectMonitorRunning = { true },
+                isApiHealthy = {
+                    apiChecks++
+                    false
+                },
+                isApiPortReachable = {
+                    portProbes++
+                    false // 端口不可达 → 核心已死
+                },
+                sleep = {}
+            )
+        )
+        assertEquals(3, apiChecks)
+        assertEquals(1, portProbes)
+    }
+
+    @Test
+    fun `zombie port triggers recovery after one extra cycle`() {
         var apiChecks = 0
 
         assertTrue(
@@ -77,15 +104,18 @@ class CoreLivenessMonitorTest {
                     apiChecks++
                     false
                 },
+                isApiPortReachable = { true }, // 僵尸端口仍可达
                 sleep = {}
             )
         )
-        assertEquals(3, apiChecks)
+        // 3 次失败后探测端口（可达），再等 1 次确认后退出
+        assertEquals(4, apiChecks)
     }
 
     @Test
     fun `a healthy local API probe resets the consecutive failure count`() {
-        val apiResults = ArrayDeque(listOf(false, false, true, false, false, false))
+        // 失败×2 → 成功(重置) → 失败×3(触发端口探测，可达) → 失败×1(僵死确认)
+        val apiResults = ArrayDeque(listOf(false, false, true, false, false, false, false))
 
         assertTrue(
             CoreLivenessMonitor.waitForUnexpectedExit(
@@ -95,6 +125,7 @@ class CoreLivenessMonitorTest {
                 isBridgeRunning = { true },
                 isProtectMonitorRunning = { true },
                 isApiHealthy = { apiResults.removeFirst() },
+                isApiPortReachable = { true },
                 sleep = {}
             )
         )
