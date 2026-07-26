@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - 2026-07-26
+
+### 新增
+
+- Android 连接 VPN 时默认让内置的 75 个国内银行、支付、购物、外卖、视频、音乐、社交、生活服务、国产手机服务和国内游戏应用直接使用系统网络，整 App 流量不再进入 SSRVPN TUN；不增加设置页，也不要求用户自行选择。
+- Android 11 及以上只声明上述精确包名的可见性，不申请全量应用查询权限，也不扫描或上传用户的已安装应用清单。
+
+### 测试
+
+- 新增国内应用名单分类代表、顺序与去重、Manifest 同步、境外应用、通用浏览器、VPN 与 Root/Hook/Xposed/内核管理工具继续走 VPN，以及私有和归属不明包不进入公开名单的原生回归测试。
+- 在真实 Xiaomi 设备上确认 75 个已安装国内应用被排除：抖音、微信和支付宝直连，YouTube、Telegram、TikTok、ChatGPT、Edge、SukiSU 与 LSPosed 继续进入 VPN；VPN 连接期间抖音评论区可以正常加载。
+
+### 兼容性边界
+
+- Android 系统启用“阻止不使用 VPN 的连接”时，系统会阻断被排除应用的网络；这是 Android 对分应用 VPN 的系统行为，客户端不能同时保证这些应用绕过 VPN 并继续联网。
+- 本版本没有修改 HTTP 订阅的兼容与安全策略；Windows 继续只发布未签名的 `SSRVPN_Setup.exe` 安装版，不提供便携 ZIP。
+
 ## [3.5.6] - 2026-07-26
 
 ### 修复

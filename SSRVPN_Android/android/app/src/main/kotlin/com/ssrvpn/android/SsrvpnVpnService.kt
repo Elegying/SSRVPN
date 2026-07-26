@@ -474,11 +474,9 @@ class SsrvpnVpnService : VpnService() {
             builder.addDnsServer("8.8.8.8")
             builder.setMtu(1500)
             builder.setBlocking(true)
-            // 排除自身避免 VPN 回环
-            builder.addDisallowedApplication(packageName)
-            // 排除无线调试服务，保持 adb 不被 VPN 劫持
-            try { builder.addDisallowedApplication("com.android.adb") } catch (_: Exception) {}
-            try { builder.addDisallowedApplication("com.google.android.adb") } catch (_: Exception) {}
+            // 排除自身、无线调试服务和明确的国内服务应用。
+            val bypassedDomesticApps = VpnAppExclusionInstaller.install(builder, packageName)
+            Log.i(TAG, "Bypassing ${bypassedDomesticApps.size} installed domestic apps")
 
             vpnFd = builder.establish()
             if (vpnFd == null) {
