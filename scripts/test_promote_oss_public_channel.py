@@ -108,7 +108,7 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
         before = self._snapshot_public_channel()
 
         result = self._run(
-            versioned_source_prefix="ssrvpn/releases/../../other",
+            versioned_source_prefix="ssrvpn/releases/v9.9.9/../../other",
         )
 
         self.assertEqual(result.returncode, 2)
