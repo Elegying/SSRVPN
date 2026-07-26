@@ -9,6 +9,11 @@ DISCONNECT_RECOVERY_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotli
 TILE_SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnTileService.kt"
 BUILD_GRADLE="$ROOT/SSRVPN_Android/android/app/build.gradle.kts"
 MANIFEST="$ROOT/SSRVPN_Android/android/app/src/main/AndroidManifest.xml"
+DISCONNECT_RECOVERY_LAYOUT="$ROOT/SSRVPN_Android/android/app/src/main/res/layout/activity_disconnect_recovery.xml"
+DISCONNECT_RECOVERY_BACKGROUND="$ROOT/SSRVPN_Android/android/app/src/main/res/drawable/disconnect_recovery_background.xml"
+ANDROID_STYLES="$ROOT/SSRVPN_Android/android/app/src/main/res/values/styles.xml"
+ANDROID_NIGHT_STYLES="$ROOT/SSRVPN_Android/android/app/src/main/res/values-night/styles.xml"
+ANDROID_STRINGS="$ROOT/SSRVPN_Android/android/app/src/main/res/values/strings.xml"
 HOME_DART="$ROOT/SSRVPN_Android/lib/screens/home_screen.dart"
 HOME_PARTS=(
   "$ROOT/SSRVPN_Android/lib/screens/home_connection_actions_part.dart"
@@ -349,7 +354,8 @@ for needle in \
   'android:name=".DisconnectRecoveryActivity"' \
   'android:exported="false"' \
   'android:process=":disconnect_recovery"' \
-  'android:taskAffinity="${applicationId}.disconnect_recovery"'; do
+  'android:taskAffinity="${applicationId}.disconnect_recovery"' \
+  'android:theme="@style/DisconnectRecoveryTheme"'; do
   require_manifest_text "$needle"
 done
 for needle in \
@@ -369,6 +375,45 @@ for needle in \
     exit 1
   }
 done
+python3 - "$DISCONNECT_RECOVERY_ACTIVITY" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+content = source.index("setContentView(R.layout.activity_disconnect_recovery)")
+relaunch = source.index("handler.postDelayed(relaunch, RELAUNCH_DELAY_MS)")
+if content >= relaunch:
+    raise SystemExit(
+        "Android disconnect recovery activity does not render before relaunch scheduling"
+    )
+PY
+for needle in \
+  '@mipmap/ic_launcher' \
+  '@string/disconnect_recovery_status' \
+  '<ProgressBar'; do
+  grep -Fq "$needle" "$DISCONNECT_RECOVERY_LAYOUT" || {
+    echo "Android disconnect recovery layout guard failed: missing '$needle'" >&2
+    exit 1
+  }
+done
+for styles in "$ANDROID_STYLES" "$ANDROID_NIGHT_STYLES"; do
+  for needle in \
+    'style name="DisconnectRecoveryTheme"' \
+    '<item name="android:windowBackground">@drawable/disconnect_recovery_background</item>'; do
+    grep -Fq "$needle" "$styles" || {
+      echo "Android disconnect recovery theme guard failed in $styles: missing '$needle'" >&2
+      exit 1
+    }
+  done
+done
+grep -Fq '@color/disconnect_recovery_background' "$DISCONNECT_RECOVERY_BACKGROUND" || {
+  echo "Android disconnect recovery window lost its branded background" >&2
+  exit 1
+}
+grep -Fq '<string name="disconnect_recovery_status">' "$ANDROID_STRINGS" || {
+  echo "Android disconnect recovery status string is missing" >&2
+  exit 1
+}
 require_text "VpnRouteInstaller.configure(builder)"
 require_route_text "PublicIpv4Routes.routes"
 require_route_text "configure(builder::addAddress, builder::addRoute)"

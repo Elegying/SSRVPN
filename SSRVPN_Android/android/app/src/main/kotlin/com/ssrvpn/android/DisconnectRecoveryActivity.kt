@@ -25,6 +25,7 @@ class DisconnectRecoveryActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_disconnect_recovery)
         handler.postDelayed(relaunch, RELAUNCH_DELAY_MS)
     }
 
