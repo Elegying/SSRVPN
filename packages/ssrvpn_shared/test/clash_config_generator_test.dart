@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
@@ -174,16 +172,18 @@ proxies:
       expect(config, contains('mode: rule'));
       final parsed = loadYaml(config) as YamlMap;
       final dns = parsed['dns'] as YamlMap;
-      expect(parsed['ipv6'], isTrue);
-      expect(dns['ipv6'], isTrue);
-      expect(dns['fake-ip-range6'], isNotEmpty);
+      final rules = (parsed['rules'] as YamlList).cast<String>();
+      expect(parsed['ipv6'], isFalse);
+      expect(dns['ipv6'], isFalse);
+      expect(dns.containsKey('fake-ip-range6'), isFalse);
+      expect(rules.first, 'IP-CIDR6,::/0,REJECT,no-resolve');
       expect(config, contains('proxies:'));
       expect(config, contains('proxy-groups:'));
       expect(config, contains('rules:'));
       expect(config, contains('Test Node'));
     });
 
-    test('dual-stack direct traffic races every resolved address', () {
+    test('IPv4-only runtime rejects IPv6 before normal routing', () {
       const yaml = '''
 proxies:
   - name: "Test Node"
@@ -195,12 +195,21 @@ proxies:
 ''';
 
       final parsed = loadYaml(
-        ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+        ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(forceProxySites: const ['2001:db8::1']),
+        ),
       ) as YamlMap;
       final rules = (parsed['rules'] as YamlList).cast<String>();
 
-      expect(parsed['ipv6'], isTrue);
+      expect(parsed['ipv6'], isFalse);
       expect(parsed['tcp-concurrent'], isTrue);
+      expect(rules.first, 'IP-CIDR6,::/0,REJECT,no-resolve');
+      expect(
+        rules[1],
+        'IP-CIDR6,2001:db8::1/128,PROXY,no-resolve',
+        reason: 'saved IPv6 exceptions remain visible but never outrank REJECT',
+      );
       expect(rules, contains('RULE-SET,ssrvpn-geosite-cn,DIRECT'));
       expect(rules, contains('GEOIP,CN,DIRECT'));
       expect(
@@ -361,7 +370,7 @@ proxies:
       },
     );
 
-    test('generateConfig writes a dual-stack generic TUN configuration', () {
+    test('generic TUN captures IPv6 only to reject it without bypass', () {
       const yaml = '''
 proxies:
   - name: Test Node
@@ -380,20 +389,15 @@ proxies:
       ) as YamlMap;
       final tun = parsed['tun'] as YamlMap;
       final dns = parsed['dns'] as YamlMap;
-      final fakeIpv6 = (dns['fake-ip-range6'] as String).split('/').first;
+      final rules = (parsed['rules'] as YamlList).cast<String>();
       final excludedRoutes =
           (tun['route-exclude-address'] as YamlList).cast<String>();
 
       expect(tun['inet6-address'], isNotEmpty);
-      expect(
-        excludedRoutes,
-        containsAll(['fc00::/7', 'fe80::/10']),
-      );
-      expect(
-        excludedRoutes.any((route) => _cidrContains(route, fakeIpv6)),
-        isFalse,
-        reason: 'fake IPv6 answers must route back into the TUN',
-      );
+      expect(dns['ipv6'], isFalse);
+      expect(dns.containsKey('fake-ip-range6'), isFalse);
+      expect(excludedRoutes, isNot(anyElement(contains(':'))));
+      expect(rules.first, 'IP-CIDR6,::/0,REJECT,no-resolve');
       expect((parsed['proxies'] as YamlList).single['server'], '2001:db8::10');
     });
 
@@ -420,11 +424,12 @@ proxies:
               as YamlMap;
       final rules = (parsed['rules'] as YamlList).cast<String>();
 
-      expect(rules[0], 'DOMAIN-SUFFIX,blocked.example,PROXY');
-      expect(rules[1], 'IP-CIDR,1.2.3.4/32,PROXY,no-resolve');
+      expect(rules[0], 'IP-CIDR6,::/0,REJECT,no-resolve');
+      expect(rules[1], 'DOMAIN-SUFFIX,blocked.example,PROXY');
+      expect(rules[2], 'IP-CIDR,1.2.3.4/32,PROXY,no-resolve');
       expect(
         rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT'),
-        greaterThan(1),
+        greaterThan(2),
       );
       expect(
         rules.indexOf('DOMAIN-SUFFIX,cn,DIRECT'),
@@ -932,24 +937,4 @@ proxies:
       expect(node2Index, lessThan(node1Index));
     });
   });
-}
-
-bool _cidrContains(String cidr, String address) {
-  final parts = cidr.split('/');
-  if (parts.length != 2) return false;
-  final network = InternetAddress.tryParse(parts[0]);
-  final target = InternetAddress.tryParse(address);
-  final prefix = int.tryParse(parts[1]);
-  if (network == null || target == null || prefix == null) return false;
-  if (network.type != target.type || prefix < 0) return false;
-  final maxBits = network.rawAddress.length * 8;
-  if (prefix > maxBits) return false;
-  for (var bit = 0; bit < prefix; bit++) {
-    final mask = 1 << (7 - (bit % 8));
-    if ((network.rawAddress[bit ~/ 8] & mask) !=
-        (target.rawAddress[bit ~/ 8] & mask)) {
-      return false;
-    }
-  }
-  return true;
 }

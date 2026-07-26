@@ -9,7 +9,7 @@ SSRVPN macOS 版，基于 Flutter 和 Mihomo/Clash Meta 核心的桌面客户端
 
 ## 支持范围
 
-- 支持 IPv4/IPv6 双栈节点、DNS、系统代理与 TUN 流量；公网 IPv6 是否可用取决于本地网络和所选节点。
+- 永久使用 IPv4-only Mihomo 运行配置；不请求 DNS AAAA，不通过核心建立 IPv6 连接。客户端不会修改 macOS 的全局 IPv6 开关。
 - TUN 每次连接由 macOS 系统管理员授权窗口确认，SSRVPN 不读取或保存管理员密码。
 
 ## 构建要求

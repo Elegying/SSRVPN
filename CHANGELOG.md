@@ -10,14 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 修复
 
 - Android 在用户主动断开且进程级安全兜底被触发时，通过独立、不可导出的前台恢复 Activity 接管任务栈，避免 VPN 服务进程收尾导致当前界面随之消失；后台断开、服务销毁和错误恢复仍沿用原有清理策略。
+- Android、macOS 与 Windows 的 Mihomo 运行配置永久关闭 IPv6 和 DNS AAAA；Android 与 Windows TUN 继续捕获并优先拒绝 IPv6，避免底层网络只有链路本地 IPv6、没有可用 IPv6 默认路由时，抖音评论等国内直连请求反复尝试不可达地址而加载缓慢或失败。
 
 ### 测试
 
 - 新增 Android 前台恢复 Activity、任务栈交接参数、服务销毁保护和仅限前台主动断开的原生发布守卫，并完成真实 Xiaomi 设备断开复测。
+- 新增三端 IPv4-only 配置回归，覆盖顶层 IPv6、DNS AAAA、IPv6 Fake-IP、TUN IPv6 防绕过捕获和最高优先级拒绝规则；macOS 由内置 Mihomo 完成实际配置语法校验。
 - 版本同步门禁现在同时要求 `CHANGELOG.md` 包含当前版本章节，避免云端构建全部完成后才在发布说明阶段失败。
 
 ### 兼容性边界
 
+- SSRVPN 不再通过 Mihomo 提供 IPv6 节点、IPv6-only 目标或公网 IPv6 访问能力；Android 与 Windows TUN 中保留的 IPv6 地址与默认路由只用于捕获并拒绝流量，防止 IPv6 绕过 VPN。
 - 本版本没有修改 HTTP 订阅的兼容与安全策略；Windows 继续只发布未签名的 `SSRVPN_Setup.exe` 安装版，不提供便携 ZIP。
 
 ## [3.5.4] - 2026-07-25

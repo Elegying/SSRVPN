@@ -287,6 +287,12 @@ void main() {
       expect(tunConfig, isNot(contains('  inet6-address:')));
       expect(tunConfig, isNot(contains('  route-exclude-address:')));
       expect(tunConfig, isNot(contains('  route-address-set:')));
+      expect(tunConfig, contains('ipv6: false'));
+      expect(tunConfig, isNot(contains('fake-ip-range6:')));
+      expect(
+        tunConfig,
+        contains('"IP-CIDR6,::/0,REJECT,no-resolve"'),
+      );
     });
 
     test('上次节点已失效时回退到第一个节点', () {
@@ -324,7 +330,7 @@ void main() {
       expect(youtube, lessThan(cnDirect));
     });
 
-    test('内置 Mihomo 核心接受双栈 TUN 配置', () async {
+    test('内置 Mihomo 核心接受 IPv4-only TUN 配置', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_ipv6_config_',
       );
