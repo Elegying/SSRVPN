@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/SsrvpnVpnService.kt"
 MAIN_ACTIVITY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/MainActivity.kt"
+DISCONNECT_RECOVERY_ACTIVITY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/DisconnectRecoveryActivity.kt"
+DISCONNECT_RECOVERY_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/DisconnectRecoveryCoordinator.kt"
 TILE_SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnTileService.kt"
 BUILD_GRADLE="$ROOT/SSRVPN_Android/android/app/build.gradle.kts"
 MANIFEST="$ROOT/SSRVPN_Android/android/app/src/main/AndroidManifest.xml"
@@ -340,6 +342,33 @@ require_text "Bridge.isRunning timed out after"
 require_text "treating stop as unverified"
 require_text "Core shutdown incomplete; terminating process to release the detached TUN fd"
 require_text "android.os.Process.killProcess(android.os.Process.myPid())"
+require_text "DisconnectRecoveryCoordinator.handoffIfNeeded(this, preserveForegroundUi)"
+require_text "if (!processTerminationPending.get()) stopAll()"
+require_activity_text "service.stopAll(preserveForegroundUi = true)"
+for needle in \
+  'android:name=".DisconnectRecoveryActivity"' \
+  'android:exported="false"' \
+  'android:process=":disconnect_recovery"' \
+  'android:taskAffinity="${applicationId}.disconnect_recovery"'; do
+  require_manifest_text "$needle"
+done
+for needle in \
+  "foregroundUiRequested && processTerminationRequired" \
+  "DisconnectRecoveryActivity.handoff(context)"; do
+  grep -Fq "$needle" "$DISCONNECT_RECOVERY_COORDINATOR" || {
+    echo "Android disconnect recovery policy guard failed: missing '$needle'" >&2
+    exit 1
+  }
+done
+for needle in \
+  "RELAUNCH_DELAY_MS = 1_500L" \
+  "Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS" \
+  "Intent.FLAG_ACTIVITY_NO_ANIMATION"; do
+  grep -Fq "$needle" "$DISCONNECT_RECOVERY_ACTIVITY" || {
+    echo "Android disconnect recovery activity guard failed: missing '$needle'" >&2
+    exit 1
+  }
+done
 require_text "VpnRouteInstaller.configure(builder)"
 require_route_text "PublicIpv4Routes.routes"
 require_route_text "configure(builder::addAddress, builder::addRoute)"
