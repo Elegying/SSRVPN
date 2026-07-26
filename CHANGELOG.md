@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.1] - 2026-07-26
+
+### 修复
+
+- Android 在主动断开触发进程级安全复位时立即显示专用过渡页，使用与窗口一致的深蓝背景、SSRVPN 图标、状态文案和进度指示，消除原先约 1～2 秒的黑屏；既有 TUN 文件描述符释放、独立恢复进程和 1.5 秒安全窗口保持不变。
+
+### 改进
+
+- PR 与 main CI 的共享检查和三端验证改为并行，Release 的共享门禁与三端构建也改为并行；最终发布仍必须等待所有门禁成功。
+- Android CI 增加只允许 main 写入的 Gradle 依赖缓存；OSS 固定下载通道从同一 Bucket 的已验证版本化对象服务端复制，避免跨网重复上传，同时保留公开回读、SHA-256 校验、整通道备份和失败回滚。
+
+### 测试
+
+- 新增 Android 断开恢复主题、布局、首帧渲染顺序和原安全边界守卫，并在真实 Xiaomi 设备上确认过渡页约 332 毫秒完成首帧、1.5 秒后返回主界面且无 FATAL。
+- 新增 CI/Release 并行依赖、Gradle 缓存只读边界、OSS 服务端晋升、非法来源拒绝以及版本化对象不一致时完整回滚的发布工具回归测试。
+
+### 兼容性边界
+
+- 本版本没有修改 HTTP 订阅、国内应用直连名单或三端 IPv4-only 策略；Windows 继续只发布未签名的 `SSRVPN_Setup.exe` 安装版，不提供便携 ZIP。
+
 ## [3.6.0] - 2026-07-26
 
 ### 新增
