@@ -758,18 +758,16 @@ class SsrvpnVpnService : VpnService() {
 
     private fun applyProxySelection(apiPort: Int, apiSecret: String, nodeName: String?) =
         MihomoProxySelection.apply(apiPort, apiSecret, nodeName)
-
-    fun stopAll(onComplete: (() -> Unit)? = null) {
+    fun stopAll(preserveForegroundUi: Boolean = false, onComplete: (() -> Unit)? = null) {
         manualStopRequested.set(true)
         recoveryGeneration.incrementAndGet()
-        stopInternal(stopServiceWhenDone = true, onComplete = onComplete)
+        stopInternal(true, preserveForegroundUi, onComplete)
     }
-
     private fun stopForRecovery(onComplete: () -> Unit) =
-        stopInternal(stopServiceWhenDone = false, onComplete = onComplete)
+        stopInternal(false, false, onComplete)
 
     private fun stopInternal(
-        stopServiceWhenDone: Boolean,
+        stopServiceWhenDone: Boolean, preserveForegroundUi: Boolean,
         onComplete: (() -> Unit)?
     ) {
         notificationGeneration.invalidate()
@@ -798,12 +796,14 @@ class SsrvpnVpnService : VpnService() {
             try {
                 terminateProcess = stopAllOnWorker()
             } finally {
-                if (terminateProcess) processTerminationPending.set(true)
+                if (terminateProcess) {
+                    processTerminationPending.set(true)
+                    DisconnectRecoveryCoordinator.handoffIfNeeded(this, preserveForegroundUi)
+                }
                 stopOperation.complete()
             }
             if (terminateProcess) {
-                Log.e(TAG,
-                    "Core shutdown incomplete; terminating process to release the detached TUN fd")
+                Log.e(TAG, "Core shutdown incomplete; terminating process to release the detached TUN fd")
                 notificationHandler.postDelayed({
                     android.os.Process.killProcess(android.os.Process.myPid())
                 }, 750L)
@@ -907,7 +907,7 @@ class SsrvpnVpnService : VpnService() {
         super.onDestroy()
         try { unregisterReceiver(disconnectReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(screenStateReceiver) } catch (_: Exception) {}
-        stopAll()
+        if (!processTerminationPending.get()) stopAll()
         instance = null
     }
 

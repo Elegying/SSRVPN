@@ -321,7 +321,9 @@ class MainActivity : FlutterActivity() {
                 stopService(Intent(this, SsrvpnVpnService::class.java))
                 result.success(true)
             } else {
-                service.stopAll { runOnUiThread { result.success(true) } }
+                service.stopAll(preserveForegroundUi = true) {
+                    runOnUiThread { result.success(true) }
+                }
             }
         } catch (error: Exception) {
             result.error("STOP_FAILED", error.message, null)
