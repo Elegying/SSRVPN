@@ -8,7 +8,8 @@ mixin _ClashDiagnosticsSupport {
   String? get connectivityWarning;
   String get recentLogs;
   String get configPath;
-  Duration get diagnosticCheckTimeout;
+  @protected
+  Duration get diagnosticCheckTimeout => const Duration(seconds: 10);
   void log(String message);
 
   Future<bool> healthCheck();

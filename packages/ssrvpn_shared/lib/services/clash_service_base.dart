@@ -41,7 +41,8 @@ abstract class ClashServiceBase
         _ClashConfigSupport,
         _ClashRuntimeSupport,
         _ClashDataPlaneSupport,
-        _ClashDiagnosticsSupport {
+        _ClashDiagnosticsSupport,
+        _ClashHealthSupport {
   // ── 状态 ──
   bool _isRunning = false;
   bool _healthCheckInProgress = false;
@@ -89,17 +90,6 @@ abstract class ClashServiceBase
   Duration get statusMonitorInterval => const Duration(seconds: 5);
 
   @protected
-  Duration get healthCheckTimeout => const Duration(seconds: 10);
-
-  @protected
-  @override
-  Duration get dataPlaneObservationTimeout => const Duration(seconds: 30);
-
-  @protected
-  @override
-  Duration get diagnosticCheckTimeout => const Duration(seconds: 10);
-
-  @protected
   int get maxConsecutiveHealthCheckFailures => 3;
 
   @protected
@@ -116,23 +106,9 @@ abstract class ClashServiceBase
   String? get lastHealthCheckError => _lastHealthCheckError;
 
   @protected
+  @override
   void setLastHealthCheckError(String? value) {
     _lastHealthCheckError = value;
-  }
-
-  @protected
-  Future<bool> boundedHealthCheck() async {
-    try {
-      return await healthCheck().timeout(healthCheckTimeout);
-    } on TimeoutException {
-      _lastHealthCheckError = '健康检查超时';
-      log('Mihomo 健康检查超时 (${healthCheckTimeout.inSeconds}s)');
-      return false;
-    } catch (error) {
-      _lastHealthCheckError = '健康检查异常';
-      log('Mihomo 健康检查异常: $error');
-      return false;
-    }
   }
 
   @override
@@ -173,8 +149,7 @@ abstract class ClashServiceBase
     required Future<String> Function(
       AppSettings runtimeSettings,
       String? preferredNodeName,
-    )
-    generateConfig,
+    ) generateConfig,
     required bool Function() isRevisionCurrent,
     String? preferredNodeName,
   }) {
@@ -225,8 +200,7 @@ abstract class ClashServiceBase
     }
     try {
       final result = await plan.recover(connectionGeneration);
-      final connected =
-          result.connected &&
+      final connected = result.connected &&
           isRunning &&
           isConnectionIntentCurrent(connectionGeneration, connected: true);
       if (!connected && result.failureReason != null) {

@@ -12,7 +12,8 @@ mixin _ClashDataPlaneSupport {
   void notifyStatusChanged();
   String _localHttpProxyConfig();
   String userConnectivityProxyConfig();
-  Duration get dataPlaneObservationTimeout;
+  @protected
+  Duration get dataPlaneObservationTimeout => const Duration(seconds: 30);
 
   String? get connectivityWarning => _connectivityWarning;
 
