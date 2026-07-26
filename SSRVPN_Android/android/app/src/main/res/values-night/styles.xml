@@ -15,4 +15,15 @@
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
+
+    <!-- Keep the disconnect handoff identical in light and dark system modes. -->
+    <style name="DisconnectRecoveryTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">@drawable/disconnect_recovery_background</item>
+        <item name="android:colorAccent">@color/disconnect_recovery_accent</item>
+        <item name="android:statusBarColor">@color/disconnect_recovery_background</item>
+        <item name="android:navigationBarColor">@color/disconnect_recovery_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 </resources>

@@ -65,7 +65,15 @@ class GenerateOssReleaseManifestTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("scripts/promote-oss-public-channel.sh", workflow)
+        self.assertIn(
+            'OSS_VERSIONED_SOURCE_PREFIX="$OSS_PREFIX/releases/$tag"',
+            workflow,
+        )
         self.assertIn('stable_prefix="$OSS_PREFIX/downloads"', promoter)
+        self.assertIn(
+            'upload_source="oss://$OSS_BUCKET/$versioned_source_prefix/$name"',
+            promoter,
+        )
         self.assertIn('--cache-control "no-cache"', promoter)
         self.assertIn('cmp "$source" "$downloaded"', promoter)
         for name in (

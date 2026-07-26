@@ -43,6 +43,11 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
         self._write_fake_tools()
         self.old = self._write_channel(self.objects / "ssrvpn", b"old")
         self.new = self._write_channel(self.source, b"new")
+        self.versioned_prefix = "ssrvpn/releases/v9.9.9"
+        versioned = self.objects / self.versioned_prefix
+        versioned.mkdir(parents=True)
+        for name in PUBLISHED_FILES:
+            (versioned / name).write_bytes((self.source / name).read_bytes())
         self.manifest = self.source / "latest.json"
         self.manifest.write_text(
             json.dumps(
@@ -85,6 +90,44 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
             (self.objects / "ssrvpn" / "latest.json").read_bytes(),
             self.manifest.read_bytes(),
         )
+
+    def test_success_uses_versioned_oss_objects_for_stable_assets(self) -> None:
+        result = self._run(
+            versioned_source_prefix=self.versioned_prefix,
+            require_server_side_source=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in PUBLISHED_FILES:
+            self.assertEqual(
+                (self.objects / "ssrvpn" / "downloads" / name).read_bytes(),
+                (self.source / name).read_bytes(),
+            )
+
+    def test_rejects_unsafe_versioned_source_prefix_before_mutation(self) -> None:
+        before = self._snapshot_public_channel()
+
+        result = self._run(
+            versioned_source_prefix="ssrvpn/releases/v9.9.9/../../other",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Unsafe OSS versioned source prefix", result.stderr)
+        self.assertEqual(self._snapshot_public_channel(), before)
+
+    def test_versioned_source_mismatch_restores_previous_channel(self) -> None:
+        before = self._snapshot_public_channel()
+        (
+            self.objects / self.versioned_prefix / "SSRVPN.dmg"
+        ).write_bytes(b"unexpected-versioned-object")
+
+        result = self._run(
+            versioned_source_prefix=self.versioned_prefix,
+            require_server_side_source=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self._snapshot_public_channel(), before)
 
     def test_success_tolerates_already_absent_retired_aliases(self) -> None:
         for name in RETIRED_FILES:
@@ -400,6 +443,8 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
         stale_backup_root: Optional[Path] = None,
         require_no_cache: bool = False,
         public_missing_on: str = "",
+        versioned_source_prefix: str = "",
+        require_server_side_source: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
@@ -418,10 +463,15 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                 "FAKE_STALE_BACKUP_ROOT": str(stale_backup_root or ""),
                 "FAKE_REQUIRE_NO_CACHE": "1" if require_no_cache else "0",
                 "FAKE_PUBLIC_MISSING_ON": public_missing_on,
+                "FAKE_REQUIRE_SERVER_SIDE_SOURCE": (
+                    "1" if require_server_side_source else "0"
+                ),
                 "RUNNER_TEMP": str(self.root),
                 "OSS_PRESERVE_BACKUP": "1" if preserve_backup else "0",
             }
         )
+        if versioned_source_prefix:
+            env["OSS_VERSIONED_SOURCE_PREFIX"] = versioned_source_prefix
         if backup is not None:
             env["OSS_BACKUP_DIR"] = str(backup)
         return subprocess.run(
@@ -546,10 +596,23 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                                 else:
                                     remaining.unlink()
                                 raise SystemExit(13)
-                        target = pathlib.Path(destination)
+                        target = (
+                            object_path(destination)
+                            if destination.startswith('oss://')
+                            else pathlib.Path(destination)
+                        )
                         target.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copyfile(remote, target)
                         raise SystemExit(0)
+                    if (os.environ.get('FAKE_REQUIRE_SERVER_SIDE_SOURCE') == '1'
+                            and destination.startswith('oss://')
+                            and pathlib.Path(destination).name in {
+                                'SSRVPN.apk', 'SSRVPN.apk.sha256',
+                                'SSRVPN.dmg', 'SSRVPN.dmg.sha256',
+                                'SSRVPN_Setup.exe', 'SSRVPN_Setup.exe.sha256'}
+                            and source.startswith(
+                                os.environ.get('FAKE_NEW_SOURCE', '') + os.sep)):
+                        raise SystemExit(15)
                     if (os.environ.get('FAKE_FAIL_ON') == pathlib.Path(destination).name
                             and source.startswith(os.environ.get('FAKE_NEW_SOURCE', '') + os.sep)):
                         raise SystemExit(9)

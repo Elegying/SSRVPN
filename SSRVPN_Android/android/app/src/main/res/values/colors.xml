@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="disconnect_recovery_background">#0B0D14</color>
+    <color name="disconnect_recovery_background_glow">#132044</color>
+    <color name="disconnect_recovery_accent">#2F6BFF</color>
+    <color name="disconnect_recovery_text_primary">#F4F6F8</color>
+    <color name="disconnect_recovery_text_secondary">#A4ACB8</color>
+</resources>

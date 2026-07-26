@@ -97,6 +97,62 @@ python3 -m unittest \\
             publish.index("    steps:\n"),
         )
 
+    def test_ci_platform_jobs_run_in_parallel_with_workspace_checks(self) -> None:
+        workflow = (
+            ROOT / ".github" / "workflows" / "ci.yml"
+        ).read_text(encoding="utf-8")
+        platform_job = workflow[workflow.index("  flutter-app:\n") :]
+        platform_header = platform_job[: platform_job.index("    steps:\n")]
+
+        self.assertIn(
+            "    needs: [core-assets, secret-scan]\n",
+            platform_header,
+        )
+        self.assertNotIn("shared", platform_header)
+
+    def test_release_builds_run_in_parallel_with_shared_gate(self) -> None:
+        workflow = (
+            ROOT / ".github" / "workflows" / "release.yml"
+        ).read_text(encoding="utf-8")
+        for job_name in ("build-android", "build-macos", "build-windows"):
+            job = workflow[workflow.index(f"  {job_name}:\n") :]
+            header = job[: job.index("    steps:\n")]
+            with self.subTest(job=job_name):
+                self.assertIn(
+                    "    needs: [validate-source, prepare-geoip]\n",
+                    header,
+                )
+                self.assertNotIn("shared-test", header)
+
+        publish = workflow[workflow.index("  publish:\n") :]
+        publish_header = publish[: publish.index("    steps:\n")]
+        self.assertIn(
+            "    needs: [shared-test, build-android, build-macos, build-windows]\n",
+            publish_header,
+        )
+
+    def test_android_jobs_cache_gradle_dependencies_read_only_off_main(self) -> None:
+        expected_action = (
+            "gradle/actions/setup-gradle@"
+            "3f131e8634966bd73d06cc69884922b02e6faf92"
+        )
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        release = (
+            ROOT / ".github" / "workflows" / "release.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(expected_action, ci)
+        self.assertIn("if: matrix.directory == 'SSRVPN_Android'", ci)
+        self.assertIn(expected_action, release)
+        for workflow in (ci, release):
+            self.assertIn("cache-provider: basic", workflow)
+            self.assertIn(
+                "cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}",
+                workflow,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -102,7 +102,7 @@ jobs:
 
   flutter-app:
     name: ${{ matrix.name }}
-    needs: [shared, core-assets]
+    needs: [core-assets, secret-scan]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -130,6 +130,13 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+
+      - name: Cache Gradle dependencies
+        if: matrix.directory == 'SSRVPN_Android'
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        with:
+          cache-provider: basic
+          cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}
 
       - run: bash scripts/verify-core-assets.sh
 

@@ -168,7 +168,7 @@ jobs:
   # ── Android ──
   build-android:
     name: Android APK
-    needs: [shared-test, prepare-geoip]
+    needs: [validate-source, prepare-geoip]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -187,6 +187,12 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+
+      - name: Cache Gradle dependencies
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        with:
+          cache-provider: basic
+          cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}
 
       - name: Install dependencies
         run: |
@@ -282,7 +288,7 @@ jobs:
   # ── macOS ──
   build-macos:
     name: macOS DMG
-    needs: [shared-test, prepare-geoip]
+    needs: [validate-source, prepare-geoip]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -366,7 +372,7 @@ jobs:
   # ── Windows ──
   build-windows:
     name: Windows installer
-    needs: [shared-test, prepare-geoip]
+    needs: [validate-source, prepare-geoip]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -450,7 +456,7 @@ jobs:
   publish:
     name: Publish Release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-android, build-macos, build-windows]
+    needs: [shared-test, build-android, build-macos, build-windows]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -668,6 +674,7 @@ jobs:
           cp artifacts/macos/SSRVPN.dmg* "$public_assets/"
           cp artifacts/windows/SSRVPN_Setup.exe* "$public_assets/"
           OSS_BACKUP_DIR="$backup_dir" OSS_PRESERVE_BACKUP=1 \
+            OSS_VERSIONED_SOURCE_PREFIX="$OSS_PREFIX/releases/$tag" \
             bash scripts/promote-oss-public-channel.sh \
             "$public_assets" artifacts/oss/latest.json
 

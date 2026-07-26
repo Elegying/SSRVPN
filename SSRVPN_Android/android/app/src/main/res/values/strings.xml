@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="disconnect_recovery_title">SSRVPN</string>
+    <string name="disconnect_recovery_status">正在安全断开…</string>
+    <string name="disconnect_recovery_wait">请稍候</string>
+    <string name="disconnect_recovery_progress">正在完成断开连接</string>
+</resources>
