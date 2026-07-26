@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.6] - 2026-07-26
+
+### 修复
+
+- Android 在用户主动断开且进程级安全兜底被触发时，通过独立、不可导出的前台恢复 Activity 接管任务栈，避免 VPN 服务进程收尾导致当前界面随之消失；后台断开、服务销毁和错误恢复仍沿用原有清理策略。
+
+### 测试
+
+- 新增 Android 前台恢复 Activity、任务栈交接参数、服务销毁保护和仅限前台主动断开的原生发布守卫，并完成真实 Xiaomi 设备断开复测。
+- 版本同步门禁现在同时要求 `CHANGELOG.md` 包含当前版本章节，避免云端构建全部完成后才在发布说明阶段失败。
+
+### 兼容性边界
+
+- 本版本没有修改 HTTP 订阅的兼容与安全策略；Windows 继续只发布未签名的 `SSRVPN_Setup.exe` 安装版，不提供便携 ZIP。
+
 ## [3.5.4] - 2026-07-25
 
 ### 修复
