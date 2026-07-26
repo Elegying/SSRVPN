@@ -1,5 +1,29 @@
 part of 'clash_service_base.dart';
 
+mixin _ClashHealthSupport {
+  Future<bool> healthCheck();
+  void log(String message);
+  void setLastHealthCheckError(String? value);
+
+  @protected
+  Duration get healthCheckTimeout => const Duration(seconds: 10);
+
+  @protected
+  Future<bool> boundedHealthCheck() async {
+    try {
+      return await healthCheck().timeout(healthCheckTimeout);
+    } on TimeoutException {
+      setLastHealthCheckError('健康检查超时');
+      log('Mihomo 健康检查超时 (${healthCheckTimeout.inSeconds}s)');
+      return false;
+    } catch (error) {
+      setLastHealthCheckError('健康检查异常');
+      log('Mihomo 健康检查异常: $error');
+      return false;
+    }
+  }
+}
+
 extension ClashServiceHealthMonitor on ClashServiceBase {
   void startStatusMonitor() {
     _statusTimer?.cancel();
@@ -12,7 +36,7 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
       if (!_isRunning || _healthCheckInProgress) return;
       _healthCheckInProgress = true;
       try {
-        final healthy = await healthCheck();
+        final healthy = await boundedHealthCheck();
         if (healthy) {
           _consecutiveHealthCheckFailures = 0;
           scheduleDataPlaneObservation();

@@ -36,10 +36,11 @@ internal object NativeVpnSessionCoordinator {
         )
 
     fun claimPendingStart(intent: Intent): String? {
-        val configPath = intent.getStringExtra(SsrvpnVpnService.EXTRA_CONFIG_PATH)
-            ?: return null
+        val payload = NativeStartPayloadRegistry.peek(
+            intent.getStringExtra(SsrvpnVpnService.EXTRA_START_PAYLOAD_ID)
+        ) ?: return null
         val claimId = NativeConnectionSession.claimPendingStart(
-            configPath,
+            payload.configPath,
             SsrvpnVpnService.startGeneration,
             { SsrvpnVpnService.isRunning }
         )

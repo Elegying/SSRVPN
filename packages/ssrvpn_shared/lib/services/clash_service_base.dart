@@ -41,7 +41,8 @@ abstract class ClashServiceBase
         _ClashConfigSupport,
         _ClashRuntimeSupport,
         _ClashDataPlaneSupport,
-        _ClashDiagnosticsSupport {
+        _ClashDiagnosticsSupport,
+        _ClashHealthSupport {
   // ── 状态 ──
   bool _isRunning = false;
   bool _healthCheckInProgress = false;
@@ -105,6 +106,7 @@ abstract class ClashServiceBase
   String? get lastHealthCheckError => _lastHealthCheckError;
 
   @protected
+  @override
   void setLastHealthCheckError(String? value) {
     _lastHealthCheckError = value;
   }
@@ -147,8 +149,7 @@ abstract class ClashServiceBase
     required Future<String> Function(
       AppSettings runtimeSettings,
       String? preferredNodeName,
-    )
-    generateConfig,
+    ) generateConfig,
     required bool Function() isRevisionCurrent,
     String? preferredNodeName,
   }) {
@@ -199,8 +200,7 @@ abstract class ClashServiceBase
     }
     try {
       final result = await plan.recover(connectionGeneration);
-      final connected =
-          result.connected &&
+      final connected = result.connected &&
           isRunning &&
           isConnectionIntentCurrent(connectionGeneration, connected: true);
       if (!connected && result.failureReason != null) {
@@ -661,7 +661,7 @@ abstract class ClashServiceBase
   /// recovery only if the platform deliberately left itself running.
   @protected
   Future<bool> recoverAfterHealthCheckFailure(int connectionGeneration) async {
-    if (await healthCheck()) {
+    if (await boundedHealthCheck()) {
       setRunning(true);
       return isConnectionIntentCurrent(connectionGeneration, connected: true);
     }

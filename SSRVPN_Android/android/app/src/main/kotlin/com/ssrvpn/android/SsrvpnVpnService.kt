@@ -32,12 +32,8 @@ class SsrvpnVpnService : VpnService() {
 
         const val ACTION_DISCONNECT = "com.ssrvpn.ACTION_DISCONNECT"
         const val ACTION_CONNECT = "com.ssrvpn.ACTION_CONNECT"
-        private const val EXTRA_CONFIG_DIR = "com.ssrvpn.extra.CONFIG_DIR"
-        internal const val EXTRA_CONFIG_PATH = "com.ssrvpn.extra.CONFIG_PATH"
-        private const val EXTRA_API_PORT = "com.ssrvpn.extra.API_PORT"
-        private const val EXTRA_API_SECRET = "com.ssrvpn.extra.API_SECRET"
-        private const val EXTRA_NODE_NAME = "com.ssrvpn.extra.NODE_NAME"
         private const val EXTRA_REQUEST_ID = "com.ssrvpn.extra.REQUEST_ID"
+        internal const val EXTRA_START_PAYLOAD_ID = "com.ssrvpn.extra.START_PAYLOAD_ID"
         internal const val EXTRA_START_CLAIM_ID = "com.ssrvpn.extra.START_CLAIM_ID"
         private const val EXTRA_RECOVERY_ATTEMPT = "com.ssrvpn.extra.RECOVERY_ATTEMPT"
         private const val EXTRA_RECOVERY_TOKEN = "com.ssrvpn.extra.RECOVERY_TOKEN"
@@ -50,22 +46,14 @@ class SsrvpnVpnService : VpnService() {
             private set
         fun createStartIntent(
             context: Context,
-            configDir: String,
-            configPath: String,
-            apiPort: Int,
-            apiSecret: String,
-            nodeName: String?,
             requestId: String? = null,
+            startPayloadId: String? = null,
             startClaimId: String? = null,
             recoveryAttempt: Int = 0,
             recoveryToken: Long? = null
         ): Intent = Intent(context, SsrvpnVpnService::class.java).apply {
-            putExtra(EXTRA_CONFIG_DIR, configDir)
-            putExtra(EXTRA_CONFIG_PATH, configPath)
-            putExtra(EXTRA_API_PORT, apiPort)
-            putExtra(EXTRA_API_SECRET, apiSecret)
-            putExtra(EXTRA_NODE_NAME, nodeName)
             putExtra(EXTRA_REQUEST_ID, requestId)
+            startPayloadId?.let { putExtra(EXTRA_START_PAYLOAD_ID, it) }
             startClaimId?.let { putExtra(EXTRA_START_CLAIM_ID, it) }
             putExtra(EXTRA_RECOVERY_ATTEMPT, recoveryAttempt)
             recoveryToken?.let { putExtra(EXTRA_RECOVERY_TOKEN, it) }
@@ -93,6 +81,7 @@ class SsrvpnVpnService : VpnService() {
         private const val API_HEALTH_POLL_INTERVAL_MS = 250L
         private const val BRIDGE_STOP_TIMEOUT_MS = 5_000L
         private const val BRIDGE_IS_RUNNING_TIMEOUT_MS = 2_000L
+        private const val PROTECT_MONITOR_STOP_TIMEOUT_MS = 1_000L
         private val stopOperation = CoalescedOperation()
         private val serviceStartInProgress = AtomicBoolean(false)
         private val bridgeStartInProgress = AtomicBoolean(false)
@@ -212,6 +201,8 @@ class SsrvpnVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "VPN Service starting...")
         val requestId = intent?.getStringExtra(EXTRA_REQUEST_ID)
+        val startPayloadId = intent?.getStringExtra(EXTRA_START_PAYLOAD_ID)
+        val startPayload = NativeStartPayloadRegistry.consume(startPayloadId)
         val startClaimId = intent?.getStringExtra(EXTRA_START_CLAIM_ID)
         val recoveryAttempt = intent?.getIntExtra(EXTRA_RECOVERY_ATTEMPT, 0) ?: 0
         val recoveryToken = if (intent?.hasExtra(EXTRA_RECOVERY_TOKEN) == true) {
@@ -261,34 +252,19 @@ class SsrvpnVpnService : VpnService() {
             return finishRejectedServiceStart(startId, isRunning, false)
         }
 
-        val explicitConfigDir = intent?.getStringExtra(EXTRA_CONFIG_DIR)
-        val explicitConfigPath = intent?.getStringExtra(EXTRA_CONFIG_PATH)
-        val hasExplicitApiPort = intent?.hasExtra(EXTRA_API_PORT) == true
-        val explicitApiSecret = intent?.getStringExtra(EXTRA_API_SECRET)
-        val needsSnapshot = explicitConfigDir == null ||
-            explicitConfigPath == null ||
-            !hasExplicitApiPort ||
-            explicitApiSecret.isNullOrBlank()
-        val snapshot = if (needsSnapshot) {
+        val snapshot = if (startPayloadId == null) {
             NativeConnectionSnapshotStore.read(this)
         } else {
-            null
+            startPayload
         }
-        val configDir = explicitConfigDir ?: snapshot?.configDir
-        val configPath = explicitConfigPath ?: snapshot?.configPath
-        val apiPort = if (hasExplicitApiPort) {
-            intent.getIntExtra(EXTRA_API_PORT, 9090)
-        } else {
-            snapshot?.apiPort ?: 9090
-        }
-        val apiSecret = NativeApiSecretResolver.resolve(explicitApiSecret) {
-            snapshot?.apiSecret
-        }
+        val configDir = snapshot?.configDir
+        val configPath = snapshot?.configPath
+        val apiPort = snapshot?.apiPort ?: 9090
+        val apiSecret = snapshot?.apiSecret.orEmpty()
         currentApiPort = apiPort
         configPath?.let(NativeConnectionSession::reserveStarting)
 
-        currentNodeName = intent?.getStringExtra(EXTRA_NODE_NAME)
-            ?: snapshot?.selectedNodeName
+        currentNodeName = snapshot?.selectedNodeName
             ?: "SSRVPN"
         connectionStartedAt = System.currentTimeMillis()
         notificationConnected = false
@@ -485,7 +461,13 @@ class SsrvpnVpnService : VpnService() {
             }
 
             ensureStartCurrent(startToken)
-            val tunFd = vpnFd!!.detachFd().toLong()
+            val descriptor = checkNotNull(vpnFd)
+            vpnFd = null
+            val tunFd = try {
+                descriptor.detachFd().toLong()
+            } finally {
+                descriptor.close()
+            }
             Log.d(TAG, "VPN established! fd=$tunFd")
 
             if (tunFd <= 0) {
@@ -689,11 +671,6 @@ class SsrvpnVpnService : VpnService() {
             try {
                 val restartIntent = createStartIntent(
                     this,
-                    request.configDir,
-                    request.configPath,
-                    request.apiPort,
-                    request.apiSecret,
-                    currentNodeName,
                     recoveryAttempt = nextAttempt,
                     recoveryToken = recoveryToken
                 )
@@ -815,12 +792,16 @@ class SsrvpnVpnService : VpnService() {
     private fun stopAllOnWorker(): Boolean {
         Log.d(TAG, "Stopping...")
         stopNotificationUpdates()
-        protectThread?.interrupt()
+        val protectMonitor = protectThread
+        protectMonitor?.interrupt()
         protectThread = null
         val pendingStartStopped = waitForPendingStart()
         val bridgeStopped = pendingStartStopped && stopBridgeWithTimeout()
+        val protectMonitorStopped = waitForProtectMonitor(protectMonitor)
         val stopDecision = CoreStopDecision.afterBridgeCheck(
-            pendingStartStopped, bridgeStopped, currentApiPort
+            pendingStartStopped,
+            bridgeStopped && protectMonitorStopped,
+            currentApiPort
         )
         if (stopDecision.terminateProcess) Log.e(TAG, stopDecision.terminationMessage(currentApiPort))
         try {
@@ -842,6 +823,24 @@ class SsrvpnVpnService : VpnService() {
         }
         Log.d(TAG, "Stopped")
         return stopDecision.terminateProcess
+    }
+
+    private fun waitForProtectMonitor(thread: Thread?): Boolean {
+        if (thread == null || !thread.isAlive) return true
+        try {
+            thread.join(PROTECT_MONITOR_STOP_TIMEOUT_MS)
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            Log.e(TAG, "Interrupted while waiting for protect monitor", error)
+            return false
+        }
+        if (!thread.isAlive) return true
+        Log.e(
+            TAG,
+            "Protect monitor did not stop within " +
+                "${PROTECT_MONITOR_STOP_TIMEOUT_MS}ms"
+        )
+        return false
     }
 
     private fun waitForPendingStart(): Boolean {

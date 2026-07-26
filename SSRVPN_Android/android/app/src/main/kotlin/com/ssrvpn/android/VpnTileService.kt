@@ -107,8 +107,6 @@ class VpnTileService : TileService() {
             launchApp()
             return
         }
-        val snapshot = claim.snapshot
-
         // 已有权限，直接启动
         Log.d(TAG, "Starting VPN directly from tile")
         val consumed = AtomicBoolean(false)
@@ -125,13 +123,8 @@ class VpnTileService : TileService() {
         val requestId = VpnStartResultRegistry.register(callback)
         val intent = SsrvpnVpnService.createStartIntent(
             this,
-            snapshot.configDir,
-            snapshot.configPath,
-            snapshot.apiPort,
-            snapshot.apiSecret,
-            snapshot.selectedNodeName,
-            requestId,
-            claim.id
+            requestId = requestId,
+            startClaimId = claim.id
         )
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

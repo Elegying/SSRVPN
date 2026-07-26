@@ -41,12 +41,14 @@ internal object NativeConnectionSnapshotStore {
         snapshot: NativeConnectionSnapshot,
         generation: String
     ) {
-        require(snapshot.configDir.isNotBlank()) { "Missing config directory" }
-        require(snapshot.configPath.isNotBlank()) { "Missing config path" }
-        require(snapshot.apiPort in 1..65535) { "Invalid API port" }
-        require(snapshot.apiSecret.isNotBlank()) { "Missing API credential" }
+        val trustedSnapshot = NativeConnectionPathPolicy.requireTrusted(
+            context.applicationInfo.dataDir,
+            snapshot
+        )
+        require(trustedSnapshot.apiPort in 1..65535) { "Invalid API port" }
+        require(trustedSnapshot.apiSecret.isNotBlank()) { "Missing API credential" }
 
-        val plaintext = NativeConnectionSnapshotCodec.encode(snapshot)
+        val plaintext = NativeConnectionSnapshotCodec.encode(trustedSnapshot)
         val encrypted = try {
             encrypt(plaintext, getOrCreateKey())
         } catch (_: KeyPermanentlyInvalidatedException) {
@@ -79,8 +81,12 @@ internal object NativeConnectionSnapshotStore {
                     Base64.decode(ivValue, Base64.NO_WRAP)
                 )
             )
-            NativeConnectionSnapshotCodec.decode(
+            val decoded = NativeConnectionSnapshotCodec.decode(
                 cipher.doFinal(Base64.decode(ciphertextValue, Base64.NO_WRAP))
+            ) ?: return null
+            NativeConnectionPathPolicy.requireTrusted(
+                context.applicationInfo.dataDir,
+                decoded
             )
         } catch (error: Exception) {
             // Preserve the ciphertext: transient Keystore failures must not

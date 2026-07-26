@@ -8,6 +8,9 @@ mixin _ClashDiagnosticsSupport {
   String? get connectivityWarning;
   String get recentLogs;
   String get configPath;
+  @protected
+  Duration get diagnosticCheckTimeout => const Duration(seconds: 10);
+  void log(String message);
 
   Future<bool> healthCheck();
 
@@ -30,15 +33,28 @@ mixin _ClashDiagnosticsSupport {
   @protected
   Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => const [];
 
+  Future<T?> _runDiagnosticCheck<T>(
+    String id,
+    Future<T> Function() operation,
+  ) async {
+    try {
+      return await operation().timeout(diagnosticCheckTimeout);
+    } on TimeoutException {
+      log('诊断检查 $id 超时');
+      return null;
+    } catch (error) {
+      log('诊断检查 $id 失败: $error');
+      return null;
+    }
+  }
+
   Future<AppDiagnosticReport> runDiagnostics({
     DateTime Function()? clock,
   }) async {
     final checks = <AppDiagnosticCheck>[];
 
-    var coreAvailable = false;
-    try {
-      coreAvailable = await diagnosticCoreAvailable();
-    } catch (_) {}
+    final coreAvailable =
+        await _runDiagnosticCheck('core', diagnosticCoreAvailable) ?? false;
     checks.add(
       AppDiagnosticCheck(
         id: 'core',
@@ -71,12 +87,11 @@ mixin _ClashDiagnosticsSupport {
         ),
       );
     } else {
-      var configAvailable = false;
-      try {
-        configAvailable =
-            await FileSystemEntity.type(configuredPath, followLinks: false) ==
-                FileSystemEntityType.file;
-      } catch (_) {}
+      final configType = await _runDiagnosticCheck(
+        'config',
+        () => FileSystemEntity.type(configuredPath, followLinks: false),
+      );
+      final configAvailable = configType == FileSystemEntityType.file;
       checks.add(
         AppDiagnosticCheck(
           id: 'config',
@@ -100,10 +115,8 @@ mixin _ClashDiagnosticsSupport {
         ),
       );
     } else {
-      var healthy = false;
-      try {
-        healthy = await healthCheck();
-      } catch (_) {}
+      final healthy =
+          await _runDiagnosticCheck('runtime', healthCheck) ?? false;
       checks.add(
         AppDiagnosticCheck(
           id: 'runtime',
@@ -125,6 +138,15 @@ mixin _ClashDiagnosticsSupport {
           status: AppDiagnosticStatus.warning,
           summary: '数据通道处于降级恢复状态；核心、系统服务和运行配置仍保持连接',
           errorCode: AppErrorCode.dataPlaneDegraded,
+        ),
+      );
+    } else if (isRunning) {
+      checks.add(
+        const AppDiagnosticCheck(
+          id: 'data_plane',
+          title: '节点与外部网络',
+          status: AppDiagnosticStatus.passed,
+          summary: '当前没有检测到数据通道降级',
         ),
       );
     }
@@ -156,9 +178,11 @@ mixin _ClashDiagnosticsSupport {
       );
     }
 
-    try {
-      checks.addAll(await platformDiagnosticChecks());
-    } catch (_) {
+    final platformChecks = await _runDiagnosticCheck(
+      'platform',
+      platformDiagnosticChecks,
+    );
+    if (platformChecks == null) {
       checks.add(
         const AppDiagnosticCheck(
           id: 'platform',
@@ -168,6 +192,8 @@ mixin _ClashDiagnosticsSupport {
           errorCode: AppErrorCode.unknown,
         ),
       );
+    } else {
+      checks.addAll(platformChecks);
     }
 
     return AppDiagnosticReport(
