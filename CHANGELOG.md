@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.2] - 2026-07-27
+
+### 安全
+
+- Android 外部链接入口现在只接受带有效主机名、且不含用户凭据的 HTTP/HTTPS 绝对地址，拒绝 `file:`、`content:`、`intent:`、`javascript:` 和相对路径。
+- Android 前台 VPN 启动 Intent 不再携带配置路径、API 端口、API 凭据或节点名；应用内首次启动通过一次性随机句柄消费内存快照，磁贴与自动恢复继续使用 Android Keystore 加密的原子快照。
+- Android 原生连接快照在写入、读取和首次启动前都会解析真实路径，只允许应用私有数据目录内的普通配置文件，拒绝目录穿越、相邻前缀和符号链接逃逸。
+
+### 修复
+
+- Android 原生连接会话的复合状态与通知流量采样改为原子读写，避免并发启动、停止、恢复或通知刷新观察到撕裂状态。
+- Android TUN 文件描述符在转交给 Mihomo 后立即清除 Java 包装器所有权；停止时先关闭 Bridge，再限时等待 socket 保护线程退出，无法验证回收时继续使用既有进程级安全兜底。
+- 共享健康监控为控制面检查增加 10 秒上限，异常与超时统一计入连续失败并进入既有串行恢复；默认恢复前复核也受同一上限保护。
+- 数据通道观察增加 30 秒上限，异常或超时会发布不改变连接生命周期的降级提示；诊断页对核心、配置、运行时和平台检查分别限时并记录脱敏错误，同时明确显示健康数据通道。
+
+### 测试
+
+- 新增 Android URL 策略、私有路径、一次性启动句柄、流量快照并发和原生所有权守卫，以及共享健康检查、数据通道与诊断挂起回归测试。
+- 保留三端现有健康恢复、连接意图、快照代际、系统代理、TUN/DNS、发布资产和覆盖率门禁。
+
+### 兼容性边界
+
+- 本版本没有修改 HTTP 订阅、国内应用直连名单、三端 IPv4-only 策略或桌面系统代理恢复顺序；Windows 继续只发布未签名的 `SSRVPN_Setup.exe` 安装版，不提供便携 ZIP。
+
 ## [3.6.1] - 2026-07-26
 
 ### 修复
