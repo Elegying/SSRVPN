@@ -13,7 +13,7 @@ Android、macOS、Windows 三端一致的连接体验：导入订阅，选择节
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/Android%20%7C%20macOS%20%7C%20Windows-6c63ff)](#下载)
 
-[立即下载](#下载) · [官方网站](https://ssrvpn.vip/) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md)
+[立即下载](#下载) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md)
 
 <img src="docs/assets/ssrvpn-product-preview.png" alt="SSRVPN 开源跨平台 Mihomo VPN 和代理客户端连接界面" width="416">
 
@@ -44,7 +44,7 @@ SSRVPN 是面向 Android、macOS 和 Windows 的开源 Mihomo 客户端。它把
 也可以前往 [GitHub Releases](https://github.com/Elegying/SSRVPN/releases/latest) 查看版本说明、SHA-256 校验文件与发布来源记录。
 
 > [!IMPORTANT]
-> 请只从本仓库 Release 或 [SSRVPN 官网](https://ssrvpn.vip/) 下载。Android 正式包当前仅包含 arm64 核心；macOS 为免费 ad-hoc、未公证分发，Windows 为免费未签名分发，因此首次打开时可能出现 Gatekeeper 或 SmartScreen 提示。
+> 请只从本仓库 Release 下载。Android 正式包当前仅包含 arm64 核心；macOS 为免费 ad-hoc、未公证分发，Windows 为免费未签名分发，因此首次打开时可能出现 Gatekeeper 或 SmartScreen 提示。
 
 ## 快速开始
 
