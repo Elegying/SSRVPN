@@ -81,15 +81,12 @@ class AppConstants {
     '10.0.0.0/8',
     '172.16.0.0/12',
     '100.64.0.0/10',
-    'fc00::/7',
-    'fe80::/10',
   ];
 
   // ── Fake IP 配置 ──
   static const String fakeIpRange = '198.18.0.1/16';
-  // Keep fake IPv6 answers outside fc00::/7. Desktop TUN configs deliberately
-  // exclude ULA LAN traffic, so a ULA fake range would bypass the tunnel.
-  static const String fakeIpRange6 = '2001:db8::1/64';
+  // TUN keeps an IPv6 address only to capture and reject literal IPv6 traffic,
+  // preventing it from bypassing the IPv4-only runtime policy.
   static const String tunInet6Address = 'fdfe:dcba:9876::1/126';
   static const List<String> fakeIpFilter = [
     '*.lan',
@@ -135,8 +132,6 @@ class AppConstants {
     'IP-CIDR,172.16.0.0/12,DIRECT,no-resolve',
     'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve',
     'IP-CIDR,100.64.0.0/10,DIRECT,no-resolve',
-    'IP-CIDR6,fc00::/7,DIRECT,no-resolve',
-    'IP-CIDR6,fe80::/10,DIRECT,no-resolve',
   ];
 
   static const List<String> openAiProxyRules = [
@@ -152,6 +147,7 @@ class AppConstants {
 
   // All three clients install the verified geoip.metadb beside the Mihomo
   // runtime config, so this rule works offline without another provider.
+  static const String rejectIpv6Rule = 'IP-CIDR6,::/0,REJECT,no-resolve';
   static const String defaultGeoIpDirectRule = 'GEOIP,CN,DIRECT';
   static const String defaultMatchRule = 'MATCH,PROXY';
 }

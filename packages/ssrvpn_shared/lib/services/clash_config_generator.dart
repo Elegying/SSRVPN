@@ -112,10 +112,9 @@ class ClashConfigGenerator {
     result.writeln('mode: ${settings.proxyMode.name}');
     result.writeln('log-level: info');
     result.writeln("external-controller: '127.0.0.1:${settings.apiPort}'");
-    result.writeln('# SSRVPN IPv4 / IPv6 双栈配置');
-    result.writeln('ipv6: true');
-    // Race every resolved address so a broken IPv6 underlay cannot turn a
-    // dual-stack DIRECT destination into a black hole.
+    result.writeln('# SSRVPN IPv4-only runtime');
+    result.writeln('ipv6: false');
+    // Keep racing multiple IPv4 answers to reduce single-address failures.
     result.writeln('tcp-concurrent: true');
     result.writeln('etag-support: true');
     final apiSecret =
@@ -156,11 +155,10 @@ class ClashConfigGenerator {
       if (dnsListen != null && dnsListen.isNotEmpty) {
         result.writeln('  listen: $dnsListen');
       }
-      result.writeln('  ipv6: true');
+      result.writeln('  ipv6: false');
       result.writeln('  enhanced-mode: fake-ip');
       result.writeln('  respect-rules: true');
       result.writeln('  fake-ip-range: ${AppConstants.fakeIpRange}');
-      result.writeln('  fake-ip-range6: ${AppConstants.fakeIpRange6}');
       result.writeln('  default-nameserver:');
       for (final ns in AppConstants.defaultNameservers) {
         result.writeln('    - $ns');
@@ -285,7 +283,7 @@ class ClashConfigGenerator {
     );
     // 规则。按首次出现顺序去重，确保用户强制代理优先于内置直连，
     // 同时避免重复 matcher 让运行配置含义变得含混。
-    final orderedRules = <String>{};
+    final orderedRules = <String>{AppConstants.rejectIpv6Rule};
     orderedRules.addAll(buildForceProxyRules(settings));
     orderedRules.addAll(
       extraRulesBeforeDirect.map((rule) => rule.trim()).where(

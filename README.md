@@ -63,7 +63,7 @@ SSRVPN 是面向 Android、macOS 和 Windows 的开源 Mihomo 客户端。它把
 - [Windows 指南](SSRVPN_Windows/USER_GUIDE.md)
 - [故障排查](docs/TROUBLESHOOTING.zh-CN.md)
 
-三端均生成 IPv4/IPv6 双栈配置；公网 IPv6 是否可用取决于本地网络与节点。首页公网 IP 固定显示 IPv4，它不是 IPv6 连通性检测结果。
+三端均永久使用 IPv4-only Mihomo 运行配置：不请求 DNS AAAA，不通过核心建立 IPv6 连接；Android 与 Windows TUN 还会捕获并拒绝 IPv6，避免流量绕过 VPN。IPv6 节点和 IPv6-only 目标不可用，首页公网 IP 固定显示 IPv4。
 
 macOS TUN 的管理员授权只代表本机用户同意本次提权，不能让 macOS 验证发布者身份。本项目固定采用免费 ad-hoc/未公证分发，不购买 Apple 或 Windows 代码签名证书；用户必须从正式来源下载并核对 SHA-256。
 

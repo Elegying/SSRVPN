@@ -16,7 +16,8 @@ internal object VpnRouteInstaller {
         for (route in PublicIpv4Routes.routes) {
             addRoute(route.address, route.prefixLength)
         }
-        // IPv6 必须完整进入 VPN；只允许地址族但不添加 ::/0 会造成泄漏。
+        // IPv6 必须完整进入 VPN，再由 Mihomo 的最高优先级规则拒绝；
+        // 只允许地址族但不添加 ::/0 会绕过客户端的 IPv4-only 策略。
         addRoute(
             VpnIpv6Config.defaultRoute,
             VpnIpv6Config.defaultRoutePrefixLength

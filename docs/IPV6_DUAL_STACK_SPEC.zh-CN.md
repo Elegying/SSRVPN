@@ -1,41 +1,40 @@
-# SSRVPN 三端 IPv6 双栈兼容规范
+# SSRVPN 三端 IPv4-only 与 IPv6 防绕过规范
 
 ## 目标
 
-在不改变现有 IPv4 行为和“私家车”延迟显示逻辑的前提下，使 Android、macOS、Windows 客户端同时支持：
+Android、macOS、Windows 客户端永久使用 IPv4-only 运行配置，以避免不完整的
+底层 IPv6 网络造成连接等待；Android 与 Windows 另外捕获并拒绝 IPv6，以防止绕过
+VPN，macOS 的禁用范围保持在 Mihomo 内部：
 
-- IPv4、IPv6 与域名形式的节点地址；
-- A/AAAA DNS 解析与 IPv4/IPv6 代理流量；
-- TUN 模式下的 IPv4/IPv6 默认路由；
-- IPv6 强制代理地址规则；
-- IPv6 代理流量能力，同时保持首页公网 IP 只展示 IPv4。
+- 只请求 A 记录并建立 IPv4 连接；
+- Android 与 Windows 的 IPv6 流量在 TUN 入口被捕获并拒绝；macOS
+  只关闭 Mihomo 内部 IPv6，不修改系统全局 IPv6；
+- 不改变“用户强制代理优先、国内直连、国外代理”的 IPv4 规则顺序；
+- 首页公网 IP 只展示 IPv4。
 
 ## 行为约束
 
-1. 生成的 Mihomo 配置必须启用顶层 IPv6 与 DNS AAAA，并配置独立的 IPv6 Fake-IP 地址池。
-2. 桌面 TUN 配置必须声明 IPv6 地址；Android 原生 VPN 必须同时声明 IPv6 地址并接管 `::/0`，不允许 IPv6 绕过 VPN。
-3. 桌面 TUN 保留 IPv4 局域网排除项，并增加 IPv6 ULA、链路本地地址排除项；Android 为避免泄漏，IPv6 默认全部进入 VPN。
-4. SSR 链接必须从右侧解析固定字段，以兼容带冒号的 IPv6 节点地址；方括号只作为 URI 表达层语法，不写入 Mihomo 的 `server` 字段。
-5. 强制代理输入支持裸 IPv6、方括号 IPv6、带端口的方括号 IPv6，并生成 `IP-CIDR6,<address>/128,PROXY,no-resolve`。
-6. 订阅地址为 IPv6 字面量时，HTTP `Host` 头必须使用方括号；DNS 回退不得过滤掉合法 AAAA 记录。
-7. 所有外部地址输入均使用标准库解析，不拼入 shell，不新增依赖；非法、含区域标识或歧义输入按原有保守策略拒绝。
-8. IPv6 不可用时允许自然回退 IPv4，但不得显示虚假的 IPv6 可用状态。
-9. 首页公网 IP 使用 IPv4 专用端点，备用端点返回 IPv6 时必须拒绝展示；首页结果不作为 IPv6 连通性证明。
+1. 生成的 Mihomo 配置必须设置顶层 `ipv6: false` 与 `dns.ipv6: false`，且不得生成 `fake-ip-range6`。
+2. 规则列表第一项必须是 `IP-CIDR6,::/0,REJECT,no-resolve`，优先于用户规则、国内直连和最终代理规则。
+3. Android 原生 VPN 与 Windows TUN 必须声明 IPv6 捕获地址、接管 IPv6 默认路由且不得排除 ULA 或链路本地 IPv6。这些地址与路由只用于把 IPv6 送入拒绝规则，不代表支持 IPv6。macOS 保留已验证稳定的自动路由形态，不额外声明 IPv6 TUN 地址，也不修改系统全局 IPv6 开关。
+4. IPv4 局域网排除项保持不变；IPv4 的用户强制代理、国内直连和国外代理顺序保持不变。
+5. 解析层可以继续识别历史订阅中的 IPv6 字面量，以安全地读取和展示数据，但运行时不保证这类节点可用。
+6. 所有外部地址输入继续使用标准库解析，不拼入 shell，不新增依赖；非法、含区域标识或歧义输入按原有保守策略拒绝。
+7. 首页公网 IP 使用 IPv4 专用端点，备用端点返回 IPv6 时必须拒绝展示。
 
 ## 验收标准
 
-- 共享配置测试确认 `ipv6: true`、`dns.ipv6: true`、`fake-ip-range6` 与 IPv6 TUN 地址存在。
-- IPv4、IPv6、域名节点均能通过订阅解析与配置重建；SSR IPv6 回归测试通过。
-- IPv4 与 IPv6 强制代理规则均正确、去重且非法输入被拒绝。
-- Android 原生单元测试确认 IPv4 公网路由保持不变，同时存在 IPv6 地址与 `::/0` 路由。
+- 共享配置测试确认 `ipv6: false`、`dns.ipv6: false`、没有 `fake-ip-range6`，且 IPv6 拒绝规则排在第一项。
+- Android、macOS 与 Windows 平台测试确认共享 IPv4-only 约束未被平台层覆盖；Android 与 Windows 另行确认 IPv6 防绕过捕获。
+- Android 原生单元测试确认 IPv4 公网路由保持不变，同时保留 IPv6 地址与 `::/0` 防绕过路由。
 - 公网 IP 服务测试确认主端点固定请求 IPv4，备用端点不会把 IPv6 返回给首页。
 - 三端 Dart 测试、静态分析、配置语法校验与构建门禁通过。
-- macOS 实机 TUN 启停后进程、路由、系统代理均能干净恢复；Android 实机连接后能看到 IPv6 TUN 路由且断开后清理。
-- 代码审查确认没有修改“私家车”延迟显示逻辑，没有新增 IPv6 泄漏路径。
+- Android 真机连接后，生成配置满足 IPv4-only 约束，常用 IPv4 应用不再出现 IPv6 `network is unreachable` 重试，断开后路由正常清理。
+- 代码审查确认没有修改“私家车”延迟显示逻辑，IPv6 没有直连或代理绕过路径。
 
 ## 非目标
 
-- 不保证用户所在网络或代理节点一定提供可用的公网 IPv6 出口。
-- 不在首页展示公网 IPv6；IPv6 支持仅指节点、DNS、配置、路由与代理流量能力。
-- 不新增 IPv6 连通性或“解锁支持”营销判断。
+- 不支持 IPv6 节点、IPv6-only 目标或公网 IPv6 访问。
+- 不修改操作系统全局 IPv6 开关；禁用范围是 SSRVPN 生成的运行配置和 VPN/TUN 数据路径。
+- 不新增 IPv6 连通性或营销判断。
 - 不改变现有节点延迟测试排序、显示与“私家车”特殊逻辑。

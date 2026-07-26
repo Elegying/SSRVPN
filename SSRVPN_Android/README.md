@@ -10,7 +10,7 @@ SSRVPN Android 版 - 基于 Clash Meta 的 VPN 客户端
 ## 支持范围
 
 - Android 安装包仅支持 **arm64-v8a** 设备。
-- 支持 IPv4/IPv6 双栈节点、DNS 与 TUN 流量；公网 IPv6 是否可用取决于本地网络和所选节点。
+- 永久使用 IPv4-only 运行配置；不请求 DNS AAAA，不建立 IPv6 连接。系统 VPN 仍捕获并拒绝 IPv6，防止流量绕过 VPN。
 
 ## 功能特性
 

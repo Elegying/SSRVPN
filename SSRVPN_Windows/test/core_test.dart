@@ -130,12 +130,17 @@ proxies:
         (enabled['tun']['dns-hijack'] as YamlList).cast<String>(),
         ['any:53', 'tcp://any:53'],
       );
-      expect(enabled['ipv6'], isTrue);
-      expect(enabled['dns']['ipv6'], isTrue);
+      expect(enabled['ipv6'], isFalse);
+      expect(enabled['dns']['ipv6'], isFalse);
+      expect(enabled['dns'].containsKey('fake-ip-range6'), isFalse);
       expect(enabled['tun']['inet6-address'], isNotEmpty);
       expect(
         (enabled['tun']['route-exclude-address'] as YamlList).cast<String>(),
-        containsAll(['fc00::/7', 'fe80::/10']),
+        isNot(anyElement(contains(':'))),
+      );
+      expect(
+        (enabled['rules'] as YamlList).first,
+        'IP-CIDR6,::/0,REJECT,no-resolve',
       );
     });
 
@@ -160,14 +165,15 @@ proxies:
 
       final parsed = loadYaml(config) as YamlMap;
       final rules = (parsed['rules'] as YamlList).cast<String>();
-      expect(rules[0], 'DOMAIN-SUFFIX,blocked.example,PROXY');
-      expect(rules[1], 'DOMAIN-SUFFIX,youtube.com,PROXY');
-      expect(rules[2], 'DOMAIN,api.country.is,SSRVPN-GEO');
-      expect(rules[3], 'DOMAIN,ipinfo.io,SSRVPN-GEO');
-      expect(rules[4], 'DOMAIN,ifconfig.co,SSRVPN-GEO');
+      expect(rules[0], 'IP-CIDR6,::/0,REJECT,no-resolve');
+      expect(rules[1], 'DOMAIN-SUFFIX,blocked.example,PROXY');
+      expect(rules[2], 'DOMAIN-SUFFIX,youtube.com,PROXY');
+      expect(rules[3], 'DOMAIN,api.country.is,SSRVPN-GEO');
+      expect(rules[4], 'DOMAIN,ipinfo.io,SSRVPN-GEO');
+      expect(rules[5], 'DOMAIN,ifconfig.co,SSRVPN-GEO');
       expect(
         rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT'),
-        greaterThan(4),
+        greaterThan(5),
       );
       expect(
         rules.indexOf('DOMAIN-SUFFIX,cn,DIRECT'),

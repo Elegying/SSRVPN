@@ -385,11 +385,15 @@ void main() {
       expect(parsed['mixed-port'], isA<int>());
       expect(parsed['socks-port'], isA<int>());
       expect(parsed['allow-lan'], isFalse);
-      expect(parsed['ipv6'], isTrue);
+      expect(parsed['ipv6'], isFalse);
       expect(parsed['tcp-concurrent'], isTrue);
-      expect(parsed['dns']['ipv6'], isTrue);
-      expect(parsed['dns']['fake-ip-range6'], isNotEmpty);
+      expect(parsed['dns']['ipv6'], isFalse);
+      expect(parsed['dns'].containsKey('fake-ip-range6'), isFalse);
       expect(parsed['tun']['inet6-address'], isNotEmpty);
+      expect(
+        (parsed['rules'] as YamlList).first,
+        'IP-CIDR6,::/0,REJECT,no-resolve',
+      );
       expect(parsed['external-controller'], contains('127.0.0.1'));
     });
 
