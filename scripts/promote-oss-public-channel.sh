@@ -79,6 +79,23 @@ fi
 
 public_base="https://$OSS_BUCKET.$OSS_ENDPOINT"
 stable_prefix="$OSS_PREFIX/downloads"
+versioned_source_prefix="${OSS_VERSIONED_SOURCE_PREFIX:-}"
+if [ -n "$versioned_source_prefix" ]; then
+  versioned_source_prefix="${versioned_source_prefix%/}"
+  case "$versioned_source_prefix" in
+    "$OSS_PREFIX"/releases/v*) ;;
+    *)
+      echo "Invalid OSS versioned source prefix: $versioned_source_prefix" >&2
+      exit 2
+      ;;
+  esac
+  case "$versioned_source_prefix" in
+    *..*|*//*|*[[:space:]]*)
+      echo "Unsafe OSS versioned source prefix: $versioned_source_prefix" >&2
+      exit 2
+      ;;
+  esac
+fi
 committed=0
 
 object_key() {
@@ -500,8 +517,12 @@ trap restore_previous_channel EXIT
 
 for name in "${publish_files[@]}"; do
   source="$source_dir/$name"
+  upload_source="$source"
+  if [ -n "$versioned_source_prefix" ]; then
+    upload_source="oss://$OSS_BUCKET/$versioned_source_prefix/$name"
+  fi
   key="$(object_key "$name")"
-  "$ossutil_bin" cp "$source" "oss://$OSS_BUCKET/$key" \
+  "$ossutil_bin" cp "$upload_source" "oss://$OSS_BUCKET/$key" \
     --force --cache-control "no-cache"
   downloaded="$backup_dir/verify-$name"
   status="$(fetch_object "$name" "$downloaded")"
