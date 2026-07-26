@@ -36,6 +36,7 @@ internal object NativeConnectionSession {
     @Volatile
     private var stopping = false
 
+    @Synchronized
     fun beginStarting(claimId: String?): Boolean {
         val pendingClaimId = pendingStartClaimId
         if (pendingClaimId != null && pendingClaimId != claimId) return false
@@ -47,10 +48,12 @@ internal object NativeConnectionSession {
         return true
     }
 
+    @Synchronized
     fun reserveStarting(configPath: String) {
         startingConfigPath = configPath
     }
 
+    @Synchronized
     fun publishRunning(configPath: String) {
         runningConfigPath = configPath
         recoveryConfigPath = null
@@ -61,23 +64,28 @@ internal object NativeConnectionSession {
         stopping = false
     }
 
+    @Synchronized
     fun reserveRecovery(configPath: String) {
         recoveryConfigPath = configPath
     }
 
+    @Synchronized
     fun clearRunning() {
         runningConfigPath = null
         stopping = false
     }
 
+    @Synchronized
     fun beginStopping() {
         stopping = true
     }
 
+    @Synchronized
     fun clearRecovery() {
         recoveryConfigPath = null
     }
 
+    @Synchronized
     fun clearStarting() {
         startingConfigPath = null
         pendingStartClaimId = null
@@ -90,12 +98,14 @@ internal object NativeConnectionSession {
         gate: StartGenerationGate,
         running: () -> Boolean
     ): String? = gate.withCurrent {
-        if (running() || isTransitioning() || !File(configPath).isFile) {
-            return@withCurrent null
-        }
-        UUID.randomUUID().toString().also { claimId ->
-            pendingStartClaimId = claimId
-            pendingStartConfigPath = File(configPath).absolutePath
+        synchronized(this) {
+            if (running() || isTransitioning() || !File(configPath).isFile) {
+                return@withCurrent null
+            }
+            UUID.randomUUID().toString().also { claimId ->
+                pendingStartClaimId = claimId
+                pendingStartConfigPath = File(configPath).absolutePath
+            }
         }
     }
 
@@ -104,22 +114,26 @@ internal object NativeConnectionSession {
         gate: StartGenerationGate,
         running: () -> Boolean
     ): NativeStartClaim? = gate.withCurrent {
-        if (running() || isTransitioning()) return@withCurrent null
-        val snapshot = NativeConnectionSnapshotStore.read(context)
-            ?: return@withCurrent null
-        if (!File(snapshot.configPath).isFile) return@withCurrent null
-        val claimId = UUID.randomUUID().toString()
-        pendingStartClaimId = claimId
-        pendingStartConfigPath = File(snapshot.configPath).absolutePath
-        NativeStartClaim(claimId, snapshot)
+        synchronized(this) {
+            if (running() || isTransitioning()) return@withCurrent null
+            val snapshot = NativeConnectionSnapshotStore.read(context)
+                ?: return@withCurrent null
+            if (!File(snapshot.configPath).isFile) return@withCurrent null
+            val claimId = UUID.randomUUID().toString()
+            pendingStartClaimId = claimId
+            pendingStartConfigPath = File(snapshot.configPath).absolutePath
+            NativeStartClaim(claimId, snapshot)
+        }
     }
 
     fun releasePendingStart(claimId: String?, gate: StartGenerationGate) {
         if (claimId == null) return
         gate.withCurrent {
-            if (pendingStartClaimId == claimId) {
-                pendingStartClaimId = null
-                pendingStartConfigPath = null
+            synchronized(this) {
+                if (pendingStartClaimId == claimId) {
+                    pendingStartClaimId = null
+                    pendingStartConfigPath = null
+                }
             }
         }
     }
@@ -129,13 +143,15 @@ internal object NativeConnectionSession {
         running: () -> Boolean,
         clearSnapshot: () -> Unit
     ): Boolean = gate.withCurrent {
-        if (running() || starting || stopping || recoveryConfigPath != null) {
-            return@withCurrent false
+        synchronized(this) {
+            if (running() || starting || stopping || recoveryConfigPath != null) {
+                return@withCurrent false
+            }
+            clearSnapshot()
+            pendingStartClaimId = null
+            pendingStartConfigPath = null
+            true
         }
-        clearSnapshot()
-        pendingStartClaimId = null
-        pendingStartConfigPath = null
-        true
     }
 
     fun clearIdleSnapshot(
@@ -144,12 +160,18 @@ internal object NativeConnectionSession {
         running: () -> Boolean,
         expectedGeneration: String?
     ): Boolean = gate.withCurrent {
-        check(!running() && !isTransitioning()) {
-            "Native VPN start or recovery is in progress"
+        synchronized(this) {
+            check(!running() && !isTransitioning()) {
+                "Native VPN start or recovery is in progress"
+            }
+            NativeConnectionSnapshotStore.clearIfGeneration(
+                context,
+                expectedGeneration
+            )
         }
-        NativeConnectionSnapshotStore.clearIfGeneration(context, expectedGeneration)
     }
 
+    @Synchronized
     fun protectedConfigPath(running: Boolean): String? =
         if (running) {
             runningConfigPath
@@ -160,9 +182,11 @@ internal object NativeConnectionSession {
                 runningConfigPath.takeIf { stopping }
         }
 
+    @Synchronized
     fun isTransitioning(): Boolean =
         starting || stopping || recoveryConfigPath != null || pendingStartClaimId != null
 
+    @Synchronized
     fun snapshot(running: Boolean, sessionGeneration: Long): Map<String, Any?> =
         mapOf(
             "running" to running,
@@ -178,7 +202,12 @@ internal object NativeConnectionSession {
         while (true) {
             val token = gate.current()
             var state: Map<String, Any?>? = null
-            if (gate.runIfCurrent(token) { state = snapshot(running(), token) }) {
+            if (gate.runIfCurrent(token) {
+                    synchronized(this) {
+                        state = snapshot(running(), token)
+                    }
+                }
+            ) {
                 return checkNotNull(state)
             }
         }
@@ -193,8 +222,16 @@ internal object NativeConnectionSession {
         val token = gate.current()
         var generation: String? = null
         gate.runIfCurrent(token) {
-            if (!running() && !isTransitioning() && protectedConfigPath(false) == null) {
-                generation = NativeConnectionSnapshotStore.write(context, snapshot)
+            synchronized(this) {
+                if (!running() &&
+                    !isTransitioning() &&
+                    protectedConfigPath(false) == null
+                ) {
+                    generation = NativeConnectionSnapshotStore.write(
+                        context,
+                        snapshot
+                    )
+                }
             }
         }
         return generation

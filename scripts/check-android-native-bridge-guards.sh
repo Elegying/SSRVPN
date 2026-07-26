@@ -32,6 +32,10 @@ NATIVE_SNAPSHOT_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrv
 NATIVE_CONNECTION_SESSION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSession.kt"
 NATIVE_SESSION_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeVpnSessionCoordinator.kt"
 NATIVE_SESSION_COMMITTER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeSessionCommitter.kt"
+NATIVE_PATH_POLICY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionPathPolicy.kt"
+NATIVE_START_PAYLOAD_REGISTRY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeStartPayloadRegistry.kt"
+EXTERNAL_URL_POLICY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/ExternalUrlPolicy.kt"
+TRAFFIC_TRACKER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnTrafficTracker.kt"
 START_RESULT_REGISTRY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnStartResultRegistry.kt"
 STARTUP_ORCHESTRATOR="$ROOT/SSRVPN_Android/lib/startup/startup_orchestrator.dart"
 CLASH_DART="$ROOT/SSRVPN_Android/lib/services/clash_service.dart"
@@ -221,7 +225,49 @@ PY
 require_text "waitForPendingStart()"
 require_text "VPN is already running; reusing the active session"
 require_text "createStartIntent"
-require_text "intent?.getStringExtra(EXTRA_CONFIG_DIR)"
+if grep -Eq 'EXTRA_(CONFIG_DIR|CONFIG_PATH|API_PORT|API_SECRET|NODE_NAME)' "$SERVICE"; then
+  echo "Android service intents must not carry runtime paths or credentials" >&2
+  exit 1
+fi
+require_text "NativeConnectionSnapshotStore.read(this)"
+require_text "NativeStartPayloadRegistry.consume(startPayloadId)"
+grep -Fq "NativeStartPayloadRegistry.peek(" "$NATIVE_SESSION_COORDINATOR" || {
+  echo "Android activity start lease cannot resolve its in-memory payload" >&2
+  exit 1
+}
+grep -Fq "ConcurrentHashMap<String, NativeConnectionSnapshot>" \
+  "$NATIVE_START_PAYLOAD_REGISTRY" || {
+  echo "Android foreground start payloads lost one-time in-memory ownership" >&2
+  exit 1
+}
+grep -Fq "NativeConnectionPathPolicy.requireTrusted" "$NATIVE_SNAPSHOT_STORE" || {
+  echo "Android native snapshots are not confined to the private app directory" >&2
+  exit 1
+}
+grep -Fq "ExternalUrlPolicy.normalizedHttpUrl" "$MAIN_ACTIVITY" || {
+  echo "Android external URL launch is missing its HTTP(S) policy" >&2
+  exit 1
+}
+for needle in "fun reset()" "fun resetSample()" \
+  "fun update(bytesPerSecond: (Long, Long) -> Long)" "fun snapshot()"; do
+  python3 - "$TRAFFIC_TRACKER" "$needle" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+needle = sys.argv[2]
+position = source.index(needle)
+prefix = source[max(0, position - 40):position]
+if "@Synchronized" not in prefix:
+    raise SystemExit(f"Android traffic state mutation is not atomic: {needle}")
+PY
+done
+grep -Fq "synchronized(this)" "$NATIVE_CONNECTION_SESSION" || {
+  echo "Android native connection compound state is not synchronized" >&2
+  exit 1
+}
+require_text "waitForProtectMonitor("
+require_text "vpnFd = null"
 require_text "BRIDGE_STOP_TIMEOUT_MS"
 require_text "BRIDGE_IS_RUNNING_TIMEOUT_MS"
 require_text "startBridgeWithTimeout"
@@ -332,7 +378,7 @@ intent = tile.index("SsrvpnVpnService.createStartIntent(", claim)
 launch = tile.index("startForegroundService(intent)", intent)
 if not claim < intent < launch:
     raise SystemExit("Android tile start lease is not acquired before service launch")
-main_claim = activity.index("NativeVpnSessionCoordinator.claimPendingStart(serviceIntent)")
+main_claim = activity.index("NativeVpnSessionCoordinator.claimPendingStart(")
 main_launch = activity.index("startVpnService(serviceIntent)", main_claim)
 if main_claim >= main_launch:
     raise SystemExit("Android activity start lease is not acquired before service launch")

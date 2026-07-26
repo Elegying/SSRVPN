@@ -42,6 +42,8 @@ class MainActivity : FlutterActivity() {
     private var myStartRequestId: String? = null
     @Volatile
     private var myStartClaimId: String? = null
+    @Volatile
+    private var myStartPayloadId: String? = null
     private var methodChannel: MethodChannel? = null
     // 监听 VPN 状态广播（磁贴断开/连接），实时推送给 Flutter 更新 UI
     private var vpnStateReceiver: BroadcastReceiver? = null
@@ -258,6 +260,8 @@ class MainActivity : FlutterActivity() {
             myStartRequestId = null
             NativeVpnSessionCoordinator.releasePendingStart(myStartClaimId)
             myStartClaimId = null
+            NativeStartPayloadRegistry.discard(myStartPayloadId)
+            myStartPayloadId = null
             VpnStartResultRegistry.clear(requestId)
             try {
                 SsrvpnVpnService.instance?.stopAll()
@@ -276,6 +280,8 @@ class MainActivity : FlutterActivity() {
             VpnStartResultRegistry.clear(requestId)
             NativeVpnSessionCoordinator.releasePendingStart(myStartClaimId)
             myStartClaimId = null
+            NativeStartPayloadRegistry.discard(myStartPayloadId)
+            myStartPayloadId = null
             myResultCallback = null
             myStartRequestId = null
             runOnUiThread {
@@ -290,14 +296,29 @@ class MainActivity : FlutterActivity() {
         myResultCallback = callback
         requestId = VpnStartResultRegistry.register(callback)
         myStartRequestId = requestId
+        val startPayload = try {
+            NativeConnectionPathPolicy.requireTrusted(
+                applicationInfo.dataDir,
+                NativeConnectionSnapshot(
+                    configDir = configDir,
+                    configPath = configPath,
+                    apiPort = apiPort,
+                    apiSecret = apiSecret,
+                    selectedNodeName = nodeName
+                )
+            )
+        } catch (error: Exception) {
+            VpnStartResultRegistry.clear(requestId)
+            myResultCallback = null
+            myStartRequestId = null
+            result.error("INVALID_CONFIG_PATH", "VPN 配置路径不安全或不可用", null)
+            return
+        }
+        myStartPayloadId = NativeStartPayloadRegistry.register(startPayload)
         pendingVpnServiceIntent = SsrvpnVpnService.createStartIntent(
             this,
-            configDir,
-            configPath,
-            apiPort,
-            apiSecret,
-            nodeName,
-            requestId
+            requestId = requestId,
+            startPayloadId = myStartPayloadId
         )
         startTimeoutRunnable = timeoutRunnable
 
@@ -357,9 +378,11 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleOpenUrl(call: MethodCall, result: MethodChannel.Result) {
-        val url = call.argument<String>("url")
+        val url = ExternalUrlPolicy.normalizedHttpUrl(
+            call.argument<String>("url")
+        )
         if (url == null) {
-            result.error("INVALID_ARGS", "URL is required", null)
+            result.error("INVALID_URL", "Only HTTP and HTTPS URLs are allowed", null)
             return
         }
         try {
@@ -526,6 +549,8 @@ class MainActivity : FlutterActivity() {
         pendingVpnServiceIntent = null
         NativeVpnSessionCoordinator.releasePendingStart(myStartClaimId)
         myStartClaimId = null
+        NativeStartPayloadRegistry.discard(myStartPayloadId)
+        myStartPayloadId = null
         myResultCallback?.invoke(false, message, null)
     }
 
@@ -571,6 +596,8 @@ class MainActivity : FlutterActivity() {
         pendingVpnServiceIntent = null
         NativeVpnSessionCoordinator.releasePendingStart(myStartClaimId)
         myStartClaimId = null
+        NativeStartPayloadRegistry.discard(myStartPayloadId)
+        myStartPayloadId = null
         // 只清理本 Activity 注册的回调，避免静态引用泄漏 Activity；
         // 不影响磁贴等其他来源设置的回调
         VpnStartResultRegistry.clear(myStartRequestId)

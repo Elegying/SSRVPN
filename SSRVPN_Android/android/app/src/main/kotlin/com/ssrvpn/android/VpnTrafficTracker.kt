@@ -20,6 +20,7 @@ internal class VpnTrafficTracker(
     private var uploadRate = 0L
     private var downloadRate = 0L
 
+    @Synchronized
     fun reset() {
         val tx = readTransmittedBytes().coerceAtLeast(0L)
         val rx = readReceivedBytes().coerceAtLeast(0L)
@@ -28,11 +29,13 @@ internal class VpnTrafficTracker(
         resetSample(tx, rx)
     }
 
+    @Synchronized
     fun resetSample() = resetSample(
         readTransmittedBytes().coerceAtLeast(0L),
         readReceivedBytes().coerceAtLeast(0L)
     )
 
+    @Synchronized
     fun update(bytesPerSecond: (Long, Long) -> Long) {
         val now = elapsedRealtime()
         val tx = readTransmittedBytes().coerceAtLeast(0L)
@@ -45,6 +48,7 @@ internal class VpnTrafficTracker(
         lastSampleAt = now
     }
 
+    @Synchronized
     fun snapshot() = VpnTrafficSnapshot(
         uploadRate = uploadRate,
         downloadRate = downloadRate,
