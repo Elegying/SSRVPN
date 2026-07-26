@@ -36,15 +36,26 @@ mixin _ClashDataPlaneSupport {
   void scheduleDataPlaneObservation() {
     if (_dataPlaneObservationInProgress || !isRunning) return;
     _dataPlaneObservationInProgress = true;
+    final observation = Future<void>.sync(observeDataPlaneHealth);
+    // Future.timeout does not cancel its source. Keep the ownership flag until
+    // the real probe settles so a timed-out probe cannot overlap later probes.
     unawaited(
-      observeDataPlaneHealth()
+      observation.then<void>(
+        (_) => _dataPlaneObservationInProgress = false,
+        onError: (Object _, StackTrace __) {
+          _dataPlaneObservationInProgress = false;
+        },
+      ),
+    );
+    unawaited(
+      observation
           .timeout(dataPlaneObservationTimeout)
           .catchError((Object error, StackTrace stack) {
         log('数据通道观察失败，不影响核心生命周期: $error');
         if (isRunning) {
           setConnectivityWarning('数据通道检查未能完成，请稍后重试或切换节点');
         }
-      }).whenComplete(() => _dataPlaneObservationInProgress = false),
+      }),
     );
   }
 

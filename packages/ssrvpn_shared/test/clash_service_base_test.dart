@@ -771,11 +771,13 @@ proxies:
 
     service.startStatusMonitor();
     await service.warningPublished.future.timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(milliseconds: 25));
     service.stopStatusMonitor();
 
     expect(service.isRunning, isTrue);
     expect(service.connectionDesired, isTrue);
     expect(service.connectivityWarning, contains('未能完成'));
+    expect(service.observationCalls, 1);
   });
 
   group('ClashServiceBase diagnostics', () {
@@ -1343,6 +1345,7 @@ class _HangingHealthClashService extends ClashServiceBase {
 
 class _HangingDataPlaneClashService extends _TestClashService {
   final Completer<void> warningPublished = Completer<void>();
+  int observationCalls = 0;
 
   @override
   Duration get statusMonitorInterval => const Duration(milliseconds: 1);
@@ -1354,7 +1357,10 @@ class _HangingDataPlaneClashService extends _TestClashService {
   Future<bool> healthCheck() async => true;
 
   @override
-  Future<void> observeDataPlaneHealth() => Completer<void>().future;
+  Future<void> observeDataPlaneHealth() {
+    observationCalls++;
+    return Completer<void>().future;
+  }
 
   @override
   void notifyStatusChanged() {
