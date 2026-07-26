@@ -48,4 +48,10 @@ if [ "$base_version" != "$constant_version" ]; then
   exit 1
 fi
 
+version_pattern="${base_version//./\\.}"
+if ! grep -Eq "^## \\[$version_pattern\\]( - [0-9]{4}-[0-9]{2}-[0-9]{2})?$" CHANGELOG.md; then
+  echo "version check failed: CHANGELOG.md has no [$base_version] section" >&2
+  exit 1
+fi
+
 echo "Version sync check passed: $workspace_version"
