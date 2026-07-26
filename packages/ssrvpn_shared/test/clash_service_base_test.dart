@@ -749,6 +749,35 @@ proxies:
     expect(service.stopCalls, 0);
   });
 
+  test('status monitor bounds a health check that never completes', () async {
+    final service = _HangingHealthClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    service.startStatusMonitor();
+    await service.stopped.future.timeout(const Duration(seconds: 1));
+
+    expect(service.healthCalls, greaterThanOrEqualTo(2));
+    expect(service.isRunning, isFalse);
+    expect(service.recentLogs, contains('健康检查超时'));
+  });
+
+  test('data-plane observation timeout becomes an advisory warning', () async {
+    final service = _HangingDataPlaneClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    service.startStatusMonitor();
+    await service.warningPublished.future.timeout(const Duration(seconds: 1));
+    service.stopStatusMonitor();
+
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+    expect(service.connectivityWarning, contains('未能完成'));
+  });
+
   group('ClashServiceBase diagnostics', () {
     test('reports missing core and config with stable error codes', () async {
       final tempDir =
@@ -812,6 +841,45 @@ proxies:
       expect(runtime.status, AppDiagnosticStatus.passed);
       expect(dataPlane.status, AppDiagnosticStatus.warning);
       expect(dataPlane.summary, contains('核心、系统服务和运行配置仍保持连接'));
+    });
+
+    test('reports a healthy data plane instead of omitting the check',
+        () async {
+      final service = _DiagnosticClashService();
+      addTearDown(service.dispose);
+      service.setRunning(true);
+
+      final report = await service.runDiagnostics();
+      final dataPlane =
+          report.checks.singleWhere((check) => check.id == 'data_plane');
+
+      expect(dataPlane.status, AppDiagnosticStatus.passed);
+      expect(dataPlane.errorCode, isNull);
+    });
+
+    test('bounds and logs diagnostic check failures', () async {
+      final service = _HangingDiagnosticClashService();
+      addTearDown(service.dispose);
+      service.setRunning(true);
+
+      final report =
+          await service.runDiagnostics().timeout(const Duration(seconds: 1));
+
+      expect(
+        report.checks.singleWhere((check) => check.id == 'core').status,
+        AppDiagnosticStatus.failed,
+      );
+      expect(
+        report.checks.singleWhere((check) => check.id == 'runtime').status,
+        AppDiagnosticStatus.failed,
+      );
+      expect(
+        report.checks.singleWhere((check) => check.id == 'platform').status,
+        AppDiagnosticStatus.warning,
+      );
+      expect(service.recentLogs, contains('诊断检查 core 超时'));
+      expect(service.recentLogs, contains('诊断检查 runtime 超时'));
+      expect(service.recentLogs, contains('诊断检查 platform 超时'));
     });
 
     test('checks the platform active config instead of a stale base path',
@@ -1245,4 +1313,69 @@ class _AdvisoryDataPlaneClashService extends _TestClashService {
   Future<void> onStopRequired() async {
     stopCalls++;
   }
+}
+
+class _HangingHealthClashService extends ClashServiceBase {
+  final Completer<void> stopped = Completer<void>();
+  int healthCalls = 0;
+
+  @override
+  Duration get statusMonitorInterval => const Duration(milliseconds: 1);
+
+  @override
+  Duration get healthCheckTimeout => const Duration(milliseconds: 10);
+
+  @override
+  int get maxConsecutiveHealthCheckFailures => 1;
+
+  @override
+  Future<bool> healthCheck() {
+    healthCalls++;
+    return Completer<bool>().future;
+  }
+
+  @override
+  Future<void> onStopRequired() async {
+    setRunning(false);
+    if (!stopped.isCompleted) stopped.complete();
+  }
+}
+
+class _HangingDataPlaneClashService extends _TestClashService {
+  final Completer<void> warningPublished = Completer<void>();
+
+  @override
+  Duration get statusMonitorInterval => const Duration(milliseconds: 1);
+
+  @override
+  Duration get dataPlaneObservationTimeout => const Duration(milliseconds: 10);
+
+  @override
+  Future<bool> healthCheck() async => true;
+
+  @override
+  Future<void> observeDataPlaneHealth() => Completer<void>().future;
+
+  @override
+  void notifyStatusChanged() {
+    super.notifyStatusChanged();
+    if (connectivityWarning != null && !warningPublished.isCompleted) {
+      warningPublished.complete();
+    }
+  }
+}
+
+class _HangingDiagnosticClashService extends _TestClashService {
+  @override
+  Duration get diagnosticCheckTimeout => const Duration(milliseconds: 10);
+
+  @override
+  Future<bool> diagnosticCoreAvailable() => Completer<bool>().future;
+
+  @override
+  Future<bool> healthCheck() => Completer<bool>().future;
+
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() =>
+      Completer<List<AppDiagnosticCheck>>().future;
 }

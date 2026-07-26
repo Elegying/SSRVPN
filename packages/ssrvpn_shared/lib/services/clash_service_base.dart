@@ -89,6 +89,17 @@ abstract class ClashServiceBase
   Duration get statusMonitorInterval => const Duration(seconds: 5);
 
   @protected
+  Duration get healthCheckTimeout => const Duration(seconds: 10);
+
+  @protected
+  @override
+  Duration get dataPlaneObservationTimeout => const Duration(seconds: 30);
+
+  @protected
+  @override
+  Duration get diagnosticCheckTimeout => const Duration(seconds: 10);
+
+  @protected
   int get maxConsecutiveHealthCheckFailures => 3;
 
   @protected
@@ -107,6 +118,21 @@ abstract class ClashServiceBase
   @protected
   void setLastHealthCheckError(String? value) {
     _lastHealthCheckError = value;
+  }
+
+  @protected
+  Future<bool> boundedHealthCheck() async {
+    try {
+      return await healthCheck().timeout(healthCheckTimeout);
+    } on TimeoutException {
+      _lastHealthCheckError = '健康检查超时';
+      log('Mihomo 健康检查超时 (${healthCheckTimeout.inSeconds}s)');
+      return false;
+    } catch (error) {
+      _lastHealthCheckError = '健康检查异常';
+      log('Mihomo 健康检查异常: $error');
+      return false;
+    }
   }
 
   @override
@@ -661,7 +687,7 @@ abstract class ClashServiceBase
   /// recovery only if the platform deliberately left itself running.
   @protected
   Future<bool> recoverAfterHealthCheckFailure(int connectionGeneration) async {
-    if (await healthCheck()) {
+    if (await boundedHealthCheck()) {
       setRunning(true);
       return isConnectionIntentCurrent(connectionGeneration, connected: true);
     }

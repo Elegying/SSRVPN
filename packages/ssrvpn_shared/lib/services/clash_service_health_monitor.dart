@@ -12,7 +12,7 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
       if (!_isRunning || _healthCheckInProgress) return;
       _healthCheckInProgress = true;
       try {
-        final healthy = await healthCheck();
+        final healthy = await boundedHealthCheck();
         if (healthy) {
           _consecutiveHealthCheckFailures = 0;
           scheduleDataPlaneObservation();

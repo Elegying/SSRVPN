@@ -12,6 +12,7 @@ mixin _ClashDataPlaneSupport {
   void notifyStatusChanged();
   String _localHttpProxyConfig();
   String userConnectivityProxyConfig();
+  Duration get dataPlaneObservationTimeout;
 
   String? get connectivityWarning => _connectivityWarning;
 
@@ -35,8 +36,13 @@ mixin _ClashDataPlaneSupport {
     if (_dataPlaneObservationInProgress || !isRunning) return;
     _dataPlaneObservationInProgress = true;
     unawaited(
-      observeDataPlaneHealth().catchError((Object error, StackTrace stack) {
+      observeDataPlaneHealth()
+          .timeout(dataPlaneObservationTimeout)
+          .catchError((Object error, StackTrace stack) {
         log('数据通道观察失败，不影响核心生命周期: $error');
+        if (isRunning) {
+          setConnectivityWarning('数据通道检查未能完成，请稍后重试或切换节点');
+        }
       }).whenComplete(() => _dataPlaneObservationInProgress = false),
     );
   }
