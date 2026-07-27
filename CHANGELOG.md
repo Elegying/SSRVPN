@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2026-07-27
+
+### 新增
+
+- Android 诊断现已接入原生 VPN 会话、Bridge、实际 TUN 接口、受保护运行配置和恢复代际，并以显式未知态呈现无法确认的探针，不再依赖静默默认值。
+- 三端诊断新增受限、脱敏的本地历史报告：写入和读取都会重新脱敏，拒绝异常结构与超限文件，只保留有界数量和内容。
+- Windows 新增启动事务与故障注入测试，覆盖准备、启动、提交、回滚及回滚失败；新增订阅导入、真实配置生成和 Mihomo API 就绪的集成测试。
+
+### 改进
+
+- 拆分 Windows/macOS 长启动事务，将准备、提交和回滚职责收敛到独立组件，避免错误报告或清理回调破坏原始失败语义。
+- 拆分 `MacosTunSession` 的请求存储与生命周期职责，保持 TUN/DNS 恢复标记、授权会话和并发代际边界可独立验证。
+- 平台诊断 capability 改为显式声明；Android 原生探针在后台线程执行，并将结果安全交回 Flutter 主线程。
+
+### 安全
+
+- Android 只认领本次原生会话提交时捕获的 TUN 接口身份，避免把无关 TUN 误判为 SSRVPN；停止后若仍有残留接口或 Bridge，会保留失败诊断。
+- macOS API secret 继续使用当前受保护文件边界；本版本完成按会话轮换方案评估，不直接迁移 Keychain，后续实现需保证启动、崩溃恢复和特权 TUN 会话原子切换。
+
+### 测试
+
+- 完整发布门禁覆盖共享诊断、Android Dart 与 Kotlin 原生会话、macOS TUN/DNS 与系统代理、Windows 生命周期、发布工具、秘密扫描、静态分析和覆盖率阈值。
+- 订阅端到端集成测试使用真实解析与配置生成，并在平台二进制可用时启动真实 Mihomo、验证带认证的 API 就绪。
+
+### 兼容性边界
+
+- 本版本没有修改 HTTP 订阅、国内应用直连名单、三端 IPv4-only 策略或桌面系统代理恢复顺序。
+- Windows 继续只发布未签名的 `SSRVPN_Setup.exe` 安装版，不提供便携 ZIP；macOS 继续使用现有 ad-hoc 发布签名策略。
+
 ## [3.6.2] - 2026-07-27
 
 ### 安全
