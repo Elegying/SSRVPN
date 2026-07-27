@@ -2,6 +2,13 @@ part of 'clash_service.dart';
 
 class _DesktopStartCancelled implements Exception {}
 
+enum _WindowsExistingRuntimePreparation { ready, alreadyHealthy, blocked }
+
+typedef _WindowsLaunchPreparation = ({
+  Map<String, String> environment,
+  bool startedWithTun,
+});
+
 enum _VerifiedCoreTermination {
   terminatedOrGone,
   liveIdentityMismatch,
@@ -147,6 +154,12 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
           FileSystemEntityType.file;
 
   @override
+  String get diagnosticConfigPath => configPath;
+
+  @override
+  bool get diagnosticConfigRequired => true;
+
+  @override
   Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => [
         AppDiagnosticCheck(
           id: 'system_proxy',
@@ -169,7 +182,10 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   @override
   Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async {
     if (action != AppRepairAction.retryOwnedProxyRecovery) {
-      return super.repairDiagnosticIssue(action);
+      return const AppRepairResult(
+        success: false,
+        message: '当前平台没有可执行的安全修复操作。',
+      );
     }
     if (isRunning) {
       return const AppRepairResult(
@@ -667,162 +683,34 @@ try {
     }
 
     try {
-      if (isRunning) {
-        try {
-          if (await healthCheck()) return true;
-        } catch (_) {}
-        _ensureStartCurrent(startToken);
-        final stoppedSafely = await _stopInternal();
-        _ensureStartCurrent(startToken);
-        if (!stoppedSafely) {
-          setLastStartError(_lastStopError ?? '现有 Mihomo 连接无法安全停止，已拒绝启动新的核心');
-          log('❌ $lastStartError');
-          return false;
-        }
+      final existingRuntime = await _prepareExistingWindowsRuntime(startToken);
+      if (existingRuntime ==
+          _WindowsExistingRuntimePreparation.alreadyHealthy) {
+        return true;
       }
-
-      if (_coreProcess != null) {
-        log('检测到尚未确认退出的 Mihomo，正在安全清理...');
-        final stoppedSafely = await _stopInternal();
-        _ensureStartCurrent(startToken);
-        if (!stoppedSafely || _coreProcess != null) {
-          setLastStartError(_lastStopError ?? '上一个 Mihomo 进程尚未退出，已拒绝启动新的核心');
-          log('❌ $lastStartError');
-          return false;
-        }
-      }
-
-      if (_tunTeardownGate.shouldProbeBeforeStart(
-        enableTun: settings.enableTun,
-      )) {
-        if (!await _waitForTunTeardown()) {
-          _ensureStartCurrent(startToken);
-          setLastStartError(_tunResidualProbeError);
-          log('❌ $lastStartError');
-          return false;
-        }
-        _ensureStartCurrent(startToken);
+      if (existingRuntime == _WindowsExistingRuntimePreparation.blocked) {
+        return false;
       }
 
       final startupWatch = Stopwatch()..start();
       log('🚀 启动 Mihomo...');
-
-      // 检查核心文件
-      if (!File(_corePath).existsSync()) {
-        log('❌ 核心文件不存在: $_corePath');
-        log('请下载 mihomo-windows-amd64 并重命名为 mihomo.exe 放到应用目录');
-        setLastStartError('找不到 mihomo.exe，文件可能未完整解压或被安全软件隔离');
-        return false;
-      }
-
-      if (!File(configPath).existsSync()) {
-        log('❌ 配置文件不存在: $configPath');
-        setLastStartError('找不到生成的 Mihomo 配置文件');
-        return false;
-      }
-
-      if (settings.enableTun) {
-        final isAdministrator = await _awaitStartOperation(
-          _isAdministrator(cancellation: _startCancellation?.future),
-          startToken,
-        );
-        _ensureStartCurrent(startToken);
-        if (isAdministrator != true) {
-          WindowsTunElevationRequestResult? elevationRequest;
-          if (isAdministrator == false) {
-            elevationRequest = await _awaitStartOperation(
-              _tunElevationService.requestRelaunch(),
-              startToken,
-            );
-            _ensureStartCurrent(startToken);
-          }
-          if (elevationRequest == WindowsTunElevationRequestResult.launched) {
-            _tunElevationRelaunchPending = true;
-          }
-          setLastStartError(switch (elevationRequest) {
-            WindowsTunElevationRequestResult.launched =>
-              'TUN 模式需要管理员权限，SSRVPN 正在自动重启并继续连接',
-            WindowsTunElevationRequestResult.cancelled => '已取消管理员授权，TUN 模式未启动',
-            WindowsTunElevationRequestResult.standardUser =>
-              '当前 Windows 账户不能直接提升为管理员；TUN 模式未启动，请使用管理员账户运行 SSRVPN',
-            WindowsTunElevationRequestResult.failed =>
-              '无法打开管理员授权窗口，TUN 模式未启动，请手动以管理员身份运行 SSRVPN',
-            null => '无法确认管理员权限，TUN 模式已安全中止，请重新以管理员身份运行 SSRVPN',
-          });
-          log('❌ $lastStartError');
-          return false;
-        }
-      }
-
-      // 创建 tmp 目录
-      final tmpDir = '$configDir${Platform.pathSeparator}tmp';
-      await Directory(tmpDir).create(recursive: true);
-      _ensureStartCurrent(startToken);
-      final environment = {'TMPDIR': tmpDir, 'TMP': tmpDir, 'TEMP': tmpDir};
-
-      if (!await _validateConfig(environment)) {
-        setLastStartError(lastStartError ?? 'Mihomo 配置校验失败，请打开运行日志查看具体配置错误');
-        return false;
-      }
-      _ensureStartCurrent(startToken);
-      final pidFile = File('$configDir${Platform.pathSeparator}mihomo.pid');
-      final pidFileType = await FileSystemEntity.type(
-        pidFile.path,
-        followLinks: false,
-      );
-      if (_corePidRecord != null ||
-          pidFileType != FileSystemEntityType.notFound) {
-        setLastStartError('检测到尚未安全清理的 Mihomo 进程身份记录，已拒绝启动新的核心');
-        log('❌ $lastStartError');
-        return false;
-      }
-
-      // 启动 mihomo 子进程（运行数据位于安装版数据目录）
+      final preparation = await _prepareWindowsLaunch(startToken);
+      if (preparation == null) return false;
+      final environment = preparation.environment;
+      final processStartWatch = Stopwatch()..start();
+      final startedWithTun = preparation.startedWithTun;
       if (_coreProcess != null) {
         setLastStartError('上一个 Mihomo 进程尚未退出，已拒绝启动新的核心');
-        log('❌ $lastStartError');
         await _cleanupFailedStart();
         return false;
       }
-      if (settings.enableTun &&
-          !await _awaitStartOperation(
-            _proxyService.isLauncherGuardianReady(
-              cancellation: _startCancellation?.future,
-            ),
-            startToken,
-          )) {
-        _ensureStartCurrent(startToken);
-        setLastStartError(
-          '独立崩溃保护进程未就绪，TUN 模式已安全中止；'
-          '请通过 ssrvpn_windows.exe 启动或重试',
-        );
-        log('❌ $lastStartError');
-        return false;
-      }
-      final processStartWatch = Stopwatch()..start();
-      final startedWithTun = settings.enableTun;
-      if (startedWithTun) {
-        final baselineProbe = _networkInterfaceIdentityProbeOverride;
-        _tunInterfacesBeforeStart = await _awaitStartOperation(
-          baselineProbe?.call() ??
-              probeWindowsNetworkInterfaceIdentities(
-                cancellation: _startCancellation?.future,
-              ),
-          startToken,
-        );
-      } else {
-        _tunInterfacesBeforeStart = const <WindowsTunInterfaceIdentity>{};
-      }
-      _ensureStartCurrent(startToken);
-      if (startedWithTun && !await _armTunTeardownGate()) {
-        _tunInterfacesBeforeStart = const <WindowsTunInterfaceIdentity>{};
-        _ensureStartCurrent(startToken);
-        setLastStartError('无法持久化 TUN 清理状态，已在启动 Mihomo 前安全中止');
-        log('❌ $lastStartError');
-        return false;
-      }
-      _ensureStartCurrent(startToken);
       final coreSpawnStartedAtUtcFileTime = currentWindowsUtcFileTime();
+      _ensureStartCurrent(startToken);
+      if (_coreProcess != null) {
+        setLastStartError('Mihomo 启动所有权发生变化，已拒绝创建新的核心');
+        await _cleanupFailedStart();
+        return false;
+      }
       final startedProcess = await Process.start(
         _corePath,
         ['-d', configDir, '-f', configPath],
@@ -970,59 +858,15 @@ try {
       }
 
       if (healthy) {
-        _ensureStartCurrent(startToken);
-        // 设置系统代理（非 TUN 模式时）
-        if (!settings.enableTun && !preserveSystemProxyRecovery) {
-          final proxyWatch = Stopwatch()..start();
-          final proxySet = await _proxyService.setSystemProxy(
-            '127.0.0.1',
-            settings.proxyPort,
-            cancellation: _startCancellation?.future,
-          );
-          _ensureStartCurrent(startToken);
-          if (proxySet) {
-            log('✅ 系统代理已设置，耗时 ${proxyWatch.elapsedMilliseconds}ms');
-          } else {
-            setLastStartError(_proxyService.lastError ?? 'Windows 系统代理设置失败');
-            log('❌ $lastStartError，连接已取消');
-            await _cleanupFailedStart();
-            return false;
-          }
-        }
-
-        final processStillHealthy = await healthCheck();
-        _ensureStartCurrent(startToken);
-        final canCommitRunning = identical(_coreProcess, startedProcess) &&
-            startupExitCode == null &&
-            processStillHealthy;
-        if (!canCommitRunning) {
-          setLastStartError(
-            startupExitCode == null
-                ? 'Mihomo 在系统代理设置期间失去响应'
-                : 'Mihomo 在系统代理设置期间退出（退出码 $startupExitCode）',
-          );
-          log('❌ $lastStartError');
-          await _cleanupFailedStart();
-          return false;
-        }
-        if (startedWithTun &&
-            !tunIdentityPersisted &&
-            !await _persistTunInterfaceIdentities()) {
-          _ensureStartCurrent(startToken);
-          log(
-            '⚠️ TUN 已启动，但 Windows 未暴露可持久化的网卡身份；'
-            '已保留启动前基线，本项仅记录诊断告警',
-          );
-        }
-
-        _proxyRecoveryListenerActive = preserveSystemProxyRecovery;
-        setRunning(true);
-        resetHealthCheckFailures();
-        log('✅ Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');
-
-        notifyStatusChanged();
-        startStatusMonitor();
-        return true;
+        return _completeHealthyStart(
+          startToken: startToken,
+          startedProcess: startedProcess,
+          readStartupExitCode: () => startupExitCode,
+          startedWithTun: startedWithTun,
+          tunIdentityPersisted: tunIdentityPersisted,
+          preserveSystemProxyRecovery: preserveSystemProxyRecovery,
+          startupWatch: startupWatch,
+        );
       } else {
         if (startupExitCode != null) {
           final detail = startupOutput.isEmpty ? '' : ': ${startupOutput.last}';
@@ -1051,6 +895,80 @@ try {
       await _cleanupFailedStart();
       return false;
     }
+  }
+
+  Future<bool> _completeHealthyStart({
+    required int startToken,
+    required Process startedProcess,
+    required int? Function() readStartupExitCode,
+    required bool startedWithTun,
+    required bool tunIdentityPersisted,
+    required bool preserveSystemProxyRecovery,
+    required Stopwatch startupWatch,
+  }) {
+    return WindowsStartTransaction().run(
+      configurePlatformNetworking: () async {
+        _ensureStartCurrent(startToken);
+        if (settings.enableTun || preserveSystemProxyRecovery) return true;
+        final proxyWatch = Stopwatch()..start();
+        final proxySet = await _proxyService.setSystemProxy(
+          '127.0.0.1',
+          settings.proxyPort,
+          cancellation: _startCancellation?.future,
+        );
+        _ensureStartCurrent(startToken);
+        if (!proxySet) {
+          setLastStartError(_proxyService.lastError ?? 'Windows 系统代理设置失败');
+          log('❌ $lastStartError，连接已取消');
+          return false;
+        }
+        log('✅ 系统代理已设置，耗时 ${proxyWatch.elapsedMilliseconds}ms');
+        return true;
+      },
+      confirmHealthy: () async {
+        final processStillHealthy = await healthCheck();
+        _ensureStartCurrent(startToken);
+        final startupExitCode = readStartupExitCode();
+        final canCommitRunning = identical(_coreProcess, startedProcess) &&
+            startupExitCode == null &&
+            processStillHealthy;
+        if (!canCommitRunning) {
+          setLastStartError(
+            startupExitCode == null
+                ? 'Mihomo 在系统代理设置期间失去响应'
+                : 'Mihomo 在系统代理设置期间退出（退出码 $startupExitCode）',
+          );
+          log('❌ $lastStartError');
+        }
+        return canCommitRunning;
+      },
+      commit: () async {
+        if (startedWithTun &&
+            !tunIdentityPersisted &&
+            !await _persistTunInterfaceIdentities()) {
+          _ensureStartCurrent(startToken);
+          log(
+            '⚠️ TUN 已启动，但 Windows 未暴露可持久化的网卡身份；'
+            '已保留启动前基线，本项仅记录诊断告警',
+          );
+        }
+        _proxyRecoveryListenerActive = preserveSystemProxyRecovery;
+        setRunning(true);
+        resetHealthCheckFailures();
+        log('✅ Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');
+        notifyStatusChanged();
+        startStatusMonitor();
+      },
+      rollback: _cleanupFailedStart,
+      onException: (stage, error) {
+        if (error is _DesktopStartCancelled) {
+          setLastStartError('连接已取消');
+        } else {
+          setLastStartError(_friendlyStartException(error));
+        }
+        log('❌ Windows 启动事务在 ${stage.name} 阶段失败');
+      },
+    );
   }
 
   Future<void> _cleanupFailedStart() async {

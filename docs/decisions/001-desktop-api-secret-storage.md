@@ -101,6 +101,7 @@ Mihomo 需要该值保护控制接口，移除后会破坏当前控制链路。�
 - [ADR-002：Windows 安装版数据保留与多来源隔离](002-windows-installed-data-preservation.md)
 - [公共用户指南](../USER_GUIDE.zh-CN.md)
 - [ADR-003：Windows 只发布安装器](003-windows-installer-only-distribution.md)
+- [ADR-008：macOS API Secret 的会话轮换边界](008-macos-session-api-secret-rotation.md)
 - [Windows 安装与权限](../../SSRVPN_Windows/USER_GUIDE.md)
 
 ## 官方依据

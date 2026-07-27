@@ -1061,7 +1061,8 @@ Future<void> _recordRequests(
   }
 }
 
-class _ApiClashService extends ClashServiceBase {
+class _ApiClashService extends ClashServiceBase
+    with _ExplicitTestDiagnosticCapability {
   Future<void> runRuleProviderRefresh() => refreshRuleProvidersOnce();
 
   Future<bool> runDesktopRecovery(int generation) =>
@@ -1111,7 +1112,8 @@ class _ControlledLatencyClashService extends _TestClashService {
   }
 }
 
-class _TestClashService extends ClashServiceBase {
+class _TestClashService extends ClashServiceBase
+    with _ExplicitTestDiagnosticCapability {
   int refreshCalls = 0;
 
   @override
@@ -1208,7 +1210,8 @@ class _DiagnosticClashService extends _TestClashService {
   }
 }
 
-class _FailingHealthClashService extends ClashServiceBase {
+class _FailingHealthClashService extends ClashServiceBase
+    with _ExplicitTestDiagnosticCapability {
   final Completer<void> stopRequested = Completer<void>();
   int stopCalls = 0;
 
@@ -1229,7 +1232,8 @@ class _FailingHealthClashService extends ClashServiceBase {
   }
 }
 
-class _RecoveringHealthClashService extends ClashServiceBase {
+class _RecoveringHealthClashService extends ClashServiceBase
+    with _ExplicitTestDiagnosticCapability {
   final Completer<void> recovered = Completer<void>();
   int recoveryCalls = 0;
 
@@ -1250,7 +1254,8 @@ class _RecoveringHealthClashService extends ClashServiceBase {
   }
 }
 
-class _CancellableHealthRecoveryClashService extends ClashServiceBase {
+class _CancellableHealthRecoveryClashService extends ClashServiceBase
+    with _ExplicitTestDiagnosticCapability {
   final Completer<void> recoveryStarted = Completer<void>();
   final Completer<void> allowRecovery = Completer<void>();
   final Completer<void> recoveryFinished = Completer<void>();
@@ -1317,7 +1322,8 @@ class _AdvisoryDataPlaneClashService extends _TestClashService {
   }
 }
 
-class _HangingHealthClashService extends ClashServiceBase {
+class _HangingHealthClashService extends ClashServiceBase
+    with _ExplicitTestDiagnosticCapability {
   final Completer<void> stopped = Completer<void>();
   int healthCalls = 0;
 
@@ -1384,4 +1390,22 @@ class _HangingDiagnosticClashService extends _TestClashService {
   @override
   Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() =>
       Completer<List<AppDiagnosticCheck>>().future;
+}
+
+mixin _ExplicitTestDiagnosticCapability on ClashServiceBase {
+  @override
+  Future<bool> diagnosticCoreAvailable() async => false;
+
+  @override
+  String get diagnosticConfigPath => configPath;
+
+  @override
+  bool get diagnosticConfigRequired => false;
+
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => const [];
+
+  @override
+  Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async =>
+      const AppRepairResult(success: false, message: 'test capability');
 }

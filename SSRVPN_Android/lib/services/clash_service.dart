@@ -75,6 +75,17 @@ class ClashService extends ClashServiceBase {
   @override
   bool get diagnosticConfigRequired => isRunning;
 
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async =>
+      _androidPlatformDiagnosticChecks();
+
+  @override
+  Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async =>
+      const AppRepairResult(
+        success: false,
+        message: 'Android 诊断仅提供只读状态，不执行自动修复。',
+      );
+
   // ── onStopRequired ──
 
   @override

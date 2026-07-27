@@ -14,6 +14,17 @@ def windows_app_runtime_source() -> str:
     return runtime + "\n" + entrypoint
 
 
+def windows_clash_lifecycle_source() -> str:
+    services = ROOT / "SSRVPN_Windows" / "lib" / "services"
+    preparation = (services / "clash_service_start_preparation.dart").read_text(
+        encoding="utf-8"
+    )
+    lifecycle = (services / "clash_service_lifecycle.dart").read_text(
+        encoding="utf-8"
+    )
+    return preparation + "\n" + lifecycle
+
+
 class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
     def test_tun_elevation_relaunch_is_bounded_and_same_account_only(self) -> None:
         runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
@@ -24,9 +35,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         )
         manifest = (runner / "runner.exe.manifest").read_text(encoding="utf-8")
         cmake = (runner / "CMakeLists.txt").read_text(encoding="utf-8")
-        lifecycle = (
-            ROOT / "SSRVPN_Windows" / "lib" / "services" / "clash_service_lifecycle.dart"
-        ).read_text(encoding="utf-8")
+        lifecycle = windows_clash_lifecycle_source()
         shared_home = (
             ROOT
             / "packages"
@@ -322,6 +331,9 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
 
     def test_tun_start_requires_launcher_guardian_before_core_spawn(self) -> None:
         services = ROOT / "SSRVPN_Windows" / "lib" / "services"
+        preparation = (services / "clash_service_start_preparation.dart").read_text(
+            encoding="utf-8"
+        )
         lifecycle = (services / "clash_service_lifecycle.dart").read_text(
             encoding="utf-8"
         )
@@ -329,17 +341,22 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             encoding="utf-8"
         )
 
-        admin_check = lifecycle.index("final isAdministrator")
-        guardian_gate = lifecycle.index(
-            "if (settings.enableTun &&", admin_check
+        elevation_gate = preparation.index(
+            "if (settings.enableTun && !await _confirmWindowsTunElevation"
         )
-        guardian_check = lifecycle.index(
+        guardian_gate = preparation.index(
+            "if (settings.enableTun &&", elevation_gate + 1
+        )
+        guardian_check = preparation.index(
             "_proxyService.isLauncherGuardianReady(", guardian_gate
         )
+        preparation_call = lifecycle.index(
+            "final preparation = await _prepareWindowsLaunch(startToken)"
+        )
         core_spawn = lifecycle.index("final startedProcess = await Process.start(")
-        self.assertLess(admin_check, guardian_check)
-        self.assertLess(guardian_check, core_spawn)
-        guardian_start_gate = lifecycle[guardian_gate:core_spawn]
+        self.assertLess(elevation_gate, guardian_check)
+        self.assertLess(preparation_call, core_spawn)
+        guardian_start_gate = preparation[guardian_gate:]
         self.assertIn("_awaitStartOperation(", guardian_start_gate)
         self.assertIn(
             "cancellation: _startCancellation?.future",
@@ -352,13 +369,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         )
 
     def test_tun_teardown_blocks_stop_completion_and_automatic_restart(self) -> None:
-        lifecycle = (
-            ROOT
-            / "SSRVPN_Windows"
-            / "lib"
-            / "services"
-            / "clash_service_lifecycle.dart"
-        ).read_text(encoding="utf-8")
+        lifecycle = windows_clash_lifecycle_source()
 
         stop = lifecycle[
             lifecycle.index("Future<bool> _stopInternal()") : lifecycle.index(
@@ -410,9 +421,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
     def test_tun_pending_marker_restores_gate_after_app_restart(self) -> None:
         services = ROOT / "SSRVPN_Windows" / "lib" / "services"
         service = (services / "clash_service.dart").read_text(encoding="utf-8")
-        lifecycle = (services / "clash_service_lifecycle.dart").read_text(
-            encoding="utf-8"
-        )
+        lifecycle = windows_clash_lifecycle_source()
         tun_recovery = (services / "clash_service_tun_recovery.dart").read_text(
             encoding="utf-8"
         )

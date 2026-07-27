@@ -1,7 +1,20 @@
 part of 'clash_service_base.dart';
 
+/// Platform-owned information required by the shared diagnostic runner.
+///
+/// Every concrete platform must implement every member. There are deliberately
+/// no "healthy" defaults: adding a platform without diagnostics must fail at
+/// compile time instead of silently reporting success.
+abstract interface class ClashPlatformDiagnosticCapability {
+  Future<bool> diagnosticCoreAvailable();
+  String get diagnosticConfigPath;
+  bool get diagnosticConfigRequired;
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks();
+  Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action);
+}
+
 /// Read-only diagnostics and narrowly scoped, platform-owned repair hooks.
-mixin _ClashDiagnosticsSupport {
+mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   bool get isRunning;
   String? get lastStartError;
   String? get lastRuntimePortAdjustmentMessage;
@@ -11,27 +24,27 @@ mixin _ClashDiagnosticsSupport {
   @protected
   Duration get diagnosticCheckTimeout => const Duration(seconds: 10);
   void log(String message);
+  String get configDir;
 
   Future<bool> healthCheck();
 
-  /// Platforms override this with their trusted core-file check.
   @protected
-  Future<bool> diagnosticCoreAvailable() async => true;
+  @override
+  Future<bool> diagnosticCoreAvailable();
 
-  /// Platforms with versioned runtime snapshots can expose the file that the
-  /// active core actually owns instead of the nominal next-start path.
   @protected
-  String get diagnosticConfigPath => configPath;
+  @override
+  String get diagnosticConfigPath;
 
-  /// A platform can skip this check when it creates an ephemeral runtime
-  /// config only as part of a connection attempt.
   @protected
-  bool get diagnosticConfigRequired => true;
+  @override
+  bool get diagnosticConfigRequired;
 
-  /// Platforms can append checks for state they exclusively own, such as the
-  /// system-proxy recovery journal. Diagnostics must not mutate that state.
   @protected
-  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => const [];
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks();
+
+  Future<void> _diagnosticHistoryTail = Future<void>.value();
 
   Future<T?> _runDiagnosticCheck<T>(
     String id,
@@ -196,17 +209,30 @@ mixin _ClashDiagnosticsSupport {
       checks.addAll(platformChecks);
     }
 
-    return AppDiagnosticReport(
+    final report = AppDiagnosticReport(
       generatedAt: (clock ?? DateTime.now)(),
       checks: checks,
       recentLogs: recentLogs,
     );
+    if (configDir.trim().isNotEmpty) {
+      final operation = _diagnosticHistoryTail.then(
+        (_) => AppDiagnosticHistoryStore(
+          '$configDir${Platform.pathSeparator}diagnostic-history.json',
+        ).append(report),
+      );
+      _diagnosticHistoryTail = operation.catchError((Object error) {
+        log('诊断历史写入失败');
+      });
+      await _diagnosticHistoryTail;
+    }
+    return report;
   }
 
-  Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async {
-    return const AppRepairResult(
-      success: false,
-      message: '当前平台没有可执行的安全修复操作。',
-    );
+  Future<List<AppDiagnosticHistoryEntry>> loadDiagnosticHistory() async {
+    await _diagnosticHistoryTail;
+    if (configDir.trim().isEmpty) return const [];
+    return AppDiagnosticHistoryStore(
+      '$configDir${Platform.pathSeparator}diagnostic-history.json',
+    ).load();
   }
 }

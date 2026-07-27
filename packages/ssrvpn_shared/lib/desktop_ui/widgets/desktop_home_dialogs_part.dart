@@ -224,6 +224,7 @@ void _showDesktopHomeLogsDialog(BuildContext context) {
               Expanded(
                 child: AppDiagnosticsView(
                   runDiagnostics: clashService.runDiagnostics,
+                  loadHistory: clashService.loadDiagnosticHistory,
                   repair: clashService.repairDiagnosticIssue,
                   onMessage: (message) {
                     if (!context.mounted) return;

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
 
 void main() {
@@ -23,7 +24,8 @@ void main() {
   });
 }
 
-class _NeverBindableClashService extends ClashServiceBase {
+class _NeverBindableClashService extends ClashServiceBase
+    with _ExplicitTestDiagnosticCapability {
   int ephemeralAllocationAttempts = 0;
 
   Future<int> findPort(int preferred) => findAvailablePort(preferred, <int>{});
@@ -39,4 +41,22 @@ class _NeverBindableClashService extends ClashServiceBase {
 
   @override
   Future<void> onStopRequired() async {}
+}
+
+mixin _ExplicitTestDiagnosticCapability on ClashServiceBase {
+  @override
+  Future<bool> diagnosticCoreAvailable() async => false;
+
+  @override
+  String get diagnosticConfigPath => configPath;
+
+  @override
+  bool get diagnosticConfigRequired => false;
+
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => const [];
+
+  @override
+  Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async =>
+      const AppRepairResult(success: false, message: 'test capability');
 }

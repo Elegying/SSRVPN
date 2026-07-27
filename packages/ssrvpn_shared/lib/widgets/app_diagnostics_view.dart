@@ -2,22 +2,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/app_diagnostics.dart';
+import '../services/app_diagnostic_history_store.dart';
+import '../utils/log_redactor.dart';
 
 typedef RunAppDiagnostics = Future<AppDiagnosticReport> Function();
 typedef RepairAppDiagnostic = Future<AppRepairResult> Function(
   AppRepairAction action,
 );
+typedef LoadAppDiagnosticHistory = Future<List<AppDiagnosticHistoryEntry>>
+    Function();
 
 /// Shared diagnostics UI for desktop dialogs and the Android bottom sheet.
 class AppDiagnosticsView extends StatefulWidget {
   const AppDiagnosticsView({
     super.key,
     required this.runDiagnostics,
+    required this.loadHistory,
     required this.repair,
     this.onMessage,
   });
 
   final RunAppDiagnostics runDiagnostics;
+  final LoadAppDiagnosticHistory loadHistory;
   final RepairAppDiagnostic repair;
   final ValueChanged<String>? onMessage;
 
@@ -27,6 +33,7 @@ class AppDiagnosticsView extends StatefulWidget {
 
 class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
   AppDiagnosticReport? _report;
+  List<AppDiagnosticHistoryEntry> _history = const [];
   bool _loading = true;
   bool _failed = false;
   AppRepairAction? _repairing;
@@ -44,8 +51,17 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
     });
     try {
       final report = await widget.runDiagnostics();
+      List<AppDiagnosticHistoryEntry> history;
+      try {
+        history = await widget.loadHistory();
+      } catch (_) {
+        history = const [];
+      }
       if (!mounted) return;
-      setState(() => _report = report);
+      setState(() {
+        _report = report;
+        _history = history;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -203,13 +219,45 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: SelectableText(
-                        report.recentLogs,
+                        LogRedactor.sanitizeForDisplay(report.recentLogs),
                         style: theme.textTheme.bodySmall?.copyWith(
                           fontFamily: 'monospace',
                           height: 1.5,
                         ),
                       ),
                     ),
+                  ],
+                ),
+              if (_history.isNotEmpty)
+                ExpansionTile(
+                  leading: const Icon(Icons.history, size: 20),
+                  title: Text('本地诊断历史（${_history.length}）'),
+                  subtitle: const Text('仅保留最近 20 份已脱敏报告'),
+                  children: [
+                    for (final entry in _history)
+                      ExpansionTile(
+                        title: Text(
+                          entry.generatedAt.toLocal().toIso8601String(),
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        subtitle: Text(
+                          '失败 ${entry.failureCount} · 提醒 ${entry.warningCount}',
+                        ),
+                        childrenPadding:
+                            const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        children: [
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: SelectableText(
+                              entry.reportText,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontFamily: 'monospace',
+                                height: 1.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
             ],
