@@ -161,7 +161,11 @@ void main() {
     await tester.ensureVisible(logs);
     await tester.pump();
     await tester.tap(logs);
-    await tester.pumpAndSettle();
+    await _pumpUntil(
+      tester,
+      () => find.text('诊断与运行日志').evaluate().isNotEmpty,
+    );
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(tester.takeException(), isNull);
     expect(find.text('诊断与运行日志'), findsOneWidget);
@@ -1057,6 +1061,9 @@ class _FakeClashService extends ClashService {
 
   @override
   bool get hasPendingSystemProxyRecovery => false;
+
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => const [];
 
   @override
   Future<AppSettings> prepareForStart(AppSettings preferred) async => preferred;

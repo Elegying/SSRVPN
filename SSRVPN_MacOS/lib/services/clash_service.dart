@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import 'macos_tun_session.dart';
+import 'macos_start_transaction.dart';
 import 'system_proxy_service.dart';
 
 part 'clash_service_config.dart';

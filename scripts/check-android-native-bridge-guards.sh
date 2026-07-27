@@ -31,6 +31,7 @@ CORE_STOP_DECISION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/
 NATIVE_SNAPSHOT_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSnapshotStore.kt"
 NATIVE_CONNECTION_SESSION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSession.kt"
 NATIVE_SESSION_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeVpnSessionCoordinator.kt"
+NATIVE_RUNTIME_DIAGNOSTICS="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeRuntimeDiagnostics.kt"
 NATIVE_SESSION_COMMITTER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeSessionCommitter.kt"
 NATIVE_PATH_POLICY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionPathPolicy.kt"
 NATIVE_START_PAYLOAD_REGISTRY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeStartPayloadRegistry.kt"
@@ -312,17 +313,22 @@ if stop.index("isBridgeRunningWithTimeout()") < stop.index("bridge.Bridge.stop()
         "Android verifies Bridge state before asking the core to stop"
     )
 
-running_start = source.index("private fun isBridgeRunningWithTimeout(): Boolean")
+running_start = source.index("private fun isBridgeRunningWithTimeout(): Boolean?")
 running_end = source.index("\n    private fun ", running_start + 1)
 running_check = source[running_start:running_end]
-if "error = e\n                result = true" not in running_check:
+if "return null" not in running_check:
     raise SystemExit(
-        "Android treats a failed Bridge.isRunning query as a verified stop"
+        "Android Bridge probe no longer preserves an explicit unknown state"
     )
+if "isBridgeRunningWithTimeout() == false" not in stop:
+    raise SystemExit("Android stop treats an unknown Bridge probe as stopped")
+if "{ isBridgeRunningWithTimeout() != false }" not in source:
+    raise SystemExit("Android liveness monitor no longer fails open on probe errors")
 PY
 
 require_activity_text '"syncSettings"'
 require_activity_text '"getConnectionState"'
+require_activity_text '"getNativeDiagnostics"'
 require_activity_text '"expectedSessionGeneration"'
 require_activity_text '"Active native VPN session requires a generation"'
 require_activity_text '"getConnectionSnapshotGeneration"'
@@ -343,6 +349,39 @@ require_tile_text "ContextCompat.registerReceiver"
 require_text "ContextCompat.RECEIVER_NOT_EXPORTED"
 require_activity_text "ContextCompat.RECEIVER_NOT_EXPORTED"
 require_tile_text "ContextCompat.RECEIVER_NOT_EXPORTED"
+
+python3 - "$SERVICE" "$NATIVE_RUNTIME_DIAGNOSTICS" <<'PY'
+import sys
+from pathlib import Path
+
+service = Path(sys.argv[1]).read_text(encoding="utf-8")
+runtime = Path(sys.argv[2]).read_text(encoding="utf-8")
+for forbidden in (
+    "tunEstablished = serviceRunning,",
+    "bridgeReady = serviceRunning,",
+):
+    if forbidden in runtime:
+        raise SystemExit(f"Android native diagnostics inferred health: {forbidden}")
+for required in (
+    "claimTunDescriptor",
+    "TunOwnershipClaim",
+    "activeTunInterfaceNames",
+    "claim.interfaceNames.any(currentTunInterfaces::contains)",
+    "bridgeReady = bridgeReady",
+):
+    if required not in runtime:
+        raise SystemExit(f"Android native diagnostics lost real probe: {required}")
+for required in (
+    "runtimeDiagnostics.claimTunDescriptor(tunFd)",
+    "runtimeDiagnostics.releaseTunDescriptor()",
+):
+    if required not in service:
+        raise SystemExit(f"Android VPN service lost diagnostic ownership hook: {required}")
+commit_start = service.index("val published = startGeneration.runIfCurrent(startToken)")
+commit_end = service.index("NativeConnectionSession.publishRunning(configPath)", commit_start)
+if "runtimeDiagnostics.claimTunDescriptor(tunFd)" not in service[commit_start:commit_end]:
+    raise SystemExit("Android TUN diagnostic ownership is outside the session commit")
+PY
 grep -Fq "ConcurrentHashMap<String" "$START_RESULT_REGISTRY" || {
   echo "Android start callback registry lost its concurrent ownership map" >&2
   exit 1

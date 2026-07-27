@@ -3,44 +3,92 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:ssrvpn_windows/services/clash_service.dart';
+import 'package:ssrvpn_windows/services/subscription_service.dart';
+import 'package:yaml/yaml.dart';
 
 void main() {
   final coreFile = File('assets${Platform.pathSeparator}mihomo.exe');
   final canRun = Platform.isWindows && coreFile.existsSync();
 
   test(
-    'bundled Mihomo starts and exposes its authenticated API',
+    'subscription import generates a real config and starts authenticated Mihomo',
     () async {
+      SubscriptionService.resetInstanceForTesting();
+      addTearDown(SubscriptionService.resetInstanceForTesting);
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn-mihomo-integration-',
       );
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
       final ports = await _reserveFreePorts(3);
+      final subscriptionServer = await HttpServer.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+        shared: false,
+      );
+      addTearDown(() => subscriptionServer.close(force: true));
+      subscriptionServer.listen((request) async {
+        request.response
+          ..headers.contentType = ContentType.text
+          ..write('''
+proxies:
+  - name: Integration Node
+    type: ss
+    server: 127.0.0.1
+    port: 9
+    cipher: aes-128-gcm
+    password: integration-node-password
+''');
+        await request.response.close();
+      });
+      final subscription = await SubscriptionService.getInstance(tempDir.path);
+      await subscription.addSubscription(
+        'Integration feed',
+        'http://127.0.0.1:${subscriptionServer.port}/subscription',
+      );
+      await subscription.refreshAllSubscriptions();
+      expect(subscription.allNodes.single.name, 'Integration Node');
+
+      const apiSecret = 'integration-test-secret';
+      final settings = AppSettings(
+        proxyPort: ports[0],
+        socksPort: ports[1],
+        apiPort: ports[2],
+        apiSecret: apiSecret,
+        enableTun: false,
+      );
+      final generatedConfig = ClashService().generateClashConfig(
+        subscription.rawYaml!,
+        settings,
+        preferredNodeName: 'Integration Node',
+      );
+      final parsed = loadYaml(generatedConfig) as YamlMap;
+      expect(parsed['external-controller'], '127.0.0.1:${ports[2]}');
+      expect(parsed['secret'], apiSecret);
+      expect(
+        (parsed['proxies'] as YamlList).single['name'],
+        'Integration Node',
+      );
       final configFile = File(
         '${tempDir.path}${Platform.pathSeparator}config.yaml',
       );
-      await configFile.writeAsString('''
-mixed-port: ${ports[0]}
-socks-port: ${ports[1]}
-allow-lan: false
-mode: direct
-log-level: warning
-external-controller: '127.0.0.1:${ports[2]}'
-secret: 'integration-test-secret'
-ipv6: false
-dns:
-  enable: false
-tun:
-  enable: false
-proxies: []
-proxy-groups: []
-rules:
-  - MATCH,DIRECT
-''', flush: true);
+      await configFile.writeAsString(generatedConfig, flush: true);
 
       final process = await Process.start(
         coreFile.absolute.path,
         ['-d', tempDir.path, '-f', configFile.path],
       );
+      addTearDown(() async {
+        process.kill(ProcessSignal.sigterm);
+        try {
+          await process.exitCode.timeout(const Duration(seconds: 3));
+        } on TimeoutException {
+          process.kill(ProcessSignal.sigkill);
+        }
+      });
       final output = <String>[];
       process.stdout
           .transform(utf8.decoder)
@@ -64,7 +112,7 @@ rules:
             );
             request.headers.set(
               HttpHeaders.authorizationHeader,
-              'Bearer integration-test-secret',
+              'Bearer $apiSecret',
             );
             final response = await request.close().timeout(
                   const Duration(seconds: 2),
@@ -88,13 +136,6 @@ rules:
         );
       } finally {
         client.close(force: true);
-        process.kill(ProcessSignal.sigterm);
-        try {
-          await process.exitCode.timeout(const Duration(seconds: 3));
-        } on TimeoutException {
-          process.kill(ProcessSignal.sigkill);
-        }
-        await tempDir.delete(recursive: true);
       }
     },
     skip: canRun ? false : 'Windows Mihomo binary is not available',

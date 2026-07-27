@@ -222,6 +222,7 @@ void _showAndroidHomeLogsSheet(BuildContext context) {
               padding: const EdgeInsets.all(14),
               child: AppDiagnosticsView(
                 runDiagnostics: clashService.runDiagnostics,
+                loadHistory: clashService.loadDiagnosticHistory,
                 repair: clashService.repairDiagnosticIssue,
                 onMessage: (message) {
                   if (!context.mounted) return;

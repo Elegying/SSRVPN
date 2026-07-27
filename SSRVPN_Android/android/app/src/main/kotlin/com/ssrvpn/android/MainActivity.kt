@@ -103,6 +103,27 @@ class MainActivity : FlutterActivity() {
             "isCoreRunning" -> result.success(SsrvpnVpnService.isRunning)
             "getConnectionState" ->
                 result.success(NativeVpnSessionCoordinator.connectionState())
+            "getNativeDiagnostics" -> Thread({
+                val snapshot = try {
+                    NativeVpnSessionCoordinator.diagnostics()
+                } catch (_: Exception) {
+                    null
+                }
+                runOnUiThread {
+                    if (snapshot == null) {
+                        result.error(
+                            "NATIVE_DIAGNOSTICS_FAILED",
+                            "Unable to read native diagnostics",
+                            null
+                        )
+                    } else {
+                        result.success(snapshot)
+                    }
+                }
+            }, "SSRVPN-native-diagnostics").apply {
+                isDaemon = true
+                start()
+            }
             "consumePendingAutoConnect" -> {
                 val pending = autoConnectPending
                 autoConnectPending = false

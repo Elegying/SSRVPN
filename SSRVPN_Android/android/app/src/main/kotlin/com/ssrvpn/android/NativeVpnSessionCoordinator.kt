@@ -18,6 +18,20 @@ internal object NativeVpnSessionCoordinator {
             SsrvpnVpnService.isRunning
         }
 
+    fun diagnostics(): Map<String, Any?> {
+        val service = SsrvpnVpnService.instance
+        val operationBusy = SsrvpnVpnService.isCoreOperationBusy()
+        val unavailableState = if (operationBusy) null else false
+        val runtime = service?.runtimeDiagnosticsSnapshot() ?: NativeRuntimeDiagnostics(
+            serviceRunning = SsrvpnVpnService.isRunning,
+            operationBusy = operationBusy,
+            tunEstablished = unavailableState,
+            bridgeReady = unavailableState,
+            protectMonitorAlive = unavailableState
+        )
+        return connectionState() + runtime.toMap()
+    }
+
     fun commitIdleSnapshot(
         context: Context,
         snapshot: NativeConnectionSnapshot

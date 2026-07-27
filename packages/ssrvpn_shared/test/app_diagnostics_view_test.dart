@@ -42,6 +42,7 @@ void main() {
         home: Scaffold(
           body: AppDiagnosticsView(
             runDiagnostics: diagnose,
+            loadHistory: () async => const [],
             repair: (action) async {
               expect(action, AppRepairAction.retryOwnedProxyRecovery);
               repairs++;
@@ -75,6 +76,7 @@ void main() {
       MaterialApp(
         home: AppDiagnosticsView(
           runDiagnostics: () async => throw StateError('private detail'),
+          loadHistory: () async => const [],
           repair: (_) async => const AppRepairResult(
             success: false,
             message: 'unused',
@@ -87,6 +89,33 @@ void main() {
     expect(find.text('诊断未能完成'), findsOneWidget);
     expect(find.textContaining('private detail'), findsNothing);
     expect(find.text('重试'), findsOneWidget);
+  });
+
+  testWidgets('redacts recent logs before rendering them', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppDiagnosticsView(
+            runDiagnostics: () async => AppDiagnosticReport(
+              generatedAt: DateTime.utc(2026, 7, 27),
+              checks: const [],
+              recentLogs: 'token=private-value',
+            ),
+            loadHistory: () async => const [],
+            repair: (_) async => const AppRepairResult(
+              success: false,
+              message: 'unused',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('最近日志（已脱敏）'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('private-value'), findsNothing);
+    expect(find.textContaining('token: ***'), findsOneWidget);
   });
 
   testWidgets('diagnostic summary stays usable in compact maximum text scale',
@@ -121,6 +150,7 @@ void main() {
                 ),
               ],
             ),
+            loadHistory: () async => const [],
             repair: (_) async => const AppRepairResult(
               success: false,
               message: 'unused',

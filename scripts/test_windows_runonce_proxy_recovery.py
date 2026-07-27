@@ -6,6 +6,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def windows_clash_lifecycle_source() -> str:
+    services = ROOT / "SSRVPN_Windows" / "lib" / "services"
+    preparation = (services / "clash_service_start_preparation.dart").read_text(
+        encoding="utf-8"
+    )
+    lifecycle = (services / "clash_service_lifecycle.dart").read_text(
+        encoding="utf-8"
+    )
+    return preparation + "\n" + lifecycle
+
+
 class WindowsRunOnceProxyRecoveryTest(unittest.TestCase):
     def test_recovery_worker_has_a_dedicated_visible_contention_signal(self) -> None:
         runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
@@ -184,16 +195,10 @@ class WindowsRunOnceProxyRecoveryTest(unittest.TestCase):
         self.assertLess(runonce_delete, json_delete)
 
     def test_tun_start_does_not_acquire_the_system_proxy(self) -> None:
-        lifecycle = (
-            ROOT
-            / "SSRVPN_Windows"
-            / "lib"
-            / "services"
-            / "clash_service_lifecycle.dart"
-        ).read_text(encoding="utf-8")
+        lifecycle = windows_clash_lifecycle_source()
         proxy_call = lifecycle.index("_proxyService.setSystemProxy(")
         tun_guard = lifecycle.rfind(
-            "if (!settings.enableTun && !preserveSystemProxyRecovery)",
+            "if (settings.enableTun || preserveSystemProxyRecovery) return true;",
             0,
             proxy_call,
         )

@@ -171,6 +171,12 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   Future<bool> diagnosticCoreAvailable() async =>
       _corePath.isNotEmpty && await _isRegularUnprivilegedCoreFile();
 
+  @override
+  String get diagnosticConfigPath => configPath;
+
+  @override
+  bool get diagnosticConfigRequired => true;
+
   Future<bool> _isRegularUnprivilegedCoreFile() async {
     try {
       final type = await FileSystemEntity.type(_corePath, followLinks: false);
@@ -204,7 +210,10 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   @override
   Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async {
     if (action != AppRepairAction.retryOwnedProxyRecovery) {
-      return super.repairDiagnosticIssue(action);
+      return const AppRepairResult(
+        success: false,
+        message: '当前平台没有可执行的安全修复操作。',
+      );
     }
     if (isRunning) {
       return const AppRepairResult(
@@ -817,54 +826,13 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       }
 
       if (healthy) {
-        _ensureStartCurrent(startToken);
-        final proxySet = await _proxyService.setSystemProxy(
-          '127.0.0.1',
-          settings.proxyPort,
+        return _completeHealthyProxyStart(
+          startToken: startToken,
+          startedProcess: startedProcess,
+          readStartupExitCode: () => startupExitCode,
+          startupOutput: startupOutput,
+          startupWatch: startupWatch,
         );
-        if (!proxySet) {
-          setLastStartError(
-            _proxyService.lastError ?? 'macOS 系统代理设置失败',
-          );
-          log(lastStartError!);
-          await _stopInternal();
-          return false;
-        }
-        _ensureStartCurrent(startToken);
-        log('macOS 系统代理已设置');
-
-        final processStillHealthy = await healthCheck();
-        _ensureStartCurrent(startToken);
-        final nativeStatus = await _readNativeCoreStatus(startedProcess);
-        _recordNativeCoreDiagnostics(nativeStatus, startupOutput);
-        if (!nativeStatus.isRunning) {
-          startupExitCode = nativeStatus.exitCode ?? -1;
-        }
-        final canCommitRunning = identical(_clashProcess, startedProcess) &&
-            startupExitCode == null &&
-            nativeStatus.isRunning &&
-            processStillHealthy;
-        if (!canCommitRunning) {
-          setLastStartError(
-            startupExitCode == null
-                ? 'Mihomo 在系统代理设置期间失去响应'
-                : 'Mihomo 在系统代理设置期间退出（退出码 $startupExitCode）',
-          );
-          log(lastStartError!);
-          await _stopInternal();
-          return false;
-        }
-
-        setRunning(true);
-        resetHealthCheckFailures();
-        log(
-          'Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms',
-        );
-
-        notifyStatusChanged();
-        startStatusMonitor();
-        _scheduleNativeCoreStatusWatch(startedProcess);
-        return true;
       }
 
       if (startupExitCode != null) {
@@ -902,6 +870,75 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       await _stopInternal(priorTunStopError: tunStopError);
       return false;
     }
+  }
+
+  Future<bool> _completeHealthyProxyStart({
+    required int startToken,
+    required MacosNativeCoreHandle startedProcess,
+    required int? Function() readStartupExitCode,
+    required List<String> startupOutput,
+    required Stopwatch startupWatch,
+  }) {
+    return MacosStartTransaction().run(
+      configureSystemProxy: () async {
+        _ensureStartCurrent(startToken);
+        final proxySet = await _proxyService.setSystemProxy(
+          '127.0.0.1',
+          settings.proxyPort,
+        );
+        if (!proxySet) {
+          setLastStartError(
+            _proxyService.lastError ?? 'macOS 系统代理设置失败',
+          );
+          log(lastStartError!);
+          return false;
+        }
+        _ensureStartCurrent(startToken);
+        log('macOS 系统代理已设置');
+        return true;
+      },
+      confirmHealthy: () async {
+        final processStillHealthy = await healthCheck();
+        _ensureStartCurrent(startToken);
+        final nativeStatus = await _readNativeCoreStatus(startedProcess);
+        _recordNativeCoreDiagnostics(nativeStatus, startupOutput);
+        final startupExitCode = nativeStatus.isRunning
+            ? readStartupExitCode()
+            : nativeStatus.exitCode ?? -1;
+        final canCommitRunning = identical(_clashProcess, startedProcess) &&
+            startupExitCode == null &&
+            nativeStatus.isRunning &&
+            processStillHealthy;
+        if (!canCommitRunning) {
+          setLastStartError(
+            startupExitCode == null
+                ? 'Mihomo 在系统代理设置期间失去响应'
+                : 'Mihomo 在系统代理设置期间退出（退出码 $startupExitCode）',
+          );
+          log(lastStartError!);
+        }
+        return canCommitRunning;
+      },
+      commit: () async {
+        setRunning(true);
+        resetHealthCheckFailures();
+        log('Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');
+        notifyStatusChanged();
+        startStatusMonitor();
+        _scheduleNativeCoreStatusWatch(startedProcess);
+      },
+      rollback: () async {
+        await _stopInternal();
+      },
+      onException: (stage, error) {
+        if (error is _DesktopStartCancelled) {
+          setLastStartError('连接已取消');
+        } else {
+          setLastStartError(_friendlyStartException(error));
+        }
+        log('macOS 启动事务在 ${stage.name} 阶段失败');
+      },
+    );
   }
 
   Future<bool> _recoverPendingTunDnsInternal(int startToken) async {

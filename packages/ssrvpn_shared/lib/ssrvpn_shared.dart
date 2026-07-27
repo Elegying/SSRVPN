@@ -22,6 +22,7 @@ export 'services/subscription_node_codec.dart';
 export 'services/subscription_yaml_merger.dart';
 export 'services/clash_config_generator.dart';
 export 'services/clash_service_base.dart';
+export 'services/app_diagnostic_history_store.dart';
 export 'services/desktop_connection_coordinator.dart';
 export 'services/desktop_connection_recovery_plan.dart';
 export 'services/system_proxy_ownership_status.dart';

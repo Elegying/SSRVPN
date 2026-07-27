@@ -348,13 +348,198 @@ extension AndroidNativeBridge on ClashService {
     }
   }
 
+  Future<List<AppDiagnosticCheck>> _androidPlatformDiagnosticChecks() async {
+    Object? value;
+    try {
+      value = await ClashService._channel
+          .invokeMethod<Object?>('getNativeDiagnostics')
+          .timeout(const Duration(seconds: 3));
+    } catch (error) {
+      log('查询 Android 原生诊断失败');
+    }
+    if (value is! Map || value['schemaVersion'] != 1) {
+      return const [
+        AppDiagnosticCheck(
+          id: 'android_native',
+          title: 'Android 原生会话',
+          status: AppDiagnosticStatus.warning,
+          summary: '原生诊断接口不可用或版本不受支持',
+          errorCode: AppErrorCode.unknown,
+        ),
+      ];
+    }
+
+    final nativeState = await _parseNativeConnectionState(value);
+    final nativeRunning = value['serviceRunning'] == true;
+    final transitioning =
+        value['operationBusy'] == true || nativeState?.transitioning == true;
+    final stateAgrees = nativeState != null &&
+        nativeState.running == nativeRunning &&
+        nativeRunning == isRunning;
+    final checks = <AppDiagnosticCheck>[
+      AppDiagnosticCheck(
+        id: 'android_native_session',
+        title: 'Android 原生会话',
+        status: stateAgrees
+            ? AppDiagnosticStatus.passed
+            : transitioning
+                ? AppDiagnosticStatus.warning
+                : AppDiagnosticStatus.failed,
+        summary: stateAgrees
+            ? 'Flutter、VPN 服务与原生会话状态一致'
+            : transitioning
+                ? '原生连接事务正在切换，稍后可重新诊断'
+                : 'Flutter 与原生 VPN 会话状态不一致',
+        errorCode:
+            stateAgrees || transitioning ? null : AppErrorCode.coreUnavailable,
+      ),
+    ];
+
+    // The native service owns TUN and Bridge. When Dart is stale, continue
+    // diagnosing the authoritative native runtime instead of hiding its
+    // component checks behind the Flutter-side state.
+    final hasResidualRuntime = value['tunEstablished'] == true ||
+        value['bridgeReady'] == true ||
+        value['protectMonitorAlive'] == true ||
+        nativeState?.protectedConfigPath != null;
+    final componentsExplicitlyInactive = value['tunEstablished'] == false &&
+        value['bridgeReady'] == false &&
+        value['protectMonitorAlive'] == false;
+    if (!nativeRunning &&
+        !transitioning &&
+        !hasResidualRuntime &&
+        componentsExplicitlyInactive) {
+      checks.addAll(const [
+        AppDiagnosticCheck(
+          id: 'android_tun',
+          title: 'Android TUN',
+          status: AppDiagnosticStatus.skipped,
+          summary: '当前未连接，无需检查 TUN',
+        ),
+        AppDiagnosticCheck(
+          id: 'android_bridge',
+          title: 'Android Bridge',
+          status: AppDiagnosticStatus.skipped,
+          summary: '当前未连接，无需检查 Bridge',
+        ),
+        AppDiagnosticCheck(
+          id: 'android_protect',
+          title: 'Android 网络保护',
+          status: AppDiagnosticStatus.skipped,
+          summary: '当前未连接，无需检查 socket protect 监控',
+        ),
+        AppDiagnosticCheck(
+          id: 'android_protected_config',
+          title: 'Android 受保护配置',
+          status: AppDiagnosticStatus.skipped,
+          summary: '当前未连接，无需检查运行配置所有权',
+        ),
+      ]);
+      return checks;
+    }
+
+    void addRuntimeCheck(
+      String id,
+      String title,
+      Object? rawValue,
+      String healthySummary,
+      String failureSummary,
+      String unknownSummary,
+      String inactiveSummary,
+      String residualSummary,
+    ) {
+      final status = !nativeRunning
+          ? rawValue == true
+              ? transitioning
+                  ? AppDiagnosticStatus.warning
+                  : AppDiagnosticStatus.failed
+              : rawValue == false
+                  ? AppDiagnosticStatus.skipped
+                  : AppDiagnosticStatus.warning
+          : rawValue == true
+              ? AppDiagnosticStatus.passed
+              : rawValue == false
+                  ? AppDiagnosticStatus.failed
+                  : AppDiagnosticStatus.warning;
+      checks.add(
+        AppDiagnosticCheck(
+          id: id,
+          title: title,
+          status: status,
+          summary: !nativeRunning && rawValue == true
+              ? residualSummary
+              : !nativeRunning && rawValue == false
+                  ? inactiveSummary
+                  : status == AppDiagnosticStatus.passed
+                      ? healthySummary
+                      : status == AppDiagnosticStatus.failed
+                          ? failureSummary
+                          : unknownSummary,
+          errorCode: status == AppDiagnosticStatus.failed
+              ? AppErrorCode.coreUnavailable
+              : null,
+        ),
+      );
+    }
+
+    addRuntimeCheck(
+      'android_tun',
+      'Android TUN',
+      value['tunEstablished'],
+      '已确认当前 Bridge 持有的 TUN 描述符或接口仍存活',
+      '未确认当前 Bridge 仍持有存活的 TUN',
+      'TUN 所有权探针暂时不可用',
+      '当前未连接，TUN 已停止',
+      '原生服务已停止，但同一会话的 TUN 接口仍存活',
+    );
+    addRuntimeCheck(
+      'android_bridge',
+      'Android Bridge',
+      value['bridgeReady'],
+      'Bridge 原生运行探针已确认；API 由共享健康检查独立验证',
+      'Bridge 原生运行探针确认核心未运行',
+      'Bridge 原生运行探针超时或正在执行',
+      '当前未连接，Bridge 已停止',
+      '原生服务已停止，但 Bridge 仍报告运行',
+    );
+    addRuntimeCheck(
+      'android_protect',
+      'Android 网络保护',
+      value['protectMonitorAlive'],
+      'socket protect 监控线程存活',
+      'socket protect 监控线程未运行',
+      'socket protect 监控状态暂时不可用',
+      '当前未连接，socket protect 监控已停止',
+      '原生服务已停止，但 socket protect 监控仍存活',
+    );
+    final protectedConfigAvailable = nativeState?.protectedConfigPath != null &&
+        nativeState?.sessionGeneration != null;
+    checks.add(
+      AppDiagnosticCheck(
+        id: 'android_protected_config',
+        title: 'Android 受保护配置',
+        status: protectedConfigAvailable
+            ? AppDiagnosticStatus.passed
+            : AppDiagnosticStatus.failed,
+        summary:
+            protectedConfigAvailable ? '当前原生会话持有可信配置快照' : '当前原生会话缺少可信配置快照或代际',
+        errorCode: protectedConfigAvailable ? null : AppErrorCode.configInvalid,
+      ),
+    );
+    return checks;
+  }
+
   Future<_NativeConnectionState?> _parseNativeConnectionState(
     Object? value,
   ) async {
     if (value is! Map) return null;
     final running = value['running'] == true;
     final transitioning = value['transitioning'] == true;
-    final sessionGeneration = (value['sessionGeneration'] as num?)?.toInt();
+    final rawSessionGeneration = value['sessionGeneration'];
+    final sessionGeneration =
+        rawSessionGeneration is int && rawSessionGeneration > 0
+            ? rawSessionGeneration
+            : null;
     final rawPath = value['protectedConfigPath'] as String?;
     if (rawPath == null || rawPath.isEmpty) {
       return (

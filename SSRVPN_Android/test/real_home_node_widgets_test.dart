@@ -163,7 +163,8 @@ void main() {
     await tester.ensureVisible(logs);
     await tester.pump();
     await tester.tap(logs);
-    await tester.pumpAndSettle();
+    await _waitForWidget(tester, find.text('诊断与运行日志'));
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(tester.takeException(), isNull);
     expect(find.text('诊断与运行日志'), findsOneWidget);
@@ -680,6 +681,9 @@ class _RecordingAndroidClashService extends ClashService {
   int liveSwitchCalls = 0;
   int idleSnapshotInvalidations = 0;
   bool failIdleSnapshotInvalidation = false;
+
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => const [];
 
   @override
   Future<void> invalidateIdleNativeConnectionSnapshot() async {

@@ -19,6 +19,7 @@ import '../utils/private_node_latency_policy.dart';
 import '../utils/connection_intent_tracker.dart';
 import '../utils/connection_transition_queue.dart';
 import '../utils/runtime_config_name_policy.dart';
+import 'app_diagnostic_history_store.dart';
 import 'desktop_connection_coordinator.dart';
 import 'public_ip_info_service.dart';
 
@@ -119,6 +120,7 @@ abstract class ClashServiceBase
   @override
   AppSettings get settings => _settings;
   bool get connectionDesired => _connectionIntent.desired;
+  @override
   String get configDir => _configDir;
   @override
   String get configPath => _configPath;

@@ -4,6 +4,8 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart' as crypto;
 
+import 'macos_tun_request_store.dart';
+
 typedef TunRouteProbe = Future<ProcessResult> Function(
   String executable,
   List<String> arguments,
@@ -50,6 +52,10 @@ class MacosTunSession {
         appPid = appPid ?? pid,
         _stopTimeout = stopTimeout,
         _routeProbe = routeProbe ?? Process.run,
+        _requestStore = MacosTunRequestStore(
+          dataDir: dataDir,
+          appPid: appPid ?? pid,
+        ),
         _authorizationLauncher =
             authorizationLauncher ?? _launchAuthorizationProcess,
         statusPath =
@@ -60,7 +66,6 @@ class MacosTunSession {
             );
 
   static const _osascriptPath = '/usr/bin/osascript';
-  static const _requestName = '.tun-session-request';
   static const _runnerSha256 =
       'a1c5748f62c061686a8ebc3881c8f4b97c258323cf8f2cbad02ad0277d63f3f6';
   static const _coreArchiveSha256 =
@@ -133,6 +138,7 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
   final String statusPath;
   final int appPid;
   final TunRouteProbe _routeProbe;
+  final MacosTunRequestStore _requestStore;
   final TunAuthorizationLauncher _authorizationLauncher;
   final Duration _stopTimeout;
 
@@ -152,37 +158,11 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
   Completer<void>? _recoveryCancellation;
   TunAuthorizationHandle? _recoveryAuthorizationHandle;
 
-  String get requestPath => '$dataDir${Platform.pathSeparator}$_requestName';
+  String get requestPath => _requestStore.requestPath;
   bool get isRequested => _requested;
   bool get requiresDnsRecovery => _dnsRecoveryRequired;
 
-  List<String> get _recoveryRequestPaths {
-    final separator = Platform.pathSeparator;
-    const bundleDirectory = 'com.ssrvpn.ssrvpnClient';
-    final bundledSuffix = '$separator$bundleDirectory${separator}SSRVPN';
-    final legacySuffix = '${separator}SSRVPN';
-    if (dataDir.endsWith(bundledSuffix)) {
-      final supportDirectory = dataDir.substring(
-        0,
-        dataDir.length - bundledSuffix.length,
-      );
-      return [
-        '$supportDirectory$legacySuffix$separator$_requestName',
-        requestPath,
-      ];
-    }
-    if (dataDir.endsWith(legacySuffix)) {
-      final supportDirectory = dataDir.substring(
-        0,
-        dataDir.length - legacySuffix.length,
-      );
-      return [
-        requestPath,
-        '$supportDirectory$bundledSuffix$separator$_requestName',
-      ];
-    }
-    return [requestPath];
-  }
+  List<String> get _recoveryRequestPaths => _requestStore.recoveryRequestPaths;
 
   Future<bool> start() async {
     final startEpoch = ++_startEpoch;
@@ -691,172 +671,25 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
     return MacosTunStartupState.pending;
   }
 
-  Future<void> _removeRequest() async {
-    await _removeRequestAt(requestPath);
-  }
+  Future<void> _removeRequest() => _requestStore.remove();
 
-  Future<void> _removeRequestAt(String path) async {
-    final request = File(path);
-    try {
-      if (await request.exists()) await request.delete();
-    } catch (_) {}
-  }
+  String _requestValue(String phase, String? nonce) =>
+      _requestStore.value(phase, nonce);
 
-  String _requestValue(String phase, String? nonce) {
-    if (nonce == null) throw StateError('TUN request generation is missing');
-    return 'v2:$phase:$appPid:$nonce';
-  }
+  Future<void> _writeRequestAtomically(String value, String nonce) =>
+      _requestStore.writeAtomically(value, nonce);
 
-  Future<void> _writeRequestAtomically(String value, String nonce) async {
-    final temporary = File('$requestPath.tmp.$appPid.$nonce');
-    if (await FileSystemEntity.type(temporary.path, followLinks: false) !=
-        FileSystemEntityType.notFound) {
-      throw StateError('TUN request temporary path already exists');
-    }
-    try {
-      await temporary.writeAsString('$value\n', flush: true);
-      if (!await _linkExclusively(temporary.path, requestPath)) {
-        throw StateError('TUN request path is already owned');
-      }
-    } finally {
-      try {
-        if (await temporary.exists()) await temporary.delete();
-      } catch (_) {}
-    }
-  }
+  Future<bool> _transitionRequestToRecovery(String? nonce) =>
+      _requestStore.transitionToRecovery(nonce);
 
-  Future<bool> _transitionRequestToRecovery(String? nonce) async {
-    if (nonce == null) return false;
-    final active = _requestValue('active', nonce);
-    final recovery = _requestValue('recovery', nonce);
-    final quarantine = File('$requestPath.transition.$appPid.$nonce');
-    try {
-      if (await FileSystemEntity.type(requestPath, followLinks: false) !=
-          FileSystemEntityType.file) {
-        return false;
-      }
-      final current = (await File(requestPath).readAsString()).trim();
-      if (current == recovery) return true;
-      if (current != active) return false;
-      if (await FileSystemEntity.type(quarantine.path, followLinks: false) !=
-          FileSystemEntityType.notFound) {
-        return false;
-      }
-      await File(requestPath).rename(quarantine.path);
-      if ((await quarantine.readAsString()).trim() != active) {
-        await _restoreQuarantinedRequest(quarantine);
-        return false;
-      }
-      await _writeRequestAtomically(recovery, nonce);
-      await quarantine.delete();
-      // Publishing the recovery marker is the commit point. The privileged
-      // runner may consume and retire it immediately, so a post-publication
-      // read can only distinguish "not yet consumed" from "already consumed";
-      // it cannot validate whether publication succeeded.
-      return true;
-    } catch (_) {
-      await _restoreQuarantinedRequest(quarantine);
-      return false;
-    }
-  }
+  Future<void> _removeCurrentGenerationRequest(String? nonce) =>
+      _requestStore.removeCurrentGeneration(nonce);
 
-  Future<void> _removeCurrentGenerationRequest(String? nonce) async {
-    if (nonce == null) return;
-    final quarantine = File('$requestPath.cancel.$appPid.$nonce');
-    try {
-      if (await FileSystemEntity.type(requestPath, followLinks: false) !=
-          FileSystemEntityType.file) {
-        return;
-      }
-      final current = (await File(requestPath).readAsString()).trim();
-      if (current == _requestValue('active', nonce) ||
-          current == _requestValue('recovery', nonce)) {
-        if (await FileSystemEntity.type(quarantine.path, followLinks: false) !=
-            FileSystemEntityType.notFound) {
-          return;
-        }
-        await File(requestPath).rename(quarantine.path);
-        final moved = (await quarantine.readAsString()).trim();
-        if (moved == _requestValue('active', nonce) ||
-            moved == _requestValue('recovery', nonce)) {
-          await quarantine.delete();
-        } else {
-          await _restoreQuarantinedRequest(quarantine);
-        }
-      }
-    } catch (_) {}
-  }
+  Future<bool> _currentGenerationRequestExists(String? nonce) =>
+      _requestStore.currentGenerationExists(nonce);
 
-  Future<void> _restoreQuarantinedRequest(File quarantine) async {
-    try {
-      if (await FileSystemEntity.type(quarantine.path, followLinks: false) !=
-          FileSystemEntityType.file) {
-        return;
-      }
-      if (await FileSystemEntity.type(requestPath, followLinks: false) ==
-              FileSystemEntityType.notFound &&
-          await _linkExclusively(quarantine.path, requestPath)) {
-        await quarantine.delete();
-      }
-    } catch (_) {}
-  }
-
-  static Future<bool> _linkExclusively(String source, String target) async {
-    try {
-      final result = await Process.run('/bin/ln', [source, target])
-          .timeout(const Duration(seconds: 2));
-      return result.exitCode == 0;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<bool> _currentGenerationRequestExists(String? nonce) async {
-    if (nonce == null) return false;
-    try {
-      if (await FileSystemEntity.type(requestPath, followLinks: false) !=
-          FileSystemEntityType.file) {
-        return false;
-      }
-      final current = (await File(requestPath).readAsString()).trim();
-      return current == _requestValue('active', nonce) ||
-          current == _requestValue('recovery', nonce);
-    } catch (_) {
-      return true;
-    }
-  }
-
-  static Future<String?> _readRecoveryRequest(String path) async {
-    try {
-      if (await FileSystemEntity.type(path, followLinks: false) !=
-          FileSystemEntityType.file) {
-        return null;
-      }
-      final file = File(path);
-      final length = await file.length();
-      if (length < 2 || length > 64) return null;
-      final contents = await file.readAsString();
-      if (!contents.endsWith('\n') ||
-          contents.substring(0, contents.length - 1).contains('\n') ||
-          contents.contains('\r')) {
-        return null;
-      }
-      final value = contents.substring(0, contents.length - 1);
-      return _isValidRecoveryRequest(value) ? value : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static bool _isValidRecoveryRequest(String value) {
-    final legacyPid = int.tryParse(value);
-    if (legacyPid != null) return legacyPid > 1;
-    final match = RegExp(
-      r'^v2:(active|recovery):([0-9]+):[0-9a-f]{32}$',
-    ).firstMatch(value);
-    final requestPid = int.tryParse(match?.group(2) ?? '');
-    return requestPid != null && requestPid > 1;
-  }
+  static Future<String?> _readRecoveryRequest(String path) =>
+      MacosTunRequestStore.readRecoveryRequest(path);
 
   static String _newRequestNonce() {
     final random = Random.secure();

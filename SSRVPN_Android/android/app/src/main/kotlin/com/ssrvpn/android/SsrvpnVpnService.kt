@@ -115,7 +115,6 @@ class SsrvpnVpnService : VpnService() {
             }
         }
     }
-
     private var vpnFd: ParcelFileDescriptor? = null
     private var protectThread: Thread? = null
     @Volatile
@@ -123,6 +122,7 @@ class SsrvpnVpnService : VpnService() {
     private val notificationHandler = Handler(Looper.getMainLooper())
     private var currentNodeName = "SSRVPN"
     private var currentApiPort = 0
+    private val runtimeDiagnostics = NativeRuntimeDiagnosticsTracker()
     private var connectionStartedAt = 0L
     private val nativeSessionCommitter by lazy {
         NativeSessionCommitter(this, startGeneration, { isRunning }) {
@@ -474,7 +474,6 @@ class SsrvpnVpnService : VpnService() {
                 Log.e(TAG, "Invalid VPN fd")
                 return rejectCoreStart(requestId, "Invalid VPN fd", recoveryAttempt)
             }
-
             ensureStartCurrent(startToken)
             Log.d(TAG, "Initializing Mihomo...")
             val startErr = startBridgeWithTimeout(configDir, configPath, tunFd)
@@ -510,6 +509,7 @@ class SsrvpnVpnService : VpnService() {
                 Log.d(TAG, "Core started!")
                 applyProxySelection(apiPort, apiSecret, selectedNodeName)
                 val published = startGeneration.runIfCurrent(startToken) {
+                    runtimeDiagnostics.claimTunDescriptor(tunFd)
                     NativeConnectionSession.publishRunning(configPath)
                     isRunning = true
                     broadcastState(this)
@@ -613,7 +613,7 @@ class SsrvpnVpnService : VpnService() {
                     startToken,
                     startGeneration::current,
                     { isRunning },
-                    ::isBridgeRunningWithTimeout,
+                    { isBridgeRunningWithTimeout() != false },
                     isProtectMonitorRunning = {
                         VpnRuntimeHealth.hasProtectMonitor(protectThread)
                     },
@@ -696,19 +696,17 @@ class SsrvpnVpnService : VpnService() {
             VpnNotificationSupport.buildRecoveryFailureNotification(this, CHANNEL_ID)
         )
 
-    private fun isBridgeRunningWithTimeout(): Boolean {
+    private fun isBridgeRunningWithTimeout(): Boolean? {
         if (!bridgeRunningCheckInProgress.compareAndSet(false, true)) {
             Log.w(TAG, "Bridge.isRunning already in progress; deferring verdict")
-            return true
+            return null
         }
-        var result = false
-        var error: Exception? = null
+        var result: Boolean? = null
         val bridgeThread = Thread({
             try {
                 result = bridge.Bridge.isRunning()
             } catch (e: Exception) {
-                error = e
-                result = true
+                Log.e(TAG, "Bridge.isRunning error", e)
             } finally {
                 bridgeRunningCheckInProgress.set(false)
             }
@@ -720,17 +718,21 @@ class SsrvpnVpnService : VpnService() {
             bridgeThread.join(BRIDGE_IS_RUNNING_TIMEOUT_MS)
             if (bridgeThread.isAlive) {
                 Log.e(TAG, "Bridge.isRunning timed out after ${BRIDGE_IS_RUNNING_TIMEOUT_MS}ms; treating stop as unverified")
-                return true
+                return null
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
             Log.e(TAG, "Interrupted while waiting for Bridge.isRunning", e)
-            return true
+            return null
         }
-        error?.let { Log.e(TAG, "Bridge.isRunning error", it) }
         return result
     }
-
+    internal fun runtimeDiagnosticsSnapshot(): NativeRuntimeDiagnostics =
+        runtimeDiagnostics.snapshot(
+            isRunning, isCoreOperationBusy(),
+            VpnRuntimeHealth.hasProtectMonitor(protectThread),
+            isBridgeRunningWithTimeout()
+        )
     private fun applyProxySelection(apiPort: Int, apiSecret: String, nodeName: String?) =
         MihomoProxySelection.apply(apiPort, apiSecret, nodeName)
     fun stopAll(preserveForegroundUi: Boolean = false, onComplete: (() -> Unit)? = null) {
@@ -797,6 +799,7 @@ class SsrvpnVpnService : VpnService() {
         protectThread = null
         val pendingStartStopped = waitForPendingStart()
         val bridgeStopped = pendingStartStopped && stopBridgeWithTimeout()
+        if (bridgeStopped) runtimeDiagnostics.releaseTunDescriptor()
         val protectMonitorStopped = waitForProtectMonitor(protectMonitor)
         val stopDecision = CoreStopDecision.afterBridgeCheck(
             pendingStartStopped,
@@ -897,7 +900,7 @@ class SsrvpnVpnService : VpnService() {
             Log.e(TAG, "Interrupted while waiting for Bridge.stop", e)
             return false
         }
-        return bridgeStopSucceeded.get() && !isBridgeRunningWithTimeout()
+        return bridgeStopSucceeded.get() && isBridgeRunningWithTimeout() == false
     }
 
     override fun onDestroy() {

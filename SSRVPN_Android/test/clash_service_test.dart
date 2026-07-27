@@ -28,6 +28,181 @@ proxies:
 class _RealHttpOverrides extends HttpOverrides {}
 
 void main() {
+  test('Android diagnostics cover native session, TUN, Bridge, and config',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'ssrvpn-android-diagnostics-',
+    );
+    addTearDown(() => tempDir.delete(recursive: true));
+    final config = File('${tempDir.path}/config-1.yaml')
+      ..writeAsStringSync('mixed-port: 7890');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = MethodChannel('com.ssrvpn/native');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method != 'getNativeDiagnostics') return null;
+      return {
+        'schemaVersion': 1,
+        'running': true,
+        'transitioning': false,
+        'protectedConfigPath': config.path,
+        'sessionGeneration': 7,
+        'serviceRunning': true,
+        'operationBusy': false,
+        'tunEstablished': true,
+        'bridgeReady': true,
+        'protectMonitorAlive': true,
+      };
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final service = ClashService()
+      ..setPaths(configDir: tempDir.path, configPath: config.path)
+      ..setRunning(true);
+    final checks = await service.platformDiagnosticChecks();
+
+    expect(
+      checks.map((check) => check.id),
+      containsAll({
+        'android_native_session',
+        'android_tun',
+        'android_bridge',
+        'android_protect',
+        'android_protected_config',
+      }),
+    );
+    expect(
+      checks.where((check) => check.status != AppDiagnosticStatus.passed),
+      isEmpty,
+    );
+  });
+
+  test(
+      'Android diagnostics keep native runtime checks when Dart state is stale',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'ssrvpn-android-native-diagnostics-',
+    );
+    addTearDown(() => tempDir.delete(recursive: true));
+    final config = File('${tempDir.path}/config-2.yaml')
+      ..writeAsStringSync('mixed-port: 7890');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = MethodChannel('com.ssrvpn/native');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method != 'getNativeDiagnostics') return null;
+      return {
+        'schemaVersion': 1,
+        'running': true,
+        'transitioning': false,
+        'protectedConfigPath': config.path,
+        'sessionGeneration': 8,
+        'serviceRunning': true,
+        'operationBusy': false,
+        'tunEstablished': false,
+        'bridgeReady': false,
+        'protectMonitorAlive': true,
+      };
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final service = ClashService()
+      ..setPaths(configDir: tempDir.path, configPath: config.path);
+    final checks = await service.platformDiagnosticChecks();
+
+    expect(
+      checks
+          .singleWhere((check) => check.id == 'android_native_session')
+          .status,
+      AppDiagnosticStatus.failed,
+    );
+    expect(
+      checks.singleWhere((check) => check.id == 'android_tun').status,
+      AppDiagnosticStatus.failed,
+    );
+    expect(
+      checks.singleWhere((check) => check.id == 'android_bridge').status,
+      AppDiagnosticStatus.failed,
+    );
+  });
+
+  test('Android diagnostics expose residual TUN and Bridge after service stop',
+      () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = MethodChannel('com.ssrvpn/native');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method != 'getNativeDiagnostics') return null;
+      return {
+        'schemaVersion': 1,
+        'running': false,
+        'transitioning': false,
+        'protectedConfigPath': null,
+        'sessionGeneration': null,
+        'serviceRunning': false,
+        'operationBusy': false,
+        'tunEstablished': true,
+        'bridgeReady': true,
+        'protectMonitorAlive': false,
+      };
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final service = ClashService();
+    final checks = await service.platformDiagnosticChecks();
+
+    expect(
+      checks.singleWhere((check) => check.id == 'android_tun').status,
+      AppDiagnosticStatus.failed,
+    );
+    expect(
+      checks.singleWhere((check) => check.id == 'android_bridge').status,
+      AppDiagnosticStatus.failed,
+    );
+    expect(
+      checks.singleWhere((check) => check.id == 'android_protect').status,
+      AppDiagnosticStatus.skipped,
+    );
+  });
+
+  test('Android diagnostics preserve unknown probes after service stop',
+      () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = MethodChannel('com.ssrvpn/native');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method != 'getNativeDiagnostics') return null;
+      return {
+        'schemaVersion': 1,
+        'running': false,
+        'transitioning': false,
+        'protectedConfigPath': null,
+        'sessionGeneration': null,
+        'serviceRunning': false,
+        'operationBusy': false,
+        'tunEstablished': null,
+        'bridgeReady': null,
+        'protectMonitorAlive': false,
+      };
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final checks = await ClashService().platformDiagnosticChecks();
+
+    expect(
+      checks.singleWhere((check) => check.id == 'android_tun').status,
+      AppDiagnosticStatus.warning,
+    );
+    expect(
+      checks.singleWhere((check) => check.id == 'android_bridge').status,
+      AppDiagnosticStatus.warning,
+    );
+    expect(
+      checks.singleWhere((check) => check.id == 'android_protect').status,
+      AppDiagnosticStatus.skipped,
+    );
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('authoritative native recovery state preserves then retires intent',

@@ -10,12 +10,14 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/system_proxy_service.dart';
 import '../services/windows_tun_elevation_service.dart';
 import '../services/windows_tun_runtime_probe.dart';
+import '../services/windows_start_transaction.dart';
 import '../src/services/windows_core_pid_record.dart';
 import '../src/services/windows_powershell.dart';
 
 part 'clash_service_config.dart';
 part 'clash_service_recovery_policy.dart';
 part 'clash_service_lifecycle.dart';
+part 'clash_service_start_preparation.dart';
 part 'clash_service_tun_recovery.dart';
 
 const String _geoProxyGroupName = 'SSRVPN-GEO';
