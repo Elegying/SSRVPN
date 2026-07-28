@@ -927,11 +927,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         startStatusMonitor();
         _scheduleNativeCoreStatusWatch(startedProcess);
       },
-      rollback: () async {
-        await _stopInternal();
-      },
+      rollback: _cleanupFailedStart,
       onException: (stage, error) {
-        if (error is _DesktopStartCancelled) {
+        if (stage == MacosStartTransactionStage.rollback) {
+          log('macOS 启动事务回滚未完成: $error');
+        } else if (error is _DesktopStartCancelled) {
           setLastStartError('连接已取消');
         } else {
           setLastStartError(_friendlyStartException(error));
@@ -939,6 +939,33 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         log('macOS 启动事务在 ${stage.name} 阶段失败');
       },
     );
+  }
+
+  Future<bool> _cleanupFailedStart() async {
+    final startError = lastStartError?.trim();
+    String? cleanupError;
+    try {
+      if (await _stopInternal()) return true;
+      final proxyError = _proxyService.lastError?.trim();
+      final stopError = lastStartError?.trim();
+      if (proxyError != null && proxyError.isNotEmpty) {
+        cleanupError = proxyError;
+      } else if (stopError != null &&
+          stopError.isNotEmpty &&
+          stopError != startError) {
+        cleanupError = stopError;
+      }
+    } catch (error) {
+      cleanupError = '启动失败后无法确认 Mihomo 已安全停止: $error';
+    }
+    cleanupError ??= '启动失败后无法确认系统代理与 Mihomo 已安全停止';
+    if (startError == null || startError.isEmpty) {
+      setLastStartError(cleanupError);
+    } else if (!startError.contains(cleanupError)) {
+      setLastStartError('$startError；$cleanupError');
+    }
+    log('启动失败后的清理未完成: $cleanupError');
+    return false;
   }
 
   Future<bool> _recoverPendingTunDnsInternal(int startToken) async {

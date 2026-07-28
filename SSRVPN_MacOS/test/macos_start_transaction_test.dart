@@ -14,7 +14,10 @@ void main() {
         return true;
       },
       commit: () async => events.add('commit'),
-      rollback: () async => events.add('rollback'),
+      rollback: () async {
+        events.add('rollback');
+        return true;
+      },
       onException: (_, __) => events.add('exception'),
     );
 
@@ -35,7 +38,10 @@ void main() {
         return false;
       },
       commit: () async => events.add('commit'),
-      rollback: () async => events.add('rollback'),
+      rollback: () async {
+        events.add('rollback');
+        return true;
+      },
       onException: (_, __) => events.add('exception'),
     );
 
@@ -50,7 +56,10 @@ void main() {
       configureSystemProxy: () async => true,
       confirmHealthy: () async => true,
       commit: () async => throw StateError('injected'),
-      rollback: () async => rollbacks++,
+      rollback: () async {
+        rollbacks++;
+        return true;
+      },
       onException: (stage, _) => failedStage = stage,
     );
 
@@ -79,6 +88,26 @@ void main() {
     expect(failedStages, [MacosStartTransactionStage.rollback]);
   });
 
+  test('rollback returning false is attributed as an incomplete cleanup',
+      () async {
+    final failedStages = <MacosStartTransactionStage>[];
+    var rollbacks = 0;
+    final result = await MacosStartTransaction().run(
+      configureSystemProxy: () async => true,
+      confirmHealthy: () async => false,
+      commit: () async {},
+      rollback: () async {
+        rollbacks++;
+        return false;
+      },
+      onException: (stage, _) => failedStages.add(stage),
+    );
+
+    expect(result, isFalse);
+    expect(rollbacks, 1);
+    expect(failedStages, [MacosStartTransactionStage.rollback]);
+  });
+
   test('exception reporter failure cannot suppress rollback', () async {
     var rollbacks = 0;
     final result = await MacosStartTransaction().run(
@@ -86,7 +115,10 @@ void main() {
           throw StateError('injected proxy failure'),
       confirmHealthy: () async => true,
       commit: () async {},
-      rollback: () async => rollbacks++,
+      rollback: () async {
+        rollbacks++;
+        return true;
+      },
       onException: (_, __) => throw StateError('injected reporter failure'),
     );
 

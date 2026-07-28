@@ -526,7 +526,12 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "fileInfo.st_mode & (S_IWGRP | S_IWOTH) == 0",
             "fileInfo.st_size <= 1_048_576",
             "Proxy restore state has no ownership proof; preserving it",
-            "validatedProxyServices(in: root)",
+            "validatedProxyServices(",
+            "hasStableServiceIdentities: hasStableServiceIdentities",
+            "private final class ProxyStateFileSnapshot",
+            "removeProxyStateSnapshot(stateSnapshot, at: stateURL)",
+            "Darwin.fstatat(",
+            "Darwin.unlinkat(directoryDescriptor",
         ):
             self.assertIn(token, app_delegate)
         for method in (
@@ -593,7 +598,9 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "'beginProxyLifecycleTransaction'",
             "'endProxyLifecycleTransaction'",
             "_snapshotMetadataKeys.contains(service)",
-            "_validatedSavedServiceStates(raw)",
+            "_validatedSavedServiceStates(",
+            "hasStableIdentities: hasStableIdentities",
+            "_isCompleteSavedProxyServiceState",
             "_isValidProxyState(value['web'])",
         ):
             self.assertIn(token, source)
