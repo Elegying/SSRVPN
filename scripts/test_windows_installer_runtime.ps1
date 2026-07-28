@@ -58,6 +58,27 @@ function Write-CorePidRecord {
 try {
   New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 
+  $missingInstallRoot = Join-Path $testRoot 'missing-install-root'
+  $missingPidStatusPath = Join-Path $testRoot 'missing-pid.status'
+  $missingPidProbe = Start-Process powershell.exe -ArgumentList @(
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', $stopScript,
+    '-InstalledAppPath', (Join-Path $missingInstallRoot 'bin\ssrvpn_windows_app.exe'),
+    '-InstalledLauncherPath', (Join-Path $missingInstallRoot 'ssrvpn_windows.exe'),
+    '-InstalledCorePath', (Join-Path $missingInstallRoot 'bin\mihomo.exe'),
+    '-InstalledCorePidPath', (Join-Path $missingInstallRoot 'mihomo.pid'),
+    '-StatusPath', $missingPidStatusPath
+  ) -Wait -PassThru -WindowStyle Hidden
+  if ($missingPidProbe.ExitCode -ne 0) {
+    throw "Missing PID parent cleanup returned $($missingPidProbe.ExitCode)."
+  }
+  if ([System.IO.File]::ReadAllText($missingPidStatusPath) -cne 'OK') {
+    throw 'Missing PID parent cleanup did not report OK.'
+  }
+  if (Test-Path -LiteralPath $missingInstallRoot) {
+    throw 'Missing PID parent cleanup unexpectedly created the install root.'
+  }
+
   $processRoot = Join-Path $testRoot 'process\installed'
   $processBin = Join-Path $processRoot 'bin'
   $unrelatedRoot = Join-Path $testRoot 'process\other-product'
