@@ -16,6 +16,7 @@ class ProcessTerminationNotConfirmedException implements Exception {
 
 class TimedProcessRunner {
   static const _outputDrainTimeout = Duration(milliseconds: 250);
+  static const int defaultMaxCapturedOutputCharacters = 1024 * 1024;
 
   static Future<ProcessResult> run(
     String executable,
@@ -30,7 +31,15 @@ class TimedProcessRunner {
     int cancellationExitCode = 125,
     String cancellationStderr = '命令已取消',
     ProcessTreeTerminator? processTreeTerminator,
+    int maxCapturedOutputCharacters = defaultMaxCapturedOutputCharacters,
   }) async {
+    if (maxCapturedOutputCharacters <= 0) {
+      throw ArgumentError.value(
+        maxCapturedOutputCharacters,
+        'maxCapturedOutputCharacters',
+        'must be greater than zero',
+      );
+    }
     Process? process;
     _OutputCollector? stdoutCollector;
     _OutputCollector? stderrCollector;
@@ -43,8 +52,14 @@ class TimedProcessRunner {
         includeParentEnvironment: includeParentEnvironment,
         environment: environment,
       );
-      stdoutCollector = _OutputCollector(process.stdout);
-      stderrCollector = _OutputCollector(process.stderr);
+      stdoutCollector = _OutputCollector(
+        process.stdout,
+        maxCapturedOutputCharacters,
+      );
+      stderrCollector = _OutputCollector(
+        process.stderr,
+        maxCapturedOutputCharacters,
+      );
 
       final completion = Completer<_ProcessCompletion>();
       process.exitCode.then((exitCode) {
@@ -141,9 +156,9 @@ class _ProcessCompletion {
 }
 
 class _OutputCollector {
-  _OutputCollector(Stream<List<int>> stream) {
+  _OutputCollector(Stream<List<int>> stream, this._maxCharacters) {
     _subscription = stream.transform(utf8.decoder).listen(
-      _buffer.write,
+      _capture,
       onDone: _complete,
       onError: (Object error, StackTrace stack) {
         if (!_done.isCompleted) _done.completeError(error, stack);
@@ -152,8 +167,37 @@ class _OutputCollector {
   }
 
   final _buffer = StringBuffer();
+  final int _maxCharacters;
   final _done = Completer<String>();
   late final StreamSubscription<String> _subscription;
+  int _capturedCharacters = 0;
+  bool _truncated = false;
+
+  void _capture(String chunk) {
+    if (_truncated) return;
+    final remaining = _maxCharacters - _capturedCharacters;
+    if (chunk.length <= remaining) {
+      _buffer.write(chunk);
+      _capturedCharacters += chunk.length;
+      return;
+    }
+
+    var take = remaining;
+    if (take > 0 &&
+        take < chunk.length &&
+        _isHighSurrogate(chunk.codeUnitAt(take - 1))) {
+      take--;
+    }
+    if (take > 0) {
+      _buffer.write(chunk.substring(0, take));
+      _capturedCharacters += take;
+    }
+    _buffer.write('\n...[output truncated]');
+    _truncated = true;
+  }
+
+  bool _isHighSurrogate(int codeUnit) =>
+      codeUnit >= 0xD800 && codeUnit <= 0xDBFF;
 
   Future<String> finish({Duration? timeout}) async {
     if (timeout == null) return _done.future;

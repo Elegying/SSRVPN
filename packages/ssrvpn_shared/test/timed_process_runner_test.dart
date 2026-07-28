@@ -99,6 +99,30 @@ void main() {
     },
     skip: Platform.isWindows ? 'uses POSIX child-process semantics' : false,
   );
+
+  test(
+    'caps captured stdout and stderr while continuing to drain the process',
+    () async {
+      final result = await TimedProcessRunner.run(
+        '/bin/sh',
+        const [
+          '-c',
+          r'i=0; while [ "$i" -lt 1024 ]; do '
+              r'printf x; printf y >&2; i=$((i + 1)); done',
+        ],
+        maxCapturedOutputCharacters: 64,
+      );
+
+      expect(result.exitCode, 0);
+      expect(result.stdout, startsWith('x' * 64));
+      expect(result.stderr, startsWith('y' * 64));
+      expect(result.stdout, contains('output truncated'));
+      expect(result.stderr, contains('output truncated'));
+      expect((result.stdout as String).length, lessThan(100));
+      expect((result.stderr as String).length, lessThan(100));
+    },
+    skip: Platform.isWindows ? 'uses a POSIX shell output generator' : false,
+  );
 }
 
 String get _shellExecutable => Platform.isWindows ? 'cmd.exe' : '/bin/sh';

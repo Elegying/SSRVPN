@@ -84,6 +84,33 @@ proxy-groups:
         );
       });
 
+      test('group lookup preserves the first duplicate node match', () {
+        final yaml = '''
+proxies:
+  - name: "Duplicate"
+    type: ss
+    server: first.example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: first
+  - name: "Duplicate"
+    type: ss
+    server: second.example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: second
+proxy-groups:
+  - name: "PROXY"
+    type: select
+    proxies:
+      - "Duplicate"
+''';
+
+        final result = SubscriptionParser.parseYaml(yaml);
+
+        expect(result.groups.single.nodes.single.server, 'first.example.com');
+      });
+
       test('maps app-only subscription source to node group', () {
         final yaml = '''
 proxies:

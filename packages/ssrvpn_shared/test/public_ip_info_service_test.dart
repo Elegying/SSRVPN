@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:ssrvpn_shared/services/public_ip_info_service.dart';
@@ -156,5 +158,100 @@ void main() {
         ),
       );
     });
+
+    test('rejects an oversized Content-Length before buffering the body',
+        () async {
+      var bodyListened = false;
+      var bodyCanceled = false;
+      final allowCancellationToFinish = Completer<void>();
+      late StreamController<List<int>> oversizedBody;
+      oversizedBody = StreamController<List<int>>(
+        onListen: () => bodyListened = true,
+        onCancel: () {
+          bodyCanceled = true;
+          return allowCancellationToFinish.future;
+        },
+      );
+      addTearDown(() async {
+        if (!allowCancellationToFinish.isCompleted) {
+          allowCancellationToFinish.complete();
+        }
+        if (!oversizedBody.isClosed) await oversizedBody.close();
+      });
+      final service = PublicIpInfoService(
+        client: _RoutingStreamClient((request) async {
+          if (request.url == PublicIpInfoService.ipv4Endpoint) {
+            return http.StreamedResponse(
+              oversizedBody.stream,
+              200,
+              contentLength: PublicIpInfoService.maxResponseBytes + 1,
+            );
+          }
+          return _jsonResponse(
+            '{"ip":"203.0.113.8","country_code":"US"}',
+          );
+        }),
+      );
+
+      final info = await service
+          .fetch(timeout: const Duration(milliseconds: 250))
+          .timeout(const Duration(seconds: 1));
+
+      expect(info.displayText, '203.0.113.8 US');
+      expect(bodyListened, isTrue);
+      expect(bodyCanceled, isTrue);
+    });
+
+    test('cancels a streamed response as soon as its byte limit is exceeded',
+        () async {
+      var chunksProduced = 0;
+      var canceledBeforeCompletion = false;
+
+      Stream<List<int>> oversizedBody() async* {
+        try {
+          for (var index = 0; index < 4; index++) {
+            chunksProduced++;
+            yield List<int>.filled(40 * 1024, index);
+            await Future<void>.delayed(Duration.zero);
+          }
+        } finally {
+          canceledBeforeCompletion = chunksProduced < 4;
+        }
+      }
+
+      final service = PublicIpInfoService(
+        client: _RoutingStreamClient((request) async {
+          if (request.url == PublicIpInfoService.ipv4Endpoint) {
+            return http.StreamedResponse(oversizedBody(), 200);
+          }
+          return _jsonResponse(
+            '{"ip":"203.0.113.9","country_code":"JP"}',
+          );
+        }),
+      );
+
+      final info = await service.fetch(timeout: const Duration(seconds: 1));
+
+      expect(info.displayText, '203.0.113.9 JP');
+      expect(chunksProduced, 2);
+      expect(canceledBeforeCompletion, isTrue);
+    });
   });
+}
+
+http.StreamedResponse _jsonResponse(String body) => http.StreamedResponse(
+      Stream<List<int>>.value(utf8.encode(body)),
+      200,
+      headers: const {'content-type': 'application/json'},
+      contentLength: utf8.encode(body).length,
+    );
+
+class _RoutingStreamClient extends http.BaseClient {
+  _RoutingStreamClient(this._send);
+
+  final Future<http.StreamedResponse> Function(http.BaseRequest request) _send;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      _send(request);
 }

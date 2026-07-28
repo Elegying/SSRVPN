@@ -1050,6 +1050,42 @@ void main() {
     expect(tempDir.listSync(), isEmpty);
   });
 
+  test('cancellation after checksum verification removes the staging file',
+      () async {
+    final bytes = utf8.encode('verified-installer');
+    final cancellation = VerifiedUpdateCancellation();
+    final destination = File('${tempDir.path}/SSRVPN.dmg');
+    SharedUpdateService.publicationStepForTesting = (step) {
+      if (step == VerifiedUpdatePublicationTestStep.downloadVerified) {
+        cancellation.cancel();
+      }
+    };
+
+    await expectLater(
+      SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+          version: '9.9.9',
+          downloadUrl: 'https://example.com/SSRVPN.dmg',
+          changelog: '',
+          sha256: sha256.convert(bytes).toString(),
+        ),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN.dmg',
+        client: MockClient(
+          (_) async => http.Response.bytes(bytes, HttpStatus.ok),
+        ),
+        cancellation: cancellation,
+      ),
+      throwsA(isA<VerifiedUpdateCancelled>()),
+    );
+
+    expect(await destination.exists(), isFalse);
+    expect(
+      tempDir.listSync().where((entry) => entry.path.contains('.part.')),
+      isEmpty,
+    );
+  });
+
   test('verified desktop download enforces one absolute attempt deadline',
       () async {
     final chunks = List<List<int>>.generate(6, (index) => [index]);

@@ -15,6 +15,13 @@ mixin _ClashDataPlaneSupport {
   @protected
   Duration get dataPlaneObservationTimeout => const Duration(seconds: 30);
 
+  @protected
+  Future<http.StreamedResponse> startUserConnectivityRequest(
+    http.Client client,
+    Uri uri,
+  ) =>
+      client.send(http.Request('GET', uri));
+
   String? get connectivityWarning => _connectivityWarning;
 
   @protected
@@ -73,8 +80,12 @@ mixin _ClashDataPlaneSupport {
           ..findProxy = (_) => userConnectivityProxyConfig(),
       );
     }
-    final send = request ??
-        (Uri uri) => client!.get(uri).timeout(const Duration(seconds: 6));
+    final Future<int> Function(Uri uri) sendStatus;
+    if (request != null) {
+      sendStatus = (uri) async => (await request(uri)).statusCode;
+    } else {
+      sendStatus = (uri) => _sendUserConnectivityStatus(client!, uri);
+    }
     final attempts = maxAttempts.clamp(1, 5).toInt();
     final endpointValues = settings.enableTun
         ? AppConstants.tunConnectivityTestUrls
@@ -88,12 +99,12 @@ mixin _ClashDataPlaneSupport {
           // Rotate independent endpoints across retries so one blocked or
           // rate-limited service cannot define the entire data-plane state.
           final endpoint = endpoints[(attempt - 1) % endpoints.length];
-          final response = await send(endpoint);
+          final statusCode = await sendStatus(endpoint);
           if (shouldContinue?.call() == false) return null;
-          if (response.statusCode == 204 || response.statusCode == 200) {
+          if (statusCode == 204 || statusCode == 200) {
             return null;
           }
-          lastStatusCode = response.statusCode;
+          lastStatusCode = statusCode;
         } catch (_) {
           lastStatusCode = null;
         }
@@ -109,6 +120,45 @@ mixin _ClashDataPlaneSupport {
       return '已连接，但连续 $attempts 次网络验证失败，请尝试切换节点或刷新订阅';
     } finally {
       client?.close();
+    }
+  }
+
+  Future<int> _sendUserConnectivityStatus(
+    http.Client client,
+    Uri uri,
+  ) async {
+    const timeout = Duration(seconds: 6);
+    final responseFuture = startUserConnectivityRequest(client, uri);
+    late final http.StreamedResponse response;
+    try {
+      response = await responseFuture.timeout(timeout);
+    } on TimeoutException {
+      unawaited(
+        responseFuture.then<void>(
+          (lateResponse) => _cancelUserConnectivityBody(lateResponse.stream),
+          onError: (Object _, StackTrace __) {},
+        ),
+      );
+      rethrow;
+    }
+
+    final statusCode = response.statusCode;
+    await _cancelUserConnectivityBody(response.stream);
+    return statusCode;
+  }
+
+  Future<void> _cancelUserConnectivityBody(Stream<List<int>> stream) async {
+    const cancellationTimeout = Duration(milliseconds: 50);
+    try {
+      final subscription = stream.listen(
+        null,
+        onError: (Object _) {},
+        cancelOnError: true,
+      );
+      await subscription.cancel().timeout(cancellationTimeout);
+    } catch (_) {
+      // Connectivity verification only needs the response status. Closing the
+      // owning client in the caller remains the fallback if cancellation fails.
     }
   }
 

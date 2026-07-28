@@ -65,6 +65,7 @@ enum VerifiedUpdateRecoveryTestStep {
 
 @visibleForTesting
 enum VerifiedUpdatePublicationTestStep {
+  downloadVerified,
   beforeDestinationCommit,
   committed,
   reused,
@@ -287,12 +288,15 @@ class SharedUpdateService {
         throw StateError('没有可用的更新下载地址');
       }
 
-      cancellation?.throwIfCancelled();
-      final verifiedLength = await _awaitWithCancellation(
-        temporary.length(),
-        cancellation,
-      );
       try {
+        await _notifyPublicationStep(
+          VerifiedUpdatePublicationTestStep.downloadVerified,
+        );
+        cancellation?.throwIfCancelled();
+        final verifiedLength = await _awaitWithCancellation(
+          temporary.length(),
+          cancellation,
+        );
         await _withPublicationLock<void>(
           destination,
           cancellation: cancellation,

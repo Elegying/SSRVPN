@@ -50,6 +50,8 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   int get revision => _revision;
   List<ProxyNode> get allNodes => List.unmodifiable(_allNodes);
   List<ProxyGroup> get allGroups => List.unmodifiable(_allGroups);
+  @visibleForTesting
+  int get retainedFetchedProfileNameCount => _fetchedProfileNames.length;
 
   /// 平台特定的 HTTP 订阅拉取（含重试）
   Future<String?> fetchSubscription(
@@ -130,6 +132,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
         }
         Error.throwWithStackTrace(error, stackTrace);
       }
+      _purgeInactiveFetchedProfileNames();
       notifyListeners();
       return;
     }
@@ -145,6 +148,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
       if (result.isPartialSuccess) {
         throw SubscriptionPartialRefreshException(result);
       }
+      _purgeInactiveFetchedProfileNames();
     } catch (error, stackTrace) {
       _subscriptions.insert(index, removed);
       Error.throwWithStackTrace(error, stackTrace);
@@ -166,6 +170,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
         _subscriptions[index] = previous;
         Error.throwWithStackTrace(error, stackTrace);
       }
+      _purgeInactiveFetchedProfileNames();
       notifyListeners();
     }
   }
@@ -222,6 +227,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   ) async {
     control.throwIfStopped();
     if (_subscriptions.isEmpty) {
+      _fetchedProfileNames.clear();
       _rawYaml = null;
       _allNodes = [];
       _allGroups = [];
@@ -547,6 +553,12 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
     }
   }
 
+  void _purgeInactiveFetchedProfileNames() {
+    final activeUrls =
+        _subscriptions.map((subscription) => subscription.url).toSet();
+    _fetchedProfileNames.removeWhere((url, _) => !activeUrls.contains(url));
+  }
+
   @visibleForTesting
   String? subscriptionNameFromHeaders(Map<String, String> headers) {
     return SubscriptionHeaderNameParser.fromHeaders(headers);
@@ -662,6 +674,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier {
   }
 
   Future<void> loadFromDisk() async {
+    _fetchedProfileNames.clear();
     if (_cacheDir == null) return;
 
     final subsFile = File('$_cacheDir/subscriptions.json');
