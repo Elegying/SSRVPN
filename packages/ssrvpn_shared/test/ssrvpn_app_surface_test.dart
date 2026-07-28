@@ -396,6 +396,82 @@ void main() {
     expect(longPressedNode?.name, '日本 | IEPL ①');
   });
 
+  testWidgets(
+      'unselectable timed-out node keeps edit gestures without becoming selectable',
+      (tester) async {
+    final timedOutNode = ProxyNode(
+      name: '超时节点',
+      type: 'ss',
+      server: 'timeout.example.com',
+      port: 443,
+      group: '订阅 A',
+      latency: 65535,
+    );
+    var selectionCalls = 0;
+    ProxyNode? longPressedNode;
+    ProxyNode? secondaryTappedNode;
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnNodeSelectionPage(
+          nodesOf: () => [timedOutNode],
+          selectedNodeNameOf: () => null,
+          proxyModeOf: () => ProxyMode.rule,
+          testingNodeNameOf: () => null,
+          isBatchTestingOf: () => false,
+          isConnectingOf: () => false,
+          countryCodeOf: (_) => 'UN',
+          latencyOf: (node) => node.latency,
+          canSelectNode: (_) => false,
+          onClose: () {},
+          onRefresh: () async {},
+          onTestAll: () async {},
+          onTestLatency: (_) async {},
+          onSelectNode: (_) async => selectionCalls++,
+          onProxyModeChanged: (_) async {},
+          onSecondaryTapDown: (node, _) => secondaryTappedNode = node,
+          onLongPressNode: (node) => longPressedNode = node,
+        ),
+      ),
+    );
+
+    final selectionAction = find.bySemanticsLabel('选择服务器 超时节点');
+    final selectionSemantics = tester.getSemantics(selectionAction);
+    expect(selectionSemantics.flagsCollection.isEnabled, Tristate.isFalse);
+    expect(
+      selectionSemantics.getSemanticsData().hasAction(SemanticsAction.tap),
+      isFalse,
+    );
+    expect(
+      selectionSemantics
+          .getSemanticsData()
+          .hasAction(SemanticsAction.longPress),
+      isTrue,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('ssrvpn-node-select-超时节点')),
+    );
+    await tester.pump();
+    expect(selectionCalls, 0);
+
+    await tester.longPress(find.text('超时节点'));
+    await tester.pump();
+    expect(longPressedNode, same(timedOutNode));
+
+    final cardInkWell = tester.widget<InkWell>(
+      find.descendant(
+        of: find.byKey(const ValueKey('ssrvpn-node-select-超时节点')),
+        matching: find.byType(InkWell),
+      ),
+    );
+    expect(cardInkWell.onSecondaryTapDown, isNotNull);
+    cardInkWell.onSecondaryTapDown!(
+      TapDownDetails(globalPosition: const Offset(10, 10)),
+    );
+    expect(secondaryTappedNode, same(timedOutNode));
+  });
+
   testWidgets('mounted selector refreshes every owner-backed state',
       (tester) async {
     final ownerChanges = ValueNotifier<int>(0);

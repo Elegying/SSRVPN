@@ -217,6 +217,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
       testing: node.name == widget.testingNodeNameOf(),
       selectionBusy:
           selectionBusy || !(widget.canSelectNode?.call(node) ?? true),
+      editBusy: selectionBusy,
       testingBusy: testingBusy,
       onSelect: () => _runAction(() => widget.onSelectNode(node)),
       onTest: () => _runAction(() => widget.onTestLatency(node)),
