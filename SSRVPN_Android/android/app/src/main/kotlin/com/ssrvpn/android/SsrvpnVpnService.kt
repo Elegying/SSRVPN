@@ -87,6 +87,7 @@ class SsrvpnVpnService : VpnService() {
         private val bridgeStartInProgress = AtomicBoolean(false)
         private val bridgeStopInProgress = AtomicBoolean(false)
         private val bridgeRunningCheckInProgress = AtomicBoolean(false)
+        private val bridgeFdTerminationRequired = AtomicBoolean(false)
         private val processTerminationPending = AtomicBoolean(false)
         internal val startGeneration = StartGenerationGate()
         private val recoveryGeneration = AtomicLong(0)
@@ -463,85 +464,84 @@ class SsrvpnVpnService : VpnService() {
             ensureStartCurrent(startToken)
             val descriptor = checkNotNull(vpnFd)
             vpnFd = null
-            val tunFd = try {
-                descriptor.detachFd().toLong()
-            } finally {
-                descriptor.close()
-            }
+            val tunFdOwner = DetachedTunFdOwner.detach(descriptor)
+            val tunFd = tunFdOwner.descriptorNumber
             Log.d(TAG, "VPN established! fd=$tunFd")
-
-            if (tunFd <= 0) {
-                Log.e(TAG, "Invalid VPN fd")
-                return rejectCoreStart(requestId, "Invalid VPN fd", recoveryAttempt)
-            }
-            ensureStartCurrent(startToken)
-            Log.d(TAG, "Initializing Mihomo...")
-            val startErr = startBridgeWithTimeout(configDir, configPath, tunFd)
-            if (startErr == null) {
-                Log.e(TAG, "Mihomo start timed out")
-                return rejectCoreStart(requestId, "设备性能不足，请重新连接", recoveryAttempt)
-            }
-            if (startErr.isNotEmpty()) {
-                Log.e(TAG, "Mihomo start failed: $startErr")
-                return rejectCoreStart(requestId, "Mihomo: $startErr", recoveryAttempt)
-            }
-            ensureStartCurrent(startToken)
-            Log.d(TAG, "Mihomo started with TUN fd=$tunFd")
-
-            Log.d(TAG, "Waiting for API on port $apiPort...")
-            val healthDeadlineNanos =
-                System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(API_HEALTH_TIMEOUT_MS)
-            val healthy = mihomoApiWaiter.waitUntilHealthy(
-                apiPort,
-                apiSecret,
-                healthDeadlineNanos,
-                API_HEALTH_POLL_INTERVAL_MS,
-                ensureCurrent = { ensureStartCurrent(startToken) }
-            )
-            if (healthy) Log.d(TAG, "Mihomo API /version is healthy")
-
-            if (healthy && !VpnRuntimeHealth.hasProtectMonitor(protectThread)) {
-                return rejectCoreStart(requestId, "VPN 网络保护服务异常，请重新连接", recoveryAttempt)
-            }
-
-            if (healthy) {
+            try {
                 ensureStartCurrent(startToken)
-                Log.d(TAG, "Core started!")
-                applyProxySelection(apiPort, apiSecret, selectedNodeName)
-                val published = startGeneration.runIfCurrent(startToken) {
-                    runtimeDiagnostics.claimTunDescriptor(tunFd)
-                    NativeConnectionSession.publishRunning(configPath)
-                    isRunning = true
-                    broadcastState(this)
-                    startNotificationUpdates()
-                    consumeStartResult(
-                        requestId,
-                        true,
-                        "OK",
-                        NativeConnectionSession.snapshot(true, startToken)
-                    )
-                    serviceStartInProgress.set(false)
+                Log.d(TAG, "Initializing Mihomo...")
+                val startErr = startBridgeWithTimeout(configDir, configPath, tunFdOwner)
+                if (startErr == null) {
+                    Log.e(TAG, "Mihomo start timed out")
+                    return rejectCoreStart(requestId, "设备性能不足，请重新连接", recoveryAttempt)
                 }
-                if (!published) throw StartCancelledException()
+                if (startErr.isNotEmpty()) {
+                    Log.e(TAG, "Mihomo start failed: $startErr")
+                    return rejectCoreStart(requestId, "Mihomo: $startErr", recoveryAttempt)
+                }
+                ensureStartCurrent(startToken)
+                Log.d(TAG, "Mihomo started with TUN fd=$tunFd")
+                Log.d(TAG, "Waiting for API on port $apiPort...")
+                val healthDeadlineNanos =
+                    System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(API_HEALTH_TIMEOUT_MS)
+                val healthy = mihomoApiWaiter.waitUntilHealthy(
+                    apiPort,
+                    apiSecret,
+                    healthDeadlineNanos,
+                    API_HEALTH_POLL_INTERVAL_MS,
+                    ensureCurrent = { ensureStartCurrent(startToken) }
+                )
+                if (healthy) Log.d(TAG, "Mihomo API /version is healthy")
 
-                Thread({
-                    monitorCoreRunning(
-                        startToken,
-                        CoreRecoveryRequest(
-                            configDir,
-                            configPath,
-                            apiPort,
-                            apiSecret,
-                            recoveryAttempt
-                        )
+                if (healthy && !VpnRuntimeHealth.hasProtectMonitor(protectThread)) {
+                    return rejectCoreStart(
+                        requestId,
+                        "VPN 网络保护服务异常，请重新连接",
+                        recoveryAttempt
                     )
-                }, "SSRVPN-core-monitor").apply {
-                    isDaemon = true
-                    start()
                 }
-            } else {
-                Log.e(TAG, "Health check timeout")
-                rejectCoreStart(requestId, "设备性能不足，请重新连接", recoveryAttempt)
+
+                if (healthy) {
+                    ensureStartCurrent(startToken)
+                    Log.d(TAG, "Core started!")
+                    applyProxySelection(apiPort, apiSecret, selectedNodeName)
+                    val published = startGeneration.runIfCurrent(startToken) {
+                        runtimeDiagnostics.claimTunDescriptor(tunFd)
+                        NativeConnectionSession.publishRunning(configPath)
+                        isRunning = true
+                        broadcastState(this)
+                        startNotificationUpdates()
+                        consumeStartResult(
+                            requestId,
+                            true,
+                            "OK",
+                            NativeConnectionSession.snapshot(true, startToken)
+                        )
+                        serviceStartInProgress.set(false)
+                    }
+                    if (!published) throw StartCancelledException()
+
+                    Thread({
+                        monitorCoreRunning(
+                            startToken,
+                            CoreRecoveryRequest(
+                                configDir,
+                                configPath,
+                                apiPort,
+                                apiSecret,
+                                recoveryAttempt
+                            )
+                        )
+                    }, "SSRVPN-core-monitor").apply {
+                        isDaemon = true
+                        start()
+                    }
+                } else {
+                    Log.e(TAG, "Health check timeout")
+                    rejectCoreStart(requestId, "设备性能不足，请重新连接", recoveryAttempt)
+                }
+            } finally {
+                tunFdOwner.close()
             }
         } catch (e: StartCancelledException) {
             Log.d(TAG, "VPN start cancelled")
@@ -563,22 +563,22 @@ class SsrvpnVpnService : VpnService() {
     }
 
     private fun startBridgeWithTimeout(
-        configDir: String,
-        configPath: String,
-        tunFd: Long
+        configDir: String, configPath: String, tunFdOwner: DetachedTunFdOwner
     ): String? {
         if (!bridgeStartInProgress.compareAndSet(false, true)) {
             Log.w(TAG, "Bridge.start already in progress")
             return "核心正在启动，请稍后重试"
         }
         var result: String? = null
-        var error: Exception? = null
+        var error: Throwable? = null
         val bridgeThread = Thread({
             try {
-                bridge.Bridge.init(configDir, "config.yaml")
-                result = bridge.Bridge.start(configPath, tunFd)
+                result = tunFdOwner.startWithBridge(
+                    { bridge.Bridge.init(configDir, "config.yaml") },
+                    { bridgeFdTerminationRequired.set(true) }
+                ) { tunFd -> bridge.Bridge.start(configPath, tunFd) }
                 Log.d(TAG, "Bridge.start returned")
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 error = e
             } finally {
                 bridgeStartInProgress.set(false)
@@ -598,7 +598,7 @@ class SsrvpnVpnService : VpnService() {
             Log.e(TAG, "Interrupted while waiting for Bridge.start", e)
             return "启动被中断"
         }
-        error?.let { throw it }
+        error?.let { throw it.asBridgeStartException() }
         return result ?: ""
     }
 
@@ -769,22 +769,20 @@ class SsrvpnVpnService : VpnService() {
             return
         }
         Thread({
-            var terminateProcess = false
-            try {
-                terminateProcess = stopAllOnWorker()
-            } finally {
-                if (terminateProcess) {
+            StopOperationRunner.run(
+                bridgeFdTerminationRequired.get(), ::stopAllOnWorker,
+                {
                     processTerminationPending.set(true)
                     DisconnectRecoveryCoordinator.handoffIfNeeded(this, preserveForegroundUi)
+                },
+                stopOperation::complete,
+                {
+                    Log.e(TAG, "Core shutdown incomplete; terminating process to release the detached TUN fd")
+                    notificationHandler.postDelayed({
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                    }, 750L)
                 }
-                stopOperation.complete()
-            }
-            if (terminateProcess) {
-                Log.e(TAG, "Core shutdown incomplete; terminating process to release the detached TUN fd")
-                notificationHandler.postDelayed({
-                    android.os.Process.killProcess(android.os.Process.myPid())
-                }, 750L)
-            }
+            )?.let { Log.e(TAG, "Stop cleanup failed; process termination scheduled", it) }
         }, "SSRVPN-stop").apply {
             isDaemon = true
             start()
@@ -825,7 +823,7 @@ class SsrvpnVpnService : VpnService() {
             Log.w(TAG, "stopForeground failed: ${e.message}")
         }
         Log.d(TAG, "Stopped")
-        return stopDecision.terminateProcess
+        return bridgeFdTerminationRequired.get() || stopDecision.terminateProcess
     }
 
     private fun waitForProtectMonitor(thread: Thread?): Boolean {

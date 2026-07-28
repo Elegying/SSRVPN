@@ -67,9 +67,12 @@ class VpnTileService : TileService() {
 
     /** 从磁贴拉起 App（Android 14+ 必须用 startActivityAndCollapse + PendingIntent） */
     private fun launchApp() {
+        val autoConnectRequestId = AutoConnectRequestRegistry.issue(this)
         val launchIntent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            putExtra("AUTO_CONNECT", true)
+            autoConnectRequestId?.let {
+                putExtra(AutoConnectRequestRegistry.EXTRA_REQUEST_ID, it)
+            }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val pending = PendingIntent.getActivity(

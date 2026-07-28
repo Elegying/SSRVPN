@@ -90,8 +90,7 @@ extension AndroidNativeBridge on ClashService {
 
   Future<void> _handleNativeMethodCall(MethodCall call) async {
     if (call.method == 'autoConnect') {
-      log('收到原生自动连接请求');
-      onAutoConnect?.call();
+      await _handleAutoConnectSignal();
       return;
     }
     if (call.method != 'vpnStateChanged') return;
@@ -101,6 +100,18 @@ extension AndroidNativeBridge on ClashService {
   @visibleForTesting
   Future<void> handleNativeStateChangedForTesting(bool connected) =>
       _handleNativeStateChanged(connected);
+
+  @visibleForTesting
+  Future<void> handleAutoConnectSignalForTesting() =>
+      _handleAutoConnectSignal();
+
+  Future<void> _handleAutoConnectSignal() async {
+    final callback = onAutoConnect;
+    // 页面尚未注册回调时保留 pending，交给初始化路径稍后消费。
+    if (callback == null || !await consumePendingAutoConnect()) return;
+    log('收到原生自动连接请求');
+    callback();
+  }
 
   Future<void> _handleNativeStateChanged(bool connected) async {
     _nativeStateReconciliationTimer?.cancel();

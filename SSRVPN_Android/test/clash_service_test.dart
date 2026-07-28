@@ -28,6 +28,54 @@ proxies:
 class _RealHttpOverrides extends HttpOverrides {}
 
 void main() {
+  test('native auto-connect signal consumes a pending request exactly once',
+      () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = MethodChannel('com.ssrvpn/native');
+    var consumeCalls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method != 'consumePendingAutoConnect') return null;
+      consumeCalls++;
+      return consumeCalls == 1;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    var callbackCalls = 0;
+    final service = ClashService()..onAutoConnect = () => callbackCalls++;
+
+    await service.handleAutoConnectSignalForTesting();
+    await service.handleAutoConnectSignalForTesting();
+
+    expect(consumeCalls, 2);
+    expect(callbackCalls, 1);
+  });
+
+  test('native auto-connect signal preserves pending until callback is ready',
+      () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = MethodChannel('com.ssrvpn/native');
+    var consumeCalls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method != 'consumePendingAutoConnect') return null;
+      consumeCalls++;
+      return true;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final service = ClashService();
+    await service.handleAutoConnectSignalForTesting();
+    expect(consumeCalls, 0);
+
+    var callbackCalls = 0;
+    service.onAutoConnect = () => callbackCalls++;
+    await service.handleAutoConnectSignalForTesting();
+
+    expect(consumeCalls, 1);
+    expect(callbackCalls, 1);
+  });
+
   test('Android diagnostics cover native session, TUN, Bridge, and config',
       () async {
     final tempDir = await Directory.systemTemp.createTemp(
