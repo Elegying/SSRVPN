@@ -58,11 +58,9 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // 冷启动时（磁贴拉起）onNewIntent 不会触发，从启动 intent 里读取标记，
-        // 由 Flutter 层初始化完成后调用 consumePendingAutoConnect 消费
-        if (intent?.getBooleanExtra("AUTO_CONNECT", false) == true) {
-            autoConnectPending = true
-        }
+        // 冷启动时（磁贴拉起）onNewIntent 不会触发。只接受本进程磁贴签发的
+        // 一次性请求，并在读取后立即从 Intent 中移除，避免重建时重放。
+        enqueueTrustedAutoConnect(intent)
 
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel = channel
@@ -144,6 +142,16 @@ class MainActivity : FlutterActivity() {
             "installUpdate" -> handleInstallUpdate(call, result)
             else -> result.notImplemented()
         }
+    }
+
+    private fun enqueueTrustedAutoConnect(sourceIntent: Intent?): Boolean {
+        val requestId = sourceIntent?.getStringExtra(
+            AutoConnectRequestRegistry.EXTRA_REQUEST_ID
+        )
+        sourceIntent?.removeExtra(AutoConnectRequestRegistry.EXTRA_REQUEST_ID)
+        if (!AutoConnectRequestRegistry.consume(this, requestId)) return false
+        autoConnectPending = true
+        return true
     }
 
     private fun handleSnapshotGeneration(result: MethodChannel.Result) {
@@ -600,13 +608,11 @@ class MainActivity : FlutterActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.getBooleanExtra("AUTO_CONNECT", false)) {
+        if (enqueueTrustedAutoConnect(intent)) {
             Log.d("MainActivity", "Auto connect from tile!")
-            autoConnectPending = true
-            // 通过 Flutter MethodChannel 通知 Flutter 层自动连接
-            flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
-                MethodChannel(messenger, CHANNEL).invokeMethod("autoConnect", null)
-            }
+            // 这里只唤醒 Flutter；同一个 pending 位由 Dart 原子消费，避免
+            // MethodChannel 回调与页面初始化各触发一次连接切换。
+            methodChannel?.invokeMethod("autoConnect", null)
         }
     }
 

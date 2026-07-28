@@ -1,6 +1,8 @@
 package com.ssrvpn.android
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,5 +58,44 @@ class CoreStopDecisionTest {
 
         assertTrue(decision.terminateProcess)
         assertFalse(decision.clearRunningSession)
+    }
+
+    @Test
+    fun `cleanup exception still hands off completes and schedules termination`() {
+        val failure = IllegalStateException("cleanup failed before returning a decision")
+        val events = mutableListOf<String>()
+
+        val observedFailure = StopOperationRunner.run(
+            initiallyRequiresTermination = false,
+            cleanup = {
+                events += "cleanup"
+                throw failure
+            },
+            onTerminationRequired = { events += "handoff" },
+            complete = { events += "complete" },
+            scheduleTermination = { events += "kill" }
+        )
+
+        assertSame(failure, observedFailure)
+        assertEquals(listOf("cleanup", "handoff", "complete", "kill"), events)
+    }
+
+    @Test
+    fun `preexisting termination requirement does not skip cleanup`() {
+        val events = mutableListOf<String>()
+
+        val observedFailure = StopOperationRunner.run(
+            initiallyRequiresTermination = true,
+            cleanup = {
+                events += "cleanup"
+                false
+            },
+            onTerminationRequired = { events += "handoff" },
+            complete = { events += "complete" },
+            scheduleTermination = { events += "kill" }
+        )
+
+        assertEquals(null, observedFailure)
+        assertEquals(listOf("cleanup", "handoff", "complete", "kill"), events)
     }
 }

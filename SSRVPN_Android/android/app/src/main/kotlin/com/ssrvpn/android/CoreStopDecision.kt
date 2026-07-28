@@ -39,3 +39,34 @@ internal data class CoreStopDecision(
         }
     }
 }
+
+internal object StopOperationRunner {
+    fun run(
+        initiallyRequiresTermination: Boolean,
+        cleanup: () -> Boolean,
+        onTerminationRequired: () -> Unit,
+        complete: () -> Unit,
+        scheduleTermination: () -> Unit
+    ): Throwable? {
+        var terminationRequired = initiallyRequiresTermination
+        var cleanupFailure: Throwable? = null
+        try {
+            val cleanupRequiresTermination = cleanup()
+            terminationRequired = terminationRequired || cleanupRequiresTermination
+        } catch (error: Throwable) {
+            terminationRequired = true
+            cleanupFailure = error
+        } finally {
+            try {
+                if (terminationRequired) onTerminationRequired()
+            } finally {
+                try {
+                    complete()
+                } finally {
+                    if (terminationRequired) scheduleTermination()
+                }
+            }
+        }
+        return cleanupFailure
+    }
+}

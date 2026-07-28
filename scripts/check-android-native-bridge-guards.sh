@@ -7,6 +7,8 @@ MAIN_ACTIVITY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/andro
 DISCONNECT_RECOVERY_ACTIVITY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/DisconnectRecoveryActivity.kt"
 DISCONNECT_RECOVERY_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/DisconnectRecoveryCoordinator.kt"
 TILE_SERVICE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnTileService.kt"
+AUTO_CONNECT_REGISTRY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/AutoConnectRequestRegistry.kt"
+DETACHED_TUN_FD_OWNER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/DetachedTunFdOwner.kt"
 BUILD_GRADLE="$ROOT/SSRVPN_Android/android/app/build.gradle.kts"
 MANIFEST="$ROOT/SSRVPN_Android/android/app/src/main/AndroidManifest.xml"
 DISCONNECT_RECOVERY_LAYOUT="$ROOT/SSRVPN_Android/android/app/src/main/res/layout/activity_disconnect_recovery.xml"
@@ -284,7 +286,7 @@ grep -Fq "DEFAULT_RELEASE_ATTEMPTS = 51" "$CORE_PORT_RELEASE_VERIFIER" || {
 }
 require_text "CoreStopDecision.afterBridgeCheck("
 require_text "stopDecision.terminationMessage(currentApiPort)"
-require_text "return stopDecision.terminateProcess"
+require_text "return bridgeFdTerminationRequired.get() || stopDecision.terminateProcess"
 require_text "SSRVPN-bridge-start"
 require_text "SSRVPN-bridge-stop"
 require_text "SSRVPN-bridge-is-running"
@@ -297,11 +299,98 @@ require_count "bridge.Bridge.start(configPath, tunFd)" 1
 require_count "bridge.Bridge.stop()" 1
 require_count "bridge.Bridge.isRunning()" 1
 
-python3 - "$SERVICE" <<'PY'
+python3 - "$SERVICE" "$DETACHED_TUN_FD_OWNER" "$CORE_STOP_DECISION" <<'PY'
 import sys
 from pathlib import Path
 
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
+owner = Path(sys.argv[2]).read_text(encoding="utf-8")
+stop_policy = Path(sys.argv[3]).read_text(encoding="utf-8")
+bridge_start = source.index("private fun startBridgeWithTimeout(")
+bridge_stop = source.index("private fun monitorCoreRunning(", bridge_start)
+start = source[bridge_start:bridge_stop]
+if "tunFdOwner.startWithBridge(" not in start:
+    raise SystemExit("Android TUN fd ownership transaction escaped its owner")
+if "bridgeFdTerminationRequired.set(true)" not in start:
+    raise SystemExit("Android ambiguous Bridge.start ownership does not force process cleanup")
+for throwable_guard in (
+    "var error: Throwable? = null",
+    "catch (e: Throwable)",
+    "throw it.asBridgeStartException()",
+):
+    if throwable_guard not in start:
+        raise SystemExit(f"Android Bridge.start Throwable can escape as success: {throwable_guard}")
+if "return bridgeFdTerminationRequired.get() || stopDecision.terminateProcess" not in source:
+    raise SystemExit("Android stop can ignore ambiguous Bridge.start fd ownership")
+stop_internal = source[
+    source.index("private fun stopInternal("):source.index("private fun stopAllOnWorker()")
+]
+runner_call = stop_internal.index("StopOperationRunner.run(")
+initial = stop_internal.index("bridgeFdTerminationRequired.get()", runner_call)
+cleanup = stop_internal.index("::stopAllOnWorker", initial)
+handoff = stop_internal.index("processTerminationPending.set(true)", cleanup)
+complete = stop_internal.index("stopOperation::complete", handoff)
+schedule = stop_internal.index("notificationHandler.postDelayed(", complete)
+failure_log = stop_internal.index("Stop cleanup failed; process termination scheduled", schedule)
+if not runner_call < initial < cleanup < handoff < complete < schedule < failure_log:
+    raise SystemExit("Android cleanup exceptions can bypass ambiguous fd process termination")
+
+runner = stop_policy[stop_policy.index("internal object StopOperationRunner"):]
+runner_body = runner[runner.index("var terminationRequired"):]
+cleanup_call = runner_body.index("val cleanupRequiresTermination = cleanup()")
+merge = runner_body.index(
+    "terminationRequired = terminationRequired || cleanupRequiresTermination",
+    cleanup_call
+)
+catch = runner_body.index("catch (error: Throwable)", merge)
+force = runner_body.index("terminationRequired = true", catch)
+record_failure = runner_body.index("cleanupFailure = error", force)
+handoff_callback = runner_body.index(
+    "if (terminationRequired) onTerminationRequired()", record_failure
+)
+complete_callback = runner_body.index("complete()", handoff_callback)
+schedule_callback = runner_body.index(
+    "if (terminationRequired) scheduleTermination()", complete_callback
+)
+return_failure = runner_body.index("return cleanupFailure", schedule_callback)
+if not (
+    cleanup_call < merge < catch < force < record_failure < handoff_callback
+    < complete_callback < schedule_callback < return_failure
+):
+    raise SystemExit("Android stop operation runner is not fail-closed")
+
+transaction = owner[owner.index("fun startWithBridge("):owner.index("private fun beginBridgeStart(")]
+prepare = transaction.index("prepareBridge()")
+begin = transaction.index("beginBridgeStart()")
+native_call = transaction.index("startBridge(descriptor)")
+success = transaction.index("result.isEmpty()")
+commit = transaction.index("commitBridgeOwnership()")
+known_failure = transaction.index("isProvenPreAdoptionFailure(result)")
+failure_close = transaction.index("closeAfterKnownPreAdoptionFailure()")
+ambiguous = transaction.index("markOwnershipAmbiguous()", failure_close)
+termination = transaction.index("requireProcessTermination()", ambiguous)
+if not prepare < begin < native_call < success < commit < known_failure < failure_close:
+    raise SystemExit(
+        "Android TUN fd ownership is not committed only after Bridge.start succeeds"
+    )
+if not failure_close < ambiguous < termination:
+    raise SystemExit(
+        "Android unknown Bridge.start errors can close a possibly reused raw fd"
+    )
+for throwable_guard in (
+    "catch (error: Throwable)",
+    "throw error.asBridgeStartException()",
+):
+    if throwable_guard not in transaction:
+        raise SystemExit(f"Android Bridge.start Throwable ownership is unguarded: {throwable_guard}")
+for exact_guard in (
+    'result == "already running"',
+    'result.startsWith("read config: ")',
+    'result.startsWith("parse config: ")',
+):
+    if exact_guard not in owner:
+        raise SystemExit(f"Android proven pre-adoption error guard is missing: {exact_guard}")
+
 start = source.index("private fun stopBridgeWithTimeout(): Boolean")
 stop = source[start:]
 if "isBridgeRunningWithTimeout()" not in stop:
@@ -349,6 +438,57 @@ require_tile_text "ContextCompat.registerReceiver"
 require_text "ContextCompat.RECEIVER_NOT_EXPORTED"
 require_activity_text "ContextCompat.RECEIVER_NOT_EXPORTED"
 require_tile_text "ContextCompat.RECEIVER_NOT_EXPORTED"
+if grep -Fq '"AUTO_CONNECT"' "$MAIN_ACTIVITY" "$TILE_SERVICE"; then
+  echo "Android exported activity must not trust the legacy AUTO_CONNECT boolean" >&2
+  exit 1
+fi
+for needle in \
+  "AutoConnectRequestRegistry.consume(this, requestId)" \
+  "removeExtra(AutoConnectRequestRegistry.EXTRA_REQUEST_ID)"; do
+  require_activity_text "$needle"
+done
+require_tile_text "AutoConnectRequestRegistry.issue(this)"
+for needle in \
+  "UUID.randomUUID().toString()" \
+  "MAX_PENDING_REQUESTS = 16" \
+  "REQUEST_TTL_MS = 60_000L" \
+  "Context.MODE_PRIVATE" \
+  "editor.commit()" \
+  "return requestId.takeIf { store.replace(pending) }" \
+  "return store.replace(pending)"; do
+  grep -Fq "$needle" "$AUTO_CONNECT_REGISTRY" || {
+    echo "Android auto-connect capability guard failed: missing '$needle'" >&2
+    exit 1
+  }
+done
+if grep -Fq "private val pending" "$AUTO_CONNECT_REGISTRY"; then
+  echo "Android auto-connect capabilities must survive main-process recreation" >&2
+  exit 1
+fi
+python3 - "$AUTO_CONNECT_REGISTRY" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+consume = source[source.index("internal fun consume("):source.index("private fun activeEntries(")]
+remove = consume.index("pending.remove(requestId)")
+persist = consume.index("return store.replace(pending)", remove)
+if remove >= persist:
+    raise SystemExit("Android auto-connect capability is authorized before one-shot persistence")
+for required in (
+    "isCanonicalUuid(requestId)",
+    "issuedAt <= nowMillis",
+    "age >= 0L",
+    "age < REQUEST_TTL_MS",
+):
+    if required not in source:
+        raise SystemExit(f"Android auto-connect capability validation is missing: {required}")
+PY
+grep -Fq "callback == null || !await consumePendingAutoConnect()" \
+  "$CLASH_NATIVE_BRIDGE" || {
+  echo "Android auto-connect wake-up no longer consumes one pending request" >&2
+  exit 1
+}
 
 python3 - "$SERVICE" "$NATIVE_RUNTIME_DIAGNOSTICS" <<'PY'
 import sys
