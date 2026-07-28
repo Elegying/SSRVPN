@@ -1314,11 +1314,13 @@ if (-not (Wait-SsrvpnTunTeardown `
 
 if ($InstalledCorePidPath) {
   try {
-    if (Test-Path -LiteralPath $InstalledCorePidPath -PathType Container `
-        -ErrorAction Stop) {
-      throw 'The mihomo PID record path is a directory.'
+    if (Test-Path -LiteralPath $InstalledCorePidPath -ErrorAction Stop) {
+      if (Test-Path -LiteralPath $InstalledCorePidPath -PathType Container `
+          -ErrorAction Stop) {
+        throw 'The mihomo PID record path is a directory.'
+      }
+      [System.IO.File]::Delete($InstalledCorePidPath)
     }
-    [System.IO.File]::Delete($InstalledCorePidPath)
     if (Test-Path -LiteralPath $InstalledCorePidPath -ErrorAction Stop) {
       throw 'The mihomo PID record still exists after deletion.'
     }
