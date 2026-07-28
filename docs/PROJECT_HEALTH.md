@@ -1,8 +1,9 @@
 # 项目健康状态
 
-最近审查：2026-07-28<br>
+最近审查：2026-07-29<br>
 当前应用版本：`v4.0.0`；公开发布状态与产物以 GitHub Release 为准。<br>
-当前分支是在已发布 `v4.0.0` 基线上的发布后加固候选，尚未合并，远端 PR CI 仍是独立证据。
+当前分支是在已发布 `v4.0.0` 基线上的发布后加固候选；草稿 PR
+[#73](https://github.com/Elegying/SSRVPN/pull/73) 尚未合并，最终远端 CI 已全部通过。
 
 ## 结论
 
@@ -15,7 +16,9 @@ SSRVPN 当前三端的连接生命周期、系统代理恢复、外部输入边�
 2026-07-28 在当前候选工作树执行完整 `make verify`，静态分析、文档/版本/密钥/资产/产品表面/
 结构守卫、发布工具、四端 Flutter、Android Gradle/JUnit、macOS RunnerTests 与 TUN/DNS 行为测试
 全部通过。当前本地证据未发现阻断提交的 P0-P1；远端 Windows 原生构建与安装烟雾、目标平台人工
-验收仍不能由 macOS 本地测试替代。
+验收仍不能由 macOS 本地测试替代。最终远端 run
+[`30377839474`](https://github.com/Elegying/SSRVPN/actions/runs/30377839474) 的 Workspace、
+Android、macOS、Windows、全历史秘密扫描和核心资产准备全部成功。
 
 ## 本轮变更范围
 
@@ -51,11 +54,16 @@ make verify
   `47.43%`，Windows 生命周期覆盖率 `12.35%`。
 - 已知非阻断告警仅包括 Android Kotlin/Gradle 兼容或弃用提示、macOS XCTest deployment target
   提示，以及 Xcode Run Script dependency-analysis 提示。
+- 最终远端 Windows runner 通过 212 项测试，覆盖率 `50.41%`，并完成 PowerShell 5.1、
+  安装器运行时、程序文件事务故障注入、Setup 构建和安装/卸载烟雾。
+- 首轮远端 Windows 检查发现“安装根目录完全不存在”时 PID 清理会抛
+  `DirectoryNotFoundException`；最终实现只将该异常视为已无残留，其他删除异常继续失败关闭，
+  并由 Windows 原生回归及最终 run 验证。
 
 ## 证据边界
 
 - Windows Explorer/`kernel32`、PowerShell 5.1、DPAPI、Mihomo、网络 cmdlet 和 Inno Setup
-  安装/卸载只能由受保护 PR 的 Windows runner 或真实 Windows 形成目标平台证据。
+  安装/卸载已由受保护 PR 的 Windows runner 验证；这仍不等同于用户真实 Windows 桌面的人工 UAT。
 - Android 原生测试不能替代真实 Xiaomi 上的快捷磁贴、系统回收恢复、通知断开、长连接和耗电。
 - macOS 自动化覆盖代理/TUN 事务，但本轮不以破坏当前网络状态为代价执行长时间真实 TUN 连接。
 - TalkBack、VoiceOver、Narrator 的完整人工流程仍属于目标平台验收；自动化可证明语义和可达性
@@ -97,16 +105,15 @@ make verify
 | Shared | 本地门禁通过 | 469 项，覆盖率 82.48%；有界 I/O、订阅、更新、进程与节点交互回归通过 |
 | Android | 本地 Flutter/Gradle 通过 | Flutter 218 项，覆盖率 63.90%；原生请求/TUN/停止边界通过，待真机烟雾 |
 | macOS | 本地 Flutter/XCTest 通过 | Flutter 243 项，覆盖率 65.54%；代理、生命周期与 TUN/DNS 门禁通过 |
-| Windows | macOS 可执行门禁通过 | Flutter 204 项，覆盖率 47.43%；目标平台原生与安装流程待 PR Windows CI |
+| Windows | 本地门禁与远端原生 CI 通过 | 本地 204 项；远端 212 项、覆盖率 50.41%，安装器构建及安装/卸载 smoke 通过 |
 
 ## 下一步门槛
 
-1. 将本轮变更按逻辑提交到非 `main` 分支，排除陈旧的本地审查报告。
-2. 创建草稿 PR 并等待共享、Android、macOS、Windows 全部必需 CI 进入终态；不把本地结果冒充远端
-   或目标平台结果。
-3. 在当前可用设备上执行不破坏既有网络配置的启动、节点编辑和安全退出烟雾；真实 Windows 人工
-   UAT 仅在可访问目标机时执行。
-4. 本轮不创建 tag、不发布新版本；后续发布仍必须从干净、与 `origin/main` 同步且通过受保护 CI
+1. 草稿 PR #73 当前全部必需 CI 成功；下一步是人工复核后按受保护分支流程合并，不绕过 review
+   或主分支保护。
+2. Android 当前没有连接真机；macOS 正在运行已安装版的真实 TUN 会话，因此本轮没有抢占单实例或
+   扰动现有网络。真实 Android/Windows 人工 UAT 仅在目标设备可访问时执行。
+3. 本轮不创建 tag、不发布新版本；后续发布仍必须从干净、与 `origin/main` 同步且通过受保护 CI
    的 `main` 创建 annotated tag。
 
 ## 更新规则
