@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 修复
+
+- 三端超时节点继续保持不可选择和置底，但保留既有编辑手势：Android 可长按编辑，
+  macOS/Windows 可长按或右键编辑；全局忙碌或连接中仍禁止编辑。
+- 共享网络读取、订阅缓存、更新元数据和外部进程输出增加一致的有界资源、超时与清理语义。
+- Android 自动连接请求、TUN 文件描述符与停止流程进一步明确所有权，在无法确认回收时失败关闭。
+- macOS 核心退出和系统代理恢复加强稳定身份、事务串行与安全删除边界。
+- Windows 托盘初始化、应用关闭和安装器进程停止加强并发、超时与失败传播。
+
+### 兼容性边界
+
+- 本轮没有增加节点编辑按钮或菜单，没有修改 HTTP 订阅、75 个国内应用直连名单、三端
+  IPv4-only 策略、macOS ad-hoc 分发或 Windows 未签名安装器单一分发策略。
+
 ## [4.0.0] - 2026-07-27
 
 ### 新增
