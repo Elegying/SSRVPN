@@ -289,6 +289,15 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       allowWindowClose: () => windowManager.setPreventClose(false),
       destroyWindow: windowManager.destroy,
     );
+    final recoveryFailures = await recoverWindowsAppAfterBlockedShutdown(
+      shutdownFailures: failures,
+      restoreCloseProtection: () => windowManager.setPreventClose(true),
+      showWindow: windowManager.show,
+      restoreWindow: windowManager.restore,
+      focusWindow: windowManager.focus,
+      isTrayReady: () => _trayManager.isReady,
+      initializeTray: _trayManager.init,
+    );
     for (final failure in failures) {
       StartupLogger.error(
         'Quit cleanup step ${failure.step} failed',
@@ -297,6 +306,18 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       );
       StartupLogger.writeDesktopFailureReportSync(
         'Quit cleanup failed',
+        error: failure.error,
+        stack: failure.stackTrace,
+      );
+    }
+    for (final failure in recoveryFailures) {
+      StartupLogger.error(
+        'Quit recovery step ${failure.step} failed',
+        failure.error,
+        failure.stackTrace,
+      );
+      StartupLogger.writeDesktopFailureReportSync(
+        'Quit recovery failed',
         error: failure.error,
         stack: failure.stackTrace,
       );

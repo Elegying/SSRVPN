@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:path/path.dart' as p;
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:system_tray/system_tray.dart';
@@ -10,13 +11,54 @@ typedef VoidCallback = void Function();
 class TrayManager {
   static final TrayManager _instance = TrayManager._();
   factory TrayManager() => _instance;
-  TrayManager._();
+  TrayManager._({
+    bool? isWindowsOverride,
+    String? Function()? iconAssetPathResolver,
+    Future<bool> Function(String iconAssetPath)? nativeTrayInitializer,
+    Future<bool> Function(String iconAssetPath)? nativeTrayVerifier,
+    Future<void> Function()? initialMenuBuilder,
+    void Function()? eventHandlerRegistrar,
+  })  : _isWindowsOverride = isWindowsOverride,
+        _iconAssetPathResolver = iconAssetPathResolver,
+        _nativeTrayInitializer = nativeTrayInitializer,
+        _nativeTrayVerifier = nativeTrayVerifier,
+        _initialMenuBuilder = initialMenuBuilder,
+        _eventHandlerRegistrar = eventHandlerRegistrar;
 
-  final SystemTray _systemTray = SystemTray();
+  /// Creates an isolated manager for deterministic native-boundary tests.
+  factory TrayManager.forTesting({
+    required Future<bool> Function(String iconAssetPath) initializeNativeTray,
+    required Future<bool> Function(String iconAssetPath) verifyNativeTray,
+    Future<void> Function()? buildMenu,
+    void Function()? registerEventHandler,
+    String iconAssetPath = 'assets/icon.ico',
+  }) =>
+      TrayManager._(
+        isWindowsOverride: true,
+        iconAssetPathResolver: () => iconAssetPath,
+        nativeTrayInitializer: initializeNativeTray,
+        nativeTrayVerifier: verifyNativeTray,
+        initialMenuBuilder: buildMenu ?? () async {},
+        eventHandlerRegistrar: registerEventHandler ?? () {},
+      );
+
+  SystemTray? _systemTrayInstance;
+  SystemTray get _systemTray => _systemTrayInstance ??= SystemTray();
+  final bool? _isWindowsOverride;
+  final String? Function()? _iconAssetPathResolver;
+  final Future<bool> Function(String iconAssetPath)? _nativeTrayInitializer;
+  final Future<bool> Function(String iconAssetPath)? _nativeTrayVerifier;
+  final Future<void> Function()? _initialMenuBuilder;
+  final void Function()? _eventHandlerRegistrar;
   bool _initialized = false;
+  Future<bool>? _initializationOperation;
+  String? _lastError;
 
   /// 托盘是否已成功初始化
   bool get isReady => _initialized;
+
+  /// 最近一次托盘初始化失败原因。
+  String? get lastError => _lastError;
 
   // 回调
   void Function()? onShowApp;
@@ -31,50 +73,106 @@ class TrayManager {
   }
 
   /// 初始化系统托盘，返回是否成功
-  Future<bool> init() async {
-    if (!Platform.isWindows) return false;
-    if (_initialized) return true;
+  Future<bool> init() {
+    if (!(_isWindowsOverride ?? Platform.isWindows)) {
+      _lastError = '当前平台不支持 Windows 系统托盘';
+      return Future<bool>.value(false);
+    }
+    if (_initialized) return Future<bool>.value(true);
+    final current = _initializationOperation;
+    if (current != null) return current;
 
+    final operation = _initialize();
+    _initializationOperation = operation;
+    operation.then<void>(
+      (_) => _clearInitializationOperation(operation),
+      onError: (_, __) => _clearInitializationOperation(operation),
+    );
+    return operation;
+  }
+
+  Future<bool> _initialize() async {
+    _lastError = null;
     try {
       // 解析图标路径
-      final iconAssetPath = _resolveIconAssetPath();
+      final iconAssetPath =
+          _iconAssetPathResolver?.call() ?? _resolveIconAssetPath();
       if (iconAssetPath == null) {
-        AppLogger.warning('Tray', '找不到任何可用的托盘图标文件');
-        return false;
+        return _failInitialization('找不到任何可用的托盘图标文件');
       }
 
       AppLogger.info('Tray', '使用图标资源: $iconAssetPath');
 
       // 初始化系统托盘
-      final initialized = await _systemTray.initSystemTray(
-        title: 'SSRVPN',
-        iconPath: iconAssetPath,
-        toolTip: 'SSRVPN',
-      );
+      final initializeNativeTray = _nativeTrayInitializer;
+      final initialized = initializeNativeTray != null
+          ? await initializeNativeTray(iconAssetPath)
+          : await _systemTray.initSystemTray(
+              title: 'SSRVPN',
+              iconPath: iconAssetPath,
+              toolTip: 'SSRVPN',
+            );
       if (!initialized) {
-        AppLogger.warning('Tray', '原生插件未能创建系统托盘图标');
-        return false;
+        return _failInitialization('原生插件未能创建系统托盘图标');
+      }
+
+      // system_tray 在 Windows 上可能把失败的 NIM_DELETE 报告为成功，
+      // 同时保留 installed 标记并销毁旧 HICON。显式重设图标和提示可验证
+      // 托盘仍能被 Shell 修改，避免把部分销毁状态误报为 ready。
+      final verifyNativeTray = _nativeTrayVerifier;
+      final verified = verifyNativeTray != null
+          ? await verifyNativeTray(iconAssetPath)
+          : await _systemTray.setSystemTrayInfo(
+              iconPath: iconAssetPath,
+              toolTip: 'SSRVPN',
+            );
+      if (!verified) {
+        return _failInitialization('原生系统托盘状态复核失败');
       }
 
       // 构建右键菜单
-      await _buildMenu();
+      final buildInitialMenu = _initialMenuBuilder;
+      if (buildInitialMenu != null) {
+        await buildInitialMenu();
+      } else {
+        await _buildMenu();
+      }
 
       // 注册事件处理
-      _systemTray.registerSystemTrayEventHandler((String eventType) {
-        if (eventType == kSystemTrayEventClick) {
-          onShowApp?.call();
-        } else if (eventType == kSystemTrayEventRightClick) {
-          _systemTray.popUpContextMenu();
-        }
-      });
+      final registerEventHandler = _eventHandlerRegistrar;
+      if (registerEventHandler != null) {
+        registerEventHandler();
+      } else {
+        _systemTray.registerSystemTrayEventHandler((String eventType) {
+          if (eventType == kSystemTrayEventClick) {
+            onShowApp?.call();
+          } else if (eventType == kSystemTrayEventRightClick) {
+            _systemTray.popUpContextMenu();
+          }
+        });
+      }
 
       _initialized = true;
       AppLogger.info('Tray', '系统托盘初始化成功');
       return true;
     } catch (e, stack) {
+      _lastError = '系统托盘初始化异常: $e';
       AppLogger.error('Tray', '初始化异常', error: e, stack: stack);
       _initialized = false;
       return false;
+    }
+  }
+
+  bool _failInitialization(String error) {
+    _lastError = error;
+    _initialized = false;
+    AppLogger.warning('Tray', error);
+    return false;
+  }
+
+  void _clearInitializationOperation(Future<bool> operation) {
+    if (identical(_initializationOperation, operation)) {
+      _initializationOperation = null;
     }
   }
 

@@ -88,9 +88,8 @@ class StartupOrchestrator {
       await windowManager.setPreventClose(true);
       await windowManager.setMinimumSize(WindowStateStore.minimumSize);
 
-      final savedBounds = flags.resetWindow
-          ? null
-          : await WindowStateStore.load();
+      final savedBounds =
+          flags.resetWindow ? null : await WindowStateStore.load();
       final useSavedBounds =
           savedBounds != null && await _intersectsAnyDisplay(savedBounds);
 
@@ -170,8 +169,8 @@ class StartupOrchestrator {
     tray.onQuit = () async {
       await _quitFromTray();
     };
-    tray.isConnected = () =>
-        StartupStatus.instance.clashService?.isRunning ?? false;
+    tray.isConnected =
+        () => StartupStatus.instance.clashService?.isRunning ?? false;
 
     final ok = await tray.init();
     if (!ok) {
@@ -266,6 +265,16 @@ class StartupOrchestrator {
       allowWindowClose: () => windowManager.setPreventClose(false),
       destroyWindow: windowManager.destroy,
     );
+    final tray = TrayManager();
+    final recoveryFailures = await recoverWindowsAppAfterBlockedShutdown(
+      shutdownFailures: failures,
+      restoreCloseProtection: () => windowManager.setPreventClose(true),
+      showWindow: windowManager.show,
+      restoreWindow: windowManager.restore,
+      focusWindow: windowManager.focus,
+      isTrayReady: () => tray.isReady,
+      initializeTray: tray.init,
+    );
     for (final failure in failures) {
       StartupLogger.error(
         'Tray quit cleanup step ${failure.step} failed',
@@ -278,18 +287,17 @@ class StartupOrchestrator {
         stack: failure.stackTrace,
       );
     }
-    if (failures.any((failure) => failure.step == 2)) {
-      try {
-        await windowManager.show();
-        await windowManager.restore();
-        await windowManager.focus();
-      } catch (error, stack) {
-        StartupLogger.error(
-          'Show window after failed startup quit cleanup',
-          error,
-          stack,
-        );
-      }
+    for (final failure in recoveryFailures) {
+      StartupLogger.error(
+        'Tray quit recovery step ${failure.step} failed',
+        failure.error,
+        failure.stackTrace,
+      );
+      StartupLogger.writeDesktopFailureReportSync(
+        'Tray quit recovery failed',
+        error: failure.error,
+        stack: failure.stackTrace,
+      );
     }
   }
 

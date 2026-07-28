@@ -36,6 +36,7 @@ $script:StopStatusValues = @(
   'PROXY_UNSAFE',
   'PROCESSES_STILL_RUNNING',
   'TUN_TEARDOWN_PENDING',
+  'PID_CLEANUP_FAILED',
   'RECOVERY_CLEANUP_PENDING',
   'INTERNAL_ERROR'
 )
@@ -1312,8 +1313,20 @@ if (-not (Wait-SsrvpnTunTeardown `
 }
 
 if ($InstalledCorePidPath) {
-  Remove-Item -LiteralPath $InstalledCorePidPath -Force `
-    -ErrorAction SilentlyContinue
+  try {
+    if (Test-Path -LiteralPath $InstalledCorePidPath -PathType Container `
+        -ErrorAction Stop) {
+      throw 'The mihomo PID record path is a directory.'
+    }
+    [System.IO.File]::Delete($InstalledCorePidPath)
+    if (Test-Path -LiteralPath $InstalledCorePidPath -ErrorAction Stop) {
+      throw 'The mihomo PID record still exists after deletion.'
+    }
+  } catch {
+    Set-StopStatus -Status 'PID_CLEANUP_FAILED'
+    Write-Warning "Could not remove the stale mihomo PID record: $($_.Exception.Message)"
+    exit 3
+  }
 }
 
 if ($proxyRecoveryFailed) {
