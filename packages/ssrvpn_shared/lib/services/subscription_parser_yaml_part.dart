@@ -33,6 +33,12 @@ class _SubscriptionYamlParser {
         }
       }
 
+      final nodesByName = <String, ProxyNode>{};
+      for (final node in nodes) {
+        // Preserve the historical first-match behavior for duplicate names.
+        nodesByName.putIfAbsent(node.name, () => node);
+      }
+
       final proxyGroups = doc['proxy-groups'];
       if (proxyGroups is List) {
         for (final group in proxyGroups) {
@@ -46,7 +52,7 @@ class _SubscriptionYamlParser {
 
             final groupNodes = <ProxyNode>[];
             for (final proxyName in groupProxies) {
-              final node = _findNodeByName(nodes, proxyName);
+              final node = nodesByName[proxyName];
               if (node != null) {
                 groupNodes.add(node);
               } else if (proxyName == 'DIRECT' || proxyName == 'REJECT') {
@@ -128,13 +134,6 @@ class _SubscriptionYamlParser {
         }
       }
     } catch (_) {}
-    return null;
-  }
-
-  static ProxyNode? _findNodeByName(List<ProxyNode> nodes, String name) {
-    for (final node in nodes) {
-      if (node.name == name) return node;
-    }
     return null;
   }
 }

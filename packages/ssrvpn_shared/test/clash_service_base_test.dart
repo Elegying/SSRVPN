@@ -133,6 +133,59 @@ void main() {
   });
 
   group('ClashServiceBase connectivity verification', () {
+    test('default verification cancels the response body after reading status',
+        () async {
+      const totalChunks = 5;
+      var chunksProduced = 0;
+      var canceledBeforeCompletion = false;
+      final allowCancellationToFinish = Completer<void>();
+      Timer? emitTimer;
+      late StreamController<List<int>> body;
+      body = StreamController<List<int>>(
+        onListen: () {
+          void emitChunk() {
+            if (body.isClosed) return;
+            chunksProduced++;
+            body.add(List<int>.filled(128 * 1024, chunksProduced));
+            if (chunksProduced == totalChunks) {
+              unawaited(body.close());
+              return;
+            }
+            emitTimer = Timer(const Duration(milliseconds: 2), emitChunk);
+          }
+
+          emitTimer = Timer(Duration.zero, emitChunk);
+        },
+        onCancel: () {
+          canceledBeforeCompletion = chunksProduced < totalChunks;
+          emitTimer?.cancel();
+          return allowCancellationToFinish.future;
+        },
+      );
+      addTearDown(() async {
+        emitTimer?.cancel();
+        if (!allowCancellationToFinish.isCompleted) {
+          allowCancellationToFinish.complete();
+        }
+        if (!body.isClosed) await body.close();
+      });
+      final service = _StreamingConnectivityClashService(
+        () async => http.StreamedResponse(body.stream, 204),
+      );
+      addTearDown(service.dispose);
+
+      final warning = await service
+          .verifyUserConnectivity(
+            maxAttempts: 1,
+            retryDelay: Duration.zero,
+          )
+          .timeout(const Duration(seconds: 1));
+
+      expect(warning, isNull);
+      expect(chunksProduced, lessThan(totalChunks));
+      expect(canceledBeforeCompletion, isTrue);
+    });
+
     test('TUN verification uses the ordinary route and a YouTube endpoint',
         () async {
       Uri? requestedUri;
@@ -1129,6 +1182,19 @@ class _TestClashService extends ClashServiceBase
   Future<void> onStopRequired() async {}
 
   void simulateUnexpectedCoreLoss() => markConnectionLost();
+}
+
+class _StreamingConnectivityClashService extends _TestClashService {
+  _StreamingConnectivityClashService(this._response);
+
+  final Future<http.StreamedResponse> Function() _response;
+
+  @override
+  Future<http.StreamedResponse> startUserConnectivityRequest(
+    http.Client client,
+    Uri uri,
+  ) =>
+      _response();
 }
 
 class _PlannedPortClashService extends _TestClashService {

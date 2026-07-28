@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -8,6 +10,10 @@ import '../models/public_ip_info.dart';
 
 class PublicIpInfoService {
   PublicIpInfoService({required http.Client client}) : _client = client;
+
+  static const int maxResponseBytes = 64 * 1024;
+  static const Duration _responseCancellationTimeout =
+      Duration(milliseconds: 50);
 
   /// This hostname publishes only IPv4 results. The clients support IPv6 for
   /// traffic and nodes, but the home page intentionally presents a stable IPv4
@@ -61,13 +67,115 @@ class PublicIpInfoService {
     }
   }
 
-  Future<http.Response> _get(Uri uri, Duration timeout) => _client.get(
-        uri,
-        headers: const {
-          'Accept': 'application/json,text/plain,text/html',
-          'User-Agent': AppConstants.appUserAgent,
-        },
-      ).timeout(timeout);
+  Future<http.Response> _get(Uri uri, Duration timeout) async {
+    final request = http.Request('GET', uri)
+      ..headers.addAll(const {
+        'Accept': 'application/json,text/plain,text/html',
+        'User-Agent': AppConstants.appUserAgent,
+      });
+    final stopwatch = Stopwatch()..start();
+    final responseFuture = _client.send(request);
+    late final http.StreamedResponse response;
+    try {
+      response = await responseFuture.timeout(timeout);
+    } on TimeoutException {
+      unawaited(
+        responseFuture.then<void>(
+          (lateResponse) => _cancelResponseStream(lateResponse.stream),
+          onError: (Object _, StackTrace __) {},
+        ),
+      );
+      rethrow;
+    }
+
+    if ((response.contentLength ?? 0) > maxResponseBytes) {
+      await _cancelResponseStream(response.stream);
+      throw const PublicIpInfoException('公网 IP 响应超过 64 KiB 限制');
+    }
+
+    final remainingMicroseconds =
+        timeout.inMicroseconds - stopwatch.elapsedMicroseconds;
+    if (remainingMicroseconds <= 0) {
+      await _cancelResponseStream(response.stream);
+      throw TimeoutException('公网 IP 请求超时', timeout);
+    }
+    final bytes = await _readBoundedResponse(
+      response.stream,
+      timeout: Duration(microseconds: remainingMicroseconds),
+    );
+    return http.Response.bytes(
+      bytes,
+      response.statusCode,
+      request: response.request ?? request,
+      headers: response.headers,
+      isRedirect: response.isRedirect,
+      persistentConnection: response.persistentConnection,
+      reasonPhrase: response.reasonPhrase,
+    );
+  }
+
+  static Future<Uint8List> _readBoundedResponse(
+    Stream<List<int>> stream, {
+    required Duration timeout,
+  }) async {
+    final bytes = BytesBuilder(copy: false);
+    final completed = Completer<void>();
+    var byteCount = 0;
+
+    late final StreamSubscription<List<int>> subscription;
+    subscription = stream.listen(
+      (chunk) {
+        if (completed.isCompleted) return;
+        if (chunk.length > maxResponseBytes - byteCount) {
+          completed.completeError(
+            const PublicIpInfoException('公网 IP 响应超过 64 KiB 限制'),
+          );
+          return;
+        }
+        byteCount += chunk.length;
+        bytes.add(chunk);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!completed.isCompleted) {
+          completed.completeError(error, stackTrace);
+        }
+      },
+      onDone: () {
+        if (!completed.isCompleted) completed.complete();
+      },
+    );
+    final timer = Timer(timeout, () {
+      if (!completed.isCompleted) {
+        completed.completeError(TimeoutException('公网 IP 响应超时', timeout));
+      }
+    });
+
+    try {
+      await completed.future;
+      return bytes.takeBytes();
+    } finally {
+      timer.cancel();
+      try {
+        await subscription.cancel().timeout(_responseCancellationTimeout);
+      } catch (_) {
+        // Preserve the original response error when cancellation itself fails.
+      }
+    }
+  }
+
+  static Future<void> _cancelResponseStream(Stream<List<int>> stream) async {
+    try {
+      final subscription = stream.listen(
+        null,
+        onError: (Object _) {},
+        cancelOnError: true,
+      );
+      await subscription.cancel().timeout(_responseCancellationTimeout);
+    } catch (_) {
+      // The caller still enforces the response boundary even if a custom
+      // client reports an error while its body stream is being canceled.
+    }
+  }
 
   static PublicIpInfo parse(String body) {
     final jsonInfo = _parseJsonObject(body);

@@ -543,6 +543,32 @@ proxies:
       originalState.expectUnchanged(service);
     });
 
+    test('successful CRUD purges fetched names for inactive token URLs',
+        () async {
+      service
+        ..fetchedProfileName = 'Fetched Profile'
+        ..response = _yamlFor('Fetched Node');
+      await service.refreshAllSubscriptions();
+      expect(service.retainedFetchedProfileNameCount, 1);
+
+      final original = service.subscriptions.single;
+      await service.updateSubscription(
+        Subscription(
+          id: original.id,
+          name: original.name,
+          url: 'https://replacement.example.com/sub?token=new-secret',
+        ),
+      );
+      expect(service.retainedFetchedProfileNameCount, 0);
+
+      service.fetchedProfileName = 'Replacement Profile';
+      await service.refreshAllSubscriptions();
+      expect(service.retainedFetchedProfileNameCount, 1);
+
+      await service.removeSubscription(original.id);
+      expect(service.retainedFetchedProfileNameCount, 0);
+    });
+
     test('failed edited-node cache write preserves live node state', () async {
       service.failCacheWrites = true;
 
