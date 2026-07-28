@@ -156,7 +156,8 @@ required_native = (
     "fileInfo.st_mode & (S_IWGRP | S_IWOTH) == 0",
     "fileInfo.st_size <= 1_048_576",
     "Proxy restore state has no ownership proof; preserving it",
-    "validatedProxyServices(in: root)",
+    "let services = validatedProxyServices(",
+    "hasStableServiceIdentities: hasStableServiceIdentities",
 )
 missing_native = [token for token in required_native if token not in app_delegate]
 if missing_native:
@@ -259,7 +260,10 @@ required_proxy_guards = (
     "'beginProxyLifecycleTransaction'",
     "'endProxyLifecycleTransaction'",
     "_snapshotMetadataKeys.contains(service)",
-    "_validatedSavedServiceStates(raw)",
+    "_validatedSavedServiceStates(",
+    "hasStableIdentities: hasStableIdentities",
+    "_deleteStateFileIfUnchanged(file, originalContents)",
+    "currentContents != expectedContents",
     "_isValidProxyState(value['web'])",
 )
 missing_proxy_guards = [

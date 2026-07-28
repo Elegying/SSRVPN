@@ -10,7 +10,7 @@ class MacosStartTransaction {
     required Future<bool> Function() configureSystemProxy,
     required Future<bool> Function() confirmHealthy,
     required Future<void> Function() commit,
-    required Future<void> Function() rollback,
+    required Future<bool> Function() rollback,
     required void Function(MacosStartTransactionStage stage, Object error)
         onException,
   }) async {
@@ -28,7 +28,12 @@ class MacosStartTransaction {
       if (rollbackAttempted) return;
       rollbackAttempted = true;
       try {
-        await rollback();
+        if (!await rollback()) {
+          reportException(
+            MacosStartTransactionStage.rollback,
+            StateError('macOS 启动回滚未能安全完成'),
+          );
+        }
       } catch (error) {
         reportException(MacosStartTransactionStage.rollback, error);
       }

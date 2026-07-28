@@ -639,6 +639,9 @@ void main() {
       final proxyService = SystemProxyService(
         beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
         endProxyLifecycleTransaction: (_) async => true,
+        networkServiceIdentityRunner: () async => {
+          'Wi-Fi': 'test-service-wifi',
+        },
         effectiveProxyRunner: () async => ProcessResult(
           1,
           0,
@@ -751,6 +754,9 @@ void main() {
       final proxyService = SystemProxyService(
         beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
         endProxyLifecycleTransaction: (_) async => true,
+        networkServiceIdentityRunner: () async => {
+          'Wi-Fi': 'test-service-wifi',
+        },
         effectiveProxyRunner: () async => ProcessResult(
           1,
           0,
@@ -871,6 +877,9 @@ void main() {
       final proxyService = SystemProxyService(
         beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
         endProxyLifecycleTransaction: (_) async => true,
+        networkServiceIdentityRunner: () async => {
+          'Wi-Fi': 'test-service-wifi',
+        },
         networkSetupRunner: (arguments) async {
           if (arguments.first == '-listallnetworkservices') {
             return ProcessResult(1, 0, 'Wi-Fi\n', '');
@@ -1075,6 +1084,9 @@ void main() {
       final proxyService = SystemProxyService(
         beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
         endProxyLifecycleTransaction: (_) async => true,
+        networkServiceIdentityRunner: () async => {
+          'Wi-Fi': 'test-service-wifi',
+        },
         effectiveProxyRunner: () async => ProcessResult(
           1,
           0,

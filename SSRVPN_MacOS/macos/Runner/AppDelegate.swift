@@ -1,6 +1,7 @@
 import Cocoa
 import Darwin
 import FlutterMacOS
+import SystemConfiguration
 
 protocol WindowRevealTarget: AnyObject {
   var isMiniaturized: Bool { get }
@@ -99,6 +100,22 @@ struct CoreProcessStatus: Equatable {
 struct ProxyCommandResult {
   let succeeded: Bool
   let output: String?
+}
+
+private final class ProxyStateFileSnapshot {
+  init(descriptor: Int32, data: Data, fileInfo: stat) {
+    self.descriptor = descriptor
+    self.data = data
+    self.fileInfo = fileInfo
+  }
+
+  deinit {
+    _ = Darwin.close(descriptor)
+  }
+
+  let descriptor: Int32
+  let data: Data
+  let fileInfo: stat
 }
 
 private enum ApplicationTerminationLeaseState: Equatable {
@@ -487,6 +504,44 @@ class AppDelegate: FlutterAppDelegate {
     let active = !proxyLifecycleLeaseTokens.isEmpty
     proxyLifecycleLeaseLock.unlock()
     return active
+  }
+
+  func currentNetworkServiceIdentities() -> [String: String]? {
+    guard
+      let preferences = SCPreferencesCreate(
+        nil,
+        "com.ssrvpn.network-service-identities" as CFString,
+        nil
+      ),
+      let rawServices = SCNetworkServiceCopyAll(preferences)
+    else {
+      return nil
+    }
+    let services = rawServices as NSArray
+    var identities: [String: String] = [:]
+    var seenIDs = Set<String>()
+    for case let service as SCNetworkService in services {
+      guard
+        let rawName = SCNetworkServiceGetName(service),
+        let rawServiceID = SCNetworkServiceGetServiceID(service)
+      else {
+        return nil
+      }
+      let name = (rawName as String)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      let serviceID = (rawServiceID as String)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      guard
+        !name.isEmpty,
+        !serviceID.isEmpty,
+        identities[name] == nil,
+        seenIDs.insert(serviceID).inserted
+      else {
+        return nil
+      }
+      identities[name] = serviceID
+    }
+    return identities
   }
 
   private func resetCommittedApplicationTermination() {
@@ -1490,14 +1545,17 @@ class AppDelegate: FlutterAppDelegate {
 
   func restoreSavedProxyState(
     at explicitStateURL: URL? = nil,
-    proxyCommandRunner: ((String, [String]) -> ProxyCommandResult)? = nil
+    proxyCommandRunner: ((String, [String]) -> ProxyCommandResult)? = nil,
+    networkServiceIdentityProvider: (() -> [String: String]?)? = nil,
+    proxyStateRemover: ((URL) throws -> Void)? = nil
   ) -> Bool {
     guard let stateURL = explicitStateURL ?? findProxyStateFile() else { return false }
     do {
-      guard let data = readProxyStateData(at: stateURL) else {
+      guard let stateSnapshot = readProxyStateSnapshot(at: stateURL) else {
         NSLog("[AppDelegate] Proxy restore state is not a safe readable regular file")
         return false
       }
+      let data = stateSnapshot.data
       guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return false
       }
@@ -1531,13 +1589,70 @@ class AppDelegate: FlutterAppDelegate {
           return false
         }
       }
-      guard let services = validatedProxyServices(in: root) else {
+      let identityKeyIsLegacyService = isCompleteSavedProxyServiceState(
+        root["_networkServiceIDs"]
+      )
+      let hasStableServiceIdentities =
+        root["_networkServiceIDs"] != nil && !identityKeyIsLegacyService
+      guard
+        let services = validatedProxyServices(
+          in: root,
+          hasStableServiceIdentities: hasStableServiceIdentities
+        )
+      else {
         NSLog("[AppDelegate] Proxy restore service snapshot is invalid; preserving it")
         return false
       }
+      var savedServiceIdentities: [String: String]?
+      var currentServiceIdentities: [String: String]?
+      var currentNamesByID: [String: String] = [:]
+      if hasStableServiceIdentities {
+        guard let validatedSavedIdentities = validatedSavedNetworkServiceIdentities(
+          root["_networkServiceIDs"],
+          serviceNames: Set(services.map(\.0))
+        ) else {
+          NSLog("[AppDelegate] Stable network-service identity snapshot is invalid; preserving it")
+          return false
+        }
+        let rawCurrentIdentities = networkServiceIdentityProvider != nil
+          ? networkServiceIdentityProvider?()
+          : currentNetworkServiceIdentities()
+        guard
+          let rawCurrentIdentities,
+          let validatedCurrentIdentities =
+            validatedCurrentNetworkServiceIdentities(rawCurrentIdentities)
+        else {
+          NSLog("[AppDelegate] Current stable network-service identities are unavailable")
+          return false
+        }
+        savedServiceIdentities = validatedSavedIdentities
+        currentServiceIdentities = validatedCurrentIdentities
+        currentNamesByID = Dictionary(
+          uniqueKeysWithValues: validatedCurrentIdentities.map {
+            ($0.value, $0.key)
+          }
+        )
+      }
+      var hasMissingStableService = false
+      var restoreTargets: [(String, String, [String: Any])] = []
+      for (savedService, value) in services {
+        if let savedServiceIdentities {
+          guard
+            let serviceID = savedServiceIdentities[savedService],
+            let currentService = currentNamesByID[serviceID]
+          else {
+            hasMissingStableService = true
+            continue
+          }
+          restoreTargets.append((savedService, currentService, value))
+        } else {
+          restoreTargets.append((savedService, savedService, value))
+        }
+      }
       var restoredAll = true
-      for (service, value) in services {
-        restoredAll = restoreProxyStateIfOwned(
+      var unresolvedLegacyServices: [String] = []
+      for (savedService, service, value) in restoreTargets {
+        var restoredService = restoreProxyStateIfOwned(
           service: service,
           value: value["web"],
           ownedHost: ownedHost,
@@ -1546,8 +1661,8 @@ class AppDelegate: FlutterAppDelegate {
           setCommand: "-setwebproxy",
           stateCommand: "-setwebproxystate",
           proxyCommandRunner: proxyCommandRunner
-        ) && restoredAll
-        restoredAll = restoreProxyStateIfOwned(
+        )
+        restoredService = restoreProxyStateIfOwned(
           service: service,
           value: value["secureWeb"],
           ownedHost: ownedHost,
@@ -1556,8 +1671,8 @@ class AppDelegate: FlutterAppDelegate {
           setCommand: "-setsecurewebproxy",
           stateCommand: "-setsecurewebproxystate",
           proxyCommandRunner: proxyCommandRunner
-        ) && restoredAll
-        restoredAll = restoreProxyStateIfOwned(
+        ) && restoredService
+        restoredService = restoreProxyStateIfOwned(
           service: service,
           value: value["socks"],
           ownedHost: ownedHost,
@@ -1566,10 +1681,50 @@ class AppDelegate: FlutterAppDelegate {
           setCommand: "-setsocksfirewallproxy",
           stateCommand: "-setsocksfirewallproxystate",
           proxyCommandRunner: proxyCommandRunner
+        ) && restoredService
+        if !restoredService && !hasStableServiceIdentities {
+          unresolvedLegacyServices.append(savedService)
+          continue
+        }
+        restoredAll = restoredService && restoredAll
+      }
+      if !unresolvedLegacyServices.isEmpty {
+        restoredAll = legacyNetworkServicesAreConfirmedMissing(
+          unresolvedLegacyServices,
+          ownedHost: ownedHost,
+          ownedPort: ownedPort,
+          proxyCommandRunner: proxyCommandRunner
+        ) && restoredAll
+      }
+      if hasMissingStableService {
+        let currentServiceNames = currentServiceIdentities.map {
+          Array($0.keys)
+        } ?? []
+        restoredAll = currentNetworkServicesDoNotOwnProxy(
+          currentServiceNames,
+          ownedHost: ownedHost,
+          ownedPort: ownedPort,
+          proxyCommandRunner: proxyCommandRunner
         ) && restoredAll
       }
       if restoredAll {
-        try? FileManager.default.removeItem(at: stateURL)
+        do {
+          if let proxyStateRemover {
+            try proxyStateRemover(stateURL)
+          } else {
+            guard removeProxyStateSnapshot(stateSnapshot, at: stateURL) else {
+              NSLog("[AppDelegate] Proxy restore state identity changed before removal")
+              return false
+            }
+          }
+          guard !proxyStatePathEntryExists(at: stateURL) else {
+            NSLog("[AppDelegate] Proxy restore state still exists after removal")
+            return false
+          }
+        } catch {
+          NSLog("[AppDelegate] Could not retire restored proxy state: \(error)")
+          return false
+        }
       }
       return restoredAll
     } catch {
@@ -1579,7 +1734,8 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   private func validatedProxyServices(
-    in root: [String: Any]
+    in root: [String: Any],
+    hasStableServiceIdentities: Bool
   ) -> [(String, [String: Any])]? {
     let metadataKeys: Set<String> = [
       "_ownedProxyHost",
@@ -1587,19 +1743,74 @@ class AppDelegate: FlutterAppDelegate {
       "_ownerPid",
     ]
     var services: [(String, [String: Any])] = []
-    for (key, rawValue) in root where !metadataKeys.contains(key) {
+    for (key, rawValue) in root {
+      if metadataKeys.contains(key)
+        || (key == "_networkServiceIDs" && hasStableServiceIdentities)
+      {
+        continue
+      }
       guard
         let value = rawValue as? [String: Any],
-        Set(value.keys) == Set(["web", "secureWeb", "socks"]),
-        isValidSavedProxyState(value["web"]),
-        isValidSavedProxyState(value["secureWeb"]),
-        isValidSavedProxyState(value["socks"])
+        isCompleteSavedProxyServiceState(value)
       else {
         return nil
       }
       services.append((key, value))
     }
     return services.isEmpty ? nil : services
+  }
+
+  private func isCompleteSavedProxyServiceState(_ rawValue: Any?) -> Bool {
+    guard let value = rawValue as? [String: Any] else { return false }
+    return Set(value.keys) == Set(["web", "secureWeb", "socks"])
+      && isValidSavedProxyState(value["web"])
+      && isValidSavedProxyState(value["secureWeb"])
+      && isValidSavedProxyState(value["socks"])
+  }
+
+  private func validatedSavedNetworkServiceIdentities(
+    _ rawValue: Any?,
+    serviceNames: Set<String>
+  ) -> [String: String]? {
+    guard let rawIdentities = rawValue as? [String: Any] else { return nil }
+    var identities: [String: String] = [:]
+    var seenIDs = Set<String>()
+    for (rawName, rawID) in rawIdentities {
+      let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard let rawID = rawID as? String else { return nil }
+      let serviceID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard
+        !name.isEmpty,
+        !serviceID.isEmpty,
+        identities[name] == nil,
+        seenIDs.insert(serviceID).inserted
+      else {
+        return nil
+      }
+      identities[name] = serviceID
+    }
+    return Set(identities.keys) == serviceNames ? identities : nil
+  }
+
+  private func validatedCurrentNetworkServiceIdentities(
+    _ rawIdentities: [String: String]
+  ) -> [String: String]? {
+    var identities: [String: String] = [:]
+    var seenIDs = Set<String>()
+    for (rawName, rawID) in rawIdentities {
+      let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+      let serviceID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard
+        !name.isEmpty,
+        !serviceID.isEmpty,
+        identities[name] == nil,
+        seenIDs.insert(serviceID).inserted
+      else {
+        return nil
+      }
+      identities[name] = serviceID
+    }
+    return identities
   }
 
   private func isValidSavedProxyState(_ rawValue: Any?) -> Bool {
@@ -1653,6 +1864,87 @@ class AppDelegate: FlutterAppDelegate {
     )
   }
 
+  private func legacyNetworkServicesAreConfirmedMissing(
+    _ expectedServices: [String],
+    ownedHost: String,
+    ownedPort: Int,
+    proxyCommandRunner: ((String, [String]) -> ProxyCommandResult)?
+  ) -> Bool {
+    guard !expectedServices.isEmpty else { return true }
+    let result = executeProxyCommand(
+      "/usr/sbin/networksetup",
+      ["-listallnetworkservices"],
+      proxyCommandRunner: proxyCommandRunner
+    )
+    guard result.succeeded, let output = result.output else { return false }
+    let expectedHeader =
+      "An asterisk (*) denotes that a network service is disabled."
+    var sawHeader = false
+    var currentServices: [String] = []
+    for rawLine in output.split(
+      separator: "\n",
+      omittingEmptySubsequences: false
+    ) {
+      var service = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+      if service.isEmpty { continue }
+      if !sawHeader {
+        guard service == expectedHeader else { return false }
+        sawHeader = true
+        continue
+      }
+      if service.hasPrefix("*") {
+        service.removeFirst()
+        service = service.trimmingCharacters(in: .whitespacesAndNewlines)
+      }
+      guard !service.isEmpty else { return false }
+      currentServices.append(service)
+    }
+    guard sawHeader else { return false }
+    let currentServiceSet = Set(currentServices)
+    guard expectedServices.allSatisfy({ !currentServiceSet.contains($0) }) else {
+      return false
+    }
+    return currentNetworkServicesDoNotOwnProxy(
+      currentServices,
+      ownedHost: ownedHost,
+      ownedPort: ownedPort,
+      proxyCommandRunner: proxyCommandRunner
+    )
+  }
+
+  private func currentNetworkServicesDoNotOwnProxy(
+    _ currentServices: [String],
+    ownedHost: String,
+    ownedPort: Int,
+    proxyCommandRunner: ((String, [String]) -> ProxyCommandResult)?
+  ) -> Bool {
+    for service in currentServices {
+      for getCommand in [
+        "-getwebproxy",
+        "-getsecurewebproxy",
+        "-getsocksfirewallproxy",
+      ] {
+        guard let isOwned = proxyMatchesOwnership(
+          service: service,
+          getCommand: getCommand,
+          ownedHost: ownedHost,
+          ownedPort: ownedPort,
+          proxyCommandRunner: proxyCommandRunner
+        ) else {
+          return false
+        }
+        if isOwned {
+          NSLog(
+            "[AppDelegate] A current network service still owns the SSRVPN proxy; "
+              + "preserving the snapshot because the saved service may have been renamed"
+          )
+          return false
+        }
+      }
+    }
+    return true
+  }
+
   private func findProxyStateFile() -> URL? {
     let fm = FileManager.default
     guard let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
@@ -1691,11 +1983,22 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   func readProxyStateData(at url: URL) -> Data? {
+    readProxyStateSnapshot(at: url)?.data
+  }
+
+  private func readProxyStateSnapshot(
+    at url: URL
+  ) -> ProxyStateFileSnapshot? {
     let descriptor = url.path.withCString {
       Darwin.open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
     }
     guard descriptor >= 0 else { return nil }
-    defer { _ = Darwin.close(descriptor) }
+    var shouldClose = true
+    defer {
+      if shouldClose {
+        _ = Darwin.close(descriptor)
+      }
+    }
 
     var fileInfo = stat()
     guard
@@ -1733,7 +2036,94 @@ class AppDelegate: FlutterAppDelegate {
 
     var extraByte: UInt8 = 0
     guard Darwin.read(descriptor, &extraByte, 1) == 0 else { return nil }
-    return Data(bytes)
+    shouldClose = false
+    return ProxyStateFileSnapshot(
+      descriptor: descriptor,
+      data: Data(bytes),
+      fileInfo: fileInfo
+    )
+  }
+
+  private func removeProxyStateSnapshot(
+    _ snapshot: ProxyStateFileSnapshot,
+    at url: URL
+  ) -> Bool {
+    let parentURL = url.deletingLastPathComponent()
+    let name = url.lastPathComponent
+    guard !name.isEmpty, name != ".", name != "..", !name.contains("/") else {
+      return false
+    }
+    let directoryDescriptor = parentURL.path.withCString {
+      Darwin.open($0, O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW)
+    }
+    guard directoryDescriptor >= 0 else { return false }
+    defer { _ = Darwin.close(directoryDescriptor) }
+
+    var openedInfo = stat()
+    var pathInfo = stat()
+    guard
+      Darwin.fstat(snapshot.descriptor, &openedInfo) == 0,
+      name.withCString({
+        Darwin.fstatat(
+          directoryDescriptor,
+          $0,
+          &pathInfo,
+          AT_SYMLINK_NOFOLLOW
+        ) == 0
+      }),
+      proxyStateFileInfo(openedInfo, matches: snapshot.fileInfo),
+      proxyStateFileInfo(pathInfo, matches: snapshot.fileInfo)
+    else {
+      return false
+    }
+
+    guard name.withCString({
+      Darwin.unlinkat(directoryDescriptor, $0, 0)
+    }) == 0 else {
+      return false
+    }
+
+    var removedInfo = stat()
+    guard
+      Darwin.fstat(snapshot.descriptor, &removedInfo) == 0,
+      removedInfo.st_nlink == 0
+    else {
+      return false
+    }
+    var replacementInfo = stat()
+    let pathStillExists = name.withCString {
+      Darwin.fstatat(
+        directoryDescriptor,
+        $0,
+        &replacementInfo,
+        AT_SYMLINK_NOFOLLOW
+      ) == 0
+    }
+    if pathStillExists || errno != ENOENT {
+      return false
+    }
+    if Darwin.fsync(directoryDescriptor) != 0 {
+      NSLog("[AppDelegate] Proxy restore state directory flush failed")
+    }
+    return true
+  }
+
+  private func proxyStateFileInfo(
+    _ current: stat,
+    matches expected: stat
+  ) -> Bool {
+    current.st_dev == expected.st_dev
+      && current.st_ino == expected.st_ino
+      && current.st_mode & S_IFMT == S_IFREG
+      && current.st_uid == expected.st_uid
+      && current.st_uid == geteuid()
+      && current.st_nlink == 1
+      && current.st_mode & (S_IWGRP | S_IWOTH) == 0
+      && current.st_size == expected.st_size
+      && current.st_mtimespec.tv_sec == expected.st_mtimespec.tv_sec
+      && current.st_mtimespec.tv_nsec == expected.st_mtimespec.tv_nsec
+      && current.st_ctimespec.tv_sec == expected.st_ctimespec.tv_sec
+      && current.st_ctimespec.tv_nsec == expected.st_ctimespec.tv_nsec
   }
 
   private func restoreProxyState(
@@ -1807,7 +2197,9 @@ class AppDelegate: FlutterAppDelegate {
     if let proxyCommandRunner {
       return proxyCommandRunner(executable, arguments)
     }
-    if arguments.first?.hasPrefix("-get") == true {
+    if arguments.first?.hasPrefix("-get") == true ||
+      arguments.first == "-listallnetworkservices"
+    {
       guard let output = runProcessOutput(executable, arguments) else {
         return ProxyCommandResult(succeeded: false, output: nil)
       }

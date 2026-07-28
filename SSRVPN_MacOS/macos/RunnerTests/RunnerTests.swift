@@ -935,6 +935,564 @@ class RunnerTests: XCTestCase {
     ])
   }
 
+  func testDeletedProxyServiceIsRetiredAfterStrictListConfirmation() throws {
+    let delegate = AppDelegate()
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appendingPathComponent("system_proxy.json")
+    let contents = """
+    {"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"Removed USB":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}}
+    """
+    try Data(contents.utf8).write(to: stateURL)
+    var commands: [[String]] = []
+
+    let restored = delegate.restoreSavedProxyState(
+      at: stateURL,
+      proxyCommandRunner: { _, arguments in
+        commands.append(arguments)
+        if arguments.first == "-listallnetworkservices" {
+          return ProxyCommandResult(
+            succeeded: true,
+            output: """
+            An asterisk (*) denotes that a network service is disabled.
+            Wi-Fi
+            """
+          )
+        }
+        if arguments.count == 2,
+          arguments[0].hasPrefix("-get"),
+          arguments[1] == "Wi-Fi"
+        {
+          return ProxyCommandResult(
+            succeeded: true,
+            output: "Enabled: No\nServer: \nPort: 0\n"
+          )
+        }
+        return ProxyCommandResult(succeeded: false, output: nil)
+      }
+    )
+
+    XCTAssertTrue(restored)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: stateURL.path))
+    XCTAssertEqual(
+      commands.filter { $0.first == "-listallnetworkservices" }.count,
+      1
+    )
+  }
+
+  func testRenamedProxyServiceRemainsPendingWhileItOwnsSSRVPNProxy() throws {
+    let delegate = AppDelegate()
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appendingPathComponent("system_proxy.json")
+    let contents = """
+    {"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"Old Wi-Fi":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}}
+    """
+    try Data(contents.utf8).write(to: stateURL)
+    var commands: [[String]] = []
+
+    let restored = delegate.restoreSavedProxyState(
+      at: stateURL,
+      proxyCommandRunner: { _, arguments in
+        commands.append(arguments)
+        if arguments.first == "-listallnetworkservices" {
+          return ProxyCommandResult(
+            succeeded: true,
+            output: """
+            An asterisk (*) denotes that a network service is disabled.
+            Renamed Wi-Fi
+            """
+          )
+        }
+        if arguments.count == 2,
+          arguments[0].hasPrefix("-get"),
+          arguments[1] == "Renamed Wi-Fi"
+        {
+          return ProxyCommandResult(
+            succeeded: true,
+            output: "Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n"
+          )
+        }
+        return ProxyCommandResult(succeeded: false, output: nil)
+      }
+    )
+
+    XCTAssertFalse(restored)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: stateURL.path))
+    XCTAssertTrue(commands.contains(["-getwebproxy", "Renamed Wi-Fi"]))
+    XCTAssertFalse(commands.contains { $0.first?.hasPrefix("-set") == true })
+  }
+
+  func testStableIdentityRestoresRenamedProxyService() throws {
+    let delegate = AppDelegate()
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appendingPathComponent("system_proxy.json")
+    let contents = """
+    {"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"_networkServiceIDs":{"Old Wi-Fi":"service-wifi"},"Old Wi-Fi":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}}
+    """
+    try Data(contents.utf8).write(to: stateURL)
+    var commands: [[String]] = []
+
+    let restored = delegate.restoreSavedProxyState(
+      at: stateURL,
+      proxyCommandRunner: { _, arguments in
+        commands.append(arguments)
+        if arguments.first?.hasPrefix("-get") == true {
+          return ProxyCommandResult(
+            succeeded: true,
+            output: "Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n"
+          )
+        }
+        return ProxyCommandResult(succeeded: true, output: nil)
+      },
+      networkServiceIdentityProvider: {
+        ["Renamed Wi-Fi": "service-wifi"]
+      }
+    )
+
+    XCTAssertTrue(restored)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: stateURL.path))
+    XCTAssertEqual(commands, [
+      ["-getwebproxy", "Renamed Wi-Fi"],
+      ["-setwebproxystate", "Renamed Wi-Fi", "off"],
+      ["-getsecurewebproxy", "Renamed Wi-Fi"],
+      ["-setsecurewebproxystate", "Renamed Wi-Fi", "off"],
+      ["-getsocksfirewallproxy", "Renamed Wi-Fi"],
+      ["-setsocksfirewallproxystate", "Renamed Wi-Fi", "off"],
+    ])
+  }
+
+  func testLegacyIdentityMetadataKeyServiceIsRestoredWithoutIdentityLookup() throws {
+    let delegate = AppDelegate()
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appendingPathComponent("system_proxy.json")
+    let contents = """
+    {"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"_networkServiceIDs":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}}
+    """
+    try Data(contents.utf8).write(to: stateURL)
+    var identityCalls = 0
+    var commands: [[String]] = []
+
+    let restored = delegate.restoreSavedProxyState(
+      at: stateURL,
+      proxyCommandRunner: { _, arguments in
+        commands.append(arguments)
+        if arguments.first?.hasPrefix("-get") == true {
+          return ProxyCommandResult(
+            succeeded: true,
+            output: "Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n"
+          )
+        }
+        return ProxyCommandResult(succeeded: true, output: nil)
+      },
+      networkServiceIdentityProvider: {
+        identityCalls += 1
+        return ["_networkServiceIDs": "must-not-be-read"]
+      }
+    )
+
+    XCTAssertTrue(restored)
+    XCTAssertEqual(identityCalls, 0)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: stateURL.path))
+    XCTAssertEqual(commands, [
+      ["-getwebproxy", "_networkServiceIDs"],
+      ["-setwebproxystate", "_networkServiceIDs", "off"],
+      ["-getsecurewebproxy", "_networkServiceIDs"],
+      ["-setsecurewebproxystate", "_networkServiceIDs", "off"],
+      ["-getsocksfirewallproxy", "_networkServiceIDs"],
+      ["-setsocksfirewallproxystate", "_networkServiceIDs", "off"],
+    ])
+  }
+
+  func testMalformedStableIdentityMetadataRemainsUnresolvedWithoutCommands() throws {
+    let delegate = AppDelegate()
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appendingPathComponent("system_proxy.json")
+    let contents = """
+    {"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"_networkServiceIDs":{"Wi-Fi":7},"Wi-Fi":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}}
+    """
+    try Data(contents.utf8).write(to: stateURL)
+    var commands: [[String]] = []
+
+    let restored = delegate.restoreSavedProxyState(
+      at: stateURL,
+      proxyCommandRunner: { _, arguments in
+        commands.append(arguments)
+        return ProxyCommandResult(succeeded: false, output: nil)
+      },
+      networkServiceIdentityProvider: {
+        XCTFail("Malformed saved identity metadata must fail before live lookup")
+        return nil
+      }
+    )
+
+    XCTAssertFalse(restored)
+    XCTAssertTrue(commands.isEmpty)
+    XCTAssertEqual(try String(contentsOf: stateURL, encoding: .utf8), contents)
+  }
+
+  func testStableIdentityDoesNotRestoreOntoSameNameReplacement() throws {
+    let delegate = AppDelegate()
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appendingPathComponent("system_proxy.json")
+    let contents = """
+    {"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"_networkServiceIDs":{"Wi-Fi":"old-service-id"},"Wi-Fi":{"web":{"enabled":true,"server":"user.proxy","port":8080},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}}
+    """
+    try Data(contents.utf8).write(to: stateURL)
+    var commands: [[String]] = []
+
+    let restored = delegate.restoreSavedProxyState(
+      at: stateURL,
+      proxyCommandRunner: { _, arguments in
+        commands.append(arguments)
+        if arguments.first?.hasPrefix("-get") == true {
+          return ProxyCommandResult(
+            succeeded: true,
+            output: "Enabled: No\nServer: \nPort: 0\n"
+          )
+        }
+        return ProxyCommandResult(succeeded: false, output: nil)
+      },
+      networkServiceIdentityProvider: {
+        ["Wi-Fi": "replacement-service-id"]
+      }
+    )
+
+    XCTAssertTrue(restored)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: stateURL.path))
+    XCTAssertEqual(commands, [
+      ["-getwebproxy", "Wi-Fi"],
+      ["-getsecurewebproxy", "Wi-Fi"],
+      ["-getsocksfirewallproxy", "Wi-Fi"],
+    ])
+    XCTAssertFalse(commands.contains { $0.first?.hasPrefix("-set") == true })
+  }
+
+  func testStableIdentityRestoresPresentServicesBeforeRetiringMissingOnes() throws {
+    let delegate = AppDelegate()
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appendingPathComponent("system_proxy.json")
+    let contents = """
+    {"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"_networkServiceIDs":{"Removed USB":"removed-id","Wi-Fi":"wifi-id"},"Removed USB":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}},"Wi-Fi":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}}
+    """
+    try Data(contents.utf8).write(to: stateURL)
+    var proxyOwned = true
+    var commands: [[String]] = []
+
+    let restored = delegate.restoreSavedProxyState(
+      at: stateURL,
+      proxyCommandRunner: { _, arguments in
+        commands.append(arguments)
+        if arguments.first?.hasPrefix("-get") == true {
+          return ProxyCommandResult(
+            succeeded: true,
+            output: proxyOwned
+              ? "Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n"
+              : "Enabled: No\nServer: \nPort: 0\n"
+          )
+        }
+        if arguments.first?.hasPrefix("-set") == true {
+          proxyOwned = false
+          return ProxyCommandResult(succeeded: true, output: nil)
+        }
+        return ProxyCommandResult(succeeded: false, output: nil)
+      },
+      networkServiceIdentityProvider: {
+        ["Wi-Fi": "wifi-id"]
+      }
+    )
+
+    XCTAssertTrue(restored)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: stateURL.path))
+    XCTAssertFalse(proxyOwned)
+    XCTAssertEqual(commands.first, ["-getwebproxy", "Wi-Fi"])
+  }
+
+  func testLegacyRestoreFinishesPresentServicesBeforeRetiringMissingOnes() throws {
+    let delegate = AppDelegate()
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appendingPathComponent("system_proxy.json")
+    let contents = """
+    {"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"Removed USB":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}},"Wi-Fi":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}}
+    """
+    try Data(contents.utf8).write(to: stateURL)
+    var proxyOwned = true
+
+    let restored = delegate.restoreSavedProxyState(
+      at: stateURL,
+      proxyCommandRunner: { _, arguments in
+        if arguments.first == "-listallnetworkservices" {
+          return ProxyCommandResult(
+            succeeded: true,
+            output: """
+            An asterisk (*) denotes that a network service is disabled.
+            Wi-Fi
+            """
+          )
+        }
+        if arguments.count == 2,
+          arguments[0].hasPrefix("-get"),
+          arguments[1] == "Wi-Fi"
+        {
+          return ProxyCommandResult(
+            succeeded: true,
+            output: proxyOwned
+              ? "Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n"
+              : "Enabled: No\nServer: \nPort: 0\n"
+          )
+        }
+        if arguments.count >= 2,
+          arguments[0].hasPrefix("-set"),
+          arguments[1] == "Wi-Fi"
+        {
+          proxyOwned = false
+          return ProxyCommandResult(succeeded: true, output: nil)
+        }
+        return ProxyCommandResult(succeeded: false, output: nil)
+      }
+    )
+
+    XCTAssertTrue(restored)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: stateURL.path))
+    XCTAssertFalse(proxyOwned)
+  }
+
+  func testLegacyMissingServicesShareOneStrictConfirmationScan() throws {
+    let delegate = AppDelegate()
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appendingPathComponent("system_proxy.json")
+    let disabledState =
+      #"{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}"#
+    let contents =
+      #"{"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"Removed USB":\#(disabledState),"Removed Ethernet":\#(disabledState)}"#
+    try Data(contents.utf8).write(to: stateURL)
+    var listCalls = 0
+    var currentServiceGetCalls = 0
+
+    let restored = delegate.restoreSavedProxyState(
+      at: stateURL,
+      proxyCommandRunner: { _, arguments in
+        if arguments.first == "-listallnetworkservices" {
+          listCalls += 1
+          return ProxyCommandResult(
+            succeeded: true,
+            output: """
+            An asterisk (*) denotes that a network service is disabled.
+            Wi-Fi
+            """
+          )
+        }
+        if arguments.count == 2,
+          arguments[0].hasPrefix("-get"),
+          arguments[1] == "Wi-Fi"
+        {
+          currentServiceGetCalls += 1
+          return ProxyCommandResult(
+            succeeded: true,
+            output: "Enabled: No\nServer: \nPort: 0\n"
+          )
+        }
+        return ProxyCommandResult(succeeded: false, output: nil)
+      }
+    )
+
+    XCTAssertTrue(restored)
+    XCTAssertEqual(listCalls, 1)
+    XCTAssertEqual(currentServiceGetCalls, 3)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: stateURL.path))
+  }
+
+  func testRestoredProxySnapshotRemovalFailureBlocksTermination() throws {
+    struct ControlledRemovalFailure: Error {}
+
+    let delegate = AppDelegate()
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appendingPathComponent("system_proxy.json")
+    let contents = """
+    {"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"Wi-Fi":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}}
+    """
+    try Data(contents.utf8).write(to: stateURL)
+
+    let restored = delegate.restoreSavedProxyState(
+      at: stateURL,
+      proxyCommandRunner: { _, arguments in
+        if arguments.first?.hasPrefix("-get") == true {
+          return ProxyCommandResult(
+            succeeded: true,
+            output: "Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n"
+          )
+        }
+        return ProxyCommandResult(succeeded: true, output: nil)
+      },
+      proxyStateRemover: { _ in throw ControlledRemovalFailure() }
+    )
+
+    XCTAssertFalse(restored)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: stateURL.path))
+  }
+
+  func testReplacedProxySnapshotPathIsPreservedAndBlocksTermination() throws {
+    for replacementIsDirectory in [false, true] {
+      let delegate = AppDelegate()
+      let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+      try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+      )
+      addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+      let stateURL = directory.appendingPathComponent("system_proxy.json")
+      let movedOriginalURL = directory.appendingPathComponent("original.json")
+      let contents = """
+      {"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"Wi-Fi":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}}
+      """
+      try Data(contents.utf8).write(to: stateURL)
+      let replacementContents = Data("replacement evidence".utf8)
+      var replaced = false
+
+      let restored = delegate.restoreSavedProxyState(
+        at: stateURL,
+        proxyCommandRunner: { _, arguments in
+          if arguments.first?.hasPrefix("-get") == true {
+            return ProxyCommandResult(
+              succeeded: true,
+              output: "Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n"
+            )
+          }
+          if arguments == ["-setsocksfirewallproxystate", "Wi-Fi", "off"] {
+            try! FileManager.default.moveItem(
+              at: stateURL,
+              to: movedOriginalURL
+            )
+            if replacementIsDirectory {
+              try! FileManager.default.createDirectory(
+                at: stateURL,
+                withIntermediateDirectories: false
+              )
+            } else {
+              try! replacementContents.write(to: stateURL)
+            }
+            replaced = true
+          }
+          return ProxyCommandResult(succeeded: true, output: nil)
+        }
+      )
+
+      XCTAssertTrue(replaced)
+      XCTAssertFalse(restored)
+      XCTAssertTrue(FileManager.default.fileExists(atPath: movedOriginalURL.path))
+      var isDirectory: ObjCBool = false
+      XCTAssertTrue(
+        FileManager.default.fileExists(
+          atPath: stateURL.path,
+          isDirectory: &isDirectory
+        )
+      )
+      XCTAssertEqual(isDirectory.boolValue, replacementIsDirectory)
+      if !replacementIsDirectory {
+        XCTAssertEqual(try Data(contentsOf: stateURL), replacementContents)
+      }
+    }
+  }
+
+  func testDeletedProxyServiceRemainsPendingWithoutVerifiedServiceList() throws {
+    let invalidListings = [
+      ProxyCommandResult(succeeded: false, output: nil),
+      ProxyCommandResult(succeeded: true, output: "Wi-Fi\n"),
+    ]
+
+    for (index, listing) in invalidListings.enumerated() {
+      let delegate = AppDelegate()
+      let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("\(UUID().uuidString)-\(index)", isDirectory: true)
+      try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+      )
+      addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+      let stateURL = directory.appendingPathComponent("system_proxy.json")
+      let contents = """
+      {"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,"Removed USB":{"web":{"enabled":false,"server":"","port":0},"secureWeb":{"enabled":false,"server":"","port":0},"socks":{"enabled":false,"server":"","port":0}}}
+      """
+      try Data(contents.utf8).write(to: stateURL)
+      var listCalls = 0
+
+      let restored = delegate.restoreSavedProxyState(
+        at: stateURL,
+        proxyCommandRunner: { _, arguments in
+          if arguments.first == "-listallnetworkservices" {
+            listCalls += 1
+            return listing
+          }
+          return ProxyCommandResult(succeeded: false, output: nil)
+        }
+      )
+
+      XCTAssertFalse(restored)
+      XCTAssertEqual(listCalls, 1)
+      XCTAssertTrue(FileManager.default.fileExists(atPath: stateURL.path))
+      XCTAssertEqual(try String(contentsOf: stateURL, encoding: .utf8), contents)
+    }
+  }
+
   func testXCTestEnvironmentSurvivesDyldVariableSanitization() {
     XCTAssertTrue(AppDelegate.isXCTestEnvironment([
       "XCTestBundlePath": "Contents/PlugIns/RunnerTests.xctest",

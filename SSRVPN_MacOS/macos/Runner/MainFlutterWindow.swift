@@ -97,6 +97,23 @@ class MainFlutterWindow: NSWindow {
         }
         return
       }
+      if call.method == "listNetworkServiceIdentities" {
+        delegate.enqueueCoreProcessOperation {
+          let identities = delegate.currentNetworkServiceIdentities()
+          DispatchQueue.main.async {
+            guard let identities else {
+              result(FlutterError(
+                code: "network_service_identities_unavailable",
+                message: "Stable macOS network-service identities are unavailable",
+                details: nil
+              ))
+              return
+            }
+            result(identities)
+          }
+        }
+        return
+      }
       guard
         let arguments = call.arguments as? [String: Any],
         let directoryPath = arguments["directory"] as? String,
