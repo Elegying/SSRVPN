@@ -1157,6 +1157,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "PROXY_UNSAFE",
             "PROCESSES_STILL_RUNNING",
             "TUN_TEARDOWN_PENDING",
+            "PID_CLEANUP_FAILED",
             "RECOVERY_CLEANUP_PENDING",
             "INTERNAL_ERROR",
         }
@@ -1288,6 +1289,77 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("'-ProbeMode', 'late-pending'", runtime_test)
         self.assertIn("'-ProbeMode', 'none'", runtime_test)
         self.assertIn("No-TUN cleanup did not report OK.", runtime_test)
+
+    def test_installer_pid_cleanup_fails_closed_before_file_transaction(
+        self,
+    ) -> None:
+        installer_root = ROOT / "SSRVPN_Windows" / "installer"
+        installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
+        stopper = (installer_root / "stop_ssrvpn_processes.ps1").read_text(
+            encoding="utf-8"
+        )
+        runtime_test = (
+            ROOT / "scripts" / "test_windows_installer_runtime.ps1"
+        ).read_text(encoding="utf-8")
+
+        pid_cleanup = stopper.split("if ($InstalledCorePidPath)", 1)[1]
+        pid_cleanup = pid_cleanup.split("if ($proxyRecoveryFailed)", 1)[0]
+        self.assertIn(
+            "Test-Path -LiteralPath $InstalledCorePidPath -PathType Container `",
+            pid_cleanup,
+        )
+        self.assertGreaterEqual(pid_cleanup.count("-ErrorAction Stop"), 2)
+        self.assertIn(
+            "[System.IO.File]::Delete($InstalledCorePidPath)",
+            pid_cleanup,
+        )
+        self.assertIn(
+            "if (Test-Path -LiteralPath $InstalledCorePidPath "
+            "-ErrorAction Stop)",
+            pid_cleanup,
+        )
+        self.assertIn(
+            "Set-StopStatus -Status 'PID_CLEANUP_FAILED'",
+            pid_cleanup,
+        )
+        self.assertIn("exit 3", pid_cleanup)
+        self.assertNotIn("ErrorAction SilentlyContinue", pid_cleanup)
+        status_values = stopper.split("$script:StopStatusValues = @(", 1)[1]
+        status_values = status_values.split(")", 1)[0]
+        self.assertIn("'PID_CLEANUP_FAILED'", status_values)
+        self.assertIn("(Status = 'PID_CLEANUP_FAILED') or", installer)
+
+        prepare_to_install = installer.split(
+            "function PrepareToInstall", 1
+        )[1].split("procedure CurStepChanged", 1)[0]
+        stop_gate = prepare_to_install.index("if StopResult = 0 then")
+        self.assertLess(
+            stop_gate,
+            prepare_to_install.index("BeginProgramFilesTransaction"),
+        )
+        self.assertLess(
+            stop_gate,
+            prepare_to_install.index("ClearProgramFilesForInstall"),
+        )
+
+        for fixture in (
+            "pid-path-directory.status",
+            "locked-pid.status",
+            "stale-pid.status",
+        ):
+            self.assertIn(fixture, runtime_test)
+        self.assertIn(
+            "A PID path directory was accepted as successful cleanup.",
+            runtime_test,
+        )
+        self.assertIn(
+            "A locked PID file was accepted as successful cleanup.",
+            runtime_test,
+        )
+        self.assertIn(
+            "Unlocked stale PID cleanup did not report OK.",
+            runtime_test,
+        )
 
     def test_installer_tun_ownership_never_uses_the_generic_adapter_name(
         self,

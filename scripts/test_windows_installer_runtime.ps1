@@ -12,6 +12,7 @@ $testRoot = Join-Path $tempRoot `
   "ssrvpn-installer-test-$([Guid]::NewGuid().ToString('N'))"
 $heldTransactionLock = $null
 $heldTransactionLockAcquired = $false
+$lockedPidStream = $null
 
 $stopSource = [System.IO.File]::ReadAllText($stopScript)
 if ($stopSource -notmatch
@@ -416,6 +417,85 @@ exit $LASTEXITCODE
     throw 'No-TUN cleanup left the stale core PID file behind.'
   }
 
+  [System.IO.Directory]::CreateDirectory($pidFile) | Out-Null
+  [System.IO.File]::WriteAllText(
+    (Join-Path $pidFile 'unexpected-entry'),
+    'must not be recursively removed',
+    [System.Text.UTF8Encoding]::new($false)
+  )
+  $pidDirectoryStatusPath = Join-Path $testRoot 'pid-path-directory.status'
+  $stop = Start-Process powershell.exe -ArgumentList @(
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', $tunHarnessPath,
+    '-StopScript', $stopScript,
+    '-InstalledAppPath', $appPath,
+    '-InstalledLauncherPath', $launcherPath,
+    '-InstalledCorePath', $corePath,
+    '-InstalledCorePidPath', $pidFile,
+    '-StatusPath', $pidDirectoryStatusPath,
+    '-ProbeMode', 'none',
+    '-TunTimeoutMilliseconds', 1000
+  ) -Wait -PassThru -WindowStyle Hidden
+  if ($stop.ExitCode -ne 3 -or
+      [System.IO.File]::ReadAllText($pidDirectoryStatusPath) -cne
+      'PID_CLEANUP_FAILED' -or
+      -not (Test-Path -LiteralPath $pidFile -PathType Container)) {
+    throw 'A PID path directory was accepted as successful cleanup.'
+  }
+  Remove-Item -LiteralPath $pidFile -Recurse -Force -ErrorAction Stop
+
+  [System.IO.File]::WriteAllText(
+    $pidFile,
+    '{"version":1,"pid":999999,"creationTimeUtcFileTime":"1","canonicalExecutablePath":"stale"}',
+    [System.Text.UTF8Encoding]::new($false)
+  )
+  $lockedPidStream = New-Object System.IO.FileStream -ArgumentList @(
+    $pidFile,
+    [System.IO.FileMode]::Open,
+    [System.IO.FileAccess]::ReadWrite,
+    [System.IO.FileShare]::Read
+  )
+  $lockedPidStatusPath = Join-Path $testRoot 'locked-pid.status'
+  $stop = Start-Process powershell.exe -ArgumentList @(
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', $tunHarnessPath,
+    '-StopScript', $stopScript,
+    '-InstalledAppPath', $appPath,
+    '-InstalledLauncherPath', $launcherPath,
+    '-InstalledCorePath', $corePath,
+    '-InstalledCorePidPath', $pidFile,
+    '-StatusPath', $lockedPidStatusPath,
+    '-ProbeMode', 'none',
+    '-TunTimeoutMilliseconds', 1000
+  ) -Wait -PassThru -WindowStyle Hidden
+  if ($stop.ExitCode -ne 3 -or
+      [System.IO.File]::ReadAllText($lockedPidStatusPath) -cne
+      'PID_CLEANUP_FAILED' -or
+      -not (Test-Path -LiteralPath $pidFile -PathType Leaf)) {
+    throw 'A locked PID file was accepted as successful cleanup.'
+  }
+  $lockedPidStream.Dispose()
+  $lockedPidStream = $null
+
+  $stalePidStatusPath = Join-Path $testRoot 'stale-pid.status'
+  $stop = Start-Process powershell.exe -ArgumentList @(
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', $tunHarnessPath,
+    '-StopScript', $stopScript,
+    '-InstalledAppPath', $appPath,
+    '-InstalledLauncherPath', $launcherPath,
+    '-InstalledCorePath', $corePath,
+    '-InstalledCorePidPath', $pidFile,
+    '-StatusPath', $stalePidStatusPath,
+    '-ProbeMode', 'none',
+    '-TunTimeoutMilliseconds', 1000
+  ) -Wait -PassThru -WindowStyle Hidden
+  if ($stop.ExitCode -ne 0 -or
+      [System.IO.File]::ReadAllText($stalePidStatusPath) -cne 'OK' -or
+      (Test-Path -LiteralPath $pidFile)) {
+    throw 'Unlocked stale PID cleanup did not report OK.'
+  }
+
   $unmarkedTunStatusPath = Join-Path $testRoot 'unmarked-signature.status'
   $stop = Start-Process powershell.exe -ArgumentList @(
     '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
@@ -631,6 +711,9 @@ exit $LASTEXITCODE
 
   Write-Host 'Windows installer runtime tests passed.'
 } finally {
+  if ($null -ne $lockedPidStream) {
+    $lockedPidStream.Dispose()
+  }
   if ($null -ne $heldTransactionLock) {
     if ($heldTransactionLockAcquired) {
       try {
