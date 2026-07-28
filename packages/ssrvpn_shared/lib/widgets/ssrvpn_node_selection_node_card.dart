@@ -8,6 +8,7 @@ class _NodeSelectionCard extends StatelessWidget {
     required this.selected,
     required this.testing,
     required this.selectionBusy,
+    required this.editBusy,
     required this.testingBusy,
     required this.onSelect,
     required this.onTest,
@@ -21,6 +22,7 @@ class _NodeSelectionCard extends StatelessWidget {
   final bool selected;
   final bool testing;
   final bool selectionBusy;
+  final bool editBusy;
   final bool testingBusy;
   final VoidCallback onSelect;
   final VoidCallback onTest;
@@ -77,7 +79,7 @@ class _NodeSelectionCard extends StatelessWidget {
                   inMutuallyExclusiveGroup: true,
                   label: '选择服务器 $displayName',
                   onTap: selectionBusy ? null : onSelect,
-                  onLongPress: selectionBusy ? null : onLongPress,
+                  onLongPress: editBusy ? null : onLongPress,
                   child: _KeyboardActivate(
                     enabled: !selectionBusy,
                     onActivate: onSelect,
@@ -93,8 +95,8 @@ class _NodeSelectionCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(radius),
                         onTap: selectionBusy ? null : onSelect,
                         onSecondaryTapDown:
-                            selectionBusy ? null : onSecondaryTapDown,
-                        onLongPress: selectionBusy ? null : onLongPress,
+                            editBusy ? null : onSecondaryTapDown,
+                        onLongPress: editBusy ? null : onLongPress,
                         child: ExcludeSemantics(
                           child: Padding(
                             padding: EdgeInsets.fromLTRB(
