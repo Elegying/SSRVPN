@@ -1,9 +1,10 @@
 # 项目健康状态
 
 最近审查：2026-07-29<br>
-当前应用版本：`v4.0.0`；公开发布状态与产物以 GitHub Release 为准。<br>
-当前分支是在已发布 `v4.0.0` 基线上的发布后加固候选；草稿 PR
-[#73](https://github.com/Elegying/SSRVPN/pull/73) 尚未合并，最终远端 CI 已全部通过。
+当前应用版本：`v4.0.1`；公开发布状态与产物以 GitHub Release 为准。<br>
+本轮是在已发布 `v4.0.0` 基线上的补丁发布，通过
+[#73](https://github.com/Elegying/SSRVPN/pull/73) 复核并按受保护 `main`、annotated tag
+与 Release workflow 顺序发布。
 
 ## 结论
 
@@ -13,12 +14,11 @@ SSRVPN 当前三端的连接生命周期、系统代理恢复、外部输入边�
 长按编辑，macOS/Windows 可长按或右键编辑；全局忙碌或连接中仍禁止编辑。本轮没有新增可见编辑
 按钮或菜单。
 
-2026-07-28 在当前候选工作树执行完整 `make verify`，静态分析、文档/版本/密钥/资产/产品表面/
+2026-07-29 在当前发布工作树执行完整 `make verify`，静态分析、文档/版本/密钥/资产/产品表面/
 结构守卫、发布工具、四端 Flutter、Android Gradle/JUnit、macOS RunnerTests 与 TUN/DNS 行为测试
-全部通过。当前本地证据未发现阻断提交的 P0-P1；远端 Windows 原生构建与安装烟雾、目标平台人工
-验收仍不能由 macOS 本地测试替代。最终远端 run
-[`30377839474`](https://github.com/Elegying/SSRVPN/actions/runs/30377839474) 的 Workspace、
-Android、macOS、Windows、全历史秘密扫描和核心资产准备全部成功。
+全部通过。当前本地证据未发现阻断发布的 P0-P1；远端 Windows 原生构建与安装烟雾、目标平台人工
+验收仍不能由 macOS 本地测试替代。`v4.0.1` 的最终 PR、`main` 与 Release workflow 运行记录
+以 GitHub Actions 对应精确提交和 tag 的结果为准。
 
 ## 本轮变更范围
 
@@ -35,7 +35,7 @@ Android、macOS、Windows、全历史秘密扫描和核心资产准备全部成�
 
 ## 当前验证证据
 
-2026-07-28 在当前候选工作树执行：
+2026-07-29 在当前发布工作树执行：
 
 ```bash
 make verify
@@ -107,14 +107,14 @@ make verify
 | macOS | 本地 Flutter/XCTest 通过 | Flutter 243 项，覆盖率 65.54%；代理、生命周期与 TUN/DNS 门禁通过 |
 | Windows | 本地门禁与远端原生 CI 通过 | 本地 204 项；远端 212 项、覆盖率 50.41%，安装器构建及安装/卸载 smoke 通过 |
 
-## 下一步门槛
+## 发布门槛
 
-1. 草稿 PR #73 当前全部必需 CI 成功；下一步是人工复核后按受保护分支流程合并，不绕过 review
-   或主分支保护。
-2. Android 当前没有连接真机；macOS 正在运行已安装版的真实 TUN 会话，因此本轮没有抢占单实例或
+1. PR #73 的精确提交必须通过全部必需 CI，再按受保护分支流程合并；不得绕过 review 或主分支保护。
+2. 合并后的 `main` 精确提交必须再次通过 CI，且本地 `main`、`origin/main` 与工作树状态核对无误。
+3. `v4.0.1` 必须从上述 `main` 创建 annotated tag；Release workflow、GitHub 正式 Release、
+   OSS `latest.json`、固定下载地址、七项规范资产、SHA-256 与 provenance 必须全部回读验证。
+4. Android 当前没有连接真机；macOS 正在运行已安装版的真实 TUN 会话，因此本轮不抢占单实例或
    扰动现有网络。真实 Android/Windows 人工 UAT 仅在目标设备可访问时执行。
-3. 本轮不创建 tag、不发布新版本；后续发布仍必须从干净、与 `origin/main` 同步且通过受保护 CI
-   的 `main` 创建 annotated tag。
 
 ## 更新规则
 
