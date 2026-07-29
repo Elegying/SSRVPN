@@ -1,12 +1,12 @@
 Repo: MetaCubeX/meta-rules-dat
-Release ID: 358377421
+Release ID: 361430857
 Release tag: latest
-Release name: Release 2026-07-23 07:27
-Asset ID: 486533101
-Asset URL: https://api.github.com/repos/MetaCubeX/meta-rules-dat/releases/assets/486533101
-Upstream SHA256: 435ead07913585e4d3c4ce7cf7070a5973cf5a4c2c9ed074d71904f9d4c18ae3
-Bundled gzip SHA256: 50eebb2946658df22dbd07adf9d94e1253c5c5b1f942c06aaf8c2891f84aea61
+Release name: Release 2026-07-29 07:27
+Asset ID: 493338340
+Asset URL: https://api.github.com/repos/MetaCubeX/meta-rules-dat/releases/assets/493338340
+Upstream SHA256: 4cfcc34b0999e3ade00490c046a9c0d8d621131eac75030cab5496c00fec739a
+Bundled gzip SHA256: 4fcf74f8db24dad52e5ca0ccdd8b43ebfd3594d2ab9b15f3781c212f9a1e99de
 Mirror repo: Elegying/SSRVPN
 Mirror release tag: core-assets-v1
-Mirror asset name: geoip.metadb-50eebb2946658df22dbd07adf9d94e1253c5c5b1f942c06aaf8c2891f84aea61.gz
-Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/geoip.metadb-50eebb2946658df22dbd07adf9d94e1253c5c5b1f942c06aaf8c2891f84aea61.gz
+Mirror asset name: geoip.metadb-4fcf74f8db24dad52e5ca0ccdd8b43ebfd3594d2ab9b15f3781c212f9a1e99de.gz
+Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/geoip.metadb-4fcf74f8db24dad52e5ca0ccdd8b43ebfd3594d2ab9b15f3781c212f9a1e99de.gz
