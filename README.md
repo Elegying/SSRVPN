@@ -82,6 +82,12 @@ SSRVPN/
 └── scripts/                   # 验证、资源、发布与维护脚本
 ```
 
+大型生命周期文件按“可独立验证的职责”渐进拆分：共享更新保留稳定 façade，下载与原子发布分开；
+macOS 原生核心支持、单实例租约和窗口恢复脱离应用委托；Windows 代理事务保留原有执行顺序，
+私有快照与取消模型使用同一 Dart library 的 part。高风险 Android VPN 和 Windows 安装回滚
+不会为追求行数而强拆，规则与验证要求见
+[ADR-010](docs/decisions/010-risk-controlled-maintainability-boundaries.md)。
+
 ## 开发与验证
 
 推荐使用 Flutter `3.44.1` 或兼容 stable 版本。Android 构建还需要 Android SDK、NDK 与 JDK；macOS 需要 Xcode；Windows 需要 Visual Studio 2022 的“使用 C++ 的桌面开发”工作负载，安装器还需要 Inno Setup 6.5 或更高版本。

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 改进
 
+- 共享更新服务按稳定入口、下载/取消、校验后发布/恢复拆分；macOS 原生核心支持、单实例租约和窗口恢复从 `AppDelegate` 迁出；Windows 系统代理快照与取消模型迁入同一 Dart library 的独立 part。
+- 新增职责回流与规模护栏，固定更新服务、macOS 原生支持、Windows 系统代理、Android VPN Service 和 Windows 安装恢复的渐进维护边界；高风险事务执行顺序保持不变。
 - 全部受版本控制 Dart 源码纳入格式门禁，全部 Shell 脚本纳入 ShellCheck；共享包和三端启用严格类型分析并清理现有告警。
 - Windows 当前用户 SID 查询收敛为单一原生实现，减少启动器与窗口宿主的重复安全判断。
 - 文档一致性检查自动覆盖全部受版本控制 Markdown，修正安全支持版本并刷新贡献、Issue、PR、测试、维护和项目健康说明。
@@ -21,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 测试
 
+- 可维护性切片分别通过 shared 更新服务/全量测试、macOS RunnerTests 真实编译运行和 Windows 系统代理 47 项专项测试；完整门禁继续作为合并前最低证据。
 - Windows 增加连接生命周期回归，并把关键生命周期覆盖率下限提高到 20%；新增真实注册表沙箱中的原生系统代理恢复测试，由 Windows CI 编译运行。
 - 发布工具门禁新增质量入口与依赖供应链工作流回归；macOS 免费分发守卫固定检查 Release 不含调试或动态代码 entitlement。
 

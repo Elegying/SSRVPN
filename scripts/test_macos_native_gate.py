@@ -485,6 +485,12 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
 
     def test_pid_generation_is_persisted_and_compared_end_to_end(self) -> None:
         app_delegate = self.read("SSRVPN_MacOS/macos/Runner/AppDelegate.swift")
+        core_support = self.read(
+            "SSRVPN_MacOS/macos/Runner/CoreProcessSupport.swift"
+        )
+        application_support = self.read(
+            "SSRVPN_MacOS/macos/Runner/ApplicationLifecycleSupport.swift"
+        )
         main_window = self.read(
             "SSRVPN_MacOS/macos/Runner/MainFlutterWindow.swift"
         )
@@ -494,7 +500,6 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
 
         for token in (
             "func acquireInstanceLease(at url: URL? = nil) -> Bool",
-            "flock(descriptor, LOCK_EX | LOCK_NB)",
             "performTerminationCleanupIfLeaseOwner",
             "private let coreProcessOperationQueue = DispatchQueue(",
             "func enqueueCoreProcessOperation(_ operation: @escaping () -> Void)",
@@ -503,17 +508,10 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "return .terminateLater",
             "func beginProxyLifecycleTransaction() -> String",
             "func endProxyLifecycleTransaction(token: String) -> Bool",
-            "struct CorePidRecord: Equatable",
-            "struct CoreProcessGeneration: Equatable",
-            "struct CoreLaunchResult: Equatable",
-            "struct CoreProcessStatus: Equatable",
-            "private final class NativeOwnedCoreProcess",
-            "private final class CoreOutputCapture",
             "func launchOwnedCore(",
             "identityPollCount: Int = 51",
             "containLaunchedCoreProcess(process)",
             "containTrackedCoreWithoutRecord(in: directory)",
-            '"v2 \\(pid) \\(startSeconds) \\(startMicroseconds)\\n"',
             "O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK",
             "fileInfo.st_size <= 128",
             "O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW",
@@ -528,12 +526,31 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "Proxy restore state has no ownership proof; preserving it",
             "validatedProxyServices(",
             "hasStableServiceIdentities: hasStableServiceIdentities",
-            "private final class ProxyStateFileSnapshot",
             "removeProxyStateSnapshot(stateSnapshot, at: stateURL)",
             "Darwin.fstatat(",
             "Darwin.unlinkat(directoryDescriptor",
         ):
             self.assertIn(token, app_delegate)
+        for token in (
+            "final class AppInstanceLease",
+            "O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW",
+            "fileInfo.st_mode & S_IFMT == S_IFREG",
+            "fileInfo.st_uid == geteuid()",
+            "fileInfo.st_nlink == 1",
+            "flock(candidate, LOCK_EX | LOCK_NB)",
+        ):
+            self.assertIn(token, application_support)
+        for token in (
+            "struct CorePidRecord: Equatable",
+            "struct CoreProcessGeneration: Equatable",
+            "struct CoreLaunchResult: Equatable",
+            "struct CoreProcessStatus: Equatable",
+            "final class NativeOwnedCoreProcess",
+            "final class CoreOutputCapture",
+            "final class ProxyStateFileSnapshot",
+            '"v2 \\(pid) \\(startSeconds) \\(startMicroseconds)\\n"',
+        ):
+            self.assertIn(token, core_support)
         for method in (
             "launchOwnedCore",
             "ownedCoreStatus",
