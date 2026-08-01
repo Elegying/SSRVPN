@@ -3,18 +3,9 @@ import Darwin
 import FlutterMacOS
 import SystemConfiguration
 
-protocol WindowRevealTarget: AnyObject {
-  var isMiniaturized: Bool { get }
-  func deminiaturize(_ sender: Any?)
-  func makeKeyAndOrderFront(_ sender: Any?)
-}
-
-extension NSWindow: WindowRevealTarget {}
-
-
 @main
 class AppDelegate: FlutterAppDelegate {
-  private var instanceLeaseDescriptor: Int32 = -1
+  private let instanceLease = AppInstanceLease()
   private let coreProcessOperationQueue = DispatchQueue(
     label: "com.ssrvpn.core-process-operations",
     qos: .userInitiated
@@ -58,7 +49,7 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   var ownsInstanceLease: Bool {
-    instanceLeaseDescriptor >= 0
+    instanceLease.isAcquired
   }
 
   @discardableResult
@@ -72,29 +63,7 @@ class AppDelegate: FlutterAppDelegate {
     if ownsInstanceLease { return true }
     let leaseURL = url ?? FileManager.default.temporaryDirectory
       .appendingPathComponent(".ssrvpn-app-instance.lock")
-    let descriptor = leaseURL.path.withCString {
-      Darwin.open(
-        $0,
-        O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW,
-        S_IRUSR | S_IWUSR
-      )
-    }
-    guard descriptor >= 0 else { return false }
-
-    var fileInfo = stat()
-    guard
-      Darwin.fstat(descriptor, &fileInfo) == 0,
-      fileInfo.st_mode & S_IFMT == S_IFREG,
-      fileInfo.st_uid == geteuid(),
-      fileInfo.st_nlink == 1,
-      Darwin.fchmod(descriptor, S_IRUSR | S_IWUSR) == 0,
-      flock(descriptor, LOCK_EX | LOCK_NB) == 0
-    else {
-      _ = Darwin.close(descriptor)
-      return false
-    }
-
-    instanceLeaseDescriptor = descriptor
+    guard instanceLease.acquire(at: leaseURL) else { return false }
     if url == nil {
       DistributedNotificationCenter.default().addObserver(
         self,
@@ -121,10 +90,7 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   func releaseInstanceLease() {
-    guard instanceLeaseDescriptor >= 0 else { return }
-    _ = flock(instanceLeaseDescriptor, LOCK_UN)
-    _ = Darwin.close(instanceLeaseDescriptor)
-    instanceLeaseDescriptor = -1
+    instanceLease.release()
   }
 
   func enqueueCoreProcessOperation(_ operation: @escaping () -> Void) {
@@ -389,12 +355,7 @@ class AppDelegate: FlutterAppDelegate {
 
   @discardableResult
   func revealWindow(_ window: WindowRevealTarget?) -> Bool {
-    guard let window else { return false }
-    if window.isMiniaturized {
-      window.deminiaturize(nil)
-    }
-    window.makeKeyAndOrderFront(nil)
-    return true
+    WindowRevealController.reveal(window)
   }
 
   // Cmd+Q 等退出路径不经过 Flutter 侧的清理逻辑，
