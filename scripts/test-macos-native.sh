@@ -22,8 +22,9 @@ BASELINE="$TEMPORARY_DIRECTORY/crash-reports.json"
 PROCESS_BASELINE="$TEMPORARY_DIRECTORY/processes.txt"
 DERIVED_DATA="$TEMPORARY_DIRECTORY/DerivedData"
 cleanup_temporary_directory=0
-# Invoked by the EXIT trap below.
-# shellcheck disable=SC2329
+# Invoked indirectly by the EXIT trap below; older ShellCheck releases do not
+# propagate that reachability into the callback body.
+# shellcheck disable=SC2317,SC2329
 cleanup() {
   local exit_status=$?
   trap - EXIT
