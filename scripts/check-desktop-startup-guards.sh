@@ -471,15 +471,26 @@ print("Desktop application shell boundary guard passed.")
 
 macos_delegate = Path("SSRVPN_MacOS/macos/Runner/AppDelegate.swift")
 macos_core_support = macos_delegate.with_name("CoreProcessSupport.swift")
+macos_application_support = macos_delegate.with_name(
+    "ApplicationLifecycleSupport.swift"
+)
 delegate_source = macos_delegate.read_text(encoding="utf-8")
-if len(delegate_source.splitlines()) > 2050:
+if len(delegate_source.splitlines()) > 1980:
     raise SystemExit(
-        f"{macos_delegate}: native app delegate grew beyond its 2050-line boundary"
+        f"{macos_delegate}: native app delegate grew beyond its 1980-line boundary"
     )
 if not macos_core_support.is_file():
     raise SystemExit(f"{macos_core_support}: native core support boundary is missing")
 if len(macos_core_support.read_text(encoding="utf-8").splitlines()) > 280:
     raise SystemExit(f"{macos_core_support}: native core support boundary regressed")
+if not macos_application_support.is_file():
+    raise SystemExit(
+        f"{macos_application_support}: application lifecycle support boundary is missing"
+    )
+if len(macos_application_support.read_text(encoding="utf-8").splitlines()) > 130:
+    raise SystemExit(
+        f"{macos_application_support}: application lifecycle support boundary regressed"
+    )
 for delegated_type in (
     "struct CorePidRecord",
     "final class CoreOutputCapture",
@@ -488,6 +499,15 @@ for delegated_type in (
     if delegated_type in delegate_source:
         raise SystemExit(
             f"{macos_delegate}: {delegated_type} leaked back into application orchestration"
+        )
+for delegated_implementation in (
+    "protocol WindowRevealTarget",
+    "instanceLeaseDescriptor",
+    "flock(",
+):
+    if delegated_implementation in delegate_source:
+        raise SystemExit(
+            f"{macos_delegate}: {delegated_implementation} leaked back into application orchestration"
         )
 print("macOS native core support boundary guard passed.")
 
