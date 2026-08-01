@@ -13,6 +13,14 @@ import check_coverage_thresholds as coverage  # noqa: E402
 
 
 class CheckCoverageThresholdsTests(unittest.TestCase):
+    def test_windows_lifecycle_floor_preserves_reviewed_evidence(self) -> None:
+        self.assertGreaterEqual(
+            coverage.CRITICAL_FILE_THRESHOLDS["SSRVPN_Windows"][
+                "lib/services/clash_service_lifecycle.dart"
+            ],
+            20.0,
+        )
+
     def _write_lcov(self, text: str) -> Path:
         temporary_directory = tempfile.TemporaryDirectory()
         self.addCleanup(temporary_directory.cleanup)

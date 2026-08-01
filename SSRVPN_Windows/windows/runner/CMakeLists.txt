@@ -78,3 +78,15 @@ target_link_libraries(${LAUNCHER_TARGET} PRIVATE "wininet.lib")
 target_compile_options(${LAUNCHER_TARGET} PRIVATE "/guard:cf")
 target_link_options(${LAUNCHER_TARGET} PRIVATE "/CETCOMPAT" "/GUARD:CF")
 target_link_options(${LAUNCHER_TARGET} PRIVATE "${SSRVPN_UAC_LINK_OPTION}")
+
+# Build on demand in Windows CI. The harness redirects HKEY_CURRENT_USER to a
+# volatile sandbox before exercising real registry restore and fail-safe paths.
+add_executable(ssrvpn_system_proxy_recovery_test EXCLUDE_FROM_ALL
+  "system_proxy_recovery.cpp"
+  "system_proxy_recovery_test.cpp"
+)
+apply_standard_settings(ssrvpn_system_proxy_recovery_test)
+target_compile_options(ssrvpn_system_proxy_recovery_test PRIVATE "/utf-8")
+target_compile_definitions(ssrvpn_system_proxy_recovery_test PRIVATE "NOMINMAX")
+target_link_libraries(ssrvpn_system_proxy_recovery_test PRIVATE "advapi32.lib")
+target_link_libraries(ssrvpn_system_proxy_recovery_test PRIVATE "wininet.lib")
