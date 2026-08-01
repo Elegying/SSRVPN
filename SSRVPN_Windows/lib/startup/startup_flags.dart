@@ -7,9 +7,9 @@ class StartupFlags {
     required this.resumeTunAfterElevation,
     required this.verbose,
     required this.rawArgs,
-  }) : _disableTray = disableTray,
-       _resetWindow = resetWindow,
-       _disableCoreAutostart = disableCoreAutostart;
+  })  : _disableTray = disableTray,
+        _resetWindow = resetWindow,
+        _disableCoreAutostart = disableCoreAutostart;
 
   factory StartupFlags.parse(List<String> args) {
     final normalized = args.map((arg) => arg.trim().toLowerCase()).toSet();

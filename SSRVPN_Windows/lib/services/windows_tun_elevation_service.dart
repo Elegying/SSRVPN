@@ -15,7 +15,7 @@ enum WindowsTunElevationRequestResult {
 /// to finish its normal shutdown before starting the replacement instance.
 class WindowsTunElevationService {
   WindowsTunElevationService({MethodChannel? channel})
-    : _channel = channel ?? const MethodChannel(_channelName);
+      : _channel = channel ?? const MethodChannel(_channelName);
 
   static const _channelName = 'com.ssrvpn.windows/tun_elevation';
   final MethodChannel _channel;

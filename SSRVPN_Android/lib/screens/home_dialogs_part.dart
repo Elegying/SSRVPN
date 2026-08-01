@@ -122,9 +122,7 @@ void _showAndroidHomeTutorialDialog(BuildContext context) {
                           ],
                         ),
                         const SizedBox(height: 20),
-                        for (var i = 0;
-                            i < _homeTutorialSteps.length;
-                            i++) ...[
+                        for (var i = 0; i < _homeTutorialSteps.length; i++) ...[
                           _AndroidTutorialStep(
                             step: '${i + 1}',
                             text: _homeTutorialSteps[i].text,

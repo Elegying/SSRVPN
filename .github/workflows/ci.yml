@@ -54,6 +54,7 @@ jobs:
       - run: bash scripts/check-version-sync.sh
       - run: bash scripts/check-package-guides.sh
       - run: bash scripts/check-doc-consistency.sh
+      - run: bash scripts/check-quality-hygiene.sh
       # Match the Release job's package working directory so guard scripts
       # cannot accidentally depend on being launched from the repository root.
       - run: bash ../../scripts/check-android-native-bridge-guards.sh

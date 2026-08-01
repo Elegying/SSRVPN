@@ -35,9 +35,7 @@ NATIVE_CONNECTION_SESSION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/
 NATIVE_SESSION_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeVpnSessionCoordinator.kt"
 NATIVE_RUNTIME_DIAGNOSTICS="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeRuntimeDiagnostics.kt"
 NATIVE_SESSION_COMMITTER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeSessionCommitter.kt"
-NATIVE_PATH_POLICY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionPathPolicy.kt"
 NATIVE_START_PAYLOAD_REGISTRY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeStartPayloadRegistry.kt"
-EXTERNAL_URL_POLICY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/ExternalUrlPolicy.kt"
 TRAFFIC_TRACKER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnTrafficTracker.kt"
 START_RESULT_REGISTRY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnStartResultRegistry.kt"
 STARTUP_ORCHESTRATOR="$ROOT/SSRVPN_Android/lib/startup/startup_orchestrator.dart"
@@ -575,6 +573,8 @@ require_text "android.os.Process.killProcess(android.os.Process.myPid())"
 require_text "DisconnectRecoveryCoordinator.handoffIfNeeded(this, preserveForegroundUi)"
 require_text "if (!processTerminationPending.get()) stopAll()"
 require_activity_text "service.stopAll(preserveForegroundUi = true)"
+# These manifest placeholders must be matched literally, not expanded by Bash.
+# shellcheck disable=SC2016
 for needle in \
   'android:name=".DisconnectRecoveryActivity"' \
   'android:exported="false"' \
@@ -762,6 +762,8 @@ PY
 require_build_text 'applicationIdSuffix = ".debug"'
 require_build_text 'versionNameSuffix = "-debug"'
 require_build_text 'manifestPlaceholders["appLabel"] = "SSRVPN Debug"'
+# The Gradle manifest placeholder must remain literal here.
+# shellcheck disable=SC2016
 require_manifest_text 'android:label="${appLabel}"'
 require_manifest_text 'android:allowBackup="false"'
 

@@ -196,16 +196,14 @@ class _CaptionButton extends StatelessWidget {
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         shape: const WidgetStatePropertyAll(RoundedRectangleBorder()),
         foregroundColor: WidgetStateProperty.resolveWith((states) {
-          final highlighted =
-              states.contains(WidgetState.hovered) ||
+          final highlighted = states.contains(WidgetState.hovered) ||
               states.contains(WidgetState.focused) ||
               states.contains(WidgetState.pressed);
           if (destructive && highlighted) return Colors.white;
           return AppTheme.textSecondary;
         }),
         backgroundColor: WidgetStateProperty.resolveWith((states) {
-          final highlighted =
-              states.contains(WidgetState.hovered) ||
+          final highlighted = states.contains(WidgetState.hovered) ||
               states.contains(WidgetState.focused) ||
               states.contains(WidgetState.pressed);
           if (!highlighted) return Colors.transparent;

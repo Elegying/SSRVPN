@@ -303,6 +303,8 @@ if grep -Fq '/usr/bin/nohup' \
   exit 1
 fi
 
+# These shell expressions belong to the inspected runner and must stay literal.
+# shellcheck disable=SC2016
 for required in \
   '[[ ${EUID:-$(id -u)} -eq 0 ]]' \
   'Mihomo core digest mismatch' \
