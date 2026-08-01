@@ -1949,6 +1949,12 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("TestValidJournalRestoresOriginalState", harness)
         self.assertIn("TestMalformedJournalDisablesOwnedEndpoint", harness)
 
+        native_gate = (
+            ROOT / "scripts" / "test_windows_native_proxy_recovery.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("flutter build windows --release", native_gate)
+        self.assertIn("if (-not (Test-Path -LiteralPath $cache", native_gate)
+
         invocation = "test_windows_native_proxy_recovery.ps1"
         for path in (
             ROOT / "scripts" / "verify-all.sh",
