@@ -10,10 +10,11 @@ Android、macOS、Windows 三端一致的连接体验：导入订阅，选择节
 
 [![Latest Release](https://img.shields.io/github/v/release/Elegying/SSRVPN?display_name=tag&sort=semver)](https://github.com/Elegying/SSRVPN/releases/latest)
 [![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml)
+[![Security policy](https://img.shields.io/badge/security-private%20reporting-0f766e)](SECURITY.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/Android%20%7C%20macOS%20%7C%20Windows-6c63ff)](#下载)
 
-[立即下载](#下载) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md)
+[立即下载](#下载) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md) · [项目文档](docs/README.md)
 
 <img src="docs/assets/ssrvpn-product-preview.png" alt="SSRVPN 开源跨平台 Mihomo VPN 和代理客户端连接界面" width="416">
 
@@ -91,7 +92,7 @@ SSRVPN/
 make verify
 ```
 
-它会检查版本与资源、职责边界、Android 内置 Kotlin、免费桌面分发策略、密钥扫描、发布工具、关键路径性能、依赖解析、静态分析、四套 Flutter 测试、Android 原生测试和覆盖率门槛。日常可按需执行：
+它会检查全部受版本控制的 Dart 格式和 ShellCheck、版本与资源、职责边界、Android 内置 Kotlin、免费桌面分发策略、密钥扫描、发布工具、关键路径性能、依赖解析、严格静态分析、四套 Flutter 测试、Android/macOS 原生测试和覆盖率门槛。Windows 原生代理恢复测试会在 GitHub Windows runner 上编译并运行。日常可按需执行：
 
 ```bash
 scripts/workspace.sh pub-get
@@ -102,6 +103,8 @@ scripts/performance-baseline.sh
 ```
 
 行为、持久化、进程、系统代理、TUN 或打包发生变化时，还要在目标平台运行对应构建或安装冒烟；macOS 不能替代真实 Windows 的安装、升级和卸载验证。
+
+Pull Request 还会执行 GitHub Dependency Review；新增中等及以上已知漏洞会阻止合并。依赖锁文件、GitHub Dependency Graph、漏洞告警、私有漏洞报告和可导出的 SPDX SBOM 共同构成当前供应链基线。
 
 ## 发布
 

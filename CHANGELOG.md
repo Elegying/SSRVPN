@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 改进
+
+- 全部受版本控制 Dart 源码纳入格式门禁，全部 Shell 脚本纳入 ShellCheck；共享包和三端启用严格类型分析并清理现有告警。
+- Windows 当前用户 SID 查询收敛为单一原生实现，减少启动器与窗口宿主的重复安全判断。
+- 文档一致性检查自动覆盖全部受版本控制 Markdown，修正安全支持版本并刷新贡献、Issue、PR、测试、维护和项目健康说明。
+
+### 安全
+
+- macOS Release 构建移除 JIT、未签名可执行内存、禁用库校验和调试 entitlement，并通过真实 Release 构建检查最终签名权限。
+- Pull Request 新增固定提交的 GitHub Dependency Review，阻止新增中等及以上已知漏洞；仓库继续使用 Dependency Graph、漏洞告警、私有漏洞报告和 SPDX SBOM。
+- Android 超时回收日志只记录异常类型，不再输出可能包含敏感上下文的异常正文。
+
+### 测试
+
+- Windows 增加连接生命周期回归，并把关键生命周期覆盖率下限提高到 20%；新增真实注册表沙箱中的原生系统代理恢复测试，由 Windows CI 编译运行。
+- 发布工具门禁新增质量入口与依赖供应链工作流回归；macOS 免费分发守卫固定检查 Release 不含调试或动态代码 entitlement。
+
+### 兼容性边界
+
+- 本轮没有修改 HTTP 订阅、75 个 Android 国内应用直连名单、三端 IPv4-only 策略、两页产品表面、节点编辑手势、macOS 免费 ad-hoc 分发或 Windows 未签名安装器单一分发策略。
+
 ## [4.0.1] - 2026-07-29
 
 ### 修复
