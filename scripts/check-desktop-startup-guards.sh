@@ -469,6 +469,28 @@ if len(app_shell.read_text(encoding="utf-8").splitlines()) > 620:
     raise SystemExit(f"{app_shell}: shared desktop application shell is oversized")
 print("Desktop application shell boundary guard passed.")
 
+macos_delegate = Path("SSRVPN_MacOS/macos/Runner/AppDelegate.swift")
+macos_core_support = macos_delegate.with_name("CoreProcessSupport.swift")
+delegate_source = macos_delegate.read_text(encoding="utf-8")
+if len(delegate_source.splitlines()) > 2050:
+    raise SystemExit(
+        f"{macos_delegate}: native app delegate grew beyond its 2050-line boundary"
+    )
+if not macos_core_support.is_file():
+    raise SystemExit(f"{macos_core_support}: native core support boundary is missing")
+if len(macos_core_support.read_text(encoding="utf-8").splitlines()) > 280:
+    raise SystemExit(f"{macos_core_support}: native core support boundary regressed")
+for delegated_type in (
+    "struct CorePidRecord",
+    "final class CoreOutputCapture",
+    "final class NativeOwnedCoreProcess",
+):
+    if delegated_type in delegate_source:
+        raise SystemExit(
+            f"{macos_delegate}: {delegated_type} leaked back into application orchestration"
+        )
+print("macOS native core support boundary guard passed.")
+
 # The Windows lifecycle part also carries the PowerShell 5.1-compatible,
 # handle-based process identity verifier. Keep a small audited headroom without
 # forcing security-sensitive native code into an opaque generated asset.
