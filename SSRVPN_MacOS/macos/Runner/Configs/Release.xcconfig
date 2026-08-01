@@ -4,3 +4,6 @@
 // 仅构建 Apple Silicon（内置的 AtlasCore 核心只有 arm64，Intel 上本就无法运行）
 ARCHS = arm64
 ONLY_ACTIVE_ARCH = NO
+
+// Release packages must not inherit Xcode's development-only get-task-allow entitlement.
+CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO
