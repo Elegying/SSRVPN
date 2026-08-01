@@ -511,6 +511,33 @@ for delegated_implementation in (
         )
 print("macOS native core support boundary guard passed.")
 
+windows_proxy = Path("SSRVPN_Windows/lib/services/system_proxy_service.dart")
+windows_proxy_models = windows_proxy.with_name("system_proxy_models.dart")
+windows_proxy_source = windows_proxy.read_text(encoding="utf-8")
+if len(windows_proxy_source.splitlines()) > 1450:
+    raise SystemExit(
+        f"{windows_proxy}: proxy transaction orchestration grew beyond its "
+        "1450-line boundary"
+    )
+if "part 'system_proxy_models.dart';" not in windows_proxy_source:
+    raise SystemExit(f"{windows_proxy}: missing proxy model boundary")
+if not windows_proxy_models.is_file():
+    raise SystemExit(f"{windows_proxy_models}: proxy model boundary is missing")
+if len(windows_proxy_models.read_text(encoding="utf-8").splitlines()) > 130:
+    raise SystemExit(f"{windows_proxy_models}: proxy model boundary regressed")
+for delegated_type in (
+    "class _SystemProxyAcquisitionCancelled",
+    "class _SystemProxyAcquisitionCancellation",
+    "enum _ProxyRecoveryAction",
+    "class _ProxySnapshot",
+    "class _NativeProxyJournal",
+):
+    if delegated_type in windows_proxy_source:
+        raise SystemExit(
+            f"{windows_proxy}: {delegated_type} leaked back into transaction orchestration"
+        )
+print("Windows system proxy model boundary guard passed.")
+
 # The Windows lifecycle part also carries the PowerShell 5.1-compatible,
 # handle-based process identity verifier. Keep a small audited headroom without
 # forcing security-sensitive native code into an opaque generated asset.
