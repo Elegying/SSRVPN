@@ -22,6 +22,7 @@ run_step "Shared barrel imports" scripts/check-shared-barrel-imports.sh
 run_step "Version sync" scripts/check-version-sync.sh
 run_step "Package guides" scripts/check-package-guides.sh
 run_step "Documentation consistency" scripts/check-doc-consistency.sh
+run_step "Workspace pub get" flutter pub get
 run_step "Source formatting and shell lint" scripts/check-quality-hygiene.sh
 run_step "Core asset bootstrap model" scripts/check-core-asset-bootstrap.sh
 run_step "Core asset bootstrap" scripts/bootstrap-core-assets.sh
@@ -44,7 +45,6 @@ fi
 run_step "Secret scan" scripts/check-secrets.sh
 run_step "Release tooling tests" scripts/test-release-tooling.sh
 
-run_step "Workspace pub get" flutter pub get
 run_step "Critical-path performance smoke" scripts/check-performance-baseline.sh
 run_step "Workspace analyze" flutter analyze
 run_step "Shared tests" scripts/run-flutter-coverage.sh packages/ssrvpn_shared
