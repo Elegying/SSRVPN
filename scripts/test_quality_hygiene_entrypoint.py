@@ -53,6 +53,13 @@ class QualityHygieneEntrypointTest(unittest.TestCase):
                 self.assertIn("strict-inference: true", options)
                 self.assertIn("strict-raw-types: true", options)
 
+    def test_exit_trap_callback_is_portable_across_shellcheck_versions(self) -> None:
+        native_gate = (ROOT / "scripts" / "test-macos-native.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("shellcheck disable=SC2317,SC2329", native_gate)
+        self.assertIn("trap cleanup EXIT", native_gate)
+
 
 if __name__ == "__main__":
     unittest.main()
