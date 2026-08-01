@@ -1,3 +1,4 @@
+import plistlib
 import unittest
 from pathlib import Path
 
@@ -6,6 +7,32 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FreeDesktopDistributionTest(unittest.TestCase):
+    def test_macos_release_uses_minimal_runtime_entitlements(self) -> None:
+        path = ROOT / "SSRVPN_MacOS" / "macos" / "Runner" / "Release.entitlements"
+        with path.open("rb") as entitlement_file:
+            entitlements = plistlib.load(entitlement_file)
+
+        self.assertFalse(entitlements["com.apple.security.app-sandbox"])
+        self.assertTrue(entitlements["com.apple.security.network.server"])
+        self.assertTrue(entitlements["com.apple.security.network.client"])
+        for debug_only in (
+            "com.apple.security.cs.allow-jit",
+            "com.apple.security.cs.allow-unsigned-executable-memory",
+            "com.apple.security.cs.disable-library-validation",
+        ):
+            with self.subTest(entitlement=debug_only):
+                self.assertNotIn(debug_only, entitlements)
+
+        release_config = (
+            ROOT
+            / "SSRVPN_MacOS"
+            / "macos"
+            / "Runner"
+            / "Configs"
+            / "Release.xcconfig"
+        ).read_text(encoding="utf-8")
+        self.assertIn("CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO", release_config)
+
     def test_pull_requests_compile_the_native_macos_app(self) -> None:
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"
