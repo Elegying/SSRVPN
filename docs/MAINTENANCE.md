@@ -11,7 +11,7 @@ This guide keeps local development, GitHub automation, and releases aligned.
    make sync
    ```
 
-1. Check Dependabot PRs and CI status.
+1. Check Dependabot PRs, Dependency Review results, vulnerability alerts, and CI status. The GitHub Dependency Graph is the canonical source for exporting an SPDX SBOM when an audit needs one.
 2. Check dependency drift once a month, not on release day:
 
    ```bash

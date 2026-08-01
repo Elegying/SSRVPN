@@ -6,6 +6,7 @@ cd "$ROOT"
 
 python3 -m unittest \
   scripts/test_check_coverage_thresholds.py \
+  scripts/test_dependency_security.py \
   scripts/test_macos_native_gate.py \
   scripts/test_check_release_assets.py \
   scripts/test_free_desktop_distribution.py \

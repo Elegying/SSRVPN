@@ -58,4 +58,11 @@ macOS 不使用 setuid 核心，也不把 Mihomo 永久安装为 root。每次�
 
 Android 正式包由项目固定的自签名 keystore 签名，后续版本必须保留同一签名谱系。macOS 与 Windows 当前没有付费平台签名，可能分别触发 Gatekeeper 与 SmartScreen 警告；SHA256 能验证下载完整性，但不能替代受信任发布者签名。
 
+## 依赖与供应链
+
+- `pubspec.lock` 纳入版本控制，Dependabot 每周检查 Dart workspace 与 GitHub Actions；依赖更新必须通过完整 CI，不在发布当天临时追新。
+- Pull Request 使用 GitHub Dependency Review，新增中等及以上已知漏洞会阻止合并，并同时执行许可证与 OpenSSF Scorecard 提示。
+- GitHub Dependency Graph、漏洞告警与私有漏洞报告保持启用；维护者可从仓库依赖图导出 SPDX SBOM，不在源码中维护易过期的手工清单。
+- 第三方 GitHub Actions 使用完整提交 SHA 固定；正式发布额外生成绑定 tag、commit 与三端资产 SHA256 的 provenance。
+
 实现和发布检查见 [测试策略](docs/TESTING.md)、[免费分发与签名说明](docs/RELEASE_SIGNING.md) 与 [发布检查清单](docs/RELEASE_CHECKLIST.zh-CN.md)。
