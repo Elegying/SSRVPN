@@ -2,7 +2,7 @@
 
 最近审查：2026-08-01<br>
 当前应用版本：`v4.0.1`；公开发布状态与产物以 [GitHub Release](https://github.com/Elegying/SSRVPN/releases/latest) 为准。<br>
-审查基线：PR [#79](https://github.com/Elegying/SSRVPN/pull/79) 的本地完整门禁与 GitHub Windows/macOS/Android CI 均已通过；合并后继续以受保护 `main` 的复核结果为准。
+审查基线：PR [#79](https://github.com/Elegying/SSRVPN/pull/79) 完成全仓审查与整改，PR [#74](https://github.com/Elegying/SSRVPN/pull/74) 和 [#80](https://github.com/Elegying/SSRVPN/pull/80) 完成后续依赖与资产维护；最终以受保护 `main` 提交 `c49994f` 的 [CI run 30702261603](https://github.com/Elegying/SSRVPN/actions/runs/30702261603) 为准。
 
 ## 综合结论与评分
 
@@ -43,13 +43,13 @@ make verify
 
 - 文档 40/40 本地链接检查、39/39 当前状态检查通过；314 个 Dart 文件格式与全部 ShellCheck 通过。
 - 核心资产、版本、包指南、产品表面、结构边界、桌面安全存储、秘密扫描、免费分发和发布资产守卫通过。
-- 发布工具 246/246；macOS TUN/DNS 行为 25/25；workspace analyze 0 issue。
+- 发布工具 247/247；macOS TUN/DNS 行为 25/25；workspace analyze 0 issue。
 - Shared 覆盖率 `82.48%`（`5184/6285`），门槛 65%。
 - Android Flutter 218 项通过，覆盖率 `63.89%`（`2091/3273`），门槛 30%；Gradle/JUnit 构建成功。
 - macOS Flutter 243 项通过，覆盖率 `65.54%`（`3285/5012`）；生命周期 `76.91%`（`623/810`），系统代理 `88.36%`（`387/438`）；RunnerTests 通过。
 - Windows Flutter 209 项通过，8 项仅限 Windows 主机的测试在 macOS 条件跳过；平台覆盖率 `48.47%`（`2716/5604`），生命周期 `20.68%`（`134/648`）。
 - 关键路径 smoke：解析、合并与配置生成结构校验通过；耗时只作同环境观察值，不作为跨机器硬阈值。
-- PR #79 GitHub CI 的依赖审查、全历史秘密扫描、核心资产、Workspace、Android、macOS、Windows 共 7 项全部通过；Windows runner 还实际完成 C++ 代理恢复测试、PowerShell 5.1 检查、安装器构建以及安装/卸载 smoke。
+- PR #79、#74、#80 的依赖审查、全历史秘密扫描、核心资产、Workspace、Android、macOS、Windows 共 7 项均通过；最终 main CI 再次通过全部适用门禁。Windows runner 还实际完成 C++ 代理恢复测试、PowerShell 5.1 检查、安装器构建、安装/卸载及安装后立即升级 smoke。
 
 ## 证据边界与残余风险
 
