@@ -1749,6 +1749,16 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "'ssrvpn_windows.exe')",
             smoke,
         )
+        start_installed_app = smoke.split(
+            "function Start-InstalledApp", 1
+        )[1].split("function Invoke-SmokeProcess", 1)[0]
+        self.assertIn("Start-Sleep -Milliseconds 750", start_installed_app)
+        self.assertIn("$runningInstalledApp.Refresh()", start_installed_app)
+        self.assertIn("$runningInstalledApp.HasExited", start_installed_app)
+        self.assertLess(
+            start_installed_app.index("Start-Sleep -Milliseconds 750"),
+            start_installed_app.index("return $runningInstalledApp"),
+        )
         self.assertEqual(smoke.count("$upgradeAppProcess = Start-InstalledApp"), 1)
         self.assertEqual(smoke.count("$runningInstalledApp = Start-InstalledApp"), 1)
         upgrade_start = smoke.index("$upgradeAppProcess = Start-InstalledApp")
