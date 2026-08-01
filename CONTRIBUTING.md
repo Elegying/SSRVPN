@@ -16,7 +16,13 @@ SSRVPN 是一个多平台 Flutter Monorepo：
 
 ## 本地验证
 
-共享包检查：
+先在仓库根目录执行完整门禁：
+
+```bash
+make verify
+```
+
+更快的日常检查可以按层执行。共享包检查：
 
 ```bash
 cd packages/ssrvpn_shared
@@ -33,7 +39,9 @@ flutter analyze
 flutter test
 ```
 
-修改共享行为时，需要在三端应用目录都执行平台检查。提交 PR 前应保持 `flutter analyze` 和 `dart analyze` 干净。
+修改共享行为时，需要在三端应用目录都执行平台检查。提交 PR 前应保持 Dart 格式、ShellCheck、`flutter analyze` 和 `dart analyze` 干净；共享包和三端均启用 strict casts、inference 和 raw types，不要用排除或降低规则掩盖问题。
+
+原生生命周期、系统代理、TUN、安装器或发布改动必须补充目标平台证据。Windows 专属 C++、PowerShell、DPAPI 与安装器测试由 Windows CI 执行，macOS 本地通过不能替代这些结果。
 
 ## Issue 规则
 
@@ -51,5 +59,6 @@ flutter test
 - 本地执行过的验证命令。
 - UI 改动的截图或录屏。
 - 发布、迁移或兼容风险说明。
+- 依赖变更需提交 lockfile，并通过 Dependency Review；不要用浮动 GitHub Action 版本替代完整提交 SHA。
 
 更多维护节奏、发布检查和线上/本地一致性规则见 `docs/MAINTENANCE.md`。分支模型和产物策略见 `docs/PROJECT_MANAGEMENT.md`。

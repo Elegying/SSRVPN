@@ -11,6 +11,7 @@ SSRVPN macOS 版，基于 Flutter 和 Mihomo/Clash Meta 核心的桌面客户端
 
 - 永久使用 IPv4-only Mihomo 运行配置；不请求 DNS AAAA，不通过核心建立 IPv6 连接。客户端不会修改 macOS 的全局 IPv6 开关。
 - TUN 每次连接由 macOS 系统管理员授权窗口确认，SSRVPN 不读取或保存管理员密码。
+- Release 使用 AOT 与最小化 entitlement，不包含调试、JIT、未签名可执行内存或禁用库校验权限；免费 ad-hoc、未公证分发边界不变。
 
 ## 构建要求
 
@@ -25,6 +26,9 @@ flutter pub get
 flutter analyze
 flutter test
 ```
+
+完整验证从仓库根目录运行 `make verify`；Release 权限决策与产物核对见
+[ADR-009](../docs/decisions/009-macos-release-entitlement-minimization.md)。
 
 ## 构建可拖拽安装 DMG
 

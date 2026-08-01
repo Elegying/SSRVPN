@@ -42,4 +42,24 @@ body:
     id: version
     attributes:
       label: Version or commit
-      placeholder: v2.0.0 or commit SHA
+      placeholder: v4.0.1 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: connection_mode
+    attributes:
+      label: Connection mode
+      options:
+        - Android system VPN
+        - System proxy
+        - TUN
+        - Not connected / not applicable
+    validations:
+      required: true
+  - type: checkboxes
+    id: sensitive_data
+    attributes:
+      label: Sensitive data check
+      options:
+        - label: I removed subscription URLs, API secrets, passwords, bearer tokens, proxy credentials, and private server addresses.
+          required: true

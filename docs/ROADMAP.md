@@ -28,7 +28,8 @@ Android 应用模块内置 Kotlin、Windows 中文无提权安装与核心单次
 
 ### 可维护性
 
-- 只按可独立测试的用户行为拆分大型桌面 UI 和服务文件。
+- 继续提高 Windows `clash_service_lifecycle.dart` 的行为覆盖率；当前渐进门槛为 20%，新增启动、提交、回滚或停止分支时同步提高证据和门槛。
+- 只按可独立测试的用户行为拆分大型桌面 UI 和服务文件；优先处理 Android VPN Service、macOS 系统代理/核心生命周期和 Windows 代理恢复中的高风险职责。
 - 保持共享领域逻辑单一来源，平台层只承载 OS 集成与差异文案。
 - 第三方 Flutter 插件完成 AGP 9 迁移后，删除 Android 全局 `builtInKotlin=false` 与旧 KGP
   兼容声明；应用模块本身不得回退旧插件。
@@ -50,6 +51,7 @@ Android 应用模块内置 Kotlin、Windows 中文无提权安装与核心单次
 - 不在没有稳定 macOS 代码身份时把 `.api-secret` 迁入依赖代码身份 ACL 的 Keychain。
 - 不为追求目录一致而强行共享三端 UI。
 - 不在没有证据时替换 Mihomo、状态管理方案或发布系统。
+- 不为“告警归零”提前删除 Flutter 当前仍需要的 Gradle/Kotlin 兼容开关；必须等待上游插件与工具链支持并用 APK/原生测试证明迁移。
 - 不用排除源码、无断言测试或大量模板文档制造“评分提升”。
 - 不恢复 setuid 核心，也不把 macOS TUN 提权变成持久 root 安装。
 

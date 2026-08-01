@@ -40,6 +40,9 @@ Release workflow 会核对实际 APK 证书摘要。缺少 secrets 或摘要不�
 
 `SSRVPN_MacOS/tool/package_macos.sh` 在打包时刷新并验证 ad-hoc 签名，然后生成 DMG 和
 SHA256。Release workflow 不导入 P12、不调用 `notarytool`，也不保存 Apple 证书配置。
+Release 明确禁用 Xcode 基础 entitlement 注入，并移除调试、JIT、未签名可执行内存和
+禁用库校验权限；真实 Release `.app` 的最终 `codesign` 输出必须通过门禁。该边界记录在
+[ADR-009](decisions/009-macos-release-entitlement-minimization.md)。
 
 陌生机器首次运行可能被 Gatekeeper 阻止或提示无法验证开发者。用户应：
 
@@ -64,7 +67,7 @@ SmartScreen 或浏览器可能显示“未知发布者”。用户只有在正�
 
 ## 自动化守卫
 
-以下测试防止付费桌面签名入口重新进入活跃构建链，同时保留 macOS ad-hoc 验证：
+以下测试防止付费桌面签名入口或开发期 entitlement 重新进入活跃 Release 构建链，同时保留 macOS ad-hoc 验证：
 
 ```bash
 python3 -m unittest scripts/test_free_desktop_distribution.py

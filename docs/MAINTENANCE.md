@@ -46,6 +46,8 @@ This guide keeps local development, GitHub automation, and releases aligned.
 - Keep platform services focused on native integration, process management, and OS-specific behavior.
 - Redact credentials and subscription data in logs.
 - Update tests when changing parsing, config generation, persistence, or release behavior.
+- Keep all tracked Dart source formatted and all tracked shell scripts clean under ShellCheck; do not suppress diagnostics without a narrow reason next to the affected code.
+- Keep strict casts, inference, and raw types enabled in the shared package and all platform apps.
 - Include the verification commands in the PR template.
 - Do not include local `dist/` files, signing material, or generated build caches.
 
@@ -57,6 +59,9 @@ This guide keeps local development, GitHub automation, and releases aligned.
   over another workflow file.
 - Split a workflow only when it needs an incompatible trigger, permission boundary,
   or concurrency lock.
+- Pin every third-party action to a full commit SHA. Dependency Review on pull requests
+  blocks new moderate-or-higher known vulnerabilities; Dependabot, vulnerability alerts,
+  and the Dependency Graph remain the recurring maintenance layer.
 
 ## UI Responsibility Map
 
@@ -143,7 +148,7 @@ and run both platform suites for shared desktop changes.
 
 6. Watch the `Release` workflow.
 7. Download artifacts, verify checksums, and optionally run `scripts/check-release-assets.sh vX.Y.Z`.
-8. Confirm the Windows build log includes the real `SSRVPN_Setup.exe` install/uninstall smoke test, not only packaging and static checks.
+8. Confirm the Windows build log includes the native registry-sandbox proxy recovery test and the real `SSRVPN_Setup.exe` install/uninstall smoke test, not only packaging and static checks.
 9. Smoke test at least one install/run path per platform before announcing.
 
 ## Online/Offline Consistency

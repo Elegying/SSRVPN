@@ -46,6 +46,8 @@
 - [ADR-005：使用 SSRVPN 自控的内容寻址 GeoIP 镜像](decisions/005-content-addressed-geoip-mirror.md)
 - [ADR-006：macOS 核心进程所有权使用持久化原生代际](decisions/006-macos-core-process-identity.md)
 - [ADR-007：默认路由使用国内直连与国外兜底代理](decisions/007-domain-based-domestic-routing.md)
+- [ADR-008：macOS API Secret 的会话轮换边界](decisions/008-macos-session-api-secret-rotation.md)
+- [ADR-009：macOS Release 权限最小化](decisions/009-macos-release-entitlement-minimization.md)
 
 ## 文档维护规则
 
@@ -53,3 +55,4 @@
 - 已完成事项写入根 `CHANGELOG.md`；未完成事项写入 `ROADMAP.md`。
 - 一次性审查证据保留在对应提交、Issue 或 Pull Request，不新增快照型 Markdown。
 - 引用历史结论前，必须在当前提交上重新执行对应测试或检查。
+- 文档门禁自动枚举全部受版本控制 Markdown；`CHANGELOG.md` 只做链接检查，其余当前文档还会检查已知陈旧结论和危险发布命令。

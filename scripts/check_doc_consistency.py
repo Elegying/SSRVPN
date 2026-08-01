@@ -224,7 +224,7 @@ def _is_external(target: str) -> bool:
     return bool(parsed.scheme or parsed.netloc)
 
 
-def validate(root: Path, docs: list[str]) -> list[str]:
+def validate(root: Path, docs: list[str], *, links_only: bool = False) -> list[str]:
     errors: list[str] = []
     root = root.resolve()
     for relative_name in docs:
@@ -255,10 +255,11 @@ def validate(root: Path, docs: list[str]) -> list[str]:
             if not candidate.exists():
                 errors.append(f"{relative_name}: broken local link: {target}")
 
-        for finding in stale_claims(markdown):
-            errors.append(f"{relative_name}: {finding}")
-        for finding in stale_release_instructions(markdown):
-            errors.append(f"{relative_name}: {finding}")
+        if not links_only:
+            for finding in stale_claims(markdown):
+                errors.append(f"{relative_name}: {finding}")
+            for finding in stale_release_instructions(markdown):
+                errors.append(f"{relative_name}: {finding}")
     return sorted(set(errors))
 
 
@@ -306,6 +307,11 @@ def main() -> int:
     parser.add_argument("root", nargs="?")
     parser.add_argument("docs", nargs="*")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--links-only",
+        action="store_true",
+        help="validate local links without applying current-state claim checks",
+    )
     args = parser.parse_args()
 
     if args.self_test:
@@ -315,13 +321,14 @@ def main() -> int:
     if not args.root or not args.docs:
         parser.error("root and at least one current document are required")
 
-    errors = validate(Path(args.root), args.docs)
+    errors = validate(Path(args.root), args.docs, links_only=args.links_only)
     if errors:
         print("Documentation consistency check failed:", file=sys.stderr)
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print(f"Documentation consistency checks passed ({len(args.docs)} current documents).")
+    scope = "documents (links only)" if args.links_only else "current documents"
+    print(f"Documentation consistency checks passed ({len(args.docs)} {scope}).")
     return 0
 
 

@@ -12,7 +12,7 @@ make verify
 
 当前门禁依次验证：
 
-- 共享包导入、版本同步、安装包内指南和当前文档一致性。
+- 全部受版本控制 Dart 源码格式、Shell 脚本 ShellCheck、共享包导入、版本同步、安装包内指南和当前文档一致性。
 - Mihomo/GeoIP 资源的可复现引导与 SHA256。
 - Android native bridge、AGP 9 应用模块内置 Kotlin、两页产品表面、桌面启动、Clash/订阅/私有存储职责、macOS 特权和 Windows launcher 的静态边界。
 - 全部受版本控制 PowerShell 脚本的 ASCII 源码约束、显式 UTF-8 文件读取、Windows PowerShell 5.1 真实解析与已知参数集兼容性，以及 CI/Release 子进程退出码的逐次传播。
@@ -22,7 +22,7 @@ make verify
   `strict-casts`、`strict-inference`、`strict-raw-types`，不得用平台级排除掩盖类型问题。
 - 订阅解析、合并与配置生成关键路径的可执行性能冒烟及结构校验。
 - `ssrvpn_shared`、Android、macOS、Windows 的覆盖率测试。
-- Android Kotlin/JUnit 与 macOS Swift/XCTest 原生测试。
+- Android Kotlin/JUnit 与 macOS Swift/XCTest 原生测试；Windows CI 额外编译运行注册表沙箱中的 C++ 系统代理恢复测试。
 
 行为、原生集成或打包有变化时，`make verify` 只是最低要求，还必须运行下面的目标平台检查。
 
@@ -91,11 +91,11 @@ scripts/check-coverage-thresholds.sh SSRVPN_MacOS
   新增的 Debug 测试宿主崩溃报告、残留 SSRVPN 宿主和临时 AtlasCore；只有断言与 post-test
   检查同时通过才算成功。非 Darwin 主机会明确跳过，CI 与 Release 的 macOS job 必须执行而
   不能用 Flutter build 代替。旧崩溃报告和 `/Applications/SSRVPN.app` 正式安装版不会被误判。
-- Windows launcher、安装器、代理恢复和进程路径需要 Windows CI。CI 必须用 `powershell.exe` 5.1 执行全部脚本兼容性测试，并在每个子进程后检查退出码，不能只看最后一条打包命令；生成安装包后还必须在隔离 runner 上按默认每用户路径真实静默安装、校验关键文件、安全停止已启动实例并卸载。首次交互安装、覆盖升级、连接、异常退出、重启与系统代理恢复仍需干净 Windows 设备。
+- Windows launcher、安装器、代理恢复和进程路径需要 Windows CI。CI 必须用 `powershell.exe` 5.1 执行全部脚本兼容性测试，并在每个子进程后检查退出码，不能只看最后一条打包命令；CMake 还会构建并运行 `ssrvpn_system_proxy_recovery_test`，通过进程级 `RegOverridePredefKey` 沙箱验证正常恢复、损坏日志失败关闭且不触碰真实用户代理设置。生成安装包后必须在隔离 runner 上按默认每用户路径真实静默安装、校验关键文件、安全停止已启动实例并卸载。首次交互安装、覆盖升级、连接、异常退出、重启与系统代理恢复仍需干净 Windows 设备。
 
 ### 发布与文档
 
-发布工具使用 Python 单元测试和资产冒烟；免费桌面分发守卫要求 CI、Release 与打包脚本不含 Apple/Microsoft 付费签名入口，同时要求 macOS 继续执行 ad-hoc 签名验证。Gatekeeper/SmartScreen 提示仍必须由干净设备验收。文档门禁只扫描当前有效文档，不因历史 CHANGELOG 或审查报告中的旧事实失败。发布后资产检查通过已认证的 GitHub CLI 下载元数据、SHA-256 文件与 provenance，并对瞬时失败有限重试；随后还要重新下载公开产物并校验随包 SHA256。
+发布工具使用 Python 单元测试和资产冒烟；免费桌面分发守卫要求 CI、Release 与打包脚本不含 Apple/Microsoft 付费签名入口，同时要求 macOS 继续执行 ad-hoc 签名验证，并拒绝 Release 中的调试、JIT、未签名可执行内存和禁用库校验 entitlement。Gatekeeper/SmartScreen 提示仍必须由干净设备验收。文档门禁自动枚举全部受版本控制 Markdown 并检查本地链接；历史 `CHANGELOG.md` 不应用当前状态断言，其余当前文档会拒绝已知陈旧结论和轻量发布 tag 命令。Pull Request 的 Dependency Review 拒绝新增中等及以上已知漏洞；该门禁不能替代 lockfile、完整 CI 或定期维护。发布后资产检查通过已认证的 GitHub CLI 下载元数据、SHA-256 文件与 provenance，并对瞬时失败有限重试；随后还要重新下载公开产物并校验随包 SHA256。
 
 ## 常用命令
 
@@ -108,6 +108,9 @@ scripts/workspace.sh pub-get
 scripts/workspace.sh analyze
 scripts/workspace.sh test
 
+# 源码格式与 Shell 静态检查
+scripts/check-quality-hygiene.sh
+
 # 单平台覆盖率（macOS/Windows 需要 wrapper 纳入跨包 owned parts）
 scripts/run-flutter-coverage.sh SSRVPN_Android
 scripts/run-flutter-coverage.sh SSRVPN_MacOS
@@ -119,6 +122,9 @@ scripts/check-android-built-in-kotlin.sh
 
 # macOS 原生（仅 Darwin 执行 RunnerTests）
 scripts/test-macos-native.sh
+
+# Windows 原生系统代理恢复（仅 Windows 执行编译和注册表沙箱测试）
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/test_windows_native_proxy_recovery.ps1
 
 # 免费桌面分发策略
 python3 -m unittest scripts/test_free_desktop_distribution.py

@@ -46,6 +46,8 @@ Before merging or releasing:
 make verify
 ```
 
+This gate includes tracked Dart formatting, ShellCheck, strict analysis, secrets and release guards, documentation consistency, coverage, and the native checks available on the current host. Pull requests must also pass Dependency Review and target-platform CI; a green macOS run does not replace Windows-native build, registry, PowerShell, or installer evidence.
+
 For targeted changes, run at least the shared package checks plus the touched platform:
 
 ```bash

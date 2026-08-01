@@ -2,7 +2,7 @@
 
 ## 支持范围
 
-安全修复面向当前最新稳定版 `3.x`。旧安装包和历史平台仓库不再单独维护；报告问题前请先确认能在最新 Release 复现。
+安全修复面向当前最新稳定版 `4.x`。旧安装包和历史平台仓库不再单独维护；报告问题前请先确认能在最新 Release 复现。
 
 ## 私下报告
 
@@ -53,6 +53,8 @@ macOS 不使用 setuid 核心，也不把 Mihomo 永久安装为 root。每次�
 - 普通系统代理模式继续以当前用户运行经过摘要校验的核心。
 
 当前 macOS 包采用 ad-hoc 签名且未公证。管理员授权不能证明软件发布者身份；用户只能从官方 Release 或固定下载地址获取并校验 SHA256。项目不把购买 Developer ID 或迁移 Network Extension 作为当前路线图，现有按次授权、固定摘要与临时 root runner 必须继续接受安全审查。
+
+macOS Release 不包含 `get-task-allow`、JIT、未签名可执行内存或禁用库校验 entitlement；Debug/Profile 开发配置与 Release 分离。最终产物必须通过 `codesign` 权限检查，决策见 [ADR 009](docs/decisions/009-macos-release-entitlement-minimization.md)。
 
 ## 分发限制
 
