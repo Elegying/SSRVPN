@@ -55,7 +55,7 @@ class _AndroidTutorialStep extends StatelessWidget {
 
 void _showAndroidHomeTutorialDialog(BuildContext context) {
   final isDark = Theme.of(context).brightness == Brightness.dark;
-  showDialog(
+  showDialog<void>(
     context: context,
     builder: (ctx) => Dialog(
       backgroundColor: Colors.transparent,
@@ -169,7 +169,7 @@ void _showAndroidHomeTutorialDialog(BuildContext context) {
 
 void _showAndroidHomeLogsSheet(BuildContext context) {
   final clashService = context.read<ClashService>();
-  showModalBottomSheet(
+  showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,

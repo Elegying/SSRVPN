@@ -90,7 +90,7 @@ void main() {
       );
 
       final parsed = loadYaml(config);
-      expect(parsed, isA<Map>());
+      expect(parsed, isA<Map<Object?, Object?>>());
     });
 
     test('包含必需字段', () {
@@ -103,11 +103,11 @@ void main() {
       expect(parsed['mixed-port'], isA<int>());
       expect(parsed['socks-port'], isA<int>());
       expect(parsed['external-controller'], contains('127.0.0.1'));
-      expect(parsed['tun'], isA<Map>());
-      expect(parsed['dns'], isA<Map>());
+      expect(parsed['tun'], isA<Map<Object?, Object?>>());
+      expect(parsed['dns'], isA<Map<Object?, Object?>>());
       expect(parsed['proxies'], isNotEmpty);
-      expect(parsed['proxy-groups'], isA<List>());
-      expect(parsed['rules'], isA<List>());
+      expect(parsed['proxy-groups'], isA<List<Object?>>());
+      expect(parsed['rules'], isA<List<Object?>>());
     });
 
     test('TUN 始终启用（Android 必须）', () {

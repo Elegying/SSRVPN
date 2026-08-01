@@ -142,7 +142,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
   void _showNetworkErrorDialog(String detail) {
     if (!mounted) return;
-    showDialog(
+    showDialog<void>(
       context: context,
       builder: (_) => SubscriptionNetworkErrorDialog(detail: detail),
     );

@@ -822,7 +822,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         healthy = await healthCheck();
         _ensureStartCurrent(startToken);
         if (healthy) break;
-        await Future.delayed(const Duration(milliseconds: 250));
+        await Future<void>.delayed(const Duration(milliseconds: 250));
       }
 
       if (healthy) {
@@ -1083,7 +1083,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         final deadline = DateTime.now().add(const Duration(seconds: 4));
         while (DateTime.now().isBefore(deadline)) {
           if (!await healthCheck()) break;
-          await Future.delayed(const Duration(milliseconds: 100));
+          await Future<void>.delayed(const Duration(milliseconds: 100));
         }
         log('macOS TUN 授权会话已停止');
       } catch (error) {
@@ -1208,7 +1208,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
           return false;
         }
         if (startupState != MacosTunStartupState.running) {
-          await Future.delayed(const Duration(milliseconds: 250));
+          await Future<void>.delayed(const Duration(milliseconds: 250));
           continue;
         }
         if (await healthCheck()) {
@@ -1253,7 +1253,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
           startStatusMonitor();
           return true;
         }
-        await Future.delayed(const Duration(milliseconds: 250));
+        await Future<void>.delayed(const Duration(milliseconds: 250));
       }
       final healthDetail = lastHealthCheckError;
       setLastStartError(

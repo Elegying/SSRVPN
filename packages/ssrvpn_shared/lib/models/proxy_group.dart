@@ -18,9 +18,9 @@ class ProxyGroup {
     return ProxyGroup(
       name: json['name']?.toString() ?? 'Unknown',
       type: json['type']?.toString() ?? 'select',
-      nodes: rawNodes is Iterable
+      nodes: rawNodes is Iterable<Object?>
           ? rawNodes
-              .whereType<Map>()
+              .whereType<Map<Object?, Object?>>()
               .map(
                 (node) => ProxyNode.fromJson(
                   node.map((key, value) => MapEntry(key.toString(), value)),

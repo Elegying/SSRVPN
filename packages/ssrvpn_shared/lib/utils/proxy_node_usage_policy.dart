@@ -45,7 +45,7 @@ class ProxyNodeUsagePolicy {
     return _subscriptionInfoNamePattern.hasMatch(name.trim());
   }
 
-  static bool isRunnableProxyMap(Map proxy) {
+  static bool isRunnableProxyMap(Map<Object?, Object?> proxy) {
     final name = _boundedText(proxy['name'], _maxNameLength);
     if (name == null || isSubscriptionInfoName(name)) return false;
 
@@ -127,7 +127,10 @@ class ProxyNodeUsagePolicy {
     return parsed ?? 0;
   }
 
-  static bool _hasAll(Map proxy, Iterable<String> keys) {
+  static bool _hasAll(
+    Map<Object?, Object?> proxy,
+    Iterable<String> keys,
+  ) {
     return keys.every((key) => _hasRequiredValue(proxy[key]));
   }
 

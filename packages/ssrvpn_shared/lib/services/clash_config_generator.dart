@@ -352,7 +352,7 @@ class ClashConfigGenerator {
       final proxies = _parseProxyList(rawYaml);
       if (proxies == null) return [];
       return proxies
-          .whereType<Map>()
+          .whereType<Map<Object?, Object?>>()
           .where(ProxyNodeUsagePolicy.isRunnableProxyMap)
           .map((proxy) => _canonicalProxyName(proxy['name']))
           .where((name) => name.isNotEmpty)
@@ -371,7 +371,7 @@ class ClashConfigGenerator {
       final proxies = _parseProxyList(rawYaml);
       if (proxies != null) {
         final buffer = StringBuffer();
-        for (final proxy in proxies.whereType<Map>()) {
+        for (final proxy in proxies.whereType<Map<Object?, Object?>>()) {
           if (!ProxyNodeUsagePolicy.isRunnableProxyMap(proxy)) continue;
           final name = _canonicalProxyName(proxy['name']);
           if (name.isEmpty) continue;

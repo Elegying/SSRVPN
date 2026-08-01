@@ -174,7 +174,7 @@ proxies:
         request.response
           ..statusCode = HttpStatus.ok
           ..headers.contentType = ContentType.json
-          ..write(jsonEncode({'connections': const []}));
+          ..write(jsonEncode({'connections': const <Object?>[]}));
         await request.response.close();
         return;
       }

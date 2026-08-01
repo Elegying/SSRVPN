@@ -60,7 +60,8 @@ void main() {
     );
   });
 
-  test('uninitialized lifecycle fails start without spawning a process', () async {
+  test('uninitialized lifecycle fails start without spawning a process',
+      () async {
     final service = ClashService();
 
     expect(await service.start(), isFalse);
