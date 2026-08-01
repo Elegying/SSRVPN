@@ -94,17 +94,42 @@ void main() {
       request.response.write('ok');
       await request.response.close();
     });
+    final ipv6Socket = await Socket.connect(
+      InternetAddress.loopbackIPv6,
+      server.port,
+    );
+    var connectCalls = 0;
 
     try {
-      final response = await DirectFetcher.fetchResponse(
-        'http://dual-stack.test:${server.port}/payload',
-        addressLookup: (_) async => [
-          InternetAddress.loopbackIPv4,
-          InternetAddress.loopbackIPv6,
-        ],
+      final response = await IOOverrides.runZoned(
+        () => DirectFetcher.fetchResponse(
+          'http://dual-stack.test:${server.port}/payload',
+          addressLookup: (_) async => [
+            InternetAddress.loopbackIPv4,
+            InternetAddress.loopbackIPv6,
+          ],
+          physicalAddressLookup: () async => const {},
+        ),
+        socketConnect: (
+          host,
+          port, {
+          sourceAddress,
+          sourcePort = 0,
+          timeout,
+        }) {
+          connectCalls++;
+          if (connectCalls == 1) {
+            return Future<Socket>.error(
+              const SocketException('simulated unreachable IPv4'),
+            );
+          }
+          return Future<Socket>.value(ipv6Socket);
+        },
       );
       expect(response.body, 'ok');
+      expect(connectCalls, 2);
     } finally {
+      ipv6Socket.destroy();
       await subscription.cancel();
       await server.close(force: true);
     }
