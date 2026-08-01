@@ -3,6 +3,33 @@ import Darwin
 import FlutterMacOS
 import SystemConfiguration
 
+struct ProxyCommandResult {
+  let succeeded: Bool
+  let output: String?
+}
+
+private final class ProxyStateFileSnapshot {
+  init(descriptor: Int32, data: Data, fileInfo: stat) {
+    self.descriptor = descriptor
+    self.data = data
+    self.fileInfo = fileInfo
+  }
+
+  deinit {
+    _ = Darwin.close(descriptor)
+  }
+
+  let descriptor: Int32
+  let data: Data
+  let fileInfo: stat
+}
+
+private enum ApplicationTerminationLeaseState: Equatable {
+  case idle
+  case pending(UUID)
+  case committed
+}
+
 @main
 class AppDelegate: FlutterAppDelegate {
   private let instanceLease = AppInstanceLease()

@@ -474,14 +474,16 @@ macos_core_support = macos_delegate.with_name("CoreProcessSupport.swift")
 macos_application_support = macos_delegate.with_name(
     "ApplicationLifecycleSupport.swift"
 )
+macos_project = Path("SSRVPN_MacOS/macos/Runner.xcodeproj/project.pbxproj")
 delegate_source = macos_delegate.read_text(encoding="utf-8")
-if len(delegate_source.splitlines()) > 1980:
+if len(delegate_source.splitlines()) > 2020:
     raise SystemExit(
-        f"{macos_delegate}: native app delegate grew beyond its 1980-line boundary"
+        f"{macos_delegate}: native app delegate grew beyond its 2020-line boundary"
     )
 if not macos_core_support.is_file():
     raise SystemExit(f"{macos_core_support}: native core support boundary is missing")
-if len(macos_core_support.read_text(encoding="utf-8").splitlines()) > 280:
+core_support_source = macos_core_support.read_text(encoding="utf-8")
+if len(core_support_source.splitlines()) > 240:
     raise SystemExit(f"{macos_core_support}: native core support boundary regressed")
 if not macos_application_support.is_file():
     raise SystemExit(
@@ -508,6 +510,93 @@ for delegated_implementation in (
     if delegated_implementation in delegate_source:
         raise SystemExit(
             f"{macos_delegate}: {delegated_implementation} leaked back into application orchestration"
+        )
+for misplaced_type in (
+    "struct ProxyCommandResult",
+    "class ProxyStateFileSnapshot",
+    "enum ApplicationTerminationLeaseState",
+):
+    if misplaced_type in core_support_source:
+        raise SystemExit(
+            f"{macos_core_support}: unrelated {misplaced_type} widened the core support boundary"
+        )
+for private_type in (
+    "private final class ProxyStateFileSnapshot",
+    "private enum ApplicationTerminationLeaseState",
+):
+    if private_type not in delegate_source:
+        raise SystemExit(
+            f"{macos_delegate}: {private_type} must remain private to orchestration"
+        )
+project_source = macos_project.read_text(encoding="utf-8")
+try:
+    native_targets = project_source.split(
+        "/* Begin PBXNativeTarget section */", 1
+    )[1].split("/* End PBXNativeTarget section */", 1)[0]
+    sources_phases = project_source.split(
+        "/* Begin PBXSourcesBuildPhase section */", 1
+    )[1].split("/* End PBXSourcesBuildPhase section */", 1)[0]
+    build_files = project_source.split(
+        "/* Begin PBXBuildFile section */", 1
+    )[1].split("/* End PBXBuildFile section */", 1)[0]
+    file_references = project_source.split(
+        "/* Begin PBXFileReference section */", 1
+    )[1].split("/* End PBXFileReference section */", 1)[0]
+except IndexError as error:
+    raise SystemExit(f"{macos_project}: required PBX section is missing") from error
+runner_target = re.search(
+    r"(?ms)^\s*[A-F0-9]+ /\* Runner \*/ = \{\n(?P<body>.*?)^\s*\};",
+    native_targets,
+)
+if runner_target is None:
+    raise SystemExit(f"{macos_project}: Runner native target is missing")
+runner_phases = re.search(
+    r"(?ms)^\s*buildPhases = \(\n(?P<body>.*?)^\s*\);",
+    runner_target.group("body"),
+)
+if runner_phases is None:
+    raise SystemExit(f"{macos_project}: Runner build phases are missing")
+runner_sources_id = re.search(
+    r"(?m)^\s*([A-F0-9]+) /\* Sources \*/,$",
+    runner_phases.group("body"),
+)
+if runner_sources_id is None:
+    raise SystemExit(f"{macos_project}: Runner Sources phase is missing")
+runner_sources_phase = re.search(
+    rf"(?ms)^\s*{runner_sources_id.group(1)} /\* Sources \*/ = \{{\n"
+    r"(?P<body>.*?)^\s*\};",
+    sources_phases,
+)
+if runner_sources_phase is None:
+    raise SystemExit(f"{macos_project}: Runner Sources phase definition is missing")
+for support_name in (
+    macos_core_support.name,
+    macos_application_support.name,
+):
+    runner_build_file = re.search(
+        rf"(?m)^\s*([A-F0-9]+) /\* {re.escape(support_name)} in Sources \*/,$",
+        runner_sources_phase.group("body"),
+    )
+    if runner_build_file is None:
+        raise SystemExit(
+            f"{macos_project}: {support_name} is not compiled by the Runner target"
+        )
+    build_file_definition = re.search(
+        rf"(?m)^\s*{runner_build_file.group(1)} /\* {re.escape(support_name)} in Sources \*/ = "
+        rf"\{{isa = PBXBuildFile; fileRef = ([A-F0-9]+) /\* {re.escape(support_name)} \*/; \}};",
+        build_files,
+    )
+    if build_file_definition is None:
+        raise SystemExit(
+            f"{macos_project}: {support_name} Runner build-file mapping is invalid"
+        )
+    if not re.search(
+        rf"(?m)^\s*{build_file_definition.group(1)} /\* {re.escape(support_name)} \*/ = "
+        rf"\{{isa = PBXFileReference;[^\n]*path = {re.escape(support_name)};",
+        file_references,
+    ):
+        raise SystemExit(
+            f"{macos_project}: {support_name} PBX file reference is missing"
         )
 print("macOS native core support boundary guard passed.")
 

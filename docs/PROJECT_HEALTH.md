@@ -14,7 +14,7 @@
 | 安全与隐私 | 92 | 凭据分平台保护、日志脱敏、最小化 macOS Release 权限、秘密扫描和依赖审查 |
 | 架构与可维护性 | 90 | 更新、macOS 原生支持和 Windows 代理模型形成可检查边界；高风险事务保留原顺序并受增长护栏保护 |
 | 测试与 CI | 93 | 四套覆盖率、三端原生门禁、发布故障注入、目标平台构建与安装烟雾 |
-| 文档与项目治理 | 92 | 40 份受版本控制 Markdown 自动校验，ADR、贡献、Issue/PR 和发布边界对齐 |
+| 文档与项目治理 | 92 | 41 份受版本控制 Markdown 自动校验，ADR、贡献、Issue/PR 和发布边界对齐 |
 | 性能与可观测性 | 85 | 有界诊断与离线关键路径基线已具备；真机启动/连接阶段数据仍可扩展 |
 
 评分依据是当前源码、测试、构建配置、文档、GitHub 安全设置和本轮实测，不把测试数量、覆盖率或文件变短单独当作质量。当前没有发现已知 P0-P1；剩余风险主要是目标平台人工证据、上游 Android 工具链迁移以及仍需真实 OS 故障注入才能继续拆分的生命周期事务。
@@ -22,7 +22,7 @@
 ## 本轮完成的优化
 
 - 可维护性边界：共享更新服务的稳定 façade 从 1534 行收敛为 513 行，下载/取消和校验后发布/恢复分别进入独立 part；公开调用入口、持久化格式、错误语义和发布顺序不变。
-- macOS 原生边界：`AppDelegate.swift` 从 2273 行降至 1972 行；核心身份/PID/有界输出与原生 owned-process 值对象进入 `CoreProcessSupport.swift`，安全单实例租约和窗口恢复进入 `ApplicationLifecycleSupport.swift`，Xcode RunnerTests 连续真实编译运行通过。
+- macOS 原生边界：`AppDelegate.swift` 从 2273 行降至 1999 行；核心身份/PID/有界输出与原生 owned-process 值对象进入 `CoreProcessSupport.swift`，安全单实例租约和窗口恢复进入 `ApplicationLifecycleSupport.swift`；代理状态快照和退出租约状态恢复为委托私有实现，Xcode RunnerTests 连续真实编译运行通过。
 - Windows 代理边界：系统代理事务入口从 1530 行降至 1432 行；私有快照、取消、恢复动作和原生日志模型迁入同一 Dart library 的 101 行 part，锁、PowerShell 调用、恢复判定和写入顺序未移动，47 项代理专项测试通过。
 - 风险控制：新增职责回流和规模门禁，并以 [ADR-010](decisions/010-risk-controlled-maintainability-boundaries.md) 固定渐进拆分规则。Android VPN Service 与 Windows 安装恢复没有为降低行数进行高风险重排，只锁定现有边界并保留目标平台验证要求。
 - 质量门禁：317 个受版本控制 Dart 文件全部纳入格式检查，全部 Shell 脚本纳入 ShellCheck；共享包和三端启用 `strict-casts`、`strict-inference`、`strict-raw-types`，analyzer 为 0 issue。
@@ -32,7 +32,7 @@
 - Windows 原生恢复：增加真实 C++ 注册表恢复测试，使用进程级 `RegOverridePredefKey` 沙箱验证有效日志精确恢复、损坏日志失败关闭；GitHub Windows runner 已实际编译运行。
 - 重复代码：启动器与窗口宿主的当前用户 SID 查询收敛为同一原生实现，保持既有用户边界。
 - 供应链：Pull Request 增加固定提交的 GitHub Dependency Review，中等及以上新增已知漏洞阻止合并；Dependency Graph、漏洞告警、私有漏洞报告和 SPDX SBOM 作为仓库基线。
-- 文档治理：文档门禁从手工 29 份扩展为自动枚举全部 40 份受版本控制 Markdown；历史 CHANGELOG 只检查链接，39 份当前文档还检查已知陈旧结论与危险发布命令。
+- 文档治理：文档门禁从手工 29 份扩展为自动枚举全部 41 份受版本控制 Markdown；历史 CHANGELOG 只检查链接，40 份当前文档还检查已知陈旧结论与危险发布命令。
 - 仓库入口：README、安全/贡献/维护/测试/路线图/排障、ADR、Issue 与 PR 模板已经对齐当前 4.x 行为和验证入口。
 
 ## 当前验证证据
@@ -47,9 +47,9 @@ make verify
 
 - 文档 41/41 本地链接检查、40/40 当前状态检查通过；317 个 Dart 文件格式与全部 ShellCheck 通过。
 - 核心资产、版本、包指南、产品表面、结构边界、桌面安全存储、秘密扫描、免费分发和发布资产守卫通过。
-- 发布工具 247/247；macOS TUN/DNS 行为 25/25；workspace analyze 0 issue。
+- 发布工具 248/248；macOS TUN/DNS 行为 25/25；workspace analyze 0 issue。
 - Shared 469 项通过，覆盖率 `82.49%`（`5186/6287`），门槛 65%。
-- Android Flutter 218 项通过，覆盖率 `63.92%`（`2092/3273`），门槛 30%；Gradle/JUnit 构建成功。
+- Android Flutter 218 项通过，覆盖率 `63.89%`（`2091/3273`），门槛 30%；Gradle/JUnit 构建成功。
 - macOS Flutter 243 项通过，覆盖率 `65.54%`（`3285/5012`）；生命周期 `76.91%`（`623/810`），系统代理 `88.36%`（`387/438`）；RunnerTests 通过。
 - Windows Flutter 209 项通过，8 项仅限 Windows 主机的测试在 macOS 条件跳过；平台覆盖率 `48.47%`（`2716/5604`），生命周期 `20.68%`（`134/648`）。
 - 关键路径 smoke：解析、合并与配置生成结构校验通过；耗时只作同环境观察值，不作为跨机器硬阈值。

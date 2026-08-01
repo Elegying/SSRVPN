@@ -87,33 +87,6 @@ struct CoreProcessStatus: Equatable {
   }
 }
 
-struct ProxyCommandResult {
-  let succeeded: Bool
-  let output: String?
-}
-
-final class ProxyStateFileSnapshot {
-  init(descriptor: Int32, data: Data, fileInfo: stat) {
-    self.descriptor = descriptor
-    self.data = data
-    self.fileInfo = fileInfo
-  }
-
-  deinit {
-    _ = Darwin.close(descriptor)
-  }
-
-  let descriptor: Int32
-  let data: Data
-  let fileInfo: stat
-}
-
-enum ApplicationTerminationLeaseState: Equatable {
-  case idle
-  case pending(UUID)
-  case committed
-}
-
 final class CoreOutputCapture {
   let standardOutputPipe = Pipe()
   let standardErrorPipe = Pipe()
