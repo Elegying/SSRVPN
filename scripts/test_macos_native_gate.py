@@ -467,6 +467,63 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         )
         self.assertIn("scripts/test-macos-native.sh", testing)
 
+    def test_macos_support_boundaries_are_compiled_by_runner_target(self) -> None:
+        project = self.read("SSRVPN_MacOS/macos/Runner.xcodeproj/project.pbxproj")
+        native_targets = project.split(
+            "/* Begin PBXNativeTarget section */", 1
+        )[1].split("/* End PBXNativeTarget section */", 1)[0]
+        sources_phases = project.split(
+            "/* Begin PBXSourcesBuildPhase section */", 1
+        )[1].split("/* End PBXSourcesBuildPhase section */", 1)[0]
+        build_files = project.split(
+            "/* Begin PBXBuildFile section */", 1
+        )[1].split("/* End PBXBuildFile section */", 1)[0]
+        file_references = project.split(
+            "/* Begin PBXFileReference section */", 1
+        )[1].split("/* End PBXFileReference section */", 1)[0]
+        runner_target = re.search(
+            r"(?ms)^\s*[A-F0-9]+ /\* Runner \*/ = \{\n(?P<body>.*?)^\s*\};",
+            native_targets,
+        )
+        self.assertIsNotNone(runner_target)
+        runner_phases = re.search(
+            r"(?ms)^\s*buildPhases = \(\n(?P<body>.*?)^\s*\);",
+            runner_target.group("body"),
+        )
+        self.assertIsNotNone(runner_phases)
+        runner_sources_id = re.search(
+            r"(?m)^\s*([A-F0-9]+) /\* Sources \*/,$",
+            runner_phases.group("body"),
+        )
+        self.assertIsNotNone(runner_sources_id)
+        runner_sources_phase = re.search(
+            rf"(?ms)^\s*{runner_sources_id.group(1)} /\* Sources \*/ = \{{\n"
+            r"(?P<body>.*?)^\s*\};",
+            sources_phases,
+        )
+        self.assertIsNotNone(runner_sources_phase)
+
+        for support_name in (
+            "CoreProcessSupport.swift",
+            "ApplicationLifecycleSupport.swift",
+        ):
+            runner_build_file = re.search(
+                rf"(?m)^\s*([A-F0-9]+) /\* {re.escape(support_name)} in Sources \*/,$",
+                runner_sources_phase.group("body"),
+            )
+            self.assertIsNotNone(runner_build_file)
+            build_file_definition = re.search(
+                rf"(?m)^\s*{runner_build_file.group(1)} /\* {re.escape(support_name)} in Sources \*/ = "
+                rf"\{{isa = PBXBuildFile; fileRef = ([A-F0-9]+) /\* {re.escape(support_name)} \*/; \}};",
+                build_files,
+            )
+            self.assertIsNotNone(build_file_definition)
+            self.assertRegex(
+                file_references,
+                rf"(?m)^\s*{build_file_definition.group(1)} /\* {re.escape(support_name)} \*/ = "
+                rf"\{{isa = PBXFileReference;[^\n]*path = {re.escape(support_name)};",
+            )
+
     def test_signal_ownership_gate_has_no_fail_open_default(self) -> None:
         app_delegate = self.read("SSRVPN_MacOS/macos/Runner/AppDelegate.swift")
         signature = re.search(
@@ -529,6 +586,8 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "removeProxyStateSnapshot(stateSnapshot, at: stateURL)",
             "Darwin.fstatat(",
             "Darwin.unlinkat(directoryDescriptor",
+            "private final class ProxyStateFileSnapshot",
+            "private enum ApplicationTerminationLeaseState: Equatable",
         ):
             self.assertIn(token, app_delegate)
         for token in (
@@ -547,10 +606,11 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "struct CoreProcessStatus: Equatable",
             "final class NativeOwnedCoreProcess",
             "final class CoreOutputCapture",
-            "final class ProxyStateFileSnapshot",
             '"v2 \\(pid) \\(startSeconds) \\(startMicroseconds)\\n"',
         ):
             self.assertIn(token, core_support)
+        self.assertNotIn("ProxyStateFileSnapshot", core_support)
+        self.assertNotIn("ApplicationTerminationLeaseState", core_support)
         for method in (
             "launchOwnedCore",
             "ownedCoreStatus",
