@@ -2,7 +2,7 @@
 
 最近审查：2026-08-01<br>
 当前应用版本：`v4.0.1`；公开发布状态与产物以 [GitHub Release](https://github.com/Elegying/SSRVPN/releases/latest) 为准。<br>
-审查基线：`chore/project-maintenance` 本地完整门禁已通过；合并结论仍以该分支的 GitHub Windows/macOS/Android CI 和受保护分支结果为准。
+审查基线：PR [#79](https://github.com/Elegying/SSRVPN/pull/79) 的本地完整门禁与 GitHub Windows/macOS/Android CI 均已通过；合并后继续以受保护 `main` 的复核结果为准。
 
 ## 综合结论与评分
 
@@ -17,7 +17,7 @@
 | 文档与项目治理 | 92 | 40 份受版本控制 Markdown 自动校验，ADR、贡献、Issue/PR 和发布边界对齐 |
 | 性能与可观测性 | 85 | 有界诊断与离线关键路径基线已具备；真机启动/连接阶段数据仍可扩展 |
 
-评分依据是当前源码、测试、构建配置、文档、GitHub 安全设置和本轮实测，不把测试数量或覆盖率单独当作质量。当前没有发现已知 P0-P1；剩余风险主要是目标平台人工证据、Windows 新原生测试的远端编译结果、上游 Android 工具链迁移以及高复杂度 OS 生命周期代码。
+评分依据是当前源码、测试、构建配置、文档、GitHub 安全设置和本轮实测，不把测试数量或覆盖率单独当作质量。当前没有发现已知 P0-P1；剩余风险主要是目标平台人工证据、上游 Android 工具链迁移以及高复杂度 OS 生命周期代码。
 
 ## 本轮完成的优化
 
@@ -25,7 +25,7 @@
 - macOS 安全：Release 移除 `get-task-allow`、JIT、未签名可执行内存和禁用库校验权限；真实 `flutter build macos --release` 后的最终 `codesign` 权限已核对，决策记录在 [ADR-009](decisions/009-macos-release-entitlement-minimization.md)。
 - Android 日志：VPN 启动超时清理只记录异常类型，不输出可能携带敏感上下文的异常正文；原生测试通过。
 - Windows 生命周期：补充未初始化启动、启动禁用和进程身份失败路径，关键生命周期覆盖率由原 4% 级门槛提高到 20%。
-- Windows 原生恢复：增加真实 C++ 注册表恢复测试，使用进程级 `RegOverridePredefKey` 沙箱验证有效日志精确恢复、损坏日志失败关闭；Windows CI 才会实际编译运行。
+- Windows 原生恢复：增加真实 C++ 注册表恢复测试，使用进程级 `RegOverridePredefKey` 沙箱验证有效日志精确恢复、损坏日志失败关闭；GitHub Windows runner 已实际编译运行。
 - 重复代码：启动器与窗口宿主的当前用户 SID 查询收敛为同一原生实现，保持既有用户边界。
 - 供应链：Pull Request 增加固定提交的 GitHub Dependency Review，中等及以上新增已知漏洞阻止合并；Dependency Graph、漏洞告警、私有漏洞报告和 SPDX SBOM 作为仓库基线。
 - 文档治理：文档门禁从手工 29 份扩展为自动枚举全部 40 份受版本控制 Markdown；历史 CHANGELOG 只检查链接，39 份当前文档还检查已知陈旧结论与危险发布命令。
@@ -49,10 +49,11 @@ make verify
 - macOS Flutter 243 项通过，覆盖率 `65.54%`（`3285/5012`）；生命周期 `76.91%`（`623/810`），系统代理 `88.36%`（`387/438`）；RunnerTests 通过。
 - Windows Flutter 209 项通过，8 项仅限 Windows 主机的测试在 macOS 条件跳过；平台覆盖率 `48.47%`（`2716/5604`），生命周期 `20.68%`（`134/648`）。
 - 关键路径 smoke：解析、合并与配置生成结构校验通过；耗时只作同环境观察值，不作为跨机器硬阈值。
+- PR #79 GitHub CI 的依赖审查、全历史秘密扫描、核心资产、Workspace、Android、macOS、Windows 共 7 项全部通过；Windows runner 还实际完成 C++ 代理恢复测试、PowerShell 5.1 检查、安装器构建以及安装/卸载 smoke。
 
 ## 证据边界与残余风险
 
-- macOS 本地不能编译或运行 Windows C++、PowerShell 5.1、DPAPI、注册表、Inno Setup 和真实安装/卸载；本轮新增的原生代理恢复测试必须由远端 Windows CI 证明。
+- macOS 本地不能编译或运行 Windows C++、PowerShell 5.1、DPAPI、注册表和 Inno Setup；这些自动化路径已由 GitHub Windows runner 证明，但仍不替代真实用户交互、重启、全树强杀和 Narrator 验收。
 - Android 原生测试不能替代真实 Xiaomi 上的首次授权、快捷磁贴、后台回收、通知断开、休眠/唤醒和耗电验收。
 - 自动化不能替代 TalkBack、VoiceOver、Narrator 的完整人工流程，也不能覆盖所有第三方网络、节点和系统升级组合。
 - Android 仍有 `android.builtInKotlin=false`、`android.newDsl=false` 与 KGP 兼容告警。当前 Flutter 插件链仍依赖这些边界；应等待上游支持后以 APK 与原生测试迁移，不为消除告警提前破坏构建。
@@ -71,11 +72,11 @@ make verify
 
 ## 下一阶段最高优先级
 
-1. 让当前 PR 的 Windows runner 编译并运行新增 C++ 恢复测试，再完成安装器烟雾；任何失败先补回归再修复。
-2. 在真实 Android、macOS、Windows 上完成生命周期、无障碍与网络恢复矩阵，记录系统版本和脱敏证据。
-3. 修复 `ssrvpn.vip` 源站 521，确认 HTTPS 和下载入口后再恢复 GitHub Website 链接。
-4. 在新增行为时继续提高 Windows 生命周期覆盖率，不把当前 20% 门槛当成完成目标。
-5. 等待 Flutter/插件链完整支持 AGP 10 内置 Kotlin 与新 DSL 后，分步移除兼容开关。
+1. 在真实 Android、macOS、Windows 上完成生命周期、无障碍与网络恢复矩阵，记录系统版本和脱敏证据。
+2. 修复 `ssrvpn.vip` 源站 521，确认 HTTPS 和下载入口后再恢复 GitHub Website 链接。
+3. 在新增行为时继续提高 Windows 生命周期覆盖率，不把当前 20% 门槛当成完成目标。
+4. 等待 Flutter/插件链完整支持 AGP 10 内置 Kotlin 与新 DSL 后，分步移除兼容开关。
+5. 修改 Android VPN Service、macOS 核心/系统代理或 Windows 恢复热点时，以行为测试保护的小步职责拆分继续降低复杂度。
 
 ## 更新规则
 
