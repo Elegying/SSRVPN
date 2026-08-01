@@ -1,5 +1,4 @@
 ﻿#include <windows.h>
-#include <sddl.h>
 #include <shellapi.h>
 
 #include <cstdlib>
@@ -10,6 +9,7 @@
 #include "guardian_restart.h"
 #include "launcher_instance_control.h"
 #include "system_proxy_recovery.h"
+#include "windows_user_identity.h"
 
 namespace {
 
@@ -204,37 +204,6 @@ bool IsCurrentProcessElevated() {
       elevation.TokenIsElevated != 0;
   ::CloseHandle(token);
   return elevated;
-}
-
-std::wstring QueryCurrentUserSid() {
-  HANDLE token = nullptr;
-  if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
-    return std::wstring();
-  }
-  DWORD bytes = 0;
-  ::GetTokenInformation(token, TokenUser, nullptr, 0, &bytes);
-  if (bytes == 0 || ::GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
-    ::CloseHandle(token);
-    return std::wstring();
-  }
-  std::vector<BYTE> token_user_buffer(bytes);
-  if (!::GetTokenInformation(token, TokenUser, token_user_buffer.data(),
-                             bytes, &bytes)) {
-    ::CloseHandle(token);
-    return std::wstring();
-  }
-  ::CloseHandle(token);
-
-  const auto* token_user =
-      reinterpret_cast<const TOKEN_USER*>(token_user_buffer.data());
-  wchar_t* sid_string = nullptr;
-  if (!::ConvertSidToStringSidW(token_user->User.Sid, &sid_string) ||
-      sid_string == nullptr) {
-    return std::wstring();
-  }
-  const std::wstring result(sid_string);
-  ::LocalFree(sid_string);
-  return result;
 }
 
 DWORD RemainingWaitMilliseconds(ULONGLONG deadline) {
@@ -1014,7 +983,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE previous,
   if (elevated_tun_relaunch) {
     const std::wstring expected_user_sid =
         CommandLineArgumentValue(kElevatedTunUserArgumentPrefix);
-    const std::wstring current_user_sid = QueryCurrentUserSid();
+    const std::wstring current_user_sid =
+        windows_user_identity::QueryCurrentUserSid();
     elevated_tun_ready_event =
         CommandLineArgumentValue(kElevatedTunReadyArgumentPrefix);
     if (!IsCurrentProcessElevated() || expected_user_sid.empty() ||

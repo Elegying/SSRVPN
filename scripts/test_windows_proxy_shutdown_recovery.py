@@ -1958,6 +1958,24 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             with self.subTest(gate=path.name):
                 self.assertIn(invocation, path.read_text(encoding="utf-8"))
 
+    def test_current_user_sid_query_has_one_native_owner(self) -> None:
+        runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
+        helper_header = runner / "windows_user_identity.h"
+        helper_source = runner / "windows_user_identity.cpp"
+        self.assertTrue(helper_header.is_file())
+        self.assertTrue(helper_source.is_file())
+
+        implementation = helper_source.read_text(encoding="utf-8")
+        self.assertEqual(implementation.count("QueryCurrentUserSid()"), 1)
+        for consumer_name in ("flutter_window.cpp", "launcher_main.cpp"):
+            consumer = (runner / consumer_name).read_text(encoding="utf-8")
+            with self.subTest(consumer=consumer_name):
+                self.assertNotIn("std::wstring QueryCurrentUserSid() {", consumer)
+                self.assertIn(
+                    "windows_user_identity::QueryCurrentUserSid()",
+                    consumer,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

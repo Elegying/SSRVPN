@@ -14,6 +14,7 @@
 
 #include "startup_diagnostics.h"
 #include "system_proxy_recovery.h"
+#include "windows_user_identity.h"
 
 namespace {
 
@@ -97,37 +98,6 @@ std::wstring ParentDirectory(const std::wstring& path) {
   return slash == std::wstring::npos ? std::wstring() : path.substr(0, slash);
 }
 
-std::wstring QueryCurrentUserSid() {
-  HANDLE token = nullptr;
-  if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
-    return std::wstring();
-  }
-  DWORD bytes = 0;
-  ::GetTokenInformation(token, TokenUser, nullptr, 0, &bytes);
-  if (bytes == 0 || ::GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
-    ::CloseHandle(token);
-    return std::wstring();
-  }
-  std::vector<unsigned char> token_user_storage(bytes);
-  if (!::GetTokenInformation(token, TokenUser, token_user_storage.data(),
-                             bytes, &bytes)) {
-    ::CloseHandle(token);
-    return std::wstring();
-  }
-  ::CloseHandle(token);
-
-  const auto* token_user =
-      reinterpret_cast<const TOKEN_USER*>(token_user_storage.data());
-  wchar_t* sid_text = nullptr;
-  if (!::ConvertSidToStringSidW(token_user->User.Sid, &sid_text) ||
-      sid_text == nullptr) {
-    return std::wstring();
-  }
-  const std::wstring result(sid_text);
-  ::LocalFree(sid_text);
-  return result;
-}
-
 std::string RequestElevatedTunRelaunch() {
   const ProcessElevationState state = QueryProcessElevationState();
   if (state == ProcessElevationState::kElevated) {
@@ -160,7 +130,8 @@ std::string RequestElevatedTunRelaunch() {
         L"TUN elevation refused because the canonical launcher is missing");
     return "failed";
   }
-  const std::wstring current_user_sid = QueryCurrentUserSid();
+  const std::wstring current_user_sid =
+      windows_user_identity::QueryCurrentUserSid();
   if (current_user_sid.empty()) {
     startup_diagnostics::Log(
         L"TUN elevation refused because the current user SID is unavailable");
