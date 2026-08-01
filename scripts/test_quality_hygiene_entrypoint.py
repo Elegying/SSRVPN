@@ -27,6 +27,19 @@ class QualityHygieneEntrypointTest(unittest.TestCase):
         self.assertIn("git ls-files -z -- '*.sh'", source)
         self.assertIn("shellcheck", source)
 
+    def test_every_dart_target_enables_strict_language_analysis(self) -> None:
+        for relative_path in (
+            "SSRVPN_Android/analysis_options.yaml",
+            "SSRVPN_MacOS/analysis_options.yaml",
+            "SSRVPN_Windows/analysis_options.yaml",
+            "packages/ssrvpn_shared/analysis_options.yaml",
+        ):
+            options = (ROOT / relative_path).read_text(encoding="utf-8")
+            with self.subTest(options=relative_path):
+                self.assertIn("strict-casts: true", options)
+                self.assertIn("strict-inference: true", options)
+                self.assertIn("strict-raw-types: true", options)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,7 +18,8 @@ make verify
 - 全部受版本控制 PowerShell 脚本的 ASCII 源码约束、显式 UTF-8 文件读取、Windows PowerShell 5.1 真实解析与已知参数集兼容性，以及 CI/Release 子进程退出码的逐次传播。
 - 明显密钥模式扫描、固定 commit 的 Gitleaks 全历史扫描、免费桌面分发策略守卫和发布工具单元测试；
   `.gitleaks.toml` 仅对测试目录中的合成 VPN URI 做单规则允许，默认凭据规则不跳过测试目录。
-- Flutter workspace 依赖解析与零 analyzer finding。
+- Flutter workspace 依赖解析与零 analyzer finding；共享包和三端都启用
+  `strict-casts`、`strict-inference`、`strict-raw-types`，不得用平台级排除掩盖类型问题。
 - 订阅解析、合并与配置生成关键路径的可执行性能冒烟及结构校验。
 - `ssrvpn_shared`、Android、macOS、Windows 的覆盖率测试。
 - Android Kotlin/JUnit 与 macOS Swift/XCTest 原生测试。

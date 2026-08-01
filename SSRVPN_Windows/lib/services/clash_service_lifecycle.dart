@@ -854,7 +854,7 @@ try {
         healthy = await healthCheck();
         _ensureStartCurrent(startToken);
         if (healthy) break;
-        await Future.delayed(const Duration(milliseconds: 250));
+        await Future<void>.delayed(const Duration(milliseconds: 250));
       }
 
       if (healthy) {

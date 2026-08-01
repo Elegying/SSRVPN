@@ -833,7 +833,8 @@ class SystemProxyService {
   }
 
   bool _proxyStatesEquivalent(Map<String, dynamic> current, Object? saved) {
-    final expected = saved is Map ? saved : const {};
+    final expected =
+        saved is Map<Object?, Object?> ? saved : const <Object?, Object?>{};
     final currentEnabled = current['enabled'] == true;
     final expectedEnabled = expected['enabled'] == true;
     if (currentEnabled != expectedEnabled) return false;
@@ -850,7 +851,8 @@ class SystemProxyService {
     required String setCommand,
     required String stateCommand,
   }) async {
-    final state = value is Map ? value : const {};
+    final state =
+        value is Map<Object?, Object?> ? value : const <Object?, Object?>{};
     final enabled = state['enabled'] == true;
     final server = state['server']?.toString() ?? '';
     final port = int.tryParse(state['port']?.toString() ?? '') ?? 0;
