@@ -47,6 +47,32 @@ for path, (limit, parts) in services.items():
         if f"part '{part}';" not in source:
             raise SystemExit(f"{path}: does not declare part '{part}'")
 
+update_service = Path("packages/ssrvpn_shared/lib/services/update_service.dart")
+update_source = update_service.read_text(encoding="utf-8")
+update_parts = {
+    "update_service_download.dart": 360,
+    "update_service_publication.dart": 900,
+}
+if len(update_source.splitlines()) > 650:
+    raise SystemExit(f"{update_service}: update facade boundary regressed")
+for part, limit in update_parts.items():
+    part_path = update_service.with_name(part)
+    if not part_path.is_file():
+        raise SystemExit(f"{update_service}: missing update responsibility part {part}")
+    if f"part '{part}';" not in update_source:
+        raise SystemExit(f"{update_service}: update part {part} is not declared")
+    if len(part_path.read_text(encoding="utf-8").splitlines()) > limit:
+        raise SystemExit(f"{part_path}: exceeds the {limit}-line responsibility boundary")
+for leaked_symbol in (
+    "_recoverInterruptedPublicationLocked",
+    "_acquirePublicationLock",
+    "_cancellableStream",
+):
+    if leaked_symbol in update_source:
+        raise SystemExit(
+            f"{update_service}: verified file responsibility {leaked_symbol} leaked into the facade"
+        )
+
 subscription_base = Path(
     "packages/ssrvpn_shared/lib/services/subscription_service_base.dart"
 )
