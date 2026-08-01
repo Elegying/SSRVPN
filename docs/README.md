@@ -48,6 +48,7 @@
 - [ADR-007：默认路由使用国内直连与国外兜底代理](decisions/007-domain-based-domestic-routing.md)
 - [ADR-008：macOS API Secret 的会话轮换边界](decisions/008-macos-session-api-secret-rotation.md)
 - [ADR-009：macOS Release 权限最小化](decisions/009-macos-release-entitlement-minimization.md)
+- [ADR-010：以行为证据控制高风险职责拆分](decisions/010-risk-controlled-maintainability-boundaries.md)
 
 ## 文档维护规则
 

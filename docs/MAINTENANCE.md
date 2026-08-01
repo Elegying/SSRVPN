@@ -111,14 +111,28 @@ silently disconnect an active session.
 | --- | --- |
 | `subscription_service_base.dart` | Refresh orchestration, source merge, persistence, and public subscription API |
 | `subscription_node_codec.dart` | Node URI decoding/encoding, JSON cleanup, and normalized node editing |
+| `update_service.dart` | Stable shared update facade, metadata validation, and public update API |
+| `update_service_download.dart` | Bounded download, cancellation, redirect, and temporary-file handling |
+| `update_service_publication.dart` | Verified publication, recovery, replacement locks, and atomic cleanup |
 | `clash_service_base.dart` | Shared lifecycle facade and platform contract |
 | `clash_service_diagnostics.dart` | Bounded diagnostic collection, stable failure mapping, and redacted reports |
 | `SSRVPN_MacOS/lib/services/settings_service.dart` | Settings migration and serialized persistence orchestration |
 | `macos_private_file_store.dart` | Atomic private-file writes, permissions, verification, and temporary-file cleanup |
+| `SSRVPN_MacOS/macos/Runner/AppDelegate.swift` | Native application, core-process, proxy-lifecycle, and termination transaction orchestration |
+| `CoreProcessSupport.swift` | Native core identity, PID records, bounded output, and owned-process value types |
+| `ApplicationLifecycleSupport.swift` | Secure single-instance lease and window reveal support |
+| `SSRVPN_Windows/lib/services/system_proxy_service.dart` | Windows proxy lock, acquisition, recovery, and PowerShell transaction ordering |
+| `system_proxy_models.dart` | Private snapshot, cancellation, journal, and recovery action models in the same Dart library |
 
 The boundary guard enforces these delegations and practical line limits. A new
 part must own a coherent behavior and have characterization tests; line count
 alone is not a reason to split.
+
+For security-sensitive lifecycle code, follow
+[ADR-010](decisions/010-risk-controlled-maintainability-boundaries.md): move one
+mechanically comparable responsibility at a time, keep transaction ordering in
+its existing orchestrator, and stop when the next split would need new callbacks,
+loading behavior, or a wider interface without stronger target-platform evidence.
 
 Keep a new behavior in the narrowest matching file. Add a new part only when it
 creates a distinct responsibility; do not split a short cohesive implementation

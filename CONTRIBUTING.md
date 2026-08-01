@@ -43,6 +43,9 @@ flutter test
 
 原生生命周期、系统代理、TUN、安装器或发布改动必须补充目标平台证据。Windows 专属 C++、PowerShell、DPAPI 与安装器测试由 Windows CI 执行，macOS 本地通过不能替代这些结果。
 
+重构更新、VPN Service、核心进程、系统代理或安装回滚时，遵守
+[ADR-010](docs/decisions/010-risk-controlled-maintainability-boundaries.md)：一次只迁移一个可机械核对且有行为测试的职责，不改变事务顺序，不为跨文件访问扩大公开 API，也不以行数下降代替失败路径证据。
+
 ## Issue 规则
 
 - Bug、功能需求和维护任务请使用 GitHub Issue 模板。

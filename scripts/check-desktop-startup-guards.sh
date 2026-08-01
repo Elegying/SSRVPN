@@ -542,8 +542,10 @@ print("Windows system proxy model boundary guard passed.")
 # handle-based process identity verifier. Keep a small audited headroom without
 # forcing security-sensitive native code into an opaque generated asset.
 hotspot_limits = {
+    Path("SSRVPN_MacOS/lib/services/system_proxy_service.dart"): 1100,
     Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart"): 1800,
     Path("SSRVPN_Windows/windows/runner/launcher_main.cpp"): 1500,
+    Path("SSRVPN_Windows/installer/program_files_transaction.ps1"): 1600,
     Path("SSRVPN_Windows/installer/stop_ssrvpn_processes.ps1"): 1350,
 }
 for path, limit in hotspot_limits.items():

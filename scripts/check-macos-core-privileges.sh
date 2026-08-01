@@ -110,9 +110,14 @@ if missing_lifecycle:
 app_delegate = Path("SSRVPN_MacOS/macos/Runner/AppDelegate.swift").read_text(
     encoding="utf-8"
 )
+core_process_support = Path(
+    "SSRVPN_MacOS/macos/Runner/CoreProcessSupport.swift"
+).read_text(encoding="utf-8")
+application_lifecycle_support = Path(
+    "SSRVPN_MacOS/macos/Runner/ApplicationLifecycleSupport.swift"
+).read_text(encoding="utf-8")
 required_native = (
     "func acquireInstanceLease(at url: URL? = nil) -> Bool",
-    "flock(descriptor, LOCK_EX | LOCK_NB)",
     "performTerminationCleanupIfLeaseOwner",
     "private let coreProcessOperationQueue = DispatchQueue(",
     "func enqueueCoreProcessOperation(_ operation: @escaping () -> Void)",
@@ -123,18 +128,10 @@ required_native = (
     "func endProxyLifecycleTransaction(token: String) -> Bool",
     "runtimeDirectoryForTermination(proxyStateURL:",
     "terminateOwnedCore(in: runtimeDirectory)",
-    "struct CoreProcessIdentity: Equatable",
-    "struct CoreProcessGeneration: Equatable",
-    "struct CorePidRecord: Equatable",
-    "struct CoreLaunchResult: Equatable",
-    "struct CoreProcessStatus: Equatable",
-    "private final class NativeOwnedCoreProcess",
-    "private final class CoreOutputCapture",
     "func launchOwnedCore(",
     "identityPollCount: Int = 51",
     "containLaunchedCoreProcess(process)",
     "containTrackedCoreWithoutRecord(in: directory)",
-    '"v2 \\(pid) \\(startSeconds) \\(startMicroseconds)\\n"',
     "proc_pidinfo(pid, PROC_PIDTBSDINFO",
     "proc_pidpath(pid",
     "generationBefore == generationAfter",
@@ -164,6 +161,44 @@ if missing_native:
     raise SystemExit(
         "AppDelegate.swift: missing exact owned-core termination guard(s): "
         + ", ".join(missing_native)
+    )
+
+required_core_support = (
+    "struct CoreProcessIdentity: Equatable",
+    "struct CoreProcessGeneration: Equatable",
+    "struct CorePidRecord: Equatable",
+    "struct CoreLaunchResult: Equatable",
+    "struct CoreProcessStatus: Equatable",
+    "final class NativeOwnedCoreProcess",
+    "final class CoreOutputCapture",
+    '"v2 \\(pid) \\(startSeconds) \\(startMicroseconds)\\n"',
+)
+missing_core_support = [
+    token for token in required_core_support if token not in core_process_support
+]
+if missing_core_support:
+    raise SystemExit(
+        "CoreProcessSupport.swift: missing owned-core support guard(s): "
+        + ", ".join(missing_core_support)
+    )
+
+required_application_support = (
+    "final class AppInstanceLease",
+    "O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW",
+    "fileInfo.st_mode & S_IFMT == S_IFREG",
+    "fileInfo.st_uid == geteuid()",
+    "fileInfo.st_nlink == 1",
+    "flock(candidate, LOCK_EX | LOCK_NB)",
+)
+missing_application_support = [
+    token
+    for token in required_application_support
+    if token not in application_lifecycle_support
+]
+if missing_application_support:
+    raise SystemExit(
+        "ApplicationLifecycleSupport.swift: missing single-instance guard(s): "
+        + ", ".join(missing_application_support)
     )
 
 main_window = Path("SSRVPN_MacOS/macos/Runner/MainFlutterWindow.swift").read_text(

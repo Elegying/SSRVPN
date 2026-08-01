@@ -1889,12 +1889,21 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             / "services"
             / "update_service.dart"
         ).read_text(encoding="utf-8")
+        shared_publication = (
+            ROOT
+            / "packages"
+            / "ssrvpn_shared"
+            / "lib"
+            / "services"
+            / "update_service_publication.dart"
+        ).read_text(encoding="utf-8")
         windows_service = (
             ROOT / "SSRVPN_Windows" / "lib" / "services" / "update_service.dart"
         ).read_text(encoding="utf-8")
 
         self.assertIn("VerifiedUpdateFilePublisher? filePublisher", shared_service)
-        self.assertIn("filePublisher(source, destination)", shared_service)
+        self.assertIn("part 'update_service_publication.dart';", shared_service)
+        self.assertIn("filePublisher(source, destination)", shared_publication)
         self.assertIn("CreateHardLinkW", windows_service)
         self.assertIn("_toExtendedLengthPath(source.absolute.path)", windows_service)
         self.assertIn("\\\\\\\\?\\\\UNC\\\\", windows_service)
@@ -1911,7 +1920,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "filePublisher: Platform.isWindows ? publishVerifiedInstaller : null",
             windows_service,
         )
-        self.assertNotIn("New-Item -ItemType HardLink", shared_service)
+        self.assertNotIn(
+            "New-Item -ItemType HardLink",
+            shared_service + shared_publication,
+        )
 
     def test_windows_runtime_records_full_core_identity_for_safe_cleanup(self) -> None:
         lifecycle = (
