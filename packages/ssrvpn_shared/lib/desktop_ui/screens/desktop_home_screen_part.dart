@@ -256,8 +256,7 @@ class _HomeScreenState extends State<HomeScreen> {
     var reloadSucceeded = false;
     if (shouldReload) {
       await _reloadConfig();
-      reloadSucceeded =
-          mounted &&
+      reloadSucceeded = mounted &&
           !_disposed &&
           _isConnected &&
           context.read<ClashService>().isRunning;
@@ -269,13 +268,12 @@ class _HomeScreenState extends State<HomeScreen> {
         content: Text(
           shouldReload
               ? reloadSucceeded
-                    ? '强制代理网站已实时生效'
-                    : '强制代理网站已保存，当前连接重载失败，请重新连接'
+                  ? '强制代理网站已实时生效'
+                  : '强制代理网站已保存，当前连接重载失败，请重新连接'
               : '强制代理网站已保存',
         ),
-        backgroundColor: shouldReload && !reloadSucceeded
-            ? AppTheme.warning
-            : null,
+        backgroundColor:
+            shouldReload && !reloadSucceeded ? AppTheme.warning : null,
         duration: const Duration(seconds: 2),
       ),
     );
@@ -413,10 +411,10 @@ class _HomeScreenState extends State<HomeScreen> {
             prepareForStart: clashService.prepareForStart,
             generateConfig: (runtimeSettings) =>
                 clashService.generateClashConfigAsync(
-                  rawYaml,
-                  runtimeSettings,
-                  preferredNodeName: autoSelect?.name,
-                ),
+              rawYaml,
+              runtimeSettings,
+              preferredNodeName: autoSelect?.name,
+            ),
             writeConfig: clashService.writeConfig,
             start: clashService.start,
             stop: clashService.stop,
@@ -467,12 +465,11 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         if (!connectionResult.connected) {
           final reason = connectionResult.failureReason ?? '无法启动核心';
-          final elevationRelaunch = clashService
-              .consumeTunElevationRelaunchRequest();
+          final elevationRelaunch =
+              clashService.consumeTunElevationRelaunchRequest();
           recordDesktopConnectionFailure(
             'Connection failed: $reason',
-            expected:
-                AppFailure.fromMessage(reason).code ==
+            expected: AppFailure.fromMessage(reason).code ==
                 AppErrorCode.permissionRequired,
           );
           if (!mounted || _disposed) return;
@@ -518,10 +515,10 @@ class _HomeScreenState extends State<HomeScreen> {
           preferredSettings: settingsService.settings,
           generateConfig: (runtimeSettings, preferredNodeName) =>
               clashService.generateClashConfigAsync(
-                rawYaml,
-                runtimeSettings,
-                preferredNodeName: preferredNodeName,
-              ),
+            rawYaml,
+            runtimeSettings,
+            preferredNodeName: preferredNodeName,
+          ),
           isRevisionCurrent: () =>
               subService.revision == subscriptionRevision &&
               subService.rawYaml == rawYaml,
@@ -616,13 +613,12 @@ class _HomeScreenState extends State<HomeScreen> {
             _nodes,
             _disconnectedPreferredNodeName ?? settings.lastSelectedNodeName,
           );
-    final selectedLatency = displayNode == null
-        ? null
-        : _latencyController.latencyFor(displayNode);
+    final selectedLatency =
+        displayNode == null ? null : _latencyController.latencyFor(displayNode);
     final selectedCountryCode = displayNode == null
         ? null
         : _exitCountryCodes[displayNode.name] ??
-              countryCodeForProxyNode(displayNode);
+            countryCodeForProxyNode(displayNode);
 
     return Scaffold(
       backgroundColor: Colors.transparent,

@@ -126,10 +126,10 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
           preferredSettings: settings.settings,
           generateConfig: (runtimeSettings, recoveryNodeName) =>
               core.generateClashConfigAsync(
-                rawYaml,
-                runtimeSettings,
-                preferredNodeName: recoveryNodeName,
-              ),
+            rawYaml,
+            runtimeSettings,
+            preferredNodeName: recoveryNodeName,
+          ),
           isRevisionCurrent: () =>
               subscriptionService.revision == subscriptionRevision &&
               subscriptionService.rawYaml == rawYaml,
@@ -157,8 +157,7 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
         await _presentRuntimeNotice(portAdjustmentNotice);
       }
     } catch (error, stack) {
-      final isCurrent =
-          connectionGeneration != null &&
+      final isCurrent = connectionGeneration != null &&
           core.isConnectionIntentCurrent(connectionGeneration, connected: true);
       if (!isCurrent && core.connectionDesired) return;
       if (isCurrent) {

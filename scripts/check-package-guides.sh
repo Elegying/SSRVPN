@@ -18,12 +18,15 @@ if [[ "$actual_macos" != "$expected_macos" ]]; then
   exit 1
 fi
 
+# Markdown code spans use literal backticks; no shell expansion is intended.
+# shellcheck disable=SC2016
 if [[ ! -f "$WINDOWS_GUIDE" ]] || \
   ! grep -Fq '`SSRVPN_Setup.exe`' "$WINDOWS_GUIDE"; then
   echo "package guide check failed: Windows installer guide is missing" >&2
   exit 1
 fi
 
+# shellcheck disable=SC2016
 if grep -Fq '`SSRVPN.zip`' "$WINDOWS_GUIDE"; then
   echo "package guide check failed: Windows guide still advertises a portable package" >&2
   exit 1

@@ -36,8 +36,11 @@ for forbidden in \
   fi
 done
 
+# CMake and PowerShell variables are inspected as literal source text.
+# shellcheck disable=SC2016
 grep -Fq 'target_compile_options(${LAUNCHER_TARGET} PRIVATE "/guard:cf")' \
   "$runner_cmake"
+# shellcheck disable=SC2016
 grep -Fq \
   'target_link_options(${LAUNCHER_TARGET} PRIVATE "/CETCOMPAT" "/GUARD:CF")' \
   "$runner_cmake"
@@ -54,6 +57,7 @@ for obsolete in \
 done
 
 grep -Fq '::CreateProcessW(' "$launcher"
+# shellcheck disable=SC2016
 grep -Fq \
   'Set-ProcessMitigation -Name $name -Remove -Disable UserShadowStack' \
   "$cleanup_script"
