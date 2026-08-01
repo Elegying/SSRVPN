@@ -35,6 +35,12 @@ run_step "Desktop secure storage guards" scripts/check-desktop-secure-storage.sh
 run_step "macOS core privilege guards" scripts/check-macos-core-privileges.sh
 run_step "macOS TUN DNS transaction tests" scripts/test-macos-tun-dns-transaction.sh
 run_step "Windows launcher security" scripts/check-windows-launcher-security.sh
+if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* || \
+      "$(uname -s)" == CYGWIN* ]]; then
+  run_step "Windows native proxy recovery fault harness" \
+    powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File \
+    scripts/test_windows_native_proxy_recovery.ps1
+fi
 run_step "Secret scan" scripts/check-secrets.sh
 run_step "Release tooling tests" scripts/test-release-tooling.sh
 

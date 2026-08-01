@@ -1930,6 +1930,34 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertLess(endpoint_safe, safe_return)
         self.assertLess(safe_return, listener_start)
 
+    def test_native_proxy_recovery_fault_harness_is_a_release_gate(self) -> None:
+        cmake = (
+            ROOT / "SSRVPN_Windows" / "windows" / "runner" / "CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        harness_path = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "windows"
+            / "runner"
+            / "system_proxy_recovery_test.cpp"
+        )
+        self.assertTrue(harness_path.is_file())
+        harness = harness_path.read_text(encoding="utf-8")
+
+        self.assertIn("ssrvpn_system_proxy_recovery_test", cmake)
+        self.assertIn("RegOverridePredefKey", harness)
+        self.assertIn("TestValidJournalRestoresOriginalState", harness)
+        self.assertIn("TestMalformedJournalDisablesOwnedEndpoint", harness)
+
+        invocation = "test_windows_native_proxy_recovery.ps1"
+        for path in (
+            ROOT / "scripts" / "verify-all.sh",
+            ROOT / ".github" / "workflows" / "ci.yml",
+            ROOT / ".github" / "workflows" / "release.yml",
+        ):
+            with self.subTest(gate=path.name):
+                self.assertIn(invocation, path.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()
