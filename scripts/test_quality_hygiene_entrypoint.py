@@ -16,6 +16,17 @@ class QualityHygieneEntrypointTest(unittest.TestCase):
 
         self.assertIn("scripts/check-quality-hygiene.sh", verifier)
         self.assertIn("bash scripts/check-quality-hygiene.sh", ci)
+        self.assertLess(
+            verifier.index('run_step "Workspace pub get" flutter pub get'),
+            verifier.index(
+                'run_step "Source formatting and shell lint" '
+                "scripts/check-quality-hygiene.sh"
+            ),
+        )
+        self.assertLess(
+            ci.index("- run: flutter pub get"),
+            ci.index("- run: bash scripts/check-quality-hygiene.sh"),
+        )
 
     def test_gate_checks_every_tracked_dart_and_shell_file(self) -> None:
         path = ROOT / "scripts" / "check-quality-hygiene.sh"
@@ -26,6 +37,8 @@ class QualityHygieneEntrypointTest(unittest.TestCase):
         self.assertIn("dart format --output=none --set-exit-if-changed", source)
         self.assertIn("git ls-files -z -- '*.sh'", source)
         self.assertIn("shellcheck", source)
+        self.assertIn('.dart_tool/package_config.json', source)
+        self.assertIn('flutter pub get', source)
 
     def test_every_dart_target_enables_strict_language_analysis(self) -> None:
         for relative_path in (
