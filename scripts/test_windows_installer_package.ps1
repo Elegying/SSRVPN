@@ -98,7 +98,18 @@ function Start-InstalledApp {
           )
         }
     ) | Select-Object -First 1
-    if ($runningInstalledApp) { return $runningInstalledApp }
+    if ($runningInstalledApp) {
+      # The production installer intentionally fails closed if any process
+      # changes identity during enumeration. Let the launcher/main handoff
+      # settle before exercising an upgrade so the smoke fixture represents a
+      # stable running installation instead of a first-frame launch race.
+      Start-Sleep -Milliseconds 750
+      $runningInstalledApp.Refresh()
+      if ($runningInstalledApp.HasExited) {
+        throw 'The installed app exited before its identity stabilized.'
+      }
+      return $runningInstalledApp
+    }
     Start-Sleep -Milliseconds 250
   }
   throw 'No app from the exact installed path started.'
