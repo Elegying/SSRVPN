@@ -12,6 +12,7 @@ add_executable(${BINARY_NAME} WIN32
   "startup_diagnostics.cpp"
   "system_proxy_recovery.cpp"
   "utils.cpp"
+  "windows_user_identity.cpp"
   "win32_window.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
   "Runner.rc"
@@ -57,6 +58,7 @@ add_executable(${LAUNCHER_TARGET} WIN32
   "launcher_instance_control.cpp"
   "launcher_main.cpp"
   "system_proxy_recovery.cpp"
+  "windows_user_identity.cpp"
   "Runner.rc"
   "runner.exe.manifest"
 )
