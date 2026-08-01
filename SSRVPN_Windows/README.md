@@ -70,4 +70,5 @@ make verify
 Windows 原生恢复或打包变更还必须在 Windows 上执行
 `scripts/test_windows_native_proxy_recovery.ps1`、实际构建安装器并运行
 `scripts/test_windows_installer_package.ps1`。前者在进程级注册表沙箱中验证系统代理崩溃恢复，
-不会修改测试账户的真实代理设置。用户操作见 [Windows 指南](USER_GUIDE.md)。
+不会修改测试账户的真实代理设置；若没有现成 CMake build tree，会先生成一次 Release build。
+用户操作见 [Windows 指南](USER_GUIDE.md)。

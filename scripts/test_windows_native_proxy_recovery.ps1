@@ -10,7 +10,21 @@ $project = Join-Path $root 'SSRVPN_Windows'
 $build = Join-Path $project 'build\windows\x64'
 $cache = Join-Path $build 'CMakeCache.txt'
 if (-not (Test-Path -LiteralPath $cache -PathType Leaf)) {
-  throw 'Windows build tree is missing; build the Windows app before native tests.'
+  Write-Host 'Windows build tree is missing; preparing a Release build.'
+  Push-Location $project
+  try {
+    & flutter build windows --release
+    $flutterExitCode = $LASTEXITCODE
+  }
+  finally {
+    Pop-Location
+  }
+  if ($flutterExitCode -ne 0) {
+    exit $flutterExitCode
+  }
+}
+if (-not (Test-Path -LiteralPath $cache -PathType Leaf)) {
+  throw 'Windows Release build completed without generating the CMake cache.'
 }
 
 & cmake --build $build --config Release `

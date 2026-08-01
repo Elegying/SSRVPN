@@ -91,7 +91,7 @@ scripts/check-coverage-thresholds.sh SSRVPN_MacOS
   新增的 Debug 测试宿主崩溃报告、残留 SSRVPN 宿主和临时 AtlasCore；只有断言与 post-test
   检查同时通过才算成功。非 Darwin 主机会明确跳过，CI 与 Release 的 macOS job 必须执行而
   不能用 Flutter build 代替。旧崩溃报告和 `/Applications/SSRVPN.app` 正式安装版不会被误判。
-- Windows launcher、安装器、代理恢复和进程路径需要 Windows CI。CI 必须用 `powershell.exe` 5.1 执行全部脚本兼容性测试，并在每个子进程后检查退出码，不能只看最后一条打包命令；CMake 还会构建并运行 `ssrvpn_system_proxy_recovery_test`，通过进程级 `RegOverridePredefKey` 沙箱验证正常恢复、损坏日志失败关闭且不触碰真实用户代理设置。生成安装包后必须在隔离 runner 上按默认每用户路径真实静默安装、校验关键文件、安全停止已启动实例并卸载。首次交互安装、覆盖升级、连接、异常退出、重启与系统代理恢复仍需干净 Windows 设备。
+- Windows launcher、安装器、代理恢复和进程路径需要 Windows CI。CI 必须用 `powershell.exe` 5.1 执行全部脚本兼容性测试，并在每个子进程后检查退出码，不能只看最后一条打包命令；CMake 还会构建并运行 `ssrvpn_system_proxy_recovery_test`，通过进程级 `RegOverridePredefKey` 沙箱验证正常恢复、损坏日志失败关闭且不触碰真实用户代理设置。原生测试入口在全新 Windows 工作树会先生成一次 Release build，已有 build tree 时直接复用。生成安装包后必须在隔离 runner 上按默认每用户路径真实静默安装、校验关键文件、安全停止已启动实例并卸载。首次交互安装、覆盖升级、连接、异常退出、重启与系统代理恢复仍需干净 Windows 设备。
 
 ### 发布与文档
 
