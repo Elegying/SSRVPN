@@ -294,7 +294,12 @@ class MainActivity : FlutterActivity() {
             VpnStartResultRegistry.clear(requestId)
             try {
                 SsrvpnVpnService.instance?.stopAll()
-            } catch (_: Exception) {}
+            } catch (error: Exception) {
+                Log.w(
+                    "MainActivity",
+                    "VPN start timeout cleanup failed: ${error.javaClass.simpleName}"
+                )
+            }
             runOnUiThread {
                 result.error("CORE_TIMEOUT", "设备性能不足，请重新连接", null)
             }

@@ -573,6 +573,8 @@ require_text "android.os.Process.killProcess(android.os.Process.myPid())"
 require_text "DisconnectRecoveryCoordinator.handoffIfNeeded(this, preserveForegroundUi)"
 require_text "if (!processTerminationPending.get()) stopAll()"
 require_activity_text "service.stopAll(preserveForegroundUi = true)"
+require_activity_text "VPN start timeout cleanup failed"
+require_activity_text "error.javaClass.simpleName"
 # These manifest placeholders must be matched literally, not expanded by Bash.
 # shellcheck disable=SC2016
 for needle in \
