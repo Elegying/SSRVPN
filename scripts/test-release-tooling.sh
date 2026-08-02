@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 python3 -m unittest \
+  scripts/test_authorize_existing_release_retry.py \
   scripts/test_check_coverage_thresholds.py \
   scripts/test_dependency_security.py \
   scripts/test_macos_native_gate.py \
@@ -24,6 +25,7 @@ python3 -m unittest \
   scripts/test_secret_scanning.py \
   scripts/test_validate_existing_release_retry.py \
   scripts/test_verify_release_transition.py \
+  scripts/test_wait_for_github_release_public.py \
   scripts/test_windows_installer_config.py \
   scripts/test_windows_proxy_shutdown_recovery.py \
   scripts/test_windows_runonce_proxy_recovery.py

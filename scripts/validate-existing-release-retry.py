@@ -29,6 +29,99 @@ CANONICAL_BINARIES = {
 }
 
 
+def validate_release_asset_metadata(
+    release: object,
+    *,
+    expected_tag: str,
+) -> dict[str, dict[str, object]]:
+    if not isinstance(release, dict):
+        raise ValueError("GitHub release response is not an object")
+    if release.get("tag_name") != expected_tag:
+        raise ValueError("GitHub release tag does not match the retry tag")
+    release_id = release.get("id")
+    if isinstance(release_id, bool) or not isinstance(release_id, int) or release_id <= 0:
+        raise ValueError("GitHub release ID is invalid")
+    if not isinstance(release.get("draft"), bool):
+        raise ValueError("GitHub release draft state is invalid")
+    if not isinstance(release.get("prerelease"), bool):
+        raise ValueError("GitHub release prerelease state is invalid")
+    if release["prerelease"] is True:
+        raise ValueError("prerelease cannot be retried into the stable channel")
+
+    raw_assets = release.get("assets")
+    if not isinstance(raw_assets, list):
+        raise ValueError("GitHub release has no asset list")
+    assets: dict[str, dict[str, object]] = {}
+    asset_ids: set[int] = set()
+    for item in raw_assets:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            raise ValueError("GitHub release has invalid assets")
+        name = item["name"]
+        if name in assets:
+            raise ValueError(f"GitHub release asset is duplicated: {name}")
+        assets[name] = item
+
+    missing = sorted(REQUIRED_ASSETS - set(assets))
+    if missing:
+        raise ValueError("GitHub release is incomplete: " + ", ".join(missing))
+    unexpected = sorted(set(assets) - REQUIRED_ASSETS)
+    if unexpected:
+        raise ValueError(
+            "GitHub release has unexpected assets: " + ", ".join(unexpected)
+        )
+
+    for name in sorted(REQUIRED_ASSETS):
+        asset = assets[name]
+        if asset.get("state") != "uploaded":
+            raise ValueError(f"GitHub release asset is not uploaded: {name}")
+        asset_id = asset.get("id")
+        if (
+            isinstance(asset_id, bool)
+            or not isinstance(asset_id, int)
+            or asset_id <= 0
+            or asset_id in asset_ids
+        ):
+            raise ValueError(f"GitHub release asset ID is invalid: {name}")
+        asset_ids.add(asset_id)
+        size = asset.get("size")
+        limit = (
+            64 * 1024
+            if name.endswith(".sha256") or name.endswith(".json")
+            else 300 * 1024 * 1024
+        )
+        if isinstance(size, bool) or not isinstance(size, int) or size <= 0 or size > limit:
+            raise ValueError(f"GitHub release asset has invalid size: {name}")
+        digest = str(asset.get("digest") or "")
+        if SHA256_DIGEST.fullmatch(digest) is None:
+            raise ValueError(f"GitHub release asset has no trusted digest: {name}")
+    return assets
+
+
+def release_identity_digest(release: object, *, expected_tag: str) -> str:
+    assets = validate_release_asset_metadata(release, expected_tag=expected_tag)
+    assert isinstance(release, dict)
+    identity = {
+        "id": release["id"],
+        "tag_name": release["tag_name"],
+        "assets": [
+            {
+                "id": assets[name]["id"],
+                "name": name,
+                "size": assets[name]["size"],
+                "digest": assets[name]["digest"],
+                "state": assets[name]["state"],
+            }
+            for name in sorted(REQUIRED_ASSETS)
+        ],
+    }
+    canonical = json.dumps(
+        identity,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def validate_downloaded_asset_digest(
     release: object,
     asset_name: str,
@@ -56,45 +149,7 @@ def validate_release_metadata(
     expected_tag: str,
     expected_commit: str,
 ) -> None:
-    if not isinstance(release, dict):
-        raise ValueError("GitHub release response is not an object")
-    if not isinstance(release.get("draft"), bool):
-        raise ValueError("GitHub release draft state is invalid")
-    if not isinstance(release.get("prerelease"), bool):
-        raise ValueError("GitHub release prerelease state is invalid")
-    if release["prerelease"] is True:
-        raise ValueError("prerelease cannot be retried into the stable channel")
-    raw_assets = release.get("assets")
-    if not isinstance(raw_assets, list):
-        raise ValueError("GitHub release has no asset list")
-    assets = {
-        item.get("name"): item
-        for item in raw_assets
-        if isinstance(item, dict) and isinstance(item.get("name"), str)
-    }
-    if len(assets) != len(raw_assets):
-        raise ValueError("GitHub release has invalid or duplicated assets")
-    missing = sorted(REQUIRED_ASSETS - set(assets))
-    if missing:
-        raise ValueError("GitHub release is incomplete: " + ", ".join(missing))
-    unexpected = sorted(set(assets) - REQUIRED_ASSETS)
-    if unexpected:
-        raise ValueError(
-            "GitHub release has unexpected assets: " + ", ".join(unexpected)
-        )
-    for name in sorted(REQUIRED_ASSETS):
-        asset = assets[name]
-        size = int(asset.get("size") or 0)
-        limit = (
-            64 * 1024
-            if name.endswith(".sha256") or name.endswith(".json")
-            else 300 * 1024 * 1024
-        )
-        if size <= 0 or size > limit:
-            raise ValueError(f"GitHub release asset has invalid size: {name}")
-        digest = str(asset.get("digest") or "")
-        if SHA256_DIGEST.fullmatch(digest) is None:
-            raise ValueError(f"GitHub release asset has no trusted digest: {name}")
+    assets = validate_release_asset_metadata(release, expected_tag=expected_tag)
     if not isinstance(provenance, dict) or provenance.get("schema") != 1:
         raise ValueError("release provenance is invalid")
     if provenance.get("tag") != expected_tag:

@@ -72,15 +72,30 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         self.assertIn("--target-build-code", workflow)
         self.assertIn("--current-version", workflow)
         self.assertIn('if [ "$release_commit" != "$main_tip" ]', workflow)
-        self.assertIn("validate-existing-release-retry.py", workflow)
-        self.assertIn("releases/tags/$GITHUB_REF_NAME", workflow)
+        self.assertIn("authorize-existing-release-retry.py", workflow)
+        self.assertIn('--repo "$GITHUB_REPOSITORY"', workflow)
+        self.assertIn('--tag "$GITHUB_REF_NAME"', workflow)
+        self.assertIn('--commit "$release_commit"', workflow)
+        self.assertIn('--work-dir "$RUNNER_TEMP/existing-release-retry"', workflow)
+        self.assertIn('--github-output "$GITHUB_OUTPUT"', workflow)
+        self.assertIn(
+            "release_id: ${{ steps.source.outputs.release_id }}", workflow
+        )
+        self.assertIn(
+            "release_identity: ${{ steps.source.outputs.release_identity }}",
+            workflow,
+        )
         self.assertIn("SSRVPN-release-provenance.json", workflow)
         self.assertIn("generate-release-provenance.py", workflow)
-        self.assertIn('--expected-commit "$release_commit"', workflow)
         self.assertIn("--ignore-existing", workflow)
         self.assertIn('cmp "$file" "$downloaded"', workflow)
         self.assertNotIn("Sync latest geoip.metadb", workflow)
-        self.assertNotIn("scripts/sync-geoip-metadb.py", workflow)
+        self.assertIn("Require the latest GeoIP snapshot", workflow)
+        self.assertIn("scripts/sync-geoip-metadb.py --check", workflow)
+        self.assertNotRegex(
+            workflow,
+            r"(?m)^\s*python3 scripts/sync-geoip-metadb\.py\s*$",
+        )
         self.assertGreaterEqual(
             workflow.count("scripts/run-flutter-coverage.sh"),
             4,
@@ -112,7 +127,50 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         self.assertLess(validate, retry_reuse)
         self.assertLess(retry_reuse, github_release)
         self.assertIn("scripts/reuse-github-release-assets.sh", workflow)
-        self.assertIn("steps.existing_release.outputs.exists != 'true'", workflow)
+        self.assertIn(
+            "EXPECTED_RELEASE_RETRY_ID: "
+            "${{ needs.validate-source.outputs.release_id }}",
+            workflow,
+        )
+        self.assertIn(
+            "EXPECTED_RELEASE_RETRY_IDENTITY: "
+            "${{ needs.validate-source.outputs.release_identity }}",
+            workflow,
+        )
+        self.assertIn(
+            "REQUIRE_AUTHORIZED_RELEASE_RETRY: "
+            "${{ needs.validate-source.outputs.release_retry }}",
+            workflow,
+        )
+        reuse_start = workflow.index("Reuse an existing GitHub release on retry")
+        reuse_end = workflow.index("Generate release provenance", reuse_start)
+        reuse_step = workflow[reuse_start:reuse_end]
+        for expected in (
+            "EXPECTED_RELEASE_RETRY_ID:",
+            "EXPECTED_RELEASE_RETRY_IDENTITY:",
+            "REQUIRE_AUTHORIZED_RELEASE_RETRY:",
+        ):
+            self.assertIn(expected, reuse_step)
+        manifest_start = workflow.index("Generate verified OSS update manifest")
+        manifest_end = workflow.index("Reject a public-channel rollback", manifest_start)
+        manifest_step = workflow[manifest_start:manifest_end]
+        self.assertNotIn("EXPECTED_RELEASE_RETRY", manifest_step)
+        self.assertNotIn("REQUIRE_AUTHORIZED_RELEASE_RETRY", manifest_step)
+        self.assertGreaterEqual(
+            workflow.count('--expected-release-id "$EXPECTED_RELEASE_RETRY_ID"'),
+            2,
+        )
+        self.assertGreaterEqual(
+            workflow.count(
+                '--expected-release-identity "$EXPECTED_RELEASE_RETRY_IDENTITY"'
+            ),
+            2,
+        )
+        self.assertIn(
+            "needs.validate-source.outputs.release_retry != 'true' && "
+            "steps.existing_release.outputs.exists != 'true'",
+            workflow,
+        )
         oss_publish = workflow.index("Publish immutable release to OSS")
         github_finalize = workflow.index('gh release edit "$tag" --draft=false')
         self.assertLess(github_release, oss_publish)
@@ -123,15 +181,48 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         self.assertIn("OSS_PRESERVE_BACKUP=1", workflow)
         self.assertIn('--restore "$backup_dir"', workflow)
         self.assertIn("--prerelease=false --latest", workflow)
+        self.assertIn(
+            'gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/'
+            '$EXPECTED_RELEASE_RETRY_ID"',
+            workflow,
+        )
         self.assertIn("scripts/wait-for-github-release-public.sh", workflow)
         self.assertRegex(
             workflow,
             r'scripts/wait-for-github-release-public\.sh\s+\\?\s*'
-            r'"\$tag" 5 attempted',
+            r'"\$tag" 5 attempted "\$poll_release_id"',
         )
         publication_poll = WAIT_FOR_PUBLIC_RELEASE.read_text(encoding="utf-8")
         self.assertIn("--json isDraft,isPrerelease", publication_poll)
         self.assertIn("Preserve OSS recovery backup", workflow)
+
+        promote_step_start = workflow.index(
+            "Promote OSS public channel and finalize GitHub Release"
+        )
+        promote_step_end = workflow.index(
+            "Verify published GitHub and OSS channels", promote_step_start
+        )
+        promote_step = workflow[promote_step_start:promote_step_end]
+        first_identity = promote_step.index("pre-finalize-release-retry")
+        oss_promotion = promote_step.index(
+            "scripts/promote-oss-public-channel.sh"
+        )
+        second_identity = promote_step.index("pre-publish-release-retry")
+        exact_patch = promote_step.index("gh api --method PATCH")
+        public_poll = promote_step.index("wait-for-github-release-public.sh")
+        third_identity = promote_step.index("post-public-release-retry")
+        discard_backup = promote_step.index('rm -rf "$backup_dir"')
+        self.assertLess(first_identity, oss_promotion)
+        self.assertLess(oss_promotion, second_identity)
+        self.assertLess(second_identity, exact_patch)
+        self.assertLess(exact_patch, public_poll)
+        self.assertLess(public_poll, third_identity)
+        self.assertLess(third_identity, discard_backup)
+        post_oss_guard = promote_step[oss_promotion:exact_patch]
+        self.assertIn(
+            'scripts/promote-oss-public-channel.sh --restore "$backup_dir"',
+            post_oss_guard,
+        )
 
         published_verify = workflow.index(
             "Verify published GitHub and OSS channels"

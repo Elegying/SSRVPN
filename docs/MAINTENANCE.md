@@ -55,8 +55,9 @@ This guide keeps local development, GitHub automation, and releases aligned.
 
 - Keep pull-request and branch checks in `ci.yml`.
 - Keep tag-triggered publishing in `release.yml`.
-- Add scheduled or manual operator tasks to `maintenance.yml`; prefer a new task
-  over another workflow file.
+- Add manual operator tasks to `maintenance.yml`; prefer a new task over another
+  workflow file. GeoIP refresh is deliberately manual and release-gated, so it
+  must not gain a `schedule` trigger.
 - Split a workflow only when it needs an incompatible trigger, permission boundary,
   or concurrency lock.
 - Pin every third-party action to a full commit SHA. Dependency Review on pull requests
@@ -141,29 +142,47 @@ and run both platform suites for shared desktop changes.
 
 ## Release Checklist
 
-1. Confirm `main` CI is green.
-2. Review `CHANGELOG.md` and move relevant entries from `Unreleased` to the target version.
-3. Verify bundled core assets:
+1. Manually run `Maintenance` with `geoip-refresh`, review and merge the generated
+   source-record PR, and wait for the resulting `main` CI to pass. Do this before
+   creating the application release tag.
+2. Confirm `main` CI is green.
+3. Review `CHANGELOG.md` and move relevant entries from `Unreleased` to the target version.
+4. Verify the pinned assets and prove that GeoIP still matches upstream `latest`:
 
    ```bash
+   make assets
    scripts/verify-core-assets.sh
+   python3 scripts/sync-geoip-metadb.py --check
    ```
 
-4. Verify the free Android self-signed keystore secrets are available. Desktop
+   The check re-reads the upstream Release and asset identity after verifying the
+   downloaded content. A `latest` rollover during verification is a failure, not
+   permission to accept either snapshot.
+
+5. Verify the free Android self-signed keystore secrets are available. Desktop
    releases always use the documented free path: macOS ad-hoc without
    notarization and Windows without Authenticode. Do not add Apple/Microsoft
    certificate secrets or paid-signing branches. See `docs/RELEASE_SIGNING.md`.
-5. Create and push a version tag:
+6. Create and push a version tag:
 
    ```bash
    git tag -a vX.Y.Z -m "SSRVPN vX.Y.Z"
    git push origin vX.Y.Z
    ```
 
-6. Watch the `Release` workflow.
-7. Download artifacts, verify checksums, and optionally run `scripts/check-release-assets.sh vX.Y.Z`.
-8. Confirm the Windows build log includes the native registry-sandbox proxy recovery test and the real `SSRVPN_Setup.exe` install/uninstall smoke test, not only packaging and static checks.
-9. Smoke test at least one install/run path per platform before announcing.
+7. Watch the `Release` workflow. New releases fail before platform builds if the
+   reviewed GeoIP pointer is no longer current; the workflow never rewrites a tag.
+   An existing-release retry bypasses this live check only after the exact tag,
+   completed asset states, IDs, digests, commit, and provenance all validate.
+   The publish job must then find the same Release ID and canonical asset identity;
+   it cannot delete or replace an authorized retry if the Release changes mid-run.
+   Finalization, polling, and post-publication validation stay bound to that numeric
+   ID while allowing only the expected draft-to-public state transition. The asset
+   identity is rechecked after OSS promotion and after the public-state poll before
+   the recovery backup is discarded.
+8. Download artifacts, verify checksums, and optionally run `scripts/check-release-assets.sh vX.Y.Z`.
+9. Confirm the Windows build log includes the native registry-sandbox proxy recovery test and the real `SSRVPN_Setup.exe` install/uninstall smoke test, not only packaging and static checks.
+10. Smoke test at least one install/run path per platform before announcing.
 
 ## Online/Offline Consistency
 

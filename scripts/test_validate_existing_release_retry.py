@@ -24,17 +24,25 @@ def release(
     draft: bool = False,
 ) -> dict:
     assets = []
-    for name in sorted(MODULE.REQUIRED_ASSETS):
+    for asset_id, name in enumerate(sorted(MODULE.REQUIRED_ASSETS), start=1):
         if name == missing:
             continue
         assets.append(
             {
+                "id": asset_id,
                 "name": name,
                 "size": 64 if name.endswith(".sha256") else 1024,
                 "digest": "sha256:" + "a" * 64,
+                "state": "uploaded",
             }
         )
-    return {"draft": draft, "prerelease": prerelease, "assets": assets}
+    return {
+        "id": 100,
+        "tag_name": "v3.2.0",
+        "draft": draft,
+        "prerelease": prerelease,
+        "assets": assets,
+    }
 
 
 def provenance(**overrides: object) -> dict:
@@ -70,6 +78,44 @@ class ExistingReleaseRetryTest(unittest.TestCase):
                 expected_tag="v3.2.0",
                 expected_commit=COMMIT,
             )
+
+    def test_release_tag_name_must_match_the_retry_tag(self) -> None:
+        data = release(draft=True)
+        data["tag_name"] = "v3.1.0"
+
+        with self.assertRaisesRegex(ValueError, "tag does not match"):
+            MODULE.validate_release_metadata(
+                data,
+                provenance(),
+                expected_tag="v3.2.0",
+                expected_commit=COMMIT,
+            )
+
+    def test_unfinished_release_asset_cannot_authorize_retry(self) -> None:
+        data = release(draft=True)
+        data["assets"][0]["state"] = "starter"
+
+        with self.assertRaisesRegex(ValueError, "not uploaded"):
+            MODULE.validate_release_metadata(
+                data,
+                provenance(),
+                expected_tag="v3.2.0",
+                expected_commit=COMMIT,
+            )
+
+    def test_release_identity_tracks_assets_but_allows_publication(self) -> None:
+        draft = release(draft=True)
+        public = release(draft=False)
+
+        self.assertEqual(
+            MODULE.release_identity_digest(draft, expected_tag="v3.2.0"),
+            MODULE.release_identity_digest(public, expected_tag="v3.2.0"),
+        )
+        public["assets"][0]["id"] += 100
+        self.assertNotEqual(
+            MODULE.release_identity_digest(draft, expected_tag="v3.2.0"),
+            MODULE.release_identity_digest(public, expected_tag="v3.2.0"),
+        )
 
     def test_downloaded_provenance_must_match_the_github_asset_digest(self) -> None:
         payload = json.dumps(provenance(), sort_keys=True).encode("utf-8")

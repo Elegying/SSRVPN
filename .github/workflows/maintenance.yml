@@ -15,16 +15,13 @@ on:
         description: Immutable release tag required by oss-rollback, for example v3.1.1
         required: false
         type: string
-  schedule:
-    - cron: '17 1 * * *'
-
 permissions:
   contents: read
 
 jobs:
   geoip-refresh:
-    name: Propose a verified GeoIP refresh
-    if: github.event_name == 'schedule' || inputs.task == 'geoip-refresh'
+    name: Prepare the latest GeoIP for a release
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'geoip-refresh'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -101,7 +98,7 @@ jobs:
             --base main \
             --head "$BRANCH" \
             --title "chore(assets): refresh GeoIP to $SOURCE_TAG" \
-            --body "Automated verified GeoIP snapshot refresh. Upstream provenance, the raw and deterministic gzip SHA-256 values, and the immutable SSRVPN mirror URL are pinned in docs/GEOIP_SOURCE.txt."
+            --body "Verified pre-release GeoIP snapshot refresh. Upstream provenance, the raw and deterministic gzip SHA-256 values, and the immutable SSRVPN mirror URL are pinned in docs/GEOIP_SOURCE.txt. Merge this PR before creating the release tag."
 
   oss-smoke:
     name: Verify OSS publishing

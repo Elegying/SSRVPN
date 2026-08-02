@@ -248,6 +248,68 @@ class GeoIpWorkflowTest(unittest.TestCase):
             record,
         )
 
+    def test_check_fails_when_latest_rolls_during_verification(self) -> None:
+        raw = b"geoip-current"
+        gzipped = _stable_gzip(raw)
+        first_release = {
+            "id": 100,
+            "tag_name": "latest",
+            "name": "first",
+            "assets": [
+                {
+                    "id": 101,
+                    "name": "geoip.metadb",
+                    "browser_download_url": "https://github.com/upstream/geoip",
+                    "url": "https://api.github.com/upstream/101",
+                    "digest": f"sha256:{_sha256(raw)}",
+                },
+                {
+                    "id": 102,
+                    "name": "geoip.metadb.sha256sum",
+                    "browser_download_url": "https://github.com/upstream/checksum",
+                },
+            ],
+        }
+        second_release = {
+            **first_release,
+            "id": 200,
+            "name": "rolled",
+            "assets": [
+                {**first_release["assets"][0], "id": 201},
+                {**first_release["assets"][1], "id": 202},
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            assets = [root / name for name in ("android.gz", "macos.gz", "windows.gz")]
+            for asset_path in assets:
+                asset_path.write_bytes(gzipped)
+            source = root / "GEOIP_SOURCE.txt"
+            source.write_text(
+                SYNC.build_source_record(
+                    first_release,
+                    first_release["assets"][0],
+                    _sha256(raw),
+                    _sha256(gzipped),
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(SYNC, "ASSET_PATHS", assets), patch.object(
+                SYNC, "SOURCE_RECORD", source
+            ), patch.object(
+                SYNC,
+                "load_latest_release",
+                side_effect=[first_release, second_release],
+            ), patch.object(
+                SYNC,
+                "download",
+                side_effect=[f"{_sha256(raw)}  geoip.metadb\n".encode(), raw],
+            ):
+                with self.assertRaisesRegex(SystemExit, "changed during verification"):
+                    SYNC.sync(check=True)
+
     def test_clean_bootstrap_ignores_a_deleted_upstream_asset(self) -> None:
         raw = b"verified upstream GeoIP payload"
         gzipped = _stable_gzip(raw)
@@ -702,11 +764,19 @@ cp "$FAKE_MIRROR_FILE" "$output"
                         upload=True,
                     )
 
-    def test_freshness_workflow_opens_scoped_immutable_update_prs(self) -> None:
+    def test_release_geoip_refresh_is_manual_and_fail_closed(self) -> None:
         workflow = (ROOT / ".github/workflows/maintenance.yml").read_text(
             encoding="utf-8"
         )
 
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertNotIn("\n  schedule:\n", workflow)
+        self.assertNotIn("github.event_name == 'schedule'", workflow)
+        self.assertIn(
+            "github.event_name == 'workflow_dispatch' && "
+            "inputs.task == 'geoip-refresh'",
+            workflow,
+        )
         self.assertIn("contents: write", workflow)
         self.assertIn("pull-requests: write", workflow)
         self.assertIn("python3 scripts/sync-geoip-metadb.py", workflow)
@@ -744,6 +814,33 @@ cp "$FAKE_MIRROR_FILE" "$output"
             "SSRVPN_Windows",
         ):
             self.assertIn(path, sync_script)
+
+        release_workflow = (ROOT / ".github/workflows/release.yml").read_text(
+            encoding="utf-8"
+        )
+        freshness_check = "python3 scripts/sync-geoip-metadb.py --check"
+        self.assertIn("Require the latest GeoIP snapshot", release_workflow)
+        self.assertIn(
+            "release_retry: ${{ steps.source.outputs.release_retry }}",
+            release_workflow,
+        )
+        self.assertIn(
+            'echo "release_retry=true" >> "$GITHUB_OUTPUT"',
+            release_workflow,
+        )
+        self.assertIn(
+            "if: needs.validate-source.outputs.release_retry != 'true'",
+            release_workflow,
+        )
+        self.assertIn(freshness_check, release_workflow)
+        self.assertLess(
+            release_workflow.index("bash scripts/bootstrap-core-assets.sh"),
+            release_workflow.index(freshness_check),
+        )
+        self.assertLess(
+            release_workflow.index(freshness_check),
+            release_workflow.index("name: Upload verified core assets"),
+        )
 
     def test_existing_geoip_pull_request_state_policy(self) -> None:
         policy_path = ROOT / "scripts/geoip-pr-state-policy.py"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -18,6 +19,13 @@ NAMES = (
 )
 CERT = "ab" * 32
 COMMIT = "c" * 40
+VALIDATOR_PATH = ROOT / "scripts" / "validate-existing-release-retry.py"
+VALIDATOR_SPEC = importlib.util.spec_from_file_location(
+    "existing_release_retry_validator", VALIDATOR_PATH
+)
+assert VALIDATOR_SPEC and VALIDATOR_SPEC.loader
+VALIDATOR = importlib.util.module_from_spec(VALIDATOR_SPEC)
+VALIDATOR_SPEC.loader.exec_module(VALIDATOR)
 
 
 class ReuseGithubReleaseAssetsTest(unittest.TestCase):
@@ -200,7 +208,14 @@ fi
             encoding="utf-8",
         )
 
-    def _run(self, mode: str) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self,
+        mode: str,
+        *,
+        expected_release_id: str | None = None,
+        expected_release_identity: str | None = None,
+        require_authorized_retry: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
             {
@@ -221,6 +236,13 @@ fi
                 "ANDROID_HOME": str(self.android_home),
                 "ANDROID_RELEASE_CERT_SHA256": CERT,
             }
+        )
+        if expected_release_id is not None:
+            env["EXPECTED_RELEASE_RETRY_ID"] = expected_release_id
+        if expected_release_identity is not None:
+            env["EXPECTED_RELEASE_RETRY_IDENTITY"] = expected_release_identity
+        env["REQUIRE_AUTHORIZED_RELEASE_RETRY"] = (
+            "true" if require_authorized_retry else "false"
         )
         return subprocess.run(
             ["bash", str(SCRIPT), str(self.artifacts)],
@@ -269,6 +291,71 @@ fi
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(self.delete_marker.is_file())
         self.assertEqual(self.output.read_text(), "exists=false\n")
+
+    def test_authorized_retry_missing_release_fails_closed(self) -> None:
+        result = self._run(
+            "missing",
+            expected_release_id="42",
+            expected_release_identity="f" * 64,
+            require_authorized_retry=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("authorized release", result.stderr)
+
+    def test_authorized_retry_rejects_replaced_release_identity(self) -> None:
+        self._write_release(draft=True)
+
+        result = self._run(
+            "found",
+            expected_release_id="42",
+            expected_release_identity="f" * 64,
+            require_authorized_retry=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("identity", result.stderr)
+        self.assertFalse(self.delete_marker.exists())
+
+    def test_authorized_retry_never_deletes_an_incomplete_draft(self) -> None:
+        self._write_release(draft=True, missing="SSRVPN.dmg")
+
+        result = self._run(
+            "found",
+            expected_release_id="42",
+            expected_release_identity="f" * 64,
+            require_authorized_retry=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("authorized release", result.stderr)
+        self.assertFalse(self.delete_marker.exists())
+
+    def test_authorized_retry_reuses_the_exact_validated_release(self) -> None:
+        self._write_release(draft=True)
+        release = json.loads(self.release_json.read_text(encoding="utf-8"))
+        identity = VALIDATOR.release_identity_digest(
+            release,
+            expected_tag="v3.2.0",
+        )
+
+        result = self._run(
+            "found",
+            expected_release_id="42",
+            expected_release_identity=identity,
+            require_authorized_retry=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("exists=true", self.output.read_text(encoding="utf-8"))
+
+    def test_authorized_retry_requires_cross_job_identity_outputs(self) -> None:
+        self._write_release(draft=True)
+
+        result = self._run("found", require_authorized_retry=True)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("identity is incomplete", result.stderr)
 
     def test_hidden_partial_draft_is_discovered_and_deleted_by_release_id(self) -> None:
         self._write_release(draft=True, missing="SSRVPN.dmg")

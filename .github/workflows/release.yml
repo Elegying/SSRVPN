@@ -22,6 +22,10 @@ jobs:
   validate-source:
     name: Validate release source
     runs-on: ubuntu-latest
+    outputs:
+      release_retry: ${{ steps.source.outputs.release_retry }}
+      release_id: ${{ steps.source.outputs.release_id }}
+      release_identity: ${{ steps.source.outputs.release_identity }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -33,6 +37,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Require release source to come from main
+        id: source
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -43,27 +48,30 @@ jobs:
             release_commit="$(git rev-parse --verify "$GITHUB_SHA^{commit}")"
           fi
           main_tip="$(git rev-parse origin/main)"
-          if [ "$release_commit" != "$main_tip" ]; then
-            retry_release="$RUNNER_TEMP/existing-release-retry.json"
-            retry_provenance_dir="$RUNNER_TEMP/existing-release-provenance"
-            if [[ "$GITHUB_REF" == refs/tags/* ]] &&
-              gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
-                >"$retry_release" &&
-              mkdir -p "$retry_provenance_dir" &&
-              gh release download "$GITHUB_REF_NAME" \
-                --repo "$GITHUB_REPOSITORY" \
-                --dir "$retry_provenance_dir" \
-                --pattern 'SSRVPN-release-provenance.json' &&
-              python3 scripts/validate-existing-release-retry.py \
-                "$retry_release" \
-                "$retry_provenance_dir/SSRVPN-release-provenance.json" \
-                --expected-tag "$GITHUB_REF_NAME" \
-                --expected-commit "$release_commit"; then
-              echo "Retrying existing release $GITHUB_REF_NAME after main advanced."
+
+          release_retry=false
+          echo "release_retry=false" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            if python3 scripts/authorize-existing-release-retry.py \
+              --repo "$GITHUB_REPOSITORY" \
+              --tag "$GITHUB_REF_NAME" \
+              --commit "$release_commit" \
+              --work-dir "$RUNNER_TEMP/existing-release-retry" \
+              --github-output "$GITHUB_OUTPUT"; then
+              release_retry=true
+              echo "release_retry=true" >> "$GITHUB_OUTPUT"
+              echo "Validated existing release retry for $GITHUB_REF_NAME."
             else
-              echo "::error::New release builds must use the current tested main tip."
-              exit 1
+              retry_status=$?
+              if [ "$retry_status" -ne 3 ]; then
+                exit "$retry_status"
+              fi
             fi
+          fi
+
+          if [ "$release_commit" != "$main_tip" ] && [ "$release_retry" != true ]; then
+            echo "::error::New release builds must use the current tested main tip."
+            exit 1
           fi
 
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
@@ -148,6 +156,16 @@ jobs:
 
       - name: Verify pinned GeoIP assets
         run: bash scripts/verify-core-assets.sh
+
+      - name: Require the latest GeoIP snapshot
+        if: needs.validate-source.outputs.release_retry != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if ! python3 scripts/sync-geoip-metadb.py --check; then
+            echo "::error::GeoIP is stale. Run Maintenance > geoip-refresh, merge its PR, then create a new release tag."
+            exit 1
+          fi
 
       - name: Upload verified core assets
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -458,7 +476,7 @@ jobs:
   publish:
     name: Publish Release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [shared-test, build-android, build-macos, build-windows]
+    needs: [validate-source, shared-test, build-android, build-macos, build-windows]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -529,6 +547,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+          EXPECTED_RELEASE_RETRY_ID: ${{ needs.validate-source.outputs.release_id }}
+          EXPECTED_RELEASE_RETRY_IDENTITY: ${{ needs.validate-source.outputs.release_identity }}
+          REQUIRE_AUTHORIZED_RELEASE_RETRY: ${{ needs.validate-source.outputs.release_retry }}
         run: bash scripts/reuse-github-release-assets.sh artifacts
 
       - name: Generate release provenance
@@ -588,7 +609,7 @@ jobs:
           esac
 
       - name: Create GitHub Draft Release
-        if: steps.existing_release.outputs.exists != 'true'
+        if: needs.validate-source.outputs.release_retry != 'true' && steps.existing_release.outputs.exists != 'true'
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         with:
           tag_name: ${{ steps.notes.outputs.tag }}
@@ -660,6 +681,9 @@ jobs:
         id: promote_oss
         env:
           GH_TOKEN: ${{ github.token }}
+          EXPECTED_RELEASE_RETRY_ID: ${{ needs.validate-source.outputs.release_id }}
+          EXPECTED_RELEASE_RETRY_IDENTITY: ${{ needs.validate-source.outputs.release_identity }}
+          REQUIRE_AUTHORIZED_RELEASE_RETRY: ${{ needs.validate-source.outputs.release_retry }}
           OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
           OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
@@ -675,21 +699,61 @@ jobs:
           cp artifacts/android/SSRVPN.apk* "$public_assets/"
           cp artifacts/macos/SSRVPN.dmg* "$public_assets/"
           cp artifacts/windows/SSRVPN_Setup.exe* "$public_assets/"
+          poll_release_id=""
+          if [ "$REQUIRE_AUTHORIZED_RELEASE_RETRY" = true ]; then
+            python3 scripts/authorize-existing-release-retry.py \
+              --repo "$GITHUB_REPOSITORY" \
+              --tag "$tag" \
+              --commit "$GITHUB_SHA" \
+              --work-dir "$RUNNER_TEMP/pre-finalize-release-retry" \
+              --expected-release-id "$EXPECTED_RELEASE_RETRY_ID" \
+              --expected-release-identity "$EXPECTED_RELEASE_RETRY_IDENTITY"
+            poll_release_id="$EXPECTED_RELEASE_RETRY_ID"
+          fi
           OSS_BACKUP_DIR="$backup_dir" OSS_PRESERVE_BACKUP=1 \
             OSS_VERSIONED_SOURCE_PREFIX="$OSS_PREFIX/releases/$tag" \
             bash scripts/promote-oss-public-channel.sh \
             "$public_assets" artifacts/oss/latest.json
 
+          if [ "$REQUIRE_AUTHORIZED_RELEASE_RETRY" = true ]; then
+            if ! python3 scripts/authorize-existing-release-retry.py \
+              --repo "$GITHUB_REPOSITORY" \
+              --tag "$tag" \
+              --commit "$GITHUB_SHA" \
+              --work-dir "$RUNNER_TEMP/pre-publish-release-retry" \
+              --expected-release-id "$EXPECTED_RELEASE_RETRY_ID" \
+              --expected-release-identity "$EXPECTED_RELEASE_RETRY_IDENTITY"; then
+              echo "::error::Authorized GitHub release changed after OSS promotion; restoring OSS."
+              bash scripts/promote-oss-public-channel.sh --restore "$backup_dir"
+              exit 1
+            fi
+          fi
+
           finalize_status=0
-          gh release edit "$tag" --draft=false --prerelease=false --latest || \
-            finalize_status=$?
+          if [ "$REQUIRE_AUTHORIZED_RELEASE_RETRY" = true ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$EXPECTED_RELEASE_RETRY_ID" \
+              -F draft=false -F prerelease=false -f make_latest=true || \
+              finalize_status=$?
+          else
+            gh release edit "$tag" --draft=false --prerelease=false --latest || \
+              finalize_status=$?
+          fi
 
           poll_status=0
           bash scripts/wait-for-github-release-public.sh \
-            "$tag" 5 attempted >/dev/null \
+            "$tag" 5 attempted "$poll_release_id" >/dev/null \
             || poll_status=$?
 
           if [ "$poll_status" -eq 0 ]; then
+            if [ "$REQUIRE_AUTHORIZED_RELEASE_RETRY" = true ]; then
+              python3 scripts/authorize-existing-release-retry.py \
+                --repo "$GITHUB_REPOSITORY" \
+                --tag "$tag" \
+                --commit "$GITHUB_SHA" \
+                --work-dir "$RUNNER_TEMP/post-public-release-retry" \
+                --expected-release-id "$EXPECTED_RELEASE_RETRY_ID" \
+                --expected-release-identity "$EXPECTED_RELEASE_RETRY_IDENTITY"
+            fi
             rm -rf "$backup_dir"
             exit 0
           fi
@@ -717,6 +781,9 @@ jobs:
           OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
           OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
           OSS_PREFIX: ${{ vars.ALIYUN_OSS_PREFIX }}
+          EXPECTED_RELEASE_RETRY_ID: ${{ needs.validate-source.outputs.release_id }}
+          EXPECTED_RELEASE_RETRY_IDENTITY: ${{ needs.validate-source.outputs.release_identity }}
+          REQUIRE_AUTHORIZED_RELEASE_RETRY: ${{ needs.validate-source.outputs.release_retry }}
         run: |
           set -euo pipefail
           tag="${GITHUB_REF#refs/tags/}"
@@ -725,17 +792,29 @@ jobs:
           manifest_json="$RUNNER_TEMP/published-latest.json"
           public_manifest_url="https://$OSS_BUCKET.$OSS_ENDPOINT/$OSS_PREFIX/latest.json"
 
+          if [ "$REQUIRE_AUTHORIZED_RELEASE_RETRY" = true ]; then
+            final_retry_dir="$RUNNER_TEMP/final-release-retry"
+            python3 scripts/authorize-existing-release-retry.py \
+              --repo "$GITHUB_REPOSITORY" \
+              --tag "$tag" \
+              --commit "$GITHUB_SHA" \
+              --work-dir "$final_retry_dir" \
+              --expected-release-id "$EXPECTED_RELEASE_RETRY_ID" \
+              --expected-release-identity "$EXPECTED_RELEASE_RETRY_IDENTITY"
+            cp "$final_retry_dir/release.json" "$release_json"
+          else
+            for attempt in 1 2 3; do
+              if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" >"$release_json"; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "::error::Cannot read the published GitHub release."
+                exit 1
+              fi
+              sleep "$attempt"
+            done
+          fi
           bash scripts/check-release-assets.sh "$tag"
-          for attempt in 1 2 3; do
-            if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" >"$release_json"; then
-              break
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "::error::Cannot read the published GitHub release."
-              exit 1
-            fi
-            sleep "$attempt"
-          done
 
           is_prerelease="$(python3 - "$release_json" "$tag" <<'PY'
           import json

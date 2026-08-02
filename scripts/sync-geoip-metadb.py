@@ -147,6 +147,25 @@ def asset_digest(asset: dict[str, object]) -> str | None:
     return digest.removeprefix(prefix).lower() if digest.startswith(prefix) else None
 
 
+def latest_release_identity(release: dict[str, object]) -> tuple[object, ...]:
+    asset = find_asset(release, ASSET_NAME)
+    checksum_asset = find_asset(release, CHECKSUM_ASSET_NAME)
+    identity = (
+        release.get("id"),
+        release.get("tag_name"),
+        asset.get("id"),
+        asset.get("browser_download_url"),
+        asset.get("digest"),
+        checksum_asset.get("id"),
+        checksum_asset.get("browser_download_url"),
+        checksum_asset.get("digest"),
+    )
+    required = identity[:4] + identity[5:7]
+    if any(value in (None, "") for value in required):
+        raise SystemExit("upstream latest release identity is incomplete")
+    return identity
+
+
 def build_source_record(
     release: dict[str, object],
     asset: dict[str, object],
@@ -176,6 +195,7 @@ def build_source_record(
 
 def sync(check: bool) -> int:
     release = load_latest_release()
+    initial_identity = latest_release_identity(release)
     asset = find_asset(release, ASSET_NAME)
     checksum_asset = find_asset(release, CHECKSUM_ASSET_NAME)
 
@@ -200,6 +220,10 @@ def sync(check: bool) -> int:
     gzipped = stable_gzip(raw)
     gzip_hash = sha256(gzipped)
     source_record = build_source_record(release, asset, actual_hash, gzip_hash)
+
+    final_release = load_latest_release()
+    if latest_release_identity(final_release) != initial_identity:
+        raise SystemExit("upstream latest changed during verification")
 
     mismatches = [
         path
