@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受
+已接受；每日自动刷新策略已由 [ADR-011](011-release-gated-geoip-refresh.md) 取代
 
 ## 日期
 
@@ -31,14 +31,14 @@ freshness 任务把未经校验的上游内容直接带入发布构建。
    - 上游仓库、Release/Asset ID 与 URL、解压后原始文件 SHA-256；
    - SSRVPN 镜像仓库、固定支持 tag、内容寻址资产名、精确下载 URL 与 deterministic
      gzip SHA-256。
-4. 普通 CI、正式 Release 和本地 `bootstrap-core-assets.sh` 不再读取上游 Asset URL。
-   它们只接受精确的
+4. 普通 CI、本地 `bootstrap-core-assets.sh` 和正式 Release 的构建输入不再来自上游
+   Asset URL。它们只接受精确的
    `https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/`
    路径，限制下载大小、协议和超时，并同时验证 gzip SHA-256 与有界解压后的原始 SHA-256。
    镜像回读只允许 `github.com`、`release-assets.githubusercontent.com` 和
    `objects.githubusercontent.com` 的 HTTPS 链路，拒绝降级到 HTTP 或跳转到其他主机。
-5. `Maintenance` 的 `geoip-refresh` 任务是唯一主动读取上游 `latest` 的自动化边界。
-   它按以下顺序执行：
+5. `Maintenance` 的手动 `geoip-refresh` 是唯一会根据上游 `latest` 写入候选来源记录并上传
+   镜像的自动化边界。它按以下顺序执行：
    上游 checksum/API digest/实际内容校验 → deterministic gzip → 缺失时上传内容寻址镜像
    → 从公共镜像 URL 回读并验证双 SHA-256 → 创建只修改来源记录的 PR。旧来源记录中的
    upstream URL 即使已返回 404，也不得在这条自愈链路开始前被 bootstrap 访问。
@@ -47,9 +47,9 @@ freshness 任务把未经校验的上游内容直接带入发布构建。
    提示修复支持 Release；已存在同名资产时只回读验证，不覆盖。回读失败或内容不符时不得
    创建更新 PR。若“列出资产”和“上传资产”之间发生同名竞态，上传不得 clobber；流程重新
    列出资产并以公共 URL 的 gzip/raw 双哈希回读为最终判断，匹配则复用，不匹配则失败。
-7. 正式 Release workflow 与普通 CI 继续共享提交中已审核的镜像指针。定时检查失败不会
-   破坏当前已锁定快照的构建；镜像本身缺失或损坏则安全失败，不能回退到上游 mutable
-   `latest`。
+7. 正式 Release workflow 与普通 CI 继续共享提交中已审核的镜像指针。新 Release 会只读
+   访问上游 `latest` 来证明该指针仍然最新，但不会把上游响应直接作为构建输入。上游状态
+   无法确认、镜像缺失或损坏时均安全失败，不能回退到 mutable `latest`。
 
 ## 信任边界
 
@@ -61,12 +61,14 @@ freshness 任务把未经校验的上游内容直接带入发布构建。
   的命令路径。代码审查和仓库权限仍需保护支持 Release 不被人工删除。
 - `core-assets-v1` tag 已纳入仓库 release-tag ruleset；tag 更新和删除都会被拒绝。Release
   管理员仍可操作资产，因此内容寻址名称、双哈希和禁止 clobber 的流程约束仍不可省略。
-- 普通 CI 和正式发版不需要信任当前上游状态，也不会因上游旧 Asset ID 被回收而改变输入。
+- 普通 CI 不需要信任当前上游状态；新正式发版必须通过只读最新性证明，但不会因上游旧
+  Asset ID 被回收而改变构建输入。
 
 ## 结果
 
 - 全新 runner 可以仅凭已提交来源记录重建三端 GeoIP 资产。
-- 每日更新仍保留完整上游出处，且镜像存在并能从真实 bootstrap URL 回读后才进入代码审查。
+- 每次发版前的手动更新仍保留完整上游出处，且镜像存在并能从真实 bootstrap URL 回读后
+  才进入代码审查。
 - 支持 prerelease 成为必须长期保留的运维资源；仓库所有者需保护其 tag 和已引用资产，
   并确保它永远不成为应用 `latest`。
 - GitHub Release 仍由仓库管理员控制，并非不可篡改账本；内容寻址名称和双哈希让错误替换
@@ -108,3 +110,4 @@ Asset ID 会随上游每日 Release 替换被删除，已经证明不能提供�
 - [核心资产来源](../CORE_ASSETS.md)
 - [GeoIP 来源记录](../GEOIP_SOURCE.txt)
 - [发布检查清单](../RELEASE_CHECKLIST.zh-CN.md)
+- [ADR-011：只在正式发版前刷新并强制验证 GeoIP](011-release-gated-geoip-refresh.md)

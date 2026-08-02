@@ -4,40 +4,55 @@
 
 ## 发布前
 
-1. 确认版本号一致：
+1. 在 GitHub Actions 手动运行 `Maintenance`，任务选择 `geoip-refresh`。审查并合并它创建的
+   `GEOIP_SOURCE.txt` 更新 PR，等待合并后的 `main` CI 全绿；完成前不得创建或推送应用版本
+   tag。GeoIP 不再定时自动检查。
+2. 确认版本号一致：
 
    ```bash
    scripts/check-version-sync.sh
    ```
-2. 确认本地或 GitHub CI 通过：
+3. 确认本地或 GitHub CI 通过：
    - `packages/ssrvpn_shared`
    - `SSRVPN_Android`
    - `SSRVPN_MacOS`
    - `SSRVPN_Windows`
    - Windows 日志包含 PowerShell 5.1 全脚本兼容性和新生成安装包真实安装/卸载通过记录；不得只依据 job 绿色，日志中任何脚本或安装器错误都必须对应失败步骤。
-3. 确认三端项目地址都指向：
+4. 确认三端项目地址都指向：
    - `https://github.com/Elegying/SSRVPN`
-4. 确认 Release workflow 需要的 Android 自签名 secrets 已配置。桌面端固定走免费分发：
+5. 确认 Release workflow 需要的 Android 自签名 secrets 已配置。桌面端固定走免费分发：
    macOS ad-hoc、未公证，Windows 未签名；仓库和 GitHub 配置中不应出现 Apple/Microsoft
    付费证书 secrets 或启用变量。
-5. 确认核心二进制和 geo 数据库哈希：
+6. 引导并确认核心二进制和 GeoIP 数据库哈希，同时以只读方式确认仓库固定的 GeoIP 仍是
+   上游最新版本：
 
    ```bash
+   make assets
    scripts/verify-core-assets.sh
+   python3 scripts/sync-geoip-metadb.py --check
    ```
-6. 确认没有明显密钥泄露、覆盖率没有低于当前保守门槛：
+   正式 Release workflow 会在三端构建前重复这项最新性门禁；失败时必须重新运行手动刷新、
+   合并新 PR 后再创建新的 release tag，禁止在 Release 中动态改写已有 tag 的输入。门禁会在
+   内容校验完成后再次确认上游 Release 和资产身份；校验期间 `latest` 发生滚动也必须失败。
+   只有精确 tag 下的 Release/资产 ID、上传完成状态、摘要、commit 与 provenance 全部一致的
+   已有发布恢复重试，才允许复用原 tag 快照；授权阶段固定的 Release ID 与全资产规范身份会在
+   发布 job 再次验证。构建期间 Release 消失、变残或被替换时必须失败，禁止删除后新建；缺失、
+   重复、网络异常或不完整 draft 均失败关闭。最终公开、轮询和发布后终验继续绑定 numeric
+   Release ID；只有预期的 draft → public 状态迁移不计入不可变资产身份。
+   OSS 推广后、numeric-ID PATCH 前，以及公开轮询成功后、删除恢复备份前都会再次复核资产身份。
+7. 确认没有明显密钥泄露、覆盖率没有低于当前保守门槛：
 
    ```bash
    scripts/check-secrets.sh
    gitleaks git --config .gitleaks.toml --redact --log-opts=--all
    make verify
    ```
-7. 如本地已有安装包产物，做一次结构 smoke：
+8. 如本地已有安装包产物，做一次结构 smoke：
 
    ```bash
    scripts/smoke-release-artifacts.sh --allow-missing
    ```
-8. 发布前后至少记录一次性能基准，用于对比低配设备体验是否退化：
+9. 发布前后至少记录一次性能基准，用于对比低配设备体验是否退化：
 
    ```bash
    scripts/performance-baseline.sh

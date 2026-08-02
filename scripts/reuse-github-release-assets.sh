@@ -5,6 +5,26 @@ artifact_root="${1:?usage: reuse-github-release-assets.sh <artifact-root>}"
 tag="${GITHUB_REF_NAME:-${GITHUB_REF#refs/tags/}}"
 repo="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 output_file="${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
+expected_retry_id="${EXPECTED_RELEASE_RETRY_ID:-}"
+expected_retry_identity="${EXPECTED_RELEASE_RETRY_IDENTITY:-}"
+require_authorized_retry="${REQUIRE_AUTHORIZED_RELEASE_RETRY:-false}"
+strict_retry=false
+
+if [ "$require_authorized_retry" != true ] &&
+  [ "$require_authorized_retry" != false ]; then
+  echo "REQUIRE_AUTHORIZED_RELEASE_RETRY must be true or false" >&2
+  exit 1
+fi
+
+if [ "$require_authorized_retry" = true ] ||
+  [ -n "$expected_retry_id" ] || [ -n "$expected_retry_identity" ]; then
+  if [[ ! "$expected_retry_id" =~ ^[1-9][0-9]*$ ]] ||
+    [[ ! "$expected_retry_identity" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "Authorized release retry identity is incomplete or invalid" >&2
+    exit 1
+  fi
+  strict_retry=true
+fi
 
 if [[ ! "$tag" =~ ^v[0-9]+(\.[0-9]+){1,3}$ ]]; then
   echo "Invalid release tag: $tag" >&2
@@ -92,8 +112,12 @@ elif len(matches) == 1:
 else:
     raise SystemExit(f"Multiple GitHub releases use tag {expected_tag}")
 PY
-)"
+    )"
     if [ "$selection" = missing ]; then
+      if [ "$strict_retry" = true ]; then
+        echo "Previously authorized release $expected_retry_id is no longer available" >&2
+        exit 1
+      fi
       echo "exists=false" >>"$output_file"
       exit 0
     fi
@@ -106,6 +130,7 @@ fi
 
 inspection="$(python3 - "$release_json" "$tag" "$asset_map" <<'PY'
 import json
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -192,20 +217,60 @@ draft = release["draft"]
 prerelease = release["prerelease"]
 visibility = "prerelease" if prerelease else ("draft" if draft else "public")
 if oversized:
-    print(f"invalid\t{visibility}\t{release_id}\toversized asset")
+    state, reason = "invalid", "oversized asset"
 elif invalid_metadata and not (missing or unexpected or empty or unfinished):
-    print(f"invalid\t{visibility}\t{release_id}\tinvalid asset metadata")
+    state, reason = "invalid", "invalid asset metadata"
 elif missing or unexpected or empty or unfinished:
-    print(f"incomplete\t{visibility}\t{release_id}\tincomplete asset set")
+    state, reason = "incomplete", "incomplete asset set"
 else:
     asset_map_path.write_text(
         "".join(f"{name}\t{assets[name]['id']}\n" for name in sorted(required)),
         encoding="utf-8",
     )
-    print(f"complete\t{visibility}\t{release_id}\tverified asset metadata")
+    state, reason = "complete", "verified asset metadata"
+
+identity = "unavailable"
+if state == "complete":
+    identity_payload = {
+        "id": release_id,
+        "tag_name": release["tag_name"],
+        "assets": [
+            {
+                "id": assets[name]["id"],
+                "name": name,
+                "size": assets[name]["size"],
+                "digest": assets[name]["digest"],
+                "state": assets[name]["state"],
+            }
+            for name in sorted(required)
+        ],
+    }
+    canonical = json.dumps(
+        identity_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    identity = hashlib.sha256(canonical).hexdigest()
+print(f"{state}\t{visibility}\t{release_id}\t{reason}\t{identity}")
 PY
 )"
-IFS=$'\t' read -r state visibility release_id inspection_reason <<<"$inspection"
+IFS=$'\t' read -r state visibility release_id inspection_reason release_identity \
+  <<<"$inspection"
+
+if [ "$strict_retry" = true ]; then
+  if [ "$release_id" != "$expected_retry_id" ]; then
+    echo "Previously authorized release ID changed" >&2
+    exit 1
+  fi
+  if [ "$state" != complete ]; then
+    echo "Previously authorized release $release_id is no longer complete" >&2
+    exit 1
+  fi
+  if [ "$release_identity" != "$expected_retry_identity" ]; then
+    echo "Previously authorized release identity changed" >&2
+    exit 1
+  fi
+fi
 
 if [ "$state" = invalid ]; then
   echo "GitHub release $tag has $inspection_reason; refusing to download it" >&2

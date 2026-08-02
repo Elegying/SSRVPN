@@ -127,7 +127,8 @@ python3 -m unittest \\
         publish = workflow[workflow.index("  publish:\n") :]
         publish_header = publish[: publish.index("    steps:\n")]
         self.assertIn(
-            "    needs: [shared-test, build-android, build-macos, build-windows]\n",
+            "    needs: [validate-source, shared-test, build-android, "
+            "build-macos, build-windows]\n",
             publish_header,
         )
 

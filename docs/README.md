@@ -49,6 +49,7 @@
 - [ADR-008：macOS API Secret 的会话轮换边界](decisions/008-macos-session-api-secret-rotation.md)
 - [ADR-009：macOS Release 权限最小化](decisions/009-macos-release-entitlement-minimization.md)
 - [ADR-010：以行为证据控制高风险职责拆分](decisions/010-risk-controlled-maintainability-boundaries.md)
+- [ADR-011：只在正式发版前刷新并强制验证 GeoIP](decisions/011-release-gated-geoip-refresh.md)
 
 ## 文档维护规则
 

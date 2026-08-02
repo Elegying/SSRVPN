@@ -62,18 +62,39 @@ the `Elegying/SSRVPN/releases/download/core-assets-v1/` path and verifies both
 hashes before installing the same bytes for all three platforms. It never needs
 the upstream project's mutable Release during a normal CI or release build.
 
-The daily `Maintenance` workflow's `geoip-refresh` task independently downloads
-and verifies the latest upstream checksum, API digest, and database, produces deterministic gzip,
-uploads a missing content-addressed mirror asset without overwrite, and reads it
-back through the public bootstrap URL. Only after that verification succeeds may
-it open a uniquely named PR changing `GEOIP_SOURCE.txt`. An expired Asset ID in
-the previous upstream provenance therefore cannot block the refresh. The trust
-boundary disables redirects on authenticated API calls; mirror readback permits
-only GitHub's HTTPS download/CDN hosts and strips credentials from redirects.
-Concurrent same-name uploads are re-listed and accepted only when the public
-gzip/raw hashes match. These trust boundaries and the prohibition on replacing
-or deleting referenced assets are recorded in
-[ADR-005](decisions/005-content-addressed-geoip-mirror.md).
+The `Maintenance` workflow's manual `geoip-refresh` task is the first required
+release-preparation step. It independently downloads and verifies the latest
+upstream checksum, API digest, and database, produces deterministic gzip, uploads
+a missing content-addressed mirror asset without overwrite, and reads it back
+through the public bootstrap URL. Only after that verification succeeds may it
+open a uniquely named PR changing `GEOIP_SOURCE.txt`; merge that PR before
+creating the application release tag. There is no scheduled GeoIP freshness job.
+An expired Asset ID in the previous upstream provenance therefore cannot block
+the manual refresh. The trust boundary disables redirects on authenticated API
+calls; mirror readback permits only GitHub's HTTPS download/CDN hosts and strips
+credentials from redirects. Concurrent same-name uploads are re-listed and
+accepted only when the public gzip/raw hashes match.
+
+For a new release, `release.yml` bootstraps and verifies the reviewed pinned
+asset, then runs `sync-geoip-metadb.py --check` against upstream `latest` without
+writing files. It re-reads the upstream release and asset identity after content
+verification, so a concurrent `latest` rollover also fails before platform builds.
+Only a recovery retry backed by an exact-tag Release whose IDs, upload states,
+digests, commit, and provenance all validate may reuse the immutable snapshot
+without repeating the live freshness gate. Hidden drafts are located through a
+read-only paginated API fallback and provenance is fetched by validated asset ID;
+missing, duplicate, incomplete, or unreachable releases fail closed. The validated
+Release ID and a canonical hash of every asset identity are passed to the publish
+job and verified again. If that Release disappears or changes while builds run,
+publishing fails instead of deleting the draft or creating a replacement. Retry
+finalization, public-state polling, and post-publication validation use that numeric
+Release ID; only the expected draft-to-public transition is excluded from the
+immutable asset identity. The retry identity is checked after OSS promotion but
+before the numeric-ID PATCH, and again after the public-state poll before the OSS
+recovery backup is discarded. These trust boundaries are recorded in
+[ADR-005](decisions/005-content-addressed-geoip-mirror.md), and the release-only
+refresh policy is recorded in
+[ADR-011](decisions/011-release-gated-geoip-refresh.md).
 
 `scripts/verify-core-assets.sh` checks fixed SHA256 hashes, macOS decompressed
 executable equivalence, and bundled GeoIP databases. The same checks run in CI
