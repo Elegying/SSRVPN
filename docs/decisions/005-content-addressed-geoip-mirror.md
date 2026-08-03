@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受；每日自动刷新策略已由 [ADR-011](011-release-gated-geoip-refresh.md) 取代
+已接受；每日自动刷新策略已由 [ADR-011](011-release-gated-geoip-refresh.md) 取代，正式发版编排由 [ADR-012](012-automatic-release-preparation.md) 补充
 
 ## 日期
 
@@ -37,8 +37,8 @@ freshness 任务把未经校验的上游内容直接带入发布构建。
    路径，限制下载大小、协议和超时，并同时验证 gzip SHA-256 与有界解压后的原始 SHA-256。
    镜像回读只允许 `github.com`、`release-assets.githubusercontent.com` 和
    `objects.githubusercontent.com` 的 HTTPS 链路，拒绝降级到 HTTP 或跳转到其他主机。
-5. `Maintenance` 的手动 `geoip-refresh` 是唯一会根据上游 `latest` 写入候选来源记录并上传
-   镜像的自动化边界。它按以下顺序执行：
+5. `Prepare Release` 与 `Maintenance` 的手动 `geoip-refresh` 是仅有的、复用同一验证链并会
+   根据上游 `latest` 写入候选来源记录和上传镜像的自动化边界。它们按以下顺序执行：
    上游 checksum/API digest/实际内容校验 → deterministic gzip → 缺失时上传内容寻址镜像
    → 从公共镜像 URL 回读并验证双 SHA-256 → 创建只修改来源记录的 PR。旧来源记录中的
    upstream URL 即使已返回 404，也不得在这条自愈链路开始前被 bootstrap 访问。
@@ -67,8 +67,8 @@ freshness 任务把未经校验的上游内容直接带入发布构建。
 ## 结果
 
 - 全新 runner 可以仅凭已提交来源记录重建三端 GeoIP 资产。
-- 每次发版前的手动更新仍保留完整上游出处，且镜像存在并能从真实 bootstrap URL 回读后
-  才进入代码审查。
+- 每次发版前的自动准备仍保留完整上游出处，且镜像存在并能从真实 bootstrap URL 回读后
+  才进入受保护分支 CI 和代码审查；手动 Maintenance 仅作为恢复入口。
 - 支持 prerelease 成为必须长期保留的运维资源；仓库所有者需保护其 tag 和已引用资产，
   并确保它永远不成为应用 `latest`。
 - GitHub Release 仍由仓库管理员控制，并非不可篡改账本；内容寻址名称和双哈希让错误替换
@@ -111,3 +111,4 @@ Asset ID 会随上游每日 Release 替换被删除，已经证明不能提供�
 - [GeoIP 来源记录](../GEOIP_SOURCE.txt)
 - [发布检查清单](../RELEASE_CHECKLIST.zh-CN.md)
 - [ADR-011：只在正式发版前刷新并强制验证 GeoIP](011-release-gated-geoip-refresh.md)
+- [ADR-012：自动准备可复现的正式版本](012-automatic-release-preparation.md)

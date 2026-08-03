@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 改进
 
+- 正式发版新增一键 `Prepare Release` 编排：自动刷新并固定 GeoIP，临时分支 CI 与合并后精确 `main` CI 均通过后才创建不可变标签并启动既有 Release；任一前置检查失败都会停在标签之前，标签后的发布失败则保留原标签供安全重试。
 - 共享更新服务按稳定入口、下载/取消、校验后发布/恢复拆分；macOS 原生核心支持、单实例租约和窗口恢复从 `AppDelegate` 迁出；Windows 系统代理快照与取消模型迁入同一 Dart library 的独立 part。
 - 新增职责回流与规模护栏，固定更新服务、macOS 原生支持、Windows 系统代理、Android VPN Service 和 Windows 安装恢复的渐进维护边界；高风险事务执行顺序保持不变。
 - 全部受版本控制 Dart 源码纳入格式门禁，全部 Shell 脚本纳入 ShellCheck；共享包和三端启用严格类型分析并清理现有告警。

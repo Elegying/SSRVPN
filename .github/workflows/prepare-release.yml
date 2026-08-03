@@ -1,0 +1,47 @@
+name: Prepare Release
+run-name: Prepare ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: New release tag matching the app version, for example v4.0.2
+        required: true
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ssrvpn-release-preparation
+  cancel-in-progress: false
+
+jobs:
+  prepare-release:
+    name: Refresh GeoIP, verify, tag, and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Prepare and start the release
+        id: prepare
+        run: bash scripts/prepare-release.sh "$RELEASE_TAG"
+
+      - name: Report release orchestration
+        if: always()
+        env:
+          RELEASE_RUN_URL: ${{ steps.prepare.outputs.release_run_url }}
+        run: |
+          if [ -n "$RELEASE_RUN_URL" ]; then
+            echo "Release workflow: $RELEASE_RUN_URL" >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受；取代 ADR-005 中的每日自动刷新策略，不改变其内容寻址镜像和双哈希信任边界
+已由 [ADR-012](012-automatic-release-preparation.md) 取代其中的人工发版编排；取消每日刷新、内容寻址镜像、双哈希和 Release 只读门禁继续有效
 
 ## 日期
 
@@ -82,5 +82,6 @@ Release 构建阶段直接写入上游 `latest` 实现，因为应用 tag、提�
 ## 相关文档
 
 - [ADR-005：使用 SSRVPN 自控的内容寻址 GeoIP 镜像](005-content-addressed-geoip-mirror.md)
+- [ADR-012：自动准备可复现的正式版本](012-automatic-release-preparation.md)
 - [核心资产来源](../CORE_ASSETS.md)
 - [发布检查清单](../RELEASE_CHECKLIST.zh-CN.md)

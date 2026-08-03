@@ -50,6 +50,7 @@
 - [ADR-009：macOS Release 权限最小化](decisions/009-macos-release-entitlement-minimization.md)
 - [ADR-010：以行为证据控制高风险职责拆分](decisions/010-risk-controlled-maintainability-boundaries.md)
 - [ADR-011：只在正式发版前刷新并强制验证 GeoIP](decisions/011-release-gated-geoip-refresh.md)
+- [ADR-012：自动准备可复现的正式版本](decisions/012-automatic-release-preparation.md)
 
 ## 文档维护规则
 

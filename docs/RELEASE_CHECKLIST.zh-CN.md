@@ -4,9 +4,8 @@
 
 ## 发布前
 
-1. 在 GitHub Actions 手动运行 `Maintenance`，任务选择 `geoip-refresh`。审查并合并它创建的
-   `GEOIP_SOURCE.txt` 更新 PR，等待合并后的 `main` CI 全绿；完成前不得创建或推送应用版本
-   tag。GeoIP 不再定时自动检查。
+1. 不再单独运行 `Maintenance > geoip-refresh`。先完成版本号和 changelog 修改并合入 `main`；
+   后续 `Prepare Release` 会在创建 tag 前自动刷新 GeoIP。GeoIP 不再定时自动检查。
 2. 确认版本号一致：
 
    ```bash
@@ -31,9 +30,10 @@
    scripts/verify-core-assets.sh
    python3 scripts/sync-geoip-metadb.py --check
    ```
-   正式 Release workflow 会在三端构建前重复这项最新性门禁；失败时必须重新运行手动刷新、
-   合并新 PR 后再创建新的 release tag，禁止在 Release 中动态改写已有 tag 的输入。门禁会在
-   内容校验完成后再次确认上游 Release 和资产身份；校验期间 `latest` 发生滚动也必须失败。
+   `Prepare Release` 会在无 tag 状态下刷新来源记录；正式 Release workflow 会在三端构建前
+   重复只读最新性门禁。若此时上游已滚动，必须回到 `main` 更新版本并使用新的 tag 重新运行
+   准备流程，禁止删除、移动旧 tag 或在 Release 中动态改写已有 tag 的输入。门禁会在内容校验
+   完成后再次确认上游 Release 和资产身份；校验期间 `latest` 发生滚动也必须失败。
    只有精确 tag 下的 Release/资产 ID、上传完成状态、摘要、commit 与 provenance 全部一致的
    已有发布恢复重试，才允许复用原 tag 快照；授权阶段固定的 Release ID 与全资产规范身份会在
    发布 job 再次验证。构建期间 Release 消失、变残或被替换时必须失败，禁止删除后新建；缺失、
@@ -97,28 +97,27 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 
 ## 发布
 
-1. 切换到已通过必需 CI 的 `main`，更新远程引用，并确认工作树干净、本地 `HEAD`
-   与当前 `origin/main` 完全一致：
-
-   ```bash
-   git switch main
-   git fetch origin
-   test -z "$(git status --porcelain)"
-   test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
-   ```
-
-2. 在该提交上创建 annotated tag，再复核 tag 目标就是当前已测试的 `main`：
-
-   ```bash
-   git tag -a vX.Y.Z -m "SSRVPN vX.Y.Z"
-   test "$(git rev-list -n 1 vX.Y.Z)" = "$(git rev-parse HEAD)"
-   git push origin vX.Y.Z
-   ```
-
-3. 等待 GitHub Actions 的 `Release` workflow 完成。
+1. 运行 `Prepare Release`。GeoIP 有变化时，它先把只修改 `GEOIP_SOURCE.txt` 的临时分支交给
+   六项必需 CI；全绿后创建并 rebase 合并 PR。随后对合并后的精确 `main` 提交再次调度六项
+   CI，在 tag 前再次只读确认 GeoIP 仍是上游最新，并确认 `main` 在验证期间没有前移。
+2. 只有上述步骤全部通过且远端不存在同名 tag/Release 时，编排才创建 annotated tag，并通过
+   `workflow_dispatch` 显式启动该 tag 上的 `Release`。CI、合并、分支树一致性或 GitHub API
+   状态任一不明确都会失败关闭；失败分支在尚未创建 PR 时自动删除，已经创建的 PR 保留诊断。
+3. 等待 `Prepare Release` 所跟踪的 `Release` workflow 完成。
    工作流会先创建 Draft Release、上传并验证 OSS 不可变目录，然后备份并推广
    OSS 固定下载通道，最后公开 GitHub Release。GitHub 未能明确转为正式 Release
    时不得人工推进；按失败日志确认自动恢复结果或使用保留的恢复 Artifact。
+
+### 手动恢复入口
+
+只有 `Prepare Release` 本身不可用时，才手动运行 `Maintenance > geoip-refresh`，合并其 PR 并
+等待 `main` CI 全绿，再按传统方式创建 annotated tag。手工推送的新 tag 仍会触发 `Release`
+的只读 GeoIP 最新性门禁，不能绕过来源记录和版本转换校验。
+
+若 `Prepare Release` 已成功推送 tag，但 `Release` 调度失败或等待超时，不得删除、移动 tag，
+也不得用同名 tag 重跑准备流程。先确认没有重复的 Release run，再在 GitHub Actions 选择该
+精确 tag 手动运行 `Release`，或执行 `gh workflow run release.yml --ref vX.Y.Z`；既有 Release
+重试仍必须通过精确 tag、commit、资产和 provenance 身份校验。
 
 ## 发布后
 

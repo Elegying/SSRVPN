@@ -57,7 +57,7 @@ make verify
 3. 修改代码和文档。
 4. 跑测试和必要构建。
 5. 提交到 GitHub。
-6. 需要发布时打 tag，让 GitHub Actions 生成三端产物。
+6. 需要发布时运行 GitHub Actions 的 `Prepare Release`，让它在全部检查通过后自动打 tag 并生成三端产物。
 
 ## 什么文件不要手动动
 
@@ -85,14 +85,12 @@ GitHub Release workflow 必须继续使用同一套签名 secrets。本地可以
 
 ## 当前发布方式
 
-发布版本时使用与当前源码版本一致的标签，例如：
+发布版本时，在 GitHub Actions 打开 `Prepare Release`，输入与当前源码版本一致且尚不存在的
+标签，例如 `vX.Y.Z`。它会自动刷新 GeoIP、运行临时分支和合并后 `main` 的完整检查、合并
+来源记录、创建标签并启动正式构建，不要提前手工创建 tag。只有自动编排不可用时，才按发布
+检查清单使用 `Maintenance > geoip-refresh` 和手工标签回退流程。
 
-```bash
-git tag -a vX.Y.Z -m "SSRVPN vX.Y.Z"
-git push origin vX.Y.Z
-```
-
-推送 `v*` 标签后，GitHub 会自动构建：
+准备流程完成后，GitHub 会自动构建：
 
 - Android APK
 - macOS DMG
