@@ -114,7 +114,7 @@ Pull Request 还会执行 GitHub Dependency Review；新增中等及以上已知
 
 ## 发布
 
-匹配 `v*` 的 tag 会触发 GitHub Actions 构建并上传三端产物及 SHA-256。macOS 始终生成 ad-hoc、未公证 DMG，Windows 只生成未签名安装器；仓库不保留付费桌面签名自动化。发布前必须保持 `main`、版本号、CHANGELOG 与资产清单一致，并在发布后重新下载校验。
+正式发版从 GitHub Actions 的 `Prepare Release` 启动：输入与源码版本一致的新 `v*` tag 后，工作流会自动刷新 GeoIP、验证临时分支、合并来源记录、复验精确 `main`、创建标签并启动 `Release`。macOS 始终生成 ad-hoc、未公证 DMG，Windows 只生成未签名安装器；仓库不保留付费桌面签名自动化。发布前必须保持 `main`、版本号、CHANGELOG 与资产清单一致，并在发布后重新下载校验。
 
 详细流程见 [发布检查清单](docs/RELEASE_CHECKLIST.zh-CN.md)、[免费分发与签名说明](docs/RELEASE_SIGNING.md) 与 [OSS 运维手册](docs/OSS_RELEASE_OPERATIONS.zh-CN.md)。
 

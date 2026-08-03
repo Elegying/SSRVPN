@@ -62,13 +62,15 @@ the `Elegying/SSRVPN/releases/download/core-assets-v1/` path and verifies both
 hashes before installing the same bytes for all three platforms. It never needs
 the upstream project's mutable Release during a normal CI or release build.
 
-The `Maintenance` workflow's manual `geoip-refresh` task is the first required
-release-preparation step. It independently downloads and verifies the latest
-upstream checksum, API digest, and database, produces deterministic gzip, uploads
-a missing content-addressed mirror asset without overwrite, and reads it back
-through the public bootstrap URL. Only after that verification succeeds may it
-open a uniquely named PR changing `GEOIP_SOURCE.txt`; merge that PR before
-creating the application release tag. There is no scheduled GeoIP freshness job.
+The `Prepare Release` workflow is the normal release entrypoint. Before any tag
+exists, it independently downloads and verifies the latest upstream checksum,
+API digest, and database, produces deterministic gzip, uploads a missing
+content-addressed mirror asset without overwrite, and reads it back through the
+public bootstrap URL. When the source record changes, it verifies the temporary
+branch, creates and rebase-merges a PR changing only `GEOIP_SOURCE.txt`, reruns CI
+on the exact merged `main`, and only then creates the application tag and starts
+`release.yml`. `Maintenance > geoip-refresh` retains the same mirror boundary as a
+manual recovery entrypoint. There is no scheduled GeoIP freshness job.
 An expired Asset ID in the previous upstream provenance therefore cannot block
 the manual refresh. The trust boundary disables redirects on authenticated API
 calls; mirror readback permits only GitHub's HTTPS download/CDN hosts and strips
@@ -94,7 +96,9 @@ before the numeric-ID PATCH, and again after the public-state poll before the OS
 recovery backup is discarded. These trust boundaries are recorded in
 [ADR-005](decisions/005-content-addressed-geoip-mirror.md), and the release-only
 refresh policy is recorded in
-[ADR-011](decisions/011-release-gated-geoip-refresh.md).
+[ADR-011](decisions/011-release-gated-geoip-refresh.md), superseded for release
+orchestration by
+[ADR-012](decisions/012-automatic-release-preparation.md).
 
 `scripts/verify-core-assets.sh` checks fixed SHA256 hashes, macOS decompressed
 executable equivalence, and bundled GeoIP databases. The same checks run in CI
