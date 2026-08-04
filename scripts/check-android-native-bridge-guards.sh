@@ -701,6 +701,24 @@ for needle in \
   }
 done
 for needle in \
+  'rawRunning is! bool || rawTransitioning is! bool' \
+  'running != (sessionGeneration != null)' \
+  '无法确认原生 VPN 启动状态'; do
+  grep -Fq "$needle" "$CLASH_NATIVE_BRIDGE" "$CLASH_DART" || {
+    echo "Android native state validation guard failed: missing '$needle'" >&2
+    exit 1
+  }
+done
+for needle in \
+  '"PERMISSION_DENIED"' \
+  'Unable to request VPN permission' \
+  '无法打开 VPN 授权页面，请检查系统设置后重试'; do
+  grep -Fq "$needle" "$MAIN_ACTIVITY" || {
+    echo "Android VPN permission UX guard failed: missing '$needle'" >&2
+    exit 1
+  }
+done
+for needle in \
   "gate.runIfCurrent(expectedSessionGeneration)" \
   "NativeConnectionSnapshotStore.updateSelectedNode" \
   "NativeConnectionSnapshotStore.write"; do

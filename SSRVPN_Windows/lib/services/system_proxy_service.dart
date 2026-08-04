@@ -175,9 +175,7 @@ class SystemProxyService {
             );
           }
         } else {
-          await _markIncompleteRestorePending(
-            '上次异常退出后的系统代理设置未能恢复',
-          );
+          await _markIncompleteRestorePending('上次异常退出后的系统代理设置未能恢复');
         }
       });
     } on ProcessTerminationNotConfirmedException catch (error) {
@@ -245,12 +243,10 @@ class SystemProxyService {
       cancellation,
     );
     try {
-      return await _withProxyTransactionLock(
-        () async {
-          if (!await _awaitPendingCancelledProxyCommandExit()) return false;
-          return _setSystemProxyUnlocked(host, port, cancellationSignal);
-        },
-      );
+      return await _withProxyTransactionLock(() async {
+        if (!await _awaitPendingCancelledProxyCommandExit()) return false;
+        return _setSystemProxyUnlocked(host, port, cancellationSignal);
+      });
     } on _SystemProxyAcquisitionCancelled {
       _lastError = '设置 Windows 系统代理已取消';
       return false;
@@ -266,14 +262,12 @@ class SystemProxyService {
       return SystemProxyOwnershipStatus.unavailable;
     }
     try {
-      return await _withProxyTransactionLock(
-        () async {
-          if (!await _awaitPendingCancelledProxyCommandExit()) {
-            return SystemProxyOwnershipStatus.unavailable;
-          }
-          return _currentSystemProxyOwnershipStatusUnlocked();
-        },
-      );
+      return await _withProxyTransactionLock(() async {
+        if (!await _awaitPendingCancelledProxyCommandExit()) {
+          return SystemProxyOwnershipStatus.unavailable;
+        }
+        return _currentSystemProxyOwnershipStatusUnlocked();
+      });
     } on ProcessTerminationNotConfirmedException catch (error) {
       _deferRecoveryUntilProcessExit(
         error,
@@ -332,9 +326,7 @@ class SystemProxyService {
 
     try {
       cancellation.throwIfRequested();
-      if (!await isLauncherGuardianReady(
-        cancellation: cancellation.future,
-      )) {
+      if (!await isLauncherGuardianReady(cancellation: cancellation.future)) {
         cancellation.throwIfRequested();
         _lastError = '独立系统代理保护未就绪，请通过 ssrvpn_windows.exe 启动或重试';
         return false;
@@ -364,11 +356,7 @@ class SystemProxyService {
         // fail closed instead of letting another acquisition overwrite it.
         _ownsProxy = true;
         preparedThisAttempt = true;
-        await _writeBackup(
-          snapshot,
-          proxyServer,
-          cancellation: cancellation,
-        );
+        await _writeBackup(snapshot, proxyServer, cancellation: cancellation);
         cancellation.throwIfRequested();
       }
 
@@ -797,14 +785,11 @@ try {
 
   void _trackPendingCancelledProxyCommand(Future<int> processExit) {
     _pendingCancelledProxyCommandExit = processExit;
-    processExit.then<void>(
-      (_) {
-        if (identical(_pendingCancelledProxyCommandExit, processExit)) {
-          _pendingCancelledProxyCommandExit = null;
-        }
-      },
-      onError: (_, __) {},
-    );
+    processExit.then<void>((_) {
+      if (identical(_pendingCancelledProxyCommandExit, processExit)) {
+        _pendingCancelledProxyCommandExit = null;
+      }
+    }, onError: (_, __) {});
   }
 
   Future<bool> _awaitPendingCancelledProxyCommandExit() async {
@@ -945,10 +930,7 @@ if ([int]\$item.EndpointRestoreInProgress -eq 1 -and
 }
 ''');
     if (result.exitCode != 0) {
-      _lastError = _formatPowerShellError(
-        '读取 Windows 原生代理恢复阶段失败',
-        result,
-      );
+      _lastError = _formatPowerShellError('读取 Windows 原生代理恢复阶段失败', result);
       return null;
     }
     final output = result.stdout.toString().trim();
@@ -1015,10 +997,20 @@ if ($null -ne $item.PSObject.Properties['AutoDetect'] -and
     }
 
     final output = result.stdout.toString().trim();
-    if (output.isEmpty) return null;
-    return _ProxySnapshot.fromJson(
-      jsonDecode(output) as Map<String, dynamic>,
-    );
+    if (output.isEmpty) {
+      _lastError = 'Windows 系统代理返回了空状态，未修改代理';
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(output);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Windows proxy state is not an object');
+      }
+      return _ProxySnapshot.fromJson(decoded);
+    } catch (error) {
+      _lastError = 'Windows 系统代理返回了无法验证的状态，未修改代理';
+      return null;
+    }
   }
 
   Future<bool> _restoreSnapshot(_ProxySnapshot snapshot) async {
@@ -1180,9 +1172,7 @@ Set-ItemProperty -Path \$runOncePath -Name '$_runOnceValueName' -Type String `
       throw const _SystemProxyAcquisitionCancelled();
     }
     if (result.exitCode != 0) {
-      throw StateError(
-        _formatPowerShellError('注册 Windows 代理恢复任务失败', result),
-      );
+      throw StateError(_formatPowerShellError('注册 Windows 代理恢复任务失败', result));
     }
   }
 
@@ -1328,9 +1318,7 @@ Set-ItemProperty -Path \$backupPath -Name Valid -Type DWord -Value 1
       throw const _SystemProxyAcquisitionCancelled();
     }
     if (result.exitCode != 0) {
-      throw StateError(
-        _formatPowerShellError('写入 Windows 原生代理恢复状态失败', result),
-      );
+      throw StateError(_formatPowerShellError('写入 Windows 原生代理恢复状态失败', result));
     }
   }
 
@@ -1346,9 +1334,7 @@ Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Valu
       throw const _SystemProxyAcquisitionCancelled();
     }
     if (result.exitCode != 0) {
-      throw StateError(
-        _formatPowerShellError('更新 Windows 原生代理恢复状态失败', result),
-      );
+      throw StateError(_formatPowerShellError('更新 Windows 原生代理恢复状态失败', result));
     }
 
     final statePath = _statePath;

@@ -323,7 +323,12 @@ class MainActivity : FlutterActivity() {
                     requestNotificationPermissionOnce()
                     result.success(capturedState)
                 } else {
-                    result.error("CORE_FAILED", message, null)
+                    val errorCode = if (message == "用户拒绝了 VPN 权限") {
+                        "PERMISSION_DENIED"
+                    } else {
+                        "CORE_FAILED"
+                    }
+                    result.error(errorCode, message, null)
                 }
             }
         }
@@ -356,14 +361,19 @@ class MainActivity : FlutterActivity() {
         )
         startTimeoutRunnable = timeoutRunnable
 
-        val vpnIntent = VpnService.prepare(this)
-        if (vpnIntent != null) {
-            Log.d("MainActivity", "Requesting VPN permission...")
-            vpnPermissionRequestPending = true
-            startActivityForResult(vpnIntent, VPN_REQUEST_CODE)
-        } else {
-            Log.d("MainActivity", "VPN permission already granted, starting service...")
-            startVpnServiceWithTimeout()
+        try {
+            val vpnIntent = VpnService.prepare(this)
+            if (vpnIntent != null) {
+                Log.d("MainActivity", "Requesting VPN permission...")
+                vpnPermissionRequestPending = true
+                startActivityForResult(vpnIntent, VPN_REQUEST_CODE)
+            } else {
+                Log.d("MainActivity", "VPN permission already granted, starting service...")
+                startVpnServiceWithTimeout()
+            }
+        } catch (error: Exception) {
+            Log.e("MainActivity", "Unable to request VPN permission", error)
+            cancelPendingActivityStart("无法打开 VPN 授权页面，请检查系统设置后重试")
         }
     }
 

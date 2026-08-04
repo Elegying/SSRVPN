@@ -8,26 +8,26 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
   test(
-      'effective proxy ownership detects an external change without mutating it',
-      () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'ssrvpn_macos_proxy_effective_ownership_',
-    );
-    addTearDown(() => tempDirectory.delete(recursive: true));
-    var effectiveProxyOwned = true;
-    var effectiveProxyReadable = true;
-    final mutationCommands = <List<String>>[];
-    final service = SystemProxyService(
-      beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
-      endProxyLifecycleTransaction: (_) async => true,
-      networkServiceIdentityRunner: () async => {
-        'Wi-Fi': 'test-service-wifi',
-      },
-      effectiveProxyRunner: () async => ProcessResult(
-        1,
-        effectiveProxyReadable ? 0 : 124,
-        effectiveProxyOwned
-            ? '''<dictionary> {
+    'effective proxy ownership detects an external change without mutating it',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_proxy_effective_ownership_',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      var effectiveProxyOwned = true;
+      var effectiveProxyReadable = true;
+      final mutationCommands = <List<String>>[];
+      final service = SystemProxyService(
+        beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
+        endProxyLifecycleTransaction: (_) async => true,
+        networkServiceIdentityRunner: () async => {
+          'Wi-Fi': 'test-service-wifi',
+        },
+        effectiveProxyRunner: () async => ProcessResult(
+          1,
+          effectiveProxyReadable ? 0 : 124,
+          effectiveProxyOwned
+              ? '''<dictionary> {
   HTTPEnable : 1
   HTTPPort : 7890
   HTTPProxy : 127.0.0.1
@@ -38,7 +38,7 @@ void main() {
   SOCKSPort : 7890
   SOCKSProxy : 127.0.0.1
 }'''
-            : '''<dictionary> {
+              : '''<dictionary> {
   HTTPEnable : 1
   HTTPPort : 8888
   HTTPProxy : 127.0.0.1
@@ -49,50 +49,46 @@ void main() {
   SOCKSPort : 8888
   SOCKSProxy : 127.0.0.1
 }''',
-        '',
-      ),
-      networkSetupRunner: (arguments) async {
-        if (arguments.first == '-listallnetworkservices') {
-          return ProcessResult(1, 0, 'Wi-Fi\n', '');
-        }
-        if (arguments.first.startsWith('-get')) {
-          return ProcessResult(
-            1,
-            0,
-            'Enabled: No\nServer: \nPort: 0\n',
-            '',
-          );
-        }
-        mutationCommands.add(List<String>.from(arguments));
-        return ProcessResult(1, 0, '', '');
-      },
-    );
-    await service.initialize(tempDirectory.path);
-    expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
-    final mutationsAfterSetup = mutationCommands.length;
+          '',
+        ),
+        networkSetupRunner: (arguments) async {
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, 'Wi-Fi\n', '');
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(1, 0, 'Enabled: No\nServer: \nPort: 0\n', '');
+          }
+          mutationCommands.add(List<String>.from(arguments));
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+      await service.initialize(tempDirectory.path);
+      expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+      final mutationsAfterSetup = mutationCommands.length;
 
-    expect(
-      await service.currentSystemProxyOwnershipStatus(),
-      SystemProxyOwnershipStatus.owned,
-    );
-    expect(await service.isCurrentSystemProxyOwned(), isTrue);
+      expect(
+        await service.currentSystemProxyOwnershipStatus(),
+        SystemProxyOwnershipStatus.owned,
+      );
+      expect(await service.isCurrentSystemProxyOwned(), isTrue);
 
-    effectiveProxyOwned = false;
-    expect(
-      await service.currentSystemProxyOwnershipStatus(),
-      SystemProxyOwnershipStatus.externallyChanged,
-    );
-    expect(await service.isCurrentSystemProxyOwned(), isFalse);
-    expect(mutationCommands, hasLength(mutationsAfterSetup));
-    expect(service.lastError, contains('关闭或修改'));
+      effectiveProxyOwned = false;
+      expect(
+        await service.currentSystemProxyOwnershipStatus(),
+        SystemProxyOwnershipStatus.externallyChanged,
+      );
+      expect(await service.isCurrentSystemProxyOwned(), isFalse);
+      expect(mutationCommands, hasLength(mutationsAfterSetup));
+      expect(service.lastError, contains('关闭或修改'));
 
-    effectiveProxyReadable = false;
-    expect(
-      await service.currentSystemProxyOwnershipStatus(),
-      SystemProxyOwnershipStatus.unavailable,
-    );
-    expect(mutationCommands, hasLength(mutationsAfterSetup));
-  });
+      effectiveProxyReadable = false;
+      expect(
+        await service.currentSystemProxyOwnershipStatus(),
+        SystemProxyOwnershipStatus.unavailable,
+      );
+      expect(mutationCommands, hasLength(mutationsAfterSetup));
+    },
+  );
 
   test('native lifecycle lease brackets every proxy mutation', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
@@ -120,12 +116,7 @@ void main() {
           return ProcessResult(1, 0, 'Wi-Fi\n', '');
         }
         if (arguments.first.startsWith('-get')) {
-          return ProcessResult(
-            1,
-            0,
-            'Enabled: No\nServer: \nPort: 0\n',
-            '',
-          );
+          return ProcessResult(1, 0, 'Enabled: No\nServer: \nPort: 0\n', '');
         }
         return ProcessResult(1, 0, '', '');
       },
@@ -150,107 +141,60 @@ void main() {
     );
   });
 
-  test('native lifecycle lease is released after proxy setup failure',
-      () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'ssrvpn_macos_proxy_lifecycle_failure_',
-    );
-    addTearDown(() => tempDirectory.delete(recursive: true));
-    final events = <String>[];
-    var tokenCounter = 0;
-    final service = _testSystemProxyService(
-      beginProxyLifecycleTransaction: () async {
-        final token = 'lease-${++tokenCounter}';
-        events.add('begin:$token');
-        return token;
-      },
-      endProxyLifecycleTransaction: (token) async {
-        events.add('end:$token');
-        return true;
-      },
-      networkSetupRunner: (arguments) async {
-        events.add('network:${arguments.join(' ')}');
-        if (arguments.first == '-listallnetworkservices') {
-          return ProcessResult(1, 0, 'Wi-Fi\n', '');
-        }
-        if (arguments.first.startsWith('-get')) {
-          throw StateError('controlled proxy read failure');
-        }
-        return ProcessResult(1, 0, '', '');
-      },
-    );
-    await service.initialize(tempDirectory.path);
-    events.clear();
-
-    expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
-
-    expect(events.first, 'begin:lease-2');
-    expect(events.last, 'end:lease-2');
-    expect(events.where((event) => event.startsWith('begin:')), hasLength(1));
-    expect(events.where((event) => event.startsWith('end:')), hasLength(1));
-  });
-
-  test('ownership-only proxy snapshot stays unresolved without commands',
-      () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'ssrvpn_macos_proxy_ownership_only_',
-    );
-    addTearDown(() => tempDirectory.delete(recursive: true));
-    final snapshot = File('${tempDirectory.path}/system_proxy.json');
-    final originalSnapshot = jsonEncode({
-      '_ownedProxyHost': '127.0.0.1',
-      '_ownedProxyPort': 7890,
-      '_ownerPid': 4242,
-    });
-    await snapshot.writeAsString(originalSnapshot, flush: true);
-    final commands = <List<String>>[];
-    final service = _testSystemProxyService(
-      networkSetupRunner: (arguments) async {
-        commands.add(arguments);
-        return ProcessResult(1, 1, '', 'must not run');
-      },
-    );
-
-    await service.initialize(tempDirectory.path);
-
-    expect(commands, isEmpty);
-    expect(await snapshot.readAsString(), originalSnapshot);
-    expect(service.recoveryPending, isTrue);
-    expect(service.lastError, contains('有效网络服务'));
-  });
-
-  for (final invalidOwnership in <String, Map<String, Object?>>{
-    'blank host': {
-      '_ownedProxyHost': '   ',
-      '_ownedProxyPort': 7890,
-    },
-    'negative port': {
-      '_ownedProxyHost': '127.0.0.1',
-      '_ownedProxyPort': -1,
-    },
-    'oversized port': {
-      '_ownedProxyHost': '127.0.0.1',
-      '_ownedProxyPort': 70000,
-    },
-    'boolean port': {
-      '_ownedProxyHost': '127.0.0.1',
-      '_ownedProxyPort': true,
-    },
-  }.entries) {
-    test('${invalidOwnership.key} ownership fails before network commands',
-        () async {
+  test(
+    'native lifecycle lease is released after proxy setup failure',
+    () async {
       final tempDirectory = await Directory.systemTemp.createTemp(
-        'ssrvpn_macos_proxy_invalid_ownership_',
+        'ssrvpn_macos_proxy_lifecycle_failure_',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final events = <String>[];
+      var tokenCounter = 0;
+      final service = _testSystemProxyService(
+        beginProxyLifecycleTransaction: () async {
+          final token = 'lease-${++tokenCounter}';
+          events.add('begin:$token');
+          return token;
+        },
+        endProxyLifecycleTransaction: (token) async {
+          events.add('end:$token');
+          return true;
+        },
+        networkSetupRunner: (arguments) async {
+          events.add('network:${arguments.join(' ')}');
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, 'Wi-Fi\n', '');
+          }
+          if (arguments.first.startsWith('-get')) {
+            throw StateError('controlled proxy read failure');
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+      await service.initialize(tempDirectory.path);
+      events.clear();
+
+      expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+
+      expect(events.first, 'begin:lease-2');
+      expect(events.last, 'end:lease-2');
+      expect(events.where((event) => event.startsWith('begin:')), hasLength(1));
+      expect(events.where((event) => event.startsWith('end:')), hasLength(1));
+    },
+  );
+
+  test(
+    'ownership-only proxy snapshot stays unresolved without commands',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_proxy_ownership_only_',
       );
       addTearDown(() => tempDirectory.delete(recursive: true));
       final snapshot = File('${tempDirectory.path}/system_proxy.json');
       final originalSnapshot = jsonEncode({
-        ...invalidOwnership.value,
-        'Wi-Fi': {
-          'web': {'enabled': false, 'server': '', 'port': 0},
-          'secureWeb': {'enabled': false, 'server': '', 'port': 0},
-          'socks': {'enabled': false, 'server': '', 'port': 0},
-        },
+        '_ownedProxyHost': '127.0.0.1',
+        '_ownedProxyPort': 7890,
+        '_ownerPid': 4242,
       });
       await snapshot.writeAsString(originalSnapshot, flush: true);
       final commands = <List<String>>[];
@@ -266,8 +210,52 @@ void main() {
       expect(commands, isEmpty);
       expect(await snapshot.readAsString(), originalSnapshot);
       expect(service.recoveryPending, isTrue);
-      expect(service.lastError, contains('无法确认代理归属'));
-    });
+      expect(service.lastError, contains('有效网络服务'));
+    },
+  );
+
+  for (final invalidOwnership in <String, Map<String, Object?>>{
+    'blank host': {'_ownedProxyHost': '   ', '_ownedProxyPort': 7890},
+    'negative port': {'_ownedProxyHost': '127.0.0.1', '_ownedProxyPort': -1},
+    'oversized port': {
+      '_ownedProxyHost': '127.0.0.1',
+      '_ownedProxyPort': 70000,
+    },
+    'boolean port': {'_ownedProxyHost': '127.0.0.1', '_ownedProxyPort': true},
+  }.entries) {
+    test(
+      '${invalidOwnership.key} ownership fails before network commands',
+      () async {
+        final tempDirectory = await Directory.systemTemp.createTemp(
+          'ssrvpn_macos_proxy_invalid_ownership_',
+        );
+        addTearDown(() => tempDirectory.delete(recursive: true));
+        final snapshot = File('${tempDirectory.path}/system_proxy.json');
+        final originalSnapshot = jsonEncode({
+          ...invalidOwnership.value,
+          'Wi-Fi': {
+            'web': {'enabled': false, 'server': '', 'port': 0},
+            'secureWeb': {'enabled': false, 'server': '', 'port': 0},
+            'socks': {'enabled': false, 'server': '', 'port': 0},
+          },
+        });
+        await snapshot.writeAsString(originalSnapshot, flush: true);
+        final commands = <List<String>>[];
+        final service = _testSystemProxyService(
+          networkSetupRunner: (arguments) async {
+            commands.add(arguments);
+            return ProcessResult(1, 1, '', 'must not run');
+          },
+        );
+
+        await service.initialize(tempDirectory.path);
+
+        expect(commands, isEmpty);
+        expect(await snapshot.readAsString(), originalSnapshot);
+        expect(service.recoveryPending, isTrue);
+        expect(service.lastError, contains('无法确认代理归属'));
+      },
+    );
   }
 
   for (final invalidService in <String, Object?>{
@@ -293,12 +281,7 @@ void main() {
       'futureState': <String, Object?>{},
     },
     'proxy state contains an extra field': {
-      'web': {
-        'enabled': false,
-        'server': '',
-        'port': 0,
-        'futureField': true,
-      },
+      'web': {'enabled': false, 'server': '', 'port': 0, 'futureField': true},
       'secureWeb': {'enabled': false, 'server': '', 'port': 0},
       'socks': {'enabled': false, 'server': '', 'port': 0},
     },
@@ -332,40 +315,39 @@ void main() {
     });
   }
 
-  test('underscore-prefixed network service is restored as a real service',
-      () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'ssrvpn_macos_proxy_underscore_service_',
-    );
-    addTearDown(() => tempDirectory.delete(recursive: true));
-    final snapshot = File('${tempDirectory.path}/system_proxy.json');
-    await _writeOwnedSnapshot(snapshot, serviceName: '_Wi-Fi');
-    final commands = <String>[];
-    final service = _testSystemProxyService(
-      networkSetupRunner: (arguments) async {
-        commands.add(arguments.join(' '));
-        if (arguments.first == '-listallnetworkservices') {
-          return ProcessResult(1, 0, '_Wi-Fi\n', '');
-        }
-        if (arguments.first.startsWith('-get')) {
-          return ProcessResult(
-            1,
-            0,
-            'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n',
-            '',
-          );
-        }
-        return ProcessResult(1, 0, '', '');
-      },
-    );
+  test(
+    'underscore-prefixed network service is restored as a real service',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_proxy_underscore_service_',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final snapshot = File('${tempDirectory.path}/system_proxy.json');
+      await _writeOwnedSnapshot(snapshot, serviceName: '_Wi-Fi');
+      final commands = <String>[];
+      final service = _testSystemProxyService(
+        networkSetupRunner: (arguments) async {
+          commands.add(arguments.join(' '));
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, '_Wi-Fi\n', '');
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(
+              1,
+              0,
+              'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n',
+              '',
+            );
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
 
-    await service.initialize(tempDirectory.path);
+      await service.initialize(tempDirectory.path);
 
-    expect(await snapshot.exists(), isFalse);
-    expect(service.recoveryPending, isFalse);
-    expect(
-      commands,
-      [
+      expect(await snapshot.exists(), isFalse);
+      expect(service.recoveryPending, isFalse);
+      expect(commands, [
         '-listallnetworkservices',
         '-getwebproxy _Wi-Fi',
         '-setwebproxystate _Wi-Fi off',
@@ -373,102 +355,97 @@ void main() {
         '-setsecurewebproxystate _Wi-Fi off',
         '-getsocksfirewallproxy _Wi-Fi',
         '-setsocksfirewallproxystate _Wi-Fi off',
-      ],
-    );
-  });
-
-  test('deleted network service is retired after strict list confirmation',
-      () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'ssrvpn_macos_proxy_deleted_service_',
-    );
-    addTearDown(() => tempDirectory.delete(recursive: true));
-    final snapshot = File('${tempDirectory.path}/system_proxy.json');
-    await _writeOwnedSnapshot(snapshot, serviceName: 'Removed USB');
-    final commands = <String>[];
-    final service = _testSystemProxyService(
-      networkSetupRunner: (arguments) async {
-        commands.add(arguments.join(' '));
-        if (arguments.first == '-listallnetworkservices') {
-          return ProcessResult(
-            1,
-            0,
-            'An asterisk (*) denotes that a network service is disabled.\n'
-                'Wi-Fi\n',
-            '',
-          );
-        }
-        if (arguments.first.startsWith('-get')) {
-          return ProcessResult(
-            1,
-            0,
-            'Enabled: No\nServer: \nPort: 0\n',
-            '',
-          );
-        }
-        return ProcessResult(1, 1, '', 'unexpected command');
-      },
-    );
-
-    await service.initialize(tempDirectory.path);
-
-    expect(commands, [
-      '-listallnetworkservices',
-      '-listallnetworkservices',
-      '-getwebproxy Wi-Fi',
-      '-getsecurewebproxy Wi-Fi',
-      '-getsocksfirewallproxy Wi-Fi',
-    ]);
-    expect(await snapshot.exists(), isFalse);
-    expect(service.recoveryPending, isFalse);
-    expect(service.lastError, isNull);
-  });
+      ]);
+    },
+  );
 
   test(
-      'legacy snapshot keeps a renamed service pending while it still owns the proxy',
-      () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'ssrvpn_macos_proxy_renamed_legacy_service_',
-    );
-    addTearDown(() => tempDirectory.delete(recursive: true));
-    final snapshot = File('${tempDirectory.path}/system_proxy.json');
-    await _writeOwnedSnapshot(snapshot, serviceName: 'Old Wi-Fi');
-    final commands = <String>[];
-    final service = _testSystemProxyService(
-      networkSetupRunner: (arguments) async {
-        commands.add(arguments.join(' '));
-        if (arguments.first == '-listallnetworkservices') {
-          return ProcessResult(
-            1,
-            0,
-            'An asterisk (*) denotes that a network service is disabled.\n'
-                'Renamed Wi-Fi\n',
-            '',
-          );
-        }
-        if (arguments.first.startsWith('-get')) {
-          return ProcessResult(
-            1,
-            0,
-            'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n',
-            '',
-          );
-        }
-        return ProcessResult(1, 1, '', 'unexpected mutation');
-      },
-    );
+    'deleted network service is retired after strict list confirmation',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_proxy_deleted_service_',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final snapshot = File('${tempDirectory.path}/system_proxy.json');
+      await _writeOwnedSnapshot(snapshot, serviceName: 'Removed USB');
+      final commands = <String>[];
+      final service = _testSystemProxyService(
+        networkSetupRunner: (arguments) async {
+          commands.add(arguments.join(' '));
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(
+              1,
+              0,
+              'An asterisk (*) denotes that a network service is disabled.\n'
+                  'Wi-Fi\n',
+              '',
+            );
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(1, 0, 'Enabled: No\nServer: \nPort: 0\n', '');
+          }
+          return ProcessResult(1, 1, '', 'unexpected command');
+        },
+      );
 
-    await service.initialize(tempDirectory.path);
+      await service.initialize(tempDirectory.path);
 
-    expect(await snapshot.exists(), isTrue);
-    expect(service.recoveryPending, isTrue);
-    expect(service.lastError, contains('改名'));
-    expect(commands, contains('-getwebproxy Renamed Wi-Fi'));
-    expect(
-      commands.where((command) => command.startsWith('-set')),
-      isEmpty,
-    );
-  });
+      expect(commands, [
+        '-listallnetworkservices',
+        '-listallnetworkservices',
+        '-getwebproxy Wi-Fi',
+        '-getsecurewebproxy Wi-Fi',
+        '-getsocksfirewallproxy Wi-Fi',
+      ]);
+      expect(await snapshot.exists(), isFalse);
+      expect(service.recoveryPending, isFalse);
+      expect(service.lastError, isNull);
+    },
+  );
+
+  test(
+    'legacy snapshot keeps a renamed service pending while it still owns the proxy',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_proxy_renamed_legacy_service_',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final snapshot = File('${tempDirectory.path}/system_proxy.json');
+      await _writeOwnedSnapshot(snapshot, serviceName: 'Old Wi-Fi');
+      final commands = <String>[];
+      final service = _testSystemProxyService(
+        networkSetupRunner: (arguments) async {
+          commands.add(arguments.join(' '));
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(
+              1,
+              0,
+              'An asterisk (*) denotes that a network service is disabled.\n'
+                  'Renamed Wi-Fi\n',
+              '',
+            );
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(
+              1,
+              0,
+              'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n',
+              '',
+            );
+          }
+          return ProcessResult(1, 1, '', 'unexpected mutation');
+        },
+      );
+
+      await service.initialize(tempDirectory.path);
+
+      expect(await snapshot.exists(), isTrue);
+      expect(service.recoveryPending, isTrue);
+      expect(service.lastError, contains('改名'));
+      expect(commands, contains('-getwebproxy Renamed Wi-Fi'));
+      expect(commands.where((command) => command.startsWith('-set')), isEmpty);
+    },
+  );
 
   test('stable service identity restores a renamed network service', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
@@ -504,17 +481,14 @@ void main() {
 
     expect(await snapshot.exists(), isFalse);
     expect(service.recoveryPending, isFalse);
-    expect(
-      commands,
-      [
-        '-getwebproxy Renamed Wi-Fi',
-        '-setwebproxystate Renamed Wi-Fi off',
-        '-getsecurewebproxy Renamed Wi-Fi',
-        '-setsecurewebproxystate Renamed Wi-Fi off',
-        '-getsocksfirewallproxy Renamed Wi-Fi',
-        '-setsocksfirewallproxystate Renamed Wi-Fi off',
-      ],
-    );
+    expect(commands, [
+      '-getwebproxy Renamed Wi-Fi',
+      '-setwebproxystate Renamed Wi-Fi off',
+      '-getsecurewebproxy Renamed Wi-Fi',
+      '-setsecurewebproxystate Renamed Wi-Fi off',
+      '-getsocksfirewallproxy Renamed Wi-Fi',
+      '-setsocksfirewallproxystate Renamed Wi-Fi off',
+    ]);
   });
 
   test('stable identity never restores onto a same-name replacement', () async {
@@ -536,12 +510,7 @@ void main() {
       networkSetupRunner: (arguments) async {
         commands.add(arguments.join(' '));
         if (arguments.first.startsWith('-get')) {
-          return ProcessResult(
-            1,
-            0,
-            'Enabled: No\nServer: \nPort: 0\n',
-            '',
-          );
+          return ProcessResult(1, 0, 'Enabled: No\nServer: \nPort: 0\n', '');
         }
         return ProcessResult(1, 1, '', 'unexpected mutation');
       },
@@ -556,175 +525,243 @@ void main() {
       '-getsecurewebproxy Wi-Fi',
       '-getsocksfirewallproxy Wi-Fi',
     ]);
-    expect(
-      commands.where((command) => command.startsWith('-set')),
-      isEmpty,
-    );
+    expect(commands.where((command) => command.startsWith('-set')), isEmpty);
   });
 
   test(
-      'legacy service named _networkServiceIDs is restored without identity lookup',
-      () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'ssrvpn_macos_proxy_legacy_identity_key_collision_',
-    );
-    addTearDown(() => tempDirectory.delete(recursive: true));
-    final snapshot = File('${tempDirectory.path}/system_proxy.json');
-    await _writeOwnedSnapshot(
-      snapshot,
-      serviceName: '_networkServiceIDs',
-    );
-    var identityCalls = 0;
-    final commands = <String>[];
-    final service = _testSystemProxyService(
-      networkServiceIdentityRunner: () async {
-        identityCalls++;
-        return {'_networkServiceIDs': 'must-not-be-read'};
-      },
-      networkSetupRunner: (arguments) async {
-        commands.add(arguments.join(' '));
-        if (arguments.first == '-listallnetworkservices') {
-          return ProcessResult(1, 0, '_networkServiceIDs\n', '');
-        }
-        if (arguments.first.startsWith('-get')) {
-          return ProcessResult(
-            1,
-            0,
-            'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n',
-            '',
-          );
-        }
-        return ProcessResult(1, 0, '', '');
-      },
-    );
+    'legacy service named _networkServiceIDs is restored without identity lookup',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_proxy_legacy_identity_key_collision_',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final snapshot = File('${tempDirectory.path}/system_proxy.json');
+      await _writeOwnedSnapshot(snapshot, serviceName: '_networkServiceIDs');
+      var identityCalls = 0;
+      final commands = <String>[];
+      final service = _testSystemProxyService(
+        networkServiceIdentityRunner: () async {
+          identityCalls++;
+          return {'_networkServiceIDs': 'must-not-be-read'};
+        },
+        networkSetupRunner: (arguments) async {
+          commands.add(arguments.join(' '));
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, '_networkServiceIDs\n', '');
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(
+              1,
+              0,
+              'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n',
+              '',
+            );
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
 
-    await service.initialize(tempDirectory.path);
+      await service.initialize(tempDirectory.path);
 
-    expect(identityCalls, 0);
-    expect(await snapshot.exists(), isFalse);
-    expect(service.recoveryPending, isFalse);
-    expect(
-      commands,
-      contains('-setwebproxystate _networkServiceIDs off'),
-    );
-  });
+      expect(identityCalls, 0);
+      expect(await snapshot.exists(), isFalse);
+      expect(service.recoveryPending, isFalse);
+      expect(commands, contains('-setwebproxystate _networkServiceIDs off'));
+    },
+  );
 
-  test('partial legacy recovery preserves identity-key collision state',
-      () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'ssrvpn_macos_proxy_partial_identity_key_collision_',
-    );
-    addTearDown(() => tempDirectory.delete(recursive: true));
-    final snapshot = File('${tempDirectory.path}/system_proxy.json');
-    const proxyState = {
-      'web': {'enabled': false, 'server': '', 'port': 0},
-      'secureWeb': {'enabled': false, 'server': '', 'port': 0},
-      'socks': {'enabled': false, 'server': '', 'port': 0},
-    };
-    await snapshot.writeAsString(
-      jsonEncode({
-        '_ownedProxyHost': '127.0.0.1',
-        '_ownedProxyPort': 7890,
-        '_networkServiceIDs': proxyState,
-        'web': proxyState,
-      }),
-      flush: true,
-    );
-    var identityCalls = 0;
-    final service = _testSystemProxyService(
-      networkServiceIdentityRunner: () async {
-        identityCalls++;
-        return const {};
-      },
-      networkSetupRunner: (arguments) async {
-        if (arguments.first == '-listallnetworkservices') {
-          return ProcessResult(1, 0, '_networkServiceIDs\nweb\n', '');
-        }
-        if (arguments.first.startsWith('-get')) {
-          return ProcessResult(
-            1,
-            0,
-            'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n',
-            '',
-          );
-        }
-        if (arguments[1] == '_networkServiceIDs') {
-          return ProcessResult(1, 1, '', 'controlled restore failure');
-        }
-        return ProcessResult(1, 0, '', '');
-      },
-    );
+  test(
+    'partial legacy recovery preserves identity-key collision state',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_proxy_partial_identity_key_collision_',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final snapshot = File('${tempDirectory.path}/system_proxy.json');
+      const proxyState = {
+        'web': {'enabled': false, 'server': '', 'port': 0},
+        'secureWeb': {'enabled': false, 'server': '', 'port': 0},
+        'socks': {'enabled': false, 'server': '', 'port': 0},
+      };
+      await snapshot.writeAsString(
+        jsonEncode({
+          '_ownedProxyHost': '127.0.0.1',
+          '_ownedProxyPort': 7890,
+          '_networkServiceIDs': proxyState,
+          'web': proxyState,
+        }),
+        flush: true,
+      );
+      var identityCalls = 0;
+      final service = _testSystemProxyService(
+        networkServiceIdentityRunner: () async {
+          identityCalls++;
+          return const {};
+        },
+        networkSetupRunner: (arguments) async {
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, '_networkServiceIDs\nweb\n', '');
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(
+              1,
+              0,
+              'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n',
+              '',
+            );
+          }
+          if (arguments[1] == '_networkServiceIDs') {
+            return ProcessResult(1, 1, '', 'controlled restore failure');
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
 
-    await service.initialize(tempDirectory.path);
+      await service.initialize(tempDirectory.path);
 
-    expect(identityCalls, 0);
-    expect(await snapshot.exists(), isTrue);
-    expect(service.recoveryPending, isTrue);
-    final rewritten =
-        jsonDecode(await snapshot.readAsString()) as Map<String, dynamic>;
-    expect(rewritten.containsKey('web'), isFalse);
-    expect(
-      (rewritten['_networkServiceIDs'] as Map).keys.toSet(),
-      {'web', 'secureWeb', 'socks'},
-    );
-  });
+      expect(identityCalls, 0);
+      expect(await snapshot.exists(), isTrue);
+      expect(service.recoveryPending, isTrue);
+      final rewritten =
+          jsonDecode(await snapshot.readAsString()) as Map<String, dynamic>;
+      expect(rewritten.containsKey('web'), isFalse);
+      expect((rewritten['_networkServiceIDs'] as Map).keys.toSet(), {
+        'web',
+        'secureWeb',
+        'socks',
+      });
+    },
+  );
 
-  test('malformed identity metadata fails closed without proxy mutations',
-      () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'ssrvpn_macos_proxy_malformed_identity_metadata_',
-    );
-    addTearDown(() => tempDirectory.delete(recursive: true));
-    final snapshot = File('${tempDirectory.path}/system_proxy.json');
-    const contents = '{"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,'
-        '"_networkServiceIDs":{"Wi-Fi":7},'
-        '"Wi-Fi":{"web":{"enabled":false,"server":"","port":0},'
-        '"secureWeb":{"enabled":false,"server":"","port":0},'
-        '"socks":{"enabled":false,"server":"","port":0}}}';
-    await snapshot.writeAsString(contents, flush: true);
-    final commands = <String>[];
-    final service = _testSystemProxyService(
-      networkSetupRunner: (arguments) async {
-        commands.add(arguments.join(' '));
-        return ProcessResult(1, 1, '', 'must not run');
-      },
-    );
+  test(
+    'malformed identity metadata fails closed without proxy mutations',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_proxy_malformed_identity_metadata_',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final snapshot = File('${tempDirectory.path}/system_proxy.json');
+      const contents = '{"_ownedProxyHost":"127.0.0.1","_ownedProxyPort":7890,'
+          '"_networkServiceIDs":{"Wi-Fi":7},'
+          '"Wi-Fi":{"web":{"enabled":false,"server":"","port":0},'
+          '"secureWeb":{"enabled":false,"server":"","port":0},'
+          '"socks":{"enabled":false,"server":"","port":0}}}';
+      await snapshot.writeAsString(contents, flush: true);
+      final commands = <String>[];
+      final service = _testSystemProxyService(
+        networkSetupRunner: (arguments) async {
+          commands.add(arguments.join(' '));
+          return ProcessResult(1, 1, '', 'must not run');
+        },
+      );
 
-    await service.initialize(tempDirectory.path);
+      await service.initialize(tempDirectory.path);
 
-    expect(commands, isEmpty);
-    expect(await snapshot.readAsString(), contents);
-    expect(service.recoveryPending, isTrue);
-  });
+      expect(commands, isEmpty);
+      expect(await snapshot.readAsString(), contents);
+      expect(service.recoveryPending, isTrue);
+    },
+  );
 
-  test('proxy setup fails closed when stable identities are unavailable',
-      () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'ssrvpn_macos_proxy_missing_stable_service_ids_',
-    );
-    addTearDown(() => tempDirectory.delete(recursive: true));
-    final commands = <String>[];
-    final service = _testSystemProxyService(
-      networkServiceIdentityRunner: () async => null,
-      networkSetupRunner: (arguments) async {
-        commands.add(arguments.join(' '));
-        if (arguments.first == '-listallnetworkservices') {
-          return ProcessResult(1, 0, 'Wi-Fi\n', '');
-        }
-        return ProcessResult(1, 1, '', 'must not mutate');
-      },
-    );
-    await service.initialize(tempDirectory.path);
+  test(
+    'proxy setup fails closed when stable identities are unavailable',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_proxy_missing_stable_service_ids_',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final commands = <String>[];
+      final service = _testSystemProxyService(
+        networkServiceIdentityRunner: () async => null,
+        networkSetupRunner: (arguments) async {
+          commands.add(arguments.join(' '));
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, 'Wi-Fi\n', '');
+          }
+          return ProcessResult(1, 1, '', 'must not mutate');
+        },
+      );
+      await service.initialize(tempDirectory.path);
 
-    expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+      expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
 
-    expect(commands, ['-listallnetworkservices']);
-    expect(service.lastError, contains('稳定标识'));
-    expect(
-      await File('${tempDirectory.path}/system_proxy.json').exists(),
-      isFalse,
-    );
-  });
+      expect(commands, isEmpty);
+      expect(service.lastError, contains('稳定标识'));
+      expect(
+        await File('${tempDirectory.path}/system_proxy.json').exists(),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'proxy setup uses one stable service snapshot instead of a CLI list',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_proxy_single_service_snapshot_',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final commands = <String>[];
+      final service = _testSystemProxyService(
+        networkServiceIdentityRunner: () async => {'Wi-Fi': 'service-wifi'},
+        networkSetupRunner: (arguments) async {
+          commands.add(arguments.join(' '));
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(
+              1,
+              0,
+              '本地化说明文字\nWi-Fi\nOrphaned Service\n',
+              '',
+            );
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(1, 0, 'Enabled: No\nServer: \nPort: 0\n', '');
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+      await service.initialize(tempDirectory.path);
+
+      expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+
+      expect(commands, isNot(contains('-listallnetworkservices')));
+      expect(
+        commands.where((command) => command.contains('Orphaned Service')),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'proxy setup preserves user settings when CLI state is malformed',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_proxy_malformed_cli_state_',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
+      final mutations = <String>[];
+      final service = _testSystemProxyService(
+        networkSetupRunner: (arguments) async {
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(1, 0, 'Enabled: No\nPort: 0\n', '');
+          }
+          mutations.add(arguments.join(' '));
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+      await service.initialize(tempDirectory.path);
+
+      expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+
+      expect(mutations, isEmpty);
+      expect(service.lastError, contains('代理状态输出无法验证'));
+      expect(service.lastError, isNot(contains('Bad state:')));
+      expect(
+        await File('${tempDirectory.path}/system_proxy.json').exists(),
+        isFalse,
+      );
+    },
+  );
 
   test('proxy setup does not write through a replaced service name', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
@@ -747,12 +784,7 @@ void main() {
           return ProcessResult(1, 0, 'Wi-Fi\n', '');
         }
         if (arguments.first.startsWith('-get')) {
-          return ProcessResult(
-            1,
-            0,
-            'Enabled: No\nServer: \nPort: 0\n',
-            '',
-          );
+          return ProcessResult(1, 0, 'Enabled: No\nServer: \nPort: 0\n', '');
         }
         mutations.add(arguments.join(' '));
         return ProcessResult(1, 0, '', '');
@@ -770,94 +802,99 @@ void main() {
     );
   });
 
-  test('proxy setup detects a service replacement after its mutation group',
-      () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'ssrvpn_macos_proxy_identity_changed_after_write_',
-    );
-    addTearDown(() => tempDirectory.delete(recursive: true));
-    final snapshot = File('${tempDirectory.path}/system_proxy.json');
-    var identityCalls = 0;
-    var proxyOwned = false;
-    final mutations = <String>[];
-    final service = _testSystemProxyService(
-      networkServiceIdentityRunner: () async {
-        identityCalls++;
-        return {
-          'Wi-Fi': identityCalls <= 2
-              ? 'original-service-id'
-              : 'replacement-service-id',
-        };
-      },
-      networkSetupRunner: (arguments) async {
-        if (arguments.first == '-listallnetworkservices') {
-          return ProcessResult(1, 0, 'Wi-Fi\n', '');
-        }
-        if (arguments.first.startsWith('-get')) {
-          return ProcessResult(
-            1,
-            0,
-            proxyOwned
-                ? 'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n'
-                : 'Enabled: No\nServer: \nPort: 0\n',
-            '',
-          );
-        }
-        mutations.add(arguments.join(' '));
-        if (arguments.first.endsWith('proxystate') && arguments.last == 'on') {
-          proxyOwned = true;
-        }
-        return ProcessResult(1, 0, '', '');
-      },
-    );
-    await service.initialize(tempDirectory.path);
-
-    expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
-
-    expect(mutations, hasLength(6));
-    expect(service.lastError, contains('稳定标识已变化'));
-    expect(await snapshot.exists(), isTrue);
-    expect(service.recoveryPending, isTrue);
-  });
-
-  for (final strictListFailure in const ['command failure', 'missing header']) {
-    test('deleted service stays pending after strict list $strictListFailure',
-        () async {
+  test(
+    'proxy setup detects a service replacement after its mutation group',
+    () async {
       final tempDirectory = await Directory.systemTemp.createTemp(
-        'ssrvpn_macos_proxy_deleted_service_unverified_',
+        'ssrvpn_macos_proxy_identity_changed_after_write_',
       );
       addTearDown(() => tempDirectory.delete(recursive: true));
       final snapshot = File('${tempDirectory.path}/system_proxy.json');
-      await _writeOwnedSnapshot(snapshot, serviceName: 'Removed USB');
-      var listCalls = 0;
+      var identityCalls = 0;
+      var proxyOwned = false;
+      final mutations = <String>[];
       final service = _testSystemProxyService(
+        networkServiceIdentityRunner: () async {
+          identityCalls++;
+          return {
+            'Wi-Fi': identityCalls <= 2
+                ? 'original-service-id'
+                : 'replacement-service-id',
+          };
+        },
         networkSetupRunner: (arguments) async {
-          if (arguments.first != '-listallnetworkservices') {
-            return ProcessResult(1, 1, '', 'unexpected command');
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, 'Wi-Fi\n', '');
           }
-          listCalls++;
-          if (listCalls == 1) {
+          if (arguments.first.startsWith('-get')) {
             return ProcessResult(
               1,
               0,
-              'An asterisk (*) denotes that a network service is disabled.\n'
-                  'Wi-Fi\n',
+              proxyOwned
+                  ? 'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n'
+                  : 'Enabled: No\nServer: \nPort: 0\n',
               '',
             );
           }
-          return strictListFailure == 'command failure'
-              ? ProcessResult(1, 1, '', 'network services unavailable')
-              : ProcessResult(1, 0, 'Wi-Fi\n', '');
+          mutations.add(arguments.join(' '));
+          if (arguments.first.endsWith('proxystate') &&
+              arguments.last == 'on') {
+            proxyOwned = true;
+          }
+          return ProcessResult(1, 0, '', '');
         },
       );
-
       await service.initialize(tempDirectory.path);
 
-      expect(listCalls, 2);
+      expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+
+      expect(mutations, hasLength(6));
+      expect(service.lastError, contains('稳定标识已变化'));
       expect(await snapshot.exists(), isTrue);
       expect(service.recoveryPending, isTrue);
-      expect(service.lastError, isNotNull);
-    });
+    },
+  );
+
+  for (final strictListFailure in const ['command failure', 'missing header']) {
+    test(
+      'deleted service stays pending after strict list $strictListFailure',
+      () async {
+        final tempDirectory = await Directory.systemTemp.createTemp(
+          'ssrvpn_macos_proxy_deleted_service_unverified_',
+        );
+        addTearDown(() => tempDirectory.delete(recursive: true));
+        final snapshot = File('${tempDirectory.path}/system_proxy.json');
+        await _writeOwnedSnapshot(snapshot, serviceName: 'Removed USB');
+        var listCalls = 0;
+        final service = _testSystemProxyService(
+          networkSetupRunner: (arguments) async {
+            if (arguments.first != '-listallnetworkservices') {
+              return ProcessResult(1, 1, '', 'unexpected command');
+            }
+            listCalls++;
+            if (listCalls == 1) {
+              return ProcessResult(
+                1,
+                0,
+                'An asterisk (*) denotes that a network service is disabled.\n'
+                    'Wi-Fi\n',
+                '',
+              );
+            }
+            return strictListFailure == 'command failure'
+                ? ProcessResult(1, 1, '', 'network services unavailable')
+                : ProcessResult(1, 0, 'Wi-Fi\n', '');
+          },
+        );
+
+        await service.initialize(tempDirectory.path);
+
+        expect(listCalls, 2);
+        expect(await snapshot.exists(), isTrue);
+        expect(service.recoveryPending, isTrue);
+        expect(service.lastError, isNotNull);
+      },
+    );
   }
 
   test('recovery preserves an externally replaced proxy endpoint', () async {
@@ -955,34 +992,39 @@ void main() {
     '_ownerPid',
     '_networkServiceIDs',
   ]) {
-    test('reserved snapshot key service $reservedName is rejected before setup',
-        () async {
-      final tempDirectory = await Directory.systemTemp.createTemp(
-        'ssrvpn_macos_proxy_reserved_service_',
-      );
-      addTearDown(() => tempDirectory.delete(recursive: true));
-      final commands = <String>[];
-      final service = _testSystemProxyService(
-        networkSetupRunner: (arguments) async {
-          commands.add(arguments.join(' '));
-          if (arguments.first == '-listallnetworkservices') {
-            return ProcessResult(1, 0, '$reservedName\n', '');
-          }
-          return ProcessResult(1, 0, '', '');
-        },
-      );
-      await service.initialize(tempDirectory.path);
+    test(
+      'reserved snapshot key service $reservedName is rejected before setup',
+      () async {
+        final tempDirectory = await Directory.systemTemp.createTemp(
+          'ssrvpn_macos_proxy_reserved_service_',
+        );
+        addTearDown(() => tempDirectory.delete(recursive: true));
+        final commands = <String>[];
+        final service = _testSystemProxyService(
+          networkServiceIdentityRunner: () async => {
+            reservedName: 'reserved-service-id',
+          },
+          networkSetupRunner: (arguments) async {
+            commands.add(arguments.join(' '));
+            if (arguments.first == '-listallnetworkservices') {
+              return ProcessResult(1, 0, '$reservedName\n', '');
+            }
+            return ProcessResult(1, 0, '', '');
+          },
+        );
+        await service.initialize(tempDirectory.path);
 
-      expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+        expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
 
-      expect(commands, ['-listallnetworkservices']);
-      expect(service.isProxyEnabled, isFalse);
-      expect(service.lastError, contains('保留字段冲突'));
-      expect(
-        await File('${tempDirectory.path}/system_proxy.json').exists(),
-        isFalse,
-      );
-    });
+        expect(commands, isEmpty);
+        expect(service.isProxyEnabled, isFalse);
+        expect(service.lastError, contains('保留字段冲突'));
+        expect(
+          await File('${tempDirectory.path}/system_proxy.json').exists(),
+          isFalse,
+        );
+      },
+    );
   }
 
   test('legacy proxy snapshot without ownership remains unresolved', () async {
@@ -1047,18 +1089,15 @@ void main() {
       releaseList.complete();
 
       expect(await Future.wait([first, second]), [isTrue, isTrue]);
-      expect(
-        commands,
-        [
-          '-listallnetworkservices',
-          '-getwebproxy Wi-Fi',
-          '-setwebproxystate Wi-Fi off',
-          '-getsecurewebproxy Wi-Fi',
-          '-setsecurewebproxystate Wi-Fi off',
-          '-getsocksfirewallproxy Wi-Fi',
-          '-setsocksfirewallproxystate Wi-Fi off',
-        ],
-      );
+      expect(commands, [
+        '-listallnetworkservices',
+        '-getwebproxy Wi-Fi',
+        '-setwebproxystate Wi-Fi off',
+        '-getsecurewebproxy Wi-Fi',
+        '-setsecurewebproxystate Wi-Fi off',
+        '-getsocksfirewallproxy Wi-Fi',
+        '-setsocksfirewallproxystate Wi-Fi off',
+      ]);
       expect(await snapshot.exists(), isFalse);
       expect(service.recoveryPending, isFalse);
       expect(service.lastError, isNull);
@@ -1124,7 +1163,8 @@ void main() {
   group('unsafe proxy recovery state paths fail closed', () {
     test('directory is preserved', () async {
       await _expectUnsafeStatePathIsPreserved(
-          (path) => Directory(path).create());
+        (path) => Directory(path).create(),
+      );
     });
 
     test('dangling symbolic link is preserved', () async {
@@ -1150,24 +1190,20 @@ void main() {
 
     test('oversized regular file is preserved', () async {
       await _expectUnsafeStatePathIsPreserved(
-        (path) => File(path).writeAsBytes(
-          List<int>.filled(1024 * 1024 + 1, 0x20),
-          flush: true,
-        ),
+        (path) => File(
+          path,
+        ).writeAsBytes(List<int>.filled(1024 * 1024 + 1, 0x20), flush: true),
         expectedErrorFragment: '超过 1 MiB',
       );
     });
 
     for (final mode in ['0664', '0646']) {
       test('$mode group or other writable file is preserved', () async {
-        await _expectUnsafeStatePathIsPreserved(
-          (path) async {
-            await _writeOwnedSnapshot(File(path));
-            final result = await Process.run('/bin/chmod', [mode, path]);
-            expect(result.exitCode, 0, reason: result.stderr.toString());
-          },
-          expectedErrorFragment: 'group/other 可写',
-        );
+        await _expectUnsafeStatePathIsPreserved((path) async {
+          await _writeOwnedSnapshot(File(path));
+          final result = await Process.run('/bin/chmod', [mode, path]);
+          expect(result.exitCode, 0, reason: result.stderr.toString());
+        }, expectedErrorFragment: 'group/other 可写');
       });
     }
 
@@ -1213,8 +1249,9 @@ Future<void> _writeOwnedSnapshot(
     );
 
 Future<void> _expectUnsafeStatePathIsPreserved(
-    Future<void> Function(String path) createStatePath,
-    {String? expectedErrorFragment}) async {
+  Future<void> Function(String path) createStatePath, {
+  String? expectedErrorFragment,
+}) async {
   final tempDirectory = await Directory.systemTemp.createTemp(
     'ssrvpn_macos_proxy_unsafe_state_',
   );
@@ -1245,9 +1282,7 @@ SystemProxyService _testSystemProxyService({
     SystemProxyService(
       networkSetupRunner: networkSetupRunner,
       networkServiceIdentityRunner: networkServiceIdentityRunner ??
-          () async => {
-                'Wi-Fi': 'test-service-wifi',
-              },
+          () async => {'Wi-Fi': 'test-service-wifi'},
       beginProxyLifecycleTransaction:
           beginProxyLifecycleTransaction ?? () async => 'test-proxy-lease',
       endProxyLifecycleTransaction:

@@ -29,9 +29,9 @@ List<String> pendingMacNetworkServices({
   required Iterable<String> currentServices,
 }) {
   final current = currentServices.toSet();
-  return savedServices.where((service) => !current.contains(service)).toList(
-        growable: false,
-      );
+  return savedServices
+      .where((service) => !current.contains(service))
+      .toList(growable: false);
 }
 
 List<String> parseMacNetworkServiceList(String output) {
@@ -61,4 +61,31 @@ List<String>? parseVerifiedMacNetworkServiceList(String output) {
     services.add(service);
   }
   return sawHeader ? services : null;
+}
+
+Map<String, dynamic>? parseVerifiedMacProxyState(String output) {
+  final values = <String, String>{};
+  for (final rawLine in output.split('\n')) {
+    final line = rawLine.trim();
+    if (line.isEmpty) continue;
+    final separator = line.indexOf(':');
+    if (separator <= 0) continue;
+    final key = line.substring(0, separator).trim();
+    if (!const {'Enabled', 'Server', 'Port'}.contains(key)) continue;
+    if (values.containsKey(key)) return null;
+    values[key] = line.substring(separator + 1).trim();
+  }
+
+  if (!values.keys.toSet().containsAll(const {'Enabled', 'Server', 'Port'})) {
+    return null;
+  }
+  final enabledText = values['Enabled']!.toLowerCase();
+  if (enabledText != 'yes' && enabledText != 'no') return null;
+  final enabled = enabledText == 'yes';
+  final server = values['Server']!;
+  final port = int.tryParse(values['Port']!);
+  if (port == null || port < 0 || port > 65535) return null;
+  if (enabled && (server.isEmpty || port == 0)) return null;
+
+  return {'enabled': enabled, 'server': server, 'port': port};
 }

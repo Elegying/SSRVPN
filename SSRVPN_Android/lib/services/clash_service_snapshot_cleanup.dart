@@ -14,7 +14,7 @@ typedef _SnapshotCleanupMarker = ({
 extension AndroidSnapshotCleanup on ClashService {
   Future<String> _writeConfigSnapshot(String config) async {
     final revision = ++_configRevision;
-    final path = '$configDir/config-'
+    final path = '$configDir${Platform.pathSeparator}config-'
         '${DateTime.now().microsecondsSinceEpoch}-$revision.yaml';
     final absolutePath = File(path).absolute.path;
     _preparedConfigPaths.add(absolutePath);
