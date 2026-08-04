@@ -6,8 +6,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_macos/src/services/system_proxy_ownership.dart';
 
 typedef MacNetworkSetupRunner = Future<ProcessResult> Function(
-  List<String> arguments,
-);
+    List<String> arguments);
 typedef MacEffectiveProxyRunner = Future<ProcessResult> Function();
 typedef MacNetworkServiceIdentityRunner = Future<Map<String, String>?>
     Function();
@@ -212,11 +211,17 @@ class SystemProxyService {
         _lastError = null;
       }
 
-      final services = await _listNetworkServices();
-      if (services.isEmpty) {
-        _lastError ??= '没有找到可用的 macOS 网络服务';
+      // Use one authoritative SystemConfiguration snapshot for both the
+      // service names and their stable IDs. Combining this with a separate
+      // `networksetup` listing creates a false mismatch when command output is
+      // localized, contains a banner, or changes between the two reads.
+      final capturedServiceIdentities = await _listNetworkServiceIdentities();
+      if (capturedServiceIdentities == null ||
+          capturedServiceIdentities.isEmpty) {
+        _lastError ??= '没有找到当前 macOS 网络配置中的可用服务';
         return false;
       }
+      final services = capturedServiceIdentities.keys.toList(growable: false);
       String? reservedService;
       for (final service in services) {
         if (_snapshotMetadataKeys.contains(service)) {
@@ -229,8 +234,7 @@ class SystemProxyService {
         return false;
       }
 
-      final capturedServiceIdentities =
-          await _saveCurrentStateIfNeeded(services, host, port);
+      await _saveCurrentStateIfNeeded(capturedServiceIdentities, host, port);
       await _requireUnchangedNetworkServiceIdentities(
         capturedServiceIdentities,
       );
@@ -253,7 +257,8 @@ class SystemProxyService {
       _ownedProxyPort = port;
       return true;
     } catch (e) {
-      final originalError = '系统代理设置失败: $e';
+      final detail = e is StateError ? e.message : e.toString();
+      final originalError = '系统代理设置失败: $detail';
       await _clearSystemProxyOnce();
       _lastError = originalError;
       return false;
@@ -363,11 +368,12 @@ class SystemProxyService {
     }
   }
 
-  Future<Map<String, String>> _saveCurrentStateIfNeeded(
-    List<String> services,
+  Future<void> _saveCurrentStateIfNeeded(
+    Map<String, String> serviceIdentities,
     String ownedHost,
     int ownedPort,
   ) async {
+    final services = serviceIdentities.keys.toList(growable: false);
     final file = _stateFile;
     if (file == null) {
       throw StateError('SystemProxyService has not been initialized');
@@ -384,13 +390,6 @@ class SystemProxyService {
     if (services.any(_snapshotMetadataKeys.contains)) {
       throw StateError('网络服务名称与代理快照保留字段冲突');
     }
-    final serviceIdentities = await _listNetworkServiceIdentities();
-    if (serviceIdentities == null ||
-        serviceIdentities.length != services.length ||
-        services.any((service) => !serviceIdentities.containsKey(service))) {
-      throw StateError(_lastError ?? '无法确认 macOS 网络服务稳定标识');
-    }
-
     final states = <String, dynamic>{
       '_ownedProxyHost': ownedHost,
       '_ownedProxyPort': ownedPort,
@@ -413,7 +412,6 @@ class SystemProxyService {
     await _writeStringAtomically(file, jsonEncode(states));
     _ownedProxyHost = ownedHost;
     _ownedProxyPort = ownedPort;
-    return Map<String, String>.unmodifiable(serviceIdentities);
   }
 
   Future<void> _requireUnchangedNetworkServiceIdentities(
@@ -422,9 +420,7 @@ class SystemProxyService {
     final current = await _listNetworkServiceIdentities();
     final unchanged = current != null &&
         current.length == expected.length &&
-        expected.entries.every(
-          (entry) => current[entry.key] == entry.value,
-        );
+        expected.entries.every((entry) => current[entry.key] == entry.value);
     if (unchanged) return;
     final detail = _lastError;
     final error = detail == null
@@ -462,8 +458,9 @@ class SystemProxyService {
         return false;
       }
 
-      final identityKeyIsLegacyService =
-          _isCompleteSavedProxyServiceState(raw['_networkServiceIDs']);
+      final identityKeyIsLegacyService = _isCompleteSavedProxyServiceState(
+        raw['_networkServiceIDs'],
+      );
       final hasStableIdentities =
           raw.containsKey('_networkServiceIDs') && !identityKeyIsLegacyService;
       final savedServiceStates = _validatedSavedServiceStates(
@@ -512,10 +509,7 @@ class SystemProxyService {
           savedServices: savedServices,
           currentServices: currentServices,
         )) {
-          restoreTargets.add((
-            savedName: service,
-            currentName: service,
-          ));
+          restoreTargets.add((savedName: service, currentName: service));
         }
         pendingServices = pendingMacNetworkServices(
           savedServices: savedServices,
@@ -593,7 +587,9 @@ class SystemProxyService {
       final unresolvedServices = confirmedMissingServices == null
           ? pendingServices
           : pendingServices
-              .where((service) => !confirmedMissingServices!.contains(service))
+              .where(
+                (service) => !confirmedMissingServices!.contains(service),
+              )
               .toList(growable: false);
       final mustRetry = failures.isNotEmpty || unresolvedServices.isNotEmpty;
       if (mustRetry) {
@@ -632,8 +628,9 @@ class SystemProxyService {
             : '无法严格确认已删除的 macOS 网络服务: $stderr';
         return null;
       }
-      final currentServices =
-          parseVerifiedMacNetworkServiceList(result.stdout.toString());
+      final currentServices = parseVerifiedMacNetworkServiceList(
+        result.stdout.toString(),
+      );
       if (currentServices == null) {
         _lastError = 'macOS 网络服务列表格式异常，已保留代理恢复快照';
         return null;
@@ -794,12 +791,11 @@ class SystemProxyService {
     if (result.exitCode != 0) {
       throw Exception('读取 $service 代理状态失败: ${result.stderr}');
     }
-    final text = result.stdout.toString();
-    return {
-      'enabled': _readLineValue(text, 'Enabled').toLowerCase() == 'yes',
-      'server': _readLineValue(text, 'Server'),
-      'port': int.tryParse(_readLineValue(text, 'Port')) ?? 0,
-    };
+    final state = parseVerifiedMacProxyState(result.stdout.toString());
+    if (state == null) {
+      throw FormatException('$service 的 macOS 代理状态输出无法验证');
+    }
+    return state;
   }
 
   Future<void> _restoreProxyStateIfOwned(
@@ -865,22 +861,9 @@ class SystemProxyService {
     }
   }
 
-  String _readLineValue(String text, String key) {
-    final prefix = '$key:';
-    for (final line in text.split('\n')) {
-      final trimmed = line.trim();
-      if (trimmed.startsWith(prefix)) {
-        return trimmed.substring(prefix.length).trim();
-      }
-    }
-    return '';
-  }
-
   Map<String, String> _parseEffectiveProxy(String text) {
     final values = <String, String>{};
-    final entryPattern = RegExp(
-      r'^\s*([A-Za-z][A-Za-z0-9]*)\s*:\s*(.*?)\s*$',
-    );
+    final entryPattern = RegExp(r'^\s*([A-Za-z][A-Za-z0-9]*)\s*:\s*(.*?)\s*$');
     for (final line in text.split('\n')) {
       final match = entryPattern.firstMatch(line);
       if (match != null) values[match.group(1)!] = match.group(2)!;
@@ -938,10 +921,7 @@ class SystemProxyService {
 
   Future<_ProxyStateFileStatus> _inspectStateFile(File file) async {
     try {
-      final type = await FileSystemEntity.type(
-        file.path,
-        followLinks: false,
-      );
+      final type = await FileSystemEntity.type(file.path, followLinks: false);
       if (type == FileSystemEntityType.notFound) {
         return _ProxyStateFileStatus.missing;
       }

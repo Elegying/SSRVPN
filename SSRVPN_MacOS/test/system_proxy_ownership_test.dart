@@ -108,4 +108,29 @@ Wi-Fi
       const ['Wi-Fi', 'USB Ethernet'],
     );
   });
+
+  group('parseVerifiedMacProxyState', () {
+    test('accepts a complete disabled proxy state', () {
+      expect(
+        parseVerifiedMacProxyState(
+          'Enabled: No\nServer: \nPort: 0\nAuthenticated Proxy Enabled: 0\n',
+        ),
+        {'enabled': false, 'server': '', 'port': 0},
+      );
+    });
+
+    test('rejects missing, duplicate, or invalid fields', () {
+      expect(parseVerifiedMacProxyState('Enabled: No\nServer: \n'), isNull);
+      expect(
+        parseVerifiedMacProxyState(
+          'Enabled: No\nEnabled: Yes\nServer: host\nPort: 7890\n',
+        ),
+        isNull,
+      );
+      expect(
+        parseVerifiedMacProxyState('Enabled: Yes\nServer: \nPort: 0\n'),
+        isNull,
+      );
+    });
+  });
 }

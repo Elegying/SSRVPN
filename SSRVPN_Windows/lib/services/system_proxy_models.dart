@@ -20,12 +20,7 @@ class _SystemProxyAcquisitionCancellation {
   }
 }
 
-enum _ProxyRecoveryAction {
-  restoreFull,
-  restoreEndpoint,
-  discard,
-  unavailable,
-}
+enum _ProxyRecoveryAction { restoreFull, restoreEndpoint, discard, unavailable }
 
 class _ProxySnapshot {
   const _ProxySnapshot({
@@ -53,17 +48,50 @@ class _ProxySnapshot {
   final int autoDetect;
 
   factory _ProxySnapshot.fromJson(Map<String, dynamic> json) {
+    bool requiredBool(String key) {
+      final value = json[key];
+      if (value is! bool) {
+        throw FormatException('Windows proxy field $key is invalid');
+      }
+      return value;
+    }
+
+    String requiredString(String key) {
+      final value = json[key];
+      if (value is! String) {
+        throw FormatException('Windows proxy field $key is invalid');
+      }
+      return value;
+    }
+
+    int requiredDword(String key) {
+      final value = json[key];
+      if (value is! int || value < 0 || value > 1) {
+        throw FormatException('Windows proxy field $key is invalid');
+      }
+      return value;
+    }
+
+    final rawHasProxyEnable = json['hasProxyEnable'];
+    if (rawHasProxyEnable != null && rawHasProxyEnable is! bool) {
+      throw const FormatException(
+        'Windows proxy field hasProxyEnable is invalid',
+      );
+    }
     return _ProxySnapshot(
-      hasProxyEnable: json['hasProxyEnable'] as bool? ?? true,
-      proxyEnable: (json['proxyEnable'] as num?)?.toInt() ?? 0,
-      hasProxyServer: json['hasProxyServer'] as bool? ?? false,
-      proxyServer: json['proxyServer'] as String? ?? '',
-      hasProxyOverride: json['hasProxyOverride'] as bool? ?? false,
-      proxyOverride: json['proxyOverride'] as String? ?? '',
-      hasAutoConfigUrl: json['hasAutoConfigUrl'] as bool? ?? false,
-      autoConfigUrl: json['autoConfigUrl'] as String? ?? '',
-      hasAutoDetect: json['hasAutoDetect'] as bool? ?? false,
-      autoDetect: (json['autoDetect'] as num?)?.toInt() ?? 0,
+      // v4.0.1 and older recovery files did not persist this presence bit.
+      // Keep that one compatibility default while validating every value that
+      // determines what will be written back to the user's registry.
+      hasProxyEnable: rawHasProxyEnable as bool? ?? true,
+      proxyEnable: requiredDword('proxyEnable'),
+      hasProxyServer: requiredBool('hasProxyServer'),
+      proxyServer: requiredString('proxyServer'),
+      hasProxyOverride: requiredBool('hasProxyOverride'),
+      proxyOverride: requiredString('proxyOverride'),
+      hasAutoConfigUrl: requiredBool('hasAutoConfigUrl'),
+      autoConfigUrl: requiredString('autoConfigUrl'),
+      hasAutoDetect: requiredBool('hasAutoDetect'),
+      autoDetect: requiredDword('autoDetect'),
     );
   }
 

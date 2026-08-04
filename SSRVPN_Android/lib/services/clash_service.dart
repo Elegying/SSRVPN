@@ -27,8 +27,9 @@ class ClashService extends ClashServiceBase {
   String _nativeLibDir = '';
   Future<bool>? _startOperation;
   Future<void>? _stopOperation;
-  final CoreRecoveryPolicy _healthRecoveryPolicy =
-      CoreRecoveryPolicy(maxAttempts: 2);
+  final CoreRecoveryPolicy _healthRecoveryPolicy = CoreRecoveryPolicy(
+    maxAttempts: 2,
+  );
   Future<void> _nativeSnapshotOperationTail = Future<void>.value();
   int _nativeSnapshotOperationCount = 0;
   String? _nativeSnapshotConfigPath;
@@ -100,9 +101,7 @@ class ClashService extends ClashServiceBase {
   }
 
   @override
-  Future<bool> recoverAfterHealthCheckFailure(
-    int connectionGeneration,
-  ) =>
+  Future<bool> recoverAfterHealthCheckFailure(int connectionGeneration) =>
       _recoverNativeAfterHealthCheckFailure(connectionGeneration);
 
   // ── 平台调试日志 ──
@@ -214,7 +213,9 @@ class ClashService extends ClashServiceBase {
       await temp.writeAsBytes(bytes);
       await temp.rename(metadb.path);
       await marker.writeAsString(assetRevision, flush: true);
-      log('✅ MMDB 已从内置资源解压 (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB)');
+      log(
+        '✅ MMDB 已从内置资源解压 (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB)',
+      );
     } catch (e) {
       log('⚠️ 内置资源复制失败: $e');
       log('❌ IP 归属数据库不可用；国内纯 IP 流量可能回退到代理');
@@ -288,10 +289,8 @@ class ClashService extends ClashServiceBase {
   // ── 进程控制 ──
 
   @override
-  Future<bool> start({String? nodeName, String? preparedConfigPath}) => _start(
-        nodeName: nodeName,
-        preparedConfigPath: preparedConfigPath,
-      );
+  Future<bool> start({String? nodeName, String? preparedConfigPath}) =>
+      _start(nodeName: nodeName, preparedConfigPath: preparedConfigPath);
 
   Future<bool> _start({
     String? nodeName,
@@ -358,6 +357,10 @@ class ClashService extends ClashServiceBase {
       _ensureStartCurrent(startToken);
 
       final returnedState = await _parseNativeConnectionState(result);
+      if (result is Map && returnedState == null) {
+        setLastStartError('无法确认原生 VPN 启动状态，请重新连接');
+        return false;
+      }
       if (result == true || returnedState?.running == true) {
         setRunning(true);
         _nativeConnectionTransitioning = returnedState?.transitioning ?? false;
@@ -503,18 +506,15 @@ class ClashService extends ClashServiceBase {
         if (shouldContinue?.call() == false) return false;
         await _preparePendingSnapshotCleanupForReplacement(snapshotPath);
         if (shouldContinue?.call() == false) return false;
-        final generation = await _channel.invokeMethod<String>(
-          'syncSettings',
-          {
-            'configDir': configDir,
-            'configPath': snapshotPath,
-            'apiPort': settings.apiPort,
-            'proxyPort': settings.proxyPort,
-            'apiSecret': settings.apiSecret,
-            'selectedNodeName': nodeName,
-            'expectedSessionGeneration': effectiveSessionGeneration,
-          },
-        );
+        final generation = await _channel.invokeMethod<String>('syncSettings', {
+          'configDir': configDir,
+          'configPath': snapshotPath,
+          'apiPort': settings.apiPort,
+          'proxyPort': settings.proxyPort,
+          'apiSecret': settings.apiSecret,
+          'selectedNodeName': nodeName,
+          'expectedSessionGeneration': effectiveSessionGeneration,
+        });
         if (generation == null || generation.isEmpty) {
           throw StateError('原生快速启动快照未返回有效代际');
         }
@@ -645,8 +645,10 @@ class ClashService extends ClashServiceBase {
       );
     }
     final switched = await super.switchSelectedProxy(nodeName);
-    final intentCurrent =
-        isConnectionIntentCurrent(connectionGeneration, connected: true);
+    final intentCurrent = isConnectionIntentCurrent(
+      connectionGeneration,
+      connected: true,
+    );
     if (!intentCurrent) {
       return AndroidProxySwitchResult(
         liveSwitched: switched,
@@ -657,8 +659,9 @@ class ClashService extends ClashServiceBase {
     }
     if (!switched) {
       final runtimeNodeName = await currentSelectedProxyName();
-      final nativeSessionCurrent =
-          await _isNativeSessionCurrent(nativeSessionGeneration);
+      final nativeSessionCurrent = await _isNativeSessionCurrent(
+        nativeSessionGeneration,
+      );
       final failureStillCurrent = nativeSessionCurrent &&
           isConnectionIntentCurrent(connectionGeneration, connected: true);
       return AndroidProxySwitchResult(
@@ -673,13 +676,12 @@ class ClashService extends ClashServiceBase {
       nodeName,
       persistSelection: false,
       expectedSessionGeneration: nativeSessionGeneration,
-      shouldContinue: () => isConnectionIntentCurrent(
-        connectionGeneration,
-        connected: true,
-      ),
+      shouldContinue: () =>
+          isConnectionIntentCurrent(connectionGeneration, connected: true),
     );
-    final nativeSessionCurrent =
-        await _isNativeSessionCurrent(nativeSessionGeneration);
+    final nativeSessionCurrent = await _isNativeSessionCurrent(
+      nativeSessionGeneration,
+    );
     return AndroidProxySwitchResult(
       liveSwitched: true,
       snapshotPersisted: updated,
@@ -745,9 +747,11 @@ class ClashService extends ClashServiceBase {
 
   static String? _getLocalCountryCode(String name) {
     final upper = name.toUpperCase().trim();
-    final isoMatch = RegExp(r'(?:^|\s|[-/#【\[\(（])'
-        r'(US|UK|GB|JP|KR|HK|TW|SG|DE|FR|NL|CA|AU|IN|TH|VN|ID|PH|MY|RU|TR|BR|AR|MX|ZA|IT|ES|SE|NO|FI|DK|IE|CH|AT|BE|PL|UA|CL|CO|PE)'
-        r'(?:$|\s|[-/#】\]\)）]|[^A-Z])');
+    final isoMatch = RegExp(
+      r'(?:^|\s|[-/#【\[\(（])'
+      r'(US|UK|GB|JP|KR|HK|TW|SG|DE|FR|NL|CA|AU|IN|TH|VN|ID|PH|MY|RU|TR|BR|AR|MX|ZA|IT|ES|SE|NO|FI|DK|IE|CH|AT|BE|PL|UA|CL|CO|PE)'
+      r'(?:$|\s|[-/#】\]\)）]|[^A-Z])',
+    );
     final match = isoMatch.firstMatch(upper);
     if (match != null) return match.group(1);
 

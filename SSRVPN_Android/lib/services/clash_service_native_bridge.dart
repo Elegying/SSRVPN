@@ -230,10 +230,7 @@ extension AndroidNativeBridge on ClashService {
   /// before this method has also applied the transition bit.
   Future<bool> refreshNativeConnectionState({String source = '主动同步'}) {
     final nativeStateEpoch = ++_nativeStateEpoch;
-    return _refreshNativeConnectionState(
-      nativeStateEpoch,
-      source: source,
-    );
+    return _refreshNativeConnectionState(nativeStateEpoch, source: source);
   }
 
   Future<bool> _refreshNativeConnectionState(
@@ -544,14 +541,31 @@ extension AndroidNativeBridge on ClashService {
     Object? value,
   ) async {
     if (value is! Map) return null;
-    final running = value['running'] == true;
-    final transitioning = value['transitioning'] == true;
+    final rawRunning = value['running'];
+    final rawTransitioning = value['transitioning'];
+    if (rawRunning is! bool || rawTransitioning is! bool) {
+      log('原生 VPN 返回了缺少明确布尔状态的会话快照');
+      return null;
+    }
+    final running = rawRunning;
+    final transitioning = rawTransitioning;
     final rawSessionGeneration = value['sessionGeneration'];
-    final sessionGeneration =
-        rawSessionGeneration is int && rawSessionGeneration > 0
-            ? rawSessionGeneration
-            : null;
-    final rawPath = value['protectedConfigPath'] as String?;
+    if (rawSessionGeneration != null &&
+        (rawSessionGeneration is! int || rawSessionGeneration <= 0)) {
+      log('原生 VPN 返回了无效的会话代际');
+      return null;
+    }
+    final sessionGeneration = rawSessionGeneration as int?;
+    if (running != (sessionGeneration != null)) {
+      log('原生 VPN 的运行状态与会话代际不一致');
+      return null;
+    }
+    final rawPathValue = value['protectedConfigPath'];
+    if (rawPathValue != null && rawPathValue is! String) {
+      log('原生 VPN 返回了无效的受保护配置路径类型');
+      return null;
+    }
+    final rawPath = rawPathValue as String?;
     if (rawPath == null || rawPath.isEmpty) {
       return (
         running: running,

@@ -442,6 +442,27 @@ print("macOS network-service identity scope guards passed.")
 PY
 
 python3 - <<'PY'
+from pathlib import Path
+
+path = Path("SSRVPN_MacOS/lib/services/system_proxy_service.dart")
+source = path.read_text(encoding="utf-8")
+setup_start = source.index("Future<bool> _setSystemProxyOnce(")
+setup_end = source.index("Future<bool> clearSystemProxy()", setup_start)
+setup_body = source[setup_start:setup_end]
+
+if "await _listNetworkServiceIdentities()" not in setup_body:
+    raise SystemExit(f"{path}: proxy setup must capture stable service identities first")
+if "await _listNetworkServices()" in setup_body:
+    raise SystemExit(
+        f"{path}: proxy setup must not merge a second networksetup service listing"
+    )
+if "parseVerifiedMacProxyState" not in source:
+    raise SystemExit(f"{path}: proxy snapshots must reject malformed command output")
+
+print("macOS system-proxy snapshot guards passed.")
+PY
+
+python3 - <<'PY'
 from hashlib import sha256
 from pathlib import Path
 import re
