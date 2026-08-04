@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.3] - 2026-08-04
+
 ### 修复
 
 - macOS 系统代理启用改为复用同一份 SystemConfiguration 服务名称与稳定标识快照，不再把独立命令行列表的本地化提示、瞬时变化或额外记录误判为连接故障；代理状态输出缺字段、重复字段或非法值时会在任何写入前安全中止。
