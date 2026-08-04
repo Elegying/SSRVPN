@@ -195,6 +195,13 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                       create)
                         printf 'https://github.com/Elegying/SSRVPN/pull/84\n'
                         ;;
+                      checks)
+                        if [[ "$*" == *"--jq length"* ]]; then
+                          printf '6\n'
+                        elif [ "$FAKE_FAIL_BRANCH_CI" = true ]; then
+                          exit 1
+                        fi
+                        ;;
                       merge)
                         printf '%s' "$FAKE_MERGED_SHA" > "$FAKE_MAIN_SHA"
                         ;;
@@ -285,8 +292,8 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         sync = preparer.index("python3 scripts/sync-geoip-metadb.py")
         mirror = preparer.index("python3 scripts/ensure-geoip-mirror.py --upload")
         verify = preparer.index("bash scripts/verify-core-assets.sh")
-        branch_ci = preparer.index('dispatch_workflow "ci.yml" "$branch"')
         create_pr = preparer.index("gh pr create")
+        branch_ci = preparer.index('wait_for_pull_request_checks "$pr_number"')
         merge_pr = preparer.index("gh pr merge")
         main_ci = preparer.index('dispatch_workflow "ci.yml" main')
         final_freshness = preparer.index(
@@ -300,8 +307,8 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertLess(sync, mirror)
         self.assertLess(mirror, verify)
         self.assertLess(verify, branch_ci)
-        self.assertLess(branch_ci, create_pr)
-        self.assertLess(create_pr, merge_pr)
+        self.assertLess(create_pr, branch_ci)
+        self.assertLess(branch_ci, merge_pr)
         self.assertLess(merge_pr, main_ci)
         self.assertLess(main_ci, final_freshness)
         self.assertLess(final_freshness, create_tag)
@@ -340,16 +347,14 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        branch_dispatch = commands.index("workflows/ci.yml/dispatches")
         create_pr = commands.index("gh pr create")
+        branch_ci = commands.index("gh pr checks 84")
         merge_pr = commands.index("gh pr merge")
-        main_dispatch = commands.index(
-            "workflows/ci.yml/dispatches", branch_dispatch + 1
-        )
+        main_dispatch = commands.index("workflows/ci.yml/dispatches")
         tag_push = commands.index("git push origin refs/tags/v4.0.2")
         release_dispatch = commands.index("workflows/release.yml/dispatches")
-        self.assertLess(branch_dispatch, create_pr)
-        self.assertLess(create_pr, merge_pr)
+        self.assertLess(create_pr, branch_ci)
+        self.assertLess(branch_ci, merge_pr)
         self.assertLess(merge_pr, main_dispatch)
         self.assertLess(main_dispatch, tag_push)
         self.assertLess(tag_push, release_dispatch)
@@ -357,15 +362,16 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertIn("geoip_pr_url=https://github.com/Elegying/SSRVPN/pull/84", output)
         self.assertIn("Release workflow:", summary)
 
-    def test_branch_ci_failure_deletes_branch_without_pr_or_tag(self) -> None:
+    def test_pull_request_ci_failure_preserves_pr_without_tag(self) -> None:
         result, commands, output, _ = self._run_preparer(
             geoip_changed=True,
             fail_branch_ci=True,
         )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("git push origin --delete automation/release-4.0.2", commands)
-        self.assertNotIn("gh pr create", commands)
+        self.assertIn("gh pr create", commands)
+        self.assertIn("gh pr checks 84", commands)
+        self.assertNotIn("git push origin --delete", commands)
         self.assertNotIn("git push origin refs/tags/v4.0.2", commands)
         self.assertNotIn("workflows/release.yml/dispatches", commands)
         self.assertEqual(output, "")
