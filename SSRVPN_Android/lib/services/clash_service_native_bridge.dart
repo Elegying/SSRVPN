@@ -33,6 +33,12 @@ typedef _NativeConnectionState = ({
 });
 
 extension AndroidNativeBridge on ClashService {
+  bool _acceptNativeStartState(Object? rawState, bool parsed) {
+    if (rawState is! Map || parsed) return true;
+    setLastStartError('无法确认原生 VPN 启动状态，请重新连接');
+    return false;
+  }
+
   Future<bool> _recoverNativeAfterHealthCheckFailure(
     int connectionGeneration,
   ) async {
