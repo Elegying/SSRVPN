@@ -17,7 +17,9 @@ void main() {
           '-Command',
           windowsPowerShellUtf8Script("Write-Output '中文代理恢复成功'"),
         ],
-        timeout: const Duration(seconds: 10),
+        // This verifies encoding, not cold-start performance. Windows
+        // PowerShell 5.1 can take over 10 seconds to start on a loaded runner.
+        timeout: const Duration(seconds: 30),
       );
 
       expect(result.exitCode, 0);

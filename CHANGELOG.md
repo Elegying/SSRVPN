@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - macOS 系统代理的稳定服务标识只从当前网络集合读取，避免偏好数据库中的残留或虚拟服务与 `networksetup` 可管理服务不一致时误报“无法确认 macOS 网络服务稳定标识”并阻止连接。
 - 一键发布准备会先引导固定核心资产，再刷新 GeoIP 并执行完整性校验，避免干净 runner 因缺少未入库平台二进制而在创建标签前失败。
 - GeoIP 更新分支改为先创建 PR，再等待分支保护实际认可的 PR 必需检查，避免预先手动调度的分支 CI 全绿后仍因“检查尚未注册”而无法合并。
+- Windows PowerShell 5.1 UTF-8 真实集成测试放宽冷启动预算，避免繁忙 runner 将正确的编码结果误判为超时失败；生产代理命令的有界超时保持不变。
 
 ### 改进
 
