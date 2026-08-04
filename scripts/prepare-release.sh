@@ -83,6 +83,23 @@ wait_for_workflow() {
   gh run watch "$watched_run_id" --exit-status --interval 20
 }
 
+wait_for_pull_request_checks() {
+  local pull_request=$1
+  local check_count=""
+
+  for _ in {1..30}; do
+    check_count="$(gh pr checks "$pull_request" \
+      --required --json name --jq 'length' 2>/dev/null || true)"
+    if [[ "$check_count" =~ ^[1-9][0-9]*$ ]]; then
+      gh pr checks "$pull_request" \
+        --required --watch --fail-fast --interval 20
+      return
+    fi
+    sleep 2
+  done
+  fail "Required checks did not register for pull request $pull_request"
+}
+
 require_tag_absent() {
   local tag_status=0
   local release_error
@@ -183,15 +200,6 @@ if ! git diff --quiet -- docs/GEOIP_SOURCE.txt; then
   git push origin "HEAD:refs/heads/$branch"
   branch_pushed=true
 
-  IFS=$'\t' read -r branch_ci_run_id branch_ci_url \
-    < <(dispatch_workflow "ci.yml" "$branch")
-  wait_for_workflow "$branch_ci_run_id"
-
-  git fetch --no-tags origin main:refs/remotes/origin/main
-  if [ "$(git rev-parse --verify 'origin/main^{commit}')" != "$main_sha" ]; then
-    fail "main advanced while the GeoIP branch was being verified; retry safely"
-  fi
-
   pr_url="$(gh pr create \
     --base main \
     --head "$branch" \
@@ -201,6 +209,14 @@ if ! git diff --quiet -- docs/GEOIP_SOURCE.txt; then
   if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
     fail "Could not determine the GeoIP pull request number"
   fi
+  branch_ci_url="$pr_url/checks"
+  wait_for_pull_request_checks "$pr_number"
+
+  git fetch --no-tags origin main:refs/remotes/origin/main
+  if [ "$(git rev-parse --verify 'origin/main^{commit}')" != "$main_sha" ]; then
+    fail "main advanced while the GeoIP pull request was verified; retry safely"
+  fi
+
   gh pr merge "$pr_number" --rebase --delete-branch
   merged=true
 
