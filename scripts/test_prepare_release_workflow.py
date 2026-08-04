@@ -82,7 +82,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                 #!/usr/bin/env bash
                 set -euo pipefail
                 case "${1:-}" in
-                  scripts/check-version-sync.sh|scripts/verify-core-assets.sh)
+                  scripts/check-version-sync.sh|scripts/bootstrap-core-assets.sh|scripts/verify-core-assets.sh)
                     printf 'bash %s\n' "$*" >> "$FAKE_COMMAND_LOG"
                     exit 0
                     ;;
@@ -281,6 +281,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
     def test_preparer_tags_only_after_geoip_and_exact_main_ci(self) -> None:
         preparer = PREPARER.read_text(encoding="utf-8")
 
+        bootstrap = preparer.index("bash scripts/bootstrap-core-assets.sh")
         sync = preparer.index("python3 scripts/sync-geoip-metadb.py")
         mirror = preparer.index("python3 scripts/ensure-geoip-mirror.py --upload")
         verify = preparer.index("bash scripts/verify-core-assets.sh")
@@ -295,6 +296,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         push_tag = preparer.index('git push origin "refs/tags/$tag"')
         release = preparer.index('dispatch_workflow "release.yml" "$tag"')
 
+        self.assertLess(bootstrap, sync)
         self.assertLess(sync, mirror)
         self.assertLess(mirror, verify)
         self.assertLess(verify, branch_ci)
