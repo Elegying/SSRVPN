@@ -357,10 +357,7 @@ class ClashService extends ClashServiceBase {
       _ensureStartCurrent(startToken);
 
       final returnedState = await _parseNativeConnectionState(result);
-      if (result is Map && returnedState == null) {
-        setLastStartError('无法确认原生 VPN 启动状态，请重新连接');
-        return false;
-      }
+      if (!_acceptNativeStartState(result, returnedState != null)) return false;
       if (result == true || returnedState?.running == true) {
         setRunning(true);
         _nativeConnectionTransitioning = returnedState?.transitioning ?? false;
