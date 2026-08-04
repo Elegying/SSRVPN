@@ -244,7 +244,10 @@ class AppDelegate: FlutterAppDelegate {
         "com.ssrvpn.network-service-identities" as CFString,
         nil
       ),
-      let rawServices = SCNetworkServiceCopyAll(preferences)
+      // `networksetup` manages the current location's services. Reading every
+      // preference service also returns orphaned entries that it cannot name.
+      let currentSet = SCNetworkSetCopyCurrent(preferences),
+      let rawServices = SCNetworkSetCopyServices(currentSet)
     else {
       return nil
     }
