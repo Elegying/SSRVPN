@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.2] - 2026-08-04
+
+### 修复
+
+- macOS 系统代理的稳定服务标识只从当前网络集合读取，避免偏好数据库中的残留或虚拟服务与 `networksetup` 可管理服务不一致时误报“无法确认 macOS 网络服务稳定标识”并阻止连接。
+
 ### 改进
 
 - 正式发版新增一键 `Prepare Release` 编排：自动刷新并固定 GeoIP，临时分支 CI 与合并后精确 `main` CI 均通过后才创建不可变标签并启动既有 Release；任一前置检查失败都会停在标签之前，标签后的发布失败则保留原标签供安全重试。

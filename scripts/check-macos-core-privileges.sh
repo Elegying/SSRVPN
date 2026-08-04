@@ -418,6 +418,30 @@ print("macOS TUN DNS transaction guards passed.")
 PY
 
 python3 - <<'PY'
+from pathlib import Path
+
+path = Path("SSRVPN_MacOS/macos/Runner/AppDelegate.swift")
+source = path.read_text(encoding="utf-8")
+identity_start = source.index("func currentNetworkServiceIdentities()")
+identity_end = source.index(
+    "private func resetCommittedApplicationTermination", identity_start
+)
+identity_body = source[identity_start:identity_end]
+
+for required in ("SCNetworkSetCopyCurrent", "SCNetworkSetCopyServices"):
+    if required not in identity_body:
+        raise SystemExit(
+            f"{path}: stable identities must come from the current network set"
+        )
+if "SCNetworkServiceCopyAll" in identity_body:
+    raise SystemExit(
+        f"{path}: all preference services include orphaned entries that networksetup cannot manage"
+    )
+
+print("macOS network-service identity scope guards passed.")
+PY
+
+python3 - <<'PY'
 from hashlib import sha256
 from pathlib import Path
 import re
