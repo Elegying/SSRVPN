@@ -152,6 +152,7 @@ fi
 
 require_tag_absent
 
+bash scripts/bootstrap-core-assets.sh
 python3 scripts/sync-geoip-metadb.py
 python3 scripts/ensure-geoip-mirror.py --upload
 bash scripts/verify-core-assets.sh
