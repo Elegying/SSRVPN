@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.5] - 2026-08-08
+
+### 修复
+
+- Google Play 的 `services.googleapis.cn` 会话 API 与 `xn--ngstr-lra8j.com` 分包配送域名现在固定使用同一代理 DNS 和代理出口，避免智能模式下会话 API 直连、分包代理所造成的下载连接被关闭。
+
+### 测试
+
+- 扩展 Google Play 回归，逐一验证会话 API 和分包配送域名都先于国内 DNS、国内规则集与 GeoIP 直连规则命中代理。
+- Android 16 root 真机在全局模式对照中通过 Google Play 下载并安装 Telegram `12.9.2` 的五个分包；智能模式最终验收随本补丁的官方签名 APK 进行。
+
+### 兼容性边界
+
+- 本版本没有修改 HTTP 订阅、75 个 Android 国内应用直连名单、三端 IPv4-only 策略、两页产品表面、macOS 免费 ad-hoc 分发或 Windows 未签名安装器单一分发策略。
+
 ## [4.0.4] - 2026-08-08
 
 ### 修复
