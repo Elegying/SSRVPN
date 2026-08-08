@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.4] - 2026-08-08
+
+### 修复
+
+- Google Play 应用分包使用的 `xn--ngstr-lra8j.com` 配送域名现在会在国内域名与 GeoIP 直连规则之前使用代理 DNS 和代理路由，避免国内缓存地址无法直连时下载停在末段并提示“无法安装”。
+- Android 原生 VPN 状态连续读取失败时只执行三轮有界复核；仍无法确认则清除会话并标记断开，避免无限轮询和界面长期停留在错误的已连接状态。
+
+### 测试
+
+- 新增 Google Play 配送域名的 DNS、规则顺序和国内直连回退回归，三端继续通过共享配置生成器使用同一结果。
+
+### 兼容性边界
+
+- 本版本没有修改 HTTP 订阅、75 个 Android 国内应用直连名单、三端 IPv4-only 策略、两页产品表面、macOS 免费 ad-hoc 分发或 Windows 未签名安装器单一分发策略。
+
 ## [4.0.3] - 2026-08-04
 
 ### 修复
