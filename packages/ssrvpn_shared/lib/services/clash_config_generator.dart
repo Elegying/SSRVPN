@@ -183,7 +183,7 @@ class ClashConfigGenerator {
       for (final domain in forceProxyDomainSuffixes) {
         nameserverPolicies['+.$domain'] = AppConstants.trustedProxyNameservers;
       }
-      for (final domain in AppConstants.openAiDomainSuffixes) {
+      for (final domain in AppConstants.defaultProxyDomainSuffixes) {
         nameserverPolicies.putIfAbsent(
           '+.$domain',
           () => AppConstants.trustedProxyNameservers,
@@ -290,7 +290,11 @@ class ClashConfigGenerator {
             (rule) => rule.isNotEmpty,
           ),
     );
-    orderedRules.addAll(AppConstants.openAiProxyRules);
+    orderedRules.addAll(
+      AppConstants.defaultProxyDomainSuffixes.map(
+        (domain) => 'DOMAIN-SUFFIX,$domain,PROXY',
+      ),
+    );
     orderedRules.addAll(AppConstants.defaultRuleProviderDirectRules);
     orderedRules.addAll(AppConstants.defaultDirectRules);
     orderedRules.add(AppConstants.defaultGeoIpDirectRule);

@@ -302,6 +302,46 @@ proxies:
     });
 
     test(
+      'Google Play delivery never falls through to domestic DNS or routing',
+      () {
+        const yaml = '''
+proxies:
+  - name: "Test Node"
+    type: ss
+    server: node.example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+''';
+
+        final parsed = loadYaml(
+          ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+        ) as YamlMap;
+        final dns = parsed['dns'] as YamlMap;
+        final policy = dns['nameserver-policy'] as YamlMap;
+        final policyKeys = policy.keys.cast<String>().toList();
+        final rules = (parsed['rules'] as YamlList).cast<String>();
+        final proxyRuleIndex =
+            rules.indexOf('DOMAIN-SUFFIX,xn--ngstr-lra8j.com,PROXY');
+
+        expect(
+          (policy['+.xn--ngstr-lra8j.com'] as YamlList).cast<String>(),
+          everyElement(contains('#PROXY')),
+        );
+        expect(
+          policyKeys.indexOf('+.xn--ngstr-lra8j.com'),
+          lessThan(policyKeys.indexOf('rule-set:ssrvpn-geosite-cn')),
+        );
+        expect(proxyRuleIndex, isNonNegative);
+        expect(
+          proxyRuleIndex,
+          lessThan(rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT')),
+        );
+        expect(proxyRuleIndex, lessThan(rules.indexOf('GEOIP,CN,DIRECT')));
+      },
+    );
+
+    test(
       'force-proxy domains override domestic DNS and routing without duplicates',
       () {
         const yaml = '''
