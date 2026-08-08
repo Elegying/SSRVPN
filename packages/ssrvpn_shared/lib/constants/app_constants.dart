@@ -56,11 +56,16 @@ class AppConstants {
     'https://8.8.8.8/dns-query#PROXY',
   ];
 
-  static const List<String> openAiDomainSuffixes = [
+  /// International domains that must be resolved and routed through PROXY
+  /// before domestic domain or GeoIP rules can match them.
+  static const List<String> defaultProxyDomainSuffixes = [
     'chatgpt.com',
     'openai.com',
     'oaistatic.com',
     'oaiusercontent.com',
+    // Google Play delivery hosts use subdomains of this IDN/Punycode suffix.
+    // Some domestic resolvers return CN cache IPs that are unreachable directly.
+    'xn--ngstr-lra8j.com',
   ];
 
   // ── 文件路径 ──
@@ -132,13 +137,6 @@ class AppConstants {
     'IP-CIDR,172.16.0.0/12,DIRECT,no-resolve',
     'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve',
     'IP-CIDR,100.64.0.0/10,DIRECT,no-resolve',
-  ];
-
-  static const List<String> openAiProxyRules = [
-    'DOMAIN-SUFFIX,chatgpt.com,PROXY',
-    'DOMAIN-SUFFIX,openai.com,PROXY',
-    'DOMAIN-SUFFIX,oaistatic.com,PROXY',
-    'DOMAIN-SUFFIX,oaiusercontent.com,PROXY',
   ];
 
   static const List<String> defaultRuleProviderDirectRules = [
