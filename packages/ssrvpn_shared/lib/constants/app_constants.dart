@@ -63,8 +63,9 @@ class AppConstants {
     'openai.com',
     'oaistatic.com',
     'oaiusercontent.com',
-    // Google Play delivery hosts use subdomains of this IDN/Punycode suffix.
-    // Some domestic resolvers return CN cache IPs that are unreachable directly.
+    // Keep the Google Play session API and its delivery hosts on the same
+    // proxy egress. Splitting them across DIRECT and PROXY breaks downloads.
+    'services.googleapis.cn',
     'xn--ngstr-lra8j.com',
   ];
 
@@ -76,7 +77,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '4.0.4';
+  static const String appVersion = '4.0.5';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 
