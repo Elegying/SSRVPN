@@ -54,4 +54,13 @@ if ! grep -Eq "^## \\[$version_pattern\\]( - [0-9]{4}-[0-9]{2}-[0-9]{2})?$" CHAN
   exit 1
 fi
 
+health_version="$(
+  awk -F '\140' '/^当前应用版本：/ { version=$2; sub(/^v/, "", version); print version; exit }' \
+    docs/PROJECT_HEALTH.md
+)"
+if [ "$health_version" != "$base_version" ]; then
+  echo "version check failed: docs/PROJECT_HEALTH.md is v${health_version:-unknown}, expected v$base_version" >&2
+  exit 1
+fi
+
 echo "Version sync check passed: $workspace_version"

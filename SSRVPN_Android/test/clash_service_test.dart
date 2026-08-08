@@ -421,7 +421,7 @@ void main() {
     expect(service.connectionDesired, isTrue);
   });
 
-  test('terminal state retry is bounded when every query fails', () async {
+  test('persistent terminal state failure eventually fails closed', () async {
     const channel = MethodChannel('com.ssrvpn/native');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -442,6 +442,15 @@ void main() {
     expect(stateReads, 3);
     expect(service.isRunning, isTrue);
     expect(service.connectionDesired, isTrue);
+
+    await Future<void>.delayed(const Duration(milliseconds: 9500));
+
+    expect(stateReads, 6);
+    expect(service.isRunning, isFalse);
+    expect(service.connectionDesired, isFalse);
+
+    await Future<void>.delayed(const Duration(milliseconds: 3200));
+    expect(stateReads, 6);
   });
 
   test(

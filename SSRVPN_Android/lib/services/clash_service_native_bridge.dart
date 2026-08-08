@@ -5,9 +5,10 @@ const _nativeStateRetryDelays = <Duration>[
   Duration(milliseconds: 300),
 ];
 
-// Align deferred reconciliation with the native liveness cadence. A failed
-// platform-channel read must not create a tight, indefinite polling loop.
+// Align deferred reconciliation with the native liveness cadence while keeping
+// a persistent platform-channel failure bounded.
 const _deferredNativeStateRetryDelay = Duration(seconds: 3);
+const _maxDeferredNativeStateRetryAttempts = 3;
 
 class AndroidProxySwitchResult {
   const AndroidProxySwitchResult({
@@ -190,6 +191,7 @@ extension AndroidNativeBridge on ClashService {
   void _scheduleDeferredNativeStateSync(
     int nativeStateEpoch, {
     required bool Function() isStillCurrent,
+    int attempt = 1,
   }) {
     _nativeStateReconciliationTimer?.cancel();
     _nativeStateReconciliationTimer = Timer(
@@ -202,14 +204,31 @@ extension AndroidNativeBridge on ClashService {
           source: '原生状态低频复核',
           isStillCurrent: isStillCurrent,
         );
-        if (!synchronized && isStillCurrent()) {
-          _scheduleDeferredNativeStateSync(
-            nativeStateEpoch,
-            isStillCurrent: isStillCurrent,
-          );
+        if (synchronized || !isStillCurrent()) return;
+        if (attempt >= _maxDeferredNativeStateRetryAttempts) {
+          _failClosedNativeStateReconciliation();
+          return;
         }
+        _scheduleDeferredNativeStateSync(
+          nativeStateEpoch,
+          isStillCurrent: isStillCurrent,
+          attempt: attempt + 1,
+        );
       },
     );
+  }
+
+  void _failClosedNativeStateReconciliation() {
+    _nativeSessionProtocolAvailable = false;
+    _nativeConnectionTransitioning = false;
+    _nativeSessionGeneration = null;
+    _runningConfigPath = null;
+    stopStatusMonitor();
+    if (!isRunning && !connectionDesired) return;
+    _markNativeConnectionLost();
+    const message = '无法确认 Android VPN 运行状态，已标记为断开，请重新连接';
+    log(message);
+    _notifyNativeRuntimeNotice(message);
   }
 
   void _applyNativeRunningFallback({required String source}) {
