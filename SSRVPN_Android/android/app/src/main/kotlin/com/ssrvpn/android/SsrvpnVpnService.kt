@@ -424,7 +424,6 @@ class SsrvpnVpnService : VpnService() {
         requestId: String?,
         recoveryAttempt: Int
     ) {
-        val packageName = packageName
         try {
             ensureStartCurrent(startToken)
             Log.d(TAG, "Initializing protect pipe...")
@@ -447,12 +446,11 @@ class SsrvpnVpnService : VpnService() {
             builder.setSession("SSRVPN")
             // IPv4 公网路由保留局域网直连；IPv6 全量进入 VPN，避免泄漏。
             VpnRouteInstaller.configure(builder)
-            builder.addDnsServer("223.5.5.5")
-            builder.addDnsServer("8.8.8.8")
             builder.setMtu(1500)
-            builder.setBlocking(true)
-            // 排除自身、无线调试服务和明确的国内服务应用。
-            val bypassedDomesticApps = VpnAppExclusionInstaller.install(builder, packageName)
+            // Keep Android's documented default non-blocking TUN contract.
+            builder.setBlocking(false)
+            // Keep this app inside TUN; protect Mihomo outbound sockets individually.
+            val bypassedDomesticApps = VpnAppExclusionInstaller.install(builder)
             Log.i(TAG, "Bypassing ${bypassedDomesticApps.size} installed domestic apps")
 
             vpnFd = builder.establish()
@@ -505,6 +503,14 @@ class SsrvpnVpnService : VpnService() {
                     ensureStartCurrent(startToken)
                     Log.d(TAG, "Core started!")
                     applyProxySelection(apiPort, apiSecret, selectedNodeName)
+                    val dataPlaneHealthy =
+                        VpnDataPlaneProbe.isStartupHealthy(protectThread) {
+                            ensureStartCurrent(startToken)
+                        }
+                    if (!dataPlaneHealthy) {
+                        return rejectCoreStart(requestId, "VPN 数据通道不可用，请切换节点或重试", recoveryAttempt)
+                    }
+                    ensureStartCurrent(startToken)
                     val published = startGeneration.runIfCurrent(startToken) {
                         runtimeDiagnostics.claimTunDescriptor(tunFd)
                         NativeConnectionSession.publishRunning(configPath)

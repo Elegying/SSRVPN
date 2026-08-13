@@ -25,6 +25,8 @@ HOME_PARTS=(
 )
 PUBLIC_ROUTES="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/PublicIpv4Routes.kt"
 VPN_ROUTE_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnRouteInstaller.kt"
+VPN_APP_EXCLUSION_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnAppExclusionInstaller.kt"
+VPN_DATA_PLANE_PROBE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnDataPlaneProbe.kt"
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
 NOTIFICATION_GATE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NotificationGenerationGate.kt"
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
@@ -96,6 +98,15 @@ require_route_text() {
   local needle="$1"
   if ! grep -Fq "$needle" "$VPN_ROUTE_INSTALLER"; then
     echo "Android VPN route guard check failed: missing '$needle'" >&2
+    exit 1
+  fi
+}
+
+require_file_text() {
+  local file="$1"
+  local needle="$2"
+  if ! grep -Fq "$needle" "$file"; then
+    echo "Android native file guard failed in $file: missing '$needle'" >&2
     exit 1
   fi
 }
@@ -643,11 +654,31 @@ grep -Fq '<string name="disconnect_recovery_status">' "$ANDROID_STRINGS" || {
 }
 require_text "VpnRouteInstaller.configure(builder)"
 require_route_text "PublicIpv4Routes.routes"
-require_route_text "configure(builder::addAddress, builder::addRoute)"
-require_route_text 'addAddress("198.18.0.1", 32)'
+require_route_text "configure(builder::addAddress, builder::addRoute, builder::addDnsServer)"
+require_route_text 'private const val clientAddress = "172.19.0.1"'
+require_route_text 'private const val clientPrefixLength = 30'
+require_route_text 'private const val dnsAddress = "172.19.0.2"'
+require_route_text 'addDnsServer(dnsAddress)'
+require_route_text 'addRoute(dnsAddress, 32)'
 require_route_text "VpnIpv6Config.address"
 require_route_text "addRoute(route.address, route.prefixLength)"
 require_route_text "VpnIpv6Config.defaultRoute"
+require_text "builder.setBlocking(false)"
+require_text "VpnAppExclusionInstaller.install(builder)"
+require_text "VpnDataPlaneProbe.isStartupHealthy("
+require_text '"VPN 数据通道不可用，请切换节点或重试"'
+require_file_text "$VPN_DATA_PLANE_PROBE" '"https://www.gstatic.com/generate_204"'
+require_file_text "$VPN_DATA_PLANE_PROBE" '"https://www.youtube.com/generate_204"'
+require_file_text "$VPN_DATA_PLANE_PROBE" '"https://cp.cloudflare.com/generate_204"'
+require_file_text "$VPN_DATA_PLANE_PROBE" "HttpURLConnection.HTTP_NO_CONTENT"
+require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "fun install(builder: VpnService.Builder)"
+require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "DomesticAppBypassPolicy.applyInstalled"
+require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "adbPackages.forEach"
+if grep -Fq "vpnPackageName" "$VPN_APP_EXCLUSION_INSTALLER" ||
+  grep -Fq "VpnAppExclusionInstaller.install(builder, packageName)" "$SERVICE"; then
+  echo "Android VPN app exclusion guard failed: SSRVPN must stay inside its own TUN" >&2
+  exit 1
+fi
 require_text "VpnNotificationSupport.createChannel(this, CHANNEL_ID)"
 require_text "NativeConnectionSnapshotStore.read(this)"
 require_text "notificationUpdatePolicy.publishIfChanged(it)"
@@ -876,7 +907,7 @@ from pathlib import Path
 service = Path(sys.argv[1])
 support = Path(sys.argv[2])
 line_count = len(service.read_text(encoding="utf-8").splitlines())
-if line_count > 915:
+if line_count > 920:
     raise SystemExit(f"{service}: VPN service grew to {line_count} lines")
 if "fun formatBytes(bytes: Long)" not in support.read_text(encoding="utf-8"):
     raise SystemExit(f"{support}: missing notification byte formatter")

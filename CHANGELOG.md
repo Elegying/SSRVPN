@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.6] - 2026-08-14
+
+### 修复
+
+- Android VPN 改用与成熟客户端一致的虚拟 TUN 地址、虚拟 DNS 和非阻塞文件描述符契约，SSRVPN 自身也不再整包绕过 VPN；Mihomo 出站连接继续逐 socket 使用系统 `protect()`，避免部分 Android 设备显示已连接但浏览器没有实际流量。
+- Android 原生服务只有在普通应用流量通过 TUN 真实取得 HTTP 204 后才发布“已连接”；探测会在 Google、YouTube 与 Cloudflare 三个有界端点间轮换，全部失败时清理 VPN 并提示切换节点或重试。
+
+### 测试
+
+- 新增 Android TUN 地址、虚拟 DNS、应用排除与数据面启动门禁原生回归，覆盖重定向/非 204 拒绝、跨提供方重试和三次失败关闭。
+- 完整发布门禁继续覆盖共享配置、Android Flutter 与 Kotlin 原生测试、macOS/Windows 回归、发布工具、秘密扫描、静态分析和覆盖率阈值。
+
+### 兼容性边界
+
+- 本版本不修改强制代理网站输入与规则顺序、75 个 Android 国内应用直连名单、HTTP 订阅、IPv6 防泄漏、两页产品表面、macOS 免费 ad-hoc 分发或 Windows 未签名安装器单一分发策略。
+
 ## [4.0.5] - 2026-08-08
 
 ### 修复
