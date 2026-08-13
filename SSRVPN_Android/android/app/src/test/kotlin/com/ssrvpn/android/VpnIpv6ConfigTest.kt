@@ -17,16 +17,20 @@ class VpnIpv6ConfigTest {
     fun `route installer applies both addresses public IPv4 and IPv6 default`() {
         val addresses = mutableListOf<Pair<String, Int>>()
         val routes = mutableListOf<Pair<String, Int>>()
+        val dnsServers = mutableListOf<String>()
 
         VpnRouteInstaller.configure(
             addAddress = { address, prefix -> addresses += address to prefix },
-            addRoute = { address, prefix -> routes += address to prefix }
+            addRoute = { address, prefix -> routes += address to prefix },
+            addDnsServer = dnsServers::add
         )
 
         assertEquals(
-            listOf("198.18.0.1" to 32, "fdfe:dcba:9876::1" to 126),
+            listOf("172.19.0.1" to 30, "fdfe:dcba:9876::1" to 126),
             addresses
         )
+        assertEquals(listOf("172.19.0.2"), dnsServers)
+        assertTrue(routes.contains("172.19.0.2" to 32))
         assertTrue(routes.contains("102.0.0.0" to 7))
         assertTrue(routes.contains("::" to 0))
     }
