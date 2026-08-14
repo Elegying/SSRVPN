@@ -72,7 +72,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   String? _startupDisabledReason;
 
   // ── System proxy ──
-  final SystemProxyService _proxyService = SystemProxyService();
+  late final SystemProxyService _proxyService;
 
   // ── Core path ──
   String _corePath = '';
@@ -97,7 +97,10 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   Future<bool> healthCheck() async {
     if (!await super.healthCheck()) return false;
     if (!settings.enableTun) {
-      if (isRunning) {
+      // During startup the proxy transaction is acquired before isRunning is
+      // committed. Recheck that newly acquired endpoint as part of the final
+      // readiness gate instead of waiting for the first periodic monitor tick.
+      if (isRunning || _proxyService.isProxyEnabled) {
         final ownershipStatus = await inspectSystemProxyOwnership();
         if (ownershipStatus == SystemProxyOwnershipStatus.owned) {
           setLastHealthCheckError(null);
@@ -240,6 +243,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       if (ownershipStatus != SystemProxyOwnershipStatus.owned) {
         final externallyChanged =
             ownershipStatus == SystemProxyOwnershipStatus.externallyChanged;
+        final ownershipDetail = _proxyService.lastError?.trim();
         // Invalidate intent before asynchronous cleanup so neither the health
         // monitor nor an in-flight recovery can reacquire the system proxy.
         markConnectionLost();
@@ -255,7 +259,9 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
         }
         notifyRuntimeNotice(
           externallyChanged
-              ? '检测到系统代理已被其他程序接管，SSRVPN 已安全断开且不会覆盖当前代理。'
+              ? ownershipDetail != null && ownershipDetail.isNotEmpty
+                  ? '$ownershipDetail。SSRVPN 已安全断开且不会覆盖当前代理。'
+                  : '检测到系统代理已被其他程序接管，SSRVPN 已安全断开且不会覆盖当前代理。'
               : '无法确认当前系统代理所有权，SSRVPN 已安全断开且不会覆盖未知代理状态。',
         );
         return false;
@@ -873,10 +879,13 @@ try {
           setLastStartError('Mihomo 提前退出（退出码 $startupExitCode）$detail');
           log('❌ 核心启动失败: $lastStartError');
         } else {
+          final healthDetail = lastHealthCheckError?.trim();
           setLastStartError(
-            settings.enableTun
-                ? 'TUN 网卡或路由未能启用，请检查管理员权限、驱动或同名虚拟网卡冲突'
-                : '电脑性能不足，请重新连接',
+            healthDetail != null && healthDetail.isNotEmpty
+                ? 'Mihomo 启动后未通过就绪检查：$healthDetail'
+                : settings.enableTun
+                    ? 'TUN 监听未能启用，请检查管理员权限、驱动或同名虚拟网卡冲突'
+                    : 'Mihomo 控制端口未能就绪，请重新连接',
           );
           log('❌ 核心启动后健康检查失败: $lastStartError');
         }
@@ -933,10 +942,13 @@ try {
             startupExitCode == null &&
             processStillHealthy;
         if (!canCommitRunning) {
+          final healthDetail = lastHealthCheckError?.trim();
           setLastStartError(
-            startupExitCode == null
-                ? 'Mihomo 在系统代理设置期间失去响应'
-                : 'Mihomo 在系统代理设置期间退出（退出码 $startupExitCode）',
+            startupExitCode != null
+                ? 'Mihomo 在连接提交期间退出（退出码 $startupExitCode）'
+                : healthDetail != null && healthDetail.isNotEmpty
+                    ? '连接提交前的就绪检查失败：$healthDetail'
+                    : 'Mihomo 在连接提交期间失去响应',
           );
           log('❌ $lastStartError');
         }

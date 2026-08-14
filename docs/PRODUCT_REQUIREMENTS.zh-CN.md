@@ -5,7 +5,7 @@
 ## 安装包
 
 1. macOS 发布产物必须是可拖拽安装的 DMG：根目录包含 `SSRVPN.app` 和指向 `/Applications` 的 `Applications` 快捷方式。
-2. Windows 只发布每用户安装器 `SSRVPN_Setup.exe`。安装器固定写入 `%LOCALAPPDATA%\Programs\SSRVPN`、不请求管理员权限，升级时应先恢复自有系统代理并自动关闭 SSRVPN 专属进程；随后只替换已知程序文件，保留安装版的订阅、设置、DPAPI 密钥、LocalAppData 回退数据和窗口状态，且不搜索、修改或结束其他位置遗留的旧独立副本。
+2. Windows 只发布每用户安装器 `SSRVPN_Setup.exe`。安装器固定写入 `%LOCALAPPDATA%\Programs\SSRVPN`，但安装阶段请求管理员权限；升级时应先恢复自有系统代理，并强制结束正在运行的 SSRVPN、Mihomo、Clash 及常见代理/VPN 进程（包括用户自行运行的同名进程），避免文件锁或系统代理残留阻断覆盖安装。随后只替换已知程序文件，并保留安装版的订阅、设置、DPAPI 密钥、LocalAppData 回退数据和窗口状态。
 
 ## 首次使用和订阅
 

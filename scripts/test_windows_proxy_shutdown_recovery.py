@@ -26,6 +26,69 @@ def windows_clash_lifecycle_source() -> str:
 
 
 class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
+    def test_lifecycle_unit_tests_never_use_the_live_system_proxy_service(
+        self,
+    ) -> None:
+        lifecycle_test = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "test"
+            / "clash_service_lifecycle_test.dart"
+        ).read_text(encoding="utf-8")
+        service = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "clash_service.dart"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("SystemProxyService? systemProxyService", service)
+        self.assertIn("SystemProxyService.forTesting(", lifecycle_test)
+        self.assertIn("isWindows: false", lifecycle_test)
+        self.assertNotIn("final service = ClashService();", lifecycle_test)
+
+    def test_system_proxy_readiness_rechecks_the_acquired_endpoint(self) -> None:
+        lifecycle = windows_clash_lifecycle_source()
+
+        self.assertIn(
+            "if (isRunning || _proxyService.isProxyEnabled)", lifecycle
+        )
+        self.assertIn(
+            "Mihomo 启动后未通过就绪检查：$healthDetail", lifecycle
+        )
+        readiness_start = lifecycle.index("if (startupExitCode != null)")
+        readiness_end = lifecycle.index(
+            "await _cleanupFailedStart()", readiness_start
+        )
+        readiness_failure = lifecycle[readiness_start:readiness_end]
+        self.assertNotIn("电脑性能不足，请重新连接", readiness_failure)
+
+    def test_native_proxy_recovery_test_never_broadcasts_wininet_changes(
+        self,
+    ) -> None:
+        runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
+        recovery = (runner / "system_proxy_recovery.cpp").read_text(
+            encoding="utf-8"
+        )
+        cmake = (runner / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "SSRVPN_SYSTEM_PROXY_RECOVERY_NO_WININET_NOTIFY", recovery
+        )
+        test_target = cmake[
+            cmake.index("add_executable(ssrvpn_system_proxy_recovery_test") :
+        ]
+        self.assertIn(
+            '"SSRVPN_SYSTEM_PROXY_RECOVERY_NO_WININET_NOTIFY=1"',
+            test_target,
+        )
+        production_targets = cmake[: cmake.index(test_target)]
+        self.assertNotIn(
+            "SSRVPN_SYSTEM_PROXY_RECOVERY_NO_WININET_NOTIFY",
+            production_targets,
+        )
+
     def test_tun_elevation_relaunch_is_bounded_and_same_account_only(self) -> None:
         runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
         native = (runner / "flutter_window.cpp").read_text(encoding="utf-8")

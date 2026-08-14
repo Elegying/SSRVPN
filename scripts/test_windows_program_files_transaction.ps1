@@ -14,7 +14,10 @@ $tempBase = if ($env:RUNNER_TEMP) {
   [System.IO.Path]::GetTempPath()
 }
 $testToken = [Guid]::NewGuid().ToString('N')
-$testRoot = Join-Path $tempBase "ssrvpn-program-transaction-$testToken"
+# Keep the fixture root short enough that the deliberate 65-level path below
+# reaches the transaction's depth guard before legacy Windows PowerShell hits
+# MAX_PATH while creating the fixture itself.
+$testRoot = Join-Path $tempBase "svpn-pft-$($testToken.Substring(0, 12))"
 $installDir = Join-Path $testRoot 'installed'
 $recoveryRoot = Join-Path $testRoot 'installer-recovery'
 $statusRoot = Join-Path $testRoot 'status'

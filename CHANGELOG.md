@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.7] - 2026-08-14
+
+### 修复
+
+- Windows 系统代理运行期所有权只以启用状态和 SSRVPN 记录的本地端点判定；Windows 或终端管理软件只改写代理绕过、自动检测或 PAC 辅助字段时不再误报“被其他程序接管”并断开，真正关闭或替换代理端点仍会安全停止，完整恢复继续保留严格事务指纹且不覆盖第三方修改。
+- Windows 安装器在内置更新交接后只给旧客户端 3 秒正常退出，未释放启动器即进入带 PID、路径、会话和创建时间复核的强制清理；安装过程会结束当前会话中的全部 SSRVPN、Mihomo，以及常见 Clash、sing-box、Xray、V2Ray、Shadowsocks、Hysteria、TUIC、NaiveProxy、Trojan、OpenVPN、WireGuard、Tailscale 和 ZeroTier 进程，不再因便携副本、其他 Mihomo 或旧启动器残留而在覆盖前直接报错。
+- Windows 安装器现在请求管理员权限后再执行残留进程清理，解决普通权限安装器无法读取已提升 SSRVPN/Mihomo 的映像路径而报 `IDENTITY_UNVERIFIED`；安装目录仍保持当前用户的 LocalAppData。不可读取的可选第三方代理进程会被记录并跳过，不再阻断已验证 SSRVPN 实例的升级。
+- Windows 连接提交前会再次核对刚取得的系统代理端点；Mihomo 启动就绪失败不再统一误报“电脑性能不足”，而是保留控制 API、TUN listener 或代理所有权的实际诊断原因。
+- Windows 代理所有权日志现在区分“代理被关闭、地址被清空、地址被其他程序修改”；原生代理恢复单测不再向真实 WinINet 会话广播全局代理刷新，避免开发机或 CI 自托管机上正在使用的代理客户端被测试意外断开。
+
 ## [4.0.6] - 2026-08-14
 
 ### 修复

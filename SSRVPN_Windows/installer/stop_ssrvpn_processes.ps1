@@ -31,7 +31,6 @@ $script:StopStatusValues = @(
   'LOCK_FAILED',
   'INSTANCE_GATE_FAILED',
   'IDENTITY_UNVERIFIED',
-  'FOREIGN_INSTANCE',
   'APP_STILL_RUNNING',
   'PROXY_UNSAFE',
   'PROCESSES_STILL_RUNNING',
@@ -130,6 +129,34 @@ try {
 }
 
 $currentSessionId = (Get-Process -Id $PID -ErrorAction Stop).SessionId
+$script:AggressiveProxyProcessNames = @(
+  'mihomo.exe',
+  'clash.exe',
+  'clash-meta.exe',
+  'clash-win64.exe',
+  'clash-verge.exe',
+  'Clash for Windows.exe',
+  'sing-box.exe',
+  'xray.exe',
+  'v2ray.exe',
+  'hysteria.exe',
+  'hysteria2.exe',
+  'tuic-client.exe',
+  'naive.exe',
+  'trojan.exe',
+  'trojan-go.exe',
+  'shadowsocks.exe',
+  'ss-local.exe',
+  'sslocal.exe',
+  'v2rayN.exe',
+  'nekoray.exe',
+  'Hiddify.exe',
+  'openvpn.exe',
+  'openvpn-gui.exe',
+  'wireguard.exe',
+  'tailscale-ipn.exe',
+  'zerotier-one_x64.exe'
+)
 $script:OwnedProxyOverride = '<local>;localhost;127.*;10.*;172.16.*;172.17.*;' +
   '172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;' +
   '172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;' +
@@ -1097,7 +1124,7 @@ function Test-SystemProxySafeToStop {
 
 $apps = @()
 $launchers = @()
-$cores = @()
+$proxyProcesses = @()
 $proxyRecoveryFailed = $false
 try {
   $InstalledAppPath = Get-ValidatedExpectedPath -Path $InstalledAppPath `
@@ -1116,53 +1143,30 @@ try {
 
   $apps = @(Get-ProcessesByName -Name 'ssrvpn_windows_app.exe')
   $launchers = @(Get-ProcessesByName -Name 'ssrvpn_windows.exe')
-  $cores = @(Get-ProcessesByName -Name 'mihomo.exe')
+  foreach ($processName in $script:AggressiveProxyProcessNames) {
+    try {
+      $proxyProcesses += @(Get-ProcessesByName -Name $processName)
+    } catch {
+      # SSRVPN process identities are mandatory because those files are about
+      # to be replaced. Third-party proxy/VPN processes are an aggressive
+      # best-effort cleanup: one protected or racing process must not prevent
+      # the installer from closing the verified SSRVPN installation.
+      Write-Warning "Could not verify optional proxy process $processName`: $($_.Exception.Message)"
+    }
+  }
 } catch {
   Set-StopStatus -Status 'IDENTITY_UNVERIFIED'
   Write-Warning "Could not enumerate SSRVPN app processes: $($_.Exception.Message)"
   exit 3
 }
 
-$installedApps = @(
-  $apps |
-    Where-Object {
-      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledAppPath
-    }
-)
-$installedLaunchers = @(
-  $launchers |
-    Where-Object {
-      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledLauncherPath
-    }
-)
-$installedCoresBefore = @(
-  $cores |
-    Where-Object {
-      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledCorePath
-    }
-)
-$foreignApps = @($apps | Where-Object {
-  -not (Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledAppPath)
-})
-$foreignLaunchers = @($launchers | Where-Object {
-  -not (Test-ExactPath -Actual $_.ExecutablePath `
-    -Expected $InstalledLauncherPath)
-})
-$foreignCores = @($cores | Where-Object {
-  -not (Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledCorePath)
-})
-if ($foreignApps.Count -gt 0 -or
-    $foreignLaunchers.Count -gt 0 -or
-    $foreignCores.Count -gt 0) {
-  Set-StopStatus -Status 'FOREIGN_INSTANCE'
-  Write-Warning 'Another SSRVPN or same-name core instance is active; refusing global proxy recovery.'
-  exit 3
-}
+$installedApps = @($apps)
+$installedLaunchers = @($launchers)
 
 $installedProcessRunning =
   $installedApps.Count -gt 0 -or
   $installedLaunchers.Count -gt 0 -or
-  $installedCoresBefore.Count -gt 0
+  $proxyProcesses.Count -gt 0
 $tunOwnership = @()
 try {
   $tunOwnership = @(Get-SsrvpnTunOwnership)
@@ -1178,11 +1182,11 @@ $proxyBackup = Get-ProxyRecoveryState
 foreach ($app in $installedApps) {
   try {
     Stop-VerifiedProcess -ProcessId ([int]$app.ProcessId) `
-      -ExpectedPath $InstalledAppPath `
+      -ExpectedPath ([string]$app.ExecutablePath) `
       -ExpectedCreationTimeUtcFileTime `
         ([uint64]$app.CreationTimeUtcFileTime)
   } catch {
-    Write-Warning "Could not stop SSRVPN app PID $($app.ProcessId)."
+    Write-Warning "Could not stop SSRVPN app $($app.ExecutablePath) PID $($app.ProcessId)."
   }
 }
 
@@ -1191,10 +1195,7 @@ foreach ($app in $installedApps) {
 # consistent and the installer can abort without creating silent direct mode.
 Start-Sleep -Milliseconds 300
 $appsBeforeRecovery = @(
-  Get-ProcessesByName -Name 'ssrvpn_windows_app.exe' |
-    Where-Object {
-      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledAppPath
-    }
+  Get-ProcessesByName -Name 'ssrvpn_windows_app.exe'
 )
 if ($appsBeforeRecovery.Count -gt 0) {
   Set-StopStatus -Status 'APP_STILL_RUNNING'
@@ -1234,50 +1235,46 @@ if (-not (Test-SystemProxySafeToStop -Backup $proxyBackup `
 foreach ($launcher in $installedLaunchers) {
   try {
     Stop-VerifiedProcess -ProcessId ([int]$launcher.ProcessId) `
-      -ExpectedPath $InstalledLauncherPath `
+      -ExpectedPath ([string]$launcher.ExecutablePath) `
       -ExpectedCreationTimeUtcFileTime `
         ([uint64]$launcher.CreationTimeUtcFileTime)
   } catch {
-    Write-Warning "Could not stop SSRVPN launcher PID $($launcher.ProcessId)."
+    Write-Warning "Could not stop SSRVPN launcher $($launcher.ExecutablePath) PID $($launcher.ProcessId)."
   }
 }
 
 Start-Sleep -Milliseconds 400
 
-# Every mihomo process whose executable is the exact file being replaced belongs
-# to this installation. Stopping all such PIDs prevents duplicate cores after an
-# upgrade while leaving same-name cores from other products and portable copies
-# untouched.
-$installedCores = @(
-  Get-ProcessesByName -Name 'mihomo.exe' |
-    Where-Object {
-      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledCorePath
-    }
-)
-foreach ($core in $installedCores) {
+# The installer is deliberately aggressive after the user starts an install:
+# stop every verified current-session process for the known proxy engines.
+# Identity is still rechecked immediately before TerminateProcess so PID reuse
+# cannot redirect the force-stop to an unrelated process.
+$proxyProcesses = @()
+foreach ($processName in $script:AggressiveProxyProcessNames) {
+  try {
+    $proxyProcesses += @(Get-ProcessesByName -Name $processName)
+  } catch {
+    Write-Warning "Could not verify optional proxy process $processName`: $($_.Exception.Message)"
+  }
+}
+foreach ($core in $proxyProcesses) {
   try {
     Stop-VerifiedProcess -ProcessId ([int]$core.ProcessId) `
-      -ExpectedPath $InstalledCorePath `
+      -ExpectedPath ([string]$core.ExecutablePath) `
       -ExpectedCreationTimeUtcFileTime `
         ([uint64]$core.CreationTimeUtcFileTime)
   } catch {
-    Write-Warning "Could not stop installed mihomo PID $($core.ProcessId)."
+    Write-Warning "Could not stop proxy engine $($core.ExecutablePath) PID $($core.ProcessId)."
   }
 }
 
 Start-Sleep -Milliseconds 300
 
 $remainingApps = @(
-  Get-ProcessesByName -Name 'ssrvpn_windows_app.exe' |
-    Where-Object {
-      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledAppPath
-    }
+  Get-ProcessesByName -Name 'ssrvpn_windows_app.exe'
 )
 $remainingLaunchers = @(
-  Get-ProcessesByName -Name 'ssrvpn_windows.exe' |
-    Where-Object {
-      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledLauncherPath
-    }
+  Get-ProcessesByName -Name 'ssrvpn_windows.exe'
 )
 $remainingCores = @(
   Get-ProcessesByName -Name 'mihomo.exe' |

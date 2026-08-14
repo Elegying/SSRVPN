@@ -89,6 +89,9 @@ add_executable(ssrvpn_system_proxy_recovery_test EXCLUDE_FROM_ALL
 )
 apply_standard_settings(ssrvpn_system_proxy_recovery_test)
 target_compile_options(ssrvpn_system_proxy_recovery_test PRIVATE "/utf-8")
-target_compile_definitions(ssrvpn_system_proxy_recovery_test PRIVATE "NOMINMAX")
+target_compile_definitions(ssrvpn_system_proxy_recovery_test PRIVATE
+  "NOMINMAX"
+  "SSRVPN_SYSTEM_PROXY_RECOVERY_NO_WININET_NOTIFY=1"
+)
 target_link_libraries(ssrvpn_system_proxy_recovery_test PRIVATE "advapi32.lib")
 target_link_libraries(ssrvpn_system_proxy_recovery_test PRIVATE "wininet.lib")

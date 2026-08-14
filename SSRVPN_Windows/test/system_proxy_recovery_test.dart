@@ -118,6 +118,8 @@ void main() {
       addTearDown(() => temp.delete(recursive: true));
       var proxyReads = 0;
       var externallyChanged = false;
+      var proxyDisabled = false;
+      var supportSettingsChanged = false;
       var readable = true;
       const ownedOverride =
           '<local>;localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;'
@@ -139,7 +141,7 @@ void main() {
             1,
             0,
             jsonEncode({
-              'proxyEnable': initialRead ? 0 : 1,
+              'proxyEnable': initialRead || proxyDisabled ? 0 : 1,
               'hasProxyServer': !initialRead,
               'proxyServer': initialRead
                   ? ''
@@ -147,11 +149,16 @@ void main() {
                       ? '127.0.0.1:8888'
                       : '127.0.0.1:7890',
               'hasProxyOverride': !initialRead,
-              'proxyOverride': initialRead ? '' : ownedOverride,
-              'hasAutoConfigUrl': false,
-              'autoConfigUrl': '',
+              'proxyOverride': initialRead
+                  ? ''
+                  : supportSettingsChanged
+                      ? '<local>;changed-by-windows'
+                      : ownedOverride,
+              'hasAutoConfigUrl': supportSettingsChanged,
+              'autoConfigUrl':
+                  supportSettingsChanged ? 'https://other.test/proxy.pac' : '',
               'hasAutoDetect': true,
-              'autoDetect': 0,
+              'autoDetect': supportSettingsChanged ? 1 : 0,
             }),
             '',
           );
@@ -165,11 +172,27 @@ void main() {
         SystemProxyOwnershipStatus.owned,
       );
 
+      supportSettingsChanged = true;
+      expect(
+        await service.currentSystemProxyOwnershipStatus(),
+        SystemProxyOwnershipStatus.owned,
+        reason: 'support-only changes do not replace SSRVPN endpoint ownership',
+      );
+
       externallyChanged = true;
       expect(
         await service.currentSystemProxyOwnershipStatus(),
         SystemProxyOwnershipStatus.externallyChanged,
       );
+      expect(service.lastError, contains('代理地址已由其他程序修改'));
+
+      externallyChanged = false;
+      proxyDisabled = true;
+      expect(
+        await service.currentSystemProxyOwnershipStatus(),
+        SystemProxyOwnershipStatus.externallyChanged,
+      );
+      expect(service.lastError, contains('系统代理已被关闭'));
 
       readable = false;
       expect(

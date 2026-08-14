@@ -1,10 +1,23 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/services/clash_service.dart';
+import 'package:ssrvpn_windows/services/system_proxy_service.dart';
+
+ClashService _createTestService() => ClashService(
+      // Lifecycle unit tests must never inspect or restore the developer's
+      // live HKCU proxy journal. A real SystemProxyService here can interpret
+      // an active locally installed SSRVPN session as stale crash recovery.
+      systemProxyService: SystemProxyService.forTesting(
+        isWindows: false,
+        scriptRunner: (_) async => ProcessResult(0, 0, '', ''),
+      ),
+    );
 
 void main() {
   test('fresh lifecycle reports safe idle diagnostics', () async {
-    final service = ClashService();
+    final service = _createTestService();
 
     expect(service.isStartupDisabled, isFalse);
     expect(service.startupDisabledReason, isNull);
@@ -24,7 +37,7 @@ void main() {
   });
 
   test('idle proxy recovery repair is idempotently successful', () async {
-    final service = ClashService();
+    final service = _createTestService();
 
     expect(await service.recoverPendingSystemProxy(), isTrue);
     final result = await service.repairDiagnosticIssue(
@@ -36,7 +49,7 @@ void main() {
   });
 
   test('proxy recovery repair refuses to run while connected', () async {
-    final service = ClashService()..setRunning(true);
+    final service = _createTestService()..setRunning(true);
 
     final result = await service.repairDiagnosticIssue(
       AppRepairAction.retryOwnedProxyRecovery,
@@ -47,7 +60,7 @@ void main() {
   });
 
   test('startup disable reason blocks start and config writes', () async {
-    final service = ClashService();
+    final service = _createTestService();
     service.disableStartup('测试启动禁用原因');
 
     expect(service.isStartupDisabled, isTrue);
@@ -62,7 +75,7 @@ void main() {
 
   test('uninitialized lifecycle fails start without spawning a process',
       () async {
-    final service = ClashService();
+    final service = _createTestService();
 
     expect(await service.start(), isFalse);
     expect(service.lastStartError, 'Mihomo service is not initialized');
