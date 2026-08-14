@@ -545,7 +545,7 @@ exit 4
 ''';
     final result = await _runPowerShell(
       script,
-      timeout: const Duration(seconds: 8),
+      timeout: const Duration(seconds: 15),
     );
     return switch (result.exitCode) {
       0 => _VerifiedCoreTermination.terminatedOrGone,

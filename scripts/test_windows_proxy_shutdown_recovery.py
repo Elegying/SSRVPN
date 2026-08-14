@@ -1702,6 +1702,12 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         )
         self.assertIn("WaitTimeout", termination)
         self.assertIn("TimeoutException", termination)
+        powershell_call = orphan_cleanup[
+            orphan_cleanup.rindex("final result = await _runPowerShell("):
+        ]
+        powershell_call = powershell_call[: powershell_call.index("return switch")]
+        self.assertIn("timeout: const Duration(seconds: 15)", powershell_call)
+        self.assertNotIn("timeout: const Duration(seconds: 8)", powershell_call)
 
     def test_windows_process_logs_tolerate_malformed_utf8(self) -> None:
         lifecycle = (

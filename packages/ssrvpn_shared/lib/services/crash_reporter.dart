@@ -157,7 +157,7 @@ class CrashReporter {
       text =
           '${text.substring(0, maxCharacters)}\n... truncated before redaction ...';
     }
-    return LogRedactor.sanitize(text);
+    return LogRedactor.sanitizeForDisplay(text);
   }
 
   static String _fitUtf8(String value, int maxBytes) {
