@@ -98,6 +98,11 @@ void main() {
     expect(calls, 1);
   });
 
+  test('production teardown budget tolerates a full transient probe timeout',
+      () {
+    expect(windowsTunTeardownTimeout, const Duration(seconds: 30));
+  });
+
   test('TUN teardown gate retains captured identities until gone', () {
     final gate = WindowsTunTeardownGate()..markPending(const [identity7]);
 

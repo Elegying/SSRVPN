@@ -293,10 +293,8 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         mirror = preparer.index("python3 scripts/ensure-geoip-mirror.py --upload")
         verify = preparer.index("bash scripts/verify-core-assets.sh")
         create_pr = preparer.index("gh pr create")
-        branch_dispatch = preparer.index('dispatch_workflow "ci.yml" "$branch"')
-        branch_ci = preparer.index('wait_for_workflow "$branch_ci_run_id"')
         branch_checks = preparer.index(
-            'wait_for_pull_request_checks "$pr_number"'
+            'wait_for_pull_request_checks "$pr_number" "$branch_ci_url"'
         )
         merge_pr = preparer.index("gh pr merge")
         main_ci = preparer.index('dispatch_workflow "ci.yml" main')
@@ -310,10 +308,8 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertLess(bootstrap, sync)
         self.assertLess(sync, mirror)
         self.assertLess(mirror, verify)
-        self.assertLess(verify, branch_dispatch)
-        self.assertLess(create_pr, branch_dispatch)
-        self.assertLess(branch_dispatch, branch_ci)
-        self.assertLess(branch_ci, branch_checks)
+        self.assertLess(verify, create_pr)
+        self.assertLess(create_pr, branch_checks)
         self.assertLess(branch_checks, merge_pr)
         self.assertLess(merge_pr, main_ci)
         self.assertLess(main_ci, final_freshness)
@@ -325,6 +321,9 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertNotIn("git add .", preparer)
         self.assertNotIn("git push --force", preparer)
         self.assertNotIn("--admin", preparer)
+        self.assertNotIn('dispatch_workflow "ci.yml" "$branch"', preparer)
+        self.assertIn("within 30 minutes", preparer)
+        self.assertIn("Approve the pending GitHub Actions workflow", preparer)
 
     def test_existing_tag_or_release_blocks_before_geoip_mutation(self) -> None:
         preparer = PREPARER.read_text(encoding="utf-8")
@@ -354,18 +353,12 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         create_pr = commands.index("gh pr create")
-        branch_dispatch = commands.index(
-            "ref=automation/release-4.0.2-geoip-9001-1"
-        )
-        branch_ci = commands.index("gh run watch 101")
         branch_checks = commands.index("gh pr checks 84")
         merge_pr = commands.index("gh pr merge")
         main_dispatch = commands.index("ref=main")
         tag_push = commands.index("git push origin refs/tags/v4.0.2")
         release_dispatch = commands.index("workflows/release.yml/dispatches")
-        self.assertLess(create_pr, branch_dispatch)
-        self.assertLess(branch_dispatch, branch_ci)
-        self.assertLess(branch_ci, branch_checks)
+        self.assertLess(create_pr, branch_checks)
         self.assertLess(branch_checks, merge_pr)
         self.assertLess(merge_pr, main_dispatch)
         self.assertLess(main_dispatch, tag_push)
@@ -382,8 +375,9 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("gh pr create", commands)
-        self.assertIn("ref=automation/release-4.0.2-geoip-9001-1", commands)
-        self.assertIn("gh run watch 101", commands)
+        self.assertIn("gh pr checks 84", commands)
+        self.assertNotIn("ref=automation/release-4.0.2-geoip-9001-1", commands)
+        self.assertNotIn("gh run watch 101", commands)
         self.assertNotIn("git push origin --delete", commands)
         self.assertNotIn("git push origin refs/tags/v4.0.2", commands)
         self.assertNotIn("workflows/release.yml/dispatches", commands)
