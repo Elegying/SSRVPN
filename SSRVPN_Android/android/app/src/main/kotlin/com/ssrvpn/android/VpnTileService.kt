@@ -158,13 +158,16 @@ class VpnTileService : TileService() {
         if (cancelPendingStart) SsrvpnVpnService.cancelPendingStart()
         val service = SsrvpnVpnService.instance
         if (service == null) {
+            if (!VpnServiceRestartStore.recordManualStop(this)) {
+                Log.e(TAG, "Unable to persist manual VPN disconnect")
+            }
             stopService(Intent(this, SsrvpnVpnService::class.java))
             isConnected = SsrvpnVpnService.isRunning
             updateTile()
             notifyStateChanged()
             return
         }
-        service.stopAll {
+        service.stopAll(recordManualStop = true) {
             android.os.Handler(mainLooper).post {
                 isConnected = SsrvpnVpnService.isRunning
                 updateTile()

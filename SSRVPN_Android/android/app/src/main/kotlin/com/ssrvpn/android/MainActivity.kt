@@ -383,10 +383,16 @@ class MainActivity : FlutterActivity() {
             cancelPendingActivityStart("连接已取消")
             val service = SsrvpnVpnService.instance
             if (service == null) {
+                if (!VpnServiceRestartStore.recordManualStop(this)) {
+                    Log.e("MainActivity", "Unable to persist manual VPN disconnect")
+                }
                 stopService(Intent(this, SsrvpnVpnService::class.java))
                 result.success(true)
             } else {
-                service.stopAll(preserveForegroundUi = true) {
+                service.stopAll(
+                    preserveForegroundUi = true,
+                    recordManualStop = true
+                ) {
                     runOnUiThread { result.success(true) }
                 }
             }

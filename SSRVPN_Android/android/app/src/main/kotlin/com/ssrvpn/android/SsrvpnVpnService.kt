@@ -102,7 +102,7 @@ class SsrvpnVpnService : VpnService() {
 
         fun cancelPendingStart() {
             startGeneration.invalidate { isRunning = false }
-            instance?.stopAll()
+            instance?.stopAll(recordManualStop = true)
         }
     }
 
@@ -110,7 +110,7 @@ class SsrvpnVpnService : VpnService() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ACTION_DISCONNECT) {
                 Log.d(TAG, "Received disconnect from notification")
-                stopAll()
+                stopAll(recordManualStop = true)
                 val stopIntent = Intent(this@SsrvpnVpnService, SsrvpnVpnService::class.java)
                 stopService(stopIntent)
             }
@@ -751,7 +751,7 @@ class SsrvpnVpnService : VpnService() {
         MihomoProxySelection.apply(apiPort, apiSecret, nodeName)
     fun stopAll(
         preserveForegroundUi: Boolean = false,
-        recordManualStop: Boolean = true,
+        recordManualStop: Boolean = false,
         onComplete: (() -> Unit)? = null
     ) {
         if (recordManualStop && !VpnServiceRestartStore.recordManualStop(this)) {
