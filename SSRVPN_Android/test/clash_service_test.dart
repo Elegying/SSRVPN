@@ -1149,6 +1149,82 @@ void main() {
     },
   );
 
+  test('malformed native start state tears down the native VPN', () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_malformed_start_state_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    var stopCalls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+          return <String, Object?>{'running': true};
+        case 'stopCore':
+          stopCalls += 1;
+          return true;
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings());
+
+    expect(await service.start(nodeName: 'A'), isFalse);
+    expect(stopCalls, 1);
+    expect(service.isRunning, isFalse);
+    expect(service.lastStartError, contains('无法确认原生 VPN 启动状态'));
+  });
+
+  test('failed malformed-state rollback preserves native running truth',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_malformed_start_rollback_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+          return <String, Object?>{'running': true};
+        case 'stopCore':
+          throw PlatformException(code: 'STOP_FAILED');
+        case 'isCoreRunning':
+          return true;
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings());
+
+    expect(await service.start(nodeName: 'A'), isFalse);
+    expect(service.isRunning, isTrue);
+    expect(service.lastStartError, contains('安全回滚失败'));
+  });
+
   test('duplicate native start preserves the actual active config', () async {
     SharedPreferences.setMockInitialValues({});
     const channel = MethodChannel('com.ssrvpn/native');

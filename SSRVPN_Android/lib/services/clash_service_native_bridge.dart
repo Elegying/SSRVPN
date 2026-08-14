@@ -40,6 +40,17 @@ extension AndroidNativeBridge on ClashService {
     return false;
   }
 
+  Future<bool> _rollbackMalformedNativeStartState() async {
+    final malformedStateError = lastStartError ?? '无法确认原生 VPN 启动状态，请重新连接';
+    try {
+      await stop();
+      setLastStartError('$malformedStateError，VPN 已安全回滚');
+    } catch (stopError) {
+      setLastStartError('$malformedStateError；安全回滚失败：$stopError');
+    }
+    return false;
+  }
+
   Future<bool> _recoverNativeAfterHealthCheckFailure(
     int connectionGeneration,
   ) async {
