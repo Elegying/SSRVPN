@@ -63,19 +63,20 @@ class MainFlutterWindow: NSWindow {
       }
 
       if call.method == "beginProxyLifecycleTransaction" {
-        var token: String?
-        delegate.performCoreProcessOperationAndWait {
-          token = delegate.beginProxyLifecycleTransaction()
+        delegate.enqueueCoreProcessOperation {
+          let token = delegate.beginProxyLifecycleTransaction()
+          DispatchQueue.main.async {
+            guard let token else {
+              result(FlutterError(
+                code: "application_termination_pending",
+                message: "SSRVPN is already committed to application termination",
+                details: nil
+              ))
+              return
+            }
+            result(token)
+          }
         }
-        guard let token else {
-          result(FlutterError(
-            code: "application_termination_pending",
-            message: "SSRVPN is already committed to application termination",
-            details: nil
-          ))
-          return
-        }
-        result(token)
         return
       }
       if call.method == "endProxyLifecycleTransaction" {

@@ -234,7 +234,7 @@ class AppDiagnosticReport {
         '${code == null ? '' : ' ($code)'}: $summary',
       );
     }
-    final logs = LogRedactor.sanitize(recentLogs).trim();
+    final logs = LogRedactor.sanitizeForDisplay(recentLogs).trim();
     if (logs.isNotEmpty) {
       buffer
         ..writeln()
@@ -248,7 +248,7 @@ class AppDiagnosticReport {
     return '${text.substring(0, maxLength - marker.length)}$marker';
   }
 
-  static String _safeField(String value) => LogRedactor.sanitize(
+  static String _safeField(String value) => LogRedactor.sanitizeForDisplay(
         value,
       ).replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
 }

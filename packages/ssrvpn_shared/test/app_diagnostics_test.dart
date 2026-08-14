@@ -97,9 +97,17 @@ void main() {
             status: AppDiagnosticStatus.warning,
             summary: 'trojan://user:platform-password@example.com:443',
           ),
+          AppDiagnosticCheck(
+            id: 'hostile_url_check',
+            title: '远程检查',
+            status: AppDiagnosticStatus.warning,
+            summary: 'request failed at '
+                'https://api.example.com/customers/customer-123/status',
+          ),
         ],
         recentLogs: 'fetch ss://method:password@example.com:443\n'
             'url=https://example.com/sub?token=secret-value\n'
+            'probe=https://probe.example.com/private/device-456\n'
             '${'x' * 12000}',
       );
 
@@ -112,6 +120,10 @@ void main() {
       expect(text, isNot(contains('secret-value')));
       expect(text, isNot(contains('platform-title-secret')));
       expect(text, isNot(contains('platform-password')));
+      expect(text, contains('https://api.example.com/***'));
+      expect(text, contains('https://probe.example.com/***'));
+      expect(text, isNot(contains('customer-123')));
+      expect(text, isNot(contains('device-456')));
       expect(report.hasFailures, isTrue);
     });
 

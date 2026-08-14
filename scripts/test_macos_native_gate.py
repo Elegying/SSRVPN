@@ -650,6 +650,10 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         begin = main_window.index('call.method == "beginProxyLifecycleTransaction"')
         end = main_window.index('call.method == "endProxyLifecycleTransaction"')
         self.assertIn(
+            "delegate.enqueueCoreProcessOperation",
+            main_window[begin:end],
+        )
+        self.assertNotIn(
             "delegate.performCoreProcessOperationAndWait",
             main_window[begin:end],
         )
@@ -658,6 +662,21 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "delegate.enqueueCoreProcessOperation",
             main_window[end:end_guard],
         )
+
+    def test_tun_startup_budget_exceeds_privileged_validation_budget(self) -> None:
+        lifecycle = self.read(
+            "SSRVPN_MacOS/lib/services/clash_service_lifecycle.dart"
+        )
+        runner = self.read("SSRVPN_MacOS/assets/macos_tun_runner.sh")
+        start = lifecycle.index("Future<bool> _startTunCore")
+        end = lifecycle.index("void _beginTunDataPathSession", start)
+
+        self.assertIn(
+            "Duration(seconds: 45)",
+            lifecycle[start:end],
+        )
+        self.assertIn("for _ in {1..120}", runner)
+        self.assertIn("/bin/sleep 0.25", runner)
 
     def test_proxy_recovery_is_single_flight_and_unsafe_state_fails_closed(self) -> None:
         source = self.read(

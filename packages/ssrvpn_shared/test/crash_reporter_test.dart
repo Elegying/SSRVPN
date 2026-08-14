@@ -60,6 +60,20 @@ void main() {
         lessThanOrEqualTo(CrashReporter.maxReportBytes));
   });
 
+  test('redacts URL paths from persisted crash reports', () async {
+    final path = CrashReporter.recordSync(
+      'request https://api.example.com/customers/customer-123/status',
+      StateError('probe https://probe.example.com/private/device-456'),
+    );
+
+    final report = await File(path).readAsString();
+
+    expect(report, contains('https://api.example.com/***'));
+    expect(report, contains('https://probe.example.com/***'));
+    expect(report, isNot(contains('customer-123')));
+    expect(report, isNot(contains('device-456')));
+  });
+
   test('does not read or delete files outside the managed directory', () async {
     final outsideDirectory =
         await Directory.systemTemp.createTemp('ssrvpn_outside_');

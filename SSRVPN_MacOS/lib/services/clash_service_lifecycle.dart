@@ -1196,7 +1196,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
     try {
       _ensureStartCurrent(startToken);
-      final deadline = DateTime.now().add(const Duration(seconds: 20));
+      final deadline = DateTime.now().add(const Duration(seconds: 45));
       while (DateTime.now().isBefore(deadline)) {
         _ensureStartCurrent(startToken);
         final startupState = await tunSession.startupState();
