@@ -258,8 +258,10 @@ class UpdateChecker {
   }
 
   static int compareVersions(String a, String b) {
-    final aParts = a.split('.').map((e) => int.tryParse(e) ?? 0).toList();
-    final bParts = b.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final aVersion = _parseComparableVersion(a);
+    final bVersion = _parseComparableVersion(b);
+    final aParts = aVersion.core;
+    final bParts = bVersion.core;
     final len = aParts.length > bParts.length ? aParts.length : bParts.length;
     for (var i = 0; i < len; i++) {
       final ai = i < aParts.length ? aParts[i] : 0;
@@ -267,7 +269,53 @@ class UpdateChecker {
       if (ai > bi) return 1;
       if (ai < bi) return -1;
     }
+
+    final aPrerelease = aVersion.prerelease;
+    final bPrerelease = bVersion.prerelease;
+    if (aPrerelease.isEmpty && bPrerelease.isEmpty) return 0;
+    if (aPrerelease.isEmpty) return 1;
+    if (bPrerelease.isEmpty) return -1;
+    final prereleaseLength = aPrerelease.length > bPrerelease.length
+        ? aPrerelease.length
+        : bPrerelease.length;
+    for (var i = 0; i < prereleaseLength; i++) {
+      if (i >= aPrerelease.length) return -1;
+      if (i >= bPrerelease.length) return 1;
+      final aIdentifier = aPrerelease[i];
+      final bIdentifier = bPrerelease[i];
+      final aNumber = int.tryParse(aIdentifier);
+      final bNumber = int.tryParse(bIdentifier);
+      if (aNumber != null && bNumber != null) {
+        if (aNumber > bNumber) return 1;
+        if (aNumber < bNumber) return -1;
+        continue;
+      }
+      if (aNumber != null) return -1;
+      if (bNumber != null) return 1;
+      final lexical = aIdentifier.compareTo(bIdentifier);
+      if (lexical != 0) return lexical.sign;
+    }
     return 0;
+  }
+
+  static ({List<int> core, List<String> prerelease}) _parseComparableVersion(
+      String value) {
+    final normalized = value.trim().replaceFirst(RegExp(r'^[vV]'), '');
+    final match = RegExp(
+      r'^(\d+(?:\.\d+)*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?'
+      r'(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$',
+    ).firstMatch(normalized);
+    if (match != null) {
+      return (
+        core: match.group(1)!.split('.').map(int.parse).toList(),
+        prerelease: match.group(2)?.split('.') ?? const <String>[],
+      );
+    }
+    return (
+      core:
+          normalized.split('.').map((part) => int.tryParse(part) ?? 0).toList(),
+      prerelease: const <String>[],
+    );
   }
 
   static List<_ReleaseAsset> _releaseAssets(Object? assets) {

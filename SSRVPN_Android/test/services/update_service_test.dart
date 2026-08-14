@@ -30,9 +30,9 @@ void main() {
       expect(UpdateChecker.compareVersions('1.9.9', '2'), -1);
     });
 
-    test('前导零和非数字后缀不影响', () {
+    test('前导零等价且预发布版本低于同核心稳定版', () {
       expect(UpdateChecker.compareVersions('02.00.01', '2.0.1'), 0);
-      expect(UpdateChecker.compareVersions('2.0.0-beta', '2.0.0'), 0);
+      expect(UpdateChecker.compareVersions('2.0.0-beta', '2.0.0'), -1);
     });
   });
 

@@ -41,6 +41,14 @@ void main() {
     expect(UpdateChecker.compareVersions('2.0.0', '2.1.0'), -1);
   });
 
+  test('compareVersions orders prereleases without downgrading newer cores',
+      () {
+    expect(UpdateChecker.compareVersions('4.0.8-beta.2', '4.0.7'), 1);
+    expect(UpdateChecker.compareVersions('4.0.8-beta.2', '4.0.8'), -1);
+    expect(UpdateChecker.compareVersions('4.0.8-beta.10', '4.0.8-beta.2'), 1);
+    expect(UpdateChecker.compareVersions('4.0.8+4008', '4.0.8+1'), 0);
+  });
+
   test('checkLatest returns a valid OSS update without contacting GitHub',
       () async {
     final requestedHosts = <String>[];
