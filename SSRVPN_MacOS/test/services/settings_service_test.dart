@@ -322,7 +322,7 @@ void main() {
     });
   }
 
-  test('typed-invalid settings backup is scrubbed before startup recovers',
+  test('typed-invalid optional settings recover without retaining plaintext',
       () async {
     await File(settingsPath).writeAsString(
       jsonEncode({
@@ -346,10 +346,7 @@ void main() {
         .where((entry) => entry.path.contains('settings.json.bad-'))
         .where((entry) => !entry.path.endsWith('.reason.txt'))
         .toList();
-    expect(backups, hasLength(1));
-    final backupText = await File(backups.single.path).readAsString();
-    expect(backupText, isNot(contains('plaintext-secret')));
-    expect(backupText, isNot(contains('apiSecret')));
+    expect(backups, isEmpty);
     final persisted = await File(settingsPath).readAsString();
     expect(persisted, isNot(contains('plaintext-secret')));
     expect(persisted, isNot(contains('apiSecret')));
