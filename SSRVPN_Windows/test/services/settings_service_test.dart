@@ -135,7 +135,7 @@ void main() {
     expect(persisted['apiSecret'], 'json-secret');
   });
 
-  test('typed legacy JSON failure still migrates and scrubs its API secret',
+  test('typed-invalid optional JSON recovers and scrubs its API secret',
       () async {
     final legacy = AppSettings(
       apiSecret: 'recoverable-secret',
@@ -153,13 +153,14 @@ void main() {
     );
 
     expect(service.settings.apiSecret, 'recoverable-secret');
+    expect(service.settings.proxyMode, ProxyMode.rule);
     expect(secureSecret, 'recoverable-secret');
     final files = await tempDirectory
         .list()
         .where((entry) => entry is File)
         .cast<File>()
         .toList();
-    expect(files.any((file) => file.path.contains('.bad-')), isTrue);
+    expect(files.any((file) => file.path.contains('.bad-')), isFalse);
     for (final file in files) {
       expect(await file.readAsString(), isNot(contains('recoverable-secret')));
     }
