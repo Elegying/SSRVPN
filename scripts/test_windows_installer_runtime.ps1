@@ -93,6 +93,10 @@ public static class Program {
 '@ -Language CSharp -OutputAssembly $corePath -OutputType ConsoleApplication
   $unrelatedCorePath = Join-Path $unrelatedRoot 'mihomo.exe'
   Copy-Item -LiteralPath $corePath -Destination $unrelatedCorePath
+  $clashCorePath = Join-Path $unrelatedRoot 'clash.exe'
+  $singBoxCorePath = Join-Path $unrelatedRoot 'sing-box.exe'
+  Copy-Item -LiteralPath $corePath -Destination $clashCorePath
+  Copy-Item -LiteralPath $corePath -Destination $singBoxCorePath
   $appPath = Join-Path $processBin 'ssrvpn_windows_app.exe'
   $launcherPath = Join-Path $processRoot 'ssrvpn_windows.exe'
   $unrelatedAppPath = Join-Path $unrelatedRoot 'ssrvpn_windows_app.exe'
@@ -299,6 +303,8 @@ exit $LASTEXITCODE
   $ownedA = Start-Process -FilePath $corePath -PassThru
   $ownedB = Start-Process -FilePath $corePath -PassThru
   $unrelated = Start-Process -FilePath $unrelatedCorePath -PassThru
+  $clashCore = Start-Process -FilePath $clashCorePath -PassThru
+  $singBoxCore = Start-Process -FilePath $singBoxCorePath -PassThru
   $installedApp = Start-Process -FilePath $appPath -PassThru
   $installedLauncher = Start-Process -FilePath $launcherPath -PassThru
   $unrelatedApp = Start-Process -FilePath $unrelatedAppPath -PassThru
@@ -328,34 +334,41 @@ exit $LASTEXITCODE
   $ownedA.Refresh()
   $ownedB.Refresh()
   $unrelated.Refresh()
+  $clashCore.Refresh()
+  $singBoxCore.Refresh()
   $installedApp.Refresh()
   $installedLauncher.Refresh()
   $unrelatedApp.Refresh()
   $unrelatedLauncher.Refresh()
-  if ($stop.ExitCode -ne 3) {
-    throw "Foreign-instance ownership gate returned $($stop.ExitCode), expected 3."
+  if ($stop.ExitCode -ne 0) {
+    throw "Aggressive installer cleanup returned $($stop.ExitCode), expected 0."
   }
   $foreignStatus = [System.IO.File]::ReadAllText($foreignStatusPath)
-  if ($foreignStatus -cne 'FOREIGN_INSTANCE') {
-    throw "Foreign-instance ownership gate reported $foreignStatus."
+  if ($foreignStatus -cne 'OK') {
+    throw "Aggressive installer cleanup reported $foreignStatus."
   }
-  if ($ownedA.HasExited -or $ownedB.HasExited -or
-      $installedApp.HasExited -or $installedLauncher.HasExited) {
-    throw 'Foreign-instance ownership gate stopped an installed process.'
+  if (-not $ownedA.HasExited -or -not $ownedB.HasExited -or
+      -not $installedApp.HasExited -or -not $installedLauncher.HasExited) {
+    throw 'Aggressive installer cleanup did not stop an installed process.'
   }
-  if ($unrelated.HasExited -or $unrelatedApp.HasExited -or
-      $unrelatedLauncher.HasExited) {
-    throw 'Foreign-instance ownership gate stopped a portable process.'
+  if (-not $unrelated.HasExited -or -not $clashCore.HasExited -or
+      -not $singBoxCore.HasExited -or -not $unrelatedApp.HasExited -or
+      -not $unrelatedLauncher.HasExited) {
+    throw 'Aggressive installer cleanup did not stop a portable process.'
   }
-  if (-not (Test-Path -LiteralPath $pidFile -PathType Leaf)) {
-    throw 'Foreign-instance ownership gate modified installed runtime files.'
+  if (Test-Path -LiteralPath $pidFile) {
+    throw 'Aggressive installer cleanup retained the stale core PID record.'
   }
 
-  Stop-Process -Id $unrelated.Id, $unrelatedApp.Id, $unrelatedLauncher.Id `
-    -Force -ErrorAction Stop
-  $unrelated.WaitForExit()
-  $unrelatedApp.WaitForExit()
-  $unrelatedLauncher.WaitForExit()
+  $ownedA = Start-Process -FilePath $corePath -PassThru
+  $ownedB = Start-Process -FilePath $corePath -PassThru
+  $installedApp = Start-Process -FilePath $appPath -PassThru
+  $installedLauncher = Start-Process -FilePath $launcherPath -PassThru
+  Start-Sleep -Milliseconds 300
+  Write-CorePidRecord `
+    -PidPath $pidFile `
+    -Process $ownedA `
+    -ExpectedCorePath $corePath
 
   [System.IO.File]::WriteAllText(
     $tunMarkerPath,
@@ -744,7 +757,7 @@ exit $LASTEXITCODE
     }
     $heldTransactionLock.Dispose()
   }
-  Get-Process mihomo, ssrvpn_windows, ssrvpn_windows_app `
+  Get-Process mihomo, clash, sing-box, ssrvpn_windows, ssrvpn_windows_app `
     -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -and $_.Path.StartsWith($testRoot) } |
     Stop-Process -Force -ErrorAction SilentlyContinue

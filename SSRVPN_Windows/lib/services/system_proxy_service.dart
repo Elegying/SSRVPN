@@ -298,8 +298,22 @@ class SystemProxyService {
       _lastError ??= '无法读取当前 Windows 系统代理设置';
       return SystemProxyOwnershipStatus.unavailable;
     }
-    if (!_isOwnedProxy(current, _ownedProxyServer)) {
-      _lastError = 'Windows 系统代理已被关闭或修改';
+    // Runtime ownership is determined by the enabled endpoint. Windows and
+    // endpoint-management software may legitimately rewrite support values
+    // such as ProxyOverride, AutoDetect, or AutoConfigURL while leaving
+    // SSRVPN's recorded endpoint active. Treating those support-only changes
+    // as a takeover tears down a working connection and is stricter than the
+    // recovery path, which already preserves them with endpoint-only restore.
+    // Keep _isOwnedProxy() as the exact transaction fingerprint used when a
+    // full snapshot restore is safe.
+    if (!_isOwnedEndpoint(current, _ownedProxyServer)) {
+      if (current.proxyEnable != 1) {
+        _lastError = 'Windows 系统代理已被关闭';
+      } else if (!current.hasProxyServer || current.proxyServer.isEmpty) {
+        _lastError = 'Windows 系统代理地址已被清空';
+      } else {
+        _lastError = 'Windows 系统代理地址已由其他程序修改';
+      }
       return SystemProxyOwnershipStatus.externallyChanged;
     }
     _lastError = null;

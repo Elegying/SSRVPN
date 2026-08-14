@@ -557,7 +557,10 @@ class _HomeScreenState extends State<HomeScreen> {
               )) {
             return;
           }
-          setState(() => _errorMessage = connectivityWarning);
+          setState(() {
+            _errorMessage = null;
+            _connectivityWarning = connectivityWarning;
+          });
         }
       } catch (e, stack) {
         final isCurrent = clashService.isConnectionIntentCurrent(

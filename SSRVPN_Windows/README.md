@@ -44,7 +44,9 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
 
 ## 安装数据边界
 
-安装器固定写入 `%LOCALAPPDATA%\Programs\SSRVPN`，无需管理员权限。覆盖升级只替换已知
+安装器固定写入 `%LOCALAPPDATA%\Programs\SSRVPN`。为验证并结束以管理员权限运行的旧
+SSRVPN、Mihomo 和其他代理进程，安装阶段会请求 Windows 管理员授权；安装目录仍是每用户
+LocalAppData，不会写入 Program Files。覆盖升级只替换已知
 程序文件，保留安装目录 `bin\ssrvpn`、`%LOCALAPPDATA%\SSRVPN\ssrvpn` 与窗口状态。
 安装器不会搜索或合并桌面、下载目录等位置遗留的旧独立副本；若已安装实例或系统代理无法
 安全关闭，会在修改程序文件前失败。

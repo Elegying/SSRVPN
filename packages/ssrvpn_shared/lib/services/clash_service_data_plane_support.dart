@@ -89,7 +89,7 @@ mixin _ClashDataPlaneSupport {
     final attempts = maxAttempts.clamp(1, 5).toInt();
     final endpointValues = settings.enableTun
         ? AppConstants.tunConnectivityTestUrls
-        : const [AppConstants.defaultLatencyTestUrl];
+        : AppConstants.systemProxyConnectivityTestUrls;
     final endpoints = endpointValues.map(Uri.parse).toList(growable: false);
     int? lastStatusCode;
     try {
@@ -102,6 +102,7 @@ mixin _ClashDataPlaneSupport {
           final statusCode = await sendStatus(endpoint);
           if (shouldContinue?.call() == false) return null;
           if (statusCode == 204 || statusCode == 200) {
+            if (isRunning) setConnectivityWarning(null);
             return null;
           }
           lastStatusCode = statusCode;
@@ -113,11 +114,16 @@ mixin _ClashDataPlaneSupport {
         }
       }
       if (shouldContinue?.call() == false) return null;
+      late final String warning;
       if (lastStatusCode != null) {
-        return '已连接，但连续 $attempts 次网络验证返回 HTTP '
-            '$lastStatusCode，请尝试切换节点';
+        warning = '连接已建立，但多个外部网络验证端点均返回异常（最近 HTTP '
+            '$lastStatusCode）；这可能是验证站点受限，不代表节点失效';
+      } else {
+        warning = '连接已建立，但暂时无法完成多个外部网络验证；'
+            '这可能是验证站点受限，不代表节点失效';
       }
-      return '已连接，但连续 $attempts 次网络验证失败，请尝试切换节点或刷新订阅';
+      if (isRunning) setConnectivityWarning(warning);
+      return warning;
     } finally {
       client?.close();
     }

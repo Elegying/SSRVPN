@@ -40,8 +40,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn(r"DefaultDirName={localappdata}\Programs\SSRVPN", script)
         self.assertIn("DisableDirPage=yes", script)
         self.assertIn("UsePreviousAppDir=no", script)
-        self.assertIn("PrivilegesRequired=lowest", script)
-        self.assertNotIn("PrivilegesRequired=admin", script)
+        self.assertIn("PrivilegesRequired=admin", script)
+        self.assertIn("UsedUserAreasWarning=no", script)
+        self.assertNotIn("PrivilegesRequired=lowest", script)
         self.assertNotRegex(
             script,
             re.compile(r"DefaultDirName=\{pf(?:32|64)?\}", re.I),
@@ -79,7 +80,9 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             encoding="utf-8-sig"
         )
         self.assertIn("覆盖升级会保留安装版的设置、订阅", notice)
-        self.assertIn("旧独立副本不会被搜索或修改", notice)
+        self.assertIn("旧独立副本文件不会被删除或修改", notice)
+        self.assertIn("其他已知代理核心会被强制结束", notice)
+        self.assertIn("3 秒自行收尾", notice)
         self.assertNotIn("永久删除当前 Windows 用户的 SSRVPN 旧数据", notice)
         self.assertIn("ssrvpn_windows_app.exe", script)
         self.assertIn("ssrvpn_windows.exe", script)
@@ -174,22 +177,19 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             prepare.index("if UpdateHandoffDetected then"),
         )
         handoff = prepare.split("if UpdateHandoffDetected then", 1)[1].split(
-            "else\n  begin\n    StopResult := StopSsrvpnProcesses", 1
+            "  StopResult := StopSsrvpnProcesses", 1
         )[0]
         self.assertLess(
             handoff.index("'ready:' + UpdateHandoffToken"),
-            handoff.index("AcquireLauncherGate(UpdateHandoffWaitMilliseconds)"),
+            handoff.index("AcquireLauncherGate(UpdateHandoffGraceMilliseconds)"),
         )
         self.assertLess(
-            handoff.index("AcquireLauncherGate(UpdateHandoffWaitMilliseconds)"),
-            handoff.index("StopResult := StopSsrvpnProcesses"),
+            prepare.index("AcquireLauncherGate(UpdateHandoffGraceMilliseconds)"),
+            prepare.index("StopResult := StopSsrvpnProcesses"),
         )
-        normal = prepare[
-            prepare.index("else\n  begin\n    StopResult := StopSsrvpnProcesses") :
-        ]
         self.assertLess(
-            normal.index("StopResult := StopSsrvpnProcesses"),
-            normal.index("AcquireLauncherGate(GateWaitMilliseconds)"),
+            prepare.index("StopResult := StopSsrvpnProcesses"),
+            prepare.index("AcquireLauncherGate(GateWaitMilliseconds)"),
         )
         self.assertIn("ReleaseInstallGates", prepare)
 
@@ -218,7 +218,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertNotIn("nowait postinstall skipifsilent", installer)
 
-    def test_verified_update_handoff_waits_for_elevated_launcher_exit(self) -> None:
+    def test_verified_update_handoff_forces_cleanup_after_short_grace(self) -> None:
         installer = (
             ROOT / "SSRVPN_Windows" / "installer" / "SSRVPN.iss"
         ).read_text(encoding="utf-8")
@@ -240,7 +240,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "function PrepareToInstall(var NeedsRestart: Boolean): String;", 1
         )[1].split("procedure CurStepChanged", 1)[0]
         handoff = prepare.split("if UpdateHandoffDetected then", 1)[1].split(
-            "else\n  begin\n    StopResult := StopSsrvpnProcesses", 1
+            "  StopResult := StopSsrvpnProcesses", 1
         )[0]
         self.assertLess(
             handoff.index("IsUpdateHandoffLive"),
@@ -248,15 +248,16 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertLess(
             handoff.index("SaveStringToFile"),
-            handoff.index("AcquireLauncherGate(UpdateHandoffWaitMilliseconds)"),
+            handoff.index("AcquireLauncherGate(UpdateHandoffGraceMilliseconds)"),
         )
         self.assertLess(
-            handoff.index("AcquireLauncherGate(UpdateHandoffWaitMilliseconds)"),
-            handoff.index("StopResult := StopSsrvpnProcesses"),
+            prepare.index("AcquireLauncherGate(UpdateHandoffGraceMilliseconds)"),
+            prepare.index("StopResult := StopSsrvpnProcesses"),
         )
         self.assertIn("'ready:' + UpdateHandoffToken", handoff)
         self.assertIn("更新安装器交接已过期，安装尚未修改程序文件", handoff)
-        self.assertIn("等待 SSRVPN 安全退出超时，安装尚未修改程序文件", handoff)
+        self.assertIn("forcing verified process cleanup", handoff)
+        self.assertIn("UpdateHandoffGraceMilliseconds = 3000", installer)
 
         deinitialize = installer.split("procedure DeinitializeSetup;", 1)[1].split(
             "function InitializeUninstall", 1
@@ -1052,7 +1053,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertIn("$installedApps.Count -gt 0", stopper)
         self.assertIn("$installedLaunchers.Count -gt 0", stopper)
-        self.assertIn("$installedCoresBefore.Count -gt 0", stopper)
+        self.assertIn("$proxyProcesses.Count -gt 0", stopper)
         self.assertIn("[bool]$InstalledProcessRunning", stopper)
         self.assertIn(
             "-not $Backup -and $InstalledProcessRunning -and\n"
@@ -1064,16 +1065,28 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         expected_path_gate = stopper.index(
             "$InstalledAppPath = Get-ValidatedExpectedPath"
         )
-        foreign_gate = stopper.index("if ($foreignApps.Count -gt 0")
         proxy_state_read = stopper.index("$proxyBackup = Get-ProxyRecoveryState")
         self.assertLess(expected_path_gate, enumeration + stopper[enumeration:].index(
             "$apps = @(Get-ProcessesByName"
         ))
-        self.assertLess(foreign_gate, proxy_state_read)
-        self.assertLess(foreign_gate, stopper.index("foreach ($app in $installedApps)"))
-        self.assertIn("$foreignLaunchers.Count -gt 0", stopper[foreign_gate:proxy_state_read])
-        self.assertIn("$foreignCores.Count -gt 0", stopper[foreign_gate:proxy_state_read])
-        self.assertIn("exit 3", stopper[foreign_gate:proxy_state_read])
+        self.assertNotIn("$foreignApps", stopper)
+        self.assertNotIn("$foreignLaunchers", stopper)
+        self.assertNotIn("$foreignCores", stopper)
+        self.assertIn("$script:AggressiveProxyProcessNames", stopper)
+        self.assertIn("Could not verify optional proxy process", stopper)
+        for process_name in (
+            "mihomo.exe",
+            "clash.exe",
+            "clash-meta.exe",
+            "clash-verge.exe",
+            "sing-box.exe",
+            "xray.exe",
+            "v2ray.exe",
+            "openvpn.exe",
+            "wireguard.exe",
+            "tailscale-ipn.exe",
+        ):
+            self.assertIn(f"'{process_name}'", stopper)
         self.assertIn("[string]::IsNullOrWhiteSpace($Path)", stopper)
         self.assertIn("[System.IO.Path]::IsPathRooted($Path)", stopper)
         self.assertIn(
@@ -1098,14 +1111,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("GetValueKind('ProxyEnable')", proxy_service)
         self.assertIn("GetValueKind('AutoDetect')", proxy_service)
         self.assertIn("[Microsoft.Win32.RegistryValueKind]::DWord", proxy_service)
-        self.assertIn(
-            "Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledAppPath",
-            stopper,
-        )
-        self.assertIn(
-            "Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledLauncherPath",
-            stopper,
-        )
+        self.assertIn("-ExpectedPath ([string]$app.ExecutablePath)", stopper)
+        self.assertIn("-ExpectedPath ([string]$launcher.ExecutablePath)", stopper)
         self.assertIn("Test-ExactPath", stopper)
         self.assertIn(
             "Stop-VerifiedProcess -ProcessId ([int]$core.ProcessId)",
@@ -1115,10 +1122,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             ROOT / "scripts" / "test_windows_installer_runtime.ps1"
         ).read_text(encoding="utf-8")
         self.assertNotIn("prepare_install_directory.ps1", runtime_test)
-        self.assertIn("Foreign-instance ownership gate returned", runtime_test)
-        self.assertIn("expected 3", runtime_test)
-        self.assertIn("stopped a portable process", runtime_test)
-        self.assertIn("modified installed runtime files", runtime_test)
+        self.assertIn("Aggressive installer cleanup returned", runtime_test)
+        self.assertIn("did not stop a portable process", runtime_test)
         self.assertIn("Verified installer cleanup returned", runtime_test)
         self.assertIn("$heldTransactionLock.Lock(0, 1)", runtime_test)
         self.assertIn(
@@ -1152,7 +1157,6 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "LOCK_FAILED",
             "INSTANCE_GATE_FAILED",
             "IDENTITY_UNVERIFIED",
-            "FOREIGN_INSTANCE",
             "APP_STILL_RUNNING",
             "PROXY_UNSAFE",
             "PROCESSES_STILL_RUNNING",

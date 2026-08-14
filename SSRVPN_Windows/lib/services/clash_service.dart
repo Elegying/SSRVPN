@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
-import 'package:flutter/foundation.dart' show protected;
+import 'package:flutter/foundation.dart' show protected, visibleForTesting;
 import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
@@ -38,7 +38,9 @@ class ClashService extends ClashServiceBase
     WindowsTunResidualProbe? tunResidualProbe,
     WindowsNetworkInterfaceIdentityProbe? networkInterfaceIdentityProbe,
     WindowsTunElevationService? tunElevationService,
+    @visibleForTesting SystemProxyService? systemProxyService,
   }) {
+    _proxyService = systemProxyService ?? SystemProxyService();
     _tunRuntimeProbeOverride = tunRuntimeProbe;
     _tunResidualProbeOverride = tunResidualProbe;
     _networkInterfaceIdentityProbeOverride = networkInterfaceIdentityProbe;

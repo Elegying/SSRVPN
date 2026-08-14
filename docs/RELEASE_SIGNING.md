@@ -62,8 +62,9 @@ Windows 只发布 Inno Setup 每用户安装器并生成 SHA256。Release workfl
 SmartScreen 或浏览器可能显示“未知发布者”。用户只有在正式来源和 SHA256 都匹配时才应
 选择保留并继续运行；任一条件不满足都不应绕过提示。
 
-安装版固定写入 `%LOCALAPPDATA%\\Programs\\SSRVPN`，无需管理员权限。TUN 连接本身仍
-需要以管理员身份运行应用，这与安装包是否签名是两个独立边界。
+安装版固定写入 `%LOCALAPPDATA%\\Programs\\SSRVPN`，但安装阶段会请求管理员权限，
+用于验证并结束残留的高权限 SSRVPN、Mihomo 和其他代理进程。TUN 连接本身同样需要以
+管理员身份运行应用；这两个权限边界都与安装包是否签名无关。
 
 ## 自动化守卫
 

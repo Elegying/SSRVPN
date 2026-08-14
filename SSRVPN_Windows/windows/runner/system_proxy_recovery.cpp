@@ -329,8 +329,16 @@ bool DisableOwnedProxyFingerprint(HKEY settings,
 }
 
 void NotifyWinInet() {
+#if defined(SSRVPN_SYSTEM_PROXY_RECOVERY_NO_WININET_NOTIFY)
+  // RegOverridePredefKey isolates registry reads and writes to the native test
+  // process, but InternetSetOption broadcasts outside that sandbox. Suppress
+  // only the test target's global notification so running proxy clients on a
+  // developer machine are not disconnected by a recovery unit test.
+  return;
+#else
   InternetSetOptionW(nullptr, INTERNET_OPTION_SETTINGS_CHANGED, nullptr, 0);
   InternetSetOptionW(nullptr, INTERNET_OPTION_REFRESH, nullptr, 0);
+#endif
 }
 
 bool RemoveRecoveryRunOnce() {

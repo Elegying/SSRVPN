@@ -26,7 +26,12 @@ DefaultDirName={localappdata}\Programs\SSRVPN
 DefaultGroupName=SSRVPN
 DisableDirPage=yes
 DisableProgramGroupPage=yes
-PrivilegesRequired=lowest
+; SSRVPN and Mihomo normally run elevated so a medium-integrity installer
+; cannot verify their image paths or terminate stale instances before an
+; upgrade. Keep the per-user destination, but elevate the installer process
+; that performs the verified cleanup and transactional file replacement.
+PrivilegesRequired=admin
+UsedUserAreasWarning=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutputDir}
@@ -84,7 +89,7 @@ const
   WaitObject0 = 0;
   WaitAbandoned = $00000080;
   GateWaitMilliseconds = 10000;
-  UpdateHandoffWaitMilliseconds = 60000;
+  UpdateHandoffGraceMilliseconds = 3000;
   SynchronizeAccess = $00100000;
   UpdateHandoffEventPrefix = 'Local\SSRVPN_UpdateHandoff_';
   UpdateHandoffRequestSuffix = '.ssrvpn-handoff';
@@ -245,7 +250,6 @@ begin
     (Status = 'LOCK_FAILED') or
     (Status = 'INSTANCE_GATE_FAILED') or
     (Status = 'IDENTITY_UNVERIFIED') or
-    (Status = 'FOREIGN_INSTANCE') or
     (Status = 'APP_STILL_RUNNING') or
     (Status = 'PROXY_UNSAFE') or
     (Status = 'PROCESSES_STILL_RUNNING') or
@@ -506,26 +510,18 @@ begin
       exit;
     end;
     UpdateHandoffReady := True;
-    if not AcquireLauncherGate(UpdateHandoffWaitMilliseconds) then
-    begin
-      ReleaseInstallGates;
-      Result := '等待 SSRVPN 安全退出超时，安装尚未修改程序文件。' + #13#10 +
-        'SSRVPN 可能仍在恢复系统代理；请确认网络正常后重试。';
-      exit;
-    end;
-    StopResult := StopSsrvpnProcesses;
-  end
-  else
+    if not AcquireLauncherGate(UpdateHandoffGraceMilliseconds) then
+      Log('SSRVPN did not exit during the update handoff grace period; forcing verified process cleanup.');
+  end;
+  StopResult := StopSsrvpnProcesses;
+  if (StopResult = 0) and
+    (not AcquireLauncherGate(GateWaitMilliseconds)) then
   begin
-    StopResult := StopSsrvpnProcesses;
-    if (StopResult = 0) and
-      (not AcquireLauncherGate(GateWaitMilliseconds)) then
-    begin
-      ReleaseInstallGates;
-      Result := '无法取得 SSRVPN 安装期启动保护，安装尚未修改程序文件。' + #13#10 +
-        '请稍后重试；如果仍然失败，请重启 Windows。';
-      exit;
-    end;
+    ReleaseInstallGates;
+    Result := '无法取得 SSRVPN 安装期启动保护，安装尚未修改程序文件。' + #13#10 +
+      '安装器已强制清理旧进程但启动器仍未释放；' +
+      '请稍后重试，如果仍然失败请重启 Windows。';
+    exit;
   end;
   if StopResult = 0 then
   begin
