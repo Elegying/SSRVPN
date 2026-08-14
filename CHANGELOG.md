@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.8] - 2026-08-15
+
+### 修复
+
+- Windows 登录恢复 worker 在系统代理暂时无法恢复时最多重试 6 次，达到上限会先释放恢复锁与应用单实例锁，再显示可操作告警；不再无限占锁导致 SSRVPN 无法启动。
+- Windows 升级会清理由旧版安装留下且能确认归属 SSRVPN 的重复桌面快捷方式；安装成功后延迟删除已下载的安装包，失败时保留安装包供重试。
+- macOS 退出 TUN 时只有在当前代际恢复标记与特权 runner 的 `error:dns-recovery` 状态同时成立、且本地核心和系统代理均已安全清理后，才把 DNS 恢复交接给 runner 并允许应用退出；其他停止失败仍保留窗口与菜单栏入口。
+- macOS 启动读取和原子写入 `settings.json` 前统一把权限收紧为 0600，并拒绝把非普通文件当作私有设置读取。
+- Android 手动断开状态写入私有持久化存储；系统以空 Intent 重建 sticky VPN Service 时会尊重该状态并保持断开，用户从应用或快捷开关明确连接仍可正常启动。
+- Android 只有在 `VpnService.Builder.establish()` 成功后才创建 Go protect pipe 与监控线程，VPN 建立失败不再进入依赖未知 native pipe 关闭语义的强制杀进程路径。
+- Android 原生启动返回畸形状态时会回滚已取得的启动租约；订阅字段、节点编码、可选设置和诊断数据遇到超长、类型错误或格式异常输入时改为有界拒绝或安全恢复。
+- 更新检查器完整支持语义化预发布版本比较，避免 beta/rc 标识被当作普通数字或稳定版错误排序。
+
+### 改进
+
+- Android 国内应用直连名单扩展到更多视频、音乐、聊天、导航、出行、购物、生活服务和系统工具；邮箱、通用浏览器以及可能依赖海外云服务的应用继续保留在 VPN 内。
+- macOS 与 Windows 生命周期等待、异步平台通道和崩溃诊断记录进一步收紧，异常或超时不再被误判为成功。
+
+### 测试边界
+
+- 本版本通过共享 Dart、Android Kotlin、macOS 原生/Flutter、Windows 静态与原生 CI 门禁；按本次发布约定未执行 Android、macOS 或 Windows 真机人工验收。
+
 ## [4.0.7] - 2026-08-14
 
 ### 修复
