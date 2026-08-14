@@ -12,6 +12,10 @@ native="SSRVPN_MacOS/macos/Runner"
 runner="SSRVPN_MacOS/assets/macos_tun_runner.sh"
 desktop_home="packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_screen_part.dart"
 node_selection_controls="packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_controls.dart"
+shutdown_entrypoints=(
+  "SSRVPN_MacOS/lib/app_runtime_actions_part.dart"
+  "SSRVPN_MacOS/lib/startup/startup_orchestrator.dart"
+)
 
 for forbidden in \
   '_grantRootPrivilege' \
@@ -21,6 +25,13 @@ for forbidden in \
   'chmod u+s'; do
   if grep -R -n -F -- "$forbidden" "${runtime[@]}" "$native" "$runner" >/dev/null; then
     echo "macOS core privilege guard failed: found $forbidden" >&2
+    exit 1
+  fi
+done
+
+for entrypoint in "${shutdown_entrypoints[@]}"; do
+  if ! grep -Fq "runConnectionTransition(core.stopForAppShutdown)" "$entrypoint"; then
+    echo "macOS shutdown guard failed: $entrypoint bypasses the durable TUN recovery handoff" >&2
     exit 1
   fi
 done

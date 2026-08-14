@@ -1520,6 +1520,67 @@ void main() {
       expect(tunSession.stopCalls, 1);
     });
 
+    test('app shutdown accepts a durable DNS recovery handoff', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_shutdown_handoff_',
+      );
+      final tunSession = _DurableRecoveryStopMacosTunSession(tempDir.path);
+      final service = _TunProbeClashService(
+        tunSession: tunSession,
+        connectivityWarnings: const [null],
+      );
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      service.setRunning(true);
+
+      await service.stopForAppShutdown();
+
+      expect(service.isRunning, isFalse);
+      expect(service.isStartupDisabled, isTrue);
+      expect(tunSession.stopCalls, 1);
+    });
+
+    test('app shutdown rejects a DNS failure without a durable handoff',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_shutdown_no_handoff_',
+      );
+      final tunSession = _FailingStopMacosTunSession(tempDir.path);
+      final service = _TunProbeClashService(
+        tunSession: tunSession,
+        connectivityWarnings: const [null],
+      );
+      addTearDown(() async {
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      service.setRunning(true);
+
+      await expectLater(
+        service.stopForAppShutdown(),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(service.isRunning, isFalse);
+      expect(tunSession.stopCalls, 1);
+    });
+
     test('non-DNS TUN stop failure remains retryable in the same process',
         () async {
       final tempDir = await Directory.systemTemp.createTemp(
@@ -2679,6 +2740,13 @@ class _FailingNonDnsStopMacosTunSession extends _FakeMacosTunSession {
     lastError = 'TUN 核心端口被其他程序占用，请关闭冲突程序后重试';
     throw StateError(lastError!);
   }
+}
+
+class _DurableRecoveryStopMacosTunSession extends _FailingStopMacosTunSession {
+  _DurableRecoveryStopMacosTunSession(super.dataDir);
+
+  @override
+  Future<bool> hasDurableDnsRecoveryHandoff() async => true;
 }
 
 class _FailingStartupStopMacosTunSession extends _FailingStopMacosTunSession {

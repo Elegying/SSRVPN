@@ -201,6 +201,11 @@ class SsrvpnVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "VPN Service starting...")
+        if (intent == null && !VpnServiceRestartStore.shouldAcceptStickyRestart(this)) {
+            Log.i(TAG, "Ignoring sticky VPN restart after a persisted manual disconnect")
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         val requestId = intent?.getStringExtra(EXTRA_REQUEST_ID)
         val startPayloadId = intent?.getStringExtra(EXTRA_START_PAYLOAD_ID)
         val startPayload = NativeStartPayloadRegistry.consume(startPayloadId)
@@ -224,6 +229,9 @@ class SsrvpnVpnService : VpnService() {
             consumeStartResult(requestId, false, "自动恢复请求已失效")
             return finishRejectedServiceStart(
                 startId, isRunning, serviceStartInProgress.get())
+        }
+        if (intent != null && !VpnServiceRestartStore.recordExplicitStart(this)) {
+            Log.e(TAG, "Unable to persist explicit VPN connection intent")
         }
 
         if (isRunning) {
@@ -426,21 +434,6 @@ class SsrvpnVpnService : VpnService() {
     ) {
         try {
             ensureStartCurrent(startToken)
-            Log.d(TAG, "Initializing protect pipe...")
-            val protectReadFd = bridge.Bridge.initProtect()
-            Log.d(TAG, "Protect pipe fd=$protectReadFd")
-
-            protectThread = VpnProtectMonitor.start(
-                protectReadFd,
-                protectSocket = { socketFd -> protect(socketFd) },
-                reportResult = { protected -> bridge.Bridge.setProtectResult(protected) }
-            )
-            if (!VpnRuntimeHealth.hasProtectMonitor(protectThread)) {
-                return rejectCoreStart(requestId, "VPN 网络保护服务启动失败，请重新连接", recoveryAttempt)
-            }
-            Log.d(TAG, "Protect monitor started")
-
-            ensureStartCurrent(startToken)
             Log.d(TAG, "Establishing VPN...")
             val builder = Builder()
             builder.setSession("SSRVPN")
@@ -458,6 +451,21 @@ class SsrvpnVpnService : VpnService() {
                 Log.e(TAG, "VPN establish returned null!")
                 return rejectCoreStart(requestId, "VPN establish failed", recoveryAttempt)
             }
+
+            ensureStartCurrent(startToken)
+            Log.d(TAG, "Initializing protect pipe...")
+            val protectReadFd = bridge.Bridge.initProtect()
+            Log.d(TAG, "Protect pipe fd=$protectReadFd")
+
+            protectThread = VpnProtectMonitor.start(
+                protectReadFd,
+                protectSocket = { socketFd -> protect(socketFd) },
+                reportResult = { protected -> bridge.Bridge.setProtectResult(protected) }
+            )
+            if (!VpnRuntimeHealth.hasProtectMonitor(protectThread)) {
+                return rejectCoreStart(requestId, "VPN 网络保护服务启动失败，请重新连接", recoveryAttempt)
+            }
+            Log.d(TAG, "Protect monitor started")
 
             ensureStartCurrent(startToken)
             val descriptor = checkNotNull(vpnFd)
@@ -741,7 +749,14 @@ class SsrvpnVpnService : VpnService() {
         )
     private fun applyProxySelection(apiPort: Int, apiSecret: String, nodeName: String?) =
         MihomoProxySelection.apply(apiPort, apiSecret, nodeName)
-    fun stopAll(preserveForegroundUi: Boolean = false, onComplete: (() -> Unit)? = null) {
+    fun stopAll(
+        preserveForegroundUi: Boolean = false,
+        recordManualStop: Boolean = true,
+        onComplete: (() -> Unit)? = null
+    ) {
+        if (recordManualStop && !VpnServiceRestartStore.recordManualStop(this)) {
+            Log.e(TAG, "Unable to persist manual VPN disconnect")
+        }
         manualStopRequested.set(true)
         recoveryGeneration.incrementAndGet()
         stopInternal(true, preserveForegroundUi, onComplete)
@@ -911,7 +926,7 @@ class SsrvpnVpnService : VpnService() {
         super.onDestroy()
         try { unregisterReceiver(disconnectReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(screenStateReceiver) } catch (_: Exception) {}
-        if (!processTerminationPending.get()) stopAll()
+        if (!processTerminationPending.get()) stopAll(recordManualStop = false)
         instance = null
     }
 

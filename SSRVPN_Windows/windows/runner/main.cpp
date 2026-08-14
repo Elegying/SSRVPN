@@ -12,6 +12,8 @@ constexpr wchar_t kAppInstanceMutexName[] =
     L"Local\\SSRVPN_Windows_SingleInstance";
 constexpr wchar_t kProxyRecoveryMutexName[] =
     L"Local\\SSRVPN_Windows_ProxyRecovery";
+constexpr DWORD kProxyRecoveryMaxAttempts = 6;
+constexpr DWORD kProxyRecoveryRetryDelayMs = 5000;
 }
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
@@ -59,7 +61,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     bool safe_to_stop = RestoreOrConfirmOwnedWindowsProxySafeToStop();
     bool retry_logged = false;
     bool recovery_rearmed = false;
-    while (!safe_to_stop) {
+    for (DWORD attempt = 1;
+         !safe_to_stop && attempt < kProxyRecoveryMaxAttempts; ++attempt) {
       if (!recovery_rearmed) {
         recovery_rearmed = RearmWindowsProxyRecoveryRunOnce();
       }
@@ -68,14 +71,23 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
             L"proxy recovery and RunOnce rearm both failed; retrying");
         retry_logged = true;
       }
-      ::Sleep(5000);
+      ::Sleep(kProxyRecoveryRetryDelayMs);
       safe_to_stop = RestoreOrConfirmOwnedWindowsProxySafeToStop();
     }
     ::ReleaseMutex(recovery_mutex);
     ::CloseHandle(recovery_mutex);
     ::ReleaseMutex(proxy_recovery_mutex);
     ::CloseHandle(proxy_recovery_mutex);
-    return EXIT_SUCCESS;
+    if (!safe_to_stop) {
+      startup_diagnostics::Log(
+          L"proxy recovery retry limit reached; application mutex released");
+      ::MessageBoxW(
+          nullptr,
+          L"SSRVPN 未能自动恢复 Windows 系统代理。恢复任务已停止，不会继续阻止应用启动。请打开 SSRVPN 后重试断开，或检查系统代理设置。",
+          L"SSRVPN 代理恢复未完成",
+          MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
+    }
+    return safe_to_stop ? EXIT_SUCCESS : ERROR_RETRY;
   }
 
   HANDLE instance_mutex =

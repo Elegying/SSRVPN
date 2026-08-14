@@ -279,9 +279,13 @@ void main() {
       (await File(session.requestPath).readAsString()).trim(),
       matches(_tunRequestPattern('recovery', 123)),
     );
+    expect(await session.hasDurableDnsRecoveryHandoff(), isFalse);
+    await status.writeAsString('error:dns-recovery\n', flush: true);
+    expect(await session.hasDurableDnsRecoveryHandoff(), isTrue);
 
     final retryingStop = session.stop();
     await Future<void>.delayed(const Duration(milliseconds: 20));
+    await status.writeAsString('running\n', flush: true);
     await File(session.requestPath).delete();
     authorizationExit.complete(0);
     await retryingStop;

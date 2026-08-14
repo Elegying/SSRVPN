@@ -1041,6 +1041,25 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     return operation;
   }
 
+  Future<void> stopForAppShutdown() async {
+    try {
+      await stop();
+    } catch (_) {
+      final tunSession = _tunSession;
+      final localCleanupComplete = !isRunning &&
+          !_proxyService.isProxyEnabled &&
+          !_proxyService.recoveryPending &&
+          _clashProcess == null &&
+          _corePidRecordContents == null;
+      if (tunSession == null ||
+          !localCleanupComplete ||
+          !await tunSession.hasDurableDnsRecoveryHandoff()) {
+        rethrow;
+      }
+      log('macOS TUN DNS 恢复已交接给特权会话，允许应用退出');
+    }
+  }
+
   Future<void> _stopAfterStart() async {
     final starting = _startOperation;
     Object? tunStopError;

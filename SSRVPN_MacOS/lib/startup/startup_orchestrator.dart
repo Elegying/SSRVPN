@@ -240,7 +240,7 @@ class StartupOrchestrator {
         core.requestConnectionIntent(false);
         core.interruptPendingStart();
         try {
-          await core.runConnectionTransition(core.stop);
+          await core.runConnectionTransition(core.stopForAppShutdown);
         } finally {
           await core.flushLogs();
         }

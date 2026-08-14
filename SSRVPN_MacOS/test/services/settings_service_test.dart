@@ -153,6 +153,24 @@ void main() {
     expect(persisted.containsKey('apiSecret'), isFalse);
   });
 
+  test('settings JSON is tightened to mode 0600 before it is read', () async {
+    await File(settingsPath).writeAsString(
+      jsonEncode(AppSettings(proxyPort: 7899).toJson()..remove('apiSecret')),
+    );
+    final chmod = await Process.run('/bin/chmod', ['644', settingsPath]);
+    expect(chmod.exitCode, 0);
+
+    final service = await SettingsService.createForTesting(
+      dataDir: tempDirectory.path,
+      settingsPath: settingsPath,
+      readApiSecret: () async => 'secure-secret',
+      writeApiSecret: (_) async {},
+    );
+
+    expect(service.settings.proxyPort, 7899);
+    expect((await File(settingsPath).stat()).mode & 0x1ff, 0x180);
+  });
+
   test('startup removes a crash-left API secret temporary file', () async {
     final stale = File(
       '${tempDirectory.path}${Platform.pathSeparator}.api-secret.tmp.crash',
