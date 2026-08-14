@@ -101,6 +101,7 @@ function New-TrustedPayloadManifest {
       'stop_ssrvpn_processes.ps1',
       'proxy_transaction_state.ps1',
       'tun_ownership.ps1',
+      'post_install_cleanup.ps1',
       'program_files_transaction.ps1'
     )) {
     Add-TrustedPayloadFile `

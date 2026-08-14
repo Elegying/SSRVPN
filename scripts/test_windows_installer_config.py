@@ -18,7 +18,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotRegex(code, re.compile(r"^\s+\[[^\]]+\]", re.MULTILINE))
         self.assertNotRegex(code, re.compile(r"^\s+#\d", re.MULTILINE))
 
-    def test_installer_always_creates_desktop_shortcut(self) -> None:
+    def test_installer_uses_one_stable_machine_wide_shortcut(self) -> None:
         script = (ROOT / "SSRVPN_Windows" / "installer" / "SSRVPN.iss").read_text(
             encoding="utf-8"
         )
@@ -26,10 +26,69 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         desktop_icon = next(
             line
             for line in script.splitlines()
-            if line.startswith('Name: "{autodesktop}\\SSRVPN"')
+            if line.startswith('Name: "{commondesktop}\\SSRVPN"')
         )
         self.assertNotIn("Tasks:", desktop_icon)
+        self.assertIn('Name: "{commonprograms}\\SSRVPN"', script)
+        self.assertNotIn("{autodesktop}", script)
+        self.assertNotIn("{autoprograms}", script)
         self.assertNotIn('Name: "desktopicon"', script)
+
+    def test_successful_install_removes_only_owned_legacy_shortcuts_and_source(
+        self,
+    ) -> None:
+        installer_root = ROOT / "SSRVPN_Windows" / "installer"
+        installer = (installer_root / "SSRVPN.iss").read_text(encoding="utf-8")
+        cleanup = (installer_root / "post_install_cleanup.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            'Source: "{#ProjectDir}\\installer\\post_install_cleanup.ps1";',
+            installer,
+        )
+        post_install = installer.split(
+            "procedure CurStepChanged(CurStep: TSetupStep);", 1
+        )[1].split("procedure DeinitializeSetup;", 1)[0]
+        self.assertLess(
+            post_install.index("CommitProgramFilesTransaction"),
+            post_install.index("InstallSucceeded := True"),
+        )
+        deinitialize = installer.split("procedure DeinitializeSetup;", 1)[1].split(
+            "function InitializeUninstall", 1
+        )[0]
+        self.assertIn("if InstallSucceeded then", deinitialize)
+        self.assertIn("LaunchPostInstallCleanup", deinitialize)
+        self.assertIn("ExecAsOriginalUser", installer)
+        self.assertIn("ExpandConstant('{srcexe}')", installer)
+        self.assertIn("GetCurrentProcessId", installer)
+        cleanup_launcher = installer.split(
+            "procedure LaunchPostInstallCleanup;", 1
+        )[1].split("procedure DeinitializeSetup;", 1)[0]
+        self.assertIn("try", cleanup_launcher)
+        self.assertIn("except", cleanup_launcher)
+        self.assertIn("raised an internal exception", cleanup_launcher)
+
+        self.assertIn("SpecialFolder]::DesktopDirectory", cleanup)
+        self.assertIn("SpecialFolder]::Programs", cleanup)
+        self.assertIn("CreateShortcut", cleanup)
+        self.assertIn("$shortcut.TargetPath", cleanup)
+        self.assertIn("OrdinalIgnoreCase", cleanup)
+        self.assertIn("WaitForExit", cleanup)
+        self.assertIn("Remove-Item -LiteralPath $InstallerPath", cleanup)
+        self.assertIn("for ($attempt = 0; $attempt -lt 40; $attempt++)", cleanup)
+        self.assertIn("Start-Sleep -Milliseconds 250", cleanup)
+
+        smoke = (ROOT / "scripts" / "test_windows_installer_package.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("SpecialFolder]::CommonDesktopDirectory", smoke)
+        self.assertIn("SpecialFolder]::DesktopDirectory", smoke)
+        self.assertIn("New-LegacyShortcut", smoke)
+        self.assertIn("Assert-SingleMachineShortcut", smoke)
+        self.assertIn("Wait-PathAbsent", smoke)
+        self.assertIn("$installInstaller", smoke)
+        self.assertIn("$upgradeInstaller", smoke)
 
     def test_installer_closes_ssrvpn_and_installs_per_user(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
@@ -380,6 +439,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "stop_ssrvpn_processes.ps1",
             "proxy_transaction_state.ps1",
             "tun_ownership.ps1",
+            "post_install_cleanup.ps1",
             "program_files_transaction.ps1",
         ):
             self.assertIn(installed_helper, build_installer)
