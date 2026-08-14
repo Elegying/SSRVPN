@@ -174,6 +174,15 @@ if sticky_guard >= snapshot:
 on_destroy = source[source.index("override fun onDestroy()") :]
 if "stopAll(recordManualStop = false)" not in on_destroy:
     raise SystemExit("Android service destruction is incorrectly persisted as a user disconnect")
+stop_all = source[source.index("fun stopAll("):source.index("private fun stopInternal(")]
+if "recordManualStop: Boolean = false" not in stop_all:
+    raise SystemExit("Android internal VPN cleanup defaults to a persisted user disconnect")
+for needle in (
+    "instance?.stopAll(recordManualStop = true)",
+    "stopAll(recordManualStop = true)",
+):
+    if needle not in source:
+        raise SystemExit(f"Android explicit disconnect lost persisted intent: {needle}")
 PY
 
 python3 - "$SERVICE" <<'PY'
@@ -572,7 +581,7 @@ require_tile_text "VpnStartResultRegistry.clear(requestId)"
 require_activity_text "VpnStartResultRegistry.register(callback)"
 require_tile_text "SsrvpnVpnService.isCoreOperationBusy()"
 require_tile_text "SsrvpnVpnService.cancelPendingStart()"
-require_tile_text "service.stopAll {"
+require_tile_text "service.stopAll(recordManualStop = true) {"
 require_tile_text "isConnected = SsrvpnVpnService.isRunning"
 require_tile_text "SsrvpnVpnService.createStartIntent"
 require_tile_text "NativeVpnSessionCoordinator.claimSnapshotForStart(this)"
@@ -616,7 +625,10 @@ require_text "Core shutdown incomplete; terminating process to release the detac
 require_text "android.os.Process.killProcess(android.os.Process.myPid())"
 require_text "DisconnectRecoveryCoordinator.handoffIfNeeded(this, preserveForegroundUi)"
 require_text "if (!processTerminationPending.get()) stopAll(recordManualStop = false)"
-require_activity_text "service.stopAll(preserveForegroundUi = true)"
+require_activity_text "VpnServiceRestartStore.recordManualStop(this)"
+require_activity_text "recordManualStop = true"
+require_tile_text "VpnServiceRestartStore.recordManualStop(this)"
+require_tile_text "service.stopAll(recordManualStop = true)"
 require_activity_text "VPN start timeout cleanup failed"
 require_activity_text "error.javaClass.simpleName"
 # These manifest placeholders must be matched literally, not expanded by Bash.
