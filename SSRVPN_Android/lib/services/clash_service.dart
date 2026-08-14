@@ -357,7 +357,9 @@ class ClashService extends ClashServiceBase {
       _ensureStartCurrent(startToken);
 
       final returnedState = await _parseNativeConnectionState(result);
-      if (!_acceptNativeStartState(result, returnedState != null)) return false;
+      if (!_acceptNativeStartState(result, returnedState != null)) {
+        return _rollbackMalformedNativeStartState();
+      }
       if (result == true || returnedState?.running == true) {
         setRunning(true);
         _nativeConnectionTransitioning = returnedState?.transitioning ?? false;
