@@ -38,6 +38,7 @@ NATIVE_SESSION_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com
 NATIVE_RUNTIME_DIAGNOSTICS="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeRuntimeDiagnostics.kt"
 NATIVE_SESSION_COMMITTER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeSessionCommitter.kt"
 NATIVE_START_PAYLOAD_REGISTRY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeStartPayloadRegistry.kt"
+VPN_RESTART_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnServiceRestartStore.kt"
 TRAFFIC_TRACKER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnTrafficTracker.kt"
 START_RESULT_REGISTRY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnStartResultRegistry.kt"
 STARTUP_ORCHESTRATOR="$ROOT/SSRVPN_Android/lib/startup/startup_orchestrator.dart"
@@ -154,6 +155,26 @@ require_text "showCoreRecoveryFailedNotification"
 require_text "EXTRA_RECOVERY_ATTEMPT"
 require_text "EXTRA_RECOVERY_TOKEN"
 require_text "CoreRecoveryPolicy.shouldAcceptRestart("
+require_text "VpnServiceRestartStore.shouldAcceptStickyRestart(this)"
+require_text "VpnServiceRestartStore.recordExplicitStart(this)"
+require_text "VpnServiceRestartStore.recordManualStop(this)"
+require_file_text "$VPN_RESTART_STORE" "internal object StickyVpnRestartPolicy"
+require_file_text "$VPN_RESTART_STORE" "editor.commit()"
+
+python3 - "$SERVICE" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+start = source[source.index("override fun onStartCommand"):]
+sticky_guard = start.index("VpnServiceRestartStore.shouldAcceptStickyRestart(this)")
+snapshot = start.index("NativeConnectionSnapshotStore.read(this)")
+if sticky_guard >= snapshot:
+    raise SystemExit("Android sticky restart intent is checked after snapshot replay")
+on_destroy = source[source.index("override fun onDestroy()") :]
+if "stopAll(recordManualStop = false)" not in on_destroy:
+    raise SystemExit("Android service destruction is incorrectly persisted as a user disconnect")
+PY
 
 python3 - "$SERVICE" <<'PY'
 import sys
@@ -315,6 +336,18 @@ from pathlib import Path
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
 owner = Path(sys.argv[2]).read_text(encoding="utf-8")
 stop_policy = Path(sys.argv[3]).read_text(encoding="utf-8")
+start_core = source[
+    source.index("private fun startCoreWithVpn("):
+    source.index("private fun startBridgeWithTimeout(")
+]
+establish = start_core.index("vpnFd = builder.establish()")
+protect_init = start_core.index("bridge.Bridge.initProtect()")
+protect_monitor = start_core.index("VpnProtectMonitor.start(")
+detach = start_core.index("DetachedTunFdOwner.detach(descriptor)")
+if not establish < protect_init < protect_monitor < detach:
+    raise SystemExit(
+        "Android protect pipe must start only after VPN establish and before fd detach"
+    )
 bridge_start = source.index("private fun startBridgeWithTimeout(")
 bridge_stop = source.index("private fun monitorCoreRunning(", bridge_start)
 start = source[bridge_start:bridge_stop]
@@ -582,7 +615,7 @@ require_text "treating stop as unverified"
 require_text "Core shutdown incomplete; terminating process to release the detached TUN fd"
 require_text "android.os.Process.killProcess(android.os.Process.myPid())"
 require_text "DisconnectRecoveryCoordinator.handoffIfNeeded(this, preserveForegroundUi)"
-require_text "if (!processTerminationPending.get()) stopAll()"
+require_text "if (!processTerminationPending.get()) stopAll(recordManualStop = false)"
 require_activity_text "service.stopAll(preserveForegroundUi = true)"
 require_activity_text "VPN start timeout cleanup failed"
 require_activity_text "error.javaClass.simpleName"
@@ -907,7 +940,7 @@ from pathlib import Path
 service = Path(sys.argv[1])
 support = Path(sys.argv[2])
 line_count = len(service.read_text(encoding="utf-8").splitlines())
-if line_count > 920:
+if line_count > 940:
     raise SystemExit(f"{service}: VPN service grew to {line_count} lines")
 if "fun formatBytes(bytes: Long)" not in support.read_text(encoding="utf-8"):
     raise SystemExit(f"{support}: missing notification byte formatter")

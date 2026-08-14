@@ -129,6 +129,23 @@ class _MacosPrivateFileStore {
     await _chmod('700', path);
   }
 
+  Future<void> ensurePrivateFile(String path) async {
+    if (await FileSystemEntity.type(path, followLinks: false) !=
+        FileSystemEntityType.file) {
+      throw FileSystemException(
+        'SSRVPN private path must be a regular file',
+        path,
+      );
+    }
+    await _chmod('600', path);
+    if (((await File(path).stat()).mode & 0x1ff) != 0x180) {
+      throw FileSystemException(
+        'SSRVPN private file permissions must be 0600',
+        path,
+      );
+    }
+  }
+
   void syncDataDirectory() {
     if (!Platform.isMacOS) return;
     final path = _dataDir.toNativeUtf8(allocator: calloc);

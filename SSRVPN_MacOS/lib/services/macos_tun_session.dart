@@ -162,6 +162,27 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
   bool get isRequested => _requested;
   bool get requiresDnsRecovery => _dnsRecoveryRequired;
 
+  Future<bool> hasDurableDnsRecoveryHandoff() async {
+    if (!_dnsRecoveryRequired || _markerCleanupFailed) return false;
+    final requestNonce = _requestNonce;
+    if (requestNonce == null ||
+        !await _currentGenerationRequestExists(requestNonce)) {
+      return false;
+    }
+    if (await FileSystemEntity.type(statusPath, followLinks: false) !=
+        FileSystemEntityType.file) {
+      return false;
+    }
+    final status = File(statusPath);
+    final notBefore = _statusNotBefore;
+    if (notBefore != null &&
+        (await status.stat()).modified.isBefore(notBefore)) {
+      return false;
+    }
+    if (await status.length() > 64) return false;
+    return (await status.readAsString()).trim() == 'error:dns-recovery';
+  }
+
   List<String> get _recoveryRequestPaths => _requestStore.recoveryRequestPaths;
 
   Future<bool> start() async {

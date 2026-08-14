@@ -111,14 +111,16 @@ class WindowsRunOnceProxyRecoveryTest(unittest.TestCase):
         self.assertIn("recovery_mutex_error == ERROR_ALREADY_EXISTS", recovery_branch)
         self.assertIn("::ReleaseMutex(recovery_mutex)", recovery_branch)
         self.assertIn("::CloseHandle(recovery_mutex)", recovery_branch)
-        self.assertIn("while (!safe_to_stop)", recovery_branch)
+        self.assertIn("kProxyRecoveryMaxAttempts", main)
+        self.assertIn("for (DWORD attempt = 1;", recovery_branch)
+        self.assertIn("attempt < kProxyRecoveryMaxAttempts", recovery_branch)
         self.assertIn(
             "recovery_rearmed = RearmWindowsProxyRecoveryRunOnce()",
             recovery_branch,
         )
         self.assertIn("if (!recovery_rearmed)", recovery_branch)
-        self.assertNotIn("break;", recovery_branch)
-        self.assertIn("::Sleep(5000)", recovery_branch)
+        self.assertIn("::Sleep(kProxyRecoveryRetryDelayMs)", recovery_branch)
+        self.assertIn("::MessageBoxW(", recovery_branch)
         self.assertIn("bool retry_logged = false", recovery_branch)
         self.assertEqual(
             recovery_branch.count(
@@ -126,7 +128,11 @@ class WindowsRunOnceProxyRecoveryTest(unittest.TestCase):
             ),
             1,
         )
-        self.assertIn("return EXIT_SUCCESS", recovery_branch)
+        self.assertIn("return safe_to_stop ? EXIT_SUCCESS : ERROR_RETRY", recovery_branch)
+        self.assertLess(
+            recovery_branch.rindex("::ReleaseMutex(recovery_mutex)"),
+            recovery_branch.index("::MessageBoxW("),
+        )
         for startup_marker in (
             "CreateMutexW",
             "CoInitializeEx",

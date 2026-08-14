@@ -276,7 +276,7 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
         core.requestConnectionIntent(false);
         core.interruptPendingStart();
         try {
-          await core.runConnectionTransition(core.stop);
+          await core.runConnectionTransition(core.stopForAppShutdown);
         } finally {
           await core.flushLogs();
         }

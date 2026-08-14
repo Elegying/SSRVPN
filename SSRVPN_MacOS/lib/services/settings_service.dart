@@ -188,6 +188,7 @@ class SettingsService extends ChangeNotifier {
     var jsonSecret = '';
     Map<String, dynamic>? decodedSettings;
     if (hadSettingsFile) {
+      await _privateFileStore.ensurePrivateFile(file.path);
       try {
         final content = await file.readAsString();
         final decoded = jsonDecode(content);
@@ -435,6 +436,7 @@ class SettingsService extends ChangeNotifier {
     RandomAccessFile? handle;
     try {
       await temp.create(exclusive: true);
+      await _privateFileStore.ensurePrivateFile(temp.path);
       handle = await temp.open(mode: FileMode.writeOnly);
       await handle.writeFrom(bytes);
       await handle.flush();
