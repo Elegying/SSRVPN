@@ -25,9 +25,17 @@ class AppConstants {
       'https://www.gstatic.com/generate_204';
   static const String tunConnectivityTestUrl =
       'https://www.youtube.com/generate_204';
+  static const String fallbackConnectivityTestUrl =
+      'https://cp.cloudflare.com/generate_204';
+  static const List<String> systemProxyConnectivityTestUrls = [
+    defaultLatencyTestUrl,
+    tunConnectivityTestUrl,
+    fallbackConnectivityTestUrl,
+  ];
   static const List<String> tunConnectivityTestUrls = [
     tunConnectivityTestUrl,
     defaultLatencyTestUrl,
+    fallbackConnectivityTestUrl,
   ];
   static const int latencyTestInterval = 300; // 秒
 

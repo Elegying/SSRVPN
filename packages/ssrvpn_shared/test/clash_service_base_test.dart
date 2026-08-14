@@ -240,6 +240,29 @@ void main() {
       );
     });
 
+    test('system-proxy retries rotate independent connectivity endpoints',
+        () async {
+      final requestedUris = <Uri>[];
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+
+      final warning = await service.verifyUserConnectivity(
+        maxAttempts: 3,
+        retryDelay: Duration.zero,
+        request: (uri) async {
+          requestedUris.add(uri);
+          return http.Response('', requestedUris.length < 3 ? 502 : 204);
+        },
+      );
+
+      expect(warning, isNull);
+      expect(requestedUris, [
+        Uri.parse('https://www.gstatic.com/generate_204'),
+        Uri.parse('https://www.youtube.com/generate_204'),
+        Uri.parse('https://cp.cloudflare.com/generate_204'),
+      ]);
+    });
+
     test('suppresses a transient HTTP failure after a successful retry',
         () async {
       final statuses = [502, 204];
@@ -272,8 +295,35 @@ void main() {
       );
 
       expect(calls, 3);
-      expect(warning, contains('连续 3 次'));
+      expect(warning, contains('多个外部网络验证端点'));
       expect(warning, contains('HTTP 502'));
+      expect(warning, contains('不代表节点失效'));
+    });
+
+    test('publishes failures as an advisory and clears them after recovery',
+        () async {
+      final service = _TestClashService()..setRunning(true);
+      addTearDown(service.dispose);
+
+      final warning = await service.verifyUserConnectivity(
+        maxAttempts: 3,
+        retryDelay: Duration.zero,
+        request: (_) async => http.Response('', 502),
+      );
+
+      expect(warning, isNotNull);
+      expect(service.isRunning, isTrue);
+      expect(service.connectivityWarning, warning);
+
+      final recovered = await service.verifyUserConnectivity(
+        maxAttempts: 1,
+        retryDelay: Duration.zero,
+        request: (_) async => http.Response('', 204),
+      );
+
+      expect(recovered, isNull);
+      expect(service.isRunning, isTrue);
+      expect(service.connectivityWarning, isNull);
     });
 
     test('abandons an obsolete verification without showing a warning',

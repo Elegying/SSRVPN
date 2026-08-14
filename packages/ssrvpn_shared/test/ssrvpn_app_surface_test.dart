@@ -150,7 +150,7 @@ void main() {
     expect(openedNodes, isTrue);
   });
 
-  testWidgets('connected data-plane warning is shown as node recovery',
+  testWidgets('connected data-plane warning is advisory, not an error',
       (tester) async {
     await tester.pumpWidget(
       host(
@@ -171,7 +171,7 @@ void main() {
       ),
     );
 
-    expect(find.text('节点恢复中'), findsOneWidget);
+    expect(find.text('网络待确认'), findsOneWidget);
     expect(find.text('TUN 保持连接，正在热切换节点'), findsOneWidget);
     expect(find.text('连接异常'), findsNothing);
     expect(find.byIcon(Icons.sync_rounded), findsOneWidget);

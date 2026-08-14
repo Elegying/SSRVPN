@@ -156,7 +156,10 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
               connectionGeneration,
               connected: true,
             )) {
-          setState(() => _errorMessage = connectivityWarning);
+          setState(() {
+            _errorMessage = null;
+            _connectivityWarning = connectivityWarning;
+          });
         }
       }
     } catch (e) {

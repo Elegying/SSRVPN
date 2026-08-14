@@ -47,7 +47,7 @@ class SsrvpnHomeOverview extends StatelessWidget {
   String get _statusText {
     if (isConnecting) return isConnected ? '正在断开' : '正在连接';
     if (errorMessage != null) return '连接异常';
-    if (isConnected && connectionNotice != null) return '节点恢复中';
+    if (isConnected && connectionNotice != null) return '网络待确认';
     if (isConnected) return '已连接';
     return '未连接';
   }
