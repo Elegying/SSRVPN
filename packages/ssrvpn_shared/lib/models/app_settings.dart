@@ -130,12 +130,12 @@ class AppSettings {
       socksPort: _parsePort(json['socksPort'], 7891),
       apiPort: _parsePort(json['apiPort'], 9090),
       apiSecret: json['apiSecret']?.toString() ?? '',
-      proxyMode: _parseProxyMode(json['proxyMode'] as String?),
+      proxyMode: _parseProxyMode(json['proxyMode']?.toString()),
       enableTun: _parseEnableTun(json),
       tunStack: json['tunStack']?.toString() ?? 'gvisor',
       latencyTestUrl: _parseLatencyTestUrl(json['latencyTestUrl']),
-      lastSelectedNodeName:
-          (json['lastSelectedNodeName'] ?? json['lastSelectedNode']) as String?,
+      lastSelectedNodeName: _optionalString(json['lastSelectedNodeName']) ??
+          _optionalString(json['lastSelectedNode']),
       latencyTestTimeout: _parseTimeout(json['latencyTestTimeout'], 5000),
       forceProxySites: json['forceProxySites'] is Iterable
           ? (json['forceProxySites'] as Iterable)
@@ -212,6 +212,9 @@ class AppSettings {
         ? timeout
         : fallback;
   }
+
+  static String? _optionalString(Object? value) =>
+      value is String ? value : null;
 
   static String _parseTunStack(Object? value) {
     final stack = value?.toString().trim().toLowerCase();

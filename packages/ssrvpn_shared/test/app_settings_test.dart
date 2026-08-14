@@ -28,6 +28,17 @@ void main() {
     expect(restored.tunStack, 'gvisor');
   });
 
+  test('falls back safely when optional setting types are corrupted', () {
+    final restored = AppSettings.fromJson({
+      'proxyMode': 42,
+      'lastSelectedNodeName': 42,
+      'lastSelectedNode': 'legacy-node',
+    });
+
+    expect(restored.proxyMode, ProxyMode.rule);
+    expect(restored.lastSelectedNodeName, 'legacy-node');
+  });
+
   test('deprecated setting aliases remain compatible during migration', () {
     final settings = AppSettings(
       tunMode: true,

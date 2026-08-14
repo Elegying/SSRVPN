@@ -59,6 +59,28 @@ proxy-groups:
         expect(result.groups.first.name, equals('Auto'));
       });
 
+      test('keeps valid nodes when proxy group scalar types are malformed', () {
+        final yaml = '''
+proxies:
+  - name: "Test Node"
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+proxy-groups:
+  - name: 123
+    type: 456
+    proxies:
+      - "Test Node"
+''';
+
+        final result = SubscriptionParser.parseYaml(yaml);
+
+        expect(result.nodes, hasLength(1));
+        expect(result.groups, isEmpty);
+      });
+
       test('parses string ports and skips unknown group entries', () {
         final yaml = '''
 proxies:
@@ -530,6 +552,18 @@ proxies:
         expect(proxy, isNull);
       });
 
+      test('returns null for malformed SSR optional fields', () {
+        String encode(String value) =>
+            base64Url.encode(utf8.encode(value)).replaceAll('=', '');
+        final malformed = 'example.com:443:origin:aes-256-cfb:plain:'
+            '${encode('password')}/?remarks=%';
+
+        expect(
+          SubscriptionParser.proxyFromUri('ssr://${encode(malformed)}'),
+          isNull,
+        );
+      });
+
       test('generates name from host:port when fragment is empty', () {
         final uri = 'trojan://pass@host.example:443';
         final proxy = SubscriptionParser.proxyFromUri(uri);
@@ -561,6 +595,22 @@ trojan://pass@host:443#Node
         final yaml = SubscriptionParser.uriListToYaml(content);
         expect(yaml, isNotNull);
         expect(yaml, contains('Node'));
+      });
+
+      test('skips a malformed SSR entry without dropping valid entries', () {
+        String encode(String value) =>
+            base64Url.encode(utf8.encode(value)).replaceAll('=', '');
+        final malformed = 'example.com:443:origin:aes-256-cfb:plain:'
+            '${encode('password')}/?remarks=%';
+        final content = [
+          'ssr://${encode(malformed)}',
+          'trojan://pass@valid.example.com:443#Valid',
+        ].join('\n');
+
+        final yaml = SubscriptionParser.uriListToYaml(content);
+
+        expect(yaml, isNotNull);
+        expect(yaml, contains('valid.example.com'));
       });
 
       test('returns null for empty content', () {
