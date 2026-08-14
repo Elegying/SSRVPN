@@ -1,7 +1,7 @@
 # 项目健康状态
 
-最近审查：2026-08-14<br>
-当前应用版本：`v4.0.7`；公开发布状态与产物以 [GitHub Release](https://github.com/Elegying/SSRVPN/releases/latest) 为准。<br>
+最近审查：2026-08-15<br>
+当前应用版本：`v4.0.8`；公开发布状态与产物以 [GitHub Release](https://github.com/Elegying/SSRVPN/releases/latest) 为准。<br>
 审查基线：公开版本 `v4.0.3`、提交 `bcca48a` 与 [CI run 30887916321](https://github.com/Elegying/SSRVPN/actions/runs/30887916321) 的三端构建及发布产物已核对；本文所在提交继续以完整本地门禁、对应 Pull Request 检查和合并后 `main` CI 共同作为当前结论。
 
 ## 综合结论与评分
