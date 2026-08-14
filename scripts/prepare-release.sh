@@ -209,7 +209,12 @@ if ! git diff --quiet -- docs/GEOIP_SOURCE.txt; then
   if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
     fail "Could not determine the GeoIP pull request number"
   fi
-  branch_ci_url="$pr_url/checks"
+  # Pull requests created with GITHUB_TOKEN do not trigger another workflow
+  # run. Dispatch CI explicitly for the exact automation branch, then require
+  # the resulting checks to be attached to the pull request before merging.
+  IFS=$'\t' read -r branch_ci_run_id branch_ci_url \
+    < <(dispatch_workflow "ci.yml" "$branch")
+  wait_for_workflow "$branch_ci_run_id"
   wait_for_pull_request_checks "$pr_number"
 
   git fetch --no-tags origin main:refs/remotes/origin/main
