@@ -43,12 +43,19 @@ class _SubscriptionYamlParser {
       if (proxyGroups is List) {
         for (final group in proxyGroups) {
           if (group is Map) {
-            final groupName = group['name'] as String? ?? 'Unknown';
-            final groupType = group['type'] as String? ?? 'select';
-            final groupProxies = (group['proxies'] as List?)
-                    ?.map((e) => e.toString())
-                    .toList() ??
-                [];
+            final rawGroupName = group['name'];
+            final rawGroupType = group['type'];
+            final rawGroupProxies = group['proxies'];
+            if ((rawGroupName != null && rawGroupName is! String) ||
+                (rawGroupType != null && rawGroupType is! String) ||
+                (rawGroupProxies != null && rawGroupProxies is! List)) {
+              continue;
+            }
+            final groupName = rawGroupName as String? ?? 'Unknown';
+            final groupType = rawGroupType as String? ?? 'select';
+            final groupProxies = rawGroupProxies is List
+                ? rawGroupProxies.map((e) => e.toString()).toList()
+                : const <String>[];
 
             final groupNodes = <ProxyNode>[];
             for (final proxyName in groupProxies) {

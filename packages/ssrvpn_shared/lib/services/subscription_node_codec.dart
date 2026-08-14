@@ -2,6 +2,7 @@ import 'dart:convert';
 
 /// Converts user-editable node data into bounded, Mihomo-ready values.
 import '../utils/runtime_config_name_policy.dart';
+import '../utils/proxy_node_usage_policy.dart';
 
 class SubscriptionNodeCodec {
   const SubscriptionNodeCodec._();
@@ -182,6 +183,9 @@ class SubscriptionNodeCodec {
     if (name.isEmpty) throw const FormatException('节点备注名不能为空');
     final type = _requiredText(normalized, 'type', '节点类型不能为空').toLowerCase();
     final server = _requiredText(normalized, 'server', '服务器地址不能为空');
+    if (!ProxyNodeUsagePolicy.isValidServerValue(server)) {
+      throw const FormatException('服务器地址无效');
+    }
     final port = _parseRequiredPort(normalized['port']);
 
     normalized['name'] = name;

@@ -52,6 +52,27 @@ void main() {
       );
     });
 
+    test('rejects invalid edited server values', () {
+      for (final server in [
+        'fe80::1%en0',
+        '[2001:db8::1]',
+        'bad host.example',
+      ]) {
+        expect(
+          () => SubscriptionNodeCodec.normalizeProxyConfig({
+            'name': 'Bad Server',
+            'type': 'ss',
+            'server': server,
+            'port': 443,
+            'cipher': 'aes-128-gcm',
+            'password': 'secret',
+          }),
+          throwsFormatException,
+          reason: server,
+        );
+      }
+    });
+
     test('encodes proxies as safe JSON flow maps', () {
       final encoded = SubscriptionNodeCodec.encodeConfig({
         'proxies': [

@@ -22,16 +22,20 @@ class _SubscriptionUriParser {
 
   static Map<String, dynamic>? proxyFromUri(String line) {
     if (_SsrSubscriptionParser.isSsrLink(line)) {
-      final yaml = _SsrSubscriptionParser.importSsrLink(line);
-      if (yaml == null) return null;
-      final proxiesText = _SubscriptionYamlParser.extractSection(
-        yaml,
-        'proxies',
-      );
-      final items = _SubscriptionYamlParser.splitProxyItems(proxiesText);
-      return items.isEmpty
-          ? null
-          : _SubscriptionYamlParser.parseProxyItem(items.first);
+      try {
+        final yaml = _SsrSubscriptionParser.importSsrLink(line);
+        if (yaml == null) return null;
+        final proxiesText = _SubscriptionYamlParser.extractSection(
+          yaml,
+          'proxies',
+        );
+        final items = _SubscriptionYamlParser.splitProxyItems(proxiesText);
+        return items.isEmpty
+            ? null
+            : _SubscriptionYamlParser.parseProxyItem(items.first);
+      } on FormatException {
+        return null;
+      }
     }
 
     final uri = Uri.tryParse(line);
