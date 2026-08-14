@@ -246,9 +246,18 @@ if 'case "persistOwnedCoreRecord"' in main_window:
 
 begin_start = main_window.index('call.method == "beginProxyLifecycleTransaction"')
 begin_end = main_window.index('call.method == "endProxyLifecycleTransaction"')
-if "delegate.performCoreProcessOperationAndWait" not in main_window[begin_start:begin_end]:
+begin_body = main_window[begin_start:begin_end]
+if "delegate.enqueueCoreProcessOperation" not in begin_body:
     raise SystemExit(
-        "MainFlutterWindow.swift: proxy lifecycle begin must publish synchronously"
+        "MainFlutterWindow.swift: proxy lifecycle begin must use the serial queue"
+    )
+if "delegate.performCoreProcessOperationAndWait" in begin_body:
+    raise SystemExit(
+        "MainFlutterWindow.swift: proxy lifecycle begin must not block the main thread"
+    )
+if "DispatchQueue.main.async" not in begin_body:
+    raise SystemExit(
+        "MainFlutterWindow.swift: proxy lifecycle begin must reply on the main thread"
     )
 end_end = main_window.index("guard\n        let arguments", begin_end)
 if "delegate.enqueueCoreProcessOperation" not in main_window[begin_end:end_end]:
