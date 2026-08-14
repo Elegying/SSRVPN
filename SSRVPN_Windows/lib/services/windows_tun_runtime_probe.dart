@@ -59,6 +59,7 @@ const _tunRouteDestinations = <String>[
 // observations still fit, while avoiding a permanent fail-closed loop caused
 // solely by the previous 3-second cold-start ceiling.
 const _windowsNetworkCmdletTimeout = Duration(seconds: 6);
+const windowsTunTeardownTimeout = Duration(seconds: 30);
 
 class WindowsTunTeardownGate {
   final _interfaces = <WindowsTunInterfaceIdentity>{};
@@ -111,7 +112,7 @@ class WindowsTunTeardownGate {
 
 Future<bool> waitForWindowsTunTeardown({
   required Future<WindowsTunResidualProbeResult> Function() probe,
-  Duration timeout = const Duration(seconds: 15),
+  Duration timeout = windowsTunTeardownTimeout,
   Duration pollInterval = const Duration(milliseconds: 100),
   Future<void> Function(Duration duration)? wait,
 }) async {

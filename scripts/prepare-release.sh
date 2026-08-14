@@ -85,9 +85,16 @@ wait_for_workflow() {
 
 wait_for_pull_request_checks() {
   local pull_request=$1
+  local checks_url=$2
   local check_count=""
+  local warned=false
 
-  for _ in {1..30}; do
+  # Pull-request workflows created by GITHUB_TOKEN can remain in
+  # action_required until a maintainer approves them. Keep the release
+  # transaction open long enough for that approval instead of failing after
+  # one minute. We still require the repository's protected checks and never
+  # bypass branch protection.
+  for _ in {1..90}; do
     check_count="$(gh pr checks "$pull_request" \
       --required --json name --jq 'length' 2>/dev/null || true)"
     if [[ "$check_count" =~ ^[1-9][0-9]*$ ]]; then
@@ -95,9 +102,13 @@ wait_for_pull_request_checks() {
         --required --watch --fail-fast --interval 20
       return
     fi
-    sleep 2
+    if [ "$warned" = false ]; then
+      echo "::warning::Approve the pending GitHub Actions workflow for pull request $pull_request, then this release will continue automatically: $checks_url" >&2
+      warned=true
+    fi
+    sleep 20
   done
-  fail "Required checks did not register for pull request $pull_request"
+  fail "Required checks were not approved and registered for pull request $pull_request within 30 minutes: $checks_url"
 }
 
 require_tag_absent() {
@@ -209,13 +220,11 @@ if ! git diff --quiet -- docs/GEOIP_SOURCE.txt; then
   if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
     fail "Could not determine the GeoIP pull request number"
   fi
-  # Pull requests created with GITHUB_TOKEN do not trigger another workflow
-  # run. Dispatch CI explicitly for the exact automation branch, then require
-  # the resulting checks to be attached to the pull request before merging.
-  IFS=$'\t' read -r branch_ci_run_id branch_ci_url \
-    < <(dispatch_workflow "ci.yml" "$branch")
-  wait_for_workflow "$branch_ci_run_id"
-  wait_for_pull_request_checks "$pr_number"
+  # GitHub holds pull-request workflows created by GITHUB_TOKEN for maintainer
+  # approval. A separately dispatched branch run does not attach its checks to
+  # the pull request, so wait for the protected PR checks themselves.
+  branch_ci_url="$pr_url/checks"
+  wait_for_pull_request_checks "$pr_number" "$branch_ci_url"
 
   git fetch --no-tags origin main:refs/remotes/origin/main
   if [ "$(git rev-parse --verify 'origin/main^{commit}')" != "$main_sha" ]; then
@@ -279,7 +288,7 @@ append_summary "## Release preparation for $tag"
 append_summary "- GeoIP changed: $geoip_changed"
 if [ -n "$pr_url" ]; then
   append_summary "- GeoIP pull request: $pr_url"
-  append_summary "- Branch CI: $branch_ci_url"
+  append_summary "- Protected PR checks: $branch_ci_url"
 fi
 append_summary "- Exact-main CI: $main_ci_url"
 append_summary "- Release workflow: $release_run_url"
