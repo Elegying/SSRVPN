@@ -16,10 +16,10 @@ if (-not $env:APPDATA) {
   throw 'APPDATA is required for the per-user installer smoke test.'
 }
 
-$installer = [System.IO.Path]::GetFullPath($InstallerPath)
-if ([System.IO.Path]::GetFileName($installer) -ne 'SSRVPN_Setup.exe' -or
-    -not (Test-Path -LiteralPath $installer -PathType Leaf)) {
-  throw "SSRVPN_Setup.exe was not found: $installer"
+$sourceInstaller = [System.IO.Path]::GetFullPath($InstallerPath)
+if ([System.IO.Path]::GetFileName($sourceInstaller) -ne 'SSRVPN_Setup.exe' -or
+    -not (Test-Path -LiteralPath $sourceInstaller -PathType Leaf)) {
+  throw "SSRVPN_Setup.exe was not found: $sourceInstaller"
 }
 
 $installDir = Join-Path $env:LOCALAPPDATA 'Programs\SSRVPN'
@@ -29,11 +29,19 @@ $uninstallRegistryPath =
 $uninstallRegistrySubkey =
   'Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
   '{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1'
-$desktopShortcutPath = Join-Path (
+$userDesktopShortcutPath = Join-Path (
   [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
 ) 'SSRVPN.lnk'
-$startMenuShortcutPath = Join-Path (
+$desktopShortcutPath = Join-Path (
+  [Environment]::GetFolderPath(
+    [Environment+SpecialFolder]::CommonDesktopDirectory
+  )
+) 'SSRVPN.lnk'
+$userStartMenuShortcutPath = Join-Path (
   [Environment]::GetFolderPath([Environment+SpecialFolder]::Programs)
+) 'SSRVPN.lnk'
+$startMenuShortcutPath = Join-Path (
+  [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonPrograms)
 ) 'SSRVPN.lnk'
 if (Test-Path -LiteralPath $installDir) {
   throw "Refusing to overwrite a pre-existing smoke-test install: $installDir"
@@ -46,6 +54,10 @@ $tempRoot = if ($env:RUNNER_TEMP) {
 }
 $logDir = Join-Path $tempRoot 'ssrvpn-installer-smoke'
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+$installInstaller = Join-Path $logDir 'SSRVPN_Setup_install.exe'
+$upgradeInstaller = Join-Path $logDir 'SSRVPN_Setup_upgrade.exe'
+Copy-Item -LiteralPath $sourceInstaller -Destination $installInstaller -Force
+Copy-Item -LiteralPath $sourceInstaller -Destination $upgradeInstaller -Force
 $installLog = Join-Path $logDir 'install.log'
 $upgradeLog = Join-Path $logDir 'upgrade.log'
 $uninstallLog = Join-Path $logDir 'uninstall.log'
@@ -80,6 +92,60 @@ function New-CacheSentinels {
       (Join-Path $cacheRoot 'upgrade-delete.sentinel'),
       'ssrvpn-upgrade-delete'
     )
+  }
+}
+
+function New-LegacyShortcut {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  New-Item -ItemType Directory -Path (Split-Path -Path $Path -Parent) `
+    -Force | Out-Null
+  $shell = New-Object -ComObject WScript.Shell
+  $shortcut = $shell.CreateShortcut($Path)
+  $shortcut.TargetPath = Join-Path $installDir 'ssrvpn_windows.exe'
+  $shortcut.WorkingDirectory = $installDir
+  $shortcut.Save()
+}
+
+function Wait-PathAbsent {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  for ($attempt = 0; $attempt -lt 80; $attempt++) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+      return
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  throw "Post-install cleanup did not delete: $Path"
+}
+
+function Assert-SingleMachineShortcut {
+  foreach ($pair in @(
+    @($userDesktopShortcutPath, $desktopShortcutPath),
+    @($userStartMenuShortcutPath, $startMenuShortcutPath)
+  )) {
+    $legacyPath = $pair[0]
+    $machinePath = $pair[1]
+    if (Test-Path -LiteralPath $legacyPath) {
+      throw "SSRVPN left a legacy per-user shortcut behind: $legacyPath"
+    }
+    if (-not (Test-Path -LiteralPath $machinePath -PathType Leaf)) {
+      throw "SSRVPN did not create its machine-wide shortcut: $machinePath"
+    }
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($machinePath)
+    $actualTarget = [System.IO.Path]::GetFullPath(
+      [string]$shortcut.TargetPath
+    )
+    $expectedTarget = [System.IO.Path]::GetFullPath(
+      (Join-Path $installDir 'ssrvpn_windows.exe')
+    )
+    if (-not [string]::Equals(
+        $actualTarget,
+        $expectedTarget,
+        [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw "SSRVPN shortcut targets an unexpected executable: $machinePath"
+    }
   }
 }
 
@@ -174,9 +240,31 @@ function New-PendingProgramFileTransaction {
   }
 }
 
+if ([string]::Equals(
+    $userDesktopShortcutPath,
+    $desktopShortcutPath,
+    [System.StringComparison]::OrdinalIgnoreCase) -or
+    [string]::Equals(
+      $userStartMenuShortcutPath,
+      $startMenuShortcutPath,
+      [System.StringComparison]::OrdinalIgnoreCase)) {
+  throw 'The smoke runner cannot distinguish user and machine shortcut paths.'
+}
+foreach ($shortcutPath in @(
+  $userDesktopShortcutPath,
+  $desktopShortcutPath,
+  $userStartMenuShortcutPath,
+  $startMenuShortcutPath
+)) {
+  if (Test-Path -LiteralPath $shortcutPath) {
+    throw "Refusing to overwrite a pre-existing smoke-test shortcut: $shortcutPath"
+  }
+}
 try {
+  New-LegacyShortcut -Path $userDesktopShortcutPath
+  New-LegacyShortcut -Path $userStartMenuShortcutPath
   $installExitCode = Invoke-SmokeProcess `
-    -FilePath $installer `
+    -FilePath $installInstaller `
     -Phase 'SSRVPN installer' `
     -LogPath $installLog `
     -ArgumentList @(
@@ -189,6 +277,8 @@ try {
   if ($installExitCode -ne 0) {
     throw "SSRVPN installer exited with code $installExitCode. Log: $installLog"
   }
+  Wait-PathAbsent -Path $installInstaller
+  Assert-SingleMachineShortcut
 
   foreach ($relativePath in @(
     'ssrvpn_windows.exe',
@@ -220,7 +310,7 @@ try {
   }
 
   $upgradeExitCode = Invoke-SmokeProcess `
-    -FilePath $installer `
+    -FilePath $upgradeInstaller `
     -Phase 'SSRVPN upgrade' `
     -LogPath $upgradeLog `
     -ArgumentList @(
@@ -233,6 +323,8 @@ try {
   if ($upgradeExitCode -ne 0) {
     throw "SSRVPN upgrade exited with code $upgradeExitCode. Log: $upgradeLog"
   }
+  Wait-PathAbsent -Path $upgradeInstaller
+  Assert-SingleMachineShortcut
   $upgradeAppProcess.Refresh()
   if (-not $upgradeAppProcess.HasExited) {
     throw "SSRVPN upgrade left the previous installed app PID $($upgradeAppProcess.Id) running."
@@ -296,6 +388,16 @@ try {
   }
   foreach ($sentinel in $preservedSentinels) {
     Remove-Item -LiteralPath $sentinel -Force -ErrorAction SilentlyContinue
+  }
+  foreach ($cleanupPath in @(
+    $installInstaller,
+    $upgradeInstaller,
+    $userDesktopShortcutPath,
+    $desktopShortcutPath,
+    $userStartMenuShortcutPath,
+    $startMenuShortcutPath
+  )) {
+    Remove-Item -LiteralPath $cleanupPath -Force -ErrorAction SilentlyContinue
   }
 }
 

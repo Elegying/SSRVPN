@@ -76,11 +76,12 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "bin\ssrvpn,bin\ssrvpn\*";
 Source: "{#ProjectDir}\installer\stop_ssrvpn_processes.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "{#ProjectDir}\installer\proxy_transaction_state.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "{#ProjectDir}\installer\tun_ownership.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
+Source: "{#ProjectDir}\installer\post_install_cleanup.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "{#ProjectDir}\installer\program_files_transaction.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion; AfterInstall: ValidateProgramFilesTransaction
 
 [Icons]
-Name: "{autoprograms}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
+Name: "{commonprograms}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
+Name: "{commondesktop}\SSRVPN"; Filename: "{app}\ssrvpn_windows.exe"; WorkingDir: "{app}"
 
 [Code]
 const
@@ -112,6 +113,7 @@ var
   ProgramFilesRecoveryPending: Boolean;
   ProgramFilesTransactionPrepared: Boolean;
   LastProgramFilesTransactionStatus: String;
+  InstallSucceeded: Boolean;
 
 function WinCreateMutex(Attributes: Cardinal; InitialOwner: BOOL;
   Name: String): THandle;
@@ -128,6 +130,8 @@ function WinCloseHandle(Handle: THandle): BOOL;
 function WinOpenEvent(DesiredAccess: Cardinal; InheritHandle: BOOL;
   Name: String): THandle;
   external 'OpenEventW@kernel32.dll stdcall';
+function WinGetCurrentProcessId(): Cardinal;
+  external 'GetCurrentProcessId@kernel32.dll stdcall';
 
 function IsValidUpdateHandoffToken(Token: AnsiString): Boolean;
 var
@@ -364,9 +368,9 @@ begin
       ' -StatusPath ' + AddQuotes(StatusPath) +
       ' -UninstallRegistrySubkey ' + AddQuotes(UninstallRegistryKey) +
       ' -DesktopShortcutPath ' +
-        AddQuotes(ExpandConstant('{autodesktop}\SSRVPN.lnk')) +
+        AddQuotes(ExpandConstant('{commondesktop}\SSRVPN.lnk')) +
       ' -StartMenuShortcutPath ' +
-        AddQuotes(ExpandConstant('{autoprograms}\SSRVPN.lnk'));
+        AddQuotes(ExpandConstant('{commonprograms}\SSRVPN.lnk'));
     if ExpectedPayloadManifestPath <> '' then
       Parameters := Parameters + ' -ExpectedPayloadManifestPath ' +
         AddQuotes(ExpectedPayloadManifestPath);
@@ -587,7 +591,35 @@ begin
           '旧程序将自动恢复。诊断阶段码：' +
           LastProgramFilesTransactionStatus + '。');
     end;
+    InstallSucceeded := True;
     ReleaseInstallGates;
+  end;
+end;
+
+procedure LaunchPostInstallCleanup;
+var
+  CleanupPath: String;
+  Parameters: String;
+  PowerShellPath: String;
+  ResultCode: Integer;
+begin
+  CleanupPath := ExpandConstant(
+    '{app}\installer\post_install_cleanup.ps1');
+  PowerShellPath := ExpandConstant(
+    '{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  Parameters := '-NoLogo -NoProfile -NonInteractive ' +
+    '-ExecutionPolicy Bypass -File ' + AddQuotes(CleanupPath) +
+    ' -InstallerPath ' + AddQuotes(ExpandConstant('{srcexe}')) +
+    ' -InstalledLauncherPath ' +
+      AddQuotes(ExpandConstant('{app}\ssrvpn_windows.exe')) +
+    ' -InstallerProcessId ' + IntToStr(WinGetCurrentProcessId);
+  try
+    if not ExecAsOriginalUser(
+      PowerShellPath, Parameters, '', SW_HIDE, ewNoWait, ResultCode) then
+      Log('SSRVPN could not start post-install shortcut and package cleanup.');
+  except
+    Log(
+      'SSRVPN post-install shortcut and package cleanup raised an internal exception.');
   end;
 end;
 
@@ -603,6 +635,8 @@ begin
         'SSRVPN could not finish program-file recovery; the durable backup was retained.');
   end;
   ReleaseInstallGates;
+  if InstallSucceeded then
+    LaunchPostInstallCleanup;
 end;
 
 function InitializeUninstall(): Boolean;
