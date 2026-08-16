@@ -22,7 +22,7 @@ dependencies:
 
   # Current-user DPAPI storage with same-directory atomic replacement
   ffi: ^2.1.0
-  win32: ^6.3.0
+  win32: ^6.4.0
 
   # Shared code across all SSRVPN platforms
   ssrvpn_shared:

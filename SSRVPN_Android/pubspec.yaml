@@ -27,7 +27,7 @@ dependencies:
   shared_preferences: ^2.5.5
 
   # Secure storage for apiSecret (Android Keystore / EncryptedSharedPreferences)
-  flutter_secure_storage: ^10.3.1
+  flutter_secure_storage: ^11.0.0
 
   # Path provider for Android
   path_provider: ^2.1.6
