@@ -1,7 +1,7 @@
 name: Bug report
 description: Report a reproducible problem in SSRVPN.
 title: "[Bug]: "
-labels: ["bug", "triage"]
+labels: ["bug"]
 body:
   - type: dropdown
     id: platform
@@ -42,7 +42,15 @@ body:
     id: version
     attributes:
       label: Version or commit
-      placeholder: v4.0.1 or commit SHA
+      placeholder: Latest release tag or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and device
+      description: Include the OS version and device model or CPU architecture when known.
+      placeholder: Android 16 / Pixel 9, macOS 26 / Apple silicon, or Windows 11 / x64
     validations:
       required: true
   - type: dropdown

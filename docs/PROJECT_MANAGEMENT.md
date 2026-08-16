@@ -9,7 +9,7 @@ SSRVPN is maintained as a trunk-based monorepo. The goal is to keep `main` stabl
 - `fix/<short-name>`: bug fixes.
 - `chore/<short-name>`: maintenance, dependency, documentation, and tooling work.
 - `archive/<short-name>`: preserved local or historical work that is not part of the active release line.
-- `vX.Y.Z` tags: release triggers.
+- `vX.Y.Z` tags: immutable release triggers created by the `Prepare Release` workflow.
 
 ## Source vs Artifacts
 
@@ -59,10 +59,10 @@ cd SSRVPN_Android && flutter analyze && flutter test
 
 1. Confirm `main` is clean and synced.
 2. Confirm CI is green.
-3. Update `CHANGELOG.md`.
-4. Create an annotated version tag: `vX.Y.Z`.
-5. Push the tag to trigger the release workflow.
-6. Download artifacts, verify checksums, and smoke test installation.
+3. Merge the matching application version and `CHANGELOG.md` entry into `main`.
+4. Run GitHub Actions `Prepare Release` with the new `vX.Y.Z` tag. The workflow refreshes and verifies GeoIP, validates the generated branch and final `main`, creates the annotated tag, and dispatches `Release`. Do not create or push the version tag manually.
+5. Approve the protected release environment when required and wait for the public, non-draft Release.
+6. Download the published artifacts, verify checksums, and smoke test installation.
 
 Current personal releases use the free path:
 
@@ -72,4 +72,4 @@ Current personal releases use the free path:
 
 Paid Apple Developer ID notarization and Windows Authenticode signing are intentionally out of scope. Do not add certificate secrets or optional paid-signing branches unless this product decision is explicitly replaced.
 
-See `docs/RELEASE_SIGNING.md`.
+See [ADR-012](decisions/012-automatic-release-preparation.md), the [release checklist](RELEASE_CHECKLIST.zh-CN.md), and [release signing](RELEASE_SIGNING.md).

@@ -21,7 +21,7 @@
 ## Security and compatibility
 
 - [ ] No secrets, private subscription data, generated artifacts, or untrusted input are logged or committed.
-- [ ] HTTP subscription compatibility, the 75-app Android bypass, IPv4-only routing, and the two-page product surface remain unchanged unless this PR explicitly replaces a documented decision.
+- [ ] HTTP subscription compatibility, the tested Android domestic-app bypass policy, IPv4-only routing, and the two-page product surface remain unchanged unless this PR explicitly replaces a documented decision.
 - [ ] Native lifecycle, system proxy, TUN, installer, or release changes include target-platform evidence.
 
 ## Release Notes

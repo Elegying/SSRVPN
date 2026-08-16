@@ -37,6 +37,7 @@
 ## 安全与架构
 
 - [安全策略](../SECURITY.md)
+- [社区行为准则](../CODE_OF_CONDUCT.md)
 - [IPv4-only 与 IPv6 防绕过规范](IPV6_DUAL_STACK_SPEC.zh-CN.md)
 - [UI 设计规范](UI_DESIGN_GUIDE.md)
 - [ADR-001：桌面端 API Secret 的长期存储](decisions/001-desktop-api-secret-storage.md)
