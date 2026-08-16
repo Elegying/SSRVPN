@@ -5,6 +5,8 @@ SSRVPN 是一个多平台 Flutter Monorepo：
 - `packages/ssrvpn_shared` 保存平台无关的模型、策略、订阅解析、配置生成和工具函数。
 - `SSRVPN_Android`、`SSRVPN_MacOS`、`SSRVPN_Windows` 保存平台专属 UI、原生集成、打包脚本和系统能力。
 
+参与本项目即表示同意遵守[社区行为准则](CODE_OF_CONDUCT.md)。
+
 ## 开发规则
 
 - `main` 分支保持稳定，新功能使用 `feature/*` 分支，修复使用 `fix/*` 分支，维护类改动使用 `chore/*` 分支。
@@ -48,8 +50,8 @@ flutter test
 
 ## Issue 规则
 
-- Bug、功能需求和维护任务请使用 GitHub Issue 模板。
-- 安全问题不要提交公开 Issue，请按 `SECURITY.md` 私下报告。
+- Bug、功能需求和维护任务请使用 [GitHub Issue 模板](https://github.com/Elegying/SSRVPN/issues/new/choose)。
+- 安全问题不要提交公开 Issue，请按[安全策略](SECURITY.md)私下报告。
 - 报告问题时请说明平台、版本、复现步骤、预期结果和实际结果。
 - 日志、截图和崩溃文件中必须先移除订阅、token、密码和服务端地址等敏感信息。
 
@@ -64,4 +66,4 @@ flutter test
 - 发布、迁移或兼容风险说明。
 - 依赖变更需提交 lockfile，并通过 Dependency Review；不要用浮动 GitHub Action 版本替代完整提交 SHA。
 
-更多维护节奏、发布检查和线上/本地一致性规则见 `docs/MAINTENANCE.md`。分支模型和产物策略见 `docs/PROJECT_MANAGEMENT.md`。
+更多维护节奏、发布检查和线上/本地一致性规则见[维护指南](docs/MAINTENANCE.md)。分支模型和产物策略见[项目管理](docs/PROJECT_MANAGEMENT.md)。

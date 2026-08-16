@@ -14,7 +14,7 @@ Android、macOS、Windows 三端一致的连接体验：导入订阅，选择节
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/Android%20%7C%20macOS%20%7C%20Windows-6c63ff)](#下载)
 
-[立即下载](#下载) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md) · [项目文档](docs/README.md)
+[立即下载](#下载) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md) · [报告问题](https://github.com/Elegying/SSRVPN/issues/new/choose) · [项目文档](docs/README.md)
 
 <img src="docs/assets/ssrvpn-product-preview.png" alt="SSRVPN 开源跨平台 Mihomo VPN 和代理客户端连接界面" width="416">
 
@@ -123,6 +123,8 @@ Pull Request 还会执行 GitHub Dependency Review；新增中等及以上已知
 [文档索引](docs/README.md) 区分当前规范、维护手册、架构决策与历史审查。项目状态以当前代码、自动验证和该索引中的有效文档为准。
 
 不要在日志、Issue、PR、截图或崩溃报告中泄露订阅 URL、API secret、Bearer token、节点密码、服务端凭据或签名材料。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
+
+参与 Issue、Pull Request 或其他社区协作前，请阅读[贡献指南](CONTRIBUTING.md)和[社区行为准则](CODE_OF_CONDUCT.md)。
 
 ## 许可证
 

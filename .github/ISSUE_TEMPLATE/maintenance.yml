@@ -1,7 +1,6 @@
 name: Maintenance task
 description: Track refactors, dependency updates, release work, or repository hygiene.
 title: "[Maintenance]: "
-labels: ["maintenance", "triage"]
 body:
   - type: dropdown
     id: area
