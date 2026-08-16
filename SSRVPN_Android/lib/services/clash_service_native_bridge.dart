@@ -619,6 +619,11 @@ extension AndroidNativeBridge on ClashService {
       log('原生 VPN 返回了无效的受保护配置路径类型');
       return null;
     }
+    final rawPathTrusted = value['protectedConfigTrusted'];
+    if (rawPathTrusted != null && rawPathTrusted is! bool) {
+      log('原生 VPN 返回了无效的受保护配置证明');
+      return null;
+    }
     final rawPath = rawPathValue as String?;
     if (rawPath == null || rawPath.isEmpty) {
       return (
@@ -633,9 +638,10 @@ extension AndroidNativeBridge on ClashService {
     final supportedName = name == 'config.yaml' ||
         (name.startsWith('config-') && name.endsWith('.yaml'));
     if (!supportedName ||
-        file.parent.path != Directory(configDir).absolute.path ||
-        await FileSystemEntity.type(file.path, followLinks: false) !=
-            FileSystemEntityType.file) {
+        (rawPathTrusted != true &&
+            (file.parent.path != Directory(configDir).absolute.path ||
+                await FileSystemEntity.type(file.path, followLinks: false) !=
+                    FileSystemEntityType.file))) {
       log('原生 VPN 返回了无效的受保护配置路径');
       return (
         running: running,

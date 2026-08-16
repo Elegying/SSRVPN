@@ -1237,6 +1237,59 @@ void main() {
     expect(service.lastStartError, contains('受保护配置'));
   });
 
+  test('native-attested config survives Android data-directory aliases',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_native_attested_config_',
+    );
+    final requestedConfig =
+        File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await requestedConfig.writeAsString('proxies: []');
+    // Android may report the same app data directory through /data/user/0
+    // while Flutter resolves it through the /data/data compatibility alias.
+    // Native has already canonicalized and validated this path before start.
+    final nativeConfigPath =
+        '${dir.parent.path}${Platform.pathSeparator}config-native.yaml';
+    var stopCalls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+        case 'getConnectionState':
+          return <String, Object?>{
+            'running': true,
+            'transitioning': false,
+            'protectedConfigPath': nativeConfigPath,
+            'protectedConfigTrusted': true,
+            'sessionGeneration': 52,
+          };
+        case 'syncSettings':
+          return 'snapshot-generation';
+        case 'stopCore':
+          stopCalls += 1;
+          return true;
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: requestedConfig.path)
+      ..updateSettings(AppSettings());
+
+    expect(await service.start(nodeName: 'A'), isTrue);
+    expect(stopCalls, 0);
+    expect(service.isRunning, isTrue);
+  });
+
   test('failed malformed-state rollback preserves native running truth',
       () async {
     SharedPreferences.setMockInitialValues({});

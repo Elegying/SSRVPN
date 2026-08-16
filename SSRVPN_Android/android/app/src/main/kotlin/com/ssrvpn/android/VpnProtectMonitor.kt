@@ -2,35 +2,55 @@ package com.ssrvpn.android
 
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import java.io.FileInputStream
 import java.io.InputStream
 
 internal object VpnProtectMonitor {
     private const val TAG = "VpnProtectMonitor"
 
+    internal class Monitor(
+        val thread: Thread,
+        private val input: InputStream
+    ) {
+        fun stop() {
+            try {
+                input.close()
+            } catch (_: Exception) {}
+            thread.interrupt()
+        }
+    }
+
     fun start(
         protectReadFd: Long,
         protectSocket: (Int) -> Boolean,
         reportResult: (Boolean) -> Unit
-    ): Thread? {
+    ): Monitor? {
         if (protectReadFd <= 0L) return null
+        // Bridge retains the raw descriptor until Bridge.stop(). Read from a
+        // duplicate so native cleanup cannot invalidate Java's monitor mid-run.
+        val input = ParcelFileDescriptor.AutoCloseInputStream(
+            ParcelFileDescriptor.fromFd(protectReadFd.toInt())
+        )
+        return start(input, protectSocket, reportResult)
+    }
 
-        return Thread({
+    internal fun start(
+        input: InputStream,
+        protectSocket: (Int) -> Boolean,
+        reportResult: (Boolean) -> Unit
+    ): Monitor {
+        val thread = Thread({
             try {
-                ParcelFileDescriptor.fromFd(protectReadFd.toInt()).use { descriptor ->
-                    FileInputStream(descriptor.fileDescriptor).use { input ->
-                        val buffer = ByteArray(4)
-                        while (!Thread.currentThread().isInterrupted) {
-                            val socketFd = readSocketFd(input) ?: run {
-                                Log.d(TAG, "Protect pipe closed")
-                                return@Thread
-                            }
-                            val protected = protectSocket(socketFd)
-                            Log.d(TAG, "protect($socketFd) = $protected")
-                            if (!reportResultSafely(protected, reportResult)) {
-                                Log.e(TAG, "Native protect result reporter is unavailable")
-                                return@Thread
-                            }
+                input.use {
+                    while (!Thread.currentThread().isInterrupted) {
+                        val socketFd = readSocketFd(it) ?: run {
+                            Log.d(TAG, "Protect pipe closed")
+                            return@Thread
+                        }
+                        val protected = protectSocket(socketFd)
+                        Log.d(TAG, "protect($socketFd) = $protected")
+                        if (!reportResultSafely(protected, reportResult)) {
+                            Log.e(TAG, "Native protect result reporter is unavailable")
+                            return@Thread
                         }
                     }
                 }
@@ -43,6 +63,7 @@ internal object VpnProtectMonitor {
             isDaemon = true
             start()
         }
+        return Monitor(thread, input)
     }
 
     internal fun reportResultSafely(
