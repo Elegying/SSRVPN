@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Android 内嵌核心正常停止时现在会同时关闭 Mixed、SOCKS 与 TUN 数据通道监听器；断开后不再因本地代理端口残留触发失败关闭并强制结束客户端进程。
 - Android 停止验收改为检查实际配置的 Mixed 与 SOCKS 端口，并保留 5 秒全局释放窗口；独立的控制 API 生命周期不再被误当作核心数据通道残留。
+- Android 重连会在原生会话确认空闲且旧控制 API 通过当前凭据认证后复用原端口，避免正常断开后误报“端口被占用”与“连接异常”；恢复中、状态未知或认证失败仍按冲突端口安全回退。
 
 ### 测试边界
 

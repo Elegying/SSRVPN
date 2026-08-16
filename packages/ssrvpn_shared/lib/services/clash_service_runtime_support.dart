@@ -43,7 +43,15 @@ mixin _ClashRuntimeSupport {
     reserved.add(proxyPort);
     final socksPort = await findAvailablePort(preferred.socksPort, reserved);
     reserved.add(socksPort);
-    final apiPort = await findAvailablePort(preferred.apiPort, reserved);
+    final availableApiPort = await findAvailablePort(
+      preferred.apiPort,
+      reserved,
+    );
+    final apiPort = availableApiPort != preferred.apiPort &&
+            !reserved.contains(preferred.apiPort) &&
+            await canReuseOccupiedApiPort(preferred)
+        ? preferred.apiPort
+        : availableApiPort;
 
     final runtime = preferred.copyWith(
       proxyPort: proxyPort,
@@ -131,6 +139,11 @@ mixin _ClashRuntimeSupport {
       await ipv4?.close();
     }
   }
+
+  /// Lets an embedded platform reuse its own authenticated idle controller.
+  /// Other platforms keep the collision-safe default.
+  @protected
+  Future<bool> canReuseOccupiedApiPort(AppSettings preferred) async => false;
 
   bool _isIpv6Unavailable(SocketException error) {
     final code = error.osError?.errorCode;

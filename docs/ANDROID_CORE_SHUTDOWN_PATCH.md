@@ -17,8 +17,11 @@ the exact instruction sequence are checked before the file is installed.
 
 The external controller is intentionally not used as the shutdown signal. It is
 managed by a separate embedded HTTP server and is closed and recreated when the
-next configuration starts. Android verifies release of the configured mixed and
-SOCKS data-plane ports before accepting a clean disconnect.
+next configuration starts. Before reusing that occupied API port, Android
+requires an authoritative idle native session and an authenticated `/version`
+response from the current controller; otherwise normal collision-free fallback
+selection remains in force. Android verifies release of the configured mixed
+and SOCKS data-plane ports before accepting a clean disconnect.
 
 ## Verification
 

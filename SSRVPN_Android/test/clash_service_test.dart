@@ -29,6 +29,87 @@ class _RealHttpOverrides extends HttpOverrides {}
 
 void main() {
   test(
+    'reuses only an authenticated idle Android controller on reconnect',
+    () async {
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var nativeTransitioning = true;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getConnectionState') {
+          return <String, Object?>{
+            'running': false,
+            'transitioning': nativeTransitioning,
+            'protectedConfigPath': null,
+            'sessionGeneration': null,
+          };
+        }
+        return null;
+      });
+
+      final apiServer = await HttpServer.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      var acceptSecret = true;
+      final apiSubscription = apiServer.listen((request) async {
+        final authenticated = request.headers.value(
+              HttpHeaders.authorizationHeader,
+            ) ==
+            'Bearer test-secret';
+        request.response.statusCode =
+            request.uri.path == '/version' && authenticated && acceptSecret
+                ? HttpStatus.ok
+                : HttpStatus.unauthorized;
+        await request.response.close();
+      });
+      final proxyPort = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final socksPort = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final preferred = AppSettings(
+        proxyPort: proxyPort.port,
+        socksPort: socksPort.port,
+        apiPort: apiServer.port,
+        apiSecret: 'test-secret',
+      );
+      await proxyPort.close();
+      await socksPort.close();
+
+      final service = ClashService();
+      addTearDown(() async {
+        messenger.setMockMethodCallHandler(channel, null);
+        service.dispose();
+        await apiServer.close(force: true);
+        await apiSubscription.cancel();
+      });
+
+      final transitioningRuntime = await HttpOverrides.runWithHttpOverrides(
+        () {
+          service.updateSettings(preferred);
+          return service.prepareForStart(preferred);
+        },
+        _RealHttpOverrides(),
+      );
+      expect(transitioningRuntime.apiPort, isNot(apiServer.port));
+
+      nativeTransitioning = false;
+      acceptSecret = false;
+      final unauthenticatedRuntime = await service.prepareForStart(preferred);
+      expect(unauthenticatedRuntime.apiPort, isNot(apiServer.port));
+
+      acceptSecret = true;
+      final runtime = await service.prepareForStart(preferred);
+      expect(runtime.apiPort, apiServer.port);
+      expect(service.lastRuntimePortAdjustmentMessage, isNull);
+    },
+  );
+
+  test(
     'native auto-connect signal consumes a pending request exactly once',
     () async {
       final messenger =
