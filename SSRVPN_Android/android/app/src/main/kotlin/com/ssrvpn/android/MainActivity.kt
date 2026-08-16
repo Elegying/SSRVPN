@@ -322,6 +322,14 @@ class MainActivity : FlutterActivity() {
         }
         callback = callback@{ success, message, capturedState ->
             if (!completed.compareAndSet(false, true)) return@callback
+            Log.d(
+                "MainActivity",
+                "VPN start result: success=$success " +
+                    "running=${capturedState?.get("running")} " +
+                    "transitioning=${capturedState?.get("transitioning")} " +
+                    "configTrusted=${capturedState?.get("protectedConfigTrusted")} " +
+                    "hasGeneration=${capturedState?.get("sessionGeneration") != null}"
+            )
             vpnPermissionRequestPending = false
             mainHandler.removeCallbacks(timeoutRunnable)
             if (startTimeoutRunnable === timeoutRunnable) {

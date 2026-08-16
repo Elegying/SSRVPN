@@ -27,6 +27,7 @@ PUBLIC_ROUTES="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/andro
 VPN_ROUTE_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnRouteInstaller.kt"
 VPN_APP_EXCLUSION_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnAppExclusionInstaller.kt"
 VPN_DATA_PLANE_PROBE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnDataPlaneProbe.kt"
+VPN_PROTECT_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnProtectMonitor.kt"
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
 NOTIFICATION_GATE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NotificationGenerationGate.kt"
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
@@ -111,6 +112,12 @@ require_file_text() {
     exit 1
   fi
 }
+
+require_file_text "$VPN_PROTECT_MONITOR" "ParcelFileDescriptor.fromFd("
+if grep -Fq "ParcelFileDescriptor.adoptFd(" "$VPN_PROTECT_MONITOR"; then
+  echo "Android protect monitor must duplicate the native-owned pipe descriptor" >&2
+  exit 1
+fi
 
 require_count() {
   local needle="$1"

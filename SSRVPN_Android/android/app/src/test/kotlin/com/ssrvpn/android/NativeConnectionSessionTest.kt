@@ -19,6 +19,7 @@ class NativeConnectionSessionTest {
         assertTrue(running["running"] as Boolean)
         assertEquals(runningToken, running["sessionGeneration"])
         assertEquals("/data/config-active.yaml", running["protectedConfigPath"])
+        assertTrue(running["protectedConfigTrusted"] as Boolean)
 
         NativeConnectionSession.beginStopping()
         val stopping = NativeConnectionSession.snapshotConsistently(gate) { false }

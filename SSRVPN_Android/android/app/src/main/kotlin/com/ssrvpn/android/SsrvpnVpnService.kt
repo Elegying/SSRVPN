@@ -117,7 +117,7 @@ class SsrvpnVpnService : VpnService() {
         }
     }
     private var vpnFd: ParcelFileDescriptor? = null
-    private var protectThread: Thread? = null
+    private var protectMonitor: VpnProtectMonitor.Monitor? = null
     @Volatile
     private var serviceStartThread: Thread? = null
     private val notificationHandler = Handler(Looper.getMainLooper())
@@ -474,12 +474,12 @@ class SsrvpnVpnService : VpnService() {
             Log.d(TAG, "Initializing protect pipe...")
             val protectReadFd = bridge.Bridge.initProtect()
             Log.d(TAG, "Protect pipe fd=$protectReadFd")
-            protectThread = VpnProtectMonitor.start(
+            protectMonitor = VpnProtectMonitor.start(
                 protectReadFd,
                 protectSocket = { socketFd -> protect(socketFd) },
                 reportResult = { protected -> bridge.Bridge.setProtectResult(protected) }
             )
-            if (!VpnRuntimeHealth.hasProtectMonitor(protectThread)) {
+            if (!VpnRuntimeHealth.hasProtectMonitor(protectMonitor?.thread)) {
                 return rejectCoreStart(requestId, "VPN 网络保护服务启动失败，请重新连接", recoveryAttempt)
             }
             Log.d(TAG, "Protect monitor started")
@@ -516,7 +516,7 @@ class SsrvpnVpnService : VpnService() {
                 )
                 if (healthy) Log.d(TAG, "Mihomo API /version is healthy")
 
-                if (healthy && !VpnRuntimeHealth.hasProtectMonitor(protectThread)) {
+                if (healthy && !VpnRuntimeHealth.hasProtectMonitor(protectMonitor?.thread)) {
                     return rejectCoreStart(
                         requestId,
                         "VPN 网络保护服务异常，请重新连接",
@@ -529,7 +529,7 @@ class SsrvpnVpnService : VpnService() {
                     Log.d(TAG, "Core started!")
                     applyProxySelection(apiPort, apiSecret, selectedNodeName)
                     val dataPlaneHealthy =
-                        VpnDataPlaneProbe.isStartupHealthy(protectThread) {
+                        VpnDataPlaneProbe.isStartupHealthy(protectMonitor?.thread) {
                             ensureStartCurrent(startToken)
                         }
                     if (!dataPlaneHealthy) {
@@ -649,7 +649,7 @@ class SsrvpnVpnService : VpnService() {
                     { isRunning },
                     { isBridgeRunningWithTimeout() != false },
                     isProtectMonitorRunning = {
-                        VpnRuntimeHealth.hasProtectMonitor(protectThread)
+                        VpnRuntimeHealth.hasProtectMonitor(protectMonitor?.thread)
                     },
                     isApiHealthy = { VpnRuntimeHealth.isApiHealthy(request.apiPort, request.apiSecret) },
                     isApiPortReachable = { CorePortReleaseVerifier.isPortListening(request.apiPort) }
@@ -769,7 +769,7 @@ class SsrvpnVpnService : VpnService() {
     internal fun runtimeDiagnosticsSnapshot(): NativeRuntimeDiagnostics =
         runtimeDiagnostics.snapshot(
             isRunning, isCoreOperationBusy(),
-            VpnRuntimeHealth.hasProtectMonitor(protectThread),
+            VpnRuntimeHealth.hasProtectMonitor(protectMonitor?.thread),
             isBridgeRunningWithTimeout()
         )
     private fun applyProxySelection(apiPort: Int, apiSecret: String, nodeName: String?) =
@@ -838,13 +838,13 @@ class SsrvpnVpnService : VpnService() {
     private fun stopAllOnWorker(): Boolean {
         Log.d(TAG, "Stopping...")
         stopNotificationUpdates()
-        val protectMonitor = protectThread
-        protectMonitor?.interrupt()
-        protectThread = null
+        val activeProtectMonitor = protectMonitor
+        activeProtectMonitor?.stop()
+        protectMonitor = null
         val pendingStartStopped = waitForPendingStart()
         val bridgeStopped = pendingStartStopped && stopBridgeWithTimeout()
         if (bridgeStopped) runtimeDiagnostics.releaseTunDescriptor()
-        val protectMonitorStopped = waitForProtectMonitor(protectMonitor)
+        val protectMonitorStopped = waitForProtectMonitor(activeProtectMonitor?.thread)
         val stopDecision = CoreStopDecision.afterBridgeCheck(
             pendingStartStopped,
             bridgeStopped && protectMonitorStopped,

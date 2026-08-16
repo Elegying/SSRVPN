@@ -192,6 +192,7 @@ internal object NativeConnectionSession {
             "running" to running,
             "transitioning" to isTransitioning(),
             "protectedConfigPath" to protectedConfigPath(running),
+            "protectedConfigTrusted" to (protectedConfigPath(running) != null),
             "sessionGeneration" to sessionGeneration.takeIf { running }
         )
 

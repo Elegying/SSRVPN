@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.10] - 2026-08-17
+
+### 修复
+
+- Android 原生 VPN 已确认并持有运行配置后，Flutter 不再用第二次文件系统查询覆盖原生会话事实，避免部分设备把有效配置误判为不存在并在连接成功后立即自动断开。
+- Android socket protect 监控保留原生管道所有权、改用可主动关闭的独立读取副本；停止时关闭阻塞读取并等待线程退出，避免清理超时和恢复页强制结束进程。
+
+### 测试边界
+
+- 新增原生配置证明与阻塞 protect 监控退出回归；通过 Android Kotlin 单测、Flutter 服务层回归、静态分析和原生桥接门禁，并在正式签名构建发布前执行 Android 真机持续连接与实际数据通道验收。
+
 ## [4.0.9] - 2026-08-16
 
 ### 修复
