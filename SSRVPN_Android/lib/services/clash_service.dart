@@ -357,7 +357,7 @@ class ClashService extends ClashServiceBase {
       _ensureStartCurrent(startToken);
 
       final returnedState = await _parseNativeConnectionState(result);
-      if (!_acceptNativeStartState(result, returnedState != null)) {
+      if (!_acceptNativeStartState(result, returnedState)) {
         return _rollbackMalformedNativeStartState();
       }
       if (result == true || returnedState?.running == true) {
@@ -475,14 +475,6 @@ class ClashService extends ClashServiceBase {
     }
   }
 
-  void _clearStartOperation(Future<bool> operation) {
-    if (identical(_startOperation, operation)) _startOperation = null;
-  }
-
-  void _ensureStartCurrent(int startToken) {
-    if (startToken != _startGeneration) throw _AndroidStartCancelled();
-  }
-
   Future<bool> _saveConfigForTile(
     String? nodeName,
     String snapshotPath, {
@@ -573,7 +565,12 @@ class ClashService extends ClashServiceBase {
                       postCommitState?.sessionGeneration ==
                           effectiveSessionGeneration &&
                       postCommitProtectedPath != null;
-          if (!sessionStable) {
+          final cleanupSafe = _isNativeConfigPruningSafe(
+            sessionStable: sessionStable,
+            protocolAvailable: protocolAvailableAtStart,
+            nativeState: postCommitState,
+          );
+          if (!cleanupSafe) {
             log('原生 VPN 会话已变更或正在恢复，保留旧版本配置');
           } else {
             await _pruneVersionedConfigs(keepPaths);

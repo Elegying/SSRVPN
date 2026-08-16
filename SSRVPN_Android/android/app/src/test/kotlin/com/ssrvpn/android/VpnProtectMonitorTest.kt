@@ -2,6 +2,7 @@ package com.ssrvpn.android
 
 import java.io.InputStream
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -24,5 +25,14 @@ class VpnProtectMonitorTest {
 
         assertEquals(0x12345678, VpnProtectMonitor.readSocketFd(input))
         assertNull(VpnProtectMonitor.readSocketFd(input))
+    }
+
+    @Test
+    fun `native linkage failure while reporting protect result is contained`() {
+        val reported = VpnProtectMonitor.reportResultSafely(true) {
+            throw LinkageError("missing native symbol")
+        }
+
+        assertFalse(reported)
     }
 }

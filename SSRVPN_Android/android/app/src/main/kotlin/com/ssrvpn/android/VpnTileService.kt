@@ -38,12 +38,14 @@ class VpnTileService : TileService() {
     override fun onStartListening() {
         super.onStartListening()
         val filter = IntentFilter(ACTION_VPN_STATE_CHANGED)
-        ContextCompat.registerReceiver(
-            this,
-            stateReceiver,
-            filter,
-            ContextCompat.RECEIVER_NOT_EXPORTED
-        )
+        AndroidRuntimeGuard.run(TAG, "Unable to register VPN tile receiver") {
+            ContextCompat.registerReceiver(
+                this,
+                stateReceiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        }
         isConnected = SsrvpnVpnService.isRunning
         updateTile()
         Log.d(TAG, "onStartListening: connected=$isConnected")
@@ -67,22 +69,24 @@ class VpnTileService : TileService() {
 
     /** 从磁贴拉起 App（Android 14+ 必须用 startActivityAndCollapse + PendingIntent） */
     private fun launchApp() {
-        val autoConnectRequestId = AutoConnectRequestRegistry.issue(this)
-        val launchIntent = Intent(this, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            autoConnectRequestId?.let {
-                putExtra(AutoConnectRequestRegistry.EXTRA_REQUEST_ID, it)
+        AndroidRuntimeGuard.run(TAG, "Unable to open SSRVPN from tile") {
+            val autoConnectRequestId = AutoConnectRequestRegistry.issue(this)
+            val launchIntent = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                autoConnectRequestId?.let {
+                    putExtra(AutoConnectRequestRegistry.EXTRA_REQUEST_ID, it)
+                }
             }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val pending = PendingIntent.getActivity(
-                this, 2, launchIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            startActivityAndCollapse(pending)
-        } else {
-            @Suppress("DEPRECATION", "StartActivityAndCollapseDeprecated")
-            startActivityAndCollapse(launchIntent)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val pending = PendingIntent.getActivity(
+                    this, 2, launchIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                startActivityAndCollapse(pending)
+            } else {
+                @Suppress("DEPRECATION", "StartActivityAndCollapseDeprecated")
+                startActivityAndCollapse(launchIntent)
+            }
         }
     }
 
@@ -94,7 +98,14 @@ class VpnTileService : TileService() {
             return
         }
         // 检查 VPN 权限
-        val vpnIntent = VpnService.prepare(this)
+        var vpnIntent: Intent? = null
+        if (!AndroidRuntimeGuard.run(TAG, "Unable to prepare VPN permission from tile") {
+                vpnIntent = VpnService.prepare(this)
+            }
+        ) {
+            launchApp()
+            return
+        }
         if (vpnIntent != null) {
             // 需要用户授权，打开 App
             Log.d(TAG, "Need VPN permission, opening app")
@@ -177,28 +188,32 @@ class VpnTileService : TileService() {
     }
 
     private fun notifyStateChanged() {
-        sendBroadcast(Intent(ACTION_VPN_STATE_CHANGED).apply {
-            putExtra(EXTRA_CONNECTED, isConnected)
-            // Android 14+ 隐式广播不会投递给 NOT_EXPORTED 接收器，必须显式指定包名
-            setPackage(packageName)
-        })
+        AndroidRuntimeGuard.run(TAG, "Unable to broadcast VPN tile state") {
+            sendBroadcast(Intent(ACTION_VPN_STATE_CHANGED).apply {
+                putExtra(EXTRA_CONNECTED, isConnected)
+                // Android 14+ 隐式广播不会投递给 NOT_EXPORTED 接收器，必须显式指定包名
+                setPackage(packageName)
+            })
+        }
     }
 
     private fun updateTile() {
         val tile = qsTile ?: return
-        if (isConnected) {
-            tile.state = Tile.STATE_ACTIVE
-            tile.label = "已连接"
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                tile.stateDescription = "SSRVPN"
+        AndroidRuntimeGuard.run(TAG, "Unable to update VPN tile") {
+            if (isConnected) {
+                tile.state = Tile.STATE_ACTIVE
+                tile.label = "已连接"
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    tile.stateDescription = "SSRVPN"
+                }
+            } else {
+                tile.state = Tile.STATE_INACTIVE
+                tile.label = "SSRVPN"
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    tile.stateDescription = "点击连接"
+                }
             }
-        } else {
-            tile.state = Tile.STATE_INACTIVE
-            tile.label = "SSRVPN"
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                tile.stateDescription = "点击连接"
-            }
+            tile.updateTile()
         }
-        tile.updateTile()
     }
 }

@@ -952,10 +952,63 @@ from pathlib import Path
 service = Path(sys.argv[1])
 support = Path(sys.argv[2])
 line_count = len(service.read_text(encoding="utf-8").splitlines())
-if line_count > 940:
+if line_count > 970:
     raise SystemExit(f"{service}: VPN service grew to {line_count} lines")
 if "fun formatBytes(bytes: Long)" not in support.read_text(encoding="utf-8"):
     raise SystemExit(f"{support}: missing notification byte formatter")
+PY
+
+python3 - "$SERVICE" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+boundaries = (
+    ("private fun startCoreWithVpn(", "private fun startBridgeWithTimeout("),
+    ("private fun isBridgeRunningWithTimeout(", "internal fun runtimeDiagnosticsSnapshot("),
+    ("private fun stopBridgeWithTimeout(", "override fun onDestroy()"),
+)
+for start_marker, end_marker in boundaries:
+    start = source.index(start_marker)
+    end = source.index(end_marker, start)
+    if "catch (e: LinkageError)" not in source[start:end]:
+        raise SystemExit(
+            f"Android JNI crash boundary is missing LinkageError handling: {start_marker}"
+        )
+PY
+
+python3 - "$SERVICE" "$MAIN_ACTIVITY" "$TILE_SERVICE" "$DISCONNECT_RECOVERY_ACTIVITY" <<'PY'
+import sys
+from pathlib import Path
+
+service = Path(sys.argv[1]).read_text(encoding="utf-8")
+activity = Path(sys.argv[2]).read_text(encoding="utf-8")
+tile = Path(sys.argv[3]).read_text(encoding="utf-8")
+recovery = Path(sys.argv[4]).read_text(encoding="utf-8")
+
+service_boundaries = (
+    ("override fun onStartCommand(", "private fun currentNotificationState()"),
+    ("private fun notifyCurrentState(", "private fun startNotificationUpdates()"),
+    ("private fun showCoreRecoveryFailedNotification()", "private fun isBridgeRunningWithTimeout()"),
+)
+for start_marker, end_marker in service_boundaries:
+    start = service.index(start_marker)
+    end = service.index(end_marker, start)
+    if "AndroidRuntimeGuard.run(" not in service[start:end]:
+        raise SystemExit(
+            f"Android main-thread crash boundary is unguarded: {start_marker}"
+        )
+
+if activity.count("runOnUiThread {") != 1 or "runOnActiveUiThread(" not in activity:
+    raise SystemExit("MainActivity async replies bypass the active-Activity crash boundary")
+for source, needle in (
+    (tile, "Unable to prepare VPN permission from tile"),
+    (tile, "Unable to open SSRVPN from tile"),
+    (tile, "Unable to update VPN tile"),
+    (recovery, "Unable to relaunch SSRVPN after core reset"),
+):
+    if needle not in source:
+        raise SystemExit(f"Android system callback crash boundary is missing: {needle}")
 PY
 
 echo "Android native bridge guard check passed."

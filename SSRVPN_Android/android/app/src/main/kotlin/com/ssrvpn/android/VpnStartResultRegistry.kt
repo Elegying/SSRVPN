@@ -4,6 +4,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 internal object VpnStartResultRegistry {
+    private const val TAG = "VpnStartResultRegistry"
     private val callbacks =
         ConcurrentHashMap<String, (Boolean, String, Map<String, Any?>?) -> Unit>()
 
@@ -23,6 +24,9 @@ internal object VpnStartResultRegistry {
         message: String,
         state: Map<String, Any?>? = null
     ) {
-        if (requestId != null) callbacks.remove(requestId)?.invoke(success, message, state)
+        val callback = requestId?.let(callbacks::remove) ?: return
+        AndroidRuntimeGuard.run(TAG, "VPN start result callback failed") {
+            callback(success, message, state)
+        }
     }
 }

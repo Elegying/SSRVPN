@@ -60,12 +60,23 @@ class MainActivity : FlutterActivity() {
 
         // 冷启动时（磁贴拉起）onNewIntent 不会触发。只接受本进程磁贴签发的
         // 一次性请求，并在读取后立即从 Intent 中移除，避免重建时重放。
-        enqueueTrustedAutoConnect(intent)
+        AndroidRuntimeGuard.run("MainActivity", "Unable to consume tile auto-connect") {
+            enqueueTrustedAutoConnect(intent)
+        }
 
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel = channel
         registerVpnStateReceiver()
         channel.setMethodCallHandler(::handleNativeMethodCall)
+    }
+
+    private fun runOnActiveUiThread(message: String, action: () -> Unit) {
+        AndroidRuntimeGuard.run("MainActivity", "Unable to schedule UI callback") {
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                AndroidRuntimeGuard.run("MainActivity", message, operation = action)
+            }
+        }
     }
 
     private fun registerVpnStateReceiver() {
@@ -78,20 +89,25 @@ class MainActivity : FlutterActivity() {
                         false
                     )
                     Log.d("MainActivity", "VPN state broadcast: connected=$connected")
-                    runOnUiThread {
+                    runOnActiveUiThread("Unable to deliver VPN state") {
                         methodChannel?.invokeMethod("vpnStateChanged", connected)
                     }
                 }
             }
         }
         val filter = IntentFilter(VpnTileService.ACTION_VPN_STATE_CHANGED)
-        ContextCompat.registerReceiver(
-            this,
-            receiver,
-            filter,
-            ContextCompat.RECEIVER_NOT_EXPORTED
-        )
-        vpnStateReceiver = receiver
+        val registered = AndroidRuntimeGuard.run(
+            "MainActivity",
+            "Unable to register VPN state receiver"
+        ) {
+            ContextCompat.registerReceiver(
+                this,
+                receiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        }
+        if (registered) vpnStateReceiver = receiver
     }
 
     private fun handleNativeMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -107,7 +123,7 @@ class MainActivity : FlutterActivity() {
                 } catch (_: Exception) {
                     null
                 }
-                runOnUiThread {
+                runOnActiveUiThread("Unable to deliver native diagnostics") {
                     if (snapshot == null) {
                         result.error(
                             "NATIVE_DIAGNOSTICS_FAILED",
@@ -300,7 +316,7 @@ class MainActivity : FlutterActivity() {
                     "VPN start timeout cleanup failed: ${error.javaClass.simpleName}"
                 )
             }
-            runOnUiThread {
+            runOnActiveUiThread("Unable to deliver VPN start timeout") {
                 result.error("CORE_TIMEOUT", "设备性能不足，请重新连接", null)
             }
         }
@@ -318,7 +334,7 @@ class MainActivity : FlutterActivity() {
             myStartPayloadId = null
             myResultCallback = null
             myStartRequestId = null
-            runOnUiThread {
+            runOnActiveUiThread("Unable to deliver VPN start result") {
                 if (success) {
                     requestNotificationPermissionOnce()
                     result.success(capturedState)
@@ -393,7 +409,9 @@ class MainActivity : FlutterActivity() {
                     preserveForegroundUi = true,
                     recordManualStop = true
                 ) {
-                    runOnUiThread { result.success(true) }
+                    runOnActiveUiThread("Unable to deliver VPN stop result") {
+                        result.success(true)
+                    }
                 }
             }
         } catch (error: Exception) {
@@ -624,16 +642,25 @@ class MainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
-        continuePendingUpdateInstallIfAllowed()
+        AndroidRuntimeGuard.run("MainActivity", "Pending update install failed") {
+            continuePendingUpdateInstallIfAllowed()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (enqueueTrustedAutoConnect(intent)) {
+        var autoConnect = false
+        if (!AndroidRuntimeGuard.run("MainActivity", "Unable to consume tile auto-connect") {
+                autoConnect = enqueueTrustedAutoConnect(intent)
+            }
+        ) return
+        if (autoConnect) {
             Log.d("MainActivity", "Auto connect from tile!")
             // 这里只唤醒 Flutter；同一个 pending 位由 Dart 原子消费，避免
             // MethodChannel 回调与页面初始化各触发一次连接切换。
-            methodChannel?.invokeMethod("autoConnect", null)
+            runOnActiveUiThread("Unable to deliver tile auto-connect") {
+                methodChannel?.invokeMethod("autoConnect", null)
+            }
         }
     }
 

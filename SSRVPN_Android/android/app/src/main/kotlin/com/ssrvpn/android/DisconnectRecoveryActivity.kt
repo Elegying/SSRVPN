@@ -11,16 +11,18 @@ import android.util.Log
 class DisconnectRecoveryActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private val relaunch = Runnable {
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-            ?: Intent(this, MainActivity::class.java)
-        launchIntent.addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                Intent.FLAG_ACTIVITY_NO_ANIMATION
-        )
-        startActivity(launchIntent)
-        finishAndRemoveTask()
+        AndroidRuntimeGuard.run(TAG, "Unable to relaunch SSRVPN after core reset") {
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+                ?: Intent(this, MainActivity::class.java)
+            launchIntent.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_NO_ANIMATION
+            )
+            startActivity(launchIntent)
+            finishAndRemoveTask()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
