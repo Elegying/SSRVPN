@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_android/startup/crash_reporter_bootstrap.dart';
 import 'package:ssrvpn_android/startup/startup_flags.dart';
 import 'package:ssrvpn_android/startup/startup_logger.dart';
 import 'package:ssrvpn_android/startup/startup_orchestrator.dart';
@@ -7,6 +10,34 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
   group('Android startup behavior', () {
+    test('crash reporter storage failure does not abort app startup', () async {
+      var initialized = false;
+
+      final available = await initializeCrashReporterBestEffort(
+        resolveSupportDirectory: () async =>
+            throw const FileSystemException('storage unavailable'),
+        initializeCrashReporter: (_) async => initialized = true,
+      );
+
+      expect(available, isFalse);
+      expect(initialized, isFalse);
+    });
+
+    test('crash reporter uses an isolated support directory', () async {
+      String? initializedPath;
+
+      final available = await initializeCrashReporterBestEffort(
+        resolveSupportDirectory: () async => Directory('/support'),
+        initializeCrashReporter: (path) async => initializedPath = path,
+      );
+
+      expect(available, isTrue);
+      expect(
+        initializedPath,
+        '/support${Platform.pathSeparator}crashes',
+      );
+    });
+
     test('intent extras only enable explicitly true startup flags', () {
       final defaults = StartupFlags.fromMap(null);
       expect(defaults.verbose, isFalse);

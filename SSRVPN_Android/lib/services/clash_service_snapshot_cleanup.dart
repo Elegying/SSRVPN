@@ -12,6 +12,21 @@ typedef _SnapshotCleanupMarker = ({
 });
 
 extension AndroidSnapshotCleanup on ClashService {
+  bool _isNativeConfigPruningSafe({
+    required bool sessionStable,
+    required bool protocolAvailable,
+    required _NativeConnectionState? nativeState,
+  }) {
+    // A native start/recovery can claim another versioned config after the
+    // snapshot is read. Prune only while the native side is confirmed idle.
+    return sessionStable &&
+        (!protocolAvailable ||
+            (nativeState != null &&
+                !nativeState.running &&
+                !nativeState.transitioning &&
+                nativeState.protectedConfigPath == null));
+  }
+
   Future<String> _writeConfigSnapshot(String config) async {
     final revision = ++_configRevision;
     final path = '$configDir${Platform.pathSeparator}config-'
@@ -73,6 +88,13 @@ extension AndroidSnapshotCleanup on ClashService {
           'clearConnectionSnapshot',
           {'expectedGeneration': expectedGeneration},
         );
+        if (cleared != true) {
+          // A false result means the native snapshot generation changed. This
+          // cleanup transaction is obsolete and must not delete files that the
+          // newer snapshot may already reference.
+          await _snapshotCleanupMarker.delete();
+          return false;
+        }
         await _writeSnapshotCleanupMarker(
           committed: true,
           fileNames: fileNames,
@@ -84,7 +106,7 @@ extension AndroidSnapshotCleanup on ClashService {
           _nativeSnapshotGeneration = null;
         }
         if (!isRunning) await _completePendingSnapshotFileCleanup();
-        return cleared == true;
+        return true;
       });
 
   Future<void> _pruneVersionedConfigs(Set<String> keepPaths) async {
@@ -117,6 +139,15 @@ extension AndroidSnapshotCleanup on ClashService {
     final name = file.uri.pathSegments.last;
     if (!name.startsWith('config-') || !name.endsWith('.yaml')) return;
     if (file.parent.path != Directory(configDir).absolute.path) return;
+    final nativeState = await _queryNativeConnectionState();
+    if (nativeState == null) {
+      if (isRunning || _nativeConnectionTransitioning) return;
+    } else if (nativeState.running ||
+        nativeState.transitioning ||
+        nativeState.protectedConfigPath != null) {
+      log('原生 VPN 已认领配置，延后清理: $absolutePath');
+      return;
+    }
     if (await FileSystemEntity.type(absolutePath, followLinks: false) ==
         FileSystemEntityType.file) {
       await file.delete();
@@ -272,6 +303,13 @@ extension AndroidSnapshotCleanup on ClashService {
           'clearConnectionSnapshot',
           {'expectedGeneration': marker.expectedNativeGeneration},
         );
+        if (cleared != true) {
+          // The clear belongs to an older generation. Retiring its marker is
+          // safe; replaying it as committed would make newer configs eligible
+          // for deletion.
+          await _snapshotCleanupMarker.delete();
+          return;
+        }
         await _writeSnapshotCleanupMarker(
           committed: true,
           fileNames: marker.fileNames,
@@ -431,23 +469,27 @@ extension AndroidSnapshotCleanup on ClashService {
     _nativeSessionProtocolAvailable = true;
     _runningConfigPath = nativeState.protectedConfigPath;
     _nativeSessionGeneration = nativeState.sessionGeneration;
-    if (nativeState.transitioning) {
-      log('原生 VPN 正在启动或恢复，延后快照配置清理');
+    if (nativeState.running ||
+        nativeState.transitioning ||
+        nativeState.protectedConfigPath != null) {
+      log('原生 VPN 正在运行、启动或恢复，延后快照配置清理');
       return;
     }
-    final protectedName = nativeState.protectedConfigPath == null
-        ? null
-        : File(nativeState.protectedConfigPath!).uri.pathSegments.last;
+    final locallyReservedPaths = <String>{..._preparedConfigPaths};
+    final nativeSnapshotConfigPath = _nativeSnapshotConfigPath;
+    if (nativeSnapshotConfigPath != null) {
+      locallyReservedPaths.add(File(nativeSnapshotConfigPath).absolute.path);
+    }
     final remaining = <String>{};
     try {
       for (final name in pending.fileNames) {
-        if (name == protectedName) {
+        final entity = File(
+          '$configDir${Platform.pathSeparator}$name',
+        ).absolute;
+        if (locallyReservedPaths.contains(entity.path)) {
           remaining.add(name);
           continue;
         }
-        final entity = File(
-          '$configDir${Platform.pathSeparator}$name',
-        );
         final type = await FileSystemEntity.type(
           entity.path,
           followLinks: false,
@@ -459,9 +501,7 @@ extension AndroidSnapshotCleanup on ClashService {
       }
       if (remaining.isEmpty) {
         await _snapshotCleanupMarker.delete();
-        if (nativeState.protectedConfigPath == null) {
-          _runningConfigPath = null;
-        }
+        _runningConfigPath = null;
       } else {
         await _writeSnapshotCleanupMarker(
           committed: true,

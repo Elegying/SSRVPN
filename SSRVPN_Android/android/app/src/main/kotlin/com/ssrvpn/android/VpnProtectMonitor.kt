@@ -27,10 +27,15 @@ internal object VpnProtectMonitor {
                             }
                             val protected = protectSocket(socketFd)
                             Log.d(TAG, "protect($socketFd) = $protected")
-                            reportResult(protected)
+                            if (!reportResultSafely(protected, reportResult)) {
+                                Log.e(TAG, "Native protect result reporter is unavailable")
+                                return@Thread
+                            }
                         }
                     }
                 }
+            } catch (error: LinkageError) {
+                Log.e(TAG, "Protect monitor native linkage failed", error)
             } catch (error: Exception) {
                 Log.e(TAG, "Protect monitor failed", error)
             }
@@ -38,6 +43,18 @@ internal object VpnProtectMonitor {
             isDaemon = true
             start()
         }
+    }
+
+    internal fun reportResultSafely(
+        protected: Boolean,
+        reportResult: (Boolean) -> Unit
+    ): Boolean = try {
+        reportResult(protected)
+        true
+    } catch (_: LinkageError) {
+        false
+    } catch (_: Exception) {
+        false
     }
 
     internal fun readSocketFd(input: InputStream): Int? {

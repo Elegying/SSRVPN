@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'app.dart';
+import 'startup/crash_reporter_bootstrap.dart';
 import 'startup/startup_flags.dart';
 import 'startup/startup_logger.dart';
 
@@ -17,9 +17,8 @@ void main() async {
     final flags = StartupFlags.defaults();
 
     await StartupLogger.init(verbose: flags.verbose);
-    final supportDir = await getApplicationSupportDirectory();
-    await CrashReporter.init(
-      '${supportDir.path}${Platform.pathSeparator}crashes',
+    await initializeCrashReporterBestEffort(
+      resolveSupportDirectory: getApplicationSupportDirectory,
     );
     StartupLogger.info('SSRVPN Android 启动');
 

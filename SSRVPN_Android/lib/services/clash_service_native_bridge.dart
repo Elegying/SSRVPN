@@ -34,10 +34,28 @@ typedef _NativeConnectionState = ({
 });
 
 extension AndroidNativeBridge on ClashService {
-  bool _acceptNativeStartState(Object? rawState, bool parsed) {
-    if (rawState is! Map || parsed) return true;
-    setLastStartError('无法确认原生 VPN 启动状态，请重新连接');
-    return false;
+  void _clearStartOperation(Future<bool> operation) {
+    if (identical(_startOperation, operation)) _startOperation = null;
+  }
+
+  void _ensureStartCurrent(int startToken) {
+    if (startToken != _startGeneration) throw _AndroidStartCancelled();
+  }
+
+  bool _acceptNativeStartState(
+    Object? rawState,
+    _NativeConnectionState? parsedState,
+  ) {
+    if (rawState is! Map) return true;
+    if (parsedState == null) {
+      setLastStartError('无法确认原生 VPN 启动状态，请重新连接');
+      return false;
+    }
+    if (parsedState.running && parsedState.protectedConfigPath == null) {
+      setLastStartError('原生 VPN 缺少可信受保护配置，请重新连接');
+      return false;
+    }
+    return true;
   }
 
   Future<bool> _rollbackMalformedNativeStartState() async {

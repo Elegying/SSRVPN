@@ -179,24 +179,27 @@ class SsrvpnVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        VpnNotificationSupport.createChannel(this, CHANNEL_ID)
-        val filter = IntentFilter(ACTION_DISCONNECT)
-        ContextCompat.registerReceiver(
-            this,
-            disconnectReceiver,
-            filter,
-            ContextCompat.RECEIVER_NOT_EXPORTED
-        )
-        ContextCompat.registerReceiver(
-            this,
-            screenStateReceiver,
-            IntentFilter().apply {
-                addAction(Intent.ACTION_SCREEN_OFF)
-                addAction(Intent.ACTION_SCREEN_ON)
-            },
-            ContextCompat.RECEIVER_NOT_EXPORTED
-        )
-        notificationUpdatePolicy.onScreenStateChanged(isScreenInteractive())
+        AndroidRuntimeGuard.run(TAG, "Unable to initialize VPN notification channel") {
+            VpnNotificationSupport.createChannel(this, CHANNEL_ID)
+        }
+        AndroidRuntimeGuard.run(TAG, "Unable to register VPN service receivers") {
+            ContextCompat.registerReceiver(
+                this, disconnectReceiver, IntentFilter(ACTION_DISCONNECT),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            ContextCompat.registerReceiver(
+                this,
+                screenStateReceiver,
+                IntentFilter().apply {
+                    addAction(Intent.ACTION_SCREEN_OFF)
+                    addAction(Intent.ACTION_SCREEN_ON)
+                },
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        }
+        AndroidRuntimeGuard.run(TAG, "Unable to read initial screen state") {
+            notificationUpdatePolicy.onScreenStateChanged(isScreenInteractive())
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -282,18 +285,31 @@ class SsrvpnVpnService : VpnService() {
         } else {
             null
         }
-        getSystemService(NotificationManager::class.java)
-            .cancel(RECOVERY_FAILURE_NOTIFICATION_ID)
         trafficTracker.reset()
 
-        notificationUpdatePolicy.resetPublishedState()
-        val initialNotificationState = currentNotificationState()
-        val notification = buildDynamicNotification(initialNotificationState)
-        notificationUpdatePolicy.markPublished(initialNotificationState)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        AndroidRuntimeGuard.run(TAG, "Unable to clear stale recovery notification") {
+            getSystemService(NotificationManager::class.java)
+                .cancel(RECOVERY_FAILURE_NOTIFICATION_ID)
+        }
+        val foregroundStarted = AndroidRuntimeGuard.run(
+            TAG,
+            "Unable to enter VPN foreground mode"
+        ) {
+            notificationUpdatePolicy.resetPublishedState()
+            val initialNotificationState = currentNotificationState()
+            val notification = buildDynamicNotification(initialNotificationState)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            notificationUpdatePolicy.markPublished(initialNotificationState)
+        }
+        if (!foregroundStarted) {
+            consumeStartResult(requestId, false, "无法启动 Android 前台 VPN 服务")
+            serviceStartInProgress.set(false)
+            stopAfterStartFailure(recoveryAttempt)
+            return START_NOT_STICKY
         }
 
         isRunning = false
@@ -391,9 +407,11 @@ class SsrvpnVpnService : VpnService() {
             { isRunning },
             allowPublication
         ) {
-            notificationUpdatePolicy.publishIfChanged(it) {
-                getSystemService(NotificationManager::class.java)
-                    .notify(NOTIFICATION_ID, buildDynamicNotification(it))
+            AndroidRuntimeGuard.run(TAG, "Unable to publish VPN notification") {
+                notificationUpdatePolicy.publishIfChanged(it) {
+                    getSystemService(NotificationManager::class.java)
+                        .notify(NOTIFICATION_ID, buildDynamicNotification(it))
+                }
             }
         }
     }
@@ -456,7 +474,6 @@ class SsrvpnVpnService : VpnService() {
             Log.d(TAG, "Initializing protect pipe...")
             val protectReadFd = bridge.Bridge.initProtect()
             Log.d(TAG, "Protect pipe fd=$protectReadFd")
-
             protectThread = VpnProtectMonitor.start(
                 protectReadFd,
                 protectSocket = { socketFd -> protect(socketFd) },
@@ -561,6 +578,9 @@ class SsrvpnVpnService : VpnService() {
             Log.d(TAG, "VPN start cancelled")
             consumeStartResult(requestId, false, "连接已取消")
             stopAll()
+        } catch (e: LinkageError) {
+            Log.e(TAG, "VPN native bridge linkage failed", e)
+            rejectCoreStart(requestId, "Mihomo 原生组件不可用，请重新安装应用", recoveryAttempt)
         } catch (e: Exception) {
             Log.e(TAG, "startCoreWithVpn error", e)
             rejectCoreStart(requestId, "Error: ${e.message}", recoveryAttempt)
@@ -704,11 +724,14 @@ class SsrvpnVpnService : VpnService() {
     private fun rejectCoreStart(requestId: String?, message: String, recoveryAttempt: Int) =
         consumeStartResult(requestId, false, message).also { stopAfterStartFailure(recoveryAttempt) }
 
-    private fun showCoreRecoveryFailedNotification() =
-        getSystemService(NotificationManager::class.java).notify(
-            RECOVERY_FAILURE_NOTIFICATION_ID,
-            VpnNotificationSupport.buildRecoveryFailureNotification(this, CHANNEL_ID)
-        )
+    private fun showCoreRecoveryFailedNotification() {
+        AndroidRuntimeGuard.run(TAG, "Unable to show core recovery failure") {
+            getSystemService(NotificationManager::class.java).notify(
+                RECOVERY_FAILURE_NOTIFICATION_ID,
+                VpnNotificationSupport.buildRecoveryFailureNotification(this, CHANNEL_ID)
+            )
+        }
+    }
 
     private fun isBridgeRunningWithTimeout(): Boolean? {
         if (!bridgeRunningCheckInProgress.compareAndSet(false, true)) {
@@ -719,6 +742,8 @@ class SsrvpnVpnService : VpnService() {
         val bridgeThread = Thread({
             try {
                 result = bridge.Bridge.isRunning()
+            } catch (e: LinkageError) {
+                Log.e(TAG, "Bridge.isRunning linkage error", e)
             } catch (e: Exception) {
                 Log.e(TAG, "Bridge.isRunning error", e)
             } finally {
@@ -899,6 +924,8 @@ class SsrvpnVpnService : VpnService() {
                 bridge.Bridge.stop()
                 bridgeStopSucceeded.set(true)
                 Log.d(TAG, "Bridge.stop returned")
+            } catch (e: LinkageError) {
+                Log.e(TAG, "Bridge stop linkage error", e)
             } catch (e: Exception) {
                 Log.e(TAG, "Bridge stop error", e)
             } finally {
