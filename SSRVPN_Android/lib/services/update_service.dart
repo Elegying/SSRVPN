@@ -51,7 +51,6 @@ class UpdateService {
   static const _channel = MethodChannel('com.ssrvpn/native');
   static bool _updatePromptVisible = false;
   static bool _downloadInProgress = false;
-  static final Set<String> _promptedVersions = <String>{};
 
   static bool get isUpdateUiBusy => _updatePromptVisible || _downloadInProgress;
 
@@ -340,9 +339,8 @@ class UpdateService {
     String? sha256,
     String? fallbackDownloadUrl,
   }) async {
-    if (isUpdateUiBusy || _promptedVersions.contains(latestVersion)) return;
+    if (isUpdateUiBusy) return;
     _updatePromptVisible = true;
-    _promptedVersions.add(latestVersion);
     final update = AppUpdateInfo(
       version: latestVersion,
       downloadUrl: downloadUrl,
@@ -370,9 +368,6 @@ class UpdateService {
           SharedUpdateService.preferDownloadUrl(update, url),
         ),
       );
-    } catch (_) {
-      _promptedVersions.remove(latestVersion);
-      rethrow;
     } finally {
       _updatePromptVisible = false;
     }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
+import 'ssrvpn_version_update_footer.dart';
 
 abstract final class SsrvpnUiTokens {
   static const background = Color(0xFF0A1020);
@@ -153,11 +154,15 @@ class SsrvpnBottomNavigation extends StatelessWidget {
     required this.currentIndex,
     required this.version,
     required this.onTap,
+    this.availableVersion,
+    this.onUpdateTap,
   });
 
   final int currentIndex;
   final String version;
   final ValueChanged<int> onTap;
+  final String? availableVersion;
+  final VoidCallback? onUpdateTap;
 
   @override
   Widget build(BuildContext context) {
@@ -225,15 +230,13 @@ class SsrvpnBottomNavigation extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 6),
-              Text(
-                '版本号：$version',
-                style: const TextStyle(
-                  color: SsrvpnUiTokens.textTertiary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.2,
-                  decoration: TextDecoration.none,
-                ),
+              SsrvpnVersionUpdateFooter(
+                version: version,
+                availableVersion: availableVersion,
+                onUpdateTap: onUpdateTap,
+                versionColor: SsrvpnUiTokens.textTertiary,
+                updateLabelColor: SsrvpnUiTokens.warning,
+                updateActionColor: SsrvpnUiTokens.accent,
               ),
             ],
           ),

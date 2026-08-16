@@ -53,6 +53,8 @@ void main() {
     expect(find.text('主页'), findsOneWidget);
     expect(find.text('订阅'), findsOneWidget);
     expect(find.text('版本号：3.4.8'), findsOneWidget);
+    expect(find.text('发现新版本'), findsNothing);
+    expect(find.text('立即更新'), findsNothing);
     expect(find.byType(SsrvpnNavigationDestination), findsNWidgets(2));
     final navigation = find.byKey(const Key('ssrvpn-bottom-navigation'));
     final destinationRow = tester.widget<Row>(
@@ -66,6 +68,32 @@ void main() {
 
     await tester.tap(find.text('订阅'));
     expect(selected, 1);
+  });
+
+  testWidgets('bottom navigation exposes a passive update action',
+      (tester) async {
+    var updateTapped = false;
+    await tester.pumpWidget(
+      host(
+        SsrvpnBottomNavigation(
+          currentIndex: 0,
+          version: '3.4.8',
+          availableVersion: '3.4.9',
+          onUpdateTap: () => updateTapped = true,
+          onTap: (_) {},
+        ),
+        size: const Size(320, 844),
+        textScaleFactor: 2,
+      ),
+    );
+
+    expect(find.text('版本号：3.4.8'), findsOneWidget);
+    expect(find.text('发现新版本'), findsOneWidget);
+    expect(find.text('立即更新'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byKey(const Key('ssrvpn-update-now-button')));
+    expect(updateTapped, isTrue);
   });
 
   testWidgets('version label cancels inherited fallback decoration',

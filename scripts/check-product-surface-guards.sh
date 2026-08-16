@@ -155,7 +155,7 @@ for token in (
     "onTap: () => onTap(0)",
     "label: '订阅'",
     "onTap: () => onTap(1)",
-    "'版本号：$version'",
+    "SsrvpnVersionUpdateFooter(",
 ):
     if token not in app_surface:
         raise SystemExit(f"{app_surface_path}: shared navigation is missing {token}")
@@ -163,6 +163,21 @@ for token in ("关于", "about"):
     if token in bottom_navigation.casefold():
         raise SystemExit(
             f"{app_surface_path}: About must not appear inside bottom navigation"
+        )
+
+version_footer_path = Path(
+    "packages/ssrvpn_shared/lib/widgets/ssrvpn_version_update_footer.dart"
+)
+version_footer = read_source(version_footer_path)
+for token in (
+    "'版本号：$version'",
+    "'发现新版本'",
+    "key: const Key('ssrvpn-update-now-button')",
+    "const Text('立即更新')",
+):
+    if token not in version_footer:
+        raise SystemExit(
+            f"{version_footer_path}: shared update footer is missing {token}"
         )
 
 shared_exports_path = Path("packages/ssrvpn_shared/lib/ssrvpn_shared.dart")

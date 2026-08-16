@@ -15,8 +15,50 @@ class _DesktopAppShell extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onIndexChanged;
 
+  Future<void> _openAvailableUpdate(
+    BuildContext context,
+    AppUpdateInfo update,
+  ) {
+    return UpdateService.showUpdateDialog(
+      context,
+      latestVersion: update.version,
+      currentVersion: UpdateService.appVersion,
+      downloadUrl: update.downloadUrl,
+      changelog: update.changelog,
+      sha256: update.sha256,
+      fallbackDownloadUrl: update.fallbackDownloadUrl,
+      prepareForInstall: () => _prepareForUpdateInstall(context),
+    );
+  }
+
+  Future<bool> _prepareForUpdateInstall(BuildContext context) async {
+    if (!context.mounted) return false;
+    final core = context.read<clash.ClashService>();
+    if (!core.isRunning && !core.connectionDesired) return true;
+
+    core.requestConnectionIntent(false);
+    core.interruptPendingStart();
+    try {
+      await core.runConnectionTransition(core.stop);
+    } catch (error, stack) {
+      StartupLogger.error('更新前安全断开失败', error, stack);
+    }
+
+    final stopped = !core.isRunning;
+    if (!stopped && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('更新前无法安全断开连接，已阻止打开安装包。请先手动断开后重试'),
+        ),
+      );
+    }
+    return stopped;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final availableUpdate =
+        context.watch<UpdateAvailabilityController>().availableUpdate;
     final runtimeNoticeSuccessful = isSuccessfulRuntimeNotice(runtimeNotice);
     final runtimeNoticeInProgress = isInProgressRuntimeNotice(runtimeNotice);
     final runtimeNoticeIcon = runtimeNoticeSuccessful
@@ -70,6 +112,12 @@ class _DesktopAppShell extends StatelessWidget {
               SsrvpnBottomNavigation(
                 currentIndex: currentIndex,
                 version: AppConstants.appVersion,
+                availableVersion: availableUpdate?.version,
+                onUpdateTap: availableUpdate == null
+                    ? null
+                    : () => unawaited(
+                          _openAvailableUpdate(context, availableUpdate),
+                        ),
                 onTap: onIndexChanged,
               ),
             ],

@@ -285,6 +285,9 @@ part_limits = {
     public_ip_actions: 600,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_app_surface.dart"): 400,
     Path(
+        "packages/ssrvpn_shared/lib/widgets/ssrvpn_version_update_footer.dart"
+    ): 120,
+    Path(
         "packages/ssrvpn_shared/lib/widgets/ssrvpn_subscription_error_dialog.dart"
     ): 200,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_home_overview.dart"): 600,
