@@ -99,10 +99,12 @@ void main() {
 
       nativeTransitioning = false;
       acceptSecret = false;
+      service.updateSettings(preferred);
       final unauthenticatedRuntime = await service.prepareForStart(preferred);
       expect(unauthenticatedRuntime.apiPort, isNot(apiServer.port));
 
       acceptSecret = true;
+      service.updateSettings(preferred);
       final runtime = await service.prepareForStart(preferred);
       expect(runtime.apiPort, apiServer.port);
       expect(service.lastRuntimePortAdjustmentMessage, isNull);

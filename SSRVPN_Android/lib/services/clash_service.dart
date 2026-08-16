@@ -118,38 +118,9 @@ class ClashService extends ClashServiceBase {
   }
 
   @override
-  Future<bool> canReuseOccupiedApiPort(AppSettings preferred) async {
-    if (isRunning ||
-        _nativeConnectionTransitioning ||
-        preferred.apiSecret.isEmpty ||
-        settings.apiSecret != preferred.apiSecret) {
-      return false;
-    }
-    final nativeState = await _queryNativeConnectionState();
-    if (nativeState == null ||
-        nativeState.running ||
-        nativeState.transitioning ||
-        nativeState.protectedConfigPath != null ||
-        nativeState.sessionGeneration != null) {
-      return false;
-    }
-    final client = apiClient;
-    if (client == null) return false;
-    try {
-      final response = await client
-          .get(
-            Uri.parse('http://127.0.0.1:${preferred.apiPort}/version'),
-            headers: apiHeaders(),
-          )
-          .timeout(const Duration(seconds: 2));
-      return response.statusCode == HttpStatus.ok;
-    } catch (_) {
-      return false;
-    }
-  }
-
+  Future<bool> canReuseOccupiedApiPort(AppSettings preferred) =>
+      _canReuseIdleNativeControllerPort(preferred);
   // ── 初始化 ──
-
   Future<void> init(AppSettings settings) async {
     updateSettings(settings);
 
