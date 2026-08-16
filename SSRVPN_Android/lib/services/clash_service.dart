@@ -117,8 +117,10 @@ class ClashService extends ClashServiceBase {
     super.updateSettings(settings);
   }
 
+  @override
+  Future<bool> canReuseOccupiedApiPort(AppSettings preferred) =>
+      _canReuseIdleNativeControllerPort(preferred);
   // ── 初始化 ──
-
   Future<void> init(AppSettings settings) async {
     updateSettings(settings);
 
@@ -502,6 +504,7 @@ class ClashService extends ClashServiceBase {
           'configPath': snapshotPath,
           'apiPort': settings.apiPort,
           'proxyPort': settings.proxyPort,
+          'socksPort': settings.socksPort,
           'apiSecret': settings.apiSecret,
           'selectedNodeName': nodeName,
           'expectedSessionGeneration': effectiveSessionGeneration,

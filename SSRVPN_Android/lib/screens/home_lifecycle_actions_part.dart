@@ -204,19 +204,8 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
       try {
         const currentVersion = UpdateService.appVersion;
         final update = await UpdateService.checkForUpdate(currentVersion);
-        if (update != null &&
-            mounted &&
-            _isConnected &&
-            !UpdateService.isUpdateUiBusy) {
-          await UpdateService.showUpdateDialog(
-            context,
-            latestVersion: update.version,
-            currentVersion: currentVersion,
-            downloadUrl: update.downloadUrl,
-            changelog: update.changelog,
-            sha256: update.sha256,
-            fallbackDownloadUrl: update.fallbackDownloadUrl,
-          );
+        if (update != null && mounted && _isConnected) {
+          context.read<UpdateAvailabilityController>().publish(update);
         }
       } catch (e) {
         AppLogger.warning('Update', '检查更新异常: $e');

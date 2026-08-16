@@ -1,5 +1,6 @@
 package com.ssrvpn.android
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,6 +33,24 @@ class CorePortReleaseVerifierTest {
         )
 
         assertFalse(released)
+    }
+
+    @Test
+    fun `waits until every data plane listener is released`() {
+        val checks = mutableMapOf<Int, Int>()
+        val released = CorePortReleaseVerifier.waitUntilAllReleased(
+            ports = listOf(7890, 7891),
+            attempts = 3,
+            retryDelayMillis = 0,
+            canConnect = { port ->
+                val count = checks.getOrDefault(port, 0) + 1
+                checks[port] = count
+                port == 7891 && count < 2
+            },
+        )
+
+        assertTrue(released)
+        assertEquals(mapOf(7890 to 2, 7891 to 2), checks)
     }
 
     @Test

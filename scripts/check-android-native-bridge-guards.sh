@@ -33,6 +33,7 @@ NOTIFICATION_GATE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/a
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
 CORE_PORT_RELEASE_VERIFIER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CorePortReleaseVerifier.kt"
 CORE_STOP_DECISION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreStopDecision.kt"
+CORE_SHUTDOWN_PATCH="$ROOT/scripts/patch-android-core-shutdown.py"
 NATIVE_SNAPSHOT_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSnapshotStore.kt"
 NATIVE_CONNECTION_SESSION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSession.kt"
 NATIVE_SESSION_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeVpnSessionCoordinator.kt"
@@ -114,6 +115,8 @@ require_file_text() {
 }
 
 require_file_text "$VPN_PROTECT_MONITOR" "ParcelFileDescriptor.fromFd("
+python3 "$CORE_SHUTDOWN_PATCH" --check \
+  "$ROOT/SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so"
 if grep -Fq "ParcelFileDescriptor.adoptFd(" "$VPN_PROTECT_MONITOR"; then
   echo "Android protect monitor must duplicate the native-owned pipe descriptor" >&2
   exit 1
@@ -322,8 +325,8 @@ require_text "BRIDGE_IS_RUNNING_TIMEOUT_MS"
 require_text "startBridgeWithTimeout"
 require_text "stopBridgeWithTimeout"
 require_text "isBridgeRunningWithTimeout"
-grep -Fq "CorePortReleaseVerifier::waitUntilReleased" "$CORE_STOP_DECISION" || {
-  echo "Android stop decision no longer verifies API port release" >&2
+grep -Fq "CorePortReleaseVerifier::waitUntilAllReleased" "$CORE_STOP_DECISION" || {
+  echo "Android stop decision no longer verifies data plane port release" >&2
   exit 1
 }
 grep -Fq "DEFAULT_RELEASE_ATTEMPTS = 51" "$CORE_PORT_RELEASE_VERIFIER" || {
@@ -331,7 +334,7 @@ grep -Fq "DEFAULT_RELEASE_ATTEMPTS = 51" "$CORE_PORT_RELEASE_VERIFIER" || {
   exit 1
 }
 require_text "CoreStopDecision.afterBridgeCheck("
-require_text "stopDecision.terminationMessage(currentApiPort)"
+require_text "stopDecision.terminationMessage(currentDataPorts)"
 require_text "return bridgeFdTerminationRequired.get() || stopDecision.terminateProcess"
 require_text "SSRVPN-bridge-start"
 require_text "SSRVPN-bridge-stop"
@@ -484,6 +487,7 @@ require_activity_text "private fun handleNativeMethodCall("
 require_activity_text "NativeVpnSessionCoordinator.commitIdleSnapshot(this, snapshot)"
 require_activity_text "NativeVpnSessionCoordinator.clearIdleSnapshot("
 require_activity_text '"flutter.proxyPort"'
+require_activity_text '"flutter.socksPort"'
 require_activity_text '"installUpdate"'
 require_activity_text "Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES"
 require_activity_text "PENDING_UPDATE_APK_PATH"

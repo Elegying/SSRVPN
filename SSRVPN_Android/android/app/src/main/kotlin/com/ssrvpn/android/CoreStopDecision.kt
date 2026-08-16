@@ -3,38 +3,41 @@ package com.ssrvpn.android
 internal data class CoreStopDecision(
     val terminateProcess: Boolean,
     val clearRunningSession: Boolean,
-    val apiPortLingering: Boolean
+    val dataPortsLingering: Boolean
 ) {
-    fun terminationMessage(apiPort: Int): String = if (apiPortLingering) {
-        "Bridge stopped but API port $apiPort still listens after the release grace period"
+    fun terminationMessage(dataPorts: Collection<Int>): String = if (dataPortsLingering) {
+        "Bridge stopped but data plane ports ${dataPorts.joinToString()} still listen after the release grace period"
     } else {
         "Bridge shutdown could not be verified"
     }
 
     companion object {
+        // The embedded controller has its own HTTP server and is recreated on
+        // the next start. Only data-plane listeners prove whether proxy
+        // traffic resources were actually released.
         fun afterBridgeCheck(
             pendingStartStopped: Boolean,
             bridgeStopped: Boolean,
-            apiPort: Int,
-            waitUntilPortReleased: (Int) -> Boolean =
-                CorePortReleaseVerifier::waitUntilReleased
+            dataPorts: Collection<Int>,
+            waitUntilPortsReleased: (Collection<Int>) -> Boolean =
+                CorePortReleaseVerifier::waitUntilAllReleased
         ): CoreStopDecision = evaluate(
             pendingStartStopped = pendingStartStopped,
             bridgeStopped = bridgeStopped,
-            apiPortReleased = bridgeStopped && waitUntilPortReleased(apiPort)
+            dataPortsReleased = bridgeStopped && waitUntilPortsReleased(dataPorts)
         )
 
         fun evaluate(
             pendingStartStopped: Boolean,
             bridgeStopped: Boolean,
-            apiPortReleased: Boolean
+            dataPortsReleased: Boolean
         ): CoreStopDecision {
             val bridgeShutdownVerified = pendingStartStopped && bridgeStopped
-            val shutdownCompleted = bridgeShutdownVerified && apiPortReleased
+            val shutdownCompleted = bridgeShutdownVerified && dataPortsReleased
             return CoreStopDecision(
                 terminateProcess = !shutdownCompleted,
                 clearRunningSession = shutdownCompleted,
-                apiPortLingering = bridgeShutdownVerified && !apiPortReleased
+                dataPortsLingering = bridgeShutdownVerified && !dataPortsReleased
             )
         }
     }

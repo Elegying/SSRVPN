@@ -625,7 +625,7 @@ void main() {
     });
   });
 
-  testWidgets('the same update version is prompted only once per app session',
+  testWidgets('the same update version can be reopened from the footer action',
       (tester) async {
     BuildContext? context;
     await tester.pumpWidget(
@@ -664,13 +664,11 @@ void main() {
     );
     await tester.pump();
     final duplicatePrompts = find.text('发现新版本').evaluate().length;
-    if (duplicatePrompts > 0) {
-      await tester.tap(find.text('稍后再说'));
-      await tester.pumpAndSettle();
-    }
+    await tester.tap(find.text('稍后再说'));
+    await tester.pumpAndSettle();
     await secondPrompt;
 
-    expect(duplicatePrompts, 0);
+    expect(duplicatePrompts, 1);
   });
 
   testWidgets('a failed prompt can retry the same version', (tester) async {

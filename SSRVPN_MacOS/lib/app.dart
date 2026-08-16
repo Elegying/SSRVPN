@@ -12,11 +12,13 @@ import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show
         AppConstants,
+        AppUpdateInfo,
         DesktopConnectionCoordinator,
         DesktopConnectionFailure,
         SsrvpnAppBackdrop,
         SsrvpnBottomNavigation,
         SsrvpnDesktopTitlebarInset,
+        UpdateAvailabilityController,
         desktopSubscriptionChangedMessage;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
@@ -28,6 +30,7 @@ import 'services/clash_service.dart' as clash;
 import 'services/settings_service.dart';
 import 'services/subscription_service.dart';
 import 'services/tray_manager.dart';
+import 'services/update_service.dart';
 import 'startup/startup_flags.dart';
 import 'startup/startup_logger.dart';
 import 'startup/startup_orchestrator.dart';
@@ -61,6 +64,8 @@ class _SSRVpnAppState extends State<SSRVpnApp>
   bool _windowListenerAttached = false;
   Timer? _windowStateSaveDebounce;
   bool _startupRetryInProgress = false;
+  final UpdateAvailabilityController _updateAvailability =
+      UpdateAvailabilityController();
 
   @override
   void initState() {
@@ -72,6 +77,7 @@ class _SSRVpnAppState extends State<SSRVpnApp>
   @override
   void dispose() {
     StartupStatus.instance.removeListener(_handleStartupStatusChanged);
+    _updateAvailability.dispose();
     _runtimeNoticeAutoClearTimer?.cancel();
     _windowStateSaveDebounce?.cancel();
     if (_windowListenerAttached) {
@@ -239,6 +245,9 @@ class _SSRVpnAppState extends State<SSRVpnApp>
         Provider<clash.ClashService>.value(value: _clashService!),
         ChangeNotifierProvider<SubscriptionService>.value(
           value: _subscriptionService!,
+        ),
+        ChangeNotifierProvider<UpdateAvailabilityController>.value(
+          value: _updateAvailability,
         ),
       ],
       child: MaterialApp(

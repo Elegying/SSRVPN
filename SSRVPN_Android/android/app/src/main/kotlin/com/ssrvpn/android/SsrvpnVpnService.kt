@@ -123,6 +123,7 @@ class SsrvpnVpnService : VpnService() {
     private val notificationHandler = Handler(Looper.getMainLooper())
     private var currentNodeName = "SSRVPN"
     private var currentApiPort = 0
+    private var currentDataPorts = listOf(7890, 7891)
     private val runtimeDiagnostics = NativeRuntimeDiagnosticsTracker()
     private var connectionStartedAt = 0L
     private val nativeSessionCommitter by lazy {
@@ -274,6 +275,9 @@ class SsrvpnVpnService : VpnService() {
         val apiPort = snapshot?.apiPort ?: 9090
         val apiSecret = snapshot?.apiSecret.orEmpty()
         currentApiPort = apiPort
+        currentDataPorts = CoreDataPorts.fromPreferences(
+            getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE).all
+        )
         configPath?.let(NativeConnectionSession::reserveStarting)
 
         currentNodeName = snapshot?.selectedNodeName
@@ -848,9 +852,11 @@ class SsrvpnVpnService : VpnService() {
         val stopDecision = CoreStopDecision.afterBridgeCheck(
             pendingStartStopped,
             bridgeStopped && protectMonitorStopped,
-            currentApiPort
+            currentDataPorts
         )
-        if (stopDecision.terminateProcess) Log.e(TAG, stopDecision.terminationMessage(currentApiPort))
+        if (stopDecision.terminateProcess) {
+            Log.e(TAG, stopDecision.terminationMessage(currentDataPorts))
+        }
         try {
             vpnFd?.close()
         } catch (_: Exception) {}

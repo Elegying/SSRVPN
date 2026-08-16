@@ -30,6 +30,28 @@ internal object CorePortReleaseVerifier {
         return false
     }
 
+    fun waitUntilAllReleased(
+        ports: Collection<Int>,
+        attempts: Int = DEFAULT_RELEASE_ATTEMPTS,
+        retryDelayMillis: Long = DEFAULT_RETRY_DELAY_MILLIS,
+        canConnect: (Int) -> Boolean = ::canConnect,
+    ): Boolean {
+        val validPorts = ports.filter { it in 1..65535 }.distinct()
+        if (validPorts.isEmpty()) return true
+        repeat(attempts.coerceAtLeast(1)) { attempt ->
+            if (validPorts.none(canConnect)) return true
+            if (attempt + 1 < attempts && retryDelayMillis > 0) {
+                try {
+                    Thread.sleep(retryDelayMillis)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+            }
+        }
+        return false
+    }
+
     private fun canConnect(port: Int): Boolean =
         try {
             Socket().use { socket ->

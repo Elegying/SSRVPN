@@ -34,6 +34,31 @@ typedef _NativeConnectionState = ({
 });
 
 extension AndroidNativeBridge on ClashService {
+  Future<bool> _canReuseIdleNativeControllerPort(
+    AppSettings preferred,
+  ) async {
+    if (isRunning ||
+        _nativeConnectionTransitioning ||
+        preferred.apiSecret.isEmpty ||
+        settings.apiPort != preferred.apiPort ||
+        settings.apiSecret != preferred.apiSecret) {
+      return false;
+    }
+    final nativeState = await _queryNativeConnectionState();
+    if (nativeState == null ||
+        nativeState.running ||
+        nativeState.transitioning ||
+        nativeState.protectedConfigPath != null ||
+        nativeState.sessionGeneration != null) {
+      return false;
+    }
+    try {
+      return await healthCheck();
+    } catch (_) {
+      return false;
+    }
+  }
+
   void _clearStartOperation(Future<bool> operation) {
     if (identical(_startOperation, operation)) _startOperation = null;
   }

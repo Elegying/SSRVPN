@@ -9,7 +9,8 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         AppUpdateInfo,
         HomeNodeController,
         SsrvpnAppBackdrop,
-        SsrvpnBottomNavigation;
+        SsrvpnBottomNavigation,
+        UpdateAvailabilityController;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'services/settings_service.dart';
 import 'services/clash_service.dart' as clash;
@@ -49,9 +50,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
   SubscriptionService? _subscriptionService;
   final InitializationTask _appInitialization = InitializationTask();
   final InitializationTask _coreInitialization = InitializationTask();
-  AppUpdateInfo? _pendingStartupUpdate;
-  bool _startupUpdatePresentationScheduled = false;
-  Timer? _startupUpdateRetryTimer;
+  final UpdateAvailabilityController _updateAvailability =
+      UpdateAvailabilityController();
 
   // 公开 getter 供 StartupOrchestrator 使用
   clash.ClashService? get clashService => _clashService;
@@ -69,7 +69,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
 
   @override
   void dispose() {
-    _startupUpdateRetryTimer?.cancel();
+    _updateAvailability.dispose();
     _pageController.dispose();
     final clashService = _clashService;
     if (clashService != null) unawaited(clashService.stop());
@@ -105,7 +105,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
           unawaited(
             StartupOrchestrator(
               flags: widget.startupFlags,
-              onUpdateAvailable: _queueStartupUpdate,
+              onUpdateAvailable: _publishStartupUpdate,
             ).start(),
           );
         });
@@ -137,59 +137,23 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
     }
   }
 
-  Future<void> _queueStartupUpdate(AppUpdateInfo update) async {
+  Future<void> _publishStartupUpdate(AppUpdateInfo update) async {
     if (!mounted) return;
-    _pendingStartupUpdate = update;
-    _scheduleStartupUpdatePresentation();
+    _updateAvailability.publish(update);
   }
 
-  void _scheduleStartupUpdatePresentation() {
-    if (_startupUpdatePresentationScheduled || !mounted) return;
-    _startupUpdatePresentationScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      _startupUpdatePresentationScheduled = false;
-      if (!mounted) return;
-      final update = _pendingStartupUpdate;
-      final updateContext = _navigatorKey.currentContext;
-      if (update == null) return;
-      if (updateContext == null) {
-        _retryStartupUpdatePresentation();
-        return;
-      }
-      if (UpdateService.isUpdateUiBusy) {
-        _retryStartupUpdatePresentation();
-        return;
-      }
-      try {
-        await UpdateService.showUpdateDialog(
-          updateContext,
-          latestVersion: update.version,
-          currentVersion: UpdateService.appVersion,
-          downloadUrl: update.downloadUrl,
-          changelog: update.changelog,
-          sha256: update.sha256,
-          fallbackDownloadUrl: update.fallbackDownloadUrl,
-        );
-        if (identical(_pendingStartupUpdate, update)) {
-          _pendingStartupUpdate = null;
-        }
-      } catch (error, stackTrace) {
-        AppLogger.warning(
-          'Update',
-          '启动更新提示暂时无法显示: $error\n$stackTrace',
-        );
-        _retryStartupUpdatePresentation();
-      }
-    });
-  }
-
-  void _retryStartupUpdatePresentation() {
-    if (!mounted || _pendingStartupUpdate == null) return;
-    _startupUpdateRetryTimer?.cancel();
-    _startupUpdateRetryTimer = Timer(const Duration(seconds: 1), () {
-      _startupUpdateRetryTimer = null;
-      _scheduleStartupUpdatePresentation();
-    });
+  Future<void> _openAvailableUpdate(BuildContext context) async {
+    final update = _updateAvailability.availableUpdate;
+    if (update == null || UpdateService.isUpdateUiBusy) return;
+    await UpdateService.showUpdateDialog(
+      context,
+      latestVersion: update.version,
+      currentVersion: UpdateService.appVersion,
+      downloadUrl: update.downloadUrl,
+      changelog: update.changelog,
+      sha256: update.sha256,
+      fallbackDownloadUrl: update.fallbackDownloadUrl,
+    );
   }
 
   void _retryInitialization() {
@@ -289,6 +253,9 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         Provider<clash.ClashService>.value(value: _clashService!),
         ChangeNotifierProvider<SubscriptionService>.value(
             value: _subscriptionService!),
+        ChangeNotifierProvider<UpdateAvailabilityController>.value(
+          value: _updateAvailability,
+        ),
       ],
       child: MaterialApp(
         navigatorKey: _navigatorKey,
@@ -324,16 +291,25 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                   ],
                 ),
               ),
-              SsrvpnBottomNavigation(
-                currentIndex: _currentIndex,
-                version: AppConstants.appVersion,
-                onTap: (i) {
-                  if (i == 0) _homeKey.currentState?.refreshNodes();
-                  setState(() => _currentIndex = i);
-                  _pageController.animateToPage(
-                    i,
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeOutCubic,
+              Consumer<UpdateAvailabilityController>(
+                builder: (context, availability, _) {
+                  final update = availability.availableUpdate;
+                  return SsrvpnBottomNavigation(
+                    currentIndex: _currentIndex,
+                    version: AppConstants.appVersion,
+                    availableVersion: update?.version,
+                    onUpdateTap: update == null
+                        ? null
+                        : () => unawaited(_openAvailableUpdate(context)),
+                    onTap: (i) {
+                      if (i == 0) _homeKey.currentState?.refreshNodes();
+                      setState(() => _currentIndex = i);
+                      _pageController.animateToPage(
+                        i,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOutCubic,
+                      );
+                    },
                   );
                 },
               ),
