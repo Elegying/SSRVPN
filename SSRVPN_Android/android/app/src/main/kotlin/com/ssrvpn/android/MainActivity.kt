@@ -227,6 +227,7 @@ class MainActivity : FlutterActivity() {
     private fun handleSyncSettings(call: MethodCall, result: MethodChannel.Result) {
         val args = call.arguments as? Map<*, *>
         val proxyPort = (args?.get("proxyPort") as? Number)?.toInt() ?: 7890
+        val socksPort = (args?.get("socksPort") as? Number)?.toInt() ?: 7891
         val configDir = args?.get("configDir") as? String
         val configPath = args?.get("configPath") as? String
         val apiPort = (args?.get("apiPort") as? Number)?.toInt()
@@ -267,6 +268,7 @@ class MainActivity : FlutterActivity() {
         getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             .edit()
             .putLong("flutter.proxyPort", proxyPort.toLong())
+            .putLong("flutter.socksPort", socksPort.toLong())
             .apply()
     }
 

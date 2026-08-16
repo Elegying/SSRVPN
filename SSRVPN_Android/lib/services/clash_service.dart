@@ -502,6 +502,7 @@ class ClashService extends ClashServiceBase {
           'configPath': snapshotPath,
           'apiPort': settings.apiPort,
           'proxyPort': settings.proxyPort,
+          'socksPort': settings.socksPort,
           'apiSecret': settings.apiSecret,
           'selectedNodeName': nodeName,
           'expectedSessionGeneration': effectiveSessionGeneration,

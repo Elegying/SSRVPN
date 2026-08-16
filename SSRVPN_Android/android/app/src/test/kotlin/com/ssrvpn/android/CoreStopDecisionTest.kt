@@ -8,32 +8,32 @@ import org.junit.Test
 
 class CoreStopDecisionTest {
     @Test
-    fun `terminates only after bridge stopped but API port exceeded its grace period`() {
+    fun `terminates after bridge stopped but data plane ports exceeded their grace period`() {
         val decision = CoreStopDecision.afterBridgeCheck(
             pendingStartStopped = true,
             bridgeStopped = true,
-            apiPort = 9090,
-            waitUntilPortReleased = { false }
+            dataPorts = listOf(7890, 7891),
+            waitUntilPortsReleased = { false }
         )
 
         assertTrue(decision.terminateProcess)
         assertFalse(decision.clearRunningSession)
-        assertTrue(decision.apiPortLingering)
-        assertTrue(decision.terminationMessage(9090).contains("API port 9090"))
+        assertTrue(decision.dataPortsLingering)
+        assertTrue(decision.terminationMessage(listOf(7890, 7891)).contains("7890, 7891"))
     }
 
     @Test
-    fun `completes normally after bridge and API port both stop`() {
+    fun `completes normally after bridge and data plane ports stop`() {
         val decision = CoreStopDecision.afterBridgeCheck(
             pendingStartStopped = true,
             bridgeStopped = true,
-            apiPort = 9090,
-            waitUntilPortReleased = { true }
+            dataPorts = listOf(7890, 7891),
+            waitUntilPortsReleased = { true }
         )
 
         assertFalse(decision.terminateProcess)
         assertTrue(decision.clearRunningSession)
-        assertFalse(decision.apiPortLingering)
+        assertFalse(decision.dataPortsLingering)
     }
 
     @Test
@@ -41,7 +41,7 @@ class CoreStopDecisionTest {
         val decision = CoreStopDecision.evaluate(
             pendingStartStopped = true,
             bridgeStopped = false,
-            apiPortReleased = false
+            dataPortsReleased = false
         )
 
         assertTrue(decision.terminateProcess)
@@ -53,7 +53,7 @@ class CoreStopDecisionTest {
         val decision = CoreStopDecision.evaluate(
             pendingStartStopped = false,
             bridgeStopped = true,
-            apiPortReleased = true
+            dataPortsReleased = true
         )
 
         assertTrue(decision.terminateProcess)

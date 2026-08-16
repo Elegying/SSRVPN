@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.11] - 2026-08-17
+
+### 修复
+
+- Android 内嵌核心正常停止时现在会同时关闭 Mixed、SOCKS 与 TUN 数据通道监听器；断开后不再因本地代理端口残留触发失败关闭并强制结束客户端进程。
+- Android 停止验收改为检查实际配置的 Mixed 与 SOCKS 端口，并保留 5 秒全局释放窗口；独立的控制 API 生命周期不再被误当作核心数据通道残留。
+
+### 测试边界
+
+- 补丁仅接受固定上游核心 SHA-256 与已审查的 ARM64 指令位置，线上构建会重新下载、应用并复核最终 SHA-256；上游二进制变化会失败关闭。
+- 通过 Android Kotlin/Flutter 回归、核心资产与原生桥接门禁、正式签名 Release APK 构建，并在 USB 真机完成四轮连接/断开、智能与全局模式切换、订阅刷新、Wi-Fi/5G 切换、系统诊断和崩溃/ANR 检查。
+
 ## [4.0.10] - 2026-08-17
 
 ### 修复

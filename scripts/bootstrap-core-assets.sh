@@ -194,6 +194,8 @@ apk_url="$(require_field "$android_source" 'Container URL')"
 apk_hash="$(require_field "$android_source" 'Container SHA256')"
 android_member="$(require_field "$android_source" 'Library member')"
 android_hash="$(require_field "$android_source" 'Library SHA256')"
+android_upstream_hash="$(source_field "$android_source" 'Upstream Library SHA256')"
+android_upstream_hash="${android_upstream_hash:-$android_hash}"
 geo_mirror_repo="$(require_field "$geo_source" 'Mirror repo')"
 geo_mirror_tag="$(require_field "$geo_source" 'Mirror release tag')"
 geo_mirror_name="$(require_field "$geo_source" 'Mirror asset name')"
@@ -235,6 +237,11 @@ if ! asset_matches "$android_asset" "$android_hash"; then
   extract_zip_member_bounded \
     "$apk" "$android_member" "$temp_dir/libgojni.so" \
     $((128 * 1024 * 1024)) "Android bootstrap APK"
+  test "$(sha256_file "$temp_dir/libgojni.so")" = "$android_upstream_hash" ||
+    fail "Android upstream libgojni.so SHA256 mismatch"
+  if [ "$android_upstream_hash" != "$android_hash" ]; then
+    python3 scripts/patch-android-core-shutdown.py "$temp_dir/libgojni.so"
+  fi
   install_verified \
     "$temp_dir/libgojni.so" "$android_asset" "$android_hash" \
     "Android libgojni.so"
