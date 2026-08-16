@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.9] - 2026-08-16
+
+### 修复
+
+- Android 原生 VPN 运行或恢复期间不再被 Dart 端版本裁剪误删当前使用的 `config-*.yaml`；清理事务在会话代际变化时作废，启动验收也必须取得可信的受保护配置路径和代际，避免核心仍运行却丢失配置的会话损坏。
+- Android Activity 已销毁后的异步结果、前台通知、快捷磁贴、恢复页和可恢复系统 API 异常改为有界处理；Go/JNI 边界精确处理 `LinkageError`，不再让可预期的平台失败逃逸到应用进程。
+- Android 冷启动不再把崩溃报告存储目录视为强制前置；目录初始化失败时保留错误记录并继续启动主界面。
+
+### 改进
+
+- 规范 GitHub Issue 与 Pull Request 模板、贡献指南、项目健康和管理文档，新增行为准则，让故障报告、验证证据和发布边界更易复核。
+
+### 测试边界
+
+- 本版本通过共享 Dart、Android Flutter/Kotlin、macOS 原生/Flutter、Windows 静态与发布工具门禁；无线 ADB 配对在安装前失败，因此未完成 Android 真机人工验收。
+
 ## [4.0.8] - 2026-08-15
 
 ### 修复
