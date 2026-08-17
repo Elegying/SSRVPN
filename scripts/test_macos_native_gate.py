@@ -29,6 +29,7 @@ class MacosNativeGateTest(unittest.TestCase):
         leave_test_host_running: bool = False,
         flutter_exit_code: int = 0,
         xcodebuild_exit_code: int = 0,
+        codeql_preload: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
@@ -50,6 +51,11 @@ class MacosNativeGateTest(unittest.TestCase):
             write_executable(
                 "xcodebuild",
                 """#!/bin/sh
+if [ "${FAKE_REQUIRE_NO_CODEQL_PRELOAD:-0}" = '1' ] && \
+  { [ "${DYLD_INSERT_LIBRARIES+x}" = 'x' ] || \
+    [ "${SEMMLE_PRELOAD_libtrace+x}" = 'x' ]; }; then
+  exit 97
+fi
 derived_data_path=''
 while [ "$#" -gt 0 ]; do
   if [ "$1" = '-derivedDataPath' ]; then
@@ -105,6 +111,15 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
                 )
             if leave_test_host_running:
                 environment["FAKE_LEAVE_TEST_HOST_RUNNING"] = "1"
+            if codeql_preload:
+                environment.update(
+                    {
+                        "CODEQL_ACTION_INIT_HAS_RUN": "true",
+                        "DYLD_INSERT_LIBRARIES": "",
+                        "SEMMLE_PRELOAD_libtrace": "",
+                        "FAKE_REQUIRE_NO_CODEQL_PRELOAD": "1",
+                    }
+                )
             return subprocess.run(
                 ["bash", str(ROOT / "scripts/test-macos-native.sh")],
                 cwd=ROOT,
@@ -126,12 +141,23 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         self.assertIn("-parallel-testing-enabled NO", runner)
         self.assertIn("-maximum-parallel-testing-workers 1", runner)
         self.assertIn("CODE_SIGNING_ALLOWED=NO", runner)
+        self.assertIn(
+            '[[ "${CODEQL_ACTION_INIT_HAS_RUN:-}" == "true" ]]', runner
+        )
+        self.assertIn(
+            "unset DYLD_INSERT_LIBRARIES SEMMLE_PRELOAD_libtrace", runner
+        )
 
         scheme = self.read(
             "SSRVPN_MacOS/macos/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme"
         )
         self.assertIn('parallelizable = "NO"', scheme)
         self.assertNotIn('parallelizable = "YES"', scheme)
+
+    def test_native_runner_removes_codeql_preload_from_xctest(self) -> None:
+        result = self.run_native_runner(codeql_preload=True)
+
+        self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_native_runner_fails_when_test_host_writes_a_new_crash_report(self) -> None:
         result = self.run_native_runner(
