@@ -129,10 +129,21 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("'DisplayName'", cleanup)
         self.assertIn("'InstallLocation'", cleanup)
         self.assertIn("'UninstallString'", cleanup)
-        self.assertIn("CompareText(DisplayName, 'SSRVPN')", cleanup)
+        self.assertIn("IsOwnedUninstallDisplayName(DisplayName)", cleanup)
+        self.assertIn("CompareText(DisplayName, 'SSRVPN')", installer)
+        self.assertIn("Copy(DisplayName, 1, 7)", installer)
+        self.assertIn("CompareText(DisplayNamePrefix, 'SSRVPN ')", installer)
         self.assertIn("ExpandConstant('{app}')", cleanup)
         self.assertIn("ExpandConstant('{app}\\unins000.exe')", cleanup)
         self.assertIn("RegDeleteKeyIncludingSubkeys(RootKey, UninstallRegistryKey)", cleanup)
+        self.assertIn("UninstallDisplayName=SSRVPN", installer)
+
+        smoke = (
+            ROOT / "scripts" / "test_windows_installer_package.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("New-LocalizedOppositeScopeUninstallEntry", smoke)
+        self.assertIn("[char]0x7248, [char]0x672C, $displayVersion", smoke)
+        self.assertIn("Assert-OppositeScopeUninstallEntryRemoved", smoke)
 
         post_install = installer.split(
             "procedure CurStepChanged(CurStep: TSetupStep);", 1

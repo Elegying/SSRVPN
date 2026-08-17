@@ -38,6 +38,7 @@ OutputDir={#OutputDir}
 OutputBaseFilename=SSRVPN_Setup
 SetupIconFile={#ProjectDir}\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\ssrvpn_windows.exe
+UninstallDisplayName=SSRVPN
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -610,6 +611,17 @@ begin
   Result := NormalizeRegistryPath(Result);
 end;
 
+function IsOwnedUninstallDisplayName(DisplayName: String): Boolean;
+var
+  DisplayNamePrefix: String;
+begin
+  DisplayName := Trim(DisplayName);
+  DisplayNamePrefix := Copy(DisplayName, 1, 7);
+  Result := (CompareText(DisplayName, 'SSRVPN') = 0) or
+    ((Length(DisplayName) > 7) and
+      (CompareText(DisplayNamePrefix, 'SSRVPN ') = 0));
+end;
+
 procedure RemoveVerifiedOppositeScopeUninstallEntry;
 var
   RootKey: Integer;
@@ -636,7 +648,7 @@ begin
   ExpectedInstallLocation := NormalizeRegistryPath(ExpandConstant('{app}'));
   ExpectedUninstaller :=
     NormalizeRegistryPath(ExpandConstant('{app}\unins000.exe'));
-  if (CompareText(DisplayName, 'SSRVPN') <> 0) or
+  if (not IsOwnedUninstallDisplayName(DisplayName)) or
     (CompareText(
       NormalizeRegistryPath(InstallLocation), ExpectedInstallLocation) <> 0) or
     (CompareText(
