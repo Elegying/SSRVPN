@@ -37,6 +37,7 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
   bool _loading = true;
   bool _failed = false;
   AppRepairAction? _repairing;
+  String? _copyStatus;
 
   @override
   void initState() {
@@ -48,6 +49,7 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
     setState(() {
       _loading = true;
       _failed = false;
+      _copyStatus = null;
     });
     try {
       final report = await widget.runDiagnostics();
@@ -94,8 +96,18 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
   Future<void> _copyReport() async {
     final report = _report;
     if (report == null) return;
-    await Clipboard.setData(ClipboardData(text: report.toText()));
-    widget.onMessage?.call('诊断报告已复制（敏感内容已脱敏）');
+    const success = '诊断报告已复制（敏感内容已脱敏）';
+    const failure = '复制失败，请重试';
+    try {
+      await Clipboard.setData(ClipboardData(text: report.toText()));
+      if (!mounted) return;
+      setState(() => _copyStatus = success);
+      widget.onMessage?.call(success);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _copyStatus = failure);
+      widget.onMessage?.call(failure);
+    }
   }
 
   @override
@@ -198,6 +210,20 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
                   ],
                 ),
         ),
+        if (_copyStatus != null) ...[
+          const SizedBox(height: 6),
+          Semantics(
+            container: true,
+            liveRegion: true,
+            label: _copyStatus,
+            excludeSemantics: true,
+            child: Text(
+              _copyStatus!,
+              style: theme.textTheme.bodySmall,
+              textAlign: TextAlign.end,
+            ),
+          ),
+        ],
         const SizedBox(height: 8),
         Expanded(
           child: ListView(

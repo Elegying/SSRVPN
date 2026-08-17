@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/widgets/app_diagnostics_view.dart';
@@ -116,6 +117,114 @@ void main() {
 
     expect(find.textContaining('private-value'), findsNothing);
     expect(find.textContaining('token: ***'), findsOneWidget);
+  });
+
+  testWidgets('copy reports visible live feedback and redacts account paths',
+      (tester) async {
+    String? clipboardText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboardText =
+              (call.arguments as Map<Object?, Object?>)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppDiagnosticsView(
+            runDiagnostics: () async => AppDiagnosticReport(
+              generatedAt: DateTime.utc(2026, 8, 17),
+              checks: const [
+                AppDiagnosticCheck(
+                  id: 'path',
+                  title: '配置目录',
+                  status: AppDiagnosticStatus.passed,
+                  summary: r'C:\Users\李 四😀\AppData\Local\SSRVPN\config',
+                ),
+              ],
+              recentLogs: '/Users/张 三😀/Library/Logs/SSRVPN/app.log',
+            ),
+            loadHistory: () async => const [],
+            repair: (_) async => const AppRepairResult(
+              success: false,
+              message: 'unused',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('复制脱敏诊断报告'));
+    await tester.pump();
+
+    expect(clipboardText, isNotNull);
+    expect(clipboardText, isNot(contains('李 四😀')));
+    expect(clipboardText, isNot(contains('张 三😀')));
+    expect(find.text('诊断报告已复制（敏感内容已脱敏）'), findsOneWidget);
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel('诊断报告已复制（敏感内容已脱敏）'))
+          .flagsCollection
+          .isLiveRegion,
+      isTrue,
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('copy failure is visible and never reports success',
+      (tester) async {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          throw PlatformException(code: 'clipboard-unavailable');
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+
+    String? message;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppDiagnosticsView(
+            runDiagnostics: () async => AppDiagnosticReport(
+              generatedAt: DateTime.utc(2026, 8, 17),
+              checks: const [],
+            ),
+            loadHistory: () async => const [],
+            repair: (_) async => const AppRepairResult(
+              success: false,
+              message: 'unused',
+            ),
+            onMessage: (value) => message = value,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('复制脱敏诊断报告'));
+    await tester.pump();
+
+    expect(message, '复制失败，请重试');
+    expect(find.text('复制失败，请重试'), findsOneWidget);
+    expect(find.textContaining('诊断报告已复制'), findsNothing);
   });
 
   testWidgets('diagnostic summary stays usable in compact maximum text scale',

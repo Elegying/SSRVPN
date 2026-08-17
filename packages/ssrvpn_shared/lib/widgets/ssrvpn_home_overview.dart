@@ -156,10 +156,11 @@ class _HomeHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final horizontalPadding = compact ? 4.0 : 10.0;
     final actionStyle = TextButton.styleFrom(
       foregroundColor: SsrvpnUiTokens.textSecondary,
-      padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 10, vertical: 8),
-      minimumSize: const Size(48, 40),
+      padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 8),
+      minimumSize: const Size(48, 48),
     );
     final aboutAction = Tooltip(
       message: '关于',
@@ -179,57 +180,91 @@ class _HomeHeader extends StatelessWidget {
         child: const Text('使用教程'),
       ),
     );
-    final title = Text(
-      'SSRVPN',
-      style: TextStyle(
-        color: SsrvpnUiTokens.textPrimary,
-        fontSize: compact ? 29 : 34,
-        fontWeight: FontWeight.w400,
-        letterSpacing: 0.4,
-      ),
+    final titleStyle = TextStyle(
+      color: SsrvpnUiTokens.textPrimary,
+      fontSize: compact ? 29 : 34,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0.4,
     );
-    final scaledActionTextSize = MediaQuery.textScalerOf(context).scale(14);
-    final actions = LayoutBuilder(
+    final title = Text('SSRVPN', style: titleStyle);
+    final textScaler = MediaQuery.textScalerOf(context);
+    Size measure(String value, TextStyle style) {
+      final painter = TextPainter(
+        text: TextSpan(text: value, style: style),
+        textScaler: textScaler,
+        textDirection: Directionality.of(context),
+        locale: Localizations.maybeLocaleOf(context),
+        maxLines: 1,
+      )..layout();
+      return painter.size;
+    }
+
+    const actionTextStyle = TextStyle(fontSize: 14);
+    final aboutSize = measure('关于', actionTextStyle);
+    final tutorialSize = measure('使用教程', actionTextStyle);
+    final titleSize = measure('SSRVPN', titleStyle);
+    final aboutWidth = aboutSize.width + horizontalPadding * 2 > 48
+        ? aboutSize.width + horizontalPadding * 2
+        : 48.0;
+    final tutorialWidth = tutorialSize.width + horizontalPadding * 2 > 48
+        ? tutorialSize.width + horizontalPadding * 2
+        : 48.0;
+    final sideWidth = aboutWidth > tutorialWidth ? aboutWidth : tutorialWidth;
+
+    return LayoutBuilder(
       builder: (context, constraints) {
-        final horizontalPadding = compact ? 4.0 : 10.0;
-        final requiredWidth = scaledActionTextSize * 6 + horizontalPadding * 4;
-        if (requiredWidth > constraints.maxWidth) {
+        const gap = 8.0;
+        final actionsFit =
+            aboutWidth + tutorialWidth + gap <= constraints.maxWidth;
+        final actions = actionsFit
+            ? Row(
+                children: [
+                  Align(alignment: Alignment.centerLeft, child: aboutAction),
+                  const Spacer(),
+                  Align(
+                      alignment: Alignment.centerRight, child: tutorialAction),
+                ],
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Align(alignment: Alignment.centerLeft, child: aboutAction),
+                  Align(
+                      alignment: Alignment.centerRight, child: tutorialAction),
+                ],
+              );
+        final titleFitsBetweenActions =
+            titleSize.width + sideWidth * 2 + gap * 2 <= constraints.maxWidth;
+        if (!titleFitsBetweenActions) {
           return Column(
             mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(alignment: Alignment.centerLeft, child: aboutAction),
-              Align(alignment: Alignment.centerRight, child: tutorialAction),
-            ],
+            children: [title, const SizedBox(height: 2), actions],
           );
         }
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [aboutAction, tutorialAction],
+        final measuredHeight = titleSize.height > 48 ? titleSize.height : 48.0;
+        return SizedBox(
+          height: measuredHeight > 54 ? measuredHeight : 54,
+          child: Row(
+            children: [
+              SizedBox(
+                width: sideWidth,
+                child:
+                    Align(alignment: Alignment.centerLeft, child: aboutAction),
+              ),
+              const SizedBox(width: gap),
+              Expanded(child: Center(child: title)),
+              const SizedBox(width: gap),
+              SizedBox(
+                width: sideWidth,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: tutorialAction,
+                ),
+              ),
+            ],
+          ),
         );
       },
-    );
-    final scaledTitleSize = MediaQuery.textScalerOf(context).scale(
-      compact ? 29 : 34,
-    );
-    if (scaledTitleSize > (compact ? 39 : 46)) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          title,
-          const SizedBox(height: 2),
-          actions,
-        ],
-      );
-    }
-    return SizedBox(
-      height: 54,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          actions,
-          IgnorePointer(child: title),
-        ],
-      ),
     );
   }
 }

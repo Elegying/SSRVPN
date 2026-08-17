@@ -54,9 +54,11 @@ class LogRedactor {
     '''(^|[\\s,{])\\b($_sensitiveKeyPattern)\\s*[:=]\\s*["']?[^\\s,;"']+["']?''',
     caseSensitive: false,
   );
-  static final _unixHomePattern = RegExp(r'/(Users|home)/[^/\s]+');
+  static final _unixHomePattern = RegExp(
+    r'/(Users|home)/[^/\r\n]+(?=/)',
+  );
   static final _windowsHomePattern = RegExp(
-    r'\b([A-Za-z]:\\Users\\)[^\\\s]+',
+    r'\b([A-Za-z]:\\Users\\)[^\\\r\n]+(?=\\)',
     caseSensitive: false,
   );
 

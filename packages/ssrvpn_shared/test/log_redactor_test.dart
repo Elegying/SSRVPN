@@ -109,6 +109,30 @@ void main() {
     expect(sanitized, isNot(contains('carol')));
   });
 
+  test('redacts local account names containing spaces and unicode', () {
+    final sanitized = LogRedactor.sanitizeForDisplay(
+      'macOS /Users/张 三😀/Library/Application Support/SSRVPN/app.log '
+      r'Windows C:\Users\李 四😀\AppData\Local\SSRVPN\ssrvpn.log '
+      'Linux /home/测试 用户😀/.config/ssrvpn/config.yaml',
+    );
+
+    expect(
+      sanitized,
+      contains('/Users/***/Library/Application Support/SSRVPN/app.log'),
+    );
+    expect(
+      sanitized,
+      contains(r'C:\Users\***\AppData\Local\SSRVPN\ssrvpn.log'),
+    );
+    expect(
+      sanitized,
+      contains('/home/***/.config/ssrvpn/config.yaml'),
+    );
+    expect(sanitized, isNot(contains('张 三😀')));
+    expect(sanitized, isNot(contains('李 四😀')));
+    expect(sanitized, isNot(contains('测试 用户😀')));
+  });
+
   test('bounds hostile log lines before applying redaction regexes', () {
     final sanitized = LogRedactor.sanitize(
       '${'x' * (LogRedactor.maxInputCharacters * 2)} token=secret',
