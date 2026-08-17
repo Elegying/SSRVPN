@@ -480,16 +480,26 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
     }
     final requestType =
         await FileSystemEntity.type(requestPath, followLinks: false);
-    final statusType =
-        await FileSystemEntity.type(statusPath, followLinks: false);
-    if (requestType != FileSystemEntityType.notFound ||
-        statusType != FileSystemEntityType.notFound) {
+    if (requestType != FileSystemEntityType.notFound) {
       return false;
     }
     if (_authorizationExitCode == null) {
       try {
-        await handle.exitCode.timeout(const Duration(milliseconds: 500));
+        await handle.exitCode.timeout(_stopTimeout);
       } on TimeoutException {
+        return false;
+      }
+    }
+    final statusType =
+        await FileSystemEntity.type(statusPath, followLinks: false);
+    if (statusType != FileSystemEntityType.notFound) {
+      if (statusType != FileSystemEntityType.file) return false;
+      final status = File(statusPath);
+      final notBefore = _statusNotBefore;
+      final stat = await status.stat();
+      if ((notBefore != null && stat.modified.isBefore(notBefore)) ||
+          await status.length() > 64 ||
+          (await status.readAsString()).trim() != 'error:network-change') {
         return false;
       }
     }
