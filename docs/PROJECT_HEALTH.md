@@ -2,11 +2,11 @@
 
 最近审查：2026-08-18<br>
 当前应用版本：`v4.0.12`；公开发布状态与产物以 [GitHub Release](https://github.com/Elegying/SSRVPN/releases/latest) 为准。<br>
-本轮客户端候选提交 `47bfbea` 已由 [PR #119](https://github.com/Elegying/SSRVPN/pull/119) 的 [CI run 32047401097](https://github.com/Elegying/SSRVPN/actions/runs/32047401097) 完成 10 项检查，并通过 Android 11、Android 17、Apple M 系列 macOS 与 Windows 11 增量实机复验。版本与文档准备提交仍须通过新的 PR 检查、合并后精确 `main` CI 和正式 Release workflow，才能构成 v4.0.12 发布证据。
+`v4.0.12` 已正式发布：annotated tag 解引用到提交 `891a991`；[PR #119](https://github.com/Elegying/SSRVPN/pull/119)、[精确 main CI 32059134071](https://github.com/Elegying/SSRVPN/actions/runs/32059134071)、[发布专用 CI 32061205525](https://github.com/Elegying/SSRVPN/actions/runs/32061205525)、[Prepare Release 32061173747](https://github.com/Elegying/SSRVPN/actions/runs/32061173747) 和 [Release 32063253470](https://github.com/Elegying/SSRVPN/actions/runs/32063253470) 均通过。Android 11、Android 17、Apple M 系列 macOS 与 Windows 11 已完成针对本轮修复项的增量实机复验。
 
 ## 综合结论与评分
 
-**综合评分：93/100（优秀，可持续维护；不等同于零风险或已完成实机验收）。**
+**综合评分：93/100（优秀，可持续维护；不等同于零风险或完整全矩阵实机验收）。**
 
 | 维度 | 分数 | 当前证据 |
 | --- | ---: | --- |
@@ -51,10 +51,18 @@ make verify
 
 以上 APK 与 DMG 是本地验证中间产物，不是公开发布资产。
 
+### 正式发布与线上验收
+
+- `v4.0.12` 正式 Release 为非草稿、非预发布，共包含 APK、DMG、EXE、三个 SHA-256 文件和发布来源清单。
+- 从 GitHub Release 重新下载的 `SSRVPN.apk`、`SSRVPN.dmg`、`SSRVPN_Setup.exe` 均通过随附 SHA-256 校验；GitHub artifact attestation 将三个制品锁定到 `refs/tags/v4.0.12` 和提交 `891a991`。
+- 正式 APK 为 `com.ssrvpn.android`、`4.0.12 (4012)`，发布流水线确认 V2 签名证书与仓库配置指纹一致。
+- 正式 DMG 通过 CRC、深度代码签名和版本检查；应用主程序及所有 Mach-O framework 只有 `arm64`，不包含 `x86_64`。
+- OSS `latest.json` 已指向 `4.0.12`；重新下载三个固定公开入口后的 SHA-256 与 GitHub Release 完全一致。官网 macOS 页面明确仅支持 Apple M 系列芯片、不支持 Intel Mac。
+
 ## 证据边界与残余风险
 
 - 本轮 Android 11、Android 17、Apple M 系列 macOS 与 Windows 11 已完成针对修复项的增量实机复验；未重复已确认的长时、耗电和完整 20/50 轮压力矩阵，自动化和快速实机证据不冒充未执行项目。
-- PR #119 的精确候选 CI 已通过；版本与文档准备提交、合并后 `main` 和正式发布资产必须重新建立各自证据，不复用旧绿色 run。
+- 候选、版本准备、合并后 `main`、发布专用 CI 和正式 Release 已分别建立精确提交证据；发布结论不复用旧版本绿色 run。
 - macOS 本机不能执行 Windows C++、PowerShell 5.1、DPAPI、注册表和 Inno Setup；这些已由 Windows CI 和候选安装器实机覆盖安装、数据保留、连接与断开复验补充。
 - macOS 持续断网恢复期间出现过一次可恢复的应用内取消失败报告；因用户明确停止该故障注入，本轮不继续断网实测，也不把该专项标记为通过。正常连接、短时中断恢复、断开、DNS/路由/代理恢复和退出均通过。
 - 当前 Android 核心可验证固定二进制、补丁与 build info，但 build info 仅显示本地替换路径，没有上游源码提交。下次替换核心必须同时归档受审源码提交、构建命令、Go/NDK 环境、ABI 与生命周期回归证据。
@@ -72,10 +80,9 @@ make verify
 
 ## 下一阶段最高优先级
 
-1. 版本与文档准备提交通过 PR 检查后合并，复验精确 `main`，再由 `Prepare Release` 创建不可变标签并启动正式线上构建。
-2. 发布后重新下载 APK、DMG、EXE，核对 SHA256、GitHub attestation、OSS `latest.json` 与官网固定下载入口。
-3. 后续按 [UAT 矩阵](UAT_MATRIX.md)补充长时、耗电、完整压力和 macOS 持续断网专项；不把本轮未执行项目写成已通过。
-4. 为 Android 内嵌核心建立源码仓库、固定提交和可复现构建流水线，再替换当前只能字节级验证的二进制。
+1. 后续按 [UAT 矩阵](UAT_MATRIX.md)补充长时、耗电、完整压力和 macOS 持续断网专项；不把本轮未执行项目写成已通过。
+2. 为 Android 内嵌核心建立源码仓库、固定提交和可复现构建流水线，再替换当前只能字节级验证的二进制。
+3. 随 Flutter 工具链升级统一迁移 Android Kotlin/Gradle 兼容开关、`compileSdk` 和 `flutter_secure_storage`，保持目标平台构建与生命周期验收。
 
 ## 更新规则
 
