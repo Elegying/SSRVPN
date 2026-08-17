@@ -57,7 +57,7 @@ internal object VpnNotificationSupport {
             context,
             1,
             disconnectIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_IMMUTABLE
         )
         val rateText = state.statusText ?: if (state.connected) {
             "↑ ${formatBytes(state.uploadRate)}/s  ↓ ${formatBytes(state.downloadRate)}/s"
