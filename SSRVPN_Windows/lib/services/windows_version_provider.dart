@@ -87,8 +87,7 @@ class WindowsVersionInfo {
     final major = int.parse(match.group(1)!);
     final minor = int.parse(match.group(2)!);
     final build = int.parse(match.group(3)!);
-    return '${_family(major, minor, build)} '
-        '($major.$minor build $build)';
+    return 'Windows $major.$minor build $build';
   }
 
   static String _family(int major, int minor, int build) {

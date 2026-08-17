@@ -54,7 +54,7 @@ void main() {
     expect(description, 'Windows 10 Home 22H2 (10.0 build 19045)');
   });
 
-  test('corrects a misleading platform fallback using its build number',
+  test('fallback reports the build without guessing a marketing name',
       () async {
     messenger.setMockMethodCallHandler(
       channel,
@@ -66,7 +66,7 @@ void main() {
       fallbackVersion: () => 'Windows 10 Pro 10.0.26200',
     ).describe();
 
-    expect(description, 'Windows 11 (10.0 build 26200)');
+    expect(description, 'Windows 10.0 build 26200');
   });
 
   test('does not relabel a non-Windows test host', () {

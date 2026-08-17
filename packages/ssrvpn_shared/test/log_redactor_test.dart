@@ -133,6 +133,17 @@ void main() {
     expect(sanitized, isNot(contains('测试 用户😀')));
   });
 
+  test('redacts a home directory even without a descendant path', () {
+    expect(
+      LogRedactor.sanitizeForDisplay('/Users/private account'),
+      '/Users/***',
+    );
+    expect(
+      LogRedactor.sanitizeForDisplay(r'C:\Users\private account'),
+      r'C:\Users\***',
+    );
+  });
+
   test('bounds hostile log lines before applying redaction regexes', () {
     final sanitized = LogRedactor.sanitize(
       '${'x' * (LogRedactor.maxInputCharacters * 2)} token=secret',

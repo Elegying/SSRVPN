@@ -55,10 +55,10 @@ class LogRedactor {
     caseSensitive: false,
   );
   static final _unixHomePattern = RegExp(
-    r'/(Users|home)/[^/\r\n]+(?=/)',
+    r'/(Users|home)/[^/\r\n]+(?=/|$)',
   );
   static final _windowsHomePattern = RegExp(
-    r'\b([A-Za-z]:\\Users\\)[^\\\r\n]+(?=\\)',
+    r'\b([A-Za-z]:\\Users\\)[^\\\r\n]+(?=\\|$)',
     caseSensitive: false,
   );
 
