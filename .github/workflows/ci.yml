@@ -46,6 +46,25 @@ jobs:
           license-check: true
           show-openssf-scorecard: true
 
+  codeql-actions:
+    name: CodeQL (Actions)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+        with:
+          languages: actions
+          build-mode: none
+          queries: security-extended
+
+      - name: Analyze workflow code
+        uses: github/codeql-action/analyze@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+
   shared:
     name: Workspace checks
     needs: [core-assets, secret-scan]
@@ -120,6 +139,9 @@ jobs:
     name: ${{ matrix.name }}
     needs: [core-assets, secret-scan]
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -127,12 +149,15 @@ jobs:
           - name: Android
             os: ubuntu-latest
             directory: SSRVPN_Android
+            codeql_language: java-kotlin
           - name: macOS
             os: macos-15
             directory: SSRVPN_MacOS
+            codeql_language: swift
           - name: Windows
             os: windows-latest
             directory: SSRVPN_Windows
+            codeql_language: c-cpp
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -146,6 +171,13 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+        with:
+          languages: ${{ matrix.codeql_language }}
+          build-mode: manual
+          queries: security-extended
 
       - name: Cache Gradle dependencies
         if: matrix.directory == 'SSRVPN_Android'
@@ -222,6 +254,9 @@ jobs:
         if: matrix.directory == 'SSRVPN_Windows'
         shell: bash
         run: bash scripts/smoke-release-artifacts.sh --allow-missing
+
+      - name: Analyze native code
+        uses: github/codeql-action/analyze@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
 
       - name: Upload Windows installer
         if: matrix.directory == 'SSRVPN_Windows'

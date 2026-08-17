@@ -7,3 +7,10 @@ Upstream Library SHA256: 65f8921583a778e218a5e735752e33f9a1ba53c0b5b11c2a0f80c8f
 Local patch: scripts/patch-android-core-shutdown.py closes mixed, SOCKS, and TUN listeners from Bridge.stop
 Library SHA256: ec0b7fb285c4052c0050bc0fb27599dee1459677267881febbd1ec1cb88d5c46
 GeoIP member: assets/flutter_assets/assets/geoip.metadb.gz
+Go version: go1.25.11
+Go module: github.com/metacubex/mihomo
+Go module version: v0.0.0-00010101000000-000000000000
+Build mode: c-shared
+Build tags: with_gvisor
+Target: android/arm64
+Source rebuild status: local replacement path was embedded without a source commit; byte-identical rebuild is not currently possible

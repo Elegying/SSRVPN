@@ -80,4 +80,53 @@ void main() {
     expect(await service.start(), isFalse);
     expect(service.lastStartError, 'Mihomo service is not initialized');
   });
+
+  test('automatic recovery fails safely before lifecycle initialization',
+      () async {
+    final service = _createTestService();
+
+    expect(await service.startForAutomaticRecovery(), isFalse);
+    expect(service.lastStartError, 'Mihomo service is not initialized');
+  });
+
+  test('stop hook fails closed when proxy cleanup is unavailable', () async {
+    final service = _createTestService();
+
+    await expectLater(
+      service.onStopRequired(),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('系统代理恢复失败'),
+        ),
+      ),
+    );
+
+    expect(service.isRunning, isFalse);
+  });
+
+  test('pending proxy recovery fails closed when its state path is unavailable',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_windows_lifecycle_recovery_',
+    );
+    addTearDown(() => temp.delete(recursive: true));
+    final proxy = SystemProxyService.forTesting(
+      isWindows: true,
+      localAppData: '',
+      scriptRunner: (_) async => ProcessResult(0, 0, '', ''),
+    );
+    final service = ClashService(systemProxyService: proxy);
+    await service.init(
+      AppSettings(),
+      dataDir: temp.path,
+      skipCoreProbes: true,
+    );
+
+    expect(service.hasPendingSystemProxyRecovery, isTrue);
+    expect(await service.recoverPendingSystemProxy(), isFalse);
+    expect(service.lastStartError, contains('尚未初始化'));
+    expect(service.hasPendingSystemProxyRecovery, isTrue);
+  });
 }

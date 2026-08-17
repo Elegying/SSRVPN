@@ -67,6 +67,9 @@ check_file \
   "Android libgojni.so"
 python3 scripts/patch-android-core-shutdown.py --check \
   SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so
+python3 scripts/verify_android_core_buildinfo.py \
+  SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so \
+  SSRVPN_Android/assets/libgojni-source.txt
 
 check_file \
   "SSRVPN_Android/assets/geoip.metadb.gz" \

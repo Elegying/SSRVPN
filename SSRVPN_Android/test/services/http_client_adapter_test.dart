@@ -46,7 +46,6 @@ void main() {
     final adapter = RealHttpClientAdapter(
       connectTimeout: const Duration(seconds: 2),
       readTimeout: const Duration(seconds: 2),
-      allowBadCertificates: true,
     );
 
     final response = await adapter.get(

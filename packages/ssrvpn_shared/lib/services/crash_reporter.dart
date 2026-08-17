@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
+import '../constants/app_constants.dart';
 import '../utils/log_redactor.dart';
 
 class CrashReporter {
@@ -53,6 +56,8 @@ class CrashReporter {
       final report = StringBuffer()
         ..writeln('SSRVPN Crash Report')
         ..writeln('time: ${now.toIso8601String()}')
+        ..writeln('release: ${AppConstants.appVersion}')
+        ..writeln('fingerprint: ${_fingerprint(context, error, stack)}')
         ..writeln('context: ${_sanitizeForReport(context, 4096)}')
         ..writeln('platform: ${Platform.operatingSystem}')
         ..writeln('platformVersion: ${Platform.operatingSystemVersion}')
@@ -158,6 +163,20 @@ class CrashReporter {
           '${text.substring(0, maxCharacters)}\n... truncated before redaction ...';
     }
     return LogRedactor.sanitizeForDisplay(text);
+  }
+
+  static String _fingerprint(
+    String context,
+    Object error,
+    StackTrace? stack,
+  ) {
+    final material = [
+      _sanitizeForReport(context, 4096),
+      error.runtimeType.toString(),
+      _sanitizeForReport(error, 16 * 1024),
+      _sanitizeForReport(stack, 64 * 1024),
+    ].join('\n');
+    return sha256.convert(utf8.encode(material)).toString().substring(0, 16);
   }
 
   static String _fitUtf8(String value, int maxBytes) {

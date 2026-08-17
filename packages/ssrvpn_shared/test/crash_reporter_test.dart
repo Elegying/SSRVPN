@@ -27,6 +27,33 @@ void main() {
     expect(await File(second).exists(), isTrue);
   });
 
+  test('records release and a stable redacted crash fingerprint', () async {
+    final first = CrashReporter.recordSync(
+      'connect transition',
+      StateError('failed for /Users/alice/private/config.yaml'),
+      StackTrace.fromString('#0 connect (/Users/alice/app.dart:42:7)'),
+    );
+    final second = CrashReporter.recordSync(
+      'connect transition',
+      StateError('failed for /Users/bob/private/config.yaml'),
+      StackTrace.fromString('#0 connect (/Users/bob/app.dart:42:7)'),
+    );
+
+    final firstReport = await File(first).readAsString();
+    final secondReport = await File(second).readAsString();
+    final fingerprintPattern =
+        RegExp(r'^fingerprint: ([a-f0-9]{16})$', multiLine: true);
+
+    expect(firstReport, contains('release: 4.0.11'));
+    expect(fingerprintPattern.firstMatch(firstReport), isNotNull);
+    expect(
+      fingerprintPattern.firstMatch(firstReport)!.group(1),
+      fingerprintPattern.firstMatch(secondReport)!.group(1),
+    );
+    expect(firstReport, isNot(contains('/Users/alice')));
+    expect(secondReport, isNot(contains('/Users/bob')));
+  });
+
   test('keeps only the newest bounded number of crash reports', () async {
     for (var i = 0; i < CrashReporter.maxPendingReports + 5; i++) {
       CrashReporter.recordSync('crash $i', StateError('$i'));

@@ -46,7 +46,7 @@ make verify
 
 | 关键文件 | 最低行覆盖率 | 当前锁定证据 |
 | --- | ---: | ---: |
-| Windows `clash_service_lifecycle.dart` | 20.00% | `134/648`（20.68%） |
+| Windows `clash_service_lifecycle.dart` | 25.00% | `174/655`（26.56%） |
 | macOS `clash_service_lifecycle.dart` | 60.00% | `308/485`（63.51%） |
 | macOS `system_proxy_service.dart` | 80.00% | `220/258`（85.27%） |
 
@@ -99,7 +99,7 @@ scripts/check-coverage-thresholds.sh SSRVPN_MacOS
 
 ### 发布与文档
 
-发布工具使用 Python 单元测试和资产冒烟；免费桌面分发守卫要求 CI、Release 与打包脚本不含 Apple/Microsoft 付费签名入口，同时要求 macOS 继续执行 ad-hoc 签名验证，并拒绝 Release 中的调试、JIT、未签名可执行内存和禁用库校验 entitlement。Gatekeeper/SmartScreen 提示仍必须由干净设备验收。文档门禁自动枚举全部受版本控制 Markdown 并检查本地链接；历史 `CHANGELOG.md` 不应用当前状态断言，其余当前文档会拒绝已知陈旧结论和轻量发布 tag 命令。Pull Request 的 Dependency Review 拒绝新增中等及以上已知漏洞；该门禁不能替代 lockfile、完整 CI 或定期维护。发布后资产检查通过已认证的 GitHub CLI 下载元数据、SHA-256 文件与 provenance，并对瞬时失败有限重试；随后还要重新下载公开产物并校验随包 SHA256。
+发布工具使用 Python 单元测试和资产冒烟；免费桌面分发守卫要求 CI、Release 与打包脚本不含 Apple/Microsoft 付费签名入口，同时要求 macOS 继续执行 ad-hoc 签名验证，并拒绝 Release 中的调试、JIT、未签名可执行内存和禁用库校验 entitlement。Gatekeeper/SmartScreen 提示仍必须由干净设备验收。文档门禁自动枚举全部受版本控制 Markdown 并检查本地链接；历史 `CHANGELOG.md` 不应用当前状态断言，其余当前文档会拒绝已知陈旧结论和轻量发布 tag 命令。Pull Request 的 Dependency Review 拒绝新增中等及以上已知漏洞；CodeQL 分别分析 GitHub Actions、Android Java/Kotlin、macOS Swift 和 Windows C/C++，Dart 仍由 analyzer、测试和输入边界门禁覆盖。上述门禁不能替代 lockfile、完整 CI 或定期维护。发布构建为 APK、DMG 和 EXE 生成 GitHub 签名的 SLSA provenance attestation；发布后资产检查仍通过已认证的 GitHub CLI 下载元数据、SHA-256 文件与仓库 provenance，并对瞬时失败有限重试，随后重新下载公开产物校验随包 SHA256 和签名证明。
 
 ## 常用命令
 
@@ -143,6 +143,10 @@ cd packages/ssrvpn_shared && dart run tool/benchmark_critical_paths.dart
 ```
 
 从平台目录执行后续根脚本时注意恢复仓库根目录；CI 与交接记录必须写出实际执行命令、平台、退出码和跳过项。
+
+三端人工生命周期、无障碍、性能和电量验收使用统一的
+[真机验收矩阵](UAT_MATRIX.md)。未填写设备、提交、步骤和脱敏证据的条目只能标记为未执行，
+不能由 Widget 测试、模拟器或其他平台结果代替。
 
 ## 改动对应的最低证据
 

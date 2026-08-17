@@ -29,21 +29,16 @@ class AdapterResponse {
 class RealHttpClientAdapter implements HttpClientAdapter {
   final Duration _connectTimeout;
   final Duration _readTimeout;
-  final bool allowBadCertificates;
 
   RealHttpClientAdapter({
     Duration connectTimeout = const Duration(seconds: 20),
     Duration readTimeout = const Duration(seconds: 60),
-    this.allowBadCertificates = false,
   })  : _connectTimeout = connectTimeout,
         _readTimeout = readTimeout;
 
   @override
   Future<AdapterResponse> get(Uri uri, {Duration? timeout}) async {
-    final client = HttpClient()
-      ..connectionTimeout = timeout ?? _connectTimeout
-      ..badCertificateCallback =
-          allowBadCertificates ? (_, __, ___) => true : null;
+    final client = HttpClient()..connectionTimeout = timeout ?? _connectTimeout;
 
     try {
       final request = await client.getUrl(uri);

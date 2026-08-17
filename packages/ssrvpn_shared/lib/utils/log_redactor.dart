@@ -54,6 +54,11 @@ class LogRedactor {
     '''(^|[\\s,{])\\b($_sensitiveKeyPattern)\\s*[:=]\\s*["']?[^\\s,;"']+["']?''',
     caseSensitive: false,
   );
+  static final _unixHomePattern = RegExp(r'/(Users|home)/[^/\s]+');
+  static final _windowsHomePattern = RegExp(
+    r'\b([A-Za-z]:\\Users\\)[^\\\s]+',
+    caseSensitive: false,
+  );
 
   static String sanitize(Object? value) {
     var message = value?.toString() ?? '';
@@ -111,6 +116,14 @@ class LogRedactor {
     message = message.replaceAllMapped(
       _credentialAssignmentPattern,
       (match) => '${match[1]}${match[2]}: ***',
+    );
+    message = message.replaceAllMapped(
+      _unixHomePattern,
+      (match) => '/${match[1]}/***',
+    );
+    message = message.replaceAllMapped(
+      _windowsHomePattern,
+      (match) => '${match[1]}***',
     );
     return wasTruncated ? '$message$_truncatedMarker' : message;
   }

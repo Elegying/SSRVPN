@@ -50,5 +50,35 @@ if matches:
     print("\n".join(matches))
     sys.exit("secret scan failed")
 
-print("secret scan passed.")
+production_roots = (
+    "packages/ssrvpn_shared/lib/",
+    "SSRVPN_Android/lib/",
+    "SSRVPN_MacOS/lib/",
+    "SSRVPN_Windows/lib/",
+)
+tls_bypass_patterns = [
+    re.compile(r"\ballowBadCertificates\b"),
+    re.compile(r"badCertificateCallback\s*=\s*\([^)]*\)\s*=>\s*true"),
+]
+tls_bypasses = []
+for name in files:
+    if not name.startswith(production_roots):
+        continue
+    path = Path(name)
+    try:
+        text = path.read_text(errors="ignore")
+    except Exception:
+        continue
+    for pattern in tls_bypass_patterns:
+        match = pattern.search(text)
+        if match is None:
+            continue
+        line = text.count("\n", 0, match.start()) + 1
+        tls_bypasses.append(f"{name}:{line}: forbidden TLS trust bypass")
+
+if tls_bypasses:
+    print("\n".join(tls_bypasses))
+    sys.exit("TLS policy scan failed")
+
+print("secret and TLS policy scan passed.")
 PY
