@@ -18,7 +18,9 @@ class CodeScanningAndAttestationWorkflowTest(unittest.TestCase):
         for language in ("java-kotlin", "swift", "c-cpp"):
             self.assertIn(f"codeql_language: {language}", workflow)
         self.assertIn("languages: ${{ matrix.codeql_language }}", workflow)
-        self.assertIn("build-mode: manual", workflow)
+        self.assertIn("build-mode: ${{ matrix.codeql_build_mode }}", workflow)
+        self.assertEqual(workflow.count("codeql_build_mode: manual"), 2)
+        self.assertEqual(workflow.count("codeql_build_mode: autobuild"), 1)
         self.assertIn("languages: actions", workflow)
         self.assertIn("build-mode: none", workflow)
         self.assertGreaterEqual(
@@ -30,20 +32,20 @@ class CodeScanningAndAttestationWorkflowTest(unittest.TestCase):
             2,
         )
 
-    def test_ci_explicitly_builds_swift_for_codeql_capture(self) -> None:
+    def test_ci_uses_supported_swift_autobuild_for_codeql_capture(self) -> None:
         workflow = CI.read_text(encoding="utf-8")
         platform_job = workflow[workflow.index("  flutter-app:\n") :]
 
-        self.assertIn("Build macOS native target for CodeQL", platform_job)
-        self.assertIn("xcodebuild build", platform_job)
-        self.assertIn(
-            '-derivedDataPath "$RUNNER_TEMP/ssrvpn-codeql-derived-data"',
-            platform_job,
-        )
+        self.assertEqual(platform_job.count("codeql_build_mode: manual"), 2)
+        self.assertEqual(platform_job.count("codeql_build_mode: autobuild"), 1)
+        self.assertIn("build-mode: ${{ matrix.codeql_build_mode }}", platform_job)
+        self.assertIn("Autobuild macOS native target for CodeQL", platform_job)
+        self.assertIn("github/codeql-action/autobuild@", platform_job)
         self.assertLess(
-            platform_job.index("Build macOS native target for CodeQL"),
+            platform_job.index("Autobuild macOS native target for CodeQL"),
             platform_job.index("Analyze native code"),
         )
+        self.assertNotIn("xcodebuild build", platform_job)
 
     def test_release_attests_exact_public_binaries_before_publication(self) -> None:
         workflow = RELEASE.read_text(encoding="utf-8")

@@ -175,14 +175,17 @@ jobs:
             os: ubuntu-latest
             directory: SSRVPN_Android
             codeql_language: java-kotlin
+            codeql_build_mode: manual
           - name: macOS
             os: macos-15
             directory: SSRVPN_MacOS
             codeql_language: swift
+            codeql_build_mode: autobuild
           - name: Windows
             os: windows-latest
             directory: SSRVPN_Windows
             codeql_language: c-cpp
+            codeql_build_mode: manual
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -201,7 +204,7 @@ jobs:
         uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
         with:
           languages: ${{ matrix.codeql_language }}
-          build-mode: manual
+          build-mode: ${{ matrix.codeql_build_mode }}
           queries: security-extended
 
       - name: Cache Gradle dependencies
@@ -227,27 +230,17 @@ jobs:
 
       - run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
 
-      - name: Build macOS native target for CodeQL
+      - name: Configure macOS app for native build
         if: matrix.directory == 'SSRVPN_MacOS'
         shell: bash
         timeout-minutes: 15
-        run: |
-          cd SSRVPN_MacOS
-          flutter build macos --debug --config-only --no-pub
-          xcodebuild build \
-            -quiet \
-            -workspace macos/Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Debug \
-            -destination 'platform=macOS' \
-            -derivedDataPath "$RUNNER_TEMP/ssrvpn-codeql-derived-data" \
-            CODE_SIGNING_ALLOWED=NO
+        run: flutter build macos --debug --config-only --no-pub
+        working-directory: SSRVPN_MacOS
 
-      - name: Build macOS app
+      - name: Autobuild macOS native target for CodeQL
         if: matrix.directory == 'SSRVPN_MacOS'
         timeout-minutes: 15
-        run: flutter build macos --debug
-        working-directory: ${{ matrix.directory }}
+        uses: github/codeql-action/autobuild@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
 
       - name: Build Windows installer
         if: matrix.directory == 'SSRVPN_Windows'
