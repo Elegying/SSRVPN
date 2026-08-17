@@ -423,6 +423,7 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
     _stopRequested = true;
     try {
       if (!await _transitionRequestToRecovery(requestNonce)) {
+        if (await _finishAlreadyRetiredSession(handle, requestNonce)) return;
         _dnsRecoveryRequired = true;
         lastError = '无法持久化 TUN DNS 恢复标记，已保留当前授权会话';
         throw StateError(lastError!);
@@ -466,6 +467,44 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
     } finally {
       _stopRequested = false;
     }
+  }
+
+  Future<bool> _finishAlreadyRetiredSession(
+    TunAuthorizationHandle handle,
+    String? requestNonce,
+  ) async {
+    if (requestNonce == null ||
+        !identical(_authorizationHandle, handle) ||
+        _requestNonce != requestNonce) {
+      return false;
+    }
+    final requestType =
+        await FileSystemEntity.type(requestPath, followLinks: false);
+    final statusType =
+        await FileSystemEntity.type(statusPath, followLinks: false);
+    if (requestType != FileSystemEntityType.notFound ||
+        statusType != FileSystemEntityType.notFound) {
+      return false;
+    }
+    if (_authorizationExitCode == null) {
+      try {
+        await handle.exitCode.timeout(const Duration(milliseconds: 500));
+      } on TimeoutException {
+        return false;
+      }
+    }
+    if (!identical(_authorizationHandle, handle) ||
+        _requestNonce != requestNonce) {
+      return false;
+    }
+    _authorizationHandle = null;
+    _authorizationExitCode = null;
+    _requestNonce = null;
+    _requested = false;
+    _dnsRecoveryRequired = false;
+    _markerCleanupFailed = false;
+    lastError = null;
+    return true;
   }
 
   Future<bool> recoverStaleDnsIfNeeded() async {

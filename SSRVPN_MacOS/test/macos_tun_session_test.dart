@@ -109,6 +109,49 @@ void main() {
     );
   });
 
+  test('stop accepts an already-retired clean runner generation', () async {
+    final dataDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_tun_stop_already_retired_',
+    );
+    addTearDown(() => dataDir.delete(recursive: true));
+    final runner = _writeTunAssets(dataDir);
+    File('${dataDir.path}/config.yaml').writeAsStringSync('proxies: []\n');
+    final status = File('${dataDir.path}/status');
+    final authorizationExit = Completer<int>();
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      statusPath: status.path,
+      appPid: 123,
+      routeProbe: (_, __) async =>
+          ProcessResult(1, 0, '  interface: en0\n', ''),
+      authorizationLauncher: (_, __) async {
+        await status.writeAsString('starting\n', flush: true);
+        return TunAuthorizationHandle(
+          exitCode: authorizationExit.future,
+          terminate: () {},
+        );
+      },
+    );
+
+    expect(await session.start(), isTrue);
+
+    // A network-change exit can finish its privileged DNS cleanup and retire
+    // both files before the user presses Cancel. The nonzero exit describes
+    // why the runner stopped, not a teardown failure.
+    await File(session.requestPath).delete();
+    await status.delete();
+    authorizationExit.complete(1);
+    await Future<void>.delayed(Duration.zero);
+
+    await session.stop();
+
+    expect(session.isRequested, isFalse);
+    expect(session.requiresDnsRecovery, isFalse);
+    expect(session.lastError, isNull);
+  });
+
   test('stop durably marks recovery before waiting for privileged exit',
       () async {
     final dataDir = await Directory.systemTemp.createTemp(
