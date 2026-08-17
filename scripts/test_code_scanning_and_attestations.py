@@ -19,8 +19,8 @@ class CodeScanningAndAttestationWorkflowTest(unittest.TestCase):
             self.assertIn(f"codeql_language: {language}", workflow)
         self.assertIn("languages: ${{ matrix.codeql_language }}", workflow)
         self.assertIn("build-mode: ${{ matrix.codeql_build_mode }}", workflow)
-        self.assertEqual(workflow.count("codeql_build_mode: manual"), 2)
-        self.assertEqual(workflow.count("codeql_build_mode: autobuild"), 1)
+        self.assertEqual(workflow.count("codeql_build_mode: manual"), 3)
+        self.assertNotIn("codeql_build_mode: autobuild", workflow)
         self.assertIn("languages: actions", workflow)
         self.assertIn("build-mode: none", workflow)
         self.assertGreaterEqual(
@@ -32,20 +32,36 @@ class CodeScanningAndAttestationWorkflowTest(unittest.TestCase):
             2,
         )
 
-    def test_ci_uses_supported_swift_autobuild_for_codeql_capture(self) -> None:
+    def test_ci_prepares_swift_dependencies_before_single_arch_codeql_build(
+        self,
+    ) -> None:
         workflow = CI.read_text(encoding="utf-8")
         platform_job = workflow[workflow.index("  flutter-app:\n") :]
 
-        self.assertEqual(platform_job.count("codeql_build_mode: manual"), 2)
-        self.assertEqual(platform_job.count("codeql_build_mode: autobuild"), 1)
+        self.assertEqual(platform_job.count("codeql_build_mode: manual"), 3)
+        self.assertNotIn("codeql_build_mode: autobuild", platform_job)
         self.assertIn("build-mode: ${{ matrix.codeql_build_mode }}", platform_job)
-        self.assertIn("Autobuild macOS native target for CodeQL", platform_job)
-        self.assertIn("github/codeql-action/autobuild@", platform_job)
+        self.assertIn("Prepare macOS dependencies before CodeQL", platform_job)
+        self.assertIn("xcodebuild -resolvePackageDependencies", platform_job)
         self.assertLess(
-            platform_job.index("Autobuild macOS native target for CodeQL"),
+            platform_job.index("Prepare macOS dependencies before CodeQL"),
+            platform_job.index("Initialize CodeQL"),
+        )
+        self.assertIn("Build macOS native target for CodeQL", platform_job)
+        self.assertIn("xcodebuild build", platform_job)
+        self.assertIn("-disableAutomaticPackageResolution", platform_job)
+        self.assertIn("-destination 'platform=macOS,arch=arm64'", platform_job)
+        self.assertIn("ARCH=arm64", platform_job)
+        self.assertGreaterEqual(
+            platform_job.count(
+                '-derivedDataPath "$RUNNER_TEMP/ssrvpn-codeql-derived-data"'
+            ),
+            2,
+        )
+        self.assertLess(
+            platform_job.index("Build macOS native target for CodeQL"),
             platform_job.index("Analyze native code"),
         )
-        self.assertNotIn("xcodebuild build", platform_job)
 
     def test_release_attests_exact_public_binaries_before_publication(self) -> None:
         workflow = RELEASE.read_text(encoding="utf-8")

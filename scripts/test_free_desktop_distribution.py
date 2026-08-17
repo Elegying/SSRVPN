@@ -38,11 +38,11 @@ class FreeDesktopDistributionTest(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("Configure macOS app for native build", ci)
-        self.assertIn("Autobuild macOS native target for CodeQL", ci)
+        self.assertIn("Prepare macOS dependencies before CodeQL", ci)
+        self.assertIn("Build macOS native target for CodeQL", ci)
         self.assertIn("matrix.directory == 'SSRVPN_MacOS'", ci)
         self.assertIn("flutter build macos --debug --config-only --no-pub", ci)
-        self.assertIn("github/codeql-action/autobuild@", ci)
+        self.assertIn("xcodebuild build", ci)
 
     def test_paid_desktop_signing_automation_is_absent(self) -> None:
         active_files = [

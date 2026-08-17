@@ -180,7 +180,7 @@ jobs:
             os: macos-15
             directory: SSRVPN_MacOS
             codeql_language: swift
-            codeql_build_mode: autobuild
+            codeql_build_mode: manual
           - name: Windows
             os: windows-latest
             directory: SSRVPN_Windows
@@ -200,6 +200,22 @@ jobs:
           channel: stable
           cache: true
 
+      - run: bash scripts/verify-core-assets.sh
+
+      - run: flutter pub get
+
+      - name: Prepare macOS dependencies before CodeQL
+        if: matrix.directory == 'SSRVPN_MacOS'
+        shell: bash
+        timeout-minutes: 15
+        working-directory: SSRVPN_MacOS
+        run: |
+          flutter build macos --debug --config-only --no-pub
+          xcodebuild -resolvePackageDependencies \
+            -workspace macos/Runner.xcworkspace \
+            -scheme Runner \
+            -derivedDataPath "$RUNNER_TEMP/ssrvpn-codeql-derived-data"
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
         with:
@@ -214,10 +230,6 @@ jobs:
           cache-provider: basic
           cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}
 
-      - run: bash scripts/verify-core-assets.sh
-
-      - run: flutter pub get
-
       - run: flutter analyze
         working-directory: ${{ matrix.directory }}
 
@@ -230,17 +242,26 @@ jobs:
 
       - run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
 
-      - name: Configure macOS app for native build
+      - name: Build macOS native target for CodeQL
         if: matrix.directory == 'SSRVPN_MacOS'
         shell: bash
         timeout-minutes: 15
-        run: flutter build macos --debug --config-only --no-pub
         working-directory: SSRVPN_MacOS
-
-      - name: Autobuild macOS native target for CodeQL
-        if: matrix.directory == 'SSRVPN_MacOS'
-        timeout-minutes: 15
-        uses: github/codeql-action/autobuild@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+        run: |
+          xcodebuild build \
+            -quiet \
+            -workspace macos/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath "$RUNNER_TEMP/ssrvpn-codeql-derived-data" \
+            -disableAutomaticPackageResolution \
+            ARCH=arm64 \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=NO \
+            SWIFT_ENABLE_COMPILE_CACHE=NO \
+            SWIFT_USE_INTEGRATED_DRIVER=NO
 
       - name: Build Windows installer
         if: matrix.directory == 'SSRVPN_Windows'
