@@ -2,7 +2,7 @@
 
 最近审查：2026-08-17<br>
 当前应用版本：`v4.0.11`；公开发布状态与产物以 [GitHub Release](https://github.com/Elegying/SSRVPN/releases/latest) 为准。<br>
-公开基线：提交 `3f791d9`、[main CI run 31980010536](https://github.com/Elegying/SSRVPN/actions/runs/31980010536) 与 [Release run 31980486396](https://github.com/Elegying/SSRVPN/actions/runs/31980486396) 均成功。本文新增优化仍在本地工作区，尚未提交、推送或发布；其线上结论必须由后续 Pull Request、目标平台 CI 与合并后 `main` CI 重新建立。
+公开基线：提交 `3f791d9`、[main CI run 31980010536](https://github.com/Elegying/SSRVPN/actions/runs/31980010536) 与 [Release run 31980486396](https://github.com/Elegying/SSRVPN/actions/runs/31980486396) 均成功。本文新增优化已提交并推送到功能分支，但尚未创建 Pull Request、合并或发布；其线上结论必须由后续目标平台 CI 与合并后 `main` CI 重新建立。
 
 ## 综合结论与评分
 
@@ -19,7 +19,7 @@
 
 当前没有发现已知 P0-P1 阻断项。主要未决风险是三端人工 UAT、Windows 目标 runner 对本地修改的复核、Android 内嵌核心缺少可定位源码提交，以及 Flutter/Android 上游工具链迁移。
 
-## 本轮完成的优化（本地、未提交）
+## 本轮完成的优化（已推送功能分支、未合并）
 
 - 移除 Android 更新与订阅 HTTP 客户端的 `allowBadCertificates` 生产旁路；秘密扫描同时阻止该开关和无条件接受坏证书的回调重新进入三端生产源码。
 - 本地崩溃报告增加应用版本和基于脱敏内容的稳定指纹；用户目录路径在 macOS、Linux、Windows 三种格式下都会脱敏，仍不自动上传任何诊断数据。
@@ -54,7 +54,7 @@ make verify
 ## 证据边界与残余风险
 
 - 按本轮范围没有执行 Android、macOS、Windows 物理设备人工 UAT；[UAT 矩阵](UAT_MATRIX.md)保持未执行状态，自动化和构建成功不替代真实连接、重启、休眠、网络切换、无障碍及长时间稳定性验收。
-- 当前修改尚未推送，因此新增 CodeQL 和 artifact attestation 只完成配置、语法与结构测试，尚无 GitHub 运行结果；不得引用 v4.0.11 的旧绿色 run 为新修改背书。
+- 当前修改尚未进入 Pull Request 或 `main`，因此新增 CodeQL 和 artifact attestation 只完成配置、语法与结构测试，尚无 GitHub 运行结果；不得引用 v4.0.11 的旧绿色 run 为新修改背书。
 - macOS 本机不能执行 Windows C++、PowerShell 5.1、DPAPI、注册表和 Inno Setup；后续必须由 Windows runner 重新完成原生测试、安装、升级和卸载 smoke。
 - 当前 Android 核心可验证固定二进制、补丁与 build info，但 build info 仅显示本地替换路径，没有上游源码提交。下次替换核心必须同时归档受审源码提交、构建命令、Go/NDK 环境、ABI 与生命周期回归证据。
 - Android 仍有旧 Kotlin/Gradle 兼容开关；`flutter_secure_storage 11` 和更高 `compileSdk` 应随 Flutter 工具链升级共同迁移，不能只为追新版本破坏可构建性。
@@ -71,7 +71,7 @@ make verify
 
 ## 下一阶段最高优先级
 
-1. 获得提交/推送授权后，通过 Pull Request 运行新增 CodeQL、三端 CI 与 Windows 安装器 smoke；合并后再次验证精确 `main` 提交。
+1. 三端实机验收准备完成后，通过 Pull Request 运行新增 CodeQL、三端 CI 与 Windows 安装器 smoke；合并后再次验证精确 `main` 提交。
 2. 按 [UAT 矩阵](UAT_MATRIX.md)在真实 Android、macOS、Windows 上完成连接循环、网络恢复、更新、无障碍、内存与耗电验收。
 3. 为 Android 内嵌核心建立源码仓库、固定提交和可复现构建流水线，再替换当前只能字节级验证的二进制。
 4. 随 Flutter 稳定工具链升级 Android `compileSdk`、Kotlin/Gradle 配置和 `flutter_secure_storage`，每一步保留 APK 与原生回归证据。
