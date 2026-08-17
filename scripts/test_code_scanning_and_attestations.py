@@ -50,8 +50,16 @@ class CodeScanningAndAttestationWorkflowTest(unittest.TestCase):
         self.assertIn("Build macOS native target for CodeQL", platform_job)
         self.assertIn("xcodebuild build", platform_job)
         self.assertIn("-disableAutomaticPackageResolution", platform_job)
-        self.assertIn("-destination 'platform=macOS,arch=arm64'", platform_job)
+        self.assertIn("-destination 'generic/platform=macOS'", platform_job)
         self.assertIn("ARCH=arm64", platform_job)
+        self.assertIn("ARCHS=arm64", platform_job)
+        self.assertIn("ONLY_ACTIVE_ARCH=NO", platform_job)
+        macos_build = platform_job[
+            platform_job.index("Build macOS native target for CodeQL") : platform_job.index(
+                "Build Windows installer"
+            )
+        ]
+        self.assertNotIn("x86_64", macos_build)
         self.assertGreaterEqual(
             platform_job.count(
                 '-derivedDataPath "$RUNNER_TEMP/ssrvpn-codeql-derived-data"'
