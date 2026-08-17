@@ -291,6 +291,9 @@ part_limits = {
         "packages/ssrvpn_shared/lib/widgets/ssrvpn_subscription_error_dialog.dart"
     ): 200,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_home_overview.dart"): 600,
+    Path(
+        "packages/ssrvpn_shared/lib/widgets/ssrvpn_home_overview_header.dart"
+    ): 200,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_page.dart"): 360,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_controls.dart"): 400,
     Path(
@@ -298,6 +301,9 @@ part_limits = {
     ): 200,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_node_card.dart"): 250,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_subscription_view.dart"): 600,
+    Path(
+        "packages/ssrvpn_shared/lib/widgets/ssrvpn_subscription_header.dart"
+    ): 100,
     Path(
         "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_subscription_screen_part.dart"
     ): 450,
@@ -368,7 +374,7 @@ if missing:
 
 print("Desktop network-setting recovery guard passed.")
 
-connect_start = source.index("Future<void> _handleConnectToggle()")
+connect_start = source.index("Future<void> _handleConnectionAction(")
 connect_end = source.index("@override\n  Widget build", connect_start)
 connect = source[connect_start:connect_end]
 for token in ("断开连接失败", "finally {"):
@@ -379,6 +385,13 @@ if "if (_isConnecting) return" in connect:
 for token in ("取消连接失败", "requestConnectionIntent(false)"):
     if token not in connect:
         raise SystemExit(f"{home}: missing desktop cancellation guard: {token}")
+for token in (
+    "_DesktopConnectionAction.cancelPendingConnection",
+    "_DesktopConnectionAction.disconnect",
+    "_DesktopConnectionAction.connect",
+):
+    if token not in source:
+        raise SystemExit(f"{home}: missing explicit desktop connection action: {token}")
 verification = connect.index("verifyUserConnectivity")
 connected_commit = connect.index("_isConnected = true")
 if connected_commit > verification:

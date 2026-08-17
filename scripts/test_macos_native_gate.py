@@ -571,7 +571,6 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "private let coreProcessOperationQueue = DispatchQueue(",
             "func enqueueCoreProcessOperation(_ operation: @escaping () -> Void)",
             "func performCoreProcessOperationAndWait(_ operation: () -> Void)",
-            "func startProxyGuardian(",
             "override func applicationShouldTerminate(",
             "return .terminateLater",
             "func beginProxyLifecycleTransaction() -> String",
@@ -601,6 +600,7 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "private enum ApplicationTerminationLeaseState: Equatable",
         ):
             self.assertIn(token, app_delegate)
+        self.assertIn("func startProxyGuardian(", proxy_guardian)
         for token in (
             "final class AppInstanceLease",
             "O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW",
@@ -659,7 +659,9 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             'call.method == "startProxyGuardian"',
             "expectedGuardianNonce: nonce",
             "expectedOwnerPid: ownerPid",
-            "processInfo.pbi_start_tvsec == owner.startSeconds",
+            "currentOwnerIdentity(owner.pid) == owner",
+            "startSeconds: processInfo.pbi_start_tvsec",
+            "startMicroseconds: processInfo.pbi_start_tvusec",
             "return dependencies.terminateCore(",
         ):
             self.assertTrue(

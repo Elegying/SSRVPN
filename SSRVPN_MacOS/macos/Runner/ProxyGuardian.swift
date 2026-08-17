@@ -217,27 +217,36 @@ enum ProxyGuardianCommand {
   private static func processMatchesOwner(
     _ owner: ProxyGuardianOwnerIdentity
   ) -> Bool {
+    currentOwnerIdentity(owner.pid) == owner
+  }
+
+  static func currentOwnerIdentity(
+    _ pid: Int32
+  ) -> ProxyGuardianOwnerIdentity? {
     var processInfo = proc_bsdinfo()
     let expectedInfoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
     let infoSize = withUnsafeMutablePointer(to: &processInfo) {
-      proc_pidinfo(owner.pid, PROC_PIDTBSDINFO, 0, $0, expectedInfoSize)
+      proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, $0, expectedInfoSize)
     }
     guard
       infoSize == expectedInfoSize,
-      processInfo.pbi_pid == UInt32(owner.pid),
-      processInfo.pbi_start_tvsec == owner.startSeconds,
-      processInfo.pbi_start_tvusec == owner.startMicroseconds
+      processInfo.pbi_pid == UInt32(pid)
     else {
-      return false
+      return nil
     }
     var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
     let pathLength = pathBuffer.withUnsafeMutableBufferPointer {
-      proc_pidpath(owner.pid, $0.baseAddress, UInt32($0.count))
+      proc_pidpath(pid, $0.baseAddress, UInt32($0.count))
     }
-    guard pathLength > 0 else { return false }
+    guard pathLength > 0 else { return nil }
     let path = URL(fileURLWithPath: String(cString: pathBuffer))
       .standardizedFileURL.resolvingSymlinksInPath().path
-    return path == owner.executablePath
+    return ProxyGuardianOwnerIdentity(
+      pid: pid,
+      startSeconds: processInfo.pbi_start_tvsec,
+      startMicroseconds: processInfo.pbi_start_tvusec,
+      executablePath: path
+    )
   }
 
   private static func publishReadyFile(_ url: URL, nonce: String) -> Bool {
@@ -269,5 +278,62 @@ enum ProxyGuardianCommand {
       return true
     }
     return written && Darwin.fsync(descriptor) == 0
+  }
+}
+
+extension AppDelegate {
+  func startProxyGuardian(
+    statePath: String,
+    nonce: String,
+    readyTimeout: TimeInterval = 2
+  ) -> Bool {
+    guard
+      (statePath as NSString).isAbsolutePath,
+      ProxyGuardianCommand.isValidNonce(nonce),
+      let owner = ProxyGuardianCommand.currentOwnerIdentity(getpid())
+    else {
+      return false
+    }
+    let stateURL = URL(fileURLWithPath: statePath).standardizedFileURL
+    let guardianArguments = ProxyGuardianArguments(
+      stateURL: stateURL,
+      nonce: nonce,
+      owner: owner
+    )
+    guard !proxyStatePathEntryExists(at: guardianArguments.readyURL) else {
+      return false
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: owner.executablePath)
+    process.arguments = ProxyGuardianCommand.arguments(
+      stateURL: stateURL,
+      nonce: nonce,
+      owner: owner
+    )
+    if let nullOutput = FileHandle(forWritingAtPath: "/dev/null") {
+      process.standardOutput = nullOutput
+      process.standardError = nullOutput
+    }
+    process.terminationHandler = { _ in }
+    do {
+      try process.run()
+    } catch {
+      return false
+    }
+
+    let deadline = Date().addingTimeInterval(readyTimeout)
+    while Date() < deadline {
+      if ProxyGuardianCommand.consumeReadyFile(
+        at: guardianArguments.readyURL,
+        nonce: nonce
+      ) {
+        return process.isRunning
+      }
+      if !process.isRunning { return false }
+      Thread.sleep(forTimeInterval: 0.05)
+    }
+    if process.isRunning { process.terminate() }
+    return false
   }
 }

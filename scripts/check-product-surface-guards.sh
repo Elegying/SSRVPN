@@ -221,7 +221,12 @@ for path, source in (
 home_overview_path = Path(
     "packages/ssrvpn_shared/lib/widgets/ssrvpn_home_overview.dart"
 )
-home_overview = read_source(home_overview_path)
+home_overview_header_path = Path(
+    "packages/ssrvpn_shared/lib/widgets/ssrvpn_home_overview_header.dart"
+)
+home_overview = (
+    read_source(home_overview_path) + "\n" + read_source(home_overview_header_path)
+)
 home_about_guards = (
     (app_surface_path, app_surface, ("showSsrvpnAboutDialog",)),
     (

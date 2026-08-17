@@ -1896,7 +1896,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             tray_connect[tray_recovery:],
         )
         home_connect = home[
-            home.index("Future<void> _handleConnectToggle()") : home.index(
+            home.index("Future<void> _handleConnectionAction(") : home.index(
                 "@override\n  Widget build"
             )
         ]

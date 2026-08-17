@@ -325,7 +325,9 @@ for token, source in (
     ('call.method == "startProxyGuardian"', main_window),
     ("expectedGuardianNonce: nonce", proxy_guardian),
     ("expectedOwnerPid: ownerPid", proxy_guardian),
-    ("processInfo.pbi_start_tvsec == owner.startSeconds", proxy_guardian),
+    ("currentOwnerIdentity(owner.pid) == owner", proxy_guardian),
+    ("startSeconds: processInfo.pbi_start_tvsec", proxy_guardian),
+    ("startMicroseconds: processInfo.pbi_start_tvusec", proxy_guardian),
 ):
     if token not in source:
         raise SystemExit(f"macOS proxy guardian lost required guard: {token}")
