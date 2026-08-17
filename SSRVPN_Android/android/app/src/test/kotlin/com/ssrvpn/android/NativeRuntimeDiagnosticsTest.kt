@@ -108,6 +108,50 @@ class NativeRuntimeDiagnosticsTest {
     }
 
     @Test
+    fun `stop closes the retained VPN lease before checking kernel release`() {
+        val events = mutableListOf<String>()
+        var leaseOpen = true
+
+        val released = TunReleaseVerifier.releaseOwnedLeaseAndWait(
+            bridgeStopped = true,
+            attempts = 1,
+            retryDelayMillis = 0,
+            closeOwnedLease = {
+                events += "close"
+                leaseOpen = false
+            },
+            isReleased = {
+                events += "verify"
+                !leaseOpen
+            }
+        )
+
+        assertTrue(released)
+        assertEquals(listOf("close", "verify"), events)
+    }
+
+    @Test
+    fun `failed bridge stop still closes the retained VPN lease`() {
+        var closeCount = 0
+        var verifierCalled = false
+
+        val released = TunReleaseVerifier.releaseOwnedLeaseAndWait(
+            bridgeStopped = false,
+            attempts = 1,
+            retryDelayMillis = 0,
+            closeOwnedLease = { closeCount += 1 },
+            isReleased = {
+                verifierCalled = true
+                true
+            }
+        )
+
+        assertFalse(released)
+        assertEquals(1, closeCount)
+        assertFalse(verifierCalled)
+    }
+
+    @Test
     fun `residual TUN and Bridge remain visible after service flag drops`() {
         tracker.claimTunDescriptor(42) { setOf("tun0") }
 

@@ -362,7 +362,7 @@ start_core = source[
 establish = start_core.index("vpnFd = builder.establish()")
 protect_init = start_core.index("bridge.Bridge.initProtect()")
 protect_monitor = start_core.index("VpnProtectMonitor.start(")
-detach = start_core.index("DetachedTunFdOwner.detach(descriptor)")
+detach = start_core.index("DetachedTunFdOwner.detach(bridgeDescriptor)")
 if not establish < protect_init < protect_monitor < detach:
     raise SystemExit(
         "Android protect pipe must start only after VPN establish and before fd detach"
@@ -409,7 +409,7 @@ record_failure = runner_body.index("cleanupFailure = error", force)
 handoff_callback = runner_body.index(
     "if (terminationRequired) onTerminationRequired()", record_failure
 )
-complete_callback = runner_body.index("complete()", handoff_callback)
+complete_callback = runner_body.index("complete(!terminationRequired)", handoff_callback)
 schedule_callback = runner_body.index(
     "if (terminationRequired) scheduleTermination()", complete_callback
 )
@@ -579,14 +579,21 @@ for required in (
 for required in (
     "runtimeDiagnostics.beginTunLease()",
     "runtimeDiagnostics.claimTunDescriptor(tunFd)",
-    "runtimeDiagnostics.releaseTunDescriptorIfClosed()",
+    "runtimeDiagnostics::releaseTunDescriptorIfClosed",
 ):
     if required not in service:
         raise SystemExit(f"Android VPN service lost diagnostic ownership hook: {required}")
-commit_start = service.index("val published = startGeneration.runIfCurrent(startToken)")
-commit_end = service.index("NativeConnectionSession.publishRunning(configPath)", commit_start)
-if "runtimeDiagnostics.claimTunDescriptor(tunFd)" not in service[commit_start:commit_end]:
-    raise SystemExit("Android TUN diagnostic ownership is outside the session commit")
+start_core = service[
+    service.index("private fun startCoreWithVpn("):
+    service.index("private fun ensureStartCurrent(")
+]
+detach = start_core.index("DetachedTunFdOwner.detach(bridgeDescriptor)")
+claim = start_core.index("runtimeDiagnostics.claimTunDescriptor(tunFd)")
+bridge_start = start_core.index("startBridgeWithTimeout(configDir, configPath, tunFdOwner)")
+if not detach < claim < bridge_start:
+    raise SystemExit(
+        "Android TUN ownership must be claimed before Bridge start can be cancelled"
+    )
 PY
 grep -Fq "ConcurrentHashMap<String" "$START_RESULT_REGISTRY" || {
   echo "Android start callback registry lost its concurrent ownership map" >&2

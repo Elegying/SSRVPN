@@ -11,15 +11,15 @@ class CoalescedOperationTest {
         val operation = CoalescedOperation()
         val completed = mutableListOf<String>()
 
-        assertTrue(operation.joinOrBegin { completed += "first" })
-        assertFalse(operation.joinOrBegin { completed += "second" })
+        assertTrue(operation.joinOrBegin { completed += "first:$it" })
+        assertFalse(operation.joinOrBegin { completed += "second:$it" })
         assertTrue(operation.isRunning)
         assertTrue(completed.isEmpty())
 
-        operation.complete()
+        operation.complete(true)
 
         assertFalse(operation.isRunning)
-        assertEquals(listOf("first", "second"), completed)
+        assertEquals(listOf("first:true", "second:true"), completed)
     }
 
     @Test
@@ -27,7 +27,7 @@ class CoalescedOperationTest {
         val operation = CoalescedOperation()
 
         assertTrue(operation.joinOrBegin())
-        operation.complete()
+        operation.complete(false)
 
         assertTrue(operation.joinOrBegin())
     }

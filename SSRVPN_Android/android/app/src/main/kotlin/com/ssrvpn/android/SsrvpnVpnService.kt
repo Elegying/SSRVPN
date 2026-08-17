@@ -488,9 +488,10 @@ class SsrvpnVpnService : VpnService() {
 
             ensureStartCurrent(startToken)
             val descriptor = checkNotNull(vpnFd)
-            vpnFd = null
-            val tunFdOwner = DetachedTunFdOwner.detach(descriptor)
+            val bridgeDescriptor = ParcelFileDescriptor.dup(descriptor.fileDescriptor)
+            val tunFdOwner = DetachedTunFdOwner.detach(bridgeDescriptor)
             val tunFd = tunFdOwner.descriptorNumber
+            runtimeDiagnostics.claimTunDescriptor(tunFd)
             Log.d(TAG, "VPN established! fd=$tunFd")
             try {
                 ensureStartCurrent(startToken)
@@ -539,7 +540,6 @@ class SsrvpnVpnService : VpnService() {
                     }
                     ensureStartCurrent(startToken)
                     val published = startGeneration.runIfCurrent(startToken) {
-                        runtimeDiagnostics.claimTunDescriptor(tunFd)
                         NativeConnectionSession.publishRunning(configPath)
                         isRunning = true
                         broadcastState(this)
@@ -779,7 +779,7 @@ class SsrvpnVpnService : VpnService() {
     fun stopAll(
         preserveForegroundUi: Boolean = false,
         recordManualStop: Boolean = false,
-        onComplete: (() -> Unit)? = null
+        onComplete: ((Boolean) -> Unit)? = null
     ) {
         if (recordManualStop && !VpnServiceRestartStore.recordManualStop(this)) {
             Log.e(TAG, "Unable to persist manual VPN disconnect")
@@ -789,11 +789,11 @@ class SsrvpnVpnService : VpnService() {
         stopInternal(true, preserveForegroundUi, onComplete)
     }
     private fun stopForRecovery(onComplete: () -> Unit) =
-        stopInternal(false, false, onComplete)
+        stopInternal(false, false) { onComplete() }
 
     private fun stopInternal(
         stopServiceWhenDone: Boolean, preserveForegroundUi: Boolean,
-        onComplete: (() -> Unit)?
+        onComplete: ((Boolean) -> Unit)?
     ) {
         notificationGeneration.invalidate()
         startGeneration.invalidate {
@@ -805,11 +805,11 @@ class SsrvpnVpnService : VpnService() {
             }
         }
         serviceStartThread?.interrupt()
-        val completion: () -> Unit = {
+        val completion: (Boolean) -> Unit = { stoppedCleanly ->
             if (stopServiceWhenDone || manualStopRequested.get()) {
                 stopSelf()
             }
-            onComplete?.invoke()
+            onComplete?.invoke(stoppedCleanly)
             Unit
         }
         if (!stopOperation.joinOrBegin(completion)) {
@@ -845,9 +845,12 @@ class SsrvpnVpnService : VpnService() {
         protectMonitor = null
         val pendingStartStopped = waitForPendingStart()
         val bridgeStopped = pendingStartStopped && stopBridgeWithTimeout()
-        val tunReleased = bridgeStopped && TunReleaseVerifier.waitUntilReleased {
-            runtimeDiagnostics.releaseTunDescriptorIfClosed()
-        }
+        val retainedLease = vpnFd.also { vpnFd = null }
+        val tunReleased = TunReleaseVerifier.releaseOwnedLeaseAndWait(
+            bridgeStopped = bridgeStopped,
+            closeOwnedLease = { runCatching { retainedLease?.close() } },
+            isReleased = runtimeDiagnostics::releaseTunDescriptorIfClosed
+        )
         if (bridgeStopped && !tunReleased)
             Log.e(TAG, "Bridge stopped but the owned TUN lease is still present")
         val protectMonitorStopped = waitForProtectMonitor(activeProtectMonitor?.thread)
@@ -859,10 +862,6 @@ class SsrvpnVpnService : VpnService() {
         if (stopDecision.terminateProcess) {
             Log.e(TAG, stopDecision.terminationMessage(currentDataPorts))
         }
-        try {
-            vpnFd?.close()
-        } catch (_: Exception) {}
-        vpnFd = null
         isRunning = false
         if (stopDecision.clearRunningSession) NativeConnectionSession.clearRunning()
         broadcastState(this)

@@ -154,4 +154,16 @@ internal object TunReleaseVerifier {
         }
         return false
     }
+
+    fun releaseOwnedLeaseAndWait(
+        bridgeStopped: Boolean,
+        attempts: Int = DEFAULT_ATTEMPTS,
+        retryDelayMillis: Long = DEFAULT_RETRY_DELAY_MILLIS,
+        closeOwnedLease: () -> Unit,
+        isReleased: () -> Boolean
+    ): Boolean {
+        closeOwnedLease()
+        if (!bridgeStopped) return false
+        return waitUntilReleased(attempts, retryDelayMillis, isReleased)
+    }
 }

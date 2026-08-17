@@ -4,23 +4,23 @@ package com.ssrvpn.android
 internal class CoalescedOperation {
     private val lock = Any()
     private var running = false
-    private val completions = mutableListOf<() -> Unit>()
+    private val completions = mutableListOf<(Boolean) -> Unit>()
 
     val isRunning: Boolean
         get() = synchronized(lock) { running }
 
-    fun joinOrBegin(onComplete: (() -> Unit)? = null): Boolean = synchronized(lock) {
+    fun joinOrBegin(onComplete: ((Boolean) -> Unit)? = null): Boolean = synchronized(lock) {
         if (onComplete != null) completions += onComplete
         if (running) return@synchronized false
         running = true
         true
     }
 
-    fun complete() {
+    fun complete(stoppedCleanly: Boolean) {
         val pending = synchronized(lock) {
             running = false
             completions.toList().also { completions.clear() }
         }
-        pending.forEach { runCatching(it) }
+        pending.forEach { completion -> runCatching { completion(stoppedCleanly) } }
     }
 }
