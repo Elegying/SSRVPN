@@ -164,6 +164,7 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         project = self.read(
             "SSRVPN_MacOS/macos/Runner.xcodeproj/project.pbxproj"
         )
+        privilege_gate = self.read("scripts/check-macos-core-privileges.sh")
 
         self.assertIn("@main\nclass AppDelegate: FlutterAppDelegate", app_delegate)
         self.assertIn(
@@ -172,6 +173,12 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         self.assertIn("ProxyGuardianCommand.isRequested()", app_delegate)
         self.assertIn("ProxyGuardianCommand.run()", app_delegate)
         self.assertNotIn("main.swift", project)
+        self.assertNotIn("native_main = Path(", privilege_gate)
+        self.assertIn(
+            'Path("SSRVPN_MacOS/macos/Runner/main.swift").exists()',
+            privilege_gate,
+        )
+        self.assertIn("applicationWillFinishLaunching", privilege_gate)
         self.assertFalse(
             (ROOT / "SSRVPN_MacOS/macos/Runner/main.swift").exists()
         )
