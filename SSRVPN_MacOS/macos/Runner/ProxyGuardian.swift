@@ -282,6 +282,30 @@ enum ProxyGuardianCommand {
 }
 
 extension AppDelegate {
+  func proxyGuardianExpectationMatches(
+    _ root: [String: Any],
+    expectedNonce: String?,
+    expectedOwnerPid: Int32?
+  ) -> Bool {
+    if let expectedNonce,
+       root["_guardianNonce"] as? String != expectedNonce {
+      NSLog("[AppDelegate] Proxy guardian nonce no longer matches; preserving state")
+      return false
+    }
+    if let expectedOwnerPid {
+      guard
+        let ownerPidNumber = root["_ownerPid"] as? NSNumber,
+        CFGetTypeID(ownerPidNumber) != CFBooleanGetTypeID(),
+        ownerPidNumber.doubleValue == Double(ownerPidNumber.intValue),
+        ownerPidNumber.intValue == Int(expectedOwnerPid)
+      else {
+        NSLog("[AppDelegate] Proxy guardian owner no longer matches; preserving state")
+        return false
+      }
+    }
+    return true
+  }
+
   func startProxyGuardian(
     statePath: String,
     nonce: String,

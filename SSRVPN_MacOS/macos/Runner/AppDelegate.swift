@@ -1297,23 +1297,11 @@ class AppDelegate: FlutterAppDelegate {
       guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return false
       }
-      if let expectedGuardianNonce {
-        guard root["_guardianNonce"] as? String == expectedGuardianNonce else {
-          NSLog("[AppDelegate] Proxy guardian nonce no longer matches; preserving state")
-          return false
-        }
-      }
-      if let expectedOwnerPid {
-        guard
-          let ownerPidNumber = root["_ownerPid"] as? NSNumber,
-          CFGetTypeID(ownerPidNumber) != CFBooleanGetTypeID(),
-          ownerPidNumber.doubleValue == Double(ownerPidNumber.intValue),
-          ownerPidNumber.intValue == Int(expectedOwnerPid)
-        else {
-          NSLog("[AppDelegate] Proxy guardian owner no longer matches; preserving state")
-          return false
-        }
-      }
+      guard proxyGuardianExpectationMatches(
+        root,
+        expectedNonce: expectedGuardianNonce,
+        expectedOwnerPid: expectedOwnerPid
+      ) else { return false }
       guard let rawOwnedHost = root["_ownedProxyHost"] as? String else {
         // A legacy snapshot cannot prove which live proxy endpoint belongs to
         // SSRVPN. It must remain unresolved so termination cannot strand the

@@ -2702,6 +2702,30 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(events, ["ready", "restore", "terminate"])
   }
 
+  func testProxyGuardianRestoreExpectationRequiresMatchingNonceAndOwner() {
+    let delegate = AppDelegate()
+    let root: [String: Any] = [
+      "_guardianNonce": "expected",
+      "_ownerPid": NSNumber(value: 4242),
+    ]
+
+    XCTAssertTrue(delegate.proxyGuardianExpectationMatches(
+      root,
+      expectedNonce: "expected",
+      expectedOwnerPid: 4242
+    ))
+    XCTAssertFalse(delegate.proxyGuardianExpectationMatches(
+      root,
+      expectedNonce: "replaced",
+      expectedOwnerPid: 4242
+    ))
+    XCTAssertFalse(delegate.proxyGuardianExpectationMatches(
+      ["_guardianNonce": "expected", "_ownerPid": true],
+      expectedNonce: "expected",
+      expectedOwnerPid: 4242
+    ))
+  }
+
   func testProxyGuardianKeepsCoreWhenProxyRestoreFails() {
     var ownerChecks = 0
     var terminateCalls = 0
