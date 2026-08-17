@@ -44,7 +44,7 @@ void main() {
     final fingerprintPattern =
         RegExp(r'^fingerprint: ([a-f0-9]{16})$', multiLine: true);
 
-    expect(firstReport, contains('release: 4.0.11'));
+    expect(firstReport, contains('release: 4.0.12'));
     expect(fingerprintPattern.firstMatch(firstReport), isNotNull);
     expect(
       fingerprintPattern.firstMatch(firstReport)!.group(1),

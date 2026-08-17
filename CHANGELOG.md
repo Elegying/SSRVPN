@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.12] - 2026-08-18
+
+### 修复
+
+- Android 停止事务现在保留并关闭 framework 原始 TUN lease，等待 Bridge 副本、接口、路由与数据端口全部释放后才报告成功；旧系统延迟枚举 TUN 时会以建立前基线补认本代所有权，避免正常断开误触发进程终止兜底。
+- Android 增加底层非 VPN 网络状态上报，分离“VPN 隧道存活”与“底层网络可用”展示；通知断开入口改为显式、不可变且带固定组件身份的 Intent。
+- macOS 修复首页按钮渲染动作不一致和退出生命周期调用；新增轻量 ProxyGuardian，在客户端异常退出后只恢复本应用拥有的系统代理事务。
+- macOS TUN 取消会接受已经完成安全清理并退役精确代际的网络变化终态，同时继续拒绝 DNS 恢复失败、陈旧、超长或非普通状态文件。
+- Windows 安装器只删除自身创建且身份可确认的下载包，等待旧版快捷方式清理完成，并清除本地化旧用户作用域卸载项；安全模式不再把跳过的组件误报为初始化成功。
+- 共享诊断日志补充带空格和 Unicode 的用户目录脱敏，诊断复制显示成功或失败反馈；大字体、软键盘和重复匿名语义节点的可达性问题已修复。
+
+### 发布与验证
+
+- Pull Request CI 增加 GitHub Actions、Android Java/Kotlin 与 Windows C/C++ CodeQL，以及独立无注入的 macOS XCTest；正式 APK、DMG 与 EXE 生成 GitHub artifact attestation。macOS Swift CodeQL 注入会使 `xcodebuild` 卡死，当前不作为必需发布检查。
+- Android 11 原始故障机连续 4 轮正常断开均保持 PID，TUN、Service、接口和端口全部释放；Android 17 完成 4 轮正常断开和 2 轮快速取消，无崩溃、ANR 或资源残留。
+- macOS arm64 候选完成启动、TUN 真实数据路径、正常断开、系统网络恢复与退出验证；按测试边界未把持续断网后的取消专项标记为通过。Windows 候选安装器完成覆盖安装、用户数据保留、连接、真实代理访问和断开验证。
+
+### 兼容性边界
+
+- 未修改既定订阅、路由、IPv4-only、签名或工具链规则。macOS 正式包继续仅支持 Apple M 系列芯片并采用免费 ad-hoc、未公证分发；Windows 继续发布未签名安装器。
+
 ## [4.0.11] - 2026-08-17
 
 ### 修复

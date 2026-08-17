@@ -99,7 +99,7 @@ scripts/check-coverage-thresholds.sh SSRVPN_MacOS
 
 ### 发布与文档
 
-发布工具使用 Python 单元测试和资产冒烟；免费桌面分发守卫要求 CI、Release 与打包脚本不含 Apple/Microsoft 付费签名入口，同时要求 macOS 继续执行 ad-hoc 签名验证，并拒绝 Release 中的调试、JIT、未签名可执行内存和禁用库校验 entitlement。Gatekeeper/SmartScreen 提示仍必须由干净设备验收。文档门禁自动枚举全部受版本控制 Markdown 并检查本地链接；历史 `CHANGELOG.md` 不应用当前状态断言，其余当前文档会拒绝已知陈旧结论和轻量发布 tag 命令。Pull Request 的 Dependency Review 拒绝新增中等及以上已知漏洞；CodeQL 分别分析 GitHub Actions、Android Java/Kotlin、macOS Swift 和 Windows C/C++，Dart 仍由 analyzer、测试和输入边界门禁覆盖。上述门禁不能替代 lockfile、完整 CI 或定期维护。发布构建为 APK、DMG 和 EXE 生成 GitHub 签名的 SLSA provenance attestation；发布后资产检查仍通过已认证的 GitHub CLI 下载元数据、SHA-256 文件与仓库 provenance，并对瞬时失败有限重试，随后重新下载公开产物校验随包 SHA256 和签名证明。
+发布工具使用 Python 单元测试和资产冒烟；免费桌面分发守卫要求 CI、Release 与打包脚本不含 Apple/Microsoft 付费签名入口，同时要求 macOS 继续执行 ad-hoc 签名验证，并拒绝 Release 中的调试、JIT、未签名可执行内存和禁用库校验 entitlement。Gatekeeper/SmartScreen 提示仍必须由干净设备验收。文档门禁自动枚举全部受版本控制 Markdown 并检查本地链接；历史 `CHANGELOG.md` 不应用当前状态断言，其余当前文档会拒绝已知陈旧结论、遗漏的 Apple M 系列支持边界和轻量发布 tag 命令。Pull Request 的 Dependency Review 拒绝新增中等及以上已知漏洞；CodeQL 分别分析 GitHub Actions、Android Java/Kotlin 和 Windows C/C++。macOS Swift 因 GitHub CodeQL 注入环境会使 `xcodebuild` 卡死，不列为当前必需扫描；独立无注入 XCTest、Flutter analyze、覆盖率和 arm64 构建继续作为必需门禁。Dart 仍由 analyzer、测试和输入边界门禁覆盖。上述门禁不能替代 lockfile、完整 CI 或定期维护。发布构建为 APK、DMG 和 EXE 生成 GitHub 签名的 SLSA provenance attestation；发布后资产检查仍通过已认证的 GitHub CLI 下载元数据、SHA-256 文件与仓库 provenance，并对瞬时失败有限重试，随后重新下载公开产物校验随包 SHA256 和签名证明。
 
 ## 常用命令
 
