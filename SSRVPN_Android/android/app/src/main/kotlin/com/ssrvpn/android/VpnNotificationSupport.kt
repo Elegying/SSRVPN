@@ -50,10 +50,13 @@ internal object VpnNotificationSupport {
             Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val disconnectIntent = Intent(context, SsrvpnVpnService::class.java).apply {
+            action = disconnectAction
+        }
         val disconnectPending = PendingIntent.getService(
             context,
             1,
-            Intent(context, SsrvpnVpnService::class.java).setAction(disconnectAction),
+            disconnectIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val rateText = state.statusText ?: if (state.connected) {
