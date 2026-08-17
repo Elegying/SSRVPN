@@ -30,6 +30,21 @@ class CodeScanningAndAttestationWorkflowTest(unittest.TestCase):
             2,
         )
 
+    def test_ci_explicitly_builds_swift_for_codeql_capture(self) -> None:
+        workflow = CI.read_text(encoding="utf-8")
+        platform_job = workflow[workflow.index("  flutter-app:\n") :]
+
+        self.assertIn("Build macOS native target for CodeQL", platform_job)
+        self.assertIn("xcodebuild build", platform_job)
+        self.assertIn(
+            '-derivedDataPath "$RUNNER_TEMP/ssrvpn-codeql-derived-data"',
+            platform_job,
+        )
+        self.assertLess(
+            platform_job.index("Build macOS native target for CodeQL"),
+            platform_job.index("Analyze native code"),
+        )
+
     def test_release_attests_exact_public_binaries_before_publication(self) -> None:
         workflow = RELEASE.read_text(encoding="utf-8")
 

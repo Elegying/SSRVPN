@@ -227,6 +227,22 @@ jobs:
 
       - run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
 
+      - name: Build macOS native target for CodeQL
+        if: matrix.directory == 'SSRVPN_MacOS'
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          cd SSRVPN_MacOS
+          flutter build macos --debug --config-only --no-pub
+          xcodebuild build \
+            -quiet \
+            -workspace macos/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/ssrvpn-codeql-derived-data" \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Build macOS app
         if: matrix.directory == 'SSRVPN_MacOS'
         timeout-minutes: 15
