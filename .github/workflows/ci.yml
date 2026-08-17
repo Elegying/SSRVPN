@@ -135,6 +135,31 @@ jobs:
             SSRVPN_Windows/assets/mihomo.exe
             SSRVPN_Windows/assets/geoip.metadb.gz
 
+  macos-native:
+    name: macOS native unit tests
+    needs: [core-assets, secret-scan]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: core-assets
+          path: .
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: bash scripts/verify-core-assets.sh
+      - run: flutter pub get
+
+      - name: Run macOS native unit tests
+        timeout-minutes: 15
+        run: bash scripts/test-macos-native.sh
+
   flutter-app:
     name: ${{ matrix.name }}
     needs: [core-assets, secret-scan]
@@ -194,12 +219,6 @@ jobs:
         working-directory: ${{ matrix.directory }}
 
       - run: bash scripts/run-flutter-coverage.sh ${{ matrix.directory }}
-
-      - name: macOS native unit tests
-        if: matrix.directory == 'SSRVPN_MacOS'
-        shell: bash
-        timeout-minutes: 15
-        run: bash scripts/test-macos-native.sh
 
       - name: Android native unit tests
         if: matrix.directory == 'SSRVPN_Android'

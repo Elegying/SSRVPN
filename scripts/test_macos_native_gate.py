@@ -508,9 +508,10 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         self.assertIn('run_step "macOS native unit tests" scripts/test-macos-native.sh', verify_all)
         self.assertRegex(
             ci,
-            r"(?s)name: macOS native unit tests.+?matrix\.directory == 'SSRVPN_MacOS'.+?"
-            r"bash scripts/test-macos-native\.sh",
+            r"(?s)macos-native:.+?name: macOS native unit tests.+?"
+            r"runs-on: macos-15.+?bash scripts/test-macos-native\.sh",
         )
+        self.assertEqual(ci.count("bash scripts/test-macos-native.sh"), 1)
         self.assertRegex(
             release,
             r"(?s)name: macOS native unit tests.+?bash scripts/test-macos-native\.sh",
