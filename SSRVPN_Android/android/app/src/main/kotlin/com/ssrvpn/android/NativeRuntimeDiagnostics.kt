@@ -25,6 +25,7 @@ internal data class NativeRuntimeDiagnostics(
 internal class NativeRuntimeDiagnosticsTracker {
     private data class TunOwnershipClaim(
         val descriptor: Long,
+        val baselineInterfaceNames: Set<String>?,
         val interfaceNames: Set<String>?
     )
 
@@ -47,12 +48,12 @@ internal class NativeRuntimeDiagnosticsTracker {
         val baseline = tunInterfaceBaseline
         val current = activeTunInterfaces()
         val ownedInterfaces = if (baseline != null && current != null) {
-            (current - baseline).takeIf { it.isNotEmpty() }
+            current - baseline
         } else {
             current
         }
         tunOwnershipClaim = descriptor.takeIf { it in 1..Int.MAX_VALUE.toLong() }
-            ?.let { TunOwnershipClaim(it, ownedInterfaces) }
+            ?.let { TunOwnershipClaim(it, baseline, ownedInterfaces) }
         tunInterfaceBaseline = null
     }
 
@@ -66,7 +67,8 @@ internal class NativeRuntimeDiagnosticsTracker {
             return true
         }
         val currentInterfaces = tunInterfaces() ?: return false
-        val ownedInterfaces = claim.interfaceNames ?: return false
+        val ownedInterfaces = resolveOwnedTunInterfaces(claim, currentInterfaces)
+            ?: return false
         if (ownedInterfaces.any(currentInterfaces::contains)) return false
         val target = descriptorTarget(claim.descriptor)
         if (target == UNKNOWN_DESCRIPTOR_TARGET ||
@@ -75,6 +77,7 @@ internal class NativeRuntimeDiagnosticsTracker {
         ) {
             return false
         }
+        if (tunOwnershipClaim !== claim) return false
         tunOwnershipClaim = null
         return true
     }
@@ -90,8 +93,9 @@ internal class NativeRuntimeDiagnosticsTracker {
         val currentTunInterfaces = activeTunInterfaces()
         val tunEstablished = when {
             claim == null -> false
-            claim.interfaceNames == null || currentTunInterfaces == null -> null
-            else -> claim.interfaceNames.any(currentTunInterfaces::contains)
+            currentTunInterfaces == null -> null
+            else -> resolveOwnedTunInterfaces(claim, currentTunInterfaces)
+                ?.any(currentTunInterfaces::contains)
         }
         return NativeRuntimeDiagnostics(
             serviceRunning = serviceRunning,
@@ -100,6 +104,20 @@ internal class NativeRuntimeDiagnosticsTracker {
             bridgeReady = bridgeReady,
             protectMonitorAlive = protectMonitorAlive
         )
+    }
+
+    private fun resolveOwnedTunInterfaces(
+        claim: TunOwnershipClaim,
+        currentInterfaces: Set<String>
+    ): Set<String>? {
+        val knownInterfaces = claim.interfaceNames ?: return null
+        val baselineInterfaces = claim.baselineInterfaceNames
+            ?: return knownInterfaces.takeIf { it.isNotEmpty() }
+        val resolvedInterfaces = knownInterfaces + (currentInterfaces - baselineInterfaces)
+        if (resolvedInterfaces != knownInterfaces && tunOwnershipClaim === claim) {
+            tunOwnershipClaim = claim.copy(interfaceNames = resolvedInterfaces)
+        }
+        return resolvedInterfaces
     }
 
     private companion object {

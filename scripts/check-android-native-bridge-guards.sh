@@ -568,10 +568,11 @@ for required in (
     "beginTunLease",
     "claimTunDescriptor",
     "TunOwnershipClaim",
+    "baselineInterfaceNames",
     "releaseTunDescriptorIfClosed",
     "tunInterfaceNames",
     'Os.readlink("/proc/self/fd/$descriptor")',
-    "claim.interfaceNames.any(currentTunInterfaces::contains)",
+    "resolveOwnedTunInterfaces(claim, currentTunInterfaces)",
     "bridgeReady = bridgeReady",
 ):
     if required not in runtime:

@@ -108,6 +108,60 @@ class NativeRuntimeDiagnosticsTest {
     }
 
     @Test
+    fun `delayed TUN discovery is captured before release`() {
+        tracker.beginTunLease { emptySet() }
+        tracker.claimTunDescriptor(42) { emptySet() }
+
+        val connected = tracker.snapshot(
+            serviceRunning = true,
+            operationBusy = false,
+            protectMonitorAlive = true,
+            bridgeReady = true,
+            activeTunInterfaces = { setOf("tun0") }
+        ).toMap()
+
+        assertTrue(connected["tunEstablished"] as Boolean)
+        assertFalse(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { setOf("tun0") },
+                descriptorTarget = { null }
+            )
+        )
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { null }
+            )
+        )
+    }
+
+    @Test
+    fun `unobserved TUN generation releases after baseline and fd recover`() {
+        tracker.beginTunLease { emptySet() }
+        tracker.claimTunDescriptor(42) { emptySet() }
+
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { null }
+            )
+        )
+    }
+
+    @Test
+    fun `unknown TUN baseline remains fail closed after fd release`() {
+        tracker.beginTunLease { null }
+        tracker.claimTunDescriptor(42) { null }
+
+        assertFalse(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { null }
+            )
+        )
+    }
+
+    @Test
     fun `stop closes the retained VPN lease before checking kernel release`() {
         val events = mutableListOf<String>()
         var leaseOpen = true
