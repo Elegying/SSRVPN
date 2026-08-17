@@ -41,6 +41,8 @@ class ClashService extends ClashServiceBase {
   int? _nativeSessionGeneration;
   bool _nativeSessionProtocolAvailable = false;
   bool _nativeConnectionTransitioning = false;
+  bool? _underlyingNetworkAvailable;
+  bool? _underlyingNetworkValidated;
   String? _runningConfigPath;
   final Set<String> _preparedConfigPaths = <String>{};
 
@@ -50,6 +52,17 @@ class ClashService extends ClashServiceBase {
   String get corePath => _corePath;
   bool get coreExists => File(_corePath).existsSync();
   bool get nativeConnectionTransitioning => _nativeConnectionTransitioning;
+  String? get underlyingNetworkNotice {
+    if (!isRunning || _underlyingNetworkAvailable == null) return null;
+    if (_underlyingNetworkAvailable == false) {
+      return '无可用网络，VPN 正在等待恢复';
+    }
+    if (_underlyingNetworkValidated == false) {
+      return '网络尚未验证，VPN 正在等待恢复';
+    }
+    return null;
+  }
+
   void setCorePath(String path) => _corePath = path;
 
   Future<void> invalidateIdleNativeConnectionSnapshot() =>
@@ -372,6 +385,10 @@ class ClashService extends ClashServiceBase {
           _nativeSessionProtocolAvailable = true;
           _runningConfigPath = returnedState.protectedConfigPath;
           _nativeSessionGeneration = returnedState.sessionGeneration;
+          _underlyingNetworkAvailable =
+              returnedState.underlyingNetworkAvailable;
+          _underlyingNetworkValidated =
+              returnedState.underlyingNetworkValidated;
         }
         log('✅ Mihomo 启动成功 (gomobile)');
         notifyStatusChanged();
@@ -463,6 +480,8 @@ class ClashService extends ClashServiceBase {
     setRunning(runningAfterStop);
     if (!runningAfterStop) {
       _nativeConnectionTransitioning = false;
+      _underlyingNetworkAvailable = null;
+      _underlyingNetworkValidated = null;
       _runningConfigPath = null;
       await _completePendingSnapshotFileCleanup();
       if (_nativeSnapshotOperationCount == 0) {

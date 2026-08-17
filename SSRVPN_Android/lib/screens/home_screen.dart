@@ -52,6 +52,7 @@ class HomeScreenState extends State<HomeScreen>
   bool _isConnected = false;
   bool _isConnecting = false;
   bool _nativeRecoveryInProgress = false;
+  String? _connectionNotice;
   bool _isBatchTesting = false;
   String? _errorMessage;
   String? _testingNodeName;
@@ -188,6 +189,7 @@ class HomeScreenState extends State<HomeScreen>
         selectedCountryCode:
             displayNode == null ? null : countryCodeForProxyNode(displayNode),
         errorMessage: _errorMessage,
+        connectionNotice: _connectionNotice,
         publicIpv4: _publicIpInfo?.displayText,
         isRefreshingPublicIp: _isRefreshingPublicIp,
         publicIpError: _publicIpError,

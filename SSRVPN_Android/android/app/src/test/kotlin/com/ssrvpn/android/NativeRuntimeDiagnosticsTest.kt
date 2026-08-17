@@ -45,14 +45,15 @@ class NativeRuntimeDiagnosticsTest {
 
     @Test
     fun `TUN ownership requires the exact interface captured by the claim`() {
-        tracker.claimTunDescriptor(42) { setOf("tun0") }
+        tracker.beginTunLease { setOf("tun0") }
+        tracker.claimTunDescriptor(42) { setOf("tun0", "tun1") }
 
         val matchingSnapshot = tracker.snapshot(
             serviceRunning = true,
             operationBusy = false,
             protectMonitorAlive = true,
             bridgeReady = true,
-            activeTunInterfaces = { setOf("tun0") }
+            activeTunInterfaces = { setOf("tun1") }
         ).toMap()
         assertTrue(matchingSnapshot["tunEstablished"] as Boolean)
 
@@ -61,11 +62,16 @@ class NativeRuntimeDiagnosticsTest {
             operationBusy = false,
             protectMonitorAlive = true,
             bridgeReady = true,
-            activeTunInterfaces = { setOf("tun1") }
+            activeTunInterfaces = { setOf("tun0") }
         ).toMap()
         assertFalse(unrelatedTunSnapshot["tunEstablished"] as Boolean)
 
-        tracker.releaseTunDescriptor()
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { null }
+            )
+        )
         val releasedSnapshot = tracker.snapshot(
             serviceRunning = true,
             operationBusy = false,
@@ -74,6 +80,31 @@ class NativeRuntimeDiagnosticsTest {
             activeTunInterfaces = { setOf("tun0") }
         ).toMap()
         assertFalse(releasedSnapshot["tunEstablished"] as Boolean)
+    }
+
+    @Test
+    fun `release proof keeps the lease until both descriptor and interface disappear`() {
+        tracker.beginTunLease { emptySet() }
+        tracker.claimTunDescriptor(42) { setOf("tun0") }
+
+        assertFalse(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { setOf("tun0") },
+                descriptorTarget = { "/dev/tun" }
+            )
+        )
+        assertFalse(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { "/dev/tun" }
+            )
+        )
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { null }
+            )
+        )
     }
 
     @Test

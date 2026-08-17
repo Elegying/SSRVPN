@@ -138,13 +138,18 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
   ) async {
     final running = clashService.isRunning;
     final nativeTransitioning = clashService.nativeConnectionTransitioning;
-    if (!shouldHandleAndroidHomeConnectionStatus(
+    final connectionNotice = clashService.underlyingNetworkNotice;
+    final shouldHandleConnection = shouldHandleAndroidHomeConnectionStatus(
       uiConnected: _isConnected,
       uiConnecting: _isConnecting,
       uiNativeRecoveryActive: _nativeRecoveryInProgress,
       runtimeRunning: running,
       runtimeTransitioning: nativeTransitioning,
-    )) {
+    );
+    if (!shouldHandleConnection) {
+      if (_connectionNotice != connectionNotice) {
+        _updateHomeState(() => _connectionNotice = connectionNotice);
+      }
       return;
     }
     final runtimeSelectedNodeName = running && !_isConnecting
@@ -175,6 +180,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
       _nativeRecoveryInProgress = transition.nativeRecoveryActive;
       _errorMessage = transition.errorMessage;
       _selectedNode = transition.selectedNode;
+      _connectionNotice = running ? connectionNotice : null;
       if (!running) {
         _latencyController.clear();
         _resetPublicIpState();
@@ -184,12 +190,6 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
       _schedulePublicIpRefresh();
     }
   }
-
-  ConnectionOrchestrator get _orchestrator => ConnectionOrchestrator(
-        clashService: context.read<ClashService>(),
-        settingsService: context.read<SettingsService>(),
-        subscriptionService: context.read<SubscriptionService>(),
-      );
 
   void _checkUpdateDelayed() {
     _updateCheckTimer?.cancel();

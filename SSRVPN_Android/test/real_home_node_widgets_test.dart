@@ -329,6 +329,27 @@ void main() {
     expect(find.text('未连接'), findsOneWidget);
   });
 
+  testWidgets(
+      'Android Home distinguishes an offline underlay from VPN liveness',
+      (tester) async {
+    final clash = _UnderlyingNetworkAndroidClashService()..setRunning(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+
+    clash.publishNotice('无可用网络，VPN 正在等待恢复');
+    await _waitForWidget(tester, find.text('网络待确认'));
+    expect(find.text('无可用网络，VPN 正在等待恢复'), findsOneWidget);
+    expect(clash.isRunning, isTrue);
+
+    clash.publishNotice(null);
+    await _waitForWidget(tester, find.text('已连接'));
+    expect(find.text('无可用网络，VPN 正在等待恢复'), findsNothing);
+  });
+
   testWidgets('offline proxy-mode change invalidates the native tile snapshot',
       (tester) async {
     final clash = _RecordingAndroidClashService();
@@ -793,6 +814,22 @@ class _RecoveryAndroidClashService extends ClashService {
     stopCalls++;
     _transitioning = false;
     setRunning(false);
+    onStatusChanged?.call();
+  }
+}
+
+class _UnderlyingNetworkAndroidClashService
+    extends _RecordingAndroidClashService {
+  String? _notice;
+
+  @override
+  String? get underlyingNetworkNotice => _notice;
+
+  @override
+  Future<String?> currentSelectedProxyName() async => '东京节点';
+
+  void publishNotice(String? value) {
+    _notice = value;
     onStatusChanged?.call();
   }
 }

@@ -29,6 +29,44 @@ class _RealHttpOverrides extends HttpOverrides {}
 
 void main() {
   test(
+      'native snapshot keeps VPN liveness separate from the underlying network',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_underlying_network_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString(_testProxies);
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getConnectionState') {
+        return <String, Object?>{
+          'running': true,
+          'transitioning': false,
+          'protectedConfigPath': config.path,
+          'protectedConfigTrusted': true,
+          'sessionGeneration': 3,
+          'underlyingNetworkAvailable': false,
+          'underlyingNetworkValidated': false,
+        };
+      }
+      return null;
+    });
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path);
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      service.dispose();
+      await dir.delete(recursive: true);
+    });
+
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(service.isRunning, isTrue);
+    expect(service.underlyingNetworkNotice, '无可用网络，VPN 正在等待恢复');
+  });
+
+  test(
     'reuses only an authenticated idle Android controller on reconnect',
     () async {
       const channel = MethodChannel('com.ssrvpn/native');

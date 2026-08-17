@@ -565,17 +565,21 @@ for forbidden in (
     if forbidden in runtime:
         raise SystemExit(f"Android native diagnostics inferred health: {forbidden}")
 for required in (
+    "beginTunLease",
     "claimTunDescriptor",
     "TunOwnershipClaim",
-    "activeTunInterfaceNames",
+    "releaseTunDescriptorIfClosed",
+    "tunInterfaceNames",
+    'Os.readlink("/proc/self/fd/$descriptor")',
     "claim.interfaceNames.any(currentTunInterfaces::contains)",
     "bridgeReady = bridgeReady",
 ):
     if required not in runtime:
         raise SystemExit(f"Android native diagnostics lost real probe: {required}")
 for required in (
+    "runtimeDiagnostics.beginTunLease()",
     "runtimeDiagnostics.claimTunDescriptor(tunFd)",
-    "runtimeDiagnostics.releaseTunDescriptor()",
+    "runtimeDiagnostics.releaseTunDescriptorIfClosed()",
 ):
     if required not in service:
         raise SystemExit(f"Android VPN service lost diagnostic ownership hook: {required}")
@@ -736,6 +740,9 @@ if grep -Fq "vpnPackageName" "$VPN_APP_EXCLUSION_INSTALLER" ||
   exit 1
 fi
 require_text "VpnNotificationSupport.createChannel(this, CHANNEL_ID)"
+require_file_text "$NOTIFICATION_SUPPORT" "PendingIntent.getService("
+require_file_text "$NOTIFICATION_SUPPORT" "R.drawable.ic_disconnect"
+require_text "intent?.action == ACTION_DISCONNECT"
 require_text "NativeConnectionSnapshotStore.read(this)"
 require_text "notificationUpdatePolicy.publishIfChanged(it)"
 if ! grep -Fq "Looper.myLooper() != handler.looper" "$NOTIFICATION_GATE"; then
@@ -897,6 +904,7 @@ for home_part in "${HOME_PARTS[@]}"; do
 done
 
 require_home_text "clashService.requestConnectionIntent(false)"
+require_home_text "clashService.runConnectionTransition"
 require_home_text "UpdateService.isUpdateUiBusy"
 require_home_text "_updateCheckTimer?.cancel()"
 
