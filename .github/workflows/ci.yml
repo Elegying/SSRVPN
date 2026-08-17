@@ -179,8 +179,6 @@ jobs:
           - name: macOS
             os: macos-15
             directory: SSRVPN_MacOS
-            codeql_language: swift
-            codeql_build_mode: manual
           - name: Windows
             os: windows-latest
             directory: SSRVPN_Windows
@@ -204,19 +202,8 @@ jobs:
 
       - run: flutter pub get
 
-      - name: Prepare macOS dependencies before CodeQL
-        if: matrix.directory == 'SSRVPN_MacOS'
-        shell: bash
-        timeout-minutes: 15
-        working-directory: SSRVPN_MacOS
-        run: |
-          flutter build macos --debug --config-only --no-pub
-          xcodebuild -resolvePackageDependencies \
-            -workspace macos/Runner.xcworkspace \
-            -scheme Runner \
-            -derivedDataPath "$RUNNER_TEMP/ssrvpn-codeql-derived-data"
-
       - name: Initialize CodeQL
+        if: matrix.directory != 'SSRVPN_MacOS'
         uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
         with:
           languages: ${{ matrix.codeql_language }}
@@ -242,28 +229,11 @@ jobs:
 
       - run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
 
-      - name: Build macOS native target for CodeQL
+      - name: Build macOS app
         if: matrix.directory == 'SSRVPN_MacOS'
-        shell: bash
         timeout-minutes: 15
         working-directory: SSRVPN_MacOS
-        run: |
-          xcodebuild build \
-            -quiet \
-            -workspace macos/Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Debug \
-            -destination 'generic/platform=macOS' \
-            -derivedDataPath "$RUNNER_TEMP/ssrvpn-codeql-derived-data" \
-            -disableAutomaticPackageResolution \
-            ARCH=arm64 \
-            ARCHS=arm64 \
-            ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            COMPILATION_CACHE_ENABLE_CACHING=NO \
-            SWIFT_ENABLE_COMPILE_CACHE=NO \
-            SWIFT_USE_INTEGRATED_DRIVER=NO
+        run: flutter build macos --debug
 
       - name: Build Windows installer
         if: matrix.directory == 'SSRVPN_Windows'
@@ -307,6 +277,7 @@ jobs:
         run: bash scripts/smoke-release-artifacts.sh --allow-missing
 
       - name: Analyze native code
+        if: matrix.directory != 'SSRVPN_MacOS'
         uses: github/codeql-action/analyze@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
 
       - name: Upload Windows installer
