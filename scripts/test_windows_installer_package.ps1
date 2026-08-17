@@ -107,16 +107,12 @@ function New-LegacyShortcut {
   $shortcut.Save()
 }
 
-function Wait-PathAbsent {
+function Assert-InstallerPreserved {
   param([Parameter(Mandatory = $true)][string]$Path)
 
-  for ($attempt = 0; $attempt -lt 80; $attempt++) {
-    if (-not (Test-Path -LiteralPath $Path)) {
-      return
-    }
-    Start-Sleep -Milliseconds 250
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "SSRVPN deleted the manually supplied installer: $Path"
   }
-  throw "Post-install cleanup did not delete: $Path"
 }
 
 function Assert-SingleMachineShortcut {
@@ -277,7 +273,7 @@ try {
   if ($installExitCode -ne 0) {
     throw "SSRVPN installer exited with code $installExitCode. Log: $installLog"
   }
-  Wait-PathAbsent -Path $installInstaller
+  Assert-InstallerPreserved -Path $installInstaller
   Assert-SingleMachineShortcut
 
   foreach ($relativePath in @(
@@ -323,7 +319,7 @@ try {
   if ($upgradeExitCode -ne 0) {
     throw "SSRVPN upgrade exited with code $upgradeExitCode. Log: $upgradeLog"
   }
-  Wait-PathAbsent -Path $upgradeInstaller
+  Assert-InstallerPreserved -Path $upgradeInstaller
   Assert-SingleMachineShortcut
   $upgradeAppProcess.Refresh()
   if (-not $upgradeAppProcess.HasExited) {

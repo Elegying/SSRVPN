@@ -1,8 +1,6 @@
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)][string]$InstallerPath,
-  [Parameter(Mandatory = $true)][string]$InstalledLauncherPath,
-  [Parameter(Mandatory = $true)][int]$InstallerProcessId
+  [Parameter(Mandatory = $true)][string]$InstalledLauncherPath
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -50,9 +48,8 @@ function Remove-OwnedShortcut {
   }
 }
 
-$normalizedInstaller = Get-NormalizedPath -Path $InstallerPath
 $normalizedLauncher = Get-NormalizedPath -Path $InstalledLauncherPath
-if (-not $normalizedInstaller -or -not $normalizedLauncher) {
+if (-not $normalizedLauncher) {
   exit 0
 }
 
@@ -64,26 +61,3 @@ Remove-OwnedShortcut `
   -Directory ([Environment]::GetFolderPath(
     [Environment+SpecialFolder]::Programs)) `
   -ExpectedTarget $normalizedLauncher
-
-try {
-  $installerProcess = [System.Diagnostics.Process]::GetProcessById(
-    $InstallerProcessId
-  )
-  try {
-    if (-not $installerProcess.WaitForExit(120000)) {
-      exit 0
-    }
-  } finally {
-    $installerProcess.Dispose()
-  }
-} catch {
-  # The installer already exited before the cleanup helper attached.
-}
-
-for ($attempt = 0; $attempt -lt 40; $attempt++) {
-  Remove-Item -LiteralPath $InstallerPath -Force
-  if (-not (Test-Path -LiteralPath $InstallerPath)) {
-    exit 0
-  }
-  Start-Sleep -Milliseconds 250
-}

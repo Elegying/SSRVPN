@@ -11,6 +11,7 @@ import '../services/system_proxy_service.dart';
 import '../services/windows_tun_elevation_service.dart';
 import '../services/windows_tun_runtime_probe.dart';
 import '../services/windows_start_transaction.dart';
+import '../services/windows_version_provider.dart';
 import '../src/services/windows_core_pid_record.dart';
 import '../src/services/windows_powershell.dart';
 
@@ -117,7 +118,7 @@ class ClashService extends ClashServiceBase
       await _terminateOrphanedCores();
     }
 
-    log('系统: ${Platform.operatingSystemVersion}');
+    log('系统: ${await WindowsVersionProvider().describe()}');
     log('程序路径: ${Platform.resolvedExecutable}');
     log('配置目录: $configDir');
     log('核心路径: $_corePath');

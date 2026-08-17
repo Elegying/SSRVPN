@@ -7,6 +7,27 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsInstallerConfigTest(unittest.TestCase):
+    def test_windows_version_channel_uses_authoritative_build_sources(self) -> None:
+        runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
+        native = (runner / "flutter_window.cpp").read_text(encoding="utf-8")
+        header = (runner / "flutter_window.h").read_text(encoding="utf-8")
+        provider = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "lib"
+            / "services"
+            / "windows_version_provider.dart"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('"com.ssrvpn.windows/platform_info"', native)
+        self.assertIn('"getWindowsVersionInfo"', native)
+        self.assertIn('GetProcAddress(ntdll, "RtlGetVersion")', native)
+        self.assertIn('L"CurrentBuildNumber"', native)
+        self.assertIn('L"DisplayVersion"', native)
+        self.assertIn('L"EditionID"', native)
+        self.assertIn("platform_info_channel_", header)
+        self.assertIn("build >= 22000 ? 'Windows 11' : 'Windows 10'", provider)
+
     def test_installer_code_avoids_preprocessor_ambiguous_continuations(
         self,
     ) -> None:
@@ -34,7 +55,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotIn("{autoprograms}", script)
         self.assertNotIn('Name: "desktopicon"', script)
 
-    def test_successful_install_removes_only_owned_legacy_shortcuts_and_source(
+    def test_successful_install_removes_only_owned_legacy_shortcuts_and_preserves_source(
         self,
     ) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
@@ -60,8 +81,6 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("if InstallSucceeded then", deinitialize)
         self.assertIn("LaunchPostInstallCleanup", deinitialize)
         self.assertIn("ExecAsOriginalUser", installer)
-        self.assertIn("ExpandConstant('{srcexe}')", installer)
-        self.assertIn("GetCurrentProcessId", installer)
         cleanup_launcher = installer.split(
             "procedure LaunchPostInstallCleanup;", 1
         )[1].split("procedure DeinitializeSetup;", 1)[0]
@@ -74,10 +93,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("CreateShortcut", cleanup)
         self.assertIn("$shortcut.TargetPath", cleanup)
         self.assertIn("OrdinalIgnoreCase", cleanup)
-        self.assertIn("WaitForExit", cleanup)
-        self.assertIn("Remove-Item -LiteralPath $InstallerPath", cleanup)
-        self.assertIn("for ($attempt = 0; $attempt -lt 40; $attempt++)", cleanup)
-        self.assertIn("Start-Sleep -Milliseconds 250", cleanup)
+        self.assertNotIn("InstallerPath", cleanup)
+        self.assertNotIn("InstallerProcessId", cleanup)
+        self.assertNotIn("WaitForExit", cleanup)
+        self.assertNotIn("Remove-Item -LiteralPath $InstallerPath", cleanup)
 
         smoke = (ROOT / "scripts" / "test_windows_installer_package.ps1").read_text(
             encoding="utf-8"
@@ -86,9 +105,44 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("SpecialFolder]::DesktopDirectory", smoke)
         self.assertIn("New-LegacyShortcut", smoke)
         self.assertIn("Assert-SingleMachineShortcut", smoke)
-        self.assertIn("Wait-PathAbsent", smoke)
+        self.assertNotIn("Wait-PathAbsent", smoke)
         self.assertIn("$installInstaller", smoke)
         self.assertIn("$upgradeInstaller", smoke)
+        self.assertIn("Assert-InstallerPreserved", smoke)
+
+    def test_successful_install_removes_only_verified_opposite_scope_entry(
+        self,
+    ) -> None:
+        installer = (
+            ROOT / "SSRVPN_Windows" / "installer" / "SSRVPN.iss"
+        ).read_text(encoding="utf-8")
+
+        cleanup = installer.split(
+            "procedure RemoveVerifiedOppositeScopeUninstallEntry;", 1
+        )[1].split("procedure CurStepChanged", 1)[0]
+        self.assertIn("IsAdminInstallMode", cleanup)
+        self.assertIn("RootKey := HKCU", cleanup)
+        self.assertIn("RootKey := HKLM", cleanup)
+        self.assertIn("RegQueryStringValue", cleanup)
+        self.assertIn("'DisplayName'", cleanup)
+        self.assertIn("'InstallLocation'", cleanup)
+        self.assertIn("'UninstallString'", cleanup)
+        self.assertIn("CompareText(DisplayName, 'SSRVPN')", cleanup)
+        self.assertIn("ExpandConstant('{app}')", cleanup)
+        self.assertIn("ExpandConstant('{app}\\unins000.exe')", cleanup)
+        self.assertIn("RegDeleteKeyIncludingSubkeys(RootKey, UninstallRegistryKey)", cleanup)
+
+        post_install = installer.split(
+            "procedure CurStepChanged(CurStep: TSetupStep);", 1
+        )[1].split("procedure LaunchPostInstallCleanup", 1)[0]
+        self.assertLess(
+            post_install.index("CommitProgramFilesTransaction"),
+            post_install.index("RemoveVerifiedOppositeScopeUninstallEntry"),
+        )
+        self.assertLess(
+            post_install.index("InstallSucceeded := True"),
+            post_install.index("RemoveVerifiedOppositeScopeUninstallEntry"),
+        )
 
     def test_installer_closes_ssrvpn_and_installs_per_user(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
@@ -1638,7 +1692,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);",
             installer,
         )
-        self.assertIn(
+        self.assertNotIn(
             "RegDeleteKeyIncludingSubkeys(HKCU, UninstallRegistryKey)",
             installer,
         )

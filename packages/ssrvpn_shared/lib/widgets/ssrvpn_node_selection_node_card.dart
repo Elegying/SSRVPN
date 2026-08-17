@@ -142,36 +142,32 @@ class _NodeSelectionCard extends StatelessWidget {
                   ),
                 ),
               ),
-              Semantics(
-                button: true,
-                enabled: !testingBusy,
-                label: '测试 $displayName 延迟',
-                value: testing ? '测试中' : _latencyText,
-                onTap: testingBusy ? null : onTest,
-                child: ExcludeSemantics(
-                  child: TextButton(
-                    onPressed: testingBusy ? null : onTest,
-                    style: TextButton.styleFrom(
-                      foregroundColor: _latencyColor,
-                      minimumSize: Size(compact ? 64 : 70, compact ? 44 : 48),
-                    ),
-                    child: testing
-                        ? SizedBox(
-                            width: 17,
-                            height: 17,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: _latencyColor,
-                            ),
-                          )
-                        : Text(
-                            _latencyText,
-                            style: TextStyle(
-                              fontSize: compact ? 14 : 15,
-                              fontWeight: FontWeight.w600,
-                            ),
+              TextButton(
+                onPressed: testingBusy ? null : onTest,
+                style: TextButton.styleFrom(
+                  foregroundColor: _latencyColor,
+                  minimumSize: Size(compact ? 64 : 70, compact ? 44 : 48),
+                ),
+                child: Semantics(
+                  label: '测试 $displayName 延迟',
+                  value: testing ? '测试中' : _latencyText,
+                  excludeSemantics: true,
+                  child: testing
+                      ? SizedBox(
+                          width: 17,
+                          height: 17,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: _latencyColor,
                           ),
-                  ),
+                        )
+                      : Text(
+                          _latencyText,
+                          style: TextStyle(
+                            fontSize: compact ? 14 : 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                 ),
               ),
               SizedBox(
