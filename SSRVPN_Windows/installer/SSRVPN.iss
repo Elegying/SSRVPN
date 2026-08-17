@@ -691,7 +691,8 @@ begin
       AddQuotes(ExpandConstant('{app}\ssrvpn_windows.exe'));
   try
     if not ExecAsOriginalUser(
-      PowerShellPath, Parameters, '', SW_HIDE, ewNoWait, ResultCode) then
+      PowerShellPath, Parameters, '', SW_HIDE,
+      ewWaitUntilTerminated, ResultCode) then
       Log('SSRVPN could not start post-install shortcut and package cleanup.');
   except
     Log(

@@ -87,6 +87,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("try", cleanup_launcher)
         self.assertIn("except", cleanup_launcher)
         self.assertIn("raised an internal exception", cleanup_launcher)
+        self.assertIn("ewWaitUntilTerminated", cleanup_launcher)
+        self.assertNotIn("ewNoWait", cleanup_launcher)
 
         self.assertIn("SpecialFolder]::DesktopDirectory", cleanup)
         self.assertIn("SpecialFolder]::Programs", cleanup)
