@@ -29,6 +29,15 @@ rename it to `mihomo.exe`, place it in `SSRVPN_Windows/assets/`, and update
 The Android native library is loaded by the VPN service, so it must be verified
 before CI tests and release packaging.
 
+The current Android source record is **byte-recoverable, not source-rebuild
+reproducible**. The v2.4.5 binary embeds Go `1.25.11`, Android/arm64,
+`c-shared`, `with_gvisor`, and a local replacement of
+`github.com/metacubex/mihomo`, but no source commit. The verifier enforces these
+embedded build properties without recording the builder's local path. Replacing
+the binary requires a reviewed upstream commit, a committed bridge source and
+build recipe, ABI compatibility tests, and Android lifecycle tests; a newer
+version number alone is insufficient evidence.
+
 ## macOS
 
 - Bundled file: `SSRVPN_MacOS/assets/AtlasCore.gz`
@@ -101,9 +110,10 @@ orchestration by
 [ADR-012](decisions/012-automatic-release-preparation.md).
 
 `scripts/verify-core-assets.sh` checks fixed SHA256 hashes, macOS decompressed
-executable equivalence, and bundled GeoIP databases. The same checks run in CI
-and before each platform release build. CI prepares the verified assets once
-and shares them with platform jobs through GitHub Actions artifacts.
+executable equivalence, Android embedded Go build properties, and bundled GeoIP
+databases. The same checks run in CI and before each platform release build. CI
+prepares the verified assets once and shares them with platform jobs through
+GitHub Actions artifacts.
 
 Windows executable verification is also performed by
 `SSRVPN_Windows/tool/package_windows.ps1` when preparing the installer payload.

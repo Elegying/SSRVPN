@@ -1,5 +1,8 @@
 package com.ssrvpn.android
 
+import android.system.Os
+import android.system.ErrnoException
+import android.system.OsConstants
 import java.net.NetworkInterface
 
 internal data class NativeRuntimeDiagnostics(
@@ -22,23 +25,61 @@ internal data class NativeRuntimeDiagnostics(
 internal class NativeRuntimeDiagnosticsTracker {
     private data class TunOwnershipClaim(
         val descriptor: Long,
+        val baselineInterfaceNames: Set<String>?,
         val interfaceNames: Set<String>?
     )
 
     @Volatile
     private var tunOwnershipClaim: TunOwnershipClaim? = null
 
-    fun claimTunDescriptor(
-        descriptor: Long,
-        activeTunInterfaces: () -> Set<String>? = ::activeTunInterfaceNames
+    @Volatile
+    private var tunInterfaceBaseline: Set<String>? = null
+
+    fun beginTunLease(
+        tunInterfaces: () -> Set<String>? = ::tunInterfaceNames
     ) {
-        tunOwnershipClaim = descriptor
-            .takeIf { it in 1..Int.MAX_VALUE.toLong() }
-            ?.let { TunOwnershipClaim(it, activeTunInterfaces()) }
+        tunInterfaceBaseline = tunInterfaces()
     }
 
-    fun releaseTunDescriptor() {
+    fun claimTunDescriptor(
+        descriptor: Long,
+        activeTunInterfaces: () -> Set<String>? = ::tunInterfaceNames
+    ) {
+        val baseline = tunInterfaceBaseline
+        val current = activeTunInterfaces()
+        val ownedInterfaces = if (baseline != null && current != null) {
+            current - baseline
+        } else {
+            current
+        }
+        tunOwnershipClaim = descriptor.takeIf { it in 1..Int.MAX_VALUE.toLong() }
+            ?.let { TunOwnershipClaim(it, baseline, ownedInterfaces) }
+        tunInterfaceBaseline = null
+    }
+
+    fun releaseTunDescriptorIfClosed(
+        tunInterfaces: () -> Set<String>? = ::tunInterfaceNames,
+        descriptorTarget: (Long) -> String? = ::descriptorTarget
+    ): Boolean {
+        val claim = tunOwnershipClaim
+        if (claim == null) {
+            tunInterfaceBaseline = null
+            return true
+        }
+        val currentInterfaces = tunInterfaces() ?: return false
+        val ownedInterfaces = resolveOwnedTunInterfaces(claim, currentInterfaces)
+            ?: return false
+        if (ownedInterfaces.any(currentInterfaces::contains)) return false
+        val target = descriptorTarget(claim.descriptor)
+        if (target == UNKNOWN_DESCRIPTOR_TARGET ||
+            target == "/dev/tun" ||
+            target?.startsWith("/dev/tun") == true
+        ) {
+            return false
+        }
+        if (tunOwnershipClaim !== claim) return false
         tunOwnershipClaim = null
+        return true
     }
 
     fun snapshot(
@@ -46,14 +87,15 @@ internal class NativeRuntimeDiagnosticsTracker {
         operationBusy: Boolean,
         protectMonitorAlive: Boolean,
         bridgeReady: Boolean?,
-        activeTunInterfaces: () -> Set<String>? = ::activeTunInterfaceNames
+        activeTunInterfaces: () -> Set<String>? = ::tunInterfaceNames
     ): NativeRuntimeDiagnostics {
         val claim = tunOwnershipClaim
         val currentTunInterfaces = activeTunInterfaces()
         val tunEstablished = when {
             claim == null -> false
-            claim.interfaceNames == null || currentTunInterfaces == null -> null
-            else -> claim.interfaceNames.any(currentTunInterfaces::contains)
+            currentTunInterfaces == null -> null
+            else -> resolveOwnedTunInterfaces(claim, currentTunInterfaces)
+                ?.any(currentTunInterfaces::contains)
         }
         return NativeRuntimeDiagnostics(
             serviceRunning = serviceRunning,
@@ -64,21 +106,82 @@ internal class NativeRuntimeDiagnosticsTracker {
         )
     }
 
+    private fun resolveOwnedTunInterfaces(
+        claim: TunOwnershipClaim,
+        currentInterfaces: Set<String>
+    ): Set<String>? {
+        val knownInterfaces = claim.interfaceNames ?: return null
+        val baselineInterfaces = claim.baselineInterfaceNames
+            ?: return knownInterfaces.takeIf { it.isNotEmpty() }
+        val resolvedInterfaces = knownInterfaces + (currentInterfaces - baselineInterfaces)
+        if (resolvedInterfaces != knownInterfaces && tunOwnershipClaim === claim) {
+            tunOwnershipClaim = claim.copy(interfaceNames = resolvedInterfaces)
+        }
+        return resolvedInterfaces
+    }
+
     private companion object {
-        fun activeTunInterfaceNames(): Set<String>? {
+        fun tunInterfaceNames(): Set<String>? {
             return try {
                 val interfaces = NetworkInterface.getNetworkInterfaces() ?: return null
-                val active = mutableSetOf<String>()
+                val names = mutableSetOf<String>()
                 while (interfaces.hasMoreElements()) {
                     val network = interfaces.nextElement()
-                    if (network.isUp && network.name.startsWith("tun")) {
-                        active += network.name
-                    }
+                    if (network.name.startsWith("tun")) names += network.name
                 }
-                active
+                names
             } catch (_: Exception) {
                 null
             }
         }
+
+        private const val UNKNOWN_DESCRIPTOR_TARGET = "<unknown>"
+
+        fun descriptorTarget(descriptor: Long): String? =
+            try {
+                Os.readlink("/proc/self/fd/$descriptor")
+            } catch (error: ErrnoException) {
+                if (error.errno == OsConstants.ENOENT ||
+                    error.errno == OsConstants.EBADF
+                ) null else UNKNOWN_DESCRIPTOR_TARGET
+            } catch (_: Exception) {
+                UNKNOWN_DESCRIPTOR_TARGET
+            }
+    }
+}
+
+internal object TunReleaseVerifier {
+    private const val DEFAULT_ATTEMPTS = 21
+    private const val DEFAULT_RETRY_DELAY_MILLIS = 100L
+
+    fun waitUntilReleased(
+        attempts: Int = DEFAULT_ATTEMPTS,
+        retryDelayMillis: Long = DEFAULT_RETRY_DELAY_MILLIS,
+        isReleased: () -> Boolean
+    ): Boolean {
+        repeat(attempts.coerceAtLeast(1)) { attempt ->
+            if (isReleased()) return true
+            if (attempt + 1 < attempts && retryDelayMillis > 0) {
+                try {
+                    Thread.sleep(retryDelayMillis)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+            }
+        }
+        return false
+    }
+
+    fun releaseOwnedLeaseAndWait(
+        bridgeStopped: Boolean,
+        attempts: Int = DEFAULT_ATTEMPTS,
+        retryDelayMillis: Long = DEFAULT_RETRY_DELAY_MILLIS,
+        closeOwnedLease: () -> Unit,
+        isReleased: () -> Boolean
+    ): Boolean {
+        closeOwnedLease()
+        if (!bridgeStopped) return false
+        return waitUntilReleased(attempts, retryDelayMillis, isReleased)
     }
 }

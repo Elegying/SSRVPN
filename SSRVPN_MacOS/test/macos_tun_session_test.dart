@@ -109,6 +109,127 @@ void main() {
     );
   });
 
+  test('stop accepts a retired network-change runner generation', () async {
+    final dataDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_tun_stop_already_retired_',
+    );
+    addTearDown(() => dataDir.delete(recursive: true));
+    final runner = _writeTunAssets(dataDir);
+    File('${dataDir.path}/config.yaml').writeAsStringSync('proxies: []\n');
+    final status = File('${dataDir.path}/status');
+    final authorizationExit = Completer<int>();
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      statusPath: status.path,
+      appPid: 123,
+      routeProbe: (_, __) async =>
+          ProcessResult(1, 0, '  interface: en0\n', ''),
+      authorizationLauncher: (_, __) async {
+        await status.writeAsString('starting\n', flush: true);
+        return TunAuthorizationHandle(
+          exitCode: authorizationExit.future,
+          terminate: () {},
+        );
+      },
+    );
+
+    expect(await session.start(), isTrue);
+
+    // A network-change exit preserves its trusted terminal status after the
+    // privileged runner has restored DNS and retired its request marker.
+    await File(session.requestPath).delete();
+    await status.writeAsString('error:network-change\n', flush: true);
+    authorizationExit.complete(1);
+    await Future<void>.delayed(Duration.zero);
+
+    await session.stop();
+
+    expect(session.isRequested, isFalse);
+    expect(session.requiresDnsRecovery, isFalse);
+    expect(session.lastError, isNull);
+  });
+
+  test('stop waits through slow retired network-change cleanup', () async {
+    final dataDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_tun_stop_slow_retired_network_change_',
+    );
+    addTearDown(() => dataDir.delete(recursive: true));
+    final runner = _writeTunAssets(dataDir);
+    File('${dataDir.path}/config.yaml').writeAsStringSync('proxies: []\n');
+    final status = File('${dataDir.path}/status');
+    final authorizationExit = Completer<int>();
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      statusPath: status.path,
+      appPid: 123,
+      stopTimeout: const Duration(seconds: 2),
+      routeProbe: (_, __) async =>
+          ProcessResult(1, 0, '  interface: en0\n', ''),
+      authorizationLauncher: (_, __) async {
+        await status.writeAsString('starting\n', flush: true);
+        return TunAuthorizationHandle(
+          exitCode: authorizationExit.future,
+          terminate: () {},
+        );
+      },
+    );
+
+    expect(await session.start(), isTrue);
+    await File(session.requestPath).delete();
+    await status.writeAsString('error:network-change\n', flush: true);
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 700), () {
+        authorizationExit.complete(1);
+      }),
+    );
+
+    await session.stop();
+
+    expect(session.isRequested, isFalse);
+    expect(session.requiresDnsRecovery, isFalse);
+    expect(session.lastError, isNull);
+  });
+
+  test('retired DNS recovery failure remains fail closed', () async {
+    final dataDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_tun_stop_retired_dns_failure_',
+    );
+    addTearDown(() => dataDir.delete(recursive: true));
+    final runner = _writeTunAssets(dataDir);
+    File('${dataDir.path}/config.yaml').writeAsStringSync('proxies: []\n');
+    final status = File('${dataDir.path}/status');
+    final authorizationExit = Completer<int>();
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      statusPath: status.path,
+      appPid: 123,
+      routeProbe: (_, __) async =>
+          ProcessResult(1, 0, '  interface: en0\n', ''),
+      authorizationLauncher: (_, __) async {
+        await status.writeAsString('starting\n', flush: true);
+        return TunAuthorizationHandle(
+          exitCode: authorizationExit.future,
+          terminate: () {},
+        );
+      },
+    );
+
+    expect(await session.start(), isTrue);
+    await File(session.requestPath).delete();
+    await status.writeAsString('error:dns-recovery\n', flush: true);
+    authorizationExit.complete(1);
+
+    await expectLater(session.stop(), throwsA(isA<StateError>()));
+    expect(session.requiresDnsRecovery, isTrue);
+    expect(session.lastError, contains('DNS'));
+  });
+
   test('stop durably marks recovery before waiting for privileged exit',
       () async {
     final dataDir = await Directory.systemTemp.createTemp(

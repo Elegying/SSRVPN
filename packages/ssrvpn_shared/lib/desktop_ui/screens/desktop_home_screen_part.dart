@@ -229,7 +229,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('网络设置已更新，正在重新连接')));
-      await _handleConnectToggle();
+      await _handleConnectionAction(_DesktopConnectionAction.connect);
     }
   }
 
@@ -279,12 +279,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _handleConnectToggle() async {
+  Future<void> _handleConnectionAction(
+    _DesktopConnectionAction action,
+  ) async {
     final clashService = context.read<ClashService>();
     final subService = context.read<SubscriptionService>();
     final settingsService = context.read<SettingsService>();
 
-    if (_isConnectionTransitionActive(clashService)) {
+    if (action == _DesktopConnectionAction.cancelPendingConnection) {
       clashService.requestConnectionIntent(false);
       clashService.interruptPendingStart();
       try {
@@ -312,7 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    if (_isConnected) {
+    if (action == _DesktopConnectionAction.disconnect) {
       clashService.requestConnectionIntent(false);
       clashService.interruptPendingStart();
       setState(() {
@@ -622,6 +624,11 @@ class _HomeScreenState extends State<HomeScreen> {
         ? null
         : _exitCountryCodes[displayNode.name] ??
             countryCodeForProxyNode(displayNode);
+    final connectionAction = isConnectionTransition
+        ? _DesktopConnectionAction.cancelPendingConnection
+        : _isConnected
+            ? _DesktopConnectionAction.disconnect
+            : _DesktopConnectionAction.connect;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -636,7 +643,9 @@ class _HomeScreenState extends State<HomeScreen> {
         publicIpv4: _publicIpInfo?.displayText,
         isRefreshingPublicIp: _isRefreshingPublicIp,
         publicIpError: _publicIpError,
-        onToggleConnection: _handleConnectToggle,
+        onToggleConnection: () {
+          unawaited(_handleConnectionAction(connectionAction));
+        },
         onOpenNodes: _openNodeSelection,
         onShowAbout: () => showSsrvpnAboutDialog(context),
         onShowTutorial: () => _showDesktopHomeTutorialDialog(context),
@@ -708,4 +717,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (mounted && !_disposed) setState(() {});
   }
+}
+
+enum _DesktopConnectionAction {
+  connect,
+  disconnect,
+  cancelPendingConnection,
 }

@@ -29,6 +29,7 @@ class MacosNativeGateTest(unittest.TestCase):
         leave_test_host_running: bool = False,
         flutter_exit_code: int = 0,
         xcodebuild_exit_code: int = 0,
+        codeql_preload: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary = Path(temporary_directory)
@@ -50,6 +51,11 @@ class MacosNativeGateTest(unittest.TestCase):
             write_executable(
                 "xcodebuild",
                 """#!/bin/sh
+if [ "${FAKE_REQUIRE_NO_CODEQL_PRELOAD:-0}" = '1' ] && \
+  { [ "${DYLD_INSERT_LIBRARIES+x}" = 'x' ] || \
+    [ "${SEMMLE_PRELOAD_libtrace+x}" = 'x' ]; }; then
+  exit 97
+fi
 derived_data_path=''
 while [ "$#" -gt 0 ]; do
   if [ "$1" = '-derivedDataPath' ]; then
@@ -105,6 +111,15 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
                 )
             if leave_test_host_running:
                 environment["FAKE_LEAVE_TEST_HOST_RUNNING"] = "1"
+            if codeql_preload:
+                environment.update(
+                    {
+                        "CODEQL_ACTION_INIT_HAS_RUN": "true",
+                        "DYLD_INSERT_LIBRARIES": "",
+                        "SEMMLE_PRELOAD_libtrace": "",
+                        "FAKE_REQUIRE_NO_CODEQL_PRELOAD": "1",
+                    }
+                )
             return subprocess.run(
                 ["bash", str(ROOT / "scripts/test-macos-native.sh")],
                 cwd=ROOT,
@@ -126,12 +141,47 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         self.assertIn("-parallel-testing-enabled NO", runner)
         self.assertIn("-maximum-parallel-testing-workers 1", runner)
         self.assertIn("CODE_SIGNING_ALLOWED=NO", runner)
+        self.assertIn(
+            '[[ "${CODEQL_ACTION_INIT_HAS_RUN:-}" == "true" ]]', runner
+        )
+        self.assertIn(
+            "unset DYLD_INSERT_LIBRARIES SEMMLE_PRELOAD_libtrace", runner
+        )
 
         scheme = self.read(
             "SSRVPN_MacOS/macos/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme"
         )
         self.assertIn('parallelizable = "NO"', scheme)
         self.assertNotIn('parallelizable = "YES"', scheme)
+
+    def test_native_runner_removes_codeql_preload_from_xctest(self) -> None:
+        result = self.run_native_runner(codeql_preload=True)
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_guardian_preserves_the_standard_flutter_app_entrypoint(self) -> None:
+        app_delegate = self.read("SSRVPN_MacOS/macos/Runner/AppDelegate.swift")
+        project = self.read(
+            "SSRVPN_MacOS/macos/Runner.xcodeproj/project.pbxproj"
+        )
+        privilege_gate = self.read("scripts/check-macos-core-privileges.sh")
+
+        self.assertIn("@main\nclass AppDelegate: FlutterAppDelegate", app_delegate)
+        self.assertIn(
+            "override func applicationWillFinishLaunching", app_delegate
+        )
+        self.assertIn("ProxyGuardianCommand.isRequested()", app_delegate)
+        self.assertIn("ProxyGuardianCommand.run()", app_delegate)
+        self.assertNotIn("main.swift", project)
+        self.assertNotIn("native_main = Path(", privilege_gate)
+        self.assertIn(
+            'Path("SSRVPN_MacOS/macos/Runner/main.swift").exists()',
+            privilege_gate,
+        )
+        self.assertIn("applicationWillFinishLaunching", privilege_gate)
+        self.assertFalse(
+            (ROOT / "SSRVPN_MacOS/macos/Runner/main.swift").exists()
+        )
 
     def test_native_runner_fails_when_test_host_writes_a_new_crash_report(self) -> None:
         result = self.run_native_runner(
@@ -458,9 +508,10 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         self.assertIn('run_step "macOS native unit tests" scripts/test-macos-native.sh', verify_all)
         self.assertRegex(
             ci,
-            r"(?s)name: macOS native unit tests.+?matrix\.directory == 'SSRVPN_MacOS'.+?"
-            r"bash scripts/test-macos-native\.sh",
+            r"(?s)macos-native:.+?name: macOS native unit tests.+?"
+            r"runs-on: macos-15.+?bash scripts/test-macos-native\.sh",
         )
+        self.assertEqual(ci.count("bash scripts/test-macos-native.sh"), 1)
         self.assertRegex(
             release,
             r"(?s)name: macOS native unit tests.+?bash scripts/test-macos-native\.sh",
@@ -554,6 +605,15 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         lifecycle = self.read(
             "SSRVPN_MacOS/lib/services/clash_service_lifecycle.dart"
         )
+        system_proxy = self.read(
+            "SSRVPN_MacOS/lib/services/system_proxy_service.dart"
+        )
+        proxy_guardian = self.read(
+            "SSRVPN_MacOS/macos/Runner/ProxyGuardian.swift"
+        )
+        xcode_project = self.read(
+            "SSRVPN_MacOS/macos/Runner.xcodeproj/project.pbxproj"
+        )
 
         for token in (
             "func acquireInstanceLease(at url: URL? = nil) -> Bool",
@@ -590,6 +650,7 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "private enum ApplicationTerminationLeaseState: Equatable",
         ):
             self.assertIn(token, app_delegate)
+        self.assertIn("func startProxyGuardian(", proxy_guardian)
         for token in (
             "final class AppInstanceLease",
             "O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW",
@@ -636,6 +697,50 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         self.assertNotIn("/bin/ps", lifecycle)
         self.assertNotIn("process.kill", lifecycle)
         self.assertNotIn("terminateMacosCoreProcess", lifecycle)
+        self.assertIn("@main", app_delegate)
+
+        launch = app_delegate.index(
+            "override func applicationWillFinishLaunching"
+        )
+        guardian_mode = app_delegate.index(
+            "ProxyGuardianCommand.isRequested()", launch
+        )
+        flutter_launch = app_delegate.index(
+            "super.applicationWillFinishLaunching", guardian_mode
+        )
+        self.assertLess(guardian_mode, flutter_launch)
+        for token in (
+            "ProxyGuardianCommand.run()",
+            "ProxyGuardian.swift in Sources",
+            'call.method == "startProxyGuardian"',
+            "expectedGuardianNonce: nonce",
+            "expectedOwnerPid: ownerPid",
+            "currentOwnerIdentity(owner.pid) == owner",
+            "startSeconds: processInfo.pbi_start_tvsec",
+            "startMicroseconds: processInfo.pbi_start_tvusec",
+            "return dependencies.terminateCore(",
+        ):
+            self.assertTrue(
+                token in app_delegate
+                or token in xcode_project
+                or token in main_window
+                or token in proxy_guardian,
+                token,
+            )
+        restore = proxy_guardian.index("guard dependencies.restoreProxy(")
+        terminate = proxy_guardian.index("return dependencies.terminateCore(")
+        self.assertLess(restore, terminate)
+
+        snapshot = system_proxy.index(
+            "final guardianNonce = await _saveCurrentStateIfNeeded("
+        )
+        guardian = system_proxy.index(
+            "_startNativeProxyGuardian(statePath, guardianNonce)", snapshot
+        )
+        mutation = system_proxy.index("for (final svc in services)", guardian)
+        self.assertLess(snapshot, guardian)
+        self.assertLess(guardian, mutation)
+        self.assertIn("'_guardianNonce': guardianNonce", system_proxy)
 
         awake = main_window.index("override func awakeFromNib()")
         acquire = main_window.index("delegate.acquireInstanceLease()", awake)
@@ -646,6 +751,10 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         drain = app_delegate.index("performCoreProcessOperationAndWait", termination)
         restore = app_delegate.index("restoreSavedProxyState()", termination)
         self.assertLess(drain, restore)
+        self.assertNotIn(
+            "super.applicationWillTerminate",
+            app_delegate[termination:],
+        )
 
         begin = main_window.index('call.method == "beginProxyLifecycleTransaction"')
         end = main_window.index('call.method == "endProxyLifecycleTransaction"')

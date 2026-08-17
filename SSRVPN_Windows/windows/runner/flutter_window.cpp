@@ -8,6 +8,8 @@
 #include <system_tray/system_tray_plugin.h>
 #include <window_manager/window_manager_plugin.h>
 
+#include <cstdint>
+#include <cwchar>
 #include <optional>
 #include <string>
 #include <vector>
@@ -27,6 +29,118 @@ constexpr wchar_t kElevatedTunReadyArgumentPrefix[] =
 constexpr wchar_t kElevatedTunReadyEventPrefix[] =
     L"Local\\SSRVPN_Windows_TunElevationReady_";
 constexpr DWORD kElevatedLauncherValidationMilliseconds = 10000;
+constexpr wchar_t kWindowsVersionRegistryPath[] =
+    L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+
+struct NativeWindowsVersionInfo {
+  DWORD major = 0;
+  DWORD minor = 0;
+  DWORD build = 0;
+  std::wstring display_version;
+  std::wstring edition_id;
+};
+
+std::string WideToUtf8(const std::wstring& value) {
+  if (value.empty()) {
+    return std::string();
+  }
+  const int length = ::WideCharToMultiByte(
+      CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0,
+      nullptr, nullptr);
+  if (length <= 0) {
+    return std::string();
+  }
+  std::string result(static_cast<size_t>(length), '\0');
+  ::WideCharToMultiByte(CP_UTF8, 0, value.data(),
+                        static_cast<int>(value.size()), result.data(), length,
+                        nullptr, nullptr);
+  return result;
+}
+
+std::wstring QueryRegistryString(HKEY key, const wchar_t* value_name) {
+  DWORD byte_count = 0;
+  if (::RegGetValueW(key, nullptr, value_name, RRF_RT_REG_SZ, nullptr, nullptr,
+                     &byte_count) != ERROR_SUCCESS ||
+      byte_count < sizeof(wchar_t)) {
+    return std::wstring();
+  }
+  std::vector<wchar_t> buffer(byte_count / sizeof(wchar_t));
+  if (::RegGetValueW(key, nullptr, value_name, RRF_RT_REG_SZ, nullptr,
+                     buffer.data(), &byte_count) != ERROR_SUCCESS) {
+    return std::wstring();
+  }
+  return std::wstring(buffer.data());
+}
+
+DWORD QueryRegistryDword(HKEY key, const wchar_t* value_name) {
+  DWORD value = 0;
+  DWORD byte_count = sizeof(value);
+  if (::RegGetValueW(key, nullptr, value_name, RRF_RT_REG_DWORD, nullptr,
+                     &value, &byte_count) != ERROR_SUCCESS) {
+    return 0;
+  }
+  return value;
+}
+
+NativeWindowsVersionInfo QueryNativeWindowsVersionInfo() {
+  NativeWindowsVersionInfo result;
+  OSVERSIONINFOW version = {};
+  version.dwOSVersionInfoSize = sizeof(version);
+  HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
+  using RtlGetVersionFunction = LONG(WINAPI*)(OSVERSIONINFOW*);
+  const auto rtl_get_version =
+      ntdll == nullptr
+          ? nullptr
+          : reinterpret_cast<RtlGetVersionFunction>(
+                ::GetProcAddress(ntdll, "RtlGetVersion"));
+  if (rtl_get_version != nullptr && rtl_get_version(&version) == 0) {
+    result.major = version.dwMajorVersion;
+    result.minor = version.dwMinorVersion;
+    result.build = version.dwBuildNumber;
+  }
+
+  HKEY version_key = nullptr;
+  if (::RegOpenKeyExW(HKEY_LOCAL_MACHINE, kWindowsVersionRegistryPath, 0,
+                      KEY_QUERY_VALUE | KEY_WOW64_64KEY,
+                      &version_key) == ERROR_SUCCESS) {
+    if (result.major == 0) {
+      result.major =
+          QueryRegistryDword(version_key, L"CurrentMajorVersionNumber");
+      result.minor =
+          QueryRegistryDword(version_key, L"CurrentMinorVersionNumber");
+    }
+    if (result.build == 0) {
+      const std::wstring build =
+          QueryRegistryString(version_key, L"CurrentBuildNumber");
+      wchar_t* end = nullptr;
+      const unsigned long parsed = std::wcstoul(build.c_str(), &end, 10);
+      if (end != build.c_str() && end != nullptr && *end == L'\0') {
+        result.build = static_cast<DWORD>(parsed);
+      }
+    }
+    result.display_version =
+        QueryRegistryString(version_key, L"DisplayVersion");
+    result.edition_id = QueryRegistryString(version_key, L"EditionID");
+    ::RegCloseKey(version_key);
+  }
+  return result;
+}
+
+flutter::EncodableMap EncodeWindowsVersionInfo(
+    const NativeWindowsVersionInfo& info) {
+  return flutter::EncodableMap{
+      {flutter::EncodableValue("major"),
+       flutter::EncodableValue(static_cast<int64_t>(info.major))},
+      {flutter::EncodableValue("minor"),
+       flutter::EncodableValue(static_cast<int64_t>(info.minor))},
+      {flutter::EncodableValue("build"),
+       flutter::EncodableValue(static_cast<int64_t>(info.build))},
+      {flutter::EncodableValue("displayVersion"),
+       flutter::EncodableValue(WideToUtf8(info.display_version))},
+      {flutter::EncodableValue("editionId"),
+       flutter::EncodableValue(WideToUtf8(info.edition_id))},
+  };
+}
 
 enum class ProcessElevationState {
   kElevated,
@@ -360,6 +474,28 @@ bool FlutterWindow::OnCreate() {
         }
         result->NotImplemented();
       });
+  platform_info_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(),
+          "com.ssrvpn.windows/platform_info",
+          &flutter::StandardMethodCodec::GetInstance());
+  platform_info_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() != "getWindowsVersionInfo") {
+          result->NotImplemented();
+          return;
+        }
+        const NativeWindowsVersionInfo info = QueryNativeWindowsVersionInfo();
+        if (info.major == 0 || info.build == 0) {
+          result->Error("version_unavailable",
+                        "Windows version APIs returned no build number");
+          return;
+        }
+        result->Success(flutter::EncodableValue(
+            EncodeWindowsVersionInfo(info)));
+      });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -375,6 +511,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  platform_info_channel_ = nullptr;
   tun_elevation_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;

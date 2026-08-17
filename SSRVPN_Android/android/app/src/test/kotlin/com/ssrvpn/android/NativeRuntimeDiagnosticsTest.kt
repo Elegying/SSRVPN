@@ -45,14 +45,15 @@ class NativeRuntimeDiagnosticsTest {
 
     @Test
     fun `TUN ownership requires the exact interface captured by the claim`() {
-        tracker.claimTunDescriptor(42) { setOf("tun0") }
+        tracker.beginTunLease { setOf("tun0") }
+        tracker.claimTunDescriptor(42) { setOf("tun0", "tun1") }
 
         val matchingSnapshot = tracker.snapshot(
             serviceRunning = true,
             operationBusy = false,
             protectMonitorAlive = true,
             bridgeReady = true,
-            activeTunInterfaces = { setOf("tun0") }
+            activeTunInterfaces = { setOf("tun1") }
         ).toMap()
         assertTrue(matchingSnapshot["tunEstablished"] as Boolean)
 
@@ -61,11 +62,16 @@ class NativeRuntimeDiagnosticsTest {
             operationBusy = false,
             protectMonitorAlive = true,
             bridgeReady = true,
-            activeTunInterfaces = { setOf("tun1") }
+            activeTunInterfaces = { setOf("tun0") }
         ).toMap()
         assertFalse(unrelatedTunSnapshot["tunEstablished"] as Boolean)
 
-        tracker.releaseTunDescriptor()
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { null }
+            )
+        )
         val releasedSnapshot = tracker.snapshot(
             serviceRunning = true,
             operationBusy = false,
@@ -74,6 +80,129 @@ class NativeRuntimeDiagnosticsTest {
             activeTunInterfaces = { setOf("tun0") }
         ).toMap()
         assertFalse(releasedSnapshot["tunEstablished"] as Boolean)
+    }
+
+    @Test
+    fun `release proof keeps the lease until both descriptor and interface disappear`() {
+        tracker.beginTunLease { emptySet() }
+        tracker.claimTunDescriptor(42) { setOf("tun0") }
+
+        assertFalse(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { setOf("tun0") },
+                descriptorTarget = { "/dev/tun" }
+            )
+        )
+        assertFalse(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { "/dev/tun" }
+            )
+        )
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { null }
+            )
+        )
+    }
+
+    @Test
+    fun `delayed TUN discovery is captured before release`() {
+        tracker.beginTunLease { emptySet() }
+        tracker.claimTunDescriptor(42) { emptySet() }
+
+        val connected = tracker.snapshot(
+            serviceRunning = true,
+            operationBusy = false,
+            protectMonitorAlive = true,
+            bridgeReady = true,
+            activeTunInterfaces = { setOf("tun0") }
+        ).toMap()
+
+        assertTrue(connected["tunEstablished"] as Boolean)
+        assertFalse(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { setOf("tun0") },
+                descriptorTarget = { null }
+            )
+        )
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { null }
+            )
+        )
+    }
+
+    @Test
+    fun `unobserved TUN generation releases after baseline and fd recover`() {
+        tracker.beginTunLease { emptySet() }
+        tracker.claimTunDescriptor(42) { emptySet() }
+
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { null }
+            )
+        )
+    }
+
+    @Test
+    fun `unknown TUN baseline remains fail closed after fd release`() {
+        tracker.beginTunLease { null }
+        tracker.claimTunDescriptor(42) { null }
+
+        assertFalse(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { null }
+            )
+        )
+    }
+
+    @Test
+    fun `stop closes the retained VPN lease before checking kernel release`() {
+        val events = mutableListOf<String>()
+        var leaseOpen = true
+
+        val released = TunReleaseVerifier.releaseOwnedLeaseAndWait(
+            bridgeStopped = true,
+            attempts = 1,
+            retryDelayMillis = 0,
+            closeOwnedLease = {
+                events += "close"
+                leaseOpen = false
+            },
+            isReleased = {
+                events += "verify"
+                !leaseOpen
+            }
+        )
+
+        assertTrue(released)
+        assertEquals(listOf("close", "verify"), events)
+    }
+
+    @Test
+    fun `failed bridge stop still closes the retained VPN lease`() {
+        var closeCount = 0
+        var verifierCalled = false
+
+        val released = TunReleaseVerifier.releaseOwnedLeaseAndWait(
+            bridgeStopped = false,
+            attempts = 1,
+            retryDelayMillis = 0,
+            closeOwnedLease = { closeCount += 1 },
+            isReleased = {
+                verifierCalled = true
+                true
+            }
+        )
+
+        assertFalse(released)
+        assertEquals(1, closeCount)
+        assertFalse(verifierCalled)
     }
 
     @Test

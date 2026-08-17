@@ -17,6 +17,8 @@ void main() {
     Widget child, {
     Size size = const Size(390, 844),
     double textScaleFactor = 1,
+    TextScaler? textScaler,
+    double viewInsetsBottom = 0,
   }) {
     return MaterialApp(
       theme: ThemeData.dark(useMaterial3: true),
@@ -28,7 +30,8 @@ void main() {
           child: MediaQuery(
             data: MediaQueryData(
               size: size,
-              textScaler: TextScaler.linear(textScaleFactor),
+              textScaler: textScaler ?? TextScaler.linear(textScaleFactor),
+              viewInsets: EdgeInsets.only(bottom: viewInsetsBottom),
             ),
             child: Scaffold(body: child),
           ),
@@ -410,6 +413,18 @@ void main() {
     expect(
       latencySemantics.getSemanticsData().hasAction(SemanticsAction.tap),
       isTrue,
+    );
+    final latencyButtonSemantics = tester.getSemantics(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey('ssrvpn-node-card-日本 | IEPL ①'),
+        ),
+        matching: find.byType(TextButton),
+      ),
+    );
+    expect(
+      latencyButtonSemantics.getSemanticsData().label,
+      '测试 日本 | IEPL ① 延迟',
     );
 
     await tester.longPress(
@@ -1044,6 +1059,82 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('home header uses measured space under nonlinear text scaling',
+      (tester) async {
+    await tester.pumpWidget(
+      host(
+        SsrvpnHomeOverview(
+          isConnected: false,
+          isConnecting: false,
+          selectedNode: null,
+          selectedLatency: null,
+          selectedCountryCode: null,
+          onToggleConnection: () {},
+          onOpenNodes: () {},
+          onShowAbout: () {},
+          onShowTutorial: () {},
+          onShowLogs: () {},
+          onRefreshPublicIp: () {},
+        ),
+        size: const Size(412, 800),
+        textScaler: const _AndroidNonlinearTestScaler(),
+      ),
+    );
+    await tester.pump();
+
+    final titleRect = tester.getRect(find.text('SSRVPN'));
+    expect(titleRect.overlaps(tester.getRect(find.text('关于'))), isFalse);
+    expect(titleRect.overlaps(tester.getRect(find.text('使用教程'))), isFalse);
+    expect(
+      tester.getSize(find.byKey(const Key('ssrvpn-about-button'))).height,
+      greaterThanOrEqualTo(48),
+    );
+    expect(
+      tester.getSize(find.byKey(const Key('ssrvpn-tutorial-button'))).height,
+      greaterThanOrEqualTo(48),
+    );
+  });
+
+  testWidgets('focused subscription input keeps add action above the keyboard',
+      (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    Widget view(double inset) => host(
+          SsrvpnSubscriptionView(
+            subscriptions: const [],
+            urlController: controller,
+            isAdding: false,
+            isRefreshing: false,
+            isBusy: false,
+            refreshMessage: null,
+            refreshMessageColor: null,
+            onAdd: () {},
+            onRefresh: () {},
+            onCancelRefresh: () {},
+            onDelete: (_) {},
+          ),
+          size: const Size(320, 568),
+          textScaleFactor: 2,
+          viewInsetsBottom: inset,
+        );
+
+    await tester.pumpWidget(view(0));
+    await tester.tap(find.byKey(const Key('ssrvpn-subscription-input')));
+    await tester.pump();
+    await tester.pumpWidget(view(300));
+    await tester.pumpAndSettle();
+
+    final add = find.byKey(const Key('ssrvpn-subscription-add'));
+    final viewport = find.byKey(const Key('ssrvpn-subscription-scroll'));
+    final addRect = tester.getRect(add);
+    final viewportRect = tester.getRect(viewport);
+    expect(addRect.top, greaterThanOrEqualTo(viewportRect.top));
+    expect(addRect.bottom, lessThanOrEqualTo(viewportRect.bottom));
+    expect(add.hitTestable(), findsOneWidget);
+    expect(tester.getSize(add).height, greaterThanOrEqualTo(48));
+  });
+
   testWidgets('compact selector scrolls controls and nodes as one surface',
       (tester) async {
     final nodes = List.generate(
@@ -1323,4 +1414,15 @@ Future<void> _focusSemanticAction(WidgetTester tester, Finder action) async {
     await tester.pump();
   }
   fail('Could not focus requested semantic action with keyboard traversal');
+}
+
+class _AndroidNonlinearTestScaler extends TextScaler {
+  const _AndroidNonlinearTestScaler();
+
+  @override
+  double scale(double fontSize) =>
+      fontSize >= 20 ? fontSize * 1.3 : fontSize * 2;
+
+  @override
+  double get textScaleFactor => 2;
 }

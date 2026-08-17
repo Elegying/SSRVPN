@@ -7,6 +7,9 @@
 - [macOS 安装与权限](../SSRVPN_MacOS/USER_GUIDE.md)
 - [Windows 安装与权限](../SSRVPN_Windows/USER_GUIDE.md)
 
+当前 macOS 正式包仅支持 Apple M 系列芯片，不支持 Intel Mac。请在下载 DMG 前先确认
+“关于本机”中的芯片信息。
+
 ## 导入订阅或节点
 
 1. 首次启动且没有节点时，应用会提示添加订阅或节点。

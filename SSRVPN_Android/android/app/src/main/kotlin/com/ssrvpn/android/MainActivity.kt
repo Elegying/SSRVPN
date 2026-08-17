@@ -418,9 +418,17 @@ class MainActivity : FlutterActivity() {
                 service.stopAll(
                     preserveForegroundUi = true,
                     recordManualStop = true
-                ) {
+                ) { stoppedCleanly ->
                     runOnActiveUiThread("Unable to deliver VPN stop result") {
-                        result.success(true)
+                        if (stoppedCleanly) {
+                            result.success(true)
+                        } else {
+                            result.error(
+                                "STOP_INCOMPLETE",
+                                "VPN resources are still releasing",
+                                null
+                            )
+                        }
                     }
                 }
             }

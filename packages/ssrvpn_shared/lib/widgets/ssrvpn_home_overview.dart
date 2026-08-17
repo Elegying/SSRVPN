@@ -6,6 +6,8 @@ import '../utils/node_display_policy.dart';
 import 'country_flag_icon.dart';
 import 'ssrvpn_app_surface.dart';
 
+part 'ssrvpn_home_overview_header.dart';
+
 class SsrvpnHomeOverview extends StatelessWidget {
   const SsrvpnHomeOverview({
     super.key,
@@ -138,97 +140,6 @@ class SsrvpnHomeOverview extends StatelessWidget {
             ),
           );
         },
-      ),
-    );
-  }
-}
-
-class _HomeHeader extends StatelessWidget {
-  const _HomeHeader({
-    required this.compact,
-    required this.onShowAbout,
-    required this.onShowTutorial,
-  });
-
-  final bool compact;
-  final VoidCallback onShowAbout;
-  final VoidCallback onShowTutorial;
-
-  @override
-  Widget build(BuildContext context) {
-    final actionStyle = TextButton.styleFrom(
-      foregroundColor: SsrvpnUiTokens.textSecondary,
-      padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 10, vertical: 8),
-      minimumSize: const Size(48, 40),
-    );
-    final aboutAction = Tooltip(
-      message: '关于',
-      child: TextButton(
-        key: const Key('ssrvpn-about-button'),
-        onPressed: onShowAbout,
-        style: actionStyle,
-        child: const Text('关于'),
-      ),
-    );
-    final tutorialAction = Tooltip(
-      message: '使用教程',
-      child: TextButton(
-        key: const Key('ssrvpn-tutorial-button'),
-        onPressed: onShowTutorial,
-        style: actionStyle,
-        child: const Text('使用教程'),
-      ),
-    );
-    final title = Text(
-      'SSRVPN',
-      style: TextStyle(
-        color: SsrvpnUiTokens.textPrimary,
-        fontSize: compact ? 29 : 34,
-        fontWeight: FontWeight.w400,
-        letterSpacing: 0.4,
-      ),
-    );
-    final scaledActionTextSize = MediaQuery.textScalerOf(context).scale(14);
-    final actions = LayoutBuilder(
-      builder: (context, constraints) {
-        final horizontalPadding = compact ? 4.0 : 10.0;
-        final requiredWidth = scaledActionTextSize * 6 + horizontalPadding * 4;
-        if (requiredWidth > constraints.maxWidth) {
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(alignment: Alignment.centerLeft, child: aboutAction),
-              Align(alignment: Alignment.centerRight, child: tutorialAction),
-            ],
-          );
-        }
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [aboutAction, tutorialAction],
-        );
-      },
-    );
-    final scaledTitleSize = MediaQuery.textScalerOf(context).scale(
-      compact ? 29 : 34,
-    );
-    if (scaledTitleSize > (compact ? 39 : 46)) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          title,
-          const SizedBox(height: 2),
-          actions,
-        ],
-      );
-    }
-    return SizedBox(
-      height: 54,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          actions,
-          IgnorePointer(child: title),
-        ],
       ),
     );
   }

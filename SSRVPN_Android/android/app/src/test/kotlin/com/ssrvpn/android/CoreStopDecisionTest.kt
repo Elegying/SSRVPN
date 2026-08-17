@@ -72,12 +72,12 @@ class CoreStopDecisionTest {
                 throw failure
             },
             onTerminationRequired = { events += "handoff" },
-            complete = { events += "complete" },
+            complete = { stoppedCleanly -> events += "complete:$stoppedCleanly" },
             scheduleTermination = { events += "kill" }
         )
 
         assertSame(failure, observedFailure)
-        assertEquals(listOf("cleanup", "handoff", "complete", "kill"), events)
+        assertEquals(listOf("cleanup", "handoff", "complete:false", "kill"), events)
     }
 
     @Test
@@ -91,11 +91,27 @@ class CoreStopDecisionTest {
                 false
             },
             onTerminationRequired = { events += "handoff" },
-            complete = { events += "complete" },
+            complete = { stoppedCleanly -> events += "complete:$stoppedCleanly" },
             scheduleTermination = { events += "kill" }
         )
 
         assertEquals(null, observedFailure)
-        assertEquals(listOf("cleanup", "handoff", "complete", "kill"), events)
+        assertEquals(listOf("cleanup", "handoff", "complete:false", "kill"), events)
+    }
+
+    @Test
+    fun `clean stop is reported only after cleanup proves release`() {
+        val completion = mutableListOf<Boolean>()
+
+        val observedFailure = StopOperationRunner.run(
+            initiallyRequiresTermination = false,
+            cleanup = { false },
+            onTerminationRequired = { error("unexpected termination") },
+            complete = completion::add,
+            scheduleTermination = { error("unexpected termination") }
+        )
+
+        assertEquals(null, observedFailure)
+        assertEquals(listOf(true), completion)
     }
 }

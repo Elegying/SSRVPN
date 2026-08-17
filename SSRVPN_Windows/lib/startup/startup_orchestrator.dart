@@ -25,9 +25,21 @@ class StartupOrchestrator {
     status.markStarting();
     StartupLogger.info('Startup flags: $flags');
 
-    await runStep('window_manager', initWindowManager);
-    await runStep('screen_retriever', initScreenRetriever);
-    await runStep('system_tray', initSystemTray);
+    await runStep(
+      'window_manager',
+      initWindowManager,
+      skip: flags.safeMode,
+    );
+    await runStep(
+      'screen_retriever',
+      initScreenRetriever,
+      skip: flags.safeMode,
+    );
+    await runStep(
+      'system_tray',
+      initSystemTray,
+      skip: flags.disableTray,
+    );
     await runStep(
       'mihomo_core',
       initCoreService,
@@ -54,7 +66,13 @@ class StartupOrchestrator {
     String name,
     Future<void> Function() step, {
     Duration? timeout = const Duration(seconds: 8),
+    bool skip = false,
   }) async {
+    if (skip) {
+      StartupLogger.info('SKIPPED $name by startup flags');
+      StartupStatus.instance.markStepSkipped(name);
+      return;
+    }
     StartupStatus.instance.markStepStarted(name);
     StartupLogger.info('START $name');
     try {

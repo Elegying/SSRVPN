@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.Icon
 import android.os.Build
 import java.util.Locale
 
@@ -49,11 +50,13 @@ internal object VpnNotificationSupport {
             Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val disconnectPending = PendingIntent.getBroadcast(
+        val disconnectIntent = Intent(disconnectAction)
+        disconnectIntent.setClass(context, SsrvpnVpnService::class.java)
+        val disconnectPending = PendingIntent.getService(
             context,
             1,
-            Intent(disconnectAction).setPackage(context.packageName),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            disconnectIntent,
+            PendingIntent.FLAG_IMMUTABLE
         )
         val rateText = state.statusText ?: if (state.connected) {
             "↑ ${formatBytes(state.uploadRate)}/s  ↓ ${formatBytes(state.downloadRate)}/s"
@@ -71,7 +74,13 @@ internal object VpnNotificationSupport {
             .setStyle(Notification.BigTextStyle().bigText(detailText))
             .setSmallIcon(R.drawable.ic_vpn_tile)
             .setContentIntent(openPending)
-            .addAction(Notification.Action.Builder(null, "断开", disconnectPending).build())
+            .addAction(
+                Notification.Action.Builder(
+                    Icon.createWithResource(context, R.drawable.ic_disconnect),
+                    "断开",
+                    disconnectPending
+                ).build()
+            )
             .setWhen(state.connectionStartedAt)
             .setShowWhen(true)
             .setColor(Color.rgb(71, 108, 255))

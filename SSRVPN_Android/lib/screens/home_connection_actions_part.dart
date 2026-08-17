@@ -5,10 +5,31 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     final subService = context.read<SubscriptionService>();
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
-    final settings = settingsService.settings;
     final connectionGeneration = clashService.captureAutomaticRestartIntent();
     if (connectionGeneration == null) return;
+    await clashService.runConnectionTransition(
+      () => _reloadConfigTransition(
+        subService,
+        clashService,
+        settingsService,
+        connectionGeneration,
+      ),
+    );
+  }
 
+  Future<void> _reloadConfigTransition(
+    SubscriptionService subService,
+    ClashService clashService,
+    SettingsService settingsService,
+    int connectionGeneration,
+  ) async {
+    if (!clashService.isConnectionIntentCurrent(
+      connectionGeneration,
+      connected: true,
+    )) {
+      return;
+    }
+    final settings = settingsService.settings;
     final orch = ConnectionOrchestrator(
       clashService: clashService,
       settingsService: settingsService,
@@ -53,6 +74,8 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         if (!connected) clashService.requestConnectionIntent(false);
         _updateHomeState(() {
           _isConnected = connected;
+          _connectionNotice =
+              connected ? clashService.underlyingNetworkNotice : null;
           _isConnecting = false;
           _errorMessage = connected ? result : result ?? '连接重载失败: 无法启动VPN核心';
           _nodes = nodes;
@@ -101,6 +124,8 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         if (mounted && !_disposed) {
           _updateHomeState(() {
             _isConnected = clashService.isRunning;
+            _connectionNotice =
+                _isConnected ? clashService.underlyingNetworkNotice : null;
             _isConnecting = false;
             _nativeRecoveryInProgress = false;
             if (!_isConnected) {
@@ -124,6 +149,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         if (!mounted || _disposed) return;
         _updateHomeState(() {
           _isConnected = false;
+          _connectionNotice = null;
           _latencyController.clear();
           _resetPublicIpState();
         });
@@ -131,6 +157,8 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         if (mounted && !_disposed) {
           _updateHomeState(() {
             _isConnected = clashService.isRunning;
+            _connectionNotice =
+                _isConnected ? clashService.underlyingNetworkNotice : null;
             _errorMessage = '断开连接失败: ${_userFriendlyError(e)}';
           });
         }
@@ -165,9 +193,24 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           ),
         );
         connectionGeneration = clashService.requestConnectionIntent(true);
-        final result = await _orchestrator.connect(
-          autoSelect?.name,
-          connectionGeneration: connectionGeneration,
+        final orchestrator = ConnectionOrchestrator(
+          clashService: clashService,
+          settingsService: settingsService,
+          subscriptionService: subService,
+        );
+        final result = await clashService.runConnectionTransition(
+          () async {
+            if (!clashService.isConnectionIntentCurrent(
+              connectionGeneration!,
+              connected: true,
+            )) {
+              return null;
+            }
+            return orchestrator.connect(
+              autoSelect?.name,
+              connectionGeneration: connectionGeneration,
+            );
+          },
         );
         if (!clashService.isConnectionIntentCurrent(
           connectionGeneration,
@@ -206,6 +249,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
             );
             _updateHomeState(() {
               _isConnected = false;
+              _connectionNotice = null;
               _isConnecting = false;
               _errorMessage = result ?? '连接已中断，请重新连接';
               _resetPublicIpState();
@@ -214,6 +258,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           }
           _updateHomeState(() {
             _isConnected = true;
+            _connectionNotice = clashService.underlyingNetworkNotice;
             _isConnecting = false;
             _errorMessage = result;
             _nodes = nodes;
@@ -244,6 +289,8 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         _updateHomeState(() {
           _errorMessage = '连接失败: ${_userFriendlyError(e)}';
           _isConnected = clashService.isRunning;
+          _connectionNotice =
+              _isConnected ? clashService.underlyingNetworkNotice : null;
           _isConnecting = false;
           if (!_isConnected) _resetPublicIpState();
         });

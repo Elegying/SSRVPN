@@ -145,7 +145,16 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    sha256sum -c SSRVPN.apk.sha256
    sha256sum -c SSRVPN_Setup.exe.sha256
    ```
-6. 检查用户会看到的系统提示是否符合预期：
+6. 校验三个安装包均由本仓库 `release.yml` 对应 tag 的 GitHub Actions 构建并签发证明：
+
+   ```bash
+   gh attestation verify SSRVPN.apk --repo Elegying/SSRVPN --signer-workflow Elegying/SSRVPN/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z
+   gh attestation verify SSRVPN.dmg --repo Elegying/SSRVPN --signer-workflow Elegying/SSRVPN/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z
+   gh attestation verify SSRVPN_Setup.exe --repo Elegying/SSRVPN --signer-workflow Elegying/SSRVPN/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z
+   ```
+
+   attestation 不替代安装包旁的 SHA256，也不代表 Apple/Microsoft 受信任发布者签名。
+7. 检查用户会看到的系统提示是否符合预期：
    - Android APK 使用同一个自签名 keystore，可覆盖安装升级。
    - macOS 未公证时可能需要右键打开。
    - Windows 未代码签名时可能出现 SmartScreen 未知发布者提示。

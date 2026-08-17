@@ -7,6 +7,76 @@ import 'package:ssrvpn_macos/services/system_proxy_service.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
+  test('proxy guardian is ready before the first proxy mutation', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'ssrvpn_macos_proxy_guardian_ready_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final events = <String>[];
+    Map<String, dynamic>? guardianSnapshot;
+    final service = _testSystemProxyService(
+      startProxyGuardian: (statePath, nonce) async {
+        events.add('guardian');
+        guardianSnapshot = jsonDecode(await File(statePath).readAsString())
+            as Map<String, dynamic>;
+        expect(guardianSnapshot!['_guardianNonce'], nonce);
+        return true;
+      },
+      networkSetupRunner: (arguments) async {
+        if (arguments.first.startsWith('-get')) {
+          return ProcessResult(
+            1,
+            0,
+            'Enabled: No\nServer: \nPort: 0\n',
+            '',
+          );
+        }
+        events.add('mutation');
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+    await service.initialize(tempDirectory.path);
+
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+
+    expect(events.first, 'guardian');
+    expect(events, contains('mutation'));
+    expect(guardianSnapshot!['_ownerPid'], pid);
+  });
+
+  test('proxy setup fails closed when its guardian is unavailable', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'ssrvpn_macos_proxy_guardian_unavailable_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final mutations = <String>[];
+    final service = _testSystemProxyService(
+      startProxyGuardian: (_, __) async => false,
+      networkSetupRunner: (arguments) async {
+        if (arguments.first.startsWith('-get')) {
+          return ProcessResult(
+            1,
+            0,
+            'Enabled: No\nServer: \nPort: 0\n',
+            '',
+          );
+        }
+        mutations.add(arguments.join(' '));
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+    await service.initialize(tempDirectory.path);
+
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+
+    expect(mutations, isEmpty);
+    expect(service.lastError, contains('guardian'));
+    expect(
+      await File('${tempDirectory.path}/system_proxy.json').exists(),
+      isFalse,
+    );
+  });
+
   test(
     'effective proxy ownership detects an external change without mutating it',
     () async {
@@ -18,6 +88,7 @@ void main() {
       var effectiveProxyReadable = true;
       final mutationCommands = <List<String>>[];
       final service = SystemProxyService(
+        startProxyGuardian: (_, __) async => true,
         beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
         endProxyLifecycleTransaction: (_) async => true,
         networkServiceIdentityRunner: () async => {
@@ -990,6 +1061,7 @@ void main() {
     '_ownedProxyHost',
     '_ownedProxyPort',
     '_ownerPid',
+    '_guardianNonce',
     '_networkServiceIDs',
   ]) {
     test(
@@ -1278,6 +1350,7 @@ SystemProxyService _testSystemProxyService({
   MacNetworkServiceIdentityRunner? networkServiceIdentityRunner,
   MacProxyLifecycleBegin? beginProxyLifecycleTransaction,
   MacProxyLifecycleEnd? endProxyLifecycleTransaction,
+  MacProxyGuardianStart? startProxyGuardian,
 }) =>
     SystemProxyService(
       networkSetupRunner: networkSetupRunner,
@@ -1287,6 +1360,7 @@ SystemProxyService _testSystemProxyService({
           beginProxyLifecycleTransaction ?? () async => 'test-proxy-lease',
       endProxyLifecycleTransaction:
           endProxyLifecycleTransaction ?? (_) async => true,
+      startProxyGuardian: startProxyGuardian ?? (_, __) async => true,
     );
 
 Future<ProcessResult> _successfulNetworkSetupRunner(

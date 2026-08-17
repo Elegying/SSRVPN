@@ -362,7 +362,7 @@ start_core = source[
 establish = start_core.index("vpnFd = builder.establish()")
 protect_init = start_core.index("bridge.Bridge.initProtect()")
 protect_monitor = start_core.index("VpnProtectMonitor.start(")
-detach = start_core.index("DetachedTunFdOwner.detach(descriptor)")
+detach = start_core.index("DetachedTunFdOwner.detach(bridgeDescriptor)")
 if not establish < protect_init < protect_monitor < detach:
     raise SystemExit(
         "Android protect pipe must start only after VPN establish and before fd detach"
@@ -409,7 +409,7 @@ record_failure = runner_body.index("cleanupFailure = error", force)
 handoff_callback = runner_body.index(
     "if (terminationRequired) onTerminationRequired()", record_failure
 )
-complete_callback = runner_body.index("complete()", handoff_callback)
+complete_callback = runner_body.index("complete(!terminationRequired)", handoff_callback)
 schedule_callback = runner_body.index(
     "if (terminationRequired) scheduleTermination()", complete_callback
 )
@@ -565,24 +565,36 @@ for forbidden in (
     if forbidden in runtime:
         raise SystemExit(f"Android native diagnostics inferred health: {forbidden}")
 for required in (
+    "beginTunLease",
     "claimTunDescriptor",
     "TunOwnershipClaim",
-    "activeTunInterfaceNames",
-    "claim.interfaceNames.any(currentTunInterfaces::contains)",
+    "baselineInterfaceNames",
+    "releaseTunDescriptorIfClosed",
+    "tunInterfaceNames",
+    'Os.readlink("/proc/self/fd/$descriptor")',
+    "resolveOwnedTunInterfaces(claim, currentTunInterfaces)",
     "bridgeReady = bridgeReady",
 ):
     if required not in runtime:
         raise SystemExit(f"Android native diagnostics lost real probe: {required}")
 for required in (
+    "runtimeDiagnostics.beginTunLease()",
     "runtimeDiagnostics.claimTunDescriptor(tunFd)",
-    "runtimeDiagnostics.releaseTunDescriptor()",
+    "runtimeDiagnostics::releaseTunDescriptorIfClosed",
 ):
     if required not in service:
         raise SystemExit(f"Android VPN service lost diagnostic ownership hook: {required}")
-commit_start = service.index("val published = startGeneration.runIfCurrent(startToken)")
-commit_end = service.index("NativeConnectionSession.publishRunning(configPath)", commit_start)
-if "runtimeDiagnostics.claimTunDescriptor(tunFd)" not in service[commit_start:commit_end]:
-    raise SystemExit("Android TUN diagnostic ownership is outside the session commit")
+start_core = service[
+    service.index("private fun startCoreWithVpn("):
+    service.index("private fun ensureStartCurrent(")
+]
+detach = start_core.index("DetachedTunFdOwner.detach(bridgeDescriptor)")
+claim = start_core.index("runtimeDiagnostics.claimTunDescriptor(tunFd)")
+bridge_start = start_core.index("startBridgeWithTimeout(configDir, configPath, tunFdOwner)")
+if not detach < claim < bridge_start:
+    raise SystemExit(
+        "Android TUN ownership must be claimed before Bridge start can be cancelled"
+    )
 PY
 grep -Fq "ConcurrentHashMap<String" "$START_RESULT_REGISTRY" || {
   echo "Android start callback registry lost its concurrent ownership map" >&2
@@ -736,6 +748,9 @@ if grep -Fq "vpnPackageName" "$VPN_APP_EXCLUSION_INSTALLER" ||
   exit 1
 fi
 require_text "VpnNotificationSupport.createChannel(this, CHANNEL_ID)"
+require_file_text "$NOTIFICATION_SUPPORT" "PendingIntent.getService("
+require_file_text "$NOTIFICATION_SUPPORT" "R.drawable.ic_disconnect"
+require_text "intent?.action == ACTION_DISCONNECT"
 require_text "NativeConnectionSnapshotStore.read(this)"
 require_text "notificationUpdatePolicy.publishIfChanged(it)"
 if ! grep -Fq "Looper.myLooper() != handler.looper" "$NOTIFICATION_GATE"; then
@@ -897,6 +912,7 @@ for home_part in "${HOME_PARTS[@]}"; do
 done
 
 require_home_text "clashService.requestConnectionIntent(false)"
+require_home_text "clashService.runConnectionTransition"
 require_home_text "UpdateService.isUpdateUiBusy"
 require_home_text "_updateCheckTimer?.cancel()"
 

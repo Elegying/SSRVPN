@@ -13,10 +13,18 @@ internal object NativeVpnSessionCoordinator {
         return token.takeIf { accepted }
     }
 
-    fun connectionState(): Map<String, Any?> =
-        NativeConnectionSession.snapshotConsistently(SsrvpnVpnService.startGeneration) {
+    fun connectionState(): Map<String, Any?> {
+        val state = NativeConnectionSession.snapshotConsistently(
+            SsrvpnVpnService.startGeneration
+        ) {
             SsrvpnVpnService.isRunning
         }
+        val underlying = SsrvpnVpnService.underlyingNetworkSnapshot()
+        return state + mapOf(
+            "underlyingNetworkAvailable" to underlying?.available,
+            "underlyingNetworkValidated" to underlying?.validated
+        )
+    }
 
     fun diagnostics(): Map<String, Any?> {
         val service = SsrvpnVpnService.instance

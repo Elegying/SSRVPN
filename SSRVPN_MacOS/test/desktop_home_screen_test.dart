@@ -265,6 +265,36 @@ void main() {
     expect(find.text('未连接'), findsOneWidget);
   });
 
+  testWidgets('a rendered cancel action cannot be reinterpreted as connect',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    fixture.clash.requestConnectionIntent(true);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    fixture.clash.publishRunning(false);
+    await tester.pump();
+    expect(find.text('正在连接'), findsOneWidget);
+
+    // The callback already rendered as Cancel. A background transition may
+    // retire its desired state before the tap is dispatched, but this tap must
+    // never become a new connect request.
+    fixture.clash.requestConnectionIntent(false);
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await tester.pump();
+    await _pumpUntil(
+      tester,
+      () => fixture.clash.transitionEvents.contains('stop'),
+    );
+
+    expect(fixture.clash.connectionDesired, isFalse);
+    expect(fixture.clash.startCalls, 0);
+    expect(fixture.clash.transitionEvents, isNot(contains('start')));
+  });
+
   testWidgets('home supports its primary desktop connection journey',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 800));

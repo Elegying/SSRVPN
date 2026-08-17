@@ -120,6 +120,26 @@ class StartupStatus extends ChangeNotifier {
     notifyListeners();
   }
 
+  void markStepSkipped(String name) {
+    if (currentStep == name) currentStep = null;
+    _stepStates[name] = 'skipped';
+    switch (name) {
+      case 'window_manager':
+        windowManagerReady = false;
+        break;
+      case 'screen_retriever':
+        screenRetrieverReady = false;
+        break;
+      case 'system_tray':
+        trayReady = false;
+        break;
+      case 'mihomo_core':
+        coreInitialized = false;
+        break;
+    }
+    notifyListeners();
+  }
+
   void reportFailure(String step, Object error) {
     if (currentStep == step) currentStep = null;
     _stepStates[step] = 'failed';

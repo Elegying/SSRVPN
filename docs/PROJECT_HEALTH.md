@@ -1,46 +1,37 @@
 # 项目健康状态
 
-最近审查：2026-08-16<br>
-当前应用版本：`v4.0.11`；公开发布状态与产物以 [GitHub Release](https://github.com/Elegying/SSRVPN/releases/latest) 为准。<br>
-审查基线：公开版本 `v4.0.3`、提交 `bcca48a` 与 [CI run 30887916321](https://github.com/Elegying/SSRVPN/actions/runs/30887916321) 的三端构建及发布产物已核对；本文所在提交继续以完整本地门禁、对应 Pull Request 检查和合并后 `main` CI 共同作为当前结论。
+最近审查：2026-08-18<br>
+当前应用版本：`v4.0.12`；公开发布状态与产物以 [GitHub Release](https://github.com/Elegying/SSRVPN/releases/latest) 为准。<br>
+本轮客户端候选提交 `47bfbea` 已由 [PR #119](https://github.com/Elegying/SSRVPN/pull/119) 的 [CI run 32047401097](https://github.com/Elegying/SSRVPN/actions/runs/32047401097) 完成 10 项检查，并通过 Android 11、Android 17、Apple M 系列 macOS 与 Windows 11 增量实机复验。版本与文档准备提交仍须通过新的 PR 检查、合并后精确 `main` CI 和正式 Release workflow，才能构成 v4.0.12 发布证据。
 
 ## 综合结论与评分
 
-**综合评分：91/100（优秀，可继续维护；不等同于零风险）。**
+**综合评分：93/100（优秀，可持续维护；不等同于零风险或已完成实机验收）。**
 
 | 维度 | 分数 | 当前证据 |
 | --- | ---: | --- |
-| 功能正确性与失败恢复 | 91 | 三端连接状态、取消、核心退出、代理/TUN 所有权和回滚均有行为测试 |
-| 安全与隐私 | 92 | 凭据分平台保护、日志脱敏、最小化 macOS Release 权限、秘密扫描和依赖审查 |
-| 架构与可维护性 | 90 | 更新、macOS 原生支持和 Windows 代理模型形成可检查边界；高风险事务保留原顺序并受增长护栏保护 |
-| 测试与 CI | 93 | 四套覆盖率、三端原生门禁、发布故障注入、目标平台构建与安装烟雾 |
-| 文档与项目治理 | 92 | 全部受版本控制 Markdown 自动校验，ADR、贡献、Issue/PR 和发布边界对齐 |
-| 性能与可观测性 | 85 | 有界诊断与离线关键路径基线已具备；真机启动/连接阶段数据仍可扩展 |
+| 功能正确性与失败恢复 | 92 | 三端连接、取消、核心退出、代理/TUN 所有权与回滚均有行为测试；Windows 新增未初始化和恢复失败关闭覆盖 |
+| 安全与隐私 | 95 | 生产 HTTP 客户端不再允许绕过 TLS，秘密/TLS 策略扫描、日志脱敏、本地崩溃报告与发布产物证明边界已固定 |
+| 架构与可维护性 | 91 | 共享更新、平台生命周期与原生桥接形成可检查边界；高风险事务保持渐进修改 |
+| 测试与 CI | 95 | 完整本地门禁、四套覆盖率、三端原生测试、CodeQL 配置和发布产物证明结构测试通过 |
+| 文档与项目治理 | 94 | 文档自动校验、依赖策略、人工 UAT 矩阵、ADR、Issue/PR 与发布边界对齐 |
+| 性能与可观测性 | 88 | 有界诊断、带版本与稳定指纹的脱敏崩溃报告、离线关键路径基线具备；真机长期数据仍待采集 |
 
-评分依据是当前源码、测试、构建配置、文档、GitHub 安全设置和本轮实测，不把测试数量、覆盖率或文件变短单独当作质量。当前没有发现已知 P0-P1；剩余风险主要是目标平台人工证据、上游 Android 工具链迁移以及仍需真实 OS 故障注入才能继续拆分的生命周期事务。
+当前没有发现已知 P0-P1 发布阻断项。残余风险是 MIUI 12.5 不渲染通知“断开”动作、macOS 持续断网取消专项按用户要求停止、Android 内嵌核心仍缺少可定位源码提交，以及 Flutter/Android 上游工具链迁移；这些都没有改变本轮正常连接、断开和资源恢复结论。
 
 ## 本轮完成的优化
 
-- Google Play 安装恢复：会话 API 与分包配送域名在国内域名和 GeoIP 直连规则之前固定使用同一代理 DNS 与代理出口，避免智能模式的出口分裂导致下载连接被关闭；共享生成器保证三端规则一致。
-- Android 状态收敛：原生运行状态连续读取失败时只执行三轮有界复核；仍无法确认则清除会话并标记断开，避免无限轮询和界面长期停留在错误的已连接状态。
-- 版本治理：`check-version-sync.sh` 同时校验本健康文档的当前应用版本，版本升级后若忘记更新审查基线会直接阻止门禁通过。
-- 可维护性边界：共享更新服务的稳定 façade 从 1534 行收敛为 513 行，下载/取消和校验后发布/恢复分别进入独立 part；公开调用入口、持久化格式、错误语义和发布顺序不变。
-- macOS 原生边界：`AppDelegate.swift` 从 2273 行降至 1999 行；核心身份/PID/有界输出与原生 owned-process 值对象进入 `CoreProcessSupport.swift`，安全单实例租约和窗口恢复进入 `ApplicationLifecycleSupport.swift`；代理状态快照和退出租约状态恢复为委托私有实现，Xcode RunnerTests 连续真实编译运行通过。
-- Windows 代理边界：系统代理事务入口从 1530 行降至 1432 行；私有快照、取消、恢复动作和原生日志模型迁入同一 Dart library 的 101 行 part，锁、PowerShell 调用、恢复判定和写入顺序未移动，47 项代理专项测试通过。
-- 风险控制：新增职责回流和规模门禁，并以 [ADR-010](decisions/010-risk-controlled-maintainability-boundaries.md) 固定渐进拆分规则。Android VPN Service 与 Windows 安装恢复没有为降低行数进行高风险重排，只锁定现有边界并保留目标平台验证要求。
-- 质量门禁：317 个受版本控制 Dart 文件全部纳入格式检查，全部 Shell 脚本纳入 ShellCheck；共享包和三端启用 `strict-casts`、`strict-inference`、`strict-raw-types`，analyzer 为 0 issue。
-- macOS 安全：Release 移除 `get-task-allow`、JIT、未签名可执行内存和禁用库校验权限；真实 `flutter build macos --release` 后的最终 `codesign` 权限已核对，决策记录在 [ADR-009](decisions/009-macos-release-entitlement-minimization.md)。
-- Android 日志：VPN 启动超时清理只记录异常类型，不输出可能携带敏感上下文的异常正文；原生测试通过。
-- Windows 生命周期：补充未初始化启动、启动禁用和进程身份失败路径，关键生命周期覆盖率由原 4% 级门槛提高到 20%。
-- Windows 原生恢复：增加真实 C++ 注册表恢复测试，使用进程级 `RegOverridePredefKey` 沙箱验证有效日志精确恢复、损坏日志失败关闭；GitHub Windows runner 已实际编译运行。
-- 重复代码：启动器与窗口宿主的当前用户 SID 查询收敛为同一原生实现，保持既有用户边界。
-- 供应链：Pull Request 增加固定提交的 GitHub Dependency Review，中等及以上新增已知漏洞阻止合并；Dependency Graph、漏洞告警、私有漏洞报告和 SPDX SBOM 作为仓库基线。
-- 文档治理：文档门禁已从手工清单扩展为自动枚举全部受版本控制 Markdown；历史 CHANGELOG 只检查链接，其余当前文档还检查已知陈旧结论与危险发布命令。
-- 仓库入口：README、安全/贡献/维护/测试/路线图/排障、ADR、Issue 与 PR 模板已经对齐当前 4.x 行为和验证入口。
+- 移除 Android 更新与订阅 HTTP 客户端的 `allowBadCertificates` 生产旁路；秘密扫描同时阻止该开关和无条件接受坏证书的回调重新进入三端生产源码。
+- 本地崩溃报告增加应用版本和基于脱敏内容的稳定指纹；用户目录路径在 macOS、Linux、Windows 三种格式下都会脱敏，仍不自动上传任何诊断数据。
+- Windows 生命周期新增未初始化恢复、代理清理不可用和恢复状态路径不可用的失败关闭测试；生命周期覆盖率门槛由 20% 提高到 25%。
+- Pull Request CI 增加固定提交版本的 GitHub CodeQL：Actions、Android Java/Kotlin、Windows C/C++；macOS 原生测试迁入独立无注入 XCTest job。发布工作流对 APK、DMG 和 EXE 分别生成 GitHub artifact attestation。
+- Android 内嵌核心新增 Go build info 自动验证，锁定模块、Go 版本、构建模式、标签、平台和架构；同时明确现有二进制只能做到字节级复现，不能冒充源码级可重建。
+- 新增 [依赖升级策略](DEPENDENCIES.md) 与 [三端人工 UAT 矩阵](UAT_MATRIX.md)；安全更新直接升级，原生主版本升级必须经过目标平台构建和生命周期验收。
+- 更新可安全落地的依赖；`flutter_secure_storage 11` 因要求 Android `compileSdk 37`，高于当前 Flutter 3.44.1 默认的 36，暂时保留 10.3.1 并记录迁移条件。
 
 ## 当前验证证据
 
-2026-08-08 在 macOS 26.5.2、Flutter 3.44.1 的当前提交执行：
+2026-08-18 在 macOS 26.5.2、Flutter 3.44.1 的候选工作区执行：
 
 ```bash
 make verify
@@ -48,43 +39,44 @@ make verify
 
 结果：
 
-- 文档 43/43 本地链接检查、42/42 当前状态检查通过；317 个 Dart 文件格式与全部 ShellCheck 通过。
-- 核心资产、版本、包指南、产品表面、结构边界、桌面安全存储、秘密扫描、免费分发和发布资产守卫通过。
-- 发布工具 276/276；macOS TUN/DNS 行为 25/25；workspace analyze 0 issue。
-- Shared 全套测试通过，覆盖率 `82.44%`（`5183/6287`），门槛 65%。
-- Android Flutter 219 项通过，覆盖率 `64.13%`（`2115/3298`），门槛 30%；Gradle/JUnit 构建成功。
-- macOS Flutter 247 项通过，覆盖率 `65.64%`（`3297/5023`）；生命周期 `76.91%`（`623/810`），系统代理 `88.32%`（`378/428`）；RunnerTests 通过。
-- Windows Flutter 210 项通过，8 项仅限 Windows 主机的测试在 macOS 条件跳过；平台覆盖率 `48.62%`（`2729/5613`），生命周期 `20.68%`（`134/648`）。
-- 关键路径 smoke：解析、合并与配置生成结构校验通过；耗时只作同环境观察值，不作为跨机器硬阈值。
-- 上一轮 PR #79、#74、#80、#81 的依赖审查、全历史秘密扫描、核心资产、Workspace、Android、macOS、Windows 共 7 项均通过；`main` CI 再次通过全部适用门禁。Windows runner 还实际完成 C++ 代理恢复测试、PowerShell 5.1 检查、安装器构建、安装/卸载及安装后立即升级 smoke；本轮 Windows 专属结论仍须由对应 PR 与合并后 CI 重新确认。
+- 文档 47/47 本地链接、46/46 当前状态检查、327 个 Dart 文件格式、全部 ShellCheck、核心资产、版本、秘密与 TLS 策略、发布资产守卫均通过。
+- 发布工具 `291/291`；macOS TUN/DNS 行为 `25/25`；workspace `flutter analyze` 为 0 issue。
+- Shared `489` 项测试通过，覆盖率 `83.00%`（`5347/6442`），门槛 65%。
+- Android Flutter `233` 项及 Gradle/JUnit 通过，覆盖率 `64.96%`（`2175/3348`），门槛 30%。
+- macOS Flutter `257` 项及 RunnerTests 通过，覆盖率 `65.77%`（`3356/5103`）；生命周期 `77.20%`（`633/820`），系统代理 `88.06%`（`391/444`）。
+- Windows Flutter `219` 项通过；仅 Windows 主机可运行的 8 项在 macOS 条件跳过。平台覆盖率 `49.99%`（`2853/5707`），生命周期 `26.56%`（`174/655`），门槛 25%。
+- 关键路径 smoke 通过；本机观察值为解析中位数 `5833 us`、合并 `29497 us`、配置生成 `40219 us`，只用于同环境回归，不作为跨机器硬阈值。
+- Android Release APK 构建成功，大小约 31.0 MB，SHA-256 为 `8109c0fbf8d6ff0d09fbe0c184e69d486fd04ff04938727c5c77b64a71cb10ca`。
+- macOS 正式打包脚本确认应用与内嵌核心均为 arm64，并完成最终 ad-hoc 重签、`codesign --verify --deep --strict` 与 DMG CRC 校验；版本化 DMG SHA-256 为 `76e1341175a2c95880a5ebcccc5cfca1ab7ba81598a2f5c8d893e9220f78c4e7`。
+
+以上 APK 与 DMG 是本地验证中间产物，不是公开发布资产。
 
 ## 证据边界与残余风险
 
-- macOS 本地不能编译或运行 Windows C++、PowerShell 5.1、DPAPI、注册表和 Inno Setup；这些自动化路径已由 GitHub Windows runner 证明，但仍不替代真实用户交互、重启、全树强杀和 Narrator 验收。
-- Android 原生测试不能替代真实 Xiaomi 上的首次授权、快捷磁贴、后台回收、通知断开、休眠/唤醒和耗电验收。
-- 自动化不能替代 TalkBack、VoiceOver、Narrator 的完整人工流程，也不能覆盖所有第三方网络、节点和系统升级组合。
-- Android 仍有 `android.builtInKotlin=false`、`android.newDsl=false` 与 KGP 兼容告警。当前 Flutter 插件链仍依赖这些边界；应等待上游支持后以 APK 与原生测试迁移，不为消除告警提前破坏构建。
-- 高认知复杂度继续集中在 Android VPN Service、macOS 核心/系统代理编排、Windows 生命周期和安装恢复。结构护栏只防止继续膨胀；后续必须先增加目标平台行为证据，再按 ADR-010 小步拆分。
-- 官网可用性和下载链路需要独立实时核验；历史网络快照不作为当前状态结论，也不由本次客户端代码修复代替。
+- 本轮 Android 11、Android 17、Apple M 系列 macOS 与 Windows 11 已完成针对修复项的增量实机复验；未重复已确认的长时、耗电和完整 20/50 轮压力矩阵，自动化和快速实机证据不冒充未执行项目。
+- PR #119 的精确候选 CI 已通过；版本与文档准备提交、合并后 `main` 和正式发布资产必须重新建立各自证据，不复用旧绿色 run。
+- macOS 本机不能执行 Windows C++、PowerShell 5.1、DPAPI、注册表和 Inno Setup；这些已由 Windows CI 和候选安装器实机覆盖安装、数据保留、连接与断开复验补充。
+- macOS 持续断网恢复期间出现过一次可恢复的应用内取消失败报告；因用户明确停止该故障注入，本轮不继续断网实测，也不把该专项标记为通过。正常连接、短时中断恢复、断开、DNS/路由/代理恢复和退出均通过。
+- 当前 Android 核心可验证固定二进制、补丁与 build info，但 build info 仅显示本地替换路径，没有上游源码提交。下次替换核心必须同时归档受审源码提交、构建命令、Go/NDK 环境、ABI 与生命周期回归证据。
+- Android 仍有旧 Kotlin/Gradle 兼容开关；`flutter_secure_storage 11` 和更高 `compileSdk` 应随 Flutter 工具链升级共同迁移，不能只为追新版本破坏可构建性。
+- 自动化不能覆盖所有 OEM、系统升级、第三方网络和节点组合；崩溃报告仍依赖用户主动复制，不具备远程聚合、趋势统计或告警能力。
 
 ## 已固定的产品边界
 
 - HTTP 订阅兼容策略不变。
 - Android 继续使用受测试保护的内置国内应用直连策略，不增加手动应用选择页。
-- Android、macOS、Windows 继续使用 IPv4-only Mihomo 运行配置；Android 与 Windows TUN 捕获并拒绝 IPv6 防止绕过。
-- 活动产品表面继续只有首页和订阅；节点编辑沿用既有长按/右键手势，不新增可见入口。
-- “私家车”节点延迟与既定排序语义不变。
-- macOS 继续免费 ad-hoc、未公证分发；Windows 继续只发布未签名 `SSRVPN_Setup.exe`，不提供便携 ZIP 或付费签名路径。
-- Windows 固定每用户 LocalAppData 安装并保留已安装数据，不搜索或合并旧独立副本。
+- 三端继续使用 IPv4-only Mihomo 运行配置；Android 与 Windows TUN 捕获并拒绝 IPv6，避免绕过。
+- 活动产品表面继续只有首页和订阅；节点编辑沿用长按/右键入口。
+- macOS 继续免费 ad-hoc、未公证分发；Windows 继续只发布未签名安装器，不引入付费签名依赖。
+- 更新检查只在底部版本号后提示“发现新版本 立即更新”，用户点击后才进入现有更新页。
 
 ## 下一阶段最高优先级
 
-1. 在真实 Android、macOS、Windows 上完成生命周期、无障碍与网络恢复矩阵，记录系统版本和脱敏证据。
-2. 定期从公开网络和真实浏览器复核官网 HTTPS、下载入口与固定别名到版本化产物的一致性。
-3. 在新增行为时继续提高 Windows 生命周期覆盖率，不把当前 20% 门槛当成完成目标。
-4. 等待 Flutter/插件链完整支持 AGP 10 内置 Kotlin 与新 DSL 后，分步移除兼容开关。
-5. 修改 Android VPN Service、macOS 核心/系统代理或 Windows 恢复热点时，先补故障注入证据，再按 ADR-010 做单职责切片；不以行数下降作为完成标准。
+1. 版本与文档准备提交通过 PR 检查后合并，复验精确 `main`，再由 `Prepare Release` 创建不可变标签并启动正式线上构建。
+2. 发布后重新下载 APK、DMG、EXE，核对 SHA256、GitHub attestation、OSS `latest.json` 与官网固定下载入口。
+3. 后续按 [UAT 矩阵](UAT_MATRIX.md)补充长时、耗电、完整压力和 macOS 持续断网专项；不把本轮未执行项目写成已通过。
+4. 为 Android 内嵌核心建立源码仓库、固定提交和可复现构建流水线，再替换当前只能字节级验证的二进制。
 
 ## 更新规则
 
-每次更新只记录当前提交上已验证的版本、命令、平台、产物和残余风险。历史审查、旧 Release 或单一绿色命令不得覆盖本文件、[安全策略](../SECURITY.md)、[测试策略](TESTING.md) 与 [文档索引](README.md) 的当前结论。
+每次更新只记录当前工作区或精确提交上已验证的版本、命令、平台、产物和残余风险。历史 Release、旧 CI 或单一绿色命令不得覆盖本文件、[安全策略](../SECURITY.md)、[测试策略](TESTING.md) 与 [文档索引](README.md) 的当前结论。

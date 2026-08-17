@@ -7,6 +7,7 @@ cd "$ROOT"
 python3 -m unittest \
   scripts/test_authorize_existing_release_retry.py \
   scripts/test_check_coverage_thresholds.py \
+  scripts/test_code_scanning_and_attestations.py \
   scripts/test_dependency_security.py \
   scripts/test_macos_native_gate.py \
   scripts/test_check_release_assets.py \
@@ -24,6 +25,7 @@ python3 -m unittest \
   scripts/test_run_flutter_coverage.py \
   scripts/test_run_command_with_timeout.py \
   scripts/test_secret_scanning.py \
+  scripts/test_verify_android_core_buildinfo.py \
   scripts/test_validate_existing_release_retry.py \
   scripts/test_verify_release_transition.py \
   scripts/test_wait_for_github_release_public.py \

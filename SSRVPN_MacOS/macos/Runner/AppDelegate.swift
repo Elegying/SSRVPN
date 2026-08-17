@@ -49,6 +49,13 @@ class AppDelegate: FlutterAppDelegate {
     DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: callback)
   }
 
+  override func applicationWillFinishLaunching(_ notification: Notification) {
+    if ProxyGuardianCommand.isRequested() {
+      Darwin.exit(ProxyGuardianCommand.run())
+    }
+    super.applicationWillFinishLaunching(notification)
+  }
+
   private static var activationNotificationName: Notification.Name {
     Notification.Name("com.ssrvpn.activate.\(geteuid())")
   }
@@ -412,7 +419,7 @@ class AppDelegate: FlutterAppDelegate {
     }
     DistributedNotificationCenter.default().removeObserver(self)
     releaseInstanceLease()
-    super.applicationWillTerminate(notification)
+    // This optional callback has no parent implementation to chain to.
   }
 
   func tunRequestURLs(in support: URL) -> [URL] {
@@ -1276,7 +1283,9 @@ class AppDelegate: FlutterAppDelegate {
     at explicitStateURL: URL? = nil,
     proxyCommandRunner: ((String, [String]) -> ProxyCommandResult)? = nil,
     networkServiceIdentityProvider: (() -> [String: String]?)? = nil,
-    proxyStateRemover: ((URL) throws -> Void)? = nil
+    proxyStateRemover: ((URL) throws -> Void)? = nil,
+    expectedGuardianNonce: String? = nil,
+    expectedOwnerPid: Int32? = nil
   ) -> Bool {
     guard let stateURL = explicitStateURL ?? findProxyStateFile() else { return false }
     do {
@@ -1288,6 +1297,11 @@ class AppDelegate: FlutterAppDelegate {
       guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return false
       }
+      guard proxyGuardianExpectationMatches(
+        root,
+        expectedNonce: expectedGuardianNonce,
+        expectedOwnerPid: expectedOwnerPid
+      ) else { return false }
       guard let rawOwnedHost = root["_ownedProxyHost"] as? String else {
         // A legacy snapshot cannot prove which live proxy endpoint belongs to
         // SSRVPN. It must remain unresolved so termination cannot strand the
@@ -1470,6 +1484,7 @@ class AppDelegate: FlutterAppDelegate {
       "_ownedProxyHost",
       "_ownedProxyPort",
       "_ownerPid",
+      "_guardianNonce",
     ]
     var services: [(String, [String: Any])] = []
     for (key, rawValue) in root {

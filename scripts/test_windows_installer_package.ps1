@@ -26,6 +26,9 @@ $installDir = Join-Path $env:LOCALAPPDATA 'Programs\SSRVPN'
 $uninstallRegistryPath =
   'Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
   '{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1'
+$currentUninstallRegistryPath =
+  'Registry::HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
+  '{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1'
 $uninstallRegistrySubkey =
   'Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
   '{299A3A12-B4A8-4120-9A62-CB274F328FE6}_is1'
@@ -107,16 +110,48 @@ function New-LegacyShortcut {
   $shortcut.Save()
 }
 
-function Wait-PathAbsent {
+function Assert-InstallerPreserved {
   param([Parameter(Mandatory = $true)][string]$Path)
 
-  for ($attempt = 0; $attempt -lt 80; $attempt++) {
-    if (-not (Test-Path -LiteralPath $Path)) {
-      return
-    }
-    Start-Sleep -Milliseconds 250
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "SSRVPN deleted the manually supplied installer: $Path"
   }
-  throw "Post-install cleanup did not delete: $Path"
+}
+
+function New-LocalizedOppositeScopeUninstallEntry {
+  if (-not (Test-Path -LiteralPath $currentUninstallRegistryPath)) {
+    throw "SSRVPN current uninstall entry is missing: $currentUninstallRegistryPath"
+  }
+  if (Test-Path -LiteralPath $uninstallRegistryPath) {
+    throw "Refusing to overwrite an existing opposite-scope uninstall entry: $uninstallRegistryPath"
+  }
+
+  $currentValues = Get-ItemProperty -LiteralPath $currentUninstallRegistryPath
+  $displayVersion = [string]$currentValues.DisplayVersion
+  if ([string]::IsNullOrWhiteSpace($displayVersion)) {
+    throw 'SSRVPN current uninstall entry has no DisplayVersion.'
+  }
+  foreach ($valueName in @('InstallLocation', 'UninstallString')) {
+    if ([string]::IsNullOrWhiteSpace([string]$currentValues.$valueName)) {
+      throw "SSRVPN current uninstall entry has no $valueName."
+    }
+  }
+
+  New-Item -Path $uninstallRegistryPath -Force | Out-Null
+  $localizedDisplayName = 'SSRVPN {0}{1} {2}' -f `
+    [char]0x7248, [char]0x672C, $displayVersion
+  Set-ItemProperty -LiteralPath $uninstallRegistryPath `
+    -Name DisplayName -Value $localizedDisplayName
+  Set-ItemProperty -LiteralPath $uninstallRegistryPath `
+    -Name InstallLocation -Value ([string]$currentValues.InstallLocation)
+  Set-ItemProperty -LiteralPath $uninstallRegistryPath `
+    -Name UninstallString -Value ([string]$currentValues.UninstallString)
+}
+
+function Assert-OppositeScopeUninstallEntryRemoved {
+  if (Test-Path -LiteralPath $uninstallRegistryPath) {
+    throw "SSRVPN left a verified localized opposite-scope uninstall entry behind: $uninstallRegistryPath"
+  }
 }
 
 function Assert-SingleMachineShortcut {
@@ -277,7 +312,7 @@ try {
   if ($installExitCode -ne 0) {
     throw "SSRVPN installer exited with code $installExitCode. Log: $installLog"
   }
-  Wait-PathAbsent -Path $installInstaller
+  Assert-InstallerPreserved -Path $installInstaller
   Assert-SingleMachineShortcut
 
   foreach ($relativePath in @(
@@ -290,6 +325,8 @@ try {
       throw "Installed package is missing $relativePath`: $installDir"
     }
   }
+
+  New-LocalizedOppositeScopeUninstallEntry
 
   foreach ($sentinel in $preservedSentinels) {
     New-Item -ItemType Directory -Path (Split-Path -Path $sentinel -Parent) `
@@ -323,8 +360,9 @@ try {
   if ($upgradeExitCode -ne 0) {
     throw "SSRVPN upgrade exited with code $upgradeExitCode. Log: $upgradeLog"
   }
-  Wait-PathAbsent -Path $upgradeInstaller
+  Assert-InstallerPreserved -Path $upgradeInstaller
   Assert-SingleMachineShortcut
+  Assert-OppositeScopeUninstallEntryRemoved
   $upgradeAppProcess.Refresh()
   if (-not $upgradeAppProcess.HasExited) {
     throw "SSRVPN upgrade left the previous installed app PID $($upgradeAppProcess.Id) running."
@@ -399,6 +437,8 @@ try {
   )) {
     Remove-Item -LiteralPath $cleanupPath -Force -ErrorAction SilentlyContinue
   }
+  Remove-Item -LiteralPath $uninstallRegistryPath -Recurse -Force `
+    -ErrorAction SilentlyContinue
 }
 
 if ($uninstallFailure) {

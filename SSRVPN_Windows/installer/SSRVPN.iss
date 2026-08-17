@@ -38,6 +38,7 @@ OutputDir={#OutputDir}
 OutputBaseFilename=SSRVPN_Setup
 SetupIconFile={#ProjectDir}\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\ssrvpn_windows.exe
+UninstallDisplayName=SSRVPN
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -130,9 +131,6 @@ function WinCloseHandle(Handle: THandle): BOOL;
 function WinOpenEvent(DesiredAccess: Cardinal; InheritHandle: BOOL;
   Name: String): THandle;
   external 'OpenEventW@kernel32.dll stdcall';
-function WinGetCurrentProcessId(): Cardinal;
-  external 'GetCurrentProcessId@kernel32.dll stdcall';
-
 function IsValidUpdateHandoffToken(Token: AnsiString): Boolean;
 var
   Index: Integer;
@@ -579,6 +577,93 @@ begin
   end;
 end;
 
+function NormalizeRegistryPath(Path: String): String;
+begin
+  Result := ExpandFileName(Trim(Path));
+  while (Length(Result) > 3) and
+    ((Result[Length(Result)] = '\') or (Result[Length(Result)] = '/')) do
+    Delete(Result, Length(Result), 1);
+end;
+
+function ExtractCommandExecutable(Command: String): String;
+var
+  DelimiterIndex: Integer;
+begin
+  Command := Trim(Command);
+  Result := '';
+  if Command = '' then
+    exit;
+  if Command[1] = '"' then
+  begin
+    DelimiterIndex := Pos('"', Copy(Command, 2, Length(Command) - 1));
+    if DelimiterIndex = 0 then
+      exit;
+    Result := Copy(Command, 2, DelimiterIndex - 1);
+  end
+  else
+  begin
+    DelimiterIndex := Pos(' ', Command);
+    if DelimiterIndex = 0 then
+      Result := Command
+    else
+      Result := Copy(Command, 1, DelimiterIndex - 1);
+  end;
+  Result := NormalizeRegistryPath(Result);
+end;
+
+function IsOwnedUninstallDisplayName(DisplayName: String): Boolean;
+var
+  DisplayNamePrefix: String;
+begin
+  DisplayName := Trim(DisplayName);
+  DisplayNamePrefix := Copy(DisplayName, 1, 7);
+  Result := (CompareText(DisplayName, 'SSRVPN') = 0) or
+    ((Length(DisplayName) > 7) and
+      (CompareText(DisplayNamePrefix, 'SSRVPN ') = 0));
+end;
+
+procedure RemoveVerifiedOppositeScopeUninstallEntry;
+var
+  RootKey: Integer;
+  DisplayName: String;
+  InstallLocation: String;
+  UninstallString: String;
+  ExpectedInstallLocation: String;
+  ExpectedUninstaller: String;
+begin
+  if IsAdminInstallMode then
+    RootKey := HKCU
+  else
+    RootKey := HKLM;
+  if not RegQueryStringValue(
+    RootKey, UninstallRegistryKey, 'DisplayName', DisplayName) then
+    exit;
+  if not RegQueryStringValue(
+    RootKey, UninstallRegistryKey, 'InstallLocation', InstallLocation) then
+    exit;
+  if not RegQueryStringValue(
+    RootKey, UninstallRegistryKey, 'UninstallString', UninstallString) then
+    exit;
+
+  ExpectedInstallLocation := NormalizeRegistryPath(ExpandConstant('{app}'));
+  ExpectedUninstaller :=
+    NormalizeRegistryPath(ExpandConstant('{app}\unins000.exe'));
+  if (not IsOwnedUninstallDisplayName(DisplayName)) or
+    (CompareText(
+      NormalizeRegistryPath(InstallLocation), ExpectedInstallLocation) <> 0) or
+    (CompareText(
+      ExtractCommandExecutable(UninstallString), ExpectedUninstaller) <> 0) then
+  begin
+    Log('SSRVPN preserved an unverified opposite-scope uninstall entry.');
+    exit;
+  end;
+
+  if RegDeleteKeyIncludingSubkeys(RootKey, UninstallRegistryKey) then
+    Log('SSRVPN removed a verified stale opposite-scope uninstall entry.')
+  else
+    Log('SSRVPN could not remove a verified stale opposite-scope uninstall entry.');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
@@ -592,6 +677,11 @@ begin
           LastProgramFilesTransactionStatus + '。');
     end;
     InstallSucceeded := True;
+    try
+      RemoveVerifiedOppositeScopeUninstallEntry;
+    except
+      Log('SSRVPN opposite-scope uninstall entry cleanup raised an internal exception.');
+    end;
     ReleaseInstallGates;
   end;
 end;
@@ -609,13 +699,12 @@ begin
     '{sys}\WindowsPowerShell\v1.0\powershell.exe');
   Parameters := '-NoLogo -NoProfile -NonInteractive ' +
     '-ExecutionPolicy Bypass -File ' + AddQuotes(CleanupPath) +
-    ' -InstallerPath ' + AddQuotes(ExpandConstant('{srcexe}')) +
     ' -InstalledLauncherPath ' +
-      AddQuotes(ExpandConstant('{app}\ssrvpn_windows.exe')) +
-    ' -InstallerProcessId ' + IntToStr(WinGetCurrentProcessId);
+      AddQuotes(ExpandConstant('{app}\ssrvpn_windows.exe'));
   try
     if not ExecAsOriginalUser(
-      PowerShellPath, Parameters, '', SW_HIDE, ewNoWait, ResultCode) then
+      PowerShellPath, Parameters, '', SW_HIDE,
+      ewWaitUntilTerminated, ResultCode) then
       Log('SSRVPN could not start post-install shortcut and package cleanup.');
   except
     Log(
@@ -692,8 +781,7 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    if not RegDeleteKeyIncludingSubkeys(HKCU, UninstallRegistryKey) then
-      Log('SSRVPN uninstall registry entry was already absent or could not be removed.');
+    RemoveVerifiedOppositeScopeUninstallEntry;
   end;
 end;
 

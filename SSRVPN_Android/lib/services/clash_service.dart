@@ -12,6 +12,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 part 'clash_service_snapshot_cleanup.dart';
 part 'clash_service_native_bridge.dart';
 part 'clash_service_config.dart';
+part 'clash_service_country.dart';
 
 class _AndroidStartCancelled implements Exception {}
 
@@ -41,6 +42,8 @@ class ClashService extends ClashServiceBase {
   int? _nativeSessionGeneration;
   bool _nativeSessionProtocolAvailable = false;
   bool _nativeConnectionTransitioning = false;
+  bool? _underlyingNetworkAvailable;
+  bool? _underlyingNetworkValidated;
   String? _runningConfigPath;
   final Set<String> _preparedConfigPaths = <String>{};
 
@@ -50,7 +53,44 @@ class ClashService extends ClashServiceBase {
   String get corePath => _corePath;
   bool get coreExists => File(_corePath).existsSync();
   bool get nativeConnectionTransitioning => _nativeConnectionTransitioning;
+  String? get underlyingNetworkNotice {
+    if (!isRunning || _underlyingNetworkAvailable == null) return null;
+    if (_underlyingNetworkAvailable == false) {
+      return '无可用网络，VPN 正在等待恢复';
+    }
+    if (_underlyingNetworkValidated == false) {
+      return '网络尚未验证，VPN 正在等待恢复';
+    }
+    return null;
+  }
+
   void setCorePath(String path) => _corePath = path;
+
+  Future<String?> detectExitCountryForProxy(String proxyName) async {
+    try {
+      final encoded = Uri.encodeComponent(proxyName);
+      final url = 'http://127.0.0.1:${settings.apiPort}/proxies/$encoded/delay';
+      final client = apiClient;
+      if (client == null) return null;
+      final response = await client
+          .get(Uri.parse(url), headers: apiHeaders())
+          .timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final geo = data['geo'] as String?;
+        if (geo != null && geo.isNotEmpty) return geo;
+      }
+    } catch (_) {}
+
+    try {
+      final local = _androidLocalCountryCode(proxyName);
+      if (local != null) return local;
+    } catch (_) {}
+
+    return null;
+  }
+
+  static String flagEmoji(String countryCode) => _androidFlagEmoji(countryCode);
 
   Future<void> invalidateIdleNativeConnectionSnapshot() =>
       _invalidateIdleNativeConnectionSnapshot();
@@ -372,6 +412,10 @@ class ClashService extends ClashServiceBase {
           _nativeSessionProtocolAvailable = true;
           _runningConfigPath = returnedState.protectedConfigPath;
           _nativeSessionGeneration = returnedState.sessionGeneration;
+          _underlyingNetworkAvailable =
+              returnedState.underlyingNetworkAvailable;
+          _underlyingNetworkValidated =
+              returnedState.underlyingNetworkValidated;
         }
         log('✅ Mihomo 启动成功 (gomobile)');
         notifyStatusChanged();
@@ -463,6 +507,8 @@ class ClashService extends ClashServiceBase {
     setRunning(runningAfterStop);
     if (!runningAfterStop) {
       _nativeConnectionTransitioning = false;
+      _underlyingNetworkAvailable = null;
+      _underlyingNetworkValidated = null;
       _runningConfigPath = null;
       await _completePendingSnapshotFileCleanup();
       if (_nativeSnapshotOperationCount == 0) {
@@ -716,135 +762,5 @@ class ClashService extends ClashServiceBase {
       log('更新 VPN 通知失败: $e');
       return false;
     }
-  }
-
-  // ── 出口国家检测 ──
-
-  Future<String?> detectExitCountryForProxy(String proxyName) async {
-    try {
-      final encoded = Uri.encodeComponent(proxyName);
-      final url = 'http://127.0.0.1:${settings.apiPort}/proxies/$encoded/delay';
-      final client = apiClient;
-      if (client == null) return null;
-      final response = await client
-          .get(Uri.parse(url), headers: apiHeaders())
-          .timeout(const Duration(seconds: 5));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final geo = data['geo'] as String?;
-        if (geo != null && geo.isNotEmpty) return geo;
-      }
-    } catch (_) {}
-
-    try {
-      final local = _getLocalCountryCode(proxyName);
-      if (local != null) return local;
-    } catch (_) {}
-
-    return null;
-  }
-
-  static String? _getLocalCountryCode(String name) {
-    final upper = name.toUpperCase().trim();
-    final isoMatch = RegExp(
-      r'(?:^|\s|[-/#【\[\(（])'
-      r'(US|UK|GB|JP|KR|HK|TW|SG|DE|FR|NL|CA|AU|IN|TH|VN|ID|PH|MY|RU|TR|BR|AR|MX|ZA|IT|ES|SE|NO|FI|DK|IE|CH|AT|BE|PL|UA|CL|CO|PE)'
-      r'(?:$|\s|[-/#】\]\)）]|[^A-Z])',
-    );
-    final match = isoMatch.firstMatch(upper);
-    if (match != null) return match.group(1);
-
-    const keywordMap = {
-      '美国': 'US',
-      '洛杉矶': 'US',
-      '圣何塞': 'US',
-      '纽约': 'US',
-      'USA': 'US',
-      'AMERICA': 'US',
-      '日本': 'JP',
-      '东京': 'JP',
-      '大阪': 'JP',
-      'JAPAN': 'JP',
-      '韩国': 'KR',
-      '首尔': 'KR',
-      'KOREA': 'KR',
-      'SOUTH KOREA': 'KR',
-      '香港': 'HK',
-      'HONG KONG': 'HK',
-      '台湾': 'TW',
-      '台北': 'TW',
-      'TAIWAN': 'TW',
-      '新加坡': 'SG',
-      'SINGAPORE': 'SG',
-      '德国': 'DE',
-      '法兰克福': 'DE',
-      'GERMANY': 'DE',
-      '法国': 'FR',
-      '巴黎': 'FR',
-      'FRANCE': 'FR',
-      '荷兰': 'NL',
-      'NETHERLANDS': 'NL',
-      '加拿大': 'CA',
-      'CANADA': 'CA',
-      '澳大利亚': 'AU',
-      '悉尼': 'AU',
-      'AUSTRALIA': 'AU',
-      '印度': 'IN',
-      '孟买': 'IN',
-      'INDIA': 'IN',
-      '泰国': 'TH',
-      '曼谷': 'TH',
-      'THAILAND': 'TH',
-      '越南': 'VN',
-      'VIETNAM': 'VN',
-      '印尼': 'ID',
-      '雅加达': 'ID',
-      '菲律宾': 'PH',
-      '马尼拉': 'PH',
-      '马来西亚': 'MY',
-      '吉隆坡': 'MY',
-      'MALAYSIA': 'MY',
-      '俄罗斯': 'RU',
-      '莫斯科': 'RU',
-      'RUSSIA': 'RU',
-      '土耳其': 'TR',
-      'TURKEY': 'TR',
-      '巴西': 'BR',
-      'BRAZIL': 'BR',
-      '阿根廷': 'AR',
-      'ARGENTINA': 'AR',
-      '墨西哥': 'MX',
-      'MEXICO': 'MX',
-      '英国': 'GB',
-      '伦敦': 'GB',
-      'UNITED KINGDOM': 'GB',
-      '意大利': 'IT',
-      'ITALY': 'IT',
-      '西班牙': 'ES',
-      'SPAIN': 'ES',
-      '瑞典': 'SE',
-      'SWEDEN': 'SE',
-      '挪威': 'NO',
-      'NORWAY': 'NO',
-      '芬兰': 'FI',
-      'FINLAND': 'FI',
-      '丹麦': 'DK',
-      'DENMARK': 'DK',
-      '瑞士': 'CH',
-      'SWITZERLAND': 'CH',
-      '南非': 'ZA',
-      'SOUTH AFRICA': 'ZA',
-    };
-    for (final entry in keywordMap.entries) {
-      if (upper.contains(entry.key)) return entry.value;
-    }
-    return null;
-  }
-
-  static String flagEmoji(String countryCode) {
-    if (countryCode.length != 2) return '🏳️';
-    final first = countryCode.codeUnitAt(0) - 0x41 + 0x1F1E6;
-    final second = countryCode.codeUnitAt(1) - 0x41 + 0x1F1E6;
-    return String.fromCharCodes([first, second]);
   }
 }

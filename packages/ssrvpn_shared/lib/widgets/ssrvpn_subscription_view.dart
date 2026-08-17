@@ -4,7 +4,9 @@ import '../models/subscription.dart';
 import '../utils/log_redactor.dart';
 import 'ssrvpn_app_surface.dart';
 
-class SsrvpnSubscriptionView extends StatelessWidget {
+part 'ssrvpn_subscription_header.dart';
+
+class SsrvpnSubscriptionView extends StatefulWidget {
   const SsrvpnSubscriptionView({
     super.key,
     required this.subscriptions,
@@ -33,17 +35,80 @@ class SsrvpnSubscriptionView extends StatelessWidget {
   final ValueChanged<String> onDelete;
 
   @override
+  State<SsrvpnSubscriptionView> createState() => _SsrvpnSubscriptionViewState();
+}
+
+class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
+  final _scrollController = ScrollController();
+  final _inputFocusNode = FocusNode();
+  final _addActionKey = GlobalKey();
+  bool _inputFocused = false;
+  double _lastViewInset = 0;
+  double? _lastViewportHeight;
+
+  @override
+  void initState() {
+    super.initState();
+    _inputFocusNode.addListener(_handleInputFocus);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final viewInset = MediaQuery.viewInsetsOf(context).bottom;
+    if (viewInset > 0 && viewInset != _lastViewInset) {
+      _ensureAddActionVisible();
+    }
+    _lastViewInset = viewInset;
+  }
+
+  @override
+  void dispose() {
+    _inputFocusNode.removeListener(_handleInputFocus);
+    _inputFocusNode.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _handleInputFocus() {
+    _inputFocused = _inputFocusNode.hasFocus;
+    if (_inputFocused) _ensureAddActionVisible();
+  }
+
+  void _ensureAddActionVisible() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || (!_inputFocused && _lastViewInset <= 0)) return;
+      final actionContext = _addActionKey.currentContext;
+      if (actionContext == null) return;
+      Scrollable.ensureVisible(
+        actionContext,
+        alignment: 1,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return SafeArea(
       bottom: false,
       child: LayoutBuilder(
         builder: (context, constraints) {
+          final viewportHeightChanged = _lastViewportHeight != null &&
+              constraints.maxHeight != _lastViewportHeight;
+          _lastViewportHeight = constraints.maxHeight;
+          if (_inputFocused && viewportHeightChanged) {
+            _ensureAddActionVisible();
+          }
           final horizontalPadding =
               constraints.maxWidth < SsrvpnUiTokens.compactBreakpoint
                   ? 18.0
                   : 28.0;
           return SingleChildScrollView(
             key: const Key('ssrvpn-subscription-scroll'),
+            controller: _scrollController,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: EdgeInsets.fromLTRB(
               horizontalPadding,
               18,
@@ -62,35 +127,39 @@ class SsrvpnSubscriptionView extends StatelessWidget {
                     const _SubscriptionHeader(),
                     const SizedBox(height: 26),
                     _SubscriptionAddCard(
-                      urlController: urlController,
-                      isAdding: isAdding,
-                      isBusy: isBusy,
-                      onAdd: onAdd,
+                      urlController: widget.urlController,
+                      inputFocusNode: _inputFocusNode,
+                      addActionKey: _addActionKey,
+                      isAdding: widget.isAdding,
+                      isBusy: widget.isBusy,
+                      onAdd: widget.onAdd,
                     ),
                     const SizedBox(height: 30),
                     _SubscriptionListHeader(
-                      count: subscriptions.length,
-                      isRefreshing: isRefreshing,
-                      isBusy: isBusy,
-                      onRefresh: onRefresh,
-                      onCancelRefresh: onCancelRefresh,
+                      count: widget.subscriptions.length,
+                      isRefreshing: widget.isRefreshing,
+                      isBusy: widget.isBusy,
+                      onRefresh: widget.onRefresh,
+                      onCancelRefresh: widget.onCancelRefresh,
                     ),
-                    if (refreshMessage != null) ...[
+                    if (widget.refreshMessage != null) ...[
                       const SizedBox(height: 10),
                       _RefreshMessage(
-                        message: refreshMessage!,
-                        color: refreshMessageColor ?? SsrvpnUiTokens.primary,
+                        message: widget.refreshMessage!,
+                        color: widget.refreshMessageColor ??
+                            SsrvpnUiTokens.primary,
                       ),
                     ],
                     const SizedBox(height: 14),
-                    if (subscriptions.isEmpty)
+                    if (widget.subscriptions.isEmpty)
                       const _SubscriptionEmptyState()
                     else
-                      ...subscriptions.map(
+                      ...widget.subscriptions.map(
                         (subscription) => _SubscriptionCard(
                           subscription: subscription,
-                          onDelete:
-                              isBusy ? null : () => onDelete(subscription.id),
+                          onDelete: widget.isBusy
+                              ? null
+                              : () => widget.onDelete(subscription.id),
                         ),
                       ),
                   ],
@@ -104,72 +173,19 @@ class SsrvpnSubscriptionView extends StatelessWidget {
   }
 }
 
-class _SubscriptionHeader extends StatelessWidget {
-  const _SubscriptionHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [SsrvpnUiTokens.primaryBlue, SsrvpnUiTokens.accent],
-            ),
-            borderRadius: BorderRadius.circular(17),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x332F6BFF),
-                blurRadius: 20,
-                offset: Offset(0, 10),
-              ),
-            ],
-          ),
-          child:
-              const Icon(Icons.rss_feed_rounded, color: Colors.white, size: 28),
-        ),
-        const SizedBox(width: 18),
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '订阅管理',
-                style: TextStyle(
-                  color: SsrvpnUiTokens.textPrimary,
-                  fontSize: 27,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                '支持订阅链接与 ssr:// 导入',
-                style: TextStyle(
-                  color: SsrvpnUiTokens.textSecondary,
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _SubscriptionAddCard extends StatelessWidget {
   const _SubscriptionAddCard({
     required this.urlController,
+    required this.inputFocusNode,
+    required this.addActionKey,
     required this.isAdding,
     required this.isBusy,
     required this.onAdd,
   });
 
   final TextEditingController urlController;
+  final FocusNode inputFocusNode;
+  final GlobalKey addActionKey;
   final bool isAdding;
   final bool isBusy;
   final VoidCallback onAdd;
@@ -205,11 +221,13 @@ class _SubscriptionAddCard extends StatelessWidget {
           TextField(
             key: const Key('ssrvpn-subscription-input'),
             controller: urlController,
+            focusNode: inputFocusNode,
             enabled: !isBusy,
             keyboardType: TextInputType.url,
             textInputAction: TextInputAction.done,
             autocorrect: false,
             enableSuggestions: false,
+            scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
             onSubmitted: isBusy ? null : (_) => onAdd(),
             decoration: InputDecoration(
               hintText: '粘贴订阅链接或 ssr:// 链接',
@@ -232,6 +250,7 @@ class _SubscriptionAddCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           ConstrainedBox(
+            key: addActionKey,
             constraints: const BoxConstraints(minHeight: 52),
             child: SizedBox(
               width: double.infinity,

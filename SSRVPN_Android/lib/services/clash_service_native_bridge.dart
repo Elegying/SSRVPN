@@ -31,6 +31,8 @@ typedef _NativeConnectionState = ({
   bool transitioning,
   String? protectedConfigPath,
   int? sessionGeneration,
+  bool? underlyingNetworkAvailable,
+  bool? underlyingNetworkValidated,
 });
 
 extension AndroidNativeBridge on ClashService {
@@ -341,10 +343,15 @@ extension AndroidNativeBridge on ClashService {
     final sessionChanged =
         _nativeSessionGeneration != state.sessionGeneration ||
             _runningConfigPath != state.protectedConfigPath;
+    final underlyingNetworkChanged =
+        _underlyingNetworkAvailable != state.underlyingNetworkAvailable ||
+            _underlyingNetworkValidated != state.underlyingNetworkValidated;
     _nativeSessionProtocolAvailable = true;
     _nativeConnectionTransitioning = state.transitioning;
     _runningConfigPath = state.protectedConfigPath;
     _nativeSessionGeneration = state.sessionGeneration;
+    _underlyingNetworkAvailable = state.underlyingNetworkAvailable;
+    _underlyingNetworkValidated = state.underlyingNetworkValidated;
 
     if (state.running &&
         !connectionDesired &&
@@ -383,7 +390,10 @@ extension AndroidNativeBridge on ClashService {
       }
     }
     if (!terminalUnexpectedStop &&
-        (statusChanged || transitionChanged || sessionChanged)) {
+        (statusChanged ||
+            transitionChanged ||
+            sessionChanged ||
+            underlyingNetworkChanged)) {
       notifyStatusChanged();
     }
   }
@@ -639,6 +649,20 @@ extension AndroidNativeBridge on ClashService {
       log('原生 VPN 的运行状态与会话代际不一致');
       return null;
     }
+    final rawUnderlyingAvailable = value['underlyingNetworkAvailable'];
+    final rawUnderlyingValidated = value['underlyingNetworkValidated'];
+    if ((rawUnderlyingAvailable != null && rawUnderlyingAvailable is! bool) ||
+        (rawUnderlyingValidated != null && rawUnderlyingValidated is! bool)) {
+      log('原生 VPN 返回了无效的底层网络状态');
+      return null;
+    }
+    final underlyingNetworkAvailable = rawUnderlyingAvailable as bool?;
+    final underlyingNetworkValidated = rawUnderlyingValidated as bool?;
+    if (underlyingNetworkAvailable == false &&
+        underlyingNetworkValidated == true) {
+      log('原生 VPN 返回了矛盾的底层网络状态');
+      return null;
+    }
     final rawPathValue = value['protectedConfigPath'];
     if (rawPathValue != null && rawPathValue is! String) {
       log('原生 VPN 返回了无效的受保护配置路径类型');
@@ -656,6 +680,8 @@ extension AndroidNativeBridge on ClashService {
         transitioning: transitioning,
         protectedConfigPath: null,
         sessionGeneration: sessionGeneration,
+        underlyingNetworkAvailable: underlyingNetworkAvailable,
+        underlyingNetworkValidated: underlyingNetworkValidated,
       );
     }
     final file = File(rawPath).absolute;
@@ -673,6 +699,8 @@ extension AndroidNativeBridge on ClashService {
         transitioning: transitioning,
         protectedConfigPath: null,
         sessionGeneration: sessionGeneration,
+        underlyingNetworkAvailable: underlyingNetworkAvailable,
+        underlyingNetworkValidated: underlyingNetworkValidated,
       );
     }
     return (
@@ -680,6 +708,8 @@ extension AndroidNativeBridge on ClashService {
       transitioning: transitioning,
       protectedConfigPath: file.path,
       sessionGeneration: sessionGeneration,
+      underlyingNetworkAvailable: underlyingNetworkAvailable,
+      underlyingNetworkValidated: underlyingNetworkValidated,
     );
   }
 

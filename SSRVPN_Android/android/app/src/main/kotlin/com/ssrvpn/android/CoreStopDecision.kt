@@ -48,7 +48,7 @@ internal object StopOperationRunner {
         initiallyRequiresTermination: Boolean,
         cleanup: () -> Boolean,
         onTerminationRequired: () -> Unit,
-        complete: () -> Unit,
+        complete: (Boolean) -> Unit,
         scheduleTermination: () -> Unit
     ): Throwable? {
         var terminationRequired = initiallyRequiresTermination
@@ -64,7 +64,7 @@ internal object StopOperationRunner {
                 if (terminationRequired) onTerminationRequired()
             } finally {
                 try {
-                    complete()
+                    complete(!terminationRequired)
                 } finally {
                     if (terminationRequired) scheduleTermination()
                 }

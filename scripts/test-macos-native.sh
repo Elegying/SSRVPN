@@ -68,6 +68,11 @@ python3 "$ROOT/scripts/macos_native_post_test_gate.py" \
 xcodebuild_status=0
 (
   cd "$ROOT/SSRVPN_MacOS"
+  # CodeQL's Swift preload can keep XCTest descendants attached after the
+  # tests finish. The production app build later in CI remains traced.
+  if [[ "${CODEQL_ACTION_INIT_HAS_RUN:-}" == "true" ]]; then
+    unset DYLD_INSERT_LIBRARIES SEMMLE_PRELOAD_libtrace
+  fi
   xcodebuild test \
     -quiet \
     -workspace macos/Runner.xcworkspace \

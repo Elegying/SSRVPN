@@ -149,8 +149,6 @@ class _NodeSelectionCard extends StatelessWidget {
                   minimumSize: Size(compact ? 64 : 70, compact ? 44 : 48),
                 ),
                 child: Semantics(
-                  button: true,
-                  enabled: !testingBusy,
                   label: '测试 $displayName 延迟',
                   value: testing ? '测试中' : _latencyText,
                   excludeSemantics: true,

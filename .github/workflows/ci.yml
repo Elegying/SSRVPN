@@ -46,6 +46,25 @@ jobs:
           license-check: true
           show-openssf-scorecard: true
 
+  codeql-actions:
+    name: CodeQL (Actions)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+        with:
+          languages: actions
+          build-mode: none
+          queries: security-extended
+
+      - name: Analyze workflow code
+        uses: github/codeql-action/analyze@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+
   shared:
     name: Workspace checks
     needs: [core-assets, secret-scan]
@@ -116,23 +135,10 @@ jobs:
             SSRVPN_Windows/assets/mihomo.exe
             SSRVPN_Windows/assets/geoip.metadb.gz
 
-  flutter-app:
-    name: ${{ matrix.name }}
+  macos-native:
+    name: macOS native unit tests
     needs: [core-assets, secret-scan]
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Android
-            os: ubuntu-latest
-            directory: SSRVPN_Android
-          - name: macOS
-            os: macos-15
-            directory: SSRVPN_MacOS
-          - name: Windows
-            os: windows-latest
-            directory: SSRVPN_Windows
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -147,6 +153,63 @@ jobs:
           channel: stable
           cache: true
 
+      - run: bash scripts/verify-core-assets.sh
+      - run: flutter pub get
+
+      - name: Run macOS native unit tests
+        timeout-minutes: 15
+        run: bash scripts/test-macos-native.sh
+
+  flutter-app:
+    name: ${{ matrix.name }}
+    needs: [core-assets, secret-scan]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Android
+            os: ubuntu-latest
+            directory: SSRVPN_Android
+            codeql_language: java-kotlin
+            codeql_build_mode: manual
+          - name: macOS
+            os: macos-15
+            directory: SSRVPN_MacOS
+          - name: Windows
+            os: windows-latest
+            directory: SSRVPN_Windows
+            codeql_language: c-cpp
+            codeql_build_mode: manual
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: core-assets
+          path: .
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: bash scripts/verify-core-assets.sh
+
+      - run: flutter pub get
+
+      - name: Initialize CodeQL
+        if: matrix.directory != 'SSRVPN_MacOS'
+        uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+        with:
+          languages: ${{ matrix.codeql_language }}
+          build-mode: ${{ matrix.codeql_build_mode }}
+          queries: security-extended
+
       - name: Cache Gradle dependencies
         if: matrix.directory == 'SSRVPN_Android'
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
@@ -154,20 +217,10 @@ jobs:
           cache-provider: basic
           cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}
 
-      - run: bash scripts/verify-core-assets.sh
-
-      - run: flutter pub get
-
       - run: flutter analyze
         working-directory: ${{ matrix.directory }}
 
       - run: bash scripts/run-flutter-coverage.sh ${{ matrix.directory }}
-
-      - name: macOS native unit tests
-        if: matrix.directory == 'SSRVPN_MacOS'
-        shell: bash
-        timeout-minutes: 15
-        run: bash scripts/test-macos-native.sh
 
       - name: Android native unit tests
         if: matrix.directory == 'SSRVPN_Android'
@@ -179,8 +232,8 @@ jobs:
       - name: Build macOS app
         if: matrix.directory == 'SSRVPN_MacOS'
         timeout-minutes: 15
+        working-directory: SSRVPN_MacOS
         run: flutter build macos --debug
-        working-directory: ${{ matrix.directory }}
 
       - name: Build Windows installer
         if: matrix.directory == 'SSRVPN_Windows'
@@ -222,6 +275,10 @@ jobs:
         if: matrix.directory == 'SSRVPN_Windows'
         shell: bash
         run: bash scripts/smoke-release-artifacts.sh --allow-missing
+
+      - name: Analyze native code
+        if: matrix.directory != 'SSRVPN_MacOS'
+        uses: github/codeql-action/analyze@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
 
       - name: Upload Windows installer
         if: matrix.directory == 'SSRVPN_Windows'

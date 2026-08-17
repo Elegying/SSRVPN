@@ -64,6 +64,15 @@ LIGHTWEIGHT_VERSION_TAG = re.compile(
     r"(?P<target>v(?:X\.Y\.Z|\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?))\b",
     re.IGNORECASE | re.MULTILINE,
 )
+APPLE_SILICON_REQUIREMENT = re.compile(
+    r"Apple[ \t]*(?:Silicon|M[ \t]*系列|M-series)|苹果[ \t]*M[ \t]*系列",
+    re.IGNORECASE,
+)
+MACOS_ARCHITECTURE_DOCS = {
+    "README.md",
+    "docs/USER_GUIDE.zh-CN.md",
+    "SSRVPN_MacOS/USER_GUIDE.md",
+}
 
 
 def _blank_preserving_newlines(value: str) -> str:
@@ -217,6 +226,16 @@ def stale_release_instructions(markdown: str) -> list[str]:
     ]
 
 
+def required_claims(relative_name: str, markdown: str) -> list[str]:
+    """Return missing current product constraints required in user docs."""
+    if (
+        relative_name in MACOS_ARCHITECTURE_DOCS
+        and not APPLE_SILICON_REQUIREMENT.search(strip_code(markdown))
+    ):
+        return ["missing macOS Apple M-series support boundary"]
+    return []
+
+
 def _is_external(target: str) -> bool:
     if target.startswith(("#", "//")):
         return True
@@ -260,6 +279,8 @@ def validate(root: Path, docs: list[str], *, links_only: bool = False) -> list[s
                 errors.append(f"{relative_name}: {finding}")
             for finding in stale_release_instructions(markdown):
                 errors.append(f"{relative_name}: {finding}")
+            for finding in required_claims(relative_name, markdown):
+                errors.append(f"{relative_name}: {finding}")
     return sorted(set(errors))
 
 
@@ -300,6 +321,9 @@ def self_test() -> None:
     )
     assert not stale_release_instructions("git tag --annotate v3.4.8")
     assert not stale_release_instructions("git tag -l 'v*'")
+    assert required_claims("README.md", "macOS 11 及以上")
+    assert not required_claims("README.md", "macOS 仅支持 Apple M 系列芯片。")
+    assert not required_claims("docs/OTHER.md", "macOS 11 及以上")
 
 
 def main() -> int:
