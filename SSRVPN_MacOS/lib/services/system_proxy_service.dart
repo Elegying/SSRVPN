@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/services.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
@@ -12,6 +13,10 @@ typedef MacNetworkServiceIdentityRunner = Future<Map<String, String>?>
     Function();
 typedef MacProxyLifecycleBegin = Future<String> Function();
 typedef MacProxyLifecycleEnd = Future<bool> Function(String token);
+typedef MacProxyGuardianStart = Future<bool> Function(
+  String statePath,
+  String nonce,
+);
 
 /// macOS 系统代理服务。
 ///
@@ -25,11 +30,13 @@ class SystemProxyService {
     MacNetworkServiceIdentityRunner? networkServiceIdentityRunner,
     MacProxyLifecycleBegin? beginProxyLifecycleTransaction,
     MacProxyLifecycleEnd? endProxyLifecycleTransaction,
+    MacProxyGuardianStart? startProxyGuardian,
   })  : _networkSetupRunner = networkSetupRunner,
         _effectiveProxyRunner = effectiveProxyRunner,
         _networkServiceIdentityRunner = networkServiceIdentityRunner,
         _beginProxyLifecycleTransaction = beginProxyLifecycleTransaction,
-        _endProxyLifecycleTransaction = endProxyLifecycleTransaction;
+        _endProxyLifecycleTransaction = endProxyLifecycleTransaction,
+        _startProxyGuardian = startProxyGuardian;
 
   static const _networkSetupPath = '/usr/sbin/networksetup';
   static const _scutilPath = '/usr/sbin/scutil';
@@ -41,6 +48,7 @@ class SystemProxyService {
     '_ownedProxyHost',
     '_ownedProxyPort',
     '_ownerPid',
+    '_guardianNonce',
     '_networkServiceIDs',
   };
   final MacNetworkSetupRunner? _networkSetupRunner;
@@ -48,6 +56,7 @@ class SystemProxyService {
   final MacNetworkServiceIdentityRunner? _networkServiceIdentityRunner;
   final MacProxyLifecycleBegin? _beginProxyLifecycleTransaction;
   final MacProxyLifecycleEnd? _endProxyLifecycleTransaction;
+  final MacProxyGuardianStart? _startProxyGuardian;
   File? _stateFile;
   Future<bool>? _clearSystemProxyInFlight;
   bool _proxyEnabled = false;
@@ -234,7 +243,16 @@ class SystemProxyService {
         return false;
       }
 
-      await _saveCurrentStateIfNeeded(capturedServiceIdentities, host, port);
+      final guardianNonce = await _saveCurrentStateIfNeeded(
+        capturedServiceIdentities,
+        host,
+        port,
+      );
+      final statePath = _stateFile?.absolute.path;
+      if (statePath == null ||
+          !await _startNativeProxyGuardian(statePath, guardianNonce)) {
+        throw StateError('系统代理 guardian 未就绪，已取消代理写入');
+      }
       await _requireUnchangedNetworkServiceIdentities(
         capturedServiceIdentities,
       );
@@ -333,6 +351,16 @@ class SystemProxyService {
         true;
   }
 
+  Future<bool> _startNativeProxyGuardian(String statePath, String nonce) async {
+    final start = _startProxyGuardian;
+    if (start != null) return start(statePath, nonce);
+    return await _coreProcessChannel.invokeMethod<bool>(
+          'startProxyGuardian',
+          {'statePath': statePath, 'nonce': nonce},
+        ) ==
+        true;
+  }
+
   Future<bool> _clearSystemProxyOnce() async {
     _lastError = null;
     try {
@@ -368,7 +396,7 @@ class SystemProxyService {
     }
   }
 
-  Future<void> _saveCurrentStateIfNeeded(
+  Future<String> _saveCurrentStateIfNeeded(
     Map<String, String> serviceIdentities,
     String ownedHost,
     int ownedPort,
@@ -390,10 +418,12 @@ class SystemProxyService {
     if (services.any(_snapshotMetadataKeys.contains)) {
       throw StateError('网络服务名称与代理快照保留字段冲突');
     }
+    final guardianNonce = _newGuardianNonce();
     final states = <String, dynamic>{
       '_ownedProxyHost': ownedHost,
       '_ownedProxyPort': ownedPort,
       '_ownerPid': pid,
+      '_guardianNonce': guardianNonce,
       '_networkServiceIDs': {
         for (final service in services) service: serviceIdentities[service]!,
       },
@@ -412,6 +442,16 @@ class SystemProxyService {
     await _writeStringAtomically(file, jsonEncode(states));
     _ownedProxyHost = ownedHost;
     _ownedProxyPort = ownedPort;
+    return guardianNonce;
+  }
+
+  String _newGuardianNonce() {
+    final random = Random.secure();
+    final buffer = StringBuffer();
+    for (var index = 0; index < 16; index++) {
+      buffer.write(random.nextInt(256).toRadixString(16).padLeft(2, '0'));
+    }
+    return buffer.toString();
   }
 
   Future<void> _requireUnchangedNetworkServiceIdentities(

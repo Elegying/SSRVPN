@@ -299,6 +299,40 @@ if termination_body.index("performCoreProcessOperationAndWait") > termination_bo
     raise SystemExit(
         "AppDelegate.swift: termination must drain core operations before proxy/core cleanup"
     )
+if "super.applicationWillTerminate" in termination_body:
+    raise SystemExit(
+        "AppDelegate.swift: optional NSApplicationDelegate termination callback has no superclass implementation"
+    )
+
+proxy_guardian = Path(
+    "SSRVPN_MacOS/macos/Runner/ProxyGuardian.swift"
+).read_text(encoding="utf-8")
+native_main = Path(
+    "SSRVPN_MacOS/macos/Runner/main.swift"
+).read_text(encoding="utf-8")
+xcode_project = Path(
+    "SSRVPN_MacOS/macos/Runner.xcodeproj/project.pbxproj"
+).read_text(encoding="utf-8")
+if "@main" in app_delegate:
+    raise SystemExit("AppDelegate.swift: guardian mode requires the guarded native entrypoint")
+if native_main.index("ProxyGuardianCommand.isRequested()") > native_main.index(
+    "NSApplicationMain"
+):
+    raise SystemExit("main.swift: guardian dispatch must precede Cocoa startup")
+for token, source in (
+    ("ProxyGuardian.swift in Sources", xcode_project),
+    ("main.swift in Sources", xcode_project),
+    ('call.method == "startProxyGuardian"', main_window),
+    ("expectedGuardianNonce: nonce", proxy_guardian),
+    ("expectedOwnerPid: ownerPid", proxy_guardian),
+    ("processInfo.pbi_start_tvsec == owner.startSeconds", proxy_guardian),
+):
+    if token not in source:
+        raise SystemExit(f"macOS proxy guardian lost required guard: {token}")
+if proxy_guardian.index("guard dependencies.restoreProxy(") > proxy_guardian.index(
+    "return dependencies.terminateCore("
+):
+    raise SystemExit("macOS proxy guardian must restore the proxy before core cleanup")
 
 proxy_service = Path(
     "SSRVPN_MacOS/lib/services/system_proxy_service.dart"
@@ -312,6 +346,8 @@ required_proxy_guards = (
     "stat.mode & _groupOrOtherWriteMask != 0",
     "无法确认代理归属，已保留恢复快照并阻止核心清理",
     "_runWithNativeProxyLifecycleLease(",
+    "_startNativeProxyGuardian(statePath, guardianNonce)",
+    "'_guardianNonce': guardianNonce",
     "'beginProxyLifecycleTransaction'",
     "'endProxyLifecycleTransaction'",
     "_snapshotMetadataKeys.contains(service)",

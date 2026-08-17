@@ -2666,4 +2666,114 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(try String(contentsOf: pidURL, encoding: .utf8), "5252\n")
   }
 
+  func testProxyGuardianRestoresProxyBeforeTerminatingCoreAfterOwnerExit() {
+    var ownerChecks = 0
+    var stateExists = true
+    var events: [String] = []
+    let dependencies = ProxyGuardianDependencies(
+      validateSnapshot: { _, _, _ in true },
+      ownerMatches: { _ in
+        ownerChecks += 1
+        return ownerChecks == 1
+      },
+      publishReady: { _, _ in
+        events.append("ready")
+        return true
+      },
+      statePathEntryExists: { _ in stateExists },
+      restoreProxy: { _, _, _ in
+        events.append("restore")
+        stateExists = false
+        return true
+      },
+      terminateCore: { _ in
+        events.append("terminate")
+        return true
+      },
+      sleep: { _ in }
+    )
+
+    let status = ProxyGuardianCommand.run(
+      arguments: proxyGuardianTestArguments(),
+      dependencies: dependencies
+    )
+
+    XCTAssertEqual(status, 0)
+    XCTAssertEqual(events, ["ready", "restore", "terminate"])
+  }
+
+  func testProxyGuardianKeepsCoreWhenProxyRestoreFails() {
+    var ownerChecks = 0
+    var terminateCalls = 0
+    let dependencies = ProxyGuardianDependencies(
+      validateSnapshot: { _, _, _ in true },
+      ownerMatches: { _ in
+        ownerChecks += 1
+        return ownerChecks == 1
+      },
+      publishReady: { _, _ in true },
+      statePathEntryExists: { _ in true },
+      restoreProxy: { _, _, _ in false },
+      terminateCore: { _ in
+        terminateCalls += 1
+        return true
+      },
+      sleep: { _ in }
+    )
+
+    let status = ProxyGuardianCommand.run(
+      arguments: proxyGuardianTestArguments(),
+      dependencies: dependencies
+    )
+
+    XCTAssertEqual(status, 69)
+    XCTAssertEqual(terminateCalls, 0)
+  }
+
+  func testProxyGuardianRejectsAReplacedSnapshotBeforeRestore() {
+    var validations = 0
+    var restoreCalls = 0
+    var ownerChecks = 0
+    let dependencies = ProxyGuardianDependencies(
+      validateSnapshot: { _, _, _ in
+        validations += 1
+        return validations == 1
+      },
+      ownerMatches: { _ in
+        ownerChecks += 1
+        return ownerChecks == 1
+      },
+      publishReady: { _, _ in true },
+      statePathEntryExists: { _ in true },
+      restoreProxy: { _, _, _ in
+        restoreCalls += 1
+        return true
+      },
+      terminateCore: { _ in true },
+      sleep: { _ in }
+    )
+
+    let status = ProxyGuardianCommand.run(
+      arguments: proxyGuardianTestArguments(),
+      dependencies: dependencies
+    )
+
+    XCTAssertEqual(status, 68)
+    XCTAssertEqual(restoreCalls, 0)
+  }
+
+  private func proxyGuardianTestArguments() -> [String] {
+    let nonce = String(repeating: "a", count: 32)
+    return [
+      "SSRVPN",
+      ProxyGuardianCommand.modeArgument,
+      "--state", "/tmp/SSRVPN/system_proxy.json",
+      "--nonce", nonce,
+      "--owner-pid", "4242",
+      "--owner-start-seconds", "100",
+      "--owner-start-microseconds", "200",
+      "--owner-executable", "/Applications/SSRVPN.app/Contents/MacOS/SSRVPN",
+    ]
+  }
+
 }

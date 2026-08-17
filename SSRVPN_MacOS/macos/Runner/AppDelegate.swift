@@ -30,7 +30,6 @@ private enum ApplicationTerminationLeaseState: Equatable {
   case committed
 }
 
-@main
 class AppDelegate: FlutterAppDelegate {
   private let instanceLease = AppInstanceLease()
   private let coreProcessOperationQueue = DispatchQueue(
@@ -126,6 +125,70 @@ class AppDelegate: FlutterAppDelegate {
 
   func performCoreProcessOperationAndWait(_ operation: () -> Void) {
     coreProcessOperationQueue.sync(execute: operation)
+  }
+
+  func startProxyGuardian(
+    statePath: String,
+    nonce: String,
+    readyTimeout: TimeInterval = 2
+  ) -> Bool {
+    guard
+      (statePath as NSString).isAbsolutePath,
+      ProxyGuardianCommand.isValidNonce(nonce),
+      let generation = AppDelegate.currentProcessGeneration(getpid()),
+      let executablePath = AppDelegate.currentExecutablePath(getpid())
+    else {
+      return false
+    }
+    let stateURL = URL(fileURLWithPath: statePath).standardizedFileURL
+    let canonicalExecutable = URL(fileURLWithPath: executablePath)
+      .standardizedFileURL.resolvingSymlinksInPath().path
+    let owner = ProxyGuardianOwnerIdentity(
+      pid: getpid(),
+      startSeconds: generation.startSeconds,
+      startMicroseconds: generation.startMicroseconds,
+      executablePath: canonicalExecutable
+    )
+    let guardianArguments = ProxyGuardianArguments(
+      stateURL: stateURL,
+      nonce: nonce,
+      owner: owner
+    )
+    guard !proxyStatePathEntryExists(at: guardianArguments.readyURL) else {
+      return false
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: canonicalExecutable)
+    process.arguments = ProxyGuardianCommand.arguments(
+      stateURL: stateURL,
+      nonce: nonce,
+      owner: owner
+    )
+    if let nullOutput = FileHandle(forWritingAtPath: "/dev/null") {
+      process.standardOutput = nullOutput
+      process.standardError = nullOutput
+    }
+    process.terminationHandler = { _ in }
+    do {
+      try process.run()
+    } catch {
+      return false
+    }
+
+    let deadline = Date().addingTimeInterval(readyTimeout)
+    while Date() < deadline {
+      if ProxyGuardianCommand.consumeReadyFile(
+        at: guardianArguments.readyURL,
+        nonce: nonce
+      ) {
+        return process.isRunning
+      }
+      if !process.isRunning { return false }
+      Thread.sleep(forTimeInterval: 0.05)
+    }
+    if process.isRunning { process.terminate() }
+    return false
   }
 
   @discardableResult
@@ -412,7 +475,8 @@ class AppDelegate: FlutterAppDelegate {
     }
     DistributedNotificationCenter.default().removeObserver(self)
     releaseInstanceLease()
-    super.applicationWillTerminate(notification)
+    // NSApplicationDelegate termination is an optional callback. Flutter's
+    // parent delegate has no implementation to chain to here.
   }
 
   func tunRequestURLs(in support: URL) -> [URL] {
@@ -1276,7 +1340,9 @@ class AppDelegate: FlutterAppDelegate {
     at explicitStateURL: URL? = nil,
     proxyCommandRunner: ((String, [String]) -> ProxyCommandResult)? = nil,
     networkServiceIdentityProvider: (() -> [String: String]?)? = nil,
-    proxyStateRemover: ((URL) throws -> Void)? = nil
+    proxyStateRemover: ((URL) throws -> Void)? = nil,
+    expectedGuardianNonce: String? = nil,
+    expectedOwnerPid: Int32? = nil
   ) -> Bool {
     guard let stateURL = explicitStateURL ?? findProxyStateFile() else { return false }
     do {
@@ -1287,6 +1353,23 @@ class AppDelegate: FlutterAppDelegate {
       let data = stateSnapshot.data
       guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return false
+      }
+      if let expectedGuardianNonce {
+        guard root["_guardianNonce"] as? String == expectedGuardianNonce else {
+          NSLog("[AppDelegate] Proxy guardian nonce no longer matches; preserving state")
+          return false
+        }
+      }
+      if let expectedOwnerPid {
+        guard
+          let ownerPidNumber = root["_ownerPid"] as? NSNumber,
+          CFGetTypeID(ownerPidNumber) != CFBooleanGetTypeID(),
+          ownerPidNumber.doubleValue == Double(ownerPidNumber.intValue),
+          ownerPidNumber.intValue == Int(expectedOwnerPid)
+        else {
+          NSLog("[AppDelegate] Proxy guardian owner no longer matches; preserving state")
+          return false
+        }
       }
       guard let rawOwnedHost = root["_ownedProxyHost"] as? String else {
         // A legacy snapshot cannot prove which live proxy endpoint belongs to
@@ -1470,6 +1553,7 @@ class AppDelegate: FlutterAppDelegate {
       "_ownedProxyHost",
       "_ownedProxyPort",
       "_ownerPid",
+      "_guardianNonce",
     ]
     var services: [(String, [String: Any])] = []
     for (key, rawValue) in root {

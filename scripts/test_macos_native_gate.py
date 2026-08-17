@@ -554,6 +554,16 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         lifecycle = self.read(
             "SSRVPN_MacOS/lib/services/clash_service_lifecycle.dart"
         )
+        system_proxy = self.read(
+            "SSRVPN_MacOS/lib/services/system_proxy_service.dart"
+        )
+        proxy_guardian = self.read(
+            "SSRVPN_MacOS/macos/Runner/ProxyGuardian.swift"
+        )
+        native_main = self.read("SSRVPN_MacOS/macos/Runner/main.swift")
+        xcode_project = self.read(
+            "SSRVPN_MacOS/macos/Runner.xcodeproj/project.pbxproj"
+        )
 
         for token in (
             "func acquireInstanceLease(at url: URL? = nil) -> Bool",
@@ -561,6 +571,7 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "private let coreProcessOperationQueue = DispatchQueue(",
             "func enqueueCoreProcessOperation(_ operation: @escaping () -> Void)",
             "func performCoreProcessOperationAndWait(_ operation: () -> Void)",
+            "func startProxyGuardian(",
             "override func applicationShouldTerminate(",
             "return .terminateLater",
             "func beginProxyLifecycleTransaction() -> String",
@@ -636,6 +647,42 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         self.assertNotIn("/bin/ps", lifecycle)
         self.assertNotIn("process.kill", lifecycle)
         self.assertNotIn("terminateMacosCoreProcess", lifecycle)
+        self.assertNotIn("@main", app_delegate)
+
+        guardian_mode = native_main.index("ProxyGuardianCommand.isRequested()")
+        cocoa_main = native_main.index("NSApplicationMain")
+        self.assertLess(guardian_mode, cocoa_main)
+        for token in (
+            "ProxyGuardianCommand.run()",
+            "ProxyGuardian.swift in Sources",
+            "main.swift in Sources",
+            'call.method == "startProxyGuardian"',
+            "expectedGuardianNonce: nonce",
+            "expectedOwnerPid: ownerPid",
+            "processInfo.pbi_start_tvsec == owner.startSeconds",
+            "return dependencies.terminateCore(",
+        ):
+            self.assertTrue(
+                token in native_main
+                or token in xcode_project
+                or token in main_window
+                or token in proxy_guardian,
+                token,
+            )
+        restore = proxy_guardian.index("guard dependencies.restoreProxy(")
+        terminate = proxy_guardian.index("return dependencies.terminateCore(")
+        self.assertLess(restore, terminate)
+
+        snapshot = system_proxy.index(
+            "final guardianNonce = await _saveCurrentStateIfNeeded("
+        )
+        guardian = system_proxy.index(
+            "_startNativeProxyGuardian(statePath, guardianNonce)", snapshot
+        )
+        mutation = system_proxy.index("for (final svc in services)", guardian)
+        self.assertLess(snapshot, guardian)
+        self.assertLess(guardian, mutation)
+        self.assertIn("'_guardianNonce': guardianNonce", system_proxy)
 
         awake = main_window.index("override func awakeFromNib()")
         acquire = main_window.index("delegate.acquireInstanceLease()", awake)
@@ -646,6 +693,10 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         drain = app_delegate.index("performCoreProcessOperationAndWait", termination)
         restore = app_delegate.index("restoreSavedProxyState()", termination)
         self.assertLess(drain, restore)
+        self.assertNotIn(
+            "super.applicationWillTerminate",
+            app_delegate[termination:],
+        )
 
         begin = main_window.index('call.method == "beginProxyLifecycleTransaction"')
         end = main_window.index('call.method == "endProxyLifecycleTransaction"')

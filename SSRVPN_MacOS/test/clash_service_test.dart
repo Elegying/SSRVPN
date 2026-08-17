@@ -431,6 +431,7 @@ void main() {
       var allowRecovery = false;
       final events = <String>[];
       final proxyService = SystemProxyService(
+        startProxyGuardian: (_, __) async => true,
         beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
         endProxyLifecycleTransaction: (_) async => true,
         networkSetupRunner: (arguments) async {
@@ -637,6 +638,7 @@ void main() {
       });
       var proxyOwned = false;
       final proxyService = SystemProxyService(
+        startProxyGuardian: (_, __) async => true,
         beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
         endProxyLifecycleTransaction: (_) async => true,
         networkServiceIdentityRunner: () async => {
@@ -752,6 +754,7 @@ void main() {
       });
       var proxyOwned = false;
       final proxyService = SystemProxyService(
+        startProxyGuardian: (_, __) async => true,
         beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
         endProxyLifecycleTransaction: (_) async => true,
         networkServiceIdentityRunner: () async => {
@@ -875,6 +878,7 @@ void main() {
       });
       var proxyOwned = false;
       final proxyService = SystemProxyService(
+        startProxyGuardian: (_, __) async => true,
         beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
         endProxyLifecycleTransaction: (_) async => true,
         networkServiceIdentityRunner: () async => {
@@ -1082,6 +1086,7 @@ void main() {
       var effectiveProxyOwned = true;
       final mutations = <List<String>>[];
       final proxyService = SystemProxyService(
+        startProxyGuardian: (_, __) async => true,
         beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
         endProxyLifecycleTransaction: (_) async => true,
         networkServiceIdentityRunner: () async => {

@@ -115,6 +115,30 @@ class MainFlutterWindow: NSWindow {
         }
         return
       }
+      if call.method == "startProxyGuardian" {
+        guard
+          let arguments = call.arguments as? [String: Any],
+          let statePath = arguments["statePath"] as? String,
+          !statePath.isEmpty,
+          let nonce = arguments["nonce"] as? String,
+          !nonce.isEmpty
+        else {
+          result(FlutterError(
+            code: "invalid_proxy_guardian_arguments",
+            message: "A proxy state path and transaction nonce are required",
+            details: nil
+          ))
+          return
+        }
+        delegate.enqueueCoreProcessOperation {
+          let started = delegate.startProxyGuardian(
+            statePath: statePath,
+            nonce: nonce
+          )
+          DispatchQueue.main.async { result(started) }
+        }
+        return
+      }
       guard
         let arguments = call.arguments as? [String: Any],
         let directoryPath = arguments["directory"] as? String,
