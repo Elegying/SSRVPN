@@ -29,6 +29,8 @@ private enum ApplicationTerminationLeaseState: Equatable {
   case pending(UUID)
   case committed
 }
+
+@main
 class AppDelegate: FlutterAppDelegate {
   private let instanceLease = AppInstanceLease()
   private let coreProcessOperationQueue = DispatchQueue(
@@ -45,6 +47,13 @@ class AppDelegate: FlutterAppDelegate {
   var schedulePendingApplicationTerminationTimeout: (@escaping () -> Void) -> Void = {
     callback in
     DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: callback)
+  }
+
+  override func applicationWillFinishLaunching(_ notification: Notification) {
+    if ProxyGuardianCommand.isRequested() {
+      Darwin.exit(ProxyGuardianCommand.run())
+    }
+    super.applicationWillFinishLaunching(notification)
   }
 
   private static var activationNotificationName: Notification.Name {

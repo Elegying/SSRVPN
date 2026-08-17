@@ -159,6 +159,23 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
 
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_guardian_preserves_the_standard_flutter_app_entrypoint(self) -> None:
+        app_delegate = self.read("SSRVPN_MacOS/macos/Runner/AppDelegate.swift")
+        project = self.read(
+            "SSRVPN_MacOS/macos/Runner.xcodeproj/project.pbxproj"
+        )
+
+        self.assertIn("@main\nclass AppDelegate: FlutterAppDelegate", app_delegate)
+        self.assertIn(
+            "override func applicationWillFinishLaunching", app_delegate
+        )
+        self.assertIn("ProxyGuardianCommand.isRequested()", app_delegate)
+        self.assertIn("ProxyGuardianCommand.run()", app_delegate)
+        self.assertNotIn("main.swift", project)
+        self.assertFalse(
+            (ROOT / "SSRVPN_MacOS/macos/Runner/main.swift").exists()
+        )
+
     def test_native_runner_fails_when_test_host_writes_a_new_crash_report(self) -> None:
         result = self.run_native_runner(
             crash_report_body=(
@@ -586,7 +603,6 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         proxy_guardian = self.read(
             "SSRVPN_MacOS/macos/Runner/ProxyGuardian.swift"
         )
-        native_main = self.read("SSRVPN_MacOS/macos/Runner/main.swift")
         xcode_project = self.read(
             "SSRVPN_MacOS/macos/Runner.xcodeproj/project.pbxproj"
         )
@@ -673,15 +689,21 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         self.assertNotIn("/bin/ps", lifecycle)
         self.assertNotIn("process.kill", lifecycle)
         self.assertNotIn("terminateMacosCoreProcess", lifecycle)
-        self.assertNotIn("@main", app_delegate)
+        self.assertIn("@main", app_delegate)
 
-        guardian_mode = native_main.index("ProxyGuardianCommand.isRequested()")
-        cocoa_main = native_main.index("NSApplicationMain")
-        self.assertLess(guardian_mode, cocoa_main)
+        launch = app_delegate.index(
+            "override func applicationWillFinishLaunching"
+        )
+        guardian_mode = app_delegate.index(
+            "ProxyGuardianCommand.isRequested()", launch
+        )
+        flutter_launch = app_delegate.index(
+            "super.applicationWillFinishLaunching", guardian_mode
+        )
+        self.assertLess(guardian_mode, flutter_launch)
         for token in (
             "ProxyGuardianCommand.run()",
             "ProxyGuardian.swift in Sources",
-            "main.swift in Sources",
             'call.method == "startProxyGuardian"',
             "expectedGuardianNonce: nonce",
             "expectedOwnerPid: ownerPid",
@@ -691,7 +713,7 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             "return dependencies.terminateCore(",
         ):
             self.assertTrue(
-                token in native_main
+                token in app_delegate
                 or token in xcode_project
                 or token in main_window
                 or token in proxy_guardian,
