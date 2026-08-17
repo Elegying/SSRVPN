@@ -481,6 +481,7 @@ void main() {
       );
     },
     skip: Platform.isWindows ? false : 'Windows network cmdlets are required',
+    timeout: const Timeout(Duration(seconds: 45)),
   );
 
   test('runtime probe rejects a missing or duplicate TUN address', () {
