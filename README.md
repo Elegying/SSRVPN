@@ -39,13 +39,13 @@ SSRVPN 是面向 Android、macOS 和 Windows 的开源 Mihomo 客户端。它把
 | 平台 | 安装包 | 连接方式 | 下载 |
 | --- | --- | --- | --- |
 | Android | `SSRVPN.apk` | 系统 VPN | [下载最新版 APK](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.apk) |
-| macOS | `SSRVPN.dmg` | 系统代理、TUN | [下载最新版 DMG](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.dmg) |
+| macOS（仅 Apple M 系列芯片） | `SSRVPN.dmg` | 系统代理、TUN | [下载最新版 DMG](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.dmg) |
 | Windows | `SSRVPN_Setup.exe` | 系统代理、TUN | [下载最新版安装器](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN_Setup.exe) |
 
 也可以前往 [GitHub Releases](https://github.com/Elegying/SSRVPN/releases/latest) 查看版本说明、SHA-256 校验文件与发布来源记录。
 
 > [!IMPORTANT]
-> 请只从本仓库 Release 下载。Android 正式包当前仅包含 arm64 核心；macOS 为免费 ad-hoc、未公证分发，Windows 为免费未签名分发，因此首次打开时可能出现 Gatekeeper 或 SmartScreen 提示。
+> 请只从本仓库 Release 下载。Android 正式包当前仅包含 arm64 核心；macOS 正式包仅支持 Apple M 系列芯片，并采用免费 ad-hoc、未公证分发；Windows 为免费未签名分发。因此首次打开桌面包时可能出现 Gatekeeper 或 SmartScreen 提示。
 
 ## 快速开始
 

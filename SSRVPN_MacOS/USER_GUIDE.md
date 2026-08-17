@@ -3,9 +3,11 @@
 导入订阅、连接、状态判断和订阅刷新请先阅读
 [公共用户指南](../docs/USER_GUIDE.zh-CN.md)。本页只说明 macOS 差异。
 
+当前正式 DMG 仅支持 Apple M 系列芯片，不支持 Intel Mac；系统要求为 macOS 11.0 或更高版本。
+
 ## 安装
 
-1. 从项目正式 Release 或官网固定下载地址获取 `SSRVPN.dmg`。
+1. 在“关于本机”确认设备使用 Apple M 系列芯片，再从项目正式 Release 或官网固定下载地址获取 `SSRVPN.dmg`。
 2. 按发布页提供的 SHA256 校验文件核对 DMG。
 3. 打开 DMG，把 `SSRVPN.app` 拖入 `Applications`。
 4. 当前公开包未使用 Developer ID 公证。首次运行时，到“应用程序”中右键 SSRVPN，
