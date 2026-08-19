@@ -8,65 +8,11 @@ import 'country_flag_icon.dart';
 import 'ssrvpn_app_surface.dart';
 
 part 'ssrvpn_node_selection_controls.dart';
+part 'ssrvpn_node_selection_keyboard.dart';
 part 'ssrvpn_node_selection_support_controls.dart';
 part 'ssrvpn_node_selection_node_card.dart';
 
 typedef SsrvpnNodeAction = Future<void> Function(ProxyNode node);
-
-class _KeyboardActivate extends StatefulWidget {
-  const _KeyboardActivate({
-    required this.enabled,
-    required this.onActivate,
-    required this.debugLabel,
-    required this.focusRadius,
-    required this.child,
-  });
-
-  final bool enabled;
-  final VoidCallback onActivate;
-  final String debugLabel;
-  final double focusRadius;
-  final Widget child;
-
-  @override
-  State<_KeyboardActivate> createState() => _KeyboardActivateState();
-}
-
-class _KeyboardActivateState extends State<_KeyboardActivate> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      debugLabel: widget.debugLabel,
-      canRequestFocus: widget.enabled,
-      onFocusChange: (focused) {
-        if (_focused != focused) setState(() => _focused = focused);
-      },
-      onKeyEvent: (_, event) {
-        if (widget.enabled &&
-            event is KeyDownEvent &&
-            (event.logicalKey == LogicalKeyboardKey.enter ||
-                event.logicalKey == LogicalKeyboardKey.space)) {
-          widget.onActivate();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: AnimatedContainer(
-        key: ValueKey('ssrvpn-keyboard-focus-${widget.debugLabel}'),
-        duration: const Duration(milliseconds: 120),
-        foregroundDecoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(widget.focusRadius),
-          border: _focused
-              ? Border.all(color: SsrvpnUiTokens.primary, width: 2)
-              : null,
-        ),
-        child: widget.child,
-      ),
-    );
-  }
-}
 
 class SsrvpnNodeSelectionPage extends StatefulWidget {
   const SsrvpnNodeSelectionPage({
@@ -136,11 +82,13 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   late bool? _enableTun;
   String _subscription = _allSubscriptions;
   bool _actionBusy = false;
+  bool _closeRequested = false;
 
   @override
   void initState() {
     super.initState();
     _syncFromOwner();
+    HardwareKeyboard.instance.addHandler(_handleHardwareKeyEvent);
     widget.ownerStateListenable?.addListener(_handleOwnerStateChanged);
   }
 
@@ -160,7 +108,18 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   @override
   void dispose() {
     widget.ownerStateListenable?.removeListener(_handleOwnerStateChanged);
+    HardwareKeyboard.instance.removeHandler(_handleHardwareKeyEvent);
     super.dispose();
+  }
+
+  bool _handleHardwareKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.escape ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return false;
+    }
+    _requestClose();
+    return true;
   }
 
   void _handleOwnerStateChanged() {
@@ -172,6 +131,12 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
     _selectedNodeName = widget.selectedNodeNameOf();
     _proxyMode = widget.proxyModeOf();
     _enableTun = widget.enableTunOf?.call();
+  }
+
+  void _requestClose() {
+    if (_closeRequested) return;
+    _closeRequested = true;
+    widget.onClose();
   }
 
   Future<void> _runAction(Future<void> Function() action) async {
@@ -293,57 +258,65 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
       ],
     );
 
-    return Scaffold(
-      backgroundColor: SsrvpnUiTokens.background,
-      body: SsrvpnAppBackdrop(
-        child: SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              key: const Key('ssrvpn-node-selection-content'),
-              constraints: const BoxConstraints(
-                maxWidth: SsrvpnUiTokens.pageMaxWidth,
-              ),
-              child: Column(
-                children: [
-                  _NodeSelectionHeader(
-                    selectedNode: selectedNode,
-                    countryCode: selectedNode == null
-                        ? 'UN'
-                        : widget.countryCodeOf(selectedNode),
-                    busy: testingBusy,
-                    onClose: widget.onClose,
-                    onRefresh: () => _runAction(widget.onRefresh),
-                    onTestAll: () => _runAction(widget.onTestAll),
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.escape): _requestClose,
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          backgroundColor: SsrvpnUiTokens.background,
+          body: SsrvpnAppBackdrop(
+            child: SafeArea(
+              child: Center(
+                child: ConstrainedBox(
+                  key: const Key('ssrvpn-node-selection-content'),
+                  constraints: const BoxConstraints(
+                    maxWidth: SsrvpnUiTokens.pageMaxWidth,
                   ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
-                      child: CustomScrollView(
-                        key: const Key('ssrvpn-node-list'),
-                        slivers: [
-                          SliverToBoxAdapter(child: controls),
-                          if (visibleNodes.isEmpty)
-                            const SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: _NodeEmptyState(),
-                            )
-                          else
-                            SliverPadding(
-                              padding: const EdgeInsets.only(bottom: 20),
-                              sliver: SliverList.builder(
-                                itemCount: visibleNodes.length,
-                                itemBuilder: (context, index) => _nodeCard(
-                                  visibleNodes[index],
-                                  selectionBusy: selectionBusy,
-                                  testingBusy: testingBusy,
-                                ),
-                              ),
-                            ),
-                        ],
+                  child: Column(
+                    children: [
+                      _NodeSelectionHeader(
+                        selectedNode: selectedNode,
+                        countryCode: selectedNode == null
+                            ? 'UN'
+                            : widget.countryCodeOf(selectedNode),
+                        busy: testingBusy,
+                        onClose: _requestClose,
+                        onRefresh: () => _runAction(widget.onRefresh),
+                        onTestAll: () => _runAction(widget.onTestAll),
                       ),
-                    ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+                          child: CustomScrollView(
+                            key: const Key('ssrvpn-node-list'),
+                            slivers: [
+                              SliverToBoxAdapter(child: controls),
+                              if (visibleNodes.isEmpty)
+                                const SliverFillRemaining(
+                                  hasScrollBody: false,
+                                  child: _NodeEmptyState(),
+                                )
+                              else
+                                SliverPadding(
+                                  padding: const EdgeInsets.only(bottom: 20),
+                                  sliver: SliverList.builder(
+                                    itemCount: visibleNodes.length,
+                                    itemBuilder: (context, index) => _nodeCard(
+                                      visibleNodes[index],
+                                      selectionBusy: selectionBusy,
+                                      testingBusy: testingBusy,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),

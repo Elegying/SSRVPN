@@ -35,6 +35,10 @@ void main() {
 
     await tester.tap(find.text('打开'));
     await tester.pumpAndSettle();
+    final subscriptionInput = tester.widget<TextField>(find.byType(TextField));
+    expect(subscriptionInput.keyboardType, TextInputType.text);
+    expect(subscriptionInput.autocorrect, isFalse);
+    expect(subscriptionInput.enableSuggestions, isFalse);
     final scrollable = find
         .descendant(
           of: find.byKey(const Key('initial-subscription-dialog-scroll')),

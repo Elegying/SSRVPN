@@ -1,16 +1,22 @@
-Repo: Elegying/SSRVPN
-Release tag: v2.4.5
-Container URL: https://github.com/Elegying/SSRVPN/releases/download/v2.4.5/SSRVPN.apk
-Container SHA256: 8657050362b3ea37fc95f0bcb1bd04747f862d6d3a73aac57c725cd51de39910
-Library member: lib/arm64-v8a/libgojni.so
-Upstream Library SHA256: 65f8921583a778e218a5e735752e33f9a1ba53c0b5b11c2a0f80c8f6dbac08a1
-Local patch: scripts/patch-android-core-shutdown.py closes mixed, SOCKS, and TUN listeners from Bridge.stop
-Library SHA256: ec0b7fb285c4052c0050bc0fb27599dee1459677267881febbd1ec1cb88d5c46
-GeoIP member: assets/flutter_assets/assets/geoip.metadb.gz
+Source repository: zeyugao/mihomo
+Source commit: 7031b7569831677a8d89ad8a8a3347db116ba1a8
+Source tree: 023ddee8f965c54a263a16df68580585aa12c0f8
+Source corroboration: gunzi-666/Clash.Meta has the same commit and tree
+Bridge source: SSRVPN_Android/native/bridge/bridge.go
+Bridge SHA256: bb7fdfb3e1bec8cc6a871ce632835eabe9a0f4007ac575660fd8444c18f6b96e
+Build recipe: scripts/build-android-core.sh
 Go version: go1.25.11
+Go mobile version: v0.0.0-20260602190626-68735029466e
 Go module: github.com/metacubex/mihomo
 Go module version: v0.0.0-00010101000000-000000000000
 Build mode: c-shared
-Build tags: with_gvisor
+Build tags: with_gvisor,cmfa
 Target: android/arm64
-Source rebuild status: local replacement path was embedded without a source commit; byte-identical rebuild is not currently possible
+Trim path: true
+Android API: 24
+NDK version: 28.2.13676358 (r28c)
+Mirror repo: Elegying/SSRVPN
+Mirror release tag: core-assets-v1
+Mirror asset name: libgojni-704e58b6fd5a5425366d2e9c6d172fd64322f25da12523cf5099f7fb1ca5890f.so
+Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/libgojni-704e58b6fd5a5425366d2e9c6d172fd64322f25da12523cf5099f7fb1ca5890f.so
+Library SHA256: 704e58b6fd5a5425366d2e9c6d172fd64322f25da12523cf5099f7fb1ca5890f

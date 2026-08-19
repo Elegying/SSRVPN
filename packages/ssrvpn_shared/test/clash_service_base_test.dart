@@ -378,12 +378,15 @@ void main() {
       addTearDown(service.dispose);
       service.initHttpClient();
       service.updateSettings(AppSettings(apiPort: api.port));
+      var statusNotifications = 0;
+      service.addStatusListener(() => statusNotifications += 1);
 
       final switched = await service.switchSelectedProxy('Node B');
 
       expect(switched, isTrue);
       expect(await service.currentSelectedProxyName(), 'Node B');
       expect(api.closeConnectionCalls, 1);
+      expect(statusNotifications, 1);
     });
 
     test('resolves effective selected node through GLOBAL to PROXY', () async {

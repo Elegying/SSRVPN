@@ -22,15 +22,23 @@ class _NodeSelectionHeader extends StatelessWidget {
     final name = selectedNode == null
         ? '选择服务器'
         : nodeDisplayNameWithoutLeadingFlag(selectedNode!.name);
+    final visibleName = compactNodeDisplayName(name);
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
       child: Row(
         children: [
-          IconButton(
+          Semantics(
             key: const Key('ssrvpn-node-close'),
-            tooltip: '关闭服务器选择',
-            onPressed: onClose,
-            icon: const Icon(Icons.close_rounded, size: 30),
+            container: true,
+            label: '关闭服务器选择',
+            button: true,
+            onTap: onClose,
+            excludeSemantics: true,
+            child: IconButton(
+              tooltip: '关闭服务器选择',
+              onPressed: onClose,
+              icon: const Icon(Icons.close_rounded, size: 30),
+            ),
           ),
           const SizedBox(width: 4),
           Expanded(
@@ -43,7 +51,7 @@ class _NodeSelectionHeader extends StatelessWidget {
                   child: Tooltip(
                     message: name,
                     child: Text(
-                      name,
+                      visibleName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(

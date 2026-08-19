@@ -88,6 +88,9 @@ add_executable(ssrvpn_system_proxy_recovery_test EXCLUDE_FROM_ALL
   "system_proxy_recovery_test.cpp"
 )
 apply_standard_settings(ssrvpn_system_proxy_recovery_test)
+set_target_properties(ssrvpn_system_proxy_recovery_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/native-tests"
+)
 target_compile_options(ssrvpn_system_proxy_recovery_test PRIVATE "/utf-8")
 target_compile_definitions(ssrvpn_system_proxy_recovery_test PRIVATE
   "NOMINMAX"

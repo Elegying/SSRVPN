@@ -766,6 +766,46 @@ void main() {
     expect(service.connectionDesired, isTrue);
   });
 
+  test(
+    'late terminal state after stop preserves an intentional reload intent',
+    () async {
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'stopCore':
+            return null;
+          case 'getConnectionState':
+            return <String, Object?>{
+              'running': false,
+              'transitioning': false,
+              'protectedConfigPath': null,
+              'sessionGeneration': null,
+            };
+          case 'notifyVpnStateChanged':
+            return true;
+        }
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final service = ClashService()
+        ..setRunning(true)
+        ..requestConnectionIntent(true);
+      addTearDown(service.dispose);
+
+      await service.runIntentionalReloadTransition(() async {
+        await service.stop();
+        expect(await service.refreshNativeConnectionState(), isTrue);
+        expect(service.connectionDesired, isTrue);
+      });
+
+      service.setRunning(true);
+      expect(await service.refreshNativeConnectionState(), isTrue);
+      expect(service.connectionDesired, isFalse);
+    },
+  );
+
   group('ClashService Android config generation', () {
     test('generates valid YAML with TUN enabled', () {
       final config = ClashService().generateClashConfig(

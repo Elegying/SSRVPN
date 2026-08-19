@@ -283,6 +283,36 @@ void main() {
     expect(fixture.clash.lastPreferredNodeName, '新加坡节点');
   });
 
+  testWidgets(
+      'connected node selection works after adopting an existing core session',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    fixture.clash.switchResult = true;
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(find.text('已连接'), findsWidgets);
+
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    final selector = tester.widget<SsrvpnNodeSelectionPage>(
+      find.byType(SsrvpnNodeSelectionPage),
+    );
+    final node = selector.nodesOf().singleWhere(
+          (candidate) => candidate.name == '新加坡节点',
+        );
+    await tester.runAsync(() => selector.onSelectNode(node));
+    await tester.pump();
+
+    expect(fixture.clash.lastSwitchAttempt, '新加坡节点');
+    expect(fixture.settings.settings.lastSelectedNodeName, '新加坡节点');
+    expect(find.text('已切换: 新加坡节点'), findsOneWidget);
+  });
+
   for (final switchResult in [false, true]) {
     testWidgets(
         'late connected node switch cannot overwrite a disconnected status '

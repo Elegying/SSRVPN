@@ -259,8 +259,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     if (!_latencyController.canSelect(node)) return;
     final clashService = context.read<ClashService>();
     final statusEpoch = _connectionStatusEpoch;
-    final connectionGeneration = clashService.captureAutomaticRestartIntent();
-    if (connectionGeneration == null) return;
 
     bool isCurrent() =>
         mounted &&
@@ -269,13 +267,17 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         !_isConnecting &&
         clashService.isRunning &&
         identical(_clashService, clashService) &&
-        statusEpoch == _connectionStatusEpoch &&
-        clashService.isConnectionIntentCurrent(
-          connectionGeneration,
-          connected: true,
-        );
+        statusEpoch == _connectionStatusEpoch;
 
-    if (!isCurrent()) return;
+    if (!isCurrent()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('切换失败: ${node.name}'),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+      return;
+    }
     _exitCountryResolveGeneration++;
     final ok = await clashService.switchSelectedProxy(node.name);
     if (!isCurrent()) return;

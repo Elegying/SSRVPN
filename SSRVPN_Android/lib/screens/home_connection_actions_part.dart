@@ -7,7 +7,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     final settingsService = context.read<SettingsService>();
     final connectionGeneration = clashService.captureAutomaticRestartIntent();
     if (connectionGeneration == null) return;
-    await clashService.runConnectionTransition(
+    await clashService.runIntentionalReloadTransition(
       () => _reloadConfigTransition(
         subService,
         clashService,

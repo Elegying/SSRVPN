@@ -367,6 +367,7 @@ extension AndroidNativeBridge on ClashService {
         connectionDesired &&
         !dartOwnsStart &&
         !dartOwnsStop &&
+        !_intentionalReloadInProgress &&
         (nativeWasRunning || recoveryWasObserved);
     if (state.running) {
       setRunning(true);

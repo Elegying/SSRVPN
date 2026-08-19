@@ -2,6 +2,8 @@
 
 library desktop_subscription_screen;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';

@@ -111,13 +111,17 @@ void main() {
     final temp = await Directory.systemTemp.createTemp(
       'ssrvpn_windows_lifecycle_recovery_',
     );
-    addTearDown(() => temp.delete(recursive: true));
     final proxy = SystemProxyService.forTesting(
       isWindows: true,
       localAppData: '',
       scriptRunner: (_) async => ProcessResult(0, 0, '', ''),
     );
     final service = ClashService(systemProxyService: proxy);
+    addTearDown(() async {
+      await service.flushLogs();
+      service.dispose();
+      if (await temp.exists()) await temp.delete(recursive: true);
+    });
     await service.init(
       AppSettings(),
       dataDir: temp.path,

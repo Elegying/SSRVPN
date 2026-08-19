@@ -1,10 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/subscription.dart';
 import '../utils/log_redactor.dart';
+import '../utils/node_country_policy.dart';
 import 'ssrvpn_app_surface.dart';
 
 part 'ssrvpn_subscription_header.dart';
+part 'ssrvpn_subscription_connection_card.dart';
+part 'ssrvpn_subscription_add_card.dart';
+
+enum SsrvpnSubscriptionConnectionStatus {
+  disconnected,
+  connecting,
+  connected,
+}
 
 class SsrvpnSubscriptionView extends StatefulWidget {
   const SsrvpnSubscriptionView({
@@ -16,6 +27,8 @@ class SsrvpnSubscriptionView extends StatefulWidget {
     required this.isBusy,
     required this.refreshMessage,
     required this.refreshMessageColor,
+    this.connectionStatus,
+    this.currentNodeName,
     required this.onAdd,
     required this.onRefresh,
     required this.onCancelRefresh,
@@ -29,6 +42,8 @@ class SsrvpnSubscriptionView extends StatefulWidget {
   final bool isBusy;
   final String? refreshMessage;
   final Color? refreshMessageColor;
+  final SsrvpnSubscriptionConnectionStatus? connectionStatus;
+  final String? currentNodeName;
   final VoidCallback onAdd;
   final VoidCallback onRefresh;
   final VoidCallback onCancelRefresh;
@@ -45,11 +60,28 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
   bool _inputFocused = false;
   double _lastViewInset = 0;
   double? _lastViewportHeight;
+  Timer? _refreshMessageTimer;
+  String? _visibleRefreshMessage;
+  Color? _visibleRefreshMessageColor;
 
   @override
   void initState() {
     super.initState();
     _inputFocusNode.addListener(_handleInputFocus);
+    _visibleRefreshMessage = widget.refreshMessage;
+    _visibleRefreshMessageColor = widget.refreshMessageColor;
+    _scheduleRefreshMessageDismissal();
+  }
+
+  @override
+  void didUpdateWidget(covariant SsrvpnSubscriptionView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshMessage != widget.refreshMessage ||
+        oldWidget.refreshMessageColor != widget.refreshMessageColor) {
+      _visibleRefreshMessage = widget.refreshMessage;
+      _visibleRefreshMessageColor = widget.refreshMessageColor;
+      _scheduleRefreshMessageDismissal();
+    }
   }
 
   @override
@@ -64,10 +96,24 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
 
   @override
   void dispose() {
+    _refreshMessageTimer?.cancel();
     _inputFocusNode.removeListener(_handleInputFocus);
     _inputFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _scheduleRefreshMessageDismissal() {
+    _refreshMessageTimer?.cancel();
+    _refreshMessageTimer = null;
+    if (_visibleRefreshMessage == null) return;
+    _refreshMessageTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted) return;
+      setState(() {
+        _visibleRefreshMessage = null;
+        _visibleRefreshMessageColor = null;
+      });
+    });
   }
 
   void _handleInputFocus() {
@@ -125,6 +171,13 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const _SubscriptionHeader(),
+                    if (widget.connectionStatus != null) ...[
+                      const SizedBox(height: 20),
+                      _SubscriptionConnectionCard(
+                        status: widget.connectionStatus!,
+                        currentNodeName: widget.currentNodeName,
+                      ),
+                    ],
                     const SizedBox(height: 26),
                     _SubscriptionAddCard(
                       urlController: widget.urlController,
@@ -142,11 +195,11 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                       onRefresh: widget.onRefresh,
                       onCancelRefresh: widget.onCancelRefresh,
                     ),
-                    if (widget.refreshMessage != null) ...[
+                    if (_visibleRefreshMessage != null) ...[
                       const SizedBox(height: 10),
                       _RefreshMessage(
-                        message: widget.refreshMessage!,
-                        color: widget.refreshMessageColor ??
+                        message: _visibleRefreshMessage!,
+                        color: _visibleRefreshMessageColor ??
                             SsrvpnUiTokens.primary,
                       ),
                     ],
@@ -168,126 +221,6 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
             ),
           );
         },
-      ),
-    );
-  }
-}
-
-class _SubscriptionAddCard extends StatelessWidget {
-  const _SubscriptionAddCard({
-    required this.urlController,
-    required this.inputFocusNode,
-    required this.addActionKey,
-    required this.isAdding,
-    required this.isBusy,
-    required this.onAdd,
-  });
-
-  final TextEditingController urlController;
-  final FocusNode inputFocusNode;
-  final GlobalKey addActionKey;
-  final bool isAdding;
-  final bool isBusy;
-  final VoidCallback onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    return SsrvpnSurfaceCard(
-      padding: const EdgeInsets.all(22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(
-                Icons.add_circle_outline_rounded,
-                color: SsrvpnUiTokens.accent,
-                size: 24,
-              ),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  '添加订阅',
-                  style: TextStyle(
-                    color: SsrvpnUiTokens.textPrimary,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          TextField(
-            key: const Key('ssrvpn-subscription-input'),
-            controller: urlController,
-            focusNode: inputFocusNode,
-            enabled: !isBusy,
-            keyboardType: TextInputType.url,
-            textInputAction: TextInputAction.done,
-            autocorrect: false,
-            enableSuggestions: false,
-            scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
-            onSubmitted: isBusy ? null : (_) => onAdd(),
-            decoration: InputDecoration(
-              hintText: '粘贴订阅链接或 ssr:// 链接',
-              prefixIcon: const Icon(Icons.link_rounded),
-              filled: true,
-              fillColor: const Color(0xFF181B2A),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 17,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(18),
-                borderSide: const BorderSide(color: SsrvpnUiTokens.border),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(18),
-                borderSide: const BorderSide(color: SsrvpnUiTokens.border),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          ConstrainedBox(
-            key: addActionKey,
-            constraints: const BoxConstraints(minHeight: 52),
-            child: SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                key: const Key('ssrvpn-subscription-add'),
-                onPressed: isBusy ? null : onAdd,
-                style: FilledButton.styleFrom(
-                  backgroundColor: SsrvpnUiTokens.primaryBlue,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor:
-                      SsrvpnUiTokens.primaryBlue.withValues(alpha: 0.42),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                ),
-                child: isAdding
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text(
-                        '添加',
-                        style: TextStyle(
-                            fontSize: 17, fontWeight: FontWeight.w700),
-                      ),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

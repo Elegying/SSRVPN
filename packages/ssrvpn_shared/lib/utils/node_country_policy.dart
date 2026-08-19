@@ -72,4 +72,25 @@ String nodeDisplayNameWithoutLeadingFlag(String name) {
   return withoutFlag.isEmpty ? name : withoutFlag;
 }
 
+String compactNodeDisplayName(
+  String name, {
+  int maxRunes = 24,
+  int suffixRunes = 10,
+}) {
+  if (maxRunes < 3) {
+    throw ArgumentError.value(maxRunes, 'maxRunes', 'must be at least 3');
+  }
+  final runes = name.runes.toList(growable: false);
+  if (runes.length <= maxRunes) return name;
+  final maxSuffixRunes = maxRunes - 2;
+  final safeSuffixRunes = suffixRunes < 1
+      ? 1
+      : suffixRunes > maxSuffixRunes
+          ? maxSuffixRunes
+          : suffixRunes;
+  final prefixRunes = maxRunes - safeSuffixRunes - 1;
+  return '${String.fromCharCodes(runes.take(prefixRunes))}'
+      '…${String.fromCharCodes(runes.skip(runes.length - safeSuffixRunes))}';
+}
+
 bool _isRegionalIndicator(int rune) => rune >= 0x1F1E6 && rune <= 0x1F1FF;

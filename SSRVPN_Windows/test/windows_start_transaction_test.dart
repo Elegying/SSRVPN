@@ -75,6 +75,29 @@ void main() {
     expect(events, ['network', 'health', 'commit', 'exception', 'rollback']);
   });
 
+  test('active cancellation is reported neutrally and still rolls back once',
+      () async {
+    final events = <String>[];
+    final cancellation = StateError('cancelled by user');
+
+    final result = await WindowsStartTransaction().run(
+      configurePlatformNetworking: () async => throw cancellation,
+      confirmHealthy: () async => true,
+      commit: () async {},
+      rollback: () async => events.add('rollback'),
+      isCancellation: (error) => identical(error, cancellation),
+      onCancellation: (stage, error) {
+        expect(stage, WindowsStartTransactionStage.platformNetworking);
+        expect(identical(error, cancellation), isTrue);
+        events.add('cancelled');
+      },
+      onException: (_, __) => events.add('error'),
+    );
+
+    expect(result, isFalse);
+    expect(events, ['cancelled', 'rollback']);
+  });
+
   test('successful transaction commits without rollback', () async {
     final events = <String>[];
 

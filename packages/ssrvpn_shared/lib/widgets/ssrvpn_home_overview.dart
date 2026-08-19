@@ -301,6 +301,7 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final displayName =
         node == null ? '暂无可用节点' : nodeDisplayNameWithoutLeadingFlag(node!.name);
+    final visibleName = compactNodeDisplayName(displayName);
     final resolvedCode =
         countryCode ?? (node == null ? 'UN' : countryCodeForProxyNode(node!));
     final latencyTimedOut = NodeDisplayPolicy.isTimeoutLatency(latency);
@@ -383,7 +384,7 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                             child: Tooltip(
                               message: displayName,
                               child: Text(
-                                displayName,
+                                visibleName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(

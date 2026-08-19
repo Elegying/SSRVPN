@@ -2,11 +2,150 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/services/desktop_subscription_fetcher.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('direct fetch also negotiates the compatibility UA only once', () async {
+    final userAgents = <String>[];
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final subscription = server.listen((request) {
+      final userAgent =
+          request.headers.value(HttpHeaders.userAgentHeader) ?? '';
+      userAgents.add(userAgent);
+      if (userAgent.startsWith('clash-verge/v')) {
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..write(_validYaml)
+          ..close();
+      } else {
+        request.response
+          ..statusCode = HttpStatus.forbidden
+          ..close();
+      }
+    });
+    final directSockets = [
+      await Socket.connect(server.address, server.port),
+      await Socket.connect(server.address, server.port),
+    ];
+    var socketIndex = 0;
+
+    try {
+      final result = await IOOverrides.runZoned(
+        () => DesktopSubscriptionFetcher.fetch(
+          'http://direct-ua.test:${server.port}/subscription',
+          allowDirectFetch: true,
+          maxRetries: 1,
+          directAddressLookup: (_) async => [InternetAddress('1.1.1.1')],
+        ),
+        socketConnect: (
+          host,
+          port, {
+          sourceAddress,
+          sourcePort = 0,
+          timeout,
+        }) =>
+            Future.value(directSockets[socketIndex++]),
+      );
+
+      expect(result.body, contains('Valid Node'));
+      expect(userAgents, [
+        AppConstants.appUserAgent,
+        'clash-verge/v2.4.0 ${AppConstants.appUserAgent}',
+      ]);
+    } finally {
+      for (final socket in directSockets) {
+        socket.destroy();
+      }
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test('retries once with the compatibility UA after HTTP 403', () async {
+    final userAgents = <String>[];
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final subscription = server.listen((request) {
+      final userAgent =
+          request.headers.value(HttpHeaders.userAgentHeader) ?? '';
+      userAgents.add(userAgent);
+      if (userAgent.startsWith('clash-verge/v')) {
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..write(_validYaml)
+          ..close();
+      } else {
+        request.response
+          ..statusCode = HttpStatus.forbidden
+          ..close();
+      }
+    });
+
+    try {
+      final result = await DesktopSubscriptionFetcher.fetch(
+        'http://127.0.0.1:${server.port}/subscription',
+        allowDirectFetch: false,
+        maxRetries: 1,
+      );
+
+      expect(result.body, contains('Valid Node'));
+      expect(userAgents, [
+        AppConstants.appUserAgent,
+        'clash-verge/v2.4.0 ${AppConstants.appUserAgent}',
+      ]);
+    } finally {
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test('an unparseable success gets only one compatibility retry', () async {
+    final userAgents = <String>[];
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final subscription = server.listen((request) {
+      userAgents.add(
+        request.headers.value(HttpHeaders.userAgentHeader) ?? '',
+      );
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..write('<html>access denied</html>')
+        ..close();
+    });
+
+    try {
+      await expectLater(
+        DesktopSubscriptionFetcher.fetch(
+          'http://127.0.0.1:${server.port}/subscription',
+          allowDirectFetch: false,
+          maxRetries: 3,
+        ),
+        throwsA(isA<Exception>()),
+      );
+      expect(userAgents, hasLength(2));
+      expect(userAgents.last, startsWith('clash-verge/v'));
+    } finally {
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test('regular fetch rejects a hostname that resolves to loopback', () async {
+    await expectLater(
+      DesktopSubscriptionFetcher.fetch(
+        'http://localhost:9/subscription',
+        allowDirectFetch: false,
+        maxRetries: 1,
+      ),
+      throwsA(isA<Exception>().having(
+        (error) => error.toString(),
+        'message',
+        contains('DNS 安全检查失败'),
+      )),
+    );
+  });
+
   test('fetch rejects malformed UTF-8 subscription bytes clearly', () async {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     Socket? client;
@@ -156,14 +295,25 @@ void main() {
     final control = SubscriptionRefreshControl(
       timeout: const Duration(seconds: 2),
     );
+    final directSocket = await Socket.connect(server.address, server.port);
 
     try {
-      final task = DesktopSubscriptionFetcher.fetch(
-        'http://direct-fetch.test:${server.port}/stalled',
-        allowDirectFetch: true,
-        maxRetries: 1,
-        control: control,
-        directAddressLookup: (_) async => [InternetAddress.loopbackIPv4],
+      final task = IOOverrides.runZoned(
+        () => DesktopSubscriptionFetcher.fetch(
+          'http://direct-fetch.test:${server.port}/stalled',
+          allowDirectFetch: true,
+          maxRetries: 1,
+          control: control,
+          directAddressLookup: (_) async => [InternetAddress('1.1.1.1')],
+        ),
+        socketConnect: (
+          host,
+          port, {
+          sourceAddress,
+          sourcePort = 0,
+          timeout,
+        }) =>
+            Future.value(directSocket),
       );
       final deadlineExpectation = expectLater(
         task.timeout(const Duration(seconds: 5)),
@@ -174,6 +324,7 @@ void main() {
       await deadlineExpectation;
       await peerClosed.future.timeout(const Duration(seconds: 5));
     } finally {
+      directSocket.destroy();
       client?.destroy();
       await subscription.cancel();
       await server.close();
@@ -204,3 +355,13 @@ void main() {
     }
   });
 }
+
+const _validYaml = '''
+proxies:
+  - name: Valid Node
+    type: ss
+    server: 1.1.1.1
+    port: 443
+    cipher: aes-128-gcm
+    password: test
+''';

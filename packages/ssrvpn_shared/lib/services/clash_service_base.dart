@@ -451,6 +451,7 @@ abstract class ClashServiceBase
         if (remaining <= 0) break;
         await Future<void>.delayed(const Duration(milliseconds: 30));
       }
+      _notifyStatusChanged();
     }
     return effectiveOk;
   }

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/models/subscription.dart';
+import 'package:ssrvpn_shared/utils/node_country_policy.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_app_surface.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_home_overview.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_node_selection_page.dart';
@@ -248,9 +249,11 @@ void main() {
 
   testWidgets('node selection keeps rule choices and the TUN header switch',
       (tester) async {
+    final semantics = tester.ensureSemantics();
     var selectedName = '新加坡 | IEPL ①';
     var proxyMode = ProxyMode.rule;
     var tunEnabled = false;
+    var closeCalls = 0;
     ProxyNode? longPressedNode;
     final nodes = [
       ProxyNode(
@@ -283,7 +286,7 @@ void main() {
           isConnectingOf: () => false,
           countryCodeOf: (node) => node.name.startsWith('新加坡') ? 'SG' : 'JP',
           latencyOf: (node) => node.latency,
-          onClose: () {},
+          onClose: () => closeCalls++,
           onRefresh: () async {},
           onTestAll: () async {},
           onTestLatency: (_) async {},
@@ -304,6 +307,20 @@ void main() {
     expect(find.text('全部订阅'), findsOneWidget);
     expect(find.text('日本 | IEPL ①'), findsOneWidget);
     expect(find.textContaining('1x'), findsNothing);
+    final closeAction = find.byKey(const Key('ssrvpn-node-close'));
+    expect(closeAction, findsOneWidget);
+    final closeSemantics = tester.getSemantics(closeAction).getSemanticsData();
+    expect(closeSemantics.label, '关闭服务器选择');
+    expect(
+      closeSemantics.hasAction(SemanticsAction.tap),
+      isTrue,
+    );
+    expect(await tester.sendKeyEvent(LogicalKeyboardKey.escape), isTrue);
+    await tester.pump();
+    expect(closeCalls, 1);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(closeCalls, 1);
     final smartModeSemantics = tester.getSemantics(
       find.bySemanticsLabel('智能'),
     );
@@ -379,6 +396,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(proxyMode, ProxyMode.global);
+    expect(find.text('所有流量都走代理'), findsOneWidget);
+    expect(find.text('国内直连，国外走代理'), findsNothing);
 
     final nodeAction = find.bySemanticsLabel('选择服务器 日本 | IEPL ①');
     await _focusSemanticAction(tester, nodeAction);
@@ -437,6 +456,7 @@ void main() {
     );
     await tester.pump();
     expect(longPressedNode?.name, '日本 | IEPL ①');
+    semantics.dispose();
   });
 
   testWidgets(
@@ -811,6 +831,80 @@ void main() {
     expect(find.byTooltip(longSubscriptionName), findsOneWidget);
   });
 
+  testWidgets('desktop node labels keep their suffix and expose the full name',
+      (tester) async {
+    const fullName = '香港企业专线超级超级超级超级长名称 | IPLC | 备用节点 ⑩';
+    final node = ProxyNode(
+      name: fullName,
+      type: 'ss',
+      server: 'hk.example.com',
+      port: 443,
+      latency: 42,
+    );
+    final compactName = compactNodeDisplayName(fullName);
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnHomeOverview(
+          isConnected: true,
+          isConnecting: false,
+          selectedNode: node,
+          selectedLatency: node.latency,
+          selectedCountryCode: 'HK',
+          onToggleConnection: () {},
+          onOpenNodes: () {},
+          onShowAbout: () {},
+          onShowTutorial: () {},
+          onShowLogs: () {},
+          onRefreshPublicIp: () {},
+        ),
+        size: const Size(1200, 800),
+      ),
+    );
+
+    expect(find.text(compactName), findsOneWidget);
+    expect(find.byTooltip(fullName), findsOneWidget);
+    expect(
+      tester
+          .getSemantics(find.byKey(const Key('ssrvpn-current-node-card')))
+          .getSemanticsData()
+          .label,
+      contains(fullName),
+    );
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnNodeSelectionPage(
+          nodesOf: () => [node],
+          selectedNodeNameOf: () => fullName,
+          proxyModeOf: () => ProxyMode.rule,
+          testingNodeNameOf: () => null,
+          isBatchTestingOf: () => false,
+          isConnectingOf: () => false,
+          countryCodeOf: (_) => 'HK',
+          latencyOf: (value) => value.latency,
+          onClose: () {},
+          onRefresh: () async {},
+          onTestAll: () async {},
+          onTestLatency: (_) async {},
+          onSelectNode: (_) async {},
+          onProxyModeChanged: (_) async {},
+        ),
+        size: const Size(1200, 800),
+      ),
+    );
+
+    expect(find.text(compactName), findsNWidgets(2));
+    expect(find.byTooltip(fullName), findsNWidgets(2));
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel('选择服务器 $fullName'))
+          .getSemanticsData()
+          .label,
+      '选择服务器 $fullName',
+    );
+  });
+
   testWidgets('critical actions support the maximum accessibility text size',
       (tester) async {
     final controller = TextEditingController();
@@ -943,6 +1037,43 @@ void main() {
     );
     expect(refreshResult.flagsCollection.isLiveRegion, isTrue);
     semantics.dispose();
+  });
+
+  testWidgets('latest subscription refresh result dismisses after ten seconds',
+      (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    Widget view(String? message, Color? color) => host(
+          SsrvpnSubscriptionView(
+            subscriptions: const [],
+            urlController: controller,
+            isAdding: false,
+            isRefreshing: false,
+            isBusy: false,
+            refreshMessage: message,
+            refreshMessageColor: color,
+            onAdd: () {},
+            onRefresh: () {},
+            onCancelRefresh: () {},
+            onDelete: (_) {},
+          ),
+        );
+
+    await tester.pumpWidget(view('第一次刷新成功', SsrvpnUiTokens.success));
+    expect(find.text('第一次刷新成功'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 6));
+
+    await tester.pumpWidget(view('最新刷新失败', SsrvpnUiTokens.error));
+    await tester.pump(const Duration(seconds: 9));
+    expect(find.text('最新刷新失败'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('最新刷新失败'), findsNothing);
+
+    await tester.pumpWidget(view('销毁前结果', SsrvpnUiTokens.warning));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 11));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
@@ -1226,6 +1357,45 @@ void main() {
     expect(
       addButton.style?.foregroundColor?.resolve(<WidgetState>{}),
       Colors.white,
+    );
+  });
+
+  testWidgets('subscription view shows desktop connection and current node',
+      (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    const fullName = '香港企业专线超级超级超级超级长名称 | IPLC | 备用节点 ⑩';
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnSubscriptionView(
+          subscriptions: const [],
+          urlController: controller,
+          isAdding: false,
+          isRefreshing: false,
+          isBusy: false,
+          refreshMessage: null,
+          refreshMessageColor: null,
+          connectionStatus: SsrvpnSubscriptionConnectionStatus.connected,
+          currentNodeName: fullName,
+          onAdd: () {},
+          onRefresh: () {},
+          onCancelRefresh: () {},
+          onDelete: (_) {},
+        ),
+      ),
+    );
+
+    expect(find.text('连接状态：已连接'), findsOneWidget);
+    expect(find.text('当前节点'), findsOneWidget);
+    expect(find.text(compactNodeDisplayName(fullName)), findsOneWidget);
+    expect(find.byTooltip(fullName), findsOneWidget);
+    expect(
+      tester
+          .getSemantics(find.byKey(const Key('ssrvpn-subscription-status')))
+          .getSemanticsData()
+          .label,
+      contains('当前节点：$fullName'),
     );
   });
 

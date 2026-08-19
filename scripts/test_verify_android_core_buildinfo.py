@@ -47,7 +47,7 @@ class AndroidCoreBuildInfoTest(unittest.TestCase):
                     "dep\tgithub.com/metacubex/mihomo\tv0.0.0-00010101000000-000000000000",
                     "=>\tC:\\Users\\builder\\mihomo\t(devel)\t",
                     "build\t-buildmode=c-shared",
-                    "build\t-tags=with_gvisor",
+                    "build\t-tags=with_gvisor,cmfa",
                     "build\tGOARCH=arm64",
                     "build\tGOOS=android",
                 ]
@@ -63,7 +63,7 @@ class AndroidCoreBuildInfoTest(unittest.TestCase):
         self.assertEqual(info.settings["GOOS"], "android")
         self.assertEqual(info.settings["GOARCH"], "arm64")
         self.assertEqual(info.settings["-buildmode"], "c-shared")
-        self.assertEqual(info.settings["-tags"], "with_gvisor")
+        self.assertEqual(info.settings["-tags"], "with_gvisor,cmfa")
 
     def test_rejects_pointer_encoded_legacy_build_info(self) -> None:
         with self.assertRaisesRegex(BuildInfoError, "inline Go build info"):

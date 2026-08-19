@@ -29,6 +29,7 @@ export 'services/desktop_connection_recovery_plan.dart';
 export 'services/system_proxy_ownership_status.dart';
 export 'services/subscription_service_base.dart';
 export 'services/subscription_refresh_control.dart';
+export 'services/subscription_fetch_policy.dart';
 export 'services/update_checker.dart';
 export 'services/update_service.dart';
 export 'services/direct_fetcher.dart';

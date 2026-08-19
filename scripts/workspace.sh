@@ -34,7 +34,15 @@ case "${1:-}" in
     run_in . flutter pub get
     ;;
   analyze)
-    run_in . flutter analyze
+    # Analyze each handwritten Dart source root explicitly. A root workspace
+    # analysis also indexes generated/native build trees and can leave the Dart
+    # language server spinning without producing diagnostics.
+    for package in "${SHARED_PACKAGES[@]}"; do
+      run_in "$package" flutter analyze lib test tool
+    done
+    for app in "${FLUTTER_APPS[@]}"; do
+      run_in "$app" flutter analyze lib test
+    done
     ;;
   test)
     run_in . flutter pub get
