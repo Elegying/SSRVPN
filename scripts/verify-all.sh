@@ -46,7 +46,7 @@ run_step "Secret scan" scripts/check-secrets.sh
 run_step "Release tooling tests" scripts/test-release-tooling.sh
 
 run_step "Critical-path performance smoke" scripts/check-performance-baseline.sh
-run_step "Workspace analyze" flutter analyze
+run_step "Workspace analyze" scripts/workspace.sh analyze
 run_step "Shared tests" scripts/run-flutter-coverage.sh packages/ssrvpn_shared
 run_step "Shared coverage thresholds" \
   scripts/check-coverage-thresholds.sh packages/ssrvpn_shared
