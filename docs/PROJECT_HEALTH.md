@@ -1,8 +1,8 @@
 # 项目健康状态
 
-最近审查：2026-08-18<br>
-当前应用版本：`v4.0.12`；公开发布状态与产物以 [GitHub Release](https://github.com/Elegying/SSRVPN/releases/latest) 为准。<br>
-`v4.0.12` 已正式发布：annotated tag 解引用到提交 `891a991`；[PR #119](https://github.com/Elegying/SSRVPN/pull/119)、[精确 main CI 32059134071](https://github.com/Elegying/SSRVPN/actions/runs/32059134071)、[发布专用 CI 32061205525](https://github.com/Elegying/SSRVPN/actions/runs/32061205525)、[Prepare Release 32061173747](https://github.com/Elegying/SSRVPN/actions/runs/32061173747) 和 [Release 32063253470](https://github.com/Elegying/SSRVPN/actions/runs/32063253470) 均通过。Android 11、Android 17、Apple M 系列 macOS 与 Windows 11 已完成针对本轮修复项的增量实机复验。
+最近审查：2026-08-20<br>
+当前应用版本：`v4.0.13`；公开发布状态与产物以 [GitHub Release](https://github.com/Elegying/SSRVPN/releases/latest) 为准。<br>
+`v4.0.13` 候选已通过本机完整门禁和 Android 17 USB 增量实机验收；Windows 报告中的三项失败已修复并补充自动化覆盖，精确 Windows CI、合并后 `main` CI 与正式 Release 资产仍以本候选后续 GitHub 记录为准。上一正式版 `v4.0.12` 的 tag、PR、CI、Release 与三端资产验收记录继续保留在下文，不能替代本候选证据。
 
 ## 综合结论与评分
 
@@ -17,7 +17,7 @@
 | 文档与项目治理 | 94 | 文档自动校验、依赖策略、人工 UAT 矩阵、ADR、Issue/PR 与发布边界对齐 |
 | 性能与可观测性 | 88 | 有界诊断、带版本与稳定指纹的脱敏崩溃报告、离线关键路径基线具备；真机长期数据仍待采集 |
 
-当前没有发现已知 P0-P1 发布阻断项。残余风险是 MIUI 12.5 不渲染通知“断开”动作、macOS 持续断网取消专项按用户要求停止、Android 内嵌核心仍缺少可定位源码提交，以及 Flutter/Android 上游工具链迁移；这些都没有改变本轮正常连接、断开和资源恢复结论。
+当前没有发现已知 P0-P1 代码阻断项。残余风险是 Windows 三项修复尚待 GitHub Windows runner 与新安装器实机复验、指定订阅当前被公共 DNS 解析到 `127.0.0.1` 而无法完成 24 节点复测、MIUI 12.5 不渲染通知“断开”动作、macOS 持续断网取消专项按用户要求停止，以及 Flutter/Android 上游工具链迁移；这些边界不冒充已执行验收。
 
 ## 本轮完成的优化
 
@@ -25,13 +25,13 @@
 - 本地崩溃报告增加应用版本和基于脱敏内容的稳定指纹；用户目录路径在 macOS、Linux、Windows 三种格式下都会脱敏，仍不自动上传任何诊断数据。
 - Windows 生命周期新增未初始化恢复、代理清理不可用和恢复状态路径不可用的失败关闭测试；生命周期覆盖率门槛由 20% 提高到 25%。
 - Pull Request CI 增加固定提交版本的 GitHub CodeQL：Actions、Android Java/Kotlin、Windows C/C++；macOS 原生测试迁入独立无注入 XCTest job。发布工作流对 APK、DMG 和 EXE 分别生成 GitHub artifact attestation。
-- Android 内嵌核心新增 Go build info 自动验证，锁定模块、Go 版本、构建模式、标签、平台和架构；同时明确现有二进制只能做到字节级复现，不能冒充源码级可重建。
+- Android 内嵌核心已归档固定 Mihomo commit/tree、bridge 源码、Go、x/mobile、NDK 和构建配方；校验同时锁定 build info、六个 JNI 导出、AArch64 与全部 ELF `LOAD` 段的 16 KiB 对齐。
 - 新增 [依赖升级策略](DEPENDENCIES.md) 与 [三端人工 UAT 矩阵](UAT_MATRIX.md)；安全更新直接升级，原生主版本升级必须经过目标平台构建和生命周期验收。
 - 更新可安全落地的依赖；`flutter_secure_storage 11` 因要求 Android `compileSdk 37`，高于当前 Flutter 3.44.1 默认的 36，暂时保留 10.3.1 并记录迁移条件。
 
 ## 当前验证证据
 
-2026-08-18 在 macOS 26.5.2、Flutter 3.44.1 的候选工作区执行：
+2026-08-20 在 macOS 26.5.2、Flutter 3.44.1 的 `v4.0.13` 候选工作区执行：
 
 ```bash
 make verify
@@ -40,11 +40,11 @@ make verify
 结果：
 
 - 文档 47/47 本地链接、46/46 当前状态检查、327 个 Dart 文件格式、全部 ShellCheck、核心资产、版本、秘密与 TLS 策略、发布资产守卫均通过。
-- 发布工具 `291/291`；macOS TUN/DNS 行为 `25/25`；workspace `flutter analyze` 为 0 issue。
+- 发布工具 `296/296`；macOS TUN/DNS 行为 `25/25`；workspace `flutter analyze` 为 0 issue。
 - Shared `489` 项测试通过，覆盖率 `83.00%`（`5347/6442`），门槛 65%。
-- Android Flutter `233` 项及 Gradle/JUnit 通过，覆盖率 `64.96%`（`2175/3348`），门槛 30%。
-- macOS Flutter `257` 项及 RunnerTests 通过，覆盖率 `65.77%`（`3356/5103`）；生命周期 `77.20%`（`633/820`），系统代理 `88.06%`（`391/444`）。
-- Windows Flutter `219` 项通过；仅 Windows 主机可运行的 8 项在 macOS 条件跳过。平台覆盖率 `49.99%`（`2853/5707`），生命周期 `26.56%`（`174/655`），门槛 25%。
+- Android Flutter `237` 项及 Gradle/JUnit 通过，覆盖率 `65.09%`（`2198/3377`），门槛 30%。
+- macOS Flutter `259` 项及 RunnerTests 通过，覆盖率 `65.93%`（`3389/5140`）；生命周期 `77.20%`（`633/820`），系统代理 `88.06%`（`391/444`）。
+- Windows Flutter `223` 项通过；仅 Windows 主机可运行的 8 项在 macOS 条件跳过。平台覆盖率 `50.26%`（`2891/5752`），生命周期 `26.48%`（`174/657`），门槛 25%。
 - 关键路径 smoke 通过；本机观察值为解析中位数 `5833 us`、合并 `29497 us`、配置生成 `40219 us`，只用于同环境回归，不作为跨机器硬阈值。
 - Android Release APK 构建成功，大小约 31.0 MB，SHA-256 为 `8109c0fbf8d6ff0d09fbe0c184e69d486fd04ff04938727c5c77b64a71cb10ca`。
 - macOS 正式打包脚本确认应用与内嵌核心均为 arm64，并完成最终 ad-hoc 重签、`codesign --verify --deep --strict` 与 DMG CRC 校验；版本化 DMG SHA-256 为 `76e1341175a2c95880a5ebcccc5cfca1ab7ba81598a2f5c8d893e9220f78c4e7`。
@@ -65,7 +65,7 @@ make verify
 - 候选、版本准备、合并后 `main`、发布专用 CI 和正式 Release 已分别建立精确提交证据；发布结论不复用旧版本绿色 run。
 - macOS 本机不能执行 Windows C++、PowerShell 5.1、DPAPI、注册表和 Inno Setup；这些已由 Windows CI 和候选安装器实机覆盖安装、数据保留、连接与断开复验补充。
 - macOS 持续断网恢复期间出现过一次可恢复的应用内取消失败报告；因用户明确停止该故障注入，本轮不继续断网实测，也不把该专项标记为通过。正常连接、短时中断恢复、断开、DNS/路由/代理恢复和退出均通过。
-- 当前 Android 核心可验证固定二进制、补丁与 build info，但 build info 仅显示本地替换路径，没有上游源码提交。下次替换核心必须同时归档受审源码提交、构建命令、Go/NDK 环境、ABI 与生命周期回归证据。
+- 当前 Android 核心已固定源码提交与树、bridge、Go/x/mobile/NDK、build info、JNI ABI、16 KiB ELF 对齐和内容寻址资产；源码重建会因临时本地 replacement 路径产生不同字节哈希，因此不宣称字节级确定性构建。下次替换仍必须完成目标 Android 真机生命周期回归。
 - Android 仍有旧 Kotlin/Gradle 兼容开关；`flutter_secure_storage 11` 和更高 `compileSdk` 应随 Flutter 工具链升级共同迁移，不能只为追新版本破坏可构建性。
 - 自动化不能覆盖所有 OEM、系统升级、第三方网络和节点组合；崩溃报告仍依赖用户主动复制，不具备远程聚合、趋势统计或告警能力。
 
@@ -81,7 +81,7 @@ make verify
 ## 下一阶段最高优先级
 
 1. 后续按 [UAT 矩阵](UAT_MATRIX.md)补充长时、耗电、完整压力和 macOS 持续断网专项；不把本轮未执行项目写成已通过。
-2. 为 Android 内嵌核心建立源码仓库、固定提交和可复现构建流水线，再替换当前只能字节级验证的二进制。
+2. 在原生 16 KiB page-size Android 设备上补充安装、连接、真实流量和断开验收；当前设备页大小为 4 KiB，只能证明产物结构兼容。
 3. 随 Flutter 工具链升级统一迁移 Android Kotlin/Gradle 兼容开关、`compileSdk` 和 `flutter_secure_storage`，保持目标平台构建与生命周期验收。
 
 ## 更新规则
