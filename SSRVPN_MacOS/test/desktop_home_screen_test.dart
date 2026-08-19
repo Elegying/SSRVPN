@@ -377,6 +377,27 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('Escape closes the macOS node selector without re-entry',
+      (tester) async {
+    final fixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    expect(find.byType(SsrvpnNodeSelectionPage), findsOneWidget);
+
+    expect(await tester.sendKeyEvent(LogicalKeyboardKey.escape), isTrue);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SsrvpnNodeSelectionPage), findsNothing);
+    expect(find.byKey(const Key('ssrvpn-current-node-card')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
       'disconnected selection persists preference and next connect consumes it',
       (tester) async {

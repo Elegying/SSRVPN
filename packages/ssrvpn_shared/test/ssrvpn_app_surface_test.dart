@@ -248,9 +248,11 @@ void main() {
 
   testWidgets('node selection keeps rule choices and the TUN header switch',
       (tester) async {
+    final semantics = tester.ensureSemantics();
     var selectedName = '新加坡 | IEPL ①';
     var proxyMode = ProxyMode.rule;
     var tunEnabled = false;
+    var closeCalls = 0;
     ProxyNode? longPressedNode;
     final nodes = [
       ProxyNode(
@@ -283,7 +285,7 @@ void main() {
           isConnectingOf: () => false,
           countryCodeOf: (node) => node.name.startsWith('新加坡') ? 'SG' : 'JP',
           latencyOf: (node) => node.latency,
-          onClose: () {},
+          onClose: () => closeCalls++,
           onRefresh: () async {},
           onTestAll: () async {},
           onTestLatency: (_) async {},
@@ -304,6 +306,20 @@ void main() {
     expect(find.text('全部订阅'), findsOneWidget);
     expect(find.text('日本 | IEPL ①'), findsOneWidget);
     expect(find.textContaining('1x'), findsNothing);
+    final closeAction = find.byKey(const Key('ssrvpn-node-close'));
+    expect(closeAction, findsOneWidget);
+    final closeSemantics = tester.getSemantics(closeAction).getSemanticsData();
+    expect(closeSemantics.label, '关闭服务器选择');
+    expect(
+      closeSemantics.hasAction(SemanticsAction.tap),
+      isTrue,
+    );
+    expect(await tester.sendKeyEvent(LogicalKeyboardKey.escape), isTrue);
+    await tester.pump();
+    expect(closeCalls, 1);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(closeCalls, 1);
     final smartModeSemantics = tester.getSemantics(
       find.bySemanticsLabel('智能'),
     );
@@ -437,6 +453,7 @@ void main() {
     );
     await tester.pump();
     expect(longPressedNode?.name, '日本 | IEPL ①');
+    semantics.dispose();
   });
 
   testWidgets(

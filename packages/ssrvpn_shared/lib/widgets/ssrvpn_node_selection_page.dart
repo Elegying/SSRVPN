@@ -136,6 +136,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   late bool? _enableTun;
   String _subscription = _allSubscriptions;
   bool _actionBusy = false;
+  bool _closeRequested = false;
 
   @override
   void initState() {
@@ -172,6 +173,12 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
     _selectedNodeName = widget.selectedNodeNameOf();
     _proxyMode = widget.proxyModeOf();
     _enableTun = widget.enableTunOf?.call();
+  }
+
+  void _requestClose() {
+    if (_closeRequested) return;
+    _closeRequested = true;
+    widget.onClose();
   }
 
   Future<void> _runAction(Future<void> Function() action) async {
@@ -293,57 +300,65 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
       ],
     );
 
-    return Scaffold(
-      backgroundColor: SsrvpnUiTokens.background,
-      body: SsrvpnAppBackdrop(
-        child: SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              key: const Key('ssrvpn-node-selection-content'),
-              constraints: const BoxConstraints(
-                maxWidth: SsrvpnUiTokens.pageMaxWidth,
-              ),
-              child: Column(
-                children: [
-                  _NodeSelectionHeader(
-                    selectedNode: selectedNode,
-                    countryCode: selectedNode == null
-                        ? 'UN'
-                        : widget.countryCodeOf(selectedNode),
-                    busy: testingBusy,
-                    onClose: widget.onClose,
-                    onRefresh: () => _runAction(widget.onRefresh),
-                    onTestAll: () => _runAction(widget.onTestAll),
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.escape): _requestClose,
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          backgroundColor: SsrvpnUiTokens.background,
+          body: SsrvpnAppBackdrop(
+            child: SafeArea(
+              child: Center(
+                child: ConstrainedBox(
+                  key: const Key('ssrvpn-node-selection-content'),
+                  constraints: const BoxConstraints(
+                    maxWidth: SsrvpnUiTokens.pageMaxWidth,
                   ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
-                      child: CustomScrollView(
-                        key: const Key('ssrvpn-node-list'),
-                        slivers: [
-                          SliverToBoxAdapter(child: controls),
-                          if (visibleNodes.isEmpty)
-                            const SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: _NodeEmptyState(),
-                            )
-                          else
-                            SliverPadding(
-                              padding: const EdgeInsets.only(bottom: 20),
-                              sliver: SliverList.builder(
-                                itemCount: visibleNodes.length,
-                                itemBuilder: (context, index) => _nodeCard(
-                                  visibleNodes[index],
-                                  selectionBusy: selectionBusy,
-                                  testingBusy: testingBusy,
-                                ),
-                              ),
-                            ),
-                        ],
+                  child: Column(
+                    children: [
+                      _NodeSelectionHeader(
+                        selectedNode: selectedNode,
+                        countryCode: selectedNode == null
+                            ? 'UN'
+                            : widget.countryCodeOf(selectedNode),
+                        busy: testingBusy,
+                        onClose: _requestClose,
+                        onRefresh: () => _runAction(widget.onRefresh),
+                        onTestAll: () => _runAction(widget.onTestAll),
                       ),
-                    ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+                          child: CustomScrollView(
+                            key: const Key('ssrvpn-node-list'),
+                            slivers: [
+                              SliverToBoxAdapter(child: controls),
+                              if (visibleNodes.isEmpty)
+                                const SliverFillRemaining(
+                                  hasScrollBody: false,
+                                  child: _NodeEmptyState(),
+                                )
+                              else
+                                SliverPadding(
+                                  padding: const EdgeInsets.only(bottom: 20),
+                                  sliver: SliverList.builder(
+                                    itemCount: visibleNodes.length,
+                                    itemBuilder: (context, index) => _nodeCard(
+                                      visibleNodes[index],
+                                      selectionBusy: selectionBusy,
+                                      testingBusy: testingBusy,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
