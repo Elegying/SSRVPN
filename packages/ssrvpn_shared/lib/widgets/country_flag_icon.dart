@@ -25,6 +25,7 @@ class CountryFlagIcon extends StatelessWidget {
     }
 
     return Semantics(
+      container: true,
       image: true,
       label: '$code 国旗',
       child: ExcludeSemantics(
