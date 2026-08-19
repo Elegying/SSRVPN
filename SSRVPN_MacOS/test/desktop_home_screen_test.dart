@@ -390,6 +390,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(SsrvpnNodeSelectionPage), findsOneWidget);
 
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
+
     expect(await tester.sendKeyEvent(LogicalKeyboardKey.escape), isTrue);
     await tester.pumpAndSettle();
 

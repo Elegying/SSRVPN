@@ -88,6 +88,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   void initState() {
     super.initState();
     _syncFromOwner();
+    HardwareKeyboard.instance.addHandler(_handleHardwareKeyEvent);
     widget.ownerStateListenable?.addListener(_handleOwnerStateChanged);
   }
 
@@ -107,7 +108,18 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   @override
   void dispose() {
     widget.ownerStateListenable?.removeListener(_handleOwnerStateChanged);
+    HardwareKeyboard.instance.removeHandler(_handleHardwareKeyEvent);
     super.dispose();
+  }
+
+  bool _handleHardwareKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.escape ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return false;
+    }
+    _requestClose();
+    return true;
   }
 
   void _handleOwnerStateChanged() {
