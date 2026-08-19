@@ -395,6 +395,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(proxyMode, ProxyMode.global);
+    expect(find.text('所有流量都走代理'), findsOneWidget);
+    expect(find.text('国内直连，国外走代理'), findsNothing);
 
     final nodeAction = find.bySemanticsLabel('选择服务器 日本 | IEPL ①');
     await _focusSemanticAction(tester, nodeAction);
@@ -960,6 +962,43 @@ void main() {
     );
     expect(refreshResult.flagsCollection.isLiveRegion, isTrue);
     semantics.dispose();
+  });
+
+  testWidgets('latest subscription refresh result dismisses after ten seconds',
+      (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    Widget view(String? message, Color? color) => host(
+          SsrvpnSubscriptionView(
+            subscriptions: const [],
+            urlController: controller,
+            isAdding: false,
+            isRefreshing: false,
+            isBusy: false,
+            refreshMessage: message,
+            refreshMessageColor: color,
+            onAdd: () {},
+            onRefresh: () {},
+            onCancelRefresh: () {},
+            onDelete: (_) {},
+          ),
+        );
+
+    await tester.pumpWidget(view('第一次刷新成功', SsrvpnUiTokens.success));
+    expect(find.text('第一次刷新成功'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 6));
+
+    await tester.pumpWidget(view('最新刷新失败', SsrvpnUiTokens.error));
+    await tester.pump(const Duration(seconds: 9));
+    expect(find.text('最新刷新失败'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('最新刷新失败'), findsNothing);
+
+    await tester.pumpWidget(view('销毁前结果', SsrvpnUiTokens.warning));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 11));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

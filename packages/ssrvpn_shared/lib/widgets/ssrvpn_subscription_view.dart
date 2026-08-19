@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/subscription.dart';
@@ -45,11 +47,28 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
   bool _inputFocused = false;
   double _lastViewInset = 0;
   double? _lastViewportHeight;
+  Timer? _refreshMessageTimer;
+  String? _visibleRefreshMessage;
+  Color? _visibleRefreshMessageColor;
 
   @override
   void initState() {
     super.initState();
     _inputFocusNode.addListener(_handleInputFocus);
+    _visibleRefreshMessage = widget.refreshMessage;
+    _visibleRefreshMessageColor = widget.refreshMessageColor;
+    _scheduleRefreshMessageDismissal();
+  }
+
+  @override
+  void didUpdateWidget(covariant SsrvpnSubscriptionView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshMessage != widget.refreshMessage ||
+        oldWidget.refreshMessageColor != widget.refreshMessageColor) {
+      _visibleRefreshMessage = widget.refreshMessage;
+      _visibleRefreshMessageColor = widget.refreshMessageColor;
+      _scheduleRefreshMessageDismissal();
+    }
   }
 
   @override
@@ -64,10 +83,24 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
 
   @override
   void dispose() {
+    _refreshMessageTimer?.cancel();
     _inputFocusNode.removeListener(_handleInputFocus);
     _inputFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _scheduleRefreshMessageDismissal() {
+    _refreshMessageTimer?.cancel();
+    _refreshMessageTimer = null;
+    if (_visibleRefreshMessage == null) return;
+    _refreshMessageTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted) return;
+      setState(() {
+        _visibleRefreshMessage = null;
+        _visibleRefreshMessageColor = null;
+      });
+    });
   }
 
   void _handleInputFocus() {
@@ -142,11 +175,11 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                       onRefresh: widget.onRefresh,
                       onCancelRefresh: widget.onCancelRefresh,
                     ),
-                    if (widget.refreshMessage != null) ...[
+                    if (_visibleRefreshMessage != null) ...[
                       const SizedBox(height: 10),
                       _RefreshMessage(
-                        message: widget.refreshMessage!,
-                        color: widget.refreshMessageColor ??
+                        message: _visibleRefreshMessage!,
+                        color: _visibleRefreshMessageColor ??
                             SsrvpnUiTokens.primary,
                       ),
                     ],

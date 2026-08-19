@@ -19,9 +19,11 @@ class _ModePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final modeDescription =
+        proxyMode == ProxyMode.global ? '所有流量都走代理' : '国内直连，国外走代理';
     final proxyChoices = _ModeSection<ProxyMode>(
       title: '代理模式',
-      description: '国内直连，国外走代理',
+      description: modeDescription,
       value: proxyMode,
       choices: const [
         _ModeChoice(ProxyMode.rule, '智能', Icons.auto_awesome_rounded),
@@ -64,8 +66,8 @@ class _ModePanel extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 6),
-                  const Text(
-                    '国内直连，国外走代理',
+                  Text(
+                    modeDescription,
                     style: TextStyle(
                       color: SsrvpnUiTokens.primaryBlue,
                       fontSize: 12,
@@ -77,9 +79,9 @@ class _ModePanel extends StatelessWidget {
                     children: [
                       const _ModePanelTitle(),
                       const SizedBox(width: 18),
-                      const Expanded(
+                      Expanded(
                         child: Text(
-                          '国内直连，国外走代理',
+                          modeDescription,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
