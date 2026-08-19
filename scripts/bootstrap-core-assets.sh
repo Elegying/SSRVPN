@@ -190,12 +190,21 @@ geo_source="docs/GEOIP_SOURCE.txt"
 macos_source="SSRVPN_MacOS/assets/AtlasCore-source.txt"
 windows_source="SSRVPN_Windows/assets/mihomo-source.txt"
 
-apk_url="$(require_field "$android_source" 'Container URL')"
-apk_hash="$(require_field "$android_source" 'Container SHA256')"
-android_member="$(require_field "$android_source" 'Library member')"
+android_mirror_repo="$(require_field "$android_source" 'Mirror repo')"
+android_mirror_tag="$(require_field "$android_source" 'Mirror release tag')"
+android_mirror_name="$(require_field "$android_source" 'Mirror asset name')"
+android_url="$(require_field "$android_source" 'Mirror URL')"
 android_hash="$(require_field "$android_source" 'Library SHA256')"
-android_upstream_hash="$(source_field "$android_source" 'Upstream Library SHA256')"
-android_upstream_hash="${android_upstream_hash:-$android_hash}"
+expected_android_name="libgojni-${android_hash}.so"
+expected_android_url="https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/${expected_android_name}"
+test "$android_mirror_repo" = "Elegying/SSRVPN" ||
+  fail "Android core mirror repo must be Elegying/SSRVPN"
+test "$android_mirror_tag" = "core-assets-v1" ||
+  fail "Android core mirror release tag must be core-assets-v1"
+test "$android_mirror_name" = "$expected_android_name" ||
+  fail "Android core mirror asset must be content-addressed as $expected_android_name"
+test "$android_url" = "$expected_android_url" ||
+  fail "Android core Mirror URL must be $expected_android_url"
 geo_mirror_repo="$(require_field "$geo_source" 'Mirror repo')"
 geo_mirror_tag="$(require_field "$geo_source" 'Mirror release tag')"
 geo_mirror_name="$(require_field "$geo_source" 'Mirror asset name')"
@@ -230,18 +239,9 @@ cleanup() {
 trap cleanup EXIT
 
 if ! asset_matches "$android_asset" "$android_hash"; then
-  apk="$temp_dir/SSRVPN.apk"
   download_verified \
-    "$apk_url" "$apk_hash" "$apk" "Android bootstrap APK" $((512 * 1024 * 1024))
-
-  extract_zip_member_bounded \
-    "$apk" "$android_member" "$temp_dir/libgojni.so" \
-    $((128 * 1024 * 1024)) "Android bootstrap APK"
-  test "$(sha256_file "$temp_dir/libgojni.so")" = "$android_upstream_hash" ||
-    fail "Android upstream libgojni.so SHA256 mismatch"
-  if [ "$android_upstream_hash" != "$android_hash" ]; then
-    python3 scripts/patch-android-core-shutdown.py "$temp_dir/libgojni.so"
-  fi
+    "$android_url" "$android_hash" "$temp_dir/libgojni.so" \
+    "Android core mirror asset" $((128 * 1024 * 1024))
   install_verified \
     "$temp_dir/libgojni.so" "$android_asset" "$android_hash" \
     "Android libgojni.so"

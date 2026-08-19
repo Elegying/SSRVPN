@@ -33,7 +33,8 @@ NOTIFICATION_GATE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/a
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
 CORE_PORT_RELEASE_VERIFIER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CorePortReleaseVerifier.kt"
 CORE_STOP_DECISION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreStopDecision.kt"
-CORE_SHUTDOWN_PATCH="$ROOT/scripts/patch-android-core-shutdown.py"
+CORE_ELF_VERIFIER="$ROOT/scripts/verify_android_core_elf.py"
+CORE_SOURCE_TEST="$ROOT/scripts/test_android_core_source.py"
 NATIVE_SNAPSHOT_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSnapshotStore.kt"
 NATIVE_CONNECTION_SESSION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSession.kt"
 NATIVE_SESSION_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeVpnSessionCoordinator.kt"
@@ -115,8 +116,9 @@ require_file_text() {
 }
 
 require_file_text "$VPN_PROTECT_MONITOR" "ParcelFileDescriptor.fromFd("
-python3 "$CORE_SHUTDOWN_PATCH" --check \
+python3 "$CORE_ELF_VERIFIER" \
   "$ROOT/SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so"
+python3 "$CORE_SOURCE_TEST"
 if grep -Fq "ParcelFileDescriptor.adoptFd(" "$VPN_PROTECT_MONITOR"; then
   echo "Android protect monitor must duplicate the native-owned pipe descriptor" >&2
   exit 1

@@ -23,20 +23,19 @@ rename it to `mihomo.exe`, place it in `SSRVPN_Windows/assets/`, and update
 - Bundled file: `SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so`
 - Geo database: `SSRVPN_Android/assets/geoip.metadb.gz`
 - Source record: `SSRVPN_Android/assets/libgojni-source.txt`
-- Native-library bootstrap container: the signed SSRVPN `v2.4.5` APK
+- Source bridge: `SSRVPN_Android/native/bridge/bridge.go`
+- Build recipe: `scripts/build-android-core.sh`
 - Geo source record: `docs/GEOIP_SOURCE.txt`
 
 The Android native library is loaded by the VPN service, so it must be verified
 before CI tests and release packaging.
 
-The current Android source record is **byte-recoverable, not source-rebuild
-reproducible**. The v2.4.5 binary embeds Go `1.25.11`, Android/arm64,
-`c-shared`, `with_gvisor`, and a local replacement of
-`github.com/metacubex/mihomo`, but no source commit. The verifier enforces these
-embedded build properties without recording the builder's local path. Replacing
-the binary requires a reviewed upstream commit, a committed bridge source and
-build recipe, ABI compatibility tests, and Android lifecycle tests; a newer
-version number alone is insufficient evidence.
+The Android core is source-rebuildable from the reviewed Mihomo commit and tree,
+the committed bridge, Go `1.25.11`, the pinned `x/mobile` revision, and Android
+NDK r28c. The published core is mirrored as a content-addressed asset in the
+`core-assets-v1` support release. Verification checks its SHA256, embedded Go
+build contract, six JNI exports, AArch64 target, and every ELF `LOAD` segment's
+16 KiB alignment before tests or packaging can proceed.
 
 ## macOS
 
@@ -110,8 +109,8 @@ orchestration by
 [ADR-012](decisions/012-automatic-release-preparation.md).
 
 `scripts/verify-core-assets.sh` checks fixed SHA256 hashes, macOS decompressed
-executable equivalence, Android embedded Go build properties, and bundled GeoIP
-databases. The same checks run in CI and before each platform release build. CI
+executable equivalence, Android embedded Go build properties and 16 KiB ELF/JNI
+compatibility, and bundled GeoIP databases. The same checks run in CI and before each platform release build. CI
 prepares the verified assets once and shares them with platform jobs through
 GitHub Actions artifacts.
 

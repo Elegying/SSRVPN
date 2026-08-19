@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -111,12 +113,18 @@ def _source_fields(path: Path) -> dict[str, str]:
 def verify(binary: Path, source_record: Path) -> AndroidCoreBuildInfo:
     fields = _source_fields(source_record)
     required = (
+        "Source commit",
+        "Source tree",
+        "Bridge source",
+        "Bridge SHA256",
         "Go version",
+        "Go mobile version",
         "Go module",
         "Go module version",
         "Build mode",
         "Build tags",
         "Target",
+        "Trim path",
     )
     missing = [field for field in required if not fields.get(field)]
     if missing:
@@ -135,10 +143,15 @@ def verify(binary: Path, source_record: Path) -> AndroidCoreBuildInfo:
             info.dependencies.get(module, "missing"),
             fields["Go module version"],
         ),
+        "Go mobile version": (
+            info.dependencies.get("golang.org/x/mobile", "missing"),
+            fields["Go mobile version"],
+        ),
         "Build mode": (info.settings.get("-buildmode", "missing"), fields["Build mode"]),
         "Build tags": (info.settings.get("-tags", "missing"), fields["Build tags"]),
         "GOOS": (info.settings.get("GOOS", "missing"), expected_target[0]),
         "GOARCH": (info.settings.get("GOARCH", "missing"), expected_target[1]),
+        "Trim path": (info.settings.get("-trimpath", "false"), fields["Trim path"]),
     }
     mismatches = [
         f"{label}: expected {expected}, got {actual}"
@@ -147,6 +160,23 @@ def verify(binary: Path, source_record: Path) -> AndroidCoreBuildInfo:
     ]
     if module not in info.local_replacements:
         mismatches.append(f"{module} is not recorded as a local source replacement")
+    for field in ("Source commit", "Source tree"):
+        if re.fullmatch(r"[0-9a-f]{40}", fields[field]) is None:
+            mismatches.append(f"{field} must be a lowercase 40-character Git object ID")
+    if re.fullmatch(r"[0-9a-f]{64}", fields["Bridge SHA256"]) is None:
+        mismatches.append("Bridge SHA256 must be a lowercase 64-character digest")
+
+    repository_root = source_record.resolve().parents[2]
+    bridge_path = repository_root / fields["Bridge source"]
+    try:
+        bridge_hash = hashlib.sha256(bridge_path.read_bytes()).hexdigest()
+    except OSError as error:
+        mismatches.append(f"Bridge source cannot be read: {error}")
+    else:
+        if bridge_hash != fields["Bridge SHA256"]:
+            mismatches.append(
+                f"Bridge SHA256: expected {fields['Bridge SHA256']}, got {bridge_hash}"
+            )
     if mismatches:
         raise BuildInfoError("; ".join(mismatches))
     return info
@@ -163,7 +193,7 @@ def main() -> None:
         raise SystemExit(f"Android core build info check failed: {error}") from error
     print(
         "ok Android core build info: "
-        f"{info.go_version} android/arm64 c-shared with_gvisor"
+        f"{info.go_version} android/arm64 c-shared with_gvisor,cmfa"
     )
 
 

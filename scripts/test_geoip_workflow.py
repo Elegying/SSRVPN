@@ -89,9 +89,13 @@ def _write_bootstrap_fixture(root: Path, *, raw: bytes, gzipped: bytes) -> str:
     android_source.write_text(
         "\n".join(
             [
-                "Container URL: https://github.com/example/android.apk",
-                f"Container SHA256: {_sha256(b'unused-container')}",
-                "Library member: lib/arm64-v8a/libgojni.so",
+                "Mirror repo: Elegying/SSRVPN",
+                "Mirror release tag: core-assets-v1",
+                f"Mirror asset name: libgojni-{_sha256(android)}.so",
+                (
+                    "Mirror URL: https://github.com/Elegying/SSRVPN/releases/"
+                    f"download/core-assets-v1/libgojni-{_sha256(android)}.so"
+                ),
                 f"Library SHA256: {_sha256(android)}",
                 "",
             ]
