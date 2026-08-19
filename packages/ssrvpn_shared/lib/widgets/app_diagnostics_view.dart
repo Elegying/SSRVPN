@@ -161,6 +161,7 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
       Semantics(
         button: true,
         label: '复制脱敏诊断报告',
+        onTap: _copyReport,
         child: ExcludeSemantics(
           child: IconButton(
             tooltip: '复制脱敏诊断报告',

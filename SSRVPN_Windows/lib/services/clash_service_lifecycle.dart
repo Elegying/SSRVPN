@@ -972,12 +972,13 @@ try {
         startStatusMonitor();
       },
       rollback: _cleanupFailedStart,
+      isCancellation: (error) => error is _DesktopStartCancelled,
+      onCancellation: (stage, _) {
+        setLastStartError('连接已取消');
+        log('Windows 启动事务在 ${stage.name} 阶段已取消');
+      },
       onException: (stage, error) {
-        if (error is _DesktopStartCancelled) {
-          setLastStartError('连接已取消');
-        } else {
-          setLastStartError(_friendlyStartException(error));
-        }
+        setLastStartError(_friendlyStartException(error));
         log('❌ Windows 启动事务在 ${stage.name} 阶段失败');
       },
     );

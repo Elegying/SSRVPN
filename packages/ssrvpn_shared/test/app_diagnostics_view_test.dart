@@ -1,3 +1,5 @@
+import 'dart:ui' show SemanticsAction;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -165,7 +167,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.bySemanticsLabel('复制脱敏诊断报告'));
+    final copyAction = find.bySemanticsLabel('复制脱敏诊断报告');
+    expect(
+      tester
+          .getSemantics(copyAction)
+          .getSemanticsData()
+          .hasAction(SemanticsAction.tap),
+      isTrue,
+    );
+    await tester.tap(copyAction);
     await tester.pump();
 
     expect(clipboardText, isNotNull);

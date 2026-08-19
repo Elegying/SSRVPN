@@ -20,6 +20,11 @@ class WindowsStartTransaction {
       WindowsStartTransactionStage stage,
       Object error,
     ) onException,
+    bool Function(Object error)? isCancellation,
+    void Function(
+      WindowsStartTransactionStage stage,
+      Object error,
+    )? onCancellation,
   }) async {
     var stage = WindowsStartTransactionStage.platformNetworking;
     var rollbackAttempted = false;
@@ -31,6 +36,25 @@ class WindowsStartTransaction {
         onException(failedStage, error);
       } catch (_) {
         // Failure reporting must never prevent the cleanup transaction.
+      }
+    }
+
+    void reportCancellation(
+      WindowsStartTransactionStage cancelledStage,
+      Object error,
+    ) {
+      try {
+        onCancellation?.call(cancelledStage, error);
+      } catch (_) {
+        // Cancellation reporting must never prevent the cleanup transaction.
+      }
+    }
+
+    bool classifyCancellation(Object error) {
+      try {
+        return isCancellation?.call(error) ?? false;
+      } catch (_) {
+        return false;
       }
     }
 
@@ -58,7 +82,11 @@ class WindowsStartTransaction {
       await commit();
       return true;
     } catch (error) {
-      reportException(stage, error);
+      if (classifyCancellation(error)) {
+        reportCancellation(stage, error);
+      } else {
+        reportException(stage, error);
+      }
       await rollbackOnce();
       return false;
     }
