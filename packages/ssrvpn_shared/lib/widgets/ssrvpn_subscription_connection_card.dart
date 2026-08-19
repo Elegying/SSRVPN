@@ -34,8 +34,9 @@ class _SubscriptionConnectionCard extends StatelessWidget {
         ),
     };
     final nodeLabel = hasCurrentNode ? normalizedNodeName : null;
+    final statusLabel = '连接状态：$label';
     final semanticsLabel =
-        nodeLabel == null ? '连接状态：$label' : '连接状态：$label。当前节点：$nodeLabel';
+        nodeLabel == null ? statusLabel : '$statusLabel。当前节点：$nodeLabel';
 
     return Semantics(
       key: const Key('ssrvpn-subscription-status'),
@@ -53,7 +54,7 @@ class _SubscriptionConnectionCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      label,
+                      statusLabel,
                       style: TextStyle(
                         color: color,
                         fontSize: 15,

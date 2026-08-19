@@ -130,6 +130,8 @@ void main() {
         if (call.method == 'Clipboard.setData') {
           clipboardText =
               (call.arguments as Map<Object?, Object?>)['text'] as String?;
+        } else if (call.method == 'Clipboard.getData') {
+          return <String, Object?>{'text': clipboardText};
         }
         return null;
       },
@@ -190,6 +192,51 @@ void main() {
       isTrue,
     );
     semantics.dispose();
+  });
+
+  testWidgets('copy rejects a clipboard write that cannot be read back',
+      (tester) async {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return <String, Object?>{'text': 'unchanged sentinel'};
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+
+    String? message;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppDiagnosticsView(
+            runDiagnostics: () async => AppDiagnosticReport(
+              generatedAt: DateTime.utc(2026, 8, 20),
+              checks: const [],
+            ),
+            loadHistory: () async => const [],
+            repair: (_) async => const AppRepairResult(
+              success: false,
+              message: 'unused',
+            ),
+            onMessage: (value) => message = value,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('复制脱敏诊断报告'));
+    await tester.pump();
+
+    expect(message, '复制失败，请重试');
+    expect(find.text('复制失败，请重试'), findsOneWidget);
+    expect(find.textContaining('诊断报告已复制'), findsNothing);
   });
 
   testWidgets('copy failure is visible and never reports success',

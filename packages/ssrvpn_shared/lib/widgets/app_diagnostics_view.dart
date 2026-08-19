@@ -99,7 +99,12 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
     const success = '诊断报告已复制（敏感内容已脱敏）';
     const failure = '复制失败，请重试';
     try {
-      await Clipboard.setData(ClipboardData(text: report.toText()));
+      final reportText = report.toText();
+      await Clipboard.setData(ClipboardData(text: reportText));
+      final clipboard = await Clipboard.getData(Clipboard.kTextPlain);
+      if (clipboard?.text != reportText) {
+        throw StateError('clipboard write verification failed');
+      }
       if (!mounted) return;
       setState(() => _copyStatus = success);
       widget.onMessage?.call(success);

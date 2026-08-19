@@ -1386,7 +1386,7 @@ void main() {
       ),
     );
 
-    expect(find.text('已连接'), findsOneWidget);
+    expect(find.text('连接状态：已连接'), findsOneWidget);
     expect(find.text('当前节点'), findsOneWidget);
     expect(find.text(compactNodeDisplayName(fullName)), findsOneWidget);
     expect(find.byTooltip(fullName), findsOneWidget);

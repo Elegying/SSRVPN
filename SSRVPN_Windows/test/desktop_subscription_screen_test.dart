@@ -39,6 +39,18 @@ void main() {
     expect(find.bySemanticsLabel('打开关于 SSRVPN'), findsNothing);
   });
 
+  testWidgets('subscription page shows an explicit disconnected status',
+      (tester) async {
+    final fixture =
+        (await tester.runAsync(() => _SubscriptionFixture.create()))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+
+    expect(find.text('连接状态：未连接'), findsOneWidget);
+  });
+
   testWidgets('subscription page shows runtime connection and node',
       (tester) async {
     final fixture = (await tester.runAsync(
@@ -54,7 +66,7 @@ void main() {
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pump();
 
-    expect(find.text('已连接'), findsOneWidget);
+    expect(find.text('连接状态：已连接'), findsOneWidget);
     expect(find.text('香港 | IEPL ①'), findsOneWidget);
   });
 
