@@ -53,4 +53,15 @@ void main() {
       expect(nodeDisplayNameWithoutLeadingFlag('🇯🇵'), '🇯🇵');
     });
   });
+
+  test('long display names keep a recognizable suffix', () {
+    const fullName = '香港企业专线超级超级超级超级长名称 | IPLC | 备用节点 ⑩';
+
+    final compact = compactNodeDisplayName(fullName);
+
+    expect(compact, contains('…'));
+    expect(compact, startsWith('香港企业专线'));
+    expect(compact, endsWith('备用节点 ⑩'));
+    expect(compact.runes.length, lessThanOrEqualTo(24));
+  });
 }

@@ -48,6 +48,7 @@ class _NodeSelectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final displayName = nodeDisplayNameWithoutLeadingFlag(node.name);
+    final visibleName = compactNodeDisplayName(displayName);
     final compact =
         MediaQuery.sizeOf(context).width < SsrvpnUiTokens.compactBreakpoint;
     final radius = compact ? 17.0 : 20.0;
@@ -120,7 +121,7 @@ class _NodeSelectionCard extends StatelessWidget {
                                     // the surrounding node edit action.
                                     triggerMode: TooltipTriggerMode.manual,
                                     child: Text(
-                                      displayName,
+                                      visibleName,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(

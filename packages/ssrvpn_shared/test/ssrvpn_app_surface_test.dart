@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/models/subscription.dart';
+import 'package:ssrvpn_shared/utils/node_country_policy.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_app_surface.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_home_overview.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_node_selection_page.dart';
@@ -828,6 +829,80 @@ void main() {
       const Size(320, 568),
     );
     expect(find.byTooltip(longSubscriptionName), findsOneWidget);
+  });
+
+  testWidgets('desktop node labels keep their suffix and expose the full name',
+      (tester) async {
+    const fullName = '香港企业专线超级超级超级超级长名称 | IPLC | 备用节点 ⑩';
+    final node = ProxyNode(
+      name: fullName,
+      type: 'ss',
+      server: 'hk.example.com',
+      port: 443,
+      latency: 42,
+    );
+    final compactName = compactNodeDisplayName(fullName);
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnHomeOverview(
+          isConnected: true,
+          isConnecting: false,
+          selectedNode: node,
+          selectedLatency: node.latency,
+          selectedCountryCode: 'HK',
+          onToggleConnection: () {},
+          onOpenNodes: () {},
+          onShowAbout: () {},
+          onShowTutorial: () {},
+          onShowLogs: () {},
+          onRefreshPublicIp: () {},
+        ),
+        size: const Size(1200, 800),
+      ),
+    );
+
+    expect(find.text(compactName), findsOneWidget);
+    expect(find.byTooltip(fullName), findsOneWidget);
+    expect(
+      tester
+          .getSemantics(find.byKey(const Key('ssrvpn-current-node-card')))
+          .getSemanticsData()
+          .label,
+      contains(fullName),
+    );
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnNodeSelectionPage(
+          nodesOf: () => [node],
+          selectedNodeNameOf: () => fullName,
+          proxyModeOf: () => ProxyMode.rule,
+          testingNodeNameOf: () => null,
+          isBatchTestingOf: () => false,
+          isConnectingOf: () => false,
+          countryCodeOf: (_) => 'HK',
+          latencyOf: (value) => value.latency,
+          onClose: () {},
+          onRefresh: () async {},
+          onTestAll: () async {},
+          onTestLatency: (_) async {},
+          onSelectNode: (_) async {},
+          onProxyModeChanged: (_) async {},
+        ),
+        size: const Size(1200, 800),
+      ),
+    );
+
+    expect(find.text(compactName), findsNWidgets(2));
+    expect(find.byTooltip(fullName), findsNWidgets(2));
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel('选择服务器 $fullName'))
+          .getSemanticsData()
+          .label,
+      '选择服务器 $fullName',
+    );
   });
 
   testWidgets('critical actions support the maximum accessibility text size',

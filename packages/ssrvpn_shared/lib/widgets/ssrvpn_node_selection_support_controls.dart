@@ -22,6 +22,7 @@ class _NodeSelectionHeader extends StatelessWidget {
     final name = selectedNode == null
         ? '选择服务器'
         : nodeDisplayNameWithoutLeadingFlag(selectedNode!.name);
+    final visibleName = compactNodeDisplayName(name);
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
       child: Row(
@@ -50,7 +51,7 @@ class _NodeSelectionHeader extends StatelessWidget {
                   child: Tooltip(
                     message: name,
                     child: Text(
-                      name,
+                      visibleName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
