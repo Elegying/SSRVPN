@@ -6,9 +6,10 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
 }
 
 function Resolve-CMakeExecutable {
-  $command = Get-Command cmake -CommandType Application -ErrorAction SilentlyContinue
-  if ($null -ne $command) {
-    return $command.Source
+  $commands = @(Get-Command cmake -CommandType Application `
+      -ErrorAction SilentlyContinue)
+  if ($commands.Count -gt 0) {
+    return $commands[0].Source
   }
 
   $programFilesX86 = ${env:ProgramFiles(x86)}

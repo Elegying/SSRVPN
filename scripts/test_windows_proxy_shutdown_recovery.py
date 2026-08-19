@@ -2024,6 +2024,8 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertIn("flutter build windows --release", native_gate)
         self.assertIn("if (-not (Test-Path -LiteralPath $cache", native_gate)
         self.assertIn("Resolve-CMakeExecutable", native_gate)
+        self.assertIn("$commands = @(Get-Command cmake", native_gate)
+        self.assertIn("return $commands[0].Source", native_gate)
         self.assertIn("& $cmake --build", native_gate)
         self.assertIn("native-tests", native_gate)
 
