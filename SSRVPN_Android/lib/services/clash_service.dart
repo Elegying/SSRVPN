@@ -46,6 +46,7 @@ class ClashService extends ClashServiceBase {
   bool? _underlyingNetworkValidated;
   String? _runningConfigPath;
   final Set<String> _preparedConfigPaths = <String>{};
+  bool _intentionalReloadInProgress = false;
 
   /// 磁贴/通知触发的自动连接回调
   VoidCallback? onAutoConnect;
@@ -65,6 +66,19 @@ class ClashService extends ClashServiceBase {
   }
 
   void setCorePath(String path) => _corePath = path;
+
+  Future<T> runIntentionalReloadTransition<T>(
+    Future<T> Function() transition,
+  ) {
+    return runConnectionTransition(() async {
+      _intentionalReloadInProgress = true;
+      try {
+        return await transition();
+      } finally {
+        _intentionalReloadInProgress = false;
+      }
+    });
+  }
 
   Future<String?> detectExitCountryForProxy(String proxyName) async {
     try {
