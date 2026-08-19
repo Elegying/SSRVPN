@@ -1360,6 +1360,45 @@ void main() {
     );
   });
 
+  testWidgets('subscription view shows desktop connection and current node',
+      (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    const fullName = '香港企业专线超级超级超级超级长名称 | IPLC | 备用节点 ⑩';
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnSubscriptionView(
+          subscriptions: const [],
+          urlController: controller,
+          isAdding: false,
+          isRefreshing: false,
+          isBusy: false,
+          refreshMessage: null,
+          refreshMessageColor: null,
+          connectionStatus: SsrvpnSubscriptionConnectionStatus.connected,
+          currentNodeName: fullName,
+          onAdd: () {},
+          onRefresh: () {},
+          onCancelRefresh: () {},
+          onDelete: (_) {},
+        ),
+      ),
+    );
+
+    expect(find.text('已连接'), findsOneWidget);
+    expect(find.text('当前节点'), findsOneWidget);
+    expect(find.text(compactNodeDisplayName(fullName)), findsOneWidget);
+    expect(find.byTooltip(fullName), findsOneWidget);
+    expect(
+      tester
+          .getSemantics(find.byKey(const Key('ssrvpn-subscription-status')))
+          .getSemanticsData()
+          .label,
+      contains('当前节点：$fullName'),
+    );
+  });
+
   testWidgets('desktop surfaces stay visually compact in wide windows',
       (tester) async {
     final node = ProxyNode(

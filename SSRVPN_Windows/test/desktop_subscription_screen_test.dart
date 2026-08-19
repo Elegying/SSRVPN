@@ -39,6 +39,25 @@ void main() {
     expect(find.bySemanticsLabel('打开关于 SSRVPN'), findsNothing);
   });
 
+  testWidgets('subscription page shows runtime connection and node',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _SubscriptionFixture.create(
+        running: true,
+        currentNodeName: '香港 | IEPL ①',
+      ),
+    ))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+
+    expect(find.text('已连接'), findsOneWidget);
+    expect(find.text('香港 | IEPL ①'), findsOneWidget);
+  });
+
   testWidgets('ordinary deletion confirms success to the user', (tester) async {
     final fixture = (await tester.runAsync(
       () => _SubscriptionFixture.create(withSubscription: true),
@@ -80,10 +99,12 @@ class _SubscriptionFixture {
 
   final Directory directory;
   final SubscriptionService subscription;
-  final ClashService clash;
+  final _IdleClashService clash;
 
   static Future<_SubscriptionFixture> create({
     bool withSubscription = false,
+    bool running = false,
+    String? currentNodeName,
   }) async {
     SubscriptionService.resetInstanceForTesting();
     final directory = Directory.systemTemp.createTempSync('ssrvpn_sub_ui_');
@@ -95,7 +116,10 @@ class _SubscriptionFixture {
     return _SubscriptionFixture(
       directory: directory,
       subscription: subscription,
-      clash: _IdleClashService(),
+      clash: _IdleClashService(
+        running: running,
+        currentNodeName: currentNodeName,
+      ),
     );
   }
 
@@ -120,6 +144,18 @@ class _SubscriptionFixture {
 }
 
 class _IdleClashService extends ClashService {
+  _IdleClashService({
+    bool running = false,
+    String? currentNodeName,
+  })  : _running = running,
+        _currentNodeName = currentNodeName;
+
+  final bool _running;
+  final String? _currentNodeName;
+
   @override
-  bool get isRunning => false;
+  bool get isRunning => _running;
+
+  @override
+  Future<String?> currentSelectedProxyName() async => _currentNodeName;
 }

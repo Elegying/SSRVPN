@@ -15,14 +15,78 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _isDeleting = false;
   SubscriptionRefreshResult? _refreshResult;
   SubscriptionRefreshCancellation? _refreshCancellation;
+  ClashService? _clashService;
+  SsrvpnSubscriptionConnectionStatus _connectionStatus =
+      SsrvpnSubscriptionConnectionStatus.disconnected;
+  String? _currentNodeName;
+  int _runtimeStatusEpoch = 0;
 
   bool get _hasBlockingOperation => _isAdding || _isRefreshing || _isDeleting;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final clashService = context.read<ClashService>();
+    if (identical(_clashService, clashService)) return;
+    _clashService?.removeStatusListener(_handleClashStatusChanged);
+    _clashService = clashService;
+    clashService.addStatusListener(_handleClashStatusChanged);
+    final epoch = ++_runtimeStatusEpoch;
+    _connectionStatus = _statusOf(clashService);
+    _currentNodeName = null;
+    if (clashService.isRunning) {
+      unawaited(_syncRuntimeNode(clashService, epoch));
+    }
+  }
+
+  @override
   void dispose() {
+    _clashService?.removeStatusListener(_handleClashStatusChanged);
     _refreshCancellation?.cancel();
     _urlController.dispose();
     super.dispose();
+  }
+
+  SsrvpnSubscriptionConnectionStatus _statusOf(ClashService clashService) {
+    if (clashService.isRunning) {
+      return SsrvpnSubscriptionConnectionStatus.connected;
+    }
+    if (clashService.connectionDesired) {
+      return SsrvpnSubscriptionConnectionStatus.connecting;
+    }
+    return SsrvpnSubscriptionConnectionStatus.disconnected;
+  }
+
+  void _handleClashStatusChanged() {
+    final clashService = _clashService;
+    if (!mounted || clashService == null) return;
+    final epoch = ++_runtimeStatusEpoch;
+    final status = _statusOf(clashService);
+    setState(() {
+      _connectionStatus = status;
+      if (status != SsrvpnSubscriptionConnectionStatus.connected) {
+        _currentNodeName = null;
+      }
+    });
+    if (clashService.isRunning) {
+      unawaited(_syncRuntimeNode(clashService, epoch));
+    }
+  }
+
+  Future<void> _syncRuntimeNode(ClashService clashService, int epoch) async {
+    String? nodeName;
+    try {
+      nodeName = await clashService.currentSelectedProxyName();
+    } catch (_) {
+      nodeName = null;
+    }
+    if (!mounted ||
+        !identical(_clashService, clashService) ||
+        epoch != _runtimeStatusEpoch ||
+        !clashService.isRunning) {
+      return;
+    }
+    setState(() => _currentNodeName = nodeName?.trim());
   }
 
   Future<void> _addSubscription() async {
@@ -271,6 +335,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         isBusy: _hasBlockingOperation,
         refreshMessage: refreshResult?.message,
         refreshMessageColor: refreshColor,
+        connectionStatus: _connectionStatus,
+        currentNodeName: _currentNodeName,
         onAdd: _addSubscription,
         onRefresh: _refreshAll,
         onCancelRefresh: _cancelRefresh,
