@@ -8,7 +8,11 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 /// 避免真实 Socket 依赖。
 abstract class HttpClientAdapter {
   /// 发送 GET 请求，返回原始响应
-  Future<AdapterResponse> get(Uri uri, {Duration? timeout});
+  Future<AdapterResponse> get(
+    Uri uri, {
+    Duration? timeout,
+    String? userAgent,
+  });
 }
 
 /// 响应结果
@@ -37,12 +41,19 @@ class RealHttpClientAdapter implements HttpClientAdapter {
         _readTimeout = readTimeout;
 
   @override
-  Future<AdapterResponse> get(Uri uri, {Duration? timeout}) async {
+  Future<AdapterResponse> get(
+    Uri uri, {
+    Duration? timeout,
+    String? userAgent,
+  }) async {
     final client = HttpClient()..connectionTimeout = timeout ?? _connectTimeout;
 
     try {
       final request = await client.getUrl(uri);
-      request.headers.set('User-Agent', AppConstants.appUserAgent);
+      request.headers.set(
+        'User-Agent',
+        userAgent ?? AppConstants.appUserAgent,
+      );
       request.headers.set('Accept', 'text/yaml, application/x-yaml, */*');
       request.headers.set('Accept-Encoding', 'identity');
 

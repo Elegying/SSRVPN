@@ -18,14 +18,48 @@ class _FakeHttpClientAdapter implements HttpClientAdapter {
   final AdapterResponse response;
 
   @override
-  Future<AdapterResponse> get(Uri uri, {Duration? timeout}) async => response;
+  Future<AdapterResponse> get(
+    Uri uri, {
+    Duration? timeout,
+    String? userAgent,
+  }) async =>
+      response;
+}
+
+class _UserAgentHttpClientAdapter implements HttpClientAdapter {
+  final userAgents = <String>[];
+
+  @override
+  Future<AdapterResponse> get(
+    Uri uri, {
+    Duration? timeout,
+    String? userAgent,
+  }) async {
+    userAgents.add(userAgent ?? '');
+    if (userAgent?.startsWith('clash-verge/v') ?? false) {
+      return AdapterResponse(
+        statusCode: HttpStatus.ok,
+        headers: const {},
+        bodyBytes: utf8.encode(_validYaml),
+      );
+    }
+    return AdapterResponse(
+      statusCode: HttpStatus.forbidden,
+      headers: const {},
+      bodyBytes: const [],
+    );
+  }
 }
 
 class _PendingHttpClientAdapter implements HttpClientAdapter {
   final started = Completer<void>();
 
   @override
-  Future<AdapterResponse> get(Uri uri, {Duration? timeout}) {
+  Future<AdapterResponse> get(
+    Uri uri, {
+    Duration? timeout,
+    String? userAgent,
+  }) {
     if (!started.isCompleted) started.complete();
     return Completer<AdapterResponse>().future;
   }
@@ -116,6 +150,33 @@ void main() {
     await expectLater(
       fetch.timeout(const Duration(seconds: 1)),
       throwsA(isA<SubscriptionRefreshCancelled>()),
+    );
+  });
+
+  test('Android retries once with the compatibility UA after HTTP 403',
+      () async {
+    final adapter = _UserAgentHttpClientAdapter();
+    SubscriptionService.overrideHttpClient(adapter);
+
+    final body = await service.fetchSubscription(
+      'https://example.com/feed',
+      maxRetries: 1,
+    );
+
+    expect(body, contains('Valid Node'));
+    expect(adapter.userAgents, [
+      AppConstants.appUserAgent,
+      'clash-verge/v2.4.0 ${AppConstants.appUserAgent}',
+    ]);
+  });
+
+  test('Android rejects a public hostname resolving to loopback', () async {
+    await expectLater(
+      service.fetchSubscription(
+        'http://localhost:9/feed',
+        maxRetries: 1,
+      ),
+      throwsA(isA<SubscriptionAddressException>()),
     );
   });
 
@@ -526,3 +587,13 @@ proxies:
     },
   );
 }
+
+const _validYaml = '''
+proxies:
+  - name: Valid Node
+    type: ss
+    server: 1.1.1.1
+    port: 443
+    cipher: aes-128-gcm
+    password: test
+''';
