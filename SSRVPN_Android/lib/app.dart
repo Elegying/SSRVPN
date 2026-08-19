@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show
@@ -27,6 +28,13 @@ import 'utils/responsive.dart';
 import 'widgets/glass_container.dart';
 
 part 'app_initialization_failure_part.dart';
+
+const androidSupportedLocales = <Locale>[
+  Locale('zh'),
+  Locale('en'),
+];
+final Iterable<LocalizationsDelegate<dynamic>> androidLocalizationsDelegates =
+    GlobalMaterialLocalizations.delegates;
 
 class SSRVpnApp extends StatefulWidget {
   final StartupFlags startupFlags;
@@ -202,6 +210,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
       return MaterialApp(
         navigatorKey: _navigatorKey,
         debugShowCheckedModeBanner: false,
+        localizationsDelegates: androidLocalizationsDelegates,
+        supportedLocales: androidSupportedLocales,
         theme: AppTheme.darkTheme,
         home: buildAndroidInitializationFailureScaffold(
           message: _initErrorMsg,
@@ -216,6 +226,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
     if (!_appInitialized) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
+        localizationsDelegates: androidLocalizationsDelegates,
+        supportedLocales: androidSupportedLocales,
         theme: AppTheme.darkTheme,
         home: const Scaffold(
           backgroundColor: Color(0xFF0B0D14),
@@ -261,6 +273,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         navigatorKey: _navigatorKey,
         debugShowCheckedModeBanner: false,
         title: 'SSRVPN',
+        localizationsDelegates: androidLocalizationsDelegates,
+        supportedLocales: androidSupportedLocales,
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.dark,
@@ -540,7 +554,9 @@ class _InitialSubscriptionDialogState
                   autofocus: true,
                   minLines: 2,
                   maxLines: 4,
-                  keyboardType: TextInputType.url,
+                  keyboardType: TextInputType.text,
+                  autocorrect: false,
+                  enableSuggestions: false,
                   decoration: GlassInputDecoration(
                     isDark: isDark,
                     hintText: 'ssr:// 或 https://...',

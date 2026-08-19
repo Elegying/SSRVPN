@@ -256,7 +256,7 @@ class _SubscriptionAddCard extends StatelessWidget {
             controller: urlController,
             focusNode: inputFocusNode,
             enabled: !isBusy,
-            keyboardType: TextInputType.url,
+            keyboardType: TextInputType.text,
             textInputAction: TextInputAction.done,
             autocorrect: false,
             enableSuggestions: false,

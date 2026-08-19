@@ -97,6 +97,12 @@ void main() {
       ),
     );
 
+    final subscriptionInput = tester.widget<TextField>(
+      find.byKey(const Key('ssrvpn-subscription-input')),
+    );
+    expect(subscriptionInput.keyboardType, TextInputType.text);
+    expect(subscriptionInput.autocorrect, isFalse);
+    expect(subscriptionInput.enableSuggestions, isFalse);
     expect(find.text('主订阅'), findsOneWidget);
     expect(find.text('刷新成功'), findsOneWidget);
     expect(find.text('已启用'), findsOneWidget);
