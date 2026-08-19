@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/services/crash_reporter.dart';
 import 'package:test/test.dart';
 
@@ -44,7 +45,7 @@ void main() {
     final fingerprintPattern =
         RegExp(r'^fingerprint: ([a-f0-9]{16})$', multiLine: true);
 
-    expect(firstReport, contains('release: 4.0.12'));
+    expect(firstReport, contains('release: ${AppConstants.appVersion}'));
     expect(fingerprintPattern.firstMatch(firstReport), isNotNull);
     expect(
       fingerprintPattern.firstMatch(firstReport)!.group(1),

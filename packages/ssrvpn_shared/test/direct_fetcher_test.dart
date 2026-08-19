@@ -418,6 +418,7 @@ void main() {
         DirectFetcher.fetchResponse(
           'http://127.0.0.1:9/subscription',
           requestTimeout: const Duration(milliseconds: 50),
+          bindPhysicalSource: true,
           physicalAddressLookup: () => interfaces.future,
         ),
         throwsA(isA<TimeoutException>()),
