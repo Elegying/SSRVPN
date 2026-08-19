@@ -105,8 +105,8 @@ void main() {
         () => DirectFetcher.fetchResponse(
           'http://dual-stack.test:${server.port}/payload',
           addressLookup: (_) async => [
-            InternetAddress.loopbackIPv4,
-            InternetAddress.loopbackIPv6,
+            InternetAddress('1.1.1.1'),
+            InternetAddress('2606:4700:4700::1111'),
           ],
           physicalAddressLookup: () async => const {},
         ),
@@ -132,6 +132,62 @@ void main() {
       ipv6Socket.destroy();
       await subscription.cancel();
       await server.close(force: true);
+    }
+  });
+
+  test('Windows-style direct fetch never binds a physical source address',
+      () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final clientSocket = await Socket.connect(server.address, server.port);
+    final accepted = Completer<Socket>();
+    final subscription = server.listen((socket) {
+      accepted.complete(socket);
+      socket.listen((_) {
+        socket.write(
+          'HTTP/1.1 200 OK\r\n'
+          'Content-Length: 2\r\n'
+          'Connection: close\r\n'
+          '\r\n'
+          'ok',
+        );
+      });
+    });
+    InternetAddress? observedSource;
+    var physicalLookupCalled = false;
+
+    try {
+      final response = await IOOverrides.runZoned(
+        () => DirectFetcher.fetchResponse(
+          'http://subscription.example:${server.port}/feed',
+          bindPhysicalSource: false,
+          addressLookup: (_) async => [InternetAddress('1.1.1.1')],
+          physicalAddressLookup: () async {
+            physicalLookupCalled = true;
+            return {
+              InternetAddressType.IPv4: InternetAddress('192.168.1.10'),
+            };
+          },
+        ),
+        socketConnect: (
+          host,
+          port, {
+          sourceAddress,
+          sourcePort = 0,
+          timeout,
+        }) {
+          observedSource = sourceAddress as InternetAddress?;
+          return Future<Socket>.value(clientSocket);
+        },
+      );
+
+      expect(response.body, 'ok');
+      expect(observedSource, isNull);
+      expect(physicalLookupCalled, isFalse);
+    } finally {
+      clientSocket.destroy();
+      if (accepted.isCompleted) (await accepted.future).destroy();
+      await subscription.cancel();
+      await server.close();
     }
   });
 

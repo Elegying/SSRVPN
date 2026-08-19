@@ -2,9 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-import '../constants/app_constants.dart';
 import '../services/direct_fetcher.dart';
-import '../services/subscription_parser.dart';
+import '../services/subscription_fetch_policy.dart';
 import '../services/subscription_refresh_control.dart';
 import '../services/subscription_text_decoder.dart';
 import '../utils/app_logger.dart';
@@ -43,13 +42,8 @@ class DesktopSubscriptionFetcher {
             control != null && control.remaining < requestTimeout
                 ? control.remaining
                 : requestTimeout;
-        final operation = DirectFetcher.fetchResponse(
+        final operation = _fetchDirectWithCompatibility(
           url,
-          headers: const {
-            'User-Agent': AppConstants.appUserAgent,
-            'Accept': 'text/yaml, application/x-yaml, */*',
-          },
-          maxBodyBytes: maxSubscriptionBytes,
           requestTimeout: directRequestTimeout,
           addressLookup: directAddressLookup,
           cancellation: control?.cancellation,
@@ -58,12 +52,18 @@ class DesktopSubscriptionFetcher {
             control == null ? await operation : await control.wait(operation);
         control?.throwIfStopped();
         return DesktopSubscriptionFetchResult(
-          body: _normalizeFetchedBody(response.body),
+          body: response.body,
           headers: response.headers,
         );
       } on SubscriptionRefreshCancelled {
         rethrow;
       } on SubscriptionRefreshDeadlineExceeded {
+        rethrow;
+      } on SubscriptionAddressException {
+        rethrow;
+      } on SubscriptionContentException {
+        rethrow;
+      } on SubscriptionCompatibilityException {
         rethrow;
       } catch (e) {
         AppLogger.info('Subscription', '直连通道失败，降级到常规 HTTP: $e');
@@ -74,45 +74,25 @@ class DesktopSubscriptionFetcher {
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       control?.throwIfStopped();
       try {
-        var current = uri;
-        for (var hop = 0; hop <= _maxRedirects; hop++) {
-          final response = await _fetchOnce(
-            current,
-            attempt: attempt,
-            requestTimeout: requestTimeout,
-            control: control,
-          );
-          if (SubscriptionUrlPolicy.isRedirectStatus(response.statusCode)) {
-            current = SubscriptionUrlPolicy.resolveRedirect(
-              current,
-              response.headers['location'] ?? '',
-            );
-            continue;
-          }
-          if (response.statusCode == 200) {
-            return DesktopSubscriptionFetchResult(
-              body: _normalizeFetchedBody(
-                decodeSubscriptionUtf8(response.bodyBytes),
-              ),
-              headers: {
-                'profile-title': response.headers['profile-title'] ?? '',
-                'content-disposition':
-                    response.headers['content-disposition'] ?? '',
-              },
-            );
-          }
-          if (response.statusCode == 429) {
-            throw Exception('请求过于频繁 (HTTP 429)');
-          }
-          if (response.statusCode == 403) {
-            throw Exception('访问被拒绝 (HTTP 403)');
-          }
-          throw Exception('HTTP ${response.statusCode}');
-        }
-        throw Exception('重定向次数过多');
+        final response = await _fetchRegularWithCompatibility(
+          uri,
+          attempt: attempt,
+          requestTimeout: requestTimeout,
+          control: control,
+        );
+        return DesktopSubscriptionFetchResult(
+          body: response.body,
+          headers: response.headers,
+        );
       } on SubscriptionRefreshCancelled {
         rethrow;
       } on SubscriptionRefreshDeadlineExceeded {
+        rethrow;
+      } on SubscriptionAddressException {
+        rethrow;
+      } on SubscriptionContentException {
+        rethrow;
+      } on SubscriptionCompatibilityException {
         rethrow;
       } on SocketException catch (e) {
         lastException = Exception('网络连接失败: ${e.message}');
@@ -137,15 +117,230 @@ class DesktopSubscriptionFetcher {
     throw lastException ?? Exception('获取订阅失败: 未知错误');
   }
 
+  static ConnectionTask<Socket> _pinnedConnectionTask(
+    Uri uri,
+    List<InternetAddress> addresses, {
+    required Duration connectTimeout,
+  }) {
+    Socket? activeSocket;
+    var cancelled = false;
+
+    Future<Socket> connect() async {
+      Object? lastError;
+      for (final address in DirectFetcher.balancedAddresses(addresses)) {
+        Socket? rawSocket;
+        try {
+          rawSocket = await Socket.connect(
+            address,
+            uri.port,
+            timeout: connectTimeout,
+          );
+          activeSocket = rawSocket;
+          if (cancelled) {
+            rawSocket.destroy();
+            throw const SocketException('订阅连接已取消');
+          }
+          if (uri.scheme != 'https') return rawSocket;
+
+          final secureSocket = await SecureSocket.secure(
+            rawSocket,
+            host: uri.host,
+            onBadCertificate: (_) => false,
+          ).timeout(connectTimeout);
+          activeSocket = secureSocket;
+          if (cancelled) {
+            secureSocket.destroy();
+            throw const SocketException('订阅连接已取消');
+          }
+          return secureSocket;
+        } catch (error) {
+          lastError = error;
+          rawSocket?.destroy();
+          if (cancelled) rethrow;
+        }
+      }
+      throw SocketException('所有安全 DNS 地址连接失败: $lastError');
+    }
+
+    return ConnectionTask.fromSocket(
+      connect(),
+      () {
+        cancelled = true;
+        activeSocket?.destroy();
+      },
+    );
+  }
+
+  static Future<_NormalizedSubscriptionResponse> _fetchDirectWithCompatibility(
+    String url, {
+    required Duration requestTimeout,
+    Future<List<InternetAddress>> Function(String host)? addressLookup,
+    SubscriptionRefreshCancellation? cancellation,
+  }) async {
+    for (var index = 0;
+        index < SubscriptionFetchPolicy.userAgents.length;
+        index++) {
+      final isCompatibilityAttempt = index == 1;
+      DirectFetchResponse response;
+      try {
+        response = await DirectFetcher.fetchResponse(
+          url,
+          headers: {
+            'User-Agent': SubscriptionFetchPolicy.userAgents[index],
+            'Accept': 'text/yaml, application/x-yaml, */*',
+          },
+          allowErrorStatus: true,
+          maxBodyBytes: maxSubscriptionBytes,
+          requestTimeout: requestTimeout,
+          addressLookup: addressLookup,
+          cancellation: cancellation,
+        );
+      } on SubscriptionRefreshCancelled {
+        rethrow;
+      } on SubscriptionAddressException {
+        rethrow;
+      } catch (error) {
+        if (isCompatibilityAttempt) {
+          throw SubscriptionCompatibilityException(
+            '兼容 User-Agent 重试失败: $error',
+          );
+        }
+        rethrow;
+      }
+
+      final shouldRetry = !isCompatibilityAttempt &&
+          SubscriptionFetchPolicy.shouldRetryWithCompatibility(
+            statusCode: response.statusCode,
+            body: response.body,
+          );
+      if (shouldRetry) continue;
+      if (response.statusCode != 200) {
+        if (isCompatibilityAttempt) {
+          throw SubscriptionCompatibilityException(
+            '兼容 User-Agent 仍被服务器拒绝 (HTTP ${response.statusCode})',
+          );
+        }
+        _throwHttpStatus(response.statusCode);
+      }
+      return _NormalizedSubscriptionResponse(
+        body: _normalizeFetchedBody(response.body),
+        headers: response.headers,
+      );
+    }
+    throw const SubscriptionCompatibilityException('兼容 User-Agent 重试失败');
+  }
+
+  static Future<_NormalizedSubscriptionResponse> _fetchRegularWithCompatibility(
+    Uri uri, {
+    required int attempt,
+    required Duration requestTimeout,
+    SubscriptionRefreshControl? control,
+  }) async {
+    final primary = await _fetchRegularWithUserAgent(
+      uri,
+      userAgent: SubscriptionFetchPolicy.userAgents.first,
+      attempt: attempt,
+      requestTimeout: requestTimeout,
+      control: control,
+    );
+    final primaryBody = primary.statusCode == 200
+        ? decodeSubscriptionUtf8(primary.bodyBytes)
+        : '';
+    var response = primary;
+    var body = primaryBody;
+    final shouldRetry = SubscriptionFetchPolicy.shouldRetryWithCompatibility(
+      statusCode: primary.statusCode,
+      body: primaryBody,
+    );
+    if (shouldRetry) {
+      try {
+        response = await _fetchRegularWithUserAgent(
+          uri,
+          userAgent: SubscriptionFetchPolicy.userAgents.last,
+          attempt: attempt,
+          requestTimeout: requestTimeout,
+          control: control,
+        );
+        body = response.statusCode == 200
+            ? decodeSubscriptionUtf8(response.bodyBytes)
+            : '';
+      } on SubscriptionRefreshCancelled {
+        rethrow;
+      } on SubscriptionRefreshDeadlineExceeded {
+        rethrow;
+      } on SubscriptionAddressException {
+        rethrow;
+      } catch (error) {
+        throw SubscriptionCompatibilityException(
+          '兼容 User-Agent 重试失败: $error',
+        );
+      }
+      if (response.statusCode != 200) {
+        throw SubscriptionCompatibilityException(
+          '兼容 User-Agent 仍被服务器拒绝 (HTTP ${response.statusCode})',
+        );
+      }
+    } else if (response.statusCode != 200) {
+      _throwHttpStatus(response.statusCode);
+    }
+
+    return _NormalizedSubscriptionResponse(
+      body: _normalizeFetchedBody(body),
+      headers: {
+        'profile-title': response.headers['profile-title'] ?? '',
+        'content-disposition': response.headers['content-disposition'] ?? '',
+      },
+    );
+  }
+
+  static Future<_DesktopHttpResponse> _fetchRegularWithUserAgent(
+    Uri uri, {
+    required String userAgent,
+    required int attempt,
+    required Duration requestTimeout,
+    SubscriptionRefreshControl? control,
+  }) async {
+    var current = uri;
+    for (var hop = 0; hop <= _maxRedirects; hop++) {
+      final response = await _fetchOnce(
+        current,
+        userAgent: userAgent,
+        attempt: attempt,
+        requestTimeout: requestTimeout,
+        control: control,
+      );
+      if (!SubscriptionUrlPolicy.isRedirectStatus(response.statusCode)) {
+        return response;
+      }
+      current = SubscriptionUrlPolicy.resolveRedirect(
+        current,
+        response.headers['location'] ?? '',
+      );
+    }
+    throw Exception('重定向次数过多');
+  }
+
+  static Never _throwHttpStatus(int statusCode) {
+    if (statusCode == 429) {
+      throw Exception('请求过于频繁 (HTTP 429)');
+    }
+    if (statusCode == 403) {
+      throw Exception('访问被拒绝 (HTTP 403)');
+    }
+    throw Exception('HTTP $statusCode');
+  }
+
   static Future<_DesktopHttpResponse> _fetchOnce(
     Uri uri, {
+    required String userAgent,
     required int attempt,
     required Duration requestTimeout,
     SubscriptionRefreshControl? control,
   }) async {
     final stopwatch = Stopwatch()..start();
     final client = HttpClient()
-      ..connectionTimeout = Duration(seconds: 15 * attempt);
+      ..connectionTimeout = Duration(seconds: 15 * attempt)
+      ..findProxy = (_) => 'DIRECT';
     final detachAbort = control?.cancellation.attach(
       () => client.close(force: true),
     );
@@ -168,10 +363,34 @@ class DesktopSubscriptionFetcher {
 
     try {
       control?.throwIfStopped();
+      final literal = InternetAddress.tryParse(uri.host);
+      final resolved = literal == null
+          ? await waitFor(
+              InternetAddress.lookup(uri.host).timeout(remaining()),
+            )
+          : [literal];
+      final addresses = SubscriptionFetchPolicy.validateResolvedAddresses(
+        uri,
+        resolved,
+      );
+      client.connectionFactory = (target, proxyHost, proxyPort) {
+        if (proxyHost != null || proxyPort != null) {
+          return Future<ConnectionTask<Socket>>.error(
+            const SocketException('订阅请求不允许使用系统代理'),
+          );
+        }
+        return Future.value(
+          _pinnedConnectionTask(
+            target,
+            addresses,
+            connectTimeout: Duration(seconds: 15 * attempt),
+          ),
+        );
+      };
       final request = await waitFor(client.getUrl(uri).timeout(remaining()));
       request
         ..followRedirects = false
-        ..headers.set('User-Agent', AppConstants.appUserAgent)
+        ..headers.set('User-Agent', userAgent)
         ..headers.set('Accept', 'text/yaml, application/x-yaml, */*');
 
       final response = await waitFor(request.close().timeout(remaining()));
@@ -229,10 +448,7 @@ class DesktopSubscriptionFetcher {
   }
 
   static String _normalizeFetchedBody(String body) {
-    if (body.trim().isEmpty) {
-      throw Exception('服务器返回空内容');
-    }
-    return SubscriptionParser.tryDecodeBase64(body);
+    return SubscriptionFetchPolicy.normalizeRecognizedBody(body);
   }
 
   static Future<Uint8List> _readLimitedResponse(
@@ -298,4 +514,14 @@ class _DesktopHttpResponse {
   final int statusCode;
   final Map<String, String> headers;
   final Uint8List bodyBytes;
+}
+
+class _NormalizedSubscriptionResponse {
+  const _NormalizedSubscriptionResponse({
+    required this.body,
+    required this.headers,
+  });
+
+  final String body;
+  final Map<String, String> headers;
 }

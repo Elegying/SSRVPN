@@ -7,6 +7,7 @@ import 'package:meta/meta.dart';
 
 import '../constants/app_constants.dart';
 import '../services/subscription_refresh_control.dart';
+import '../services/subscription_fetch_policy.dart';
 import '../services/subscription_text_decoder.dart';
 import '../utils/subscription_url_policy.dart';
 
@@ -226,6 +227,8 @@ class DirectFetcher {
     int maxBodyBytes = AppConstants.maxSubscriptionBytes,
     Duration requestTimeout = _requestTimeout,
     Future<List<InternetAddress>> Function(String host)? addressLookup,
+    bool? bindPhysicalSource,
+    bool allowErrorStatus = false,
     @visibleForTesting
     Future<Map<InternetAddressType, InternetAddress>> Function()?
         physicalAddressLookup,
@@ -242,11 +245,14 @@ class DirectFetcher {
         return cap != null && value > cap ? cap : value;
       }
 
-      final physicalAddresses = await cancellationScope
-          .wait(
-            (physicalAddressLookup ?? _physicalInterfaceAddresses)(),
-          )
-          .timeout(remaining());
+      final shouldBindPhysicalSource = bindPhysicalSource ?? Platform.isMacOS;
+      final physicalAddresses = shouldBindPhysicalSource
+          ? await cancellationScope
+              .wait(
+                (physicalAddressLookup ?? _physicalInterfaceAddresses)(),
+              )
+              .timeout(remaining())
+          : <InternetAddressType, InternetAddress>{};
       final dohBindAddress = physicalAddresses[InternetAddressType.IPv4];
       var current = SubscriptionUrlPolicy.parse(url);
 
@@ -279,18 +285,19 @@ class DirectFetcher {
               InternetAddress.lookup(host)
                   .timeout(remaining(cap: const Duration(seconds: 5))),
             );
-            ips = sys.where((a) => !isFakeIp(a)).map((a) => a.address).toList();
+            ips = sys.map((a) => a.address).toList();
           }
           connectAddresses = ips
               .map(InternetAddress.tryParse)
               .whereType<InternetAddress>()
               .toList();
         }
-        if (connectAddresses.isEmpty) {
-          throw Exception('无法解析订阅服务器地址: $host');
-        }
+        connectAddresses = SubscriptionFetchPolicy.validateResolvedAddresses(
+          current,
+          connectAddresses,
+        );
         connectAddresses = balancedAddresses(
-          connectAddresses.where((address) => !isFakeIp(address)),
+          connectAddresses,
         );
 
         Socket? stream;
@@ -357,10 +364,14 @@ class DirectFetcher {
           );
           continue;
         }
-        if (resp.statusCode != 200) {
+        if (resp.statusCode != 200 && !allowErrorStatus) {
           throw Exception('HTTP ${resp.statusCode}: 订阅获取失败(直连通道)');
         }
-        return DirectFetchResponse(headers: resp.headers, body: resp.body);
+        return DirectFetchResponse(
+          statusCode: resp.statusCode,
+          headers: resp.headers,
+          body: resp.body,
+        );
       }
       throw Exception('重定向次数过多');
     } on SubscriptionRefreshCancelled {
@@ -706,9 +717,14 @@ class _DirectFetchCancellationScope {
 }
 
 class DirectFetchResponse {
+  final int statusCode;
   final Map<String, String> headers;
   final String body;
-  DirectFetchResponse({required this.headers, required this.body});
+  DirectFetchResponse({
+    required this.statusCode,
+    required this.headers,
+    required this.body,
+  });
 }
 
 class _HttpResponse {
