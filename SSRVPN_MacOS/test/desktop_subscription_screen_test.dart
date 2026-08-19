@@ -54,7 +54,7 @@ void main() {
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pump();
 
-    expect(find.text('已连接'), findsOneWidget);
+    expect(find.text('连接状态：已连接'), findsOneWidget);
     expect(find.text('香港 | IEPL ①'), findsOneWidget);
 
     fixture.clash.updateRuntime(
