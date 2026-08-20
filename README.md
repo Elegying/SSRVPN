@@ -16,7 +16,8 @@ Android、macOS、Windows 三端一致的连接体验：导入订阅，选择节
 
 [立即下载](#下载) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md) · [报告问题](https://github.com/Elegying/SSRVPN/issues/new/choose) · [项目文档](docs/README.md)
 
-<img src="docs/assets/ssrvpn-product-preview.png" alt="SSRVPN 开源跨平台 Mihomo VPN 和代理客户端连接界面" width="416">
+<img src="docs/assets/ssrvpn-product-preview.png" alt="SSRVPN v4.0.13 已连接主页" width="400">
+<img src="docs/assets/ssrvpn-node-preview.png" alt="SSRVPN v4.0.13 节点选择与代理模式界面" width="400">
 
 </div>
 
