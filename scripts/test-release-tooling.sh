@@ -12,6 +12,7 @@ python3 -m unittest \
   scripts/test_dependency_security.py \
   scripts/test_macos_native_gate.py \
   scripts/test_check_release_assets.py \
+  scripts/test_collect_uat_evidence.py \
   scripts/test_free_desktop_distribution.py \
   scripts/test_geoip_workflow.py \
   scripts/test_generate_oss_release_manifest.py \

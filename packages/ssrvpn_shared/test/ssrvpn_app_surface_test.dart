@@ -1399,6 +1399,45 @@ void main() {
     );
   });
 
+  testWidgets('subscription delete action names the affected subscription',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnSubscriptionView(
+          subscriptions: [
+            Subscription(
+              id: 'one',
+              name: 'SSRVPN.VIP',
+              url: 'https://example.com/private-token',
+              lastUpdate: DateTime.now(),
+            ),
+          ],
+          urlController: controller,
+          isAdding: false,
+          isRefreshing: false,
+          isBusy: false,
+          refreshMessage: null,
+          refreshMessageColor: null,
+          onAdd: () {},
+          onRefresh: () {},
+          onCancelRefresh: () {},
+          onDelete: (_) {},
+        ),
+      ),
+    );
+
+    final action = find.bySemanticsLabel('删除订阅 SSRVPN.VIP');
+    expect(action, findsOneWidget);
+    final data = tester.getSemantics(action).getSemanticsData();
+    expect(data.flagsCollection.isButton, isTrue);
+    expect(data.hasAction(SemanticsAction.tap), isTrue);
+    semantics.dispose();
+  });
+
   testWidgets('desktop surfaces stay visually compact in wide windows',
       (tester) async {
     final node = ProxyNode(

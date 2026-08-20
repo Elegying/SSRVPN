@@ -28,7 +28,9 @@
 - 本地崩溃报告增加应用版本和基于脱敏内容的稳定指纹；用户目录路径在 macOS、Linux、Windows 三种格式下都会脱敏，仍不自动上传任何诊断数据。
 - Windows 生命周期新增未初始化恢复、代理清理不可用和恢复状态路径不可用的失败关闭测试；生命周期覆盖率门槛由 20% 提高到 25%。
 - Pull Request CI 增加固定提交版本的 GitHub CodeQL：Actions、Android Java/Kotlin、Windows C/C++；macOS 原生测试迁入独立无注入 XCTest job。发布工作流对 APK、DMG 和 EXE 分别生成 GitHub artifact attestation。
+- `main` 分支保护已将 `Dependency review`、`CodeQL (Actions)`、`macOS native unit tests` 纳入必需状态检查；与原有 6 项一起共 9 项，保持 strict 与管理员约束。
 - Android 内嵌核心已归档固定 Mihomo commit/tree、bridge 源码、Go、x/mobile、NDK 和构建配方；校验同时锁定 build info、六个 JNI 导出、AArch64 与全部 ELF `LOAD` 段的 16 KiB 对齐。
+- 新增只读 UAT 证据采集/时序汇总工具，并修复共享订阅卡片删除按钮缺少具体订阅名称的系统无障碍语义；RED/GREEN 自动化和 macOS Debug 候选 AX 树均已验证。
 - 新增 [依赖升级策略](DEPENDENCIES.md) 与 [三端人工 UAT 矩阵](UAT_MATRIX.md)；安全更新直接升级，原生主版本升级必须经过目标平台构建和生命周期验收。
 - 更新可安全落地的依赖；`flutter_secure_storage 11` 因要求 Android `compileSdk 37`，高于当前 Flutter 3.44.1 默认的 36，暂时保留 10.3.1 并记录迁移条件。
 
@@ -43,8 +45,8 @@ make verify
 结果：
 
 - 文档 47/47 本地链接、46/46 当前状态检查、333 个 Dart 文件格式、全部 ShellCheck、核心资产、版本、秘密与 TLS 策略、发布资产守卫均通过。
-- 发布工具 `296/296`；macOS TUN/DNS 行为 `25/25`；workspace `flutter analyze` 为 0 issue。
-- Shared `504` 项测试通过，覆盖率 `83.67%`（`5604/6698`），门槛 65%。
+- 发布工具 `302/302`；macOS TUN/DNS 行为 `25/25`；workspace `flutter analyze` 为 0 issue。
+- Shared `505` 项测试通过，覆盖率 `83.57%`（`5602/6703`），门槛 65%。
 - Android Flutter `237` 项及 Gradle/JUnit 通过，覆盖率 `65.06%`（`2197/3377`），门槛 30%。
 - macOS Flutter `259` 项及 RunnerTests 通过，覆盖率 `65.93%`（`3389/5140`）；生命周期 `77.20%`（`633/820`），系统代理 `88.06%`（`391/444`）。
 - Windows Flutter `223` 项通过；仅 Windows 主机可运行的 8 项在 macOS 条件跳过。平台覆盖率 `50.28%`（`2892/5752`），生命周期 `26.48%`（`174/657`），门槛 25%。
@@ -58,6 +60,8 @@ make verify
 - OSS `latest.json` 已指向 `4.0.13`；不可变版本路径与网站固定下载别名重新下载后均与 GitHub Release 摘要一致。官网 macOS 页面继续明确仅支持 Apple M 系列芯片、不支持 Intel Mac。
 
 ## 证据边界与残余风险
+
+- 本轮综合建议的详细执行结果、原始证据哈希和未闭环项见 [2026-08-20 综合审查建议闭环记录](UAT_REMEDIATION_20260820.md)。按用户边界不测试屏幕阅读器或盲文。
 
 - Android 17 已完成 v4.0.13 修复项增量实机复验；Windows 11 报告基线完成覆盖安装、数据保留、连接和断开，但报告后修复的三项行为尚未使用最终正式安装器人工复验。未重复的长时、耗电和完整压力矩阵继续保持未执行。
 - 候选、版本准备、合并后 `main`、标签前精确 `main`、发布专用 CI 和正式 Release 已分别建立提交证据；发布结论不复用旧版本绿色 run。
