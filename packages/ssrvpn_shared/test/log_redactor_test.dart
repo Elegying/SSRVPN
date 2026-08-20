@@ -2,6 +2,17 @@ import 'package:ssrvpn_shared/utils/log_redactor.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('redacts public IPv4 while retaining local endpoint diagnostics', () {
+    final publicAddress = ['8', '8', '4', '4'].join('.');
+    final sanitized = LogRedactor.sanitize(
+      'egress=$publicAddress controller=127.0.0.1:9090',
+    );
+
+    expect(sanitized, isNot(contains(publicAddress)));
+    expect(sanitized, contains('[public-ip-redacted]'));
+    expect(sanitized, contains('127.0.0.1:9090'));
+  });
+
   test('redacts common credential forms', () {
     final sanitized = LogRedactor.sanitize(
       'secret=abc password: p@ss token=tok Bearer raw apiSecret="hidden"',

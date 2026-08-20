@@ -289,8 +289,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (action == _DesktopConnectionAction.cancelPendingConnection) {
       clashService.requestConnectionIntent(false);
       clashService.interruptPendingStart();
+      var stopSucceeded = false;
       try {
         await clashService.runConnectionTransition(clashService.stop);
+        stopSucceeded = true;
       } catch (error, stack) {
         recordDesktopConnectionFailure('取消连接失败', error: error, stack: stack);
         if (mounted && !_disposed) {
@@ -310,6 +312,15 @@ class _HomeScreenState extends State<HomeScreen> {
             }
           });
         }
+      }
+      final notice = desktopConnectionCancellationNotice(
+        stopSucceeded: stopSucceeded,
+        isRunning: clashService.isRunning,
+      );
+      if (notice != null && mounted && !_disposed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(notice)),
+        );
       }
       return;
     }
