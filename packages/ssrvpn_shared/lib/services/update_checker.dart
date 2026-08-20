@@ -29,12 +29,10 @@ class _ReleaseAsset {
   const _ReleaseAsset({
     required this.name,
     required this.downloadUrl,
-    this.sha256,
   });
 
   final String name;
   final String downloadUrl;
-  final String? sha256;
 }
 
 class UpdateChecker {
