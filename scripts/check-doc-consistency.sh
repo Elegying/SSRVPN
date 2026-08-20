@@ -10,7 +10,10 @@ while IFS= read -r document; do
   if [[ "$document" != "CHANGELOG.md" ]]; then
     current_docs+=("$document")
   fi
-done < <(git -C "$ROOT" ls-files '*.md' '*.MD' | LC_ALL=C sort)
+done < <(
+  git -C "$ROOT" -c core.quotepath=false ls-files '*.md' '*.MD' |
+    LC_ALL=C sort
+)
 
 if [[ "${#all_docs[@]}" -eq 0 ]]; then
   echo "No tracked Markdown documents found" >&2
