@@ -22,6 +22,7 @@ import 'node_edit_screen.dart';
 import '../startup/startup_logger.dart';
 
 part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_screen_part.dart';
+part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_action_policies_part.dart';
 part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_background_tasks_part.dart';
 part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_initial_subscription_part.dart';
 part 'package:ssrvpn_shared/desktop_ui/screens/desktop_home_runtime_actions_part.dart';

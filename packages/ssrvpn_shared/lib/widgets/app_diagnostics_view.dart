@@ -12,6 +12,15 @@ typedef RepairAppDiagnostic = Future<AppRepairResult> Function(
 typedef LoadAppDiagnosticHistory = Future<List<AppDiagnosticHistoryEntry>>
     Function();
 
+@visibleForTesting
+bool diagnosticClipboardMatchesReport(
+    String? clipboardText, String reportText) {
+  if (clipboardText == null) return false;
+  String normalizeNewlines(String value) =>
+      value.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  return normalizeNewlines(clipboardText) == normalizeNewlines(reportText);
+}
+
 /// Shared diagnostics UI for desktop dialogs and the Android bottom sheet.
 class AppDiagnosticsView extends StatefulWidget {
   const AppDiagnosticsView({
@@ -102,7 +111,7 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
       final reportText = report.toText();
       await Clipboard.setData(ClipboardData(text: reportText));
       final clipboard = await Clipboard.getData(Clipboard.kTextPlain);
-      if (clipboard?.text != reportText) {
+      if (!diagnosticClipboardMatchesReport(clipboard?.text, reportText)) {
         throw StateError('clipboard write verification failed');
       }
       if (!mounted) return;

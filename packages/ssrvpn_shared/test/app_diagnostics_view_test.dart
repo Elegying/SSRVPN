@@ -7,6 +7,16 @@ import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/widgets/app_diagnostics_view.dart';
 
 void main() {
+  test('clipboard verification accepts Windows newline normalization', () {
+    expect(
+      diagnosticClipboardMatchesReport(
+        'first\r\nsecond\r\n',
+        'first\nsecond\n',
+      ),
+      isTrue,
+    );
+  });
+
   testWidgets('shows stable codes and runs only the offered repair',
       (tester) async {
     var runs = 0;

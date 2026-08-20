@@ -21,7 +21,7 @@ if [[ ! -f ".dart_tool/package_config.json" ]]; then
 fi
 
 git ls-files -z -- '*.dart' |
-  xargs -0 dart format --output=none --set-exit-if-changed
-git ls-files -z -- '*.sh' | xargs -0 shellcheck
+  xargs -0 -n 100 dart format --output=none --set-exit-if-changed
+git ls-files -z -- '*.sh' | xargs -0 -n 100 shellcheck
 
 echo "Dart formatting and ShellCheck guards passed."

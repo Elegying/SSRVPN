@@ -61,17 +61,21 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
   void _handleClashStatusChanged() {
     final clashService = _clashService;
     if (clashService == null || !mounted || _disposed) return;
-    final statusEpoch = ++_connectionStatusEpoch;
     final running = clashService.isRunning;
     final connectivityWarning =
         running ? clashService.connectivityWarning : null;
     final cancelledWhileConnecting =
         _isConnecting && !clashService.connectionDesired;
-    if (_isConnected == running &&
-        _connectivityWarning == connectivityWarning &&
-        !cancelledWhileConnecting) {
+    if (!desktopStatusNotificationChangesState(
+      wasConnected: _isConnected,
+      isRunning: running,
+      previousWarning: _connectivityWarning,
+      nextWarning: connectivityWarning,
+      cancelledWhileConnecting: cancelledWhileConnecting,
+    )) {
       return;
     }
+    final statusEpoch = ++_connectionStatusEpoch;
     setState(() {
       _isConnected = running;
       _connectivityWarning = connectivityWarning;
