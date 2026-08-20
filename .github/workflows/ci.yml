@@ -56,14 +56,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
         with:
           languages: actions
           build-mode: none
           queries: security-extended
 
       - name: Analyze workflow code
-        uses: github/codeql-action/analyze@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
 
   shared:
     name: Workspace checks
@@ -204,7 +204,7 @@ jobs:
 
       - name: Initialize CodeQL
         if: matrix.directory != 'SSRVPN_MacOS'
-        uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
         with:
           languages: ${{ matrix.codeql_language }}
           build-mode: ${{ matrix.codeql_build_mode }}
@@ -212,7 +212,7 @@ jobs:
 
       - name: Cache Gradle dependencies
         if: matrix.directory == 'SSRVPN_Android'
-        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-provider: basic
           cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}
@@ -278,7 +278,7 @@ jobs:
 
       - name: Analyze native code
         if: matrix.directory != 'SSRVPN_MacOS'
-        uses: github/codeql-action/analyze@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
 
       - name: Upload Windows installer
         if: matrix.directory == 'SSRVPN_Windows'
