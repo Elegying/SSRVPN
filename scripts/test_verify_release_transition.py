@@ -114,15 +114,13 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         github_release = workflow.index("Create GitHub Draft Release")
         self.assertLess(validate, github_release)
         validation_step = workflow[validate:github_release]
-        self.assertIn(
-            "packages/ssrvpn_shared/lib/services/update_checker.dart",
-            validation_step,
-        )
-        self.assertIn("primaryManifestUrl", validation_step)
-        self.assertIn("os.environ['OSS_BUCKET']", validation_step)
-        self.assertIn("os.environ['OSS_ENDPOINT']", validation_step)
-        self.assertIn("os.environ['OSS_PREFIX']", validation_step)
-        self.assertIn("configured_url != match.group(1)", validation_step)
+        self.assertNotIn("update_checker.dart", validation_step)
+        self.assertNotIn("primaryManifestUrl", validation_step)
+        self.assertIn('os.environ["OSS_BUCKET"]', validation_step)
+        self.assertIn('os.environ["OSS_ENDPOINT"]', validation_step)
+        self.assertIn('os.environ["OSS_PREFIX"]', validation_step)
+        self.assertIn("must be a hostname without a scheme or path", validation_step)
+        self.assertIn("must be a normalized relative object prefix", validation_step)
         retry_reuse = workflow.index("Reuse an existing GitHub release on retry")
         self.assertLess(validate, retry_reuse)
         self.assertLess(retry_reuse, github_release)

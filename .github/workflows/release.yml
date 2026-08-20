@@ -550,26 +550,22 @@ jobs:
           python3 - <<'PY'
           import os
           import re
-          from pathlib import Path
 
-          source = Path(
-              "packages/ssrvpn_shared/lib/services/update_checker.dart"
-          ).read_text(encoding="utf-8")
-          match = re.search(
-              r"primaryManifestUrl\s*=\s*Uri\.parse\(\s*['\"]([^'\"]+)['\"]",
-              source,
-          )
-          if match is None:
-              raise SystemExit("cannot find the client's primary update manifest URL")
-          configured_url = (
-              f"https://{os.environ['OSS_BUCKET']}.{os.environ['OSS_ENDPOINT']}/"
-              f"{os.environ['OSS_PREFIX']}/latest.json"
-          )
-          if configured_url != match.group(1):
-              raise SystemExit(
-                  "OSS workflow variables do not match the client's primary "
-                  "update manifest URL"
-              )
+          endpoint = os.environ["OSS_ENDPOINT"]
+          bucket = os.environ["OSS_BUCKET"]
+          prefix = os.environ["OSS_PREFIX"]
+
+          if not re.fullmatch(r"[A-Za-z0-9.-]+", endpoint):
+              raise SystemExit("OSS_ENDPOINT must be a hostname without a scheme or path")
+          if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", bucket):
+              raise SystemExit("OSS_BUCKET is not a valid bucket name")
+          if (
+              not re.fullmatch(r"[A-Za-z0-9._/-]+", prefix)
+              or prefix.startswith("/")
+              or prefix.endswith("/")
+              or ".." in prefix.split("/")
+          ):
+              raise SystemExit("OSS_PREFIX must be a normalized relative object prefix")
           PY
 
       - name: Reuse an existing GitHub release on retry
