@@ -20,6 +20,10 @@ Android、macOS、Windows 三端一致的连接体验：导入订阅，选择节
 
 </div>
 
+> [!NOTE]
+> **当前稳定版：[v4.0.13](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.13)（2026-08-20）**
+> 已增强三端订阅兼容重试与安全校验，修复 Windows 诊断复制和连接中节点切换，完善桌面键盘/长节点名体验，并将 Android arm64 核心升级为可审查源码构建与 16 KiB ELF 对齐。
+
 ## SSRVPN 是什么
 
 SSRVPN 是面向 Android、macOS 和 Windows 的开源 Mihomo 客户端。它把常用功能收敛为清晰的“主页 + 订阅”两页流程，适合希望快速导入订阅或节点、查看延迟并稳定连接的用户。
@@ -36,11 +40,11 @@ SSRVPN 是面向 Android、macOS 和 Windows 的开源 Mihomo 客户端。它把
 
 ## 下载
 
-| 平台 | 安装包 | 连接方式 | 下载 |
-| --- | --- | --- | --- |
-| Android | `SSRVPN.apk` | 系统 VPN | [下载最新版 APK](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.apk) |
-| macOS（仅 Apple M 系列芯片） | `SSRVPN.dmg` | 系统代理、TUN | [下载最新版 DMG](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.dmg) |
-| Windows | `SSRVPN_Setup.exe` | 系统代理、TUN | [下载最新版安装器](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN_Setup.exe) |
+| 平台 | 安装包 | 连接方式 | 下载 | SHA-256 |
+| --- | --- | --- | --- | --- |
+| Android | `SSRVPN.apk` | 系统 VPN | [下载最新版 APK](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.apk) | [校验文件](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.apk.sha256) |
+| macOS（仅 Apple M 系列芯片） | `SSRVPN.dmg` | 系统代理、TUN | [下载最新版 DMG](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.dmg) | [校验文件](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.dmg.sha256) |
+| Windows | `SSRVPN_Setup.exe` | 系统代理、TUN | [下载最新版安装器](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN_Setup.exe) | [校验文件](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN_Setup.exe.sha256) |
 
 也可以前往 [GitHub Releases](https://github.com/Elegying/SSRVPN/releases/latest) 查看版本说明、SHA-256 校验文件与发布来源记录。
 
