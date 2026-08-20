@@ -13,6 +13,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _isAdding = false;
   bool _isRefreshing = false;
   bool _isDeleting = false;
+  bool _isEditing = false;
   SubscriptionRefreshResult? _refreshResult;
   SubscriptionRefreshCancellation? _refreshCancellation;
   ClashService? _clashService;
@@ -21,7 +22,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   String? _currentNodeName;
   int _runtimeStatusEpoch = 0;
 
-  bool get _hasBlockingOperation => _isAdding || _isRefreshing || _isDeleting;
+  bool get _hasBlockingOperation =>
+      _isAdding || _isRefreshing || _isDeleting || _isEditing;
 
   @override
   void didChangeDependencies() {
@@ -146,6 +148,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         refreshAllSubscriptionsDetailedWith:
             subService.refreshAllSubscriptionsDetailed,
         removeSubscriptionWith: subService.removeSubscription,
+        updateSubscriptionWith: subService.updateSubscription,
       ),
     );
   }
@@ -313,6 +316,37 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }
   }
 
+  Future<void> _editSubscription(Subscription subscription) async {
+    if (_hasBlockingOperation) return;
+    final draft = await showSsrvpnSubscriptionEditDialog(context, subscription);
+    if (draft == null || !mounted || _hasBlockingOperation) return;
+
+    setState(() => _isEditing = true);
+    final result = await _subscriptionController(
+      context.read<SubscriptionService>(),
+    ).editSubscription(subscription, draft.name, draft.url);
+    if (!mounted) return;
+    setState(() => _isEditing = false);
+
+    switch (result.status) {
+      case SubscriptionEditStatus.emptyName:
+        _showSnack('订阅名称不能为空', AppTheme.error);
+      case SubscriptionEditStatus.emptyUrl:
+        _showSnack('订阅链接不能为空', AppTheme.error);
+      case SubscriptionEditStatus.duplicateUrl:
+        _showSnack('该订阅链接已存在', AppTheme.warning);
+      case SubscriptionEditStatus.invalidUrl:
+        _showSnack('请输入有效的订阅链接', AppTheme.error);
+      case SubscriptionEditStatus.unchanged:
+        _showSnack('订阅信息没有变化', AppTheme.warning);
+      case SubscriptionEditStatus.saved:
+        _showSnack('订阅已更新，正在刷新节点', AppTheme.success);
+        await _refreshAll();
+      case SubscriptionEditStatus.failed:
+        _showSnack('更新失败：${result.displayError}', AppTheme.error);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final subService = context.watch<SubscriptionService>();
@@ -341,6 +375,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         onRefresh: _refreshAll,
         onCancelRefresh: _cancelRefresh,
         onDelete: _deleteSubscription,
+        onEdit: _editSubscription,
       ),
     );
   }

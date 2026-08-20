@@ -16,7 +16,9 @@ REFERENCE_DEFINITION = re.compile(
     re.MULTILINE,
 )
 INLINE_LINK_START = re.compile(r"!?\[[^\]\n]*\]\(")
-SENTENCE_BREAK = re.compile(r"(?<=[。！？!?])|(?<=\.)(?=\s|$)|\n[ \t]*\n+")
+SENTENCE_BREAK = re.compile(
+    r"(?<=[。！？!?])|(?<=\.)(?=\s|$)|(?<=\|)\r?\n(?=\|)|\n[ \t]*\n+"
+)
 TUN_UNAVAILABLE = re.compile(
     r"不可用|不支持|暂停|停用|unavailable|unsupported|not[ \t]+supported|disabled",
     re.IGNORECASE,
@@ -312,6 +314,10 @@ def self_test() -> None:
     )
     assert not stale_claims(
         "Windows 更新包校验后保存到真实桌面，客户端提示用户手动安装并保持运行。"
+    )
+    assert not stale_claims(
+        "| 单实例 | launcher policy guards |\n"
+        "| 正常退出 | installer runtime transaction |"
     )
     assert stale_claims("Windows 应用内更新会打开正确下载链接。")
     assert stale_release_instructions("```bash\ngit tag v3.4.8\n```")

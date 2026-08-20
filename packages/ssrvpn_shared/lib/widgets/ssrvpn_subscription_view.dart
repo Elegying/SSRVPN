@@ -33,6 +33,7 @@ class SsrvpnSubscriptionView extends StatefulWidget {
     required this.onRefresh,
     required this.onCancelRefresh,
     required this.onDelete,
+    this.onEdit,
   });
 
   final List<Subscription> subscriptions;
@@ -48,6 +49,7 @@ class SsrvpnSubscriptionView extends StatefulWidget {
   final VoidCallback onRefresh;
   final VoidCallback onCancelRefresh;
   final ValueChanged<String> onDelete;
+  final ValueChanged<Subscription>? onEdit;
 
   @override
   State<SsrvpnSubscriptionView> createState() => _SsrvpnSubscriptionViewState();
@@ -213,6 +215,9 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                           onDelete: widget.isBusy
                               ? null
                               : () => widget.onDelete(subscription.id),
+                          onEdit: widget.isBusy || widget.onEdit == null
+                              ? null
+                              : () => widget.onEdit!(subscription),
                         ),
                       ),
                   ],
@@ -326,126 +331,150 @@ class _SubscriptionCard extends StatelessWidget {
   const _SubscriptionCard({
     required this.subscription,
     required this.onDelete,
+    required this.onEdit,
   });
 
   final Subscription subscription;
   final VoidCallback? onDelete;
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
+    final platform = Theme.of(context).platform;
+    final isMobile =
+        platform == TargetPlatform.android || platform == TargetPlatform.iOS;
+    final isDesktop = platform == TargetPlatform.windows ||
+        platform == TargetPlatform.macOS ||
+        platform == TargetPlatform.linux;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: SsrvpnSurfaceCard(
-        padding: const EdgeInsets.all(18),
-        radius: 22,
-        child: Column(
-          children: [
-            Row(
+      child: Semantics(
+        container: true,
+        label: subscription.name,
+        hint: onEdit == null ? null : (isMobile ? '长按编辑订阅' : '右键编辑订阅'),
+        child: GestureDetector(
+          key: ValueKey('ssrvpn-subscription-card-${subscription.id}'),
+          behavior: HitTestBehavior.opaque,
+          onLongPress: isMobile ? onEdit : null,
+          onSecondaryTapUp:
+              isDesktop && onEdit != null ? (_) => onEdit!() : null,
+          child: SsrvpnSurfaceCard(
+            padding: const EdgeInsets.all(18),
+            radius: 22,
+            child: Column(
               children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF1C315E), Color(0xFF173D42)],
+                Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF1C315E), Color(0xFF173D42)],
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(
+                        Icons.rss_feed_rounded,
+                        color: SsrvpnUiTokens.primaryBlue,
+                      ),
                     ),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.rss_feed_rounded,
-                    color: SsrvpnUiTokens.primaryBlue,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Tooltip(
-                        message: subscription.name,
-                        child: Text(
-                          subscription.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: SsrvpnUiTokens.textPrimary,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Tooltip(
+                            message: subscription.name,
+                            triggerMode:
+                                isMobile ? TooltipTriggerMode.tap : null,
+                            child: Text(
+                              subscription.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: SsrvpnUiTokens.textPrimary,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
-                        ),
+                          const SizedBox(height: 4),
+                          Tooltip(
+                            message: LogRedactor.subscriptionUrlForDisplay(
+                              subscription.url,
+                            ),
+                            triggerMode:
+                                isMobile ? TooltipTriggerMode.tap : null,
+                            child: Text(
+                              LogRedactor.subscriptionUrlForDisplay(
+                                subscription.url,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: SsrvpnUiTokens.textTertiary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 4),
-                      Tooltip(
-                        message: LogRedactor.subscriptionUrlForDisplay(
-                          subscription.url,
-                        ),
-                        child: Text(
-                          LogRedactor.subscriptionUrlForDisplay(
-                            subscription.url,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: SsrvpnUiTokens.textTertiary,
-                            fontSize: 12,
-                          ),
-                        ),
+                    ),
+                    IconButton(
+                      tooltip: '删除订阅',
+                      onPressed: onDelete,
+                      color: SsrvpnUiTokens.error,
+                      icon: const Icon(Icons.delete_outline_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: subscription.enabled
+                            ? SsrvpnUiTokens.success
+                            : SsrvpnUiTokens.error,
+                        shape: BoxShape.circle,
                       ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: '删除订阅',
-                  onPressed: onDelete,
-                  color: SsrvpnUiTokens.error,
-                  icon: const Icon(Icons.delete_outline_rounded),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: subscription.enabled
-                        ? SsrvpnUiTokens.success
-                        : SsrvpnUiTokens.error,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 7),
-                Text(
-                  subscription.enabled ? '已启用' : '已禁用',
-                  style: TextStyle(
-                    color: subscription.enabled
-                        ? SsrvpnUiTokens.success
-                        : SsrvpnUiTokens.error,
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(width: 18),
-                const Icon(
-                  Icons.access_time_rounded,
-                  size: 15,
-                  color: SsrvpnUiTokens.textTertiary,
-                ),
-                const SizedBox(width: 5),
-                Expanded(
-                  child: Text(
-                    _formatUpdateTime(subscription.lastUpdate),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    ),
+                    const SizedBox(width: 7),
+                    Text(
+                      subscription.enabled ? '已启用' : '已禁用',
+                      style: TextStyle(
+                        color: subscription.enabled
+                            ? SsrvpnUiTokens.success
+                            : SsrvpnUiTokens.error,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(width: 18),
+                    const Icon(
+                      Icons.access_time_rounded,
+                      size: 15,
                       color: SsrvpnUiTokens.textTertiary,
-                      fontSize: 12,
                     ),
-                  ),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        _formatUpdateTime(subscription.lastUpdate),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: SsrvpnUiTokens.textTertiary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );

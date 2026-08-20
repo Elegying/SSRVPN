@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
@@ -25,6 +27,49 @@ abstract final class SsrvpnUiTokens {
   static const pageMaxWidth = 440.0;
   static const bottomNavigationMaxWidth = 380.0;
   static const currentNodeMaxWidth = 320.0;
+}
+
+/// Shared translucent blur surface used by modal content on every platform.
+class SsrvpnFrostedPanel extends StatelessWidget {
+  const SsrvpnFrostedPanel({
+    super.key,
+    required this.child,
+    this.borderRadius = 20,
+    this.padding = const EdgeInsets.all(24),
+  });
+
+  final Widget child;
+  final double borderRadius;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: (isDark ? SsrvpnUiTokens.surface : Colors.white)
+                .withValues(alpha: isDark ? 0.72 : 0.78),
+            borderRadius: BorderRadius.circular(borderRadius),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: isDark ? 0.18 : 0.48),
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x52000000),
+                blurRadius: 32,
+                offset: Offset(0, 18),
+              ),
+            ],
+          ),
+          child: Padding(padding: padding, child: child),
+        ),
+      ),
+    );
+  }
 }
 
 class SsrvpnAppBackdrop extends StatelessWidget {
@@ -307,61 +352,100 @@ class SsrvpnNavigationDestination extends StatelessWidget {
 Future<void> showSsrvpnAboutDialog(BuildContext context) {
   return showDialog<void>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      scrollable: true,
-      backgroundColor: SsrvpnUiTokens.backgroundRaised,
-      surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      title: const Row(
-        children: [
-          Icon(Icons.vpn_lock_rounded, color: SsrvpnUiTokens.primary),
-          SizedBox(width: 10),
-          Text('SSRVPN'),
-        ],
-      ),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '版本 ${AppConstants.appVersion}',
-              style: TextStyle(color: SsrvpnUiTokens.primary),
-            ),
-            const SizedBox(height: 16),
-            const Text('项目地址', style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            SelectableText(
-              'https://github.com/Elegying/SSRVPN',
-              style: TextStyle(color: SsrvpnUiTokens.primaryBlue),
-            ),
-            const SizedBox(height: 16),
-            const Text('免责声明', style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            const Text(
-              '本软件仅供学习与研究使用，请遵守当地法律法规。\n'
-              '使用者应对自身行为承担全部责任。\n'
-              '开发者不对因使用本软件产生的任何后果负责。',
-              style: TextStyle(
-                color: SsrvpnUiTokens.textSecondary,
-                height: 1.45,
+    builder: (dialogContext) => Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+      child: SsrvpnFrostedPanel(
+        key: const Key('ssrvpn-about-glass'),
+        borderRadius: 24,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 420,
+            maxHeight: (MediaQuery.sizeOf(dialogContext).height - 56)
+                .clamp(180.0, double.infinity),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.vpn_lock_rounded,
+                            color: SsrvpnUiTokens.primary,
+                          ),
+                          SizedBox(width: 10),
+                          Text(
+                            'SSRVPN',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        '版本 ${AppConstants.appVersion}',
+                        style: TextStyle(color: SsrvpnUiTokens.primary),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        '项目地址',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 4),
+                      const SelectableText(
+                        'https://github.com/Elegying/SSRVPN',
+                        style: TextStyle(color: SsrvpnUiTokens.primaryBlue),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        '免责声明',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        '本软件仅供学习与研究使用，请遵守当地法律法规。\n'
+                        '使用者应对自身行为承担全部责任。\n'
+                        '开发者不对因使用本软件产生的任何后果负责。',
+                        style: TextStyle(
+                          color: SsrvpnUiTokens.textSecondary,
+                          height: 1.45,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'By--两颗西柚',
+                        style: TextStyle(color: SsrvpnUiTokens.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'By--两颗西柚',
-              style: TextStyle(color: SsrvpnUiTokens.textSecondary),
-            ),
-          ],
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    backgroundColor:
+                        SsrvpnUiTokens.primary.withValues(alpha: 0.14),
+                  ),
+                  child: const Text('知道了'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('知道了'),
-        ),
-      ],
     ),
   );
 }

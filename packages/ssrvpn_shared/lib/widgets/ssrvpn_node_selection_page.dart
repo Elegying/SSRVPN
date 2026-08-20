@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../models/app_settings.dart';
 import '../models/proxy_node.dart';
+import '../utils/node_display_policy.dart';
 import '../utils/node_country_policy.dart';
 import 'country_flag_icon.dart';
 import 'ssrvpn_app_surface.dart';
@@ -81,6 +82,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   late ProxyMode _proxyMode;
   late bool? _enableTun;
   String _subscription = _allSubscriptions;
+  bool _sortByLatency = false;
   bool _actionBusy = false;
   bool _closeRequested = false;
 
@@ -169,6 +171,27 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
     return nodes.where((node) => node.group.trim() == subscription).toList();
   }
 
+  List<ProxyNode> _latencySortedNodes(List<ProxyNode> nodes) {
+    final indexed = nodes.indexed.toList(growable: false);
+    indexed.sort((left, right) {
+      final leftLatency = widget.latencyOf(left.$2);
+      final rightLatency = widget.latencyOf(right.$2);
+      final leftMeasured = leftLatency != null &&
+          leftLatency > 0 &&
+          leftLatency < NodeDisplayPolicy.timeoutLatencyMs;
+      final rightMeasured = rightLatency != null &&
+          rightLatency > 0 &&
+          rightLatency < NodeDisplayPolicy.timeoutLatencyMs;
+      if (leftMeasured != rightMeasured) return leftMeasured ? -1 : 1;
+      if (leftMeasured) {
+        final latencyOrder = leftLatency.compareTo(rightLatency!);
+        if (latencyOrder != 0) return latencyOrder;
+      }
+      return left.$1.compareTo(right.$1);
+    });
+    return indexed.map((entry) => entry.$2).toList(growable: false);
+  }
+
   Widget _nodeCard(
     ProxyNode node, {
     required bool selectionBusy,
@@ -212,7 +235,9 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
         }
       });
     }
-    final visibleNodes = _visibleNodes(nodes, effectiveSubscription);
+    final filteredNodes = _visibleNodes(nodes, effectiveSubscription);
+    final visibleNodes =
+        _sortByLatency ? _latencySortedNodes(filteredNodes) : filteredNodes;
     final selectedNode = nodes.cast<ProxyNode?>().firstWhere(
           (node) => node?.name == _selectedNodeName,
           orElse: () => null,
@@ -249,9 +274,12 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
         _SubscriptionFilter(
           groups: groups,
           value: effectiveSubscription,
+          sortByLatency: _sortByLatency,
           onChanged: (value) {
-            if (value == null) return;
             setState(() => _subscription = value);
+          },
+          onSortPressed: () {
+            setState(() => _sortByLatency = !_sortByLatency);
           },
         ),
         const SizedBox(height: 12),
