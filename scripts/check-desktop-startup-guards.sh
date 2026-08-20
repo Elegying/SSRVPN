@@ -299,6 +299,9 @@ part_limits = {
     Path(
         "packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_support_controls.dart"
     ): 200,
+    Path(
+        "packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_subscription_filter.dart"
+    ): 220,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_node_card.dart"): 250,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_subscription_view.dart"): 600,
     Path(
