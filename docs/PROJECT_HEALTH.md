@@ -2,7 +2,7 @@
 
 最近审查：2026-08-20<br>
 当前应用版本：`v4.0.13`；公开发布状态与产物以 [GitHub Release](https://github.com/Elegying/SSRVPN/releases/latest) 为准。<br>
-`v4.0.13` 候选已通过本机完整门禁和 Android 17 USB 增量实机验收；Windows 报告中的三项失败已修复并补充自动化覆盖，精确 Windows CI、合并后 `main` CI 与正式 Release 资产仍以本候选后续 GitHub 记录为准。上一正式版 `v4.0.12` 的 tag、PR、CI、Release 与三端资产验收记录继续保留在下文，不能替代本候选证据。
+`v4.0.13` 已正式发布：带注释标签精确指向 `aa157395`，业务 PR `#133` 与发布准备 PR `#134` 已合入，标签前 `main` CI、Windows 安装器构建/安装/卸载 smoke 和正式 Release 工作流全部通过。GitHub 与 OSS 的三端公开资产、SHA-256、provenance 和 artifact attestation 已重新下载核验一致。
 
 ## 综合结论与评分
 
@@ -17,10 +17,13 @@
 | 文档与项目治理 | 94 | 文档自动校验、依赖策略、人工 UAT 矩阵、ADR、Issue/PR 与发布边界对齐 |
 | 性能与可观测性 | 88 | 有界诊断、带版本与稳定指纹的脱敏崩溃报告、离线关键路径基线具备；真机长期数据仍待采集 |
 
-当前没有发现已知 P0-P1 代码阻断项。残余风险是 Windows 三项修复尚待 GitHub Windows runner 与新安装器实机复验、指定订阅当前被公共 DNS 解析到 `127.0.0.1` 而无法完成 24 节点复测、MIUI 12.5 不渲染通知“断开”动作、macOS 持续断网取消专项按用户要求停止，以及 Flutter/Android 上游工具链迁移；这些边界不冒充已执行验收。
+当前没有发现已知 P0-P1 代码阻断项。残余风险是 Windows 三项修复虽已通过 Windows CI 和正式安装器 smoke，但尚待修复后人工实机复验；指定订阅当前被公共 DNS 解析到 `127.0.0.1`，无法完成最新版 24 节点复测；原生 16 KiB page-size Android 硬件仍待验收。此外，MIUI 12.5 不渲染通知“断开”动作、macOS 持续断网取消专项按用户要求停止，Flutter/Android 上游工具链仍待迁移；这些边界不冒充已执行验收。
 
 ## 本轮完成的优化
 
+- 三端订阅下载先使用真实 SSRVPN 标识，只在服务端拒绝或内容不可解析时执行一次有界兼容标识重试；每次响应继续执行 TLS、状态码、大小、编码、DNS 地址与解析安全检查。
+- Windows 修复诊断复制假成功、连接中节点切换无效或无反馈、订阅页连接状态不清晰；主动取消与真实启动失败继续使用不同的日志和状态语义。
+- 桌面节点页补齐 Escape 幂等关闭、长节点名称关键后缀、国旗无障碍区分和短时结果自动退场；Android 连接中重载保留连接意图并完成订阅输入本地化。
 - 移除 Android 更新与订阅 HTTP 客户端的 `allowBadCertificates` 生产旁路；秘密扫描同时阻止该开关和无条件接受坏证书的回调重新进入三端生产源码。
 - 本地崩溃报告增加应用版本和基于脱敏内容的稳定指纹；用户目录路径在 macOS、Linux、Windows 三种格式下都会脱敏，仍不自动上传任何诊断数据。
 - Windows 生命周期新增未初始化恢复、代理清理不可用和恢复状态路径不可用的失败关闭测试；生命周期覆盖率门槛由 20% 提高到 25%。
@@ -39,31 +42,26 @@ make verify
 
 结果：
 
-- 文档 47/47 本地链接、46/46 当前状态检查、327 个 Dart 文件格式、全部 ShellCheck、核心资产、版本、秘密与 TLS 策略、发布资产守卫均通过。
+- 文档 47/47 本地链接、46/46 当前状态检查、333 个 Dart 文件格式、全部 ShellCheck、核心资产、版本、秘密与 TLS 策略、发布资产守卫均通过。
 - 发布工具 `296/296`；macOS TUN/DNS 行为 `25/25`；workspace `flutter analyze` 为 0 issue。
-- Shared `489` 项测试通过，覆盖率 `83.00%`（`5347/6442`），门槛 65%。
-- Android Flutter `237` 项及 Gradle/JUnit 通过，覆盖率 `65.09%`（`2198/3377`），门槛 30%。
+- Shared `504` 项测试通过，覆盖率 `83.67%`（`5604/6698`），门槛 65%。
+- Android Flutter `237` 项及 Gradle/JUnit 通过，覆盖率 `65.06%`（`2197/3377`），门槛 30%。
 - macOS Flutter `259` 项及 RunnerTests 通过，覆盖率 `65.93%`（`3389/5140`）；生命周期 `77.20%`（`633/820`），系统代理 `88.06%`（`391/444`）。
-- Windows Flutter `223` 项通过；仅 Windows 主机可运行的 8 项在 macOS 条件跳过。平台覆盖率 `50.26%`（`2891/5752`），生命周期 `26.48%`（`174/657`），门槛 25%。
-- 关键路径 smoke 通过；本机观察值为解析中位数 `5833 us`、合并 `29497 us`、配置生成 `40219 us`，只用于同环境回归，不作为跨机器硬阈值。
-- Android Release APK 构建成功，大小约 31.0 MB，SHA-256 为 `8109c0fbf8d6ff0d09fbe0c184e69d486fd04ff04938727c5c77b64a71cb10ca`。
-- macOS 正式打包脚本确认应用与内嵌核心均为 arm64，并完成最终 ad-hoc 重签、`codesign --verify --deep --strict` 与 DMG CRC 校验；版本化 DMG SHA-256 为 `76e1341175a2c95880a5ebcccc5cfca1ab7ba81598a2f5c8d893e9220f78c4e7`。
-
-以上 APK 与 DMG 是本地验证中间产物，不是公开发布资产。
+- Windows Flutter `223` 项通过；仅 Windows 主机可运行的 8 项在 macOS 条件跳过。平台覆盖率 `50.28%`（`2892/5752`），生命周期 `26.48%`（`174/657`），门槛 25%。
+- 关键路径 smoke 通过；本机观察值为解析中位数 `6881 us`、合并 `31379 us`、配置生成 `43483 us`，只用于同环境回归，不作为跨机器硬阈值。
 
 ### 正式发布与线上验收
 
-- `v4.0.12` 正式 Release 为非草稿、非预发布，共包含 APK、DMG、EXE、三个 SHA-256 文件和发布来源清单。
-- 从 GitHub Release 重新下载的 `SSRVPN.apk`、`SSRVPN.dmg`、`SSRVPN_Setup.exe` 均通过随附 SHA-256 校验；GitHub artifact attestation 将三个制品锁定到 `refs/tags/v4.0.12` 和提交 `891a991`。
-- 正式 APK 为 `com.ssrvpn.android`、`4.0.12 (4012)`，发布流水线确认 V2 签名证书与仓库配置指纹一致。
-- 正式 DMG 通过 CRC、深度代码签名和版本检查；应用主程序及所有 Mach-O framework 只有 `arm64`，不包含 `x86_64`。
-- OSS `latest.json` 已指向 `4.0.12`；重新下载三个固定公开入口后的 SHA-256 与 GitHub Release 完全一致。官网 macOS 页面明确仅支持 Apple M 系列芯片、不支持 Intel Mac。
+- `v4.0.13` 标签精确指向 `aa157395f87959696ad21e6a5d894f54c400cb82`；标签前 `main` CI `32304327190` 与正式 Release `32305723229` 全部通过，公开 Release 为非草稿、非预发布且是 `latest`。
+- GitHub Release 包含 APK、DMG、EXE、三个 SHA-256 文件和发布来源清单。正式资产 SHA-256：APK `51217ff044fcfdafe53f5d3dbac7dbf5871fb570e30a52e068185b506ee389c7`，DMG `0ddba41cf224a3fe4a0aac39a80a32354f8eec9ba6748ab46ebdbf439b9ef8bf`，Windows 安装器 `50d803295e7f3947893eb1351b743f41f1bb23dac4838b8d77ee95dbebc0b3f2`。
+- 三端公开资产均通过随附 SHA-256、provenance 和 `refs/tags/v4.0.13` artifact attestation 验证；匿名 GitHub 下载返回成功，Windows runner 完成安装器构建及安装/卸载 smoke。
+- OSS `latest.json` 已指向 `4.0.13`；不可变版本路径与网站固定下载别名重新下载后均与 GitHub Release 摘要一致。官网 macOS 页面继续明确仅支持 Apple M 系列芯片、不支持 Intel Mac。
 
 ## 证据边界与残余风险
 
-- 本轮 Android 11、Android 17、Apple M 系列 macOS 与 Windows 11 已完成针对修复项的增量实机复验；未重复已确认的长时、耗电和完整 20/50 轮压力矩阵，自动化和快速实机证据不冒充未执行项目。
-- 候选、版本准备、合并后 `main`、发布专用 CI 和正式 Release 已分别建立精确提交证据；发布结论不复用旧版本绿色 run。
-- macOS 本机不能执行 Windows C++、PowerShell 5.1、DPAPI、注册表和 Inno Setup；这些已由 Windows CI 和候选安装器实机覆盖安装、数据保留、连接与断开复验补充。
+- Android 17 已完成 v4.0.13 修复项增量实机复验；Windows 11 报告基线完成覆盖安装、数据保留、连接和断开，但报告后修复的三项行为尚未使用最终正式安装器人工复验。未重复的长时、耗电和完整压力矩阵继续保持未执行。
+- 候选、版本准备、合并后 `main`、标签前精确 `main`、发布专用 CI 和正式 Release 已分别建立提交证据；发布结论不复用旧版本绿色 run。
+- macOS 本机不能执行 Windows C++、PowerShell 5.1、DPAPI、注册表和 Inno Setup；最终源码和安装器已由 Windows CI 覆盖，不能将这些自动化结果表述为修复后的 Windows 人工实机验收。
 - macOS 持续断网恢复期间出现过一次可恢复的应用内取消失败报告；因用户明确停止该故障注入，本轮不继续断网实测，也不把该专项标记为通过。正常连接、短时中断恢复、断开、DNS/路由/代理恢复和退出均通过。
 - 当前 Android 核心已固定源码提交与树、bridge、Go/x/mobile/NDK、build info、JNI ABI、16 KiB ELF 对齐和内容寻址资产；源码重建会因临时本地 replacement 路径产生不同字节哈希，因此不宣称字节级确定性构建。下次替换仍必须完成目标 Android 真机生命周期回归。
 - Android 仍有旧 Kotlin/Gradle 兼容开关；`flutter_secure_storage 11` 和更高 `compileSdk` 应随 Flutter 工具链升级共同迁移，不能只为追新版本破坏可构建性。
@@ -71,7 +69,7 @@ make verify
 
 ## 已固定的产品边界
 
-- HTTP 订阅兼容策略不变。
+- HTTP 订阅固定先发送真实产品标识，兼容重试最多一次；任何重试都不得放宽 TLS、DNS 地址、响应大小、编码或解析安全边界。
 - Android 继续使用受测试保护的内置国内应用直连策略，不增加手动应用选择页。
 - 三端继续使用 IPv4-only Mihomo 运行配置；Android 与 Windows TUN 捕获并拒绝 IPv6，避免绕过。
 - 活动产品表面继续只有首页和订阅；节点编辑沿用长按/右键入口。
