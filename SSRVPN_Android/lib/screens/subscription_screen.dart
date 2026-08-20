@@ -24,10 +24,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
   bool _isAdding = false;
   bool _isRefreshing = false;
   bool _isDeleting = false;
+  bool _isEditing = false;
   SubscriptionRefreshResult? _refreshResult;
   SubscriptionRefreshCancellation? _refreshCancellation;
 
-  bool get _isBusy => _isAdding || _isRefreshing || _isDeleting;
+  bool get _isBusy => _isAdding || _isRefreshing || _isDeleting || _isEditing;
 
   @override
   void dispose() {
@@ -93,6 +94,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         refreshAllSubscriptionsDetailedWith:
             subService.refreshAllSubscriptionsDetailed,
         removeSubscriptionWith: subService.removeSubscription,
+        updateSubscriptionWith: subService.updateSubscription,
       ),
     );
   }
@@ -268,6 +270,37 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     }
   }
 
+  Future<void> _editSubscription(Subscription subscription) async {
+    if (_isBusy) return;
+    final draft = await showSsrvpnSubscriptionEditDialog(context, subscription);
+    if (draft == null || !mounted || _isBusy) return;
+
+    setState(() => _isEditing = true);
+    final result = await _subscriptionController(
+      context.read<SubscriptionService>(),
+    ).editSubscription(subscription, draft.name, draft.url);
+    if (!mounted) return;
+    setState(() => _isEditing = false);
+
+    switch (result.status) {
+      case SubscriptionEditStatus.emptyName:
+        _showSnack('订阅名称不能为空', AppTheme.errorColor);
+      case SubscriptionEditStatus.emptyUrl:
+        _showSnack('订阅链接不能为空', AppTheme.errorColor);
+      case SubscriptionEditStatus.duplicateUrl:
+        _showSnack('该订阅链接已存在', AppTheme.warningColor);
+      case SubscriptionEditStatus.invalidUrl:
+        _showSnack('请输入有效的订阅链接', AppTheme.errorColor);
+      case SubscriptionEditStatus.unchanged:
+        _showSnack('订阅信息没有变化', AppTheme.warningColor);
+      case SubscriptionEditStatus.saved:
+        _showSnack('订阅已更新，正在刷新节点', AppTheme.successColor);
+        await _refreshAll();
+      case SubscriptionEditStatus.failed:
+        _showSnack('更新失败：${result.displayError}', AppTheme.errorColor);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -295,6 +328,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         onRefresh: _refreshAll,
         onCancelRefresh: _cancelRefresh,
         onDelete: _deleteSubscription,
+        onEdit: _editSubscription,
       ),
     );
   }

@@ -22,6 +22,7 @@ abstract class SubscriptionScreenServicePort {
     Duration timeout = SubscriptionServiceBase.defaultBatchRefreshTimeout,
   });
   Future<void> removeSubscription(String id);
+  Future<void> updateSubscription(Subscription subscription);
 }
 
 class CallbackSubscriptionScreenService
@@ -35,6 +36,7 @@ class CallbackSubscriptionScreenService
     required this.addSubscriptionWith,
     required this.refreshAllSubscriptionsDetailedWith,
     required this.removeSubscriptionWith,
+    required this.updateSubscriptionWith,
   });
 
   final List<Subscription> Function() subscriptionsOf;
@@ -49,6 +51,7 @@ class CallbackSubscriptionScreenService
     Duration timeout,
   }) refreshAllSubscriptionsDetailedWith;
   final Future<void> Function(String id) removeSubscriptionWith;
+  final Future<void> Function(Subscription subscription) updateSubscriptionWith;
 
   @override
   List<Subscription> get subscriptions => subscriptionsOf();
@@ -85,6 +88,11 @@ class CallbackSubscriptionScreenService
   @override
   Future<void> removeSubscription(String id) {
     return removeSubscriptionWith(id);
+  }
+
+  @override
+  Future<void> updateSubscription(Subscription subscription) {
+    return updateSubscriptionWith(subscription);
   }
 }
 
@@ -229,10 +237,90 @@ class SubscriptionDeleteResult {
       ).replaceFirst('Exception: ', '');
 }
 
+enum SubscriptionEditStatus {
+  emptyName,
+  emptyUrl,
+  duplicateUrl,
+  invalidUrl,
+  unchanged,
+  saved,
+  failed,
+}
+
+class SubscriptionEditResult {
+  const SubscriptionEditResult({required this.status, this.error});
+
+  final SubscriptionEditStatus status;
+  final Object? error;
+
+  String get displayError => _sanitizeRefreshDisplayText(
+        error,
+        maxCharacters: SubscriptionDeleteResult.maxDisplayErrorCharacters,
+      ).replaceFirst('Exception: ', '');
+}
+
 class SubscriptionScreenController {
   const SubscriptionScreenController({required this.subscriptionService});
 
   final SubscriptionScreenServicePort subscriptionService;
+
+  Future<SubscriptionEditResult> editSubscription(
+    Subscription original,
+    String nameInput,
+    String urlInput,
+  ) async {
+    final name = nameInput.trim();
+    final url = urlInput.trim();
+    if (name.isEmpty) {
+      return const SubscriptionEditResult(
+        status: SubscriptionEditStatus.emptyName,
+      );
+    }
+    if (url.isEmpty) {
+      return const SubscriptionEditResult(
+        status: SubscriptionEditStatus.emptyUrl,
+      );
+    }
+    if (subscriptionService.subscriptions.any(
+      (subscription) =>
+          subscription.id != original.id && subscription.url == url,
+    )) {
+      return const SubscriptionEditResult(
+        status: SubscriptionEditStatus.duplicateUrl,
+      );
+    }
+    if (!subscriptionService.isSingleNodeLink(url) &&
+        !_isValidHttpSubscriptionUrl(url)) {
+      return const SubscriptionEditResult(
+        status: SubscriptionEditStatus.invalidUrl,
+      );
+    }
+    if (name == original.name && url == original.url) {
+      return const SubscriptionEditResult(
+        status: SubscriptionEditStatus.unchanged,
+      );
+    }
+
+    final updated = Subscription(
+      id: original.id,
+      name: name,
+      url: url,
+      lastUpdate: url == original.url ? original.lastUpdate : null,
+      enabled: original.enabled,
+      autoUpdate: original.autoUpdate,
+    );
+    try {
+      await subscriptionService.updateSubscription(updated);
+      return const SubscriptionEditResult(
+        status: SubscriptionEditStatus.saved,
+      );
+    } catch (error) {
+      return SubscriptionEditResult(
+        status: SubscriptionEditStatus.failed,
+        error: error,
+      );
+    }
+  }
 
   Future<SubscriptionAddResult> addSubscription(String input) async {
     final url = input.trim();

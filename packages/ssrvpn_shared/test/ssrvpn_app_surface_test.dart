@@ -1,5 +1,6 @@
 import 'dart:ui' show SemanticsAction, Tristate;
 
+import 'package:flutter/gestures.dart' show kSecondaryMouseButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +11,7 @@ import 'package:ssrvpn_shared/utils/node_country_policy.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_app_surface.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_home_overview.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_node_selection_page.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_subscription_edit_dialog.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_subscription_error_dialog.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_subscription_view.dart';
 
@@ -20,9 +22,10 @@ void main() {
     double textScaleFactor = 1,
     TextScaler? textScaler,
     double viewInsetsBottom = 0,
+    TargetPlatform platform = TargetPlatform.android,
   }) {
     return MaterialApp(
-      theme: ThemeData.dark(useMaterial3: true),
+      theme: ThemeData.dark(useMaterial3: true).copyWith(platform: platform),
       home: Align(
         alignment: Alignment.topLeft,
         child: SizedBox(
@@ -714,6 +717,10 @@ void main() {
 
     await tester.tap(find.text('全部订阅'));
     await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('ssrvpn-subscription-picker-glass')),
+      findsOneWidget,
+    );
     await tester.tap(find.text('订阅 B').last);
     await tester.pumpAndSettle();
     expect(find.text('日本节点'), findsOneWidget);
@@ -726,6 +733,225 @@ void main() {
     expect(find.text('全部订阅'), findsOneWidget);
     expect(find.text('新加坡节点'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('node latency sort toggles without changing the source order',
+      (tester) async {
+    final nodes = [
+      ProxyNode(
+        name: '默认第一',
+        type: 'ss',
+        server: 'a.example.com',
+        port: 443,
+        latency: 120,
+      ),
+      ProxyNode(
+        name: '延迟最低',
+        type: 'ss',
+        server: 'b.example.com',
+        port: 443,
+        latency: 30,
+      ),
+      ProxyNode(
+        name: '尚未测试',
+        type: 'ss',
+        server: 'c.example.com',
+        port: 443,
+      ),
+      ProxyNode(
+        name: '已经超时',
+        type: 'ss',
+        server: 'd.example.com',
+        port: 443,
+        latency: 65535,
+      ),
+    ];
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnNodeSelectionPage(
+          nodesOf: () => nodes,
+          selectedNodeNameOf: () => null,
+          proxyModeOf: () => ProxyMode.rule,
+          testingNodeNameOf: () => null,
+          isBatchTestingOf: () => false,
+          isConnectingOf: () => false,
+          countryCodeOf: (_) => 'UN',
+          latencyOf: (node) => node.latency,
+          onClose: () {},
+          onRefresh: () async {},
+          onTestAll: () async {},
+          onTestLatency: (_) async {},
+          onSelectNode: (_) async {},
+          onProxyModeChanged: (_) async {},
+        ),
+      ),
+    );
+
+    double topOf(String name) => tester.getTopLeft(find.text(name)).dy;
+    expect(topOf('默认第一'), lessThan(topOf('延迟最低')));
+
+    await tester.tap(find.byKey(const Key('ssrvpn-node-latency-sort')));
+    await tester.pumpAndSettle();
+    expect(topOf('延迟最低'), lessThan(topOf('默认第一')));
+    expect(topOf('默认第一'), lessThan(topOf('尚未测试')));
+    expect(topOf('尚未测试'), lessThan(topOf('已经超时')));
+    expect(nodes.map((node) => node.name), [
+      '默认第一',
+      '延迟最低',
+      '尚未测试',
+      '已经超时',
+    ]);
+
+    await tester.tap(find.byKey(const Key('ssrvpn-node-latency-sort')));
+    await tester.pumpAndSettle();
+    expect(topOf('默认第一'), lessThan(topOf('延迟最低')));
+  });
+
+  testWidgets('subscription cards expose Android long-press editing',
+      (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    final subscription = Subscription(
+      id: 'edit-android',
+      name: 'Android subscription',
+      url: 'https://example.com/android',
+    );
+    Subscription? edited;
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnSubscriptionView(
+          subscriptions: [subscription],
+          urlController: controller,
+          isAdding: false,
+          isRefreshing: false,
+          isBusy: false,
+          refreshMessage: null,
+          refreshMessageColor: null,
+          onAdd: () {},
+          onRefresh: () {},
+          onCancelRefresh: () {},
+          onDelete: (_) {},
+          onEdit: (value) => edited = value,
+        ),
+      ),
+    );
+
+    await tester.longPress(find.text('Android subscription'));
+    expect(edited, same(subscription));
+  });
+
+  testWidgets('subscription cards expose desktop right-click editing',
+      (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    final subscription = Subscription(
+      id: 'edit-desktop',
+      name: 'Desktop subscription',
+      url: 'https://example.com/desktop',
+    );
+    Subscription? edited;
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnSubscriptionView(
+          subscriptions: [subscription],
+          urlController: controller,
+          isAdding: false,
+          isRefreshing: false,
+          isBusy: false,
+          refreshMessage: null,
+          refreshMessageColor: null,
+          onAdd: () {},
+          onRefresh: () {},
+          onCancelRefresh: () {},
+          onDelete: (_) {},
+          onEdit: (value) => edited = value,
+        ),
+        platform: TargetPlatform.windows,
+      ),
+    );
+
+    await tester.tapAt(
+      tester.getCenter(find.text('Desktop subscription')),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pump();
+    expect(edited, same(subscription));
+  });
+
+  testWidgets('subscription edit dialog uses frosted glass and returns edits',
+      (tester) async {
+    final subscription = Subscription(
+      id: 'edit-dialog',
+      name: 'Original name',
+      url: 'https://example.com/original',
+    );
+    SsrvpnSubscriptionEditDraft? draft;
+
+    await tester.pumpWidget(
+      host(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              draft = await showSsrvpnSubscriptionEditDialog(
+                context,
+                subscription,
+              );
+            },
+            child: const Text('编辑订阅'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('编辑订阅'));
+    await tester.pumpAndSettle();
+    final glass = find.byKey(const Key('ssrvpn-subscription-edit-glass'));
+    expect(glass, findsOneWidget);
+    expect(
+      find.descendant(of: glass, matching: find.byType(BackdropFilter)),
+      findsOneWidget,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('ssrvpn-subscription-edit-name')),
+      'Renamed',
+    );
+    await tester.enterText(
+      find.byKey(const Key('ssrvpn-subscription-edit-url')),
+      'https://example.com/replacement',
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-subscription-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(draft?.name, 'Renamed');
+    expect(draft?.url, 'https://example.com/replacement');
+  });
+
+  testWidgets('About dialog uses the shared frosted glass surface',
+      (tester) async {
+    await tester.pumpWidget(
+      host(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showSsrvpnAboutDialog(context),
+            child: const Text('打开关于'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开关于'));
+    await tester.pumpAndSettle();
+
+    final glass = find.byKey(const Key('ssrvpn-about-glass'));
+    expect(glass, findsOneWidget);
+    expect(
+      find.descendant(of: glass, matching: find.byType(BackdropFilter)),
+      findsOneWidget,
+    );
   });
 
   testWidgets(

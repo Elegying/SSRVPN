@@ -51,6 +51,86 @@ void main() {
       );
     });
 
+    test('validates subscription edits before touching stored metadata',
+        () async {
+      final existing = Subscription(
+        id: 'existing',
+        name: 'Existing',
+        url: 'https://example.com/sub',
+      );
+      final duplicate = Subscription(
+        id: 'duplicate',
+        name: 'Duplicate',
+        url: 'https://example.com/duplicate',
+      );
+      final service = _FakeSubscriptionService(
+        subscriptions: [existing, duplicate],
+      );
+      final controller = SubscriptionScreenController(
+        subscriptionService: service,
+      );
+
+      expect(
+        (await controller.editSubscription(existing, '', existing.url)).status,
+        SubscriptionEditStatus.emptyName,
+      );
+      expect(
+        (await controller.editSubscription(existing, 'Renamed', '')).status,
+        SubscriptionEditStatus.emptyUrl,
+      );
+      expect(
+        (await controller.editSubscription(
+          existing,
+          'Renamed',
+          duplicate.url,
+        ))
+            .status,
+        SubscriptionEditStatus.duplicateUrl,
+      );
+      expect(
+        (await controller.editSubscription(
+          existing,
+          'Renamed',
+          'not a URL',
+        ))
+            .status,
+        SubscriptionEditStatus.invalidUrl,
+      );
+      expect(service.updatedSubscriptions, isEmpty);
+    });
+
+    test('subscription edits preserve flags and reset stale update time',
+        () async {
+      final lastUpdate = DateTime.utc(2026, 8, 20, 1, 2, 3);
+      final existing = Subscription(
+        id: 'existing',
+        name: 'Existing',
+        url: 'https://example.com/sub',
+        lastUpdate: lastUpdate,
+        enabled: false,
+        autoUpdate: false,
+      );
+      final service = _FakeSubscriptionService(subscriptions: [existing]);
+      final controller = SubscriptionScreenController(
+        subscriptionService: service,
+      );
+
+      final result = await controller.editSubscription(
+        existing,
+        '  Renamed subscription  ',
+        '  https://example.com/replacement  ',
+      );
+
+      expect(result.status, SubscriptionEditStatus.saved);
+      final updated = service.updatedSubscriptions.single;
+      expect(updated.id, existing.id);
+      expect(updated.name, 'Renamed subscription');
+      expect(updated.url, 'https://example.com/replacement');
+      expect(updated.enabled, isFalse);
+      expect(updated.autoUpdate, isFalse);
+      expect(updated.lastUpdate, isNull);
+    });
+
     test('adds http subscriptions and reports fetched node count', () async {
       final service = _FakeSubscriptionService(
         nodes: [node('A'), node('B')],
@@ -482,6 +562,7 @@ class _FakeSubscriptionService implements SubscriptionScreenServicePort {
   Object? refreshError;
   Object? removeError;
   final addedUrls = <String>[];
+  final updatedSubscriptions = <Subscription>[];
   SubscriptionRefreshCancellation? receivedCancellation;
   Duration? receivedTimeout;
 
@@ -534,6 +615,14 @@ class _FakeSubscriptionService implements SubscriptionScreenServicePort {
     if (removeError != null) throw removeError!;
     _subscriptions.removeWhere((sub) => sub.id == id);
     if (_subscriptions.isEmpty) _nodes = <ProxyNode>[];
+  }
+
+  @override
+  Future<void> updateSubscription(Subscription subscription) async {
+    updatedSubscriptions.add(subscription);
+    final index =
+        _subscriptions.indexWhere((item) => item.id == subscription.id);
+    if (index >= 0) _subscriptions[index] = subscription;
   }
 
   @override
