@@ -37,8 +37,8 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
 
 ## 在线更新
 
-客户端仍从 OSS/GitHub Release 的固定资产 `SSRVPN_Setup.exe` 下载更新，因此官网和发布
-链接无需随版本变化。安装包通过 SHA256 校验后，以
+客户端只在节点连接成功后从 `Elegying/SSRVPN` 的正式 GitHub Release 检查并下载固定资产
+`SSRVPN_Setup.exe`；OSS 仍由发布流水线同步为网站镜像，但不再是应用内更新源。安装包通过 SHA256 校验后，以
 `SSRVPN_Setup_v<版本号>.exe` 保存到当前 Windows 用户的真实桌面目录；客户端只提示用户
 手动安装，不会自动运行安装包或退出 SSRVPN。
 

@@ -188,10 +188,14 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     });
     if (running) {
       _schedulePublicIpRefresh();
+      _checkUpdateDelayed();
+    } else {
+      _updateCheckTimer?.cancel();
     }
   }
 
   void _checkUpdateDelayed() {
+    if (!_isConnected) return;
     _updateCheckTimer?.cancel();
     _updateCheckTimer = Timer(const Duration(seconds: 10), () async {
       if (!mounted ||

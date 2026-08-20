@@ -3,8 +3,9 @@
 SSRVPN 的正式发布仍由 Git tag 触发。GitHub Actions 先构建并校验三端产物，
 创建暂不公开的 GitHub Draft Release，再把同一批文件上传到阿里云 OSS 的
 不可变版本目录。不可变文件验证完成后，工作流先备份并推广网站固定下载文件与
-客户端 `latest.json`，再立即公开 GitHub Release。这样 GitHub 新版本不会先于
-网站下载通道公开；客户端优先读取 OSS，只有 OSS 无有效更新时才回退 GitHub。
+兼容运维指针 `latest.json`，再立即公开 GitHub Release。这样 GitHub 新版本不会先于
+网站下载通道公开。应用内更新只在节点连接成功后读取 GitHub Releases；OSS 继续同步为
+网站和人工分发镜像，不再进入客户端更新检查或下载链路。构建和发布事务本身不变。
 
 ## 当前配置
 
@@ -51,7 +52,7 @@ mutation 一旦尝试，后续连续读到 draft、prerelease 或 API 失败都�
 用已经校验过的同一批文件覆盖并重新下载比对，同时设置 `Cache-Control:
 no-cache`。事务备份使用带 RAM 凭据的 OSS 源端读取，公开回读同时携带
 `no-cache` 请求头和唯一查询参数，避免把代理或边缘缓存当作恢复真相。因此网站
-不需要随版本号修改链接。GitHub 备用地址使用
+不需要随版本号修改链接。GitHub 正式版本固定地址使用
 `https://github.com/Elegying/SSRVPN/releases/latest/download/<文件名>`。推广新版本时会在同一
 备份事务内退役旧的 `downloads/SSRVPN.zip` 及校验文件：有删除权限时直接删除；若 RAM
 策略拒绝删除但仍允许覆盖，则写入固定、不可执行的退役标记并重新下载逐字节确认。若后续
@@ -102,8 +103,8 @@ Bucket、Endpoint、公开读取和上传权限都可用。
 ## 故障和回滚
 
 - Release workflow 在 OSS 步骤失败：不要手工改 `latest.json`；修复配置后
-  重新运行失败任务。旧指针仍然有效，客户端会继续使用旧 OSS 版本或 GitHub
-  备用源。若固定下载文件推广阶段恢复失败，工作流会失败并上传保留 7 天的
+  重新运行失败任务。旧指针和网站固定下载仍保持上一个有效版本；客户端应用内更新
+  只读取已经公开的 GitHub Release。若固定下载文件推广阶段恢复失败，工作流会失败并上传保留 7 天的
   `oss-public-channel-recovery-*` 备份 Artifact。此时各平台包与校验文件仍必须成对，
   且 `latest.json` 不会在不完整恢复后继续回退；按日志中对象清单恢复后再重跑。
 - GitHub Release 公开 mutation 已尝试后，无论最终状态无法读取，还是连续读到可能

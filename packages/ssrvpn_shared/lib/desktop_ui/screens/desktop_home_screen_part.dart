@@ -63,7 +63,6 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _disposed) return;
       unawaited(_loadInitialData());
-      _checkUpdateDelayed();
     });
   }
 

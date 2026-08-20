@@ -498,7 +498,7 @@ class SharedUpdateService {
                           Navigator.pop(ctx);
                           openDownload(fallbackDownloadUrl);
                         },
-                        child: const Text('OSS 下载异常？使用 GitHub 备用下载'),
+                        child: const Text('使用备用下载地址'),
                       ),
                     ],
                   ],

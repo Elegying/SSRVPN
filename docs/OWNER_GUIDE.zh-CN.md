@@ -97,8 +97,8 @@ GitHub Release workflow 必须继续使用同一套签名 secrets。本地可以
 - Windows 安装版 EXE
 
 正式 tag 构建完成后，Release workflow 还会把同一批已校验产物上传到阿里云
-OSS，并在最后一步更新 `ssrvpn/latest.json`。客户端优先读取 OSS，GitHub
-Releases 是备用检测与下载源。详细操作见
+OSS，并在最后一步更新 `ssrvpn/latest.json`。应用内更新只在节点连接成功后读取
+GitHub Releases；OSS 继续作为网站和人工分发镜像，不进入客户端检查或下载链路。详细操作见
 `docs/OSS_RELEASE_OPERATIONS.zh-CN.md`。
 
 项目明确不购买 Apple/Microsoft 开发者证书：macOS 固定使用 ad-hoc、未公证分发，Windows 固定使用未签名分发，因此系统安全提示属于已知产品边界。仓库不得重新加入付费桌面签名自动化或相关 secrets。Android 使用免费自签名 keystore，只要每次发布都使用同一个 keystore，用户就能覆盖安装升级。详细边界见 `docs/RELEASE_SIGNING.md`。

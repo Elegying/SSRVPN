@@ -6,7 +6,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import '../theme/app_theme.dart';
 
-/// 在线更新服务 - OSS 主源，GitHub Releases 备用。
+/// 在线更新服务 - GitHub Releases。
 class UpdateService {
   static const String appVersion = AppConstants.appVersion;
   static const String _openPath = '/usr/bin/open';
@@ -116,7 +116,7 @@ class UpdateService {
                   Navigator.pop(dialogContext);
                   unawaited(downloadAndOpen(fallbackDownloadUrl));
                 },
-                child: const Text('使用 GitHub 备用下载'),
+                child: const Text('使用备用下载地址'),
               ),
             ElevatedButton(
               onPressed: () {

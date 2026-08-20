@@ -355,5 +355,71 @@ for path in subscription_consumers:
     if "SsrvpnSubscriptionView(" not in read_source(path):
         raise SystemExit(f"{path}: subscription UI bypasses the shared view")
 
+update_checker_path = Path(
+    "packages/ssrvpn_shared/lib/services/update_checker.dart"
+)
+update_checker = read_source(update_checker_path)
+for token in (
+    "https://api.github.com/repos/$owner/$repo/releases/latest",
+    "_isExpectedGitHubAssetUrl(",
+    ".sha256",
+):
+    if token not in update_checker:
+        raise SystemExit(f"{update_checker_path}: GitHub-only update guard is missing {token}")
+for token in ("aliyuncs", "latest.json", "_checkPrimaryManifest"):
+    if token in update_checker:
+        raise SystemExit(f"{update_checker_path}: legacy OSS client update source remains: {token}")
+
+android_startup_path = Path(
+    "SSRVPN_Android/lib/startup/startup_orchestrator.dart"
+)
+android_startup = read_source(android_startup_path)
+for token in ("checkForUpdate", "UpdateService", "AppUpdateInfo"):
+    if token in android_startup:
+        raise SystemExit(
+            f"{android_startup_path}: startup must not check updates before connection: {token}"
+        )
+
+android_update_lifecycle_path = Path(
+    "SSRVPN_Android/lib/screens/home_lifecycle_actions_part.dart"
+)
+android_update_lifecycle = read_source(android_update_lifecycle_path)
+for token in (
+    "if (running) {",
+    "_checkUpdateDelayed();",
+    "if (!_isConnected) return;",
+    "!_isConnected ||",
+):
+    if token not in android_update_lifecycle:
+        raise SystemExit(
+            f"{android_update_lifecycle_path}: connected-only update trigger is missing {token}"
+        )
+
+desktop_background_path = Path(
+    "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_background_tasks_part.dart"
+)
+desktop_background = read_source(desktop_background_path)
+for token in (
+    "if (statusIsCurrent && wasRunning)",
+    "_checkUpdateDelayed();",
+    "if (!_isConnected ||",
+    "!_isConnected || _updateCheckInProgress",
+):
+    if token not in desktop_background:
+        raise SystemExit(
+            f"{desktop_background_path}: connected-only update trigger is missing {token}"
+        )
+
+desktop_init = source_section(
+    desktop_home,
+    desktop_home_path,
+    "void initState()",
+    "void didChangeDependencies()",
+)
+if "_checkUpdateDelayed" in desktop_init:
+    raise SystemExit(
+        f"{desktop_home_path}: desktop startup must not check updates before connection"
+    )
+
 print("Shared two-page product surface guards passed.")
 PY

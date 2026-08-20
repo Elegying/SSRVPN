@@ -255,15 +255,15 @@ void main() {
     );
   });
 
-  test('verified desktop download falls back after an OSS failure', () async {
-    final bytes = utf8.encode('github-installer');
+  test('generic desktop download retries an explicitly supplied backup',
+      () async {
+    final bytes = utf8.encode('backup-installer');
     final hosts = <String>[];
     final file = await SharedUpdateService.downloadVerifiedUpdate(
       AppUpdateInfo(
         version: '9.9.9',
-        downloadUrl: 'https://oss.example/SSRVPN_Setup.exe',
-        fallbackDownloadUrl:
-            'https://github.com/Elegying/SSRVPN/releases/download/v9.9.9/SSRVPN_Setup.exe',
+        downloadUrl: 'https://primary.example/SSRVPN_Setup.exe',
+        fallbackDownloadUrl: 'https://backup.example/SSRVPN_Setup.exe',
         changelog: '',
         sha256: sha256.convert(bytes).toString(),
       ),
@@ -271,25 +271,24 @@ void main() {
       fileName: 'SSRVPN_Setup.exe',
       client: MockClient((request) async {
         hosts.add(request.url.host);
-        return request.url.host == 'oss.example'
+        return request.url.host == 'primary.example'
             ? http.Response('unavailable', HttpStatus.badGateway)
             : http.Response.bytes(bytes, HttpStatus.ok);
       }),
     );
 
     expect(await file.readAsBytes(), bytes);
-    expect(hosts, ['oss.example', 'github.com']);
+    expect(hosts, ['primary.example', 'backup.example']);
   });
 
   test('selected fallback download is attempted before the primary', () async {
-    final bytes = utf8.encode('github-installer');
-    const fallback =
-        'https://github.com/Elegying/SSRVPN/releases/download/v9.9.9/SSRVPN_Setup.exe';
+    final bytes = utf8.encode('backup-installer');
+    const fallback = 'https://backup.example/SSRVPN_Setup.exe';
     final hosts = <String>[];
     final update = SharedUpdateService.preferDownloadUrl(
       AppUpdateInfo(
         version: '9.9.9',
-        downloadUrl: 'https://oss.example/SSRVPN_Setup.exe',
+        downloadUrl: 'https://primary.example/SSRVPN_Setup.exe',
         fallbackDownloadUrl: fallback,
         changelog: '',
         sha256: sha256.convert(bytes).toString(),
@@ -307,8 +306,11 @@ void main() {
       }),
     );
 
-    expect(hosts, ['github.com']);
-    expect(update.fallbackDownloadUrl, 'https://oss.example/SSRVPN_Setup.exe');
+    expect(hosts, ['backup.example']);
+    expect(
+      update.fallbackDownloadUrl,
+      'https://primary.example/SSRVPN_Setup.exe',
+    );
   });
 
   test('a publication failure does not retry from another download source',
@@ -322,9 +324,8 @@ void main() {
       SharedUpdateService.downloadVerifiedUpdate(
         AppUpdateInfo(
           version: '9.9.9',
-          downloadUrl: 'https://oss.example/SSRVPN_Setup.exe',
-          fallbackDownloadUrl:
-              'https://github.com/Elegying/SSRVPN/releases/download/v9.9.9/SSRVPN_Setup.exe',
+          downloadUrl: 'https://primary.example/SSRVPN_Setup.exe',
+          fallbackDownloadUrl: 'https://backup.example/SSRVPN_Setup.exe',
           changelog: '',
           sha256: sha256.convert(bytes).toString(),
         ),

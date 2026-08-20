@@ -7,7 +7,6 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         AppConstants,
         AppLogger,
         AppModalCoordinator,
-        AppUpdateInfo,
         HomeNodeController,
         SsrvpnAppBackdrop,
         SsrvpnBottomNavigation,
@@ -61,7 +60,6 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
   final UpdateAvailabilityController _updateAvailability =
       UpdateAvailabilityController();
 
-  // 公开 getter 供 StartupOrchestrator 使用
   clash.ClashService? get clashService => _clashService;
   SubscriptionService? get subscriptionService => _subscriptionService;
 
@@ -113,7 +111,6 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
           unawaited(
             StartupOrchestrator(
               flags: widget.startupFlags,
-              onUpdateAvailable: _publishStartupUpdate,
             ).start(),
           );
         });
@@ -143,11 +140,6 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         return;
       }
     }
-  }
-
-  Future<void> _publishStartupUpdate(AppUpdateInfo update) async {
-    if (!mounted) return;
-    _updateAvailability.publish(update);
   }
 
   Future<void> _openAvailableUpdate(BuildContext context) async {

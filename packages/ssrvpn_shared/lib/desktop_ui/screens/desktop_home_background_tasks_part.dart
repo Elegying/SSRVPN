@@ -51,6 +51,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
         _connectivityWarning = clashService.connectivityWarning;
       });
       _schedulePublicIpRefresh();
+      _checkUpdateDelayed();
     }
 
     if (nodes.isEmpty) {
@@ -91,6 +92,11 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
         unawaited(_syncSelectedNodeFromRuntime(statusEpoch));
       }
     });
+    if (running) {
+      _checkUpdateDelayed();
+    } else {
+      _updateCheckTimer?.cancel();
+    }
   }
 
   Future<void> _syncSelectedNodeFromRuntime(int statusEpoch) async {
@@ -157,7 +163,8 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
   void _checkUpdateDelayed({
     Duration delay = const Duration(seconds: 10),
   }) {
-    if (_updateCheckCompleted ||
+    if (!_isConnected ||
+        _updateCheckCompleted ||
         _updateCheckInProgress ||
         (_updateCheckTimer?.isActive ?? false)) {
       return;
@@ -168,24 +175,26 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
   }
 
   Future<void> _checkForUpdate() async {
-    if (!mounted || _disposed || _updateCheckInProgress) return;
+    if (!mounted || _disposed || !_isConnected || _updateCheckInProgress) {
+      return;
+    }
     _updateCheckInProgress = true;
     _updateCheckAttempts++;
     var shouldRetry = false;
     try {
       const currentVersion = UpdateService.appVersion;
       final update = await UpdateService.checkForUpdate(currentVersion);
-      if (update != null && mounted && !_disposed) {
+      if (update != null && mounted && !_disposed && _isConnected) {
         context.read<UpdateAvailabilityController>().publish(update);
       }
-      _updateCheckCompleted = true;
+      _updateCheckCompleted = _isConnected;
     } catch (e) {
       shouldRetry = _updateCheckAttempts < 2;
       AppLogger.warning('Update', '检查更新异常: $e');
     } finally {
       _updateCheckInProgress = false;
     }
-    if (shouldRetry && mounted && !_disposed) {
+    if (shouldRetry && mounted && !_disposed && _isConnected) {
       _checkUpdateDelayed(delay: const Duration(minutes: 1));
     }
   }

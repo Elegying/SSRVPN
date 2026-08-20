@@ -88,8 +88,9 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    LocalAppData 回退数据和窗口状态，前后哈希一致；程序文件、旧恢复状态和两个已知
    WebView 缓存目录必须清理。交互安装只在完成页勾选后启动，静默安装不得启动 GUI。
    另保持已安装实例占用文件，确认安装器会在修改程序文件前阻断；退出实例后重试必须成功。
-11. 检查应用内更新优先从 OSS 的固定资产 `SSRVPN_Setup.exe` 下载并校验，OSS
-   异常时能使用 GitHub 备用下载。校验通过后必须使用 Windows Known Folder
+11. 先确认未连接启动和首页初始化不会发起更新请求；连接节点后，应用内更新必须只从
+   `Elegying/SSRVPN` 的正式 GitHub Release 读取并下载固定资产 `SSRVPN_Setup.exe` 及 SHA-256，
+   不得请求 OSS `latest.json` 或 OSS 安装包。校验通过后必须使用 Windows Known Folder
    定位当前用户的真实桌面（包括重定向桌面），并保存为
    `SSRVPN_Setup_vX.Y.Z.exe`。完成后必须提示“最新版安装包已下载到桌面，请直接安装”；
    SSRVPN 保持运行，不自动打开或安装文件，由用户手动安装。取消、摘要不匹配或下载失败不得损坏
@@ -135,7 +136,8 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    scripts/check-release-assets.sh vX.Y.Z
    ```
 2. 下载每个平台产物，至少做一次启动检查。
-3. 检查应用内更新是否能读到最新版本；Windows 应将经校验的当前版本安装包保存到
+3. 检查未连接时不会检查更新，连接节点后应用内更新能从 GitHub Release 读到最新版本；
+   Windows 应将经校验的当前版本安装包保存到
    真实桌面，显示手动安装提示并保持客户端运行，不打开外部下载链接。
 4. 按 `docs/PRODUCT_REQUIREMENTS.zh-CN.md` 检查安装包、首次导入、节点排序和记忆节点行为。
 5. 检查 SHA256 校验文件可用：

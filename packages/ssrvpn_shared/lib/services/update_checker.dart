@@ -42,9 +42,6 @@ class UpdateChecker {
   static const int _maxChecksumResponseBytes = 4096;
   static const String owner = 'Elegying';
   static const String repo = 'SSRVPN';
-  static final Uri primaryManifestUrl = Uri.parse(
-    'https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/latest.json',
-  );
   static final Uri githubLatestReleaseUrl = Uri.parse(
     'https://api.github.com/repos/$owner/$repo/releases/latest',
   );
@@ -58,17 +55,6 @@ class UpdateChecker {
     final ownsClient = client == null;
     final httpClient = client ?? http.Client();
     try {
-      try {
-        return await _checkPrimaryManifest(
-          currentVersion: currentVersion,
-          assetExtension: assetExtension,
-          client: httpClient,
-          timeout: timeout,
-        );
-      } catch (_) {
-        // GitHub is used only when the OSS manifest cannot be fetched or
-        // validated. A primary failure must not suppress that fallback.
-      }
       return await _checkGitHub(
         currentVersion: currentVersion,
         assetExtension: assetExtension,
@@ -78,73 +64,6 @@ class UpdateChecker {
     } finally {
       if (ownsClient) httpClient.close();
     }
-  }
-
-  static Future<AppUpdateInfo?> _checkPrimaryManifest({
-    required String currentVersion,
-    required String assetExtension,
-    required http.Client client,
-    required Duration timeout,
-  }) async {
-    final response = await _boundedGet(
-      primaryManifestUrl,
-      client: client,
-      timeout: timeout,
-      maxBytes: maxMetadataResponseBytes,
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': AppConstants.appUserAgent,
-      },
-    );
-    if (response.statusCode != 200) {
-      throw HttpException(
-        'primary update metadata returned HTTP ${response.statusCode}',
-        uri: primaryManifestUrl,
-      );
-    }
-
-    final data = jsonDecode(response.body);
-    if (data is! Map<String, dynamic>) {
-      throw const FormatException('OSS update metadata is not an object');
-    }
-
-    final version = (data['version']?.toString() ?? '')
-        .trim()
-        .replaceFirst(RegExp(r'^v'), '');
-    if (!_isValidVersion(version)) {
-      throw const FormatException('OSS release version is invalid');
-    }
-    if (compareVersions(version, currentVersion) <= 0) return null;
-
-    final asset = _manifestAssetFor(
-      data['assets'],
-      assetExtension,
-      version,
-    );
-    if (asset == null) {
-      throw FormatException(
-        'OSS manifest has no valid ${_assetNameForExtension(assetExtension)} '
-        'asset for v$version',
-      );
-    }
-    final sourceHost = Uri.parse(asset.downloadUrl).host;
-    final fallbackUrl = Uri.https(
-      'github.com',
-      '/$owner/$repo/releases/download/v$version/${asset.name}',
-    ).toString();
-
-    return AppUpdateInfo(
-      version: version,
-      downloadUrl: asset.downloadUrl,
-      fallbackDownloadUrl: fallbackUrl,
-      changelog: _buildChangelog(
-        data['changelog']?.toString() ?? '',
-        sourceHost: sourceHost,
-        sha256: asset.sha256,
-      ),
-      sha256: asset.sha256,
-      sourceHost: sourceHost,
-    );
   }
 
   static Future<AppUpdateInfo?> _checkGitHub({
@@ -221,41 +140,6 @@ class UpdateChecker {
 
   static bool _isValidVersion(String version) =>
       RegExp(r'^\d+(?:\.\d+){1,3}$').hasMatch(version);
-
-  static _ReleaseAsset? _manifestAssetFor(
-    Object? assets,
-    String assetExtension,
-    String version,
-  ) {
-    if (assets is! List) return null;
-    final wantedName = _assetNameForExtension(assetExtension);
-    if (wantedName == null) return null;
-    final expectedPath = '/ssrvpn/releases/v$version/$wantedName';
-    for (final asset in assets) {
-      if (asset is! Map) continue;
-      final name = asset['name']?.toString() ?? '';
-      final downloadUrl = asset['url']?.toString() ?? '';
-      final sha256 = asset['sha256']?.toString().trim().toLowerCase() ?? '';
-      final uri = Uri.tryParse(downloadUrl);
-      if (name == wantedName &&
-          uri != null &&
-          uri.scheme == 'https' &&
-          uri.host == primaryManifestUrl.host &&
-          uri.userInfo.isEmpty &&
-          !uri.hasPort &&
-          uri.path == expectedPath &&
-          !uri.hasQuery &&
-          !uri.hasFragment &&
-          RegExp(r'^[a-f0-9]{64}$').hasMatch(sha256)) {
-        return _ReleaseAsset(
-          name: name,
-          downloadUrl: downloadUrl,
-          sha256: sha256,
-        );
-      }
-    }
-    return null;
-  }
 
   static int compareVersions(String a, String b) {
     final aVersion = _parseComparableVersion(a);
