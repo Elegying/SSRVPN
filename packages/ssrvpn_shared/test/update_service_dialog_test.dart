@@ -67,7 +67,7 @@ void main() {
 
     await tester.tap(find.text('show'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('OSS 下载异常？使用 GitHub 备用下载'));
+    await tester.tap(find.text('使用备用下载地址'));
     await tester.pumpAndSettle();
 
     expect(openedUrls, [

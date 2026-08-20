@@ -107,24 +107,23 @@ void main() {
       expect(await apk.readAsBytes(), bytes);
     });
 
-    test('falls back to GitHub when the OSS download fails', () async {
-      final bytes = utf8.encode('github-fallback-apk');
+    test('generic downloader can retry an explicitly supplied backup',
+        () async {
+      final bytes = utf8.encode('backup-apk');
       final requestedUrls = <String>[];
 
       final apk = await UpdateService.downloadUpdateApk(
         AppUpdateInfo(
           version: '9.9.9',
-          downloadUrl:
-              'https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v9.9.9/SSRVPN.apk',
-          fallbackDownloadUrl:
-              'https://github.com/Elegying/SSRVPN/releases/download/v9.9.9/SSRVPN.apk',
+          downloadUrl: 'https://primary.example/SSRVPN.apk',
+          fallbackDownloadUrl: 'https://backup.example/SSRVPN.apk',
           changelog: '',
           sha256: sha256.convert(bytes).toString(),
         ),
         outputDirectory: tempDir,
         client: MockClient((request) async {
           requestedUrls.add(request.url.toString());
-          if (request.url.host.endsWith('aliyuncs.com')) {
+          if (request.url.host == 'primary.example') {
             return http.Response('temporary outage', HttpStatus.badGateway);
           }
           return http.Response.bytes(
@@ -137,8 +136,8 @@ void main() {
 
       expect(await apk.readAsBytes(), bytes);
       expect(requestedUrls, [
-        'https://nikuaimobi.oss-cn-qingdao.aliyuncs.com/ssrvpn/releases/v9.9.9/SSRVPN.apk',
-        'https://github.com/Elegying/SSRVPN/releases/download/v9.9.9/SSRVPN.apk',
+        'https://primary.example/SSRVPN.apk',
+        'https://backup.example/SSRVPN.apk',
       ]);
     });
 

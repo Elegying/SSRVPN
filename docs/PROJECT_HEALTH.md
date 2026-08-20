@@ -2,9 +2,9 @@
 
 最近审查：2026-08-20<br>
 当前应用版本：`v4.0.14`；公开发布状态与产物以 [GitHub Release](https://github.com/Elegying/SSRVPN/releases/latest) 为准。<br>
-`v4.0.14` 候选包含 Windows v4.0.13 实机验收修复、三端订阅筛选/临时延迟排序、订阅编辑和透明磨砂界面；本地门禁、精确 `main` CI 与正式 Release 资产分别按下文和后续 GitHub 记录核验。上一正式版 `v4.0.13` 的标签、CI、公开资产和实机报告继续保留为历史证据，不能替代本候选验证。
+`v4.0.14` 候选包含 Windows v4.0.13 实机验收修复、三端订阅筛选/临时延迟排序、订阅编辑、透明磨砂界面，以及连接成功后才访问 GitHub Releases 的应用内更新策略；本地门禁、精确 `main` CI 与正式 Release 资产分别按下文和后续 GitHub 记录核验。上一正式版 `v4.0.13` 的标签、CI、公开资产和实机报告继续保留为历史证据，不能替代本候选验证。
 
-本候选已在 Windows 宿主通过三端 `flutter analyze --fatal-infos`、新增共享交互/编辑定向测试 49 项、Android 测试 237 项、Windows 测试 234 项、版本同步、格式/ShellCheck、文档、产品界面、敏感信息与 TLS 门禁，并成功生成 Android Release APK 和 Windows Release 可执行文件。macOS 原生权限/生命周期用例及三端正式打包、摘要、provenance、attestation 仍以对应在线 Runner 和 Release 工作流为准。
+本候选已在 Windows 宿主通过三端 `flutter analyze --fatal-infos`、新增共享交互/编辑定向测试 49 项、GitHub-only 更新检查定向测试 16 项、Android 测试 236 项、Windows 测试 234 项、版本同步、文档、产品界面、敏感信息与 TLS 门禁，并成功生成 Android Release APK 和 Windows Release 可执行文件。ShellCheck 与 macOS 原生权限/生命周期用例及三端正式打包、摘要、provenance、attestation 仍以对应在线 Runner 和 Release 工作流为准。
 
 ## 综合结论与评分
 
@@ -24,6 +24,7 @@
 ## 本轮完成的优化
 
 - 节点页订阅筛选改为透明磨砂选择框，右侧独立按钮只在当前页面切换延迟升序和订阅默认顺序；Android 长按、桌面右键可编辑订阅名称与链接，主页“关于”同步使用共享磨砂表面。
+- 三端不再在应用启动或未连接首页检查更新；节点连接成功后只从 `Elegying/SSRVPN` 的正式 GitHub Release 获取元数据、规范资产和 SHA-256。现有 Release 工作流仍同步同一批正式资产到 OSS，OSS 仅保留为网站和人工分发镜像。
 - Windows 诊断复制兼容系统换行规范化并脱敏公网 IPv4；连接态节点切换只在真实状态变化时推进代际，TUN 取消反馈与核心安全停止结果绑定。
 - 三端订阅下载先使用真实 SSRVPN 标识，只在服务端拒绝或内容不可解析时执行一次有界兼容标识重试；每次响应继续执行 TLS、状态码、大小、编码、DNS 地址与解析安全检查。
 - Windows 修复诊断复制假成功、连接中节点切换无效或无反馈、订阅页连接状态不清晰；主动取消与真实启动失败继续使用不同的日志和状态语义。
@@ -78,7 +79,7 @@ make verify
 - 三端继续使用 IPv4-only Mihomo 运行配置；Android 与 Windows TUN 捕获并拒绝 IPv6，避免绕过。
 - 活动产品表面继续只有首页和订阅；节点编辑沿用长按/右键入口。
 - macOS 继续免费 ad-hoc、未公证分发；Windows 继续只发布未签名安装器，不引入付费签名依赖。
-- 更新检查只在底部版本号后提示“发现新版本 立即更新”，用户点击后才进入现有更新页。
+- 更新检查只在节点连接成功后通过 GitHub Releases 进行；发现新版只在底部版本号后提示“发现新版本 立即更新”，用户点击后才进入现有更新页。
 
 ## 下一阶段最高优先级
 

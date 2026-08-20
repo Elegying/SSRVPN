@@ -12,7 +12,7 @@ import 'package:win32/win32.dart';
 import '../theme/app_theme.dart';
 import 'windows_desktop_directory.dart';
 
-/// 在线更新服务 - OSS 主源，GitHub Releases 备用。
+/// 在线更新服务 - GitHub Releases。
 class UpdateService {
   static const String appVersion = AppConstants.appVersion;
   static Future<void>? _desktopArtifactCleanup;

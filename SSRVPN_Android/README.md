@@ -20,7 +20,7 @@ SSRVPN Android 版 - 基于 Clash Meta 的 VPN 客户端
 - 🚀 基于 Clash Meta 核心
 - 🔄 节点延迟测速（单个/批量）
 - 📌 Android 快捷磁贴（Tile）一键连接
-- 🔄 在线更新检查
+- 🔄 节点连接成功后通过 GitHub Releases 检查更新
 - 🛡️ 代理模式切换（规则/全局）
 - 🌐 强制代理网站管理
 

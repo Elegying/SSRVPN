@@ -6,7 +6,6 @@ import 'package:ssrvpn_android/startup/startup_flags.dart';
 import 'package:ssrvpn_android/startup/startup_logger.dart';
 import 'package:ssrvpn_android/startup/startup_orchestrator.dart';
 import 'package:ssrvpn_android/startup/startup_status.dart';
-import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
   group('Android startup behavior', () {
@@ -42,25 +41,20 @@ void main() {
       final defaults = StartupFlags.fromMap(null);
       expect(defaults.verbose, isFalse);
       expect(defaults.resetWindow, isFalse);
-      expect(defaults.skipUpdateCheck, isFalse);
 
       final flags = StartupFlags.fromMap({
         'verbose': true,
         'resetData': true,
-        'skipUpdateCheck': true,
       });
       expect(flags.verbose, isTrue);
       expect(flags.resetWindow, isTrue);
-      expect(flags.skipUpdateCheck, isTrue);
 
       final legacyReset = StartupFlags.fromMap({
         'verbose': 'true',
         'resetWindow': true,
-        'skipUpdateCheck': 1,
       });
       expect(legacyReset.verbose, isFalse);
       expect(legacyReset.resetWindow, isTrue);
-      expect(legacyReset.skipUpdateCheck, isFalse);
       expect(StartupFlags.defaults().resetWindow, isFalse);
     });
 
@@ -99,10 +93,10 @@ void main() {
       expect(status.toString(), contains('错误: 核心资源不可用'));
     });
 
-    test('orchestrator completes when update checks are intentionally skipped',
+    test('orchestrator completes without checking updates before connection',
         () async {
       final orchestrator = StartupOrchestrator(
-        flags: const StartupFlags(skipUpdateCheck: true),
+        flags: const StartupFlags(),
       );
 
       await orchestrator.start();
@@ -111,28 +105,6 @@ void main() {
       expect(orchestrator.status.error, isNull);
       expect(orchestrator.status.steps, isEmpty);
       expect(orchestrator.status.toString(), contains('状态: 完成'));
-    });
-
-    test('orchestrator delivers an available update instead of discarding it',
-        () async {
-      final delivered = <AppUpdateInfo>[];
-      final update = AppUpdateInfo(
-        version: '9.9.9',
-        downloadUrl: 'https://example.com/SSRVPN.apk',
-        changelog: '修复连接问题',
-        sha256: 'a' * 64,
-      );
-      final orchestrator = StartupOrchestrator(
-        flags: const StartupFlags(),
-        checkForUpdate: (_) async => update,
-        onUpdateAvailable: (available) async => delivered.add(available),
-      );
-
-      await orchestrator.start();
-
-      expect(delivered, [same(update)]);
-      expect(orchestrator.status.isComplete, isTrue);
-      expect(orchestrator.status.error, isNull);
     });
 
     test('startup logs redact credentials and retain only the newest entries',
