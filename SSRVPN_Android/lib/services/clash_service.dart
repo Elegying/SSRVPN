@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 part 'clash_service_snapshot_cleanup.dart';
@@ -54,15 +55,17 @@ class ClashService extends ClashServiceBase {
   String get corePath => _corePath;
   bool get coreExists => File(_corePath).existsSync();
   bool get nativeConnectionTransitioning => _nativeConnectionTransitioning;
+  int? get nativeSessionGeneration => _nativeSessionGeneration;
   String? get underlyingNetworkNotice {
-    if (!isRunning || _underlyingNetworkAvailable == null) return null;
+    if (!isRunning) return null;
     if (_underlyingNetworkAvailable == false) {
       return '无可用网络，VPN 正在等待恢复';
     }
-    if (_underlyingNetworkValidated == false) {
+    if (_underlyingNetworkAvailable == true &&
+        _underlyingNetworkValidated == false) {
       return '网络尚未验证，VPN 正在等待恢复';
     }
-    return null;
+    return connectivityWarning;
   }
 
   void setCorePath(String path) => _corePath = path;
@@ -110,8 +113,26 @@ class ClashService extends ClashServiceBase {
       _invalidateIdleNativeConnectionSnapshot();
 
   void _markNativeConnectionLost() => markConnectionLost();
-  void _notifyNativeRuntimeNotice(String message) =>
-      notifyRuntimeNotice(message);
+  void _notifyNativeRuntimeNotice(RuntimeNotice notice) =>
+      notifyRuntimeNotice(notice);
+
+  /// Native exact-204 startup validation is authoritative. This secondary
+  /// external observation is advisory and deliberately does not delay the
+  /// connected state or own the VPN lifecycle.
+  void scheduleUserConnectivityObservation() => scheduleDataPlaneObservation();
+
+  @override
+  Future<void> observeDataPlaneHealth() async {
+    final connectionGeneration = captureAutomaticRestartIntent();
+    if (connectionGeneration == null) return;
+    final startGeneration = _startGeneration;
+    await verifyUserConnectivity(
+      shouldContinue: () =>
+          isRunning &&
+          startGeneration == _startGeneration &&
+          isConnectionIntentCurrent(connectionGeneration, connected: true),
+    );
+  }
 
   // The native VPN service owns the authoritative 3-second Bridge monitor and
   // tears down the TUN fd when the core exits, including while Flutter sleeps.
@@ -442,7 +463,7 @@ class ClashService extends ClashServiceBase {
         );
         _ensureStartCurrent(startToken);
         if (!snapshotSaved) {
-          const snapshotError = '无法保存快速启动配置，VPN 已安全回滚';
+          const snapshotError = '无法保存连接恢复信息，VPN 已安全回滚';
           try {
             await stop();
             setLastStartError(snapshotError);

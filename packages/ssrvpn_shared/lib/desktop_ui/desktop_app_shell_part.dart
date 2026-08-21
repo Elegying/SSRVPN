@@ -11,7 +11,7 @@ class _DesktopAppShell extends StatelessWidget {
 
   final bool safeMode;
   final List<String> startupFailureMessages;
-  final String? runtimeNotice;
+  final RuntimeNotice? runtimeNotice;
   final int currentIndex;
   final ValueChanged<int> onIndexChanged;
 
@@ -59,23 +59,29 @@ class _DesktopAppShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final availableUpdate =
         context.watch<UpdateAvailabilityController>().availableUpdate;
-    final runtimeNoticeSuccessful = isSuccessfulRuntimeNotice(runtimeNotice);
-    final runtimeNoticeInProgress = isInProgressRuntimeNotice(runtimeNotice);
-    final runtimeNoticeIcon = runtimeNoticeSuccessful
-        ? Icons.check_circle_outline
-        : runtimeNoticeInProgress
-            ? Icons.admin_panel_settings_outlined
-            : Icons.error_outline;
-    final runtimeNoticeColor = runtimeNoticeSuccessful
-        ? AppTheme.success
-        : runtimeNoticeInProgress
-            ? AppTheme.primary
-            : AppTheme.error;
-    final runtimeNoticeTitle = runtimeNoticeSuccessful
-        ? '连接已恢复'
-        : runtimeNoticeInProgress
-            ? '正在切换管理员模式'
-            : '连接未完成';
+    final (runtimeNoticeIcon, runtimeNoticeColor, runtimeNoticeTitle) =
+        switch (runtimeNotice?.level) {
+      RuntimeNoticeLevel.success => (
+          Icons.check_circle_outline,
+          AppTheme.success,
+          '操作已完成',
+        ),
+      RuntimeNoticeLevel.progress => (
+          Icons.sync_outlined,
+          AppTheme.primary,
+          '正在处理',
+        ),
+      RuntimeNoticeLevel.warning => (
+          Icons.warning_amber_rounded,
+          AppTheme.warning,
+          '需要注意',
+        ),
+      RuntimeNoticeLevel.error || null => (
+          Icons.error_outline,
+          AppTheme.error,
+          '操作未完成',
+        ),
+    };
     final statusBanners = <Widget>[
       if (safeMode)
         const _StartupBanner(
@@ -96,7 +102,7 @@ class _DesktopAppShell extends StatelessWidget {
           icon: runtimeNoticeIcon,
           color: runtimeNoticeColor,
           title: runtimeNoticeTitle,
-          message: runtimeNotice!,
+          message: runtimeNotice!.message,
         ),
     ];
     return Scaffold(

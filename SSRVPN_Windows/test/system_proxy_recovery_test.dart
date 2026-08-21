@@ -4,7 +4,11 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
-    show ProcessTerminationNotConfirmedException, SystemProxyOwnershipStatus;
+    show
+        AppErrorCode,
+        AppFailure,
+        ProcessTerminationNotConfirmedException,
+        SystemProxyOwnershipStatus;
 import 'package:ssrvpn_windows/services/system_proxy_service.dart';
 
 void main() {
@@ -198,6 +202,14 @@ void main() {
       expect(
         await service.currentSystemProxyOwnershipStatus(),
         SystemProxyOwnershipStatus.unavailable,
+      );
+      expect(
+        service.lastError,
+        contains('系统代理 PowerShell 命令响应超时'),
+      );
+      expect(
+        AppFailure.fromMessage(service.lastError).code,
+        AppErrorCode.proxyRecoveryPending,
       );
     },
   );

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show MethodChannel, rootBundle;
 import 'package:path_provider/path_provider.dart';
 
+import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 import 'macos_tun_session.dart';
@@ -49,14 +50,11 @@ class ClashService extends ClashServiceBase
   // ═══════════════════════════════════════════════════════════
 
   @override
-  void log(String message) {
-    super.log(message);
+  void writePlatformLog(String line) {
     // macOS: 写入文件日志
     final fileLogger = _fileLogger;
     if (fileLogger != null) {
-      final sanitized = LogRedactor.sanitize(message);
-      final line = '[${DateTime.now().toIso8601String()}] $sanitized\n';
-      fileLogger.add(line);
+      fileLogger.add('$line\n');
     }
   }
 

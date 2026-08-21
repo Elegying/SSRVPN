@@ -255,7 +255,7 @@ class UpdateService {
         builder: (dialogContext) => AlertDialog(
           scrollable: true,
           title: const Text('更新失败'),
-          content: Text(error.toString().replaceFirst('Bad state: ', '')),
+          content: Text(desktopResolutionFailureMessage(error)),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
@@ -266,4 +266,11 @@ class UpdateService {
       );
     });
   }
+
+  @visibleForTesting
+  static String desktopResolutionFailureMessage(Object error) =>
+      safeUserFacingFailureWithAction(
+        error,
+        '请确认桌面目录可访问后重试。',
+      );
 }

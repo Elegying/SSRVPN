@@ -1,5 +1,9 @@
 part of desktop_node_edit_screen;
 
+@visibleForTesting
+String desktopNodeSaveFailureMessage(Object error) =>
+    safeUserFacingFailureMessage(error);
+
 class NodeEditScreen extends StatefulWidget {
   const NodeEditScreen({super.key, required this.node});
 
@@ -253,7 +257,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
   }
 
   String _readableError(Object error) {
-    return error.toString().replaceFirst('Exception: ', '');
+    return desktopNodeSaveFailureMessage(error);
   }
 
   void _showError(String message) {

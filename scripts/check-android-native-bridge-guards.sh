@@ -31,6 +31,8 @@ VPN_PROTECT_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
 NOTIFICATION_GATE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NotificationGenerationGate.kt"
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
+CORE_RECOVERY_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreRecoveryCoordinator.kt"
+CORE_RECOVERY_POLICY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreRecoveryPolicy.kt"
 CORE_PORT_RELEASE_VERIFIER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CorePortReleaseVerifier.kt"
 CORE_STOP_DECISION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreStopDecision.kt"
 CORE_ELF_VERIFIER="$ROOT/scripts/verify_android_core_elf.py"
@@ -142,8 +144,8 @@ if grep -Fq "syncSettings" "$STARTUP_ORCHESTRATOR"; then
   exit 1
 fi
 
-require_text "BRIDGE_START_TIMEOUT_MS"
-require_text "PENDING_START_CANCEL_GRACE_MS = 1_000L"
+require_text "bridgeThread.join(VpnStartBudget.BRIDGE_MS)"
+require_text "SystemClock.elapsedRealtime() + VpnStartBudget.CANCEL_GRACE_MS"
 require_text "serviceStartInProgress.compareAndSet(false, true)"
 require_text "processTerminationPending.get()"
 require_text "processTerminationPending.set(true)"
@@ -159,19 +161,45 @@ grep -Fq "fun connectionState(): Map<String, Any?>" "$NATIVE_SESSION_COORDINATOR
   exit 1
 }
 require_text "NativeConnectionSession.publishRunning(configPath)"
-require_text "NativeVpnSessionCoordinator.reserveRecovery(request.configPath)"
+require_file_text "$CORE_RECOVERY_COORDINATOR" "NativeVpnSessionCoordinator.reserveRecovery(request.configPath)"
 require_text "NativeConnectionSession.clearRunning()"
 require_text "if (stopDecision.clearRunningSession)"
 require_text "NativeConnectionSession.clearRecovery()"
-require_text "CoreRecoveryPolicy.nextAttempt(request.attempt)"
-require_text "stopForRecovery"
-require_text "showCoreRecoveryFailedNotification"
+require_file_text "$CORE_RECOVERY_COORDINATOR" "nextAttemptAfterUnexpectedExit(request.attempt)"
+require_file_text "$CORE_RECOVERY_COORDINATOR" "CoreRecoveryPolicy.nextAttempt(currentAttempt)"
+require_file_text "$CORE_RECOVERY_POLICY" "stableHealthMillis: Long = 120_000L"
+require_file_text "$CORE_RECOVERY_POLICY" "fun observeHealth(isHealthy: Boolean?, monotonicMillis: Long)"
+require_file_text "$CORE_LIVENESS_MONITOR" "recoveryBudget.observeHealth("
+require_file_text "$CORE_LIVENESS_MONITOR" "bridgeRunning == true && protectMonitorRunning && apiHealthy"
+require_file_text "$CORE_LIVENESS_MONITOR" "monotonicMillis: () -> Long"
+require_text "internal fun stopForRecovery"
+require_text "stopInternal(false, true)"
+require_text "stopAllOnWorker(removeForeground = !preserveForegroundUi)"
+require_file_text "$CORE_RECOVERY_COORDINATOR" "service.stopForRecovery {"
+require_file_text "$CORE_RECOVERY_COORDINATOR" "service.startService(restartIntent)"
+require_text "internal fun showCoreRecoveryFailedNotification()"
+require_file_text "$CORE_RECOVERY_COORDINATOR" "service.showCoreRecoveryFailedNotification()"
 require_text "EXTRA_RECOVERY_ATTEMPT"
 require_text "EXTRA_RECOVERY_TOKEN"
-require_text "CoreRecoveryPolicy.shouldAcceptRestart("
+require_file_text "$CORE_RECOVERY_COORDINATOR" "CoreRecoveryPolicy.shouldAcceptRestart("
+require_file_text "$CORE_RECOVERY_COORDINATOR" "CoreRecoveryPolicy.retryAfterStartFailure(recoveryAttempt)"
+require_file_text "$CORE_RECOVERY_COORDINATOR" "handler.postDelayed("
+require_file_text "$CORE_RECOVERY_COORDINATOR" "CoreRecoveryPolicy.retryDelayMillis(nextAttempt)"
+require_file_text "$CORE_RECOVERY_COORDINATOR" "private val recoveryGeneration = AtomicLong(0)"
+require_text "CoreRecoveryCoordinator.shouldAcceptRestart("
+require_text "CoreRecoveryCoordinator.stopAfterStartFailure("
+require_text "CoreRecoveryCoordinator.cancelPendingRecovery()"
 require_text "VpnServiceRestartStore.shouldAcceptStickyRestart(this)"
 require_text "VpnServiceRestartStore.recordExplicitStart(this)"
 require_text "VpnServiceRestartStore.recordManualStop(this)"
+require_tile_text "VpnStartBudget.RESULT_MS"
+require_activity_text '"OPEN_URL_FAILED", "无法打开链接，请稍后重试", null'
+require_activity_text '"INSTALL_UPDATE_FAILED"'
+require_activity_text '"无法打开安装界面，请重新下载安装包后重试"'
+if grep -Eq '"(OPEN_URL_FAILED|INSTALL_UPDATE_FAILED)",[[:space:]]*error\.message' "$MAIN_ACTIVITY"; then
+  echo "Android native action errors must not expose raw exception messages" >&2
+  exit 1
+fi
 require_file_text "$VPN_RESTART_STORE" "internal object StickyVpnRestartPolicy"
 require_file_text "$VPN_RESTART_STORE" "editor.commit()"
 
@@ -231,27 +259,59 @@ if "_isConnecting = false" not in core_down or "连接已中断" not in core_dow
     raise SystemExit(
         "Android home must clear the spinner when the core stops during node persistence"
     )
+if "preferredNodePersisted = await _rememberSelectedNode(" not in source:
+    raise SystemExit("Android successful connections do not isolate node preference save failures")
+if "已连接，但首选节点保存失败" not in source:
+    raise SystemExit("Android successful connection lost its preference-save warning")
 PY
-python3 - "${HOME_PARTS[1]}" <<'PY'
+python3 - "${HOME_PARTS[1]}" "$HOME_DART" <<'PY'
 import sys
 from pathlib import Path
 
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
+home = Path(sys.argv[2]).read_text(encoding="utf-8")
+registration = source[
+    source.index("void _registerClashService("):
+    source.index("bool _onSubscriptionChanged(")
+]
+for needle in (
+    "clashService.onStatusChanged = _onClashStatusChanged",
+    "clashService.onRuntimeNotice = _onClashRuntimeNotice",
+    "identical(previous.onRuntimeNotice, _onClashRuntimeNotice)",
+):
+    if needle not in registration:
+        raise SystemExit(f"Android home service registration is missing: {needle}")
+if "_registerClashService(context.watch<ClashService>())" not in home:
+    raise SystemExit("Android home does not rebind callbacks when service identity changes")
+if "identical(clashService.onRuntimeNotice, _onClashRuntimeNotice)" not in home:
+    raise SystemExit("Android home dispose no longer clears its runtime notice callback")
 load = source[source.index("Future<void> _loadInitialData() async") :]
-register = load.index("clashService.onStatusChanged = _onClashStatusChanged")
 runtime_query = load.index("await clashService.currentSelectedProxyName()")
 node_capture = load.index("HomeNodeController.runnableNodesFrom(subService.allNodes)")
-if not (register < runtime_query < node_capture):
+if runtime_query >= node_capture:
     raise SystemExit(
-        "Android home must register status recovery before awaits and capture nodes afterwards"
+        "Android home must query the runtime node before capturing the subscription snapshot"
     )
 for needle in (
     "final statusEpoch = _connectionStatusEpoch",
     "statusEpoch == _connectionStatusEpoch",
-    "final statusEpoch = ++_connectionStatusEpoch",
+    "final applicationEpoch = ++_statusApplicationEpoch",
+    "applicationEpoch != _statusApplicationEpoch",
+    "_observedNativeSessionGeneration != nativeSessionGeneration",
 ):
     if needle not in load:
         raise SystemExit(f"Android home status reconciliation is missing: {needle}")
+if "final statusEpoch = ++_connectionStatusEpoch" in load:
+    raise SystemExit("Android home invalidates live node switches on every status refresh")
+for needle in (
+    "case RuntimeNoticeLevel.progress:",
+    "case RuntimeNoticeLevel.warning:",
+    "_connectionNotice = notice.message",
+    "case RuntimeNoticeLevel.error:",
+    "_errorMessage = notice.message",
+):
+    if needle not in source:
+        raise SystemExit(f"Android runtime notice presentation is missing: {needle}")
 PY
 python3 - "${HOME_PARTS[2]}" <<'PY'
 import sys
@@ -277,6 +337,13 @@ if persist >= remember:
     raise SystemExit("Android node preference is published before the session-bound snapshot")
 if "await clashService.currentSelectedProxyName()" not in perform:
     raise SystemExit("Android node selection lacks a runtime fallback after persistence failure")
+for needle in (
+    "Future<bool> _rememberSelectedNode(",
+    "preferredNodePersisted =",
+    "已切换，但首选节点保存失败",
+):
+    if needle not in source:
+        raise SystemExit(f"Android live switch persistence warning is missing: {needle}")
 PY
 require_text "waitForPendingStart()"
 require_text "VPN is already running; reusing the active session"
@@ -344,8 +411,8 @@ require_text "SSRVPN-bridge-start"
 require_text "SSRVPN-bridge-stop"
 require_text "SSRVPN-bridge-is-running"
 require_text "private fun monitorCoreRunning("
-require_text "recoverFromUnexpectedCoreExit("
-require_text "ContextCompat.startForegroundService(this, restartIntent)"
+require_text "CoreRecoveryCoordinator.recoverFromUnexpectedCoreExit("
+require_file_text "$CORE_RECOVERY_COORDINATOR" "service.startService(restartIntent)"
 
 require_count "bridge.Bridge.init(configDir, \"config.yaml\")" 1
 require_count "bridge.Bridge.start(configPath, tunFd)" 1
@@ -388,11 +455,13 @@ for throwable_guard in (
 if "return bridgeFdTerminationRequired.get() || stopDecision.terminateProcess" not in source:
     raise SystemExit("Android stop can ignore ambiguous Bridge.start fd ownership")
 stop_internal = source[
-    source.index("private fun stopInternal("):source.index("private fun stopAllOnWorker()")
+    source.index("private fun stopInternal("):source.index("private fun stopAllOnWorker(")
 ]
 runner_call = stop_internal.index("StopOperationRunner.run(")
 initial = stop_internal.index("bridgeFdTerminationRequired.get()", runner_call)
-cleanup = stop_internal.index("::stopAllOnWorker", initial)
+cleanup = stop_internal.index(
+    "stopAllOnWorker(removeForeground = !preserveForegroundUi)", initial
+)
 handoff = stop_internal.index("processTerminationPending.set(true)", cleanup)
 complete = stop_internal.index("stopOperation::complete", handoff)
 schedule = stop_internal.index("notificationHandler.postDelayed(", complete)
@@ -477,7 +546,7 @@ if "return null" not in running_check:
     )
 if "isBridgeRunningWithTimeout() == false" not in stop:
     raise SystemExit("Android stop treats an unknown Bridge probe as stopped")
-if "{ isBridgeRunningWithTimeout() != false }" not in source:
+if "isBridgeRunning = ::isBridgeRunningWithTimeout" not in source:
     raise SystemExit("Android liveness monitor no longer fails open on probe errors")
 PY
 
@@ -738,8 +807,10 @@ require_route_text "addRoute(route.address, route.prefixLength)"
 require_route_text "VpnIpv6Config.defaultRoute"
 require_text "builder.setBlocking(false)"
 require_text "VpnAppExclusionInstaller.install(builder)"
-require_text "VpnDataPlaneProbe.isStartupHealthy("
-require_text '"VPN 数据通道不可用，请切换节点或重试"'
+require_text "VpnDataPlaneProbe.startupOutcome("
+require_file_text "$VPN_DATA_PLANE_PROBE" '"VPN 数据通道不可用，请切换节点或重试"'
+require_file_text "$VPN_DATA_PLANE_PROBE" '"previous_probe_still_running"'
+require_file_text "$VPN_DATA_PLANE_PROBE" '"上次 VPN 联网检查仍在结束，请稍后重试；若持续出现请重启应用"'
 require_file_text "$VPN_DATA_PLANE_PROBE" '"https://www.gstatic.com/generate_204"'
 require_file_text "$VPN_DATA_PLANE_PROBE" '"https://www.youtube.com/generate_204"'
 require_file_text "$VPN_DATA_PLANE_PROBE" '"https://cp.cloudflare.com/generate_204"'
@@ -763,7 +834,7 @@ if ! grep -Fq "Looper.myLooper() != handler.looper" "$NOTIFICATION_GATE"; then
   exit 1
 fi
 require_text "notificationGeneration.publishLatest("
-require_text "CoreRecoveryPolicy.shouldPublishRecovery("
+require_file_text "$CORE_RECOVERY_COORDINATOR" "CoreRecoveryPolicy.shouldPublishRecovery("
 require_activity_text "NATIVE_SNAPSHOT_UPDATE_FAILED"
 
 for needle in \
@@ -816,6 +887,8 @@ for needle in \
     exit 1
   }
 done
+require_file_text "$CLASH_NATIVE_BRIDGE" \
+  '连接服务意外停止，请点击连接重试；如仍失败，请查看运行日志。'
 for needle in \
   '"PERMISSION_DENIED"' \
   'Unable to request VPN permission' \
@@ -933,7 +1006,7 @@ wait_start = source.index("private fun waitForPendingStart(): Boolean")
 wait_end = source.index("private fun stopBridgeWithTimeout()", wait_start)
 if "BRIDGE_START_TIMEOUT_MS" in source[wait_start:wait_end]:
     raise SystemExit("Android cancellation still waits for the full bridge start timeout")
-stop_all_start = source.index("private fun stopAllOnWorker(): Boolean")
+stop_all_start = source.index("private fun stopAllOnWorker(removeForeground: Boolean): Boolean")
 stop_all_end = source.index("private fun waitForProtectMonitor", stop_all_start)
 stop_all = source[stop_all_start:stop_all_end]
 if "pendingStartStopped && stopBridgeWithTimeout()" in stop_all:
@@ -951,6 +1024,15 @@ monitor_end = source.index("private fun isBridgeRunningWithTimeout", monitor_sta
 monitor = source[monitor_start:monitor_end]
 if "CoreLivenessMonitor.waitForUnexpectedExit" not in monitor:
     raise SystemExit("Android VPN service does not delegate core liveness monitoring")
+for required in (
+    "recoveryAttempt = request.attempt",
+    "isBridgeRunning = ::isBridgeRunningWithTimeout",
+    "request.copy(attempt = liveness.recoveryAttempt)",
+):
+    if required not in monitor:
+        raise SystemExit(f"Android native recovery budget wiring is missing: {required}")
+if "isBridgeRunningWithTimeout() != false" in monitor:
+    raise SystemExit("Android unknown bridge health incorrectly counts as stable health")
 if "startToken != currentGeneration()" not in liveness_source:
     raise SystemExit("Android core monitor is not scoped to its start generation")
 routes = [
@@ -990,17 +1072,23 @@ if line_count > 30:
     )
 PY
 
-python3 - "$SERVICE" "$NOTIFICATION_SUPPORT" <<'PY'
+python3 - "$SERVICE" "$NOTIFICATION_SUPPORT" "$CORE_RECOVERY_COORDINATOR" <<'PY'
 import sys
 from pathlib import Path
 
 service = Path(sys.argv[1])
 support = Path(sys.argv[2])
+recovery = Path(sys.argv[3])
 line_count = len(service.read_text(encoding="utf-8").splitlines())
 if line_count > 970:
     raise SystemExit(f"{service}: VPN service grew to {line_count} lines")
 if "fun formatBytes(bytes: Long)" not in support.read_text(encoding="utf-8"):
     raise SystemExit(f"{support}: missing notification byte formatter")
+recovery_line_count = len(recovery.read_text(encoding="utf-8").splitlines())
+if recovery_line_count > 180:
+    raise SystemExit(
+        f"{recovery}: core recovery coordinator grew to {recovery_line_count} lines"
+    )
 PY
 
 python3 - "$SERVICE" <<'PY'
@@ -1034,7 +1122,7 @@ recovery = Path(sys.argv[4]).read_text(encoding="utf-8")
 service_boundaries = (
     ("override fun onStartCommand(", "private fun currentNotificationState()"),
     ("private fun notifyCurrentState(", "private fun startNotificationUpdates()"),
-    ("private fun showCoreRecoveryFailedNotification()", "private fun isBridgeRunningWithTimeout()"),
+    ("internal fun showCoreRecoveryFailedNotification()", "private fun isBridgeRunningWithTimeout()"),
 )
 for start_marker, end_marker in service_boundaries:
     start = service.index(start_marker)
@@ -1054,6 +1142,37 @@ for source, needle in (
 ):
     if needle not in source:
         raise SystemExit(f"Android system callback crash boundary is missing: {needle}")
+PY
+
+python3 - "$SERVICE" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+start_begin = source.index("override fun onStartCommand(")
+start_end = source.index("private fun currentNotificationState()", start_begin)
+start = source[start_begin:start_end]
+if start.count("serviceStopGate.acceptStart(startId)") != 3:
+    raise SystemExit(
+        "Android VPN service must accept only disconnect, reused, or claimed starts"
+    )
+if "serviceStopGate.includeRejectedStart(startId)" not in start:
+    raise SystemExit("Android cleanup rejection no longer joins the pending stop")
+
+stop_begin = source.index("private fun stopInternal(")
+stop_end = source.index("private fun stopAllOnWorker(", stop_begin)
+stop = source[stop_begin:stop_end]
+for required in (
+    "val stopToken = serviceStopGate.beginOrJoinStop()",
+    "val stopStartId = serviceStopGate.finishStop(stopToken)",
+    "stopSelfResult(stopStartId)",
+):
+    if required not in stop:
+        raise SystemExit(
+            f"Android VPN stop completion is not startId-scoped: {required}"
+        )
+if "stopSelf()" in stop:
+    raise SystemExit("Android VPN stop completion can stop a newer service start")
 PY
 
 echo "Android native bridge guard check passed."

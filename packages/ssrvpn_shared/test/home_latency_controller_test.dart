@@ -41,7 +41,7 @@ void main() {
       ]);
     });
 
-    test('canSelect reflects current latency state', () {
+    test('canSelect ignores failed or unknown latency for runnable nodes', () {
       final node = ProxyNode(
         name: 'A',
         type: 'ss',
@@ -52,7 +52,9 @@ void main() {
 
       expect(controller.canSelect(node), isTrue);
       controller.applyNow([node], 'A', 65535);
-      expect(controller.canSelect(node), isFalse);
+      expect(controller.canSelect(node), isTrue);
+      controller.applyNow([node], 'A', -1);
+      expect(controller.canSelect(node), isTrue);
     });
 
     test('a newer batch rejects callbacks and completion from an older batch',

@@ -680,7 +680,7 @@ ${_notifyWinInetScript()}
       _transactionQueue.run(() async {
         final lockPath = _transactionLockPath;
         if (lockPath == null) {
-          throw StateError('SystemProxyService has not been initialized');
+          throw StateError('Windows 系统代理服务尚未初始化，请重启 SSRVPN');
         }
         final lockFile = File(lockPath);
         await lockFile.parent.create(recursive: true);
@@ -1135,7 +1135,7 @@ ${_notifyWinInetScript()}
     cancellation?.throwIfRequested();
     final statePath = _statePath;
     if (statePath == null) {
-      throw StateError('SystemProxyService has not been initialized');
+      throw StateError('Windows 系统代理服务尚未初始化，请重启 SSRVPN');
     }
     final file = File(statePath);
     await file.parent.create(recursive: true);
@@ -1402,13 +1402,15 @@ Set-ItemProperty -Path \$backupPath -Name ActivationInProgress -Type DWord -Valu
         utf8Script,
       ],
       timeout: const Duration(seconds: 20),
-      timeoutStderr: '电脑性能不足，请重新连接',
+      timeoutStderr: 'Windows 系统代理 PowerShell 命令响应超时；可能是系统繁忙或安全软件暂时拦截，请稍后重试',
       cancellation: cancellation,
     );
   }
 
   String _formatPowerShellError(String prefix, ProcessResult result) {
-    if (result.exitCode == 124) return '电脑性能不足，请重新连接';
+    if (result.exitCode == 124) {
+      return 'Windows 系统代理 PowerShell 命令响应超时；可能是系统繁忙或安全软件暂时拦截，请稍后重试';
+    }
     final stderr = result.stderr.toString().trim();
     final stdout = result.stdout.toString().trim();
     final detail = stderr.isNotEmpty ? stderr : stdout;

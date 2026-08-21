@@ -3,6 +3,30 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_android/app.dart';
 
 void main() {
+  test('initialization failure copy never exposes raw internal details', () {
+    final message = androidInitializationFailureMessage(
+      StateError(
+        'bootstrap failed token=top-secret for '
+        'https://example.com/private/startup/path',
+      ),
+      retryCount: 2,
+    );
+
+    expect(message, isNot(contains('top-secret')));
+    expect(message, isNot(contains('/private/startup/path')));
+    expect(message, contains('自动重试 2 次后仍失败'));
+  });
+
+  test('API secret recovery failure copy never exposes raw details', () {
+    final message = androidApiSecretRecoveryFailureMessage(
+      StateError('keystore failed password=top-secret alias=private-alias'),
+    );
+
+    expect(message, isNot(contains('top-secret')));
+    expect(message, isNot(contains('private-alias')));
+    expect(message, contains('未删除订阅和普通设置'));
+  });
+
   testWidgets('API secret recovery requires explicit destructive confirmation',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 360));

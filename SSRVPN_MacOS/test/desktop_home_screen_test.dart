@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_macos/app.dart' as desktop_app;
 import 'package:ssrvpn_macos/screens/home_screen.dart';
 import 'package:ssrvpn_macos/services/clash_service.dart';
@@ -205,7 +206,9 @@ void main() {
       ),
     );
     await tester.pump();
-    const runtimeNotice = '连接未完成：本地端口被其他应用占用，已保留原有配置与系统代理恢复状态，请稍后重试连接。';
+    const runtimeNotice = RuntimeNotice.error(
+      '连接未完成：本地端口被其他应用占用，已保留原有配置与系统代理恢复状态，请稍后重试连接。',
+    );
     fixture.clash.onRuntimeNotice?.call(runtimeNotice);
     await tester.pump();
 
@@ -434,6 +437,152 @@ void main() {
     await tester.pump();
     await _pumpUntil(tester, () => fixture.clash.isRunning);
     expect(fixture.clash.lastPreferredNodeName, '新加坡节点');
+  });
+
+  testWidgets(
+      'successful connection stays live and warns when node persistence fails',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(
+        withNodes: true,
+        failSettingsWrites: true,
+      ),
+    ))!;
+    addTearDown(fixture.dispose);
+    fixture.clash
+      ..switchResult = true
+      ..runtimeSelectedNodeName = '东京节点';
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await tester.pump();
+    await _pumpUntil(tester, () => fixture.clash.isRunning);
+    expect(fixture.clash.lastPreferredNodeName, '东京节点');
+    expect(fixture.clash.lastSwitchAttempt, '东京节点');
+    expect(fixture.settings.settings.lastSelectedNodeName, isNull);
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump(const Duration(milliseconds: 150));
+    await _pumpUntil(tester, () => find.text('已连接').evaluate().isNotEmpty);
+    await _pumpUntil(
+      tester,
+      () => find.text('已连接，但首选节点保存失败').evaluate().isNotEmpty,
+    );
+
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.settings.settings.lastSelectedNodeName, isNull);
+    expect(find.text('已连接'), findsWidgets);
+    expect(find.textContaining('连接失败'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('ssrvpn-current-node-card')),
+        matching: find.text('东京节点'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'successful live switch stays selected and warns when persistence fails',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(
+        withNodes: true,
+        running: true,
+        failSettingsWrites: true,
+      ),
+    ))!;
+    addTearDown(fixture.dispose);
+    fixture.clash
+      ..switchResult = true
+      ..runtimeSelectedNodeName = '东京节点';
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    final selector = tester.widget<SsrvpnNodeSelectionPage>(
+      find.byType(SsrvpnNodeSelectionPage),
+    );
+    final node = selector.nodesOf().singleWhere(
+          (candidate) => candidate.name == '新加坡节点',
+        );
+    await tester.runAsync(() => selector.onSelectNode(node));
+    await tester.pump();
+
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.settings.settings.lastSelectedNodeName, isNull);
+    expect(find.text('已切换，但首选节点保存失败: 新加坡节点'), findsOneWidget);
+    expect(find.text('切换失败: 新加坡节点'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('ssrvpn-node-card-新加坡节点')),
+        matching: find.byIcon(Icons.check_circle_rounded),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'failed preferred-node switch keeps the initial connection and warns with the runtime node',
+      (tester) async {
+    final fixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+    addTearDown(fixture.dispose);
+    fixture.clash
+      ..switchResult = false
+      ..runtimeSelectedNodeName = '新加坡节点';
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await tester.pump();
+    await _pumpUntil(tester, () => fixture.clash.isRunning);
+    await _pumpUntil(
+      tester,
+      () => find
+          .text('未能切换到首选节点“东京节点”，当前连接仍保留，正在使用“新加坡节点”。')
+          .evaluate()
+          .isNotEmpty,
+    );
+
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.clash.connectionDesired, isTrue);
+    expect(find.text('已连接'), findsWidgets);
+  });
+
+  testWidgets(
+      'failed preferred-node switch keeps a reloaded connection and warns with the runtime node',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    fixture.clash
+      ..switchResult = false
+      ..runtimeSelectedNodeName = '新加坡节点'
+      ..requestConnectionIntent(true);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.runAsync(
+      () => fixture.subscription.setRawYaml('$_nodeYaml\n# reloaded'),
+    );
+    await tester.pump();
+    await _pumpUntil(tester, () => fixture.clash.startCalls == 1);
+    await _pumpUntil(
+      tester,
+      () => find
+          .text('未能切换到首选节点“东京节点”，当前连接仍保留，正在使用“新加坡节点”。')
+          .evaluate()
+          .isNotEmpty,
+    );
+
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.clash.connectionDesired, isTrue);
+    expect(find.text('已连接'), findsWidgets);
   });
 
   for (final switchResult in [false, true]) {
@@ -1029,6 +1178,7 @@ class _HomeFixture {
     required bool withNodes,
     bool recordBatchLatencyResults = true,
     bool running = false,
+    bool failSettingsWrites = false,
   }) async {
     SubscriptionService.resetInstanceForTesting();
     final directory = Directory.systemTemp.createTempSync('ssrvpn_home_');
@@ -1038,7 +1188,9 @@ class _HomeFixture {
       settings: AppSettings(),
       dataDir: directory.path,
       settingsPath: '${directory.path}/settings.json',
-      writeSettings: (_) => SynchronousFuture<void>(null),
+      writeSettings: (_) => failSettingsWrites
+          ? Future<void>.error(StateError('disk full'))
+          : SynchronousFuture<void>(null),
       readApiSecret: () async => '',
       writeApiSecret: (_) async {},
     );

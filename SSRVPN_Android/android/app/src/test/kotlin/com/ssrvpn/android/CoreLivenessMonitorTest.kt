@@ -8,6 +8,33 @@ import org.junit.Test
 
 class CoreLivenessMonitorTest {
     @Test
+    fun `stable native health makes the next recovery start at attempt one`() {
+        var monotonicNow = 0L
+        var bridgeChecks = 0
+
+        val outcome = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7,
+            currentGeneration = { 7 },
+            isRunning = { true },
+            recoveryAttempt = 2,
+            isBridgeRunning = { ++bridgeChecks <= 2 },
+            isProtectMonitorRunning = { true },
+            isApiHealthy = { true },
+            monotonicMillis = { monotonicNow },
+            sleep = { monotonicNow = 120_000L }
+        )
+
+        assertTrue(outcome.unexpectedExit)
+        assertEquals(0, outcome.recoveryAttempt)
+        assertEquals(
+            1,
+            CoreRecoveryCoordinator.nextAttemptAfterUnexpectedExit(
+                outcome.recoveryAttempt
+            )
+        )
+    }
+
+    @Test
     fun `reports unexpected exit while the same start is active`() {
         assertTrue(
             CoreLivenessMonitor.waitForUnexpectedExit(
@@ -15,7 +42,7 @@ class CoreLivenessMonitorTest {
                 currentGeneration = { 7 },
                 isRunning = { true },
                 isBridgeRunning = { false }
-            )
+            ).unexpectedExit
         )
     }
 
@@ -31,7 +58,7 @@ class CoreLivenessMonitorTest {
                     generation.incrementAndGet()
                     false
                 }
-            )
+            ).unexpectedExit
         )
     }
 
@@ -43,7 +70,7 @@ class CoreLivenessMonitorTest {
                 currentGeneration = { 7 },
                 isRunning = { false },
                 isBridgeRunning = { error("must not probe a stopped session") }
-            )
+            ).unexpectedExit
         )
     }
 
@@ -58,7 +85,7 @@ class CoreLivenessMonitorTest {
                 isProtectMonitorRunning = { false },
                 isApiHealthy = { error("API must not be probed after protect failure") },
                 sleep = { error("a dead protect monitor must fail immediately") }
-            )
+            ).unexpectedExit
         )
     }
 
@@ -83,7 +110,7 @@ class CoreLivenessMonitorTest {
                     false // 端口不可达 → 核心已死
                 },
                 sleep = {}
-            )
+            ).unexpectedExit
         )
         assertEquals(3, apiChecks)
         assertEquals(1, portProbes)
@@ -106,7 +133,7 @@ class CoreLivenessMonitorTest {
                 },
                 isApiPortReachable = { true }, // 僵尸端口仍可达
                 sleep = {}
-            )
+            ).unexpectedExit
         )
         // 3 次失败后探测端口（可达），再等 1 次确认后退出
         assertEquals(4, apiChecks)
@@ -127,7 +154,7 @@ class CoreLivenessMonitorTest {
                 isApiHealthy = { apiResults.removeFirst() },
                 isApiPortReachable = { true },
                 sleep = {}
-            )
+            ).unexpectedExit
         )
         assertTrue(apiResults.isEmpty())
     }
@@ -149,7 +176,7 @@ class CoreLivenessMonitorTest {
                     sleeps++
                     if (sleeps == 2) running = false
                 }
-            )
+            ).unexpectedExit
         )
         assertEquals(2, sleeps)
     }
@@ -173,7 +200,7 @@ class CoreLivenessMonitorTest {
                 sleep = {
                     if (localApiChecks == 3) running = false
                 }
-            )
+            ).unexpectedExit
         )
         assertEquals(3, localApiChecks)
     }

@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:ssrvpn_macos/services/clash_service.dart';
 import 'package:ssrvpn_macos/services/macos_tun_session.dart';
 import 'package:ssrvpn_macos/services/system_proxy_service.dart';
+import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 const _subscriptionYaml = '''
@@ -165,11 +166,11 @@ void main() {
           proxyRecovered: false,
         ),
         allOf(
+          contains('本地代理服务'),
           contains('退出码 9'),
           contains('系统代理恢复失败'),
-          contains('保留'),
           contains('暂停新连接'),
-          isNot(contains('安全核心')),
+          isNot(contains('Mihomo')),
           contains('日志诊断'),
         ),
       );
@@ -183,7 +184,12 @@ void main() {
           proxyRecoveryPending: true,
           corePreparationPending: true,
         ),
-        allOf(contains('系统代理状态'), contains('旧核心'), contains('重试恢复')),
+        allOf(
+          contains('系统代理状态'),
+          contains('本地代理服务'),
+          contains('重试恢复'),
+          isNot(contains('Mihomo')),
+        ),
       );
       expect(
         buildMacosStartupRecoveryNotice(
@@ -193,8 +199,9 @@ void main() {
         allOf(
           contains('系统代理已恢复'),
           contains('安全准备'),
-          contains('旧核心'),
+          contains('本地代理服务'),
           contains('重试准备'),
+          isNot(contains('Mihomo')),
         ),
       );
       expect(
@@ -475,10 +482,11 @@ void main() {
       expect(
         service.startupRecoveryNotice,
         allOf(
-          contains('旧核心'),
+          contains('本地代理服务'),
           contains('首页'),
           contains('连接'),
           contains('重试'),
+          isNot(contains('Mihomo')),
         ),
       );
       expect(nativeTerminationCalls, 0);
@@ -827,6 +835,14 @@ void main() {
       expect(recoveryConfigGenerations, 1);
       expect(service.isRunning, isTrue);
       expect(
+        service.lastUnexpectedExitRuntimeNotice?.level,
+        RuntimeNoticeLevel.success,
+      );
+      expect(
+        service.lastUnexpectedExitRuntimeNotice?.message,
+        allOf(contains('本地代理服务'), isNot(contains('Mihomo'))),
+      );
+      expect(
         service.isConnectionIntentCurrent(generation, connected: true),
         isTrue,
       );
@@ -941,7 +957,7 @@ void main() {
         ..updateSettings(AppSettings(enableTun: true));
 
       expect(await service.start(), isFalse);
-      expect(service.lastStartError, 'Mihomo service is not initialized');
+      expect(service.lastStartError, contains('尚未初始化'));
     });
 
     test('core startup is blocked when stale TUN DNS recovery fails', () async {
@@ -1137,6 +1153,27 @@ void main() {
       expect(await service.healthCheck(), isFalse);
       expect(service.lastHealthCheckError, contains('关闭或修改'));
       expect(mutations, hasLength(mutationsAfterSetup));
+    });
+
+    test(
+        'system proxy health keeps the connection when ownership is temporarily unavailable',
+        () async {
+      final service = _UncertainProxyOwnershipClashService()
+        ..updateSettings(AppSettings())
+        ..setRunning(true);
+      addTearDown(service.dispose);
+
+      expect(await service.healthCheck(), isTrue);
+      expect(service.isRunning, isTrue);
+      expect(service.lastHealthCheckError, isNull);
+      expect(
+        service.connectivityWarning,
+        allOf(contains('暂时无法确认'), contains('当前连接仍保留')),
+      );
+
+      service.ownershipStatus = SystemProxyOwnershipStatus.owned;
+      expect(await service.healthCheck(), isTrue);
+      expect(service.connectivityWarning, isNull);
     });
 
     test('TUN does not commit after the privileged runner loses readiness',
@@ -1371,7 +1408,7 @@ void main() {
       expect(service.lastHealthCheckError, contains('TUN_CONFIG_MISMATCH'));
     });
 
-    test('persistent data-plane failure hot-switches a node without TUN exit',
+    test('persistent data-plane failures never switch nodes or stop TUN',
         () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_tun_node_recovery_',
@@ -1397,12 +1434,12 @@ void main() {
 
       expect(service.isRunning, isTrue);
       expect(tunSession.stopCalls, 0);
-      expect(service.switchedNodes, ['Node B']);
-      expect(service.connectivityWarning, isNull);
-      expect(service.connectivityProbes, 3);
+      expect(service.switchedNodes, isEmpty);
+      expect(service.connectivityWarning, contains('second external failure'));
+      expect(service.connectivityProbes, 2);
     });
 
-    test('automatic node recovery never overrides a concurrent node choice',
+    test('external observation remains advisory when a node choice changes',
         () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_tun_node_recovery_ownership_',
@@ -1428,12 +1465,12 @@ void main() {
 
       expect(service.isRunning, isTrue);
       expect(tunSession.stopCalls, 0);
-      expect(service.switchedNodes, ['Node B']);
-      expect(service.selectedNode, 'User Node');
-      expect(service.connectivityWarning, contains('节点已切换'));
+      expect(service.switchedNodes, isEmpty);
+      expect(service.selectedNode, 'Node A');
+      expect(service.connectivityWarning, contains('second external failure'));
     });
 
-    test('automatic node recovery does not switch when ownership is unknown',
+    test('external observation does not inspect or switch node ownership',
         () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_tun_node_recovery_unknown_owner_',
@@ -1460,11 +1497,10 @@ void main() {
       await service.runDataPlaneObservation();
 
       expect(service.switchedNodes, isEmpty);
-      expect(service.connectivityWarning, contains('无法确认当前节点'));
+      expect(service.connectivityWarning, contains('external failure 2'));
     });
 
-    test('automatic node recovery reports a failed rollback explicitly',
-        () async {
+    test('external observation never attempts a rollback', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_tun_node_recovery_rollback_',
       );
@@ -1490,9 +1526,9 @@ void main() {
       await service.runDataPlaneObservation();
       await service.runDataPlaneObservation();
 
-      expect(service.switchedNodes, ['Node B', 'Node A']);
-      expect(service.selectedNode, 'Node B');
-      expect(service.connectivityWarning, contains('未能恢复原节点'));
+      expect(service.switchedNodes, isEmpty);
+      expect(service.selectedNode, 'Node A');
+      expect(service.connectivityWarning, contains('external failure 2'));
     });
 
     test('TUN DNS stop failure disconnects locally and blocks a new start',
@@ -1705,8 +1741,50 @@ void main() {
 
       expect(await service.start(), isTrue);
       expect(service.isRunning, isTrue);
+      await (() async {
+        while (service.connectivityWarning == null) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      })()
+          .timeout(const Duration(seconds: 1));
       expect(service.connectivityWarning, contains('连续 3 次网络验证失败'));
       expect(service.lastStartError, isNull);
+      expect(tunSession.stopCalls, 0);
+    });
+
+    test('TUN startup commits before an external data-path probe completes',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_async_data_path_',
+      );
+      final tunSession = _FakeMacosTunSession(tempDir.path);
+      final service =
+          _BlockingStartupDataPathClashService(tunSession: tunSession);
+      addTearDown(() async {
+        service.dataPathResult.complete(null);
+        await service.stop();
+        service.dispose();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final settings = AppSettings(enableTun: true);
+      await service.init(
+        settings,
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      await service.writeConfig(
+        service.generateClashConfig(_subscriptionYaml, settings),
+      );
+
+      final start = service.start();
+      await service.dataPathProbeStarted.future.timeout(
+        const Duration(seconds: 10),
+      );
+
+      expect(await start.timeout(const Duration(milliseconds: 100)), isTrue);
+      expect(service.isRunning, isTrue);
       expect(tunSession.stopCalls, 0);
     });
 
@@ -1715,13 +1793,13 @@ void main() {
         ..updateSettings(AppSettings(enableTun: false));
 
       expect(await service.start(), isFalse);
-      expect(service.lastStartError, 'Mihomo service is not initialized');
+      expect(service.lastStartError, contains('尚未初始化'));
     });
 
     test(
         'API failure plus external proxy takeover disconnects without reacquiring proxy',
         () async {
-      final notices = <String>[];
+      final notices = <RuntimeNotice>[];
       final service = _ExternalProxyTakeoverRecoveryClashService()
         ..onRuntimeNotice = notices.add;
       addTearDown(service.dispose);
@@ -1749,15 +1827,34 @@ void main() {
       expect(service.connectionDesired, isFalse);
       expect(service.isRunning, isFalse);
       expect(
-        notices.single,
+        notices.single.message,
         allOf(contains('其他程序'), contains('不会覆盖')),
       );
+    });
+
+    test('a stale health probe cannot cancel a newer connection intent',
+        () async {
+      final service = _StaleHealthProbeRecoveryClashService();
+      addTearDown(service.dispose);
+      final oldGeneration = service.requestConnectionIntent(true);
+      service.setRunning(true);
+
+      final recovery = service.recoverAfterHealthCheckFailure(oldGeneration);
+      await service.healthProbeStarted.future;
+      service.requestConnectionIntent(true);
+      service.releaseHealthProbe.complete();
+
+      expect(await recovery, isFalse);
+      expect(service.connectionDesired, isTrue);
+      expect(service.isRunning, isTrue);
+      expect(service.stopCalls, 0);
+      expect(service.proxyOwnershipInspectionCalls, 0);
     });
 
     test(
         'unexpected core exit clears external takeover state without restarting or reacquiring',
         () async {
-      final notices = <String>[];
+      final notices = <RuntimeNotice>[];
       final service = _ExternalProxyTakeoverRecoveryClashService()
         ..onRuntimeNotice = notices.add;
       addTearDown(service.dispose);
@@ -1796,7 +1893,7 @@ void main() {
     test(
         'proxy ownership change during health cleanup blocks automatic reacquisition',
         () async {
-      final notices = <String>[];
+      final notices = <RuntimeNotice>[];
       final service = _ProxyChangedDuringCleanupRecoveryClashService()
         ..onRuntimeNotice = notices.add;
       addTearDown(service.dispose);
@@ -1822,7 +1919,7 @@ void main() {
       expect(service.automaticRecoveryStartCalls, 0);
       expect(service.connectionDesired, isFalse);
       expect(
-        notices.last,
+        notices.last.message,
         allOf(contains('清理期间'), contains('不会重新接管')),
       );
     });
@@ -1859,7 +1956,7 @@ void main() {
 
     test('unavailable proxy ownership disconnects without reacquiring proxy',
         () async {
-      final notices = <String>[];
+      final notices = <RuntimeNotice>[];
       final service = _UnavailableProxyOwnershipRecoveryClashService()
         ..onRuntimeNotice = notices.add;
       addTearDown(service.dispose);
@@ -1881,13 +1978,16 @@ void main() {
       expect(service.prepareCalls, 0);
       expect(service.automaticRecoveryStartCalls, 0);
       expect(service.connectionDesired, isFalse);
-      expect(notices.single, allOf(contains('无法确认'), contains('不会覆盖')));
+      expect(
+        notices.single.message,
+        allOf(contains('无法确认'), contains('不会覆盖')),
+      );
     });
 
     test(
         'proxy ownership cleanup failure cancels recovery without false success',
         () async {
-      final notices = <String>[];
+      final notices = <RuntimeNotice>[];
       final service = _FailingProxyOwnershipCleanupClashService()
         ..onRuntimeNotice = notices.add;
       addTearDown(service.dispose);
@@ -1910,10 +2010,10 @@ void main() {
       expect(service.connectionDesired, isFalse);
       expect(service.isRunning, isFalse);
       expect(
-        notices.single,
+        notices.single.message,
         allOf(contains('清理状态无法确认'), contains('不会重新接管')),
       );
-      expect(notices.single, isNot(contains('已安全断开')));
+      expect(notices.single.message, isNot(contains('已安全断开')));
     });
 
     test('health recovery rebuilds runtime config before automatic start',
@@ -1969,6 +2069,65 @@ void main() {
         service.calls.where((call) => call == 'recovery-start'),
         hasLength(2),
       );
+    });
+
+    test(
+        'stale queued unexpected exit stays silent and preserves recovery budget',
+        () async {
+      final notices = <RuntimeNotice>[];
+      final oldProgress = Completer<void>();
+      var processExitCalls = 0;
+      final service = _SerializedUnexpectedExitRecoveryClashService()
+        ..onRuntimeNotice = (notice) {
+          notices.add(notice);
+          if (notice.level == RuntimeNoticeLevel.progress &&
+              !oldProgress.isCompleted) {
+            oldProgress.complete();
+          }
+        }
+        ..onProcessExit = () => processExitCalls++;
+      addTearDown(service.dispose);
+      service.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: AppSettings(),
+        generateConfig: (runtimeSettings, preferredNodeName) async =>
+            'mixed-port: ${runtimeSettings.proxyPort}',
+        isRevisionCurrent: () => true,
+      );
+      final oldGeneration = service.requestConnectionIntent(true);
+      service.setRunning(false);
+
+      final queueEntered = Completer<void>();
+      final releaseQueue = Completer<void>();
+      final occupied = service.runConnectionTransition(() async {
+        queueEntered.complete();
+        await releaseQueue.future;
+      });
+      await queueEntered.future;
+
+      final staleRecovery = service.simulateUnexpectedExit(oldGeneration);
+      await Future.any<void>([
+        oldProgress.future,
+        Future<void>.delayed(const Duration(milliseconds: 50)),
+      ]);
+      final currentGeneration = service.requestConnectionIntent(true);
+
+      releaseQueue.complete();
+      await occupied;
+      await staleRecovery;
+
+      expect(notices, isEmpty);
+      expect(processExitCalls, 0);
+      expect(service.lastUnexpectedExitRuntimeNotice, isNull);
+      expect(service.automaticRecoveryStartCalls, 0);
+
+      await service.simulateUnexpectedExit(currentGeneration);
+      expect(service.automaticRecoveryStartCalls, 1);
+      expect(service.isRunning, isTrue);
+
+      service.setRunning(false);
+      await service.simulateUnexpectedExit(currentGeneration);
+      expect(service.automaticRecoveryStartCalls, 2);
+      expect(service.isRunning, isTrue);
     });
 
     test('legacy core symlinks are replaced without touching their targets',
@@ -2170,12 +2329,58 @@ class _ExternalProxyTakeoverRecoveryClashService extends ClashService {
   }
 }
 
+class _SerializedUnexpectedExitRecoveryClashService extends ClashService {
+  int automaticRecoveryStartCalls = 0;
+
+  Future<void> simulateUnexpectedExit(int generation) =>
+      runUnexpectedExitRecovery(generation: generation, exitCode: 17);
+
+  @override
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async =>
+      SystemProxyOwnershipStatus.owned;
+
+  @override
+  Future<bool> clearSystemProxyAfterUnexpectedExit() async => true;
+
+  @override
+  Future<void> stop() async => setRunning(false);
+
+  @override
+  Future<AppSettings> prepareForStart(AppSettings preferred) async {
+    updateSettings(preferred);
+    return preferred;
+  }
+
+  @override
+  Future<void> writeConfig(String configContent) async {}
+
+  @override
+  Future<bool> startForAutomaticRecovery() async {
+    automaticRecoveryStartCalls++;
+    setRunning(true);
+    return true;
+  }
+}
+
 class _UnavailableProxyOwnershipRecoveryClashService
     extends _ExternalProxyTakeoverRecoveryClashService {
   @override
   Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async {
     proxyOwnershipInspectionCalls++;
     return SystemProxyOwnershipStatus.unavailable;
+  }
+}
+
+class _StaleHealthProbeRecoveryClashService
+    extends _ExternalProxyTakeoverRecoveryClashService {
+  final Completer<void> healthProbeStarted = Completer<void>();
+  final Completer<void> releaseHealthProbe = Completer<void>();
+
+  @override
+  Future<bool> healthCheck() async {
+    healthProbeStarted.complete();
+    await releaseHealthProbe.future;
+    return false;
   }
 }
 
@@ -2247,6 +2452,18 @@ class _ApiHealthyClashService extends ClashService {
   Future<bool> checkMihomoApiHealth() async => true;
 }
 
+class _UncertainProxyOwnershipClashService extends ClashService {
+  SystemProxyOwnershipStatus ownershipStatus =
+      SystemProxyOwnershipStatus.unavailable;
+
+  @override
+  Future<bool> checkMihomoApiHealth() async => true;
+
+  @override
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async =>
+      ownershipStatus;
+}
+
 String _effectiveProxyOutput(int port) => '''<dictionary> {
   HTTPEnable : 1
   HTTPPort : $port
@@ -2281,6 +2498,28 @@ class _TunDataPathClashService extends ClashService
     bool Function()? shouldContinue,
   }) async =>
       '已连接，但连续 3 次网络验证失败，请尝试切换节点或刷新订阅';
+}
+
+class _BlockingStartupDataPathClashService extends ClashService
+    with _HealthyTunRuntimeConfig {
+  _BlockingStartupDataPathClashService({required super.tunSession});
+
+  final Completer<void> dataPathProbeStarted = Completer<void>();
+  final Completer<String?> dataPathResult = Completer<String?>();
+
+  @override
+  Future<bool> checkMihomoApiHealth() async => true;
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) {
+    if (!dataPathProbeStarted.isCompleted) dataPathProbeStarted.complete();
+    return dataPathResult.future;
+  }
 }
 
 class _TunHealthyClashService extends ClashService

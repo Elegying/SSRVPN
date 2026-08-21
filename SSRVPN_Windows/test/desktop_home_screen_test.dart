@@ -313,6 +313,90 @@ void main() {
     expect(find.text('已切换: 新加坡节点'), findsOneWidget);
   });
 
+  testWidgets(
+      'successful connection stays live and warns when node persistence fails',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(
+        withNodes: true,
+        failSettingsWrites: true,
+      ),
+    ))!;
+    addTearDown(fixture.dispose);
+    fixture.clash
+      ..switchResult = true
+      ..runtimeSelectedNodeName = '东京节点';
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await tester.pump();
+    await _pumpUntil(tester, () => fixture.clash.isRunning);
+    expect(fixture.clash.lastPreferredNodeName, '东京节点');
+    expect(fixture.clash.lastSwitchAttempt, '东京节点');
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump(const Duration(milliseconds: 150));
+    await _pumpUntil(tester, () => find.text('已连接').evaluate().isNotEmpty);
+    await _pumpUntil(
+      tester,
+      () => find.text('已连接，但首选节点保存失败').evaluate().isNotEmpty,
+    );
+
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.settings.settings.lastSelectedNodeName, isNull);
+    expect(find.text('已连接'), findsWidgets);
+    expect(find.textContaining('连接失败'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('ssrvpn-current-node-card')),
+        matching: find.text('东京节点'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'successful live switch stays selected and warns when persistence fails',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(
+        withNodes: true,
+        running: true,
+        failSettingsWrites: true,
+      ),
+    ))!;
+    addTearDown(fixture.dispose);
+    fixture.clash
+      ..switchResult = true
+      ..runtimeSelectedNodeName = '东京节点';
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    final selector = tester.widget<SsrvpnNodeSelectionPage>(
+      find.byType(SsrvpnNodeSelectionPage),
+    );
+    final node = selector.nodesOf().singleWhere(
+          (candidate) => candidate.name == '新加坡节点',
+        );
+    await tester.runAsync(() => selector.onSelectNode(node));
+    await tester.pump();
+
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.settings.settings.lastSelectedNodeName, isNull);
+    expect(find.text('已切换，但首选节点保存失败: 新加坡节点'), findsOneWidget);
+    expect(find.text('切换失败: 新加坡节点'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('ssrvpn-node-card-新加坡节点')),
+        matching: find.byIcon(Icons.check_circle_rounded),
+      ),
+      findsOneWidget,
+    );
+  });
+
   for (final switchResult in [false, true]) {
     testWidgets(
         'late connected node switch cannot overwrite a disconnected status '
@@ -590,14 +674,18 @@ void main() {
     final singleAction = find.bySemanticsLabel('测试 新加坡节点 延迟');
     expect(singleAction, findsOneWidget);
     expect(tester.getSemantics(singleAction).flagsCollection.isButton, isTrue);
-    final singleRunsBefore = fixture.clash.singleLatencyRuns;
+    final nodeLatencyRunsBefore = fixture.clash.nodeLatencyRuns;
     await _focusSemanticAction(tester, singleAction);
     expect(
       await tester.sendKeyEvent(LogicalKeyboardKey.enter),
       isTrue,
     );
     await tester.pumpAndSettle();
-    expect(fixture.clash.singleLatencyRuns, greaterThan(singleRunsBefore));
+    expect(
+      fixture.clash.nodeLatencyRuns,
+      greaterThan(nodeLatencyRunsBefore),
+    );
+    expect(fixture.clash.lastNodeLatencyName, '新加坡节点');
 
     await _focusSemanticAction(tester, nodeAction);
     expect(
@@ -654,6 +742,7 @@ class _HomeFixture {
     required bool withNodes,
     bool recordBatchLatencyResults = true,
     bool running = false,
+    bool failSettingsWrites = false,
   }) async {
     SubscriptionService.resetInstanceForTesting();
     final directory = Directory.systemTemp.createTempSync('ssrvpn_home_');
@@ -663,7 +752,9 @@ class _HomeFixture {
       settings: AppSettings(),
       dataDir: directory.path,
       settingsPath: '${directory.path}/settings.json',
-      writeSettings: (_) => SynchronousFuture<void>(null),
+      writeSettings: (_) => failSettingsWrites
+          ? Future<void>.error(StateError('disk full'))
+          : SynchronousFuture<void>(null),
       readApiSecret: () async => '',
       writeApiSecret: (_) async {},
     );
@@ -716,8 +807,11 @@ class _FakeClashService extends ClashService {
   bool _running;
   String? lastSwitchAttempt;
   String? lastPreferredNodeName;
+  String? runtimeSelectedNodeName;
   int batchLatencyRuns = 0;
   int singleLatencyRuns = 0;
+  int nodeLatencyRuns = 0;
+  String? lastNodeLatencyName;
   int startCalls = 0;
   int stopCalls = 0;
   Completer<void>? switchStarted;
@@ -776,7 +870,7 @@ class _FakeClashService extends ClashService {
   }
 
   @override
-  Future<String?> currentSelectedProxyName() async => null;
+  Future<String?> currentSelectedProxyName() async => runtimeSelectedNodeName;
 
   @override
   Future<bool> switchSelectedProxy(String nodeName) async {
@@ -800,6 +894,16 @@ class _FakeClashService extends ClashService {
   }) async {
     singleLatencyRuns++;
     return server.endsWith('.1') ? 42 : 68;
+  }
+
+  @override
+  Future<int> testNodeLatency(
+    ProxyNode node, {
+    int timeoutMs = 5000,
+  }) async {
+    nodeLatencyRuns++;
+    lastNodeLatencyName = node.name;
+    return 77;
   }
 
   @override

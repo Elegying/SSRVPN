@@ -152,9 +152,19 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
           );
         }
       }
+      final preferredNodeWarning = connectionResult.preferredNodeSwitchWarning(
+        preferredNodeName: preferredNodeName,
+      );
       final portAdjustmentNotice = connectionResult.runtimeNotice;
-      if (portAdjustmentNotice != null && portAdjustmentNotice.isNotEmpty) {
-        await _presentRuntimeNotice(portAdjustmentNotice);
+      if (preferredNodeWarning != null) {
+        await _presentRuntimeNotice(
+          RuntimeNotice.warning(preferredNodeWarning),
+        );
+      } else if (portAdjustmentNotice != null &&
+          portAdjustmentNotice.isNotEmpty) {
+        await _presentRuntimeNotice(
+          RuntimeNotice.success(portAdjustmentNotice),
+        );
       }
     } catch (error, stack) {
       final isCurrent = connectionGeneration != null &&

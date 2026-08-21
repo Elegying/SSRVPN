@@ -16,6 +16,12 @@ ClashService _createTestService() => ClashService(
     );
 
 void main() {
+  test('periodic health timeout covers the Windows ownership probe budget', () {
+    final service = _InspectableHealthTimeoutClashService();
+
+    expect(service.exposedHealthCheckTimeout, const Duration(seconds: 25));
+  });
+
   test('fresh lifecycle reports safe idle diagnostics', () async {
     final service = _createTestService();
 
@@ -78,7 +84,7 @@ void main() {
     final service = _createTestService();
 
     expect(await service.start(), isFalse);
-    expect(service.lastStartError, 'Mihomo service is not initialized');
+    expect(service.lastStartError, contains('尚未初始化'));
   });
 
   test('automatic recovery fails safely before lifecycle initialization',
@@ -86,7 +92,7 @@ void main() {
     final service = _createTestService();
 
     expect(await service.startForAutomaticRecovery(), isFalse);
-    expect(service.lastStartError, 'Mihomo service is not initialized');
+    expect(service.lastStartError, contains('尚未初始化'));
   });
 
   test('stop hook fails closed when proxy cleanup is unavailable', () async {
@@ -133,4 +139,8 @@ void main() {
     expect(service.lastStartError, contains('尚未初始化'));
     expect(service.hasPendingSystemProxyRecovery, isTrue);
   });
+}
+
+class _InspectableHealthTimeoutClashService extends ClashService {
+  Duration get exposedHealthCheckTimeout => healthCheckTimeout;
 }

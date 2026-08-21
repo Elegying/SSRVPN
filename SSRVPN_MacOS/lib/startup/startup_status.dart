@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart'
+    show safeUserFacingFailureMessage;
 
 import '../services/clash_service.dart';
 import '../services/settings_service.dart';
@@ -16,10 +18,8 @@ class StartupFailure {
   final String message;
   final DateTime time;
 
-  static String _formatError(Object error) {
-    final message = error.toString().replaceFirst('Exception: ', '');
-    return message.length <= 800 ? message : '${message.substring(0, 800)}...';
-  }
+  static String _formatError(Object error) =>
+      safeUserFacingFailureMessage(error);
 }
 
 class StartupStatus extends ChangeNotifier {

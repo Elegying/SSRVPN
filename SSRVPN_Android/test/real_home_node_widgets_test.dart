@@ -12,6 +12,7 @@ import 'package:ssrvpn_android/services/clash_service.dart';
 import 'package:ssrvpn_android/services/settings_service.dart';
 import 'package:ssrvpn_android/services/subscription_service.dart';
 import 'package:ssrvpn_android/theme/app_theme.dart';
+import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 const _nodeYaml = '''
@@ -180,10 +181,12 @@ void main() {
     final fixture =
         (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
     addTearDown(fixture.dispose);
+    fixture.settings.settings.latencyTestTimeout = 8700;
 
     await tester.pumpWidget(fixture.build());
     await tester.pump();
     await _pumpUntil(tester, () => clash.latencyStarted.isCompleted);
+    expect(clash.lastTimeoutMs, 8700);
 
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
@@ -306,6 +309,224 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets(
+      'Android Home uses and persists the first runnable node when all latencies are unknown',
+      (tester) async {
+    final clash = _SuccessfulInitialSwitchAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+    for (final node in fixture.subscription.allNodes) {
+      node.latency = -1;
+    }
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('ssrvpn-current-node-card')),
+        matching: find.text('东京节点'),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await _waitForAsyncCondition(
+      tester,
+      () => fixture.settings.settings.lastSelectedNodeName == '东京节点',
+    );
+
+    expect(clash.generatedPreferredNodeName, '东京节点');
+    expect(clash.liveSwitchCalls, 1);
+    expect(clash.isRunning, isTrue);
+  });
+
+  testWidgets(
+      'failed initial node switch keeps and persists the actual runtime node',
+      (tester) async {
+    final clash = _FailedInitialSwitchAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+    await tester.runAsync(
+      () => fixture.settings.setLastSelectedNodeName('新加坡节点'),
+    );
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-power-button')),
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await _waitForWidget(tester, find.text('未能切换节点，当前连接仍保留'));
+    await _waitForAsyncCondition(
+      tester,
+      () => fixture.settings.settings.lastSelectedNodeName == '东京节点',
+    );
+
+    expect(clash.generatedPreferredNodeName, '新加坡节点');
+    expect(clash.liveSwitchCalls, 1);
+    expect(clash.isRunning, isTrue);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('ssrvpn-current-node-card')),
+        matching: find.text('东京节点'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('ssrvpn-current-node-card')),
+        matching: find.text('新加坡节点'),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets(
+      'successful live switch survives its synchronous status notification',
+      (tester) async {
+    final clash = _RecordingAndroidClashService()..setRunning(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('ssrvpn-node-select-新加坡节点')),
+    );
+    await _waitForWidget(tester, find.text('已切换: 新加坡节点'));
+    await _waitForAsyncCondition(
+      tester,
+      () => fixture.settings.settings.lastSelectedNodeName == '新加坡节点',
+    );
+
+    expect(clash.isRunning, isTrue);
+    expect(clash.connectionDesired, isTrue);
+    expect(clash.runtimeNodeName, '新加坡节点');
+    expect(clash.liveSwitchCalls, 1);
+  });
+
+  testWidgets(
+      'successful connection warns when only node preference persistence fails',
+      (tester) async {
+    final clash = _SuccessfulInitialSwitchAndroidClashService();
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+    await tester.runAsync(() => Directory(fixture.settingsPath).create());
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-power-button')),
+    );
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await _waitForWidget(tester, find.text('已连接，但首选节点保存失败'));
+
+    expect(clash.isRunning, isTrue);
+    expect(clash.connectionDesired, isTrue);
+    expect(clash.liveSwitchCalls, 1);
+    expect(fixture.settings.settings.lastSelectedNodeName, isNull);
+    expect(find.text('连接异常'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('ssrvpn-current-node-card')),
+        matching: find.text('东京节点'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'successful live switch warns when only node preference persistence fails',
+      (tester) async {
+    final clash = _RecordingAndroidClashService()..setRunning(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+    await tester.runAsync(() => Directory(fixture.settingsPath).create());
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('ssrvpn-node-select-新加坡节点')),
+    );
+    await _waitForWidget(tester, find.text('已切换，但首选节点保存失败'));
+
+    expect(clash.isRunning, isTrue);
+    expect(clash.connectionDesired, isTrue);
+    expect(clash.runtimeNodeName, '新加坡节点');
+    expect(clash.liveSwitchCalls, 1);
+    expect(fixture.settings.settings.lastSelectedNodeName, isNull);
+    expect(find.text('节点切换失败，请稍后重试'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('ssrvpn-node-card-新加坡节点')),
+        matching: find.byIcon(Icons.check_circle_rounded),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('live switch readback mismatch reports the retained runtime node',
+      (tester) async {
+    final clash = _MismatchedReadbackAndroidClashService()..setRunning(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('ssrvpn-node-select-新加坡节点')),
+    );
+    await _waitForWidget(
+      tester,
+      find.text('切换失败: 新加坡节点；当前节点: 东京节点'),
+    );
+
+    expect(clash.isRunning, isTrue);
+    expect(clash.connectionDesired, isTrue);
+    expect(fixture.settings.settings.lastSelectedNodeName, '东京节点');
+  });
+
+  testWidgets('live switch blank readback preserves the confirmed switch',
+      (tester) async {
+    final clash = _UnknownReadbackAndroidClashService()..setRunning(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('ssrvpn-node-select-新加坡节点')),
+    );
+    await _waitForWidget(
+      tester,
+      find.text('已切换: 新加坡节点；快速启动信息保存失败'),
+    );
+
+    expect(clash.isRunning, isTrue);
+    expect(clash.connectionDesired, isTrue);
+    expect(fixture.settings.settings.lastSelectedNodeName, '新加坡节点');
+    expect(find.textContaining('切换失败:'), findsNothing);
+  });
+
   testWidgets('Android native recovery stays visible and power cancels it',
       (tester) async {
     final clash = _RecoveryAndroidClashService()..setRunning(true);
@@ -327,6 +548,64 @@ void main() {
 
     expect(clash.connectionDesired, isFalse);
     expect(find.text('未连接'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Android Home presents runtime notices and retires callbacks by service identity',
+      (tester) async {
+    final originalClash = _RecordingAndroidClashService();
+    final replacementClash = _RecordingAndroidClashService();
+    final fixture = (await tester.runAsync(
+      () => _AndroidHomeFixture.create(originalClash),
+    ))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+      tester,
+      find.byKey(const Key('ssrvpn-current-node-card')),
+    );
+    expect(originalClash.onRuntimeNotice, isNotNull);
+
+    originalClash.publishRuntimeNotice(
+      const RuntimeNotice.progress('连接服务正在自动恢复…'),
+    );
+    await tester.pump();
+    expect(find.text('连接服务正在自动恢复…'), findsOneWidget);
+
+    originalClash.publishRuntimeNotice(
+      const RuntimeNotice.warning('当前网络尚未恢复，VPN 会继续等待'),
+    );
+    await tester.pump();
+    expect(find.text('当前网络尚未恢复，VPN 会继续等待'), findsOneWidget);
+    expect(find.text('连接服务正在自动恢复…'), findsNothing);
+
+    originalClash.publishRuntimeNotice(
+      const RuntimeNotice.error('连接服务已停止，请点击连接重试'),
+    );
+    await tester.pump();
+    expect(find.text('连接异常'), findsOneWidget);
+    expect(find.text('连接服务已停止，请点击连接重试'), findsOneWidget);
+    expect(find.text('当前网络尚未恢复，VPN 会继续等待'), findsNothing);
+
+    await tester.pumpWidget(fixture.build(clashOverride: replacementClash));
+    await tester.pump();
+    expect(originalClash.onRuntimeNotice, isNull);
+    expect(replacementClash.onRuntimeNotice, isNotNull);
+
+    originalClash.publishRuntimeNotice(
+      const RuntimeNotice.error('旧服务实例不得更新页面'),
+    );
+    replacementClash.publishRuntimeNotice(
+      const RuntimeNotice.progress('新服务实例已接管'),
+    );
+    await tester.pump();
+    expect(find.text('旧服务实例不得更新页面'), findsNothing);
+    expect(find.text('新服务实例已接管'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(replacementClash.onRuntimeNotice, isNull);
   });
 
   testWidgets(
@@ -710,12 +989,15 @@ class _AndroidHomeFixture {
     );
   }
 
-  Widget build({double textScaleFactor = 1}) {
+  Widget build({
+    double textScaleFactor = 1,
+    ClashService? clashOverride,
+  }) {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<SubscriptionService>.value(value: subscription),
         ChangeNotifierProvider<SettingsService>.value(value: settings),
-        Provider<ClashService>.value(value: clash),
+        Provider<ClashService>.value(value: clashOverride ?? clash),
       ],
       child: MaterialApp(
         builder: (context, child) => MediaQuery(
@@ -744,6 +1026,11 @@ class _RecordingAndroidClashService extends ClashService {
   int liveSwitchCalls = 0;
   int idleSnapshotInvalidations = 0;
   bool failIdleSnapshotInvalidation = false;
+  String runtimeNodeName = '东京节点';
+
+  void publishRuntimeNotice(RuntimeNotice notice) {
+    onRuntimeNotice?.call(notice);
+  }
 
   @override
   Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => const [];
@@ -782,21 +1069,145 @@ class _RecordingAndroidClashService extends ClashService {
     required int connectionGeneration,
   }) async {
     liveSwitchCalls++;
-    return const AndroidProxySwitchResult(
+    runtimeNodeName = nodeName;
+    onStatusChanged?.call();
+    return AndroidProxySwitchResult(
       liveSwitched: true,
       snapshotPersisted: true,
       intentCurrent: true,
+      nativeSessionGeneration: 1,
+      runtimeNodeName: runtimeNodeName,
     );
   }
 
   @override
+  Future<String?> currentSelectedProxyName() async => runtimeNodeName;
+
+  @override
+  Future<String> writePreferredNodeConfig(
+    String rawYaml,
+    AppSettings settings,
+    String nodeName, {
+    bool Function()? shouldContinue,
+    int? expectedSessionGeneration,
+  }) async =>
+      '/tmp/ssrvpn-test-preferred-node.yaml';
+
+  @override
   Future<void> stop() async => setRunning(false);
+}
+
+class _FailedInitialSwitchAndroidClashService
+    extends _RecordingAndroidClashService {
+  @override
+  Future<AppSettings> prepareForStart(AppSettings preferred) async {
+    updateSettings(preferred);
+    return preferred;
+  }
+
+  @override
+  Future<String> generateClashConfigAsync(
+    String rawYaml,
+    AppSettings settings, {
+    String? preferredNodeName,
+  }) async {
+    generatedPreferredNodeName = preferredNodeName;
+    return 'generated-config';
+  }
+
+  @override
+  Future<String> writeConfig(String config) async =>
+      '/tmp/ssrvpn-failed-initial-switch.yaml';
+
+  @override
+  Future<bool> start({String? nodeName, String? preparedConfigPath}) async {
+    setRunning(true);
+    return true;
+  }
+
+  @override
+  Future<AndroidProxySwitchResult> switchSelectedProxyForConnection(
+    String nodeName, {
+    required int connectionGeneration,
+  }) async {
+    liveSwitchCalls++;
+    return const AndroidProxySwitchResult(
+      liveSwitched: false,
+      snapshotPersisted: false,
+      intentCurrent: true,
+      runtimeNodeName: '东京节点',
+    );
+  }
+
+  @override
+  Future<String?> currentSelectedProxyName() async => '东京节点';
+
+  @override
+  Future<void> observeDataPlaneHealth() async {}
+}
+
+class _SuccessfulInitialSwitchAndroidClashService
+    extends _FailedInitialSwitchAndroidClashService {
+  @override
+  Future<AndroidProxySwitchResult> switchSelectedProxyForConnection(
+    String nodeName, {
+    required int connectionGeneration,
+  }) async {
+    liveSwitchCalls++;
+    return AndroidProxySwitchResult(
+      liveSwitched: true,
+      snapshotPersisted: true,
+      intentCurrent: true,
+      runtimeNodeName: nodeName,
+    );
+  }
+}
+
+class _MismatchedReadbackAndroidClashService
+    extends _RecordingAndroidClashService {
+  int preferredConfigWrites = 0;
+
+  @override
+  Future<AndroidProxySwitchResult> switchSelectedProxyForConnection(
+    String nodeName, {
+    required int connectionGeneration,
+  }) async {
+    liveSwitchCalls++;
+    return const AndroidProxySwitchResult(
+      liveSwitched: true,
+      snapshotPersisted: false,
+      intentCurrent: true,
+      nativeSessionGeneration: 1,
+    );
+  }
+
+  @override
+  Future<String> writePreferredNodeConfig(
+    String rawYaml,
+    AppSettings settings,
+    String nodeName, {
+    bool Function()? shouldContinue,
+    int? expectedSessionGeneration,
+  }) async {
+    preferredConfigWrites++;
+    if (preferredConfigWrites == 1) {
+      throw StateError('snapshot unavailable');
+    }
+    return '/tmp/ssrvpn-test-preferred-node.yaml';
+  }
+}
+
+class _UnknownReadbackAndroidClashService
+    extends _MismatchedReadbackAndroidClashService {
+  @override
+  Future<String?> currentSelectedProxyName() async => '   ';
 }
 
 class _DelayedAndroidClashService extends ClashService {
   final Completer<void> latencyStarted = Completer<void>();
   final Completer<void> releaseLatency = Completer<void>();
   bool _running = false;
+  int? lastTimeoutMs;
 
   @override
   bool get isRunning => _running;
@@ -817,6 +1228,7 @@ class _DelayedAndroidClashService extends ClashService {
     int timeoutMs = 5000,
     bool Function()? shouldContinue,
   }) async {
+    lastTimeoutMs = timeoutMs;
     if (!latencyStarted.isCompleted) latencyStarted.complete();
     await releaseLatency.future;
     for (var index = 0; index < nodes.length; index++) {

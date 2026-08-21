@@ -48,7 +48,7 @@ void main() {
     await subscriptionService.setRawYaml(_yaml('New', 'new.example.com'));
     clashService.releaseGeneration.complete();
 
-    expect(await connecting, contains('订阅已更新'));
+    expect((await connecting).message, contains('订阅已更新'));
     expect(clashService.writeCalls, 0);
     expect(clashService.startCalls, 0);
   });
@@ -88,7 +88,7 @@ void main() {
     await subscriptionService.setRawYaml(_yaml('New', 'new.example.com'));
     clashService.releaseSwitch.complete();
 
-    expect(await connecting, contains('订阅已更新'));
+    expect((await connecting).message, contains('订阅已更新'));
     expect(clashService.stopCalls, 1);
     expect(clashService.isRunning, isFalse);
   });
@@ -179,7 +179,7 @@ void main() {
     releaseSecureWrite.complete();
     await blockingWrite;
     await modeWrite;
-    expect(await connecting, isNull);
+    expect((await connecting).message, isNull);
     expect(clashService.generatedSettings?.proxyMode, ProxyMode.global);
     expect(clashService.startCalls, 1);
   });
@@ -225,7 +225,7 @@ void main() {
 
     expect(clashService.generatedSettings?.proxyPort, isNot(occupied.port));
     expect(clashService.lastRuntimePortAdjustmentMessage, contains('端口被占用'));
-    expect(result, contains('端口被占用'));
+    expect(result.message, contains('端口被占用'));
   });
 
   test('connection regenerates config once after a start-time port race',
@@ -260,7 +260,7 @@ void main() {
       connectionGeneration: generation,
     );
 
-    expect(result, isNull);
+    expect(result.message, isNull);
     expect(clashService.prepareCalls, 2);
     expect(clashService.startCalls, 2);
     expect(clashService.stopCalls, 1);
@@ -312,7 +312,7 @@ void main() {
 
     await blockingWrite;
     await modeWrite;
-    expect(await connecting, isNull);
+    expect((await connecting).message, isNull);
     expect(clashService.generatedSettings, isNull);
     expect(clashService.startCalls, 0);
   });
@@ -365,14 +365,234 @@ void main() {
     await firstConnectExpectation;
 
     expect(
-      await orchestrator.connect(
+      (await orchestrator.connect(
         null,
         connectionGeneration: generation,
-      ),
+      ))
+          .message,
       isNull,
     );
     expect(clashService.generatedSettings?.apiSecret, 'test-secret');
     expect(clashService.startCalls, 1);
+  });
+
+  test('native success is returned before advisory external verification',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_non_blocking_connectivity_',
+    );
+    final clashService = _BlockingConnectivityClashService();
+    addTearDown(() async {
+      SubscriptionService.resetInstanceForTesting();
+      if (!clashService.releaseVerification.isCompleted) {
+        clashService.releaseVerification.complete();
+      }
+      await tempDir.delete(recursive: true);
+    });
+    SubscriptionService.resetInstanceForTesting();
+    final subscriptionService =
+        await SubscriptionService.getInstance(tempDir.path);
+    await subscriptionService.setRawYaml(_yaml('Node', 'node.example.com'));
+    final settingsService = await SettingsService.createForTesting(
+      configPath: '${tempDir.path}/settings.json',
+      readApiSecret: () async => 'test-secret',
+      writeApiSecret: (_) async {},
+    );
+    await _assignCurrentlyFreeRuntimePorts(settingsService);
+    final generation = clashService.requestConnectionIntent(true);
+    final orchestrator = ConnectionOrchestrator(
+      clashService: clashService,
+      settingsService: settingsService,
+      subscriptionService: subscriptionService,
+    );
+
+    final result = await orchestrator
+        .connect(null, connectionGeneration: generation)
+        .timeout(
+          const Duration(seconds: 1),
+          onTimeout: () => const AndroidConnectionOutcome(message: 'blocked'),
+        );
+
+    expect(result.message, isNull);
+    expect(clashService.isRunning, isTrue);
+    expect(clashService.verificationStarted.isCompleted, isTrue);
+    expect(clashService.observationIsCurrent?.call(), isTrue);
+    clashService.requestConnectionIntent(false);
+    clashService.requestConnectionIntent(true);
+    expect(clashService.observationIsCurrent?.call(), isFalse);
+  });
+
+  test('connected feedback is a notice while failed startup is an error', () {
+    expect(
+      resolveAndroidConnectionFeedback(
+        connected: true,
+        result: '连接已建立，但外部网络暂时无法确认',
+        runtimeNotice: null,
+      ),
+      (
+        errorMessage: null,
+        connectionNotice: '连接已建立，但外部网络暂时无法确认',
+      ),
+    );
+    expect(
+      resolveAndroidConnectionFeedback(
+        connected: false,
+        result: 'VPN 数据通道不可用，请切换节点或重试',
+        runtimeNotice: null,
+      ),
+      (
+        errorMessage: 'VPN 数据通道不可用，请切换节点或重试',
+        connectionNotice: null,
+      ),
+    );
+  });
+
+  test('unknown native details never reach the connection error surface', () {
+    final message = userFriendlyAndroidConnectionError(
+      'Mihomo: parse password secret-value at /data/user/0/private.yaml',
+    );
+
+    expect(message, 'VPN 启动失败，请重试；若持续失败请打开诊断与运行日志');
+    expect(message, isNot(contains('secret-value')));
+    expect(message, isNot(contains('/data/user')));
+    expect(
+      userFriendlyAndroidConnectionError(
+        'VPN 数据通道不可用，请切换节点或重试',
+      ),
+      'VPN 数据通道不可用，请切换节点或重试',
+    );
+    expect(
+      userFriendlyAndroidConnectionError(
+        '上次 VPN 联网检查仍在结束，请稍后重试；若持续出现请重启应用',
+      ),
+      '上次 VPN 联网检查仍在结束，请稍后重试；若持续出现请重启应用',
+    );
+    expect(
+      userFriendlyAndroidConnectionError(
+        'VPN 联网检查超时，请稍后重试；若持续出现请重启应用',
+      ),
+      'VPN 联网检查超时，请稍后重试；若持续出现请重启应用',
+    );
+  });
+
+  test('stable native startup stages have actionable friendly messages', () {
+    expect(
+      userFriendlyAndroidConnectionError('Missing required arguments'),
+      '连接参数不完整，请重试',
+    );
+    expect(
+      userFriendlyAndroidConnectionError('VPN establish failed'),
+      '系统未能创建 VPN 接口，请检查 VPN 权限后重试',
+    );
+    expect(
+      userFriendlyAndroidConnectionError('Bridge.start timed out'),
+      'VPN 核心启动超时，请重新连接',
+    );
+    expect(
+      userFriendlyAndroidConnectionError('Health check timeout'),
+      'VPN 核心已启动，但本地控制服务未及时就绪，请重新连接',
+    );
+    expect(
+      userFriendlyAndroidConnectionError(
+        'PlatformException(STOP_INCOMPLETE, VPN resources are still releasing)',
+      ),
+      'VPN 正在释放系统资源，请稍后重试',
+    );
+    expect(
+      userFriendlyAndroidConnectionError(
+        'PlatformException(STOP_FAILED, native secret detail)',
+      ),
+      'VPN 断开失败，请重试；若持续失败请打开诊断与运行日志',
+    );
+    expect(
+      userFriendlyAndroidConnectionError(
+        '无法保存连接恢复信息，VPN 已安全回滚',
+      ),
+      '无法保存连接恢复信息，VPN 已安全回滚，请重试',
+    );
+  });
+
+  test('failed preferred-node switch preserves the live runtime node',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_failed_preferred_switch_',
+    );
+    addTearDown(() async {
+      SubscriptionService.resetInstanceForTesting();
+      await tempDir.delete(recursive: true);
+    });
+    SubscriptionService.resetInstanceForTesting();
+    final subscriptionService =
+        await SubscriptionService.getInstance(tempDir.path);
+    await subscriptionService.setRawYaml(
+      _yaml('Requested Node', 'node.example.com'),
+    );
+    final settingsService = await SettingsService.createForTesting(
+      configPath: '${tempDir.path}/settings.json',
+      readApiSecret: () async => 'test-secret',
+      writeApiSecret: (_) async {},
+    );
+    await _assignCurrentlyFreeRuntimePorts(settingsService);
+    final clashService = _FailedPreferredNodeSwitchClashService();
+    final generation = clashService.requestConnectionIntent(true);
+    final orchestrator = ConnectionOrchestrator(
+      clashService: clashService,
+      settingsService: settingsService,
+      subscriptionService: subscriptionService,
+    );
+
+    final outcome = await orchestrator.connect(
+      'Requested Node',
+      connectionGeneration: generation,
+    );
+
+    expect(clashService.isRunning, isTrue);
+    expect(outcome.preferredNodeSwitchSucceeded, isFalse);
+    expect(outcome.runtimeNodeName, 'Actual Node');
+    expect(outcome.message, '未能切换节点，当前连接仍保留');
+  });
+
+  test('late preferred-node readback promotes the confirmed runtime node',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_late_preferred_switch_',
+    );
+    addTearDown(() async {
+      SubscriptionService.resetInstanceForTesting();
+      await tempDir.delete(recursive: true);
+    });
+    SubscriptionService.resetInstanceForTesting();
+    final subscriptionService =
+        await SubscriptionService.getInstance(tempDir.path);
+    await subscriptionService.setRawYaml(
+      _yaml('Requested Node', 'node.example.com'),
+    );
+    final settingsService = await SettingsService.createForTesting(
+      configPath: '${tempDir.path}/settings.json',
+      readApiSecret: () async => 'test-secret',
+      writeApiSecret: (_) async {},
+    );
+    await _assignCurrentlyFreeRuntimePorts(settingsService);
+    final clashService = _LatePreferredNodeSwitchClashService();
+    final generation = clashService.requestConnectionIntent(true);
+    final orchestrator = ConnectionOrchestrator(
+      clashService: clashService,
+      settingsService: settingsService,
+      subscriptionService: subscriptionService,
+    );
+
+    final outcome = await orchestrator.connect(
+      'Requested Node',
+      connectionGeneration: generation,
+    );
+
+    expect(clashService.isRunning, isTrue);
+    expect(outcome.preferredNodeSwitchSucceeded, isTrue);
+    expect(outcome.runtimeNodeName, 'Requested Node');
+    expect(outcome.message, 'VPN 已连接，但快速启动节点信息保存失败');
   });
 }
 
@@ -518,6 +738,48 @@ class _SettingsSnapshotClashService extends ClashService {
     bool Function()? shouldContinue,
   }) async =>
       null;
+}
+
+class _BlockingConnectivityClashService extends _SettingsSnapshotClashService {
+  final verificationStarted = Completer<void>();
+  final releaseVerification = Completer<void>();
+  bool Function()? observationIsCurrent;
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async {
+    observationIsCurrent = shouldContinue;
+    verificationStarted.complete();
+    await releaseVerification.future;
+    return null;
+  }
+}
+
+class _FailedPreferredNodeSwitchClashService
+    extends _SettingsSnapshotClashService {
+  @override
+  Future<AndroidProxySwitchResult> switchSelectedProxyForConnection(
+    String nodeName, {
+    required int connectionGeneration,
+  }) async =>
+      const AndroidProxySwitchResult(
+        liveSwitched: false,
+        snapshotPersisted: false,
+        intentCurrent: true,
+      );
+
+  @override
+  Future<String?> currentSelectedProxyName() async => 'Actual Node';
+}
+
+class _LatePreferredNodeSwitchClashService
+    extends _FailedPreferredNodeSwitchClashService {
+  @override
+  Future<String?> currentSelectedProxyName() async => 'Requested Node';
 }
 
 class _PortRaceClashService extends _SettingsSnapshotClashService {

@@ -2,7 +2,7 @@ part of desktop_home_screen;
 
 extension _DesktopHomeBackgroundTasks on _HomeScreenState {
   Future<void> _loadInitialData() async {
-    if (!mounted || _disposed) return;
+    if (!_canUpdateUi) return;
     final subService = context.read<SubscriptionService>();
     final clashService = context.read<ClashService>();
     if (!identical(_clashService, clashService)) {
@@ -14,7 +14,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     final wasRunning = clashService.isRunning;
     final runtimeSelectedNodeName =
         wasRunning ? await clashService.currentSelectedProxyName() : null;
-    if (!mounted || _disposed || !identical(_subscriptionService, subService)) {
+    if (!_canUpdateUi || !identical(_subscriptionService, subService)) {
       return;
     }
     final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
@@ -36,13 +36,12 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
         }
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted ||
-            _disposed ||
+        if (!_canUpdateUi ||
             !identical(_subscriptionService, subService) ||
             subService.revision != revision) {
           return;
         }
-        unawaited(_autoTestAllNodes());
+        unawaited(_runBatchLatencyTest());
       });
     }
     if (statusIsCurrent && wasRunning) {
@@ -61,7 +60,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
 
   void _handleClashStatusChanged() {
     final clashService = _clashService;
-    if (clashService == null || !mounted || _disposed) return;
+    if (clashService == null || !_canUpdateUi) return;
     final running = clashService.isRunning;
     final connectivityWarning =
         running ? clashService.connectivityWarning : null;
@@ -101,13 +100,12 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
 
   Future<void> _syncSelectedNodeFromRuntime(int statusEpoch) async {
     final clashService = _clashService;
-    if (clashService == null || !mounted || _disposed || !_isConnected) return;
+    if (clashService == null || !_canUpdateUi || !_isConnected) return;
     final runtimeSelectedNode = await _resolveRuntimeSelectedNode(
       clashService,
       _nodes,
     );
-    if (!mounted ||
-        _disposed ||
+    if (!_canUpdateUi ||
         !_isConnected ||
         statusEpoch != _connectionStatusEpoch ||
         !identical(_clashService, clashService)) {
@@ -140,7 +138,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
   }
 
   void _flushPendingLatencies(int generation) {
-    if (!_latencyController.hasPending || !mounted || _disposed) return;
+    if (!_latencyController.hasPending || !_canUpdateUi) return;
     if (_latencyBatchGeneration != generation ||
         !_latencyController.isCurrentBatch(generation)) {
       return;
@@ -175,7 +173,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
   }
 
   Future<void> _checkForUpdate() async {
-    if (!mounted || _disposed || !_isConnected || _updateCheckInProgress) {
+    if (!_canUpdateUi || !_isConnected || _updateCheckInProgress) {
       return;
     }
     _updateCheckInProgress = true;
@@ -184,7 +182,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     try {
       const currentVersion = UpdateService.appVersion;
       final update = await UpdateService.checkForUpdate(currentVersion);
-      if (update != null && mounted && !_disposed && _isConnected) {
+      if (update != null && _canUpdateUi && _isConnected) {
         context.read<UpdateAvailabilityController>().publish(update);
       }
       _updateCheckCompleted = _isConnected;
@@ -194,7 +192,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     } finally {
       _updateCheckInProgress = false;
     }
-    if (shouldRetry && mounted && !_disposed && _isConnected) {
+    if (shouldRetry && _canUpdateUi && _isConnected) {
       _checkUpdateDelayed(delay: const Duration(minutes: 1));
     }
   }

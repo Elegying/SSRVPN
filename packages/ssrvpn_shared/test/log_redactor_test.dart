@@ -28,17 +28,216 @@ void main() {
     expect(sanitized, isNot(contains('hidden')));
   });
 
+  test('redacts quoted credential assignments without consuming later fields',
+      () {
+    final sanitized = LogRedactor.sanitize(
+      '''password="alpha beta gamma" status=ready, token='delta epsilon'; apiSecret="zeta eta" node=usable''',
+    );
+
+    expect(sanitized, contains('password: ***'));
+    expect(sanitized, contains('token: ***'));
+    expect(sanitized, contains('apiSecret: ***'));
+    expect(sanitized, contains('status=ready'));
+    expect(sanitized, contains('node=usable'));
+    expect(sanitized, isNot(contains('alpha beta gamma')));
+    expect(sanitized, isNot(contains('delta epsilon')));
+    expect(sanitized, isNot(contains('zeta eta')));
+  });
+
+  test('fails safely for an unterminated quoted credential', () {
+    final sanitized = LogRedactor.sanitize(
+      'token="secret value that never closes',
+    );
+
+    expect(sanitized, 'token: ***');
+    expect(sanitized, isNot(contains('secret value')));
+  });
+
+  test('redacts quoted authorization values containing spaces', () {
+    final sanitized = LogRedactor.sanitize(
+      'authorization="Bearer alpha beta" status=ready',
+    );
+
+    expect(sanitized, contains('authorization: ***'));
+    expect(sanitized, contains('status=ready'));
+    expect(sanitized, isNot(contains('alpha beta')));
+  });
+
+  test('fails closed for unterminated quoted authorization values', () {
+    for (final input in const [
+      'authorization="Bearer alpha beta',
+      "authorization='Basic dXNlcjpwYXNz extra",
+      '{"authorization":"Bearer alpha beta',
+      "{'authorization':'Token alpha beta",
+    ]) {
+      final sanitized = LogRedactor.sanitize(input);
+
+      expect(sanitized, isNot(contains('alpha')));
+      expect(sanitized, isNot(contains('beta')));
+      expect(sanitized, isNot(contains('dXNlcjpwYXNz')));
+      expect(sanitized, isNot(contains('extra')));
+      expect(sanitized, contains('authorization: ***'));
+    }
+  });
+
+  test('redacts multiline quoted credentials and preserves later fields', () {
+    for (final input in const [
+      'password="alpha\nbeta"\nstatus=ready',
+      'authorization="Bearer alpha\r\nbeta"\r\nstatus=ready',
+    ]) {
+      final sanitized = LogRedactor.sanitize(input);
+
+      expect(sanitized, isNot(contains('alpha')));
+      expect(sanitized, isNot(contains('beta')));
+      expect(sanitized, contains('status=ready'));
+    }
+  });
+
+  test('redacts closed multiline JSON credentials and preserves later fields',
+      () {
+    const cases = {
+      '{"password":"alpha\nbeta","status":"ready"}': '"status":"ready"',
+      '{"authorization":"Bearer alpha\r\nbeta","status":"ready"}':
+          '"status":"ready"',
+      "{'password':'alpha\r\nbeta','status':'ready'}": "'status':'ready'",
+      "{'authorization':'Token alpha\nbeta','status':'ready'}":
+          "'status':'ready'",
+    };
+    for (final entry in cases.entries) {
+      final sanitized = LogRedactor.sanitize(entry.key);
+
+      expect(sanitized, isNot(contains('alpha')));
+      expect(sanitized, isNot(contains('beta')));
+      expect(sanitized, contains(entry.value));
+    }
+  });
+
+  test('fails closed for unterminated multiline quoted credentials', () {
+    for (final input in const [
+      'password="alpha\nbeta',
+      'authorization="Bearer alpha\r\nbeta',
+    ]) {
+      final sanitized = LogRedactor.sanitize(input);
+
+      expect(sanitized, isNot(contains('alpha')));
+      expect(sanitized, isNot(contains('beta')));
+      expect(sanitized, contains('***'));
+    }
+  });
+
+  test('redacts YAML block credentials without consuming dedented fields', () {
+    for (final input in const [
+      'password: |-\n  alpha\n  beta\nstatus: ready',
+      'authorization: >+\r\n  Bearer alpha\r\n  beta\r\nstatus: ready',
+    ]) {
+      final sanitized = LogRedactor.sanitize(input);
+
+      expect(sanitized, isNot(contains('alpha')));
+      expect(sanitized, isNot(contains('beta')));
+      expect(sanitized, contains('status: ready'));
+    }
+  });
+
+  test('redacts escaped quotes inside credential values', () {
+    final sanitized = LogRedactor.sanitize(
+      r'''password="alpha\"beta gamma" status=ready''',
+    );
+
+    expect(sanitized, contains('password: ***'));
+    expect(sanitized, contains('status=ready'));
+    expect(sanitized, isNot(contains('beta gamma')));
+  });
+
+  test('fails safely for an unterminated JSON credential', () {
+    final sanitized = LogRedactor.sanitize(
+      '{"token":"json secret value that never closes',
+    );
+
+    expect(sanitized, contains('token: ***'));
+    expect(sanitized, isNot(contains('json secret value')));
+  });
+
+  test('redacts escaped quotes inside JSON credential values', () {
+    final sanitized = LogRedactor.sanitize(
+      r'''{"token":"alpha\" beta","status":"ready"}''',
+    );
+
+    expect(sanitized, contains('"status":"ready"'));
+    expect(sanitized, isNot(contains('alpha')));
+    expect(sanitized, isNot(contains(' beta')));
+  });
+
+  test('recognizes semicolons as credential assignment boundaries', () {
+    final sanitized = LogRedactor.sanitize(
+      'status=x;password="alpha beta";node=ready',
+    );
+
+    expect(sanitized, contains('status=x'));
+    expect(sanitized, contains('password: ***'));
+    expect(sanitized, contains('node=ready'));
+    expect(sanitized, isNot(contains('alpha beta')));
+  });
+
+  test('redacts public IPv6 while preserving useful local and reserved ranges',
+      () {
+    final sanitized = LogRedactor.sanitize(
+      'egress=[2606:4700:4700::1111]:443 alternate=2404:6800:4005:80a::200e '
+      'loopback=::1 link=fe80::1234 private=fd12:3456::1 docs=2001:db8::1',
+    );
+
+    expect(sanitized, isNot(contains('2606:4700:4700::1111')));
+    expect(sanitized, isNot(contains('2404:6800:4005:80a::200e')));
+    expect(sanitized, contains('[public-ip-redacted]:443'));
+    expect(sanitized, contains('::1'));
+    expect(sanitized, contains('fe80::1234'));
+    expect(sanitized, contains('fd12:3456::1'));
+    expect(sanitized, contains('2001:db8::1'));
+  });
+
+  test('redacts a public IPv6 address before trailing punctuation', () {
+    final sanitized = LogRedactor.sanitize('egress=2001:4860:4860::8888.');
+
+    expect(sanitized, 'egress=[public-ip-redacted].');
+  });
+
   test('redacts credentials embedded in URLs', () {
     final sanitized = LogRedactor.sanitize(
       'GET https://user:pass@example.com/path?token=tok&access_token=access#api_key=key',
     );
 
-    expect(sanitized, contains('https://***:***@example.com/path'));
-    expect(sanitized, contains('token=***'));
-    expect(sanitized, contains('access_token=***'));
-    expect(sanitized, contains('api_key=***'));
+    expect(sanitized, contains('https://example.com/***'));
     expect(sanitized, isNot(contains('user:pass')));
-    expect(sanitized, isNot(contains('access#')));
+    expect(sanitized, isNot(contains('/path')));
+    expect(sanitized, isNot(contains('access_token')));
+  });
+
+  test('redacts HTTP URL paths and fragments while retaining the origin', () {
+    final sanitized = LogRedactor.sanitize(
+      'request failed for '
+      'https://api.example.com/client/private-token/refresh#session-secret',
+    );
+
+    expect(sanitized, contains('https://api.example.com/***'));
+    expect(sanitized, isNot(contains('private-token')));
+    expect(sanitized, isNot(contains('session-secret')));
+  });
+
+  test('retains explicit ports and brackets IPv6 origins', () {
+    final sanitized = LogRedactor.sanitize(
+      'ipv4=https://127.0.0.1:9090/version '
+      'ipv6=http://[::1]:9090/connections',
+    );
+
+    expect(sanitized, contains('https://127.0.0.1:9090/***'));
+    expect(sanitized, contains('http://[::1]:9090/***'));
+    expect(sanitized, isNot(contains('/version')));
+    expect(sanitized, isNot(contains('/connections')));
+  });
+
+  test('does not rewrite ordinary non-URL diagnostic text', () {
+    const message = 'core ready route=/connections status=healthy';
+
+    expect(LogRedactor.sanitize(message), message);
   });
 
   test('redacts non-standard authorization header forms', () {

@@ -5,7 +5,8 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
 
   int _currentIndex = 0;
   bool _isQuitting = false;
-  String? _runtimeNotice;
+  RuntimeNotice? _runtimeNotice;
+  bool _lastObservedCoreRunning = false;
   bool _runtimeNoticeTracksPendingRecovery = false;
   Timer? _runtimeNoticeAutoClearTimer;
 
@@ -160,9 +161,19 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
           );
         }
       }
+      final preferredNodeWarning = connectionResult.preferredNodeSwitchWarning(
+        preferredNodeName: preferredNodeName,
+      );
       final portAdjustmentNotice = connectionResult.runtimeNotice;
-      if (portAdjustmentNotice != null && portAdjustmentNotice.isNotEmpty) {
-        await _presentRuntimeNotice(portAdjustmentNotice);
+      if (preferredNodeWarning != null) {
+        await _presentRuntimeNotice(
+          RuntimeNotice.warning(preferredNodeWarning),
+        );
+      } else if (portAdjustmentNotice != null &&
+          portAdjustmentNotice.isNotEmpty) {
+        await _presentRuntimeNotice(
+          RuntimeNotice.success(portAdjustmentNotice),
+        );
       }
     } catch (error, stack) {
       final isCurrent = connectionGeneration != null &&
@@ -176,13 +187,7 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
         core.interruptPendingStart();
       }
       StartupLogger.error('Tray connect toggle failed', error, stack);
-      final reason = error
-          .toString()
-          .replaceFirst('Bad state: ', '')
-          .replaceFirst('Exception: ', '');
-      await _presentTrayFailure(
-        reason.startsWith('订阅已更新') ? reason : '托盘连接失败，请重试或查看日志',
-      );
+      await _presentTrayFailure(error);
     } finally {
       await _trayManager.refreshMenu();
     }
@@ -194,24 +199,25 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
     return HomeNodeController.resolveDefaultNodeFrom(nodes, remembered)?.name;
   }
 
-  Future<void> _presentTrayFailure(String reason) =>
-      _presentRuntimeNotice('连接失败：$reason');
+  Future<void> _presentTrayFailure(Object? reason) => _presentRuntimeNotice(
+        RuntimeNotice.error(safeUserFacingFailureMessage(reason)),
+      );
 
   Future<void> _presentRuntimeNotice(
-    String message, {
+    RuntimeNotice notice, {
     bool tracksPendingRecovery = false,
   }) async {
     _runtimeNoticeAutoClearTimer?.cancel();
     _runtimeNoticeAutoClearTimer = null;
     if (mounted) {
       setState(() {
-        _runtimeNotice = message;
+        _runtimeNotice = notice;
         _runtimeNoticeTracksPendingRecovery = tracksPendingRecovery;
         _currentIndex = 0;
       });
       _runtimeNoticeAutoClearTimer = scheduleSuccessfulRuntimeNoticeClear(
-        message: message,
-        currentMessage: () => _runtimeNotice,
+        notice: notice,
+        currentNotice: () => _runtimeNotice,
         clear: _clearRuntimeNotice,
       );
     }
@@ -235,21 +241,6 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
     unawaited(_refreshTrayStatus());
   }
 
-  void _handleCoreStatusChanged() {
-    final core = _clashService;
-    if (_runtimeNoticeTracksPendingRecovery &&
-        core != null &&
-        !core.hasPendingSystemProxyRecovery) {
-      _clearRuntimeNotice();
-    } else if (mounted &&
-        (core?.isRunning ?? false) &&
-        _runtimeNotice != null &&
-        !isSuccessfulRuntimeNotice(_runtimeNotice)) {
-      _clearRuntimeNotice();
-    }
-    unawaited(_refreshTrayStatus());
-  }
-
   Future<void> _refreshTrayStatus() async {
     final core = _clashService;
     final connected = core?.isRunning ?? false;
@@ -257,7 +248,7 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
         core?.runtimeProxyPort ?? _settingsService?.settings.proxyPort ?? 7890;
     final notice = _runtimeNotice;
     final tooltip = notice != null
-        ? 'SSRVPN · ${notice.length <= 90 ? notice : '${notice.substring(0, 90)}…'}'
+        ? 'SSRVPN · ${notice.message.length <= 90 ? notice.message : '${notice.message.substring(0, 90)}…'}'
         : connected
             ? 'SSRVPN · 已连接 · HTTP 127.0.0.1:$port'
             : 'SSRVPN · 未连接';
@@ -301,7 +292,13 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
           .toString()
           .replaceFirst('Bad state: ', '')
           .replaceFirst('StateError: ', '');
-      await _presentRuntimeNotice('退出未完成：$reason。窗口和菜单栏图标已保留，请稍后重试退出');
+      final message = safeUserFacingFailureWithAction(
+        reason,
+        '窗口和菜单栏图标已保留，请稍后重试退出。',
+      );
+      await _presentRuntimeNotice(
+        RuntimeNotice.error('退出未完成：$message'),
+      );
       return false;
     }
     SystemNavigator.pop();

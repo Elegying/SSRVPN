@@ -162,6 +162,96 @@ void main() {
       expect(calls, isNot(contains('cancel-intent')));
     });
 
+    test('waits for failed-start cleanup before retrying a bind clash',
+        () async {
+      final calls = <String>[];
+      final firstStartFinished = Completer<void>();
+      final releaseCleanup = Completer<void>();
+      var startCalls = 0;
+      String? startError;
+
+      final connection = const DesktopConnectionCoordinator().connect(
+        preferredSettings: AppSettings(),
+        prepareForStart: (settings) async {
+          calls.add('prepare');
+          return settings;
+        },
+        generateConfig: (_) async => 'mixed-port: 7890',
+        writeConfig: (_) async {},
+        start: () async {
+          startCalls++;
+          calls.add('start:$startCalls');
+          if (startCalls == 1) {
+            startError = 'bind: address already in use';
+            firstStartFinished.complete();
+            return false;
+          }
+          startError = null;
+          return true;
+        },
+        stop: () async {
+          calls.add('stop');
+          await releaseCleanup.future;
+        },
+        isRevisionCurrent: () => true,
+        isIntentCurrent: () => true,
+        shouldRollbackStaleIntent: () => true,
+        cancelIntent: () => calls.add('cancel-intent'),
+        readStartFailureReason: () => startError,
+      );
+
+      await firstStartFinished.future;
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, contains('stop'));
+      expect(startCalls, 1);
+
+      releaseCleanup.complete();
+      expect((await connection).connected, isTrue);
+      expect(calls, containsAllInOrder(['start:1', 'stop', 'start:2']));
+    });
+
+    test('a failed bind-clash cleanup aborts retry and cancels intent',
+        () async {
+      final calls = <String>[];
+      var startCalls = 0;
+      var intentCurrent = true;
+
+      final connection = const DesktopConnectionCoordinator().connect(
+        preferredSettings: AppSettings(),
+        prepareForStart: (settings) async {
+          calls.add('prepare');
+          return settings;
+        },
+        generateConfig: (_) async => 'mixed-port: 7890',
+        writeConfig: (_) async {},
+        start: () async {
+          calls.add('start');
+          startCalls++;
+          return false;
+        },
+        stop: () async {
+          calls.add('stop');
+          throw StateError('failed-start cleanup did not complete');
+        },
+        isRevisionCurrent: () => true,
+        isIntentCurrent: () => intentCurrent,
+        shouldRollbackStaleIntent: () => true,
+        cancelIntent: () {
+          calls.add('cancel-intent');
+          intentCurrent = false;
+        },
+        readStartFailureReason: () => 'bind: address already in use',
+      );
+
+      await expectLater(
+        connection,
+        throwsA(isA<StateError>()),
+      );
+      expect(startCalls, 1);
+      expect(intentCurrent, isFalse);
+      expect(calls, ['prepare', 'start', 'stop', 'cancel-intent']);
+    });
+
     test(
         'automatic recovery rebuilds config and retries one explicit bind clash',
         () async {
@@ -229,6 +319,13 @@ void main() {
       expect(result.connected, isTrue);
       expect(result.preferredNodeSwitchSucceeded, isFalse);
       expect(
+        result.preferredNodeSwitchWarning(
+          preferredNodeName: '东京节点',
+          runtimeNodeName: '新加坡节点',
+        ),
+        '未能切换到首选节点“东京节点”，当前连接仍保留，正在使用“新加坡节点”。',
+      );
+      expect(
         harness.calls,
         [
           'prepare',
@@ -239,6 +336,22 @@ void main() {
         ],
       );
       expect(harness.running, isTrue);
+    });
+
+    test('preferred-node warning is absent unless a connected switch failed',
+        () {
+      expect(
+        const DesktopConnectionResult.connected(
+          preferredNodeSwitchSucceeded: true,
+        ).preferredNodeSwitchWarning(preferredNodeName: '东京节点'),
+        isNull,
+      );
+      expect(
+        const DesktopConnectionResult.failed(
+          DesktopConnectionFailure.startFailed,
+        ).preferredNodeSwitchWarning(preferredNodeName: '东京节点'),
+        isNull,
+      );
     });
 
     test('generation failure cancels only this intent before core startup',

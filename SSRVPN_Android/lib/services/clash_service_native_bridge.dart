@@ -115,8 +115,10 @@ extension AndroidNativeBridge on ClashService {
     final activeConfigPath =
         _runningConfigPath ?? _nativeSnapshotConfigPath ?? configPath;
     _notifyNativeRuntimeNotice(
-      'Mihomo 持续失去响应，正在执行安全重启'
-      '（${_healthRecoveryPolicy.attempts}/${_healthRecoveryPolicy.maxAttempts}）…',
+      RuntimeNotice.progress(
+        '连接服务持续失去响应，正在执行安全重启'
+        '（${_healthRecoveryPolicy.attempts}/${_healthRecoveryPolicy.maxAttempts}）…',
+      ),
     );
     try {
       await stop();
@@ -284,7 +286,7 @@ extension AndroidNativeBridge on ClashService {
     _markNativeConnectionLost();
     const message = '无法确认 Android VPN 运行状态，已标记为断开，请重新连接';
     log(message);
-    _notifyNativeRuntimeNotice(message);
+    _notifyNativeRuntimeNotice(const RuntimeNotice.error(message));
   }
 
   void _applyNativeRunningFallback({required String source}) {
@@ -376,6 +378,11 @@ extension AndroidNativeBridge on ClashService {
       stopStatusMonitor();
       if (terminalUnexpectedStop) {
         _markNativeConnectionLost();
+        _notifyNativeRuntimeNotice(
+          const RuntimeNotice.error(
+            '连接服务意外停止，请点击连接重试；如仍失败，请查看运行日志。',
+          ),
+        );
       } else {
         setRunning(false);
       }

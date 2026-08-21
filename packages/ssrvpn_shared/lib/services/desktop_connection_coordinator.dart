@@ -38,6 +38,28 @@ class DesktopConnectionResult {
   final bool? preferredNodeSwitchSucceeded;
 
   bool get connected => failure == null;
+
+  String? preferredNodeSwitchWarning({
+    String? preferredNodeName,
+    String? runtimeNodeName,
+  }) {
+    if (!connected || preferredNodeSwitchSucceeded != false) return null;
+    final preferred = preferredNodeName?.trim();
+    final runtime = runtimeNodeName?.trim();
+    if (preferred != null &&
+        preferred.isNotEmpty &&
+        runtime != null &&
+        runtime.isNotEmpty) {
+      return '未能切换到首选节点“$preferred”，当前连接仍保留，正在使用“$runtime”。';
+    }
+    if (preferred != null && preferred.isNotEmpty) {
+      return '未能切换到首选节点“$preferred”，当前连接仍保留；可稍后手动切换节点。';
+    }
+    if (runtime != null && runtime.isNotEmpty) {
+      return '未能切换首选节点，当前连接仍保留，正在使用“$runtime”。';
+    }
+    return '未能切换首选节点，当前连接仍保留；可稍后手动切换节点。';
+  }
 }
 
 /// Runs the shared, transactional part of a desktop connection attempt.
@@ -124,6 +146,7 @@ class DesktopConnectionCoordinator {
           final reason = readStartFailureReason() ?? '无法启动核心';
           if (attempt == 0 &&
               RuntimePortConflictPolicy.isExplicitBindConflict(reason)) {
+            await stop();
             continue;
           }
           await rollback();

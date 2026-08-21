@@ -78,12 +78,12 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                     setState(() {
                       _nodes = nodes;
                       _lastRevision = subService.revision;
-                      _selectedNode = _resolveDefaultNode(
+                      _selectedNode = HomeNodeController.resolveDefaultNodeFrom(
                         nodes,
                         settingsService.settings.lastSelectedNodeName,
                       );
                     });
-                    unawaited(_autoTestAllNodes());
+                    unawaited(_runBatchLatencyTest());
 
                     if (navigator.canPop()) navigator.pop();
                     messenger.showSnackBar(
@@ -95,9 +95,8 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                     );
                   } catch (e) {
                     if (!mounted || _disposed) return;
-                    final msg = e.toString().replaceFirst('Exception: ', '');
                     setDialogState(() {
-                      inputError = '更新失败: $msg';
+                      inputError = safeSubscriptionFailureMessage(e);
                       isSubmitting = false;
                     });
                   }

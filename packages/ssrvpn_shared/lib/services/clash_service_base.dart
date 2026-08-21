@@ -13,6 +13,7 @@ import '../models/app_settings.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
 import '../models/public_ip_info.dart';
+import '../runtime_notice.dart';
 import 'clash_config_generator.dart';
 import '../utils/log_redactor.dart';
 import '../utils/private_node_latency_policy.dart';
@@ -28,6 +29,9 @@ part 'clash_service_diagnostics.dart';
 part 'clash_service_runtime_support.dart';
 part 'clash_service_data_plane_support.dart';
 part 'clash_service_health_monitor.dart';
+part 'clash_service_latency_support.dart';
+
+enum RuntimeLogLevel { debug, info, warning, error }
 
 /// Clash API 交互的公共逻辑基类
 ///
@@ -43,10 +47,12 @@ abstract class ClashServiceBase
         _ClashRuntimeSupport,
         _ClashDataPlaneSupport,
         _ClashDiagnosticsSupport,
-        _ClashHealthSupport {
+        _ClashHealthSupport,
+        _ClashLatencySupport {
+  static int _nextLogSession = 0;
+
   // ── 状态 ──
   bool _isRunning = false;
-  bool _healthCheckInProgress = false;
   int _consecutiveHealthCheckFailures = 0;
   String? _lastHealthCheckError;
   String? _lastStartError;
@@ -62,6 +68,9 @@ abstract class ClashServiceBase
   String _configDir = '';
   String _configPath = '';
   String _logBuffer = '';
+  late final String _logSessionId =
+      '${DateTime.now().toUtc().microsecondsSinceEpoch.toRadixString(36)}-'
+      '${(_nextLogSession++).toRadixString(36)}';
   // ── HTTP 客户端 ──
   HttpClient? _directHttpClient;
   http.Client? _apiClient;
@@ -69,7 +78,7 @@ abstract class ClashServiceBase
   // ── 回调 ──
   void Function()? onStatusChanged;
   void Function()? onProcessExit;
-  void Function(String message)? onRuntimeNotice;
+  void Function(RuntimeNotice notice)? onRuntimeNotice;
   void Function(String message)? onLog;
   final Set<void Function()> _statusListeners = {};
 
@@ -81,6 +90,7 @@ abstract class ClashServiceBase
 
   /// Subclasses can use this to make direct HTTP calls to the Clash API.
   @protected
+  @override
   http.Client? get apiClient => _apiClient;
 
   @protected
@@ -109,7 +119,7 @@ abstract class ClashServiceBase
   @protected
   @override
   void setLastHealthCheckError(String? value) {
-    _lastHealthCheckError = value;
+    if (_canPublishHealthCheckResult) _lastHealthCheckError = value;
   }
 
   @override
@@ -262,11 +272,13 @@ abstract class ClashServiceBase
 
   // ── Clash API ──
 
+  @override
   String _apiUrl(String path) {
     final cleanPath = path.startsWith('/') ? path.substring(1) : path;
     return 'http://127.0.0.1:${_settings.apiPort}/$cleanPath';
   }
 
+  @override
   Map<String, String> apiHeaders({bool json = false}) {
     final apiSecret = RuntimeConfigNamePolicy.canonicalApiSecret(
       _settings.apiSecret,
@@ -377,7 +389,11 @@ abstract class ClashServiceBase
       }
       return false;
     } catch (e) {
-      log('切换代理失败: $e');
+      log(
+        '切换代理失败: $e',
+        level: RuntimeLogLevel.warning,
+        event: 'proxy_switch',
+      );
       return false;
     }
   }
@@ -484,7 +500,14 @@ abstract class ClashServiceBase
   Future<bool> _switchProxyGroup(String groupName, String nodeName) async {
     try {
       final client = _apiClient;
-      if (client == null) return false;
+      if (client == null) {
+        log(
+          '切换代理组失败: 本地 API 客户端未初始化',
+          level: RuntimeLogLevel.warning,
+          event: 'proxy_switch',
+        );
+        return false;
+      }
       final url = _apiUrl('/proxies/${Uri.encodeComponent(groupName)}');
       final response = await client
           .put(
@@ -493,9 +516,22 @@ abstract class ClashServiceBase
             body: jsonEncode({'name': nodeName}),
           )
           .timeout(const Duration(seconds: 5));
-      return response.statusCode == 200 || response.statusCode == 204;
+      final accepted = response.statusCode == 200 || response.statusCode == 204;
+      if (!accepted) {
+        log(
+          '切换代理组未被核心接受: group=$groupName, '
+          'HTTP ${response.statusCode}',
+          level: RuntimeLogLevel.warning,
+          event: 'proxy_switch',
+        );
+      }
+      return accepted;
     } catch (e) {
-      log('切换代理组失败 $groupName -> $nodeName: $e');
+      log(
+        '切换代理组失败 $groupName -> $nodeName: $e',
+        level: RuntimeLogLevel.warning,
+        event: 'proxy_switch',
+      );
       return false;
     }
   }
@@ -534,7 +570,12 @@ abstract class ClashServiceBase
       if (lastSeen == expectedNodeName) return true;
       await Future<void>.delayed(const Duration(milliseconds: 40));
     }
-    log('代理组状态未生效 $groupName: expected=$expectedNodeName, actual=$lastSeen');
+    log(
+      '代理组状态未生效 $groupName: '
+      'expected=$expectedNodeName, actual=$lastSeen',
+      level: RuntimeLogLevel.warning,
+      event: 'proxy_switch',
+    );
     return false;
   }
 
@@ -548,10 +589,24 @@ abstract class ClashServiceBase
       final client = _apiClient;
       if (client == null) return;
       final connUrl = _apiUrl('/connections');
-      await client
+      final response = await client
           .delete(Uri.parse(connUrl), headers: apiHeaders())
           .timeout(const Duration(seconds: 3));
-    } catch (_) {}
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        log(
+          '节点已切换，但旧连接清理请求未被核心接受: '
+          'HTTP ${response.statusCode}',
+          level: RuntimeLogLevel.warning,
+          event: 'connection_cleanup',
+        );
+      }
+    } catch (error) {
+      log(
+        '节点已切换，但旧连接清理未完成: $error',
+        level: RuntimeLogLevel.warning,
+        event: 'connection_cleanup',
+      );
+    }
   }
 
   Future<int> _countActiveConnections() async {
@@ -568,89 +623,6 @@ abstract class ClashServiceBase
       }
     } catch (_) {}
     return -1;
-  }
-
-  // ── 延迟测试 ──
-
-  /// 测试节点延迟（直连 TCP）
-  Future<int> testLatency(
-    String server,
-    int port, {
-    int timeoutMs = 5000,
-  }) async {
-    final stopwatch = Stopwatch()..start();
-    try {
-      final socket = await Socket.connect(
-        server,
-        port,
-        timeout: Duration(milliseconds: timeoutMs),
-      );
-      socket.destroy();
-      stopwatch.stop();
-      return stopwatch.elapsedMilliseconds;
-    } catch (_) {
-      return -1;
-    }
-  }
-
-  /// 批量测试节点延迟
-  Future<void> testAllLatencies(
-    List<ProxyNode> nodes,
-    void Function(String name, int latency) onResult, {
-    int concurrency = 10,
-    int timeoutMs = 5000,
-    bool Function()? shouldContinue,
-  }) async {
-    final random = Random();
-    for (var i = 0; i < nodes.length; i += concurrency) {
-      if (shouldContinue?.call() == false) return;
-      final batch = nodes.skip(i).take(concurrency).toList();
-      final results = await Future.wait(
-        batch.map(
-          (node) => testLatency(node.server, node.port, timeoutMs: timeoutMs),
-        ),
-      );
-      for (var j = 0; j < batch.length; j++) {
-        if (shouldContinue?.call() == false) return;
-        final latency = PrivateNodeLatencyPolicy.displayLatencyForNode(
-          batch[j].name,
-          results[j],
-          random: random,
-        );
-        onResult(batch[j].name, latency);
-      }
-    }
-  }
-
-  @override
-  String _localHttpProxyConfig() => 'PROXY 127.0.0.1:${_settings.proxyPort}';
-  @visibleForTesting
-  @override
-  String userConnectivityProxyConfig() =>
-      _settings.enableTun ? 'DIRECT' : _localHttpProxyConfig();
-
-  // ── 健康检查 ──
-
-  /// 健康检查（HTTP 请求验证 API 可用性）
-  @override
-  Future<bool> healthCheck() async {
-    try {
-      final client = _apiClient;
-      if (client == null) return false;
-      final response = await client
-          .get(Uri.parse(_apiUrl('/version')), headers: apiHeaders())
-          .timeout(const Duration(seconds: 2));
-      if (response.statusCode == 200) {
-        _lastHealthCheckError = null;
-        return true;
-      }
-      _lastHealthCheckError =
-          'API 返回 HTTP ${response.statusCode}，端口 ${_settings.apiPort}';
-      return false;
-    } catch (e) {
-      _lastHealthCheckError = '无法连接 127.0.0.1:${_settings.apiPort} ($e)';
-      return false;
-    }
   }
 
   // ── 状态监控 ──
@@ -678,15 +650,42 @@ abstract class ClashServiceBase
   static const bool _kReleaseMode = bool.fromEnvironment('dart.vm.product');
 
   @override
-  void log(String message) {
-    final sanitized = LogRedactor.sanitize(message);
-    _logBuffer = '$sanitized\n$_logBuffer';
-    if (_logBuffer.length > 10000) _logBuffer = _logBuffer.substring(0, 10000);
-    onLog?.call(sanitized);
+  void log(
+    String message, {
+    RuntimeLogLevel level = RuntimeLogLevel.info,
+    String event = 'runtime',
+  }) {
+    final sanitized = LogRedactor.sanitize(message).replaceAll(
+      RegExp(r'[\r\n]+'),
+      ' ↩ ',
+    );
+    final normalizedEvent = event.trim().toLowerCase();
+    final safeEvent =
+        RegExp(r'^[a-z0-9][a-z0-9_.-]{0,47}$').hasMatch(normalizedEvent)
+            ? normalizedEvent
+            : 'runtime';
+    final line = '[${DateTime.now().toUtc().toIso8601String()}] '
+        '[${level.name.toUpperCase()}] [$safeEvent] '
+        '[session=$_logSessionId] $sanitized';
+    _logBuffer = '$line\n$_logBuffer';
+    if (_logBuffer.length > 10000) {
+      final completeLineEnd = _logBuffer.lastIndexOf('\n', 9999);
+      _logBuffer = _logBuffer.substring(
+        0,
+        completeLineEnd >= 0 ? completeLineEnd + 1 : 10000,
+      );
+    }
+    writePlatformLog(line);
+    onLog?.call(line);
     if (!_kReleaseMode) {
-      debugLog(sanitized);
+      debugLog(line);
     }
   }
+
+  /// Override for durable platform log files. [line] is already redacted,
+  /// timestamped and normalized to one physical line.
+  @protected
+  void writePlatformLog(String line) {}
 
   /// Override for platform-specific debug output (debugPrint, file logging, etc.)
   @protected
@@ -695,8 +694,11 @@ abstract class ClashServiceBase
   // ── 状态管理 ──
 
   void setRunning(bool running) {
+    if (_isRunning != running) {
+      _invalidateHealthMonitorSession();
+      _resetDataPlaneObservationSession();
+    }
     _isRunning = running;
-    if (!running) clearConnectivityWarningSilently();
   }
 
   /// Records an unexpected core loss. Unlike an intentional stop during an
@@ -705,8 +707,9 @@ abstract class ClashServiceBase
   @protected
   void markConnectionLost() {
     requestConnectionIntent(false);
+    _invalidateHealthMonitorSession();
+    _resetDataPlaneObservationSession();
     _isRunning = false;
-    clearConnectivityWarningSilently();
     _notifyStatusChanged();
   }
 
@@ -739,8 +742,8 @@ abstract class ClashServiceBase
   }
 
   @protected
-  void notifyRuntimeNotice(String message) {
-    onRuntimeNotice?.call(message);
+  void notifyRuntimeNotice(RuntimeNotice notice) {
+    onRuntimeNotice?.call(notice);
   }
 
   // ── 资源释放 ──

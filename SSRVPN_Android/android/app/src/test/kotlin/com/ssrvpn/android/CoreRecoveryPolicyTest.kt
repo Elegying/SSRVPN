@@ -8,10 +8,54 @@ import org.junit.Test
 
 class CoreRecoveryPolicyTest {
     @Test
+    fun `119 seconds of continuous health does not reset the recovery attempt`() {
+        val budget = CoreRecoveryBudget(initialAttempt = 2)
+
+        budget.observeHealth(isHealthy = true, monotonicMillis = 0L)
+        budget.observeHealth(isHealthy = true, monotonicMillis = 119_999L)
+
+        assertEquals(2, budget.attempt)
+    }
+
+    @Test
+    fun `120 seconds of continuous health resets the recovery attempt`() {
+        val budget = CoreRecoveryBudget(initialAttempt = 2)
+
+        budget.observeHealth(isHealthy = true, monotonicMillis = 0L)
+        budget.observeHealth(isHealthy = true, monotonicMillis = 120_000L)
+
+        assertEquals(0, budget.attempt)
+    }
+
+    @Test
+    fun `unhealthy or unknown samples restart the stable health window`() {
+        val budget = CoreRecoveryBudget(initialAttempt = 2)
+
+        budget.observeHealth(isHealthy = true, monotonicMillis = 0L)
+        budget.observeHealth(isHealthy = false, monotonicMillis = 30_000L)
+        budget.observeHealth(isHealthy = true, monotonicMillis = 30_000L)
+        budget.observeHealth(isHealthy = null, monotonicMillis = 60_000L)
+        budget.observeHealth(isHealthy = true, monotonicMillis = 60_000L)
+        budget.observeHealth(isHealthy = true, monotonicMillis = 179_999L)
+        assertEquals(2, budget.attempt)
+
+        budget.observeHealth(isHealthy = true, monotonicMillis = 180_000L)
+        assertEquals(0, budget.attempt)
+    }
+
+    @Test
     fun `unexpected core exit allows two bounded retries`() {
         assertEquals(1, CoreRecoveryPolicy.nextAttempt(0))
         assertEquals(2, CoreRecoveryPolicy.nextAttempt(1))
         assertNull(CoreRecoveryPolicy.nextAttempt(2))
+    }
+
+    @Test
+    fun `a transient failure during first recovery gets one delayed final attempt`() {
+        assertNull(CoreRecoveryPolicy.retryAfterStartFailure(0))
+        assertEquals(2, CoreRecoveryPolicy.retryAfterStartFailure(1))
+        assertNull(CoreRecoveryPolicy.retryAfterStartFailure(2))
+        assertTrue(CoreRecoveryPolicy.retryDelayMillis(2) >= 1_000L)
     }
 
     @Test

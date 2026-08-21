@@ -19,7 +19,9 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         SsrvpnBottomNavigation,
         SsrvpnDesktopTitlebarInset,
         UpdateAvailabilityController,
-        desktopSubscriptionChangedMessage;
+        desktopSubscriptionChangedMessage,
+        safeUserFacingFailureMessage,
+        safeUserFacingFailureWithAction;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -128,13 +130,16 @@ class _SSRVpnAppState extends State<SSRVpnApp>
       _clashService?.onProcessExit = null;
       _clashService?.onRuntimeNotice = null;
       _clashService = nextClashService;
+      _lastObservedCoreRunning = nextClashService.isRunning;
       _clashService!.addStatusListener(_handleCoreStatusChanged);
       _clashService!.onRuntimeNotice = (message) {
         unawaited(_presentRuntimeNotice(message));
       };
       _clashService!.onProcessExit = () {
-        final notice = _clashService?.lastUnexpectedExitNotice ??
-            'Mihomo 异常退出，系统代理恢复结果未知。请点击首页“连接”重试。';
+        final notice = _clashService?.lastUnexpectedExitRuntimeNotice ??
+            const RuntimeNotice.error(
+              '本地代理服务异常退出，系统代理恢复结果未知。请点击首页“连接”重试。',
+            );
         unawaited(_presentRuntimeNotice(notice));
       };
       _configureTrayCallbacks();
@@ -142,7 +147,7 @@ class _SSRVpnAppState extends State<SSRVpnApp>
       if (recoveryNotice != null) {
         unawaited(
           _presentRuntimeNotice(
-            recoveryNotice,
+            RuntimeNotice.warning(recoveryNotice),
             tracksPendingRecovery: true,
           ),
         );
@@ -153,6 +158,24 @@ class _SSRVpnAppState extends State<SSRVpnApp>
     _subscriptionService = nextSubscriptionService;
 
     if (mounted) setState(() {});
+  }
+
+  void _handleCoreStatusChanged() {
+    final core = _clashService;
+    final isRunning = core?.isRunning ?? false;
+    final clearStaleNotice = shouldClearRuntimeNoticeOnRunningEdge(
+      wasRunning: _lastObservedCoreRunning,
+      isRunning: isRunning,
+      notice: _runtimeNotice,
+    );
+    _lastObservedCoreRunning = isRunning;
+    if (clearStaleNotice) _clearRuntimeNotice();
+    if (_runtimeNoticeTracksPendingRecovery &&
+        core != null &&
+        !core.hasPendingSystemProxyRecovery) {
+      _clearRuntimeNotice();
+    }
+    unawaited(_refreshTrayStatus());
   }
 
   @override

@@ -92,18 +92,18 @@ String buildMacosUnexpectedExitNotice({
   required bool proxyRecovered,
 }) =>
     proxyRecovered
-        ? 'Mihomo 异常退出（退出码 $exitCode），系统代理已恢复。请点击首页“连接”重试。'
-        : 'Mihomo 异常退出（退出码 $exitCode），系统代理恢复失败。已保留恢复记录并暂停新连接，请点击首页“连接”重试；仍失败请打开日志诊断。';
+        ? '本地代理服务异常退出（退出码 $exitCode），系统代理已恢复。请点击首页“连接”重试。'
+        : '本地代理服务异常退出（退出码 $exitCode），系统代理恢复失败。已保留恢复记录并暂停新连接，请点击首页“连接”重试；仍失败请打开日志诊断。';
 
 String? buildMacosStartupRecoveryNotice({
   required bool proxyRecoveryPending,
   required bool corePreparationPending,
 }) {
   if (proxyRecoveryPending) {
-    return '检测到上次退出遗留的系统代理状态。为保护网络，SSRVPN 已保留旧核心并暂停新连接；请点击首页“连接”重试恢复。';
+    return '检测到上次退出遗留的系统代理状态。为保护网络，SSRVPN 已保留原本地代理服务并暂停新连接；请点击首页“连接”重试恢复。';
   }
   if (corePreparationPending) {
-    return '系统代理已恢复，但 Mihomo 核心安全准备尚未完成。SSRVPN 已保留旧核心并暂停新连接；请点击首页“连接”重试准备。';
+    return '系统代理已恢复，但本地代理服务的安全准备尚未完成。SSRVPN 已保留原服务并暂停新连接；请点击首页“连接”重试准备。';
   }
   return null;
 }
@@ -138,13 +138,10 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   bool _lastTunDataPathHealthy = true;
   Future<bool>? _tunDataPathProbe;
   int _tunDataPathProbeGeneration = 0;
-  int _consecutiveTunDataPathFailures = 0;
+  RuntimeNotice? _lastUnexpectedExitRuntimeNotice;
 
   @protected
   Duration get tunDataPathProbeInterval => const Duration(seconds: 30);
-
-  @protected
-  int get tunDataPathFailureThreshold => 2;
 
   bool get isStartupDisabled => _startupDisabledReason != null;
   String? get startupDisabledReason => _startupDisabledReason;
@@ -157,12 +154,14 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         corePreparationPending: _startupBlockedByProxyRecovery,
       );
   String? get lastUnexpectedExitNotice => _lastUnexpectedExitNotice;
+  RuntimeNotice? get lastUnexpectedExitRuntimeNotice =>
+      _lastUnexpectedExitRuntimeNotice;
   String get _recoveryDiagnosticSummary {
     if (_proxyService.recoveryPending) {
       return '检测到 SSRVPN 自有的待恢复代理状态';
     }
     if (_startupBlockedByProxyRecovery) {
-      return '系统代理已恢复，但 Mihomo 核心资产尚未安全就绪';
+      return '系统代理已恢复，但本地代理服务尚未安全就绪';
     }
     return '没有待恢复的 SSRVPN 系统代理状态';
   }
@@ -305,16 +304,31 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       if (isRunning) {
         final ownershipStatus = await inspectSystemProxyOwnership();
         if (ownershipStatus == SystemProxyOwnershipStatus.owned) {
+          if (connectivityWarning ==
+              desktopSystemProxyOwnershipUnavailableWarning) {
+            setConnectivityWarning(null);
+          }
           setLastHealthCheckError(null);
           return true;
         }
+        if (ownershipStatus == SystemProxyOwnershipStatus.unavailable) {
+          setLastHealthCheckError(null);
+          if (connectivityWarning !=
+              desktopSystemProxyOwnershipUnavailableWarning) {
+            log(
+              '系统代理所有权探针暂时不可用；Mihomo API 正常，保留当前连接',
+              level: RuntimeLogLevel.warning,
+              event: 'system_proxy_health',
+            );
+          }
+          setConnectivityWarning(
+            desktopSystemProxyOwnershipUnavailableWarning,
+          );
+          return true;
+        }
         final ownershipError = _proxyService.lastError ?? 'macOS 系统代理所有权无法确认';
-        final prefix =
-            ownershipStatus == SystemProxyOwnershipStatus.externallyChanged
-                ? desktopSystemProxyOwnershipLostPrefix
-                : desktopSystemProxyOwnershipUnavailablePrefix;
         setLastHealthCheckError(
-          '$prefix $ownershipError',
+          '$desktopSystemProxyOwnershipLostPrefix $ownershipError',
         );
         return false;
       }
@@ -347,6 +361,21 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     await _checkThrottledTunDataPath();
   }
 
+  @override
+  @protected
+  void onPeriodicHealthCheckResult(bool healthy) {
+    if (!healthy) {
+      _automaticRecoveryPolicy.recordUnhealthy();
+      return;
+    }
+    if (_automaticRecoveryPolicy.recordHealthy(DateTime.now())) {
+      log(
+        '连接达到稳定健康观察窗口，自动恢复次数预算已复位',
+        event: 'health_recovery',
+      );
+    }
+  }
+
   Future<bool> _checkThrottledTunDataPath() async {
     final activeProbe = _tunDataPathProbe;
     if (activeProbe != null) return activeProbe;
@@ -372,125 +401,35 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     final warning = await verifyUserConnectivity(
       maxAttempts: 2,
       retryDelay: const Duration(seconds: 1),
-      shouldContinue: () => isRunning && settings.enableTun,
+      shouldContinue: () =>
+          probeGeneration == _tunDataPathProbeGeneration &&
+          isRunning &&
+          settings.enableTun,
     );
     if (probeGeneration != _tunDataPathProbeGeneration) return true;
     if (!isRunning || !settings.enableTun) return false;
     _lastTunDataPathProbeAt = DateTime.now();
+    final wasHealthy = _lastTunDataPathHealthy;
     _lastTunDataPathHealthy = warning == null;
     if (warning != null) {
-      _consecutiveTunDataPathFailures++;
       setConnectivityWarning(
-        '节点或外部网络暂时不可用，TUN 保持连接并继续恢复：$warning',
+        '连接与 TUN 仍在运行；外部网络观察暂未通过，仅供参考：$warning',
       );
       log(
-        'EXTERNAL_CHECK_BLOCKED '
-        '($_consecutiveTunDataPathFailures/$tunDataPathFailureThreshold): '
-        '$warning',
+        '外部网络观察未通过: $warning；未切换节点，未关闭既有连接',
+        level: RuntimeLogLevel.warning,
+        event: 'data_plane_probe',
       );
-      if (_consecutiveTunDataPathFailures >= tunDataPathFailureThreshold) {
-        await _attemptTunNodeRecovery(probeGeneration);
-      }
     } else {
-      if (_consecutiveTunDataPathFailures > 0) {
-        log('TUN 数据通道已恢复，核心和 TUN 会话始终保持运行');
+      if (!wasHealthy) {
+        log(
+          'TUN 数据通道已恢复，核心和 TUN 会话始终保持运行',
+          event: 'data_plane_probe',
+        );
       }
-      _consecutiveTunDataPathFailures = 0;
       setConnectivityWarning(null);
     }
     return _lastTunDataPathHealthy;
-  }
-
-  Future<void> _attemptTunNodeRecovery(int probeGeneration) async {
-    if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
-    final groups = await getProxies();
-    ProxyGroup? proxyGroup;
-    for (final group in groups) {
-      if (group.name == 'PROXY') {
-        proxyGroup = group;
-        break;
-      }
-    }
-    if (proxyGroup == null || proxyGroup.nodes.length < 2) {
-      log('NODE_RECOVERY_UNAVAILABLE: 没有其他可切换节点，TUN 保持受限连接');
-      return;
-    }
-    final original = await currentSelectedProxyName();
-    if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
-    if (original == null) {
-      setConnectivityWarning(
-        '无法确认当前节点，未执行自动切换；TUN 仍保持接管，请手动选择节点',
-      );
-      log('NODE_RECOVERY_UNAVAILABLE: 无法确认当前节点，未执行自动切换');
-      return;
-    }
-    final candidates = proxyGroup.nodes
-        .where((node) => node.name != original)
-        .take(3)
-        .toList(growable: false);
-    var recoveryOwnedSelection = original;
-    setConnectivityWarning('当前节点不可用，TUN 保持接管并正在热切换节点…');
-    for (final candidate in candidates) {
-      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
-      final selectedBeforeSwitch = await currentSelectedProxyName();
-      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
-      if (selectedBeforeSwitch != recoveryOwnedSelection) {
-        _handleExternalNodeSelectionDuringRecovery();
-        return;
-      }
-      final switched = await switchSelectedProxy(candidate.name);
-      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
-      if (!switched) continue;
-      recoveryOwnedSelection = candidate.name;
-      final warning = await verifyUserConnectivity(
-        maxAttempts: 2,
-        retryDelay: const Duration(seconds: 1),
-        shouldContinue: () =>
-            probeGeneration == _tunDataPathProbeGeneration && isRunning,
-      );
-      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
-      final selectedAfterProbe = await currentSelectedProxyName();
-      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
-      if (selectedAfterProbe != recoveryOwnedSelection) {
-        _handleExternalNodeSelectionDuringRecovery();
-        return;
-      }
-      if (warning == null) {
-        _lastTunDataPathHealthy = true;
-        _consecutiveTunDataPathFailures = 0;
-        setConnectivityWarning(null);
-        log('NODE_RECOVERED: 已热切换到 ${candidate.name}，TUN 会话未重建');
-        notifyStatusChanged();
-        return;
-      }
-      log('NODE_RECOVERY_FAILED: ${candidate.name}: $warning');
-    }
-    if (probeGeneration == _tunDataPathProbeGeneration && isRunning) {
-      final selectedBeforeRestore = await currentSelectedProxyName();
-      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
-      if (selectedBeforeRestore != recoveryOwnedSelection) {
-        _handleExternalNodeSelectionDuringRecovery();
-        return;
-      }
-      final restored = await switchSelectedProxy(original);
-      if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
-      if (!restored) {
-        setConnectivityWarning(
-          '节点自动恢复未成功，且未能恢复原节点；TUN 仍保持接管，请手动选择节点',
-        );
-        log('NODE_ROLLBACK_FAILED: 自动恢复失败后未能恢复原节点 $original');
-        return;
-      }
-    }
-    if (probeGeneration != _tunDataPathProbeGeneration || !isRunning) return;
-    setConnectivityWarning('节点自动恢复未成功，TUN 仍保持接管；请手动切换节点或刷新订阅');
-  }
-
-  void _handleExternalNodeSelectionDuringRecovery() {
-    _lastTunDataPathProbeAt = null;
-    _consecutiveTunDataPathFailures = 0;
-    setConnectivityWarning('节点已切换，TUN 保持连接并等待重新验证…');
-    log('NODE_RECOVERY_CANCELLED: 检测到其他节点选择，未覆盖当前选择');
   }
 
   Future<bool> _verifyTunFinalControlPlaneHealth(
@@ -524,7 +463,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       await stop();
       return false;
     }
-    if (await healthCheck()) {
+    final healthy = await healthCheck();
+    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+      return false;
+    }
+    if (healthy) {
       setRunning(true);
       return true;
     }
@@ -533,6 +476,9 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       // returns as soon as the API is unavailable, so inspect ownership again
       // immediately before any stop/restart that could reacquire the proxy.
       final ownershipStatus = await inspectSystemProxyOwnership();
+      if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+        return false;
+      }
       if (ownershipStatus != SystemProxyOwnershipStatus.owned) {
         final externallyChanged =
             ownershipStatus == SystemProxyOwnershipStatus.externallyChanged;
@@ -544,15 +490,19 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         } catch (error) {
           log('系统代理所有权失效后的核心清理未完成: $error');
           notifyRuntimeNotice(
-            '已取消自动重连，但系统代理或 Mihomo 核心清理状态无法确认；'
-            '请在诊断页检查并重试断开，SSRVPN 不会重新接管代理。',
+            const RuntimeNotice.error(
+              '已取消自动重连，但系统代理或本地代理服务的清理状态无法确认；'
+              '请在诊断页检查并重试断开，SSRVPN 不会重新接管代理。',
+            ),
           );
           return false;
         }
         notifyRuntimeNotice(
-          externallyChanged
-              ? '检测到系统代理已被其他程序接管，SSRVPN 已安全断开且不会覆盖当前代理。'
-              : '无法确认当前系统代理所有权，SSRVPN 已安全断开且不会覆盖未知代理状态。',
+          RuntimeNotice.warning(
+            externallyChanged
+                ? '检测到系统代理已被其他程序接管，SSRVPN 已安全断开且不会覆盖当前代理。'
+                : '无法确认当前系统代理所有权，SSRVPN 已安全断开且不会覆盖未知代理状态。',
+          ),
         );
         return false;
       }
@@ -563,9 +513,11 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     }
 
     notifyRuntimeNotice(
-      'Mihomo 持续失去响应，正在执行安全重启'
-      '（${_automaticRecoveryPolicy.attempts}/'
-      '${_automaticRecoveryPolicy.maxAttempts}）…',
+      RuntimeNotice.progress(
+        '运行状态持续异常，正在执行安全重启'
+        '（${_automaticRecoveryPolicy.attempts}/'
+        '${_automaticRecoveryPolicy.maxAttempts}）…',
+      ),
     );
     try {
       await stop();
@@ -580,8 +532,10 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         systemProxyOwnershipChangedSinceLastAcquisition) {
       markConnectionLost();
       notifyRuntimeNotice(
-        '系统代理在清理期间发生变化，已取消自动重连；'
-        'SSRVPN 不会重新接管当前代理。',
+        const RuntimeNotice.warning(
+          '系统代理在清理期间发生变化，已取消自动重连；'
+          'SSRVPN 不会重新接管当前代理。',
+        ),
       );
       return false;
     }
@@ -721,7 +675,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       return false;
     }
     if (_corePath.isEmpty || configDir.isEmpty || configPath.isEmpty) {
-      setLastStartError('Mihomo service is not initialized');
+      setLastStartError('连接服务尚未初始化，请重启 SSRVPN；若仍失败，请重新安装官方版本');
       log(lastStartError!);
       return false;
     }
@@ -1231,28 +1185,6 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
           continue;
         }
         if (await healthCheck()) {
-          final connectivityWarning = await verifyUserConnectivity(
-            shouldContinue: () => startToken == _startGeneration,
-          );
-          _ensureStartCurrent(startToken);
-          if (connectivityWarning != null) {
-            _lastTunDataPathProbeAt = DateTime.now();
-            _lastTunDataPathHealthy = false;
-            _consecutiveTunDataPathFailures = 1;
-            setConnectivityWarning(
-              '节点或外部网络暂时不可用，TUN 保持连接并继续恢复：'
-              '$connectivityWarning',
-            );
-            log(
-              'EXTERNAL_CHECK_BLOCKED (startup advisory): '
-              '$connectivityWarning',
-            );
-          } else {
-            _lastTunDataPathProbeAt = DateTime.now();
-            _lastTunDataPathHealthy = true;
-            _consecutiveTunDataPathFailures = 0;
-            setConnectivityWarning(null);
-          }
           final finalControlPlaneHealthy =
               await _verifyTunFinalControlPlaneHealth(tunSession);
           _ensureStartCurrent(startToken);
@@ -1270,6 +1202,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
           );
           notifyStatusChanged();
           startStatusMonitor();
+          scheduleDataPlaneObservation();
           return true;
         }
         await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -1297,7 +1230,6 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     _tunDataPathProbe = null;
     _lastTunDataPathProbeAt = null;
     _lastTunDataPathHealthy = true;
-    _consecutiveTunDataPathFailures = 0;
     setConnectivityWarning(null);
   }
 
@@ -1515,15 +1447,18 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
           SystemProxyOwnershipStatus.externallyChanged;
       _lastUnexpectedExitNotice = proxyCleanup.proxyCleared
           ? (changedDuringClear
-              ? 'Mihomo 异常退出（退出码 $exitCode）；系统代理在清理期间发生变化，'
+              ? '本地代理服务异常退出（退出码 $exitCode）；系统代理在清理期间发生变化，'
                   'SSRVPN 已取消自动重连，不会重新接管当前代理。'
               : externallyChanged
-                  ? 'Mihomo 异常退出（退出码 $exitCode）；检测到系统代理已由其他程序接管，'
+                  ? '本地代理服务异常退出（退出码 $exitCode）；检测到系统代理已由其他程序接管，'
                       'SSRVPN 已清理自身恢复状态并取消自动重连，未覆盖当前代理。'
-                  : 'Mihomo 异常退出（退出码 $exitCode）；此前无法确认系统代理所有权，'
+                  : '本地代理服务异常退出（退出码 $exitCode）；此前无法确认系统代理所有权，'
                       'SSRVPN 已完成清理并取消自动重连，不会重新接管代理。')
-          : 'Mihomo 异常退出（退出码 $exitCode）；已取消自动重连，但系统代理恢复状态'
+          : '本地代理服务异常退出（退出码 $exitCode）；已取消自动重连，但系统代理恢复状态'
               '清理无法确认。请在诊断页检查并重试断开，SSRVPN 不会重新接管代理。';
+      _lastUnexpectedExitRuntimeNotice = RuntimeNotice.error(
+        _lastUnexpectedExitNotice!,
+      );
       try {
         onProcessExit?.call();
       } catch (error) {
@@ -1533,11 +1468,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     }
 
     var automaticallyRecovered = false;
-    if (proxyCleanup.permitsAutomaticRestart &&
-        recoveryGeneration != null &&
-        isConnectionIntentCurrent(recoveryGeneration, connected: true) &&
-        _automaticRecoveryPolicy.tryAcquire()) {
-      notifyRuntimeNotice('Mihomo 异常退出（退出码 $exitCode），正在自动恢复…');
+    if (proxyCleanup.permitsAutomaticRestart && recoveryGeneration != null) {
       automaticallyRecovered = await runConnectionTransition(() async {
         if (!isConnectionIntentCurrent(
           recoveryGeneration,
@@ -1545,19 +1476,37 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         )) {
           return false;
         }
+        if (!_automaticRecoveryPolicy.tryAcquire()) return false;
+        notifyRuntimeNotice(
+          RuntimeNotice.progress(
+            '核心异常退出（退出码 $exitCode），正在自动恢复…',
+          ),
+        );
         return recoverDesktopConnection(recoveryGeneration);
       });
+      if (!isConnectionIntentCurrent(
+        recoveryGeneration,
+        connected: true,
+      )) {
+        return;
+      }
     }
 
     final intentCurrent = recoveryGeneration != null &&
         isConnectionIntentCurrent(recoveryGeneration, connected: true);
     if (automaticallyRecovered && intentCurrent && isRunning) {
-      _lastUnexpectedExitNotice = 'Mihomo 异常退出（退出码 $exitCode），连接已自动恢复。';
+      _lastUnexpectedExitNotice = '本地代理服务异常退出（退出码 $exitCode），连接已自动恢复。';
+      _lastUnexpectedExitRuntimeNotice = RuntimeNotice.success(
+        _lastUnexpectedExitNotice!,
+      );
     } else {
       if (intentCurrent) markConnectionLost();
       _lastUnexpectedExitNotice = buildMacosUnexpectedExitNotice(
         exitCode: exitCode,
         proxyRecovered: proxyCleanup.proxyCleared,
+      );
+      _lastUnexpectedExitRuntimeNotice = RuntimeNotice.error(
+        _lastUnexpectedExitNotice!,
       );
     }
     try {

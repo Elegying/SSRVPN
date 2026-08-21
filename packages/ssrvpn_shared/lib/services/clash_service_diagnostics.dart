@@ -23,7 +23,11 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   String get configPath;
   @protected
   Duration get diagnosticCheckTimeout => const Duration(seconds: 10);
-  void log(String message);
+  void log(
+    String message, {
+    RuntimeLogLevel level = RuntimeLogLevel.info,
+    String event = 'runtime',
+  });
   String get configDir;
 
   Future<bool> healthCheck();

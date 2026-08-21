@@ -59,7 +59,13 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
       )) {
         return;
       }
-      final result = await orch.connect(
+      if (mounted && !_disposed) {
+        _updateHomeState(() {
+          _isConnected = false;
+          _connectionNotice = null;
+        });
+      }
+      final outcome = await orch.connect(
         preferredNode?.name,
         connectionGeneration: connectionGeneration,
       );
@@ -72,14 +78,47 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
       final connected = clashService.isRunning;
       if (mounted && !_disposed) {
         if (!connected) clashService.requestConnectionIntent(false);
+        ProxyNode? connectedNode;
+        var preferredNodePersisted = true;
+        if (connected) {
+          connectedNode = outcome.preferredNodeSwitchSucceeded
+              ? preferredNode
+              : HomeNodeController.resolveRuntimeSelectedNodeFrom(
+                  nodes,
+                  outcome.runtimeNodeName,
+                );
+          if (connectedNode != null) {
+            preferredNodePersisted = await _rememberSelectedNode(
+              connectedNode,
+              shouldContinue: () => clashService.isConnectionIntentCurrent(
+                connectionGeneration,
+                connected: true,
+              ),
+            );
+          }
+        }
+        if (!clashService.isConnectionIntentCurrent(
+          connectionGeneration,
+          connected: true,
+        )) {
+          return;
+        }
+        if (!mounted || _disposed) return;
+        final feedback = resolveAndroidConnectionFeedback(
+          connected: connected,
+          result: connected && !preferredNodePersisted
+              ? '已连接，但首选节点保存失败'
+              : outcome.message,
+          runtimeNotice:
+              connected ? clashService.underlyingNetworkNotice : null,
+        );
         _updateHomeState(() {
           _isConnected = connected;
-          _connectionNotice =
-              connected ? clashService.underlyingNetworkNotice : null;
+          _connectionNotice = feedback.connectionNotice;
           _isConnecting = false;
-          _errorMessage = connected ? result : result ?? '连接重载失败: 无法启动VPN核心';
+          _errorMessage = feedback.errorMessage;
           _nodes = nodes;
-          _selectedNode = connected ? preferredNode : null;
+          _selectedNode = connected ? connectedNode : null;
           if (!connected) _resetPublicIpState();
         });
         if (connected) _schedulePublicIpRefresh();
@@ -198,13 +237,13 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           settingsService: settingsService,
           subscriptionService: subService,
         );
-        final result = await clashService.runConnectionTransition(
+        final outcome = await clashService.runConnectionTransition(
           () async {
             if (!clashService.isConnectionIntentCurrent(
               connectionGeneration!,
               connected: true,
             )) {
-              return null;
+              return const AndroidConnectionOutcome();
             }
             return orchestrator.connect(
               autoSelect?.name,
@@ -227,9 +266,16 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         }
         if (!mounted || _disposed) return;
         if (connected) {
-          if (autoSelect != null) {
-            await _rememberSelectedNode(
-              autoSelect,
+          var preferredNodePersisted = true;
+          final connectedNode = outcome.preferredNodeSwitchSucceeded
+              ? autoSelect
+              : HomeNodeController.resolveRuntimeSelectedNodeFrom(
+                  nodes,
+                  outcome.runtimeNodeName,
+                );
+          if (connectedNode != null) {
+            preferredNodePersisted = await _rememberSelectedNode(
+              connectedNode,
               shouldContinue: () => clashService.isConnectionIntentCurrent(
                 connectionGeneration!,
                 connected: true,
@@ -251,25 +297,37 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
               _isConnected = false;
               _connectionNotice = null;
               _isConnecting = false;
-              _errorMessage = result ?? '连接已中断，请重新连接';
+              _errorMessage = userFriendlyAndroidConnectionError(
+                outcome.message ?? '连接已中断，请重新连接',
+              );
               _resetPublicIpState();
             });
             return;
           }
+          final feedback = resolveAndroidConnectionFeedback(
+            connected: true,
+            result: preferredNodePersisted ? outcome.message : '已连接，但首选节点保存失败',
+            runtimeNotice: clashService.underlyingNetworkNotice,
+          );
           _updateHomeState(() {
             _isConnected = true;
-            _connectionNotice = clashService.underlyingNetworkNotice;
+            _connectionNotice = feedback.connectionNotice;
             _isConnecting = false;
-            _errorMessage = result;
+            _errorMessage = feedback.errorMessage;
             _nodes = nodes;
-            _selectedNode = autoSelect;
+            _selectedNode = connectedNode;
           });
           _schedulePublicIpRefresh();
           unawaited(_autoTestAllNodes());
           _checkUpdateDelayed();
         } else {
+          final feedback = resolveAndroidConnectionFeedback(
+            connected: false,
+            result: outcome.message,
+            runtimeNotice: null,
+          );
           _updateHomeState(() {
-            _errorMessage = result ?? '连接失败: 无法启动VPN核心';
+            _errorMessage = feedback.errorMessage;
             _isConnecting = false;
             _resetPublicIpState();
           });
@@ -299,26 +357,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
   }
 
   String _userFriendlyError(Object error) {
-    final msg = error.toString();
-    if (msg.contains('TimeoutException') ||
-        msg.contains('timeout') ||
-        msg.contains('超时')) {
-      return '连接超时，请检查网络后重试';
-    }
-    if (msg.contains('SocketException') ||
-        msg.contains('Network') ||
-        msg.contains('Connection refused')) {
-      return '网络连接失败，请检查网络设置';
-    }
-    if (msg.contains('HttpException') || msg.contains('HTTP')) {
-      return '服务器响应异常，请稍后重试';
-    }
-    if (msg.contains('HandshakeException') ||
-        msg.contains('TLS') ||
-        msg.contains('Certificate')) {
-      return '安全连接失败，请检查网络环境';
-    }
-    return msg.replaceFirst('Exception: ', '');
+    return userFriendlyAndroidConnectionError(error);
   }
 
   Future<void> _handleProxyModeChanged(String mode) async {

@@ -368,7 +368,10 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
             shared_home.index("final reason = clashService.lastStartError") :
             shared_home.index("} catch (e, stack)")
         ]
-        self.assertIn("AppFailure.fromMessage(reason).code", expected_failure)
+        self.assertIn(
+            "final failure = AppFailure.fromMessage(reason);", expected_failure
+        )
+        self.assertIn("expected: failure.code", expected_failure)
         self.assertIn("AppErrorCode.permissionRequired", expected_failure)
         caught_exception = shared_home[
             shared_home.index("} catch (e, stack)") :
@@ -473,12 +476,25 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
                 "void _clearStartOperation"
             )
         ]
-        intent = recovery.index("isConnectionIntentCurrent")
-        teardown = recovery.index("!await _waitForTunTeardown()", intent)
-        budget = recovery.index("_unexpectedExitRecoveryPolicy.tryAcquire()", teardown)
+        intent_helper = lifecycle[
+            lifecycle.index("bool _hasActiveUnexpectedExitRecoveryIntent") :
+            lifecycle.index("Future<void> _recoverFromUnexpectedExit")
+        ]
+        self.assertIn("isConnectionIntentCurrent", intent_helper)
+        intent = recovery.index("_hasActiveUnexpectedExitRecoveryIntent")
+        teardown = recovery.index(
+            "await waitForUnexpectedExitTunTeardown()", intent
+        )
+        post_teardown_intent = recovery.index(
+            "_hasActiveUnexpectedExitRecoveryIntent", teardown
+        )
+        timeout = recovery.index("if (!tunTeardownComplete)", post_teardown_intent)
+        budget = recovery.index("_unexpectedExitRecoveryPolicy.tryAcquire()", timeout)
         restart = recovery.index("recoverDesktopConnection(generation!)", budget)
         self.assertLess(intent, teardown)
-        self.assertLess(teardown, budget)
+        self.assertLess(teardown, post_teardown_intent)
+        self.assertLess(post_teardown_intent, timeout)
+        self.assertLess(timeout, budget)
         self.assertLess(budget, restart)
 
     def test_tun_pending_marker_restores_gate_after_app_restart(self) -> None:
