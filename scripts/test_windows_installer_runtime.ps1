@@ -122,6 +122,7 @@ param(
     'late-pending',
     'none',
     'sequence',
+    'unknown-empty-marker',
     'foreign-same-name',
     'owned-marker-pending',
     'legacy-signature-pending',
@@ -406,6 +407,50 @@ exit $LASTEXITCODE
   if (-not (Test-Path -LiteralPath $pidFile -PathType Leaf)) {
     throw 'Late TUN teardown removed the core PID before cleanup completed.'
   }
+  Remove-Item -LiteralPath $tunMarkerPath -Force -ErrorAction Stop
+
+  $emptyMarkerCore = Start-Process -FilePath $corePath -PassThru
+  $emptyMarkerApp = Start-Process -FilePath $appPath -PassThru
+  Start-Sleep -Milliseconds 300
+  Write-CorePidRecord `
+    -PidPath $pidFile `
+    -Process $emptyMarkerCore `
+    -ExpectedCorePath $corePath
+  [System.IO.File]::WriteAllText(
+    $tunMarkerPath,
+    '{"version":2,"interfaces":[],"baselineInterfaces":[]}',
+    [System.Text.UTF8Encoding]::new($false)
+  )
+  $emptyMarkerStatusPath = Join-Path $testRoot 'empty-marker.status'
+  $stop = Start-Process powershell.exe -ArgumentList @(
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', $tunHarnessPath,
+    '-StopScript', $stopScript,
+    '-InstalledAppPath', $appPath,
+    '-InstalledLauncherPath', $launcherPath,
+    '-InstalledCorePath', $corePath,
+    '-InstalledCorePidPath', $pidFile,
+    '-StatusPath', $emptyMarkerStatusPath,
+    '-ProbeMode', 'unknown-empty-marker',
+    '-TunTimeoutMilliseconds', 300
+  ) -Wait -PassThru -WindowStyle Hidden
+  $emptyMarkerCore.Refresh()
+  $emptyMarkerApp.Refresh()
+  if ($stop.ExitCode -ne 3 -or
+      [System.IO.File]::ReadAllText($emptyMarkerStatusPath) -cne
+      'TUN_TEARDOWN_PENDING') {
+    throw 'An empty structured TUN marker did not fail closed.'
+  }
+  if ($emptyMarkerCore.HasExited -or $emptyMarkerApp.HasExited) {
+    throw 'Empty TUN ownership stopped processes before capture succeeded.'
+  }
+  if (-not (Test-Path -LiteralPath $pidFile -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $tunMarkerPath -PathType Leaf)) {
+    throw 'Empty TUN ownership removed durable recovery evidence.'
+  }
+  Stop-Process -Id $emptyMarkerCore.Id, $emptyMarkerApp.Id -Force
+  $emptyMarkerCore.WaitForExit()
+  $emptyMarkerApp.WaitForExit()
   Remove-Item -LiteralPath $tunMarkerPath -Force -ErrorAction Stop
 
   $ownedA = Start-Process -FilePath $corePath -PassThru

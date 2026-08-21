@@ -1500,6 +1500,14 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("ConvertTo-Json -Compress -Depth 4", ownership)
         self.assertIn("Move-Item -LiteralPath $markerTempPath", ownership)
         self.assertIn("Legacy TUN ownership could not be verified", ownership)
+        self.assertIn(
+            "$owned.Count -eq 0 -and $baselineGuids.Count -eq 0",
+            ownership,
+        )
+        self.assertIn(
+            "marker does not contain usable ownership evidence",
+            ownership,
+        )
         self.assertNotIn("$InstalledProcessRunning", ownership)
 
         residual_probe = tun_helper[
@@ -1519,6 +1527,15 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("Foreign same-name TUN blocked installer cleanup", runtime_test)
         self.assertIn("owned-marker-pending", runtime_test)
         self.assertIn("Owned TUN residual did not block installer cleanup", runtime_test)
+        self.assertIn("unknown-empty-marker", runtime_test)
+        self.assertIn(
+            "An empty structured TUN marker did not fail closed",
+            runtime_test,
+        )
+        self.assertIn(
+            "Empty TUN ownership stopped processes before capture succeeded",
+            runtime_test,
+        )
         for legacy_mode in (
             "legacy-signature-pending",
             "legacy-signature-numeric",

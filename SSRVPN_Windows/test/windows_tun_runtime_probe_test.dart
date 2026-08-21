@@ -363,6 +363,19 @@ void main() {
       reason: 'legacy numeric ownership must survive migration',
     );
     expect(decodeWindowsTunTeardownMarker('{"version":1}'), isNull);
+    expect(
+      () => encodeWindowsTunTeardownMarker(
+        const {},
+        baselineInterfaces: const {},
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      decodeWindowsTunTeardownMarker(
+        '{"version":2,"interfaces":[],"baselineInterfaces":[]}',
+      ),
+      isNull,
+    );
   });
 
   test('legacy numeric marker never claims a reused external interface',
