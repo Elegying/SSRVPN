@@ -225,7 +225,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
       try {
         result = await _subscriptionController(subService).deleteSubscription(
           id,
-          clashRunning: clashService.isRunning,
+          clashRunning:
+              clashService.isRunning || clashService.connectionDesired,
           stopClash: () async {
             clashService.requestConnectionIntent(false);
             await clashService.stop();

@@ -394,6 +394,23 @@ for token in (
         raise SystemExit(
             f"{android_update_lifecycle_path}: connected-only update trigger is missing {token}"
         )
+initial_load = source_section(
+    android_update_lifecycle,
+    android_update_lifecycle_path,
+    "Future<void> _loadInitialData() async",
+    "void _handleClashAutoConnect()",
+)
+recovered_running = source_section(
+    initial_load,
+    android_update_lifecycle_path,
+    "if (statusIsCurrent && running) {",
+    "final pendingAutoConnect =",
+)
+for token in ("_schedulePublicIpRefresh();", "_checkUpdateDelayed();"):
+    if token not in recovered_running:
+        raise SystemExit(
+            f"{android_update_lifecycle_path}: recovered running startup is missing {token}"
+        )
 
 desktop_background_path = Path(
     "packages/ssrvpn_shared/lib/desktop_ui/screens/desktop_home_background_tasks_part.dart"

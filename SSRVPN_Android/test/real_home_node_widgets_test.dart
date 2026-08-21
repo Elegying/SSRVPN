@@ -590,6 +590,48 @@ void main() {
     expect(find.text('日本 B'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('selector treats a literal star subscription as a real group',
+      (tester) async {
+    final star = node('星号订阅节点', group: '*');
+    final normal = node('普通订阅节点', group: '普通订阅');
+
+    await tester.pumpWidget(
+      host(
+        SsrvpnNodeSelectionPage(
+          nodesOf: () => [star, normal],
+          selectedNodeNameOf: () => star.name,
+          proxyModeOf: () => ProxyMode.rule,
+          testingNodeNameOf: () => null,
+          isBatchTestingOf: () => false,
+          isConnectingOf: () => false,
+          countryCodeOf: (_) => 'UN',
+          latencyOf: (_) => null,
+          onClose: () {},
+          onRefresh: () async {},
+          onTestAll: () async {},
+          onTestLatency: (_) async {},
+          onSelectNode: (_) async {},
+          onProxyModeChanged: (_) async {},
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('全部订阅'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('*'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(ValueKey('ssrvpn-node-select-${star.name}')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(ValueKey('ssrvpn-node-select-${normal.name}')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<void> _pumpUntil(

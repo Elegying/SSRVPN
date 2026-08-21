@@ -31,4 +31,19 @@ void main() {
     expect(snapshotTransaction, contains('clearNativeConnectionSnapshot'));
     expect(snapshotTransaction, isNot(contains('clashService.stop')));
   });
+
+  test('Android deletion cancels a pending connection start', () {
+    final source =
+        File('lib/screens/subscription_screen.dart').readAsStringSync();
+
+    expect(
+      source,
+      matches(
+        RegExp(
+          r'clashRunning:\s*clashService\.isRunning\s*\|\|\s*'
+          r'clashService\.connectionDesired',
+        ),
+      ),
+    );
+  });
 }
