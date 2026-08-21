@@ -100,8 +100,15 @@ This guide keeps local development, GitHub automation, and releases aligned.
   )
   ```
 
-  Do not hand-edit checksum entries or reuse a populated Gradle home for the
-  strict pass. `RepositoriesMode.PREFER_SETTINGS` is intentional:
+  AAPT2 resolves a different executable JAR on Linux, macOS, and Windows. Keep
+  all three host artifacts for the selected AAPT2 version. Prefer regenerating
+  the metadata on each host; if a host is unavailable, the only permitted
+  manual entry is an AAPT2 host JAR whose downloaded bytes match the `.sha256`
+  sidecar served from the same Google Maven path. The supply-chain regression
+  test rejects metadata that omits a supported host. Do not hand-edit other
+  checksum entries or reuse a populated Gradle home for the strict pass.
+
+  `RepositoriesMode.PREFER_SETTINGS` is intentional:
   Flutter 3.44.1 unconditionally injects its project Maven repository, while this
   mode ignores it and resolves `io.flutter` only through the exclusive settings
   repository. Do not switch to project-preferred resolution; retry
