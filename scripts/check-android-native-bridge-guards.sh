@@ -115,12 +115,14 @@ require_file_text() {
   fi
 }
 
-require_file_text "$VPN_PROTECT_MONITOR" "ParcelFileDescriptor.fromFd("
+require_file_text "$VPN_PROTECT_MONITOR" "ParcelFileDescriptor.adoptFd("
+require_file_text "$VPN_PROTECT_MONITOR" "closeAfterFailure(descriptor, failure)"
+require_file_text "$VPN_PROTECT_MONITOR" "closeAfterFailure(input, failure)"
 python3 "$CORE_ELF_VERIFIER" \
   "$ROOT/SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so"
 python3 "$CORE_SOURCE_TEST"
-if grep -Fq "ParcelFileDescriptor.adoptFd(" "$VPN_PROTECT_MONITOR"; then
-  echo "Android protect monitor must duplicate the native-owned pipe descriptor" >&2
+if grep -Fq "ParcelFileDescriptor.fromFd(" "$VPN_PROTECT_MONITOR"; then
+  echo "Android protect monitor must adopt the descriptor transferred by native code" >&2
   exit 1
 fi
 
@@ -450,6 +452,7 @@ for exact_guard in (
     'result == "already running"',
     'result.startsWith("read config: ")',
     'result.startsWith("parse config: ")',
+    'result == "protect monitor is unavailable"',
 ):
     if exact_guard not in owner:
         raise SystemExit(f"Android proven pre-adoption error guard is missing: {exact_guard}")
@@ -930,6 +933,19 @@ wait_start = source.index("private fun waitForPendingStart(): Boolean")
 wait_end = source.index("private fun stopBridgeWithTimeout()", wait_start)
 if "BRIDGE_START_TIMEOUT_MS" in source[wait_start:wait_end]:
     raise SystemExit("Android cancellation still waits for the full bridge start timeout")
+stop_all_start = source.index("private fun stopAllOnWorker(): Boolean")
+stop_all_end = source.index("private fun waitForProtectMonitor", stop_all_start)
+stop_all = source[stop_all_start:stop_all_end]
+if "pendingStartStopped && stopBridgeWithTimeout()" in stop_all:
+    raise SystemExit("Android pending-start timeout still bypasses Bridge.stop")
+stop_calls = [match.start() for match in re.finditer(r"stopBridgeWithTimeout\(\)", stop_all)]
+if len(stop_calls) != 2:
+    raise SystemExit("Android cleanup must stop the bridge before and after joining a pending start")
+pending_wait = stop_all.index("waitForPendingStart()")
+if not (stop_calls[0] < pending_wait < stop_calls[1]):
+    raise SystemExit("Android waits for pending start before cancelling the native bridge")
+if "serviceStartThread?.interrupt()" not in stop_all:
+    raise SystemExit("Android stop no longer interrupts the pending Kotlin start path")
 monitor_start = source.index("private fun monitorCoreRunning(")
 monitor_end = source.index("private fun isBridgeRunningWithTimeout", monitor_start)
 monitor = source[monitor_start:monitor_end]
