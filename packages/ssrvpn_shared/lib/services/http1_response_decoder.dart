@@ -25,6 +25,27 @@ String _bodyLimitMessage(int maxBodyBytes) {
   return 'HTTP 正文超过 $limit 限制';
 }
 
+int? _parseUnsignedWithinLimit(
+  String digits, {
+  required int radix,
+  required int limit,
+}) {
+  final maxBeforeMultiply = limit ~/ radix;
+  final maxLastDigit = limit % radix;
+  var value = 0;
+  for (var offset = 0; offset < digits.length; offset++) {
+    final codeUnit = digits.codeUnitAt(offset);
+    final digit = codeUnit <= 57 ? codeUnit - 48 : (codeUnit | 32) - 87;
+    assert(digit >= 0 && digit < radix);
+    if (value > maxBeforeMultiply ||
+        (value == maxBeforeMultiply && digit > maxLastDigit)) {
+      return null;
+    }
+    value = value * radix + digit;
+  }
+  return value;
+}
+
 /// Incrementally decodes one HTTP/1.x response without owning its socket.
 ///
 /// Socket deadlines, cancellation, logging, content decoding and redirects
@@ -174,18 +195,15 @@ class Http1ResponseDecoder {
     }
 
     final contentLength = headers['content-length']?.trim();
-    int? parsedContentLength;
     if (contentLength != null) {
-      parsedContentLength = int.tryParse(contentLength);
-      if (!RegExp(r'^\d+$').hasMatch(contentLength) ||
-          parsedContentLength == null) {
+      if (!RegExp(r'^\d+$').hasMatch(contentLength)) {
         throw const FormatException('HTTP Content-Length 格式错误');
       }
     }
 
     final transferEncoding = headers['transfer-encoding'];
     if (transferEncoding != null) {
-      if (parsedContentLength != null) {
+      if (contentLength != null) {
         throw const FormatException('HTTP 响应长度声明冲突');
       }
       final transferEncodings = transferEncoding
@@ -214,10 +232,17 @@ class Http1ResponseDecoder {
       return;
     }
 
+    final parsedContentLength = contentLength == null
+        ? null
+        : _parseUnsignedWithinLimit(
+            contentLength,
+            radix: 10,
+            limit: maxBodyBytes,
+          );
+    if (contentLength != null && parsedContentLength == null) {
+      throw Exception(_bodyLimitMessage(maxBodyBytes));
+    }
     if (parsedContentLength != null) {
-      if (parsedContentLength > maxBodyBytes) {
-        throw Exception(_bodyLimitMessage(maxBodyBytes));
-      }
       _expectedBodyBytes = parsedContentLength;
     }
 
@@ -306,18 +331,20 @@ class _ChunkedBodyDecoder {
         final sizeToken = sizeMatch?.group(0);
         final extensions =
             sizeMatch == null ? '' : sizeLine.substring(sizeMatch.end);
-        final size = sizeToken != null && _hasValidChunkExtensions(extensions)
-            ? int.tryParse(sizeToken, radix: 16)
-            : null;
-        if (size == null || size < 0) {
+        if (sizeToken == null || !_hasValidChunkExtensions(extensions)) {
           throw const FormatException('HTTP chunk 大小格式错误');
+        }
+        final size = _parseUnsignedWithinLimit(
+          sizeToken,
+          radix: 16,
+          limit: maxBodyBytes - _bodyLength,
+        );
+        if (size == null) {
+          throw Exception(_bodyLimitMessage(maxBodyBytes));
         }
         if (size == 0) {
           _readingTrailers = true;
           continue;
-        }
-        if (size > maxBodyBytes - _bodyLength) {
-          throw Exception(_bodyLimitMessage(maxBodyBytes));
         }
         _chunkBytesRemaining = size;
         continue;
