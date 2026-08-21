@@ -42,6 +42,35 @@ void main() {
     expect(utf8.decode(decoder.finish().bodyBytes), 'hello');
   });
 
+  test('bounds oversized content-length parsing before integer conversion', () {
+    final oversizedLength = List.filled(4096, '9').join();
+
+    expect(
+      () => Http1ResponseDecoder(maxBodyBytes: 16).add(
+        ascii.encode(
+          'HTTP/1.1 200 OK\r\nContent-Length: $oversizedLength\r\n\r\n',
+        ),
+      ),
+      throwsA(
+        isA<Exception>().having(
+          (error) => error.toString(),
+          'message',
+          contains('16 bytes'),
+        ),
+      ),
+    );
+  });
+
+  test('accepts leading zeroes without weakening the body limit', () {
+    final decoder = Http1ResponseDecoder(maxBodyBytes: 5)
+      ..add(ascii.encode(
+        'HTTP/1.1 200 OK\r\nContent-Length: 00000000000000000005\r\n\r\n'
+        'hello',
+      ));
+
+    expect(utf8.decode(decoder.finish().bodyBytes), 'hello');
+  });
+
   test('skips fragmented informational responses before the final response',
       () {
     final decoder = Http1ResponseDecoder(maxBodyBytes: 16);
@@ -102,6 +131,19 @@ void main() {
       );
     });
   }
+
+  test('304 accepts an oversized numeric representation length without a body',
+      () {
+    final representationLength = List.filled(4096, '9').join();
+    final decoder = Http1ResponseDecoder(maxBodyBytes: 16)
+      ..add(ascii.encode(
+        'HTTP/1.1 304 Not Modified\r\n'
+        'Content-Length: $representationLength\r\n\r\n',
+      ));
+
+    expect(decoder.isComplete, isTrue);
+    expect(decoder.finish().bodyBytes, isEmpty);
+  });
 
   test('205 follows explicit zero-length framing', () {
     final contentLengthDecoder = Http1ResponseDecoder(maxBodyBytes: 16)
@@ -183,10 +225,27 @@ void main() {
     expect(decoder.finish, throwsA(isA<Exception>()));
   });
 
+  test('bounds oversized chunk-size parsing before integer conversion', () {
+    final oversizedSize = List.filled(4096, 'F').join();
+
+    expect(
+      () => Http1ResponseDecoder(maxBodyBytes: 16).add(ascii.encode(
+        'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+        '$oversizedSize\r\n',
+      )),
+      throwsA(
+        isA<Exception>().having(
+          (error) => error.toString(),
+          'message',
+          contains('16 bytes'),
+        ),
+      ),
+    );
+  });
+
   for (final chunkSizeCase in const [
     (name: 'negative', token: '-1', body: '\r\n'),
     (name: 'positive-signed', token: '+1', body: 'x\r\n'),
-    (name: 'overflowing', token: 'FFFFFFFFFFFFFFFF', body: '\r\n'),
   ]) {
     test('rejects ${chunkSizeCase.name} chunk-size token', () {
       final decoder = Http1ResponseDecoder(maxBodyBytes: 16);
@@ -200,6 +259,24 @@ void main() {
       );
     });
   }
+
+  test('rejects a valid chunk-size beyond the configured body limit', () {
+    final decoder = Http1ResponseDecoder(maxBodyBytes: 16);
+
+    expect(
+      () => decoder.add(ascii.encode(
+        'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+        'FFFFFFFFFFFFFFFF\r\n',
+      )),
+      throwsA(
+        isA<Exception>().having(
+          (error) => error.toString(),
+          'message',
+          contains('16 bytes'),
+        ),
+      ),
+    );
+  });
 
   for (final invalidExtension in const [
     ';',
