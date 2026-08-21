@@ -25,15 +25,33 @@ Android APK 不需要购买证书。只要后续版本始终使用同一个 keys
 scripts/create-android-release-keystore.sh
 ```
 
-仓库需要以下 secrets：
+仓库需要以下 GitHub Actions secrets：
 
 - `ANDROID_KEYSTORE_BASE64`
 - `ANDROID_KEYSTORE_PASSWORD`
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
-- `ANDROID_RELEASE_CERT_SHA256`
 
-Release workflow 会核对实际 APK 证书摘要。缺少 secrets 或摘要不一致会直接失败，避免
+证书摘要不是 secret。将同一 keystore 的 SHA-256 摘要配置为 GitHub Actions
+Variable `ANDROID_RELEASE_CERT_SHA256`：
+
+```bash
+release_key_alias="${ANDROID_KEY_ALIAS:-ssrvpn}"
+release_cert_sha256="$(
+  keytool -exportcert \
+    -keystore SSRVPN_Android/android/ssrvpn-release.jks \
+    -alias "$release_key_alias" -rfc |
+  openssl x509 -noout -fingerprint -sha256 |
+  cut -d= -f2 | tr -d ':'
+)"
+test -n "$release_cert_sha256"
+gh variable set ANDROID_RELEASE_CERT_SHA256 \
+  --repo Elegying/SSRVPN --body "$release_cert_sha256"
+unset release_cert_sha256
+unset release_key_alias
+```
+
+Release workflow 会核对实际 APK 证书摘要。缺少 secrets、Variable 或摘要不一致会直接失败，避免
 产出 debug 签名或错误签名谱系的 APK。keystore、密码和导出文件不得提交进 Git。
 
 ## macOS：固定 ad-hoc、未公证

@@ -35,6 +35,8 @@ jobs:
 
       - name: Prepare and start the release
         id: prepare
+        env:
+          BRANCH_PROTECTION_READ_TOKEN: ${{ secrets.BRANCH_PROTECTION_READ_TOKEN }}
         run: bash scripts/prepare-release.sh "$RELEASE_TAG"
 
       - name: Report release orchestration

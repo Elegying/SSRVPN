@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -32,6 +33,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         fail_release_dispatch: bool = False,
         reuse_main_ci: bool = False,
         malformed_reuse_api: bool = False,
+        protection_token: bool = True,
     ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -178,13 +180,25 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                 #!/usr/bin/env bash
                 set -euo pipefail
                 printf 'gh %s\n' "$*" >> "$FAKE_COMMAND_LOG"
+                if [ "${BRANCH_PROTECTION_READ_TOKEN+x}" = x ]; then
+                  printf 'branch protection token leaked to gh environment\n' >&2
+                  exit 98
+                fi
                 command=${1:-}
                 shift || true
                 case "$command" in
                   api)
                     if [[ "$*" == *'/branches/main/protection'* ]]; then
+                      if [ "${GH_TOKEN:-}" != test-admin-read-token ]; then
+                        printf 'branch protection read used the wrong token\n' >&2
+                        exit 97
+                      fi
                       printf '{}\n'
                       exit 0
+                    fi
+                    if [ "${GH_TOKEN:-}" != test-default-token ]; then
+                      printf 'non-protection API used the wrong token\n' >&2
+                      exit 96
                     fi
                     if [[ "$*" == *'/releases/tags/'* ]]; then
                       printf 'gh: Not Found (HTTP 404)\n' >&2
@@ -208,6 +222,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                     exit 2
                     ;;
                   run)
+                    if [ "${GH_TOKEN:-}" != test-default-token ]; then exit 96; fi
                     if [ "${1:-}" = watch ] && [ "${2:-}" = 101 ] &&
                       [ "$FAKE_FAIL_BRANCH_CI" = true ]; then
                       exit 1
@@ -219,6 +234,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                     exit 0
                     ;;
                   pr)
+                    if [ "${GH_TOKEN:-}" != test-default-token ]; then exit 96; fi
                     subcommand=${1:-}
                     shift || true
                     case "$subcommand" in
@@ -273,12 +289,18 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                         malformed_reuse_api
                     ).lower(),
                     "GITHUB_REPOSITORY": "Elegying/SSRVPN",
+                    "GH_TOKEN": "test-default-token",
+                    "GITHUB_TOKEN": "test-default-token",
                     "GITHUB_RUN_ID": "9001",
                     "GITHUB_RUN_ATTEMPT": "1",
                     "GITHUB_OUTPUT": str(output),
                     "GITHUB_STEP_SUMMARY": str(summary),
                 }
             )
+            if protection_token:
+                environment["BRANCH_PROTECTION_READ_TOKEN"] = "test-admin-read-token"
+            else:
+                environment.pop("BRANCH_PROTECTION_READ_TOKEN", None)
             result = subprocess.run(
                 ["/bin/bash", str(scripts / PREPARER.name), "v4.0.2"],
                 cwd=root,
@@ -293,6 +315,35 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                 output.read_text(encoding="utf-8") if output.exists() else "",
                 summary.read_text(encoding="utf-8") if summary.exists() else "",
             )
+
+    def _assert_protection_reads_guard_mutation_and_tag(self, commands: str) -> None:
+        command_lines = commands.splitlines()
+        protection_reads = [
+            index
+            for index, line in enumerate(command_lines)
+            if "/branches/main/protection" in line
+        ]
+        self.assertEqual(len(protection_reads), 2)
+        bootstrap = next(
+            index
+            for index, line in enumerate(command_lines)
+            if "bootstrap-core-assets" in line
+        )
+        freshness = next(
+            index
+            for index, line in enumerate(command_lines)
+            if "sync-geoip-metadb.py --check" in line
+        )
+        tag_push = next(
+            index
+            for index, line in enumerate(command_lines)
+            if "git push origin refs/tags/v4.0.2" in line
+        )
+        self.assertLess(protection_reads[0], bootstrap)
+        self.assertLess(freshness, protection_reads[1])
+        self.assertLess(protection_reads[1], tag_push)
+        self.assertNotIn("test-admin-read-token", commands)
+        self.assertNotIn("test-default-token", commands)
 
     def test_workflow_is_manual_serialized_and_least_privilege(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -311,6 +362,11 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertNotIn("packages: write", workflow)
         self.assertIn("GH_TOKEN: ${{ github.token }}", workflow)
         self.assertIn("GITHUB_TOKEN: ${{ github.token }}", workflow)
+        self.assertIn(
+            "BRANCH_PROTECTION_READ_TOKEN: "
+            "${{ secrets.BRANCH_PROTECTION_READ_TOKEN }}",
+            workflow,
+        )
         self.assertIn("ref: main", workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertIn("RELEASE_TAG: ${{ inputs.tag }}", workflow)
@@ -322,7 +378,13 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
     def test_preparer_tags_only_after_geoip_and_exact_main_ci(self) -> None:
         preparer = PREPARER.read_text(encoding="utf-8")
 
-        protection = preparer.index("verify_main_branch_protection")
+        protection_calls = [
+            match.start()
+            for match in re.finditer(
+                r"(?m)^verify_main_branch_protection$", preparer
+            )
+        ]
+        self.assertEqual(len(protection_calls), 2)
         bootstrap = preparer.index("bash scripts/bootstrap-core-assets.sh")
         sync = preparer.index("python3 scripts/sync-geoip-metadb.py")
         mirror = preparer.index("python3 scripts/ensure-geoip-mirror.py --upload")
@@ -341,7 +403,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         push_tag = preparer.index('git push origin "refs/tags/$tag"')
         release = preparer.index('dispatch_workflow "release.yml" "$tag"')
 
-        self.assertLess(protection, bootstrap)
+        self.assertLess(protection_calls[0], bootstrap)
         self.assertLess(bootstrap, sync)
         self.assertLess(sync, mirror)
         self.assertLess(mirror, verify)
@@ -351,6 +413,8 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertLess(merge_pr, reusable_ci)
         self.assertLess(reusable_ci, main_ci)
         self.assertLess(main_ci, final_freshness)
+        self.assertLess(final_freshness, protection_calls[1])
+        self.assertLess(protection_calls[1], create_tag)
         self.assertLess(final_freshness, create_tag)
         self.assertLess(create_tag, push_tag)
         self.assertLess(push_tag, release)
@@ -362,6 +426,22 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertNotIn('dispatch_workflow "ci.yml" "$branch"', preparer)
         self.assertIn("within 30 minutes", preparer)
         self.assertIn("Approve the pending GitHub Actions workflow", preparer)
+        self.assertIn(
+            'branch_protection_read_token="${BRANCH_PROTECTION_READ_TOKEN:-}"',
+            preparer,
+        )
+        self.assertIn("unset BRANCH_PROTECTION_READ_TOKEN", preparer)
+        self.assertIn('GH_TOKEN="$branch_protection_read_token" gh api', preparer)
+
+    def test_missing_branch_protection_read_token_fails_before_mutation(self) -> None:
+        result, commands, _output, _summary = self._run_preparer(
+            geoip_changed=False,
+            protection_token=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BRANCH_PROTECTION_READ_TOKEN is required", result.stderr)
+        self.assertNotIn("bootstrap-core-assets", commands)
 
     def test_existing_tag_or_release_blocks_before_geoip_mutation(self) -> None:
         preparer = PREPARER.read_text(encoding="utf-8")
@@ -401,6 +481,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertLess(merge_pr, main_dispatch)
         self.assertLess(main_dispatch, tag_push)
         self.assertLess(tag_push, release_dispatch)
+        self._assert_protection_reads_guard_mutation_and_tag(commands)
         self.assertIn("geoip_changed=true", output)
         self.assertIn("geoip_pr_url=https://github.com/Elegying/SSRVPN/pull/84", output)
         self.assertIn("Release workflow:", summary)
@@ -432,6 +513,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         release_dispatch = commands.index("workflows/release.yml/dispatches")
         self.assertLess(main_dispatch, tag_push)
         self.assertLess(tag_push, release_dispatch)
+        self._assert_protection_reads_guard_mutation_and_tag(commands)
         self.assertIn("geoip_changed=false", output)
 
     def test_recent_exact_main_ci_is_reused_without_dispatch_or_watch(self) -> None:
@@ -446,6 +528,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertLess(finder, tag_push)
         self.assertNotIn("/workflows/ci.yml/dispatches", commands)
         self.assertNotIn("gh run watch 777", commands)
+        self._assert_protection_reads_guard_mutation_and_tag(commands)
         self.assertIn(
             "main_ci_url=https://github.com/Elegying/SSRVPN/actions/runs/777",
             output,

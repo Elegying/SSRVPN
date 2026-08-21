@@ -144,6 +144,36 @@ class OssNetworkBoundariesTest(unittest.TestCase):
         self.assertIn("--proto '=https'", rollback)
         self.assertIn("--proto-redir '=https'", rollback)
 
+    def test_release_public_reads_require_https_and_exact_manifest_bytes(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text(
+            encoding="utf-8"
+        )
+        immutable_start = workflow.index(
+            "      - name: Publish immutable release to OSS"
+        )
+        immutable_end = workflow.index(
+            "      - name: Promote OSS public channel", immutable_start
+        )
+        immutable_download = workflow[immutable_start:immutable_end]
+        published_job = workflow[workflow.index(
+            "      - name: Verify published GitHub and OSS channels"
+        ) :]
+        manifest_start = published_job.index("          manifest_matches=false")
+        manifest_end = published_job.index(
+            '          python3 - "$release_json" "$manifest_json"',
+            manifest_start,
+        )
+        published_check = published_job[manifest_start:manifest_end]
+
+        for block in (immutable_download, published_check):
+            with self.subTest(block=block[:48]):
+                self.assertIn("--proto '=https'", block)
+                self.assertIn("--proto-redir '=https'", block)
+        self.assertIn(
+            'cmp artifacts/oss/latest.json "$manifest_json"',
+            published_check,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

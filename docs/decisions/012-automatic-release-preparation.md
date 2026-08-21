@@ -21,7 +21,9 @@ Maintenance、合并来源记录、等待 CI、创建 tag 和观察 Release。�
 
 仓库 `main` 启用了严格必需检查、PR、线性历史和禁止管理员绕过；`GITHUB_TOKEN` 的普通
 push 不会递归启动新 workflow，但 GitHub 明确允许它创建 `workflow_dispatch`。因此发版准备
-可以显式调度已有 CI，而不削弱分支保护或引入长期 PAT。
+可以用默认 token 显式调度已有 CI。另一方面，经典分支保护的完整 REST 响应要求
+Repository Administration 读取权限，而 workflow `permissions` 无法把该权限授予默认
+`GITHUB_TOKEN`；精确策略复核必须使用独立的单仓库只读凭据。
 
 ## 决策
 
@@ -30,10 +32,11 @@ push 不会递归启动新 workflow，但 GitHub 明确允许它创建 `workflow
 2. 工作流从精确 `origin/main` 开始，先执行版本同步和版本转换校验，再运行现有 GeoIP
    同步、内容寻址镜像上传与公共回读验证。任何 API、摘要、重定向、镜像或工作树状态不明确
    都失败关闭。
-3. GeoIP 有变化时，只提交 `docs/GEOIP_SOURCE.txt` 到本次运行专属临时分支。编排先通过
-   `workflow_dispatch` 在该提交上运行现有九项必需 CI；全绿且 `main` 未前移后才创建 PR，
-   并按受保护分支规则 rebase 合并。分支 CI 失败且 PR 尚未创建时，精确删除本次临时分支；
-   已创建 PR 的失败状态保留供诊断。
+3. GeoIP 有变化时，只提交 `docs/GEOIP_SOURCE.txt` 到本次运行专属临时分支。编排推送分支后
+   立即创建 PR，并等待该 PR 关联的九项受保护必需检查；全绿且 `main` 未前移后按受保护
+   分支规则 rebase 合并。PR 或检查失败时保留 PR 供诊断；只有推送成功但 PR 尚未创建的
+   失败分支才由本次运行精确删除。默认 token 创建的 PR workflow 需要维护者在 30 分钟内
+   批准运行；不得用独立 branch `workflow_dispatch` 代替 PR checks。
 4. 合并后必须确认远端 `main` 等于 GitHub 报告的合并提交，且 Git tree 与已验证分支完全
    一致。在精确最终 `main` 上，仅可复用 24 小时内、同仓库、同 `main` SHA、
    事件为 `push` 或 `workflow_dispatch` 的成功 CI。复用前必须通过 workflow API 确认
@@ -55,16 +58,19 @@ push 不会递归启动新 workflow，但 GitHub 明确允许它创建 `workflow
    schedule 触发器。
 8. `.github/main-branch-protection.json` 是 `main` 保护策略和九项必需检查的版本化真源。
    `Prepare Release` 在任何可变资产操作前以及创建 tag 前分别回读 GitHub API 并精确比较；
-   保护不存在、检查集合漂移、检查应用身份变化或管理员可绕过时一律停止。
+   保护不存在、检查集合漂移、检查应用身份变化或管理员可绕过时一律停止。该两次只读调用
+   使用 secret `BRANCH_PROTECTION_READ_TOKEN`：仅授权 `Elegying/SSRVPN` 的 fine-grained
+   PAT，Repository Administration 为 read-only。脚本启动后立即从导出环境移除它，并只在
+   单条保护读取命令上临时覆盖 `GH_TOKEN`；其他 GitHub 写操作继续使用默认 token。
 
 ## 结果
 
 - 正常发版只需在版本和 changelog 已合入 `main` 后运行一次 `Prepare Release`。
 - GeoIP 更新仍有独立提交、PR、双哈希和不可变镜像，tag 不包含运行时生成的隐式输入。
-- 分支 CI 与最终 `main` CI 都必须成功；任何创建 tag 前发现的竞态、已有 tag/Release 或外部
+- 受保护 PR checks 与最终 `main` CI 证据都必须成功；任何创建 tag 前发现的竞态、已有 tag/Release 或外部
   状态歧义都会停在新 tag 创建前。tag 推送后的故障保留不可变 tag，转入精确 Release 重试。
 - 若精确 `main` 已有可安全复用的近期 CI，自动准备不再重复构建；否则仍运行完整 CI。
-  GeoIP 发生变化时，临时分支 CI 仍保留，且合并后无合格精确 `main` CI 时仍再调度一次；
+  GeoIP 发生变化时，PR checks 仍保留，且合并后无合格精确 `main` CI 时仍再调度一次；
   提速不减少必需验证。
 - Release 启动后仍可能等待 `release` environment 批准；该批准保护正式发布凭据，不由准备
   workflow 绕过。
@@ -82,7 +88,10 @@ push 不会递归启动新 workflow，但 GitHub 明确允许它创建 `workflow
 ### 使用长期 PAT 自动触发 PR CI
 
 仓库已有 `workflow_dispatch`，可使用最小权限的短期 `GITHUB_TOKEN` 显式调度精确 ref；新增
-长期秘密会扩大泄漏和轮换负担。
+可写 token 来触发 PR CI 或绕过默认 token 所保留的人工 workflow 审批，会扩大泄漏和轮换
+负担并削弱受保护 PR 的可见安全边界。精确 `main` CI 和 tag 上的 Release 仍可由默认 token
+显式调度。仅为读取完整经典分支保护而配置的
+单仓库、Administration read-only fine-grained PAT 不具有这些写权限，也不得复用于其他调用。
 
 ### 在 CI 前创建 tag，失败后删除
 
@@ -108,6 +117,7 @@ push 不会递归启动新 workflow，但 GitHub 明确允许它创建 `workflow
 - [GitHub：List workflow runs for a workflow](https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-workflow)
 - [GitHub：List jobs for a workflow run](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run)
 - [GitHub：受保护分支](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)
+- [GitHub：读取分支保护](https://docs.github.com/en/rest/branches/branch-protection#get-branch-protection)
 
 ## 相关文档
 
