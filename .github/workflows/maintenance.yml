@@ -104,6 +104,7 @@ jobs:
     name: Verify OSS publishing
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'oss-smoke'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
       OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
@@ -137,13 +138,18 @@ jobs:
           ossutil cp "$RUNNER_TEMP/health.json" \
             "oss://$OSS_BUCKET/$OSS_PREFIX/ops/health.json" --force
           public_url="https://$OSS_BUCKET.$OSS_ENDPOINT/$OSS_PREFIX/ops/health.json"
-          curl -fsSL --retry 3 "$public_url" -o "$RUNNER_TEMP/public-health.json"
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' \
+            --retry 3 --connect-timeout 10 --max-time 60 \
+            --max-filesize 1048576 \
+            --output "$RUNNER_TEMP/public-health.json" "$public_url"
           cmp "$RUNNER_TEMP/health.json" "$RUNNER_TEMP/public-health.json"
 
   oss-rollback:
     name: Roll back the OSS public channel
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'oss-rollback'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     concurrency:
       group: ssrvpn-public-release
       cancel-in-progress: false
@@ -223,7 +229,9 @@ jobs:
             --output "$RUNNER_TEMP/rollback-latest.json"
 
           for name in SSRVPN.apk SSRVPN.dmg SSRVPN_Setup.exe; do
-            curl -fsSL --retry 3 --connect-timeout 10 --max-time 180 \
+            curl --fail --silent --show-error --location \
+              --proto '=https' --proto-redir '=https' \
+              --retry 3 --connect-timeout 10 --max-time 180 \
               --max-filesize 314572800 "$base_url/$name" \
               -o "$RUNNER_TEMP/oss-$name"
             cmp "$release_dir/$name" "$RUNNER_TEMP/oss-$name"
