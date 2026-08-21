@@ -19,6 +19,7 @@ export 'controllers/update_availability_controller.dart';
 export 'controllers/subscription_screen_controller.dart';
 export 'services/subscription_parser.dart';
 export 'services/subscription_text_decoder.dart';
+export 'services/http1_response_decoder.dart';
 export 'services/subscription_node_codec.dart';
 export 'services/subscription_yaml_merger.dart';
 export 'services/clash_config_generator.dart';

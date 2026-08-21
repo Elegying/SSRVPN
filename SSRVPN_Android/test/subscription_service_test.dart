@@ -296,7 +296,8 @@ void main() {
           )
           .timeout(const Duration(seconds: 1)),
       throwsA(
-        predicate<Object>((error) => error.toString().contains('长度')),
+        predicate<Object>(
+            (error) => error.toString().contains('Content-Length')),
       ),
     );
   });
