@@ -14,10 +14,32 @@ branch=""
 branch_pushed=false
 pr_number=""
 merged=false
+protection_policy=".github/main-branch-protection.json"
 
 fail() {
   echo "::error::$*" >&2
   exit 1
+}
+
+required_check_count="$(python3 - "$protection_policy" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    policy = json.load(handle)
+checks = policy.get("required_status_checks", {}).get("checks", [])
+if not isinstance(checks, list) or not checks:
+    raise SystemExit("main branch protection policy has no required checks")
+print(len(checks))
+PY
+)"
+
+verify_main_branch_protection() {
+  gh api \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "repos/$repo/branches/main/protection" |
+    python3 scripts/verify_main_branch_protection.py \
+      --expected "$protection_policy"
 }
 
 write_output() {
@@ -97,10 +119,14 @@ wait_for_pull_request_checks() {
   for _ in {1..90}; do
     check_count="$(gh pr checks "$pull_request" \
       --required --json name --jq 'length' 2>/dev/null || true)"
-    if [[ "$check_count" =~ ^[1-9][0-9]*$ ]]; then
+    if [ "$check_count" = "$required_check_count" ]; then
       gh pr checks "$pull_request" \
         --required --watch --fail-fast --interval 20
       return
+    fi
+    if [[ "$check_count" =~ ^[0-9]+$ ]] && \
+      [ "$check_count" -gt "$required_check_count" ]; then
+      fail "Pull request $pull_request registered unexpected required checks"
     fi
     if [ "$warned" = false ]; then
       echo "::warning::Approve the pending GitHub Actions workflow for pull request $pull_request, then this release will continue automatically: $checks_url" >&2
@@ -154,6 +180,7 @@ main_sha="$(git rev-parse --verify 'origin/main^{commit}')"
 if [ "$source_sha" != "$main_sha" ]; then
   fail "Prepare Release must start from the current main tip"
 fi
+verify_main_branch_protection
 
 bash scripts/check-version-sync.sh
 app_version="$(awk -F"'" '/appVersion = / { print $2; exit }' \
@@ -265,6 +292,7 @@ fi
 # the same read-only gate as defense in depth.
 python3 scripts/sync-geoip-metadb.py --check
 require_tag_absent
+verify_main_branch_protection
 
 git fetch --no-tags origin main:refs/remotes/origin/main
 if [ "$(git rev-parse --verify 'origin/main^{commit}')" != "$main_sha" ]; then

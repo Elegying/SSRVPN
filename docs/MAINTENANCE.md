@@ -168,8 +168,9 @@ and run both platform suites for shared desktop changes.
    creates the annotated tag, and dispatches `Release`. Do not create the tag
    manually first.
 5. Confirm both preparation CI runs are green and watch the automatic handoff
-   to the `Release` workflow. The protected branch still requires the existing six
-   GitHub Actions checks; the orchestrator does not bypass or impersonate them.
+   to the `Release` workflow. The protected branch requires the exact nine
+   GitHub Actions checks recorded in `.github/main-branch-protection.json`; the
+   orchestrator verifies that policy twice and does not bypass or impersonate it.
    If automated preparation is unavailable, use `Maintenance > geoip-refresh` as
    the manual fallback, merge its PR, wait for `main` CI, and only then create the
    application tag.
