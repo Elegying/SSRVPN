@@ -35,4 +35,5 @@ python3 -m unittest \
   scripts/test_wait_for_github_release_public.py \
   scripts/test_windows_installer_config.py \
   scripts/test_windows_proxy_shutdown_recovery.py \
-  scripts/test_windows_runonce_proxy_recovery.py
+  scripts/test_windows_runonce_proxy_recovery.py \
+  scripts/test_windows_workflow_parallelism.py

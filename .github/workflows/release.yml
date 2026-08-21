@@ -416,6 +416,20 @@ jobs:
             SSRVPN_MacOS/SSRVPN.dmg.sha256
 
   # ── Windows ──
+  windows-policy-tests:
+    name: Windows policy tests
+    needs: validate-source
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Run Windows policy tests
+        shell: powershell
+        timeout-minutes: 10
+        run: |
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\test_windows_policy.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   build-windows:
     name: Windows installer
     needs: [validate-source, prepare-geoip]
@@ -466,17 +480,6 @@ jobs:
           cd SSRVPN_Windows
           # Windows PowerShell does not stop when a child process returns non-zero.
           # Keep every child exit check adjacent so later builds cannot mask a failure.
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_powershell51_compatibility.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_installer_runtime.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_program_files_transaction.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_package_payload_guard.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $smokeRoot = Join-Path $env:RUNNER_TEMP 'ssrvpn-process-smoke'
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File installer\stop_ssrvpn_processes.ps1 -InstalledAppPath "$smokeRoot\bin\ssrvpn_windows_app.exe" -InstalledLauncherPath "$smokeRoot\ssrvpn_windows.exe" -InstalledCorePath "$smokeRoot\bin\mihomo.exe" -InstalledCorePidPath "$smokeRoot\mihomo.pid"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_native_proxy_recovery.ps1
@@ -514,7 +517,7 @@ jobs:
   publish:
     name: Publish Release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [validate-source, shared-test, build-android, build-macos, build-windows]
+    needs: [validate-source, shared-test, build-android, build-macos, windows-policy-tests, build-windows]
     runs-on: ubuntu-latest
     environment: release
     permissions:
