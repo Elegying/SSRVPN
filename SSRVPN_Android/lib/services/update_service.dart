@@ -521,7 +521,7 @@ class UpdateService {
   }
 
   static String _cleanError(Object error) =>
-      error.toString().replaceFirst('Bad state: ', '');
+      safeUserFacingFailureMessage(error);
 
   static Future<void> _showUpdateMessage(
     BuildContext context,

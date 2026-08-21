@@ -1,6 +1,31 @@
 part of 'home_screen.dart';
 
 extension _AndroidHomeLifecycleActions on HomeScreenState {
+  void _registerClashService(ClashService clashService) {
+    final previous = _registeredClashService;
+    if (identical(previous, clashService)) return;
+    if (previous != null) {
+      if (identical(previous.onAutoConnect, _onClashAutoConnect)) {
+        previous.onAutoConnect = null;
+      }
+      if (identical(previous.onStatusChanged, _onClashStatusChanged)) {
+        previous.onStatusChanged = null;
+      }
+      if (identical(previous.onRuntimeNotice, _onClashRuntimeNotice)) {
+        previous.onRuntimeNotice = null;
+      }
+    }
+    _registeredClashService = clashService;
+    _connectionStatusEpoch++;
+    _statusApplicationEpoch++;
+    _observedClashRunning = clashService.isRunning;
+    _observedNativeTransitioning = clashService.nativeConnectionTransitioning;
+    _observedNativeSessionGeneration = clashService.nativeSessionGeneration;
+    clashService.onAutoConnect = _onClashAutoConnect;
+    clashService.onStatusChanged = _onClashStatusChanged;
+    clashService.onRuntimeNotice = _onClashRuntimeNotice;
+  }
+
   bool _onSubscriptionChanged(SubscriptionService subService) {
     final controller = HomeNodeController(
       nodes: _nodes,
@@ -63,9 +88,6 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     if (!mounted || _disposed) return;
     final subService = context.read<SubscriptionService>();
     final clashService = context.read<ClashService>();
-    _registeredClashService = clashService;
-    clashService.onAutoConnect = _onClashAutoConnect;
-    clashService.onStatusChanged = _onClashStatusChanged;
 
     final statusEpoch = _connectionStatusEpoch;
     final running = clashService.isRunning;
@@ -129,13 +151,50 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
   void _handleClashStatusChanged() {
     final clashService = _registeredClashService;
     if (!mounted || _disposed || clashService == null) return;
-    final statusEpoch = ++_connectionStatusEpoch;
-    unawaited(_applyClashStatusChanged(clashService, statusEpoch));
+    final running = clashService.isRunning;
+    final nativeTransitioning = clashService.nativeConnectionTransitioning;
+    final nativeSessionGeneration = clashService.nativeSessionGeneration;
+    if (_observedClashRunning != running ||
+        _observedNativeTransitioning != nativeTransitioning ||
+        _observedNativeSessionGeneration != nativeSessionGeneration) {
+      _connectionStatusEpoch++;
+      _observedClashRunning = running;
+      _observedNativeTransitioning = nativeTransitioning;
+      _observedNativeSessionGeneration = nativeSessionGeneration;
+    }
+    final applicationEpoch = ++_statusApplicationEpoch;
+    unawaited(
+      _applyClashStatusChanged(
+        clashService,
+        _connectionStatusEpoch,
+        applicationEpoch,
+      ),
+    );
+  }
+
+  void _handleClashRuntimeNotice(RuntimeNotice notice) {
+    if (!mounted || _disposed) return;
+    switch (notice.level) {
+      case RuntimeNoticeLevel.progress:
+      case RuntimeNoticeLevel.warning:
+        _updateHomeState(() {
+          _connectionNotice = notice.message;
+          _errorMessage = null;
+        });
+      case RuntimeNoticeLevel.error:
+        _updateHomeState(() {
+          _connectionNotice = null;
+          _errorMessage = notice.message;
+        });
+      case RuntimeNoticeLevel.success:
+        return;
+    }
   }
 
   Future<void> _applyClashStatusChanged(
     ClashService clashService,
     int statusEpoch,
+    int applicationEpoch,
   ) async {
     final running = clashService.isRunning;
     final nativeTransitioning = clashService.nativeConnectionTransitioning;
@@ -159,6 +218,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     if (!mounted ||
         _disposed ||
         statusEpoch != _connectionStatusEpoch ||
+        applicationEpoch != _statusApplicationEpoch ||
         !identical(_registeredClashService, clashService) ||
         clashService.isRunning != running ||
         clashService.nativeConnectionTransitioning != nativeTransitioning) {

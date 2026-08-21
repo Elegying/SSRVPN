@@ -2,6 +2,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_macos/startup/startup_status.dart';
 
 void main() {
+  test('startup failures never expose raw local details', () {
+    final status = StartupStatus.forTesting();
+
+    status.reportFailure(
+      'mihomo_core',
+      StateError('launch failed at /Users/example/private/credential.bin'),
+    );
+
+    final message = status.failures.single.message;
+    expect(message, contains('操作未完成'));
+    expect(message, isNot(contains('/Users/example')));
+    expect(message, isNot(contains('credential.bin')));
+  });
+
   test('core retry retires the prior failure and returns to running state', () {
     final status = StartupStatus.forTesting();
     status.markStarting();

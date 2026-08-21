@@ -2,11 +2,33 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/services/clash_service.dart';
 import 'package:ssrvpn_windows/services/windows_tun_runtime_probe.dart';
 
 void main() {
+  test('TUN external data-plane failure is warning-only', () async {
+    final service = _AdvisoryTunDataPlaneClashService()
+      ..updateSettings(AppSettings(enableTun: true))
+      ..requestConnectionIntent(true)
+      ..setRunning(true);
+    addTearDown(service.dispose);
+
+    await service.runDataPlaneObservation();
+
+    expect(service.connectivityWarning, contains('external endpoint blocked'));
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+
+    service.beginNewDataPlaneSession();
+    expect(service.connectivityWarning, isNull);
+    service.nextWarning = null;
+    await service.runDataPlaneObservation();
+    expect(service.connectivityWarning, isNull);
+    expect(service.probeCalls, 2);
+  });
+
   test('TUN health treats the Windows adapter probe as advisory', () async {
     Map<String, dynamic> configs = {};
     var runtimeStatus = WindowsTunRuntimeStatus.adapterMissing;
@@ -138,4 +160,68 @@ void main() {
       await server.close(force: true);
     }
   });
+
+  test(
+      'system proxy health keeps the connection when ownership is temporarily unavailable',
+      () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final subscription = server.listen((request) async {
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'version': 'test'}));
+      await request.response.close();
+    });
+    final service = _UncertainProxyOwnershipClashService()
+      ..updateSettings(AppSettings(apiPort: server.port))
+      ..setRunning(true);
+
+    try {
+      expect(await service.healthCheck(), isTrue);
+      expect(service.isRunning, isTrue);
+      expect(service.lastHealthCheckError, isNull);
+      expect(
+        service.connectivityWarning,
+        allOf(contains('暂时无法确认'), contains('当前连接仍保留')),
+      );
+
+      service.ownershipStatus = SystemProxyOwnershipStatus.owned;
+      expect(await service.healthCheck(), isTrue);
+      expect(service.connectivityWarning, isNull);
+    } finally {
+      service.dispose();
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+}
+
+class _AdvisoryTunDataPlaneClashService extends ClashService {
+  String? nextWarning = 'external endpoint blocked';
+  int probeCalls = 0;
+
+  Future<void> runDataPlaneObservation() => observeDataPlaneHealth();
+
+  void beginNewDataPlaneSession() => resetTunDataPlaneObservationSession();
+
+  @override
+  Duration get tunDataPlaneObservationInterval => Duration.zero;
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async {
+    probeCalls++;
+    return nextWarning;
+  }
+}
+
+class _UncertainProxyOwnershipClashService extends ClashService {
+  SystemProxyOwnershipStatus ownershipStatus =
+      SystemProxyOwnershipStatus.unavailable;
+
+  @override
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async =>
+      ownershipStatus;
 }

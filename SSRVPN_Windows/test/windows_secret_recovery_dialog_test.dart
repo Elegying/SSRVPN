@@ -5,6 +5,19 @@ import 'package:ssrvpn_windows/services/windows_dpapi_secret_store.dart';
 import 'package:ssrvpn_windows/startup/startup_status.dart';
 
 void main() {
+  test('DPAPI recovery failure copy hides raw internal details', () {
+    final message = windowsApiSecretRecoveryFailureMessage(
+      StateError(
+        'DPAPI failed token=top-secret '
+        r'path=C:\Users\alice\private\.api-secret.dpapi',
+      ),
+    );
+
+    expect(message, isNot(contains('top-secret')));
+    expect(message, isNot(contains(r'C:\Users\alice')));
+    expect(message, contains('旧密文和用户数据仍已保留'));
+  });
+
   testWidgets('DPAPI recovery clearly preserves old ciphertext and user data',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 360));

@@ -4,6 +4,9 @@ enum SystemProxyOwnershipStatus {
   unavailable,
 }
 
+const desktopSystemProxyOwnershipUnavailableWarning =
+    '暂时无法确认系统代理状态，当前连接仍保留；请勿同时修改系统代理，如无法上网请运行诊断。';
+
 /// Captures the proxy state observed before unexpected-exit cleanup.
 ///
 /// A null [ownershipBeforeClear] means the exited core used TUN, where system

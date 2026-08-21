@@ -20,6 +20,32 @@ enum AppErrorCode {
   final String wireName;
 }
 
+const _trustedUserFacingFailureMessages = <String>{
+  '客户端仍在初始化，请稍后重试',
+  '请先添加并刷新订阅',
+  '订阅已更新，请重新连接以使用最新配置',
+  '托盘连接失败，请重试或查看日志',
+  '无法安全断开当前连接，已阻止打开更新安装包',
+};
+
+String safeUserFacingFailureMessage(Object? error) {
+  final text = error?.toString().trim() ?? '';
+  var trustedText = text;
+  if (error is StateError) {
+    trustedText = error.message.toString().trim();
+  }
+  if (_trustedUserFacingFailureMessages.contains(trustedText)) {
+    return trustedText;
+  }
+  return AppFailure.fromMessage(error).userMessage;
+}
+
+String safeUserFacingFailureWithAction(Object? error, String action) =>
+    '${safeUserFacingFailureMessage(error)}\n${action.trim()}';
+
+String safeSubscriptionFailureMessage(Object? error) =>
+    safeUserFacingFailureMessage(error);
+
 class AppFailure {
   const AppFailure({
     required this.code,
@@ -32,6 +58,8 @@ class AppFailure {
   final String title;
   final String message;
   final String recommendedAction;
+
+  String get userMessage => '$title：$message $recommendedAction';
 
   static AppFailure fromMessage(Object? error) {
     final text = error?.toString().trim().toLowerCase() ?? '';
@@ -58,9 +86,9 @@ class AppFailure {
         ),
       AppErrorCode.dataPlaneDegraded => const AppFailure(
           code: AppErrorCode.dataPlaneDegraded,
-          title: '节点连接正在恢复',
-          message: '核心与系统网络接管仍正常，节点或外部网络暂时不可用。',
-          recommendedAction: '请等待自动切换；若持续失败，可手动切换节点。',
+          title: '连接质量提示',
+          message: '核心与系统网络接管仍在运行，但当前验证站点暂时不可达。',
+          recommendedAction: '如界面已显示连接，当前连接仍保留；若实际无法上网，请稍后重试或手动切换节点。',
         ),
       AppErrorCode.portOccupied => const AppFailure(
           code: AppErrorCode.portOccupied,
@@ -103,8 +131,8 @@ class AppFailure {
       AppErrorCode.configInvalid => const AppFailure(
           code: AppErrorCode.configInvalid,
           title: '配置不可用',
-          message: '生成或导入的配置未通过格式验证。',
-          recommendedAction: '请刷新订阅；若持续失败，请运行诊断。',
+          message: '节点或订阅配置未通过格式验证。',
+          recommendedAction: '请检查节点名称、服务器、端口和认证信息，或刷新订阅后重试。',
         ),
       AppErrorCode.updateFailed => const AppFailure(
           code: AppErrorCode.updateFailed,
@@ -124,6 +152,19 @@ class AppFailure {
   static AppErrorCode _classify(String text) {
     bool hasAny(Iterable<String> values) => values.any(text.contains);
 
+    if (text.contains('找不到生成的 mihomo 配置文件')) {
+      return AppErrorCode.configInvalid;
+    }
+    if (text.contains('电脑性能不足或配置校验超时，请重新连接')) {
+      return AppErrorCode.coreStartTimeout;
+    }
+    if (hasAny(const [
+      'mihomo 提前退出（退出码',
+      'tun 核心启动失败',
+      'mihomo 启动后未通过就绪检查',
+    ])) {
+      return AppErrorCode.coreUnavailable;
+    }
     if (hasAny(const ['address already in use', 'port occupied', '端口被占用']) ||
         (text.contains('bind') && text.contains('port'))) {
       return AppErrorCode.portOccupied;
@@ -135,6 +176,8 @@ class AppFailure {
       '权限不足',
       '需要管理员',
       '需要授权',
+      '授权失败',
+      '管理员授权',
       '以管理员身份运行',
     ])) {
       return AppErrorCode.permissionRequired;
@@ -144,6 +187,8 @@ class AppFailure {
       '代理待恢复',
       'proxy recovery',
       'restore proxy',
+      '系统代理 powershell 命令响应超时',
+      '系统代理命令响应超时',
     ])) {
       return AppErrorCode.proxyRecoveryPending;
     }
@@ -157,9 +202,24 @@ class AppFailure {
     ])) {
       return AppErrorCode.subscriptionChanged;
     }
-    if (hasAny(const ['订阅', 'subscription']) &&
-        hasAny(const ['失败', 'failed', 'invalid', '无可用'])) {
+    if ((hasAny(const ['订阅', 'subscription']) &&
+            hasAny(const ['失败', 'failed', 'invalid', '无可用'])) ||
+        hasAny(const ['请先添加并刷新订阅', '请先刷新订阅', '未获取到可用节点'])) {
       return AppErrorCode.subscriptionFailed;
+    }
+    if (hasAny(const [
+      '节点备注名',
+      '服务器地址无效',
+      '端口必须是',
+      '节点缺少',
+      '没有可编辑的订阅配置',
+      '找不到要修改的节点',
+      '订阅配置中没有有效的节点列表',
+      '修改后的订阅不包含可运行节点',
+      '字段清理后名称冲突',
+      '运行时保留名称',
+    ])) {
+      return AppErrorCode.configInvalid;
     }
     if (hasAny(const ['配置', 'config', 'yaml']) &&
         hasAny(const ['失败', 'invalid', '无效', '验证'])) {
@@ -179,6 +239,24 @@ class AppFailure {
     }
     if (hasAny(const ['mihomo api', '核心连接', 'core unavailable', '核心退出'])) {
       return AppErrorCode.coreUnavailable;
+    }
+    if (hasAny(const [
+      'mihomo service is not initialized',
+      'core is not initialized',
+      '核心未初始化',
+      '连接服务尚未初始化',
+      '客户端仍在初始化',
+      '无法启动核心',
+    ])) {
+      return AppErrorCode.coreUnavailable;
+    }
+    if (hasAny(const [
+      'data plane',
+      'data-plane',
+      '数据通道',
+      '网络验证失败',
+    ])) {
+      return AppErrorCode.dataPlaneDegraded;
     }
     return AppErrorCode.unknown;
   }

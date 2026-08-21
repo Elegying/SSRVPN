@@ -19,7 +19,6 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
 private class StartCancelledException : Exception("VPN start cancelled")
 
@@ -71,10 +70,6 @@ class SsrvpnVpnService : VpnService() {
             context.sendBroadcast(intent)
         }
 
-        private const val BRIDGE_START_TIMEOUT_MS = 45_000L
-        private const val PENDING_START_CANCEL_GRACE_MS = 1_000L
-        private const val API_HEALTH_TIMEOUT_MS = 20_000L
-        private const val API_HEALTH_POLL_INTERVAL_MS = 250L
         private const val BRIDGE_STOP_TIMEOUT_MS = 5_000L
         private const val BRIDGE_IS_RUNNING_TIMEOUT_MS = 2_000L
         private const val PROTECT_MONITOR_STOP_TIMEOUT_MS = 1_000L
@@ -86,7 +81,6 @@ class SsrvpnVpnService : VpnService() {
         private val bridgeFdTerminationRequired = AtomicBoolean(false)
         private val processTerminationPending = AtomicBoolean(false)
         internal val startGeneration = StartGenerationGate()
-        private val recoveryGeneration = AtomicLong(0)
         private val manualStopRequested = AtomicBoolean(false)
 
         fun isCoreOperationBusy(): Boolean =
@@ -107,6 +101,7 @@ class SsrvpnVpnService : VpnService() {
     private var protectMonitor: VpnProtectMonitor.Monitor? = null
     @Volatile
     private var serviceStartThread: Thread? = null
+    private val serviceStopGate = VpnServiceStopGate()
     private val notificationHandler = Handler(Looper.getMainLooper())
     private var currentNodeName = "SSRVPN"
     private var currentApiPort = 0
@@ -198,6 +193,7 @@ class SsrvpnVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "VPN Service starting...")
         if (intent?.action == ACTION_DISCONNECT) {
+            serviceStopGate.acceptStart(startId)
             Log.d(TAG, "Received disconnect from notification")
             stopAll(recordManualStop = true)
             return START_NOT_STICKY
@@ -218,11 +214,10 @@ class SsrvpnVpnService : VpnService() {
             null
         }
 
-        if (recoveryAttempt > 0 && !CoreRecoveryPolicy.shouldAcceptRestart(
+        if (recoveryAttempt > 0 && !CoreRecoveryCoordinator.shouldAcceptRestart(
+                this,
                 recoveryAttempt,
-                recoveryToken,
-                recoveryGeneration.get(),
-                manualStopRequested.get()
+                recoveryToken
             )
         ) {
             Log.w(TAG, "Ignoring obsolete VPN recovery request")
@@ -236,6 +231,7 @@ class SsrvpnVpnService : VpnService() {
         }
 
         if (isRunning) {
+            serviceStopGate.acceptStart(startId)
             Log.d(TAG, "VPN is already running; reusing the active session")
             NativeVpnSessionCoordinator.releasePendingStart(startClaimId)
             consumeStartResult(requestId, true, "Already running",
@@ -243,6 +239,7 @@ class SsrvpnVpnService : VpnService() {
             return START_STICKY
         }
         if (stopOperation.isRunning || processTerminationPending.get()) {
+            serviceStopGate.includeRejectedStart(startId)
             Log.w(TAG, "VPN cleanup is still in progress")
             NativeVpnSessionCoordinator.releasePendingStart(startClaimId)
             consumeStartResult(requestId, false, "VPN 核心正在清理，请稍后重试")
@@ -261,6 +258,7 @@ class SsrvpnVpnService : VpnService() {
             consumeStartResult(requestId, false, "VPN 启动租约已失效")
             return finishRejectedServiceStart(startId, isRunning, false)
         }
+        serviceStopGate.acceptStart(startId)
 
         val snapshot = if (startPayloadId == null) {
             NativeConnectionSnapshotStore.read(this)
@@ -469,7 +467,11 @@ class SsrvpnVpnService : VpnService() {
             vpnFd = builder.establish()
             if (vpnFd == null) {
                 Log.e(TAG, "VPN establish returned null!")
-                return rejectCoreStart(requestId, "VPN establish failed", recoveryAttempt)
+                return rejectCoreStart(
+                    requestId,
+                    "系统未能创建 VPN 接口，请检查 VPN 权限后重试",
+                    recoveryAttempt
+                )
             }
 
             ensureStartCurrent(startToken)
@@ -499,22 +501,26 @@ class SsrvpnVpnService : VpnService() {
                 val startErr = startBridgeWithTimeout(configDir, configPath, tunFdOwner)
                 if (startErr == null) {
                     Log.e(TAG, "Mihomo start timed out")
-                    return rejectCoreStart(requestId, "设备性能不足，请重新连接", recoveryAttempt)
+                    return rejectCoreStart(requestId, "VPN 核心启动超时，请重新连接", recoveryAttempt)
                 }
                 if (startErr.isNotEmpty()) {
                     Log.e(TAG, "Mihomo start failed: $startErr")
-                    return rejectCoreStart(requestId, "Mihomo: $startErr", recoveryAttempt)
+                    return rejectCoreStart(
+                        requestId,
+                        "VPN 核心启动失败，请重试；若持续失败请打开诊断与运行日志",
+                        recoveryAttempt
+                    )
                 }
                 ensureStartCurrent(startToken)
                 Log.d(TAG, "Mihomo started with TUN fd=$tunFd")
                 Log.d(TAG, "Waiting for API on port $apiPort...")
                 val healthDeadlineNanos =
-                    System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(API_HEALTH_TIMEOUT_MS)
+                    System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(VpnStartBudget.API_HEALTH_MS)
                 val healthy = mihomoApiWaiter.waitUntilHealthy(
                     apiPort,
                     apiSecret,
                     healthDeadlineNanos,
-                    API_HEALTH_POLL_INTERVAL_MS,
+                    VpnStartBudget.API_POLL_MS,
                     ensureCurrent = { ensureStartCurrent(startToken) }
                 )
                 if (healthy) Log.d(TAG, "Mihomo API /version is healthy")
@@ -531,12 +537,12 @@ class SsrvpnVpnService : VpnService() {
                     ensureStartCurrent(startToken)
                     Log.d(TAG, "Core started!")
                     applyProxySelection(apiPort, apiSecret, selectedNodeName)
-                    val dataPlaneHealthy =
-                        VpnDataPlaneProbe.isStartupHealthy(protectMonitor?.thread) {
+                    val dataPlaneFailure =
+                        VpnDataPlaneProbe.startupOutcome(protectMonitor?.thread) {
                             ensureStartCurrent(startToken)
-                        }
-                    if (!dataPlaneHealthy) {
-                        return rejectCoreStart(requestId, "VPN 数据通道不可用，请切换节点或重试", recoveryAttempt)
+                        }.failureMessage
+                    if (dataPlaneFailure != null) {
+                        return rejectCoreStart(requestId, dataPlaneFailure, recoveryAttempt)
                     }
                     ensureStartCurrent(startToken)
                     val published = startGeneration.runIfCurrent(startToken) {
@@ -571,7 +577,11 @@ class SsrvpnVpnService : VpnService() {
                     }
                 } else {
                     Log.e(TAG, "Health check timeout")
-                    rejectCoreStart(requestId, "设备性能不足，请重新连接", recoveryAttempt)
+                    rejectCoreStart(
+                        requestId,
+                        "VPN 核心已启动，但本地控制服务未及时就绪，请重新连接",
+                        recoveryAttempt
+                    )
                 }
             } finally {
                 tunFdOwner.close()
@@ -585,7 +595,11 @@ class SsrvpnVpnService : VpnService() {
             rejectCoreStart(requestId, "Mihomo 原生组件不可用，请重新安装应用", recoveryAttempt)
         } catch (e: Exception) {
             Log.e(TAG, "startCoreWithVpn error", e)
-            rejectCoreStart(requestId, "Error: ${e.message}", recoveryAttempt)
+            rejectCoreStart(
+                requestId,
+                "VPN 启动失败，请重试；若持续失败请打开诊断与运行日志",
+                recoveryAttempt
+            )
         }
     }
 
@@ -624,9 +638,9 @@ class SsrvpnVpnService : VpnService() {
             start()
         }
         try {
-            bridgeThread.join(BRIDGE_START_TIMEOUT_MS)
+            bridgeThread.join(VpnStartBudget.BRIDGE_MS)
             if (bridgeThread.isAlive) {
-                Log.e(TAG, "Bridge.start timed out after ${BRIDGE_START_TIMEOUT_MS}ms")
+                Log.e(TAG, "Bridge.start timed out after ${VpnStartBudget.BRIDGE_MS}ms")
                 return null
             }
         } catch (e: InterruptedException) {
@@ -645,20 +659,24 @@ class SsrvpnVpnService : VpnService() {
         try {
             // 核心意外退出：必须关闭 VPN 接口并停止前台服务，
             // 否则全局流量仍被路由进无人读取的 TUN，导致整机断网
-            if (CoreLivenessMonitor.waitForUnexpectedExit(
-                    startToken,
-                    startGeneration::current,
-                    { isRunning },
-                    { isBridgeRunningWithTimeout() != false },
-                    isProtectMonitorRunning = {
-                        VpnRuntimeHealth.hasProtectMonitor(protectMonitor?.thread)
-                    },
-                    isApiHealthy = { VpnRuntimeHealth.isApiHealthy(request.apiPort, request.apiSecret) },
-                    isApiPortReachable = { CorePortReleaseVerifier.isPortListening(request.apiPort) }
-                )
-            ) {
+            val liveness = CoreLivenessMonitor.waitForUnexpectedExit(
+                startToken = startToken,
+                currentGeneration = startGeneration::current,
+                isRunning = { isRunning },
+                recoveryAttempt = request.attempt,
+                isBridgeRunning = ::isBridgeRunningWithTimeout,
+                isProtectMonitorRunning = {
+                    VpnRuntimeHealth.hasProtectMonitor(protectMonitor?.thread)
+                },
+                isApiHealthy = { VpnRuntimeHealth.isApiHealthy(request.apiPort, request.apiSecret) },
+                isApiPortReachable = { CorePortReleaseVerifier.isPortListening(request.apiPort) }
+            )
+            if (liveness.unexpectedExit) {
                 Log.e(TAG, "Mihomo stopped unexpectedly")
-                recoverFromUnexpectedCoreExit(request)
+                CoreRecoveryCoordinator.recoverFromUnexpectedCoreExit(
+                    this,
+                    request.copy(attempt = liveness.recoveryAttempt)
+                )
             }
         } catch (e: Exception) {
             Log.e(TAG, "Monitor error", e)
@@ -672,61 +690,30 @@ class SsrvpnVpnService : VpnService() {
         }
     }
 
-    private fun recoverFromUnexpectedCoreExit(request: CoreRecoveryRequest) {
-        val nextAttempt = CoreRecoveryPolicy.nextAttempt(request.attempt)
-        if (nextAttempt == null) {
-            Log.e(TAG, "Core recovery limit reached")
-            stopAll { showCoreRecoveryFailedNotification() }
-            return
-        }
-        if (manualStopRequested.get()) return
-
-        val recoveryToken = recoveryGeneration.incrementAndGet()
-        if (!NativeVpnSessionCoordinator.reserveRecovery(request.configPath)) return
-        notificationStatusText = CoreRecoveryPolicy.recoveringMessage(nextAttempt)
+    internal fun publishCoreRecovery(
+        attempt: Int,
+        allowPublication: () -> Boolean
+    ) {
+        notificationStatusText = CoreRecoveryPolicy.recoveringMessage(attempt)
         notificationConnected = false
-        notifyCurrentState(currentNotificationState()) {
-            CoreRecoveryPolicy.shouldPublishRecovery(
-                recoveryToken,
-                recoveryGeneration.get(),
-                manualStopRequested.get(),
-                processTerminationPending.get()
-            )
-        }
-
-        stopForRecovery {
-            if (manualStopRequested.get() ||
-                recoveryToken != recoveryGeneration.get() ||
-                processTerminationPending.get()
-            ) {
-                if (processTerminationPending.get()) {
-                    showCoreRecoveryFailedNotification()
-                }
-                return@stopForRecovery
-            }
-            try {
-                val restartIntent = createStartIntent(
-                    this,
-                    recoveryAttempt = nextAttempt,
-                    recoveryToken = recoveryToken
-                )
-                ContextCompat.startForegroundService(this, restartIntent)
-            } catch (e: Exception) {
-                Log.e(TAG, "Unable to restart VPN core", e)
-                NativeVpnSessionCoordinator.clearRecovery()
-                showCoreRecoveryFailedNotification()
-                stopSelf()
-            }
-        }
+        notifyCurrentState(currentNotificationState(), allowPublication)
     }
 
+    internal fun hasManualStopRequest(): Boolean = manualStopRequested.get()
+
+    internal fun hasPendingProcessTermination(): Boolean = processTerminationPending.get()
+
     private fun stopAfterStartFailure(recoveryAttempt: Int) =
-        if (recoveryAttempt > 0) stopAll { showCoreRecoveryFailedNotification() } else stopAll()
+        CoreRecoveryCoordinator.stopAfterStartFailure(
+            this,
+            notificationHandler,
+            recoveryAttempt
+        )
 
     private fun rejectCoreStart(requestId: String?, message: String, recoveryAttempt: Int) =
         consumeStartResult(requestId, false, message).also { stopAfterStartFailure(recoveryAttempt) }
 
-    private fun showCoreRecoveryFailedNotification() {
+    internal fun showCoreRecoveryFailedNotification() {
         AndroidRuntimeGuard.run(TAG, "Unable to show core recovery failure") {
             getSystemService(NotificationManager::class.java).notify(
                 RECOVERY_FAILURE_NOTIFICATION_ID,
@@ -785,16 +772,17 @@ class SsrvpnVpnService : VpnService() {
             Log.e(TAG, "Unable to persist manual VPN disconnect")
         }
         manualStopRequested.set(true)
-        recoveryGeneration.incrementAndGet()
+        CoreRecoveryCoordinator.cancelPendingRecovery()
         stopInternal(true, preserveForegroundUi, onComplete)
     }
-    private fun stopForRecovery(onComplete: () -> Unit) =
-        stopInternal(false, false) { onComplete() }
+    internal fun stopForRecovery(onComplete: () -> Unit) =
+        stopInternal(false, true) { onComplete() }
 
     private fun stopInternal(
         stopServiceWhenDone: Boolean, preserveForegroundUi: Boolean,
         onComplete: ((Boolean) -> Unit)?
     ) {
+        val stopToken = serviceStopGate.beginOrJoinStop()
         notificationGeneration.invalidate()
         startGeneration.invalidate {
             NativeConnectionSession.beginStopping()
@@ -806,8 +794,10 @@ class SsrvpnVpnService : VpnService() {
         }
         serviceStartThread?.interrupt()
         val completion: (Boolean) -> Unit = { stoppedCleanly ->
-            if (stopServiceWhenDone || manualStopRequested.get()) {
-                stopSelf()
+            val stopStartId = serviceStopGate.finishStop(stopToken)
+            if ((stopServiceWhenDone || manualStopRequested.get()) &&
+                stopStartId != null) {
+                stopSelfResult(stopStartId)
             }
             onComplete?.invoke(stoppedCleanly)
             Unit
@@ -818,7 +808,8 @@ class SsrvpnVpnService : VpnService() {
         }
         Thread({
             StopOperationRunner.run(
-                bridgeFdTerminationRequired.get(), ::stopAllOnWorker,
+                bridgeFdTerminationRequired.get(),
+                { stopAllOnWorker(removeForeground = !preserveForegroundUi) },
                 {
                     processTerminationPending.set(true)
                     DisconnectRecoveryCoordinator.handoffIfNeeded(this, preserveForegroundUi)
@@ -837,7 +828,7 @@ class SsrvpnVpnService : VpnService() {
         }
     }
 
-    private fun stopAllOnWorker(): Boolean {
+    private fun stopAllOnWorker(removeForeground: Boolean): Boolean {
         Log.d(TAG, "Stopping...")
         stopNotificationUpdates()
         val activeProtectMonitor = protectMonitor.also { it?.stop() }
@@ -866,15 +857,17 @@ class SsrvpnVpnService : VpnService() {
         isRunning = false
         if (stopDecision.clearRunningSession) NativeConnectionSession.clearRunning()
         broadcastState(this)
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-            } else {
-                @Suppress("DEPRECATION")
-                stopForeground(true)
+        if (removeForeground) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "stopForeground failed: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "stopForeground failed: ${e.message}")
         }
         Log.d(TAG, "Stopped")
         return bridgeFdTerminationRequired.get() || stopDecision.terminateProcess
@@ -899,7 +892,7 @@ class SsrvpnVpnService : VpnService() {
     }
 
     private fun waitForPendingStart(): Boolean {
-        val deadline = SystemClock.elapsedRealtime() + PENDING_START_CANCEL_GRACE_MS
+        val deadline = SystemClock.elapsedRealtime() + VpnStartBudget.CANCEL_GRACE_MS
         serviceStartThread?.interrupt()
         while (SystemClock.elapsedRealtime() < deadline) {
             val thread = serviceStartThread
@@ -915,7 +908,7 @@ class SsrvpnVpnService : VpnService() {
         }
         Log.e(
             TAG,
-            "Pending VPN start did not stop within ${PENDING_START_CANCEL_GRACE_MS}ms; " +
+            "Pending VPN start did not stop within ${VpnStartBudget.CANCEL_GRACE_MS}ms; " +
                 "forcing process cleanup"
         )
         return false

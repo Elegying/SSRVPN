@@ -14,10 +14,19 @@ internal object VpnRuntimeHealth {
     }
 
     fun isApiHealthy(port: Int, secret: String): Boolean {
+        val startedAt = System.nanoTime()
         val deadline = System.nanoTime() +
             TimeUnit.MILLISECONDS.toNanos(API_TIMEOUT_MILLIS)
         val healthy = MihomoApiHealthProbe.isHealthy(port, secret, deadline)
-        if (!healthy) Log.w(TAG, "Mihomo local API runtime health check failed")
+        if (!healthy) {
+            val elapsedMillis = ((System.nanoTime() - startedAt) / 1_000_000L)
+                .coerceAtLeast(0L)
+            Log.w(
+                TAG,
+                "event=vpn_runtime_probe endpoint=local_api status=failed " +
+                    "elapsedMs=$elapsedMillis cause=health_contract"
+            )
+        }
         return healthy
     }
 }

@@ -36,6 +36,19 @@ void main() {
 
     expect(find.text('端口必须在 1-65535 之间'), findsOneWidget);
   });
+
+  test('save failure never exposes the private storage path', () {
+    final message = desktopNodeSaveFailureMessage(
+      StateError(
+        'cache write failed token=top-secret '
+        r'path=C:\Users\alice\private-token-cache',
+      ),
+    );
+
+    expect(message, isNot(contains('top-secret')));
+    expect(message, isNot(contains('private-token-cache')));
+    expect(message, contains('原始敏感细节不会显示'));
+  });
 }
 
 ProxyNode _node() {

@@ -61,11 +61,15 @@ class HomeNodeController {
     }
     final selectable = runnable
         .where(
-          (node) => NodeDisplayPolicy.isSelectableLatency(node.latency),
+          (node) =>
+              node.latency != null &&
+              NodeDisplayPolicy.isSelectableLatency(node.latency),
         )
         .toList();
-    if (selectable.isEmpty) return null;
-    return selectable.first;
+    if (selectable.isNotEmpty) return selectable.first;
+    // Unknown/failed latency is guidance, not a hard gate. This also gives a
+    // fresh UDP/QUIC-only subscription a deterministic default node.
+    return runnable.isEmpty ? null : runnable.first;
   }
 
   static ProxyNode? resolveRuntimeSelectedNodeFrom(
@@ -105,12 +109,9 @@ class HomeNodeController {
 
   static bool canSelectNode(
     ProxyNode node,
-    Map<String, int> latencies,
+    Map<String, int> _,
   ) {
-    return NodeDisplayPolicy.isSelectableLatency(
-          latencies[node.name] ?? node.latency,
-        ) &&
-        ProxyNodeUsagePolicy.isRunnableNode(node);
+    return ProxyNodeUsagePolicy.isRunnableNode(node);
   }
 
   static List<ProxyNode> timeoutLast(

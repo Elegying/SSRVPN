@@ -14,11 +14,19 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     _updateHomeState(() => _testingNodeName = nodeName);
     final clashService = context.read<ClashService>();
     final settings = context.read<SettingsService>().settings;
-    final measuredLatency = await clashService.testLatency(
-      server,
-      port,
-      timeoutMs: settings.latencyTestTimeout,
-    );
+    ProxyNode? nodeUnderTest;
+    for (final node in _nodes) {
+      if (node.name == nodeName && node.server == server && node.port == port) {
+        nodeUnderTest = node;
+        break;
+      }
+    }
+    final measuredLatency = nodeUnderTest == null
+        ? -1
+        : await clashService.testNodeLatency(
+            nodeUnderTest,
+            timeoutMs: settings.latencyTestTimeout,
+          );
     final latency = PrivateNodeLatencyPolicy.displayLatencyForNode(
       nodeName,
       measuredLatency,
@@ -64,10 +72,11 @@ extension _AndroidHomeNodeActions on HomeScreenState {
               .read<ClashService>()
               .invalidateIdleNativeConnectionSnapshot();
         }
-        await _rememberSelectedNode(
+        final remembered = await _rememberSelectedNode(
           node,
           shouldContinue: () => mounted && !_disposed,
         );
+        if (!remembered) throw StateError('首选节点保存失败');
         if (!mounted || _disposed) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -144,8 +153,10 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     );
     if (!result.intentCurrent || !isCurrent()) return;
     var snapshotPersisted = result.snapshotPersisted;
+    var preferredNodePersisted = true;
+    var liveSwitchConfirmed = result.liveSwitched;
     ProxyNode? reconciledRuntimeNode;
-    if (result.liveSwitched) {
+    if (liveSwitchConfirmed) {
       snapshotPersisted = await _writePreferredNodeConfigForTile(
             node,
             shouldContinue: isCurrent,
@@ -155,16 +166,28 @@ extension _AndroidHomeNodeActions on HomeScreenState {
       if (!isCurrent()) return;
       if (!snapshotPersisted) {
         final runtimeNodeName = await clashService.currentSelectedProxyName();
-        if (!isCurrent() || runtimeNodeName != node.name) return;
+        if (!isCurrent()) return;
+        if (runtimeNodeName?.trim().isNotEmpty == true &&
+            runtimeNodeName != node.name) {
+          liveSwitchConfirmed = false;
+          reconciledRuntimeNode = resolveAndroidHomeNodeAfterFailedSwitch(
+            nodes: _nodes,
+            runtimeSelectedNodeName: runtimeNodeName,
+          );
+        }
       }
-      await _rememberSelectedNode(node, shouldContinue: isCurrent);
-      if (!isCurrent()) return;
-      if (mounted && !_disposed) {
-        _updateHomeState(() => _selectedNode = node);
+      if (liveSwitchConfirmed) {
+        preferredNodePersisted =
+            await _rememberSelectedNode(node, shouldContinue: isCurrent);
+        if (!isCurrent()) return;
+        if (mounted && !_disposed) {
+          _updateHomeState(() => _selectedNode = node);
+        }
+        _schedulePublicIpRefresh();
       }
-      _schedulePublicIpRefresh();
-    } else {
-      reconciledRuntimeNode = resolveAndroidHomeNodeAfterFailedSwitch(
+    }
+    if (!liveSwitchConfirmed) {
+      reconciledRuntimeNode ??= resolveAndroidHomeNodeAfterFailedSwitch(
         nodes: _nodes,
         runtimeSelectedNodeName: result.runtimeNodeName,
       );
@@ -175,7 +198,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
           expectedSessionGeneration: result.nativeSessionGeneration,
         );
         if (!isCurrent()) return;
-        await _rememberSelectedNode(
+        preferredNodePersisted = await _rememberSelectedNode(
           reconciledRuntimeNode,
           shouldContinue: isCurrent,
         );
@@ -191,15 +214,19 @@ extension _AndroidHomeNodeActions on HomeScreenState {
         SnackBar(
           margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: Text(
-            !result.liveSwitched
+            !liveSwitchConfirmed
                 ? reconciledRuntimeNode == null
                     ? '切换失败: ${node.name}'
+                    : !preferredNodePersisted
+                        ? '切换失败: ${node.name}；当前节点: ${reconciledRuntimeNode.name}；首选节点保存失败'
+                        : snapshotPersisted
+                            ? '切换失败: ${node.name}；当前节点: ${reconciledRuntimeNode.name}'
+                            : '切换失败: ${node.name}；当前节点: ${reconciledRuntimeNode.name}；快速启动信息保存失败'
+                : !preferredNodePersisted
+                    ? '已切换，但首选节点保存失败'
                     : snapshotPersisted
-                        ? '切换失败: ${node.name}；当前节点: ${reconciledRuntimeNode.name}'
-                        : '切换失败: ${node.name}；当前节点: ${reconciledRuntimeNode.name}；快速启动信息保存失败'
-                : snapshotPersisted
-                    ? '已切换: ${node.name}'
-                    : '已切换: ${node.name}；快速启动信息保存失败',
+                        ? '已切换: ${node.name}'
+                        : '已切换: ${node.name}；快速启动信息保存失败',
           ),
           duration: const Duration(seconds: 4),
         ),
@@ -227,14 +254,20 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     );
   }
 
-  Future<void> _rememberSelectedNode(
+  Future<bool> _rememberSelectedNode(
     ProxyNode node, {
     required bool Function() shouldContinue,
   }) async {
-    if (!shouldContinue()) return;
+    if (!shouldContinue()) return false;
     final settingsService = context.read<SettingsService>();
-    if (settingsService.settings.lastSelectedNodeName == node.name) return;
-    await settingsService.setLastSelectedNodeName(node.name);
+    if (settingsService.settings.lastSelectedNodeName == node.name) return true;
+    try {
+      await settingsService.setLastSelectedNodeName(node.name);
+      return shouldContinue();
+    } catch (error) {
+      AppLogger.warning('NodeSelection', '首选节点保存失败: $error');
+      return false;
+    }
   }
 
   Future<bool> _writePreferredNodeConfigForTile(
@@ -268,6 +301,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
   Future<void> _runBatchLatencyTest() async {
     if (_nodes.isEmpty) return;
     final clashService = context.read<ClashService>();
+    final timeout = context.read<SettingsService>().settings.latencyTestTimeout;
     final subscriptionService = context.read<SubscriptionService>();
     final nodesUnderTest = List<ProxyNode>.from(_nodes);
     final subscriptionRevision = subscriptionService.revision;
@@ -293,6 +327,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
           }
           _scheduleLatencyFlush(generation);
         },
+        timeoutMs: timeout,
         shouldContinue: isCurrent,
       );
     } catch (error) {

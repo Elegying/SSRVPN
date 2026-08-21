@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/services/clash_service.dart';
 
@@ -189,7 +192,7 @@ void main() {
   test(
       'API failure plus external proxy takeover disconnects without reacquiring proxy',
       () async {
-    final notices = <String>[];
+    final notices = <RuntimeNotice>[];
     final service = _ExternalProxyTakeoverRecoveryClashService()
       ..onRuntimeNotice = notices.add;
     addTearDown(service.dispose);
@@ -216,15 +219,34 @@ void main() {
     expect(service.connectionDesired, isFalse);
     expect(service.isRunning, isFalse);
     expect(
-      notices.single,
+      notices.single.message,
       allOf(contains('其他程序'), contains('不会覆盖')),
     );
+  });
+
+  test('a stale health probe cannot cancel a newer connection intent',
+      () async {
+    final service = _StaleHealthProbeRecoveryClashService();
+    addTearDown(service.dispose);
+    final oldGeneration = service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    final recovery = service.recoverAfterHealthCheckFailure(oldGeneration);
+    await service.healthProbeStarted.future;
+    service.requestConnectionIntent(true);
+    service.releaseHealthProbe.complete();
+
+    expect(await recovery, isFalse);
+    expect(service.connectionDesired, isTrue);
+    expect(service.isRunning, isTrue);
+    expect(service.stopCalls, 0);
+    expect(service.proxyOwnershipInspectionCalls, 0);
   });
 
   test(
       'unexpected core exit clears external takeover state without restarting or reacquiring',
       () async {
-    final notices = <String>[];
+    final notices = <RuntimeNotice>[];
     final service = _ExternalProxyTakeoverRecoveryClashService()
       ..onRuntimeNotice = notices.add;
     addTearDown(service.dispose);
@@ -250,7 +272,7 @@ void main() {
     expect(service.connectionDesired, isFalse);
     expect(service.isRunning, isFalse);
     expect(
-      notices.single,
+      notices.single.message,
       allOf(contains('其他程序接管'), contains('取消自动重连'), contains('未覆盖')),
     );
   });
@@ -258,7 +280,7 @@ void main() {
   test(
       'proxy ownership change during health cleanup blocks automatic reacquisition',
       () async {
-    final notices = <String>[];
+    final notices = <RuntimeNotice>[];
     final service = _ProxyChangedDuringCleanupRecoveryClashService()
       ..onRuntimeNotice = notices.add;
     addTearDown(service.dispose);
@@ -283,14 +305,14 @@ void main() {
     expect(service.automaticRecoveryStartCalls, 0);
     expect(service.connectionDesired, isFalse);
     expect(
-      notices.last,
+      notices.last.message,
       allOf(contains('清理期间'), contains('不会重新接管')),
     );
   });
 
   test('proxy ownership change during unexpected-exit cleanup blocks restart',
       () async {
-    final notices = <String>[];
+    final notices = <RuntimeNotice>[];
     final service = _ProxyChangedDuringCleanupRecoveryClashService()
       ..onRuntimeNotice = notices.add;
     addTearDown(service.dispose);
@@ -315,14 +337,14 @@ void main() {
     expect(service.automaticRecoveryStartCalls, 0);
     expect(service.connectionDesired, isFalse);
     expect(
-      notices.single,
+      notices.single.message,
       allOf(contains('清理期间'), contains('取消自动重连')),
     );
   });
 
   test('unavailable proxy ownership disconnects without reacquiring proxy',
       () async {
-    final notices = <String>[];
+    final notices = <RuntimeNotice>[];
     final service = _UnavailableProxyOwnershipRecoveryClashService()
       ..onRuntimeNotice = notices.add;
     addTearDown(service.dispose);
@@ -343,7 +365,10 @@ void main() {
     expect(service.prepareCalls, 0);
     expect(service.automaticRecoveryStartCalls, 0);
     expect(service.connectionDesired, isFalse);
-    expect(notices.single, allOf(contains('无法确认'), contains('不会覆盖')));
+    expect(
+      notices.single.message,
+      allOf(contains('无法确认'), contains('不会覆盖')),
+    );
   });
 
   test('health recovery rebuilds runtime config before automatic start',
@@ -398,6 +423,118 @@ void main() {
       service.calls.where((call) => call == 'recovery-start'),
       hasLength(2),
     );
+  });
+
+  test('unexpected-exit recovery waits for the connection transition queue',
+      () async {
+    final service = _SerializedUnexpectedExitRecoveryClashService();
+    addTearDown(service.dispose);
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async {
+        service.generateStarted.complete();
+        return 'mixed-port: ${runtimeSettings.proxyPort}';
+      },
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(true);
+    service.setRunning(false);
+
+    final queueEntered = Completer<void>();
+    final releaseQueue = Completer<void>();
+    final occupied = service.runConnectionTransition(() async {
+      queueEntered.complete();
+      await releaseQueue.future;
+    });
+    await queueEntered.future;
+
+    final recovery = service.simulateUnexpectedExit(generation);
+    await Future.any<void>([
+      service.generateStarted.future,
+      Future<void>.delayed(const Duration(milliseconds: 50)),
+    ]);
+    expect(service.generateStarted.isCompleted, isFalse);
+
+    releaseQueue.complete();
+    await occupied;
+    await recovery;
+    expect(service.generateStarted.isCompleted, isTrue);
+    expect(service.isRunning, isTrue);
+  });
+
+  test(
+      'stale queued unexpected exit stays silent and preserves recovery budget',
+      () async {
+    final notices = <RuntimeNotice>[];
+    final oldProgress = Completer<void>();
+    final service = _SerializedUnexpectedExitRecoveryClashService()
+      ..onRuntimeNotice = (notice) {
+        notices.add(notice);
+        if (notice.level == RuntimeNoticeLevel.progress &&
+            !oldProgress.isCompleted) {
+          oldProgress.complete();
+        }
+      };
+    addTearDown(service.dispose);
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async =>
+          'mixed-port: ${runtimeSettings.proxyPort}',
+      isRevisionCurrent: () => true,
+    );
+    final oldGeneration = service.requestConnectionIntent(true);
+    service.setRunning(false);
+
+    final queueEntered = Completer<void>();
+    final releaseQueue = Completer<void>();
+    final occupied = service.runConnectionTransition(() async {
+      queueEntered.complete();
+      await releaseQueue.future;
+    });
+    await queueEntered.future;
+
+    final staleRecovery = service.simulateUnexpectedExit(oldGeneration);
+    await Future.any<void>([
+      oldProgress.future,
+      Future<void>.delayed(const Duration(milliseconds: 50)),
+    ]);
+    final currentGeneration = service.requestConnectionIntent(true);
+
+    releaseQueue.complete();
+    await occupied;
+    await staleRecovery;
+
+    expect(notices, isEmpty);
+    expect(service.automaticRecoveryStartCalls, 0);
+
+    await service.simulateUnexpectedExit(currentGeneration);
+    expect(service.automaticRecoveryStartCalls, 1);
+    expect(service.isRunning, isTrue);
+
+    service.setRunning(false);
+    await service.simulateUnexpectedExit(currentGeneration);
+    expect(service.automaticRecoveryStartCalls, 2);
+    expect(service.isRunning, isTrue);
+  });
+
+  test('stale TUN teardown timeout cannot cancel the newer intent', () async {
+    final notices = <RuntimeNotice>[];
+    final service = _SerializedUnexpectedExitRecoveryClashService()
+      ..onRuntimeNotice = notices.add;
+    addTearDown(service.dispose);
+    final oldGeneration = service.requestConnectionIntent(true);
+    service.setRunning(false);
+
+    final recovery = service.simulateUnexpectedTunExit(oldGeneration);
+    await service.tunTeardownStarted.future;
+    service.requestConnectionIntent(true);
+    service.tunTeardownResult.complete(false);
+    await recovery;
+
+    expect(service.connectionDesired, isTrue);
+    expect(service.automaticRecoveryStartCalls, 0);
+    expect(notices, isEmpty);
   });
 }
 
@@ -458,6 +595,19 @@ class _UnavailableProxyOwnershipRecoveryClashService
   }
 }
 
+class _StaleHealthProbeRecoveryClashService
+    extends _ExternalProxyTakeoverRecoveryClashService {
+  final Completer<void> healthProbeStarted = Completer<void>();
+  final Completer<void> releaseHealthProbe = Completer<void>();
+
+  @override
+  Future<bool> healthCheck() async {
+    healthProbeStarted.complete();
+    await releaseHealthProbe.future;
+    return false;
+  }
+}
+
 class _ProxyChangedDuringCleanupRecoveryClashService
     extends _ExternalProxyTakeoverRecoveryClashService {
   @override
@@ -505,6 +655,52 @@ class _PlannedHealthRecoveryClashService extends ClashService {
   @override
   Future<bool> startForAutomaticRecovery() async {
     calls.add('recovery-start');
+    setRunning(true);
+    return true;
+  }
+}
+
+class _SerializedUnexpectedExitRecoveryClashService extends ClashService {
+  final Completer<void> generateStarted = Completer<void>();
+  final Completer<void> tunTeardownStarted = Completer<void>();
+  final Completer<bool> tunTeardownResult = Completer<bool>();
+  int automaticRecoveryStartCalls = 0;
+
+  Future<void> simulateUnexpectedExit(int generation) =>
+      runUnexpectedExitRecovery(generation: generation, exitCode: 17);
+
+  Future<void> simulateUnexpectedTunExit(int generation) =>
+      runUnexpectedExitRecovery(
+        generation: generation,
+        exitCode: 17,
+        usedTun: true,
+      );
+
+  @override
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async =>
+      SystemProxyOwnershipStatus.owned;
+
+  @override
+  Future<bool> clearSystemProxyAfterUnexpectedExit() async => true;
+
+  @override
+  Future<bool> waitForUnexpectedExitTunTeardown() {
+    tunTeardownStarted.complete();
+    return tunTeardownResult.future;
+  }
+
+  @override
+  Future<AppSettings> prepareForStart(AppSettings preferred) async {
+    updateSettings(preferred);
+    return preferred;
+  }
+
+  @override
+  Future<void> writeConfig(String configContent) async {}
+
+  @override
+  Future<bool> startForAutomaticRecovery() async {
+    automaticRecoveryStartCalls++;
     setRunning(true);
     return true;
   }

@@ -285,7 +285,7 @@ class MainActivity : FlutterActivity() {
         val apiSecret = args?.get("apiSecret") as? String ?: ""
         val nodeName = args?.get("nodeName") as? String
         if (configDir == null || configPath == null) {
-            result.error("INVALID_ARGS", "Missing required arguments", null)
+            result.error("INVALID_ARGS", "连接参数不完整，请重试", null)
             return
         }
 
@@ -319,7 +319,11 @@ class MainActivity : FlutterActivity() {
                 )
             }
             runOnActiveUiThread("Unable to deliver VPN start timeout") {
-                result.error("CORE_TIMEOUT", "设备性能不足，请重新连接", null)
+                result.error(
+                    "CORE_TIMEOUT",
+                    "VPN 启动超时，请重新连接；若持续失败请打开诊断与运行日志",
+                    null
+                )
             }
         }
         callback = callback@{ success, message, capturedState ->
@@ -425,7 +429,7 @@ class MainActivity : FlutterActivity() {
                         } else {
                             result.error(
                                 "STOP_INCOMPLETE",
-                                "VPN resources are still releasing",
+                                "VPN 正在释放系统资源，请稍后重试",
                                 null
                             )
                         }
@@ -433,7 +437,12 @@ class MainActivity : FlutterActivity() {
                 }
             }
         } catch (error: Exception) {
-            result.error("STOP_FAILED", error.message, null)
+            Log.e("MainActivity", "Unable to stop VPN core", error)
+            result.error(
+                "STOP_FAILED",
+                "VPN 断开失败，请重试；若持续失败请打开诊断与运行日志",
+                null
+            )
         }
     }
 
@@ -475,7 +484,8 @@ class MainActivity : FlutterActivity() {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             result.success(true)
         } catch (error: Exception) {
-            result.error("OPEN_URL_FAILED", error.message, null)
+            Log.e("MainActivity", "Unable to open external URL", error)
+            result.error("OPEN_URL_FAILED", "无法打开链接，请稍后重试", null)
         }
     }
 
@@ -488,7 +498,12 @@ class MainActivity : FlutterActivity() {
         try {
             result.success(mapOf("status" to requestUpdateInstall(apkPath)))
         } catch (error: Exception) {
-            result.error("INSTALL_UPDATE_FAILED", error.message, null)
+            Log.e("MainActivity", "Unable to request update install", error)
+            result.error(
+                "INSTALL_UPDATE_FAILED",
+                "无法打开安装界面，请重新下载安装包后重试",
+                null
+            )
         }
     }
 
@@ -613,7 +628,10 @@ class MainActivity : FlutterActivity() {
         }
         pendingVpnServiceIntent = null
         mainHandler.removeCallbacks(timeoutRunnable)
-        mainHandler.postDelayed(timeoutRunnable, 55000L)
+        mainHandler.postDelayed(
+            timeoutRunnable,
+            VpnStartBudget.RESULT_MS
+        )
         val claimId = NativeVpnSessionCoordinator.claimPendingStart(serviceIntent)
         if (claimId == null) {
             cancelPendingActivityStart("VPN 启动状态已变化，请重试")

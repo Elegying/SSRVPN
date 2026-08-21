@@ -4,6 +4,132 @@ import '../services/clash_service.dart';
 import '../services/settings_service.dart';
 import '../services/subscription_service.dart';
 
+class AndroidConnectionOutcome {
+  const AndroidConnectionOutcome({
+    this.message,
+    this.preferredNodeSwitchSucceeded = true,
+    this.runtimeNodeName,
+  });
+
+  final String? message;
+  final bool preferredNodeSwitchSucceeded;
+  final String? runtimeNodeName;
+}
+
+({String? errorMessage, String? connectionNotice})
+    resolveAndroidConnectionFeedback({
+  required bool connected,
+  required String? result,
+  required String? runtimeNotice,
+}) {
+  final outcomeMessage = result?.trim();
+  final noticeMessage = runtimeNotice?.trim();
+  if (connected) {
+    return (
+      errorMessage: null,
+      connectionNotice: outcomeMessage?.isNotEmpty == true
+          ? outcomeMessage
+          : noticeMessage?.isNotEmpty == true
+              ? noticeMessage
+              : null,
+    );
+  }
+  return (
+    errorMessage: userFriendlyAndroidConnectionError(
+      outcomeMessage?.isNotEmpty == true ? outcomeMessage : null,
+    ),
+    connectionNotice: null,
+  );
+}
+
+String userFriendlyAndroidConnectionError(Object? error) {
+  final raw = error?.toString().trim() ?? '';
+  final lower = raw.toLowerCase();
+
+  if (raw.contains('上次 VPN 联网检查仍在结束')) {
+    return '上次 VPN 联网检查仍在结束，请稍后重试；若持续出现请重启应用';
+  }
+  if (raw.contains('VPN 联网检查超时')) {
+    return 'VPN 联网检查超时，请稍后重试；若持续出现请重启应用';
+  }
+  if (raw.contains('VPN 数据通道不可用')) {
+    return 'VPN 数据通道不可用，请切换节点或重试';
+  }
+  if (raw == '请先添加并刷新订阅' || raw.startsWith('订阅已更新')) {
+    return raw;
+  }
+  if (raw.contains('Missing required arguments') ||
+      raw.contains('连接参数不完整') ||
+      lower.contains('invalid_args')) {
+    return '连接参数不完整，请重试';
+  }
+  if (raw.contains('VPN establish failed') || raw.contains('创建 VPN 接口')) {
+    return '系统未能创建 VPN 接口，请检查 VPN 权限后重试';
+  }
+  if (lower.contains('local api') ||
+      raw.contains('本地控制服务') ||
+      raw.contains('Health check timeout')) {
+    return 'VPN 核心已启动，但本地控制服务未及时就绪，请重新连接';
+  }
+  if (lower.contains('bridge.start') ||
+      lower.contains('core start timeout') ||
+      raw.contains('核心启动超时') ||
+      raw.contains('设备性能不足')) {
+    return 'VPN 核心启动超时，请重新连接';
+  }
+  if (lower.contains('core_timeout') || raw.contains('VPN 启动超时')) {
+    return 'VPN 启动超时，请重新连接；若持续失败请打开诊断与运行日志';
+  }
+  if (raw.contains('用户拒绝了 VPN 权限') || lower.contains('permission_denied')) {
+    return '未获得 VPN 权限，请允许后重试';
+  }
+  if (lower.contains('stop_incomplete') || raw.contains('正在释放系统资源')) {
+    return 'VPN 正在释放系统资源，请稍后重试';
+  }
+  if (lower.contains('stop_failed') || raw.contains('VPN 断开失败')) {
+    return 'VPN 断开失败，请重试；若持续失败请打开诊断与运行日志';
+  }
+  if (lower.contains('core_busy') ||
+      raw.contains('核心正在启动') ||
+      raw.contains('核心正在清理')) {
+    return 'VPN 核心正在启动或清理，请稍后重试';
+  }
+  if (raw.contains('VPN 网络保护服务启动失败') || raw.contains('VPN 网络保护服务异常')) {
+    return 'VPN 网络保护服务异常，请重新连接';
+  }
+  if (raw.contains('VPN 凭据不可用')) {
+    return 'VPN 凭据不可用，请打开应用重新连接';
+  }
+  if (raw.contains('VPN 配置不可用')) {
+    return 'VPN 配置不可用，请打开应用重新连接';
+  }
+  if (raw.contains('无法保存连接恢复信息')) {
+    return '无法保存连接恢复信息，VPN 已安全回滚，请重试';
+  }
+  if (raw.contains('Mihomo 原生组件不可用')) {
+    return 'VPN 原生组件不可用，请重新安装应用';
+  }
+  if (raw.contains('连接已取消')) return '连接已取消';
+  if (raw.contains('连接已中断')) return '连接已中断，请重新连接';
+  if (lower.contains('timeoutexception') || lower.contains('timeout')) {
+    return '连接超时，请检查网络后重试';
+  }
+  if (lower.contains('handshakeexception') ||
+      lower.contains('certificate') ||
+      lower.contains('tls')) {
+    return '安全连接失败，请检查网络环境';
+  }
+  if (lower.contains('socketexception') ||
+      lower.contains('connection refused') ||
+      lower.contains('network')) {
+    return '网络连接失败，请检查网络设置';
+  }
+  if (lower.contains('httpexception')) {
+    return '服务器响应异常，请稍后重试';
+  }
+  return 'VPN 启动失败，请重试；若持续失败请打开诊断与运行日志';
+}
+
 /// Clears only the still-current connection intent owned by a failed attempt.
 ///
 /// A newer connect/disconnect request must never be overwritten, and a core
@@ -41,19 +167,20 @@ class ConnectionOrchestrator {
   /// 执行连接流程
   ///
   /// [nodeName] 可选的首选节点名，null 则自动选择。
-  /// 返回 null 表示完全成功；返回非 null 可能是启动错误，也可能是
-  /// 核心已运行后的连通性提示。调用方应以 [clashService.isRunning]
-  /// 判断连接状态，以返回文本作为用户提示。
-  Future<String?> connect(
+  /// 调用方仍以 [clashService.isRunning] 判断连接状态。结果将启动提示
+  /// 与首选节点切换状态分开，避免把未成功切换的请求节点记为当前节点。
+  Future<AndroidConnectionOutcome> connect(
     String? nodeName, {
     required int connectionGeneration,
   }) async {
     await settingsService.waitForPendingWrites();
-    if (!_isCurrent(connectionGeneration)) return null;
+    if (!_isCurrent(connectionGeneration)) {
+      return const AndroidConnectionOutcome();
+    }
 
     final rawYaml = subscriptionService.rawYaml;
     if (rawYaml == null || rawYaml.isEmpty) {
-      return '请先添加并刷新订阅';
+      return const AndroidConnectionOutcome(message: '请先添加并刷新订阅');
     }
     final subscriptionRevision = subscriptionService.revision;
     final preferredSettings = settingsService.settings;
@@ -64,9 +191,11 @@ class ConnectionOrchestrator {
       var started = false;
       for (var attempt = 0; attempt < 2; attempt++) {
         final settings = await clashService.prepareForStart(preferredSettings);
-        if (!_isCurrent(connectionGeneration)) return null;
+        if (!_isCurrent(connectionGeneration)) {
+          return const AndroidConnectionOutcome();
+        }
         if (!_isSubscriptionCurrent(subscriptionRevision)) {
-          return '订阅已更新，请重新连接';
+          return const AndroidConnectionOutcome(message: '订阅已更新，请重新连接');
         }
         runtimePortNotice = clashService.lastRuntimePortAdjustmentMessage;
 
@@ -75,25 +204,33 @@ class ConnectionOrchestrator {
           settings,
           preferredNodeName: nodeName,
         );
-        if (!_isCurrent(connectionGeneration)) return null;
+        if (!_isCurrent(connectionGeneration)) {
+          return const AndroidConnectionOutcome();
+        }
         if (!_isSubscriptionCurrent(subscriptionRevision)) {
-          return '订阅已更新，请重新连接';
+          return const AndroidConnectionOutcome(message: '订阅已更新，请重新连接');
         }
 
         preparedConfigPath = await clashService.writeConfig(config);
-        if (!_isCurrent(connectionGeneration)) return null;
+        if (!_isCurrent(connectionGeneration)) {
+          return const AndroidConnectionOutcome();
+        }
         if (!_isSubscriptionCurrent(subscriptionRevision)) {
-          return '订阅已更新，请重新连接';
+          return const AndroidConnectionOutcome(message: '订阅已更新，请重新连接');
         }
 
         started = await clashService.start(
           nodeName: nodeName,
           preparedConfigPath: preparedConfigPath,
         );
-        if (!_isCurrent(connectionGeneration)) return null;
+        if (!_isCurrent(connectionGeneration)) {
+          return const AndroidConnectionOutcome();
+        }
         final staleAfterStart =
             await _handleStaleSubscription(subscriptionRevision);
-        if (staleAfterStart != null) return staleAfterStart;
+        if (staleAfterStart != null) {
+          return AndroidConnectionOutcome(message: staleAfterStart);
+        }
         if (started) break;
 
         final reason = clashService.lastStartError ?? '无法启动VPN核心';
@@ -104,20 +241,32 @@ class ConnectionOrchestrator {
           // for that cleanup barrier before regenerating ports; an immediate
           // retry would otherwise be rejected as CORE_BUSY.
           await clashService.stop();
-          if (!_isCurrent(connectionGeneration)) return null;
+          if (!_isCurrent(connectionGeneration)) {
+            return const AndroidConnectionOutcome();
+          }
           if (!_isSubscriptionCurrent(subscriptionRevision)) {
-            return '订阅已更新，请重新连接';
+            return const AndroidConnectionOutcome(message: '订阅已更新，请重新连接');
           }
           await clashService.discardPreparedConfig(preparedConfigPath);
           preparedConfigPath = null;
           continue;
         }
-        return '连接失败: $reason';
+        return AndroidConnectionOutcome(
+          message: userFriendlyAndroidConnectionError(reason),
+          preferredNodeSwitchSucceeded: false,
+        );
       }
-      if (!started) return '连接失败: 无法启动VPN核心';
+      if (!started) {
+        return const AndroidConnectionOutcome(
+          message: 'VPN 启动失败，请重试；若持续失败请打开诊断与运行日志',
+          preferredNodeSwitchSucceeded: false,
+        );
+      }
 
       // 切换选中节点
       String? snapshotWarning;
+      var preferredNodeSwitchSucceeded = true;
+      String? runtimeNodeName;
       if (nodeName != null && nodeName.isNotEmpty) {
         final switchResult =
             await clashService.switchSelectedProxyForConnection(
@@ -125,32 +274,56 @@ class ConnectionOrchestrator {
           connectionGeneration: connectionGeneration,
         );
         if (!_isCurrent(connectionGeneration)) {
-          return null;
+          return const AndroidConnectionOutcome();
         }
         final staleAfterSwitch =
             await _handleStaleSubscription(subscriptionRevision);
-        if (staleAfterSwitch != null) return staleAfterSwitch;
-        if (!switchResult.liveSwitched) {
-          return '连接失败: 无法切换到所选节点';
+        if (staleAfterSwitch != null) {
+          return AndroidConnectionOutcome(message: staleAfterSwitch);
         }
-        if (!switchResult.snapshotPersisted) {
+        var preferredSwitchSucceeded =
+            switchResult.liveSwitched && switchResult.intentCurrent;
+        if (!preferredSwitchSucceeded) {
+          runtimeNodeName = switchResult.runtimeNodeName;
+          if (runtimeNodeName == null || runtimeNodeName.trim().isEmpty) {
+            try {
+              runtimeNodeName = await clashService.currentSelectedProxyName();
+            } catch (_) {
+              runtimeNodeName = null;
+            }
+          }
+          if (!_isCurrent(connectionGeneration)) {
+            return const AndroidConnectionOutcome();
+          }
+          if (!_isSubscriptionCurrent(subscriptionRevision)) {
+            final staleAfterReadback =
+                await _handleStaleSubscription(subscriptionRevision);
+            return AndroidConnectionOutcome(message: staleAfterReadback);
+          }
+          preferredSwitchSucceeded =
+              switchResult.intentCurrent && runtimeNodeName == nodeName;
+          if (!preferredSwitchSucceeded) {
+            preferredNodeSwitchSucceeded = false;
+            snapshotWarning = '未能切换节点，当前连接仍保留';
+          } else if (!switchResult.snapshotPersisted) {
+            snapshotWarning = 'VPN 已连接，但快速启动节点信息保存失败';
+          }
+        } else if (!switchResult.snapshotPersisted) {
           snapshotWarning = 'VPN 已连接，但快速启动节点信息保存失败';
+        }
+        if (preferredSwitchSucceeded) {
+          runtimeNodeName = switchResult.runtimeNodeName ?? nodeName;
         }
       }
 
-      // 验证连通性
-      final connectivityWarning = await clashService.verifyUserConnectivity(
-        shouldContinue: () =>
-            _isCurrent(connectionGeneration) &&
-            _isSubscriptionCurrent(subscriptionRevision),
+      // Native exact-204 validation already established the usable data path.
+      // External endpoints are advisory and update connectivityWarning later.
+      clashService.scheduleUserConnectivityObservation();
+      return AndroidConnectionOutcome(
+        message: snapshotWarning ?? runtimePortNotice,
+        preferredNodeSwitchSucceeded: preferredNodeSwitchSucceeded,
+        runtimeNodeName: runtimeNodeName,
       );
-      if (!_isCurrent(connectionGeneration)) return null;
-      final staleAfterVerification =
-          await _handleStaleSubscription(subscriptionRevision);
-      if (staleAfterVerification != null) return staleAfterVerification;
-      return connectivityWarning ??
-          snapshotWarning ??
-          runtimePortNotice; // null = 完全成功
     } finally {
       if (preparedConfigPath != null) {
         await clashService.discardPreparedConfig(preparedConfigPath);

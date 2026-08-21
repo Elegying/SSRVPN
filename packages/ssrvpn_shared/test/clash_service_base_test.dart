@@ -13,6 +13,187 @@ import 'package:ssrvpn_shared/services/clash_service_base.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
 void main() {
+  group('ClashServiceBase runtime logs', () {
+    test('records one-line structured redacted entries with a stable session',
+        () {
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+
+      service.log(
+        'switch failed\nrequest token=top-secret',
+        level: RuntimeLogLevel.warning,
+        event: 'proxy_switch',
+      );
+      service.log('retry scheduled', event: 'proxy_switch');
+
+      final lines = service.recentLogs
+          .split('\n')
+          .where((line) => line.isNotEmpty)
+          .toList(growable: false);
+      expect(lines, hasLength(2));
+      final pattern = RegExp(
+        r'^\[([^\]]+)\] \[([A-Z]+)\] \[([^\]]+)\] '
+        r'\[session=([^\]]+)\] (.*)$',
+      );
+      final newest = pattern.firstMatch(lines[0]);
+      final oldest = pattern.firstMatch(lines[1]);
+
+      expect(newest, isNotNull);
+      expect(oldest, isNotNull);
+      expect(DateTime.parse(oldest!.group(1)!).isUtc, isTrue);
+      expect(oldest.group(2), 'WARNING');
+      expect(oldest.group(3), 'proxy_switch');
+      expect(newest!.group(4), oldest.group(4));
+      expect(oldest.group(5), contains('switch failed ↩ request token: ***'));
+      expect(service.recentLogs, isNot(contains('top-secret')));
+    });
+  });
+
+  group('ClashServiceBase node latency', () {
+    test('uses the running Mihomo delay API with the configured timeout',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final service = _ApiClashService();
+      service.initHttpClient();
+      service.updateSettings(
+        AppSettings(
+          apiPort: server.port,
+          apiSecret: 'latency-secret',
+          latencyTestUrl: 'https://example.com/generate_204',
+        ),
+      );
+      service.publishRunning();
+      addTearDown(service.dispose);
+      addTearDown(server.close);
+
+      final requestSeen = Completer<HttpRequest>();
+      server.listen((request) async {
+        requestSeen.complete(request);
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'delay': 47}));
+        await request.response.close();
+      });
+
+      final latency = await service.testNodeLatency(
+        ProxyNode(
+          name: 'Hysteria / Tokyo',
+          type: 'hysteria2',
+          server: '127.0.0.1',
+          port: 9,
+        ),
+        timeoutMs: 8700,
+      );
+      final request = await requestSeen.future;
+
+      expect(latency, 47);
+      expect(
+        request.uri.pathSegments,
+        ['proxies', 'Hysteria / Tokyo', 'delay'],
+      );
+      expect(request.uri.queryParameters['timeout'], '8700');
+      expect(
+        request.uri.queryParameters['url'],
+        'https://example.com/generate_204',
+      );
+      expect(request.headers.value(HttpHeaders.authorizationHeader),
+          'Bearer latency-secret');
+    });
+
+    test('running API rejection returns unknown without a direct TCP fallback',
+        () async {
+      final apiServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final target = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final service = _ApiClashService();
+      service.initHttpClient();
+      service.updateSettings(AppSettings(apiPort: apiServer.port));
+      service.publishRunning();
+      addTearDown(service.dispose);
+      addTearDown(apiServer.close);
+      addTearDown(target.close);
+      apiServer.listen((request) async {
+        request.response.statusCode = HttpStatus.serviceUnavailable;
+        await request.response.close();
+      });
+
+      final latency = await service.testNodeLatency(
+        ProxyNode(
+          name: 'TCP node',
+          type: 'ss',
+          server: InternetAddress.loopbackIPv4.address,
+          port: target.port,
+        ),
+      );
+
+      expect(latency, -1);
+      expect(service.recentLogs, contains('节点延迟 API 请求失败: HTTP 503'));
+    });
+
+    test('running API exception returns unknown and records the failure',
+        () async {
+      final unavailable =
+          await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final unavailablePort = unavailable.port;
+      await unavailable.close(force: true);
+      final target = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final service = _ApiClashService();
+      service.initHttpClient();
+      service.updateSettings(AppSettings(apiPort: unavailablePort));
+      service.publishRunning();
+      addTearDown(service.dispose);
+      addTearDown(target.close);
+
+      final latency = await service.testNodeLatency(
+        ProxyNode(
+          name: 'TCP node',
+          type: 'ss',
+          server: InternetAddress.loopbackIPv4.address,
+          port: target.port,
+        ),
+      );
+
+      expect(latency, -1);
+      expect(service.recentLogs, contains('节点延迟 API 请求异常'));
+    });
+
+    test('offline UDP and QUIC-only nodes report unknown latency', () async {
+      final listener = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final service = _TestClashService();
+      addTearDown(listener.close);
+      addTearDown(service.dispose);
+
+      for (final type in const ['hysteria', 'hysteria2', 'tuic']) {
+        final latency = await service.testNodeLatency(
+          ProxyNode(
+            name: type,
+            type: type,
+            server: InternetAddress.loopbackIPv4.address,
+            port: listener.port,
+          ),
+        );
+        expect(latency, -1,
+            reason: '$type must not use a TCP reachability lie');
+      }
+    });
+
+    test('offline TCP nodes retain the direct socket probe', () async {
+      final listener = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final service = _TestClashService();
+      addTearDown(listener.close);
+      addTearDown(service.dispose);
+
+      final latency = await service.testNodeLatency(
+        ProxyNode(
+          name: 'Shadowsocks',
+          type: 'ss',
+          server: InternetAddress.loopbackIPv4.address,
+          port: listener.port,
+        ),
+      );
+
+      expect(latency, greaterThanOrEqualTo(0));
+    });
+  });
+
   group('ClashServiceBase batch latency', () {
     test('stops delivering a stale batch before starting another chunk',
         () async {
@@ -387,6 +568,42 @@ void main() {
       expect(await service.currentSelectedProxyName(), 'Node B');
       expect(api.closeConnectionCalls, 1);
       expect(statusNotifications, 1);
+    });
+
+    test('logs a rejected proxy-group mutation without dropping the session',
+        () async {
+      final api = await _ProxyApiServer.start(
+        proxyNow: 'Node A',
+        putStatusCode: HttpStatus.serviceUnavailable,
+      );
+      addTearDown(api.close);
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      service.initHttpClient();
+      service.updateSettings(AppSettings(apiPort: api.port));
+
+      expect(await service.switchSelectedProxy('Node B'), isFalse);
+      expect(await service.currentSelectedProxyName(), 'Node A');
+      expect(service.recentLogs, contains('[WARNING] [proxy_switch]'));
+      expect(service.recentLogs, contains('HTTP 503'));
+    });
+
+    test('connection cleanup rejection stays advisory after a confirmed switch',
+        () async {
+      final api = await _ProxyApiServer.start(
+        proxyNow: 'Node A',
+        deleteStatusCode: HttpStatus.serviceUnavailable,
+      );
+      addTearDown(api.close);
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      service.initHttpClient();
+      service.updateSettings(AppSettings(apiPort: api.port));
+
+      expect(await service.switchSelectedProxy('Node B'), isTrue);
+      expect(await service.currentSelectedProxyName(), 'Node B');
+      expect(service.recentLogs, contains('[WARNING] [connection_cleanup]'));
+      expect(service.recentLogs, contains('HTTP 503'));
     });
 
     test('resolves effective selected node through GLOBAL to PROXY', () async {
@@ -840,6 +1057,30 @@ proxies:
     expect(service.stopCalls, 2);
   });
 
+  test('stale health recovery cleanup finishes before a queued reconnect',
+      () async {
+    final service = _CancellableHealthRecoveryClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    service.startStatusMonitor();
+    await service.recoveryStarted.future.timeout(const Duration(seconds: 1));
+    service.requestConnectionIntent(true);
+    final newConnection = service.runConnectionTransition(() async {
+      service.setRunning(true);
+    });
+
+    service.allowRecovery.complete();
+    await service.recoveryFinished.future.timeout(const Duration(seconds: 1));
+    await newConnection;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(service.connectionDesired, isTrue);
+    expect(service.isRunning, isTrue);
+    expect(service.stopCalls, 2);
+  });
+
   test('status monitor keeps advisory data-plane failures connected', () async {
     final service = _AdvisoryDataPlaneClashService();
     addTearDown(service.dispose);
@@ -855,18 +1096,54 @@ proxies:
     expect(service.stopCalls, 0);
   });
 
-  test('status monitor bounds a health check that never completes', () async {
-    final service = _HangingHealthClashService();
+  test('status monitor never overlaps a timed-out source health check',
+      () async {
+    final service = _SlowHealthClashService();
     addTearDown(service.dispose);
     service.requestConnectionIntent(true);
     service.setRunning(true);
 
     service.startStatusMonitor();
-    await service.stopped.future.timeout(const Duration(seconds: 1));
+    await service.firstTimeout.future.timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(milliseconds: 30));
 
-    expect(service.healthCalls, greaterThanOrEqualTo(2));
-    expect(service.isRunning, isFalse);
-    expect(service.recentLogs, contains('健康检查超时'));
+    expect(service.healthCalls, 1);
+    expect(service.isRunning, isTrue);
+    expect(service.recentLogs, contains('运行状态检查超时'));
+    expect(service.periodicHealthResults, [false]);
+
+    service.firstHealthCheck.complete(true);
+    await service.nextHealthCheck.future.timeout(const Duration(seconds: 1));
+    expect(service.healthCalls, 2);
+    expect(service.isRunning, isTrue);
+  });
+
+  test('a stale health check cannot block or fail a newer session', () async {
+    final service = _SessionHealthClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+    service.startStatusMonitor();
+    await service.firstHealthStarted.future;
+
+    service.stopStatusMonitor();
+    service.setRunning(false);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+    service.startStatusMonitor();
+
+    await service.secondHealthStarted.future
+        .timeout(const Duration(seconds: 1));
+    service.firstHealth.complete(false);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(service.periodicHealthResults, isEmpty);
+    expect(service.lastHealthCheckError, isNull);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+
+    service.stopStatusMonitor();
+    service.secondHealth.complete(true);
   });
 
   test('data-plane observation timeout becomes an advisory warning', () async {
@@ -884,6 +1161,29 @@ proxies:
     expect(service.connectionDesired, isTrue);
     expect(service.connectivityWarning, contains('未能完成'));
     expect(service.observationCalls, 1);
+  });
+
+  test('a stale data-plane probe cannot block or warn a newer session',
+      () async {
+    final service = _SessionDataPlaneClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    service.scheduleObservationForTest();
+    await service.firstObservationStarted.future;
+
+    service.setRunning(false);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+    service.scheduleObservationForTest();
+
+    await service.secondObservationStarted.future
+        .timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+
+    expect(service.observationCalls, 2);
+    expect(service.connectivityWarning, isNull);
   });
 
   group('ClashServiceBase diagnostics', () {
@@ -1066,6 +1366,8 @@ class _ProxyApiServer {
     required this.globalNow,
     required this.updateProxyOnPut,
     required this.putDelayByTarget,
+    required this.putStatusCode,
+    required this.deleteStatusCode,
   }) {
     _server.listen(_handle);
   }
@@ -1075,6 +1377,8 @@ class _ProxyApiServer {
   String globalNow;
   final bool updateProxyOnPut;
   final Map<String, Duration> putDelayByTarget;
+  final int putStatusCode;
+  final int deleteStatusCode;
   int closeConnectionCalls = 0;
 
   int get port => _server.port;
@@ -1084,6 +1388,8 @@ class _ProxyApiServer {
     String globalNow = 'PROXY',
     bool updateProxyOnPut = true,
     Map<String, Duration> putDelayByTarget = const {},
+    int putStatusCode = HttpStatus.noContent,
+    int deleteStatusCode = HttpStatus.noContent,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     return _ProxyApiServer._(
@@ -1092,6 +1398,8 @@ class _ProxyApiServer {
       globalNow: globalNow,
       updateProxyOnPut: updateProxyOnPut,
       putDelayByTarget: putDelayByTarget,
+      putStatusCode: putStatusCode,
+      deleteStatusCode: deleteStatusCode,
     );
   }
 
@@ -1120,19 +1428,21 @@ class _ProxyApiServer {
       final target = decoded['name']?.toString() ?? '';
       final delay = putDelayByTarget[target];
       if (delay != null) await Future<void>.delayed(delay);
-      if (segments.last == 'PROXY') {
-        if (updateProxyOnPut) proxyNow = target;
-      } else if (segments.last == 'GLOBAL') {
-        globalNow = target;
+      if (putStatusCode >= 200 && putStatusCode < 300) {
+        if (segments.last == 'PROXY') {
+          if (updateProxyOnPut) proxyNow = target;
+        } else if (segments.last == 'GLOBAL') {
+          globalNow = target;
+        }
       }
-      request.response.statusCode = HttpStatus.noContent;
+      request.response.statusCode = putStatusCode;
       await request.response.close();
       return;
     }
 
     if (request.method == 'DELETE' && request.uri.path == '/connections') {
       closeConnectionCalls++;
-      request.response.statusCode = HttpStatus.noContent;
+      request.response.statusCode = deleteStatusCode;
       await request.response.close();
       return;
     }
@@ -1169,6 +1479,8 @@ Future<void> _recordRequests(
 
 class _ApiClashService extends ClashServiceBase
     with _ExplicitTestDiagnosticCapability {
+  void publishRunning() => setRunning(true);
+
   Future<void> runRuleProviderRefresh() => refreshRuleProvidersOnce();
 
   Future<bool> runDesktopRecovery(int generation) =>
@@ -1441,9 +1753,12 @@ class _AdvisoryDataPlaneClashService extends _TestClashService {
   }
 }
 
-class _HangingHealthClashService extends ClashServiceBase
+class _SlowHealthClashService extends ClashServiceBase
     with _ExplicitTestDiagnosticCapability {
-  final Completer<void> stopped = Completer<void>();
+  final Completer<bool> firstHealthCheck = Completer<bool>();
+  final Completer<void> firstTimeout = Completer<void>();
+  final Completer<void> nextHealthCheck = Completer<void>();
+  final List<bool> periodicHealthResults = <bool>[];
   int healthCalls = 0;
 
   @override
@@ -1453,18 +1768,69 @@ class _HangingHealthClashService extends ClashServiceBase
   Duration get healthCheckTimeout => const Duration(milliseconds: 10);
 
   @override
-  int get maxConsecutiveHealthCheckFailures => 1;
+  int get maxConsecutiveHealthCheckFailures => 3;
 
   @override
   Future<bool> healthCheck() {
     healthCalls++;
-    return Completer<bool>().future;
+    if (healthCalls == 1) return firstHealthCheck.future;
+    if (!nextHealthCheck.isCompleted) nextHealthCheck.complete();
+    return Future<bool>.value(true);
   }
 
   @override
-  Future<void> onStopRequired() async {
-    setRunning(false);
-    if (!stopped.isCompleted) stopped.complete();
+  void onPeriodicHealthCheckResult(bool healthy) {
+    periodicHealthResults.add(healthy);
+  }
+
+  @override
+  void log(
+    String message, {
+    RuntimeLogLevel level = RuntimeLogLevel.info,
+    String event = 'runtime',
+  }) {
+    super.log(message, level: level, event: event);
+    if (message.contains('运行状态检查超时') && !firstTimeout.isCompleted) {
+      firstTimeout.complete();
+    }
+  }
+
+  @override
+  Future<void> onStopRequired() async => setRunning(false);
+}
+
+class _SessionHealthClashService extends _TestClashService {
+  final Completer<void> firstHealthStarted = Completer<void>();
+  final Completer<void> secondHealthStarted = Completer<void>();
+  final Completer<bool> firstHealth = Completer<bool>();
+  final Completer<bool> secondHealth = Completer<bool>();
+  final List<bool> periodicHealthResults = <bool>[];
+  int healthCalls = 0;
+
+  @override
+  Duration get statusMonitorInterval => const Duration(milliseconds: 1);
+
+  @override
+  Duration get healthCheckTimeout => const Duration(seconds: 2);
+
+  @override
+  Future<bool> healthCheck() async {
+    healthCalls++;
+    if (healthCalls == 1) {
+      firstHealthStarted.complete();
+      final healthy = await firstHealth.future;
+      setLastHealthCheckError(healthy ? null : 'stale first-session error');
+      return healthy;
+    }
+    secondHealthStarted.complete();
+    final healthy = await secondHealth.future;
+    setLastHealthCheckError(healthy ? null : 'second-session error');
+    return healthy;
+  }
+
+  @override
+  void onPeriodicHealthCheckResult(bool healthy) {
+    periodicHealthResults.add(healthy);
   }
 }
 
@@ -1493,6 +1859,29 @@ class _HangingDataPlaneClashService extends _TestClashService {
     if (connectivityWarning != null && !warningPublished.isCompleted) {
       warningPublished.complete();
     }
+  }
+}
+
+class _SessionDataPlaneClashService extends _TestClashService {
+  final Completer<void> firstObservationStarted = Completer<void>();
+  final Completer<void> secondObservationStarted = Completer<void>();
+  final Completer<void> firstObservation = Completer<void>();
+  int observationCalls = 0;
+
+  @override
+  Duration get dataPlaneObservationTimeout => const Duration(milliseconds: 10);
+
+  void scheduleObservationForTest() => scheduleDataPlaneObservation();
+
+  @override
+  Future<void> observeDataPlaneHealth() {
+    observationCalls++;
+    if (observationCalls == 1) {
+      firstObservationStarted.complete();
+      return firstObservation.future;
+    }
+    secondObservationStarted.complete();
+    return Future<void>.value();
   }
 }
 

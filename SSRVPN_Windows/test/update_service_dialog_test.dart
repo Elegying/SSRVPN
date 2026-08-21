@@ -11,6 +11,19 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_windows/services/update_service.dart';
 
 void main() {
+  test('desktop resolution failure copy hides raw internal details', () {
+    final message = UpdateService.desktopResolutionFailureMessage(
+      StateError(
+        'PowerShell failed token=top-secret '
+        r'path=C:\Users\alice\private\desktop.ps1',
+      ),
+    );
+
+    expect(message, isNot(contains('top-secret')));
+    expect(message, isNot(contains('desktop.ps1')));
+    expect(message, contains('请确认桌面目录可访问后重试'));
+  });
+
   test('stale private update artifacts never publish an unverified installer',
       () async {
     final desktop =

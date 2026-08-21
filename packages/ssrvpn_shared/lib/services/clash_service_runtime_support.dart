@@ -5,7 +5,11 @@ mixin _ClashRuntimeSupport {
   static const int _maxEphemeralPortAttempts = 32;
 
   void updateSettings(AppSettings settings);
-  void log(String message);
+  void log(
+    String message, {
+    RuntimeLogLevel level = RuntimeLogLevel.info,
+    String event = 'runtime',
+  });
   void setRuntimePortAdjustmentMessage(String? message);
 
   Future<void> writeStringAtomically(

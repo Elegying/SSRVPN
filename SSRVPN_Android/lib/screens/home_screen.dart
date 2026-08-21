@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/clash_service.dart';
 import '../services/subscription_service.dart';
@@ -71,13 +72,21 @@ class HomeScreenState extends State<HomeScreen>
   bool _updateCheckInProgress = false;
   int _lastRevision = -1;
   int _publicIpGeneration = 0;
+  // Invalidates mutations only when the service lifecycle/session changes.
   int _connectionStatusEpoch = 0;
+  // Orders async status rendering without cancelling an in-flight node switch.
+  int _statusApplicationEpoch = 0;
+  bool? _observedClashRunning;
+  bool? _observedNativeTransitioning;
+  int? _observedNativeSessionGeneration;
   bool _disposed = false;
   Future<void> _nodeSelectionTail = Future<void>.value();
   ClashService? _registeredClashService;
   SubscriptionService? _subscriptionService;
   late final VoidCallback _onClashAutoConnect = _handleClashAutoConnect;
   late final VoidCallback _onClashStatusChanged = _handleClashStatusChanged;
+  late final void Function(RuntimeNotice) _onClashRuntimeNotice =
+      _handleClashRuntimeNotice;
 
   @override
   void initState() {
@@ -91,6 +100,7 @@ class HomeScreenState extends State<HomeScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _registerClashService(context.watch<ClashService>());
     final subService = context.read<SubscriptionService>();
     if (identical(_subscriptionService, subService)) return;
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
@@ -147,6 +157,9 @@ class HomeScreenState extends State<HomeScreen>
       }
       if (identical(clashService.onStatusChanged, _onClashStatusChanged)) {
         clashService.onStatusChanged = null;
+      }
+      if (identical(clashService.onRuntimeNotice, _onClashRuntimeNotice)) {
+        clashService.onRuntimeNotice = null;
       }
     }
     _cancelSingleLatencyTest();

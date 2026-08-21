@@ -18,7 +18,7 @@ enum _VerifiedCoreTermination {
 const _tunTeardownTimeoutError = '核心已停止，但 Windows TUN 网卡未在超时前移除；'
     '为避免路由冲突，已阻止再次连接，请保持 SSRVPN 打开并重试断开';
 const _tunResidualProbeError = '无法确认旧 Windows TUN 网卡和路由已清理；'
-    '为避免死路由，已在启动 Mihomo 前安全中止';
+    '为避免死路由，已在启动本地代理服务前安全中止';
 
 Future<bool> terminateCoreProcess(
   Process process, {
@@ -64,6 +64,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   bool _stoppingCore = false;
   bool _proxyRecoveryListenerActive = false;
   WindowsTunRuntimeStatus? _lastTunRuntimeObservation;
+  DateTime? _lastTunDataPlaneObservationAt;
   final CoreRecoveryPolicy _unexpectedExitRecoveryPolicy = CoreRecoveryPolicy(
     maxAttempts: 2,
   );
@@ -85,6 +86,19 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   String get corePath => _corePath;
   bool get hasPendingSystemProxyRecovery => _proxyService.recoveryPending;
 
+  @override
+  @protected
+  Duration get healthCheckTimeout => const Duration(seconds: 25);
+
+  @protected
+  Duration get tunDataPlaneObservationInterval => const Duration(seconds: 30);
+
+  @protected
+  void resetTunDataPlaneObservationSession() {
+    _lastTunDataPlaneObservationAt = null;
+    clearConnectivityWarningSilently();
+  }
+
   @protected
   Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() =>
       _proxyService.currentSystemProxyOwnershipStatus();
@@ -103,15 +117,32 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       if (isRunning || _proxyService.isProxyEnabled) {
         final ownershipStatus = await inspectSystemProxyOwnership();
         if (ownershipStatus == SystemProxyOwnershipStatus.owned) {
+          if (connectivityWarning ==
+              desktopSystemProxyOwnershipUnavailableWarning) {
+            setConnectivityWarning(null);
+          }
           setLastHealthCheckError(null);
           return true;
         }
+        if (ownershipStatus == SystemProxyOwnershipStatus.unavailable) {
+          setLastHealthCheckError(null);
+          if (connectivityWarning !=
+              desktopSystemProxyOwnershipUnavailableWarning) {
+            log(
+              '系统代理所有权探针暂时不可用；Mihomo API 正常，保留当前连接',
+              level: RuntimeLogLevel.warning,
+              event: 'system_proxy_health',
+            );
+          }
+          setConnectivityWarning(
+            desktopSystemProxyOwnershipUnavailableWarning,
+          );
+          return true;
+        }
         final ownershipError = _proxyService.lastError ?? 'Windows 系统代理所有权无法确认';
-        final prefix =
-            ownershipStatus == SystemProxyOwnershipStatus.externallyChanged
-                ? desktopSystemProxyOwnershipLostPrefix
-                : desktopSystemProxyOwnershipUnavailablePrefix;
-        setLastHealthCheckError('$prefix $ownershipError');
+        setLastHealthCheckError(
+          '$desktopSystemProxyOwnershipLostPrefix $ownershipError',
+        );
         return false;
       }
       return true;
@@ -129,6 +160,61 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
     // route probe advisory so a false negative cannot tear down live traffic.
     setLastHealthCheckError(null);
     return true;
+  }
+
+  @override
+  @protected
+  void onPeriodicHealthCheckResult(bool healthy) {
+    if (!healthy) {
+      _unexpectedExitRecoveryPolicy.recordUnhealthy();
+      return;
+    }
+    if (_unexpectedExitRecoveryPolicy.recordHealthy(DateTime.now())) {
+      log(
+        '连接达到稳定健康观察窗口，自动恢复次数预算已复位',
+        event: 'health_recovery',
+      );
+    }
+  }
+
+  @override
+  @protected
+  Future<void> observeDataPlaneHealth() async {
+    if (!isRunning || !settings.enableTun) return;
+    final now = DateTime.now();
+    final lastObservedAt = _lastTunDataPlaneObservationAt;
+    if (lastObservedAt != null &&
+        now.difference(lastObservedAt) < tunDataPlaneObservationInterval) {
+      return;
+    }
+    final generation = captureAutomaticRestartIntent();
+    if (generation == null) return;
+    _lastTunDataPlaneObservationAt = now;
+    final warning = await verifyUserConnectivity(
+      maxAttempts: 2,
+      retryDelay: const Duration(seconds: 1),
+      shouldContinue: () =>
+          isRunning &&
+          settings.enableTun &&
+          isConnectionIntentCurrent(generation, connected: true),
+    );
+    if (!isRunning ||
+        !settings.enableTun ||
+        !isConnectionIntentCurrent(generation, connected: true)) {
+      return;
+    }
+    if (warning == null) {
+      setConnectivityWarning(null);
+      return;
+    }
+    setConnectivityWarning(
+      '连接与 Windows TUN 仍在运行；外部网络观察暂未通过，仅供参考：$warning',
+    );
+    log(
+      '外部网络观察未通过: $warning；未断开连接，未切换节点',
+      level: RuntimeLogLevel.warning,
+      event: 'data_plane_probe',
+    );
   }
 
   void _recordTunRuntimeObservation(WindowsTunRuntimeStatus status) {
@@ -219,11 +305,8 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   }
 
   // ── Lifecycle overrides ──
-
   @override
-  Future<void> onStopRequired() async {
-    await stop();
-  }
+  Future<void> onStopRequired() => stop();
 
   @override
   Future<bool> recoverAfterHealthCheckFailure(int connectionGeneration) async {
@@ -231,7 +314,11 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       await stop();
       return false;
     }
-    if (await healthCheck()) {
+    final healthy = await healthCheck();
+    if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+      return false;
+    }
+    if (healthy) {
       setRunning(true);
       return true;
     }
@@ -240,10 +327,12 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       // returns as soon as the API is unavailable, so inspect ownership again
       // immediately before any stop/restart that could reacquire the proxy.
       final ownershipStatus = await inspectSystemProxyOwnership();
+      if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
+        return false;
+      }
       if (ownershipStatus != SystemProxyOwnershipStatus.owned) {
         final externallyChanged =
             ownershipStatus == SystemProxyOwnershipStatus.externallyChanged;
-        final ownershipDetail = _proxyService.lastError?.trim();
         // Invalidate intent before asynchronous cleanup so neither the health
         // monitor nor an in-flight recovery can reacquire the system proxy.
         markConnectionLost();
@@ -252,17 +341,19 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
         } catch (error) {
           log('系统代理所有权失效后的核心清理未完成: $error');
           notifyRuntimeNotice(
-            '已取消自动重连，但系统代理或 Mihomo 核心清理状态无法确认；'
-            '请在诊断页检查并重试断开，SSRVPN 不会重新接管代理。',
+            const RuntimeNotice.error(
+              '已取消自动重连，但系统代理或本地代理服务的清理状态无法确认；'
+              '请在诊断页检查并重试断开，SSRVPN 不会重新接管代理。',
+            ),
           );
           return false;
         }
         notifyRuntimeNotice(
-          externallyChanged
-              ? ownershipDetail != null && ownershipDetail.isNotEmpty
-                  ? '$ownershipDetail。SSRVPN 已安全断开且不会覆盖当前代理。'
-                  : '检测到系统代理已被其他程序接管，SSRVPN 已安全断开且不会覆盖当前代理。'
-              : '无法确认当前系统代理所有权，SSRVPN 已安全断开且不会覆盖未知代理状态。',
+          RuntimeNotice.warning(
+            externallyChanged
+                ? '检测到系统代理已被其他程序接管，SSRVPN 已安全断开且不会覆盖当前代理。'
+                : '无法确认当前系统代理所有权，SSRVPN 已安全断开且不会覆盖未知代理状态。',
+          ),
         );
         return false;
       }
@@ -273,9 +364,11 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
     }
 
     notifyRuntimeNotice(
-      'Mihomo 持续失去响应，正在执行安全重启'
-      '（${_unexpectedExitRecoveryPolicy.attempts}/'
-      '${_unexpectedExitRecoveryPolicy.maxAttempts}）…',
+      RuntimeNotice.progress(
+        '运行状态持续异常，正在执行安全重启'
+        '（${_unexpectedExitRecoveryPolicy.attempts}/'
+        '${_unexpectedExitRecoveryPolicy.maxAttempts}）…',
+      ),
     );
     try {
       await stop();
@@ -290,8 +383,10 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
         systemProxyOwnershipChangedSinceLastAcquisition) {
       markConnectionLost();
       notifyRuntimeNotice(
-        '系统代理在清理期间发生变化，已取消自动重连；'
-        'SSRVPN 不会重新接管当前代理。',
+        const RuntimeNotice.warning(
+          '系统代理在清理期间发生变化，已取消自动重连；'
+          'SSRVPN 不会重新接管当前代理。',
+        ),
       );
       return false;
     }
@@ -570,7 +665,7 @@ exit 4
           windowsPowerShellUtf8Script(script),
         ],
         timeout: timeout,
-        timeoutStderr: '电脑性能不足，请重新连接',
+        timeoutStderr: 'Windows PowerShell 命令响应超时；可能是系统繁忙或安全软件暂时拦截，请稍后重试',
         cancellation: cancellation,
       );
 
@@ -683,7 +778,7 @@ try {
       return false;
     }
     if (_corePath.isEmpty || configDir.isEmpty || configPath.isEmpty) {
-      setLastStartError('Mihomo service is not initialized');
+      setLastStartError('连接服务尚未初始化，请重启 SSRVPN；若仍失败，请重新安装官方版本');
       log(lastStartError!);
       return false;
     }
@@ -821,8 +916,10 @@ try {
             if (!memoryCleanup.releaseProcessReference) {
               setLastStartError('Mihomo 进程身份清理无法安全完成，已阻止自动重启');
               notifyRuntimeNotice(
-                '连接已断开；检测到进程身份记录异常，为避免误清理其他进程，'
-                '本次不会自动重连。请重新安装或联系支持。',
+                const RuntimeNotice.error(
+                  '连接已断开；检测到进程身份记录异常，为避免误清理其他进程，'
+                  '本次不会自动重连。请重新安装或联系支持。',
+                ),
               );
             }
             if (memoryCleanup.clearConnectionIntent) {
@@ -965,11 +1062,13 @@ try {
           );
         }
         _proxyRecoveryListenerActive = preserveSystemProxyRecovery;
+        if (startedWithTun) resetTunDataPlaneObservationSession();
         setRunning(true);
         resetHealthCheckFailures();
         log('✅ Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');
         notifyStatusChanged();
         startStatusMonitor();
+        if (startedWithTun) scheduleDataPlaneObservation();
       },
       rollback: _cleanupFailedStart,
       isCancellation: (error) => error is _DesktopStartCancelled,
@@ -1050,6 +1149,7 @@ try {
         : const <WindowsTunInterfaceIdentity>{};
     stopStatusMonitor();
     resetHealthCheckFailures();
+    resetTunDataPlaneObservationSession();
 
     // Restore Windows networking while the local proxy is still alive. Keep
     // the core only while Windows may still point at its local endpoint; once
@@ -1076,8 +1176,10 @@ try {
       final warning = _proxyService.lastError ?? 'SSRVPN 代理端点已安全释放，但恢复日志仍待清理';
       log('⚠️ $warning');
       notifyRuntimeNotice(
-        '连接已安全断开，但 Windows 代理恢复日志仍待清理；请保持 SSRVPN '
-        '打开并使用“诊断”重试，清理完成前不要强制退出。',
+        const RuntimeNotice.warning(
+          '连接已安全断开，但 Windows 代理恢复日志仍待清理；请保持 SSRVPN '
+          '打开并使用“诊断”重试，清理完成前不要强制退出。',
+        ),
       );
     }
     if (_proxyService.recoveryPending && _proxyService.lastError != null) {
@@ -1359,6 +1461,15 @@ try {
     }
   }
 
+  @protected
+  Future<bool> waitForUnexpectedExitTunTeardown() => _waitForTunTeardown();
+
+  bool _hasActiveUnexpectedExitRecoveryIntent(int? generation) =>
+      hasActiveUnexpectedExitRecoveryIntent(
+        generation,
+        (value) => isConnectionIntentCurrent(value, connected: true),
+      );
+
   Future<void> _recoverFromUnexpectedExit(
     int? generation,
     int exitCode,
@@ -1374,23 +1485,21 @@ try {
       final externallyChanged = proxyCleanup.ownershipBeforeClear ==
           SystemProxyOwnershipStatus.externallyChanged;
       notifyRuntimeNotice(
-        proxyCleared
-            ? (changedDuringClear
-                ? '核心异常退出；系统代理在清理期间发生变化，SSRVPN '
-                    '已取消自动重连，不会重新接管当前代理。'
-                : externallyChanged
-                    ? '核心异常退出；检测到系统代理已由其他程序接管，SSRVPN 已清理自身恢复状态并取消自动重连，未覆盖当前代理。'
-                    : '核心异常退出；此前无法确认系统代理所有权，SSRVPN 已完成清理并取消自动重连，不会重新接管代理。')
-            : '核心异常退出；已取消自动重连，但系统代理恢复状态清理无法确认。'
-                '请在诊断页检查并重试断开，SSRVPN 不会重新接管代理。',
+        RuntimeNotice.error(
+          proxyCleared
+              ? (changedDuringClear
+                  ? '核心异常退出；系统代理在清理期间发生变化，SSRVPN '
+                      '已取消自动重连，不会重新接管当前代理。'
+                  : externallyChanged
+                      ? '核心异常退出；检测到系统代理已由其他程序接管，SSRVPN 已清理自身恢复状态并取消自动重连，未覆盖当前代理。'
+                      : '核心异常退出；此前无法确认系统代理所有权，SSRVPN 已完成清理并取消自动重连，不会重新接管代理。')
+              : '核心异常退出；已取消自动重连，但系统代理恢复状态清理无法确认。'
+                  '请在诊断页检查并重试断开，SSRVPN 不会重新接管代理。',
+        ),
       );
       return;
     }
-    final hasRecoveryIntent = hasActiveUnexpectedExitRecoveryIntent(
-      generation,
-      (value) => isConnectionIntentCurrent(value, connected: true),
-    );
-    if (!hasRecoveryIntent) {
+    if (!_hasActiveUnexpectedExitRecoveryIntent(generation)) {
       if (!proxyCleared) await clearSystemProxyAfterUnexpectedExit();
       return;
     }
@@ -1418,12 +1527,16 @@ try {
         setLastStartError(recoveryReason);
         markConnectionLost();
         notifyRuntimeNotice(
-          '连接已安全断开；Windows 代理端点已释放，但恢复日志仍待清理。'
-          '请保持 SSRVPN 打开并使用“诊断”重试，清理完成前不要强制退出。',
+          const RuntimeNotice.warning(
+            '连接已安全断开；Windows 代理端点已释放，但恢复日志仍待清理。'
+            '请保持 SSRVPN 打开并使用“诊断”重试，清理完成前不要强制退出。',
+          ),
         );
         return;
       }
-      notifyRuntimeNotice('系统代理恢复未完成，正在恢复本地保护监听…');
+      notifyRuntimeNotice(
+        const RuntimeNotice.progress('系统代理恢复未完成，正在恢复本地保护监听…'),
+      );
       final listenerRestored = await _start(
         automaticRecovery: true,
         preserveSystemProxyRecovery: true,
@@ -1431,46 +1544,65 @@ try {
       if (listenerRestored && isRunning) {
         setLastStartError(recoveryReason);
         notifyRuntimeNotice(
-          '连接处于保护模式：Mihomo 本地代理监听已恢复，但 Windows '
-          '系统代理旧状态仍未恢复。为避免死代理，SSRVPN 将保持运行；'
-          '请使用“诊断”重试，恢复前不要强制退出。',
+          const RuntimeNotice.warning(
+            '连接处于保护模式：本地代理监听已恢复，但 Windows '
+            '系统代理旧状态仍未恢复。为避免死代理，SSRVPN 将保持运行；'
+            '请使用“诊断”重试，恢复前不要强制退出。',
+          ),
         );
         return;
       }
 
-      final listenerReason = lastStartError ?? 'Mihomo 本地代理监听未能重新启动';
+      final listenerReason = lastStartError ?? '本地代理监听未能重新启动';
+      final listenerFailure = AppFailure.fromMessage(listenerReason);
       markConnectionLost();
       notifyRuntimeNotice(
-        '紧急：系统代理恢复失败，本地保护监听也未能启动（$listenerReason）。'
-        '请保持 SSRVPN 打开并立即使用“诊断”重试恢复。',
+        RuntimeNotice.error(
+          '紧急：系统代理恢复失败，本地保护监听也未能启动。'
+          '${listenerFailure.userMessage}'
+          '请保持 SSRVPN 打开并立即使用“诊断”重试恢复。',
+        ),
       );
       return;
     }
-    if (!hasActiveUnexpectedExitRecoveryIntent(
-      generation,
-      (value) => isConnectionIntentCurrent(value, connected: true),
-    )) {
+    if (!_hasActiveUnexpectedExitRecoveryIntent(generation)) {
       return;
     }
-    if (tunInterfaces != null && !await _waitForTunTeardown()) {
-      setLastStartError(_tunTeardownTimeoutError);
-      markConnectionLost();
-      notifyRuntimeNotice('核心已退出：$_tunTeardownTimeoutError');
-      return;
-    }
-    if (!_unexpectedExitRecoveryPolicy.tryAcquire()) {
-      markConnectionLost();
-      notifyRuntimeNotice('连接已断开：核心再次异常退出，自动恢复失败，请重新连接');
-      return;
+    if (tunInterfaces != null) {
+      final tunTeardownComplete = await waitForUnexpectedExitTunTeardown();
+      if (!_hasActiveUnexpectedExitRecoveryIntent(generation)) {
+        return;
+      }
+      if (!tunTeardownComplete) {
+        setLastStartError(_tunTeardownTimeoutError);
+        markConnectionLost();
+        notifyRuntimeNotice(
+          RuntimeNotice.error('核心已退出：$_tunTeardownTimeoutError'),
+        );
+        return;
+      }
     }
 
-    notifyRuntimeNotice('核心异常退出，正在自动恢复（退出码 $exitCode）');
-    final restarted = await recoverDesktopConnection(generation!);
+    final restarted = await runConnectionTransition(() async {
+      if (!_hasActiveUnexpectedExitRecoveryIntent(generation)) {
+        return false;
+      }
+      if (!_unexpectedExitRecoveryPolicy.tryAcquire()) {
+        markConnectionLost();
+        notifyRuntimeNotice(
+          const RuntimeNotice.error(
+            '连接已断开：核心再次异常退出，自动恢复失败，请重新连接',
+          ),
+        );
+        return false;
+      }
+      notifyRuntimeNotice(
+        RuntimeNotice.progress('核心异常退出，正在自动恢复（退出码 $exitCode）'),
+      );
+      return recoverDesktopConnection(generation!);
+    });
 
-    if (!hasActiveUnexpectedExitRecoveryIntent(
-      generation,
-      (value) => isConnectionIntentCurrent(value, connected: true),
-    )) {
+    if (!_hasActiveUnexpectedExitRecoveryIntent(generation)) {
       return;
     }
     if (restarted && isRunning) {
@@ -1478,9 +1610,12 @@ try {
       return;
     }
 
-    final reason = lastStartError ?? 'Mihomo 未能重新启动';
+    final reason = lastStartError ?? '本地代理服务未能重新启动';
+    final failure = AppFailure.fromMessage(reason);
     markConnectionLost();
-    notifyRuntimeNotice('连接已断开：核心自动恢复失败（$reason），请重新连接');
+    notifyRuntimeNotice(
+      RuntimeNotice.error('连接已断开：核心自动恢复失败。${failure.userMessage}'),
+    );
   }
 
   @protected
@@ -1550,27 +1685,12 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
   Future<T> _awaitStartOperation<T>(Future<T> operation, int startToken) async {
     final cancellation = _startCancellation?.future;
-    if (cancellation == null) {
-      final value = await operation;
-      _ensureStartCurrent(startToken);
-      return value;
-    }
-
-    final completion = Completer<T>();
-    operation.then<void>(
-      (value) {
-        if (!completion.isCompleted) completion.complete(value);
-      },
-      onError: (Object error, StackTrace stack) {
-        if (!completion.isCompleted) completion.completeError(error, stack);
-      },
-    );
-    cancellation.then<void>((_) {
-      if (!completion.isCompleted) {
-        completion.completeError(_DesktopStartCancelled());
-      }
-    });
-    final value = await completion.future;
+    final value = await (cancellation == null
+        ? operation
+        : Future.any<T>([
+            operation,
+            cancellation.then<T>((_) => throw _DesktopStartCancelled()),
+          ]));
     _ensureStartCurrent(startToken);
     return value;
   }
@@ -1617,7 +1737,7 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
         environment: environment,
         timeout: const Duration(seconds: 40),
         cancellation: _startCancellation?.future,
-        timeoutStderr: '电脑性能不足，请重新连接',
+        timeoutStderr: 'Windows Mihomo 核心启动配置校验响应超时；可能是系统繁忙或安全软件暂时拦截，请稍后重试',
       );
       final stdout = result.stdout.toString().trim();
       final stderr = result.stderr.toString().trim();
@@ -1629,7 +1749,9 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
       }
       if (result.exitCode == 125) throw _DesktopStartCancelled();
       if (result.exitCode == 124) {
-        setLastStartError('电脑性能不足，请重新连接');
+        setLastStartError(
+          'Windows Mihomo 核心启动配置校验响应超时；可能是系统繁忙或安全软件暂时拦截，请稍后重试',
+        );
         log('❌ $lastStartError');
         return false;
       }

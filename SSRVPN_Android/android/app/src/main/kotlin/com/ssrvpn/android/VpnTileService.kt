@@ -22,6 +22,8 @@ class VpnTileService : TileService() {
         private const val TAG = "VpnTile"
         const val ACTION_VPN_STATE_CHANGED = "com.ssrvpn.VPN_STATE_CHANGED"
         const val EXTRA_CONNECTED = "connected"
+        internal const val START_CALLBACK_TIMEOUT_MS =
+            VpnStartBudget.RESULT_MS
     }
 
     private var isConnected = false
@@ -154,14 +156,14 @@ class VpnTileService : TileService() {
             launchApp()
             return
         }
-        // 30 秒超时清理回调，防止泄漏
+        // 覆盖完整原生启动预算后再清理回调，避免丢失合法的慢启动结果。
         android.os.Handler(mainLooper).postDelayed({
             if (consumed.compareAndSet(false, true)) {
                 Log.w(TAG, "VPN start callback timeout, clearing")
                 NativeVpnSessionCoordinator.releasePendingStart(claim.id)
                 VpnStartResultRegistry.clear(requestId)
             }
-        }, 30_000L)
+        }, START_CALLBACK_TIMEOUT_MS)
         // 不再提前设置 isConnected = true，等回调确认后再更新磁贴状态
     }
 

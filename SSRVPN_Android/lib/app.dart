@@ -10,7 +10,9 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         HomeNodeController,
         SsrvpnAppBackdrop,
         SsrvpnBottomNavigation,
-        UpdateAvailabilityController;
+        UpdateAvailabilityController,
+        safeUserFacingFailureMessage,
+        safeUserFacingFailureWithAction;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'services/settings_service.dart';
 import 'services/clash_service.dart' as clash;
@@ -34,6 +36,24 @@ const androidSupportedLocales = <Locale>[
 ];
 final Iterable<LocalizationsDelegate<dynamic>> androidLocalizationsDelegates =
     GlobalMaterialLocalizations.delegates;
+
+@visibleForTesting
+String androidInitializationFailureMessage(
+  Object error, {
+  required int retryCount,
+}) {
+  final reason = error is AndroidApiSecretRecoveryRequired
+      ? 'Android 安全存储中的本机密钥无法读取。普通重试不会自动重建密钥。'
+      : safeUserFacingFailureMessage(error);
+  return '$reason\n\n自动重试 $retryCount 次后仍失败。';
+}
+
+@visibleForTesting
+String androidApiSecretRecoveryFailureMessage(Object error) =>
+    '本机密钥恢复失败：${safeUserFacingFailureWithAction(
+      error,
+      '未删除订阅和普通设置，请稍后重试。',
+    )}';
 
 class SSRVpnApp extends StatefulWidget {
   final StartupFlags startupFlags;
@@ -131,10 +151,10 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
           setState(() {
             _initError = true;
             _apiSecretRecoveryRequired = e is AndroidApiSecretRecoveryRequired;
-            final reason = _apiSecretRecoveryRequired
-                ? 'Android 安全存储中的本机密钥无法读取。普通重试不会自动重建密钥。'
-                : e.toString().replaceFirst('Exception: ', '');
-            _initErrorMsg = '$reason\n\n自动重试 $_initRetryCount 次后仍失败';
+            _initErrorMsg = androidInitializationFailureMessage(
+              e,
+              retryCount: _initRetryCount,
+            );
           });
         }
         return;
@@ -191,7 +211,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
       setState(() {
         _apiSecretRecoveryInProgress = false;
         _apiSecretRecoveryRequired = true;
-        _initErrorMsg = '本机密钥恢复失败：$error\n\n未删除订阅和普通设置，请稍后重试。';
+        _initErrorMsg = androidApiSecretRecoveryFailureMessage(error);
       });
     }
   }

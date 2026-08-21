@@ -20,7 +20,9 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         SsrvpnAppBackdrop,
         SsrvpnBottomNavigation,
         UpdateAvailabilityController,
-        desktopSubscriptionChangedMessage;
+        desktopSubscriptionChangedMessage,
+        safeUserFacingFailureMessage,
+        safeUserFacingFailureWithAction;
 import 'package:ssrvpn_shared/widgets/crash_report_prompt.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -45,6 +47,13 @@ part 'package:ssrvpn_shared/desktop_ui/desktop_app_shell_part.dart';
 part 'app_runtime_actions_part.dart';
 part 'app_startup_shell_part.dart';
 
+@visibleForTesting
+String windowsApiSecretRecoveryFailureMessage(Object error) =>
+    '恢复失败：${safeUserFacingFailureWithAction(
+      error,
+      '旧密文和用户数据仍已保留，请重试。',
+    )}';
+
 class SSRVpnApp extends StatefulWidget {
   const SSRVpnApp({super.key, required this.startupFlags});
 
@@ -59,7 +68,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
 
   int _currentIndex = 0;
   bool _isQuitting = false;
-  String? _runtimeNotice;
+  RuntimeNotice? _runtimeNotice;
+  bool _lastObservedCoreRunning = false;
   Timer? _runtimeNoticeAutoClearTimer;
   bool _windowListenerAttached = false;
   Timer? _windowStateSaveDebounce;
@@ -134,6 +144,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       _clashService?.removeStatusListener(_handleCoreStatusChanged);
       _clashService?.onRuntimeNotice = null;
       _clashService = nextClashService;
+      _lastObservedCoreRunning = nextClashService.isRunning;
       _clashService!.addStatusListener(_handleCoreStatusChanged);
       _clashService!.onRuntimeNotice = (message) {
         unawaited(_presentRuntimeNotice(message));
@@ -205,20 +216,21 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     return HomeNodeController.resolveDefaultNodeFrom(nodes, remembered)?.name;
   }
 
-  Future<void> _presentTrayFailure(String reason) =>
-      _presentRuntimeNotice('连接失败：$reason');
+  Future<void> _presentTrayFailure(String reason) => _presentRuntimeNotice(
+        RuntimeNotice.error(safeUserFacingFailureMessage(reason)),
+      );
 
-  Future<void> _presentRuntimeNotice(String message) async {
+  Future<void> _presentRuntimeNotice(RuntimeNotice notice) async {
     _runtimeNoticeAutoClearTimer?.cancel();
     _runtimeNoticeAutoClearTimer = null;
     if (mounted) {
       setState(() {
-        _runtimeNotice = message;
+        _runtimeNotice = notice;
         _currentIndex = 0;
       });
       _runtimeNoticeAutoClearTimer = scheduleSuccessfulRuntimeNoticeClear(
-        message: message,
-        currentMessage: () => _runtimeNotice,
+        notice: notice,
+        currentNotice: () => _runtimeNotice,
         clear: _clearRuntimeNotice,
       );
     }
@@ -256,12 +268,14 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
   }
 
   void _handleCoreStatusChanged() {
-    if (mounted &&
-        (_clashService?.isRunning ?? false) &&
-        _runtimeNotice != null &&
-        !isSuccessfulRuntimeNotice(_runtimeNotice)) {
-      _clearRuntimeNotice();
-    }
+    final isRunning = _clashService?.isRunning ?? false;
+    final clearStaleNotice = shouldClearRuntimeNoticeOnRunningEdge(
+      wasRunning: _lastObservedCoreRunning,
+      isRunning: isRunning,
+      notice: _runtimeNotice,
+    );
+    _lastObservedCoreRunning = isRunning;
+    if (clearStaleNotice) _clearRuntimeNotice();
     _refreshTrayStatus();
   }
 
@@ -337,7 +351,13 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
           .toString()
           .replaceFirst('Bad state: ', '')
           .replaceFirst('StateError: ', '');
-      await _presentRuntimeNotice('退出未完成：$reason。请稍后再次退出');
+      final message = safeUserFacingFailureWithAction(
+        reason,
+        '请稍后再次退出。',
+      );
+      await _presentRuntimeNotice(
+        RuntimeNotice.error('退出未完成：$message'),
+      );
       return false;
     }
     return true;
@@ -438,7 +458,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
       if (!mounted) return;
       setState(() {
         _secretRecoveryInProgress = false;
-        _secretRecoveryError = '恢复失败：$error。旧密文和用户数据仍已保留，请重试。';
+        _secretRecoveryError = windowsApiSecretRecoveryFailureMessage(error);
       });
     }
   }

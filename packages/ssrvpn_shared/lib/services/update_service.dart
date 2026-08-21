@@ -9,6 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/app_diagnostics.dart';
 import 'update_checker.dart';
 import '../utils/app_modal_coordinator.dart';
 
@@ -304,9 +305,7 @@ class SharedUpdateService {
               builder: (dialogContext) => AlertDialog(
                 scrollable: true,
                 title: const Text('更新失败'),
-                content: Text(
-                  error.toString().replaceFirst('Bad state: ', ''),
-                ),
+                content: Text(safeUserFacingFailureMessage(error)),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(dialogContext),

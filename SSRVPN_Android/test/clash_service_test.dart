@@ -4,7 +4,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:yaml/yaml.dart';
 import 'package:ssrvpn_android/services/clash_service.dart';
@@ -27,7 +29,43 @@ proxies:
 
 class _RealHttpOverrides extends HttpOverrides {}
 
+class _ConnectionGenerationObservationService extends ClashService {
+  bool Function()? observationStillCurrent;
+
+  void publishRunning() => setRunning(true);
+
+  Future<void> observeNow() => observeDataPlaneHealth();
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async {
+    observationStillCurrent = shouldContinue;
+    return null;
+  }
+}
+
 void main() {
+  test('an Android advisory observation cannot publish into a newer session',
+      () async {
+    final service = _ConnectionGenerationObservationService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.publishRunning();
+
+    await service.observeNow();
+    expect(service.observationStillCurrent?.call(), isTrue);
+
+    service.requestConnectionIntent(false);
+    service.requestConnectionIntent(true);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+    expect(service.observationStillCurrent?.call(), isFalse);
+  });
+
   test(
       'native snapshot keeps VPN liveness separate from the underlying network',
       () async {
@@ -447,6 +485,44 @@ void main() {
       expect(service.connectionDesired, isFalse);
     },
   );
+
+  test('terminal native stop publishes an actionable sanitized error',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getConnectionState') {
+        return <String, Object?>{
+          'running': false,
+          'transitioning': false,
+          'protectedConfigPath': null,
+          'sessionGeneration': null,
+          'error': 'sensitive native exception details',
+        };
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final notices = <RuntimeNotice>[];
+    final service = ClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true)
+      ..onRuntimeNotice = notices.add;
+    addTearDown(service.dispose);
+
+    expect(await service.refreshNativeConnectionState(), isTrue);
+
+    expect(service.isRunning, isFalse);
+    expect(service.connectionDesired, isFalse);
+    expect(notices, hasLength(1));
+    expect(notices.single.level, RuntimeNoticeLevel.error);
+    expect(
+      notices.single.message,
+      '连接服务意外停止，请点击连接重试；如仍失败，请查看运行日志。',
+    );
+    expect(notices.single.message, isNot(contains('sensitive')));
+  });
 
   test('native running sync adopts the externally started session', () async {
     const channel = MethodChannel('com.ssrvpn/native');
@@ -1885,7 +1961,7 @@ void main() {
         ..updateSettings(AppSettings(apiSecret: 'current-secret'));
 
       expect(await service.start(nodeName: 'New Node'), isFalse);
-      expect(service.lastStartError, contains('快速启动'));
+      expect(service.lastStartError, contains('连接恢复信息'));
       expect(service.isRunning, isFalse);
       expect(stops, 1);
 

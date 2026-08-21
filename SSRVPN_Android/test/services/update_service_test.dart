@@ -555,10 +555,12 @@ void main() {
           installApk: (_) async {
             installAttempted.complete();
             throw StateError(
-              List<String>.generate(
+              'installer failed token=top-secret for '
+              'https://example.com/private/update/path\n'
+              '${List<String>.generate(
                 40,
                 (index) => '安装程序响应异常 ${index + 1}',
-              ).join('\n'),
+              ).join('\n')}',
             );
           },
         );
@@ -570,6 +572,9 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('update-page'), findsOneWidget);
       expect(find.textContaining('更新失败'), findsOneWidget);
+      expect(find.textContaining('top-secret'), findsNothing);
+      expect(find.textContaining('/private/update/path'), findsNothing);
+      expect(find.textContaining('当前版本仍可使用'), findsOneWidget);
       expect(
         tester.widget<AlertDialog>(find.byType(AlertDialog)).scrollable,
         isTrue,

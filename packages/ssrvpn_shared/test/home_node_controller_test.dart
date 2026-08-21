@@ -65,6 +65,32 @@ void main() {
       );
     });
 
+    test('falls back to the first runnable node when all latencies are unknown',
+        () {
+      final nodes = [
+        node('套餐到期：长期有效', latency: 30),
+        node('HY2', type: 'hysteria2', latency: -1),
+        node('TUIC', type: 'tuic', latency: 65535),
+      ];
+
+      expect(
+        HomeNodeController.resolveDefaultNodeFrom(nodes, null)?.name,
+        'HY2',
+      );
+    });
+
+    test('prefers a successfully measured node over an untested node', () {
+      final nodes = [
+        node('Untested'),
+        node('Measured', latency: 30),
+      ];
+
+      expect(
+        HomeNodeController.resolveDefaultNodeFrom(nodes, null)?.name,
+        'Measured',
+      );
+    });
+
     test('resolves runtime selected node from Mihomo state', () {
       final nodes = [
         node('A'),
@@ -134,7 +160,7 @@ void main() {
       expect(controller.nodes.map((node) => node.name), ['Real Node']);
     });
 
-    test('applies latency batch and moves only timed-out nodes to bottom', () {
+    test('latency only sorts nodes and never blocks manual selection', () {
       final nodes = [
         node('A'),
         node('B'),
@@ -152,7 +178,10 @@ void main() {
 
       expect(sorted.map((node) => node.name), ['A', 'C', 'B', 'D']);
       expect(HomeNodeController.canSelectNode(sorted[0], latencies), isTrue);
-      expect(HomeNodeController.canSelectNode(sorted[2], latencies), isFalse);
+      expect(HomeNodeController.canSelectNode(sorted[2], latencies), isTrue);
+      expect(HomeNodeController.canSelectNode(sorted[3], latencies), isTrue);
+      expect(
+          HomeNodeController.canSelectNode(node('Unknown'), const {}), isTrue);
     });
   });
 }

@@ -22,7 +22,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         });
         return;
       }
-      final preferredNode = _resolveDefaultNode(
+      final preferredNode = HomeNodeController.resolveDefaultNodeFrom(
         nodes,
         settingsService.settings.lastSelectedNodeName,
       );
@@ -58,21 +58,17 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
             readRuntimeNotice: () =>
                 clashService.lastRuntimePortAdjustmentMessage,
             switchPreferredNode: () async {
+              var switched = true;
               if (preferredNode != null) {
-                final switched = await clashService.switchSelectedProxy(
+                switched = await clashService.switchSelectedProxy(
                   preferredNode.name,
                 );
-                runtimeSelectedNode = await _resolveRuntimeSelectedNode(
-                  clashService,
-                  nodes,
-                );
-                return switched;
               }
               runtimeSelectedNode = await _resolveRuntimeSelectedNode(
                 clashService,
                 nodes,
               );
-              return true;
+              return switched;
             },
           );
         },
@@ -120,7 +116,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
           preferredNodeName: runtimeSelectedNode?.name ?? preferredNode?.name,
         );
       }
-      if (mounted && !_disposed) {
+      if (_canUpdateUi) {
         if (!success) {
           clashService.requestConnectionIntent(false);
           clashService.interruptPendingStart();
@@ -134,7 +130,12 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
           if (!success) _resetPublicIpState();
         });
         if (success) {
-          _showRuntimePortAdjustmentNotice(connectionResult.runtimeNotice);
+          final nodeWarning = connectionResult.preferredNodeSwitchWarning(
+            preferredNodeName: preferredNode?.name,
+            runtimeNodeName: runtimeSelectedNode?.name,
+          );
+          final notice = nodeWarning ?? connectionResult.runtimeNotice;
+          _showRuntimePortAdjustmentNotice(notice);
           _scheduleExitCountryResolution();
           _schedulePublicIpRefresh();
         }
@@ -150,8 +151,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
             connected: true,
           ),
         );
-        if (mounted &&
-            !_disposed &&
+        if (_canUpdateUi &&
             clashService.isConnectionIntentCurrent(
               connectionGeneration,
               connected: true,
@@ -174,16 +174,13 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         clashService.requestConnectionIntent(false);
         clashService.interruptPendingStart();
       }
-      if (mounted && !_disposed) {
-        final msg = e
-            .toString()
-            .replaceFirst('Exception: ', '')
-            .replaceFirst('Bad state: ', '');
+      if (_canUpdateUi) {
         setState(() {
           _isConnected = stillRunning;
           _isConnecting = false;
-          _errorMessage =
-              stillRunning ? '连接重载失败，已保留当前连接: $msg' : '连接重载失败: $msg';
+          _errorMessage = stillRunning
+              ? '网络设置未能应用，当前连接仍保留。请重试；持续失败请重新连接并运行诊断。'
+              : '网络设置重载失败，连接已停止。请重新连接；持续失败请运行诊断。';
           if (!stillRunning) _resetPublicIpState();
         });
       }
@@ -203,18 +200,26 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     setState(() => _testingNodeName = nodeName);
     final clashService = context.read<ClashService>();
     final settings = context.read<SettingsService>().settings;
-    final measuredLatency = await clashService.testLatency(
-      server,
-      port,
-      timeoutMs: settings.latencyTestTimeout,
-    );
+    final nodeUnderTest = _nodes
+        .where(
+          (node) =>
+              node.name == nodeName &&
+              node.server == server &&
+              node.port == port,
+        )
+        .firstOrNull;
+    final measuredLatency = nodeUnderTest == null
+        ? -1
+        : await clashService.testNodeLatency(
+            nodeUnderTest,
+            timeoutMs: settings.latencyTestTimeout,
+          );
     final latency = PrivateNodeLatencyPolicy.displayLatencyForNode(
       nodeName,
       measuredLatency,
       random: math.Random(),
     );
-    final isCurrent = mounted &&
-        !_disposed &&
+    final isCurrent = _canUpdateUi &&
         generation == _singleLatencyGeneration &&
         subscriptionService.revision == subscriptionRevision &&
         _nodes.any(
@@ -229,8 +234,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         _latencyController.applyNow(_nodes, nodeName, latency);
       });
       _sortNodesByLatency();
-    } else if (mounted &&
-        !_disposed &&
+    } else if (_canUpdateUi &&
         generation == _singleLatencyGeneration &&
         _testingNodeName == nodeName) {
       setState(() => _testingNodeName = null);
@@ -238,11 +242,11 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
   }
 
   Future<void> _handleSelectNode(ProxyNode node) async {
-    if (!mounted || _disposed || _isConnecting) return;
+    if (!_canUpdateUi || _isConnecting) return;
     if (!_isConnected) {
       setState(() => _disconnectedPreferredNodeName = node.name);
       final saved = await _rememberSelectedNode(node);
-      if (!mounted || _disposed) return;
+      if (!_canUpdateUi) return;
       if (!saved && _disconnectedPreferredNodeName == node.name) {
         setState(() => _disconnectedPreferredNodeName = null);
       }
@@ -261,8 +265,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     final statusEpoch = _connectionStatusEpoch;
 
     bool isCurrent() =>
-        mounted &&
-        !_disposed &&
+        _canUpdateUi &&
         _isConnected &&
         !_isConnecting &&
         clashService.isRunning &&
@@ -281,9 +284,10 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     _exitCountryResolveGeneration++;
     final ok = await clashService.switchSelectedProxy(node.name);
     if (!isCurrent()) return;
+    var nodePersisted = true;
     if (ok) {
       if (!isCurrent()) return;
-      await _rememberSelectedNode(node);
+      nodePersisted = await _rememberSelectedNode(node);
       if (!isCurrent()) return;
       setState(() => _selectedNode = node);
       if (!isCurrent()) return;
@@ -294,8 +298,14 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     if (!isCurrent()) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(ok ? '已切换: ${node.name}' : '切换失败: ${node.name}'),
-        duration: const Duration(seconds: 1),
+        content: Text(
+          !ok
+              ? '切换失败: ${node.name}'
+              : nodePersisted
+                  ? '已切换: ${node.name}'
+                  : '已切换，但首选节点保存失败: ${node.name}',
+        ),
+        duration: Duration(seconds: ok && !nodePersisted ? 3 : 1),
       ),
     );
   }
@@ -330,13 +340,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     ).push<bool>(MaterialPageRoute(builder: (_) => NodeEditScreen(node: node)));
   }
 
-  ProxyNode? _resolveDefaultNode(
-    List<ProxyNode> nodes,
-    String? rememberedNodeName,
-  ) {
-    return HomeNodeController.resolveDefaultNodeFrom(nodes, rememberedNodeName);
-  }
-
   Future<ProxyNode?> _resolveRuntimeSelectedNode(
     ClashService clashService,
     List<ProxyNode> nodes,
@@ -347,10 +350,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       runtimeNodeName,
     );
   }
-
-  Future<void> _autoTestAllNodes() => _runBatchLatencyTest();
-
-  Future<void> _handleTestAllLatency() => _runBatchLatencyTest();
 
   Future<void> _runBatchLatencyTest() async {
     if (_nodes.isEmpty) return;
@@ -365,8 +364,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     setState(() => _isBatchTesting = true);
 
     bool isCurrent() =>
-        mounted &&
-        !_disposed &&
+        _canUpdateUi &&
         _latencyBatchGeneration == generation &&
         _latencyController.isCurrentBatch(generation) &&
         subscriptionService.revision == subscriptionRevision;
@@ -388,7 +386,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     }
     _latencyBatchTimer?.cancel();
     if (!isCurrent()) {
-      if (mounted && !_disposed && _latencyBatchGeneration == generation) {
+      if (_canUpdateUi && _latencyBatchGeneration == generation) {
         setState(_cancelLatencyBatch);
       } else if (_latencyBatchGeneration == generation) {
         _cancelLatencyBatch();
@@ -411,7 +409,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
   }
 
   void _scheduleExitCountryResolution() {
-    if (!_isConnected || _nodes.isEmpty || !mounted || _disposed) return;
+    if (!_isConnected || _nodes.isEmpty || !_canUpdateUi) return;
     if (_isResolvingExitCountries) {
       _pendingExitCountryResolution = true;
       return;
@@ -426,9 +424,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     final generation = ++_exitCountryResolveGeneration;
 
     bool shouldContinue() {
-      return mounted &&
-          !_disposed &&
-          generation == _exitCountryResolveGeneration;
+      return _canUpdateUi && generation == _exitCountryResolveGeneration;
     }
 
     try {
@@ -446,7 +442,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     } finally {
       _isResolvingExitCountries = false;
 
-      if (_pendingExitCountryResolution && mounted && !_disposed) {
+      if (_pendingExitCountryResolution && _canUpdateUi) {
         _pendingExitCountryResolution = false;
         _scheduleExitCountryResolution();
       }

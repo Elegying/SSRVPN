@@ -77,13 +77,10 @@ class ClashService extends ClashServiceBase
   }
 
   @override
-  void log(String message) {
-    super.log(message);
+  void writePlatformLog(String line) {
     final fileLogger = _fileLogger;
     if (fileLogger != null) {
-      final sanitized = LogRedactor.sanitize(message);
-      final line = '[${DateTime.now().toIso8601String()}] $sanitized\r\n';
-      fileLogger.add(line);
+      fileLogger.add('$line\r\n');
     }
   }
 
@@ -205,7 +202,7 @@ class ClashService extends ClashServiceBase
       throw StateError(_startupDisabledReason!);
     }
     if (configPath.isEmpty) {
-      throw StateError('Mihomo service is not initialized');
+      throw StateError('连接服务尚未初始化，请重启 SSRVPN；若仍失败，请重新安装官方版本');
     }
     final file = File(configPath);
     final temp = File('$configPath.tmp');
