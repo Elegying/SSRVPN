@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
 
 import '../constants/app_constants.dart';
+import '../services/http1_response_decoder.dart';
 import '../services/subscription_refresh_control.dart';
 import '../services/subscription_fetch_policy.dart';
 import '../services/subscription_text_decoder.dart';
@@ -429,98 +429,19 @@ class DirectFetcher {
     socket.add(utf8.encode(request.toString()));
     await socket.flush();
 
-    final headerBytes = <int>[];
-    final bodyBytes = BytesBuilder(copy: false);
-    var bodyLength = 0;
-    Map<String, String>? headers;
-    int? statusCode;
-    int? expectedBodyBytes;
-    _ChunkedBodyDecoder? chunkedDecoder;
+    final decoder = Http1ResponseDecoder(
+      maxBodyBytes: maxBodyBytes,
+      maxHeaderBytes: _maxHeaderBytes,
+    );
     var absoluteTimeoutExpired = false;
     final absoluteTimer = Timer(requestTimeout, () {
       absoluteTimeoutExpired = true;
       socket.destroy();
     });
-    responseLoop:
     try {
       await for (final chunk in socket.timeout(_readTimeout)) {
-        var offset = 0;
-        while (headers == null && offset < chunk.length) {
-          headerBytes.add(chunk[offset++]);
-          if (headerBytes.length > _maxHeaderBytes) {
-            throw Exception('HTTP 响应头过大');
-          }
-
-          final length = headerBytes.length;
-          if (length < 4 ||
-              headerBytes[length - 4] != 13 ||
-              headerBytes[length - 3] != 10 ||
-              headerBytes[length - 2] != 13 ||
-              headerBytes[length - 1] != 10) {
-            continue;
-          }
-
-          final headerText = decodeHttp1HeaderBytes(
-            headerBytes.sublist(0, length - 4),
-          );
-          final lines = headerText.split('\r\n');
-          final statusMatch =
-              RegExp(r'^HTTP/\d\.\d\s+(\d{3})').firstMatch(lines.first);
-          if (statusMatch == null) throw Exception('HTTP 状态行解析失败');
-          statusCode = int.parse(statusMatch.group(1)!);
-          headers = _parseHeaders(lines.skip(1));
-
-          final contentLength = headers['content-length']?.trim();
-          if (contentLength != null) {
-            final size = int.tryParse(contentLength);
-            if (!RegExp(r'^\d+$').hasMatch(contentLength) || size == null) {
-              throw Exception('HTTP Content-Length 格式错误');
-            }
-            if (size > maxBodyBytes) {
-              throw Exception('订阅内容超过 20 MB 限制');
-            }
-            expectedBodyBytes = size;
-          }
-
-          final transferEncodings = (headers['transfer-encoding'] ?? '')
-              .toLowerCase()
-              .split(',')
-              .map((value) => value.trim())
-              .where((value) => value.isNotEmpty)
-              .toList(growable: false);
-          if (transferEncodings.isNotEmpty) {
-            if (transferEncodings.length != 1 ||
-                transferEncodings.single != 'chunked') {
-              throw Exception('HTTP Transfer-Encoding 不受支持');
-            }
-            if (expectedBodyBytes != null) {
-              throw Exception('HTTP 响应长度声明冲突');
-            }
-            chunkedDecoder = _ChunkedBodyDecoder(maxBodyBytes);
-          } else if (expectedBodyBytes == 0) {
-            break responseLoop;
-          }
-        }
-
-        if (headers == null || offset == chunk.length) continue;
-        if (chunkedDecoder != null) {
-          chunkedDecoder.add(chunk, offset);
-          if (chunkedDecoder.isComplete) break responseLoop;
-        } else {
-          final incoming = chunk.length - offset;
-          final nextLength = bodyLength + incoming;
-          if (nextLength > maxBodyBytes) {
-            throw Exception('订阅内容超过 20 MB 限制');
-          }
-          if (expectedBodyBytes != null && nextLength > expectedBodyBytes) {
-            throw Exception('HTTP 正文超过 Content-Length');
-          }
-          bodyBytes.add(chunk.sublist(offset));
-          bodyLength = nextLength;
-          if (expectedBodyBytes != null && bodyLength == expectedBodyBytes) {
-            break responseLoop;
-          }
-        }
+        decoder.add(chunk);
+        if (decoder.isComplete) break;
       }
     } finally {
       absoluteTimer.cancel();
@@ -528,123 +449,12 @@ class DirectFetcher {
     if (absoluteTimeoutExpired) {
       throw TimeoutException('HTTP 响应超过绝对时限', requestTimeout);
     }
-    if (headerBytes.isEmpty) throw Exception('服务器无响应(直连通道)');
-    if (headers == null || statusCode == null) {
-      throw Exception('HTTP 响应格式错误');
-    }
-
-    if (expectedBodyBytes != null && bodyLength != expectedBodyBytes) {
-      throw Exception('HTTP 正文短于 Content-Length');
-    }
-    final decodedBody = chunkedDecoder?.finish() ?? bodyBytes.takeBytes();
+    final decoded = decoder.finish();
     return _HttpResponse(
-      statusCode: statusCode,
-      headers: headers,
-      body: decodeSubscriptionUtf8(decodedBody),
+      statusCode: decoded.statusCode,
+      headers: decoded.headers,
+      body: decodeSubscriptionUtf8(decoded.bodyBytes),
     );
-  }
-
-  static Map<String, String> _parseHeaders(Iterable<String> lines) {
-    final headers = <String, String>{};
-    for (final line in lines) {
-      final idx = line.indexOf(':');
-      if (idx > 0) {
-        headers[line.substring(0, idx).trim().toLowerCase()] =
-            line.substring(idx + 1).trim();
-      }
-    }
-    return headers;
-  }
-}
-
-class _ChunkedBodyDecoder {
-  static const _maxMetadataBytes = 64 * 1024;
-
-  final int maxBodyBytes;
-  final BytesBuilder _body = BytesBuilder(copy: false);
-  final List<int> _line = <int>[];
-  int _bodyLength = 0;
-  int? _chunkBytesRemaining;
-  int _chunkTerminatorOffset = 0;
-  int _trailerBytes = 0;
-  bool _readingTrailers = false;
-  bool _complete = false;
-
-  _ChunkedBodyDecoder(this.maxBodyBytes);
-
-  bool get isComplete => _complete;
-
-  void add(List<int> data, [int offset = 0]) {
-    while (offset < data.length && !_complete) {
-      if (_readingTrailers) {
-        _trailerBytes++;
-        if (_trailerBytes > _maxMetadataBytes) {
-          throw Exception('HTTP chunked 尾部过大');
-        }
-        _line.add(data[offset++]);
-        if (_lineEndsWithCrlf()) {
-          if (_line.length == 2) _complete = true;
-          _line.clear();
-        }
-        continue;
-      }
-
-      if (_chunkBytesRemaining == null) {
-        _line.add(data[offset++]);
-        if (_line.length > _maxMetadataBytes) {
-          throw Exception('HTTP chunk 大小行过大');
-        }
-        if (!_lineEndsWithCrlf()) continue;
-
-        final sizeLine = String.fromCharCodes(_line.take(_line.length - 2));
-        _line.clear();
-        final size = int.tryParse(sizeLine.split(';').first.trim(), radix: 16);
-        if (size == null || size < 0) {
-          throw Exception('HTTP chunk 大小格式错误');
-        }
-        if (size == 0) {
-          _readingTrailers = true;
-          continue;
-        }
-        if (size > maxBodyBytes - _bodyLength) {
-          throw Exception('订阅内容超过 20 MB 限制');
-        }
-        _chunkBytesRemaining = size;
-        continue;
-      }
-
-      if (_chunkBytesRemaining! > 0) {
-        final available = data.length - offset;
-        final count = _chunkBytesRemaining! < available
-            ? _chunkBytesRemaining!
-            : available;
-        _body.add(data.sublist(offset, offset + count));
-        _bodyLength += count;
-        offset += count;
-        _chunkBytesRemaining = _chunkBytesRemaining! - count;
-        continue;
-      }
-
-      final expected = _chunkTerminatorOffset == 0 ? 13 : 10;
-      if (data[offset++] != expected) {
-        throw Exception('HTTP chunk 结束符格式错误');
-      }
-      _chunkTerminatorOffset++;
-      if (_chunkTerminatorOffset == 2) {
-        _chunkTerminatorOffset = 0;
-        _chunkBytesRemaining = null;
-      }
-    }
-  }
-
-  List<int> finish() {
-    if (!_complete) throw Exception('HTTP chunked 响应不完整');
-    return _body.takeBytes();
-  }
-
-  bool _lineEndsWithCrlf() {
-    final length = _line.length;
-    return length >= 2 && _line[length - 2] == 13 && _line[length - 1] == 10;
   }
 }
 
