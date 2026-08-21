@@ -19,7 +19,7 @@ Android APK 不需要购买证书。只要后续版本始终使用同一个 keys
 `android/key.properties`；GitHub Actions Secrets 配置完整时，workflow 会在 runner
 上生成临时 `key.properties` 并签名 APK。
 
-推荐用脚本生成一次 keystore，并按输出提示配置 GitHub Actions Secrets：
+推荐用脚本生成一次 keystore。脚本只输出安全的上传命令，不会把 keystore 的 Base64 内容打印到终端；按提示配置 GitHub Actions Secrets：
 
 ```bash
 scripts/create-android-release-keystore.sh
