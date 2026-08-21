@@ -30,6 +30,8 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         fail_branch_ci: bool = False,
         fail_main_ci: bool = False,
         fail_release_dispatch: bool = False,
+        reuse_main_ci: bool = False,
+        malformed_reuse_api: bool = False,
     ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -78,6 +80,21 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                   exec "$REAL_PYTHON" "$@"
                 fi
                 printf 'python3 %s\n' "$*" >> "$FAKE_COMMAND_LOG"
+                if [ "${1:-}" = scripts/find-reusable-main-ci.py ]; then
+                  if [ "$FAKE_MALFORMED_REUSE_API" = true ]; then
+                    printf 'simulated reusable-CI API error\n' >&2
+                    exit 2
+                  fi
+                  if [ "$FAKE_REUSE_MAIN_CI" = true ]; then
+                    printf '777\thttps://github.com/Elegying/SSRVPN/actions/runs/777\n'
+                    exit 0
+                  fi
+                  exit 3
+                fi
+                if [ "${1:-}" = scripts/verify_main_branch_protection.py ]; then
+                  cat >/dev/null
+                  exit 0
+                fi
                 if [ "${1:-}" = scripts/sync-geoip-metadb.py ] &&
                   [ "$FAKE_GEOIP_CHANGED" = true ]; then
                   printf 'Upstream SHA256: refreshed\n' >> docs/GEOIP_SOURCE.txt
@@ -251,6 +268,10 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                     "FAKE_FAIL_RELEASE_DISPATCH": str(
                         fail_release_dispatch
                     ).lower(),
+                    "FAKE_REUSE_MAIN_CI": str(reuse_main_ci).lower(),
+                    "FAKE_MALFORMED_REUSE_API": str(
+                        malformed_reuse_api
+                    ).lower(),
                     "GITHUB_REPOSITORY": "Elegying/SSRVPN",
                     "GITHUB_RUN_ID": "9001",
                     "GITHUB_RUN_ATTEMPT": "1",
@@ -312,6 +333,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         )
         merge_pr = preparer.index("gh pr merge")
         main_ci = preparer.index('dispatch_workflow "ci.yml" main')
+        reusable_ci = preparer.index("find-reusable-main-ci.py")
         final_freshness = preparer.index(
             "python3 scripts/sync-geoip-metadb.py --check"
         )
@@ -326,7 +348,8 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertLess(verify, create_pr)
         self.assertLess(create_pr, branch_checks)
         self.assertLess(branch_checks, merge_pr)
-        self.assertLess(merge_pr, main_ci)
+        self.assertLess(merge_pr, reusable_ci)
+        self.assertLess(reusable_ci, main_ci)
         self.assertLess(main_ci, final_freshness)
         self.assertLess(final_freshness, create_tag)
         self.assertLess(create_tag, push_tag)
@@ -410,6 +433,40 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertLess(main_dispatch, tag_push)
         self.assertLess(tag_push, release_dispatch)
         self.assertIn("geoip_changed=false", output)
+
+    def test_recent_exact_main_ci_is_reused_without_dispatch_or_watch(self) -> None:
+        result, commands, output, summary = self._run_preparer(
+            geoip_changed=False,
+            reuse_main_ci=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        finder = commands.index("python3 scripts/find-reusable-main-ci.py")
+        tag_push = commands.index("git push origin refs/tags/v4.0.2")
+        self.assertLess(finder, tag_push)
+        self.assertNotIn("/workflows/ci.yml/dispatches", commands)
+        self.assertNotIn("gh run watch 777", commands)
+        self.assertIn(
+            "main_ci_url=https://github.com/Elegying/SSRVPN/actions/runs/777",
+            output,
+        )
+        self.assertIn(
+            "Exact-main CI: https://github.com/Elegying/SSRVPN/actions/runs/777",
+            summary,
+        )
+
+    def test_reuse_api_anomaly_stops_before_dispatch_or_tag(self) -> None:
+        result, commands, output, _ = self._run_preparer(
+            geoip_changed=False,
+            malformed_reuse_api=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("python3 scripts/find-reusable-main-ci.py", commands)
+        self.assertNotIn("/workflows/ci.yml/dispatches", commands)
+        self.assertNotIn("git push origin refs/tags/v4.0.2", commands)
+        self.assertNotIn("workflows/release.yml/dispatches", commands)
+        self.assertEqual(output, "")
 
     def test_exact_main_ci_failure_prevents_tag_and_release(self) -> None:
         result, commands, output, _ = self._run_preparer(

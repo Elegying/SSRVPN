@@ -278,9 +278,37 @@ if ! git diff --quiet -- docs/GEOIP_SOURCE.txt; then
   fi
 fi
 
-IFS=$'\t' read -r main_ci_run_id main_ci_url \
-  < <(dispatch_workflow "ci.yml" main)
-wait_for_workflow "$main_ci_run_id"
+main_ci_reused=false
+reusable_main_ci=""
+reuse_status=0
+reusable_main_ci="$(python3 scripts/find-reusable-main-ci.py \
+  --repo "$repo" \
+  --sha "$main_sha" \
+  --policy "$protection_policy" \
+  --max-age-hours 24)" || reuse_status=$?
+case "$reuse_status" in
+  0)
+    if [[ "$reusable_main_ci" == *$'\n'* ]]; then
+      fail "Reusable exact-main CI returned more than one result"
+    fi
+    IFS=$'\t' read -r main_ci_run_id main_ci_url <<<"$reusable_main_ci"
+    if [[ ! "$main_ci_run_id" =~ ^[1-9][0-9]*$ ]] ||
+      [ "$main_ci_url" != \
+        "https://github.com/$repo/actions/runs/$main_ci_run_id" ]; then
+      fail "Reusable exact-main CI returned an invalid run identity"
+    fi
+    main_ci_reused=true
+    echo "Reusing verified exact-main CI run: $main_ci_url"
+    ;;
+  3)
+    IFS=$'\t' read -r main_ci_run_id main_ci_url \
+      < <(dispatch_workflow "ci.yml" main)
+    wait_for_workflow "$main_ci_run_id"
+    ;;
+  *)
+    fail "Could not safely determine whether exact-main CI is reusable"
+    ;;
+esac
 
 git fetch --no-tags origin main:refs/remotes/origin/main
 if [ "$(git rev-parse --verify 'origin/main^{commit}')" != "$main_sha" ]; then
@@ -307,6 +335,7 @@ git push origin "refs/tags/$tag"
 IFS=$'\t' read -r release_run_id release_run_url \
   < <(dispatch_workflow "release.yml" "$tag")
 write_output geoip_changed "$geoip_changed"
+write_output main_ci_reused "$main_ci_reused"
 write_output branch_ci_url "$branch_ci_url"
 write_output geoip_pr_url "$pr_url"
 write_output main_ci_url "$main_ci_url"
@@ -318,7 +347,11 @@ if [ -n "$pr_url" ]; then
   append_summary "- GeoIP pull request: $pr_url"
   append_summary "- Protected PR checks: $branch_ci_url"
 fi
-append_summary "- Exact-main CI: $main_ci_url"
+if [ "$main_ci_reused" = true ]; then
+  append_summary "- Exact-main CI: $main_ci_url (reused after exact job verification)"
+else
+  append_summary "- Exact-main CI: $main_ci_url (dispatched by this preparation)"
+fi
 append_summary "- Release workflow: $release_run_url"
 
 wait_for_workflow "$release_run_id"
