@@ -87,17 +87,23 @@ func Start(configPath string, tunFd int64) (result string) {
 	}
 
 	if protectWrite != nil && protectRead != nil {
-		protectResult = make(chan bool)
+		resultChannel := make(chan bool)
+		protectResult = resultChannel
+		protectWriter := protectWrite
+		var protectRequestMu sync.Mutex
 		dialer.DefaultSocketHook = func(_ string, _ string, connection syscall.RawConn) error {
+			protectRequestMu.Lock()
+			defer protectRequestMu.Unlock()
+
 			var protectError error
 			controlError := connection.Control(func(fd uintptr) {
 				var encoded [4]byte
 				binary.LittleEndian.PutUint32(encoded[:], uint32(fd))
-				if _, err := protectWrite.Write(encoded[:]); err != nil {
+				if _, err := protectWriter.Write(encoded[:]); err != nil {
 					protectError = err
 					return
 				}
-				if !<-protectResult {
+				if !<-resultChannel {
 					protectError = fmt.Errorf("protect failed for fd %d", fd)
 				}
 			})
