@@ -242,6 +242,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          umask 077
           missing=0
           for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
             if [ -z "${!name:-}" ]; then
@@ -255,6 +256,7 @@ jobs:
 
           KEYSTORE_PATH="$RUNNER_TEMP/ssrvpn-release.jks"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
           cat > SSRVPN_Android/android/key.properties <<EOF
           storeFile=$KEYSTORE_PATH
           storePassword=$ANDROID_KEYSTORE_PASSWORD
@@ -312,6 +314,12 @@ jobs:
           path: |
             SSRVPN_Android/SSRVPN.apk
             SSRVPN_Android/SSRVPN.apk.sha256
+
+      - name: Cleanup Android signing files
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/ssrvpn-release.jks"
+          rm -f SSRVPN_Android/android/key.properties
 
   # ── macOS ──
   build-macos:

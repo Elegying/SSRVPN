@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT/SSRVPN_Android/android/ssrvpn-release.jks}"
@@ -23,6 +24,7 @@ keytool -genkeypair \
   -keyalg RSA \
   -keysize 2048 \
   -validity 10000
+chmod 600 "$OUT"
 
 echo
 echo "Keystore created: $OUT"
@@ -30,6 +32,8 @@ echo "Keep it private and backed up. Losing it means Android users cannot upgrad
 echo
 echo "GitHub Actions secrets:"
 echo "ANDROID_KEY_ALIAS=$ALIAS"
-echo "ANDROID_KEYSTORE_BASE64=$(base64 < "$OUT" | tr -d '\n')"
 echo "ANDROID_KEYSTORE_PASSWORD=<the keystore password you entered>"
 echo "ANDROID_KEY_PASSWORD=<the key password you entered>"
+echo
+echo "Upload the keystore without printing its contents:"
+printf '  base64 < %q | tr -d '\''\\n'\'' | gh secret set ANDROID_KEYSTORE_BASE64\n' "$OUT"
