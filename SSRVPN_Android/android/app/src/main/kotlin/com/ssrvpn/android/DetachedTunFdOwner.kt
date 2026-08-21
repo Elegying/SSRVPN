@@ -129,7 +129,8 @@ internal class DetachedTunFdOwner(
         private fun isProvenPreAdoptionFailure(result: String): Boolean =
             result == "already running" ||
                 result.startsWith("read config: ") ||
-                result.startsWith("parse config: ")
+                result.startsWith("parse config: ") ||
+                result == "protect monitor is unavailable"
 
         fun detach(descriptor: ParcelFileDescriptor): DetachedTunFdOwner {
             val rawDescriptor = try {
