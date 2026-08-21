@@ -283,12 +283,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         final result =
             await _subscriptionController(subService).deleteSubscription(
           id,
-          clashRunning:
-              clashService.isRunning || clashService.connectionDesired,
           stopClash: () async {
+            final wasRunning =
+                clashService.isRunning || clashService.connectionDesired;
             clashService.requestConnectionIntent(false);
             clashService.interruptPendingStart();
             await clashService.runConnectionTransition(clashService.stop);
+            return wasRunning;
           },
         ).catchError((Object e) {
           return SubscriptionDeleteResult(removed: false, error: e);

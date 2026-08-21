@@ -436,8 +436,7 @@ class SubscriptionScreenController {
 
   Future<SubscriptionDeleteResult> deleteSubscription(
     String id, {
-    required bool clashRunning,
-    required Future<void> Function()? stopClash,
+    required Future<bool> Function()? stopClash,
     Future<void> Function()? onNoRunnableNodes,
   }) async {
     try {
@@ -448,7 +447,6 @@ class SubscriptionScreenController {
 
     return _deleteResultAfterOptionalStop(
       removed: true,
-      clashRunning: clashRunning,
       stopClash: stopClash,
       onNoRunnableNodes: onNoRunnableNodes,
     );
@@ -500,13 +498,11 @@ class SubscriptionScreenController {
   }
 
   Future<bool> _stopClashIfNeeded(
-    bool clashRunning,
-    Future<void> Function()? stopClash,
+    Future<bool> Function()? stopClash,
   ) async {
-    if (_hasRunnableNodes() || !clashRunning) return false;
+    if (_hasRunnableNodes()) return false;
     if (stopClash == null) return false;
-    await stopClash();
-    return true;
+    return stopClash();
   }
 
   int _runnableNodeCount() {
@@ -519,15 +515,14 @@ class SubscriptionScreenController {
 
   Future<SubscriptionDeleteResult> _deleteResultAfterOptionalStop({
     required bool removed,
-    required bool clashRunning,
-    required Future<void> Function()? stopClash,
+    required Future<bool> Function()? stopClash,
     Future<void> Function()? onNoRunnableNodes,
     Object? error,
   }) async {
     var stopped = false;
     Object? operationError = error;
     try {
-      stopped = await _stopClashIfNeeded(clashRunning, stopClash);
+      stopped = await _stopClashIfNeeded(stopClash);
     } catch (e) {
       operationError = e;
     }

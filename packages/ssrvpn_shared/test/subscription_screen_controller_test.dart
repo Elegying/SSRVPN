@@ -415,13 +415,53 @@ void main() {
 
       final result = await controller.deleteSubscription(
         'sub-1',
-        clashRunning: true,
-        stopClash: () async => stopped = true,
+        stopClash: () async {
+          stopped = true;
+          return true;
+        },
       );
 
       expect(result.removed, isTrue);
       expect(result.stoppedClash, isTrue);
       expect(stopped, isTrue);
+    });
+
+    test('delete observes a connection that starts while removal is pending',
+        () async {
+      final removalStarted = Completer<void>();
+      final allowRemoval = Completer<void>();
+      final service = _FakeSubscriptionService(
+        subscriptions: [
+          Subscription(id: 'sub-1', name: 'A', url: 'https://example.com'),
+        ],
+        nodes: [node('A')],
+        removalStarted: removalStarted,
+        allowRemoval: allowRemoval,
+      );
+      final controller = SubscriptionScreenController(
+        subscriptionService: service,
+      );
+      var running = false;
+      var stopCalls = 0;
+
+      final deletion = controller.deleteSubscription(
+        'sub-1',
+        stopClash: () async {
+          stopCalls += 1;
+          final wasRunning = running;
+          running = false;
+          return wasRunning;
+        },
+      );
+      await removalStarted.future;
+      running = true;
+      allowRemoval.complete();
+
+      final result = await deletion;
+      expect(result.removed, isTrue);
+      expect(result.stoppedClash, isTrue);
+      expect(stopCalls, 1);
+      expect(running, isFalse);
     });
 
     test('delete clears the platform cold-start snapshot when no nodes remain',
@@ -439,7 +479,6 @@ void main() {
 
       final result = await controller.deleteSubscription(
         'sub-1',
-        clashRunning: false,
         stopClash: null,
         onNoRunnableNodes: () async => cleared = true,
       );
@@ -461,7 +500,6 @@ void main() {
 
       final result = await controller.deleteSubscription(
         'sub-1',
-        clashRunning: true,
         stopClash: () async => throw Exception('stop failed'),
       );
 
@@ -484,7 +522,6 @@ void main() {
 
       final result = await controller.deleteSubscription(
         'sub-1',
-        clashRunning: true,
         stopClash: () async => throw Exception('stop failed'),
         onNoRunnableNodes: () async => cleared = true,
       );
@@ -509,8 +546,10 @@ void main() {
 
       final result = await controller.deleteSubscription(
         'sub-1',
-        clashRunning: true,
-        stopClash: () async => stopped = true,
+        stopClash: () async {
+          stopped = true;
+          return true;
+        },
       );
 
       expect(result.removed, isTrue);
@@ -531,7 +570,6 @@ void main() {
 
       final result = await controller.deleteSubscription(
         'sub-1',
-        clashRunning: false,
         stopClash: null,
       );
 
@@ -550,6 +588,8 @@ class _FakeSubscriptionService implements SubscriptionScreenServicePort {
     this.refreshOutcome,
     this.refreshError,
     this.removeError,
+    this.removalStarted,
+    this.allowRemoval,
   })  : _subscriptions = subscriptions ?? <Subscription>[],
         _nodes = nodes ?? <ProxyNode>[],
         _groups = groups ?? <ProxyGroup>[];
@@ -561,6 +601,8 @@ class _FakeSubscriptionService implements SubscriptionScreenServicePort {
   SubscriptionBatchRefreshResult? refreshOutcome;
   Object? refreshError;
   Object? removeError;
+  final Completer<void>? removalStarted;
+  final Completer<void>? allowRemoval;
   final addedUrls = <String>[];
   final updatedSubscriptions = <Subscription>[];
   SubscriptionRefreshCancellation? receivedCancellation;
@@ -613,6 +655,8 @@ class _FakeSubscriptionService implements SubscriptionScreenServicePort {
   @override
   Future<void> removeSubscription(String id) async {
     if (removeError != null) throw removeError!;
+    removalStarted?.complete();
+    await allowRemoval?.future;
     _subscriptions.removeWhere((sub) => sub.id == id);
     if (_subscriptions.isEmpty) _nodes = <ProxyNode>[];
   }

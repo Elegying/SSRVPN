@@ -88,6 +88,9 @@ void main() {
     await _pumpUntilFound(tester, find.text('订阅已删除'));
 
     expect(fixture.subscription.subscriptions, isEmpty);
+    expect(fixture.clash.stopCalls, 1);
+    expect(fixture.clash.isRunning, isFalse);
+    expect(fixture.clash.connectionDesired, isFalse);
     expect(find.text('订阅已删除'), findsOneWidget);
   });
 }
@@ -162,12 +165,20 @@ class _IdleClashService extends ClashService {
   })  : _running = running,
         _currentNodeName = currentNodeName;
 
-  final bool _running;
+  bool _running;
   final String? _currentNodeName;
+  int stopCalls = 0;
 
   @override
   bool get isRunning => _running;
 
   @override
   Future<String?> currentSelectedProxyName() async => _currentNodeName;
+
+  @override
+  Future<void> stop() async {
+    stopCalls += 1;
+    _running = false;
+    notifyStatusChanged();
+  }
 }
