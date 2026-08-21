@@ -106,6 +106,26 @@ class AndroidGradleSupplyChainTest(unittest.TestCase):
                 value = checksum.attrib.get("value", "")
                 self.assertRegex(value, r"^[0-9a-f]{64}$")
 
+    def test_aapt2_verification_covers_every_supported_host(self) -> None:
+        root = ET.parse(METADATA).getroot()
+        namespace = {"v": "https://schema.gradle.org/dependency-verification"}
+        components = [
+            component
+            for component in root.findall("v:components/v:component", namespace)
+            if component.attrib.get("group") == "com.android.tools.build"
+            and component.attrib.get("name") == "aapt2"
+        ]
+        self.assertEqual(len(components), 1)
+
+        component = components[0]
+        version = component.attrib["version"]
+        artifact_names = {
+            artifact.attrib["name"]
+            for artifact in component.findall("v:artifact", namespace)
+        }
+        for host in ("linux", "osx", "windows"):
+            self.assertIn(f"aapt2-{version}-{host}.jar", artifact_names)
+
 
 if __name__ == "__main__":
     unittest.main()
