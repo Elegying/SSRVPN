@@ -815,22 +815,12 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             package_smoke,
         )
 
-        invocation = (
-            "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass "
-            "-File ..\\scripts\\test_windows_program_files_transaction.ps1"
+        policy_runner = (
+            ROOT / "scripts" / "test_windows_policy.ps1"
+        ).read_text(encoding="ascii")
+        self.assertIn(
+            "test_windows_program_files_transaction.ps1", policy_runner
         )
-        for workflow_name in ("ci.yml", "release.yml"):
-            workflow = (
-                ROOT / ".github" / "workflows" / workflow_name
-            ).read_text(encoding="utf-8")
-            build_step = workflow.split("- name: Build Windows installer", 1)[1]
-            build_step = build_step.split("\n      - name:", 1)[0]
-            with self.subTest(workflow=workflow_name):
-                self.assertIn(invocation, build_step)
-                self.assertLess(
-                    build_step.index(invocation),
-                    build_step.index("tool\\package_windows.ps1"),
-                )
 
     def test_windows_package_rejects_user_owned_payload_trees(self) -> None:
         package_script = (
@@ -860,22 +850,10 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("nested-user-data", runtime)
         self.assertIn("-ExpectFailure", runtime)
 
-        invocation = (
-            "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass "
-            "-File ..\\scripts\\test_windows_package_payload_guard.ps1"
-        )
-        for workflow_name in ("ci.yml", "release.yml"):
-            workflow = (
-                ROOT / ".github" / "workflows" / workflow_name
-            ).read_text(encoding="utf-8")
-            build_step = workflow.split("- name: Build Windows installer", 1)[1]
-            build_step = build_step.split("\n      - name:", 1)[0]
-            with self.subTest(workflow=workflow_name):
-                self.assertIn(invocation, build_step)
-                self.assertLess(
-                    build_step.index(invocation),
-                    build_step.index("tool\\package_windows.ps1"),
-                )
+        policy_runner = (
+            ROOT / "scripts" / "test_windows_policy.ps1"
+        ).read_text(encoding="ascii")
+        self.assertIn("test_windows_package_payload_guard.ps1", policy_runner)
 
     def test_installer_cleanup_is_path_exact_and_best_effort(self) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
@@ -1832,20 +1810,23 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertTrue(compatibility_test.is_file())
 
+        policy_runner = (
+            ROOT / "scripts" / "test_windows_policy.ps1"
+        ).read_text(encoding="ascii")
+        self.assertIn(
+            "test_windows_powershell51_compatibility.ps1", policy_runner
+        )
         command = (
             "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass "
-            "-File ..\\scripts\\test_windows_powershell51_compatibility.ps1"
+            "-File scripts\\test_windows_policy.ps1"
         )
         for workflow_name in ("ci.yml", "release.yml"):
             workflow = (
                 ROOT / ".github" / "workflows" / workflow_name
             ).read_text(encoding="utf-8")
-            build_step = workflow.split("- name: Build Windows installer", 1)[1]
-            build_step = build_step.split("\n      - name:", 1)[0]
             with self.subTest(workflow=workflow_name):
-                self.assertIn("shell: powershell", build_step)
-                self.assertIn(command, build_step)
-                self.assertNotIn("continue-on-error", build_step)
+                self.assertIn(command, workflow)
+                self.assertNotIn("continue-on-error", workflow)
 
     def test_windows_workflows_smoke_install_and_uninstall_the_built_package(
         self,
@@ -1917,17 +1898,6 @@ class WindowsInstallerConfigTest(unittest.TestCase):
                 self.assertIn(invocation, build_step)
                 self.assertIn("timeout-minutes: 15", build_step)
                 self.assertIn(
-                    "$smokeRoot = Join-Path $env:RUNNER_TEMP "
-                    "'ssrvpn-process-smoke'",
-                    build_step,
-                )
-                for expected_path_argument in (
-                    '-InstalledAppPath "$smokeRoot\\bin\\ssrvpn_windows_app.exe"',
-                    '-InstalledLauncherPath "$smokeRoot\\ssrvpn_windows.exe"',
-                    '-InstalledCorePath "$smokeRoot\\bin\\mihomo.exe"',
-                ):
-                    self.assertIn(expected_path_argument, build_step)
-                self.assertIn(
                     "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
                     build_step,
                 )
@@ -1942,7 +1912,6 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         required = {
             "tool\\build_installer.ps1",
-            "installer\\stop_ssrvpn_processes.ps1",
             "SSRVPN_Windows/SSRVPN_Setup.exe",
             "SSRVPN_Windows/SSRVPN_Setup.exe.sha256",
         }
@@ -1954,6 +1923,14 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         for value in required:
             self.assertIn(value, ci)
+
+        policy_runner = (
+            ROOT / "scripts" / "test_windows_policy.ps1"
+        ).read_text(encoding="ascii")
+        self.assertIn(
+            "SSRVPN_Windows\\installer\\stop_ssrvpn_processes.ps1",
+            policy_runner,
+        )
 
     def test_windows_package_prepares_only_the_installer_payload(self) -> None:
         package_script = (

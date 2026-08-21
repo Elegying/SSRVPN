@@ -15,12 +15,13 @@ class CodeScanningAndAttestationWorkflowTest(unittest.TestCase):
         workflow = CI.read_text(encoding="utf-8")
 
         self.assertIn("security-events: write", workflow)
-        for language in ("java-kotlin", "c-cpp"):
-            self.assertIn(f"codeql_language: {language}", workflow)
+        self.assertIn("codeql_language: java-kotlin", workflow)
+        self.assertIn("languages: c-cpp", workflow)
         self.assertNotIn("codeql_language: swift", workflow)
         self.assertIn("languages: ${{ matrix.codeql_language }}", workflow)
         self.assertIn("build-mode: ${{ matrix.codeql_build_mode }}", workflow)
-        self.assertEqual(workflow.count("codeql_build_mode: manual"), 2)
+        self.assertEqual(workflow.count("codeql_build_mode: manual"), 1)
+        self.assertIn("build-mode: manual", workflow)
         self.assertNotIn("codeql_build_mode: autobuild", workflow)
         self.assertIn("languages: actions", workflow)
         self.assertIn("build-mode: none", workflow)
