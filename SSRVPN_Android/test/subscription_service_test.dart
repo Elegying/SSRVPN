@@ -208,6 +208,154 @@ void main() {
     );
   });
 
+  test('Content-Length response completes without waiting for socket EOF',
+      () async {
+    final body = utf8.encode(_validYaml);
+    final port = await _startRawKeepAliveServer(
+      [
+        ...latin1.encode(
+          'HTTP/1.1 200 OK\r\n'
+          'Content-Type: text/yaml\r\n'
+          'Content-Length: ${body.length}\r\n'
+          'Connection: keep-alive\r\n'
+          '\r\n',
+        ),
+        ...body,
+      ],
+      writeChunkSize: 13,
+    );
+    SubscriptionService.overrideAddressLookup(
+      (_) async => [InternetAddress.loopbackIPv4],
+      readInactivityTimeout: const Duration(seconds: 3),
+    );
+
+    final result = await service
+        .fetchSubscription(
+          'http://keepalive.test:$port/feed',
+          maxRetries: 1,
+        )
+        .timeout(const Duration(seconds: 1));
+
+    expect(result, contains('Valid Node'));
+  });
+
+  test('chunked response completes without waiting for socket EOF', () async {
+    final body = utf8.encode(_validYaml);
+    final port = await _startRawKeepAliveServer(
+      [
+        ...latin1.encode(
+          'HTTP/1.1 200 OK\r\n'
+          'Content-Type: text/yaml\r\n'
+          'Transfer-Encoding: chunked\r\n'
+          'Connection: keep-alive\r\n'
+          '\r\n'
+          '${body.length.toRadixString(16)}\r\n',
+        ),
+        ...body,
+        ...latin1.encode('\r\n0\r\n\r\n'),
+      ],
+      writeChunkSize: 7,
+    );
+    SubscriptionService.overrideAddressLookup(
+      (_) async => [InternetAddress.loopbackIPv4],
+      readInactivityTimeout: const Duration(seconds: 3),
+    );
+
+    final result = await service
+        .fetchSubscription(
+          'http://keepalive.test:$port/feed',
+          maxRetries: 1,
+        )
+        .timeout(const Duration(seconds: 1));
+
+    expect(result, contains('Valid Node'));
+  });
+
+  test('rejects a Content-Length body truncated by socket EOF', () async {
+    final body = utf8.encode(_validYaml);
+    final port = await _startRawKeepAliveServer(
+      [
+        ...latin1.encode(
+          'HTTP/1.1 200 OK\r\n'
+          'Content-Length: ${body.length + 1}\r\n'
+          '\r\n',
+        ),
+        ...body,
+      ],
+      closeAfterWrite: true,
+    );
+    SubscriptionService.overrideAddressLookup(
+      (_) async => [InternetAddress.loopbackIPv4],
+    );
+
+    await expectLater(
+      service
+          .fetchSubscription(
+            'http://framing.test:$port/feed',
+            maxRetries: 1,
+          )
+          .timeout(const Duration(seconds: 1)),
+      throwsA(
+        predicate<Object>((error) => error.toString().contains('长度')),
+      ),
+    );
+  });
+
+  test('rejects an incomplete chunked body at socket EOF', () async {
+    final port = await _startRawKeepAliveServer(
+      latin1.encode(
+        'HTTP/1.1 200 OK\r\n'
+        'Transfer-Encoding: chunked\r\n'
+        '\r\n'
+        '4\r\nbody\r\n',
+      ),
+      closeAfterWrite: true,
+    );
+    SubscriptionService.overrideAddressLookup(
+      (_) async => [InternetAddress.loopbackIPv4],
+    );
+
+    await expectLater(
+      service
+          .fetchSubscription(
+            'http://framing.test:$port/feed',
+            maxRetries: 1,
+          )
+          .timeout(const Duration(seconds: 1)),
+      throwsA(
+        predicate<Object>((error) => error.toString().contains('不完整')),
+      ),
+    );
+  });
+
+  test('rejects an oversized declared body without waiting for socket EOF',
+      () async {
+    final port = await _startRawKeepAliveServer(
+      latin1.encode(
+        'HTTP/1.1 200 OK\r\n'
+        'Content-Length: ${SubscriptionServiceBase.maxSubscriptionBytes + 1}\r\n'
+        'Connection: keep-alive\r\n'
+        '\r\n',
+      ),
+    );
+    SubscriptionService.overrideAddressLookup(
+      (_) async => [InternetAddress.loopbackIPv4],
+      readInactivityTimeout: const Duration(seconds: 3),
+    );
+
+    await expectLater(
+      service
+          .fetchSubscription(
+            'http://framing.test:$port/feed',
+            maxRetries: 1,
+          )
+          .timeout(const Duration(seconds: 1)),
+      throwsA(
+        predicate<Object>((error) => error.toString().contains('20 MB')),
+      ),
+    );
+  });
+
   test('the refresh deadline also bounds retry backoff', () async {
     SubscriptionService.overrideHttpClient(
       _FakeHttpClientAdapter(
@@ -597,3 +745,41 @@ proxies:
     cipher: aes-128-gcm
     password: test
 ''';
+
+Future<int> _startRawKeepAliveServer(
+  List<int> response, {
+  bool closeAfterWrite = false,
+  int? writeChunkSize,
+}) async {
+  final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+  final clients = <Socket>[];
+  addTearDown(() async {
+    for (final client in clients) {
+      client.destroy();
+    }
+    await server.close();
+  });
+  server.listen((client) {
+    clients.add(client);
+    var responded = false;
+    client.listen((_) async {
+      if (responded) return;
+      responded = true;
+      final chunkSize = writeChunkSize;
+      if (chunkSize == null) {
+        client.add(response);
+        await client.flush();
+      } else {
+        for (var offset = 0; offset < response.length; offset += chunkSize) {
+          final next = offset + chunkSize;
+          final end = next < response.length ? next : response.length;
+          client.add(response.sublist(offset, end));
+          await client.flush();
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+        }
+      }
+      if (closeAfterWrite) await client.close();
+    });
+  });
+  return server.port;
+}

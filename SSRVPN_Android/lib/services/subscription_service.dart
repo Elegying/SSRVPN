@@ -475,9 +475,14 @@ class SubscriptionService extends SubscriptionServiceBase {
 
       _log('IP $ipAddress 请求已发送 (${ipStopwatch.elapsedMilliseconds}ms)');
 
-      final responseBytes = <int>[];
+      final headerBytes = <int>[];
+      final bodyBytes = BytesBuilder(copy: false);
+      var bodyLength = 0;
       var totalBytes = 0;
-      var headerEnd = -1;
+      Map<String, String>? headers;
+      int? statusCode;
+      int? expectedBodyBytes;
+      _ChunkedBodyDecoder? chunkedDecoder;
       var absoluteTimeoutExpired = false;
       final absoluteTimer = Timer(_requestTimeout, () {
         absoluteTimeoutExpired = true;
@@ -485,32 +490,116 @@ class SubscriptionService extends SubscriptionServiceBase {
       });
       try {
         Future<void> readResponse() async {
+          responseLoop:
           await for (final chunk in socket.timeout(
             _readInactivityTimeoutOverride ?? _defaultReadInactivityTimeout,
           )) {
             control?.throwIfStopped();
-            final previousLength = responseBytes.length;
             totalBytes += chunk.length;
             if (totalBytes >
                 SubscriptionServiceBase.maxSubscriptionBytes +
                     _maxHeaderBytes) {
               throw Exception('订阅内容超过 20 MB 限制');
             }
-            responseBytes.addAll(chunk);
-            if (headerEnd == -1) {
-              final scanStart = previousLength > 3 ? previousLength - 3 : 0;
-              for (var i = scanStart; i + 3 < responseBytes.length; i++) {
-                if (responseBytes[i] == 13 &&
-                    responseBytes[i + 1] == 10 &&
-                    responseBytes[i + 2] == 13 &&
-                    responseBytes[i + 3] == 10) {
-                  headerEnd = i;
-                  break;
-                }
-              }
-              if (headerEnd == -1 && responseBytes.length > _maxHeaderBytes) {
+            var offset = 0;
+            while (headers == null && offset < chunk.length) {
+              headerBytes.add(chunk[offset++]);
+              if (headerBytes.length > _maxHeaderBytes) {
                 throw HttpException('IP $ipAddress 响应头超过 64 KB 限制');
               }
+
+              final length = headerBytes.length;
+              if (length < 4 ||
+                  headerBytes[length - 4] != 13 ||
+                  headerBytes[length - 3] != 10 ||
+                  headerBytes[length - 2] != 13 ||
+                  headerBytes[length - 1] != 10) {
+                continue;
+              }
+
+              final headerSection = decodeHttp1HeaderBytes(
+                headerBytes.sublist(0, length - 4),
+              );
+              final headerLines = headerSection.split('\r\n');
+              final statusMatch = RegExp(
+                r'HTTP/\S+ (\d+)',
+              ).firstMatch(headerLines.first);
+              if (statusMatch == null) {
+                throw HttpException(
+                  'IP $ipAddress 状态行异常: ${headerLines.first}',
+                );
+              }
+              statusCode = int.parse(statusMatch.group(1)!);
+
+              final parsedHeaders = <String, String>{};
+              for (final line in headerLines.skip(1)) {
+                final idx = line.indexOf(':');
+                if (idx > 0) {
+                  parsedHeaders[line.substring(0, idx).trim().toLowerCase()] =
+                      line.substring(idx + 1).trim();
+                }
+              }
+              headers = parsedHeaders;
+
+              final contentLengthValue =
+                  parsedHeaders['content-length']?.trim();
+              if (contentLengthValue != null) {
+                if (!RegExp(r'^\d+$').hasMatch(contentLengthValue)) {
+                  throw HttpException(
+                    'IP $ipAddress Content-Length 格式错误',
+                  );
+                }
+                expectedBodyBytes = int.parse(contentLengthValue);
+                if (expectedBodyBytes! >
+                    SubscriptionServiceBase.maxSubscriptionBytes) {
+                  throw Exception('订阅内容超过 20 MB 限制');
+                }
+              }
+
+              final transferEncodings =
+                  (parsedHeaders['transfer-encoding'] ?? '')
+                      .toLowerCase()
+                      .split(',')
+                      .map((value) => value.trim())
+                      .where((value) => value.isNotEmpty)
+                      .toList(growable: false);
+              if (transferEncodings.isNotEmpty) {
+                if (transferEncodings.length != 1 ||
+                    transferEncodings.single != 'chunked' ||
+                    expectedBodyBytes != null) {
+                  throw HttpException(
+                    'IP $ipAddress 响应长度声明冲突或不受支持',
+                  );
+                }
+                chunkedDecoder = _ChunkedBodyDecoder(
+                  SubscriptionServiceBase.maxSubscriptionBytes,
+                );
+              } else if (expectedBodyBytes == 0) {
+                break responseLoop;
+              }
+            }
+
+            if (headers == null || offset == chunk.length) continue;
+            if (chunkedDecoder != null) {
+              chunkedDecoder!.add(chunk, offset);
+              if (chunkedDecoder!.isComplete) break responseLoop;
+              continue;
+            }
+
+            final incoming = chunk.length - offset;
+            final nextLength = bodyLength + incoming;
+            if (nextLength > SubscriptionServiceBase.maxSubscriptionBytes) {
+              throw Exception('订阅内容超过 20 MB 限制');
+            }
+            if (expectedBodyBytes != null && nextLength > expectedBodyBytes!) {
+              throw HttpException(
+                'IP $ipAddress 响应正文超过 Content-Length',
+              );
+            }
+            bodyBytes.add(chunk.sublist(offset));
+            bodyLength = nextLength;
+            if (expectedBodyBytes != null && bodyLength == expectedBodyBytes) {
+              break responseLoop;
             }
           }
         }
@@ -529,131 +618,35 @@ class SubscriptionService extends SubscriptionServiceBase {
       }
 
       _log(
-          'IP $ipAddress 收到 ${responseBytes.length} bytes (${ipStopwatch.elapsedMilliseconds}ms)');
+          'IP $ipAddress 收到 $totalBytes bytes (${ipStopwatch.elapsedMilliseconds}ms)');
 
-      if (responseBytes.isEmpty) {
+      if (headerBytes.isEmpty) {
         throw HttpException('IP $ipAddress 返回空响应');
       }
 
-      if (headerEnd == -1) {
+      final responseHeaders = headers;
+      final responseStatusCode = statusCode;
+      if (responseHeaders == null || responseStatusCode == null) {
         throw HttpException('IP $ipAddress 响应格式异常');
       }
-
-      final headerSection = decodeHttp1HeaderBytes(
-        responseBytes.sublist(0, headerEnd),
-      );
-      var bodyBytes = responseBytes.sublist(headerEnd + 4);
-
-      final headerLines = headerSection.split('\r\n');
-      final statusMatch = RegExp(
-        r'HTTP/\S+ (\d+)',
-      ).firstMatch(headerLines.first);
-      if (statusMatch == null) {
-        throw HttpException('IP $ipAddress 状态行异常: ${headerLines.first}');
-      }
-      final statusCode = int.parse(statusMatch.group(1)!);
-
-      final headers = <String, String>{};
-      for (final line in headerLines.skip(1)) {
-        final idx = line.indexOf(':');
-        if (idx > 0) {
-          headers[line.substring(0, idx).trim().toLowerCase()] =
-              line.substring(idx + 1).trim();
-        }
-      }
-
-      final contentLengthValue = headers['content-length']?.trim();
-      int? contentLength;
-      if (contentLengthValue != null) {
-        if (!RegExp(r'^\d+$').hasMatch(contentLengthValue)) {
-          throw HttpException('IP $ipAddress Content-Length 格式错误');
-        }
-        contentLength = int.parse(contentLengthValue);
-        if (contentLength > SubscriptionServiceBase.maxSubscriptionBytes) {
-          throw Exception('订阅内容超过 20 MB 限制');
-        }
-      }
-
-      final transferEncodings = (headers['transfer-encoding'] ?? '')
-          .toLowerCase()
-          .split(',')
-          .map((value) => value.trim())
-          .where((value) => value.isNotEmpty)
-          .toList(growable: false);
-      if (transferEncodings.isNotEmpty) {
-        if (transferEncodings.length != 1 ||
-            transferEncodings.single != 'chunked' ||
-            contentLength != null) {
-          throw HttpException('IP $ipAddress 响应长度声明冲突或不受支持');
-        }
-        bodyBytes = _decodeChunked(bodyBytes);
-      } else if (contentLength != null && bodyBytes.length != contentLength) {
+      if (expectedBodyBytes != null && bodyLength != expectedBodyBytes) {
         throw HttpException('IP $ipAddress 响应正文长度与声明不一致');
       }
-      if (bodyBytes.length > SubscriptionServiceBase.maxSubscriptionBytes) {
+      final decodedBody = chunkedDecoder?.finish() ?? bodyBytes.takeBytes();
+      if (decodedBody.length > SubscriptionServiceBase.maxSubscriptionBytes) {
         throw Exception('订阅内容超过 20 MB 限制');
       }
 
       _log(
-          'IP $ipAddress HTTP $statusCode (总耗时 ${totalStopwatch.elapsedMilliseconds}ms)');
+          'IP $ipAddress HTTP $responseStatusCode (总耗时 ${totalStopwatch.elapsedMilliseconds}ms)');
       return _RawHttpResponse(
-        statusCode: statusCode,
-        headers: headers,
-        bodyBytes: bodyBytes,
+        statusCode: responseStatusCode,
+        headers: responseHeaders,
+        bodyBytes: decodedBody,
       );
     } finally {
       socket.destroy();
     }
-  }
-
-  List<int> _decodeChunked(List<int> data) {
-    final out = BytesBuilder(copy: false);
-    var outputLength = 0;
-    var pos = 0;
-    while (true) {
-      var lineEnd = pos;
-      while (lineEnd + 1 < data.length &&
-          !(data[lineEnd] == 13 && data[lineEnd + 1] == 10)) {
-        lineEnd++;
-        if (lineEnd - pos > _maxHeaderBytes) {
-          throw const FormatException('HTTP chunk 大小行过大');
-        }
-      }
-      if (lineEnd + 1 >= data.length) {
-        throw const FormatException('HTTP chunk 大小行不完整');
-      }
-      final sizeLine = String.fromCharCodes(data.sublist(pos, lineEnd));
-      final size = int.tryParse(sizeLine.split(';').first.trim(), radix: 16);
-      if (size == null || size < 0) {
-        throw const FormatException('HTTP chunk 大小格式错误');
-      }
-      final chunkStart = lineEnd + 2;
-      if (size == 0) {
-        if (_hasCrlfAt(data, chunkStart)) return out.takeBytes();
-        for (var i = chunkStart; i + 3 < data.length; i++) {
-          if (_hasCrlfAt(data, i) && _hasCrlfAt(data, i + 2)) {
-            return out.takeBytes();
-          }
-        }
-        throw const FormatException('HTTP chunked 尾部不完整');
-      }
-      if (size > SubscriptionServiceBase.maxSubscriptionBytes - outputLength) {
-        throw Exception('订阅内容超过 20 MB 限制');
-      }
-      final chunkEnd = chunkStart + size;
-      if (chunkEnd + 2 > data.length || !_hasCrlfAt(data, chunkEnd)) {
-        throw const FormatException('HTTP chunk 正文不完整');
-      }
-      out.add(data.sublist(chunkStart, chunkEnd));
-      outputLength += size;
-      pos = chunkEnd + 2;
-    }
-  }
-
-  bool _hasCrlfAt(List<int> data, int offset) {
-    return offset + 1 < data.length &&
-        data[offset] == 13 &&
-        data[offset + 1] == 10;
   }
 
   Future<List<int>> _decodeGzipLimited(
@@ -681,6 +674,95 @@ class SubscriptionService extends SubscriptionServiceBase {
   }) {
     if (control == null) return operation;
     return control.wait(operation, onAbort: onAbort);
+  }
+}
+
+class _ChunkedBodyDecoder {
+  final int maxBodyBytes;
+  final BytesBuilder _body = BytesBuilder(copy: false);
+  final List<int> _line = <int>[];
+  int _bodyLength = 0;
+  int? _chunkBytesRemaining;
+  int _chunkTerminatorOffset = 0;
+  int _trailerBytes = 0;
+  bool _readingTrailers = false;
+  bool _complete = false;
+
+  _ChunkedBodyDecoder(this.maxBodyBytes);
+
+  bool get isComplete => _complete;
+
+  void add(List<int> data, [int offset = 0]) {
+    while (offset < data.length && !_complete) {
+      if (_readingTrailers) {
+        _trailerBytes++;
+        if (_trailerBytes > SubscriptionService._maxHeaderBytes) {
+          throw const FormatException('HTTP chunked 尾部过大');
+        }
+        _line.add(data[offset++]);
+        if (_lineEndsWithCrlf()) {
+          if (_line.length == 2) _complete = true;
+          _line.clear();
+        }
+        continue;
+      }
+
+      if (_chunkBytesRemaining == null) {
+        _line.add(data[offset++]);
+        if (_line.length > SubscriptionService._maxHeaderBytes) {
+          throw const FormatException('HTTP chunk 大小行过大');
+        }
+        if (!_lineEndsWithCrlf()) continue;
+
+        final sizeLine = String.fromCharCodes(_line.take(_line.length - 2));
+        _line.clear();
+        final size = int.tryParse(sizeLine.split(';').first.trim(), radix: 16);
+        if (size == null || size < 0) {
+          throw const FormatException('HTTP chunk 大小格式错误');
+        }
+        if (size == 0) {
+          _readingTrailers = true;
+          continue;
+        }
+        if (size > maxBodyBytes - _bodyLength) {
+          throw Exception('订阅内容超过 20 MB 限制');
+        }
+        _chunkBytesRemaining = size;
+        continue;
+      }
+
+      if (_chunkBytesRemaining! > 0) {
+        final available = data.length - offset;
+        final count = _chunkBytesRemaining! < available
+            ? _chunkBytesRemaining!
+            : available;
+        _body.add(data.sublist(offset, offset + count));
+        _bodyLength += count;
+        offset += count;
+        _chunkBytesRemaining = _chunkBytesRemaining! - count;
+        continue;
+      }
+
+      final expected = _chunkTerminatorOffset == 0 ? 13 : 10;
+      if (data[offset++] != expected) {
+        throw const FormatException('HTTP chunk 结束符格式错误');
+      }
+      _chunkTerminatorOffset++;
+      if (_chunkTerminatorOffset == 2) {
+        _chunkTerminatorOffset = 0;
+        _chunkBytesRemaining = null;
+      }
+    }
+  }
+
+  List<int> finish() {
+    if (!_complete) throw const FormatException('HTTP chunked 响应不完整');
+    return _body.takeBytes();
+  }
+
+  bool _lineEndsWithCrlf() {
+    final length = _line.length;
+    return length >= 2 && _line[length - 2] == 13 && _line[length - 1] == 10;
   }
 }
 
