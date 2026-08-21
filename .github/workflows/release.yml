@@ -139,7 +139,9 @@ jobs:
       - run: bash ../../scripts/check-windows-launcher-security.sh
       - run: bash ../../scripts/check-secrets.sh
       - run: bash ../../scripts/test-release-tooling.sh
-      - run: dart pub get
+      - name: Install locked dependencies
+        working-directory: .
+        run: flutter pub get --enforce-lockfile
       - run: flutter analyze --fatal-infos
       - run: bash ../../scripts/run-flutter-coverage.sh packages/ssrvpn_shared
       - run: bash ../../scripts/check-coverage-thresholds.sh packages/ssrvpn_shared
@@ -217,10 +219,8 @@ jobs:
           cache-provider: basic
           cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}
 
-      - name: Install dependencies
-        run: |
-          cd packages/ssrvpn_shared && dart pub get
-          cd ../../SSRVPN_Android && flutter pub get
+      - name: Install locked dependencies
+        run: flutter pub get --enforce-lockfile
 
       - name: Analyze
         run: cd SSRVPN_Android && flutter analyze
@@ -349,10 +349,8 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Install dependencies
-        run: |
-          cd packages/ssrvpn_shared && dart pub get
-          cd ../../SSRVPN_MacOS && flutter pub get
+      - name: Install locked dependencies
+        run: flutter pub get --enforce-lockfile
 
       - name: Analyze
         run: cd SSRVPN_MacOS && flutter analyze
@@ -457,10 +455,8 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Install dependencies
-        run: |
-          cd packages/ssrvpn_shared; dart pub get
-          cd ../../SSRVPN_Windows; flutter pub get
+      - name: Install locked dependencies
+        run: flutter pub get --enforce-lockfile
 
       - name: Analyze
         run: cd SSRVPN_Windows; flutter analyze

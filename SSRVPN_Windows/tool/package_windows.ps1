@@ -588,7 +588,7 @@ function Invoke-FlutterPubGet {
     Set-PubEnvironment -HostedUrl $attempt.HostedUrl `
       -StorageUrl $attempt.StorageUrl
 
-    $arguments = @('pub', 'get')
+    $arguments = @('pub', 'get', '--enforce-lockfile')
     if ($attempt.Offline) {
       $arguments += '--offline'
     }
@@ -619,15 +619,17 @@ flutter pub get failed.
 Attempts:
 $failureText
 
-This is usually a network problem, not a code problem.
+The committed lockfile may be stale, or dependency access may have failed.
 Try one of these fixes on the build machine:
-  1. Check that the computer can open https://pub.dev/ in a browser.
-  2. If you are in mainland China, run package_windows.ps1 again; the script
+  1. For an intentional dependency change, run flutter pub get at the workspace
+     root, review and commit pubspec.lock, then rerun this script.
+  2. Check that the computer can open https://pub.dev/ in a browser.
+  3. If you are in mainland China, run package_windows.ps1 again; the script
      already retries with:
        PUB_HOSTED_URL=$defaultChinaPubHostedUrl
        FLUTTER_STORAGE_BASE_URL=$defaultChinaFlutterStorageBaseUrl
-  3. If your network requires a proxy, set HTTPS_PROXY/HTTP_PROXY first.
-  4. If all packages are already cached, run:
+  4. If your network requires a proxy, set HTTPS_PROXY/HTTP_PROXY first.
+  5. If all packages are already cached, run:
        .\tool\package_windows.ps1 -OfflinePub
 "@
 }

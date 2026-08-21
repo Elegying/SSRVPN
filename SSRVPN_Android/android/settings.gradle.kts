@@ -1,3 +1,5 @@
+import org.gradle.api.initialization.resolve.RepositoriesMode
+
 pluginManagement {
     val flutterSdkPath = run {
         val properties = java.util.Properties()
@@ -13,6 +15,28 @@ pluginManagement {
         google()
         mavenCentral()
         gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    // Flutter 3.44.1's Gradle plugin unconditionally adds its engine Maven
+    // repository to every project. PREFER_SETTINGS ignores that project
+    // repository while keeping dependency resolution on this allowlist.
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = "Flutter"
+                    url = uri("https://storage.googleapis.com/download.flutter.io")
+                }
+            }
+            filter {
+                includeGroup("io.flutter")
+            }
+        }
     }
 }
 

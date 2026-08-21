@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -17,14 +18,17 @@ class QualityHygieneEntrypointTest(unittest.TestCase):
         self.assertIn("scripts/check-quality-hygiene.sh", verifier)
         self.assertIn("bash scripts/check-quality-hygiene.sh", ci)
         self.assertLess(
-            verifier.index('run_step "Workspace pub get" flutter pub get'),
+            verifier.index(
+                'run_step "Workspace pub get" '
+                "flutter pub get --enforce-lockfile"
+            ),
             verifier.index(
                 'run_step "Source formatting and shell lint" '
                 "scripts/check-quality-hygiene.sh"
             ),
         )
         self.assertLess(
-            ci.index("- run: flutter pub get"),
+            ci.index("- run: flutter pub get --enforce-lockfile"),
             ci.index("- run: bash scripts/check-quality-hygiene.sh"),
         )
 
@@ -38,7 +42,61 @@ class QualityHygieneEntrypointTest(unittest.TestCase):
         self.assertIn("git ls-files -z -- '*.sh'", source)
         self.assertIn("shellcheck", source)
         self.assertIn('.dart_tool/package_config.json', source)
-        self.assertIn('flutter pub get', source)
+        self.assertIn('flutter pub get --enforce-lockfile', source)
+
+    def test_protected_dependency_installs_enforce_committed_lockfile(self) -> None:
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        release = (
+            ROOT / ".github" / "workflows" / "release.yml"
+        ).read_text(encoding="utf-8")
+        verifier = (ROOT / "scripts" / "verify-all.sh").read_text(
+            encoding="utf-8"
+        )
+        hygiene = (
+            ROOT / "scripts" / "check-quality-hygiene.sh"
+        ).read_text(encoding="utf-8")
+        android_release = (
+            ROOT / "SSRVPN_Android" / "build_release.sh"
+        ).read_text(encoding="utf-8")
+        windows_release = (
+            ROOT / "SSRVPN_Windows" / "tool" / "package_windows.ps1"
+        ).read_text(encoding="utf-8")
+
+        protected_sources = {
+            ".github/workflows/ci.yml": ci,
+            ".github/workflows/release.yml": release,
+            "scripts/verify-all.sh": verifier,
+            "scripts/check-quality-hygiene.sh": hygiene,
+            "SSRVPN_Android/build_release.sh": android_release,
+        }
+        unguarded_pub_get = re.compile(
+            r"\b(?:flutter|dart) pub get\b(?![^\n]*--enforce-lockfile)"
+        )
+        for relative_path, source in protected_sources.items():
+            with self.subTest(source=relative_path):
+                self.assertIsNone(unguarded_pub_get.search(source))
+
+        locked_get = "flutter pub get --enforce-lockfile"
+        self.assertEqual(4, ci.count(locked_get))
+        self.assertEqual(4, release.count(locked_get))
+        self.assertNotIn("dart pub get", release)
+        self.assertIn(
+            "$arguments = @('pub', 'get', '--enforce-lockfile')",
+            windows_release,
+        )
+        self.assertIn(
+            "run flutter pub get at the workspace", windows_release
+        )
+        self.assertIn("review and commit pubspec.lock", windows_release)
+
+    def test_developer_workspace_commands_remain_convenient(self) -> None:
+        workspace = (ROOT / "scripts" / "workspace.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertGreaterEqual(workspace.count("flutter pub get"), 2)
+        self.assertNotIn("--enforce-lockfile", workspace)
 
     def test_every_dart_target_enables_strict_language_analysis(self) -> None:
         for relative_path in (

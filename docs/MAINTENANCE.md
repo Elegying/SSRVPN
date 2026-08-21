@@ -65,6 +65,24 @@ This guide keeps local development, GitHub automation, and releases aligned.
 - Pin every third-party action to a full commit SHA. Dependency Review on pull requests
   blocks new moderate-or-higher known vulnerabilities; Dependabot, vulnerability alerts,
   and the Dependency Graph remain the recurring maintenance layer.
+- Keep the protected `Windows` check as the fail-closed aggregate of the parallel
+  policy and installer jobs. The 2026-08-21 baseline was CI p50 15:56 over ten
+  successful runs and Release p50 13:30 over nine releases. After this split,
+  measure the next ten comparable successful runs: target CI p50 at or below
+  14:45 and Release p50 at or below 12:15. Revert the split if it saves less
+  than 60 seconds or Windows runner queueing makes the median worse; never remove
+  coverage, CodeQL, native recovery, or installer smoke to meet the budget.
+- Protected CI, Release, and `make verify` use `pub get --enforce-lockfile`.
+  For an intentional Dart dependency change, run ordinary `flutter pub get`,
+  review and commit the root `pubspec.lock`, then rerun the enforced gate. For
+  an intentional Android Gradle dependency change, regenerate SHA-256 metadata
+  with the pinned wrapper and `--write-verification-metadata sha256`, review only
+  the expected component delta, then resolve again from an empty Gradle home
+  under strict verification. `RepositoriesMode.PREFER_SETTINGS` is intentional:
+  Flutter 3.44.1 unconditionally injects its project Maven repository, while this
+  mode ignores it and resolves `io.flutter` only through the exclusive settings
+  repository. Do not switch to project-preferred resolution; retry
+  `FAIL_ON_PROJECT_REPOS` only after the pinned Flutter plugin stops injecting it.
 
 ## UI Responsibility Map
 

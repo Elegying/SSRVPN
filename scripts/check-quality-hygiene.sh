@@ -17,7 +17,7 @@ if [[ ! -f ".dart_tool/package_config.json" ]]; then
     echo "quality hygiene check failed: flutter is required to resolve the workspace" >&2
     exit 1
   fi
-  flutter pub get
+  flutter pub get --enforce-lockfile
 fi
 
 git ls-files -z -- '*.dart' |

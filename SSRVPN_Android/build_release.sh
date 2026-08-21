@@ -7,7 +7,7 @@ echo "=== 清理旧构建 ==="
 flutter clean
 
 echo "=== 获取依赖 ==="
-flutter pub get
+flutter pub get --enforce-lockfile
 
 echo "=== 静态分析 ==="
 flutter analyze

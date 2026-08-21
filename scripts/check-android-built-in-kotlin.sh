@@ -47,14 +47,14 @@ if "useLegacyPackaging = true" not in app:
     raise SystemExit("native core extraction must use the AGP 9 packaging DSL")
 
 flutter_repository = "https://storage.googleapis.com/download.flutter.io"
-aliyun_repository = "https://maven.aliyun.com/repository/"
-if flutter_repository not in root_build:
+if flutter_repository not in settings:
     raise SystemExit("the official Flutter Maven repository must be explicit")
-if (
-    aliyun_repository in root_build
-    and root_build.index(flutter_repository) > root_build.index(aliyun_repository)
-):
-    raise SystemExit("the official Flutter Maven repository must precede mirrors")
+if "RepositoriesMode.PREFER_SETTINGS" not in settings:
+    raise SystemExit("dependency repositories must prefer the settings allowlist")
+if "exclusiveContent" not in settings or 'includeGroup("io.flutter")' not in settings:
+    raise SystemExit("the Flutter Maven repository must be restricted to io.flutter")
+if "aliyun.com" in (settings + root_build).lower():
+    raise SystemExit("Android dependency resolution must not use Aliyun mirrors")
 
 print("Android build configuration guard passed.")
 PY

@@ -30,3 +30,18 @@ updates:
     labels:
       - "dependencies"
       - "dart"
+  - package-ecosystem: "gradle"
+    directory: "/SSRVPN_Android/android"
+    schedule:
+      interval: "weekly"
+    groups:
+      android-gradle:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "android"
