@@ -58,8 +58,8 @@ class _SubscriptionFilter extends StatelessWidget {
                     children: [
                       _SubscriptionPickerItem(
                         label: '全部订阅',
-                        value: '*',
-                        selected: value == '*',
+                        value: _allSubscriptions,
+                        selected: value == _allSubscriptions,
                       ),
                       ...groups.map(
                         (group) => _SubscriptionPickerItem(
@@ -82,7 +82,7 @@ class _SubscriptionFilter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = value == '*' ? '全部订阅' : value;
+    final label = value == _allSubscriptions ? '全部订阅' : value;
     return Container(
       key: ValueKey('ssrvpn-subscription-filter-$value'),
       child: DecoratedBox(

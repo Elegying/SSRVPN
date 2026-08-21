@@ -16,6 +16,10 @@ part 'ssrvpn_node_selection_node_card.dart';
 
 typedef SsrvpnNodeAction = Future<void> Function(ProxyNode node);
 
+// Subscription groups are trimmed and empty groups are excluded, so the empty
+// string is an unambiguous internal value for the aggregate view.
+const _allSubscriptions = '';
+
 class SsrvpnNodeSelectionPage extends StatefulWidget {
   const SsrvpnNodeSelectionPage({
     super.key,
@@ -77,8 +81,6 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
 }
 
 class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
-  static const _allSubscriptions = '*';
-
   late String? _selectedNodeName;
   late ProxyMode _proxyMode;
   late bool? _enableTun;
