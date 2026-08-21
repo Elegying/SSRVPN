@@ -36,14 +36,17 @@ void main() {
     final source =
         File('lib/screens/subscription_screen.dart').readAsStringSync();
 
+    final stopStart = source.indexOf('stopClash: () async {');
+    final stopEnd = source.indexOf('onNoRunnableNodes:', stopStart);
+    final stopTransaction = source.substring(stopStart, stopEnd);
+
     expect(
-      source,
-      matches(
-        RegExp(
-          r'clashRunning:\s*clashService\.isRunning\s*\|\|\s*'
-          r'clashService\.connectionDesired',
-        ),
-      ),
-    );
+        stopTransaction, contains('final wasRunning = clashService.isRunning'));
+    expect(stopTransaction, contains('clashService.connectionDesired'));
+    expect(stopTransaction,
+        contains('clashService.nativeConnectionTransitioning'));
+    expect(stopTransaction, contains('requestConnectionIntent(false)'));
+    expect(stopTransaction, contains('return wasRunning'));
+    expect(source, isNot(contains('clashRunning:')));
   });
 }
