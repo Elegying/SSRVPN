@@ -51,7 +51,8 @@ class DetachedTunFdOwnerTest {
         val earlyErrors = listOf(
             "already running",
             "read config: missing config.yaml",
-            "parse config: invalid field"
+            "parse config: invalid field",
+            "protect monitor is unavailable"
         )
 
         earlyErrors.forEachIndexed { index, bridgeError ->
@@ -78,7 +79,8 @@ class DetachedTunFdOwnerTest {
             "unknown bridge error",
             "read config:",
             "parse config:",
-            "already running "
+            "already running ",
+            "protect monitor is unavailable "
         )
 
         ambiguousErrors.forEachIndexed { index, bridgeError ->

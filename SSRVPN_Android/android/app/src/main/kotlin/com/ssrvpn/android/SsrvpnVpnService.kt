@@ -840,11 +840,12 @@ class SsrvpnVpnService : VpnService() {
     private fun stopAllOnWorker(): Boolean {
         Log.d(TAG, "Stopping...")
         stopNotificationUpdates()
-        val activeProtectMonitor = protectMonitor
-        activeProtectMonitor?.stop()
+        val activeProtectMonitor = protectMonitor.also { it?.stop() }
         protectMonitor = null
+        serviceStartThread?.interrupt()
+        stopBridgeWithTimeout() // Cancel any Start already inside native code.
         val pendingStartStopped = waitForPendingStart()
-        val bridgeStopped = pendingStartStopped && stopBridgeWithTimeout()
+        val bridgeStopped = stopBridgeWithTimeout() // Catch any later native Start.
         val retainedLease = vpnFd.also { vpnFd = null }
         val tunReleased = TunReleaseVerifier.releaseOwnedLeaseAndWait(
             bridgeStopped = bridgeStopped,

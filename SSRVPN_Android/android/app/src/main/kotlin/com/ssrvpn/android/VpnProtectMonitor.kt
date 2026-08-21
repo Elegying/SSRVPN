@@ -25,12 +25,29 @@ internal object VpnProtectMonitor {
         reportResult: (Boolean) -> Unit
     ): Monitor? {
         if (protectReadFd <= 0L) return null
-        // Bridge retains the raw descriptor until Bridge.stop(). Read from a
-        // duplicate so native cleanup cannot invalidate Java's monitor mid-run.
-        val input = ParcelFileDescriptor.AutoCloseInputStream(
-            ParcelFileDescriptor.fromFd(protectReadFd.toInt())
-        )
-        return start(input, protectSocket, reportResult)
+        // Bridge transferred this duplicate descriptor to Kotlin. Adopt it so
+        // exactly one owner closes it, independently of Bridge.stop() closing
+        // Go's original pipe reader.
+        val descriptor = ParcelFileDescriptor.adoptFd(protectReadFd.toInt())
+        val input = try {
+            ParcelFileDescriptor.AutoCloseInputStream(descriptor)
+        } catch (failure: Throwable) {
+            closeAfterFailure(descriptor, failure)
+        }
+        return try {
+            start(input, protectSocket, reportResult)
+        } catch (failure: Throwable) {
+            closeAfterFailure(input, failure)
+        }
+    }
+
+    private fun closeAfterFailure(resource: AutoCloseable, failure: Throwable): Nothing {
+        try {
+            resource.close()
+        } catch (closeFailure: Throwable) {
+            failure.addSuppressed(closeFailure)
+        }
+        throw failure
     }
 
     internal fun start(
