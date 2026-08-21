@@ -98,6 +98,9 @@ function Get-SsrvpnTunOwnership {
         }
         $discoverFromBaseline = $baselineGuids.Count -gt 0
       }
+      if ($owned.Count -eq 0 -and $baselineGuids.Count -eq 0) {
+        throw 'SSRVPN TUN ownership marker does not contain usable ownership evidence.'
+      }
     }
   }
 

@@ -715,6 +715,11 @@ String encodeWindowsTunTeardownMarker(
   Set<WindowsTunInterfaceIdentity> interfaces, {
   required Set<WindowsTunInterfaceIdentity> baselineInterfaces,
 }) {
+  if (interfaces.isEmpty && baselineInterfaces.isEmpty) {
+    throw ArgumentError(
+      'TUN teardown marker requires owned or baseline interfaces',
+    );
+  }
   final sorted = interfaces.toList()
     ..sort((left, right) {
       final byGuid = left.interfaceGuid.compareTo(right.interfaceGuid);
@@ -790,6 +795,7 @@ WindowsTunTeardownMarkerSnapshot? decodeWindowsTunTeardownMarker(
         ? decodeInterfaces(decoded['baselineInterfaces'])
         : const <WindowsTunInterfaceIdentity>{};
     if (baseline == null) return null;
+    if (interfaces.isEmpty && baseline.isEmpty) return null;
     return (
       interfaces: interfaces,
       baselineInterfaces: baseline,
