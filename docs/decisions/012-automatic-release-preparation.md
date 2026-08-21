@@ -35,9 +35,13 @@ push 不会递归启动新 workflow，但 GitHub 明确允许它创建 `workflow
    并按受保护分支规则 rebase 合并。分支 CI 失败且 PR 尚未创建时，精确删除本次临时分支；
    已创建 PR 的失败状态保留供诊断。
 4. 合并后必须确认远端 `main` 等于 GitHub 报告的合并提交，且 Git tree 与已验证分支完全
-   一致。无论 GeoIP 是否变化，都在精确最终 `main` 上再次显式调度完整 CI；CI 结束后
-   再次以只读方式确认 GeoIP 仍是上游 `latest`，并在 tag 创建前最后复核 `main`；GeoIP
-   滚动或 `main` 前移都会中止流程。
+   一致。在精确最终 `main` 上，仅可复用 24 小时内、同仓库、同 `main` SHA、
+   事件为 `push` 或 `workflow_dispatch` 的成功 CI。复用前必须通过 workflow API 确认
+   路径精确为 `.github/workflows/ci.yml`，再通过 jobs API 确认版本化策略中的
+   九项必需名称各出现且仅出现一次；只有 `Dependency review` 可为 `skipped`，其余
+   必须为 `success`。无合格运行或已过期时显式调度完整 CI；API、JSON 或身份状态
+   不明时失败关闭，不允许回退调度后继续。CI 通过后再次以只读方式确认 GeoIP 仍是
+   上游 `latest`，并在 tag 创建前最后复核 `main`；GeoIP 滚动或 `main` 前移都会中止流程。
 5. 只有精确 `main` CI 成功且再次确认同名 tag/Release 不存在，才创建 annotated tag 并推送。
    因 `GITHUB_TOKEN` push 不递归触发工作流，编排使用 GitHub 当前 REST API 的
    `workflow_dispatch` 响应取得精确 run ID 和 URL，显式启动 tag 上的 `release.yml` 并等待
@@ -59,8 +63,9 @@ push 不会递归启动新 workflow，但 GitHub 明确允许它创建 `workflow
 - GeoIP 更新仍有独立提交、PR、双哈希和不可变镜像，tag 不包含运行时生成的隐式输入。
 - 分支 CI 与最终 `main` CI 都必须成功；任何创建 tag 前发现的竞态、已有 tag/Release 或外部
   状态歧义都会停在新 tag 创建前。tag 推送后的故障保留不可变 tag，转入精确 Release 重试。
-- 自动准备会增加一次 CI；GeoIP 发生变化时会运行两次 CI。这是保护精确合并提交和分支规则
-  的有意成本，不以减少验证换取速度。
+- 若精确 `main` 已有可安全复用的近期 CI，自动准备不再重复构建；否则仍运行完整 CI。
+  GeoIP 发生变化时，临时分支 CI 仍保留，且合并后无合格精确 `main` CI 时仍再调度一次；
+  提速不减少必需验证。
 - Release 启动后仍可能等待 `release` environment 批准；该批准保护正式发布凭据，不由准备
   workflow 绕过。
 
@@ -85,8 +90,11 @@ push 不会递归启动新 workflow，但 GitHub 明确允许它创建 `workflow
 
 ## 验证守卫
 
+- `scripts/test_find_reusable_main_ci.py` 以伪 `gh` 验证精确运行身份、24 小时边界、
+  九项 job 的唯一性/结论，以及 API/JSON 异常失败关闭。
 - `scripts/test_prepare_release_workflow.py` 以伪 GitHub API 和伪 Git 远端验证有变化、无变化、
-  分支/最终 CI 失败和 tag 后调度失败，并检查 PR、双 CI、tag、Release 调度与不可逆边界。
+  安全复用/回退调度、分支/最终 CI 失败和 tag 后调度失败，并检查 PR、tag、
+  Release 调度与不可逆边界。
 - `scripts/test_geoip_workflow.py` 继续覆盖上游身份、确定性 gzip、镜像回读、重定向和竞态。
 - `scripts/test_verify_release_transition.py` 继续禁止 `release.yml` 动态改写 GeoIP，并保护 tag、
   provenance、OSS 和精确 Release 重试边界。
@@ -96,6 +104,9 @@ push 不会递归启动新 workflow，但 GitHub 明确允许它创建 `workflow
 
 - [GitHub：从工作流触发工作流](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)
 - [GitHub：Create a workflow dispatch event](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event)
+- [GitHub：Get a workflow](https://docs.github.com/en/rest/actions/workflows#get-a-workflow)
+- [GitHub：List workflow runs for a workflow](https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-workflow)
+- [GitHub：List jobs for a workflow run](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run)
 - [GitHub：受保护分支](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)
 
 ## 相关文档
