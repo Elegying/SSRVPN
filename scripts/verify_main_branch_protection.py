@@ -77,6 +77,14 @@ def verify(expected: dict[str, Any], actual: dict[str, Any]) -> None:
             raise ProtectionError(
                 f"required_pull_request_reviews.{rule} does not match"
             )
+    bypass_allowances = actual_reviews.get("bypass_pull_request_allowances")
+    if isinstance(bypass_allowances, dict) and any(
+        bypass_allowances.get(actor_type)
+        for actor_type in ("users", "teams", "apps")
+    ):
+        raise ProtectionError("pull request bypass allowances must remain empty")
+    if bypass_allowances is not None and not isinstance(bypass_allowances, dict):
+        raise ProtectionError("pull request bypass allowances are invalid")
 
     if expected.get("restrictions") is not None or actual.get("restrictions") is not None:
         raise ProtectionError("restrictions must remain null")

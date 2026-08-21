@@ -58,6 +58,13 @@ class MainBranchProtectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ProtectionError, "enforce_admins"):
             verify(self.policy, bypass)
 
+        review_bypass = _actual_from(self.policy)
+        review_bypass["required_pull_request_reviews"][
+            "bypass_pull_request_allowances"
+        ] = {"users": [{"login": "maintainer"}], "teams": [], "apps": []}
+        with self.assertRaisesRegex(ProtectionError, "bypass allowances"):
+            verify(self.policy, review_bypass)
+
 
 if __name__ == "__main__":
     unittest.main()
