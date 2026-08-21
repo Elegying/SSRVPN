@@ -171,6 +171,17 @@ and run both platform suites for shared desktop changes.
    to the `Release` workflow. The protected branch requires the exact nine
    GitHub Actions checks recorded in `.github/main-branch-protection.json`; the
    orchestrator verifies that policy twice and does not bypass or impersonate it.
+   If GitHub protection drifts, restore and verify the reviewed policy before
+   continuing:
+
+   ```bash
+   gh api --method PUT repos/Elegying/SSRVPN/branches/main/protection \
+     --input .github/main-branch-protection.json
+   gh api repos/Elegying/SSRVPN/branches/main/protection | \
+     python3 scripts/verify_main_branch_protection.py \
+       --expected .github/main-branch-protection.json
+   ```
+
    If automated preparation is unavailable, use `Maintenance > geoip-refresh` as
    the manual fallback, merge its PR, wait for `main` CI, and only then create the
    application tag.
