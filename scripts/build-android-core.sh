@@ -16,11 +16,19 @@ fail() {
 }
 
 test -n "$OUTPUT" || fail "usage: scripts/build-android-core.sh OUTPUT_SO"
+case "$OUTPUT" in
+  /*) ;;
+  *) OUTPUT="$ROOT/$OUTPUT" ;;
+esac
 
 GO_BIN="${GO_BIN:-$(command -v go || true)}"
 test -x "$GO_BIN" || fail "Go $GO_VERSION is required; set GO_BIN to its go executable"
 test "$($GO_BIN version | awk '{print $3}')" = "$GO_VERSION" ||
   fail "Go $GO_VERSION is required, got $($GO_BIN version)"
+GO_MODULE_CACHE="${GOMODCACHE:-$("$GO_BIN" env GOMODCACHE)}"
+GO_BUILD_CACHE="${GOCACHE:-$("$GO_BIN" env GOCACHE)}"
+test -n "$GO_MODULE_CACHE" || fail "Go module cache path is unavailable"
+test -n "$GO_BUILD_CACHE" || fail "Go build cache path is unavailable"
 
 ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 test -n "$ANDROID_SDK_ROOT" || fail "ANDROID_SDK_ROOT or ANDROID_HOME is required"
@@ -68,10 +76,13 @@ test "$(git -C "$SOURCE_DIR" rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE" ||
 
 mkdir -p "$SOURCE_DIR/bridge"
 cp "$ROOT/SSRVPN_Android/native/bridge/bridge.go" "$SOURCE_DIR/bridge/bridge.go"
+cp "$ROOT/SSRVPN_Android/native/bridge/bridge_test.go" "$SOURCE_DIR/bridge/bridge_test.go"
 
 export GOTOOLCHAIN=local
 export GOPATH="$GOPATH_DIR"
 export GOBIN="$GOBIN_DIR"
+export GOMODCACHE="$GO_MODULE_CACHE"
+export GOCACHE="$GO_BUILD_CACHE"
 PATH="$(dirname "$GO_BIN"):$GOBIN_DIR:$JAVA_HOME/bin:$PATH"
 export PATH
 export ANDROID_HOME="$ANDROID_SDK_ROOT"
@@ -83,6 +94,7 @@ export NDK_HOME="$ANDROID_NDK_HOME"
 
 cd "$SOURCE_DIR"
 "$GO_BIN" get -tool "golang.org/x/mobile/cmd/gobind@$MOBILE_VERSION"
+GOFLAGS=-trimpath "$GO_BIN" test -tags=with_gvisor,cmfa ./bridge
 GOFLAGS=-trimpath gomobile bind \
   -target=android/arm64 \
   -androidapi=24 \
