@@ -54,9 +54,36 @@ class AndroidCoreSourceTests(unittest.TestCase):
             'cfg.General.Tun.DNSHijack = []string{"any:53"}',
             'netip.MustParsePrefix("10.0.0.2/32")',
             "binary.LittleEndian.PutUint32(encoded[:], uint32(fd))",
-            "if !<-protectResult",
+            "if !<-resultChannel",
         ):
             self.assertIn(statement, self.source)
+
+    def test_socket_protection_serializes_each_request_with_its_result(self) -> None:
+        hook_start = self.source.index("dialer.DefaultSocketHook = func(")
+        hook_end = self.source.index(
+            'log.Infoln("Bridge: protect hook installed (sync)")', hook_start
+        )
+        body = self.source[hook_start:hook_end]
+        for statement in (
+            "protectRequestMu.Lock()",
+            "defer protectRequestMu.Unlock()",
+            "connection.Control",
+            "protectWriter.Write",
+            "<-resultChannel",
+        ):
+            self.assertIn(statement, body)
+        self.assertLess(
+            body.index("protectRequestMu.Lock()"), body.index("connection.Control")
+        )
+        self.assertLess(body.index("protectWriter.Write"), body.index("<-resultChannel"))
+
+        reporter = re.search(
+            r"func SetProtectResult\(ok bool\) \{(?P<body>.*?)\n\}",
+            self.source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(reporter)
+        self.assertNotIn("protectRequestMu", reporter.group("body"))
 
 
 if __name__ == "__main__":
