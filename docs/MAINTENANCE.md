@@ -76,9 +76,32 @@ This guide keeps local development, GitHub automation, and releases aligned.
   For an intentional Dart dependency change, run ordinary `flutter pub get`,
   review and commit the root `pubspec.lock`, then rerun the enforced gate. For
   an intentional Android Gradle dependency change, regenerate SHA-256 metadata
-  with the pinned wrapper and `--write-verification-metadata sha256`, review only
-  the expected component delta, then resolve again from an empty Gradle home
-  under strict verification. `RepositoriesMode.PREFER_SETTINGS` is intentional:
+  from the repository root with the exact task matrix below, review only the
+  expected component delta, then resolve the same matrix again from an empty
+  Gradle home under strict verification:
+
+  ```bash
+  (
+    set -euo pipefail
+    cd SSRVPN_Android
+    flutter pub get --enforce-lockfile
+    flutter build apk --debug --config-only --no-pub
+    cd android
+    ./gradlew --no-daemon --write-verification-metadata sha256 \
+      app:dependencies app:testDebugUnitTest app:assembleRelease
+
+    gradle_verification_home="$(mktemp -d)"
+    trap 'rm -rf "$gradle_verification_home"' EXIT
+    GRADLE_USER_HOME="$gradle_verification_home" \
+      ./gradlew --no-daemon --dependency-verification=strict \
+        app:dependencies app:testDebugUnitTest app:assembleRelease
+    cd ../..
+    scripts/test-android-native.sh
+  )
+  ```
+
+  Do not hand-edit checksum entries or reuse a populated Gradle home for the
+  strict pass. `RepositoriesMode.PREFER_SETTINGS` is intentional:
   Flutter 3.44.1 unconditionally injects its project Maven repository, while this
   mode ignores it and resolves `io.flutter` only through the exclusive settings
   repository. Do not switch to project-preferred resolution; retry
@@ -176,16 +199,32 @@ and run both platform suites for shared desktop changes.
    downloaded content. A `latest` rollover during verification is a failure, not
    permission to accept either snapshot.
 
-3. Verify the free Android self-signed keystore secrets are available. Desktop
+3. Verify the free Android self-signed keystore secrets and the
+   `ANDROID_RELEASE_CERT_SHA256` Actions Variable are available. Desktop
    releases always use the documented free path: macOS ad-hoc without
    notarization and Windows without Authenticode. Do not add Apple/Microsoft
    certificate secrets or paid-signing branches. See `docs/RELEASE_SIGNING.md`.
+   `Prepare Release` also requires repository secret
+   `BRANCH_PROTECTION_READ_TOKEN`: a fine-grained PAT restricted to
+   `Elegying/SSRVPN` with only Repository Administration read access (Metadata
+   read is implicit). Configure it without printing the token:
+
+   ```bash
+   gh secret set BRANCH_PROTECTION_READ_TOKEN --repo Elegying/SSRVPN
+   ```
+
+   The normal `GITHUB_TOKEN` remains responsible for Actions, contents, and PR
+   writes; the read-only token is injected only into the two classic branch
+   protection API reads and is removed from the inherited environment.
 4. Start GitHub Actions `Prepare Release` with the matching new `vX.Y.Z` tag. It
-   automatically refreshes GeoIP, verifies the temporary branch, creates and
-   rebase-merges the source-record PR, reruns CI on the exact merged `main`,
-   creates the annotated tag, and dispatches `Release`. Do not create the tag
-   manually first.
-5. Confirm both preparation CI runs are green and watch the automatic handoff
+   automatically refreshes GeoIP. Only when the source record changes does it
+   push a branch and create a PR; approve that PR's pending workflow in GitHub
+   Actions within 30 minutes. The orchestrator then waits for the protected PR
+   checks, rebase-merges it, and either reuses a qualifying exact-`main` CI run
+   or dispatches one. It finally creates the annotated tag and dispatches
+   `Release`. Do not create the tag manually first.
+5. Confirm the protected PR checks (when a GeoIP PR is needed) and exact-`main`
+   CI evidence are green, then watch the automatic handoff
    to the `Release` workflow. The protected branch requires the exact nine
    GitHub Actions checks recorded in `.github/main-branch-protection.json`; the
    orchestrator verifies that policy twice and does not bypass or impersonate it.

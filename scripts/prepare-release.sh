@@ -15,6 +15,8 @@ branch_pushed=false
 pr_number=""
 merged=false
 protection_policy=".github/main-branch-protection.json"
+branch_protection_read_token="${BRANCH_PROTECTION_READ_TOKEN:-}"
+unset BRANCH_PROTECTION_READ_TOKEN
 
 fail() {
   echo "::error::$*" >&2
@@ -35,7 +37,10 @@ PY
 )"
 
 verify_main_branch_protection() {
-  gh api \
+  if [ -z "$branch_protection_read_token" ]; then
+    fail "BRANCH_PROTECTION_READ_TOKEN is required to verify main protection"
+  fi
+  GH_TOKEN="$branch_protection_read_token" gh api \
     -H "X-GitHub-Api-Version: 2022-11-28" \
     "repos/$repo/branches/main/protection" |
     python3 scripts/verify_main_branch_protection.py \

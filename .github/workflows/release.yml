@@ -705,7 +705,8 @@ jobs:
             fi
             ossutil cp "$file" "oss://$OSS_BUCKET/$release_prefix/$name" \
               --ignore-existing
-            curl -fsSL --retry 3 --connect-timeout 10 --max-time 180 \
+            curl -fsSL --proto '=https' --proto-redir '=https' \
+              --retry 3 --connect-timeout 10 --max-time 180 \
               --max-filesize 314572800 "$object_url" -o "$downloaded"
             cmp "$file" "$downloaded"
           done
@@ -899,19 +900,12 @@ jobs:
           manifest_matches=false
           for attempt in 1 2 3 4 5; do
             manifest_request_url="${public_manifest_url}?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}"
-            if curl -fsSL --retry 3 --connect-timeout 10 --max-time 30 \
+            if curl -fsSL --proto '=https' --proto-redir '=https' \
+                --retry 3 --connect-timeout 10 --max-time 30 \
                 --max-filesize 1048576 \
                 -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
                 "$manifest_request_url" -o "$manifest_json" &&
-              python3 - "$manifest_json" "${tag#v}" <<'PY'
-          import json
-          import sys
-
-          with open(sys.argv[1], encoding="utf-8") as source:
-              manifest = json.load(source)
-          if manifest.get("version") != sys.argv[2]:
-              raise SystemExit(1)
-          PY
+              cmp artifacts/oss/latest.json "$manifest_json"
             then
               manifest_matches=true
               break

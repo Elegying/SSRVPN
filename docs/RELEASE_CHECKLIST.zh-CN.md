@@ -98,8 +98,11 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 
 ## 发布
 
-1. 运行 `Prepare Release`。GeoIP 有变化时，它先把只修改 `GEOIP_SOURCE.txt` 的临时分支交给
-   九项必需 CI；全绿后创建并 rebase 合并 PR。随后验证合并后的精确 `main` 提交；
+1. 首次运行前，将仅授权 `Elegying/SSRVPN`、Repository Administration read-only 的
+   fine-grained PAT 保存为 repository secret `BRANCH_PROTECTION_READ_TOKEN`。随后运行
+   `Prepare Release`。GeoIP 有变化时，它推送只修改 `GEOIP_SOURCE.txt` 的临时分支，创建 PR，
+   维护者须在 30 分钟内到 GitHub Actions 批准该 PR 的待运行 workflow；编排等待关联的
+   九项必需检查全绿后 rebase 合并。随后验证合并后的精确 `main` 提交；
    若已有 24 小时内同仓库、同 `main` SHA 的成功 `push`/`workflow_dispatch` CI，
    且工作流路径与九项必需 job 的唯一性、结论均通过精确验证，则安全复用。
    无合格记录或已过期时仍按原路径调度；API/JSON 状态不明时失败关闭，不得当作
