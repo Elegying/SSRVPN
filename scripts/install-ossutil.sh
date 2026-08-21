@@ -8,7 +8,11 @@ install_dir="${1:?install directory is required}"
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
 
-curl -fsSLo "$work_dir/$archive" \
+curl --fail --silent --show-error --location \
+  --proto '=https' --proto-redir '=https' \
+  --retry 3 --connect-timeout 10 --max-time 180 \
+  --max-filesize 104857600 \
+  --output "$work_dir/$archive" \
   "https://gosspublic.alicdn.com/ossutil/v2/$version/$archive"
 printf '%s  %s\n' "$expected_sha256" "$work_dir/$archive" | sha256sum -c -
 unzip -q "$work_dir/$archive" -d "$work_dir"

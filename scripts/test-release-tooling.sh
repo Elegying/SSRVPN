@@ -19,6 +19,7 @@ python3 -m unittest \
   scripts/test_generate_release_notes.py \
   scripts/test_generate_release_provenance.py \
   scripts/test_macos_dmg_layout.py \
+  scripts/test_oss_network_boundaries.py \
   scripts/test_promote_oss_public_channel.py \
   scripts/test_prepare_release_workflow.py \
   scripts/test_quality_hygiene_entrypoint.py \
