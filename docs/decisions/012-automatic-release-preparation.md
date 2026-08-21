@@ -31,7 +31,7 @@ push 不会递归启动新 workflow，但 GitHub 明确允许它创建 `workflow
    同步、内容寻址镜像上传与公共回读验证。任何 API、摘要、重定向、镜像或工作树状态不明确
    都失败关闭。
 3. GeoIP 有变化时，只提交 `docs/GEOIP_SOURCE.txt` 到本次运行专属临时分支。编排先通过
-   `workflow_dispatch` 在该提交上运行现有六项必需 CI；全绿且 `main` 未前移后才创建 PR，
+   `workflow_dispatch` 在该提交上运行现有九项必需 CI；全绿且 `main` 未前移后才创建 PR，
    并按受保护分支规则 rebase 合并。分支 CI 失败且 PR 尚未创建时，精确删除本次临时分支；
    已创建 PR 的失败状态保留供诊断。
 4. 合并后必须确认远端 `main` 等于 GitHub 报告的合并提交，且 Git tree 与已验证分支完全
@@ -49,6 +49,9 @@ push 不会递归启动新 workflow，但 GitHub 明确允许它创建 `workflow
    ADR-011 定义的不可变身份校验。
 7. `Maintenance > geoip-refresh` 保留为手动恢复入口，不再是正常发版的必需步骤，也不获得
    schedule 触发器。
+8. `.github/main-branch-protection.json` 是 `main` 保护策略和九项必需检查的版本化真源。
+   `Prepare Release` 在任何可变资产操作前以及创建 tag 前分别回读 GitHub API 并精确比较；
+   保护不存在、检查集合漂移、检查应用身份变化或管理员可绕过时一律停止。
 
 ## 结果
 

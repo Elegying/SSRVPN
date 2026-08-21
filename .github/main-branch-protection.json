@@ -1,0 +1,31 @@
+{
+  "required_status_checks": {
+    "strict": true,
+    "checks": [
+      {"context": "Full-history secret scan", "app_id": 15368},
+      {"context": "Dependency review", "app_id": 15368},
+      {"context": "CodeQL (Actions)", "app_id": 15368},
+      {"context": "Prepare verified core assets", "app_id": 15368},
+      {"context": "macOS native unit tests", "app_id": 15368},
+      {"context": "Workspace checks", "app_id": 15368},
+      {"context": "Android", "app_id": 15368},
+      {"context": "macOS", "app_id": 15368},
+      {"context": "Windows", "app_id": 15368}
+    ]
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "dismiss_stale_reviews": false,
+    "require_code_owner_reviews": false,
+    "required_approving_review_count": 0,
+    "require_last_push_approval": false
+  },
+  "restrictions": null,
+  "required_linear_history": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "block_creations": false,
+  "required_conversation_resolution": true,
+  "lock_branch": false,
+  "allow_fork_syncing": false
+}

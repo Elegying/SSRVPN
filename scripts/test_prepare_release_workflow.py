@@ -36,11 +36,20 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
             scripts = root / "scripts"
             fake_bin = root / "fake-bin"
             docs = root / "docs"
+            github = root / ".github"
             shared = root / "packages" / "ssrvpn_shared" / "lib" / "constants"
             android = root / "SSRVPN_Android"
-            for directory in (scripts, fake_bin, docs, shared, android):
+            for directory in (scripts, fake_bin, docs, github, shared, android):
                 directory.mkdir(parents=True, exist_ok=True)
             shutil.copy2(PREPARER, scripts / PREPARER.name)
+            shutil.copy2(
+                ROOT / "scripts" / "verify_main_branch_protection.py",
+                scripts / "verify_main_branch_protection.py",
+            )
+            shutil.copy2(
+                ROOT / ".github" / "main-branch-protection.json",
+                github / "main-branch-protection.json",
+            )
             (docs / "GEOIP_SOURCE.txt").write_text(
                 "Release tag: 2026-08-02\n", encoding="utf-8"
             )
@@ -156,6 +165,10 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                 shift || true
                 case "$command" in
                   api)
+                    if [[ "$*" == *'/branches/main/protection'* ]]; then
+                      printf '{}\n'
+                      exit 0
+                    fi
                     if [[ "$*" == *'/releases/tags/'* ]]; then
                       printf 'gh: Not Found (HTTP 404)\n' >&2
                       exit 1
@@ -197,7 +210,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                         ;;
                       checks)
                         if [[ "$*" == *"--jq length"* ]]; then
-                          printf '6\n'
+                          printf '9\n'
                         elif [ "$FAKE_FAIL_BRANCH_CI" = true ]; then
                           exit 1
                         fi
@@ -288,6 +301,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
     def test_preparer_tags_only_after_geoip_and_exact_main_ci(self) -> None:
         preparer = PREPARER.read_text(encoding="utf-8")
 
+        protection = preparer.index("verify_main_branch_protection")
         bootstrap = preparer.index("bash scripts/bootstrap-core-assets.sh")
         sync = preparer.index("python3 scripts/sync-geoip-metadb.py")
         mirror = preparer.index("python3 scripts/ensure-geoip-mirror.py --upload")
@@ -305,6 +319,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         push_tag = preparer.index('git push origin "refs/tags/$tag"')
         release = preparer.index('dispatch_workflow "release.yml" "$tag"')
 
+        self.assertLess(protection, bootstrap)
         self.assertLess(bootstrap, sync)
         self.assertLess(sync, mirror)
         self.assertLess(mirror, verify)
