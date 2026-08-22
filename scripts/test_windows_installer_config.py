@@ -2414,8 +2414,42 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         setup = installer.split("[Setup]", 1)[1].split("[Languages]", 1)[0]
         self.assertIn("VersionInfoVersion={#AppVersion}", setup)
+        self.assertIn(
+            "function Assert-PeVersionMetadataPolicy",
+            package_smoke,
+        )
+        self.assertIn("Assert-PeVersionMetadataPolicy\n\ntry {", package_smoke)
         self.assertIn("function Assert-PeVersionMetadata", package_smoke)
         self.assertIn("[System.Diagnostics.FileVersionInfo]", package_smoke)
+        metadata_check = package_smoke.split(
+            "function ConvertFrom-PeVersionMetadataValue", 1
+        )[1].split("function Assert-MicrosoftRuntimeProvenance", 1)[0]
+        self.assertIn(
+            r"\A(?<version>[0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)"
+            r"[\x00\x20]*\z",
+            metadata_check,
+        )
+        self.assertIn("$match = [regex]::Match($Value,", metadata_check)
+        self.assertIn(
+            "return $match.Groups['version'].Value",
+            metadata_check,
+        )
+        self.assertNotIn(".Trim", metadata_check)
+        self.assertIn("$actual = [version]$normalizedValue", metadata_check)
+        self.assertIn(
+            "[string]::Concat([string]$nul, '4.0.15')",
+            metadata_check,
+        )
+        self.assertNotIn("($nul + '4.0.15')", metadata_check)
+        self.assertIn(
+            "$expectedRevision = if ($Expected.Revision -ge 0)",
+            metadata_check,
+        )
+        self.assertIn(
+            "$actualRevision = if ($Actual.Revision -ge 0)",
+            metadata_check,
+        )
+        self.assertIn("$actualRevision -eq $expectedRevision", metadata_check)
         self.assertIn("-Path $sourceInstaller", package_smoke)
         self.assertIn("-ExpectedInternalName 'ssrvpn_windows'", package_smoke)
         self.assertIn(

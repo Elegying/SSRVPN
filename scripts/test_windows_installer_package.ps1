@@ -142,6 +142,81 @@ function Assert-InstallerPreserved {
   }
 }
 
+function ConvertFrom-PeVersionMetadataValue {
+  param([AllowEmptyString()][string]$Value)
+
+  # PE string fields may be right-padded; no other whitespace is valid here.
+  $match = [regex]::Match($Value,
+    '\A(?<version>[0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)[\x00\x20]*\z')
+  if (-not $match.Success) {
+    return $null
+  }
+  return $match.Groups['version'].Value
+}
+
+function Test-PeVersionEquivalent {
+  param(
+    [Parameter(Mandatory = $true)][version]$Actual,
+    [Parameter(Mandatory = $true)][version]$Expected
+  )
+
+  $actualRevision = if ($Actual.Revision -ge 0) { $Actual.Revision } else { 0 }
+  $expectedRevision = if ($Expected.Revision -ge 0) {
+    $Expected.Revision
+  } else {
+    0
+  }
+  return (
+    $Actual.Major -eq $Expected.Major -and
+    $Actual.Minor -eq $Expected.Minor -and
+    $Actual.Build -eq $Expected.Build -and
+    $actualRevision -eq $expectedRevision
+  )
+}
+
+function Assert-PeVersionMetadataPolicy {
+  $nul = [char]0
+  $accepted = @(
+    [pscustomobject]@{ Raw = '4.0.15'; Canonical = '4.0.15' },
+    [pscustomobject]@{ Raw = '4.0.15.0'; Canonical = '4.0.15.0' },
+    [pscustomobject]@{ Raw = '4.0.15   '; Canonical = '4.0.15' },
+    [pscustomobject]@{ Raw = "4.0.15$nul"; Canonical = '4.0.15' },
+    [pscustomobject]@{ Raw = "4.0.15 $nul "; Canonical = '4.0.15' }
+  )
+  foreach ($case in $accepted) {
+    $canonical = ConvertFrom-PeVersionMetadataValue -Value $case.Raw
+    if ($canonical -cne $case.Canonical) {
+      throw 'PE version metadata policy rejected a valid padding case.'
+    }
+  }
+
+  $rejected = @(
+    '', ' 4.0.15', [string]::Concat([string]$nul, '4.0.15'), '4.0 .15',
+    ('4.0' + $nul + '.15'), "4.0.15`t", "4.0.15`r", "4.0.15`n",
+    '4.0.15-beta', '4.0.15.0.1',
+    (([string][char]0xFF14) + '.0.15')
+  )
+  foreach ($value in $rejected) {
+    if ($null -ne (ConvertFrom-PeVersionMetadataValue -Value $value)) {
+      throw 'PE version metadata policy accepted an invalid case.'
+    }
+  }
+
+  $expected = [version]'4.0.15'
+  foreach ($equivalent in @('4.0.15', '4.0.15.0')) {
+    if (-not (Test-PeVersionEquivalent `
+        -Actual ([version]$equivalent) -Expected $expected)) {
+      throw 'PE version metadata policy rejected an equivalent version.'
+    }
+  }
+  foreach ($mismatch in @('5.0.15', '4.1.15', '4.0.16', '4.0.15.1')) {
+    if (Test-PeVersionEquivalent `
+        -Actual ([version]$mismatch) -Expected $expected) {
+      throw 'PE version metadata policy accepted a version mismatch.'
+    }
+  }
+}
+
 function Assert-PeVersionMetadata {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
@@ -154,16 +229,13 @@ function Assert-PeVersionMetadata {
   $versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Path)
   foreach ($propertyName in @('FileVersion', 'ProductVersion')) {
     $value = [string]$versionInfo.$propertyName
-    if ($value -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') {
-      throw "$Path has invalid PE $propertyName metadata: $value"
+    $normalizedValue = ConvertFrom-PeVersionMetadataValue -Value $value
+    if ($null -eq $normalizedValue) {
+      throw "$Path has invalid PE $propertyName metadata."
     }
-    $actual = [version]$value
-    if ($actual.Major -ne $expected.Major -or
-        $actual.Minor -ne $expected.Minor -or
-        $actual.Build -ne $expected.Build -or
-        ($expected.Revision -ge 0 -and
-          $actual.Revision -ne $expected.Revision)) {
-      throw "$Path has PE $propertyName $value; expected $ExpectedVersion."
+    $actual = [version]$normalizedValue
+    if (-not (Test-PeVersionEquivalent -Actual $actual -Expected $expected)) {
+      throw "$Path has PE $propertyName $normalizedValue; expected $ExpectedVersion."
     }
   }
   if ($ExpectedInternalName -and
@@ -542,6 +614,9 @@ foreach ($shortcutPath in @(
     throw "Refusing to overwrite a pre-existing smoke-test shortcut: $shortcutPath"
   }
 }
+
+Assert-PeVersionMetadataPolicy
+
 try {
   New-LegacyShortcut -Path $userDesktopShortcutPath
   New-LegacyShortcut -Path $userStartMenuShortcutPath
