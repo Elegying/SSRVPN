@@ -39,7 +39,11 @@ String _friendlyStartException(Object error) {
   if (lower.contains('not a valid win32') || lower.contains('不是有效的 win32')) {
     return 'Mihomo 与这台电脑的 Windows 架构不兼容，本版本仅支持 64 位 Windows';
   }
-  return '启动 Mihomo 时发生异常: $message';
+  // CreateProcess can surface invalid or truncated executables through
+  // localized messages (and, on some Windows runner images, through Dart's
+  // generic process_win.cc fallback). Never expose that raw exception or the
+  // command line: this boundary only needs to tell the user how to recover.
+  return '无法启动 Mihomo，核心文件可能损坏或与 Windows 架构不兼容；请重新安装官方版本后重试';
 }
 
 String? _describeWindowsExitCode(int exitCode) {

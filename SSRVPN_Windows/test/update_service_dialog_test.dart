@@ -564,7 +564,10 @@ void main() {
       orphanMarker.writeAsStringSync(orphanContent, flush: true);
       final orphanModified = orphanMarker.lastModifiedSync();
       canonical.deleteSync();
-      owner.deleteSync(); // Simulate the NTFS ADS disappearing with the EXE.
+      // NTFS removes the ADS with its base file. Other test hosts model the
+      // stream as a regular colon-named sibling, so remove that emulation.
+      if (owner.existsSync()) owner.deleteSync();
+      expect(owner.existsSync(), isFalse);
 
       final alternateName = await UpdateService.installerFileNameForDownload(
         desktop,
