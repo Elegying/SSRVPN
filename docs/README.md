@@ -8,11 +8,12 @@
 ## 用户文档
 
 - [公共用户指南](USER_GUIDE.zh-CN.md)：导入、连接、状态判断、订阅刷新和安全提示。
+- [功能列表](FEATURES.zh-CN.md)：当前三端已实现能力、协议、平台差异和明确不支持项。
 - [常见问题排查](TROUBLESHOOTING.zh-CN.md)：按现象定位原因并采取动作。
 - [Android 安装与权限](../SSRVPN_Android/USER_GUIDE.md)
 - [macOS 安装与权限](../SSRVPN_MacOS/USER_GUIDE.md)
 - [Windows 安装与权限](../SSRVPN_Windows/USER_GUIDE.md)
-- [产品行为要求](PRODUCT_REQUIREMENTS.zh-CN.md)：不可随意改变的用户可见行为。
+- [项目硬性规则](PRODUCT_REQUIREMENTS.zh-CN.md)：产品、平台、网络、安全、测试和发布的强制约束。
 
 ## 开发与维护
 

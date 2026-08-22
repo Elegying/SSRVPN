@@ -38,8 +38,9 @@ ssrvpn/
         └── latest.json
 ```
 
-`releases/vX.Y.Z/` 是不可变版本目录；`ssrvpn/latest.json` 是客户端读取的
-唯一最新版本指针。工作流总是先上传并验证不可变产物，再以带备份的事务推广
+`releases/vX.Y.Z/` 是不可变版本目录；`ssrvpn/latest.json` 是官网、人工分发和运维读取的
+最新版本指针，不是客户端更新源。客户端只读取正式 GitHub Release，详见
+[ADR-013](decisions/013-github-release-connected-update.md)。工作流总是先上传并验证不可变产物，再以带备份的事务推广
 固定下载文件和指针，最后把对应 GitHub Draft Release 转为正式版本。若 GitHub
 公开 mutation 尚未尝试且已权威确认仍为非公开状态，工作流才允许自动恢复 OSS；
 mutation 一旦尝试，后续连续读到 draft、prerelease 或 API 失败都视为状态不明，

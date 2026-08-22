@@ -141,6 +141,10 @@ Pull Request 还会执行 GitHub Dependency Review；新增中等及以上已知
 
 [文档索引](docs/README.md) 区分当前规范、维护手册、架构决策与历史审查。项目状态以当前代码、自动验证和该索引中的有效文档为准。
 
+- [完整功能列表](docs/FEATURES.zh-CN.md)
+- [项目硬性规则](docs/PRODUCT_REQUIREMENTS.zh-CN.md)
+- [项目健康与发布状态](docs/PROJECT_HEALTH.md)
+
 不要在日志、Issue、PR、截图或崩溃报告中泄露订阅 URL、API secret、Bearer token、节点密码、服务端凭据或签名材料。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
 参与 Issue、Pull Request 或其他社区协作前，请阅读[贡献指南](CONTRIBUTING.md)和[社区行为准则](CODE_OF_CONDUCT.md)。
