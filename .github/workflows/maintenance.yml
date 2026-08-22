@@ -150,6 +150,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'oss-rollback'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: release
     concurrency:
       group: ssrvpn-public-release
       cancel-in-progress: false
@@ -163,12 +164,15 @@ jobs:
       ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
 
       - name: Validate rollback target and OSS configuration
         env:
           ROLLBACK_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
           if [[ ! "$ROLLBACK_TAG" =~ ^v[0-9]+(\.[0-9]+){1,3}$ ]]; then
             echo "::error::Invalid rollback tag: $ROLLBACK_TAG"
             exit 1
@@ -228,21 +232,37 @@ jobs:
             --asset "$release_dir/SSRVPN_Setup.exe" \
             --output "$RUNNER_TEMP/rollback-latest.json"
 
-          for name in SSRVPN.apk SSRVPN.dmg SSRVPN_Setup.exe; do
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' \
+            --retry 3 --connect-timeout 10 --max-time 60 \
+            --max-filesize 1048576 "$base_url/latest.json" \
+            -o "$RUNNER_TEMP/oss-latest.json"
+          cmp "$RUNNER_TEMP/rollback-latest.json" \
+            "$RUNNER_TEMP/oss-latest.json"
+
+          for name in SSRVPN.apk SSRVPN.apk.sha256 SSRVPN.dmg SSRVPN.dmg.sha256 SSRVPN_Setup.exe SSRVPN_Setup.exe.sha256; do
+            case "$name" in
+              *.sha256) max_size=65536 ;;
+              *) max_size=314572800 ;;
+            esac
             curl --fail --silent --show-error --location \
               --proto '=https' --proto-redir '=https' \
               --retry 3 --connect-timeout 10 --max-time 180 \
-              --max-filesize 314572800 "$base_url/$name" \
+              --max-filesize "$max_size" "$base_url/$name" \
               -o "$RUNNER_TEMP/oss-$name"
             cmp "$release_dir/$name" "$RUNNER_TEMP/oss-$name"
           done
 
       - name: Promote OSS public channel
         id: promote_oss
+        env:
+          ROLLBACK_TAG: ${{ inputs.tag }}
         run: |
-          OSS_PRESERVE_BACKUP=1 bash scripts/promote-oss-public-channel.sh \
-            "$RUNNER_TEMP/rollback-release" \
-            "$RUNNER_TEMP/rollback-latest.json"
+          OSS_PRESERVE_BACKUP=1 \
+            OSS_VERSIONED_SOURCE_PREFIX="$OSS_PREFIX/releases/$ROLLBACK_TAG" \
+            bash scripts/promote-oss-public-channel.sh \
+              "$RUNNER_TEMP/rollback-release" \
+              "$RUNNER_TEMP/rollback-latest.json"
 
       - name: Preserve OSS recovery backup
         if: always() && steps.promote_oss.outcome == 'failure'

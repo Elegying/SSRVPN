@@ -75,7 +75,10 @@ class GenerateOssReleaseManifestTest(unittest.TestCase):
             promoter,
         )
         self.assertIn('--cache-control "no-cache"', promoter)
-        self.assertIn('cmp "$source" "$downloaded"', promoter)
+        self.assertIn('cmp -s "$source" "$destination"', promoter)
+        self.assertIn('"$ossutil_bin" set-props', promoter)
+        self.assertIn("--metadata-directive update", promoter)
+        self.assertIn("response_has_no_cache_metadata", promoter)
         for name in (
             "SSRVPN.apk",
             "SSRVPN.dmg",
