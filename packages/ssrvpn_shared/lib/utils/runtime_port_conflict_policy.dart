@@ -7,7 +7,10 @@ class RuntimePortConflictPolicy {
   static bool isExplicitBindConflict(String? message) {
     final value = message?.trim().toLowerCase() ?? '';
     if (value.isEmpty) return false;
-    return value.contains('address already in use') ||
+    return value == 'core_start_port_conflict' ||
+        value.startsWith('core_start_port_conflict:') ||
+        value.contains('local_proxy_listener_unavailable') ||
+        value.contains('address already in use') ||
         value.contains('eaddrinuse') ||
         value.contains('only one usage of each socket address') ||
         RegExp(r'端口.{0,12}(已被|被其他|正在被).{0,8}占用').hasMatch(value) ||

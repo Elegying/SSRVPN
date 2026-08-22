@@ -55,6 +55,9 @@ This guide keeps local development, GitHub automation, and releases aligned.
 
 - Keep pull-request and branch checks in `ci.yml`.
 - Keep tag-triggered publishing in `release.yml`.
+- Keep all tag runs of `release.yml` behind the global public-release lock because
+  they can mutate shared aliases and `latest.json`. Scope non-tag manual build-only
+  runs by ref so unrelated verification builds do not block one another.
 - Add manual operator tasks to `maintenance.yml`; prefer a new task over another
   workflow file. `prepare-release.yml` is intentionally separate because it owns
   the write permissions, global concurrency lock, exact-main verification, tag
@@ -227,9 +230,12 @@ and run both platform suites for shared desktop changes.
    automatically refreshes GeoIP. Only when the source record changes does it
    push a branch and create a PR; approve that PR's pending workflow in GitHub
    Actions within 30 minutes. The orchestrator then waits for the protected PR
-   checks, rebase-merges it, and either reuses a qualifying exact-`main` CI run
-   or dispatches one. It finally creates the annotated tag and dispatches
-   `Release`. Do not create the tag manually first.
+   checks, rebase-merges it, and either reuses a qualifying completed exact-`main`
+   CI run, waits for a qualifying queued/in-progress run and then performs the
+   same strict nine-job verification, or dispatches one only when no qualifying
+   run exists. A failed wait or ambiguous post-wait identity fails closed rather
+   than dispatching a replacement. It finally creates the annotated tag and
+   dispatches `Release`. Do not create the tag manually first.
 5. Confirm the protected PR checks (when a GeoIP PR is needed) and exact-`main`
    CI evidence are green, then watch the automatic handoff
    to the `Release` workflow. The protected branch requires the exact nine

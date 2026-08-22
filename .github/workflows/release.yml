@@ -11,8 +11,9 @@ permissions:
   actions: read
 
 concurrency:
-  # Mutable public aliases and latest.json form one global release channel.
-  group: ssrvpn-public-release
+  # Tags mutate public aliases/latest.json and share one lock. Non-tag manual
+  # build-only runs are isolated by ref and cannot delay unrelated refs.
+  group: ${{ startsWith(github.ref, 'refs/tags/') && 'ssrvpn-public-release' || format('ssrvpn-release-build-{0}', github.ref) }}
   cancel-in-progress: false
 
 env:
@@ -270,8 +271,11 @@ jobs:
           flutter build apk --release
           cp build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk
 
+      - name: Generate checksum
+        run: cd SSRVPN_Android && sha256sum SSRVPN.apk > SSRVPN.apk.sha256
+
       - name: Smoke release artifact
-        run: bash scripts/smoke-release-artifacts.sh --allow-missing
+        run: bash scripts/smoke-release-artifacts.sh --allow-missing --require-checksums
 
       - name: Verify APK signature
         env:
@@ -298,9 +302,6 @@ jobs:
             echo "::error::APK signing certificate mismatch: expected $expected, got ${actual:-missing}"
             exit 1
           fi
-
-      - name: Generate checksum
-        run: cd SSRVPN_Android && sha256sum SSRVPN.apk > SSRVPN.apk.sha256
 
       - name: Generate signed build provenance attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
@@ -391,14 +392,17 @@ jobs:
           grep -aFq "background.png" "$MOUNT_DIR/.DS_Store"
           test ! -e "$MOUNT_DIR/安装教程.txt"
           test ! -e "$MOUNT_DIR/使用教程.txt"
+          test -f "$MOUNT_DIR/SSRVPN.app/Contents/Resources/third_party/THIRD_PARTY_NOTICES.md"
+          test -f "$MOUNT_DIR/SSRVPN.app/Contents/Resources/third_party/licenses/GPL-3.0.txt"
+          test -f "$MOUNT_DIR/SSRVPN.app/Contents/Resources/third_party/licenses/SSRVPN-MIT.txt"
           top_level_count="$(find "$MOUNT_DIR" -mindepth 1 -maxdepth 1 ! -name '.*' -print | wc -l | tr -d ' ')"
           [[ "$top_level_count" -eq 2 ]]
 
-      - name: Smoke release artifact
-        run: bash scripts/smoke-release-artifacts.sh --allow-missing
-
       - name: Generate checksum
         run: cd SSRVPN_MacOS && shasum -a 256 SSRVPN.dmg > SSRVPN.dmg.sha256
+
+      - name: Smoke release artifact
+        run: bash scripts/smoke-release-artifacts.sh --allow-missing --require-checksums
 
       - name: Generate signed build provenance attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
@@ -494,7 +498,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Smoke release artifact
-        run: bash scripts/smoke-release-artifacts.sh --allow-missing
+        run: bash scripts/smoke-release-artifacts.sh --allow-missing --require-checksums
 
       - name: Generate signed build provenance attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
@@ -850,7 +854,7 @@ jobs:
           fi
           bash scripts/check-release-assets.sh "$tag"
 
-          is_prerelease="$(python3 - "$release_json" "$tag" <<'PY'
+          python3 - "$release_json" "$tag" <<'PY'
           import json
           import sys
 
@@ -858,18 +862,15 @@ jobs:
               release = json.load(source)
           if release.get("tag_name") != sys.argv[2] or release.get("draft") is not False:
               raise SystemExit("published GitHub release tag/state mismatch")
-          if not isinstance(release.get("prerelease"), bool):
-              raise SystemExit("published GitHub release prerelease state is invalid")
-          print("true" if release["prerelease"] else "false")
+          if release.get("prerelease") is not False:
+              raise SystemExit("published GitHub release must be stable")
           PY
-          )"
 
-          if [ "$is_prerelease" != true ]; then
-            latest_matches=false
-            for attempt in 1 2 3 4 5; do
-              if gh api "repos/$GITHUB_REPOSITORY/releases/latest" \
-                  >"$latest_release_json" &&
-                python3 - "$latest_release_json" "$release_json" <<'PY'
+          latest_matches=false
+          for attempt in 1 2 3 4 5; do
+            if gh api "repos/$GITHUB_REPOSITORY/releases/latest" \
+                >"$latest_release_json" &&
+              python3 - "$latest_release_json" "$release_json" <<'PY'
           import json
           import sys
 
@@ -885,16 +886,15 @@ jobs:
           ):
               raise SystemExit(1)
           PY
-              then
-                latest_matches=true
-                break
-              fi
-              sleep "$attempt"
-            done
-            if [ "$latest_matches" != true ]; then
-              echo "::error::GitHub latest does not point to the published stable release."
-              exit 1
+            then
+              latest_matches=true
+              break
             fi
+            sleep "$attempt"
+          done
+          if [ "$latest_matches" != true ]; then
+            echo "::error::GitHub latest does not point to the published stable release."
+            exit 1
           fi
 
           manifest_matches=false

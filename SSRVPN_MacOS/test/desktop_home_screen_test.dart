@@ -36,6 +36,18 @@ proxies:
     password: test-password
 ''';
 
+double _contrastRatio(Color foreground, Color background) {
+  final foregroundLuminance = foreground.computeLuminance();
+  final backgroundLuminance = background.computeLuminance();
+  final lighter = foregroundLuminance > backgroundLuminance
+      ? foregroundLuminance
+      : backgroundLuminance;
+  final darker = foregroundLuminance > backgroundLuminance
+      ? backgroundLuminance
+      : foregroundLuminance;
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -128,6 +140,12 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
+    final glass = find.byKey(const Key('ssrvpn-tutorial-glass'));
+    expect(glass, findsOneWidget);
+    expect(
+      find.descendant(of: glass, matching: find.byType(BackdropFilter)),
+      findsOneWidget,
+    );
     expect(
       find.descendant(
         of: find.byType(Dialog),
@@ -135,6 +153,15 @@ void main() {
       ),
       findsOneWidget,
     );
+    final colors = Theme.of(tester.element(find.text('1'))).colorScheme;
+    final step = tester.widget<Text>(find.text('1'));
+    final badge = tester.widget<Container>(
+      find.ancestor(of: find.text('1'), matching: find.byType(Container)),
+    );
+    expect(step.style?.color, colors.onPrimary);
+    final badgeColor = (badge.decoration! as BoxDecoration).color!;
+    expect(badgeColor, Color.lerp(colors.primary, Colors.black, 0.04));
+    expect(_contrastRatio(step.style!.color!, badgeColor), greaterThan(4.5));
     expect(
       find.widgetWithText(TextButton, '知道了').hitTestable(),
       findsOneWidget,
@@ -349,6 +376,7 @@ void main() {
     await _pumpUntil(tester, () => fixture.clash.isRunning);
     expect(fixture.clash.isRunning, isTrue);
     expect(find.text('已连接'), findsWidgets);
+    expect(fixture.clash.directConnectivityVerificationCalls, 0);
 
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
@@ -525,6 +553,104 @@ void main() {
   });
 
   testWidgets(
+      'expected route-warning clear does not invalidate live switch feedback',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    fixture.clash
+      ..switchResult = true
+      ..runtimeSelectedNodeName = '东京节点'
+      ..publishConnectivityWarning('旧节点外部联网观察未通过');
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    final selector = tester.widget<SsrvpnNodeSelectionPage>(
+      find.byType(SsrvpnNodeSelectionPage),
+    );
+    final node = selector.nodesOf().singleWhere(
+          (candidate) => candidate.name == '新加坡节点',
+        );
+    await tester.runAsync(() => selector.onSelectNode(node));
+    await tester.pump();
+
+    expect(fixture.settings.settings.lastSelectedNodeName, '新加坡节点');
+    expect(find.text('已切换: 新加坡节点'), findsOneWidget);
+    expect(find.text('切换失败: 新加坡节点'), findsNothing);
+  });
+
+  testWidgets(
+      'an unrelated warning update cannot drop an applied node preference',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    final switchStarted = Completer<void>();
+    final releaseSwitch = Completer<void>();
+    fixture.clash
+      ..switchResult = true
+      ..applySwitchBeforeRelease = true
+      ..runtimeSelectedNodeName = '东京节点'
+      ..switchStarted = switchStarted
+      ..switchRelease = releaseSwitch;
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    final selector = tester.widget<SsrvpnNodeSelectionPage>(
+      find.byType(SsrvpnNodeSelectionPage),
+    );
+    final node = selector.nodesOf().singleWhere(
+          (candidate) => candidate.name == '新加坡节点',
+        );
+    await tester.runAsync(() async {
+      final switchFuture = selector.onSelectNode(node);
+      await switchStarted.future.timeout(const Duration(seconds: 5));
+      fixture.clash.publishConnectivityWarning('临时网络观察提示');
+      releaseSwitch.complete();
+      await switchFuture.timeout(const Duration(seconds: 5));
+    });
+    await tester.pump();
+
+    expect(fixture.settings.settings.lastSelectedNodeName, '新加坡节点');
+    expect(find.text('已切换: 新加坡节点'), findsOneWidget);
+    expect(find.text('切换失败: 新加坡节点'), findsNothing);
+  });
+
+  testWidgets('failed live switch still reports an actionable failure',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    fixture.clash
+      ..switchResult = false
+      ..runtimeSelectedNodeName = '东京节点';
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    final selector = tester.widget<SsrvpnNodeSelectionPage>(
+      find.byType(SsrvpnNodeSelectionPage),
+    );
+    final node = selector.nodesOf().singleWhere(
+          (candidate) => candidate.name == '新加坡节点',
+        );
+    await tester.runAsync(() => selector.onSelectNode(node));
+    await tester.pump();
+
+    expect(fixture.settings.settings.lastSelectedNodeName, isNull);
+    expect(find.text('切换失败: 新加坡节点'), findsOneWidget);
+    expect(find.text('已切换: 新加坡节点'), findsNothing);
+  });
+
+  testWidgets(
       'failed preferred-node switch keeps the initial connection and warns with the runtime node',
       (tester) async {
     final fixture =
@@ -550,6 +676,7 @@ void main() {
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.clash.connectionDesired, isTrue);
     expect(find.text('已连接'), findsWidgets);
+    expect(fixture.clash.directConnectivityVerificationCalls, 0);
   });
 
   testWidgets(
@@ -583,6 +710,7 @@ void main() {
     expect(fixture.clash.isRunning, isTrue);
     expect(fixture.clash.connectionDesired, isTrue);
     expect(find.text('已连接'), findsWidgets);
+    expect(fixture.clash.directConnectivityVerificationCalls, 0);
   });
 
   for (final switchResult in [false, true]) {
@@ -1237,7 +1365,9 @@ class _FakeClashService extends ClashService {
   _FakeClashService({
     this.recordBatchLatencyResults = true,
     bool running = false,
-  }) : _running = running;
+  }) : _running = running {
+    if (running) requestConnectionIntent(true);
+  }
 
   final bool recordBatchLatencyResults;
   bool _running;
@@ -1245,6 +1375,7 @@ class _FakeClashService extends ClashService {
   String? lastPreferredNodeName;
   int batchLatencyRuns = 0;
   int singleLatencyRuns = 0;
+  int directConnectivityVerificationCalls = 0;
   int startCalls = 0;
   bool stallNextStart = false;
   final Completer<void> stalledStartEntered = Completer<void>();
@@ -1259,6 +1390,7 @@ class _FakeClashService extends ClashService {
   Completer<void>? switchStarted;
   Completer<void>? switchRelease;
   bool switchResult = false;
+  bool applySwitchBeforeRelease = false;
   String? runtimeSelectedNodeName;
   final Set<void Function()> statusListeners = {};
 
@@ -1358,18 +1490,36 @@ class _FakeClashService extends ClashService {
   }
 
   @override
-  Future<bool> switchSelectedProxy(String nodeName) async {
+  Future<bool> switchSelectedProxy(
+    String nodeName, {
+    SwitchContextGuard? isSwitchContextCurrent,
+  }) async {
     lastSwitchAttempt = nodeName;
+    if (switchResult && applySwitchBeforeRelease) {
+      runtimeSelectedNodeName = nodeName;
+    }
     final started = switchStarted;
     if (started != null && !started.isCompleted) started.complete();
     await switchRelease?.future;
-    return switchResult;
+    if (!switchResult) return false;
+    if (isSwitchContextCurrent != null && !await isSwitchContextCurrent()) {
+      return true;
+    }
+    onDataPlaneRouteChanged();
+    notifyStatusChanged();
+    return true;
   }
+
+  void publishConnectivityWarning(String warning) =>
+      setConnectivityWarning(warning);
 
   void publishRunning(bool running) {
     _running = running;
     notifyStatusChanged();
   }
+
+  @override
+  Future<void> observeDataPlaneHealth() async {}
 
   @override
   Future<int> testLatency(
@@ -1407,6 +1557,7 @@ class _FakeClashService extends ClashService {
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
+    directConnectivityVerificationCalls++;
     return null;
   }
 

@@ -4,7 +4,13 @@ enum AppErrorCode {
   coreMissing('CORE_MISSING'),
   coreStartTimeout('CORE_START_TIMEOUT'),
   coreUnavailable('CORE_UNAVAILABLE'),
+  localProxyUnavailable('LOCAL_PROXY_UNAVAILABLE'),
   dataPlaneDegraded('DATA_PLANE_DEGRADED'),
+  appLocationRequired('APP_LOCATION_REQUIRED'),
+  networkConflict('NETWORK_CONFLICT'),
+  systemProxyChanged('SYSTEM_PROXY_CHANGED'),
+  systemProxyOwnershipUnavailable('SYSTEM_PROXY_OWNERSHIP_UNAVAILABLE'),
+  tunRecoveryPending('TUN_RECOVERY_PENDING'),
   portOccupied('PORT_OCCUPIED'),
   permissionRequired('PERMISSION_REQUIRED'),
   proxyRecoveryPending('PROXY_RECOVERY_PENDING'),
@@ -64,7 +70,13 @@ class AppFailure {
   static AppFailure fromMessage(Object? error) {
     final text = error?.toString().trim().toLowerCase() ?? '';
     final code = _classify(text);
-    final requiresAdministratorRelaunch = text.contains('以管理员身份运行');
+    final isTunRuntimeFailure = text.contains('tun 监听未能启用') ||
+        text.contains('tun_runtime_unavailable') ||
+        text.contains('tun_config_mismatch');
+    final requiresAdministratorAccount = text.contains('管理员账户');
+    final requiresAdministratorRelaunch = !isTunRuntimeFailure &&
+        (text.contains('以管理员身份运行') || text.contains('管理员权限'));
+    final requiresNetworkRestart = text.contains('tun 网卡或路由创建失败');
     return switch (code) {
       AppErrorCode.coreMissing => const AppFailure(
           code: AppErrorCode.coreMissing,
@@ -84,11 +96,49 @@ class AppFailure {
           message: '应用暂时无法访问本地运行核心。',
           recommendedAction: '请断开后重新连接，或运行诊断确认核心状态。',
         ),
+      AppErrorCode.localProxyUnavailable => const AppFailure(
+          code: AppErrorCode.localProxyUnavailable,
+          title: '本地代理未就绪',
+          message: '运行核心已启动，但系统代理使用的本地监听尚未就绪。',
+          recommendedAction: '请重新连接；若持续失败，请关闭占用本地代理端口的程序后重试。',
+        ),
       AppErrorCode.dataPlaneDegraded => const AppFailure(
           code: AppErrorCode.dataPlaneDegraded,
           title: '连接质量提示',
           message: '核心与系统网络接管仍在运行，但当前验证站点暂时不可达。',
           recommendedAction: '如界面已显示连接，当前连接仍保留；若实际无法上网，请稍后重试或手动切换节点。',
+        ),
+      AppErrorCode.appLocationRequired => const AppFailure(
+          code: AppErrorCode.appLocationRequired,
+          title: '需要先安装应用',
+          message: 'macOS 的 TUN 模式只能从“应用程序”文件夹安全启动。',
+          recommendedAction: '请将 SSRVPN 拖入 Applications（应用程序）文件夹，重新打开后再连接。',
+        ),
+      AppErrorCode.networkConflict => AppFailure(
+          code: AppErrorCode.networkConflict,
+          title: '网络环境冲突',
+          message: '检测到其他 VPN/TUN 正在接管网络，或连接期间网络发生了切换。',
+          recommendedAction: requiresNetworkRestart
+              ? '请重启电脑后重新连接。'
+              : '请先断开其他 VPN，确认当前网络稳定后重新连接。',
+        ),
+      AppErrorCode.systemProxyChanged => const AppFailure(
+          code: AppErrorCode.systemProxyChanged,
+          title: '系统代理已被修改',
+          message: 'SSRVPN 设置的系统代理被其他程序关闭或替换。',
+          recommendedAction: '请关闭其他代理或 VPN 后重新连接。',
+        ),
+      AppErrorCode.systemProxyOwnershipUnavailable => const AppFailure(
+          code: AppErrorCode.systemProxyOwnershipUnavailable,
+          title: '系统代理状态暂不可确认',
+          message: '应用暂时无法读取系统代理所有权状态，当前连接未因此中断。',
+          recommendedAction: '可稍后重新运行诊断；若实际无法上网，再检查其他代理或 VPN。',
+        ),
+      AppErrorCode.tunRecoveryPending => const AppFailure(
+          code: AppErrorCode.tunRecoveryPending,
+          title: 'TUN 网络待恢复',
+          message: '上一次 TUN 的网卡、路由或 DNS 尚未确认清理完成。',
+          recommendedAction: '请保持 SSRVPN 打开并再次点击连接完成恢复；若持续失败，请重启电脑后重试。',
         ),
       AppErrorCode.portOccupied => const AppFailure(
           code: AppErrorCode.portOccupied,
@@ -100,9 +150,13 @@ class AppFailure {
           code: AppErrorCode.permissionRequired,
           title: '系统权限不足',
           message: '当前操作需要额外的系统授权。',
-          recommendedAction: requiresAdministratorRelaunch
-              ? '请退出 SSRVPN 后，以管理员身份重新运行。'
-              : '请按系统提示授权；拒绝授权不会修改网络设置。',
+          recommendedAction: isTunRuntimeFailure
+              ? '请重新授权并关闭其他 VPN；仍失败请重启电脑，或重装官方版本后重试。'
+              : requiresAdministratorAccount
+                  ? '请退出 SSRVPN 后，登录管理员账户并重新运行。'
+                  : requiresAdministratorRelaunch
+                      ? '请退出 SSRVPN 后，以管理员身份重新运行。'
+                      : '请按系统提示授权；拒绝授权不会修改网络设置。',
         ),
       AppErrorCode.proxyRecoveryPending => const AppFailure(
           code: AppErrorCode.proxyRecoveryPending,
@@ -152,35 +206,149 @@ class AppFailure {
   static AppErrorCode _classify(String text) {
     bool hasAny(Iterable<String> values) => values.any(text.contains);
 
+    // Runtime health paths use stable, log-safe prefixes. Classify them before
+    // localized detail text so callers do not lose an actionable category when
+    // the accompanying explanation changes.
+    if (text.contains('core_start_permission')) {
+      return AppErrorCode.permissionRequired;
+    }
+    if (text.contains('core_start_port_conflict')) {
+      return AppErrorCode.portOccupied;
+    }
+    if (hasAny(const ['core_start_api_auth', 'core_start_tun'])) {
+      return AppErrorCode.coreUnavailable;
+    }
+    if (text.contains('core_start_config')) {
+      return AppErrorCode.configInvalid;
+    }
+    if (text.contains('core_start_timeout')) {
+      return AppErrorCode.coreStartTimeout;
+    }
+    if (text.contains('core_start_component')) {
+      return AppErrorCode.coreMissing;
+    }
+    if (text.contains('core_start_busy')) {
+      return AppErrorCode.coreUnavailable;
+    }
+    if (text.contains('core_start_unknown')) return AppErrorCode.unknown;
+    if (hasAny(const ['tun_runtime_unavailable', 'tun_config_mismatch'])) {
+      return AppErrorCode.permissionRequired;
+    }
+    if (hasAny(const [
+      'local_proxy_listener_unavailable',
+      'local_proxy_config_mismatch',
+    ])) {
+      return AppErrorCode.localProxyUnavailable;
+    }
+    if (text.contains('system_proxy_ownership_unavailable')) {
+      return AppErrorCode.systemProxyOwnershipUnavailable;
+    }
+    if (text.contains('system_proxy_ownership_lost')) {
+      return AppErrorCode.systemProxyChanged;
+    }
+    if (hasAny(const ['core_api_unavailable', 'tun_service_lost'])) {
+      return AppErrorCode.coreUnavailable;
+    }
+    if (text.contains('applications 文件夹')) {
+      return AppErrorCode.appLocationRequired;
+    }
+    if (hasAny(const [
+      '找不到 mihomo.exe',
+      '找不到核心文件',
+      '核心资产尚未通过安全准备',
+      'windows 架构不兼容',
+      '32/64 位架构不匹配',
+      'not a valid win32',
+      'tun 授权组件缺失',
+      'tun 核心资源缺失',
+      'tun dns 恢复组件缺失',
+      'tun 授权组件启动失败',
+    ])) {
+      return AppErrorCode.coreMissing;
+    }
+    // Explicit permission failures can also mention a possible adapter
+    // conflict. Preserve the actionable administrator guidance in that case.
+    if (hasAny(const [
+      'access is denied',
+      'permission denied',
+      'administrator required',
+      '权限不足',
+      '执行权限',
+      '需要管理员',
+      '需要授权',
+      '授权失败',
+      '管理员权限',
+      '管理员授权',
+      '管理员账户',
+      '以管理员身份运行',
+      '安全软件拦截',
+    ])) {
+      return AppErrorCode.permissionRequired;
+    }
+    if (hasAny(const [
+      '其他 vpn/tun',
+      '现有 vpn 路由状态',
+      '物理网络已切换',
+      'tun 网卡或路由创建失败',
+      'tun dns 接管失败',
+      '同名虚拟网卡冲突',
+    ])) {
+      return AppErrorCode.networkConflict;
+    }
+    if (hasAny(const [
+      'tun dns 恢复',
+      'tun dns 未能安全恢复',
+      '未恢复的 tun dns',
+      'dns 恢复标记',
+      'tun 恢复标记',
+      'tun 清理状态',
+      'tun 网卡未在超时前移除',
+      'tun 网卡和路由已清理',
+      'tun 会话标记',
+      '上次异常退出的 tun 会话',
+      '特权会话标记',
+      '死路由',
+    ])) {
+      return AppErrorCode.tunRecoveryPending;
+    }
+    if (hasAny(const [
+      'tun 配置缺失',
+      'tun 数据目录无效',
+      'tun 配置校验超时',
+    ])) {
+      return AppErrorCode.configInvalid;
+    }
     if (text.contains('找不到生成的 mihomo 配置文件')) {
       return AppErrorCode.configInvalid;
     }
-    if (text.contains('电脑性能不足或配置校验超时，请重新连接')) {
+    if (hasAny(const [
+      '电脑性能不足或配置校验超时，请重新连接',
+      '核心启动过慢',
+    ])) {
       return AppErrorCode.coreStartTimeout;
     }
     if (hasAny(const [
       'mihomo 提前退出（退出码',
       'tun 核心启动失败',
       'mihomo 启动后未通过就绪检查',
+      '连接提交前的就绪检查失败',
+      'mihomo 在连接提交期间失去响应',
+      'mihomo 在系统代理设置期间失去响应',
+      'mihomo 在连接提交期间退出',
+      'mihomo 在系统代理设置期间退出',
+      'tun 启动最终复核失败',
+      'tun 核心未能通过健康检查',
     ])) {
       return AppErrorCode.coreUnavailable;
     }
-    if (hasAny(const ['address already in use', 'port occupied', '端口被占用']) ||
+    if (hasAny(const [
+          'address already in use',
+          'port occupied',
+          '端口被占用',
+          '端口被其他程序占用',
+        ]) ||
         (text.contains('bind') && text.contains('port'))) {
       return AppErrorCode.portOccupied;
-    }
-    if (hasAny(const [
-      'access is denied',
-      'permission denied',
-      'administrator required',
-      '权限不足',
-      '需要管理员',
-      '需要授权',
-      '授权失败',
-      '管理员授权',
-      '以管理员身份运行',
-    ])) {
-      return AppErrorCode.permissionRequired;
     }
     if (hasAny(const [
       '系统代理恢复失败',

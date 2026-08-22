@@ -22,6 +22,9 @@ if (-not (Test-Path -LiteralPath $payloadGuardPath -PathType Leaf)) {
 $buildDir = Join-Path $projectRoot 'build\windows\x64\runner\Release'
 $releaseDir = Join-Path $projectRoot 'SSRVPN_Windows_Release'
 $binDir = Join-Path $releaseDir 'bin'
+$thirdPartySource = [System.IO.Path]::GetFullPath(
+  (Join-Path $projectRoot '..\third_party')
+)
 $defaultChinaPubHostedUrl = 'https://pub.flutter-io.cn'
 $defaultChinaFlutterStorageBaseUrl = 'https://storage.flutter-io.cn'
 $originalPubHostedUrl = $env:PUB_HOSTED_URL
@@ -55,7 +58,11 @@ $requiredFiles = @(
   'bin\data\app.so',
   'bin\data\icudtl.dat',
   'bin\data\flutter_assets\assets\geoip.metadb.gz',
-  'bin\data\flutter_assets\assets\icon.ico'
+  'bin\data\flutter_assets\assets\icon.ico',
+  'third_party\THIRD_PARTY_NOTICES.md',
+  'third_party\MICROSOFT_RUNTIME_PROVENANCE.txt',
+  'third_party\licenses\GPL-3.0.txt',
+  'third_party\licenses\SSRVPN-MIT.txt'
 ) + $runtimeDlls + ($runtimeDlls | ForEach-Object { "bin\$_" })
 
 $transcriptStarted = $false
@@ -257,12 +264,6 @@ function Add-VisualStudioRedistDirectories {
 
 function Get-RuntimeSearchDirectories {
   $directories = New-Object System.Collections.ArrayList
-  Add-CandidateDirectory -List $directories -Path $releaseDir
-  Add-CandidateDirectory -List $directories -Path $buildDir
-  Add-CandidateDirectory -List $directories -Path (Join-Path $projectRoot 'runtime')
-  Add-CandidateDirectory -List $directories -Path (Join-Path $projectRoot 'redist')
-  Add-CandidateDirectory -List $directories -Path (Join-Path $projectRoot 'redistributable')
-
   if ($env:VCToolsRedistDir) {
     Add-CandidateDirectory -List $directories -Path (
       Join-Path $env:VCToolsRedistDir 'x64\Microsoft.VC143.CRT'
@@ -274,27 +275,11 @@ function Get-RuntimeSearchDirectories {
 
   Add-VisualStudioRedistDirectories -List $directories
 
-  if ($env:WINDIR) {
-    Add-CandidateDirectory -List $directories -Path (Join-Path $env:WINDIR 'Sysnative')
-    Add-CandidateDirectory -List $directories -Path (Join-Path $env:WINDIR 'System32')
-  }
-  if ($env:SystemRoot) {
-    Add-CandidateDirectory -List $directories -Path (Join-Path $env:SystemRoot 'Sysnative')
-    Add-CandidateDirectory -List $directories -Path (Join-Path $env:SystemRoot 'System32')
-  }
-
   return $directories.ToArray()
 }
 
 function Get-D3DCompilerSearchDirectories {
   $directories = New-Object System.Collections.ArrayList
-  Add-CandidateDirectory -List $directories -Path $releaseDir
-  Add-CandidateDirectory -List $directories -Path $buildDir
-  Add-CandidateDirectory -List $directories -Path $projectRoot
-  Add-CandidateDirectory -List $directories -Path (Join-Path $projectRoot 'runtime')
-  Add-CandidateDirectory -List $directories -Path (Join-Path $projectRoot 'redist')
-  Add-CandidateDirectory -List $directories -Path (Join-Path $projectRoot 'redistributable')
-
   $programFilesX86 = ${env:ProgramFiles(x86)}
   if ($programFilesX86) {
     Add-CandidateDirectory -List $directories -Path (
@@ -303,14 +288,6 @@ function Get-D3DCompilerSearchDirectories {
     Add-CandidateDirectory -List $directories -Path (
       Join-Path $programFilesX86 'Windows Kits\8.1\Redist\D3D\x64'
     )
-  }
-  if ($env:WINDIR) {
-    Add-CandidateDirectory -List $directories -Path (Join-Path $env:WINDIR 'Sysnative')
-    Add-CandidateDirectory -List $directories -Path (Join-Path $env:WINDIR 'System32')
-  }
-  if ($env:SystemRoot) {
-    Add-CandidateDirectory -List $directories -Path (Join-Path $env:SystemRoot 'Sysnative')
-    Add-CandidateDirectory -List $directories -Path (Join-Path $env:SystemRoot 'System32')
   }
 
   return $directories.ToArray()
@@ -337,22 +314,37 @@ function Find-DependencyFile {
   return $null
 }
 
+function Assert-MicrosoftAuthenticodeSignature {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $signature = Get-AuthenticodeSignature -LiteralPath $Path
+  if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate) {
+    throw "Microsoft runtime does not have a valid Authenticode signature: $Path"
+  }
+  $subject = [string]$signature.SignerCertificate.Subject
+  if ($subject -notmatch '(^|,\s*)(CN|O)=Microsoft Corporation(,|$)') {
+    throw "Runtime Authenticode signer is not Microsoft Corporation: $Path"
+  }
+}
+
 function Copy-RuntimeDependency {
   param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string[]]$Directories,
     [Parameter(Mandatory = $true)][string]$DestinationDirectory,
+    [Parameter(Mandatory = $true)][string]$PackagePath,
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('VisualStudioRedist', 'WindowsKitsRedist')]
+    [string]$SourceClass,
     [switch]$RequireX64,
     [string]$InstallHint
   )
 
-  $destination = Join-Path $DestinationDirectory $Name
-  if (Test-Path -LiteralPath $destination -PathType Leaf) {
-    if ($RequireX64 -and -not (Test-X64PeFile -Path $destination)) {
-      throw "Bundled dependency is not x64: $destination"
-    }
-    Write-Host "[RUNTIME] Found $Name"
-    return
+  if (
+    [System.IO.Path]::IsPathRooted($PackagePath) -or
+    $PackagePath -match '(^|\\)\.\.(\\|$)'
+  ) {
+    throw "Runtime package path must be relative: $PackagePath"
   }
 
   $source = Find-DependencyFile -Name $Name -Directories $Directories `
@@ -368,26 +360,75 @@ $searched
 $InstallHint
 "@
   }
+  Assert-MicrosoftAuthenticodeSignature -Path $source
 
+  $destination = Join-Path $DestinationDirectory $Name
   Copy-Item -LiteralPath $source -Destination $destination -Force
-  Write-Host "[RUNTIME] Bundled $Name from $source"
+  if ($RequireX64 -and -not (Test-X64PeFile -Path $destination)) {
+    throw "Bundled dependency is not x64: $PackagePath"
+  }
+  Assert-MicrosoftAuthenticodeSignature -Path $destination
+
+  $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+  $destinationHash = (
+    Get-FileHash -LiteralPath $destination -Algorithm SHA256
+  ).Hash
+  if ($sourceHash -ne $destinationHash) {
+    throw "Bundled dependency changed while copying: $PackagePath"
+  }
+  $version = [System.Diagnostics.FileVersionInfo]::GetVersionInfo(
+    $destination
+  ).FileVersion
+  if ([string]::IsNullOrWhiteSpace($version)) {
+    throw "Bundled dependency has no file version: $PackagePath"
+  }
+  [void]$script:runtimeProvenanceRecords.Add([pscustomobject]@{
+      File = $PackagePath
+      Version = ($version -replace '[\r\n\t]', ' ')
+      SHA256 = $destinationHash.ToLowerInvariant()
+      SourceClass = $SourceClass
+    })
+  Write-Host "[RUNTIME] Bundled $PackagePath from $SourceClass"
 }
 
 function Add-RuntimeFiles {
+  $script:runtimeProvenanceRecords = New-Object System.Collections.ArrayList
   $runtimeDirs = Get-RuntimeSearchDirectories
   foreach ($dll in $runtimeDlls) {
     Copy-RuntimeDependency -Name $dll -Directories $runtimeDirs `
-      -DestinationDirectory $releaseDir -RequireX64 `
-      -InstallHint 'Install Visual Studio 2022 with the C++ desktop workload, or install the Microsoft Visual C++ Redistributable 2015-2022 x64 on the build machine.'
+      -DestinationDirectory $releaseDir -PackagePath $dll `
+      -SourceClass 'VisualStudioRedist' -RequireX64 `
+      -InstallHint 'Install Visual Studio 2022 or Build Tools with the C++ desktop workload so the licensed VC Redist directory is available.'
     Copy-RuntimeDependency -Name $dll -Directories $runtimeDirs `
-      -DestinationDirectory $binDir -RequireX64 `
-      -InstallHint 'Install Visual Studio 2022 with the C++ desktop workload, or install the Microsoft Visual C++ Redistributable 2015-2022 x64 on the build machine.'
+      -DestinationDirectory $binDir -PackagePath "bin\$dll" `
+      -SourceClass 'VisualStudioRedist' -RequireX64 `
+      -InstallHint 'Install Visual Studio 2022 or Build Tools with the C++ desktop workload so the licensed VC Redist directory is available.'
   }
 
   $d3dDirs = Get-D3DCompilerSearchDirectories
   Copy-RuntimeDependency -Name 'd3dcompiler_47.dll' -Directories $d3dDirs `
-    -DestinationDirectory $binDir -RequireX64 `
-    -InstallHint 'Install the Windows 10/11 SDK, or copy the x64 d3dcompiler_47.dll into this project runtime directory before packaging.'
+    -DestinationDirectory $binDir -PackagePath 'bin\d3dcompiler_47.dll' `
+    -SourceClass 'WindowsKitsRedist' -RequireX64 `
+    -InstallHint 'Install the Windows 10/11 SDK so its Redist\D3D\x64 directory is available.'
+}
+
+function Write-RuntimeProvenance {
+  $expectedCount = ($runtimeDlls.Count * 2) + 1
+  if ($script:runtimeProvenanceRecords.Count -ne $expectedCount) {
+    throw 'Microsoft runtime provenance is incomplete.'
+  }
+
+  $provenancePath = Join-Path $releaseDir `
+    'third_party\MICROSOFT_RUNTIME_PROVENANCE.txt'
+  $lines = @(
+    '# SSRVPN Microsoft runtime provenance',
+    'Format-Version: 1',
+    "File`tVersion`tSHA256`tSourceClass"
+  )
+  foreach ($record in ($script:runtimeProvenanceRecords | Sort-Object File)) {
+    $lines += "$($record.File)`t$($record.Version)`t$($record.SHA256)`t$($record.SourceClass)"
+  }
+  $lines | Set-Content -LiteralPath $provenancePath -Encoding UTF8
 }
 
 function Install-LauncherLayout {
@@ -426,7 +467,8 @@ function Move-InstallerInternalsToBin {
     'SAFE_MODE_README.txt',
     'remove_legacy_cet_exemption.ps1',
     'remove_legacy_cet_exemption.bat',
-    'SHA256SUMS.txt'
+    'SHA256SUMS.txt',
+    'third_party'
   ) + $runtimeDlls
 
   Get-ChildItem -LiteralPath $releaseDir -Force | ForEach-Object {
@@ -845,6 +887,20 @@ try {
     -Destination (Join-Path $releaseDir 'remove_legacy_cet_exemption.ps1')
   Copy-Item -LiteralPath (Join-Path $projectRoot 'scripts\remove_legacy_cet_exemption.bat') `
     -Destination (Join-Path $releaseDir 'remove_legacy_cet_exemption.bat')
+
+  foreach ($relativePath in @(
+    'THIRD_PARTY_NOTICES.md',
+    'licenses\GPL-3.0.txt',
+    'licenses\SSRVPN-MIT.txt'
+  )) {
+    $sourcePath = Join-Path $thirdPartySource $relativePath
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+      throw "Third-party license material is missing: $sourcePath"
+    }
+  }
+  Copy-Item -LiteralPath $thirdPartySource `
+    -Destination (Join-Path $releaseDir 'third_party') -Recurse -Force
+  Write-RuntimeProvenance
 
   Move-InstallerInternalsToBin
   Test-ReleaseContents -Root $releaseDir

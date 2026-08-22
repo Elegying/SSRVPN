@@ -13,7 +13,10 @@ internal object AndroidRuntimeGuard {
         true
     } catch (error: Exception) {
         try {
-            onFailure?.invoke(error) ?: Log.e(tag, message, error)
+            onFailure?.invoke(error) ?: run {
+                val category = NativeCoreStartFailureCategory.from(error).logValue
+                Log.e(tag, "$message cause=$category")
+            }
         } catch (_: Exception) {
             // Error reporting is best-effort inside this process-safety boundary.
         }

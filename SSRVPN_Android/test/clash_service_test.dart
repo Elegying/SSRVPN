@@ -48,6 +48,43 @@ class _ConnectionGenerationObservationService extends ClashService {
   }
 }
 
+class _ConnectivityRecoveryObservationService extends ClashService {
+  _ConnectivityRecoveryObservationService({this.blockFirstObservation = false});
+
+  final bool blockFirstObservation;
+  final Completer<void> firstObservationStarted = Completer<void>();
+  final Completer<void> releaseFirstObservation = Completer<void>();
+  final Completer<void> secondObservationStarted = Completer<void>();
+  int observationCount = 0;
+
+  void publishStaleWarning() => setConnectivityWarning('旧的联网验证告警');
+
+  void simulateRouteChange() => onDataPlaneRouteChanged();
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async {
+    observationCount++;
+    if (blockFirstObservation && observationCount == 1) {
+      firstObservationStarted.complete();
+      await releaseFirstObservation.future;
+      if (shouldContinue?.call() != false) {
+        setConnectivityWarning('旧探测在网络恢复后返回失败');
+      }
+      return connectivityWarning;
+    }
+    if (blockFirstObservation && observationCount == 2) {
+      secondObservationStarted.complete();
+    }
+    if (shouldContinue?.call() != false) setConnectivityWarning(null);
+    return null;
+  }
+}
+
 void main() {
   test('an Android advisory observation cannot publish into a newer session',
       () async {
@@ -102,6 +139,155 @@ void main() {
     expect(await service.refreshNativeConnectionState(), isTrue);
     expect(service.isRunning, isTrue);
     expect(service.underlyingNetworkNotice, '无可用网络，VPN 正在等待恢复');
+  });
+
+  test(
+      'validated underlying network recovery rechecks and clears stale advisory',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_underlying_network_recovery_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString(_testProxies);
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    for (final degraded in const [
+      (available: false, validated: false),
+      (available: true, validated: false),
+    ]) {
+      var available = degraded.available;
+      var validated = degraded.validated;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getConnectionState') {
+          return <String, Object?>{
+            'running': true,
+            'transitioning': false,
+            'protectedConfigPath': config.path,
+            'protectedConfigTrusted': true,
+            'sessionGeneration': 7,
+            'underlyingNetworkAvailable': available,
+            'underlyingNetworkValidated': validated,
+          };
+        }
+        return null;
+      });
+      final service = _ConnectivityRecoveryObservationService()
+        ..setPaths(configDir: dir.path, configPath: config.path)
+        ..requestConnectionIntent(true);
+      try {
+        expect(await service.refreshNativeConnectionState(), isTrue);
+        service.publishStaleWarning();
+        expect(service.connectivityWarning, isNotNull);
+        expect(service.observationCount, 0);
+
+        available = true;
+        validated = true;
+        expect(await service.refreshNativeConnectionState(), isTrue);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(service.observationCount, 1, reason: '$degraded');
+        expect(service.connectivityWarning, isNull, reason: '$degraded');
+        expect(service.isRunning, isTrue, reason: '$degraded');
+        expect(service.connectionDesired, isTrue, reason: '$degraded');
+      } finally {
+        service.dispose();
+      }
+    }
+  });
+
+  test('validated network recovery coalesces a rerun behind an active probe',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_underlying_network_recovery_rerun_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString(_testProxies);
+    var available = false;
+    var validated = false;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getConnectionState') {
+        return <String, Object?>{
+          'running': true,
+          'transitioning': false,
+          'protectedConfigPath': config.path,
+          'protectedConfigTrusted': true,
+          'sessionGeneration': 8,
+          'underlyingNetworkAvailable': available,
+          'underlyingNetworkValidated': validated,
+        };
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = _ConnectivityRecoveryObservationService(
+      blockFirstObservation: true,
+    )
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..requestConnectionIntent(true);
+    addTearDown(service.dispose);
+
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    service.scheduleUserConnectivityObservation();
+    await service.firstObservationStarted.future
+        .timeout(const Duration(seconds: 1));
+
+    available = true;
+    validated = true;
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(service.observationCount, 1);
+
+    service.releaseFirstObservation.complete();
+    await service.secondObservationStarted.future
+        .timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(service.observationCount, 2);
+    expect(service.connectivityWarning, isNull);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+  });
+
+  test(
+      'Android route changes replace an active probe without a periodic monitor',
+      () async {
+    final service = _ConnectivityRecoveryObservationService(
+      blockFirstObservation: true,
+    )
+      ..requestConnectionIntent(true)
+      ..setRunning(true);
+    addTearDown(service.dispose);
+    service.publishStaleWarning();
+
+    service.scheduleUserConnectivityObservation();
+    await service.firstObservationStarted.future
+        .timeout(const Duration(seconds: 1));
+
+    service.simulateRouteChange();
+    await service.secondObservationStarted.future
+        .timeout(const Duration(seconds: 1));
+    expect(service.observationCount, 2);
+    expect(service.connectivityWarning, isNull);
+
+    service.releaseFirstObservation.complete();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(service.observationCount, 2);
+    expect(service.connectivityWarning, isNull);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
   });
 
   test(
@@ -1424,6 +1610,317 @@ void main() {
     expect(service.lastStartError, contains('无法确认原生 VPN 启动状态'));
   });
 
+  test('native port-conflict code remains actionable at the Dart boundary',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_native_port_conflict_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startCoreWithVpn') {
+        throw PlatformException(
+          code: 'CORE_START_PORT_CONFLICT',
+          message: 'VPN 核心启动失败，请重试',
+        );
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings());
+
+    expect(await service.start(nodeName: 'A'), isFalse);
+    expect(
+      service.lastStartError,
+      'CORE_START_PORT_CONFLICT: 本地代理端口已被其他程序占用',
+    );
+    expect(service.recentLogs, contains('cause=port_conflict'));
+  });
+
+  test('native API-auth code remains actionable at the Dart boundary',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_native_api_auth_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startCoreWithVpn') {
+        throw PlatformException(
+          code: 'CORE_START_API_AUTH',
+          message: 'native credential detail',
+        );
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings());
+
+    expect(await service.start(nodeName: 'A'), isFalse);
+    expect(
+      service.lastStartError,
+      'CORE_START_API_AUTH: 本地控制凭据不可用或与运行配置不一致',
+    );
+    expect(service.recentLogs, contains('cause=api_auth'));
+    expect(service.recentLogs, isNot(contains('native credential detail')));
+  });
+
+  test('native component failure asks for an official reinstall', () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_native_component_start_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startCoreWithVpn') {
+        throw PlatformException(
+          code: 'CORE_START_COMPONENT',
+          message: 'raw native component path token=secret',
+        );
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings());
+
+    expect(await service.start(nodeName: 'A'), isFalse);
+    expect(
+      service.lastStartError,
+      'CORE_START_COMPONENT: VPN 核心组件不可用，请重新安装官方版本',
+    );
+    expect(service.recentLogs, contains('cause=component'));
+    expect(service.recentLogs, isNot(contains('secret')));
+  });
+
+  test('legacy native core failure without copy uses the stable unknown code',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_native_unknown_start_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startCoreWithVpn') {
+        throw PlatformException(
+          code: 'CORE_FAILED',
+        );
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings());
+
+    expect(await service.start(nodeName: 'A'), isFalse);
+    expect(service.lastStartError, androidUnknownCoreStartFailure);
+    expect(service.lastStartError, contains('VPN 核心'));
+    expect(service.lastStartError, isNot(contains('无法启动VPN核心')));
+  });
+
+  test('future native core failure does not expose drifting native copy',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_native_future_start_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startCoreWithVpn') {
+        throw PlatformException(
+          code: 'CORE_START_FUTURE',
+          message: 'native detail password=secret',
+        );
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings());
+
+    expect(await service.start(nodeName: 'A'), isFalse);
+    expect(service.lastStartError, androidUnknownCoreStartFailure);
+    expect(service.lastStartError, isNot(contains('secret')));
+  });
+
+  test('unknown native failure code never exposes trusted-looking raw copy',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_native_untrusted_start_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startCoreWithVpn') {
+        throw PlatformException(
+          code: 'FUTURE_NATIVE_FAILURE',
+          message: '订阅已更新，请重新连接；token=secret',
+        );
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings());
+
+    expect(await service.start(nodeName: 'A'), isFalse);
+    expect(service.lastStartError, androidUnknownCoreStartFailure);
+    expect(service.lastStartError, isNot(contains('secret')));
+    expect(service.lastStartError, isNot(contains('订阅已更新')));
+  });
+
+  test('legacy native start codes use fixed actionable Dart messages',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_native_legacy_start_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    await config.writeAsString('proxies: []');
+    var nativeCode = 'CORE_BUSY';
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'startCoreWithVpn') {
+        throw PlatformException(
+          code: nativeCode,
+          message: 'raw native copy token=secret',
+        );
+      }
+      return null;
+    });
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(AppSettings());
+    const cases = <String, String>{
+      'CORE_BUSY': 'CORE_START_BUSY: VPN 核心正在处理上一项操作，请稍后重试',
+      'INVALID_ARGS': 'CORE_START_CONFIG: VPN 启动参数无效',
+      'INVALID_CONFIG_PATH': 'CORE_START_CONFIG: VPN 配置路径不可用',
+      'CORE_TIMEOUT': 'CORE_START_TIMEOUT: VPN 核心启动超时',
+    };
+
+    for (final entry in cases.entries) {
+      nativeCode = entry.key;
+      expect(await service.start(nodeName: 'A'), isFalse, reason: entry.key);
+      expect(service.lastStartError, entry.value, reason: entry.key);
+      expect(service.lastStartError, isNot(contains('secret')));
+    }
+  });
+
+  test('native start and snapshot use the runtime config API secret', () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_native_canonical_secret_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    const rawSecret = '密钥-🔐';
+    final settings = AppSettings(apiSecret: rawSecret);
+    Map<Object?, Object?>? startArguments;
+    Map<Object?, Object?>? syncArguments;
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(settings);
+    final generated = service.generateClashConfig(_testProxies, settings);
+    await config.writeAsString(generated);
+    final runtimeSecret = (loadYaml(generated) as YamlMap)['secret'] as String;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+          startArguments = call.arguments as Map<Object?, Object?>;
+          return <String, Object?>{
+            'running': true,
+            'transitioning': false,
+            'protectedConfigPath': config.path,
+            'sessionGeneration': 73,
+          };
+        case 'syncSettings':
+          syncArguments = call.arguments as Map<Object?, Object?>;
+          return 'generation-canonical-secret';
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    addTearDown(() async {
+      service.dispose();
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    expect(
+      await service.start(nodeName: 'A', preparedConfigPath: config.path),
+      isTrue,
+    );
+    expect(runtimeSecret, isNot(rawSecret));
+    expect(startArguments?['apiSecret'], runtimeSecret);
+    expect(syncArguments?['apiSecret'], runtimeSecret);
+  });
+
   test('native start without a trusted running config is rolled back',
       () async {
     SharedPreferences.setMockInitialValues({});
@@ -1562,7 +2059,10 @@ void main() {
 
     expect(await service.start(nodeName: 'A'), isFalse);
     expect(service.isRunning, isTrue);
-    expect(service.lastStartError, contains('安全回滚失败'));
+    expect(service.lastStartError, contains('安全回滚未完成'));
+    expect(service.lastStartError, isNot(contains('STOP_FAILED')));
+    expect(service.recentLogs, contains('cause=UNKNOWN'));
+    expect(service.recentLogs, isNot(contains('STOP_FAILED')));
   });
 
   test('duplicate native start preserves the actual active config', () async {
@@ -2878,6 +3378,8 @@ void main() {
       final firstSwitchEntered = Completer<void>();
       final releaseFirstSwitch = Completer<void>();
       var runtimeNode = '原节点';
+      var closeConnectionCalls = 0;
+      var nativeSessionGeneration = 23;
       late final ClashService service;
 
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -2904,6 +3406,7 @@ void main() {
           request.response.write(jsonEncode({'connections': <Object>[]}));
         } else if (request.uri.path == '/connections' &&
             request.method == 'DELETE') {
+          closeConnectionCalls++;
           request.response.statusCode = HttpStatus.noContent;
         } else {
           request.response.statusCode = HttpStatus.notFound;
@@ -2917,7 +3420,7 @@ void main() {
             'running': true,
             'transitioning': false,
             'protectedConfigPath': config.path,
-            'sessionGeneration': 23,
+            'sessionGeneration': nativeSessionGeneration,
           };
         }
         return true;
@@ -2942,6 +3445,8 @@ void main() {
           connectionGeneration: firstGeneration,
         );
         await firstSwitchEntered.future;
+        service.requestConnectionIntent(false);
+        nativeSessionGeneration = 24;
         final latestGeneration = service.requestConnectionIntent(true);
         releaseFirstSwitch.complete();
 
@@ -2953,10 +3458,11 @@ void main() {
 
         expect(staleResult.liveSwitched, isTrue);
         expect(staleResult.intentCurrent, isFalse);
+        expect(closeConnectionCalls, 0);
         expect(latestResult.liveSwitched, isFalse);
         expect(latestResult.intentCurrent, isTrue);
         expect(latestResult.runtimeNodeName, '日本节点');
-        expect(latestResult.nativeSessionGeneration, 23);
+        expect(latestResult.nativeSessionGeneration, 24);
       }, _RealHttpOverrides());
     },
   );

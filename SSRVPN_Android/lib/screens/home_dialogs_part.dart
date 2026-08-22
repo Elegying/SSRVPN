@@ -8,7 +8,9 @@ class _AndroidTutorialStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final colors = theme.colorScheme;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -16,9 +18,7 @@ class _AndroidTutorialStep extends StatelessWidget {
           width: 24,
           height: 24,
           decoration: BoxDecoration(
-            color: AppTheme.primaryColor.withValues(
-              alpha: (isDark ? 30 : 20) / 255,
-            ),
+            color: Color.lerp(colors.primary, Colors.black, 0.04),
             shape: BoxShape.circle,
           ),
           child: Center(
@@ -27,7 +27,7 @@ class _AndroidTutorialStep extends StatelessWidget {
               style: TextStyle(
                 fontSize: Responsive.sp(12),
                 fontWeight: FontWeight.w700,
-                color: AppTheme.primaryColor,
+                color: colors.onPrimary,
               ),
             ),
           ),
@@ -54,115 +54,23 @@ class _AndroidTutorialStep extends StatelessWidget {
 }
 
 void _showAndroidHomeTutorialDialog(BuildContext context) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
-  showDialog<void>(
-    context: context,
-    builder: (ctx) => Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: GlassContainer(
-        borderRadius: 16,
-        enablePress: false,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(ctx).size.width * 0.88,
-            maxHeight: (MediaQuery.of(ctx).size.height -
-                    MediaQuery.of(ctx).viewInsets.vertical -
-                    48)
-                .clamp(160.0, double.infinity)
-                .toDouble(),
+  showSsrvpnInfoDialog(
+    context,
+    panelKey: const Key('ssrvpn-tutorial-glass'),
+    scrollKey: const Key('android-home-tutorial-scroll'),
+    icon: Icons.menu_book_rounded,
+    title: '使用教程',
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < _homeTutorialSteps.length; i++) ...[
+          _AndroidTutorialStep(
+            step: '${i + 1}',
+            text: _homeTutorialSteps[i].text,
           ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: SingleChildScrollView(
-                    key: const Key('android-home-tutorial-scroll'),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [
-                                    AppTheme.primaryColor,
-                                    AppTheme.accentColor,
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(
-                                Icons.menu_book_rounded,
-                                color: Colors.white,
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                '使用教程',
-                                style: TextStyle(
-                                  fontSize: Responsive.sp(18),
-                                  fontWeight: FontWeight.w700,
-                                  color: isDark
-                                      ? AppTheme.darkTextPrimary
-                                      : AppTheme.lightTextPrimary,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        for (var i = 0; i < _homeTutorialSteps.length; i++) ...[
-                          _AndroidTutorialStep(
-                            step: '${i + 1}',
-                            text: _homeTutorialSteps[i].text,
-                          ),
-                          if (i != _homeTutorialSteps.length - 1)
-                            const SizedBox(height: 12),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      backgroundColor: AppTheme.primaryColor.withValues(
-                        alpha: (isDark ? 25 : 15) / 255,
-                      ),
-                    ),
-                    child: Text(
-                      '知道了',
-                      style: TextStyle(
-                        fontSize: Responsive.sp(14),
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.primaryColor,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+          if (i != _homeTutorialSteps.length - 1) const SizedBox(height: 12),
+        ],
+      ],
     ),
   );
 }

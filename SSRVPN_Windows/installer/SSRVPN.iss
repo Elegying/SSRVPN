@@ -18,6 +18,7 @@
 AppId={{299A3A12-B4A8-4120-9A62-CB274F328FE6}
 AppName=SSRVPN
 AppVersion={#AppVersion}
+VersionInfoVersion={#AppVersion}
 AppPublisher=SSRVPN
 AppPublisherURL=https://github.com/Elegying/SSRVPN
 AppSupportURL=https://github.com/Elegying/SSRVPN/issues
@@ -32,6 +33,7 @@ DisableProgramGroupPage=yes
 ; that performs the verified cleanup and transactional file replacement.
 PrivilegesRequired=admin
 UsedUserAreasWarning=no
+MinVersion=10.0.10240
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutputDir}
@@ -96,6 +98,9 @@ const
   UpdateHandoffEventPrefix = 'Local\SSRVPN_UpdateHandoff_';
   UpdateHandoffRequestSuffix = '.ssrvpn-handoff';
   UpdateHandoffStatusSuffix = '.ssrvpn-handoff-status';
+  VerifiedUpdateMarkerSuffix = '.ssrvpn-verified-update';
+  VerifiedUpdateExpectedInstallerName =
+    'SSRVPN_Setup_v{#AppVersion}.exe';
   StopStatusSuffix = '.ssrvpn-stop-status';
   ProgramFilesTransactionStatusSuffix = '.ssrvpn-program-files-status';
   UninstallRegistryKey =
@@ -110,6 +115,9 @@ var
   UpdateHandoffReady: Boolean;
   UpdateHandoffToken: AnsiString;
   UpdateHandoffStatusPath: String;
+  VerifiedUpdateMarkerPath: String;
+  VerifiedUpdateActualInstallerName: String;
+  VerifiedUpdateCleanupRequested: Boolean;
   LastStopStatus: String;
   ProgramFilesRecoveryPending: Boolean;
   ProgramFilesTransactionPrepared: Boolean;
@@ -131,17 +139,19 @@ function WinCloseHandle(Handle: THandle): BOOL;
 function WinOpenEvent(DesiredAccess: Cardinal; InheritHandle: BOOL;
   Name: String): THandle;
   external 'OpenEventW@kernel32.dll stdcall';
-function IsValidUpdateHandoffToken(Token: AnsiString): Boolean;
+function WinGetCurrentProcessId(): Cardinal;
+  external 'GetCurrentProcessId@kernel32.dll stdcall';
+function IsLowerHexString(Value: String; ExpectedLength: Integer): Boolean;
 var
   Index: Integer;
-  Character: AnsiChar;
+  Character: Char;
 begin
-  Result := Length(Token) = 32;
+  Result := Length(Value) = ExpectedLength;
   if not Result then
     exit;
-  for Index := 1 to Length(Token) do
+  for Index := 1 to Length(Value) do
   begin
-    Character := Token[Index];
+    Character := Value[Index];
     if not (((Character >= '0') and (Character <= '9')) or
       ((Character >= 'a') and (Character <= 'f'))) then
     begin
@@ -151,12 +161,52 @@ begin
   end;
 end;
 
+function IsValidUpdateHandoffToken(Token: AnsiString): Boolean;
+begin
+  Result := IsLowerHexString(String(Token), 32);
+end;
+
+function IsValidVerifiedUpdateInstallerName(InstallerName: String): Boolean;
+var
+  VariantPrefix: String;
+  VariantNonce: String;
+begin
+  if CompareText(InstallerName, VerifiedUpdateExpectedInstallerName) = 0 then
+  begin
+    Result := True;
+    exit;
+  end;
+  VariantPrefix := ChangeFileExt(
+    VerifiedUpdateExpectedInstallerName, '') + '_';
+  Result :=
+    (Length(InstallerName) = Length(VariantPrefix) + 32 + Length('.exe')) and
+    (CompareText(
+      Copy(InstallerName, 1, Length(VariantPrefix)), VariantPrefix) = 0) and
+    (CompareText(
+      Copy(InstallerName, Length(InstallerName) - 3, 4), '.exe') = 0);
+  if not Result then
+    exit;
+  VariantNonce := Copy(InstallerName, Length(VariantPrefix) + 1, 32);
+  Result := IsLowerHexString(VariantNonce, 32);
+end;
+
 function InitializeSetup(): Boolean;
 var
   HandoffEvent: THandle;
   RequestPath: String;
   Token: AnsiString;
 begin
+  VerifiedUpdateActualInstallerName :=
+    ExtractFileName(ExpandConstant('{srcexe}'));
+  VerifiedUpdateMarkerPath :=
+    ExpandConstant('{srcexe}') + VerifiedUpdateMarkerSuffix;
+  if IsValidVerifiedUpdateInstallerName(
+      VerifiedUpdateActualInstallerName) and
+    FileExists(VerifiedUpdateMarkerPath) then
+  begin
+    VerifiedUpdateCleanupRequested := True;
+    Log('SSRVPN detected a marked in-app update installer.');
+  end;
   ProgramFilesRecoveryPending := DirExists(
     ExpandConstant('{localappdata}\SSRVPN\installer-recovery'));
   ProgramFilesTransactionPrepared := False;
@@ -251,6 +301,7 @@ begin
     (Status = 'LOCK_BUSY') or
     (Status = 'LOCK_FAILED') or
     (Status = 'INSTANCE_GATE_FAILED') or
+    (Status = 'APP_INSTANCE_ACTIVE') or
     (Status = 'IDENTITY_UNVERIFIED') or
     (Status = 'APP_STILL_RUNNING') or
     (Status = 'PROXY_UNSAFE') or
@@ -521,7 +572,7 @@ begin
   begin
     ReleaseInstallGates;
     Result := '无法取得 SSRVPN 安装期启动保护，安装尚未修改程序文件。' + #13#10 +
-      '安装器已强制清理旧进程但启动器仍未释放；' +
+      '安装器已按路径清理当前安装实例，但启动器仍未释放；' +
       '请稍后重试，如果仍然失败请重启 Windows。';
     exit;
   end;
@@ -559,6 +610,14 @@ begin
       exit;
     end;
     Result := '';
+  end
+  else if LastStopStatus = 'APP_INSTANCE_ACTIVE' then
+  begin
+    ReleaseInstallGates;
+    Result := '检测到其他目录或便携版 SSRVPN 仍在运行，安装尚未修改程序文件。' + #13#10 +
+      StopStatusDiagnostic + #13#10 +
+      '请退出所有 SSRVPN 窗口和托盘实例后重试；如果仍然失败，' +
+      '请重启 Windows 后再次安装。';
   end
   else if StopResult = 3 then
   begin
@@ -712,6 +771,35 @@ begin
   end;
 end;
 
+procedure LaunchVerifiedUpdatePackageCleanup;
+var
+  CleanupPath: String;
+  Parameters: String;
+  PowerShellPath: String;
+  ResultCode: Integer;
+begin
+  CleanupPath := ExpandConstant(
+    '{app}\installer\post_install_cleanup.ps1');
+  PowerShellPath := ExpandConstant(
+    '{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  Parameters := '-NoLogo -NoProfile -NonInteractive ' +
+    '-ExecutionPolicy Bypass -File ' + AddQuotes(CleanupPath) +
+    ' -InstalledLauncherPath ' +
+      AddQuotes(ExpandConstant('{app}\ssrvpn_windows.exe')) +
+    ' -RemoveVerifiedInstaller' +
+    ' -InstallerPath ' + AddQuotes(ExpandConstant('{srcexe}')) +
+    ' -ExpectedInstallerName ' +
+      AddQuotes(VerifiedUpdateActualInstallerName) +
+    ' -InstallerProcessId ' + IntToStr(WinGetCurrentProcessId);
+  try
+    if not ExecAsOriginalUser(
+      PowerShellPath, Parameters, '', SW_HIDE, ewNoWait, ResultCode) then
+      Log('SSRVPN could not start verified update package cleanup.');
+  except
+    Log('SSRVPN verified update package cleanup raised an internal exception.');
+  end;
+end;
+
 procedure DeinitializeSetup;
 begin
   if UpdateHandoffDetected and (not UpdateHandoffReady) then
@@ -725,7 +813,11 @@ begin
   end;
   ReleaseInstallGates;
   if InstallSucceeded then
+  begin
     LaunchPostInstallCleanup;
+    if VerifiedUpdateCleanupRequested then
+      LaunchVerifiedUpdatePackageCleanup;
+  end;
 end;
 
 function InitializeUninstall(): Boolean;
@@ -761,7 +853,12 @@ begin
   if not Result then
   begin
     ReleaseInstallGates;
-    if StopResult = 3 then
+    if LastStopStatus = 'APP_INSTANCE_ACTIVE' then
+      MsgBox('检测到其他目录或便携版 SSRVPN 仍在运行，卸载尚未删除程序文件。' + #13#10 +
+        StopStatusDiagnostic + #13#10 +
+        '请退出所有 SSRVPN 窗口和托盘实例后重试；如果仍然失败，' +
+        '请重启 Windows 后再次卸载。', mbError, MB_OK)
+    else if StopResult = 3 then
       MsgBox('无法确认 SSRVPN 进程归属或安全恢复系统代理，卸载尚未删除程序文件。' + #13#10 +
         StopStatusDiagnostic + #13#10 +
         '请退出 SSRVPN，确认 Windows 系统代理和网络正常后重试；' +

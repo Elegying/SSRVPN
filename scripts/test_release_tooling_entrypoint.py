@@ -132,6 +132,34 @@ python3 -m unittest \\
             publish_header,
         )
 
+    def test_release_smoke_verifies_each_platform_checksum(self) -> None:
+        workflow = (
+            ROOT / ".github" / "workflows" / "release.yml"
+        ).read_text(encoding="utf-8")
+        smoke = (ROOT / "scripts" / "smoke-release-artifacts.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertEqual(workflow.count("--require-checksums"), 3)
+        for job_name, next_job in (
+            ("build-android", "build-macos"),
+            ("build-macos", "windows-policy-tests"),
+        ):
+            job = workflow[
+                workflow.index(f"  {job_name}:\n") :
+                workflow.index(f"  {next_job}:\n")
+            ]
+            with self.subTest(job=job_name):
+                self.assertLess(
+                    job.index("- name: Generate checksum"),
+                    job.index("- name: Smoke release artifact"),
+                )
+
+        self.assertIn("--require-checksums) require_checksums=1", smoke)
+        for artifact in ("$apk", "$dmg", "$installer"):
+            with self.subTest(artifact=artifact):
+                self.assertIn(f'verify_checksum "{artifact}"', smoke)
+
     def test_android_jobs_cache_gradle_dependencies_read_only_off_main(self) -> None:
         expected_action = (
             "gradle/actions/setup-gradle@"

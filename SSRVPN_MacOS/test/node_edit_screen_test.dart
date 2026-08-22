@@ -36,6 +36,32 @@ void main() {
 
     expect(find.text('端口必须在 1-65535 之间'), findsOneWidget);
   });
+
+  testWidgets('advanced JSON editor uses an explicit macOS monospace chain',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        home: NodeEditScreen(node: _node()),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.text('其他参数（JSON）'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+
+    final editorStyles = tester
+        .widgetList<EditableText>(find.byType(EditableText))
+        .map((editor) => editor.style);
+    expect(editorStyles.map((style) => style.fontFamily), contains('Menlo'));
+    expect(
+      editorStyles.map((style) => style.fontFamilyFallback),
+      contains(const <String>['Consolas']),
+    );
+  });
 }
 
 ProxyNode _node() {

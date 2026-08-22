@@ -64,17 +64,17 @@ internal object VpnProtectMonitor {
                             return@Thread
                         }
                         val protected = protectSocket(socketFd)
-                        Log.d(TAG, "protect($socketFd) = $protected")
                         if (!reportResultSafely(protected, reportResult)) {
                             Log.e(TAG, "Native protect result reporter is unavailable")
                             return@Thread
                         }
                     }
                 }
-            } catch (error: LinkageError) {
-                Log.e(TAG, "Protect monitor native linkage failed", error)
+            } catch (_: LinkageError) {
+                Log.e(TAG, "event=protect_monitor_failed cause=linkage")
             } catch (error: Exception) {
-                Log.e(TAG, "Protect monitor failed", error)
+                val category = NativeCoreStartFailureCategory.from(error).logValue
+                Log.e(TAG, "event=protect_monitor_failed cause=$category")
             }
         }, "SSRVPN-protect").apply {
             isDaemon = true

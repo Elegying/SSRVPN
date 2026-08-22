@@ -46,15 +46,6 @@ String userFriendlyAndroidConnectionError(Object? error) {
   final raw = error?.toString().trim() ?? '';
   final lower = raw.toLowerCase();
 
-  if (raw.contains('上次 VPN 联网检查仍在结束')) {
-    return '上次 VPN 联网检查仍在结束，请稍后重试；若持续出现请重启应用';
-  }
-  if (raw.contains('VPN 联网检查超时')) {
-    return 'VPN 联网检查超时，请稍后重试；若持续出现请重启应用';
-  }
-  if (raw.contains('VPN 数据通道不可用')) {
-    return 'VPN 数据通道不可用，请切换节点或重试';
-  }
   if (raw == '请先添加并刷新订阅' || raw.startsWith('订阅已更新')) {
     return raw;
   }
@@ -65,6 +56,30 @@ String userFriendlyAndroidConnectionError(Object? error) {
   }
   if (raw.contains('VPN establish failed') || raw.contains('创建 VPN 接口')) {
     return '系统未能创建 VPN 接口，请检查 VPN 权限后重试';
+  }
+  if (lower.contains('core_start_port_conflict')) {
+    return '本地代理端口被占用，请关闭占用端口的应用后重试';
+  }
+  if (lower.contains('core_start_api_auth')) {
+    return '本地控制凭据不可用或与运行配置不一致，请重启应用后重试';
+  }
+  if (lower.contains('core_start_permission')) {
+    return 'VPN 核心缺少必要权限，请检查系统设置后重试';
+  }
+  if (lower.contains('core_start_tun')) {
+    return 'VPN 网络保护服务异常，请重新连接';
+  }
+  if (lower.contains('core_start_config')) {
+    return 'VPN 配置不可用，请刷新订阅后重试';
+  }
+  if (lower.contains('core_start_timeout')) {
+    return 'VPN 核心启动超时，请重新连接';
+  }
+  if (lower.contains('core_start_component')) {
+    return 'VPN 核心组件不可用，请重新安装官方版本';
+  }
+  if (lower.contains('core_start_busy')) {
+    return 'VPN 核心正在启动或清理，请稍后重试';
   }
   if (lower.contains('local api') ||
       raw.contains('本地控制服务') ||
@@ -233,7 +248,8 @@ class ConnectionOrchestrator {
         }
         if (started) break;
 
-        final reason = clashService.lastStartError ?? '无法启动VPN核心';
+        final reason =
+            clashService.lastStartError ?? androidUnknownCoreStartFailure;
         if (attempt == 0 &&
             RuntimePortConflictPolicy.isExplicitBindConflict(reason)) {
           // Native Android reports the bind failure before its worker has
@@ -316,8 +332,8 @@ class ConnectionOrchestrator {
         }
       }
 
-      // Native exact-204 validation already established the usable data path.
-      // External endpoints are advisory and update connectivityWarning later.
+      // Native startup has established the local VPN, protect monitor and API.
+      // External reachability is advisory and updates connectivityWarning later.
       clashService.scheduleUserConnectivityObservation();
       return AndroidConnectionOutcome(
         message: snapshotWarning ?? runtimePortNotice,

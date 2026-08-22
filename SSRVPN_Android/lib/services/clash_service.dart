@@ -116,10 +116,11 @@ class ClashService extends ClashServiceBase {
   void _notifyNativeRuntimeNotice(RuntimeNotice notice) =>
       notifyRuntimeNotice(notice);
 
-  /// Native exact-204 startup validation is authoritative. This secondary
-  /// external observation is advisory and deliberately does not delay the
-  /// connected state or own the VPN lifecycle.
-  void scheduleUserConnectivityObservation() => scheduleDataPlaneObservation();
+  /// External reachability is advisory after the native local VPN gates pass.
+  /// It deliberately does not delay the connected state or own the VPN
+  /// lifecycle.
+  void scheduleUserConnectivityObservation({bool rerunIfActive = false}) =>
+      scheduleDataPlaneObservation(rerunIfActive: rerunIfActive);
 
   @override
   Future<void> observeDataPlaneHealth() async {
@@ -129,6 +130,7 @@ class ClashService extends ClashServiceBase {
     await verifyUserConnectivity(
       shouldContinue: () =>
           isRunning &&
+          isDataPlaneObservationCurrent &&
           startGeneration == _startGeneration &&
           isConnectionIntentCurrent(connectionGeneration, connected: true),
     );
@@ -211,9 +213,9 @@ class ClashService extends ClashServiceBase {
     setPaths(configDir: configDir, configPath: configPath);
     initHttpClient();
 
-    log('nativeLibDir: $_nativeLibDir');
-    log('核心路径: $_corePath');
-    log('配置目录: $configDir');
+    log('原生库目录已解析');
+    log('核心文件路径已解析');
+    log('配置目录已准备');
 
     _channel.setMethodCallHandler(_handleNativeMethodCall);
 
@@ -222,7 +224,7 @@ class ClashService extends ClashServiceBase {
       final size = await coreFile.length();
       log('✅ 核心文件存在: ${(size / 1024 / 1024).toStringAsFixed(1)} MB');
     } else {
-      log('❌ 核心文件不存在: $_corePath');
+      log('❌ 核心文件不存在');
       await _debugListDirs();
     }
 
@@ -232,36 +234,32 @@ class ClashService extends ClashServiceBase {
   }
 
   Future<void> _debugListDirs() async {
-    log('--- 调试目录 ---');
+    log('--- 核心文件诊断 ---');
     if (_nativeLibDir.isNotEmpty) {
       final dir = Directory(_nativeLibDir);
       if (await dir.exists()) {
-        log('$_nativeLibDir 内容:');
-        await for (final entity in dir.list()) {
-          final size = entity is File ? await entity.length() : 0;
-          log('  ${entity.path.split('/').last} ($size bytes)');
+        var entryCount = 0;
+        await for (final _ in dir.list()) {
+          entryCount++;
         }
+        log('原生库目录可访问，条目数: $entryCount');
       } else {
-        log('$_nativeLibDir 不存在');
+        log('原生库目录不存在');
       }
     }
     try {
       final dataApp = Directory('/data/app');
       if (await dataApp.exists()) {
-        log('/data/app/ 内容:');
+        var matchingDirectoryCount = 0;
         await for (final entity in dataApp.list()) {
           if (entity.path.contains('ssrvpn')) {
-            log('  ${entity.path}');
-            if (entity is Directory) {
-              await for (final sub in entity.list()) {
-                log('    ${sub.path.split('/').last}');
-              }
-            }
+            matchingDirectoryCount++;
           }
         }
+        log('SSRVPN 安装目录匹配数: $matchingDirectoryCount');
       }
     } catch (e) {
-      log('列出 /data/app 失败: $e');
+      log('Android 安装目录检查失败: cause=${_safeLogErrorCode(e)}');
     }
   }
 
@@ -294,7 +292,7 @@ class ClashService extends ClashServiceBase {
         '✅ MMDB 已从内置资源解压 (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB)',
       );
     } catch (e) {
-      log('⚠️ 内置资源复制失败: $e');
+      log('⚠️ 内置资源复制失败: cause=${_safeLogErrorCode(e)}');
       log('❌ IP 归属数据库不可用；国内纯 IP 流量可能回退到代理');
     }
   }
@@ -411,7 +409,7 @@ class ClashService extends ClashServiceBase {
 
     try {
       log('🚀 启动 Mihomo (gomobile)...');
-      log('配置: $startConfigPath');
+      log('配置文件准备完成');
 
       if (!File(startConfigPath).existsSync()) {
         log('❌ 配置文件不存在');
@@ -428,7 +426,7 @@ class ClashService extends ClashServiceBase {
         'configDir': configDir,
         'configPath': startConfigPath,
         'apiPort': settings.apiPort,
-        'apiSecret': settings.apiSecret,
+        'apiSecret': runtimeApiSecret,
         'nodeName': nodeName,
       });
       _ensureStartCurrent(startToken);
@@ -468,15 +466,16 @@ class ClashService extends ClashServiceBase {
             await stop();
             setLastStartError(snapshotError);
           } catch (stopError) {
-            setLastStartError('$snapshotError；$stopError');
+            log('VPN 安全回滚未完整结束: cause=${_safeLogErrorCode(stopError)}');
+            setLastStartError('$snapshotError；请重新打开应用后重试');
           }
           return false;
         }
         startStatusMonitor();
         return true;
       } else {
-        log('❌ 核心启动失败: $result');
-        setLastStartError(result?.toString() ?? '无法启动VPN核心');
+        log('❌ VPN 核心启动结果未确认');
+        setLastStartError('VPN 核心未能确认启动，请重试；若持续失败请打开诊断与运行日志');
         return false;
       }
     } on _AndroidStartCancelled {
@@ -489,19 +488,22 @@ class ClashService extends ClashServiceBase {
         log('连接已取消');
         return false;
       }
-      log('❌ 启动异常: ${e.message}');
-      final msg = e.message ?? '无法启动VPN核心';
+      final nativeCategory = _nativeCoreStartFailureCategories[e.code];
+      if (nativeCategory != null) {
+        log('❌ VPN 核心启动失败: cause=$nativeCategory');
+      } else {
+        log('❌ VPN 核心启动失败，正在生成可操作提示');
+      }
       if (e.code == 'PERMISSION_DENIED') {
         log('⚠️ 用户拒绝了 VPN 权限');
         setLastStartError('用户拒绝了 VPN 权限');
       } else {
-        setLastStartError(msg);
+        setLastStartError(_nativeStartFailureMessage(e));
       }
       return false;
-    } catch (e, stack) {
-      log('❌ 启动异常: $e');
-      log('堆栈: $stack');
-      setLastStartError('无法启动VPN核心: $e');
+    } catch (e) {
+      log('❌ VPN 核心启动异常: cause=${_safeLogErrorCode(e)}');
+      setLastStartError(safeUserFacingFailureMessage(e));
       return false;
     }
   }
@@ -533,7 +535,7 @@ class ClashService extends ClashServiceBase {
       log('核心已停止');
     } catch (e) {
       stopError = e;
-      log('停止异常: $e');
+      log('停止 VPN 核心失败: cause=${_safeLogErrorCode(e)}');
     }
 
     final runningAfterStop = stopError == null
@@ -586,7 +588,7 @@ class ClashService extends ClashServiceBase {
           'apiPort': settings.apiPort,
           'proxyPort': settings.proxyPort,
           'socksPort': settings.socksPort,
-          'apiSecret': settings.apiSecret,
+          'apiSecret': runtimeApiSecret,
           'selectedNodeName': nodeName,
           'expectedSessionGeneration': effectiveSessionGeneration,
         });
@@ -603,7 +605,10 @@ class ClashService extends ClashServiceBase {
           // would let the caller delete a config the native snapshot uses.
           // The prepared marker is generation-bound or records the replacement
           // baseline, so recovery cannot clear this newer snapshot.
-          log('原生快速启动快照已提交，旧清理事务收口失败: $error');
+          log(
+            '原生快速启动快照已提交，旧清理事务收口失败: '
+            'cause=${_safeLogErrorCode(error)}',
+          );
         }
 
         // The native atomic snapshot is the commit point. Everything below is
@@ -660,32 +665,55 @@ class ClashService extends ClashServiceBase {
             await _pruneVersionedConfigs(keepPaths);
           }
         } catch (error) {
-          log('原生快速启动快照已提交，旧数据清理失败: $error');
+          log(
+            '原生快速启动快照已提交，旧数据清理失败: '
+            'cause=${_safeLogErrorCode(error)}',
+          );
         }
         if (!isRunning) await _completePendingSnapshotFileCleanup();
         return true;
       });
     } catch (error) {
-      log('原生快速启动数据同步失败，保留上次可用快照: $error');
+      log(
+        '原生快速启动数据同步失败，保留上次可用快照: '
+        'cause=${_safeLogErrorCode(error)}',
+      );
       return false;
     }
   }
 
   @override
-  Future<bool> switchSelectedProxy(String nodeName) async {
-    final result = await switchSelectedProxyWithSnapshot(nodeName);
+  Future<bool> switchSelectedProxy(
+    String nodeName, {
+    SwitchContextGuard? isSwitchContextCurrent,
+  }) async {
+    final result = await switchSelectedProxyWithSnapshot(
+      nodeName,
+      isSwitchContextCurrent: isSwitchContextCurrent,
+    );
     return result.liveSwitched;
   }
 
   Future<AndroidProxySwitchResult> switchSelectedProxyWithSnapshot(
-    String nodeName,
-  ) async {
-    final switched = await super.switchSelectedProxy(nodeName);
+    String nodeName, {
+    SwitchContextGuard? isSwitchContextCurrent,
+  }) async {
+    final switched = await super.switchSelectedProxy(
+      nodeName,
+      isSwitchContextCurrent: isSwitchContextCurrent,
+    );
     if (!switched) {
       return const AndroidProxySwitchResult(
         liveSwitched: false,
         snapshotPersisted: false,
         intentCurrent: true,
+      );
+    }
+    if (isSwitchContextCurrent != null && !await isSwitchContextCurrent()) {
+      return const AndroidProxySwitchResult(
+        liveSwitched: true,
+        snapshotPersisted: false,
+        intentCurrent: false,
       );
     }
     final persisted = await updateVpnNotification(nodeName);
@@ -724,7 +752,19 @@ class ClashService extends ClashServiceBase {
         intentCurrent: false,
       );
     }
-    final switched = await super.switchSelectedProxy(nodeName);
+    final switched = await super.switchSelectedProxy(
+      nodeName,
+      isSwitchContextCurrent: () async {
+        final nativeSessionCurrent = await _isNativeSessionCurrent(
+          nativeSessionGeneration,
+        );
+        return nativeSessionCurrent &&
+            isConnectionIntentCurrent(
+              connectionGeneration,
+              connected: true,
+            );
+      },
+    );
     final intentCurrent = isConnectionIntentCurrent(
       connectionGeneration,
       connected: true,
@@ -794,7 +834,7 @@ class ClashService extends ClashServiceBase {
       await prefs.setString('selectedNodeName', nodeName);
       return true;
     } catch (e) {
-      log('更新 VPN 通知失败: $e');
+      log('更新 VPN 通知失败: cause=${_safeLogErrorCode(e)}');
       return false;
     }
   }

@@ -3,6 +3,11 @@
 SSRVPN downloads its large native assets from immutable GitHub Release URLs.
 The files are generated locally, ignored by Git, and accepted only after their
 container and extracted SHA256 values match the committed source records.
+The bundled binaries and GeoIP database are not relicensed by SSRVPN. Exact
+license, corresponding-source and modification directions are maintained in
+[`third_party/THIRD_PARTY_NOTICES.md`](../third_party/THIRD_PARTY_NOTICES.md),
+and every release package must include that notice plus the complete GPL and
+SSRVPN MIT texts.
 
 ## Windows
 
@@ -54,6 +59,7 @@ compressed SHA256 and the decompressed executable SHA256.
 ```bash
 make assets
 scripts/verify-core-assets.sh
+python3 -m unittest scripts/test_third_party_licenses.py
 ```
 
 `scripts/bootstrap-core-assets.sh` uses only allowlisted HTTPS GitHub URLs,

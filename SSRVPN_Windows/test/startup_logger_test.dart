@@ -5,6 +5,37 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_windows/startup/startup_logger.dart';
 
 void main() {
+  test('desktop failure report redacts every metadata path', () async {
+    final tempDirectory =
+        await Directory.systemTemp.createTemp('ssrvpn_startup_report_test_');
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final desktop = await Directory('${tempDirectory.path}/Desktop').create();
+    final logFile = File('${tempDirectory.path}/startup.log');
+    await StartupLogger.init(verbose: false, fileOverride: logFile);
+    StartupLogger.resetDesktopFailureReportForTesting();
+    addTearDown(StartupLogger.resetDesktopFailureReportForTesting);
+
+    final reportPath = StartupLogger.writeDesktopFailureReportSync(
+      'startup failed',
+      desktopOverride: desktop,
+      resolvedExecutableOverride:
+          r'C:\Users\PrivateUser\AppData\Local\Programs\SSRVPN\ssrvpn.exe',
+      executableArgumentsOverride: const [
+        r'--config=C:\Users\PrivateUser\Documents\private.yaml',
+      ],
+      logPathOverride:
+          r'C:\Users\PrivateUser\AppData\Local\SSRVPN\logs\startup.log',
+    );
+
+    expect(reportPath, isNotNull);
+    final report = await File(reportPath!).readAsString();
+    expect(report, isNot(contains('PrivateUser')));
+    expect(report, contains(r'C:\Users\***'));
+    expect(report, contains('Executable:'));
+    expect(report, contains('Arguments:'));
+    expect(report, contains('Startup log:'));
+  });
+
   test('init stays best-effort when the log directory cannot be created',
       () async {
     final tempDirectory =

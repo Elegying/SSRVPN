@@ -34,6 +34,7 @@ def _stable_gzip(data: bytes) -> bytes:
 
 
 def _write_source_record(path: Path, *, raw: bytes, gzipped: bytes) -> str:
+    release_commit = "4" * 40
     gzip_hash = _sha256(gzipped)
     mirror_name = f"geoip.metadb-{gzip_hash}.gz"
     mirror_url = (
@@ -47,6 +48,11 @@ def _write_source_record(path: Path, *, raw: bytes, gzipped: bytes) -> str:
                 "Repo: MetaCubeX/meta-rules-dat",
                 "Release ID: stale-release",
                 "Release tag: latest",
+                f"Release tag commit SHA: {release_commit}",
+                (
+                    "Immutable source archive: https://github.com/MetaCubeX/"
+                    f"meta-rules-dat/archive/{release_commit}.tar.gz"
+                ),
                 "Release name: stale upstream pin",
                 "Asset ID: stale-asset",
                 (
@@ -198,6 +204,16 @@ class GeoIpWorkflowTest(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "absolute deadline"):
                 SYNC.download("https://example.com/slow", max_bytes=1024)
 
+    def test_github_api_json_must_be_a_valid_object(self) -> None:
+        for payload in (b"[]", b"{not-json"):
+            with self.subTest(payload=payload), patch.object(
+                SYNC,
+                "download",
+                return_value=payload,
+            ):
+                with self.assertRaisesRegex(SystemExit, "GitHub API JSON object"):
+                    SYNC.load_json_object("https://api.github.com/example")
+
     def test_authenticated_github_api_downloads_disable_redirects(self) -> None:
         opener = Mock()
         opener.open.return_value = _FakeResponse(b"api response")
@@ -235,11 +251,13 @@ class GeoIpWorkflowTest(unittest.TestCase):
 
     def test_source_record_points_to_content_addressed_ssrvpn_mirror(self) -> None:
         gzip_hash = "b" * 64
+        release_commit = "c" * 40
         record = SYNC.build_source_record(
             {"id": 1, "tag_name": "latest", "name": "upstream"},
             {"id": 2, "url": "https://api.github.com/upstream/2"},
             "a" * 64,
             gzip_hash,
+            release_commit,
         )
 
         mirror_name = f"geoip.metadb-{gzip_hash}.gz"
@@ -251,6 +269,72 @@ class GeoIpWorkflowTest(unittest.TestCase):
             f"core-assets-v1/{mirror_name}",
             record,
         )
+        self.assertIn(f"Release tag commit SHA: {release_commit}", record)
+        self.assertIn(
+            "Immutable source archive: https://github.com/MetaCubeX/"
+            f"meta-rules-dat/archive/{release_commit}.tar.gz",
+            record,
+        )
+
+    def test_lightweight_release_tag_resolves_to_a_full_commit_sha(self) -> None:
+        release_commit = "d" * 40
+        with patch.object(
+            SYNC,
+            "load_json_object",
+            return_value={
+                "ref": "refs/tags/latest",
+                "object": {"type": "commit", "sha": release_commit},
+            },
+        ) as load:
+            resolved = SYNC.resolve_release_tag_commit({"tag_name": "latest"})
+
+        self.assertEqual(resolved, release_commit)
+        load.assert_called_once_with(
+            "https://api.github.com/repos/MetaCubeX/meta-rules-dat/"
+            "git/ref/tags/latest"
+        )
+
+    def test_annotated_release_tag_is_peeled_to_its_commit(self) -> None:
+        tag_object = "e" * 40
+        release_commit = "f" * 40
+        with patch.object(
+            SYNC,
+            "load_json_object",
+            side_effect=[
+                {
+                    "ref": "refs/tags/latest",
+                    "object": {"type": "tag", "sha": tag_object},
+                },
+                {
+                    "sha": tag_object,
+                    "object": {"type": "commit", "sha": release_commit},
+                },
+            ],
+        ) as load:
+            resolved = SYNC.resolve_release_tag_commit({"tag_name": "latest"})
+
+        self.assertEqual(resolved, release_commit)
+        self.assertEqual(
+            load.call_args_list[1].args[0],
+            "https://api.github.com/repos/MetaCubeX/meta-rules-dat/"
+            f"git/tags/{tag_object}",
+        )
+
+    def test_release_tag_resolution_rejects_a_non_commit_object(self) -> None:
+        with patch.object(
+            SYNC,
+            "load_json_object",
+            return_value={
+                "ref": "refs/tags/latest",
+                "object": {"type": "tree", "sha": "1" * 40},
+            },
+        ):
+            with self.assertRaisesRegex(SystemExit, "does not resolve to a commit"):
+                SYNC.resolve_release_tag_commit({"tag_name": "latest"})
+
+    def test_source_archive_requires_a_full_commit_sha(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "full 40-character commit SHA"):
+            SYNC.immutable_source_archive_url("abc123")
 
     def test_check_fails_when_latest_rolls_during_verification(self) -> None:
         raw = b"geoip-current"
@@ -296,6 +380,7 @@ class GeoIpWorkflowTest(unittest.TestCase):
                     first_release["assets"][0],
                     _sha256(raw),
                     _sha256(gzipped),
+                    "c" * 40,
                 ),
                 encoding="utf-8",
             )
@@ -310,8 +395,73 @@ class GeoIpWorkflowTest(unittest.TestCase):
                 SYNC,
                 "download",
                 side_effect=[f"{_sha256(raw)}  geoip.metadb\n".encode(), raw],
+            ), patch.object(
+                SYNC,
+                "resolve_release_tag_commit",
+                return_value="c" * 40,
             ):
                 with self.assertRaisesRegex(SystemExit, "changed during verification"):
+                    SYNC.sync(check=True)
+
+    def test_check_fails_when_release_tag_commit_moves_during_verification(self) -> None:
+        raw = b"geoip-current"
+        gzipped = _stable_gzip(raw)
+        release = {
+            "id": 100,
+            "tag_name": "latest",
+            "name": "stable release metadata",
+            "assets": [
+                {
+                    "id": 101,
+                    "name": "geoip.metadb",
+                    "browser_download_url": "https://github.com/upstream/geoip",
+                    "url": "https://api.github.com/upstream/101",
+                    "digest": f"sha256:{_sha256(raw)}",
+                },
+                {
+                    "id": 102,
+                    "name": "geoip.metadb.sha256sum",
+                    "browser_download_url": "https://github.com/upstream/checksum",
+                },
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            assets = [root / name for name in ("android.gz", "macos.gz", "windows.gz")]
+            for asset_path in assets:
+                asset_path.write_bytes(gzipped)
+            source = root / "GEOIP_SOURCE.txt"
+            source.write_text(
+                SYNC.build_source_record(
+                    release,
+                    release["assets"][0],
+                    _sha256(raw),
+                    _sha256(gzipped),
+                    "2" * 40,
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(SYNC, "ASSET_PATHS", assets), patch.object(
+                SYNC, "SOURCE_RECORD", source
+            ), patch.object(
+                SYNC,
+                "load_latest_release",
+                side_effect=[release, release],
+            ), patch.object(
+                SYNC,
+                "download",
+                side_effect=[f"{_sha256(raw)}  geoip.metadb\n".encode(), raw],
+            ), patch.object(
+                SYNC,
+                "resolve_release_tag_commit",
+                side_effect=["2" * 40, "3" * 40],
+            ):
+                with self.assertRaisesRegex(
+                    SystemExit,
+                    "release tag commit changed during verification",
+                ):
                     SYNC.sync(check=True)
 
     def test_clean_bootstrap_ignores_a_deleted_upstream_asset(self) -> None:

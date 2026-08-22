@@ -117,7 +117,9 @@ lib/
 
 ## 许可证
 
-MIT License
+SSRVPN 自有代码采用 [MIT License](../LICENSE)。安装包内置的 Mihomo、GeoIP
+数据库及其他第三方组件分别遵循各自许可证；精确版本、对应源码、修改说明和随包
+许可证正文见[第三方许可清单](../third_party/THIRD_PARTY_NOTICES.md)。
 
 ## 开发路线图
 

@@ -26,9 +26,12 @@ target_compile_options(${BINARY_NAME} PRIVATE "/utf-8")
 set(SSRVPN_UAC_LINK_OPTION
   "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'")
 target_link_options(${BINARY_NAME} PRIVATE "${SSRVPN_UAC_LINK_OPTION}")
+set(SSRVPN_VERSION_AS_STRING
+  "${FLUTTER_VERSION_MAJOR}.${FLUTTER_VERSION_MINOR}.${FLUTTER_VERSION_PATCH}.${FLUTTER_VERSION_BUILD}")
 
 # Add preprocessor definitions for the build version.
-target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
+target_compile_definitions(${BINARY_NAME} PRIVATE
+  "SSRVPN_VERSION_AS_STRING=\"${SSRVPN_VERSION_AS_STRING}\"")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MINOR=${FLUTTER_VERSION_MINOR}")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_PATCH=${FLUTTER_VERSION_PATCH}")
@@ -65,7 +68,9 @@ add_executable(${LAUNCHER_TARGET} WIN32
 apply_standard_settings(${LAUNCHER_TARGET})
 target_compile_options(${LAUNCHER_TARGET} PRIVATE "/utf-8")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "NOMINMAX")
-target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
+target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "SSRVPN_LAUNCHER_RESOURCE=1")
+target_compile_definitions(${LAUNCHER_TARGET} PRIVATE
+  "SSRVPN_VERSION_AS_STRING=\"${SSRVPN_VERSION_AS_STRING}\"")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_MINOR=${FLUTTER_VERSION_MINOR}")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_PATCH=${FLUTTER_VERSION_PATCH}")

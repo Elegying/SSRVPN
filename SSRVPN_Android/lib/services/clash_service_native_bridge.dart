@@ -1,5 +1,53 @@
 part of 'clash_service.dart';
 
+const androidUnknownCoreStartFailure = 'CORE_START_UNKNOWN: VPN 核心启动失败';
+
+const _nativeCoreStartFailureCategories = <String, String>{
+  'CORE_START_PERMISSION': 'permission',
+  'CORE_START_PORT_CONFLICT': 'port_conflict',
+  'CORE_START_API_AUTH': 'api_auth',
+  'CORE_START_TUN': 'tun',
+  'CORE_START_CONFIG': 'config',
+  'CORE_START_TIMEOUT': 'timeout',
+  'CORE_START_COMPONENT': 'component',
+  'CORE_START_BUSY': 'busy',
+  'CORE_START_UNKNOWN': 'unknown',
+};
+
+const _nativeCoreStartFailureMessages = <String, String>{
+  'CORE_START_PERMISSION': 'CORE_START_PERMISSION: VPN 核心缺少必要权限',
+  'CORE_START_PORT_CONFLICT': 'CORE_START_PORT_CONFLICT: 本地代理端口已被其他程序占用',
+  'CORE_START_API_AUTH': 'CORE_START_API_AUTH: 本地控制凭据不可用或与运行配置不一致',
+  'CORE_START_TUN': 'CORE_START_TUN: VPN 网络保护服务异常',
+  'CORE_START_CONFIG': 'CORE_START_CONFIG: VPN 配置不可用',
+  'CORE_START_TIMEOUT': 'CORE_START_TIMEOUT: VPN 核心启动超时',
+  'CORE_START_COMPONENT': 'CORE_START_COMPONENT: VPN 核心组件不可用，请重新安装官方版本',
+  'CORE_START_BUSY': 'CORE_START_BUSY: VPN 核心正在处理上一项操作，请稍后重试',
+  'CORE_START_UNKNOWN': androidUnknownCoreStartFailure,
+};
+
+const _legacyNativeCoreStartFailureMessages = <String, String>{
+  'CORE_BUSY': 'CORE_START_BUSY: VPN 核心正在处理上一项操作，请稍后重试',
+  'INVALID_ARGS': 'CORE_START_CONFIG: VPN 启动参数无效',
+  'INVALID_CONFIG_PATH': 'CORE_START_CONFIG: VPN 配置路径不可用',
+  'CORE_TIMEOUT': 'CORE_START_TIMEOUT: VPN 核心启动超时',
+};
+
+String _nativeStartFailureMessage(PlatformException error) {
+  final knownMessage = _nativeCoreStartFailureMessages[error.code] ??
+      _legacyNativeCoreStartFailureMessages[error.code];
+  if (knownMessage != null) return knownMessage;
+  return androidUnknownCoreStartFailure;
+}
+
+String _safeLogErrorCode(Object error) {
+  try {
+    return AppFailure.fromMessage(error).code.wireName;
+  } catch (_) {
+    return AppErrorCode.unknown.wireName;
+  }
+}
+
 const _nativeStateRetryDelays = <Duration>[
   Duration(milliseconds: 100),
   Duration(milliseconds: 300),
@@ -91,7 +139,8 @@ extension AndroidNativeBridge on ClashService {
       await stop();
       setLastStartError('$malformedStateError，VPN 已安全回滚');
     } catch (stopError) {
-      setLastStartError('$malformedStateError；安全回滚失败：$stopError');
+      log('原生 VPN 安全回滚失败: cause=${_safeLogErrorCode(stopError)}');
+      setLastStartError('$malformedStateError；安全回滚未完成，请重新打开应用后重试');
     }
     return false;
   }
@@ -123,7 +172,7 @@ extension AndroidNativeBridge on ClashService {
     try {
       await stop();
     } catch (error) {
-      log('健康检查恢复时停止 Mihomo 失败: $error');
+      log('健康检查恢复时停止 Mihomo 失败: cause=${_safeLogErrorCode(error)}');
       return false;
     }
     if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
@@ -149,7 +198,7 @@ extension AndroidNativeBridge on ClashService {
           .invokeMethod('notifyVpnStateChanged')
           .timeout(const Duration(seconds: 3));
     } catch (e) {
-      log('通知原生 VPN 状态失败: $e');
+      log('通知原生 VPN 状态失败: cause=${_safeLogErrorCode(e)}');
     }
   }
 
@@ -345,6 +394,12 @@ extension AndroidNativeBridge on ClashService {
     final sessionChanged =
         _nativeSessionGeneration != state.sessionGeneration ||
             _runningConfigPath != state.protectedConfigPath;
+    final underlyingNetworkWasDegraded = _underlyingNetworkAvailable == false ||
+        _underlyingNetworkValidated == false;
+    final underlyingNetworkRecovered = state.running &&
+        underlyingNetworkWasDegraded &&
+        state.underlyingNetworkAvailable == true &&
+        state.underlyingNetworkValidated == true;
     final underlyingNetworkChanged =
         _underlyingNetworkAvailable != state.underlyingNetworkAvailable ||
             _underlyingNetworkValidated != state.underlyingNetworkValidated;
@@ -404,6 +459,9 @@ extension AndroidNativeBridge on ClashService {
             underlyingNetworkChanged)) {
       notifyStatusChanged();
     }
+    if (underlyingNetworkRecovered) {
+      scheduleUserConnectivityObservation(rerunIfActive: true);
+    }
   }
 
   Future<bool> _ensureNativeSessionForMutation() async {
@@ -436,7 +494,7 @@ extension AndroidNativeBridge on ClashService {
           .invokeMethod<bool>('isCoreRunning')
           .timeout(const Duration(seconds: 3));
     } catch (e) {
-      log('查询原生 VPN 状态失败: $e');
+      log('查询原生 VPN 状态失败: cause=${_safeLogErrorCode(e)}');
       return null;
     }
   }
@@ -448,7 +506,7 @@ extension AndroidNativeBridge on ClashService {
           .timeout(const Duration(seconds: 3));
       return _parseNativeConnectionState(value);
     } catch (e) {
-      log('查询原生 VPN 会话状态失败: $e');
+      log('查询原生 VPN 会话状态失败: cause=${_safeLogErrorCode(e)}');
       return null;
     }
   }
@@ -739,7 +797,7 @@ extension AndroidNativeBridge on ClashService {
       );
       if (result != null && result.isNotEmpty) return result;
     } catch (e) {
-      log('MethodChannel getNativeLibraryDir 失败: $e');
+      log('原生库目录查询失败: cause=${_safeLogErrorCode(e)}');
     }
     for (final dir in ['/data/app/~~/lib/arm64', '/data/app/lib/arm64']) {
       if (Directory(dir).existsSync()) {

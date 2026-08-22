@@ -14,8 +14,8 @@ internal object VpnStartBudget {
     // with independent 1.5s connect/read timeouts.
     const val PROXY_SELECTION_MS = 12_000L
     private const val COORDINATION_GRACE_MS = 5_000L
-    const val RESULT_MS = BRIDGE_MS + API_HEALTH_MS + PROXY_SELECTION_MS +
-        VpnDataPlaneProbe.MAX_STARTUP_DURATION_MILLIS + COORDINATION_GRACE_MS
+    const val RESULT_MS =
+        BRIDGE_MS + API_HEALTH_MS + PROXY_SELECTION_MS + COORDINATION_GRACE_MS
 }
 
 /** Coordinates bounded core recovery without owning the VPN service lifecycle. */
@@ -157,7 +157,8 @@ internal object CoreRecoveryCoordinator {
             // next command without attempting a new background FGS launch.
             service.startService(restartIntent)
         } catch (error: Exception) {
-            Log.e(TAG, failureLog, error)
+            val category = NativeCoreStartFailureCategory.from(error).logValue
+            Log.e(TAG, "$failureLog cause=$category")
             NativeVpnSessionCoordinator.clearRecovery()
             service.showCoreRecoveryFailedNotification()
             service.stopSelf()

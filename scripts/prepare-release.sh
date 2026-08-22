@@ -110,6 +110,56 @@ wait_for_workflow() {
   gh run watch "$watched_run_id" --exit-status --interval 20
 }
 
+require_current_main_sha() {
+  local expected_sha=$1
+  local context=$2
+  local actual_sha=""
+
+  git fetch --no-tags origin main:refs/remotes/origin/main ||
+    fail "Could not refresh origin/main while verifying the release commit"
+  actual_sha="$(git rev-parse --verify 'origin/main^{commit}')" ||
+    fail "Could not resolve origin/main while verifying the release commit"
+  if [ "$actual_sha" != "$expected_sha" ]; then
+    fail "$context"
+  fi
+}
+
+read_exact_main_ci_state() {
+  local inspected_run_id=$1
+  local expected_sha=$2
+
+  gh api \
+    -H "X-GitHub-Api-Version: 2026-03-10" \
+    "repos/$repo/actions/runs/$inspected_run_id" |
+    jq -er \
+      --arg repo "$repo" \
+      --arg sha "$expected_sha" \
+      --argjson run_id "$inspected_run_id" '
+        (.path | split("@")[0]) as $workflow_path |
+        .status as $status |
+        if .id != $run_id or
+          .head_branch != "main" or
+          .head_sha != $sha or
+          $workflow_path != ".github/workflows/ci.yml" or
+          (.event != "push" and .event != "workflow_dispatch") or
+          .html_url != ("https://github.com/" + $repo + "/actions/runs/" + ($run_id | tostring)) or
+          .repository.full_name != $repo or
+          .head_repository.full_name != $repo
+        then error("workflow run identity does not match the frozen main commit")
+        elif ($status | type) != "string" or
+          (["queued", "in_progress", "requested", "waiting", "pending", "completed"] | index($status)) == null
+        then error("workflow run has an unsupported status")
+        elif .conclusion != null and (.conclusion | type) != "string"
+        then error("workflow run has an invalid conclusion")
+        elif $status == "completed" and .conclusion == null
+        then error("completed workflow run has no conclusion")
+        elif $status != "completed" and .conclusion != null
+        then error("active workflow run unexpectedly has a conclusion")
+        else [$status, (.conclusion // "")] | @tsv
+        end
+      '
+}
+
 wait_for_pull_request_checks() {
   local pull_request=$1
   local checks_url=$2
@@ -284,36 +334,122 @@ if ! git diff --quiet -- docs/GEOIP_SOURCE.txt; then
 fi
 
 main_ci_reused=false
+main_ci_waited=false
+main_ci_dispatched=false
+main_ci_wait_attempts=0
+max_main_ci_wait_attempts=3
+main_ci_post_wait_misses=0
+max_main_ci_post_wait_misses=5
 reusable_main_ci=""
-reuse_status=0
-reusable_main_ci="$(python3 scripts/find-reusable-main-ci.py \
-  --repo "$repo" \
-  --sha "$main_sha" \
-  --policy "$protection_policy" \
-  --max-age-hours 24)" || reuse_status=$?
-case "$reuse_status" in
-  0)
-    if [[ "$reusable_main_ci" == *$'\n'* ]]; then
-      fail "Reusable exact-main CI returned more than one result"
-    fi
-    IFS=$'\t' read -r main_ci_run_id main_ci_url <<<"$reusable_main_ci"
-    if [[ ! "$main_ci_run_id" =~ ^[1-9][0-9]*$ ]] ||
-      [ "$main_ci_url" != \
-        "https://github.com/$repo/actions/runs/$main_ci_run_id" ]; then
-      fail "Reusable exact-main CI returned an invalid run identity"
-    fi
-    main_ci_reused=true
-    echo "Reusing verified exact-main CI run: $main_ci_url"
-    ;;
-  3)
-    IFS=$'\t' read -r main_ci_run_id main_ci_url \
-      < <(dispatch_workflow "ci.yml" main)
-    wait_for_workflow "$main_ci_run_id"
-    ;;
-  *)
-    fail "Could not safely determine whether exact-main CI is reusable"
-    ;;
-esac
+read_main_ci_identity() {
+  if [[ "$reusable_main_ci" == *$'\n'* ]]; then
+    fail "Reusable exact-main CI returned more than one result"
+  fi
+  IFS=$'\t' read -r main_ci_run_id main_ci_url <<<"$reusable_main_ci"
+  if [[ ! "$main_ci_run_id" =~ ^[1-9][0-9]*$ ]] ||
+    [ "$main_ci_url" != \
+      "https://github.com/$repo/actions/runs/$main_ci_run_id" ]; then
+    fail "Reusable exact-main CI returned an invalid run identity"
+  fi
+}
+
+wait_for_exact_main_ci() {
+  local watched_run_id=$1
+  local watch_status=0
+  local run_state=""
+  local status=""
+  local conclusion=""
+
+  main_ci_wait_attempts=$((main_ci_wait_attempts + 1))
+  if [ "$main_ci_wait_attempts" -gt "$max_main_ci_wait_attempts" ]; then
+    fail "Exact-main CI was replaced too many times; retry release preparation safely"
+  fi
+  wait_for_workflow "$watched_run_id" || watch_status=$?
+  if [ "$watch_status" -eq 0 ]; then
+    return 0
+  fi
+
+  require_current_main_sha \
+    "$main_sha" \
+    "main advanced while exact-main CI was running; retry safely"
+  run_state="$(read_exact_main_ci_state "$watched_run_id" "$main_sha")" ||
+    fail "Could not verify failed exact-main CI run $watched_run_id"
+  if [[ "$run_state" == *$'\n'* ]]; then
+    fail "Exact-main CI state returned more than one result"
+  fi
+  IFS=$'\t' read -r status conclusion <<<"$run_state"
+  if [ "$status" = completed ] && [ "$conclusion" = cancelled ]; then
+    echo "::warning::Exact-main CI run $watched_run_id was replaced; looking for a same-commit successor" >&2
+    return 75
+  fi
+  fail "Exact-main CI run $watched_run_id did not succeed (status=$status, conclusion=${conclusion:-none})"
+}
+
+while true; do
+  reuse_status=0
+  reusable_main_ci="$(python3 scripts/find-reusable-main-ci.py \
+    --repo "$repo" \
+    --sha "$main_sha" \
+    --policy "$protection_policy" \
+    --max-age-hours 24)" || reuse_status=$?
+  case "$reuse_status" in
+    0)
+      read_main_ci_identity
+      if [ "$main_ci_dispatched" = false ]; then
+        main_ci_reused=true
+      fi
+      echo "Reusing verified exact-main CI run: $main_ci_url"
+      break
+      ;;
+    3)
+      if [ "$main_ci_waited" = true ]; then
+        require_current_main_sha \
+          "$main_sha" \
+          "main advanced while exact-main CI results were propagating; retry safely"
+        main_ci_post_wait_misses=$((main_ci_post_wait_misses + 1))
+        if [ "$main_ci_post_wait_misses" -gt "$max_main_ci_post_wait_misses" ]; then
+          fail "Waited exact-main CI did not pass strict post-completion verification"
+        fi
+        echo "::warning::Exact-main CI is not yet reusable; retrying strict verification ($main_ci_post_wait_misses/$max_main_ci_post_wait_misses)" >&2
+        sleep 2
+        continue
+      fi
+      require_current_main_sha \
+        "$main_sha" \
+        "main advanced before exact-main CI dispatch; retry safely"
+      IFS=$'\t' read -r main_ci_run_id main_ci_url \
+        < <(dispatch_workflow "ci.yml" main)
+      dispatched_state="$(read_exact_main_ci_state "$main_ci_run_id" "$main_sha")" ||
+        fail "Dispatched exact-main CI does not target the frozen main commit"
+      if [[ "$dispatched_state" == *$'\n'* ]]; then
+        fail "Dispatched exact-main CI state returned more than one result"
+      fi
+      main_ci_dispatched=true
+      main_ci_waited=true
+      wait_status=0
+      wait_for_exact_main_ci "$main_ci_run_id" || wait_status=$?
+      if [ "$wait_status" -ne 0 ] && [ "$wait_status" -ne 75 ]; then
+        fail "Could not safely wait for dispatched exact-main CI"
+      fi
+      continue
+      ;;
+    4)
+      read_main_ci_identity
+      main_ci_waited=true
+      main_ci_post_wait_misses=0
+      echo "Waiting for existing exact-main CI run: $main_ci_url"
+      wait_status=0
+      wait_for_exact_main_ci "$main_ci_run_id" || wait_status=$?
+      if [ "$wait_status" -ne 0 ] && [ "$wait_status" -ne 75 ]; then
+        fail "Could not safely wait for existing exact-main CI"
+      fi
+      continue
+      ;;
+    *)
+      fail "Could not safely determine whether exact-main CI is reusable"
+      ;;
+  esac
+done
 
 git fetch --no-tags origin main:refs/remotes/origin/main
 if [ "$(git rev-parse --verify 'origin/main^{commit}')" != "$main_sha" ]; then
@@ -352,10 +488,12 @@ if [ -n "$pr_url" ]; then
   append_summary "- GeoIP pull request: $pr_url"
   append_summary "- Protected PR checks: $branch_ci_url"
 fi
-if [ "$main_ci_reused" = true ]; then
+if [ "$main_ci_dispatched" = true ]; then
+  append_summary "- Exact-main CI: $main_ci_url (this preparation triggered CI; this exact-main run passed final required-job verification)"
+elif [ "$main_ci_waited" = true ]; then
+  append_summary "- Exact-main CI: $main_ci_url (this preparation waited for active CI; this exact-main run passed final required-job verification)"
+elif [ "$main_ci_reused" = true ]; then
   append_summary "- Exact-main CI: $main_ci_url (reused after exact job verification)"
-else
-  append_summary "- Exact-main CI: $main_ci_url (dispatched by this preparation)"
 fi
 append_summary "- Release workflow: $release_run_url"
 

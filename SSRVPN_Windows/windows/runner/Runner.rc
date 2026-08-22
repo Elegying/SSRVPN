@@ -66,10 +66,20 @@ IDI_APP_ICON            ICON                    "resources\\app_icon.ico"
 #define VERSION_AS_NUMBER 1,0,0,0
 #endif
 
-#if defined(FLUTTER_VERSION)
-#define VERSION_AS_STRING FLUTTER_VERSION
+#if defined(SSRVPN_VERSION_AS_STRING)
+#define VERSION_AS_STRING SSRVPN_VERSION_AS_STRING
 #else
-#define VERSION_AS_STRING "1.0.0"
+#define VERSION_AS_STRING "1.0.0.0"
+#endif
+
+#if defined(SSRVPN_LAUNCHER_RESOURCE)
+#define SSRVPN_RESOURCE_FILE_DESCRIPTION "SSRVPN Windows Launcher"
+#define SSRVPN_RESOURCE_INTERNAL_NAME "ssrvpn_windows"
+#define SSRVPN_RESOURCE_ORIGINAL_FILENAME "ssrvpn_windows.exe"
+#else
+#define SSRVPN_RESOURCE_FILE_DESCRIPTION "SSRVPN Windows App"
+#define SSRVPN_RESOURCE_INTERNAL_NAME "ssrvpn_windows_app"
+#define SSRVPN_RESOURCE_ORIGINAL_FILENAME "ssrvpn_windows_app.exe"
 #endif
 
 VS_VERSION_INFO VERSIONINFO
@@ -90,11 +100,11 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.ssrvpn" "\0"
-            VALUE "FileDescription", "SSRVPN Windows" "\0"
+            VALUE "FileDescription", SSRVPN_RESOURCE_FILE_DESCRIPTION "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "ssrvpn_windows" "\0"
+            VALUE "InternalName", SSRVPN_RESOURCE_INTERNAL_NAME "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.ssrvpn. All rights reserved." "\0"
-            VALUE "OriginalFilename", "ssrvpn_windows.exe" "\0"
+            VALUE "OriginalFilename", SSRVPN_RESOURCE_ORIGINAL_FILENAME "\0"
             VALUE "ProductName", "SSRVPN Windows" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

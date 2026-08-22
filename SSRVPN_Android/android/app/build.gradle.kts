@@ -42,6 +42,12 @@ android {
         }
     }
 
+    // Keep the GPL text and exact corresponding-source directions inside every
+    // APK, next to the native Mihomo object code they describe.
+    sourceSets.getByName("main").assets.srcDir(
+        rootProject.file("../../third_party")
+    )
+
     // 核心 libgojni.so 只有 arm64 版本，其他架构装上也无法连接，
     // 强制剔除避免 Flutter 插件把多架构运行时打回包里
     packaging {

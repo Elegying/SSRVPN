@@ -64,7 +64,6 @@ class AppTheme {
         useMaterial3: true,
         primaryColor: primaryColor,
         scaffoldBackgroundColor: darkBg,
-        fontFamily: 'Segoe UI',
         colorScheme: const ColorScheme.dark(
           primary: primaryColor,
           secondary: accentColor,
@@ -214,7 +213,6 @@ class AppTheme {
         useMaterial3: true,
         primaryColor: primaryColor,
         scaffoldBackgroundColor: lightBg,
-        fontFamily: 'Segoe UI',
         colorScheme: const ColorScheme.light(
           primary: primaryColor,
           secondary: accentColor,

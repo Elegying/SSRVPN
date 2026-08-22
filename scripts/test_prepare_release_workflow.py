@@ -19,6 +19,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
     BASE_SHA = "a" * 40
     BRANCH_SHA = "b" * 40
     MERGED_SHA = "c" * 40
+    ADVANCED_SHA = "e" * 40
 
     def _write_executable(self, path: Path, content: str) -> None:
         path.write_text(textwrap.dedent(content), encoding="utf-8")
@@ -32,6 +33,16 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         fail_main_ci: bool = False,
         fail_release_dispatch: bool = False,
         reuse_main_ci: bool = False,
+        wait_main_ci: bool = False,
+        fail_waited_main_ci: bool = False,
+        cancelled_wait_replacement: bool = False,
+        cancelled_dispatch_replacement: bool = False,
+        advance_main_during_cancelled_wait: bool = False,
+        advance_main_before_dispatch: bool = False,
+        fail_main_refresh_after_wait: bool = False,
+        post_wait_finder_misses: int = 0,
+        dispatched_head_mismatch: bool = False,
+        malformed_after_wait: bool = False,
         malformed_reuse_api: bool = False,
         protection_token: bool = True,
     ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
@@ -70,6 +81,11 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
             main_sha = root / "main-sha"
             output = root / "github-output"
             summary = root / "summary"
+            wait_marker = root / "waited-main-ci"
+            replacement_wait_marker = root / "waited-replacement-main-ci"
+            dispatch_wait_marker = root / "waited-dispatched-main-ci"
+            main_fetch_count = root / "main-fetch-count"
+            post_wait_finder_count = root / "post-wait-finder-count"
             current_sha.write_text(self.BASE_SHA, encoding="utf-8")
             main_sha.write_text(self.BASE_SHA, encoding="utf-8")
 
@@ -89,6 +105,54 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                   fi
                   if [ "$FAKE_REUSE_MAIN_CI" = true ]; then
                     printf '777\thttps://github.com/Elegying/SSRVPN/actions/runs/777\n'
+                    exit 0
+                  fi
+                  if [ "$FAKE_WAIT_MAIN_CI" = true ]; then
+                    if [ ! -e "$FAKE_WAIT_MARKER" ]; then
+                      printf '778\thttps://github.com/Elegying/SSRVPN/actions/runs/778\n'
+                      exit 4
+                    fi
+                    if [ "$FAKE_CANCELLED_WAIT_REPLACEMENT" = true ]; then
+                      if [ ! -e "$FAKE_REPLACEMENT_WAIT_MARKER" ]; then
+                        printf '779\thttps://github.com/Elegying/SSRVPN/actions/runs/779\n'
+                        exit 4
+                      fi
+                      printf '779\thttps://github.com/Elegying/SSRVPN/actions/runs/779\n'
+                      exit 0
+                    fi
+                    misses=0
+                    if [ -e "$FAKE_POST_WAIT_FINDER_COUNT" ]; then
+                      misses=$(cat "$FAKE_POST_WAIT_FINDER_COUNT")
+                    fi
+                    if [ "$misses" -lt "$FAKE_POST_WAIT_FINDER_MISSES" ]; then
+                      printf '%s' $((misses + 1)) > "$FAKE_POST_WAIT_FINDER_COUNT"
+                      exit 3
+                    fi
+                    if [ "$FAKE_MALFORMED_AFTER_WAIT" = true ]; then
+                      printf 'simulated post-wait identity error\n' >&2
+                      exit 2
+                    fi
+                    printf '778\thttps://github.com/Elegying/SSRVPN/actions/runs/778\n'
+                    exit 0
+                  fi
+                  if [ -e "$FAKE_DISPATCH_WAIT_MARKER" ]; then
+                    if [ "$FAKE_CANCELLED_DISPATCH_REPLACEMENT" = true ]; then
+                      if [ ! -e "$FAKE_REPLACEMENT_WAIT_MARKER" ]; then
+                        printf '779\thttps://github.com/Elegying/SSRVPN/actions/runs/779\n'
+                        exit 4
+                      fi
+                      printf '779\thttps://github.com/Elegying/SSRVPN/actions/runs/779\n'
+                      exit 0
+                    fi
+                    misses=0
+                    if [ -e "$FAKE_POST_WAIT_FINDER_COUNT" ]; then
+                      misses=$(cat "$FAKE_POST_WAIT_FINDER_COUNT")
+                    fi
+                    if [ "$misses" -lt "$FAKE_POST_WAIT_FINDER_MISSES" ]; then
+                      printf '%s' $((misses + 1)) > "$FAKE_POST_WAIT_FINDER_COUNT"
+                      exit 3
+                    fi
+                    printf '102\thttps://github.com/Elegying/SSRVPN/actions/runs/102\n'
                     exit 0
                   fi
                   exit 3
@@ -127,7 +191,26 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                 command=${1:-}
                 shift || true
                 case "$command" in
-                  fetch|config|switch|add)
+                  fetch)
+                    if [[ "$*" == *'origin main:refs/remotes/origin/main'* ]]; then
+                      count=0
+                      if [ -e "$FAKE_MAIN_FETCH_COUNT" ]; then
+                        count=$(cat "$FAKE_MAIN_FETCH_COUNT")
+                      fi
+                      count=$((count + 1))
+                      printf '%s' "$count" > "$FAKE_MAIN_FETCH_COUNT"
+                      if [ "$FAKE_FAIL_MAIN_REFRESH_AFTER_WAIT" = true ] &&
+                        [ "$count" -ge 2 ]; then
+                        exit 1
+                      fi
+                      if [ "$FAKE_ADVANCE_MAIN_BEFORE_DISPATCH" = true ] &&
+                        [ "$count" -ge 2 ]; then
+                        printf '%s' "$FAKE_ADVANCED_SHA" > "$FAKE_MAIN_SHA"
+                      fi
+                    fi
+                    exit 0
+                    ;;
+                  config|switch|add)
                     exit 0
                     ;;
                   rev-parse)
@@ -219,6 +302,35 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                       printf '{"workflow_run_id":103,"html_url":"https://github.com/Elegying/SSRVPN/actions/runs/103"}\n'
                       exit 0
                     fi
+                    if [[ "$*" == *'/actions/runs/102'* ]]; then
+                      head_sha=$(cat "$FAKE_MAIN_SHA")
+                      if [ "$FAKE_DISPATCHED_HEAD_MISMATCH" = true ]; then
+                        head_sha=$FAKE_ADVANCED_SHA
+                      fi
+                      status=queued
+                      conclusion=null
+                      if [ -e "$FAKE_DISPATCH_WAIT_MARKER" ] &&
+                        [ "$FAKE_FAIL_MAIN_CI" = true ]; then
+                        status=completed
+                        conclusion='"failure"'
+                      fi
+                      if [ -e "$FAKE_DISPATCH_WAIT_MARKER" ] &&
+                        [ "$FAKE_CANCELLED_DISPATCH_REPLACEMENT" = true ]; then
+                        status=completed
+                        conclusion='"cancelled"'
+                      fi
+                      printf '{"id":102,"head_branch":"main","head_sha":"%s","path":".github/workflows/ci.yml@main","event":"workflow_dispatch","status":"%s","conclusion":%s,"html_url":"https://github.com/Elegying/SSRVPN/actions/runs/102","repository":{"full_name":"Elegying/SSRVPN"},"head_repository":{"full_name":"Elegying/SSRVPN"}}\n' "$head_sha" "$status" "$conclusion"
+                      exit 0
+                    fi
+                    if [[ "$*" == *'/actions/runs/778'* ]]; then
+                      conclusion=cancelled
+                      if [ "$FAKE_FAIL_WAITED_MAIN_CI" = true ] &&
+                        [ "$FAKE_CANCELLED_WAIT_REPLACEMENT" = false ]; then
+                        conclusion=failure
+                      fi
+                      printf '{"id":778,"head_branch":"main","head_sha":"%s","path":".github/workflows/ci.yml@main","event":"workflow_dispatch","status":"completed","conclusion":"%s","html_url":"https://github.com/Elegying/SSRVPN/actions/runs/778","repository":{"full_name":"Elegying/SSRVPN"},"head_repository":{"full_name":"Elegying/SSRVPN"}}\n' "$FAKE_BASE_SHA" "$conclusion"
+                      exit 0
+                    fi
                     exit 2
                     ;;
                   run)
@@ -229,7 +341,31 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                     fi
                     if [ "${1:-}" = watch ] && [ "${2:-}" = 102 ] &&
                       [ "$FAKE_FAIL_MAIN_CI" = true ]; then
+                      touch "$FAKE_DISPATCH_WAIT_MARKER"
                       exit 1
+                    fi
+                    if [ "${1:-}" = watch ] && [ "${2:-}" = 102 ] &&
+                      [ "$FAKE_CANCELLED_DISPATCH_REPLACEMENT" = true ]; then
+                      touch "$FAKE_DISPATCH_WAIT_MARKER"
+                      exit 1
+                    fi
+                    if [ "${1:-}" = watch ] && [ "${2:-}" = 102 ]; then
+                      touch "$FAKE_DISPATCH_WAIT_MARKER"
+                    fi
+                    if [ "${1:-}" = watch ] && [ "${2:-}" = 778 ]; then
+                      touch "$FAKE_WAIT_MARKER"
+                      if [ "$FAKE_CANCELLED_WAIT_REPLACEMENT" = true ]; then
+                        if [ "$FAKE_ADVANCE_MAIN_DURING_CANCELLED_WAIT" = true ]; then
+                          printf '%s' "$FAKE_ADVANCED_SHA" > "$FAKE_MAIN_SHA"
+                        fi
+                        exit 1
+                      fi
+                      if [ "$FAKE_FAIL_WAITED_MAIN_CI" = true ]; then
+                        exit 1
+                      fi
+                    fi
+                    if [ "${1:-}" = watch ] && [ "${2:-}" = 779 ]; then
+                      touch "$FAKE_REPLACEMENT_WAIT_MARKER"
                     fi
                     exit 0
                     ;;
@@ -265,6 +401,14 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                 esac
                 """,
             )
+            self._write_executable(
+                fake_bin / "sleep",
+                r"""
+                #!/usr/bin/env bash
+                set -euo pipefail
+                printf 'sleep %s\n' "$*" >> "$FAKE_COMMAND_LOG"
+                """,
+            )
 
             environment = os.environ.copy()
             environment.update(
@@ -277,6 +421,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                     "FAKE_BASE_SHA": self.BASE_SHA,
                     "FAKE_BRANCH_SHA": self.BRANCH_SHA,
                     "FAKE_MERGED_SHA": self.MERGED_SHA,
+                    "FAKE_ADVANCED_SHA": self.ADVANCED_SHA,
                     "FAKE_TREE_SHA": "d" * 40,
                     "FAKE_GEOIP_CHANGED": str(geoip_changed).lower(),
                     "FAKE_FAIL_BRANCH_CI": str(fail_branch_ci).lower(),
@@ -285,6 +430,43 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                         fail_release_dispatch
                     ).lower(),
                     "FAKE_REUSE_MAIN_CI": str(reuse_main_ci).lower(),
+                    "FAKE_WAIT_MAIN_CI": str(wait_main_ci).lower(),
+                    "FAKE_FAIL_WAITED_MAIN_CI": str(
+                        fail_waited_main_ci
+                    ).lower(),
+                    "FAKE_CANCELLED_WAIT_REPLACEMENT": str(
+                        cancelled_wait_replacement
+                    ).lower(),
+                    "FAKE_CANCELLED_DISPATCH_REPLACEMENT": str(
+                        cancelled_dispatch_replacement
+                    ).lower(),
+                    "FAKE_ADVANCE_MAIN_DURING_CANCELLED_WAIT": str(
+                        advance_main_during_cancelled_wait
+                    ).lower(),
+                    "FAKE_ADVANCE_MAIN_BEFORE_DISPATCH": str(
+                        advance_main_before_dispatch
+                    ).lower(),
+                    "FAKE_FAIL_MAIN_REFRESH_AFTER_WAIT": str(
+                        fail_main_refresh_after_wait
+                    ).lower(),
+                    "FAKE_POST_WAIT_FINDER_MISSES": str(
+                        post_wait_finder_misses
+                    ),
+                    "FAKE_DISPATCHED_HEAD_MISMATCH": str(
+                        dispatched_head_mismatch
+                    ).lower(),
+                    "FAKE_MALFORMED_AFTER_WAIT": str(
+                        malformed_after_wait
+                    ).lower(),
+                    "FAKE_WAIT_MARKER": str(wait_marker),
+                    "FAKE_REPLACEMENT_WAIT_MARKER": str(
+                        replacement_wait_marker
+                    ),
+                    "FAKE_DISPATCH_WAIT_MARKER": str(dispatch_wait_marker),
+                    "FAKE_MAIN_FETCH_COUNT": str(main_fetch_count),
+                    "FAKE_POST_WAIT_FINDER_COUNT": str(
+                        post_wait_finder_count
+                    ),
                     "FAKE_MALFORMED_REUSE_API": str(
                         malformed_reuse_api
                     ).lower(),
@@ -432,6 +614,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         )
         self.assertIn("unset BRANCH_PROTECTION_READ_TOKEN", preparer)
         self.assertIn('GH_TOKEN="$branch_protection_read_token" gh api', preparer)
+        self.assertIn("Waiting for existing exact-main CI run", preparer)
 
     def test_missing_branch_protection_read_token_fails_before_mutation(self) -> None:
         result, commands, _output, _summary = self._run_preparer(
@@ -516,6 +699,160 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self._assert_protection_reads_guard_mutation_and_tag(commands)
         self.assertIn("geoip_changed=false", output)
 
+    def test_dispatched_main_ci_is_strictly_reverified_before_tag(self) -> None:
+        result, commands, output, summary = self._run_preparer(
+            geoip_changed=False
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            commands.count("python3 scripts/find-reusable-main-ci.py"),
+            2,
+        )
+        self.assertIn("/actions/runs/102", commands)
+        self.assertIn("gh run watch 102 --exit-status --interval 20", commands)
+        self.assertIn(
+            "main_ci_url=https://github.com/Elegying/SSRVPN/actions/runs/102",
+            output,
+        )
+        self.assertIn("this preparation triggered CI", summary)
+        self.assertIn("passed final required-job verification", summary)
+
+    def test_post_wait_finder_propagation_delay_is_retried_without_dispatch(
+        self,
+    ) -> None:
+        result, commands, output, _ = self._run_preparer(
+            geoip_changed=False,
+            post_wait_finder_misses=2,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            commands.count("python3 scripts/find-reusable-main-ci.py"),
+            4,
+        )
+        self.assertEqual(commands.count("sleep 2"), 2)
+        self.assertEqual(commands.count("/workflows/ci.yml/dispatches"), 1)
+        self.assertIn(
+            "main_ci_url=https://github.com/Elegying/SSRVPN/actions/runs/102",
+            output,
+        )
+
+    def test_post_wait_finder_propagation_retry_limit_fails_without_redispatch(
+        self,
+    ) -> None:
+        result, commands, output, _ = self._run_preparer(
+            geoip_changed=False,
+            post_wait_finder_misses=6,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(
+            commands.count("python3 scripts/find-reusable-main-ci.py"),
+            7,
+        )
+        self.assertEqual(commands.count("sleep 2"), 5)
+        self.assertEqual(commands.count("/workflows/ci.yml/dispatches"), 1)
+        self.assertNotIn("git push origin refs/tags/v4.0.2", commands)
+        self.assertNotIn("workflows/release.yml/dispatches", commands)
+        self.assertEqual(output, "")
+
+    def test_cancelled_wait_follows_same_sha_replacement_without_dispatch(self) -> None:
+        result, commands, output, summary = self._run_preparer(
+            geoip_changed=False,
+            wait_main_ci=True,
+            cancelled_wait_replacement=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            commands.count("python3 scripts/find-reusable-main-ci.py"),
+            3,
+        )
+        self.assertIn("gh run watch 778 --exit-status --interval 20", commands)
+        self.assertIn("/actions/runs/778", commands)
+        self.assertIn("gh run watch 779 --exit-status --interval 20", commands)
+        self.assertNotIn("/workflows/ci.yml/dispatches", commands)
+        self.assertIn(
+            "main_ci_url=https://github.com/Elegying/SSRVPN/actions/runs/779",
+            output,
+        )
+        self.assertIn("waited for active CI", summary)
+        self.assertIn("passed final required-job verification", summary)
+
+    def test_cancelled_wait_stops_when_main_advanced(self) -> None:
+        result, commands, output, _ = self._run_preparer(
+            geoip_changed=False,
+            wait_main_ci=True,
+            cancelled_wait_replacement=True,
+            advance_main_during_cancelled_wait=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("gh run watch 778 --exit-status --interval 20", commands)
+        self.assertNotIn("gh run watch 779", commands)
+        self.assertNotIn("/workflows/ci.yml/dispatches", commands)
+        self.assertNotIn("git push origin refs/tags/v4.0.2", commands)
+        self.assertEqual(output, "")
+
+    def test_cancelled_wait_stops_when_main_refresh_fails(self) -> None:
+        result, commands, output, _ = self._run_preparer(
+            geoip_changed=False,
+            wait_main_ci=True,
+            cancelled_wait_replacement=True,
+            fail_main_refresh_after_wait=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("gh run watch 778 --exit-status --interval 20", commands)
+        self.assertNotIn("gh run watch 779", commands)
+        self.assertNotIn("git push origin refs/tags/v4.0.2", commands)
+        self.assertEqual(output, "")
+
+    def test_cancelled_dispatched_run_reports_successor_without_false_ownership(
+        self,
+    ) -> None:
+        result, commands, output, summary = self._run_preparer(
+            geoip_changed=False,
+            cancelled_dispatch_replacement=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("gh run watch 102 --exit-status --interval 20", commands)
+        self.assertIn("gh run watch 779 --exit-status --interval 20", commands)
+        self.assertIn(
+            "main_ci_url=https://github.com/Elegying/SSRVPN/actions/runs/779",
+            output,
+        )
+        self.assertIn("this preparation triggered CI", summary)
+        self.assertIn("passed final required-job verification", summary)
+        self.assertNotIn("dispatched by this preparation", summary)
+
+    def test_main_advance_before_dispatch_avoids_wasted_ci(self) -> None:
+        result, commands, output, _ = self._run_preparer(
+            geoip_changed=False,
+            advance_main_before_dispatch=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("/workflows/ci.yml/dispatches", commands)
+        self.assertNotIn("gh run watch 102", commands)
+        self.assertNotIn("git push origin refs/tags/v4.0.2", commands)
+        self.assertEqual(output, "")
+
+    def test_dispatched_run_head_mismatch_fails_before_watch(self) -> None:
+        result, commands, output, _ = self._run_preparer(
+            geoip_changed=False,
+            dispatched_head_mismatch=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("/workflows/ci.yml/dispatches", commands)
+        self.assertIn("/actions/runs/102", commands)
+        self.assertNotIn("gh run watch 102", commands)
+        self.assertNotIn("git push origin refs/tags/v4.0.2", commands)
+        self.assertEqual(output, "")
+
     def test_recent_exact_main_ci_is_reused_without_dispatch_or_watch(self) -> None:
         result, commands, output, summary = self._run_preparer(
             geoip_changed=False,
@@ -537,6 +874,52 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
             "Exact-main CI: https://github.com/Elegying/SSRVPN/actions/runs/777",
             summary,
         )
+
+    def test_running_exact_main_ci_is_waited_then_strictly_reused(self) -> None:
+        result, commands, output, summary = self._run_preparer(
+            geoip_changed=False,
+            wait_main_ci=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            commands.count("python3 scripts/find-reusable-main-ci.py"),
+            2,
+        )
+        self.assertIn("gh run watch 778 --exit-status --interval 20", commands)
+        self.assertNotIn("/workflows/ci.yml/dispatches", commands)
+        self.assertIn(
+            "main_ci_url=https://github.com/Elegying/SSRVPN/actions/runs/778",
+            output,
+        )
+        self.assertIn("waited for active CI", summary)
+        self.assertIn("passed final required-job verification", summary)
+
+    def test_waited_exact_main_ci_failure_does_not_dispatch_or_tag(self) -> None:
+        result, commands, output, _ = self._run_preparer(
+            geoip_changed=False,
+            wait_main_ci=True,
+            fail_waited_main_ci=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("gh run watch 778 --exit-status --interval 20", commands)
+        self.assertNotIn("/workflows/ci.yml/dispatches", commands)
+        self.assertNotIn("git push origin refs/tags/v4.0.2", commands)
+        self.assertEqual(output, "")
+
+    def test_post_wait_identity_anomaly_does_not_dispatch_or_tag(self) -> None:
+        result, commands, output, _ = self._run_preparer(
+            geoip_changed=False,
+            wait_main_ci=True,
+            malformed_after_wait=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("gh run watch 778 --exit-status --interval 20", commands)
+        self.assertNotIn("/workflows/ci.yml/dispatches", commands)
+        self.assertNotIn("git push origin refs/tags/v4.0.2", commands)
+        self.assertEqual(output, "")
 
     def test_reuse_api_anomaly_stops_before_dispatch_or_tag(self) -> None:
         result, commands, output, _ = self._run_preparer(

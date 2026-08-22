@@ -150,7 +150,11 @@ internal class DetachedTunFdOwner(
                 ParcelFileDescriptor.adoptFd(rawDescriptor).close()
                 Log.d(TAG, "Closed unclaimed TUN fd=$rawDescriptor")
             } catch (error: Exception) {
-                Log.e(TAG, "Unable to close unclaimed TUN fd=$rawDescriptor", error)
+                val category = NativeCoreStartFailureCategory.from(error).logValue
+                Log.e(
+                    TAG,
+                    "event=unclaimed_tun_close_failed fd=$rawDescriptor cause=$category"
+                )
             }
         }
     }

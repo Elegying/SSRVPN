@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart' show kSecondaryMouseButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/models/subscription.dart';
@@ -23,9 +24,13 @@ void main() {
     TextScaler? textScaler,
     double viewInsetsBottom = 0,
     TargetPlatform platform = TargetPlatform.android,
+    Brightness brightness = Brightness.dark,
   }) {
     return MaterialApp(
-      theme: ThemeData.dark(useMaterial3: true).copyWith(platform: platform),
+      theme: (brightness == Brightness.dark
+              ? ThemeData.dark(useMaterial3: true)
+              : ThemeData.light(useMaterial3: true))
+          .copyWith(platform: platform),
       home: Align(
         alignment: Alignment.topLeft,
         child: SizedBox(
@@ -42,6 +47,18 @@ void main() {
         ),
       ),
     );
+  }
+
+  double contrastRatio(Color foreground, Color background) {
+    final foregroundLuminance = foreground.computeLuminance();
+    final backgroundLuminance = background.computeLuminance();
+    final lighter = foregroundLuminance > backgroundLuminance
+        ? foregroundLuminance
+        : backgroundLuminance;
+    final darker = foregroundLuminance > backgroundLuminance
+        ? backgroundLuminance
+        : foregroundLuminance;
+    return (lighter + 0.05) / (darker + 0.05);
   }
 
   testWidgets('bottom navigation exposes only home and subscriptions',
@@ -949,9 +966,139 @@ void main() {
     final glass = find.byKey(const Key('ssrvpn-about-glass'));
     expect(glass, findsOneWidget);
     expect(
+      find.descendant(
+        of: glass,
+        matching: find.byKey(const Key('ssrvpn-info-dialog-header')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('ssrvpn-about-scroll')),
+      findsOneWidget,
+    );
+    expect(
       find.descendant(of: glass, matching: find.byType(BackdropFilter)),
       findsOneWidget,
     );
+    final dismiss = find.widgetWithText(TextButton, '知道了');
+    final dismissButton = tester.widget<TextButton>(dismiss);
+    final colors = Theme.of(tester.element(dismiss)).colorScheme;
+    final version = tester.widget<Text>(
+      find.text('版本 ${AppConstants.appVersion}'),
+    );
+    final projectUrl = tester.widget<SelectableText>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.data == 'https://github.com/Elegying/SSRVPN',
+      ),
+    );
+    expect(find.text('第三方许可与对应源码'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.data ==
+                'https://github.com/Elegying/SSRVPN/tree/v${AppConstants.appVersion}/third_party',
+      ),
+      findsOneWidget,
+    );
+    expect(version.style?.color, projectUrl.style?.color);
+    expect(
+      projectUrl.style?.color,
+      Color.lerp(colors.primary, Colors.white, 0.40),
+    );
+    expect(
+      contrastRatio(projectUrl.style!.color!, const Color(0xFF22304A)),
+      greaterThanOrEqualTo(4.5),
+    );
+    expect(
+      dismissButton.style?.foregroundColor?.resolve(const {}),
+      colors.onSurface,
+    );
+  });
+
+  testWidgets('About accent remains legible on the light glass surface',
+      (tester) async {
+    await tester.pumpWidget(
+      host(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showSsrvpnAboutDialog(context),
+            child: const Text('打开关于'),
+          ),
+        ),
+        brightness: Brightness.light,
+      ),
+    );
+
+    await tester.tap(find.text('打开关于'));
+    await tester.pumpAndSettle();
+
+    final colors = Theme.of(
+      tester.element(find.byKey(const Key('ssrvpn-about-glass'))),
+    ).colorScheme;
+    final version = tester.widget<Text>(
+      find.text('版本 ${AppConstants.appVersion}'),
+    );
+    final projectUrl = tester.widget<SelectableText>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SelectableText &&
+            widget.data == 'https://github.com/Elegying/SSRVPN',
+      ),
+    );
+    final expected = Color.lerp(colors.primary, Colors.black, 0.16);
+    expect(version.style?.color, expected);
+    expect(projectUrl.style?.color, expected);
+    expect(
+      contrastRatio(expected!, const Color(0xFFE4EBF9)),
+      greaterThanOrEqualTo(4.5),
+    );
+  });
+
+  testWidgets('About remains scrollable and dismissible with large text',
+      (tester) async {
+    await tester.pumpWidget(
+      host(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showSsrvpnAboutDialog(context),
+            child: const Text('打开关于'),
+          ),
+        ),
+        size: const Size(380, 560),
+        textScaleFactor: 2,
+      ),
+    );
+
+    await tester.tap(find.text('打开关于'));
+    await tester.pumpAndSettle();
+
+    final scroll = find.byKey(const Key('ssrvpn-about-scroll'));
+    final scrollable = find
+        .descendant(
+          of: scroll,
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    expect(tester.takeException(), isNull);
+    expect(scrollable, findsOneWidget);
+    expect(
+      tester.state<ScrollableState>(scrollable).position.maxScrollExtent,
+      greaterThan(0),
+    );
+
+    await tester.drag(scroll, const Offset(0, -240));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    final dismiss = find.widgetWithText(TextButton, '知道了');
+    expect(dismiss.hitTestable(), findsOneWidget);
+    await tester.tap(dismiss);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('ssrvpn-about-glass')), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

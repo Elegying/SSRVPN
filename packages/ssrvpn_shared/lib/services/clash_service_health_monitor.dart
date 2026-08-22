@@ -35,12 +35,12 @@ mixin _ClashHealthSupport {
         return true;
       }
       setLastHealthCheckError(
-        'API 返回 HTTP ${response.statusCode}，端口 ${settings.apiPort}',
+        'CORE_API_UNAVAILABLE: API 返回 HTTP ${response.statusCode}，端口 ${settings.apiPort}',
       );
       return false;
     } catch (error) {
       setLastHealthCheckError(
-        '无法连接 127.0.0.1:${settings.apiPort} ($error)',
+        'CORE_API_UNAVAILABLE: 本地控制服务暂时无法访问（端口 ${settings.apiPort}）',
       );
       return false;
     }
@@ -59,7 +59,7 @@ mixin _ClashHealthSupport {
           .timeout(healthCheckTimeout);
     } on TimeoutException {
       if (shouldPublish?.call() == false) return false;
-      setLastHealthCheckError('运行状态检查超时');
+      setLastHealthCheckError('CORE_API_UNAVAILABLE: 运行状态检查超时');
       log(
         '运行状态检查超时 (${healthCheckTimeout.inSeconds}s)',
         level: RuntimeLogLevel.warning,
@@ -68,9 +68,9 @@ mixin _ClashHealthSupport {
       return false;
     } catch (error) {
       if (shouldPublish?.call() == false) return false;
-      setLastHealthCheckError('运行状态检查异常');
+      setLastHealthCheckError('CORE_API_UNAVAILABLE: 运行状态检查异常');
       log(
-        '运行状态检查异常: $error',
+        '运行状态检查异常: cause=${_safeRuntimeLogErrorCode(error)}',
         level: RuntimeLogLevel.warning,
         event: 'health_check',
       );
@@ -200,7 +200,8 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
             });
           } catch (error) {
             this.log(
-              '运行状态异常后的恢复失败: $error',
+              '运行状态异常后的恢复失败: '
+              'cause=${_safeRuntimeLogErrorCode(error)}',
               level: RuntimeLogLevel.error,
               event: 'health_recovery',
             );

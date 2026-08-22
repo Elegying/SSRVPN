@@ -374,7 +374,7 @@ void main() {
     expect(tempDir.listSync().map((entry) => entry.path), [existing.path]);
   });
 
-  test('an interrupted replacement with a mismatched digest is not restored',
+  test('a mismatched recovery candidate is preserved and not restored',
       () async {
     final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
     final backup = File(
@@ -401,8 +401,8 @@ void main() {
     );
 
     expect(await destination.exists(), isFalse);
-    expect(await backup.exists(), isFalse);
-    expect(tempDir.listSync(), isEmpty);
+    expect(await backup.readAsString(), 'unverified-installer');
+    expect(tempDir.listSync().map((entry) => entry.path), [backup.path]);
   });
 
   test('an interrupted replacement with the expected digest is restored',
@@ -433,8 +433,11 @@ void main() {
     expect(published.path, destination.path);
     expect(requests, 0);
     expect(await destination.readAsBytes(), expectedBytes);
-    expect(await backup.exists(), isFalse);
-    expect(tempDir.listSync().map((entry) => entry.path), [destination.path]);
+    expect(await backup.readAsBytes(), expectedBytes);
+    expect(
+      tempDir.listSync().map((entry) => entry.path).toSet(),
+      {destination.path, backup.path},
+    );
   });
 
   test('two concurrent recoveries reuse one verified canonical artifact',
@@ -477,7 +480,7 @@ void main() {
     expect(results.map((file) => file.path), everyElement(destination.path));
     expect(requests, 0);
     expect(await destination.readAsBytes(), expectedBytes);
-    expect(await backup.exists(), isFalse);
+    expect(await backup.readAsBytes(), expectedBytes);
   });
 
   test('concurrent isolates cannot replace each other verified publication',
@@ -591,8 +594,8 @@ void main() {
     expect(published.path, destination.path);
     expect(requests, 0);
     expect(await destination.readAsBytes(), expectedBytes);
-    expect(await matchingBackup.exists(), isFalse);
-    expect(await newerMismatch.exists(), isFalse);
+    expect(await matchingBackup.readAsBytes(), expectedBytes);
+    expect(await newerMismatch.readAsString(), 'mismatched-installer');
   });
 
   test('interrupted publication recovery only considers 16 newest backups',
@@ -633,6 +636,8 @@ void main() {
     );
 
     expect(await destination.exists(), isFalse);
+    expect(await oldestMatchingBackup.readAsBytes(), expectedBytes);
+    expect(tempDir.listSync().whereType<File>(), hasLength(17));
   });
 
   test('interrupted publication recovery hashes at most twice maxBytes',
@@ -790,7 +795,7 @@ void main() {
     expect(tempDir.listSync().map((entry) => entry.path), [backup.path]);
   });
 
-  test('cancellation after recovery rename keeps the verified destination',
+  test('cancellation after recovery commit still acknowledges publication',
       () async {
     final cancellation = VerifiedUpdateCancellation();
     final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
@@ -805,27 +810,25 @@ void main() {
       }
     };
 
-    await expectLater(
-      SharedUpdateService.downloadVerifiedUpdate(
-        AppUpdateInfo(
-          version: '9.9.9',
-          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
-          changelog: '',
-          sha256: sha256.convert(expectedBytes).toString(),
-        ),
-        outputDirectory: tempDir,
-        fileName: 'SSRVPN_Setup_v9.9.9.exe',
-        cancellation: cancellation,
-        client: MockClient((_) async => throw StateError('unexpected request')),
+    final published = await SharedUpdateService.downloadVerifiedUpdate(
+      AppUpdateInfo(
+        version: '9.9.9',
+        downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+        changelog: '',
+        sha256: sha256.convert(expectedBytes).toString(),
       ),
-      throwsA(isA<VerifiedUpdateCancelled>()),
+      outputDirectory: tempDir,
+      fileName: 'SSRVPN_Setup_v9.9.9.exe',
+      cancellation: cancellation,
+      client: MockClient((_) async => throw StateError('unexpected request')),
     );
 
+    expect(published.path, destination.path);
     expect(await destination.readAsBytes(), expectedBytes);
     expect(await backup.readAsBytes(), expectedBytes);
   });
 
-  test('recovery commits the same private file object that was verified',
+  test('recovery commits the verified copy and preserves a replaced source',
       () async {
     final destination = File('${tempDir.path}/SSRVPN_Setup_v9.9.9.exe');
     final expectedBytes = <int>[1, 2, 3, 4];
@@ -859,7 +862,7 @@ void main() {
     expect(published.path, destination.path);
     expect(requests, 0);
     expect(await destination.readAsBytes(), expectedBytes);
-    expect(await backup.exists(), isFalse);
+    expect(await backup.readAsBytes(), replacementBytes);
   });
 
   test('recovery write failure removes staging and preserves the source backup',
@@ -925,8 +928,11 @@ void main() {
     );
 
     expect(await published.readAsBytes(), expectedBytes);
-    expect(await backup.exists(), isFalse);
-    expect(tempDir.listSync().map((entry) => entry.path), [destination.path]);
+    expect(await backup.readAsBytes(), expectedBytes);
+    expect(
+      tempDir.listSync().map((entry) => entry.path).toSet(),
+      {destination.path, backup.path},
+    );
   });
 
   test('recovery never overwrites an existing destination', () async {
@@ -957,8 +963,11 @@ void main() {
     );
 
     expect(await destination.readAsBytes(), destinationBytes);
-    expect(await backup.exists(), isFalse);
-    expect(tempDir.listSync().map((entry) => entry.path), [destination.path]);
+    expect(await backup.readAsBytes(), backupBytes);
+    expect(
+      tempDir.listSync().map((entry) => entry.path).toSet(),
+      {destination.path, backup.path},
+    );
   });
 
   test('verified desktop download cancellation interrupts a stalled request',
@@ -1081,6 +1090,47 @@ void main() {
     );
 
     expect(await destination.exists(), isFalse);
+    expect(
+      tempDir.listSync().where((entry) => entry.path.contains('.part.')),
+      isEmpty,
+    );
+  });
+
+  test('cancellation after publisher commit still reports the destination',
+      () async {
+    final bytes = utf8.encode('verified-installer');
+    final cancellation = VerifiedUpdateCancellation();
+    final destination = File('${tempDir.path}/SSRVPN.dmg');
+    final destinationCommitted = Completer<void>();
+    final releasePublisher = Completer<void>();
+
+    final task = SharedUpdateService.downloadVerifiedUpdate(
+      AppUpdateInfo(
+        version: '9.9.9',
+        downloadUrl: 'https://example.com/SSRVPN.dmg',
+        changelog: '',
+        sha256: sha256.convert(bytes).toString(),
+      ),
+      outputDirectory: tempDir,
+      fileName: 'SSRVPN.dmg',
+      client: MockClient(
+        (_) async => http.Response.bytes(bytes, HttpStatus.ok),
+      ),
+      cancellation: cancellation,
+      filePublisher: (source, target) async {
+        await source.rename(target.path);
+        destinationCommitted.complete();
+        await releasePublisher.future;
+      },
+    );
+    await destinationCommitted.future;
+
+    cancellation.cancel();
+    releasePublisher.complete();
+
+    final published = await task;
+    expect(published.path, destination.path);
+    expect(await destination.readAsBytes(), bytes);
     expect(
       tempDir.listSync().where((entry) => entry.path.contains('.part.')),
       isEmpty,

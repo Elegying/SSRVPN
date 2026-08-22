@@ -35,7 +35,7 @@ class DesktopConnectionRecoveryPlan {
   final bool Function() shouldRollbackStaleIntent;
   final void Function() cancelIntent;
   final String? Function() readStartFailureReason;
-  final Future<bool> Function()? switchPreferredNode;
+  final DesktopPreferredNodeSwitch? switchPreferredNode;
   final String? Function()? readRuntimeNotice;
 
   Future<DesktopConnectionResult> recover(int connectionGeneration) =>

@@ -35,12 +35,16 @@ class StartupLogger {
     String reason, {
     Object? error,
     StackTrace? stack,
+    Directory? desktopOverride,
+    String? resolvedExecutableOverride,
+    List<String>? executableArgumentsOverride,
+    String? logPathOverride,
   }) {
     if (_desktopFailureReportWritten) return null;
     _desktopFailureReportWritten = true;
 
     try {
-      final desktop = _desktopDirectory();
+      final desktop = desktopOverride ?? _desktopDirectory();
       if (desktop == null) return null;
       desktop.createSync(recursive: true);
 
@@ -58,9 +62,20 @@ class StartupLogger {
         ..writeln('SSRVPN startup failure report')
         ..writeln('Generated: ${DateTime.now().toIso8601String()}')
         ..writeln('Reason: ${LogRedactor.sanitize(reason)}')
-        ..writeln('Executable: ${Platform.resolvedExecutable}')
-        ..writeln('Arguments: ${Platform.executableArguments.join(' ')}')
-        ..writeln('Startup log: $logPath');
+        ..writeln(
+          'Executable: ${LogRedactor.sanitize(
+            resolvedExecutableOverride ?? Platform.resolvedExecutable,
+          )}',
+        )
+        ..writeln(
+          'Arguments: ${LogRedactor.sanitize(
+            (executableArgumentsOverride ?? Platform.executableArguments)
+                .join(' '),
+          )}',
+        )
+        ..writeln(
+          'Startup log: ${LogRedactor.sanitize(logPathOverride ?? logPath)}',
+        );
       if (error != null) {
         buffer.writeln('Error: ${LogRedactor.sanitize(error.toString())}');
       }
@@ -87,6 +102,11 @@ class StartupLogger {
     } catch (_) {
       return null;
     }
+  }
+
+  @visibleForTesting
+  static void resetDesktopFailureReportForTesting() {
+    _desktopFailureReportWritten = false;
   }
 
   static DesktopStartupFileLogger _createLogger(

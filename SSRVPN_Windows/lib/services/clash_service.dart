@@ -16,6 +16,7 @@ import '../src/services/windows_core_pid_record.dart';
 import '../src/services/windows_powershell.dart';
 
 part 'clash_service_config.dart';
+part 'clash_service_diagnostics.dart';
 part 'clash_service_recovery_policy.dart';
 part 'clash_service_lifecycle.dart';
 part 'clash_service_start_preparation.dart';

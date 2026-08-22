@@ -52,7 +52,11 @@
    ```bash
    scripts/smoke-release-artifacts.sh --allow-missing
    ```
-9. 发布前后至少记录一次性能基准，用于对比低配设备体验是否退化：
+9. 核对 [`third_party/THIRD_PARTY_NOTICES.md`](../third_party/THIRD_PARTY_NOTICES.md)
+   中的精确 Mihomo 版本、Android commit、GeoIP 来源、对应源码方向与当前资产记录一致；确认
+   三端产物的结构 smoke 分别找到该清单、完整 GPL-3.0 正文和 SSRVPN MIT 正文。上游精确源码不可访问时必须
+   修复来源或撤回候选，不得只保留二进制继续发布。
+10. 发布前后至少记录一次性能基准，用于对比低配设备体验是否退化：
 
    ```bash
    scripts/performance-baseline.sh
@@ -83,18 +87,26 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    `settings.json` 的旧独立副本，并在 `%LOCALAPPDATA%\Programs\SSRVPN\bin\ssrvpn`、
    `%LOCALAPPDATA%\SSRVPN\ssrvpn` 和窗口状态文件中放置可识别旧配置，记录这些文件的
    SHA256，再启动 `SSRVPN_Setup.exe`。安装向导必须全程使用简体中文并在复制前准确说明
-   替换和保留范围；它必须忽略两个旧独立副本，以普通用户权限安装到固定目录。自 3.4.2 起，
+   替换和保留范围；它必须忽略两个旧独立副本，从普通桌面会话启动并在 UAC 授权后安装到
+   固定的每用户目录。自 3.4.2 起，
    覆盖升级、卸载以及保留数据后的重装都必须保留安装版订阅、设置、DPAPI 密钥、
    LocalAppData 回退数据和窗口状态，前后哈希一致；程序文件、旧恢复状态和两个已知
-   WebView 缓存目录必须清理。交互安装只在完成页勾选后启动，静默安装不得启动 GUI。
+   WebView 缓存目录必须清理。交互和静默安装完成后都不得自动启动 GUI。
    另保持已安装实例占用文件，确认安装器会在修改程序文件前阻断；退出实例后重试必须成功。
+   再让其他目录中的 SSRVPN 副本持有全局实例锁：安装器应先结束当前安装路径中的精确进程，
+   但保留外部副本、系统代理和恢复日志，并以 `APP_INSTANCE_ACTIVE` 在文件覆盖前停止。
 11. 先确认未连接启动和首页初始化不会发起更新请求；连接节点后，应用内更新必须只从
    `Elegying/SSRVPN` 的正式 GitHub Release 读取并下载固定资产 `SSRVPN_Setup.exe` 及 SHA-256，
    不得请求 OSS `latest.json` 或 OSS 安装包。校验通过后必须使用 Windows Known Folder
    定位当前用户的真实桌面（包括重定向桌面），并保存为
-   `SSRVPN_Setup_vX.Y.Z.exe`。完成后必须提示“最新版安装包已下载到桌面，请直接安装”；
-   SSRVPN 保持运行，不自动打开或安装文件，由用户手动安装。取消、摘要不匹配或下载失败不得损坏
-   已有目标文件。日志可提交排查，但不要公开发送 `.dmp` 文件。
+   `SSRVPN_Setup_vX.Y.Z.exe`。完成后必须明确提示手动安装、成功后自动清理且取消或失败时
+   保留；SSRVPN 保持运行，不自动打开或安装文件。Windows smoke 必须同时证明只有 v4.0.15
+   或更高版本内置更新器下载、SHA-256 校验并写入专属标记的版本化安装包会在安装事务成功后
+   删除；旧版客户端下载的首个升级包、手动包、取消或失败包、身份不匹配文件、用户数据和
+   无关桌面文件全部保留。取消、摘要不匹配或下载失败不得损坏已有目标文件。日志可提交排查，
+   但不要公开发送 `.dmp` 文件。
+   另删除一个已标记安装包但保留其隐藏 sidecar，再重下同版本：新文件名必须为
+   `SSRVPN_Setup_vX.Y.Z_<32 位小写十六进制>.exe`，新包仍可自动清理，旧 sidecar 内容不变。
 
 ## 发布
 
@@ -104,14 +116,21 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    维护者须在 30 分钟内到 GitHub Actions 批准该 PR 的待运行 workflow；编排等待关联的
    九项必需检查全绿后 rebase 合并。随后验证合并后的精确 `main` 提交；
    若已有 24 小时内同仓库、同 `main` SHA 的成功 `push`/`workflow_dispatch` CI，
-   且工作流路径与九项必需 job 的唯一性、结论均通过精确验证，则安全复用。
-   无合格记录或已过期时仍按原路径调度；API/JSON 状态不明时失败关闭，不得当作
-   “没找到”。在 tag 前再次只读确认 GeoIP 仍是上游最新，并确认 `main` 在验证期间没有前移。
+   且工作流路径与九项必需 job 的唯一性、结论均通过精确验证，则安全复用；若同一
+   workflow 的该精确提交仍为 `queued`、`in_progress`、`requested`、`waiting` 或 `pending`，
+   先等待原 run 完成，再重新执行相同的九项严格验收，避免重复调度触发取消重跑。并发取消
+   只跟随同 SHA 后继 run，最多等待/替换三轮；等待完成后的列表传播最多复核五次，期间绝不
+   再次 dispatch。仅在没有合格记录且没有可等待 run 或记录已过期时按原路径调度；非取消
+   失败、超过边界、等待后身份/状态不明或 API/JSON 状态不明均失败关闭，不得当作“没找到”
+   后补发新 run。在 tag 前再次只读确认 GeoIP 仍是上游最新，并确认 `main` 在验证期间没有前移。
    编排会在开始和创建 tag 前按 `.github/main-branch-protection.json` 校验严格分支保护及九项
    GitHub Actions 检查的精确名称和应用身份；缺项、多项或策略弱化都会失败关闭。
 2. 只有上述步骤全部通过且远端不存在同名 tag/Release 时，编排才创建 annotated tag，并通过
    `workflow_dispatch` 显式启动该 tag 上的 `Release`。CI、合并、分支树一致性或 GitHub API
    状态任一不明确都会失败关闭；失败分支在尚未创建 PR 时自动删除，已经创建的 PR 保留诊断。
+   从编排最后一次复核 `main` 到 Release 的 `Validate release source` 通过前暂停合并 `main`；
+   tag push 与 `main` 没有跨引用原子事务。若该窗口内 `main` 前移，Release 会拒绝旧 tip，且
+   受保护的不可变 tag 不能删除或移动：此时必须升新版本创建新 tag，不能重跑这个搁浅 tag。
 3. 等待 `Prepare Release` 所跟踪的 `Release` workflow 完成。
    工作流会先创建 Draft Release、上传并验证 OSS 不可变目录，然后备份并推广
    OSS 固定下载通道，最后公开 GitHub Release。GitHub 未能明确转为正式 Release
@@ -124,9 +143,10 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 的只读 GeoIP 最新性门禁，不能绕过来源记录和版本转换校验。
 
 若 `Prepare Release` 已成功推送 tag，但 `Release` 调度失败或等待超时，不得删除、移动 tag，
-也不得用同名 tag 重跑准备流程。先确认没有重复的 Release run，再在 GitHub Actions 选择该
-精确 tag 手动运行 `Release`，或执行 `gh workflow run release.yml --ref vX.Y.Z`；既有 Release
-重试仍必须通过精确 tag、commit、资产和 provenance 身份校验。
+也不得用同名 tag 重跑准备流程。先确认失败不是“tag 后 `main` 前移”：若是该竞态，必须升新
+版本创建新 tag；若 `main` 未前移，则确认没有重复的 Release run，再在 GitHub Actions 选择
+该精确 tag 手动运行 `Release`，或执行 `gh workflow run release.yml --ref vX.Y.Z`。已有正式或
+可验证 Draft Release 的重试仍必须通过精确 tag、commit、资产和 provenance 身份校验。
 
 ## 发布后
 
@@ -145,15 +165,29 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    ```
 2. 下载每个平台产物，至少做一次启动检查。
 3. 检查未连接时不会检查更新，连接节点后应用内更新能从 GitHub Release 读到最新版本；
-   Windows 应将经校验的当前版本安装包保存到
-   真实桌面，显示手动安装提示并保持客户端运行，不打开外部下载链接。
+   Windows 应将经校验的当前版本安装包保存到真实桌面，显示手动安装与安全清理提示并保持
+   客户端运行，不打开外部下载链接；只有 v4.0.15 或更高版本客户端写入专属标记的后续更新包
+   才在成功安装后删除，旧版客户端下载的首个升级包、取消、失败和手动下载的安装包必须保留。
 4. 按 `docs/PRODUCT_REQUIREMENTS.zh-CN.md` 检查安装包、首次导入、节点排序和记忆节点行为。
-5. 检查 SHA256 校验文件可用：
+5. 按校验机器的系统检查 SHA-256 文件；不要把不同系统的命令混在同一个终端中执行：
+
+   macOS：
 
    ```bash
    shasum -a 256 -c SSRVPN.dmg.sha256
+   ```
+
+   Linux：
+
+   ```bash
    sha256sum -c SSRVPN.apk.sha256
-   sha256sum -c SSRVPN_Setup.exe.sha256
+   ```
+
+   Windows PowerShell（计算结果必须与随包校验文件中的摘要一致）：
+
+   ```powershell
+   Get-FileHash .\SSRVPN_Setup.exe -Algorithm SHA256
+   Get-Content .\SSRVPN_Setup.exe.sha256
    ```
 6. 校验三个安装包均由本仓库 `release.yml` 对应 tag 的 GitHub Actions 构建并签发证明：
 

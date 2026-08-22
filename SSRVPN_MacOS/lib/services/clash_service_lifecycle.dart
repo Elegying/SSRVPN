@@ -189,22 +189,32 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   }
 
   @override
-  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => [
-        AppDiagnosticCheck(
-          id: 'system_proxy',
-          title: '系统代理恢复',
-          status: hasPendingSystemProxyRecovery
-              ? AppDiagnosticStatus.warning
-              : AppDiagnosticStatus.passed,
-          summary: _recoveryDiagnosticSummary,
-          errorCode: hasPendingSystemProxyRecovery
-              ? AppErrorCode.proxyRecoveryPending
-              : null,
-          repairAction: hasPendingSystemProxyRecovery
-              ? AppRepairAction.retryOwnedProxyRecovery
-              : null,
-        ),
-      ];
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async {
+    final ownershipUnavailable =
+        connectivityOwnershipWarning?.trim().isNotEmpty ?? false;
+    return [
+      AppDiagnosticCheck(
+        id: 'system_proxy',
+        title: '系统代理恢复',
+        status: hasPendingSystemProxyRecovery || ownershipUnavailable
+            ? AppDiagnosticStatus.warning
+            : AppDiagnosticStatus.passed,
+        summary: hasPendingSystemProxyRecovery
+            ? _recoveryDiagnosticSummary
+            : ownershipUnavailable
+                ? '系统代理所有权检查暂时不可用；核心正常，当前连接保持'
+                : _recoveryDiagnosticSummary,
+        errorCode: hasPendingSystemProxyRecovery
+            ? AppErrorCode.proxyRecoveryPending
+            : ownershipUnavailable
+                ? AppErrorCode.systemProxyOwnershipUnavailable
+                : null,
+        repairAction: hasPendingSystemProxyRecovery
+            ? AppRepairAction.retryOwnedProxyRecovery
+            : null,
+      ),
+    ];
+  }
 
   @override
   Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async {
@@ -288,7 +298,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     final tun = (await getConfigs())?['tun'];
     if (tun is Map && tun['enable'] == true) return true;
     setLastHealthCheckError(
-      'TUN_CONFIG_MISMATCH: Mihomo API 已就绪，但 TUN listener 未启用',
+      'TUN_RUNTIME_UNAVAILABLE: Mihomo API 已就绪，但 TUN listener 未启用',
     );
     return false;
   }
@@ -297,23 +307,25 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   Future<bool> healthCheck() async {
     if (!await checkMihomoApiHealth()) {
       final detail = lastHealthCheckError ?? 'Mihomo API 不可用';
-      setLastHealthCheckError('CORE_API_UNAVAILABLE: $detail');
+      setLastHealthCheckError(
+        detail.startsWith('CORE_API_UNAVAILABLE:')
+            ? detail
+            : 'CORE_API_UNAVAILABLE: $detail',
+      );
       return false;
     }
     if (!settings.enableTun) {
-      if (isRunning) {
+      if (!await verifyLocalMixedProxyReadiness()) return false;
+      if (isRunning || _proxyService.isProxyEnabled) {
         final ownershipStatus = await inspectSystemProxyOwnership();
         if (ownershipStatus == SystemProxyOwnershipStatus.owned) {
-          if (connectivityWarning ==
-              desktopSystemProxyOwnershipUnavailableWarning) {
-            setConnectivityWarning(null);
-          }
+          setConnectivityOwnershipWarning(null);
           setLastHealthCheckError(null);
           return true;
         }
         if (ownershipStatus == SystemProxyOwnershipStatus.unavailable) {
           setLastHealthCheckError(null);
-          if (connectivityWarning !=
+          if (connectivityOwnershipWarning !=
               desktopSystemProxyOwnershipUnavailableWarning) {
             log(
               '系统代理所有权探针暂时不可用；Mihomo API 正常，保留当前连接',
@@ -321,7 +333,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
               event: 'system_proxy_health',
             );
           }
-          setConnectivityWarning(
+          setConnectivityOwnershipWarning(
             desktopSystemProxyOwnershipUnavailableWarning,
           );
           return true;
@@ -357,8 +369,17 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   @override
   @protected
   Future<void> observeDataPlaneHealth() async {
-    if (!isRunning || !settings.enableTun) return;
+    if (!isRunning) return;
     await _checkThrottledTunDataPath();
+  }
+
+  @override
+  @protected
+  void onDataPlaneObservationSessionReset() {
+    _tunDataPathProbeGeneration++;
+    _tunDataPathProbe = null;
+    _lastTunDataPathProbeAt = null;
+    _lastTunDataPathHealthy = true;
   }
 
   @override
@@ -398,22 +419,26 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   }
 
   Future<bool> _probeTunDataPath(int probeGeneration) async {
+    final tunMode = settings.enableTun;
     final warning = await verifyUserConnectivity(
       maxAttempts: 2,
       retryDelay: const Duration(seconds: 1),
       shouldContinue: () =>
           probeGeneration == _tunDataPathProbeGeneration &&
           isRunning &&
-          settings.enableTun,
+          isDataPlaneObservationCurrent &&
+          settings.enableTun == tunMode,
     );
     if (probeGeneration != _tunDataPathProbeGeneration) return true;
-    if (!isRunning || !settings.enableTun) return false;
+    if (!isRunning || settings.enableTun != tunMode) return false;
+    if (!isDataPlaneObservationCurrent) return true;
     _lastTunDataPathProbeAt = DateTime.now();
     final wasHealthy = _lastTunDataPathHealthy;
     _lastTunDataPathHealthy = warning == null;
+    final routeMode = tunMode ? 'TUN' : '系统代理';
     if (warning != null) {
       setConnectivityWarning(
-        '连接与 TUN 仍在运行；外部网络观察暂未通过，仅供参考：$warning',
+        '连接与 $routeMode 仍在运行；外部网络观察暂未通过，仅供参考：$warning',
       );
       log(
         '外部网络观察未通过: $warning；未切换节点，未关闭既有连接',
@@ -423,7 +448,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     } else {
       if (!wasHealthy) {
         log(
-          'TUN 数据通道已恢复，核心和 TUN 会话始终保持运行',
+          '$routeMode 数据通道已恢复，核心连接始终保持运行',
           event: 'data_plane_probe',
         );
       }
@@ -455,6 +480,10 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   @override
   Future<void> onStopRequired() => stop();
 
+  @protected
+  Future<void> waitBeforeProxyOwnershipRecoveryRecheck() =>
+      Future<void>.delayed(const Duration(milliseconds: 400));
+
   @override
   Future<bool> recoverAfterHealthCheckFailure(
     int connectionGeneration,
@@ -475,7 +504,17 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       // The API and the system proxy can fail at the same time. healthCheck()
       // returns as soon as the API is unavailable, so inspect ownership again
       // immediately before any stop/restart that could reacquire the proxy.
-      final ownershipStatus = await inspectSystemProxyOwnership();
+      var ownershipStatus = await inspectSystemProxyOwnership();
+      if (ownershipStatus == SystemProxyOwnershipStatus.unavailable) {
+        await waitBeforeProxyOwnershipRecoveryRecheck();
+        if (!isConnectionIntentCurrent(
+          connectionGeneration,
+          connected: true,
+        )) {
+          return false;
+        }
+        ownershipStatus = await inspectSystemProxyOwnership();
+      }
       if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
         return false;
       }
@@ -795,7 +834,12 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
           'Mihomo 提前退出（退出码 $startupExitCode）$detail',
         );
       } else {
-        setLastStartError('电脑性能不足或核心启动过慢，请重新连接');
+        final healthDetail = lastHealthCheckError?.trim();
+        setLastStartError(
+          healthDetail != null && healthDetail.isNotEmpty
+              ? 'Mihomo 启动后未通过就绪检查：$healthDetail'
+              : '电脑性能不足或核心启动过慢，请重新连接',
+        );
       }
       log('核心启动失败: $lastStartError');
       await _stopInternal();
@@ -864,9 +908,12 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
             nativeStatus.isRunning &&
             processStillHealthy;
         if (!canCommitRunning) {
+          final healthDetail = lastHealthCheckError?.trim();
           setLastStartError(
             startupExitCode == null
-                ? 'Mihomo 在系统代理设置期间失去响应'
+                ? healthDetail != null && healthDetail.isNotEmpty
+                    ? '连接提交前的就绪检查失败：$healthDetail'
+                    : 'Mihomo 在系统代理设置期间失去响应'
                 : 'Mihomo 在系统代理设置期间退出（退出码 $startupExitCode）',
           );
           log(lastStartError!);
@@ -880,6 +927,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         notifyStatusChanged();
         startStatusMonitor();
         _scheduleNativeCoreStatusWatch(startedProcess);
+        scheduleDataPlaneObservation();
       },
       rollback: _cleanupFailedStart,
       onException: (stage, error) {
@@ -1226,11 +1274,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   }
 
   void _beginTunDataPathSession() {
-    _tunDataPathProbeGeneration++;
-    _tunDataPathProbe = null;
-    _lastTunDataPathProbeAt = null;
-    _lastTunDataPathHealthy = true;
-    setConnectivityWarning(null);
+    onDataPlaneObservationSessionReset();
+    clearConnectivityWarningSilently();
   }
 
   void _invalidateTunDataPathProbe() {

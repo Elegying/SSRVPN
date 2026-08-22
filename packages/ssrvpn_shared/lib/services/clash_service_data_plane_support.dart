@@ -1,14 +1,19 @@
 part of 'clash_service_base.dart';
 
+final Object _dataPlaneObservationEpochZoneKey = Object();
+
 /// Advisory node/internet state that is deliberately separate from the
 /// process, service and runtime-configuration lifecycle.
 mixin _ClashDataPlaneSupport {
   int _dataPlaneObservationEpoch = 0;
   int? _activeDataPlaneObservationEpoch;
-  String? _connectivityWarning;
+  int? _coalescedDataPlaneObservationEpoch;
+  String? _dataPlaneConnectivityWarning;
+  String? _connectivityOwnershipWarning;
 
   bool get isRunning;
   AppSettings get settings;
+  bool get _canPublishHealthCheckResult;
   void log(
     String message, {
     RuntimeLogLevel level = RuntimeLogLevel.info,
@@ -29,50 +34,112 @@ mixin _ClashDataPlaneSupport {
   ) =>
       client.send(http.Request('GET', uri));
 
-  String? get connectivityWarning => _connectivityWarning;
+  String? get connectivityWarning {
+    final ownership = _connectivityOwnershipWarning;
+    final dataPlane = _dataPlaneConnectivityWarning;
+    if (ownership == null) return dataPlane;
+    if (dataPlane == null || dataPlane == ownership) return ownership;
+    return '$ownership\n$dataPlane';
+  }
+
+  @protected
+  String? get connectivityOwnershipWarning => _connectivityOwnershipWarning;
+
+  /// Advisory warning produced only by external route observations. Platform
+  /// ownership warnings deliberately remain separate for diagnostics.
+  @protected
+  String? get dataPlaneConnectivityWarning => _dataPlaneConnectivityWarning;
+
+  @protected
+  bool get isDataPlaneObservationCurrent {
+    final observationEpoch =
+        Zone.current[_dataPlaneObservationEpochZoneKey] as int?;
+    return observationEpoch == null ||
+        observationEpoch == _dataPlaneObservationEpoch;
+  }
 
   @protected
   Future<void> observeDataPlaneHealth() async {}
 
   @protected
   void setConnectivityWarning(String? value) {
-    if (_connectivityWarning == value) return;
-    _connectivityWarning = value;
-    notifyStatusChanged();
+    if (!_canPublishHealthCheckResult || !isDataPlaneObservationCurrent) {
+      return;
+    }
+    if (_dataPlaneConnectivityWarning == value) return;
+    final previous = connectivityWarning;
+    _dataPlaneConnectivityWarning = value;
+    if (connectivityWarning != previous) notifyStatusChanged();
+  }
+
+  @protected
+  void setConnectivityOwnershipWarning(String? value) {
+    if (!_canPublishHealthCheckResult) return;
+    if (_connectivityOwnershipWarning == value) return;
+    final previous = connectivityWarning;
+    _connectivityOwnershipWarning = value;
+    if (connectivityWarning != previous) notifyStatusChanged();
   }
 
   @protected
   void clearConnectivityWarningSilently() {
-    _connectivityWarning = null;
+    _dataPlaneConnectivityWarning = null;
+  }
+
+  @protected
+  void onDataPlaneObservationSessionReset() {}
+
+  /// Invalidates observations that belong to the previously selected route.
+  /// The connection remains live; one observation of the confirmed route is
+  /// scheduled independently of the periodic control-plane monitor.
+  @protected
+  void onDataPlaneRouteChanged() {
+    _dataPlaneObservationEpoch++;
+    _coalescedDataPlaneObservationEpoch = null;
+    onDataPlaneObservationSessionReset();
+    clearConnectivityWarningSilently();
+    if (isRunning) scheduleDataPlaneObservation();
   }
 
   void _resetDataPlaneObservationSession() {
     _dataPlaneObservationEpoch++;
-    clearConnectivityWarningSilently();
+    _coalescedDataPlaneObservationEpoch = null;
+    onDataPlaneObservationSessionReset();
+    _dataPlaneConnectivityWarning = null;
+    _connectivityOwnershipWarning = null;
   }
 
   @protected
-  void scheduleDataPlaneObservation() {
+  void scheduleDataPlaneObservation({bool rerunIfActive = false}) {
     final observationEpoch = _dataPlaneObservationEpoch;
-    if (_activeDataPlaneObservationEpoch == observationEpoch || !isRunning) {
+    if (!isRunning) return;
+    if (_activeDataPlaneObservationEpoch == observationEpoch) {
+      if (rerunIfActive) {
+        _coalescedDataPlaneObservationEpoch = observationEpoch;
+      }
       return;
     }
     _activeDataPlaneObservationEpoch = observationEpoch;
-    final observation = Future<void>.sync(observeDataPlaneHealth);
+    final observation = runZoned<Future<void>>(
+      () => Future<void>.sync(observeDataPlaneHealth),
+      zoneValues: {_dataPlaneObservationEpochZoneKey: observationEpoch},
+    );
+    void finishObservation() {
+      if (_activeDataPlaneObservationEpoch == observationEpoch) {
+        _activeDataPlaneObservationEpoch = null;
+      }
+      if (_coalescedDataPlaneObservationEpoch == observationEpoch) {
+        _coalescedDataPlaneObservationEpoch = null;
+        scheduleDataPlaneObservation();
+      }
+    }
+
     // Future.timeout does not cancel its source. Keep the ownership flag until
     // the real probe settles so probes cannot overlap within one session.
     unawaited(
       observation.then<void>(
-        (_) {
-          if (_activeDataPlaneObservationEpoch == observationEpoch) {
-            _activeDataPlaneObservationEpoch = null;
-          }
-        },
-        onError: (Object _, StackTrace __) {
-          if (_activeDataPlaneObservationEpoch == observationEpoch) {
-            _activeDataPlaneObservationEpoch = null;
-          }
-        },
+        (_) => finishObservation(),
+        onError: (Object _, StackTrace __) => finishObservation(),
       ),
     );
     unawaited(
@@ -83,7 +150,8 @@ mixin _ClashDataPlaneSupport {
           return;
         }
         log(
-          '数据通道观察失败，不影响核心生命周期: $error',
+          '数据通道观察失败，不影响核心生命周期: '
+          'cause=${_safeRuntimeLogErrorCode(error)}',
           level: RuntimeLogLevel.warning,
           event: 'data_plane_probe',
         );

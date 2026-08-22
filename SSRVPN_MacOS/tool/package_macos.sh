@@ -15,6 +15,7 @@ VERSIONED_DMG_PATH="$PROJECT_ROOT/${APP_NAME}-macOS-${ARCH}-v${VERSION_NAME}.dmg
 DMG_PATH="$PROJECT_ROOT/${APP_NAME}.dmg"
 DMG_HASH_PATH="$PROJECT_ROOT/${APP_NAME}.dmg.sha256"
 DMG_BACKGROUND_SOURCE="$PROJECT_ROOT/tool/dmg/background.png"
+THIRD_PARTY_SOURCE="$PROJECT_ROOT/../third_party"
 STANDARD_VOLUME_MOUNT="/Volumes/$APP_NAME"
 CORE_TMP=""
 
@@ -45,12 +46,23 @@ fi
 
 APP_BIN="$APP_PATH/Contents/MacOS/$APP_NAME"
 ASSET_DIR="$APP_PATH/Contents/Frameworks/App.framework/Resources/flutter_assets/assets"
+THIRD_PARTY_DESTINATION="$APP_PATH/Contents/Resources/third_party"
 
 test -x "$APP_BIN"
 test -f "$ASSET_DIR/AtlasCore.gz"
 test -f "$ASSET_DIR/geoip.metadb.gz"
 test -f "$ASSET_DIR/tray_icon.png"
 test -f "$DMG_BACKGROUND_SOURCE"
+test -f "$THIRD_PARTY_SOURCE/THIRD_PARTY_NOTICES.md"
+test -f "$THIRD_PARTY_SOURCE/licenses/GPL-3.0.txt"
+test -f "$THIRD_PARTY_SOURCE/licenses/SSRVPN-MIT.txt"
+
+rm -rf "$THIRD_PARTY_DESTINATION"
+mkdir -p "$(dirname "$THIRD_PARTY_DESTINATION")"
+ditto "$THIRD_PARTY_SOURCE" "$THIRD_PARTY_DESTINATION"
+test -f "$APP_PATH/Contents/Resources/third_party/THIRD_PARTY_NOTICES.md"
+test -f "$APP_PATH/Contents/Resources/third_party/licenses/GPL-3.0.txt"
+test -f "$APP_PATH/Contents/Resources/third_party/licenses/SSRVPN-MIT.txt"
 
 echo "Refreshing ad-hoc code signature..."
 /usr/bin/codesign --force --deep --sign - "$APP_PATH"
@@ -127,6 +139,9 @@ test -f "$MOUNT_DIR/.DS_Store"
 grep -aFq "background.png" "$MOUNT_DIR/.DS_Store"
 test ! -e "$MOUNT_DIR/安装教程.txt"
 test ! -e "$MOUNT_DIR/使用教程.txt"
+test -f "$MOUNT_DIR/SSRVPN.app/Contents/Resources/third_party/THIRD_PARTY_NOTICES.md"
+test -f "$MOUNT_DIR/SSRVPN.app/Contents/Resources/third_party/licenses/GPL-3.0.txt"
+test -f "$MOUNT_DIR/SSRVPN.app/Contents/Resources/third_party/licenses/SSRVPN-MIT.txt"
 top_level_count="$(find "$MOUNT_DIR" -mindepth 1 -maxdepth 1 \
   ! -name '.*' -print | wc -l | tr -d ' ')"
 [[ "$top_level_count" -eq 2 ]]

@@ -46,7 +46,6 @@ Future<File> _downloadVerifiedUpdate(
     ),
   );
   if (recovered) {
-    cancellation?.throwIfCancelled();
     return destination;
   }
   final publicationId = '${pid}_${DateTime.now().microsecondsSinceEpoch}_'

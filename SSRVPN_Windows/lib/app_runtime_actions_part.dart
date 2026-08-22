@@ -85,7 +85,11 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
           readRuntimeNotice: () => core.lastRuntimePortAdjustmentMessage,
           switchPreferredNode: preferredNodeName == null
               ? null
-              : () => core.switchSelectedProxy(preferredNodeName),
+              : (isConnectionContextCurrent) => core.switchSelectedProxy(
+                    preferredNodeName,
+                    isSwitchContextCurrent: () =>
+                        core.isRunning && isConnectionContextCurrent(),
+                  ),
         ),
       );
       if (connectionResult.failure == DesktopConnectionFailure.cancelled) {

@@ -33,6 +33,8 @@ part 'clash_service_latency_support.dart';
 
 enum RuntimeLogLevel { debug, info, warning, error }
 
+typedef SwitchContextGuard = FutureOr<bool> Function();
+
 /// Clash API 交互的公共逻辑基类
 ///
 /// 各平台 ClashService 继承此类，只需实现：
@@ -40,7 +42,6 @@ enum RuntimeLogLevel { debug, info, warning, error }
 /// - 平台特定的系统代理/VPN 设置
 /// - 平台特定的文件路径和资源释放
 ///
-/// 公共能力（API 调用、延迟测试、日志、状态管理）全部在此实现。
 abstract class ClashServiceBase
     with
         _ClashConfigSupport,
@@ -49,8 +50,6 @@ abstract class ClashServiceBase
         _ClashDiagnosticsSupport,
         _ClashHealthSupport,
         _ClashLatencySupport {
-  static int _nextLogSession = 0;
-
   // ── 状态 ──
   bool _isRunning = false;
   int _consecutiveHealthCheckFailures = 0;
@@ -67,10 +66,6 @@ abstract class ClashServiceBase
   AppSettings _settings = AppSettings();
   String _configDir = '';
   String _configPath = '';
-  String _logBuffer = '';
-  late final String _logSessionId =
-      '${DateTime.now().toUtc().microsecondsSinceEpoch.toRadixString(36)}-'
-      '${(_nextLogSession++).toRadixString(36)}';
   // ── HTTP 客户端 ──
   HttpClient? _directHttpClient;
   http.Client? _apiClient;
@@ -79,7 +74,6 @@ abstract class ClashServiceBase
   void Function()? onStatusChanged;
   void Function()? onProcessExit;
   void Function(RuntimeNotice notice)? onRuntimeNotice;
-  void Function(String message)? onLog;
   final Set<void Function()> _statusListeners = {};
 
   // ── 定时器 ──
@@ -114,6 +108,7 @@ abstract class ClashServiceBase
   @override
   String? get lastRuntimePortAdjustmentMessage =>
       _lastRuntimePortAdjustmentMessage;
+  @override
   String? get lastHealthCheckError => _lastHealthCheckError;
 
   @protected
@@ -122,8 +117,6 @@ abstract class ClashServiceBase
     if (_canPublishHealthCheckResult) _lastHealthCheckError = value;
   }
 
-  @override
-  String get recentLogs => _logBuffer;
   int get runtimeProxyPort => _settings.proxyPort;
   int get runtimeSocksPort => _settings.socksPort;
   int get runtimeApiPort => _settings.apiPort;
@@ -187,11 +180,15 @@ abstract class ClashServiceBase
       },
       readStartFailureReason: () => lastStartError,
       readRuntimeNotice: () => lastRuntimePortAdjustmentMessage,
-      switchPreferredNode: () async {
+      switchPreferredNode: (isConnectionContextCurrent) async {
         final currentPreferredNode = _desktopRecoveryPreferredNodeName;
         return currentPreferredNode == null
             ? true
-            : switchSelectedProxy(currentPreferredNode);
+            : switchSelectedProxy(
+                currentPreferredNode,
+                isSwitchContextCurrent: () =>
+                    isRunning && isConnectionContextCurrent(),
+              );
       },
     );
   }
@@ -220,7 +217,16 @@ abstract class ClashServiceBase
       }
       return connected;
     } catch (error) {
-      setLastStartError('重新生成并启动桌面连接失败: $error');
+      this.log(
+        '重新生成并启动桌面连接失败: '
+        'cause=${_safeRuntimeLogErrorCode(error)}',
+        level: RuntimeLogLevel.error,
+        event: 'health_recovery',
+      );
+      setLastStartError(
+        '重新生成并启动桌面连接失败：'
+        '${safeUserFacingFailureMessage(error)}',
+      );
       return false;
     }
   }
@@ -280,9 +286,7 @@ abstract class ClashServiceBase
 
   @override
   Map<String, String> apiHeaders({bool json = false}) {
-    final apiSecret = RuntimeConfigNamePolicy.canonicalApiSecret(
-      _settings.apiSecret,
-    );
+    final apiSecret = runtimeApiSecret;
     return {
       if (apiSecret.isNotEmpty) 'Authorization': 'Bearer $apiSecret',
       if (json) 'Content-Type': 'application/json',
@@ -309,12 +313,17 @@ abstract class ClashServiceBase
             )
             .timeout(AppConstants.apiTimeout);
         if (response.statusCode == 200 || response.statusCode == 204) {
-          log('规则集已检查更新: $providerName');
+          this.log('规则集已检查更新: $providerName');
         } else {
-          log('规则集更新检查失败 $providerName: HTTP ${response.statusCode}');
+          this.log(
+            '规则集更新检查失败 $providerName: HTTP ${response.statusCode}',
+          );
         }
       } catch (e) {
-        log('规则集更新检查失败 $providerName: $e');
+        this.log(
+          '规则集更新检查失败 $providerName: '
+          'cause=${_safeRuntimeLogErrorCode(e)}',
+        );
       }
     }
   }
@@ -374,7 +383,7 @@ abstract class ClashServiceBase
         return groups;
       }
     } catch (e) {
-      log('获取代理列表失败: $e');
+      this.log('获取代理列表失败: cause=${_safeRuntimeLogErrorCode(e)}');
     }
     return [];
   }
@@ -389,8 +398,8 @@ abstract class ClashServiceBase
       }
       return false;
     } catch (e) {
-      log(
-        '切换代理失败: $e',
+      this.log(
+        '切换代理失败: cause=${_safeRuntimeLogErrorCode(e)}',
         level: RuntimeLogLevel.warning,
         event: 'proxy_switch',
       );
@@ -413,12 +422,13 @@ abstract class ClashServiceBase
           .timeout(const Duration(seconds: 5));
       return response.statusCode == 200 || response.statusCode == 204;
     } catch (e) {
-      log('切换模式失败: $e');
+      this.log('切换模式失败: cause=${_safeRuntimeLogErrorCode(e)}');
       return false;
     }
   }
 
   /// 获取当前配置
+  @override
   Future<Map<String, dynamic>?> getConfigs() async {
     try {
       final client = _apiClient;
@@ -430,36 +440,61 @@ abstract class ClashServiceBase
         return jsonDecode(response.body) as Map<String, dynamic>;
       }
     } catch (e) {
-      log('获取配置失败: $e');
+      this.log('获取配置失败: cause=${_safeRuntimeLogErrorCode(e)}');
     }
     return null;
   }
 
   /// 切换选中的代理节点（同时处理 PROXY 和 GLOBAL 组）
-  Future<bool> switchSelectedProxy(String nodeName) {
+  /// The optional guard is checked before each mutation and after asynchronous
+  /// confirmation so a stale same-port session cannot cause later side effects.
+  Future<bool> switchSelectedProxy(
+    String nodeName, {
+    SwitchContextGuard? isSwitchContextCurrent,
+  }) {
     final operation = _proxySelectionTail.then(
-      (_) => _switchSelectedProxy(nodeName),
+      (_) => _switchSelectedProxy(
+        nodeName,
+        isSwitchContextCurrent: isSwitchContextCurrent,
+      ),
     );
     _proxySelectionTail = operation.then<void>((_) {}, onError: (_, __) {});
     return operation;
   }
 
-  Future<bool> _switchSelectedProxy(String nodeName) async {
+  Future<bool> _switchSelectedProxy(
+    String nodeName, {
+    SwitchContextGuard? isSwitchContextCurrent,
+  }) async {
+    if (!await _isSwitchContextCurrent(isSwitchContextCurrent)) return false;
     final proxyOk = await _switchAndConfirmProxyGroup('PROXY', nodeName);
+    if (!proxyOk) return false;
+    if (!await _isSwitchContextCurrent(isSwitchContextCurrent)) return true;
+
     var globalOk = true;
     if (_settings.proxyMode == ProxyMode.global) {
       globalOk = await _switchAndConfirmProxyGroup('GLOBAL', 'PROXY');
+      if (!await _isSwitchContextCurrent(isSwitchContextCurrent)) {
+        return proxyOk && globalOk;
+      }
       if (!globalOk) {
         globalOk = await _switchAndConfirmProxyGroup('GLOBAL', nodeName);
+        if (!await _isSwitchContextCurrent(isSwitchContextCurrent)) {
+          return proxyOk && globalOk;
+        }
       }
     }
-    final effectiveOk =
-        proxyOk && globalOk && (await currentSelectedProxyName()) == nodeName;
+    final selectedNode = await currentSelectedProxyName();
+    final effectiveOk = proxyOk && globalOk && selectedNode == nodeName;
+    if (!await _isSwitchContextCurrent(isSwitchContextCurrent)) {
+      return effectiveOk;
+    }
     if (effectiveOk) {
       if (_desktopConnectionRecoveryPlan != null) {
         _desktopRecoveryPreferredNodeName = nodeName;
       }
       await _closeConnections();
+      if (!await _isSwitchContextCurrent(isSwitchContextCurrent)) return true;
       // 轮询等待核心清空连接，最多等 250ms
       final deadline = DateTime.now().add(const Duration(milliseconds: 250));
       while (DateTime.now().isBefore(deadline)) {
@@ -467,10 +502,15 @@ abstract class ClashServiceBase
         if (remaining <= 0) break;
         await Future<void>.delayed(const Duration(milliseconds: 30));
       }
+      if (!await _isSwitchContextCurrent(isSwitchContextCurrent)) return true;
+      onDataPlaneRouteChanged();
       _notifyStatusChanged();
     }
     return effectiveOk;
   }
+
+  Future<bool> _isSwitchContextCurrent(SwitchContextGuard? guard) async =>
+      guard == null || await guard();
 
   /// Returns the node that Mihomo is actually routing through right now.
   ///
@@ -501,7 +541,7 @@ abstract class ClashServiceBase
     try {
       final client = _apiClient;
       if (client == null) {
-        log(
+        this.log(
           '切换代理组失败: 本地 API 客户端未初始化',
           level: RuntimeLogLevel.warning,
           event: 'proxy_switch',
@@ -518,7 +558,7 @@ abstract class ClashServiceBase
           .timeout(const Duration(seconds: 5));
       final accepted = response.statusCode == 200 || response.statusCode == 204;
       if (!accepted) {
-        log(
+        this.log(
           '切换代理组未被核心接受: group=$groupName, '
           'HTTP ${response.statusCode}',
           level: RuntimeLogLevel.warning,
@@ -527,8 +567,9 @@ abstract class ClashServiceBase
       }
       return accepted;
     } catch (e) {
-      log(
-        '切换代理组失败 $groupName -> $nodeName: $e',
+      this.log(
+        '切换代理组失败 $groupName -> $nodeName: '
+        'cause=${_safeRuntimeLogErrorCode(e)}',
         level: RuntimeLogLevel.warning,
         event: 'proxy_switch',
       );
@@ -554,7 +595,10 @@ abstract class ClashServiceBase
         return decoded['now']?.toString();
       }
     } catch (e) {
-      log('读取代理组状态失败 $groupName: $e');
+      this.log(
+        '读取代理组状态失败 $groupName: '
+        'cause=${_safeRuntimeLogErrorCode(e)}',
+      );
     }
     return null;
   }
@@ -570,7 +614,7 @@ abstract class ClashServiceBase
       if (lastSeen == expectedNodeName) return true;
       await Future<void>.delayed(const Duration(milliseconds: 40));
     }
-    log(
+    this.log(
       '代理组状态未生效 $groupName: '
       'expected=$expectedNodeName, actual=$lastSeen',
       level: RuntimeLogLevel.warning,
@@ -593,7 +637,7 @@ abstract class ClashServiceBase
           .delete(Uri.parse(connUrl), headers: apiHeaders())
           .timeout(const Duration(seconds: 3));
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        log(
+        this.log(
           '节点已切换，但旧连接清理请求未被核心接受: '
           'HTTP ${response.statusCode}',
           level: RuntimeLogLevel.warning,
@@ -601,8 +645,9 @@ abstract class ClashServiceBase
         );
       }
     } catch (error) {
-      log(
-        '节点已切换，但旧连接清理未完成: $error',
+      this.log(
+        '节点已切换，但旧连接清理未完成: '
+        'cause=${_safeRuntimeLogErrorCode(error)}',
         level: RuntimeLogLevel.warning,
         event: 'connection_cleanup',
       );
@@ -644,52 +689,6 @@ abstract class ClashServiceBase
     return _isRunning &&
         isConnectionIntentCurrent(connectionGeneration, connected: true);
   }
-
-  // ── 日志 ──
-
-  static const bool _kReleaseMode = bool.fromEnvironment('dart.vm.product');
-
-  @override
-  void log(
-    String message, {
-    RuntimeLogLevel level = RuntimeLogLevel.info,
-    String event = 'runtime',
-  }) {
-    final sanitized = LogRedactor.sanitize(message).replaceAll(
-      RegExp(r'[\r\n]+'),
-      ' ↩ ',
-    );
-    final normalizedEvent = event.trim().toLowerCase();
-    final safeEvent =
-        RegExp(r'^[a-z0-9][a-z0-9_.-]{0,47}$').hasMatch(normalizedEvent)
-            ? normalizedEvent
-            : 'runtime';
-    final line = '[${DateTime.now().toUtc().toIso8601String()}] '
-        '[${level.name.toUpperCase()}] [$safeEvent] '
-        '[session=$_logSessionId] $sanitized';
-    _logBuffer = '$line\n$_logBuffer';
-    if (_logBuffer.length > 10000) {
-      final completeLineEnd = _logBuffer.lastIndexOf('\n', 9999);
-      _logBuffer = _logBuffer.substring(
-        0,
-        completeLineEnd >= 0 ? completeLineEnd + 1 : 10000,
-      );
-    }
-    writePlatformLog(line);
-    onLog?.call(line);
-    if (!_kReleaseMode) {
-      debugLog(line);
-    }
-  }
-
-  /// Override for durable platform log files. [line] is already redacted,
-  /// timestamped and normalized to one physical line.
-  @protected
-  void writePlatformLog(String line) {}
-
-  /// Override for platform-specific debug output (debugPrint, file logging, etc.)
-  @protected
-  void debugLog(String message) {}
 
   // ── 状态管理 ──
 

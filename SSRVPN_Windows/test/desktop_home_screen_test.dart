@@ -124,11 +124,21 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
+    final glass = find.byKey(const Key('ssrvpn-tutorial-glass'));
+    expect(glass, findsOneWidget);
+    expect(
+      find.descendant(of: glass, matching: find.byType(BackdropFilter)),
+      findsOneWidget,
+    );
     expect(
       find.descendant(
         of: find.byType(Dialog),
         matching: find.byType(SingleChildScrollView),
       ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('客户端启动时请求管理员授权；授权后系统代理与 TUN 均可直接使用和切换'),
       findsOneWidget,
     );
     expect(
@@ -192,7 +202,10 @@ void main() {
     await tester.tap(find.byTooltip('使用教程'));
     await tester.pump();
     expect(find.text('使用教程'), findsWidgets);
-    expect(find.textContaining('TUN 模式需管理员权限'), findsWidgets);
+    expect(
+      find.textContaining('授权后系统代理与 TUN 均可直接使用和切换'),
+      findsWidgets,
+    );
     await tester.tap(find.text('知道了'));
     await tester.pump();
 
@@ -223,6 +236,7 @@ void main() {
     await _pumpUntil(tester, () => fixture.clash.isRunning);
     expect(fixture.clash.isRunning, isTrue);
     expect(find.text('已连接'), findsWidgets);
+    expect(fixture.clash.directConnectivityVerificationCalls, 0);
 
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
@@ -801,7 +815,9 @@ class _FakeClashService extends ClashService {
   _FakeClashService({
     this.recordBatchLatencyResults = true,
     bool running = false,
-  }) : _running = running;
+  }) : _running = running {
+    if (running) requestConnectionIntent(true);
+  }
 
   final bool recordBatchLatencyResults;
   bool _running;
@@ -810,6 +826,7 @@ class _FakeClashService extends ClashService {
   String? runtimeSelectedNodeName;
   int batchLatencyRuns = 0;
   int singleLatencyRuns = 0;
+  int directConnectivityVerificationCalls = 0;
   int nodeLatencyRuns = 0;
   String? lastNodeLatencyName;
   int startCalls = 0;
@@ -873,18 +890,30 @@ class _FakeClashService extends ClashService {
   Future<String?> currentSelectedProxyName() async => runtimeSelectedNodeName;
 
   @override
-  Future<bool> switchSelectedProxy(String nodeName) async {
+  Future<bool> switchSelectedProxy(
+    String nodeName, {
+    SwitchContextGuard? isSwitchContextCurrent,
+  }) async {
     lastSwitchAttempt = nodeName;
     final started = switchStarted;
     if (started != null && !started.isCompleted) started.complete();
     await switchRelease?.future;
-    return switchResult;
+    if (!switchResult) return false;
+    if (isSwitchContextCurrent != null && !await isSwitchContextCurrent()) {
+      return true;
+    }
+    onDataPlaneRouteChanged();
+    notifyStatusChanged();
+    return true;
   }
 
   void publishRunning(bool running) {
     _running = running;
     notifyStatusChanged();
   }
+
+  @override
+  Future<void> observeDataPlaneHealth() async {}
 
   @override
   Future<int> testLatency(
@@ -929,6 +958,7 @@ class _FakeClashService extends ClashService {
     Future<http.Response> Function(Uri uri)? request,
     bool Function()? shouldContinue,
   }) async {
+    directConnectivityVerificationCalls++;
     return null;
   }
 

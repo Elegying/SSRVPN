@@ -17,4 +17,22 @@ class VpnStartResultRegistryTest {
 
         assertEquals(1, invocations)
     }
+
+    @Test
+    fun `native failure code reaches the registered client unchanged`() {
+        var capturedCode: String? = null
+        val requestId = VpnStartResultRegistry.register { _, _, state ->
+            capturedCode =
+                state?.get(NativeCoreStartFailureCategory.FAILURE_CODE_KEY) as? String
+        }
+
+        VpnStartResultRegistry.consume(
+            requestId,
+            false,
+            "VPN 核心启动失败",
+            NativeCoreStartFailureCategory.PORT_CONFLICT.methodChannelFailureState
+        )
+
+        assertEquals("CORE_START_PORT_CONFLICT", capturedCode)
+    }
 }

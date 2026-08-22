@@ -13,6 +13,10 @@ void main() {
         AppErrorCode.permissionRequired,
       );
       expect(
+        AppFailure.fromMessage('文件可能被安全软件拦截或当前目录没有执行权限').code,
+        AppErrorCode.permissionRequired,
+      );
+      expect(
         AppFailure.fromMessage('系统代理恢复失败，请重试').code,
         AppErrorCode.proxyRecoveryPending,
       );
@@ -88,7 +92,7 @@ void main() {
       expect(timeout.userMessage, isNot(contains('secret.ps1')));
     });
 
-    test('maps Windows TUN administrator failures to relaunch guidance', () {
+    test('maps Windows TUN failures to actionable permission guidance', () {
       for (final message in const [
         'TUN 模式需要以管理员身份运行 SSRVPN',
         '无法确认管理员权限，TUN 模式已安全中止，请重新以管理员身份运行 SSRVPN',
@@ -97,6 +101,26 @@ void main() {
 
         expect(failure.code, AppErrorCode.permissionRequired);
         expect(failure.recommendedAction, '请退出 SSRVPN 后，以管理员身份重新运行。');
+      }
+
+      final listenerFailure = AppFailure.fromMessage(
+        'TUN 监听未能启用，请检查管理员权限、驱动或同名虚拟网卡冲突',
+      );
+      expect(listenerFailure.code, AppErrorCode.permissionRequired);
+      expect(listenerFailure.recommendedAction, contains('关闭其他 VPN'));
+      expect(listenerFailure.recommendedAction, contains('重装官方版本'));
+      expect(listenerFailure.recommendedAction, isNot(contains('退出 SSRVPN')));
+
+      for (final message in const [
+        'TUN_RUNTIME_UNAVAILABLE: Mihomo API 已就绪，但 TUN listener 未启用',
+        '连接提交前的就绪检查失败：TUN_CONFIG_MISMATCH: TUN listener 未启用',
+      ]) {
+        final failure = AppFailure.fromMessage(message);
+        expect(failure.code, AppErrorCode.permissionRequired);
+        expect(failure.recommendedAction, contains('关闭其他 VPN'));
+        expect(failure.recommendedAction, contains('重装官方版本'));
+        expect(failure.recommendedAction, isNot(contains('TUN 驱动')));
+        expect(failure.recommendedAction, isNot(contains('订阅')));
       }
     });
 
@@ -133,6 +157,163 @@ void main() {
       }
     });
 
+    test('maps stable runtime health codes and commit failures', () {
+      const cases = <String, AppErrorCode>{
+        'CORE_API_UNAVAILABLE: Mihomo API 不可用': AppErrorCode.coreUnavailable,
+        'TUN_SERVICE_LOST: TUN 授权会话已停止响应': AppErrorCode.coreUnavailable,
+        'TUN_CONFIG_MISMATCH: Mihomo API 已就绪，但 TUN listener 未启用':
+            AppErrorCode.permissionRequired,
+        'LOCAL_PROXY_LISTENER_UNAVAILABLE: 本地代理端口 7890 未响应':
+            AppErrorCode.localProxyUnavailable,
+        'LOCAL_PROXY_CONFIG_MISMATCH: 运行端口与本地代理配置不一致':
+            AppErrorCode.localProxyUnavailable,
+        'SYSTEM_PROXY_OWNERSHIP_LOST: 系统代理已被关闭或修改':
+            AppErrorCode.systemProxyChanged,
+        'SYSTEM_PROXY_OWNERSHIP_UNAVAILABLE: 系统代理所有权探针暂不可用':
+            AppErrorCode.systemProxyOwnershipUnavailable,
+        '连接提交前的就绪检查失败': AppErrorCode.coreUnavailable,
+        'Mihomo 在连接提交期间失去响应': AppErrorCode.coreUnavailable,
+        'Mihomo 在系统代理设置期间失去响应': AppErrorCode.coreUnavailable,
+        'TUN 启动最终复核失败': AppErrorCode.coreUnavailable,
+      };
+
+      for (final entry in cases.entries) {
+        final failure = AppFailure.fromMessage('${entry.key}; token=secret');
+
+        expect(failure.code, entry.value, reason: entry.key);
+        expect(failure.userMessage, isNot(contains('secret')));
+        expect(failure.userMessage, isNot(contains(entry.key)));
+      }
+    });
+
+    test('maps every stable Android core-start failure code', () {
+      const cases = <String, AppErrorCode>{
+        'CORE_START_PERMISSION': AppErrorCode.permissionRequired,
+        'CORE_START_PORT_CONFLICT': AppErrorCode.portOccupied,
+        'CORE_START_API_AUTH': AppErrorCode.coreUnavailable,
+        'CORE_START_TUN': AppErrorCode.coreUnavailable,
+        'CORE_START_CONFIG': AppErrorCode.configInvalid,
+        'CORE_START_TIMEOUT': AppErrorCode.coreStartTimeout,
+        'CORE_START_COMPONENT': AppErrorCode.coreMissing,
+        'CORE_START_BUSY': AppErrorCode.coreUnavailable,
+        'CORE_START_UNKNOWN': AppErrorCode.unknown,
+      };
+
+      for (final entry in cases.entries) {
+        final failure = AppFailure.fromMessage(
+          '${entry.key}: Android startup detail; token=secret',
+        );
+
+        expect(failure.code, entry.value, reason: entry.key);
+        expect(failure.userMessage, isNot(contains('secret')));
+      }
+    });
+
+    test('maps fixed desktop failures to precise actions', () {
+      const cases = <({
+        String message,
+        AppErrorCode code,
+        String actionContains,
+      })>[
+        (
+          message: '电脑性能不足或核心启动过慢，请重新连接',
+          code: AppErrorCode.coreStartTimeout,
+          actionContains: '重试',
+        ),
+        (
+          message: 'TUN 核心端口被其他程序占用，请关闭冲突程序后重试',
+          code: AppErrorCode.portOccupied,
+          actionContains: '自动选择可用端口',
+        ),
+        (
+          message: '检测到上次异常退出的 TUN 会话，请重启 Mac 后重试',
+          code: AppErrorCode.tunRecoveryPending,
+          actionContains: '重启电脑',
+        ),
+        (
+          message: 'TUN 网卡或路由创建失败，请重启电脑后重试',
+          code: AppErrorCode.networkConflict,
+          actionContains: '重启电脑',
+        ),
+        (
+          message: '当前 Windows 账户不能直接提升为管理员；TUN 模式未启动，请使用管理员账户运行 SSRVPN',
+          code: AppErrorCode.permissionRequired,
+          actionContains: '管理员账户',
+        ),
+      ];
+
+      for (final entry in cases) {
+        final failure = AppFailure.fromMessage(entry.message);
+
+        expect(failure.code, entry.code, reason: entry.message);
+        expect(
+          failure.recommendedAction,
+          contains(entry.actionContains),
+          reason: entry.message,
+        );
+        expect(failure.userMessage, isNot(contains(entry.message)));
+      }
+    });
+
+    test('maps fixed macOS TUN failures to safe recovery guidance', () {
+      const cases = <String, AppErrorCode>{
+        '请先把 SSRVPN 拖到 Applications 文件夹，再开启 TUN 模式':
+            AppErrorCode.appLocationRequired,
+        '检测到其他 VPN/TUN 正在接管网络，请先断开后再连接': AppErrorCode.networkConflict,
+        '检测到物理网络已切换，TUN 已安全停止，请重新连接': AppErrorCode.networkConflict,
+        'TUN DNS 恢复尚未完成，已保留恢复会话': AppErrorCode.tunRecoveryPending,
+        'TUN 授权会话停止超时，已保留 DNS 恢复标记': AppErrorCode.tunRecoveryPending,
+      };
+
+      for (final entry in cases.entries) {
+        final failure = AppFailure.fromMessage(entry.key);
+        expect(failure.code, entry.value, reason: entry.key);
+        expect(failure.userMessage, isNot(contains(entry.key)));
+        expect(failure.recommendedAction, isNotEmpty);
+      }
+
+      expect(
+        AppFailure.fromMessage(
+          '请先把 SSRVPN 拖到 Applications 文件夹，再开启 TUN 模式',
+        ).recommendedAction,
+        contains('Applications'),
+      );
+      expect(
+        AppFailure.fromMessage(
+          '检测到其他 VPN/TUN 正在接管网络，请先断开后再连接',
+        ).recommendedAction,
+        contains('断开其他 VPN'),
+      );
+      expect(
+        AppFailure.fromMessage(
+          'TUN DNS 恢复尚未完成，已保留恢复会话',
+        ).recommendedAction,
+        contains('再次点击连接'),
+      );
+    });
+
+    test('maps fixed Windows core and TUN failures without raw passthrough',
+        () {
+      const cases = <String, AppErrorCode>{
+        '找不到 mihomo.exe，文件可能未完整解压或被安全软件隔离': AppErrorCode.coreMissing,
+        'Mihomo 与这台电脑的 Windows 架构不兼容，本版本仅支持 64 位 Windows':
+            AppErrorCode.coreMissing,
+        '程序或依赖 DLL 的 32/64 位架构不匹配': AppErrorCode.coreMissing,
+        '无法确认旧 Windows TUN 网卡和路由已清理；为避免死路由，已安全中止':
+            AppErrorCode.tunRecoveryPending,
+        '核心已停止，但 Windows TUN 网卡未在超时前移除': AppErrorCode.tunRecoveryPending,
+        '无法持久化 TUN 清理状态，已在启动 Mihomo 前安全中止': AppErrorCode.tunRecoveryPending,
+      };
+
+      for (final entry in cases.entries) {
+        final failure = AppFailure.fromMessage('${entry.key}; token=secret');
+        expect(failure.code, entry.value, reason: entry.key);
+        expect(failure.userMessage, isNot(contains('secret')));
+        expect(failure.userMessage, isNot(contains(entry.key)));
+        expect(failure.recommendedAction, isNotEmpty);
+      }
+    });
+
     test('maps an empty first subscription result to retry guidance', () {
       final failure = AppFailure.fromMessage(Exception('未获取到可用节点'));
 
@@ -156,6 +337,16 @@ void main() {
         expect(failure.userMessage, isNot(contains('top-secret')));
         expect(failure.userMessage, isNot(contains('password')));
       }
+    });
+
+    test('maps Windows installer publication failures to update guidance', () {
+      final failure = AppFailure.fromMessage(
+        StateError('Windows 更新安装包安全保存失败'),
+      );
+
+      expect(failure.code, AppErrorCode.updateFailed);
+      expect(failure.userMessage, contains('更新失败'));
+      expect(failure.userMessage, contains('稍后重试或从官网下载'));
     });
   });
 
@@ -237,6 +428,13 @@ void main() {
             summary: 'trojan://user:platform-password@example.com:443',
           ),
           AppDiagnosticCheck(
+            id: 'system_proxy_ownership',
+            title: '系统代理所有权',
+            status: AppDiagnosticStatus.warning,
+            summary: '探针暂不可用，当前连接保持',
+            errorCode: AppErrorCode.systemProxyOwnershipUnavailable,
+          ),
+          AppDiagnosticCheck(
             id: 'hostile_url_check',
             title: '远程检查',
             status: AppDiagnosticStatus.warning,
@@ -255,6 +453,8 @@ void main() {
       expect(text.length, lessThanOrEqualTo(4096));
       expect(text, contains('2026-07-14T12:30:00.000Z'));
       expect(text, contains('PROXY_RECOVERY_PENDING'));
+      expect(text, contains('SYSTEM_PROXY_OWNERSHIP_UNAVAILABLE'));
+      expect(text, isNot(contains('(UNKNOWN)')));
       expect(text, isNot(contains('password')));
       expect(text, isNot(contains('secret-value')));
       expect(text, isNot(contains('platform-title-secret')));

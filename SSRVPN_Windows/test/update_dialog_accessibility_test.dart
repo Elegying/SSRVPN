@@ -57,9 +57,13 @@ void main() {
       client: MockClient(
         (_) async => http.Response.bytes(bytes, HttpStatus.ok),
       ),
+      filePublisher: (source, destination) async {
+        await source.copy(destination.path);
+      },
     );
+    final completionTitle = find.text('下载完成');
     for (var attempt = 0;
-        attempt < 100 && find.text('最新版安装包已下载到桌面，请直接安装').evaluate().isEmpty;
+        attempt < 100 && completionTitle.evaluate().isEmpty;
         attempt++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
@@ -67,13 +71,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 20));
     }
 
-    expect(
-      find.text('最新版安装包已下载到桌面，请直接安装'),
-      findsOneWidget,
-    );
+    expect(completionTitle, findsOneWidget);
+    expect(find.textContaining(desktop.path), findsOneWidget);
     expect(tester.takeException(), isNull);
     final completionDialog = find.ancestor(
-      of: find.text('最新版安装包已下载到桌面，请直接安装'),
+      of: completionTitle,
       matching: find.byType(AlertDialog),
     );
     expect(tester.widget<AlertDialog>(completionDialog).scrollable, isTrue);

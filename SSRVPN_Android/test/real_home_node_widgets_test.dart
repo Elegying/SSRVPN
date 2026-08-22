@@ -31,6 +31,18 @@ proxies:
     password: test-password
 ''';
 
+double _contrastRatio(Color foreground, Color background) {
+  final foregroundLuminance = foreground.computeLuminance();
+  final backgroundLuminance = background.computeLuminance();
+  final lighter = foregroundLuminance > backgroundLuminance
+      ? foregroundLuminance
+      : backgroundLuminance;
+  final darker = foregroundLuminance > backgroundLuminance
+      ? backgroundLuminance
+      : foregroundLuminance;
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -129,6 +141,12 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
+    final glass = find.byKey(const Key('ssrvpn-tutorial-glass'));
+    expect(glass, findsOneWidget);
+    expect(
+      find.descendant(of: glass, matching: find.byType(BackdropFilter)),
+      findsOneWidget,
+    );
     expect(
       find.descendant(
         of: find.byType(Dialog),
@@ -136,6 +154,19 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(
+      find.text('在输入框中粘贴 SSR 代码或订阅链接，点击「添加」'),
+      findsOneWidget,
+    );
+    final colors = Theme.of(tester.element(find.text('1'))).colorScheme;
+    final step = tester.widget<Text>(find.text('1'));
+    final badge = tester.widget<Container>(
+      find.ancestor(of: find.text('1'), matching: find.byType(Container)),
+    );
+    expect(step.style?.color, colors.onPrimary);
+    final badgeColor = (badge.decoration! as BoxDecoration).color!;
+    expect(badgeColor, Color.lerp(colors.primary, Colors.black, 0.04));
+    expect(_contrastRatio(step.style!.color!, badgeColor), greaterThan(4.5));
     final dismiss = find.widgetWithText(TextButton, '知道了');
     expect(dismiss.hitTestable(), findsOneWidget);
   });

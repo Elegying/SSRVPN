@@ -13,7 +13,11 @@ DOWNLOADS = """### 下载
 | macOS | `SSRVPN.dmg` | `SSRVPN.dmg.sha256` |
 | Windows 安装版 | `SSRVPN_Setup.exe` | `SSRVPN_Setup.exe.sha256` |
 
-校验 SHA256：`shasum -a 256 -c <file>.sha256`
+macOS：`shasum -a 256 -c <file>.sha256`
+
+Linux：`sha256sum -c <file>.sha256`
+
+Windows PowerShell：`Get-FileHash .\\SSRVPN_Setup.exe -Algorithm SHA256`，并与 `SSRVPN_Setup.exe.sha256` 比对。
 """
 
 CHANGELOG_HEADINGS = {
@@ -54,7 +58,9 @@ def extract_changelog_section(changelog: str, tag: str) -> str:
     next_heading = re.search(r"^## \[", changelog[start:], re.MULTILINE)
     end = start + next_heading.start() if next_heading else len(changelog)
     section = changelog[start:end].strip()
-    return normalize_changelog_headings(section) or f"- 发布 {tag}"
+    if not section:
+        raise SystemExit(f"CHANGELOG.md release notes are empty for [{version}]")
+    return normalize_changelog_headings(section)
 
 
 def build_release_notes(changelog_path: Path, tag: str) -> str:

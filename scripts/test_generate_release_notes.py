@@ -12,6 +12,17 @@ SPEC.loader.exec_module(MODULE)
 
 
 class GenerateReleaseNotesTest(unittest.TestCase):
+    def test_empty_release_section_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            changelog = Path(directory, "CHANGELOG.md")
+            changelog.write_text(
+                "# Changelog\n\n## [3.1.0] - 2026-07-12\n\n## [3.0.0]\n- Old\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(SystemExit, "release notes are empty"):
+                MODULE.build_release_notes(changelog, "v3.1.0")
+
     def test_windows_installer_is_the_only_windows_asset_documented(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             changelog = Path(directory, "CHANGELOG.md")
@@ -24,6 +35,11 @@ class GenerateReleaseNotesTest(unittest.TestCase):
 
             self.assertIn("`SSRVPN_Setup.exe`", notes)
             self.assertIn("`SSRVPN_Setup.exe.sha256`", notes)
+            self.assertIn(
+                r"Get-FileHash .\SSRVPN_Setup.exe -Algorithm SHA256",
+                notes,
+            )
+            self.assertIn("Linux：`sha256sum -c <file>.sha256`", notes)
             self.assertNotIn("`SSRVPN.zip`", notes)
             self.assertNotIn("`SSRVPN.zip.sha256`", notes)
 

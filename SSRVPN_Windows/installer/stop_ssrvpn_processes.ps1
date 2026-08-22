@@ -30,6 +30,7 @@ $script:StopStatusValues = @(
   'LOCK_BUSY',
   'LOCK_FAILED',
   'INSTANCE_GATE_FAILED',
+  'APP_INSTANCE_ACTIVE',
   'IDENTITY_UNVERIFIED',
   'APP_STILL_RUNNING',
   'PROXY_UNSAFE',
@@ -56,46 +57,6 @@ function Set-StopStatus {
 }
 
 Set-StopStatus -Status 'INTERNAL_ERROR'
-
-function Enter-ProxyTransactionLock {
-  param([Parameter(Mandatory = $true)][int]$TimeoutMilliseconds)
-
-  if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA) -or
-      -not [System.IO.Path]::IsPathRooted($env:LOCALAPPDATA)) {
-    throw 'LOCALAPPDATA is unavailable for the proxy transaction lock.'
-  }
-  $runtimePath = Join-Path $env:LOCALAPPDATA 'SSRVPN\runtime'
-  [System.IO.Directory]::CreateDirectory($runtimePath) | Out-Null
-  $lockPath = Join-Path $runtimePath 'system_proxy_transaction.lock'
-  $fileShare = [System.IO.FileShare](
-    [int][System.IO.FileShare]::ReadWrite -bor
-    [int][System.IO.FileShare]::Delete)
-  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
-
-  while ($true) {
-    $stream = $null
-    try {
-      $stream = New-Object System.IO.FileStream -ArgumentList @(
-        $lockPath,
-        [System.IO.FileMode]::OpenOrCreate,
-        [System.IO.FileAccess]::ReadWrite,
-        $fileShare
-      )
-      $stream.Lock(0, 1)
-      return $stream
-    } catch [System.IO.IOException] {
-      if ($null -ne $stream) { $stream.Dispose() }
-      if ([DateTime]::UtcNow -ge $deadline) {
-        throw [System.TimeoutException]::new(
-          'Timed out waiting for the proxy transaction lock.')
-      }
-      Start-Sleep -Milliseconds 100
-    } catch {
-      if ($null -ne $stream) { $stream.Dispose() }
-      throw
-    }
-  }
-}
 
 $script:ProxyTransactionLockStream = $null
 try {
@@ -129,41 +90,16 @@ try {
 }
 
 $currentSessionId = (Get-Process -Id $PID -ErrorAction Stop).SessionId
-$script:AggressiveProxyProcessNames = @(
-  'mihomo.exe',
-  'clash.exe',
-  'clash-meta.exe',
-  'clash-win64.exe',
-  'clash-verge.exe',
-  'Clash for Windows.exe',
-  'sing-box.exe',
-  'xray.exe',
-  'v2ray.exe',
-  'hysteria.exe',
-  'hysteria2.exe',
-  'tuic-client.exe',
-  'naive.exe',
-  'trojan.exe',
-  'trojan-go.exe',
-  'shadowsocks.exe',
-  'ss-local.exe',
-  'sslocal.exe',
-  'v2rayN.exe',
-  'nekoray.exe',
-  'Hiddify.exe',
-  'openvpn.exe',
-  'openvpn-gui.exe',
-  'wireguard.exe',
-  'tailscale-ipn.exe',
-  'zerotier-one_x64.exe'
-)
 $script:OwnedProxyOverride = '<local>;localhost;127.*;10.*;172.16.*;172.17.*;' +
   '172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;' +
   '172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;' +
   '192.168.*'
 
-function Get-ProcessesByName {
-  param([Parameter(Mandatory = $true)][string]$Name)
+function Get-ProcessesAtPath {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$ExpectedPath
+  )
 
   try {
     $candidates = @(
@@ -219,22 +155,39 @@ function Get-ProcessesByName {
       if (-not $candidate.ExecutablePath) {
         throw "Incomplete process identity returned for PID $processId."
       }
+      if (-not (Test-ExactPath -Actual ([string]$candidate.ExecutablePath) `
+            -Expected $ExpectedPath)) { continue }
 
       # Re-open the PID and compare its live name, session and image path. This
-      # prevents a stale CIM row or PID reuse from being trusted as ownership.
-      $live = Get-Process -Id $processId -ErrorAction Stop
-      $livePath = $live.Path
-      if (-not $livePath -or
-          $live.ProcessName -ine $expectedProcessName -or
-          $live.SessionId -ne $currentSessionId -or
-          -not (Test-ExactPath -Actual $livePath `
-            -Expected ([string]$candidate.ExecutablePath))) {
-        throw "Process identity changed while verifying PID $processId."
-      }
-      $liveCreationTimeUtcFileTime =
-        [uint64]($live.StartTime.ToUniversalTime().ToFileTimeUtc())
-      if ($liveCreationTimeUtcFileTime -le 0) {
-        throw "Process creation time is invalid for PID $processId."
+      # prevents a stale CIM row, path swap or PID reuse from being trusted as
+      # ownership of the exact SSRVPN installation being replaced.
+      $live = $null
+      try {
+        $live = Get-Process -Id $processId -ErrorAction Stop
+        $live.Refresh()
+        if ($live.HasExited) { continue }
+        $livePath = $live.Path
+        if (-not $livePath -or
+            $live.ProcessName -ine $expectedProcessName -or
+            $live.SessionId -ne $currentSessionId -or
+            -not (Test-ExactPath -Actual $livePath `
+              -Expected ([string]$candidate.ExecutablePath)) -or
+            -not (Test-ExactPath -Actual $livePath -Expected $ExpectedPath)) {
+          throw "Process identity changed while verifying PID $processId."
+        }
+        $liveCreationTimeUtcFileTime =
+          [uint64]($live.StartTime.ToUniversalTime().ToFileTimeUtc())
+        if ($liveCreationTimeUtcFileTime -le 0) {
+          throw "Process creation time is invalid for PID $processId."
+        }
+      } catch {
+        $processGone =
+          $_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*'
+        if (-not $processGone -and $null -ne $live) {
+          try { $processGone = $live.HasExited } catch {}
+        }
+        if ($processGone) { continue }
+        throw
       }
       [pscustomobject]@{
         ProcessId = $processId
@@ -244,6 +197,26 @@ function Get-ProcessesByName {
       }
     }
   )
+}
+
+function Get-ProcessesAtPathFailClosed {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$ExpectedPath,
+    [Parameter(Mandatory = $true)][string]$Phase
+  )
+
+  try {
+    return @(
+      Get-ProcessesAtPath `
+        -Name $Name `
+        -ExpectedPath $ExpectedPath
+    )
+  } catch {
+    Set-StopStatus -Status 'IDENTITY_UNVERIFIED'
+    Write-Warning "Could not verify installed SSRVPN process identity during $Phase; cleanup stopped before continuing: $($_.Exception.Message)"
+    exit 3
+  }
 }
 
 function Test-ExactPath {
@@ -1122,9 +1095,9 @@ function Test-SystemProxySafeToStop {
   }
 }
 
-$apps = @()
-$launchers = @()
-$proxyProcesses = @()
+$installedApps = @()
+$installedLaunchers = @()
+$installedCores = @()
 $proxyRecoveryFailed = $false
 try {
   $InstalledAppPath = Get-ValidatedExpectedPath -Path $InstalledAppPath `
@@ -1141,32 +1114,34 @@ try {
     throw 'Installed executable paths do not describe one SSRVPN installation.'
   }
 
-  $apps = @(Get-ProcessesByName -Name 'ssrvpn_windows_app.exe')
-  $launchers = @(Get-ProcessesByName -Name 'ssrvpn_windows.exe')
-  foreach ($processName in $script:AggressiveProxyProcessNames) {
-    try {
-      $proxyProcesses += @(Get-ProcessesByName -Name $processName)
-    } catch {
-      # SSRVPN process identities are mandatory because those files are about
-      # to be replaced. Third-party proxy/VPN processes are an aggressive
-      # best-effort cleanup: one protected or racing process must not prevent
-      # the installer from closing the verified SSRVPN installation.
-      Write-Warning "Could not verify optional proxy process $processName`: $($_.Exception.Message)"
-    }
-  }
+  $installedApps = @(
+    Get-ProcessesAtPathFailClosed `
+      -Name 'ssrvpn_windows_app.exe' `
+      -ExpectedPath $InstalledAppPath `
+      -Phase 'initial app enumeration'
+  )
+  $installedLaunchers = @(
+    Get-ProcessesAtPathFailClosed `
+      -Name 'ssrvpn_windows.exe' `
+      -ExpectedPath $InstalledLauncherPath `
+      -Phase 'initial launcher enumeration'
+  )
+  $installedCores = @(
+    Get-ProcessesAtPathFailClosed `
+      -Name 'mihomo.exe' `
+      -ExpectedPath $InstalledCorePath `
+      -Phase 'initial core enumeration'
+  )
 } catch {
   Set-StopStatus -Status 'IDENTITY_UNVERIFIED'
-  Write-Warning "Could not enumerate SSRVPN app processes: $($_.Exception.Message)"
+  Write-Warning "Could not verify installed SSRVPN processes: $($_.Exception.Message)"
   exit 3
 }
-
-$installedApps = @($apps)
-$installedLaunchers = @($launchers)
 
 $installedProcessRunning =
   $installedApps.Count -gt 0 -or
   $installedLaunchers.Count -gt 0 -or
-  $proxyProcesses.Count -gt 0
+  $installedCores.Count -gt 0
 $tunOwnership = @()
 try {
   $tunOwnership = @(Get-SsrvpnTunOwnership)
@@ -1191,16 +1166,40 @@ foreach ($app in $installedApps) {
 }
 
 # Do not alter WinINet until every visible app process is gone. If a force-stop
-# is denied, the still-running app/core/proxy combination remains internally
+# is denied, the still-running app/core combination remains internally
 # consistent and the installer can abort without creating silent direct mode.
 Start-Sleep -Milliseconds 300
 $appsBeforeRecovery = @(
-  Get-ProcessesByName -Name 'ssrvpn_windows_app.exe'
+  Get-ProcessesAtPathFailClosed `
+    -Name 'ssrvpn_windows_app.exe' `
+    -ExpectedPath $InstalledAppPath `
+    -Phase 'pre-recovery app recheck'
 )
 if ($appsBeforeRecovery.Count -gt 0) {
   Set-StopStatus -Status 'APP_STILL_RUNNING'
   Write-Warning 'SSRVPN app is still running; system proxy was left unchanged.'
   exit 2
+}
+
+# The exact installed app may have owned this mutex before it was stopped. Only
+# take ownership after that process is gone: a timeout now means a portable,
+# older, or otherwise foreign SSRVPN copy is still active in this logon
+# session. Such a copy owns the same global proxy/journal contract, so changing
+# WinINet state underneath it would create silent direct mode. Holding the
+# mutex through process exit also closes the restart-before-restore race.
+try {
+  if (-not $script:AppInstanceMutex.WaitOne(0)) {
+    Set-StopStatus -Status 'APP_INSTANCE_ACTIVE'
+    Write-Warning 'Another SSRVPN instance is still running; system proxy and recovery state were left unchanged.'
+    exit 2
+  }
+} catch [System.Threading.AbandonedMutexException] {
+  # The exact installed app exited while owning the gate. WaitOne acquired the
+  # abandoned mutex, so cleanup can continue while retaining launch exclusion.
+} catch {
+  Set-StopStatus -Status 'INSTANCE_GATE_FAILED'
+  Write-Warning "Could not acquire the SSRVPN app instance gate: $($_.Exception.Message)"
+  exit 3
 }
 
 try {
@@ -1245,42 +1244,44 @@ foreach ($launcher in $installedLaunchers) {
 
 Start-Sleep -Milliseconds 400
 
-# The installer is deliberately aggressive after the user starts an install:
-# stop every verified current-session process for the known proxy engines.
-# Identity is still rechecked immediately before TerminateProcess so PID reuse
-# cannot redirect the force-stop to an unrelated process.
-$proxyProcesses = @()
-foreach ($processName in $script:AggressiveProxyProcessNames) {
-  try {
-    $proxyProcesses += @(Get-ProcessesByName -Name $processName)
-  } catch {
-    Write-Warning "Could not verify optional proxy process $processName`: $($_.Exception.Message)"
-  }
-}
-foreach ($core in $proxyProcesses) {
+# Stop only the Mihomo image at the exact path inside this SSRVPN installation.
+# Other proxy/VPN products and old standalone copies are outside this transaction.
+$installedCores = @(
+  Get-ProcessesAtPathFailClosed `
+    -Name 'mihomo.exe' `
+    -ExpectedPath $InstalledCorePath `
+    -Phase 'pre-stop core recheck'
+)
+foreach ($core in $installedCores) {
   try {
     Stop-VerifiedProcess -ProcessId ([int]$core.ProcessId) `
       -ExpectedPath ([string]$core.ExecutablePath) `
       -ExpectedCreationTimeUtcFileTime `
         ([uint64]$core.CreationTimeUtcFileTime)
   } catch {
-    Write-Warning "Could not stop proxy engine $($core.ExecutablePath) PID $($core.ProcessId)."
+    Write-Warning "Could not stop installed SSRVPN core $($core.ExecutablePath) PID $($core.ProcessId)."
   }
 }
 
 Start-Sleep -Milliseconds 300
 
 $remainingApps = @(
-  Get-ProcessesByName -Name 'ssrvpn_windows_app.exe'
+  Get-ProcessesAtPathFailClosed `
+    -Name 'ssrvpn_windows_app.exe' `
+    -ExpectedPath $InstalledAppPath `
+    -Phase 'final app recheck'
 )
 $remainingLaunchers = @(
-  Get-ProcessesByName -Name 'ssrvpn_windows.exe'
+  Get-ProcessesAtPathFailClosed `
+    -Name 'ssrvpn_windows.exe' `
+    -ExpectedPath $InstalledLauncherPath `
+    -Phase 'final launcher recheck'
 )
 $remainingCores = @(
-  Get-ProcessesByName -Name 'mihomo.exe' |
-    Where-Object {
-      Test-ExactPath -Actual $_.ExecutablePath -Expected $InstalledCorePath
-    }
+  Get-ProcessesAtPathFailClosed `
+    -Name 'mihomo.exe' `
+    -ExpectedPath $InstalledCorePath `
+    -Phase 'final core recheck'
 )
 if ($remainingApps.Count -gt 0 -or
     $remainingLaunchers.Count -gt 0 -or
