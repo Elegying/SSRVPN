@@ -363,21 +363,31 @@ function Wait-PathAbsent {
 }
 
 function Assert-NoCleanupQuarantine {
-  param([Parameter(Mandatory = $true)][string]$Installer)
+  param(
+    [Parameter(Mandatory = $true)][string]$Installer,
+    [ValidateRange(1, 560)][int]$MaxAttempts = 1
+  )
 
   $parent = Split-Path -Path $Installer -Parent
   $leaf = [System.IO.Path]::GetFileName($Installer)
-  $residue = @(
-    Get-ChildItem -LiteralPath $parent -Force -File `
-      -Filter ($leaf + '.ssrvpn-cleanup.*') -ErrorAction Stop
-    Get-ChildItem -LiteralPath $parent -Force -File `
-      -Filter ($leaf + '.ssrvpn-verified-update.ssrvpn-cleanup.*') `
-      -ErrorAction Stop
-  )
-  if ($residue.Count -ne 0) {
-    $residuePaths = $residue.FullName -join ', '
-    throw "Post-install cleanup left an isolated installer behind: $residuePaths"
+  $residue = @()
+  for ($attempt = 0; $attempt -lt $MaxAttempts; $attempt++) {
+    $residue = @(
+      Get-ChildItem -LiteralPath $parent -Force -File `
+        -Filter ($leaf + '.ssrvpn-cleanup.*') -ErrorAction Stop
+      Get-ChildItem -LiteralPath $parent -Force -File `
+        -Filter ($leaf + '.ssrvpn-verified-update.ssrvpn-cleanup.*') `
+        -ErrorAction Stop
+    )
+    if ($residue.Count -eq 0) {
+      return
+    }
+    if ($attempt + 1 -lt $MaxAttempts) {
+      Start-Sleep -Milliseconds 250
+    }
   }
+  $residuePaths = $residue.FullName -join ', '
+  throw "Post-install cleanup left an isolated installer behind: $residuePaths"
 }
 
 function New-VerifiedUpdateAuthorization {
@@ -1004,7 +1014,13 @@ try {
       $upgradeOrphanContent) {
     throw 'Verified alternate update cleanup changed the canonical orphan sidecar.'
   }
-  Assert-NoCleanupQuarantine -Installer $upgradeInstaller
+  # The production helper isolates the verified package before deleting it.
+  # Wait for that asynchronous phase instead of treating its random path as
+  # permanent residue the instant the original names disappear. Recheck the
+  # public names because a timed-out deletion safely restores both files.
+  Assert-NoCleanupQuarantine -Installer $upgradeInstaller -MaxAttempts 560
+  Wait-PathAbsent -Path $upgradeInstaller
+  Wait-PathAbsent -Path $upgradeMarker
   Assert-InstallerPreserved -Path $installInstaller
   Assert-SingleMachineShortcut
   Assert-OppositeScopeUninstallEntryRemoved

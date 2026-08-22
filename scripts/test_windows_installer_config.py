@@ -320,9 +320,27 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         marker_wait = smoke.index("Wait-PathAbsent -Path $upgradeMarker")
         residue_check = smoke.index(
-            "Assert-NoCleanupQuarantine -Installer $upgradeInstaller"
+            "Assert-NoCleanupQuarantine -Installer $upgradeInstaller "
+            "-MaxAttempts 560"
         )
         self.assertLess(marker_wait, residue_check)
+        self.assertIn(
+            "[ValidateRange(1, 560)][int]$MaxAttempts = 1", smoke
+        )
+        self.assertEqual(
+            smoke.count("Wait-PathAbsent -Path $upgradeInstaller"), 2
+        )
+        self.assertEqual(
+            smoke.count("Wait-PathAbsent -Path $upgradeMarker"), 2
+        )
+        self.assertLess(
+            residue_check,
+            smoke.rindex("Wait-PathAbsent -Path $upgradeInstaller"),
+        )
+        self.assertLess(
+            residue_check,
+            smoke.rindex("Wait-PathAbsent -Path $upgradeMarker"),
+        )
         self.assertIn("$installInstaller", smoke)
         self.assertIn("$upgradeInstaller", smoke)
         self.assertIn("Assert-InstallerPreserved", smoke)
