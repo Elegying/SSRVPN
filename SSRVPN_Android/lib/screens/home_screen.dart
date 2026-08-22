@@ -12,7 +12,6 @@ import '../services/connection_orchestrator.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/force_proxy_sites_dialog.dart';
-import '../widgets/glass_container.dart';
 import 'home_latency_result_guard.dart';
 import 'home_connection_status_policy.dart';
 import 'node_edit_screen.dart';
@@ -33,7 +32,7 @@ class HomeScreen extends StatefulWidget {
 
 const _homeTutorialSteps = [
   _TutorialStepData('点击底部「订阅」标签，进入订阅管理页面'),
-  _TutorialStepData('在输入框中粘贴我给你的订阅代码，点击「添加」'),
+  _TutorialStepData('在输入框中粘贴 SSR 代码或订阅链接，点击「添加」'),
   _TutorialStepData('添加成功后点击「全部刷新」，等待节点加载完成'),
   _TutorialStepData('返回主页，点击连接按钮即可使用'),
   _TutorialStepData('首次连接会弹出系统权限弹窗，选择「确定」允许即可'),

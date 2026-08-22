@@ -1155,6 +1155,86 @@ void main() {
       expect(mutations, hasLength(mutationsAfterSetup));
     });
 
+    test('API health failure keeps exactly one stable diagnostic prefix',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final requests = server.listen((request) async {
+        request.response.statusCode = HttpStatus.serviceUnavailable;
+        await request.response.close();
+      });
+      final service = ClashService()
+        ..initHttpClient()
+        ..updateSettings(AppSettings(apiPort: server.port));
+      addTearDown(() async {
+        service.dispose();
+        await requests.cancel();
+        await server.close(force: true);
+      });
+
+      expect(await service.healthCheck(), isFalse);
+      expect(
+        service.lastHealthCheckError,
+        startsWith('CORE_API_UNAVAILABLE: API 返回 HTTP '),
+      );
+      expect(
+        'CORE_API_UNAVAILABLE:'
+            .allMatches(service.lastHealthCheckError!)
+            .length,
+        1,
+      );
+      expect(
+        service.lastHealthCheckError,
+        isNot(contains('CORE_API_UNAVAILABLE: CORE_API_UNAVAILABLE:')),
+      );
+    });
+
+    test('system proxy health verifies ownership before connected commit',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_precommit_proxy_health_',
+      );
+      final proxyService = SystemProxyService(
+        startProxyGuardian: (_, __) async => true,
+        beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
+        endProxyLifecycleTransaction: (_) async => true,
+        networkServiceIdentityRunner: () async => {
+          'Wi-Fi': 'test-service-wifi',
+        },
+        effectiveProxyRunner: () async => ProcessResult(
+          1,
+          0,
+          _effectiveProxyOutput(8888),
+          '',
+        ),
+        networkSetupRunner: (arguments) async {
+          if (arguments.first == '-listallnetworkservices') {
+            return ProcessResult(1, 0, 'Wi-Fi\n', '');
+          }
+          if (arguments.first.startsWith('-get')) {
+            return ProcessResult(
+              1,
+              0,
+              'Enabled: No\nServer: \nPort: 0\n',
+              '',
+            );
+          }
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+      final service = _ApiHealthyClashService(proxyService: proxyService)
+        ..updateSettings(AppSettings());
+      addTearDown(() async {
+        service.dispose();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+      await proxyService.initialize(tempDir.path);
+
+      expect(await proxyService.setSystemProxy('127.0.0.1', 7890), isTrue);
+      expect(service.isRunning, isFalse);
+      expect(await service.healthCheck(), isFalse);
+      expect(service.lastHealthCheckError, contains('关闭或修改'));
+    });
+
     test(
         'system proxy health keeps the connection when ownership is temporarily unavailable',
         () async {
@@ -1170,10 +1250,57 @@ void main() {
         service.connectivityWarning,
         allOf(contains('暂时无法确认'), contains('当前连接仍保留')),
       );
+      final ownershipCheck = (await service.platformDiagnosticChecks()).single;
+      expect(ownershipCheck.status, AppDiagnosticStatus.warning);
+      expect(ownershipCheck.summary, contains('所有权检查暂时不可用'));
+      expect(
+        ownershipCheck.errorCode,
+        AppErrorCode.systemProxyOwnershipUnavailable,
+      );
+      expect(ownershipCheck.repairAction, isNull);
 
       service.ownershipStatus = SystemProxyOwnershipStatus.owned;
       expect(await service.healthCheck(), isTrue);
       expect(service.connectivityWarning, isNull);
+    });
+
+    test('system proxy ownership and data-plane warnings recover separately',
+        () async {
+      final service = _UncertainProxyOwnershipClashService()
+        ..updateSettings(AppSettings())
+        ..setRunning(true)
+        ..publishDataPlaneWarning('当前节点外部联网观察未通过');
+      addTearDown(service.dispose);
+
+      expect(await service.healthCheck(), isTrue);
+      expect(service.connectivityWarning, contains('暂时无法确认'));
+      expect(service.connectivityWarning, contains('当前节点外部联网观察未通过'));
+
+      service.ownershipStatus = SystemProxyOwnershipStatus.owned;
+      expect(await service.healthCheck(), isTrue);
+      expect(service.connectivityWarning, '当前节点外部联网观察未通过');
+
+      service.ownershipStatus = SystemProxyOwnershipStatus.unavailable;
+      expect(await service.healthCheck(), isTrue);
+      service.publishDataPlaneWarning(null);
+      expect(service.connectivityWarning, contains('暂时无法确认'));
+    });
+
+    test('system proxy mode runs advisory external observations', () async {
+      final service = _SystemProxyDataPlaneClashService()
+        ..updateSettings(AppSettings())
+        ..requestConnectionIntent(true)
+        ..setRunning(true);
+      addTearDown(service.dispose);
+
+      await service.runDataPlaneObservation();
+
+      expect(service.connectivityProbes, 1);
+      expect(service.connectivityWarning, contains('系统代理'));
+      expect(
+          service.connectivityWarning, contains('external endpoint blocked'));
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
     });
 
     test('TUN does not commit after the privileged runner loses readiness',
@@ -1352,6 +1479,47 @@ void main() {
       );
     });
 
+    test('a TUN route change starts one fresh probe and rejects the old result',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_macos_tun_route_probe_',
+      );
+      final tunSession = _FakeMacosTunSession(tempDir.path);
+      final service = _ControllableTunProbeClashService(
+        tunSession: tunSession,
+      );
+      addTearDown(() async {
+        if (!service.staleProbe.isCompleted) service.staleProbe.complete(null);
+        service.dispose();
+        await service.flushLogs();
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      await service.init(
+        AppSettings(enableTun: true),
+        dataDir: tempDir.path,
+        skipCoreProbes: true,
+      );
+      service
+        ..requestConnectionIntent(true)
+        ..setRunning(true)
+        ..scheduleObservationForTest();
+      await service.staleProbeStarted.future
+          .timeout(const Duration(seconds: 1));
+
+      service.simulateRouteChange();
+      await service.currentRouteProbeStarted.future
+          .timeout(const Duration(seconds: 1));
+
+      service.staleProbe.complete('old route data path failed');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(service.connectivityProbes, 2);
+      expect(service.connectivityWarning, isNull);
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
+    });
+
     test('running TUN health fails when the privileged runner is not running',
         () async {
       final tempDir = await Directory.systemTemp.createTemp(
@@ -1405,7 +1573,7 @@ void main() {
       service.setRunning(true);
 
       expect(await service.healthCheck(), isFalse);
-      expect(service.lastHealthCheckError, contains('TUN_CONFIG_MISMATCH'));
+      expect(service.lastHealthCheckError, contains('TUN_RUNTIME_UNAVAILABLE'));
     });
 
     test('persistent data-plane failures never switch nodes or stop TUN',
@@ -1954,7 +2122,68 @@ void main() {
       );
     });
 
-    test('unavailable proxy ownership disconnects without reacquiring proxy',
+    test('unavailable proxy ownership recheck can resume automatic recovery',
+        () async {
+      final service = _SequencedProxyOwnershipRecoveryClashService([
+        SystemProxyOwnershipStatus.unavailable,
+        SystemProxyOwnershipStatus.owned,
+      ]);
+      addTearDown(service.dispose);
+      service.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: AppSettings(),
+        generateConfig: (runtimeSettings, preferredNodeName) async =>
+            'mixed-port: ${runtimeSettings.proxyPort}',
+        isRevisionCurrent: () => true,
+      );
+      final generation = service.requestConnectionIntent(true);
+      service.setRunning(true);
+
+      final recovered =
+          await service.recoverAfterHealthCheckFailure(generation);
+
+      expect(recovered, isTrue);
+      expect(service.proxyOwnershipInspectionCalls, 2);
+      expect(service.stopCalls, 1);
+      expect(service.prepareCalls, 1);
+      expect(service.automaticRecoveryStartCalls, 1);
+      expect(service.connectionDesired, isTrue);
+      expect(service.isRunning, isTrue);
+    });
+
+    test('unavailable then external takeover remains fail-closed', () async {
+      final notices = <RuntimeNotice>[];
+      final service = _SequencedProxyOwnershipRecoveryClashService([
+        SystemProxyOwnershipStatus.unavailable,
+        SystemProxyOwnershipStatus.externallyChanged,
+      ])
+        ..onRuntimeNotice = notices.add;
+      addTearDown(service.dispose);
+      service.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: AppSettings(),
+        generateConfig: (runtimeSettings, preferredNodeName) async =>
+            'mixed-port: ${runtimeSettings.proxyPort}',
+        isRevisionCurrent: () => true,
+      );
+      final generation = service.requestConnectionIntent(true);
+      service.setRunning(true);
+
+      final recovered =
+          await service.recoverAfterHealthCheckFailure(generation);
+
+      expect(recovered, isFalse);
+      expect(service.proxyOwnershipInspectionCalls, 2);
+      expect(service.stopCalls, 1);
+      expect(service.prepareCalls, 0);
+      expect(service.automaticRecoveryStartCalls, 0);
+      expect(service.connectionDesired, isFalse);
+      expect(service.isRunning, isFalse);
+      expect(
+        notices.single.message,
+        allOf(contains('其他程序'), contains('不会覆盖')),
+      );
+    });
+
+    test('persistent unavailable proxy ownership remains fail-closed',
         () async {
       final notices = <RuntimeNotice>[];
       final service = _UnavailableProxyOwnershipRecoveryClashService()
@@ -1974,7 +2203,7 @@ void main() {
 
       expect(recovered, isFalse);
       expect(service.stopCalls, 1);
-      expect(service.proxyOwnershipInspectionCalls, 1);
+      expect(service.proxyOwnershipInspectionCalls, 2);
       expect(service.prepareCalls, 0);
       expect(service.automaticRecoveryStartCalls, 0);
       expect(service.connectionDesired, isFalse);
@@ -1982,6 +2211,39 @@ void main() {
         notices.single.message,
         allOf(contains('无法确认'), contains('不会覆盖')),
       );
+    });
+
+    test('connection intent change during ownership recheck stops all action',
+        () async {
+      final service = _SequencedProxyOwnershipRecoveryClashService(
+        [
+          SystemProxyOwnershipStatus.unavailable,
+          SystemProxyOwnershipStatus.owned,
+        ],
+        pauseOwnershipRecheck: true,
+      );
+      addTearDown(service.dispose);
+      service.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: AppSettings(),
+        generateConfig: (runtimeSettings, preferredNodeName) async =>
+            'mixed-port: ${runtimeSettings.proxyPort}',
+        isRevisionCurrent: () => true,
+      );
+      final generation = service.requestConnectionIntent(true);
+      service.setRunning(true);
+
+      final recovery = service.recoverAfterHealthCheckFailure(generation);
+      await service.ownershipRecheckStarted.future;
+      service.requestConnectionIntent(true);
+      service.releaseOwnershipRecheck.complete();
+
+      expect(await recovery, isFalse);
+      expect(service.proxyOwnershipInspectionCalls, 1);
+      expect(service.stopCalls, 0);
+      expect(service.prepareCalls, 0);
+      expect(service.automaticRecoveryStartCalls, 0);
+      expect(service.connectionDesired, isTrue);
+      expect(service.isRunning, isTrue);
     });
 
     test(
@@ -2369,6 +2631,39 @@ class _UnavailableProxyOwnershipRecoveryClashService
     proxyOwnershipInspectionCalls++;
     return SystemProxyOwnershipStatus.unavailable;
   }
+
+  @override
+  Future<void> waitBeforeProxyOwnershipRecoveryRecheck() async {}
+}
+
+class _SequencedProxyOwnershipRecoveryClashService
+    extends _ExternalProxyTakeoverRecoveryClashService {
+  _SequencedProxyOwnershipRecoveryClashService(
+    this.ownershipStatuses, {
+    this.pauseOwnershipRecheck = false,
+  });
+
+  final List<SystemProxyOwnershipStatus> ownershipStatuses;
+  final bool pauseOwnershipRecheck;
+  final Completer<void> ownershipRecheckStarted = Completer<void>();
+  final Completer<void> releaseOwnershipRecheck = Completer<void>();
+
+  @override
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async {
+    final status = ownershipStatuses[proxyOwnershipInspectionCalls];
+    proxyOwnershipInspectionCalls++;
+    return status;
+  }
+
+  @override
+  Future<void> waitBeforeProxyOwnershipRecoveryRecheck() async {
+    if (!pauseOwnershipRecheck) return;
+    ownershipRecheckStarted.complete();
+    await releaseOwnershipRecheck.future;
+  }
+
+  @override
+  Future<void> writeConfig(String configContent) async {}
 }
 
 class _StaleHealthProbeRecoveryClashService
@@ -2450,18 +2745,53 @@ class _ApiHealthyClashService extends ClashService {
 
   @override
   Future<bool> checkMihomoApiHealth() async => true;
+
+  @override
+  Future<LocalMixedProxyReadiness> checkLocalMixedProxyReadiness({
+    Duration timeout = const Duration(seconds: 1),
+  }) async =>
+      LocalMixedProxyReadiness.ready;
 }
 
 class _UncertainProxyOwnershipClashService extends ClashService {
   SystemProxyOwnershipStatus ownershipStatus =
       SystemProxyOwnershipStatus.unavailable;
 
+  void publishDataPlaneWarning(String? warning) =>
+      setConnectivityWarning(warning);
+
   @override
   Future<bool> checkMihomoApiHealth() async => true;
 
   @override
+  Future<LocalMixedProxyReadiness> checkLocalMixedProxyReadiness({
+    Duration timeout = const Duration(seconds: 1),
+  }) async =>
+      LocalMixedProxyReadiness.ready;
+
+  @override
   Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async =>
       ownershipStatus;
+}
+
+class _SystemProxyDataPlaneClashService extends ClashService {
+  int connectivityProbes = 0;
+
+  Future<void> runDataPlaneObservation() => observeDataPlaneHealth();
+
+  @override
+  Duration get tunDataPathProbeInterval => Duration.zero;
+
+  @override
+  Future<String?> verifyUserConnectivity({
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(seconds: 2),
+    Future<http.Response> Function(Uri uri)? request,
+    bool Function()? shouldContinue,
+  }) async {
+    connectivityProbes++;
+    return 'external endpoint blocked';
+  }
 }
 
 String _effectiveProxyOutput(int port) => '''<dictionary> {
@@ -2648,7 +2978,10 @@ class _ConcurrentSelectionTunProbeClashService extends ClashService
   Future<String?> currentSelectedProxyName() async => _selected;
 
   @override
-  Future<bool> switchSelectedProxy(String nodeName) async {
+  Future<bool> switchSelectedProxy(
+    String nodeName, {
+    SwitchContextGuard? isSwitchContextCurrent,
+  }) async {
     switchedNodes.add(nodeName);
     _selected = nodeName;
     return true;
@@ -2675,9 +3008,14 @@ class _ControllableTunProbeClashService extends ClashService
 
   final Completer<String?> staleProbe = Completer<String?>();
   final Completer<void> staleProbeStarted = Completer<void>();
+  final Completer<void> currentRouteProbeStarted = Completer<void>();
   int connectivityProbes = 0;
 
   Future<void> runDataPlaneObservation() => observeDataPlaneHealth();
+
+  void scheduleObservationForTest() => scheduleDataPlaneObservation();
+
+  void simulateRouteChange() => onDataPlaneRouteChanged();
 
   @override
   Future<bool> checkMihomoApiHealth() async {
@@ -2696,6 +3034,9 @@ class _ControllableTunProbeClashService extends ClashService
     if (connectivityProbes == 1) {
       staleProbeStarted.complete();
       return staleProbe.future;
+    }
+    if (!currentRouteProbeStarted.isCompleted) {
+      currentRouteProbeStarted.complete();
     }
     return null;
   }
@@ -2751,7 +3092,10 @@ class _RecoveryFailureTunProbeClashService extends ClashService
   Future<String?> currentSelectedProxyName() async => _selected;
 
   @override
-  Future<bool> switchSelectedProxy(String nodeName) async {
+  Future<bool> switchSelectedProxy(
+    String nodeName, {
+    SwitchContextGuard? isSwitchContextCurrent,
+  }) async {
     switchedNodes.add(nodeName);
     if (failedSwitches.contains(nodeName)) return false;
     _selected = nodeName;
@@ -2830,7 +3174,10 @@ class _FailoverTunProbeClashService extends ClashService
   Future<String?> currentSelectedProxyName() async => _selected;
 
   @override
-  Future<bool> switchSelectedProxy(String nodeName) async {
+  Future<bool> switchSelectedProxy(
+    String nodeName, {
+    SwitchContextGuard? isSwitchContextCurrent,
+  }) async {
     switchedNodes.add(nodeName);
     _selected = nodeName;
     return true;

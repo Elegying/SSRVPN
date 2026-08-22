@@ -224,9 +224,31 @@ class FindReusableMainCiTest(unittest.TestCase):
                 self.assertIn("/actions/workflows/321/runs", commands)
                 self.assertIn("head_sha=" + self.SHA, commands)
                 self.assertIn("branch=main", commands)
-                self.assertIn("status=success", commands)
+                self.assertNotIn("status=success", commands)
                 self.assertIn("/actions/runs/777/jobs", commands)
                 self.assertIn("filter=latest", commands)
+
+    def test_active_exact_main_ci_is_returned_for_waiting(self) -> None:
+        for status in ("queued", "in_progress", "requested", "waiting", "pending"):
+            candidate = self._run()
+            candidate["status"] = status
+            candidate["conclusion"] = None
+            with self.subTest(status=status):
+                result, commands = self._invoke(runs=[candidate])
+                self.assertEqual(result.returncode, 4, result.stderr)
+                self.assertEqual(
+                    result.stdout.strip(),
+                    "777\thttps://github.com/Elegying/SSRVPN/actions/runs/777",
+                )
+                self.assertNotIn("/actions/runs/777/jobs", commands)
+
+    def test_running_ci_with_a_conclusion_fails_closed(self) -> None:
+        candidate = self._run()
+        candidate["status"] = "in_progress"
+        result, commands = self._invoke(runs=[candidate])
+
+        self.assertNotIn(result.returncode, (0, 3, 4), result.stderr)
+        self.assertNotIn("/actions/runs/777/jobs", commands)
 
     def test_run_identity_mismatch_or_pull_request_is_not_reused(self) -> None:
         mutations = {
@@ -236,7 +258,6 @@ class FindReusableMainCiTest(unittest.TestCase):
             "other path": ("path", ".github/workflows/release.yml@main"),
             "other workflow": ("workflow_id", 999),
             "failed conclusion": ("conclusion", "failure"),
-            "incomplete status": ("status", "queued"),
             "other repository": (
                 "repository",
                 {"full_name": "attacker/SSRVPN"},
@@ -323,14 +344,14 @@ class FindReusableMainCiTest(unittest.TestCase):
         for arguments in cases:
             with self.subTest(arguments=arguments):
                 result, _ = self._invoke(**arguments)
-                self.assertNotIn(result.returncode, (0, 3), result.stderr)
+                self.assertNotIn(result.returncode, (0, 3, 4), result.stderr)
 
     def test_canonical_workflow_path_mismatch_is_an_error(self) -> None:
         workflow = self._workflow()
         workflow["path"] = ".github/workflows/release.yml"
         result, commands = self._invoke(workflow=workflow)
 
-        self.assertNotIn(result.returncode, (0, 3), result.stderr)
+        self.assertNotIn(result.returncode, (0, 3, 4), result.stderr)
         self.assertNotIn("/actions/workflows/321/runs", commands)
 
     def test_policy_must_define_nine_unique_required_names(self) -> None:
@@ -338,7 +359,7 @@ class FindReusableMainCiTest(unittest.TestCase):
         policy["required_status_checks"]["checks"].pop()
         result, commands = self._invoke(policy=policy)
 
-        self.assertNotIn(result.returncode, (0, 3), result.stderr)
+        self.assertNotIn(result.returncode, (0, 3, 4), result.stderr)
         self.assertEqual(commands, "")
 
 

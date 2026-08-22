@@ -58,9 +58,33 @@ $tempRoot = if ($env:RUNNER_TEMP) {
 $logDir = Join-Path $tempRoot 'ssrvpn-installer-smoke'
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $installInstaller = Join-Path $logDir 'SSRVPN_Setup_install.exe'
-$upgradeInstaller = Join-Path $logDir 'SSRVPN_Setup_upgrade.exe'
+$manualVersionedInstaller = $null
+$manualVersionedRoot = $null
+$upgradeInstaller = $null
+$upgradeMarker = $null
+$upgradeOrphanMarker = $null
+$upgradeOwnerToken = $null
+$oversizedInstaller = $null
+$oversizedMarker = $null
+$oversizedRoot = $null
+$tamperedInstaller = $null
+$tamperedMarker = $null
+$tamperedRoot = $null
+$delayedLockedInstaller = $null
+$delayedLockedMarker = $null
+$delayedLockedRoot = $null
+$delayedCleanupProcess = $null
+$delayedInstallerStream = $null
+$replayedInstaller = $null
+$replayedMarker = $null
+$replayedRoot = $null
+$lockedInstaller = $null
+$lockedMarker = $null
+$lockedRoot = $null
+$legacyInstaller = $null
+$legacyMarker = $null
+$legacyRoot = $null
 Copy-Item -LiteralPath $sourceInstaller -Destination $installInstaller -Force
-Copy-Item -LiteralPath $sourceInstaller -Destination $upgradeInstaller -Force
 $installLog = Join-Path $logDir 'install.log'
 $upgradeLog = Join-Path $logDir 'upgrade.log'
 $uninstallLog = Join-Path $logDir 'uninstall.log'
@@ -116,6 +140,188 @@ function Assert-InstallerPreserved {
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
     throw "SSRVPN deleted the manually supplied installer: $Path"
   }
+}
+
+function Assert-PeVersionMetadata {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$ExpectedVersion,
+    [string]$ExpectedInternalName = '',
+    [string]$ExpectedOriginalFilename = ''
+  )
+
+  $expected = [version]$ExpectedVersion
+  $versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Path)
+  foreach ($propertyName in @('FileVersion', 'ProductVersion')) {
+    $value = [string]$versionInfo.$propertyName
+    if ($value -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') {
+      throw "$Path has invalid PE $propertyName metadata: $value"
+    }
+    $actual = [version]$value
+    if ($actual.Major -ne $expected.Major -or
+        $actual.Minor -ne $expected.Minor -or
+        $actual.Build -ne $expected.Build -or
+        ($expected.Revision -ge 0 -and
+          $actual.Revision -ne $expected.Revision)) {
+      throw "$Path has PE $propertyName $value; expected $ExpectedVersion."
+    }
+  }
+  if ($ExpectedInternalName -and
+      $versionInfo.InternalName -cne $ExpectedInternalName) {
+    throw "$Path has PE InternalName $($versionInfo.InternalName); expected $ExpectedInternalName."
+  }
+  if ($ExpectedOriginalFilename -and
+      $versionInfo.OriginalFilename -cne $ExpectedOriginalFilename) {
+    throw "$Path has PE OriginalFilename $($versionInfo.OriginalFilename); expected $ExpectedOriginalFilename."
+  }
+}
+
+function Assert-MicrosoftRuntimeProvenance {
+  param([Parameter(Mandatory = $true)][string]$InstallDirectory)
+
+  $runtimeDllNames = @(
+    'concrt140.dll',
+    'msvcp140.dll',
+    'msvcp140_1.dll',
+    'msvcp140_2.dll',
+    'msvcp140_atomic_wait.dll',
+    'msvcp140_codecvt_ids.dll',
+    'vcruntime140.dll',
+    'vcruntime140_1.dll'
+  )
+  $expectedSourceClasses = @{}
+  foreach ($dllName in $runtimeDllNames) {
+    $expectedSourceClasses[$dllName] = 'VisualStudioRedist'
+    $expectedSourceClasses["bin\$dllName"] = 'VisualStudioRedist'
+  }
+  $expectedSourceClasses['bin\d3dcompiler_47.dll'] = 'WindowsKitsRedist'
+
+  $provenancePath = Join-Path $InstallDirectory `
+    'third_party\MICROSOFT_RUNTIME_PROVENANCE.txt'
+  $lines = @(Get-Content -LiteralPath $provenancePath -Encoding UTF8)
+  $expectedLineCount = $expectedSourceClasses.Count + 3
+  if ($lines.Count -ne $expectedLineCount -or
+      $lines[0] -cne '# SSRVPN Microsoft runtime provenance' -or
+      $lines[1] -cne 'Format-Version: 1' -or
+      $lines[2] -cne "File`tVersion`tSHA256`tSourceClass") {
+    throw "Installed Microsoft runtime provenance has an invalid schema: $provenancePath"
+  }
+
+  $seen = [System.Collections.Generic.HashSet[string]]::new(
+    [System.StringComparer]::OrdinalIgnoreCase
+  )
+  foreach ($line in $lines[3..($lines.Count - 1)]) {
+    $fields = @($line -split "`t")
+    if ($fields.Count -ne 4) {
+      throw "Installed Microsoft runtime provenance has an invalid record: $line"
+    }
+    $relativePath = [string]$fields[0]
+    $expectedSourceClass = $expectedSourceClasses[$relativePath]
+    if (-not $expectedSourceClasses.ContainsKey($relativePath) -or
+        -not $seen.Add($relativePath) -or
+        [string]$fields[3] -cne $expectedSourceClass) {
+      throw "Installed Microsoft runtime provenance has an unexpected record: $relativePath"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$fields[1]) -or
+        [string]$fields[2] -notmatch '^[a-f0-9]{64}$') {
+      throw "Installed Microsoft runtime provenance has invalid identity data: $relativePath"
+    }
+
+    $installedPath = Join-Path $InstallDirectory $relativePath
+    if (-not (Test-Path -LiteralPath $installedPath -PathType Leaf)) {
+      throw "Installed Microsoft runtime is missing: $relativePath"
+    }
+    $actualVersion = (
+      [System.Diagnostics.FileVersionInfo]::GetVersionInfo($installedPath)
+    ).FileVersion -replace '[\r\n\t]', ' '
+    $actualHash = (
+      Get-FileHash -LiteralPath $installedPath -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    if ($actualVersion -cne [string]$fields[1] -or
+        $actualHash -cne [string]$fields[2]) {
+      throw "Installed Microsoft runtime does not match provenance: $relativePath"
+    }
+  }
+  if ($seen.Count -ne $expectedSourceClasses.Count) {
+    throw 'Installed Microsoft runtime provenance is incomplete.'
+  }
+}
+
+function Wait-PathAbsent {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  for ($attempt = 0; $attempt -lt 80; $attempt++) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+      return
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  throw "Post-install cleanup did not delete: $Path"
+}
+
+function Assert-NoCleanupQuarantine {
+  param([Parameter(Mandatory = $true)][string]$Installer)
+
+  $parent = Split-Path -Path $Installer -Parent
+  $leaf = [System.IO.Path]::GetFileName($Installer)
+  $residue = @(
+    Get-ChildItem -LiteralPath $parent -Force -File `
+      -Filter ($leaf + '.ssrvpn-cleanup.*') -ErrorAction Stop
+    Get-ChildItem -LiteralPath $parent -Force -File `
+      -Filter ($leaf + '.ssrvpn-verified-update.ssrvpn-cleanup.*') `
+      -ErrorAction Stop
+  )
+  if ($residue.Count -ne 0) {
+    $residuePaths = $residue.FullName -join ', '
+    throw "Post-install cleanup left an isolated installer behind: $residuePaths"
+  }
+}
+
+function New-VerifiedUpdateAuthorization {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $installerName = [System.IO.Path]::GetFileName($Path)
+  $digest = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+  $ownerToken = [Guid]::NewGuid().ToString('N') + `
+    [Guid]::NewGuid().ToString('N')
+  Set-Content -LiteralPath $Path -Stream 'ssrvpn-update-owner' `
+    -Value $ownerToken -Encoding ASCII -NoNewline
+  $actualOwner = Get-Content -LiteralPath $Path `
+    -Stream 'ssrvpn-update-owner' -Encoding ASCII -Raw
+  if ([string]$actualOwner -cne $ownerToken) {
+    throw "Could not publish the installer owner stream: $Path"
+  }
+  $markerPath = $Path + '.ssrvpn-verified-update'
+  $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+  [System.IO.File]::WriteAllText(
+    $markerPath,
+    "ssrvpn-verified-update-v2`n$installerName`n$digest`n$ownerToken`n",
+    $utf8NoBom
+  )
+  return [PSCustomObject]@{
+    MarkerPath = $markerPath
+    OwnerToken = $ownerToken
+    Sha256 = $digest
+  }
+}
+
+function Get-DeterministicUpdateNameSuffix {
+  param(
+    [Parameter(Mandatory = $true)][string]$CanonicalName,
+    [Parameter(Mandatory = $true)][string]$Sha256
+  )
+
+  if ($Sha256 -notmatch '^[a-f0-9]{64}$') {
+    throw "Invalid verified update SHA-256 for $CanonicalName."
+  }
+  $material = "ssrvpn-windows-update-name-v1`n$CanonicalName`n$Sha256"
+  $hasher = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $digest = $hasher.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($material))
+  } finally {
+    $hasher.Dispose()
+  }
+  return ([BitConverter]::ToString($digest).Replace('-', '').ToLowerInvariant()).Substring(0, 32)
 }
 
 function New-LocalizedOppositeScopeUninstallEntry {
@@ -244,6 +450,47 @@ function Invoke-SmokeProcess {
   }
 }
 
+function Get-PostInstallCleanupFixtureArguments {
+  param([Parameter(Mandatory = $true)][string]$Installer)
+
+  return @(
+    '-NoLogo',
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    "`"$postInstallCleanup`"",
+    '-InstalledLauncherPath',
+    "`"$(Join-Path $installDir 'ssrvpn_windows.exe')`"",
+    '-RemoveVerifiedInstaller',
+    '-InstallerPath',
+    "`"$Installer`"",
+    '-ExpectedInstallerName',
+    "`"$([System.IO.Path]::GetFileName($Installer))`"",
+    '-InstallerProcessId',
+    '2147483647'
+  )
+}
+
+function Invoke-PostInstallCleanupFixture {
+  param(
+    [Parameter(Mandatory = $true)][string]$Installer,
+    [Parameter(Mandatory = $true)][string]$Phase
+  )
+
+  $exitCode = Invoke-SmokeProcess `
+    -FilePath $powerShellPath `
+    -Phase $Phase `
+    -LogPath (Join-Path $logDir ($Phase.Replace(' ', '-') + '.log')) `
+    -TimeoutSeconds 15 `
+    -ArgumentList @(Get-PostInstallCleanupFixtureArguments `
+      -Installer $Installer)
+  if ($exitCode -ne 0) {
+    throw "$Phase exited with code $exitCode."
+  }
+}
+
 function New-PendingProgramFileTransaction {
   if (-not (Test-Path -LiteralPath $programTransactionHelper -PathType Leaf)) {
     throw "Installed program transaction helper is missing: $programTransactionHelper"
@@ -318,6 +565,10 @@ try {
   foreach ($relativePath in @(
     'ssrvpn_windows.exe',
     'bin\ssrvpn_windows_app.exe',
+    'third_party\THIRD_PARTY_NOTICES.md',
+    'third_party\MICROSOFT_RUNTIME_PROVENANCE.txt',
+    'third_party\licenses\GPL-3.0.txt',
+    'third_party\licenses\SSRVPN-MIT.txt',
     'unins000.exe'
   )) {
     $installedPath = Join-Path $installDir $relativePath
@@ -325,6 +576,286 @@ try {
       throw "Installed package is missing $relativePath`: $installDir"
     }
   }
+  Assert-MicrosoftRuntimeProvenance -InstallDirectory $installDir
+
+  $currentUninstallValues =
+    Get-ItemProperty -LiteralPath $currentUninstallRegistryPath
+  $displayVersion = [string]$currentUninstallValues.DisplayVersion
+  if ($displayVersion -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') {
+    throw "SSRVPN installer published an invalid display version: $displayVersion"
+  }
+  Assert-PeVersionMetadata -Path $sourceInstaller `
+    -ExpectedVersion $displayVersion
+  Assert-PeVersionMetadata `
+    -Path (Join-Path $installDir 'ssrvpn_windows.exe') `
+    -ExpectedVersion $displayVersion `
+    -ExpectedInternalName 'ssrvpn_windows' `
+    -ExpectedOriginalFilename 'ssrvpn_windows.exe'
+  Assert-PeVersionMetadata `
+    -Path (Join-Path $installDir 'bin\ssrvpn_windows_app.exe') `
+    -ExpectedVersion $displayVersion `
+    -ExpectedInternalName 'ssrvpn_windows_app' `
+    -ExpectedOriginalFilename 'ssrvpn_windows_app.exe'
+
+  # The first upgrade from v4.0.14 cannot carry a v2 app-owned marker. Even
+  # with the canonical versioned name, that manually supplied package must be
+  # retained after a successful overwrite install.
+  $manualVersionedRoot = Join-Path $logDir 'manual-versioned-update'
+  New-Item -ItemType Directory -Path $manualVersionedRoot | Out-Null
+  $manualVersionedInstaller = Join-Path $manualVersionedRoot `
+    "SSRVPN_Setup_v$displayVersion.exe"
+  Copy-Item -LiteralPath $sourceInstaller `
+    -Destination $manualVersionedInstaller
+  $manualUpgradeExitCode = Invoke-SmokeProcess `
+    -FilePath $manualVersionedInstaller `
+    -Phase 'unmarked versioned upgrade' `
+    -LogPath (Join-Path $logDir 'unmarked-versioned-upgrade.log') `
+    -ArgumentList @(
+      '/VERYSILENT',
+      '/SUPPRESSMSGBOXES',
+      '/NORESTART',
+      '/SP-',
+      "/LOG=$(Join-Path $logDir 'unmarked-versioned-upgrade.log')"
+    )
+  if ($manualUpgradeExitCode -ne 0) {
+    throw "Unmarked versioned upgrade exited with code $manualUpgradeExitCode."
+  }
+  Assert-InstallerPreserved -Path $manualVersionedInstaller
+  if (Test-Path -LiteralPath `
+      ($manualVersionedInstaller + '.ssrvpn-verified-update')) {
+    throw 'The installer created an app-owned marker for a manual package.'
+  }
+
+  $oversizedRoot = Join-Path $logDir 'oversized-update'
+  New-Item -ItemType Directory -Path $oversizedRoot | Out-Null
+  $oversizedInstaller = Join-Path $oversizedRoot `
+    "SSRVPN_Setup_v$displayVersion.exe"
+  $oversizedMarker = $oversizedInstaller + '.ssrvpn-verified-update'
+  $oversizedStream = [System.IO.File]::Open(
+    $oversizedInstaller,
+    [System.IO.FileMode]::CreateNew,
+    [System.IO.FileAccess]::Write,
+    [System.IO.FileShare]::None
+  )
+  try {
+    $oversizedStream.SetLength(300MB + 1)
+  } finally {
+    $oversizedStream.Dispose()
+  }
+  $oversizedOwnerToken = [Guid]::NewGuid().ToString('N') + `
+    [Guid]::NewGuid().ToString('N')
+  Set-Content -LiteralPath $oversizedInstaller `
+    -Stream 'ssrvpn-update-owner' -Value $oversizedOwnerToken `
+    -Encoding ASCII -NoNewline
+  $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+  [System.IO.File]::WriteAllText(
+    $oversizedMarker,
+    "ssrvpn-verified-update-v2`n" +
+      "SSRVPN_Setup_v$displayVersion.exe`n" +
+      "a9f610bc1c031274cd04e9f12d74b35c84ef5600f76b1e5d47d754c62a149759`n" +
+      "$oversizedOwnerToken`n",
+    $utf8NoBom
+  )
+  $postInstallCleanup = Join-Path $installDir `
+    'installer\post_install_cleanup.ps1'
+  $powerShellPath = Join-Path $env:SystemRoot `
+    'System32\WindowsPowerShell\v1.0\powershell.exe'
+  Invoke-PostInstallCleanupFixture `
+    -Installer $oversizedInstaller `
+    -Phase 'oversized marked update cleanup guard'
+  Assert-InstallerPreserved -Path $oversizedInstaller
+  Assert-InstallerPreserved -Path $oversizedMarker
+  Remove-Item -LiteralPath $oversizedInstaller -Force
+  Remove-Item -LiteralPath $oversizedMarker -Force
+  Remove-Item -LiteralPath $oversizedRoot -Force
+  $oversizedInstaller = $null
+  $oversizedMarker = $null
+  $oversizedRoot = $null
+
+  # A normal-sized package with a valid v2 marker and matching owner stream
+  # must still be retained when its default stream no longer matches the
+  # authorized SHA-256 digest.
+  $tamperedRoot = Join-Path $logDir 'tampered-update'
+  New-Item -ItemType Directory -Path $tamperedRoot | Out-Null
+  $tamperedInstaller = Join-Path $tamperedRoot `
+    "SSRVPN_Setup_v$displayVersion.exe"
+  Copy-Item -LiteralPath $sourceInstaller -Destination $tamperedInstaller
+  $tamperedAuthorization = New-VerifiedUpdateAuthorization `
+    -Path $tamperedInstaller
+  $tamperedMarker = [string]$tamperedAuthorization.MarkerPath
+  $mutationStream = [System.IO.File]::Open(
+    $tamperedInstaller,
+    [System.IO.FileMode]::Append,
+    [System.IO.FileAccess]::Write,
+    [System.IO.FileShare]::None
+  )
+  try {
+    $mutationStream.WriteByte(0)
+  } finally {
+    $mutationStream.Dispose()
+  }
+  $tamperedOwner = Get-Content -LiteralPath $tamperedInstaller `
+    -Stream 'ssrvpn-update-owner' -Encoding ASCII -Raw
+  if ([string]$tamperedOwner -cne
+      [string]$tamperedAuthorization.OwnerToken) {
+    throw 'The tampered update fixture lost its owner stream.'
+  }
+  Invoke-PostInstallCleanupFixture `
+    -Installer $tamperedInstaller `
+    -Phase 'tampered update cleanup guard'
+  Assert-InstallerPreserved -Path $tamperedInstaller
+  Assert-InstallerPreserved -Path $tamperedMarker
+  Assert-NoCleanupQuarantine -Installer $tamperedInstaller
+
+  # The one-shot marker must remain available while another process denies
+  # rename/delete access to an otherwise valid package. Once the lock clears,
+  # the same helper should finish without leaving a quarantine file behind.
+  $delayedLockedRoot = Join-Path $logDir 'delayed-lock-update'
+  New-Item -ItemType Directory -Path $delayedLockedRoot | Out-Null
+  $delayedLockedInstaller = Join-Path $delayedLockedRoot `
+    "SSRVPN_Setup_v$displayVersion.exe"
+  Copy-Item -LiteralPath $sourceInstaller `
+    -Destination $delayedLockedInstaller
+  $delayedAuthorization = New-VerifiedUpdateAuthorization `
+    -Path $delayedLockedInstaller
+  $delayedLockedMarker = [string]$delayedAuthorization.MarkerPath
+  $delayedInstallerStream = [System.IO.File]::Open(
+    $delayedLockedInstaller,
+    [System.IO.FileMode]::Open,
+    [System.IO.FileAccess]::Read,
+    [System.IO.FileShare]::None
+  )
+  try {
+    $delayedCleanupProcess = Start-Process `
+      -FilePath $powerShellPath `
+      -ArgumentList @(Get-PostInstallCleanupFixtureArguments `
+        -Installer $delayedLockedInstaller) `
+      -WindowStyle Hidden `
+      -PassThru
+    Start-Sleep -Milliseconds 1500
+    $delayedCleanupProcess.Refresh()
+    if ($delayedCleanupProcess.HasExited) {
+      throw 'The delayed lock update cleanup retry exited before the lock cleared.'
+    }
+    Assert-InstallerPreserved -Path $delayedLockedInstaller
+    Assert-InstallerPreserved -Path $delayedLockedMarker
+    Assert-NoCleanupQuarantine -Installer $delayedLockedInstaller
+  } finally {
+    $delayedInstallerStream.Dispose()
+    $delayedInstallerStream = $null
+  }
+  if (-not $delayedCleanupProcess.WaitForExit(30000)) {
+    $delayedCleanupProcess.Kill()
+    throw 'The delayed lock update cleanup retry timed out.'
+  }
+  if ($delayedCleanupProcess.ExitCode -ne 0) {
+    throw "The delayed lock update cleanup retry exited with code $($delayedCleanupProcess.ExitCode)."
+  }
+  $delayedCleanupProcess.Dispose()
+  $delayedCleanupProcess = $null
+  Wait-PathAbsent -Path $delayedLockedInstaller
+  Wait-PathAbsent -Path $delayedLockedMarker
+  Assert-NoCleanupQuarantine -Installer $delayedLockedInstaller
+
+  # A sidecar left behind after the original package disappears must not be
+  # replayable against a new same-name, same-digest manual copy without ADS.
+  $replayedRoot = Join-Path $logDir 'replayed-marker-update'
+  New-Item -ItemType Directory -Path $replayedRoot | Out-Null
+  $replayedInstaller = Join-Path $replayedRoot `
+    "SSRVPN_Setup_v$displayVersion.exe"
+  Copy-Item -LiteralPath $sourceInstaller -Destination $replayedInstaller
+  $replayedAuthorization = New-VerifiedUpdateAuthorization `
+    -Path $replayedInstaller
+  $replayedMarker = [string]$replayedAuthorization.MarkerPath
+  Remove-Item -LiteralPath $replayedInstaller -Force
+  Copy-Item -LiteralPath $sourceInstaller -Destination $replayedInstaller
+  Invoke-PostInstallCleanupFixture `
+    -Installer $replayedInstaller `
+    -Phase 'replayed marker cleanup guard'
+  Assert-InstallerPreserved -Path $replayedInstaller
+  Assert-InstallerPreserved -Path $replayedMarker
+
+  # A readable marker that cannot be consumed must never allow the installer
+  # to be deleted.
+  $lockedRoot = Join-Path $logDir 'locked-marker-update'
+  New-Item -ItemType Directory -Path $lockedRoot | Out-Null
+  $lockedInstaller = Join-Path $lockedRoot `
+    "SSRVPN_Setup_v$displayVersion.exe"
+  Copy-Item -LiteralPath $sourceInstaller -Destination $lockedInstaller
+  $lockedAuthorization = New-VerifiedUpdateAuthorization `
+    -Path $lockedInstaller
+  $lockedMarker = [string]$lockedAuthorization.MarkerPath
+  $lockedMarkerStream = [System.IO.File]::Open(
+    $lockedMarker,
+    [System.IO.FileMode]::Open,
+    [System.IO.FileAccess]::Read,
+    [System.IO.FileShare]::Read
+  )
+  try {
+    Invoke-PostInstallCleanupFixture `
+      -Installer $lockedInstaller `
+      -Phase 'locked marker cleanup guard'
+    Assert-InstallerPreserved -Path $lockedInstaller
+    Assert-InstallerPreserved -Path $lockedMarker
+    Assert-NoCleanupQuarantine -Installer $lockedInstaller
+  } finally {
+    $lockedMarkerStream.Dispose()
+  }
+
+  # The unpublished v1 format never grants cleanup permission.
+  $legacyRoot = Join-Path $logDir 'legacy-marker-update'
+  New-Item -ItemType Directory -Path $legacyRoot | Out-Null
+  $legacyInstaller = Join-Path $legacyRoot `
+    "SSRVPN_Setup_v$displayVersion.exe"
+  $legacyMarker = $legacyInstaller + '.ssrvpn-verified-update'
+  Copy-Item -LiteralPath $sourceInstaller -Destination $legacyInstaller
+  $legacyHash = (Get-FileHash -LiteralPath $legacyInstaller `
+    -Algorithm SHA256).Hash.ToLowerInvariant()
+  [System.IO.File]::WriteAllText(
+    $legacyMarker,
+    "ssrvpn-verified-update-v1`n" +
+      "SSRVPN_Setup_v$displayVersion.exe`n$legacyHash`n",
+    $utf8NoBom
+  )
+  Invoke-PostInstallCleanupFixture `
+    -Installer $legacyInstaller `
+    -Phase 'legacy marker cleanup guard'
+  Assert-InstallerPreserved -Path $legacyInstaller
+  Assert-InstallerPreserved -Path $legacyMarker
+
+  $upgradeCanonicalName = "SSRVPN_Setup_v$displayVersion.exe"
+  $upgradeCanonicalInstaller = Join-Path $logDir $upgradeCanonicalName
+  $upgradeOrphanMarker = $upgradeCanonicalInstaller + `
+    '.ssrvpn-verified-update'
+  $upgradePackageSha256 = (Get-FileHash -LiteralPath $sourceInstaller `
+    -Algorithm SHA256).Hash.ToLowerInvariant()
+  $upgradeNameSuffix = Get-DeterministicUpdateNameSuffix `
+    -CanonicalName $upgradeCanonicalName `
+    -Sha256 $upgradePackageSha256
+  $upgradeInstaller = Join-Path $logDir `
+    "SSRVPN_Setup_v${displayVersion}_$upgradeNameSuffix.exe"
+  $upgradeMarker = $upgradeInstaller + '.ssrvpn-verified-update'
+  foreach ($updatePath in @(
+    $upgradeCanonicalInstaller,
+    $upgradeOrphanMarker,
+    $upgradeInstaller,
+    $upgradeMarker
+  )) {
+    if (Test-Path -LiteralPath $updatePath) {
+      throw "Refusing to overwrite a pre-existing update smoke file: $updatePath"
+    }
+  }
+  $upgradeOrphanContent = 'user-or-orphan-sidecar-must-remain-byte-for-byte'
+  [System.IO.File]::WriteAllText(
+    $upgradeOrphanMarker,
+    $upgradeOrphanContent,
+    [System.Text.UTF8Encoding]::new($false)
+  )
+  Copy-Item -LiteralPath $sourceInstaller -Destination $upgradeInstaller
+  $upgradeAuthorization = New-VerifiedUpdateAuthorization `
+    -Path $upgradeInstaller
+  $upgradeMarker = [string]$upgradeAuthorization.MarkerPath
+  $upgradeOwnerToken = [string]$upgradeAuthorization.OwnerToken
 
   New-LocalizedOppositeScopeUninstallEntry
 
@@ -360,7 +891,14 @@ try {
   if ($upgradeExitCode -ne 0) {
     throw "SSRVPN upgrade exited with code $upgradeExitCode. Log: $upgradeLog"
   }
-  Assert-InstallerPreserved -Path $upgradeInstaller
+  Wait-PathAbsent -Path $upgradeInstaller
+  Wait-PathAbsent -Path $upgradeMarker
+  if ([System.IO.File]::ReadAllText($upgradeOrphanMarker) -cne
+      $upgradeOrphanContent) {
+    throw 'Verified alternate update cleanup changed the canonical orphan sidecar.'
+  }
+  Assert-NoCleanupQuarantine -Installer $upgradeInstaller
+  Assert-InstallerPreserved -Path $installInstaller
   Assert-SingleMachineShortcut
   Assert-OppositeScopeUninstallEntryRemoved
   $upgradeAppProcess.Refresh()
@@ -385,6 +923,16 @@ try {
   $runningInstalledApp.Dispose()
   New-PendingProgramFileTransaction
 } finally {
+  if ($null -ne $delayedInstallerStream) {
+    $delayedInstallerStream.Dispose()
+  }
+  if ($null -ne $delayedCleanupProcess) {
+    $delayedCleanupProcess.Refresh()
+    if (-not $delayedCleanupProcess.HasExited) {
+      $delayedCleanupProcess.Kill()
+    }
+    $delayedCleanupProcess.Dispose()
+  }
   if ($null -ne $upgradeAppProcess) {
     $upgradeAppProcess.Dispose()
   }
@@ -429,13 +977,46 @@ try {
   }
   foreach ($cleanupPath in @(
     $installInstaller,
+    $manualVersionedInstaller,
     $upgradeInstaller,
+    $upgradeMarker,
+    $upgradeOrphanMarker,
+    $oversizedInstaller,
+    $oversizedMarker,
+    $tamperedInstaller,
+    $tamperedMarker,
+    $delayedLockedInstaller,
+    $delayedLockedMarker,
+    $replayedInstaller,
+    $replayedMarker,
+    $lockedInstaller,
+    $lockedMarker,
+    $legacyInstaller,
+    $legacyMarker,
     $userDesktopShortcutPath,
     $desktopShortcutPath,
     $userStartMenuShortcutPath,
     $startMenuShortcutPath
   )) {
-    Remove-Item -LiteralPath $cleanupPath -Force -ErrorAction SilentlyContinue
+    if ($cleanupPath) {
+      Remove-Item -LiteralPath $cleanupPath -Force -ErrorAction SilentlyContinue
+    }
+  }
+  if ($oversizedRoot) {
+    Remove-Item -LiteralPath $oversizedRoot -Force -ErrorAction SilentlyContinue
+  }
+  foreach ($cleanupRoot in @(
+    $manualVersionedRoot,
+    $tamperedRoot,
+    $delayedLockedRoot,
+    $replayedRoot,
+    $lockedRoot,
+    $legacyRoot
+  )) {
+    if ($cleanupRoot) {
+      Remove-Item -LiteralPath $cleanupRoot -Recurse -Force `
+        -ErrorAction SilentlyContinue
+    }
   }
   Remove-Item -LiteralPath $uninstallRegistryPath -Recurse -Force `
     -ErrorAction SilentlyContinue

@@ -6,8 +6,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_macos/services/settings_service.dart';
+import 'package:ssrvpn_macos/theme/app_theme.dart';
 
 void main() {
+  test('macOS theme does not force a Windows-only font', () {
+    expect(AppTheme.dark.textTheme.bodyMedium?.fontFamily, isNot('Segoe UI'));
+    expect(AppTheme.light.textTheme.bodyMedium?.fontFamily, isNot('Segoe UI'));
+  });
+
   testWidgets('desktop connecting button is keyboard cancellable',
       (tester) async {
     final semantics = tester.ensureSemantics();

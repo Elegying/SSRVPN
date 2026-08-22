@@ -152,7 +152,8 @@ class VpnTileService : TileService() {
             NativeVpnSessionCoordinator.releasePendingStart(claim.id)
             VpnStartResultRegistry.clear(requestId)
             consumed.set(true)
-            Log.e(TAG, "Unable to start VPN service from tile", error)
+            val category = NativeCoreStartFailureCategory.from(error).logValue
+            Log.e(TAG, "event=tile_vpn_start_failed cause=$category")
             launchApp()
             return
         }

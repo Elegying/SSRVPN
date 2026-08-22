@@ -5,9 +5,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 allow_missing=0
-if [[ "${1:-}" == "--allow-missing" ]]; then
-  allow_missing=1
-fi
+require_checksums=0
+for argument in "$@"; do
+  case "$argument" in
+    --allow-missing) allow_missing=1 ;;
+    --require-checksums) require_checksums=1 ;;
+    *)
+      echo "smoke: unknown argument: $argument" >&2
+      exit 2
+      ;;
+  esac
+done
 
 missing() {
   if [[ "$allow_missing" -eq 1 ]]; then
@@ -16,6 +24,40 @@ missing() {
   fi
   echo "smoke: missing $1" >&2
   return 1
+}
+
+verify_checksum() {
+  local artifact=$1
+  local checksum_path="${artifact}.sha256"
+  if [[ ! -f "$checksum_path" ]]; then
+    if [[ "$require_checksums" -eq 1 ]]; then
+      echo "smoke: missing checksum $checksum_path" >&2
+      return 1
+    fi
+    echo "smoke: checksum not present for $artifact"
+    return 0
+  fi
+  python3 - "$artifact" "$checksum_path" <<'PY'
+from pathlib import Path
+import hashlib
+import re
+import sys
+
+artifact = Path(sys.argv[1])
+checksum_path = Path(sys.argv[2])
+checksum_text = checksum_path.read_text(encoding="ascii")
+match = re.search(r"\b([0-9a-fA-F]{64})\b", checksum_text)
+if match is None:
+    raise SystemExit(f"Invalid checksum: {checksum_path}")
+hasher = hashlib.sha256()
+with artifact.open("rb") as stream:
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        hasher.update(chunk)
+digest = hasher.hexdigest()
+if match.group(1).lower() != digest:
+    raise SystemExit(f"Checksum mismatch: {checksum_path}")
+print(f"smoke: checksum ok: {checksum_path}")
+PY
 }
 
 check_apk() {
@@ -45,8 +87,16 @@ with zipfile.ZipFile(apk) as zf:
     libs = [name for name in names if name.endswith("/libgojni.so")]
     if not libs:
         raise SystemExit("APK missing libgojni.so")
+    for required in (
+        "assets/THIRD_PARTY_NOTICES.md",
+        "assets/licenses/GPL-3.0.txt",
+        "assets/licenses/SSRVPN-MIT.txt",
+    ):
+        if required not in names:
+            raise SystemExit(f"APK missing third-party license material: {required}")
 print(f"smoke: APK ok: {apk}")
 PY
+  verify_checksum "$apk"
 }
 
 check_dmg() {
@@ -60,6 +110,7 @@ check_dmg() {
     fi
   done
   [[ -n "$dmg" ]] || { missing "macOS DMG"; return; }
+  verify_checksum "$dmg"
   if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "smoke: skip DMG mount check on non-macOS"
     return 0
@@ -82,6 +133,9 @@ check_dmg() {
   grep -aFq "background.png" "$MOUNT_DIR/.DS_Store"
   test ! -e "$MOUNT_DIR/安装教程.txt"
   test ! -e "$MOUNT_DIR/使用教程.txt"
+  test -f "$MOUNT_DIR/SSRVPN.app/Contents/Resources/third_party/THIRD_PARTY_NOTICES.md"
+  test -f "$MOUNT_DIR/SSRVPN.app/Contents/Resources/third_party/licenses/GPL-3.0.txt"
+  test -f "$MOUNT_DIR/SSRVPN.app/Contents/Resources/third_party/licenses/SSRVPN-MIT.txt"
   local top_level_count
   top_level_count="$(find "$MOUNT_DIR" -mindepth 1 -maxdepth 1 \
     ! -name '.*' -print | wc -l | tr -d ' ')"
@@ -100,10 +154,15 @@ check_installer() {
     fi
   done
   [[ -n "$installer" ]] || { missing "Windows installer"; return; }
+  local packaged_provenance="SSRVPN_Windows/SSRVPN_Windows_Release/third_party/MICROSOFT_RUNTIME_PROVENANCE.txt"
+  if [[ -d "SSRVPN_Windows/SSRVPN_Windows_Release" ]]; then
+    test -s "$packaged_provenance" || {
+      echo "smoke: Windows package missing Microsoft runtime provenance" >&2
+      return 1
+    }
+  fi
   python3 - "$installer" <<'PY'
 from pathlib import Path
-import hashlib
-import re
 import sys
 
 installer = Path(sys.argv[1])
@@ -113,17 +172,9 @@ with installer.open("rb") as stream:
     if stream.read(2) != b"MZ":
         raise SystemExit(f"Installer is not a Windows PE file: {installer}")
 
-checksum_path = installer.with_name(f"{installer.name}.sha256")
-if checksum_path.is_file():
-    checksum_text = checksum_path.read_text(encoding="ascii")
-    match = re.search(r"\b([0-9a-fA-F]{64})\b", checksum_text)
-    if match is None:
-        raise SystemExit(f"Invalid installer checksum: {checksum_path}")
-    digest = hashlib.sha256(installer.read_bytes()).hexdigest()
-    if match.group(1).lower() != digest:
-        raise SystemExit(f"Installer checksum mismatch: {checksum_path}")
 print(f"smoke: installer ok: {installer}")
 PY
+  verify_checksum "$installer"
 }
 
 check_apk

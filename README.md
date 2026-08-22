@@ -11,13 +11,15 @@ Android、macOS、Windows 三端一致的连接体验：导入订阅，选择节
 [![Latest Release](https://img.shields.io/github/v/release/Elegying/SSRVPN?display_name=tag&sort=semver)](https://github.com/Elegying/SSRVPN/releases/latest)
 [![CI](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml/badge.svg)](https://github.com/Elegying/SSRVPN/actions/workflows/ci.yml)
 [![Security policy](https://img.shields.io/badge/security-private%20reporting-0f766e)](SECURITY.md)
-[![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
+[![License: MIT + third-party](https://img.shields.io/badge/License-MIT%20%2B%20third--party-22c55e.svg)](#许可证)
 [![Platforms](https://img.shields.io/badge/Android%20%7C%20macOS%20%7C%20Windows-6c63ff)](#下载)
 
 [立即下载](#下载) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md) · [报告问题](https://github.com/Elegying/SSRVPN/issues/new/choose) · [项目文档](docs/README.md)
 
-<img src="docs/assets/ssrvpn-product-preview.png" alt="SSRVPN v4.0.13 已连接主页" width="400">
-<img src="docs/assets/ssrvpn-node-preview.png" alt="SSRVPN v4.0.13 节点选择与代理模式界面" width="400">
+下图为界面示意，版本号以 GitHub Release 和应用“关于”页为准。
+
+<img src="docs/assets/ssrvpn-product-preview.png" alt="SSRVPN 已连接主页" width="400">
+<img src="docs/assets/ssrvpn-node-preview.png" alt="SSRVPN 节点选择与代理模式界面" width="400">
 
 </div>
 
@@ -33,20 +35,36 @@ SSRVPN 是面向 Android、macOS 和 Windows 的开源 Mihomo 客户端。它把
 - **开箱即用**：导入订阅或节点链接，完成刷新与测速后即可选择节点并连接。
 - **连接方式完整**：Android 使用系统 VPN；macOS 和 Windows 支持系统代理与 TUN。
 - **更新可验证**：正式安装包同时提供 SHA-256 校验文件和发布来源记录。
-- **诊断不泄密**：内置带错误编号和操作建议的脱敏诊断报告，便于定位连接问题。
+- **诊断默认脱敏**：内置带错误编号和操作建议的限长诊断报告；公开分享前仍应人工检查。
 
 ## 下载
 
 | 平台 | 安装包 | 连接方式 | 下载 | SHA-256 |
 | --- | --- | --- | --- | --- |
-| Android | `SSRVPN.apk` | 系统 VPN | [下载最新版 APK](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.apk) | [校验文件](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.apk.sha256) |
-| macOS（仅 Apple M 系列芯片） | `SSRVPN.dmg` | 系统代理、TUN | [下载最新版 DMG](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.dmg) | [校验文件](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.dmg.sha256) |
-| Windows | `SSRVPN_Setup.exe` | 系统代理、TUN | [下载最新版安装器](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN_Setup.exe) | [校验文件](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN_Setup.exe.sha256) |
+| Android 7.0+（arm64-v8a） | `SSRVPN.apk` | 系统 VPN | [下载最新版 APK](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.apk) | [校验文件](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.apk.sha256) |
+| macOS 11+（Apple M 系列芯片） | `SSRVPN.dmg` | 系统代理、TUN | [下载最新版 DMG](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.dmg) | [校验文件](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN.dmg.sha256) |
+| Windows 10/11 x64 | `SSRVPN_Setup.exe` | 系统代理、TUN | [下载最新版安装器](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN_Setup.exe) | [校验文件](https://github.com/Elegying/SSRVPN/releases/latest/download/SSRVPN_Setup.exe.sha256) |
 
 也可以前往 [GitHub Releases](https://github.com/Elegying/SSRVPN/releases/latest) 查看版本说明、SHA-256 校验文件与发布来源记录。
 
+下载后可直接核对 SHA-256：
+
+```bash
+# Android / Linux
+sha256sum SSRVPN.apk
+# macOS
+shasum -a 256 SSRVPN.dmg
+```
+
+```powershell
+# Windows PowerShell
+Get-FileHash .\SSRVPN_Setup.exe -Algorithm SHA256
+```
+
+把输出与同名 `.sha256` 文件中的 64 位摘要逐字比较；不一致时不要安装。
+
 > [!IMPORTANT]
-> 请只从本仓库 Release 下载。Android 正式包当前仅包含 arm64 核心；macOS 正式包仅支持 Apple M 系列芯片，并采用免费 ad-hoc、未公证分发；Windows 为免费未签名分发。因此首次打开桌面包时可能出现 Gatekeeper 或 SmartScreen 提示。
+> GitHub Release 是版本、说明、SHA-256 与发布来源记录的权威来源；官网固定下载地址仅镜像同一批已校验资产。Android 正式包当前仅包含 arm64 核心；macOS 正式包仅支持 Apple M 系列芯片，并采用免费 ad-hoc、未公证分发；Windows 为免费未签名分发。因此首次打开桌面包时可能出现 Gatekeeper 或 SmartScreen 提示。
 
 ## 快速开始
 
@@ -127,6 +145,15 @@ Pull Request 还会执行 GitHub Dependency Review；新增中等及以上已知
 
 参与 Issue、Pull Request 或其他社区协作前，请阅读[贡献指南](CONTRIBUTING.md)和[社区行为准则](CODE_OF_CONDUCT.md)。
 
+## 隐私与数据
+
+SSRVPN 不内置遥测，不自动上传日志；订阅、节点、设置和运行日志默认保存在本机。应用主要会为
+用户配置的订阅、GitHub 版本检查、固定提交的路由规则刷新、DNS 解析、连通性观察、公网 IPv4
+展示及实际代理流量发起网络请求。
+诊断报告默认限长并脱敏，但分享前仍须检查订阅地址、节点凭据、文件路径和个人信息。
+
 ## 许可证
 
-SSRVPN 基于 [MIT License](LICENSE) 开源。
+SSRVPN 自有代码采用 [MIT License](LICENSE)。安装包内置的 Mihomo、Android Mihomo 分支和
+GeoIP 数据库遵循其各自许可证；精确版本、对应源码方向、修改说明及随包分发的许可证正文见
+[第三方许可清单](third_party/THIRD_PARTY_NOTICES.md)。

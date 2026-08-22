@@ -215,7 +215,8 @@ class MainActivity : FlutterActivity() {
         try {
             result.success(NativeVpnSessionCoordinator.prepareApiSecretRecovery(this))
         } catch (error: Exception) {
-            Log.e("MainActivity", "Unable to prepare API secret recovery", error)
+            val category = NativeCoreStartFailureCategory.from(error).logValue
+            Log.e("MainActivity", "event=api_secret_recovery_failed cause=$category")
             result.error(
                 "API_SECRET_RECOVERY_PREPARE_FAILED",
                 "无法安全清除旧连接状态",
@@ -256,7 +257,8 @@ class MainActivity : FlutterActivity() {
             }
             result.success(generation)
         } catch (error: Exception) {
-            Log.e("MainActivity", "Unable to sync native VPN snapshot", error)
+            val category = NativeCoreStartFailureCategory.from(error).logValue
+            Log.e("MainActivity", "event=native_snapshot_sync_failed cause=$category")
             result.error(
                 "NATIVE_SNAPSHOT_SYNC_FAILED",
                 "无法同步原生 VPN 快速启动数据",
@@ -274,7 +276,7 @@ class MainActivity : FlutterActivity() {
 
     private fun handleStartCoreWithVpn(call: MethodCall, result: MethodChannel.Result) {
         if (SsrvpnVpnService.isCoreOperationBusy()) {
-            result.error("CORE_BUSY", "VPN 核心正在启动或停止，请稍后重试", null)
+            result.error("CORE_START_BUSY", "VPN 核心正在启动或停止，请稍后重试", null)
             return
         }
         cancelPendingActivityStart("新的连接请求已替代旧请求")
@@ -291,7 +293,7 @@ class MainActivity : FlutterActivity() {
 
         Log.d(
             "MainActivity",
-            "startCoreWithVpn: dir=$configDir, config=$configPath, apiPort=$apiPort"
+            "startCoreWithVpn: request accepted apiPort=$apiPort"
         )
         val completed = AtomicBoolean(false)
         lateinit var callback: (Boolean, String, Map<String, Any?>?) -> Unit
@@ -313,9 +315,10 @@ class MainActivity : FlutterActivity() {
             try {
                 SsrvpnVpnService.instance?.stopAll()
             } catch (error: Exception) {
+                val category = NativeCoreStartFailureCategory.from(error).logValue
                 Log.w(
                     "MainActivity",
-                    "VPN start timeout cleanup failed: ${error.javaClass.simpleName}"
+                    "VPN start timeout cleanup failed: cause=$category"
                 )
             }
             runOnActiveUiThread("Unable to deliver VPN start timeout") {
@@ -356,7 +359,9 @@ class MainActivity : FlutterActivity() {
                     val errorCode = if (message == "用户拒绝了 VPN 权限") {
                         "PERMISSION_DENIED"
                     } else {
-                        "CORE_FAILED"
+                        NativeCoreStartFailureCategory.methodChannelCodeFromState(
+                            capturedState
+                        )
                     }
                     result.error(errorCode, message, null)
                 }
@@ -402,8 +407,15 @@ class MainActivity : FlutterActivity() {
                 startVpnServiceWithTimeout()
             }
         } catch (error: Exception) {
-            Log.e("MainActivity", "Unable to request VPN permission", error)
-            cancelPendingActivityStart("无法打开 VPN 授权页面，请检查系统设置后重试")
+            val category = NativeCoreStartFailureCategory.from(error)
+            Log.e(
+                "MainActivity",
+                "Unable to request VPN permission cause=${category.logValue}"
+            )
+            cancelPendingActivityStart(
+                "无法打开 VPN 授权页面，请检查系统设置后重试",
+                category
+            )
         }
     }
 
@@ -437,7 +449,8 @@ class MainActivity : FlutterActivity() {
                 }
             }
         } catch (error: Exception) {
-            Log.e("MainActivity", "Unable to stop VPN core", error)
+            val category = NativeCoreStartFailureCategory.from(error).logValue
+            Log.e("MainActivity", "event=vpn_stop_request_failed cause=$category")
             result.error(
                 "STOP_FAILED",
                 "VPN 断开失败，请重试；若持续失败请打开诊断与运行日志",
@@ -484,7 +497,8 @@ class MainActivity : FlutterActivity() {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             result.success(true)
         } catch (error: Exception) {
-            Log.e("MainActivity", "Unable to open external URL", error)
+            val category = NativeCoreStartFailureCategory.from(error).logValue
+            Log.e("MainActivity", "event=external_url_open_failed cause=$category")
             result.error("OPEN_URL_FAILED", "无法打开链接，请稍后重试", null)
         }
     }
@@ -498,7 +512,8 @@ class MainActivity : FlutterActivity() {
         try {
             result.success(mapOf("status" to requestUpdateInstall(apkPath)))
         } catch (error: Exception) {
-            Log.e("MainActivity", "Unable to request update install", error)
+            val category = NativeCoreStartFailureCategory.from(error).logValue
+            Log.e("MainActivity", "event=update_install_request_failed cause=$category")
             result.error(
                 "INSTALL_UPDATE_FAILED",
                 "无法打开安装界面，请重新下载安装包后重试",
@@ -569,7 +584,8 @@ class MainActivity : FlutterActivity() {
             clearPendingUpdateInstall()
             launchPackageInstaller(apkFile)
         } catch (e: Exception) {
-            Log.e("MainActivity", "Pending update install failed: ${e.message}", e)
+            val category = NativeCoreStartFailureCategory.from(e).logValue
+            Log.e("MainActivity", "event=pending_update_install_failed cause=$category")
         }
     }
 
@@ -623,7 +639,10 @@ class MainActivity : FlutterActivity() {
     private fun startVpnServiceWithTimeout() {
         val timeoutRunnable = startTimeoutRunnable ?: return
         val serviceIntent = pendingVpnServiceIntent ?: run {
-            cancelPendingActivityStart("连接参数已失效，请重试")
+            cancelPendingActivityStart(
+                "连接参数已失效，请重试",
+                NativeCoreStartFailureCategory.CONFIG
+            )
             return
         }
         pendingVpnServiceIntent = null
@@ -634,19 +653,29 @@ class MainActivity : FlutterActivity() {
         )
         val claimId = NativeVpnSessionCoordinator.claimPendingStart(serviceIntent)
         if (claimId == null) {
-            cancelPendingActivityStart("VPN 启动状态已变化，请重试")
+            cancelPendingActivityStart(
+                "VPN 启动状态已变化，请重试",
+                NativeCoreStartFailureCategory.BUSY
+            )
             return
         }
         myStartClaimId = claimId
         try {
             startVpnService(serviceIntent)
         } catch (error: Exception) {
-            Log.e("MainActivity", "Unable to start VPN service", error)
-            cancelPendingActivityStart("无法启动 VPN 服务，请重试")
+            val category = NativeCoreStartFailureCategory.from(error)
+            Log.e(
+                "MainActivity",
+                "event=vpn_service_start_failed cause=${category.logValue}"
+            )
+            cancelPendingActivityStart("无法启动 VPN 服务，请重试", category)
         }
     }
 
-    private fun cancelPendingActivityStart(message: String) {
+    private fun cancelPendingActivityStart(
+        message: String,
+        failureCategory: NativeCoreStartFailureCategory? = null
+    ) {
         vpnPermissionRequestPending = false
         startTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         startTimeoutRunnable = null
@@ -655,7 +684,11 @@ class MainActivity : FlutterActivity() {
         myStartClaimId = null
         NativeStartPayloadRegistry.discard(myStartPayloadId)
         myStartPayloadId = null
-        myResultCallback?.invoke(false, message, null)
+        myResultCallback?.invoke(
+            false,
+            message,
+            failureCategory?.methodChannelFailureState
+        )
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

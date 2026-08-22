@@ -7,6 +7,72 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsInstallerConfigTest(unittest.TestCase):
+    def test_microsoft_runtime_packaging_is_redist_only_and_provenanced(
+        self,
+    ) -> None:
+        package = (
+            ROOT / "SSRVPN_Windows" / "tool" / "package_windows.ps1"
+        ).read_text(encoding="utf-8")
+        runtime_search = package[
+            package.index("function Get-RuntimeSearchDirectories") :
+            package.index("function Get-D3DCompilerSearchDirectories")
+        ]
+        d3d_search = package[
+            package.index("function Get-D3DCompilerSearchDirectories") :
+            package.index("function Find-DependencyFile")
+        ]
+        copy_runtime = package[
+            package.index("function Copy-RuntimeDependency") :
+            package.index("function Add-RuntimeFiles")
+        ]
+
+        self.assertIn("$env:VCToolsRedistDir", runtime_search)
+        self.assertIn("Add-VisualStudioRedistDirectories", runtime_search)
+        self.assertIn("Windows Kits\\10\\Redist\\D3D\\x64", d3d_search)
+        for forbidden in (
+            "$releaseDir",
+            "$buildDir",
+            "$projectRoot",
+            "$env:WINDIR",
+            "$env:SystemRoot",
+            "Sysnative",
+            "System32",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, runtime_search)
+                self.assertNotIn(forbidden, d3d_search)
+
+        self.assertIn("Get-AuthenticodeSignature", package)
+        self.assertIn("Microsoft Corporation", package)
+        self.assertIn("Status -ne 'Valid'", package)
+        self.assertNotIn("[RUNTIME] Found", copy_runtime)
+        self.assertIn("Copy-Item -LiteralPath $source", copy_runtime)
+        self.assertIn("-Destination $destination -Force", copy_runtime)
+        for field in ("File", "Version", "SHA256", "SourceClass"):
+            self.assertIn(field, package)
+        self.assertIn("Write-RuntimeProvenance", package)
+
+    def test_installed_microsoft_runtime_matches_provenance_record(self) -> None:
+        smoke = (ROOT / "scripts" / "test_windows_installer_package.ps1").read_text(
+            encoding="utf-8"
+        )
+        verifier = smoke[
+            smoke.index("function Assert-MicrosoftRuntimeProvenance") :
+            smoke.index("function Wait-PathAbsent")
+        ]
+
+        self.assertIn("Format-Version: 1", verifier)
+        self.assertIn("VisualStudioRedist", verifier)
+        self.assertIn("WindowsKitsRedist", verifier)
+        self.assertIn("$expectedSourceClasses.Count + 3", verifier)
+        self.assertIn("Get-FileHash -LiteralPath $installedPath", verifier)
+        self.assertIn("FileVersionInfo]::GetVersionInfo($installedPath)", verifier)
+        self.assertIn("$actualHash -cne [string]$fields[2]", verifier)
+        self.assertIn(
+            "Assert-MicrosoftRuntimeProvenance -InstallDirectory $installDir",
+            smoke,
+        )
+
     def test_windows_version_channel_uses_authoritative_build_sources(self) -> None:
         runner = ROOT / "SSRVPN_Windows" / "windows" / "runner"
         native = (runner / "flutter_window.cpp").read_text(encoding="utf-8")
@@ -55,7 +121,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotIn("{autoprograms}", script)
         self.assertNotIn('Name: "desktopicon"', script)
 
-    def test_successful_install_removes_only_owned_legacy_shortcuts_and_preserves_source(
+    def test_successful_install_deletes_only_marked_verified_update_source(
         self,
     ) -> None:
         installer_root = ROOT / "SSRVPN_Windows" / "installer"
@@ -67,6 +133,36 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn(
             'Source: "{#ProjectDir}\\installer\\post_install_cleanup.ps1";',
             installer,
+        )
+        self.assertIn(
+            "VerifiedUpdateMarkerSuffix = '.ssrvpn-verified-update'", installer
+        )
+        self.assertIn("VerifiedUpdateExpectedInstallerName =", installer)
+        self.assertIn("'SSRVPN_Setup_v{#AppVersion}.exe'", installer)
+        initialize = installer.split("function InitializeSetup(): Boolean;", 1)[
+            1
+        ].split("procedure ReleaseInstallGates", 1)[0]
+        self.assertIn("ExtractFileName(ExpandConstant('{srcexe}'))", initialize)
+        self.assertIn("VerifiedUpdateActualInstallerName", initialize)
+        self.assertIn("IsValidVerifiedUpdateInstallerName(", initialize)
+        self.assertIn("FileExists(VerifiedUpdateMarkerPath)", initialize)
+        self.assertIn("VerifiedUpdateCleanupRequested := True", initialize)
+        verified_name = installer.split(
+            "function IsValidVerifiedUpdateInstallerName", 1
+        )[1].split("function InitializeSetup", 1)[0]
+        self.assertIn("VerifiedUpdateExpectedInstallerName", verified_name)
+        self.assertIn("ChangeFileExt(", verified_name)
+        self.assertIn("Length(VariantPrefix) + 32 + Length('.exe')", verified_name)
+        self.assertIn("IsLowerHexString(VariantNonce, 32)", verified_name)
+        self.assertNotIn("Uppercase", verified_name)
+        self.assertRegex(
+            initialize,
+            re.compile(
+                r"IsValidVerifiedUpdateInstallerName\(\s*"
+                r"VerifiedUpdateActualInstallerName\) and\s+"
+                r"FileExists\(VerifiedUpdateMarkerPath\)",
+                re.DOTALL,
+            ),
         )
         post_install = installer.split(
             "procedure CurStepChanged(CurStep: TSetupStep);", 1
@@ -80,25 +176,105 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )[0]
         self.assertIn("if InstallSucceeded then", deinitialize)
         self.assertIn("LaunchPostInstallCleanup", deinitialize)
+        self.assertIn("if VerifiedUpdateCleanupRequested then", deinitialize)
+        self.assertIn("LaunchVerifiedUpdatePackageCleanup", deinitialize)
         self.assertIn("ExecAsOriginalUser", installer)
         cleanup_launcher = installer.split(
             "procedure LaunchPostInstallCleanup;", 1
-        )[1].split("procedure DeinitializeSetup;", 1)[0]
+        )[1].split("procedure LaunchVerifiedUpdatePackageCleanup;", 1)[0]
         self.assertIn("try", cleanup_launcher)
         self.assertIn("except", cleanup_launcher)
         self.assertIn("raised an internal exception", cleanup_launcher)
         self.assertIn("ewWaitUntilTerminated", cleanup_launcher)
         self.assertNotIn("ewNoWait", cleanup_launcher)
+        package_cleanup_launcher = installer.split(
+            "procedure LaunchVerifiedUpdatePackageCleanup;", 1
+        )[1].split("procedure DeinitializeSetup;", 1)[0]
+        self.assertIn("ewNoWait", package_cleanup_launcher)
+        self.assertIn("AddQuotes(ExpandConstant('{srcexe}'))", package_cleanup_launcher)
+        self.assertIn(
+            "AddQuotes(VerifiedUpdateActualInstallerName)",
+            package_cleanup_launcher,
+        )
+        self.assertIn("IntToStr(WinGetCurrentProcessId)", package_cleanup_launcher)
+        self.assertLess(
+            deinitialize.index("LaunchPostInstallCleanup"),
+            deinitialize.index("LaunchVerifiedUpdatePackageCleanup"),
+        )
 
         self.assertIn("SpecialFolder]::DesktopDirectory", cleanup)
         self.assertIn("SpecialFolder]::Programs", cleanup)
         self.assertIn("CreateShortcut", cleanup)
         self.assertIn("$shortcut.TargetPath", cleanup)
         self.assertIn("OrdinalIgnoreCase", cleanup)
-        self.assertNotIn("InstallerPath", cleanup)
-        self.assertNotIn("InstallerProcessId", cleanup)
-        self.assertNotIn("WaitForExit", cleanup)
-        self.assertNotIn("Remove-Item -LiteralPath $InstallerPath", cleanup)
+        self.assertIn("[switch]$RemoveVerifiedInstaller", cleanup)
+        self.assertIn("$normalizedInstaller + '.ssrvpn-verified-update'", cleanup)
+        self.assertIn("(?:_[a-f0-9]{32})?", cleanup)
+        self.assertIn("$markerLines.Count -ne 4", cleanup)
+        self.assertIn("'ssrvpn-verified-update-v2'", cleanup)
+        self.assertIn("-Stream $script:verifiedInstallerOwnerStream", cleanup)
+        self.assertIn("Get-FileHash -LiteralPath $InstallerPath", cleanup)
+        self.assertIn("-Algorithm SHA256", cleanup)
+        self.assertIn(
+            "[long]$script:maxVerifiedInstallerBytes = 300MB", cleanup
+        )
+        self.assertIn(
+            "[long]$installerItem.Length -gt "
+            "$script:maxVerifiedInstallerBytes",
+            cleanup,
+        )
+        self.assertLess(
+            cleanup.index("[long]$installerItem.Length -gt"),
+            cleanup.index("Get-FileHash -LiteralPath $InstallerPath"),
+        )
+        self.assertIn("ReparsePoint", cleanup)
+        self.assertIn("WaitForExit(120000)", cleanup)
+        self.assertIn(
+            "Move-Item -LiteralPath $markerPath -Destination $markerQuarantinePath",
+            cleanup,
+        )
+        self.assertIn("Move-Item -LiteralPath $normalizedInstaller", cleanup)
+        self.assertIn("Remove-Item -LiteralPath $quarantinePath -Force", cleanup)
+        self.assertIn("for ($attempt = 0; $attempt -lt 20; $attempt++)", cleanup)
+        self.assertIn("Restore-QuarantinedInstaller", cleanup)
+        self.assertIn("Restore-QuarantinedUpdateAuthorization", cleanup)
+        restore_helper = cleanup.split(
+            "function Restore-QuarantinedInstaller", 1
+        )[1].split("$normalizedLauncher", 1)[0]
+        self.assertNotIn("-PathType Leaf", restore_helper)
+        self.assertRegex(
+            cleanup,
+            re.compile(
+                r"Move-Item -LiteralPath \$QuarantinePath\s+"
+                r"-Destination \$InstallerPath"
+            ),
+        )
+        self.assertLess(
+            cleanup.index("Move-Item -LiteralPath $normalizedInstaller"),
+            cleanup.index("Move-Item -LiteralPath $markerPath"),
+        )
+        self.assertIn("for ($attempt = 0; $attempt -lt 480; $attempt++)", cleanup)
+        self.assertIn("$moveSucceeded = $false", cleanup)
+        self.assertIn("$moveSucceeded = $true", cleanup)
+        self.assertIn("if (-not $moveSucceeded)", cleanup)
+        self.assertIn("if (Test-Path -LiteralPath $markerPath)", cleanup)
+        self.assertIn("$markerQuarantinePath", cleanup)
+        self.assertIn(
+            "Move-Item -LiteralPath $MarkerQuarantinePath -Destination $MarkerPath",
+            cleanup,
+        )
+        self.assertIn("[Guid]::NewGuid().ToString('N')", cleanup)
+        self.assertIn("Test-VerifiedInstallerPayload", cleanup)
+        self.assertIn("Test-VerifiedInstallerIdentity", cleanup)
+        self.assertIn("Get-VerifiedInstallerEvidenceWithReadRetry", cleanup)
+        self.assertIn("[System.IO.FileShare]::ReadWrite", cleanup)
+        deletion_retry = cleanup.split("# Retry the removal without rehashing", 1)[
+            1
+        ].split("# Deletion is best-effort", 1)[0]
+        self.assertNotIn("Get-FileHash", deletion_retry)
+        self.assertIn("Test-VerifiedInstallerIdentity", deletion_retry)
+        self.assertNotIn("Get-ChildItem", cleanup)
+        self.assertNotIn("-Recurse", cleanup)
 
         smoke = (ROOT / "scripts" / "test_windows_installer_package.ps1").read_text(
             encoding="utf-8"
@@ -107,7 +283,46 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("SpecialFolder]::DesktopDirectory", smoke)
         self.assertIn("New-LegacyShortcut", smoke)
         self.assertIn("Assert-SingleMachineShortcut", smoke)
-        self.assertNotIn("Wait-PathAbsent", smoke)
+        self.assertIn("Wait-PathAbsent", smoke)
+        self.assertIn("Assert-NoCleanupQuarantine", smoke)
+        self.assertIn("ssrvpn-verified-update-v2", smoke)
+        self.assertIn("ssrvpn-verified-update-v1", smoke)
+        self.assertIn("New-VerifiedUpdateAuthorization", smoke)
+        self.assertIn("-Stream 'ssrvpn-update-owner'", smoke)
+        self.assertIn("unmarked versioned upgrade", smoke)
+        self.assertIn(
+            "Assert-InstallerPreserved -Path $manualVersionedInstaller", smoke
+        )
+        self.assertIn("replayed marker cleanup guard", smoke)
+        self.assertIn("Assert-InstallerPreserved -Path $replayedInstaller", smoke)
+        self.assertIn("oversized marked update cleanup guard", smoke)
+        self.assertIn("SetLength(300MB + 1)", smoke)
+        self.assertIn("Assert-InstallerPreserved -Path $oversizedInstaller", smoke)
+        self.assertIn("tampered update cleanup guard", smoke)
+        self.assertIn("$mutationStream.WriteByte(0)", smoke)
+        self.assertIn("Assert-InstallerPreserved -Path $tamperedInstaller", smoke)
+        self.assertIn("Assert-InstallerPreserved -Path $tamperedMarker", smoke)
+        self.assertIn("delayed lock update cleanup retry", smoke)
+        self.assertIn("Start-Sleep -Milliseconds 1500", smoke)
+        self.assertIn("[System.IO.FileShare]::None", smoke)
+        self.assertIn("Wait-PathAbsent -Path $delayedLockedInstaller", smoke)
+        self.assertIn("Wait-PathAbsent -Path $delayedLockedMarker", smoke)
+        self.assertIn("locked marker cleanup guard", smoke)
+        self.assertIn("[System.IO.FileShare]::Read", smoke)
+        self.assertIn("Assert-InstallerPreserved -Path $lockedInstaller", smoke)
+        self.assertIn("function Get-DeterministicUpdateNameSuffix", smoke)
+        self.assertIn("ssrvpn-windows-update-name-v1", smoke)
+        self.assertIn("$upgradeNameSuffix = Get-DeterministicUpdateNameSuffix", smoke)
+        self.assertIn("$upgradeOrphanMarker", smoke)
+        self.assertIn(
+            "Verified alternate update cleanup changed the canonical orphan sidecar",
+            smoke,
+        )
+        marker_wait = smoke.index("Wait-PathAbsent -Path $upgradeMarker")
+        residue_check = smoke.index(
+            "Assert-NoCleanupQuarantine -Installer $upgradeInstaller"
+        )
+        self.assertLess(marker_wait, residue_check)
         self.assertIn("$installInstaller", smoke)
         self.assertIn("$upgradeInstaller", smoke)
         self.assertIn("Assert-InstallerPreserved", smoke)
@@ -168,6 +383,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("UsePreviousAppDir=no", script)
         self.assertIn("PrivilegesRequired=admin", script)
         self.assertIn("UsedUserAreasWarning=no", script)
+        setup = script.split("[Setup]", 1)[1].split("[Languages]", 1)[0]
+        self.assertEqual(1, setup.count("MinVersion=10.0.10240"))
         self.assertNotIn("PrivilegesRequired=lowest", script)
         self.assertNotRegex(
             script,
@@ -207,7 +424,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertIn("覆盖升级会保留安装版的设置、订阅", notice)
         self.assertIn("旧独立副本文件不会被删除或修改", notice)
-        self.assertIn("其他已知代理核心会被强制结束", notice)
+        self.assertIn("只会结束可执行路径属于当前 SSRVPN 安装目录", notice)
+        self.assertIn("不会按通用进程名关闭其他代理或 VPN 软件", notice)
         self.assertIn("3 秒自行收尾", notice)
         self.assertNotIn("永久删除当前 Windows 用户的 SSRVPN 旧数据", notice)
         self.assertIn("ssrvpn_windows_app.exe", script)
@@ -359,7 +577,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             initialize.index("HandoffEvent := WinOpenEvent"),
             initialize.index("UpdateHandoffDetected := True"),
         )
-        self.assertIn("Length(Token) = 32", installer)
+        self.assertIn("IsLowerHexString(String(Token), 32)", installer)
+        self.assertIn("Length(Value) = ExpectedLength", installer)
         self.assertIn("UpdateHandoffEventPrefix + String(Token)", initialize)
 
         prepare = installer.split(
@@ -896,11 +1115,15 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertLess(lock_acquire, stopper.index("$currentSessionId ="))
         self.assertLess(lock_acquire, instance_gate)
         self.assertLess(instance_gate, stopper.index("$currentSessionId ="))
-        self.assertLess(lock_acquire, stopper.index("$apps = @()"))
+        self.assertLess(lock_acquire, stopper.index("$installedApps = @()"))
         self.assertLess(lock_acquire, stopper.index("$proxyBackup = Get-ProxyRecoveryState"))
-        lock_function = stopper.split("function Enter-ProxyTransactionLock", 1)[1]
+        self.assertNotIn("function Enter-ProxyTransactionLock", stopper)
+        self.assertIn("function Enter-ProxyTransactionLock", transaction_state)
+        lock_function = transaction_state.split(
+            "function Enter-ProxyTransactionLock", 1
+        )[1]
         lock_function = lock_function.split(
-            "$script:ProxyTransactionLockStream = $null", 1
+            "function Set-OrRemoveRegistryValue", 1
         )[0]
         self.assertIn("system_proxy_transaction.lock", lock_function)
         self.assertIn("[System.IO.FileMode]::OpenOrCreate", lock_function)
@@ -1053,15 +1276,26 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("InstalledCorePath", stopper)
         self.assertIn("InstalledAppPath", stopper)
         self.assertIn("InstalledLauncherPath", stopper)
-        process_lookup = stopper.split("function Get-ProcessesByName", 1)[1]
-        process_lookup = process_lookup.split("function Test-ExactPath", 1)[0]
+        process_lookup = stopper.split("function Get-ProcessesAtPath", 1)[1]
+        process_lookup = process_lookup.split(
+            "function Get-ProcessesAtPathFailClosed", 1
+        )[0]
         self.assertNotIn("ErrorAction SilentlyContinue", process_lookup)
         self.assertIn("Get-Process -ErrorAction Stop", process_lookup)
         self.assertIn("Executable path is unavailable", process_lookup)
         self.assertIn("Get-Process -Id $processId -ErrorAction Stop", process_lookup)
         self.assertIn("Process identity changed while verifying PID", process_lookup)
+        self.assertIn("$live = $null", process_lookup)
+        self.assertIn("NoProcessFoundForGivenId*", process_lookup)
+        self.assertIn("$processGone = $live.HasExited", process_lookup)
+        self.assertIn("if ($processGone) { continue }", process_lookup)
         self.assertIn("$live.ProcessName -ine $expectedProcessName", process_lookup)
         self.assertIn("$live.SessionId -ne $currentSessionId", process_lookup)
+        self.assertIn(
+            "Test-ExactPath -Actual ([string]$candidate.ExecutablePath) `\n"
+            "            -Expected $ExpectedPath",
+            process_lookup,
+        )
         self.assertIn("$candidateSessionId -ne $currentSessionId) { continue }", process_lookup)
         fallback_session_filter = process_lookup.index(
             "$_.SessionId -eq $currentSessionId"
@@ -1075,6 +1309,15 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "if (-not $candidate.ExecutablePath)"
         )
         self.assertLess(candidate_session_check, candidate_path_check)
+        fail_closed_lookup = stopper.split(
+            "function Get-ProcessesAtPathFailClosed", 1
+        )[1].split("function Test-ExactPath", 1)[0]
+        self.assertIn("Get-ProcessesAtPath `", fail_closed_lookup)
+        self.assertIn(
+            "Set-StopStatus -Status 'IDENTITY_UNVERIFIED'", fail_closed_lookup
+        )
+        self.assertIn("cleanup stopped before continuing", fail_closed_lookup)
+        self.assertIn("exit 3", fail_closed_lookup)
         remove_state = stopper.split("function Remove-ProxyRecoveryState", 1)[1]
         remove_state = remove_state.split("function Test-RequiredProperties", 1)[0]
         self.assertIn("$nativeExists = Test-Path -Path $nativePath", remove_state)
@@ -1119,7 +1362,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertNotIn("ErrorAction SilentlyContinue", set_or_remove)
         self.assertIn("function Test-SystemProxySafeToStop", stopper)
         safe_to_stop = stopper.split("function Test-SystemProxySafeToStop", 1)[1]
-        safe_to_stop = safe_to_stop.split("$apps = @()", 1)[0]
+        safe_to_stop = safe_to_stop.split("$installedApps = @()", 1)[0]
         self.assertIn(
             "if ($null -eq $current.PSObject.Properties['ProxyEnable']) {\n"
             "      return $true",
@@ -1158,29 +1401,45 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertIn("$installedApps.Count -gt 0", stopper)
         self.assertIn("$installedLaunchers.Count -gt 0", stopper)
-        self.assertIn("$proxyProcesses.Count -gt 0", stopper)
+        self.assertIn("$installedCores.Count -gt 0", stopper)
         self.assertIn("[bool]$InstalledProcessRunning", stopper)
         self.assertIn(
             "-not $Backup -and $InstalledProcessRunning -and\n"
             "        (Test-OwnedProxyServer -Value $proxyServer)",
             stopper,
         )
-        enumeration = stopper.index("$apps = @()")
+        enumeration = stopper.index("$installedApps = @()")
         self.assertLess(enumeration, stopper.index("$proxyBackup = Get-ProxyRecoveryState"))
         expected_path_gate = stopper.index(
             "$InstalledAppPath = Get-ValidatedExpectedPath"
         )
         proxy_state_read = stopper.index("$proxyBackup = Get-ProxyRecoveryState")
-        self.assertLess(expected_path_gate, enumeration + stopper[enumeration:].index(
-            "$apps = @(Get-ProcessesByName"
-        ))
+        self.assertLess(
+            expected_path_gate,
+            stopper.index("Get-ProcessesAtPathFailClosed `", enumeration),
+        )
+        runtime_enumeration = stopper[enumeration:]
+        self.assertNotRegex(
+            runtime_enumeration,
+            re.compile(r"(?m)^\s*Get-ProcessesAtPath\s+`"),
+        )
+        self.assertEqual(
+            8,
+            runtime_enumeration.count("Get-ProcessesAtPathFailClosed `"),
+        )
         self.assertNotIn("$foreignApps", stopper)
         self.assertNotIn("$foreignLaunchers", stopper)
         self.assertNotIn("$foreignCores", stopper)
-        self.assertIn("$script:AggressiveProxyProcessNames", stopper)
-        self.assertIn("Could not verify optional proxy process", stopper)
+        self.assertNotIn("$script:AggressiveProxyProcessNames", stopper)
+        self.assertNotIn("Could not verify optional proxy process", stopper)
+        self.assertNotIn("Get-ProcessesByName", stopper)
+        self.assertNotRegex(
+            runtime_enumeration,
+            re.compile(
+                r"Get-ProcessesAtPathFailClosed\s+`\s+-Name\s+\$"
+            ),
+        )
         for process_name in (
-            "mihomo.exe",
             "clash.exe",
             "clash-meta.exe",
             "clash-verge.exe",
@@ -1188,10 +1447,25 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "xray.exe",
             "v2ray.exe",
             "openvpn.exe",
+            "openvpn-gui.exe",
             "wireguard.exe",
             "tailscale-ipn.exe",
+            "zerotier-one_x64.exe",
         ):
-            self.assertIn(f"'{process_name}'", stopper)
+            self.assertNotIn(process_name, stopper.lower())
+        for process_name, expected_path in (
+            ("ssrvpn_windows_app.exe", "$InstalledAppPath"),
+            ("ssrvpn_windows.exe", "$InstalledLauncherPath"),
+            ("mihomo.exe", "$InstalledCorePath"),
+        ):
+            self.assertRegex(
+                stopper,
+                re.compile(
+                    rf"Get-ProcessesAtPathFailClosed\s+`?\s*"
+                    rf"-Name '{re.escape(process_name)}'\s+`?\s*"
+                    rf"-ExpectedPath {re.escape(expected_path)}"
+                ),
+            )
         self.assertIn("[string]::IsNullOrWhiteSpace($Path)", stopper)
         self.assertIn("[System.IO.Path]::IsPathRooted($Path)", stopper)
         self.assertIn(
@@ -1226,9 +1500,21 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         runtime_test = (
             ROOT / "scripts" / "test_windows_installer_runtime.ps1"
         ).read_text(encoding="utf-8")
+        self.assertIn("$transactionStateScript = Join-Path", runtime_test)
+        self.assertIn(
+            "The proxy transaction lock is not owned by its packaged helper",
+            runtime_test,
+        )
         self.assertNotIn("prepare_install_directory.ps1", runtime_test)
-        self.assertIn("Aggressive installer cleanup returned", runtime_test)
-        self.assertIn("did not stop a portable process", runtime_test)
+        self.assertIn("Owned installer cleanup returned", runtime_test)
+        self.assertIn("stopped an unrelated process", runtime_test)
+        for process_name in (
+            "openvpn.exe",
+            "wireguard.exe",
+            "tailscale-ipn.exe",
+            "zerotier-one_x64.exe",
+        ):
+            self.assertIn(process_name, runtime_test.lower())
         self.assertIn("Verified installer cleanup returned", runtime_test)
         self.assertIn("$heldTransactionLock.Lock(0, 1)", runtime_test)
         self.assertIn(
@@ -1261,6 +1547,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             "LOCK_BUSY",
             "LOCK_FAILED",
             "INSTANCE_GATE_FAILED",
+            "APP_INSTANCE_ACTIVE",
             "IDENTITY_UNVERIFIED",
             "APP_STILL_RUNNING",
             "PROXY_UNSAFE",
@@ -1314,6 +1601,24 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         uninstall = installer.split("function InitializeUninstall(): Boolean;", 1)[1]
         self.assertGreaterEqual(prepare.count("StopStatusDiagnostic"), 2)
         self.assertGreaterEqual(uninstall.count("StopStatusDiagnostic"), 2)
+        self.assertIn("其他目录或便携版 SSRVPN", prepare)
+        self.assertIn("其他目录或便携版 SSRVPN", uninstall)
+
+        app_gate = stopper.split("$installedProcessRunning =", 1)[1]
+        exact_app_check = app_gate.index("if ($appsBeforeRecovery.Count -gt 0)")
+        foreign_gate = app_gate.index("$script:AppInstanceMutex.WaitOne(0)")
+        proxy_restore = app_gate.index("Restore-OwnedSystemProxy", foreign_gate)
+        self.assertLess(exact_app_check, foreign_gate)
+        self.assertLess(foreign_gate, proxy_restore)
+        self.assertIn("Set-StopStatus -Status 'APP_INSTANCE_ACTIVE'", app_gate)
+        self.assertIn("catch [System.Threading.AbandonedMutexException]", app_gate)
+        runtime_test = (
+            ROOT / "scripts" / "test_windows_installer_runtime.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("APP_INSTANCE_ACTIVE", runtime_test)
+        self.assertIn("foreignInstance\":\"must-remain-byte-for-byte", runtime_test)
+        self.assertIn("Get-InternetSettingsSnapshot", runtime_test)
+        self.assertIn("Foreign-instance gate stopped a portable SSRVPN fixture", runtime_test)
 
         tun_capture = tun_helper.split("function Get-SsrvpnTunOwnership", 1)[1]
         tun_capture = tun_capture.split(
@@ -1650,7 +1955,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
 
         safe_to_stop = stopper[
             stopper.index("function Test-SystemProxySafeToStop") : stopper.index(
-                "$apps = @()"
+                "$installedApps = @()"
             )
         ]
         disabled_endpoint = safe_to_stop.index(
@@ -2029,7 +2334,11 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         self.assertIn("VerifiedUpdateFilePublisher? filePublisher", shared_service)
         self.assertIn("part 'update_service_publication.dart';", shared_service)
         self.assertIn("filePublisher(source, destination)", shared_publication)
-        self.assertIn("CreateHardLinkW", windows_service)
+        self.assertIn("MoveFileExW", windows_service)
+        self.assertIn("_moveFileWriteThrough = 0x00000008", windows_service)
+        self.assertNotIn("CreateHardLinkW", windows_service)
+        self.assertNotIn("MOVEFILE_REPLACE_EXISTING", windows_service)
+        self.assertNotIn("MOVEFILE_COPY_ALLOWED", windows_service)
         self.assertIn("_toExtendedLengthPath(source.absolute.path)", windows_service)
         self.assertIn("\\\\\\\\?\\\\UNC\\\\", windows_service)
         runner_manifest = (
@@ -2041,13 +2350,82 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("<longPathAware", runner_manifest)
         self.assertIn(">true</longPathAware>", runner_manifest)
-        self.assertIn(
-            "filePublisher: Platform.isWindows ? publishVerifiedInstaller : null",
+        self.assertRegex(
             windows_service,
+            re.compile(
+                r"filePublisher\s*\?\?\s*\(Platform\.isWindows\s*"
+                r"\?\s*publishVerifiedInstaller\s*:\s*null\)"
+            ),
         )
+        self.assertIn("trackVerifiedInstallerPublication(", windows_service)
+        self.assertIn("publishedByThisDownload = true", windows_service)
+        self.assertIn("publishVerifiedInstallerMarkerIfOwned(", windows_service)
+        alternate_selector = windows_service.split(
+            "static Future<String> installerFileNameForDownload", 1
+        )[1].split("static String? _verifiedInstallerNameForUpdate", 1)[0]
+        self.assertIn("required String? expectedSha256", alternate_selector)
+        self.assertIn("ssrvpn-windows-update-name-v1", alternate_selector)
+        self.assertIn("$canonicalName\\n$normalizedSha256", alternate_selector)
+        self.assertIn(".substring(0, 32)", alternate_selector)
+        self.assertIn(
+            "markerType != FileSystemEntityType.file", alternate_selector
+        )
+        self.assertNotIn("nonce", alternate_selector.lower())
+        self.assertNotIn(".list(", alternate_selector)
         self.assertNotIn(
             "New-Item -ItemType HardLink",
             shared_service + shared_publication,
+        )
+
+    def test_windows_release_pe_metadata_matches_packaged_roles(self) -> None:
+        runner_rc = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "windows"
+            / "runner"
+            / "Runner.rc"
+        ).read_text(encoding="utf-8")
+        runner_cmake = (
+            ROOT
+            / "SSRVPN_Windows"
+            / "windows"
+            / "runner"
+            / "CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        installer = (
+            ROOT / "SSRVPN_Windows" / "installer" / "SSRVPN.iss"
+        ).read_text(encoding="utf-8-sig")
+        package_smoke = (
+            ROOT / "scripts" / "test_windows_installer_package.ps1"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("SSRVPN_LAUNCHER_RESOURCE", runner_cmake)
+        self.assertIn("SSRVPN_RESOURCE_INTERNAL_NAME", runner_rc)
+        self.assertIn('"ssrvpn_windows"', runner_rc)
+        self.assertIn('"ssrvpn_windows.exe"', runner_rc)
+        self.assertIn('"ssrvpn_windows_app"', runner_rc)
+        self.assertIn('"ssrvpn_windows_app.exe"', runner_rc)
+        self.assertIn(
+            'VALUE "InternalName", SSRVPN_RESOURCE_INTERNAL_NAME', runner_rc
+        )
+        self.assertIn(
+            'VALUE "OriginalFilename", SSRVPN_RESOURCE_ORIGINAL_FILENAME',
+            runner_rc,
+        )
+        setup = installer.split("[Setup]", 1)[1].split("[Languages]", 1)[0]
+        self.assertIn("VersionInfoVersion={#AppVersion}", setup)
+        self.assertIn("function Assert-PeVersionMetadata", package_smoke)
+        self.assertIn("[System.Diagnostics.FileVersionInfo]", package_smoke)
+        self.assertIn("-Path $sourceInstaller", package_smoke)
+        self.assertIn("-ExpectedInternalName 'ssrvpn_windows'", package_smoke)
+        self.assertIn(
+            "-ExpectedOriginalFilename 'ssrvpn_windows.exe'", package_smoke
+        )
+        self.assertIn(
+            "-ExpectedInternalName 'ssrvpn_windows_app'", package_smoke
+        )
+        self.assertIn(
+            "-ExpectedOriginalFilename 'ssrvpn_windows_app.exe'", package_smoke
         )
 
     def test_windows_runtime_records_full_core_identity_for_safe_cleanup(self) -> None:

@@ -7,6 +7,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FreeDesktopDistributionTest(unittest.TestCase):
+    def test_macos_release_metadata_matches_the_documented_macos_11_floor(
+        self,
+    ) -> None:
+        project = (
+            ROOT
+            / "SSRVPN_MacOS"
+            / "macos"
+            / "Runner.xcodeproj"
+            / "project.pbxproj"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("MACOSX_DEPLOYMENT_TARGET = 10.15;", project)
+        self.assertEqual(
+            project.count("MACOSX_DEPLOYMENT_TARGET = 11.0;"),
+            3,
+        )
+
     def test_macos_release_uses_minimal_runtime_entitlements(self) -> None:
         path = ROOT / "SSRVPN_MacOS" / "macos" / "Runner" / "Release.entitlements"
         with path.open("rb") as entitlement_file:

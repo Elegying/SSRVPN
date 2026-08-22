@@ -19,7 +19,7 @@ internal object MihomoProxySelection {
         val globalOk = setProxyGroup(apiPort, apiSecret, "GLOBAL", "PROXY") ||
             setProxyGroup(apiPort, apiSecret, "GLOBAL", selectedNode)
         if (proxyOk || globalOk) apiRequest(apiPort, apiSecret, "DELETE", "/connections", null)
-        Log.d(TAG, "Applied proxy selection: PROXY=$proxyOk GLOBAL=$globalOk node=$selectedNode")
+        Log.d(TAG, "Applied proxy selection: PROXY=$proxyOk GLOBAL=$globalOk")
     }
 
     private fun setProxyGroup(
@@ -66,7 +66,8 @@ internal object MihomoProxySelection {
             }
             code
         } catch (e: Exception) {
-            Log.d(TAG, "API $method $path failed: ${e.message}")
+            val category = NativeCoreStartFailureCategory.from(e).logValue
+            Log.d(TAG, "API $method $path failed: cause=$category")
             -1
         } finally {
             connection?.disconnect()

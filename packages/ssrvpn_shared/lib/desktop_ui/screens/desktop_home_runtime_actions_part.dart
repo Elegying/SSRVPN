@@ -57,11 +57,17 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
             readStartFailureReason: () => clashService.lastStartError,
             readRuntimeNotice: () =>
                 clashService.lastRuntimePortAdjustmentMessage,
-            switchPreferredNode: () async {
+            switchPreferredNode: (isConnectionContextCurrent) async {
+              final switchStatusEpoch = _connectionStatusEpoch;
               var switched = true;
               if (preferredNode != null) {
                 switched = await clashService.switchSelectedProxy(
                   preferredNode.name,
+                  isSwitchContextCurrent: () =>
+                      _canUpdateUi &&
+                      switchStatusEpoch == _connectionStatusEpoch &&
+                      clashService.isRunning &&
+                      isConnectionContextCurrent(),
                 );
               }
               runtimeSelectedNode = await _resolveRuntimeSelectedNode(
@@ -141,27 +147,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         }
       }
       if (!success) return;
-
-      // TUN data-plane checks are owned by ClashService so reload cannot
-      // promote an advisory warning into a desktop connection error.
-      if (!clashService.settings.enableTun) {
-        final connectivityWarning = await clashService.verifyUserConnectivity(
-          shouldContinue: () => clashService.isConnectionIntentCurrent(
-            connectionGeneration,
-            connected: true,
-          ),
-        );
-        if (_canUpdateUi &&
-            clashService.isConnectionIntentCurrent(
-              connectionGeneration,
-              connected: true,
-            )) {
-          setState(() {
-            _errorMessage = null;
-            _connectivityWarning = connectivityWarning;
-          });
-        }
-      }
     } catch (e) {
       AppLogger.warning('Connection', '重载配置失败: $e');
       final isCurrent = clashService.isConnectionIntentCurrent(
@@ -261,18 +246,20 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       return;
     }
     if (!_latencyController.canSelect(node)) return;
-    final clashService = context.read<ClashService>();
-    final statusEpoch = _connectionStatusEpoch;
+    final core = context.read<ClashService>();
+    final generation = core.captureAutomaticRestartIntent();
+    var cleanupAuthorized = false;
 
-    bool isCurrent() =>
+    bool owns() =>
         _canUpdateUi &&
         _isConnected &&
         !_isConnecting &&
-        clashService.isRunning &&
-        identical(_clashService, clashService) &&
-        statusEpoch == _connectionStatusEpoch;
+        core.isRunning &&
+        identical(_clashService, core) &&
+        generation != null &&
+        core.isConnectionIntentCurrent(generation, connected: true);
 
-    if (!isCurrent()) {
+    if (!owns()) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('切换失败: ${node.name}'),
@@ -282,20 +269,22 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       return;
     }
     _exitCountryResolveGeneration++;
-    final ok = await clashService.switchSelectedProxy(node.name);
-    if (!isCurrent()) return;
+    final ok = await core.switchSelectedProxy(
+      node.name,
+      isSwitchContextCurrent: () => cleanupAuthorized = owns(),
+    );
+    if (!owns() || (ok && !cleanupAuthorized)) {
+      return;
+    }
     var nodePersisted = true;
     if (ok) {
-      if (!isCurrent()) return;
       nodePersisted = await _rememberSelectedNode(node);
-      if (!isCurrent()) return;
+      if (!owns()) return;
       setState(() => _selectedNode = node);
-      if (!isCurrent()) return;
       _scheduleExitCountryResolution();
-      if (!isCurrent()) return;
       _schedulePublicIpRefresh();
     }
-    if (!isCurrent()) return;
+    if (!owns()) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(

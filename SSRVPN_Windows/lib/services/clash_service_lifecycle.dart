@@ -63,6 +63,9 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   bool _coreUsesTun = false;
   bool _stoppingCore = false;
   bool _proxyRecoveryListenerActive = false;
+
+  @protected
+  bool get proxyRecoveryListenerActive => _proxyRecoveryListenerActive;
   WindowsTunRuntimeStatus? _lastTunRuntimeObservation;
   DateTime? _lastTunDataPlaneObservationAt;
   final CoreRecoveryPolicy _unexpectedExitRecoveryPolicy = CoreRecoveryPolicy(
@@ -95,8 +98,14 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
 
   @protected
   void resetTunDataPlaneObservationSession() {
-    _lastTunDataPlaneObservationAt = null;
+    onDataPlaneObservationSessionReset();
     clearConnectivityWarningSilently();
+  }
+
+  @override
+  @protected
+  void onDataPlaneObservationSessionReset() {
+    _lastTunDataPlaneObservationAt = null;
   }
 
   @protected
@@ -111,22 +120,18 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   Future<bool> healthCheck() async {
     if (!await super.healthCheck()) return false;
     if (!settings.enableTun) {
-      // During startup the proxy transaction is acquired before isRunning is
-      // committed. Recheck that newly acquired endpoint as part of the final
-      // readiness gate instead of waiting for the first periodic monitor tick.
+      if (!await verifyLocalMixedProxyReadiness()) return false;
+      // Recheck the acquired endpoint before committing startup.
       if (isRunning || _proxyService.isProxyEnabled) {
         final ownershipStatus = await inspectSystemProxyOwnership();
         if (ownershipStatus == SystemProxyOwnershipStatus.owned) {
-          if (connectivityWarning ==
-              desktopSystemProxyOwnershipUnavailableWarning) {
-            setConnectivityWarning(null);
-          }
+          setConnectivityOwnershipWarning(null);
           setLastHealthCheckError(null);
           return true;
         }
         if (ownershipStatus == SystemProxyOwnershipStatus.unavailable) {
           setLastHealthCheckError(null);
-          if (connectivityWarning !=
+          if (connectivityOwnershipWarning !=
               desktopSystemProxyOwnershipUnavailableWarning) {
             log(
               '系统代理所有权探针暂时不可用；Mihomo API 正常，保留当前连接',
@@ -134,7 +139,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
               event: 'system_proxy_health',
             );
           }
-          setConnectivityWarning(
+          setConnectivityOwnershipWarning(
             desktopSystemProxyOwnershipUnavailableWarning,
           );
           return true;
@@ -149,7 +154,9 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
     }
     final tun = (await getConfigs())?['tun'];
     if (tun is! Map || tun['enable'] != true) {
-      setLastHealthCheckError('Mihomo API 已就绪，但 TUN listener 未启用');
+      setLastHealthCheckError(
+        'TUN_RUNTIME_UNAVAILABLE: Mihomo API 已就绪，但 TUN listener 未启用',
+      );
       return false;
     }
     final runtimeStatus = await _probeTunRuntime();
@@ -180,7 +187,8 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   @override
   @protected
   Future<void> observeDataPlaneHealth() async {
-    if (!isRunning || !settings.enableTun) return;
+    if (!isRunning) return;
+    final tunMode = settings.enableTun;
     final now = DateTime.now();
     final lastObservedAt = _lastTunDataPlaneObservationAt;
     if (lastObservedAt != null &&
@@ -195,11 +203,13 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       retryDelay: const Duration(seconds: 1),
       shouldContinue: () =>
           isRunning &&
-          settings.enableTun &&
+          isDataPlaneObservationCurrent &&
+          settings.enableTun == tunMode &&
           isConnectionIntentCurrent(generation, connected: true),
     );
     if (!isRunning ||
-        !settings.enableTun ||
+        settings.enableTun != tunMode ||
+        !isDataPlaneObservationCurrent ||
         !isConnectionIntentCurrent(generation, connected: true)) {
       return;
     }
@@ -207,8 +217,13 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       setConnectivityWarning(null);
       return;
     }
+    final routeMode = tunMode
+        ? 'Windows TUN'
+        : proxyRecoveryListenerActive
+            ? '本地保护监听'
+            : '系统代理';
     setConnectivityWarning(
-      '连接与 Windows TUN 仍在运行；外部网络观察暂未通过，仅供参考：$warning',
+      '连接与 $routeMode 仍在运行；外部网络观察暂未通过，仅供参考：$warning',
     );
     log(
       '外部网络观察未通过: $warning；未断开连接，未切换节点',
@@ -249,24 +264,11 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   bool get diagnosticConfigRequired => true;
 
   @override
-  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => [
-        AppDiagnosticCheck(
-          id: 'system_proxy',
-          title: '系统代理恢复',
-          status: _proxyService.recoveryPending
-              ? AppDiagnosticStatus.warning
-              : AppDiagnosticStatus.passed,
-          summary: _proxyService.recoveryPending
-              ? '检测到 SSRVPN 自有的待恢复代理状态'
-              : '没有待恢复的 SSRVPN 系统代理状态',
-          errorCode: _proxyService.recoveryPending
-              ? AppErrorCode.proxyRecoveryPending
-              : null,
-          repairAction: _proxyService.recoveryPending
-              ? AppRepairAction.retryOwnedProxyRecovery
-              : null,
-        ),
-      ];
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async =>
+      _buildWindowsPlatformDiagnosticChecks(
+        recoveryPending: _proxyService.recoveryPending,
+        ownershipWarning: connectivityOwnershipWarning,
+      );
 
   @override
   Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async {
@@ -308,6 +310,10 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   @override
   Future<void> onStopRequired() => stop();
 
+  @protected
+  Future<void> waitBeforeProxyOwnershipRecoveryRecheck() =>
+      Future<void>.delayed(const Duration(milliseconds: 400));
+
   @override
   Future<bool> recoverAfterHealthCheckFailure(int connectionGeneration) async {
     if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
@@ -326,7 +332,17 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       // The API and the system proxy can fail at the same time. healthCheck()
       // returns as soon as the API is unavailable, so inspect ownership again
       // immediately before any stop/restart that could reacquire the proxy.
-      final ownershipStatus = await inspectSystemProxyOwnership();
+      var ownershipStatus = await inspectSystemProxyOwnership();
+      if (ownershipStatus == SystemProxyOwnershipStatus.unavailable) {
+        await waitBeforeProxyOwnershipRecoveryRecheck();
+        if (!isConnectionIntentCurrent(
+          connectionGeneration,
+          connected: true,
+        )) {
+          return false;
+        }
+        ownershipStatus = await inspectSystemProxyOwnership();
+      }
       if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
         return false;
       }
@@ -1068,7 +1084,7 @@ try {
         log('✅ Mihomo API 就绪，耗时 ${startupWatch.elapsedMilliseconds}ms');
         notifyStatusChanged();
         startStatusMonitor();
-        if (startedWithTun) scheduleDataPlaneObservation();
+        scheduleDataPlaneObservation();
       },
       rollback: _cleanupFailedStart,
       isCancellation: (error) => error is _DesktopStartCancelled,
@@ -1695,35 +1711,6 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     return value;
   }
 
-  String _friendlyStartException(Object error) {
-    final message = error.toString();
-    final lower = message.toLowerCase();
-    if (lower.contains('access is denied') ||
-        lower.contains('permission denied') ||
-        lower.contains('拒绝访问')) {
-      return '无法执行 Mihomo，文件可能被安全软件拦截或当前目录没有执行权限';
-    }
-    if (lower.contains('not a valid win32') || lower.contains('不是有效的 win32')) {
-      return 'Mihomo 与这台电脑的 Windows 架构不兼容，本版本仅支持 64 位 Windows';
-    }
-    return '启动 Mihomo 时发生异常: $message';
-  }
-
-  String? _describeWindowsExitCode(int exitCode) {
-    switch (exitCode) {
-      case -1073741819: // 0xC0000005
-        return '访问冲突，通常是 CPU 指令集或旧版 Windows 兼容问题，也可能被安全软件注入拦截';
-      case -1073741795: // 0xC000001D
-        return '非法指令，当前 CPU 不支持此核心使用的指令集';
-      case -1073741515: // 0xC0000135
-        return '缺少运行库或依赖 DLL';
-      case -1073741701: // 0xC000007B
-        return '程序或依赖 DLL 的 32/64 位架构不匹配';
-      default:
-        return null;
-    }
-  }
-
   // ── Config validation ──
 
   Future<bool> _validateConfig(Map<String, String> environment) async {
@@ -1773,7 +1760,9 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     } on _DesktopStartCancelled {
       rethrow;
     } catch (e) {
-      log('❌ 无法执行 Mihomo 配置校验: $e');
+      setLastStartError(_friendlyStartException(e));
+      final failureCode = AppFailure.fromMessage(lastStartError).code.wireName;
+      log('event=windows_config_validation_launch_failed cause=$failureCode');
       return false;
     }
   }

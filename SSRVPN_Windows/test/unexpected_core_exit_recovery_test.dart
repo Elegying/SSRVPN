@@ -342,8 +342,66 @@ void main() {
     );
   });
 
-  test('unavailable proxy ownership disconnects without reacquiring proxy',
+  test('unavailable proxy ownership recheck can resume automatic recovery',
       () async {
+    final service = _SequencedProxyOwnershipRecoveryClashService([
+      SystemProxyOwnershipStatus.unavailable,
+      SystemProxyOwnershipStatus.owned,
+    ]);
+    addTearDown(service.dispose);
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async =>
+          'mixed-port: ${runtimeSettings.proxyPort}',
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    final recovered = await service.recoverAfterHealthCheckFailure(generation);
+
+    expect(recovered, isTrue);
+    expect(service.proxyOwnershipInspectionCalls, 2);
+    expect(service.stopCalls, 1);
+    expect(service.prepareCalls, 1);
+    expect(service.automaticRecoveryStartCalls, 1);
+    expect(service.connectionDesired, isTrue);
+    expect(service.isRunning, isTrue);
+  });
+
+  test('unavailable then external takeover remains fail-closed', () async {
+    final notices = <RuntimeNotice>[];
+    final service = _SequencedProxyOwnershipRecoveryClashService([
+      SystemProxyOwnershipStatus.unavailable,
+      SystemProxyOwnershipStatus.externallyChanged,
+    ])
+      ..onRuntimeNotice = notices.add;
+    addTearDown(service.dispose);
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async =>
+          'mixed-port: ${runtimeSettings.proxyPort}',
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    final recovered = await service.recoverAfterHealthCheckFailure(generation);
+
+    expect(recovered, isFalse);
+    expect(service.proxyOwnershipInspectionCalls, 2);
+    expect(service.stopCalls, 1);
+    expect(service.prepareCalls, 0);
+    expect(service.automaticRecoveryStartCalls, 0);
+    expect(service.connectionDesired, isFalse);
+    expect(service.isRunning, isFalse);
+    expect(
+      notices.single.message,
+      allOf(contains('其他程序'), contains('不会覆盖')),
+    );
+  });
+
+  test('persistent unavailable proxy ownership remains fail-closed', () async {
     final notices = <RuntimeNotice>[];
     final service = _UnavailableProxyOwnershipRecoveryClashService()
       ..onRuntimeNotice = notices.add;
@@ -361,7 +419,7 @@ void main() {
 
     expect(recovered, isFalse);
     expect(service.stopCalls, 1);
-    expect(service.proxyOwnershipInspectionCalls, 1);
+    expect(service.proxyOwnershipInspectionCalls, 2);
     expect(service.prepareCalls, 0);
     expect(service.automaticRecoveryStartCalls, 0);
     expect(service.connectionDesired, isFalse);
@@ -369,6 +427,39 @@ void main() {
       notices.single.message,
       allOf(contains('无法确认'), contains('不会覆盖')),
     );
+  });
+
+  test('connection intent change during ownership recheck stops all action',
+      () async {
+    final service = _SequencedProxyOwnershipRecoveryClashService(
+      [
+        SystemProxyOwnershipStatus.unavailable,
+        SystemProxyOwnershipStatus.owned,
+      ],
+      pauseOwnershipRecheck: true,
+    );
+    addTearDown(service.dispose);
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async =>
+          'mixed-port: ${runtimeSettings.proxyPort}',
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    final recovery = service.recoverAfterHealthCheckFailure(generation);
+    await service.ownershipRecheckStarted.future;
+    service.requestConnectionIntent(true);
+    service.releaseOwnershipRecheck.complete();
+
+    expect(await recovery, isFalse);
+    expect(service.proxyOwnershipInspectionCalls, 1);
+    expect(service.stopCalls, 0);
+    expect(service.prepareCalls, 0);
+    expect(service.automaticRecoveryStartCalls, 0);
+    expect(service.connectionDesired, isTrue);
+    expect(service.isRunning, isTrue);
   });
 
   test('health recovery rebuilds runtime config before automatic start',
@@ -593,6 +684,39 @@ class _UnavailableProxyOwnershipRecoveryClashService
     proxyOwnershipInspectionCalls++;
     return SystemProxyOwnershipStatus.unavailable;
   }
+
+  @override
+  Future<void> waitBeforeProxyOwnershipRecoveryRecheck() async {}
+}
+
+class _SequencedProxyOwnershipRecoveryClashService
+    extends _ExternalProxyTakeoverRecoveryClashService {
+  _SequencedProxyOwnershipRecoveryClashService(
+    this.ownershipStatuses, {
+    this.pauseOwnershipRecheck = false,
+  });
+
+  final List<SystemProxyOwnershipStatus> ownershipStatuses;
+  final bool pauseOwnershipRecheck;
+  final Completer<void> ownershipRecheckStarted = Completer<void>();
+  final Completer<void> releaseOwnershipRecheck = Completer<void>();
+
+  @override
+  Future<SystemProxyOwnershipStatus> inspectSystemProxyOwnership() async {
+    final status = ownershipStatuses[proxyOwnershipInspectionCalls];
+    proxyOwnershipInspectionCalls++;
+    return status;
+  }
+
+  @override
+  Future<void> waitBeforeProxyOwnershipRecoveryRecheck() async {
+    if (!pauseOwnershipRecheck) return;
+    ownershipRecheckStarted.complete();
+    await releaseOwnershipRecheck.future;
+  }
+
+  @override
+  Future<void> writeConfig(String configContent) async {}
 }
 
 class _StaleHealthProbeRecoveryClashService

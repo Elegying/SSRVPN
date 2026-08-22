@@ -8,7 +8,9 @@ class _DesktopTutorialStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final colors = theme.colorScheme;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -16,16 +18,16 @@ class _DesktopTutorialStep extends StatelessWidget {
           width: 26,
           height: 26,
           decoration: BoxDecoration(
-            color: AppTheme.primary.withValues(alpha: (isDark ? 30 : 20) / 255),
+            color: Color.lerp(colors.primary, Colors.black, 0.04),
             shape: BoxShape.circle,
           ),
           child: Center(
             child: Text(
               step,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.primary,
+                color: colors.onPrimary,
               ),
             ),
           ),
@@ -51,123 +53,38 @@ class _DesktopTutorialStep extends StatelessWidget {
 }
 
 void _showDesktopHomeTutorialDialog(BuildContext context) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
   final isMacOS = desktopPlatformLabel == 'MacOS';
-  showDialog(
-    context: context,
-    builder: (ctx) => Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: GlassContainer(
-        borderRadius: 16,
-        enablePress: false,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: (MediaQuery.of(ctx).size.width * 0.88)
-                .clamp(280.0, 420.0)
-                .toDouble(),
-            maxHeight: (MediaQuery.of(ctx).size.height -
-                    MediaQuery.of(ctx).viewInsets.vertical -
-                    48)
-                .clamp(160.0, double.infinity)
-                .toDouble(),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: SingleChildScrollView(
-                    key: const Key('desktop-home-tutorial-scroll'),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                AppTheme.primary,
-                                AppTheme.accentColor,
-                              ],
-                            ),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.menu_book_rounded,
-                            color: Colors.white,
-                            size: 28,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          '使用教程',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            color: isDark
-                                ? AppTheme.textPrimary
-                                : AppTheme.lightTextPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        const _DesktopTutorialStep(
-                          step: '1',
-                          text: '进入订阅页面，粘贴 SSR 代码或订阅链接',
-                        ),
-                        const SizedBox(height: 12),
-                        const _DesktopTutorialStep(
-                          step: '2',
-                          text: '点击添加后刷新订阅，等待节点加载完成',
-                        ),
-                        const SizedBox(height: 12),
-                        const _DesktopTutorialStep(
-                          step: '3',
-                          text: '回到首页，选择节点后点击连接按钮',
-                        ),
-                        const SizedBox(height: 12),
-                        _DesktopTutorialStep(
-                          step: '4',
-                          text: isMacOS
-                              ? 'macOS 系统代理无需授权；TUN 模式每次连接都由系统请求管理员授权'
-                              : '系统代理无需管理员权限，TUN 模式需管理员权限',
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      backgroundColor: AppTheme.primary.withValues(
-                        alpha: (isDark ? 25 : 15) / 255,
-                      ),
-                    ),
-                    child: const Text(
-                      '知道了',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+  showSsrvpnInfoDialog(
+    context,
+    panelKey: const Key('ssrvpn-tutorial-glass'),
+    scrollKey: const Key('desktop-home-tutorial-scroll'),
+    icon: Icons.menu_book_rounded,
+    title: '使用教程',
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const _DesktopTutorialStep(
+          step: '1',
+          text: '进入订阅页面，粘贴 SSR 代码或订阅链接',
         ),
-      ),
+        const SizedBox(height: 12),
+        const _DesktopTutorialStep(
+          step: '2',
+          text: '点击添加后刷新订阅，等待节点加载完成',
+        ),
+        const SizedBox(height: 12),
+        const _DesktopTutorialStep(
+          step: '3',
+          text: '回到首页，选择节点后点击连接按钮',
+        ),
+        const SizedBox(height: 12),
+        _DesktopTutorialStep(
+          step: '4',
+          text: isMacOS
+              ? 'macOS 系统代理无需授权；TUN 模式每次连接都由系统请求管理员授权'
+              : '客户端启动时请求管理员授权；授权后系统代理与 TUN 均可直接使用和切换',
+        ),
+      ],
     ),
   );
 }

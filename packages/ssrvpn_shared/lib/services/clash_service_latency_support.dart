@@ -102,7 +102,7 @@ mixin _ClashLatencySupport {
       return delay > 0 ? delay.toInt() : -1;
     } catch (error) {
       log(
-        '节点延迟 API 请求异常: $error',
+        '节点延迟 API 请求异常: cause=${_safeRuntimeLogErrorCode(error)}',
         level: RuntimeLogLevel.warning,
         event: 'latency_test',
       );

@@ -441,11 +441,17 @@ class _HomeScreenState extends State<HomeScreen> {
             readStartFailureReason: () => clashService.lastStartError,
             readRuntimeNotice: () =>
                 clashService.lastRuntimePortAdjustmentMessage,
-            switchPreferredNode: () async {
+            switchPreferredNode: (isConnectionContextCurrent) async {
+              final switchStatusEpoch = _connectionStatusEpoch;
               var switched = true;
               if (autoSelect != null) {
                 switched = await clashService.switchSelectedProxy(
                   autoSelect.name,
+                  isSwitchContextCurrent: () =>
+                      _canUpdateUi &&
+                      switchStatusEpoch == _connectionStatusEpoch &&
+                      clashService.isRunning &&
+                      isConnectionContextCurrent(),
                 );
               }
               runtimeSelectedNode = await _resolveRuntimeSelectedNode(
@@ -550,30 +556,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _schedulePublicIpRefresh();
         unawaited(_runBatchLatencyTest());
         _checkUpdateDelayed();
-
-        // TUN data-plane observations belong to the service lifecycle. The
-        // desktop layer must not duplicate them or turn an advisory warning
-        // into a connection error after startup.
-        if (!clashService.settings.enableTun) {
-          final connectivityWarning = await clashService.verifyUserConnectivity(
-            shouldContinue: () => clashService.isConnectionIntentCurrent(
-              connectionGeneration,
-              connected: true,
-            ),
-          );
-          if (!_canUpdateUi ||
-              !clashService.isRunning ||
-              !clashService.isConnectionIntentCurrent(
-                connectionGeneration,
-                connected: true,
-              )) {
-            return;
-          }
-          setState(() {
-            _errorMessage = null;
-            _connectivityWarning = connectivityWarning;
-          });
-        }
       } catch (e, stack) {
         final isCurrent = clashService.isConnectionIntentCurrent(
           requestedGeneration,

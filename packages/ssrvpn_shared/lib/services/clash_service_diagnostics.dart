@@ -15,11 +15,23 @@ abstract interface class ClashPlatformDiagnosticCapability {
 
 /// Read-only diagnostics and narrowly scoped, platform-owned repair hooks.
 mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
+  static int _nextLogSession = 0;
+  static const bool _kReleaseMode = bool.fromEnvironment('dart.vm.product');
+
+  String _logBuffer = '';
+  late final String _logSessionId =
+      '${DateTime.now().toUtc().microsecondsSinceEpoch.toRadixString(36)}-'
+      '${(_nextLogSession++).toRadixString(36)}';
+
+  void Function(String message)? onLog;
+
   bool get isRunning;
   String? get lastStartError;
+  String? get lastHealthCheckError;
   String? get lastRuntimePortAdjustmentMessage;
   String? get connectivityWarning;
-  String get recentLogs;
+  String? get dataPlaneConnectivityWarning;
+  String get recentLogs => _logBuffer;
   String get configPath;
   @protected
   Duration get diagnosticCheckTimeout => const Duration(seconds: 10);
@@ -27,7 +39,40 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
     String message, {
     RuntimeLogLevel level = RuntimeLogLevel.info,
     String event = 'runtime',
-  });
+  }) {
+    final sanitized = LogRedactor.sanitize(message).replaceAll(
+      RegExp(r'[\r\n]+'),
+      ' ↩ ',
+    );
+    final normalizedEvent = event.trim().toLowerCase();
+    final safeEvent =
+        RegExp(r'^[a-z0-9][a-z0-9_.-]{0,47}$').hasMatch(normalizedEvent)
+            ? normalizedEvent
+            : 'runtime';
+    final line = '[${DateTime.now().toUtc().toIso8601String()}] '
+        '[${level.name.toUpperCase()}] [$safeEvent] '
+        '[session=$_logSessionId] $sanitized';
+    _logBuffer = '$line\n$_logBuffer';
+    if (_logBuffer.length > 10000) {
+      final completeLineEnd = _logBuffer.lastIndexOf('\n', 9999);
+      _logBuffer = _logBuffer.substring(
+        0,
+        completeLineEnd >= 0 ? completeLineEnd + 1 : 10000,
+      );
+    }
+    writePlatformLog(line);
+    onLog?.call(line);
+    if (!_kReleaseMode) debugLog(line);
+  }
+
+  /// Override for durable platform log files. [line] is already redacted,
+  /// timestamped and normalized to one physical line.
+  @protected
+  void writePlatformLog(String line) {}
+
+  /// Override for platform-specific debug output (debugPrint, file logging, etc.)
+  @protected
+  void debugLog(String message) {}
   String get configDir;
 
   Future<bool> healthCheck();
@@ -60,7 +105,7 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
       log('诊断检查 $id 超时');
       return null;
     } catch (error) {
-      log('诊断检查 $id 失败: $error');
+      log('诊断检查 $id 失败: cause=${_safeRuntimeLogErrorCode(error)}');
       return null;
     }
   }
@@ -126,34 +171,41 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
       checks.add(
         const AppDiagnosticCheck(
           id: 'runtime',
-          title: '核心通信',
+          title: '运行状态',
           status: AppDiagnosticStatus.skipped,
-          summary: '当前未连接，无需检查核心 API',
+          summary: '当前未连接，无需检查本地运行状态',
         ),
       );
     } else {
       final healthy =
           await _runDiagnosticCheck('runtime', healthCheck) ?? false;
+      final healthFailure = healthy
+          ? null
+          : AppFailure.fromMessage(
+              lastHealthCheckError ?? 'CORE_API_UNAVAILABLE',
+            );
       checks.add(
         AppDiagnosticCheck(
           id: 'runtime',
-          title: '核心通信',
+          title: '运行状态',
           status:
               healthy ? AppDiagnosticStatus.passed : AppDiagnosticStatus.failed,
-          summary: healthy ? '本地核心 API 响应正常' : '本地核心 API 无法访问',
-          errorCode: healthy ? null : AppErrorCode.coreUnavailable,
+          summary: healthy
+              ? '本地核心 API、运行配置与必要监听响应正常'
+              : '${healthFailure!.message} ${healthFailure.recommendedAction}',
+          errorCode: healthFailure?.code,
         ),
       );
     }
 
-    final dataPlaneWarning = connectivityWarning?.trim();
+    final dataPlaneWarning = dataPlaneConnectivityWarning?.trim();
     if (isRunning && dataPlaneWarning != null && dataPlaneWarning.isNotEmpty) {
       checks.add(
         const AppDiagnosticCheck(
           id: 'data_plane',
           title: '节点与外部网络',
           status: AppDiagnosticStatus.warning,
-          summary: '数据通道处于降级恢复状态；核心、系统服务和运行配置仍保持连接',
+          summary: '外部网络观察暂未通过；核心、系统服务和运行配置仍保持连接',
           errorCode: AppErrorCode.dataPlaneDegraded,
         ),
       );

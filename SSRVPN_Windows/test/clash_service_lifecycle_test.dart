@@ -95,6 +95,59 @@ void main() {
     expect(service.lastStartError, contains('尚未初始化'));
   });
 
+  test('config validator execution failure keeps the actionable process error',
+      () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'ssrvpn_windows_config_validation_error_',
+    );
+    final fakeCore = File('${temp.path}${Platform.pathSeparator}mihomo.exe');
+    final config = File('${temp.path}${Platform.pathSeparator}config.yaml');
+    await fakeCore.writeAsString('not an executable');
+    await config.writeAsString('mixed-port: 7890\n');
+    final service = _createTestService();
+    addTearDown(() async {
+      await service.flushLogs();
+      service.dispose();
+      if (await temp.exists()) await temp.delete(recursive: true);
+    });
+    await service.init(
+      AppSettings(),
+      dataDir: temp.path,
+      skipCoreProbes: true,
+    );
+    service
+      ..setCorePath(fakeCore.path)
+      ..setPaths(configDir: temp.path, configPath: config.path);
+
+    expect(await service.start(), isFalse);
+    expect(
+      service.lastStartError,
+      isNot(contains('配置校验失败，请打开运行日志')),
+    );
+    expect(
+      service.lastStartError,
+      anyOf(
+        contains('安全软件'),
+        contains('执行权限'),
+        contains('架构不兼容'),
+      ),
+    );
+    expect(
+      AppFailure.fromMessage(service.lastStartError).code,
+      anyOf(
+        AppErrorCode.permissionRequired,
+        AppErrorCode.coreMissing,
+      ),
+    );
+    await service.flushLogs();
+    final logs = await File(
+      '${temp.path}${Platform.pathSeparator}ssrvpn.log',
+    ).readAsString();
+    expect(logs, contains('event=windows_config_validation_launch_failed'));
+    expect(logs, isNot(contains('ProcessException:')));
+    expect(logs, isNot(contains('Command:')));
+  });
+
   test('stop hook fails closed when proxy cleanup is unavailable', () async {
     final service = _createTestService();
 

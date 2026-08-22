@@ -42,18 +42,26 @@ Repository Administration 读取权限，而 workflow `permissions` 无法把该
    事件为 `push` 或 `workflow_dispatch` 的成功 CI。复用前必须通过 workflow API 确认
    路径精确为 `.github/workflows/ci.yml`，再通过 jobs API 确认版本化策略中的
    九项必需名称各出现且仅出现一次；只有 `Dependency review` 可为 `skipped`，其余
-   必须为 `success`。无合格运行或已过期时显式调度完整 CI；API、JSON 或身份状态
-   不明时失败关闭，不允许回退调度后继续。CI 通过后再次以只读方式确认 GeoIP 仍是
-   上游 `latest`，并在 tag 创建前最后复核 `main`；GeoIP 滚动或 `main` 前移都会中止流程。
+   必须为 `success`。如果相同 workflow、`main` 和精确 SHA 的 run 正处于 `queued`、
+   `in_progress`、`requested`、`waiting` 或 `pending`，等待原 run 完成后重新查询，并执行
+   同一套九项严格验收；并发取消只跟随同 SHA 的后继 run，最多等待/替换三轮。run 身份或
+   状态不明、非取消失败、超过等待边界，或等待完成后连续五次传播复核仍未出现合格记录时
+   失败关闭，且不得补发新 run。只有没有合格完成记录、没有可等待 run 或记录已过期时才
+   显式调度完整 CI。CI 通过后再次以只读方式确认 GeoIP 仍是上游 `latest`，并在 tag 创建前
+   最后复核 `main`；GeoIP 滚动或 `main` 前移都会中止流程。
 5. 只有精确 `main` CI 成功且再次确认同名 tag/Release 不存在，才创建 annotated tag 并推送。
    因 `GITHUB_TOKEN` push 不递归触发工作流，编排使用 GitHub 当前 REST API 的
    `workflow_dispatch` 响应取得精确 run ID 和 URL，显式启动 tag 上的 `release.yml` 并等待
-   结果。tag 推送是不可逆边界；若此后的调度、等待或 Release 失败，保留原 tag，并对该精确
-   tag 手动重试 `Release`，不得删除或移动 tag。Release 环境原有人工批准、三端构建、OSS
-   回滚和发布后验证保持不变。
-6. `release.yml` 继续保留只读 GeoIP 最新性门禁。手工 tag、竞态期间的上游滚动或绕过
-   `Prepare Release` 的旧流程仍会在平台构建前失败；精确已有 Release 重试继续使用
-   ADR-011 定义的不可变身份校验。
+   结果。tag 推送是不可逆边界；从最后一次 `main` 复核到 `Validate release source` 通过前
+   必须暂停合并 `main`，因为 Git 与 tag push 不提供跨引用原子 compare-and-swap。若该窗口内
+   `main` 前移，Release 会安全失败，但不可变 tag 不能再作为新发布重试，必须升新版本创建新
+   tag。其他发生在 tag 推送后的调度、等待或 Release 失败则保留原 tag，并对该精确 tag 手动
+   重试 `Release`，不得删除或移动 tag。Release 环境原有人工批准、三端构建、OSS 回滚和
+   发布后验证保持不变。
+6. `release.yml` 继续保留只读 GeoIP 最新性门禁。所有 tag run 共享全局发布锁，防止并发
+   改写公共别名和 `latest.json`；非 tag 的手工 build-only run 按 ref 独立，不阻塞无关 ref。
+   手工 tag、竞态期间的上游滚动或绕过 `Prepare Release` 的旧流程仍会在平台构建前失败；
+   精确已有 Release 重试继续使用 ADR-011 定义的不可变身份校验。
 7. `Maintenance > geoip-refresh` 保留为手动恢复入口，不再是正常发版的必需步骤，也不获得
    schedule 触发器。
 8. `.github/main-branch-protection.json` 是 `main` 保护策略和九项必需检查的版本化真源。
@@ -69,9 +77,9 @@ Repository Administration 读取权限，而 workflow `permissions` 无法把该
 - GeoIP 更新仍有独立提交、PR、双哈希和不可变镜像，tag 不包含运行时生成的隐式输入。
 - 受保护 PR checks 与最终 `main` CI 证据都必须成功；任何创建 tag 前发现的竞态、已有 tag/Release 或外部
   状态歧义都会停在新 tag 创建前。tag 推送后的故障保留不可变 tag，转入精确 Release 重试。
-- 若精确 `main` 已有可安全复用的近期 CI，自动准备不再重复构建；否则仍运行完整 CI。
-  GeoIP 发生变化时，PR checks 仍保留，且合并后无合格精确 `main` CI 时仍再调度一次；
-  提速不减少必需验证。
+- 若精确 `main` 已有可安全复用或可等待的近期 CI，自动准备不再重复构建；活动 run 完成后
+  仍须重新通过九项严格验收，否则失败关闭。只有不存在合格完成记录或活动 run 时才运行
+  新的完整 CI。GeoIP 发生变化时，PR checks 仍保留；提速不减少必需验证。
 - Release 启动后仍可能等待 `release` environment 批准；该批准保护正式发布凭据，不由准备
   workflow 绕过。
 
@@ -100,9 +108,9 @@ Repository Administration 读取权限，而 workflow `permissions` 无法把该
 ## 验证守卫
 
 - `scripts/test_find_reusable_main_ci.py` 以伪 `gh` 验证精确运行身份、24 小时边界、
-  九项 job 的唯一性/结论，以及 API/JSON 异常失败关闭。
+  queued/in-progress 等待候选、九项 job 的唯一性/结论，以及 API/JSON 异常失败关闭。
 - `scripts/test_prepare_release_workflow.py` 以伪 GitHub API 和伪 Git 远端验证有变化、无变化、
-  安全复用/回退调度、分支/最终 CI 失败和 tag 后调度失败，并检查 PR、tag、
+  安全复用/等待后复验/回退调度、分支/最终 CI 失败和 tag 后调度失败，并检查 PR、tag、
   Release 调度与不可逆边界。
 - `scripts/test_geoip_workflow.py` 继续覆盖上游身份、确定性 gzip、镜像回读、重定向和竞态。
 - `scripts/test_verify_release_transition.py` 继续禁止 `release.yml` 动态改写 GeoIP，并保护 tag、

@@ -108,7 +108,11 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
           readRuntimeNotice: () => core.lastRuntimePortAdjustmentMessage,
           switchPreferredNode: preferredNodeName == null
               ? null
-              : () => core.switchSelectedProxy(preferredNodeName),
+              : (isConnectionContextCurrent) => core.switchSelectedProxy(
+                    preferredNodeName,
+                    isSwitchContextCurrent: () =>
+                        core.isRunning && isConnectionContextCurrent(),
+                  ),
         ),
       );
       if (connectionResult.failure == DesktopConnectionFailure.cancelled) {

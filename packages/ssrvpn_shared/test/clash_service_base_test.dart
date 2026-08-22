@@ -153,6 +153,8 @@ void main() {
 
       expect(latency, -1);
       expect(service.recentLogs, contains('节点延迟 API 请求异常'));
+      expect(service.recentLogs, contains('cause='));
+      expect(service.recentLogs, isNot(contains(':$unavailablePort')));
     });
 
     test('offline UDP and QUIC-only nodes report unknown latency', () async {
@@ -191,6 +193,95 @@ void main() {
       );
 
       expect(latency, greaterThanOrEqualTo(0));
+    });
+  });
+
+  group('ClashServiceBase health log safety', () {
+    test('non-success local API response records a stable health code',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final service = _ApiClashService();
+      service.initHttpClient();
+      service.updateSettings(AppSettings(apiPort: server.port));
+      addTearDown(service.dispose);
+      addTearDown(server.close);
+      server.listen((request) async {
+        request.response.statusCode = HttpStatus.serviceUnavailable;
+        await request.response.close();
+      });
+
+      expect(await service.healthCheck(), isFalse);
+      expect(
+        service.lastHealthCheckError,
+        'CORE_API_UNAVAILABLE: API 返回 HTTP 503，端口 ${server.port}',
+      );
+    });
+
+    test(
+        'local API failure records a fixed health detail without raw exception',
+        () async {
+      final unavailable =
+          await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final unavailablePort = unavailable.port;
+      await unavailable.close(force: true);
+      final service = _ApiClashService();
+      service.initHttpClient();
+      service.updateSettings(AppSettings(apiPort: unavailablePort));
+      addTearDown(service.dispose);
+
+      expect(await service.healthCheck(), isFalse);
+      expect(
+        service.lastHealthCheckError,
+        'CORE_API_UNAVAILABLE: 本地控制服务暂时无法访问（端口 $unavailablePort）',
+      );
+      expect(service.lastHealthCheckError, isNot(contains('SocketException')));
+    });
+
+    test('bounded health and data-plane failures log only error categories',
+        () async {
+      final timeoutService = _ShortHealthTimeoutClashService();
+      addTearDown(timeoutService.dispose);
+
+      expect(
+        await timeoutService.runBoundedHealthCheck(Completer<bool>().future),
+        isFalse,
+      );
+      expect(
+        timeoutService.lastHealthCheckError,
+        'CORE_API_UNAVAILABLE: 运行状态检查超时',
+      );
+
+      final healthService = _ApiClashService();
+      addTearDown(healthService.dispose);
+
+      expect(
+        await healthService.runBoundedHealthCheck(
+          Future<bool>.error(StateError('raw-health-secret')),
+        ),
+        isFalse,
+      );
+      expect(
+        healthService.lastHealthCheckError,
+        'CORE_API_UNAVAILABLE: 运行状态检查异常',
+      );
+      expect(healthService.recentLogs, contains('cause='));
+      expect(healthService.recentLogs, isNot(contains('raw-health-secret')));
+
+      final dataPlaneService = _FailingDataPlaneClashService();
+      addTearDown(dataPlaneService.dispose);
+      dataPlaneService.setRunning(true);
+      dataPlaneService.scheduleObservationForTest();
+      await dataPlaneService.failureLogged.future.timeout(
+        const Duration(seconds: 1),
+      );
+
+      expect(dataPlaneService.isRunning, isTrue);
+      expect(dataPlaneService.connectivityWarning, contains('未能完成'));
+      expect(dataPlaneService.recentLogs, contains('cause='));
+      expect(
+        dataPlaneService.recentLogs,
+        isNot(contains('raw-data-plane-secret')),
+      );
     });
   });
 
@@ -290,6 +381,59 @@ void main() {
       expect(selected, isNot(occupied.port));
     });
 
+    test('proxy ports skip UDP-only conflicts without restricting API ports',
+        () async {
+      final occupied = await RawDatagramSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+        reuseAddress: false,
+        reusePort: false,
+      );
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      addTearDown(occupied.close);
+
+      final apiPort = await service.findAvailablePort(occupied.port, {});
+      final mixedPort = await service.findAvailableTcpUdpPort(
+        occupied.port,
+        {},
+      );
+
+      expect(apiPort, occupied.port);
+      expect(mixedPort, isNot(occupied.port));
+    });
+
+    test('startup skips UDP-only conflicts for mixed and SOCKS ports',
+        () async {
+      final mixed = await RawDatagramSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+        reuseAddress: false,
+        reusePort: false,
+      );
+      final socks = await RawDatagramSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+        reuseAddress: false,
+        reusePort: false,
+      );
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      addTearDown(mixed.close);
+      addTearDown(socks.close);
+
+      final runtime = await service.prepareForStart(
+        AppSettings(
+          proxyPort: mixed.port,
+          socksPort: socks.port,
+          apiPort: 19090,
+        ),
+      );
+
+      expect(runtime.proxyPort, isNot(mixed.port));
+      expect(runtime.socksPort, isNot(socks.port));
+    });
+
     test('ephemeral fallback rechecks both loopback stacks', () async {
       const preferredPort = 32000;
       final service = _FallbackPortClashService(
@@ -310,6 +454,72 @@ void main() {
         45000,
         45001,
       ]);
+    });
+
+    test('local mixed proxy readiness requires config and SOCKS5 greeting',
+        () async {
+      final server = await _startSocks5GreetingServer();
+      final service = _LocalMixedProxyClashService(
+        configs: {'mixed-port': server.port},
+      )..updateSettings(AppSettings(proxyPort: server.port));
+      addTearDown(service.dispose);
+      addTearDown(server.close);
+
+      expect(
+        await service.checkLocalMixedProxyReadiness(),
+        LocalMixedProxyReadiness.ready,
+      );
+    });
+
+    test('local mixed proxy readiness rejects an explicit config mismatch',
+        () async {
+      final service = _LocalMixedProxyClashService(
+        configs: const {'mixed-port': 45678},
+      )..updateSettings(AppSettings(proxyPort: 45679));
+      addTearDown(service.dispose);
+
+      expect(
+        await service.checkLocalMixedProxyReadiness(),
+        LocalMixedProxyReadiness.configMismatch,
+      );
+    });
+
+    test('local mixed proxy readiness rejects a non-SOCKS listener', () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final subscription = server.listen((socket) async {
+        try {
+          await socket.first.timeout(const Duration(seconds: 1));
+          socket.add(const [0x05, 0xff]);
+          await socket.flush();
+        } finally {
+          await socket.close();
+        }
+      });
+      final service = _LocalMixedProxyClashService(
+        configs: {'mixed-port': server.port},
+      )..updateSettings(AppSettings(proxyPort: server.port));
+      addTearDown(service.dispose);
+      addTearDown(subscription.cancel);
+      addTearDown(server.close);
+
+      expect(
+        await service.checkLocalMixedProxyReadiness(),
+        LocalMixedProxyReadiness.listenerUnavailable,
+      );
+    });
+
+    test('a healthy local listener tolerates one unavailable config read',
+        () async {
+      final server = await _startSocks5GreetingServer();
+      final service = _LocalMixedProxyClashService(configs: null)
+        ..updateSettings(AppSettings(proxyPort: server.port));
+      addTearDown(service.dispose);
+      addTearDown(server.close);
+
+      expect(
+        await service.checkLocalMixedProxyReadiness(),
+        LocalMixedProxyReadiness.ready,
+      );
     });
   });
 
@@ -531,6 +741,31 @@ void main() {
   });
 
   group('ClashServiceBase proxy selection', () {
+    test('a stale switch is rejected before it mutates a reused API port',
+        () async {
+      final api = await _ProxyApiServer.start(proxyNow: 'Node A');
+      addTearDown(api.close);
+      final service = _ApiClashService()
+        ..initHttpClient()
+        ..updateSettings(AppSettings(apiPort: api.port));
+      addTearDown(service.dispose);
+
+      var guardCalls = 0;
+      final switched = await service.switchSelectedProxy(
+        'Node B',
+        isSwitchContextCurrent: () {
+          guardCalls++;
+          return false;
+        },
+      );
+
+      expect(switched, isFalse);
+      expect(guardCalls, 1);
+      expect(api.proxyNow, 'Node A');
+      expect(api.putTargets, isEmpty);
+      expect(api.closeConnectionCalls, 0);
+    });
+
     test('confirms PROXY now before reporting a selected-node switch',
         () async {
       final api = await _ProxyApiServer.start(
@@ -568,6 +803,128 @@ void main() {
       expect(await service.currentSelectedProxyName(), 'Node B');
       expect(api.closeConnectionCalls, 1);
       expect(statusNotifications, 1);
+    });
+
+    test('a confirmed switch clears its route warning with one status event',
+        () async {
+      final api = await _ProxyApiServer.start(proxyNow: 'Node A');
+      addTearDown(api.close);
+
+      final service = _ApiClashService()
+        ..initHttpClient()
+        ..updateSettings(AppSettings(apiPort: api.port))
+        ..publishRunning()
+        ..publishDataPlaneWarning('旧节点外部联网告警');
+      addTearDown(service.dispose);
+      var statusNotifications = 0;
+      service.addStatusListener(() => statusNotifications += 1);
+
+      expect(await service.switchSelectedProxy('Node B'), isTrue);
+
+      expect(service.connectivityWarning, isNull);
+      expect(statusNotifications, 1);
+    });
+
+    test('an in-flight stale switch performs no later mutation or cleanup',
+        () async {
+      final switchReachedCore = Completer<void>();
+      final releaseSwitch = Completer<void>();
+      addTearDown(() {
+        if (!releaseSwitch.isCompleted) releaseSwitch.complete();
+      });
+      final api = await _ProxyApiServer.start(
+        proxyNow: 'Node A',
+        beforePutResponse: (target) async {
+          if (target != 'Node B') return;
+          if (!switchReachedCore.isCompleted) switchReachedCore.complete();
+          await releaseSwitch.future;
+        },
+      );
+      addTearDown(api.close);
+
+      final service = _ApiClashService()..publishRunning();
+      addTearDown(service.dispose);
+      service.initHttpClient();
+      service.updateSettings(AppSettings(apiPort: api.port));
+      final oldGeneration = service.requestConnectionIntent(true);
+      var statusEpoch = 7;
+      var sessionIdentity = 41;
+      var guardCalls = 0;
+      var statusNotifications = 0;
+      service.addStatusListener(() => statusNotifications++);
+
+      final oldSwitch = service.switchSelectedProxy(
+        'Node B',
+        isSwitchContextCurrent: () {
+          guardCalls++;
+          return statusEpoch == 7 &&
+              sessionIdentity == 41 &&
+              service.isConnectionIntentCurrent(
+                oldGeneration,
+                connected: true,
+              );
+        },
+      );
+      await switchReachedCore.future;
+
+      service.requestConnectionIntent(false);
+      statusEpoch++;
+      sessionIdentity++;
+      final newGeneration = service.requestConnectionIntent(true);
+      releaseSwitch.complete();
+
+      expect(await oldSwitch, isTrue);
+      expect(api.proxyNow, 'Node B');
+      expect(api.putTargets, ['PROXY:Node B']);
+      expect(guardCalls, 2);
+      expect(api.closeConnectionCalls, 0);
+      expect(statusNotifications, 0);
+      expect(
+        service.isConnectionIntentCurrent(newGeneration, connected: true),
+        isTrue,
+      );
+    });
+
+    test('a switch that becomes stale during cleanup has no route side effects',
+        () async {
+      final cleanupReachedCore = Completer<void>();
+      final releaseCleanup = Completer<void>();
+      addTearDown(() {
+        if (!releaseCleanup.isCompleted) releaseCleanup.complete();
+      });
+      final api = await _ProxyApiServer.start(
+        proxyNow: 'Node A',
+        beforeDeleteResponse: () async {
+          cleanupReachedCore.complete();
+          await releaseCleanup.future;
+        },
+      );
+      addTearDown(api.close);
+
+      final service = _ApiClashService()
+        ..initHttpClient()
+        ..updateSettings(AppSettings(apiPort: api.port))
+        ..publishRunning()
+        ..publishDataPlaneWarning('旧会话告警');
+      addTearDown(service.dispose);
+      var contextCurrent = true;
+      var statusNotifications = 0;
+      service.addStatusListener(() => statusNotifications++);
+
+      final switching = service.switchSelectedProxy(
+        'Node B',
+        isSwitchContextCurrent: () => contextCurrent,
+      );
+      await cleanupReachedCore.future;
+      contextCurrent = false;
+      service.publishDataPlaneWarning('新会话告警');
+      final notificationsAfterNewSession = statusNotifications;
+      releaseCleanup.complete();
+
+      expect(await switching, isTrue);
+      expect(api.closeConnectionCalls, 1);
+      expect(service.connectivityWarning, '新会话告警');
+      expect(statusNotifications, notificationsAfterNewSession);
     });
 
     test('logs a rejected proxy-group mutation without dropping the session',
@@ -678,6 +1035,25 @@ void main() {
       expect(recovered, isTrue);
       expect(generatedForNodes, ['Node B']);
       expect(await service.currentSelectedProxyName(), 'Node B');
+    });
+
+    test('automatic recovery hides raw exceptions from UI and runtime logs',
+        () async {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      service.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: AppSettings(),
+        generateConfig: (runtimeSettings, preferredNodeName) =>
+            Future<String>.error(StateError('raw-recovery-secret')),
+        isRevisionCurrent: () => true,
+      );
+      final generation = service.requestConnectionIntent(true);
+
+      expect(await service.runDesktopRecovery(generation), isFalse);
+      expect(service.lastStartError, contains('操作未完成'));
+      expect(service.lastStartError, isNot(contains('raw-recovery-secret')));
+      expect(service.recentLogs, contains('cause=UNKNOWN'));
+      expect(service.recentLogs, isNot(contains('raw-recovery-secret')));
     });
 
     test('automatic recovery keeps the successful connection settings snapshot',
@@ -1139,6 +1515,7 @@ proxies:
 
     expect(service.periodicHealthResults, isEmpty);
     expect(service.lastHealthCheckError, isNull);
+    expect(service.connectivityWarning, isNull);
     expect(service.isRunning, isTrue);
     expect(service.connectionDesired, isTrue);
 
@@ -1184,6 +1561,80 @@ proxies:
 
     expect(service.observationCalls, 2);
     expect(service.connectivityWarning, isNull);
+  });
+
+  test('an explicit data-plane rerun is coalesced behind the active probe',
+      () async {
+    final service = _SessionDataPlaneClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+
+    service.scheduleObservationForTest();
+    await service.firstObservationStarted.future;
+    service.scheduleCoalescedObservationForTest();
+    service.scheduleCoalescedObservationForTest();
+
+    expect(service.observationCalls, 1);
+    service.firstObservation.complete();
+    await service.secondObservationStarted.future
+        .timeout(const Duration(seconds: 1));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(service.observationCalls, 2);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+  });
+
+  test('ownership and data-plane warnings recover independently', () {
+    final service = _TestClashService()
+      ..requestConnectionIntent(true)
+      ..setRunning(true);
+    addTearDown(service.dispose);
+
+    service.publishDataPlaneWarning('当前节点外部联网观察未通过');
+    service.publishOwnershipWarning('系统代理所有权暂时无法确认');
+
+    expect(service.connectivityWarning, contains('当前节点外部联网观察未通过'));
+    expect(service.connectivityWarning, contains('系统代理所有权暂时无法确认'));
+
+    service.publishOwnershipWarning(null);
+    expect(service.connectivityWarning, '当前节点外部联网观察未通过');
+
+    service.publishOwnershipWarning('系统代理所有权暂时无法确认');
+    service.publishDataPlaneWarning(null);
+    expect(service.connectivityWarning, '系统代理所有权暂时无法确认');
+  });
+
+  test('route changes discard stale probes and run one current-route probe',
+      () async {
+    final service = _RouteDataPlaneClashService()
+      ..requestConnectionIntent(true)
+      ..setRunning(true);
+    addTearDown(service.dispose);
+    service.publishDataPlaneWarning('旧节点外部联网告警');
+    service.publishOwnershipWarning('系统代理所有权告警');
+
+    service.scheduleObservationForTest();
+    await service.firstObservationStarted.future;
+    service.simulateRouteChange();
+    await service.secondObservationStarted.future
+        .timeout(const Duration(seconds: 1));
+
+    expect(service.observationCalls, 2);
+    expect(service.connectivityWarning, contains('当前节点外部联网告警'));
+    expect(service.connectivityWarning, contains('系统代理所有权告警'));
+    expect(service.connectivityWarning, isNot(contains('旧节点')));
+
+    service.firstObservation.complete();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(service.observationCalls, 2);
+    expect(service.connectivityWarning, contains('当前节点外部联网告警'));
+    expect(service.connectivityWarning, contains('系统代理所有权告警'));
+    expect(service.connectivityWarning, isNot(contains('旧探测')));
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
   });
 
   group('ClashServiceBase diagnostics', () {
@@ -1233,6 +1684,67 @@ proxies:
       expect(service.healthCalls, 1);
     });
 
+    test('classifies emitted health failures as core unavailable', () async {
+      const healthErrors = <String>[
+        'CORE_API_UNAVAILABLE: API 返回 HTTP 503，端口 9090',
+        'CORE_API_UNAVAILABLE: 本地控制服务暂时无法访问（端口 9090）',
+        'CORE_API_UNAVAILABLE: 运行状态检查超时',
+        'CORE_API_UNAVAILABLE: 运行状态检查异常',
+      ];
+
+      for (final healthError in healthErrors) {
+        final service = _DiagnosticClashService(
+          healthHealthy: false,
+          healthError: healthError,
+        );
+        addTearDown(service.dispose);
+        service.setRunning(true);
+
+        final report = await service.runDiagnostics();
+        final runtime =
+            report.checks.singleWhere((check) => check.id == 'runtime');
+
+        expect(runtime.errorCode, AppErrorCode.coreUnavailable);
+        expect(runtime.summary, isNot(contains('未分类')));
+      }
+    });
+
+    test('reports the precise local runtime health category', () async {
+      final service = _DiagnosticClashService(
+        healthHealthy: false,
+        healthError: 'LOCAL_PROXY_LISTENER_UNAVAILABLE: 本地代理端口 7890 未响应',
+      );
+      addTearDown(service.dispose);
+      service.setRunning(true);
+
+      final report = await service.runDiagnostics();
+      final runtime =
+          report.checks.singleWhere((check) => check.id == 'runtime');
+
+      expect(runtime.title, '运行状态');
+      expect(runtime.errorCode, AppErrorCode.localProxyUnavailable);
+      expect(runtime.summary, contains('本地监听尚未就绪'));
+      expect(runtime.summary, isNot(contains('核心 API 无法访问')));
+    });
+
+    test('reports confirmed system proxy takeover precisely', () async {
+      final service = _DiagnosticClashService(
+        healthHealthy: false,
+        healthError: 'SYSTEM_PROXY_OWNERSHIP_LOST: 系统代理已被关闭或修改',
+      );
+      addTearDown(service.dispose);
+      service.setRunning(true);
+
+      final report = await service.runDiagnostics();
+      final runtime =
+          report.checks.singleWhere((check) => check.id == 'runtime');
+
+      expect(runtime.errorCode, AppErrorCode.systemProxyChanged);
+      expect(runtime.summary, contains('其他程序关闭或替换'));
+      expect(runtime.summary, contains('关闭其他代理或 VPN'));
+      expect(runtime.summary, isNot(contains('未分类')));
+    });
+
     test('reports data-plane degradation separately from core health',
         () async {
       final service = _DiagnosticClashService();
@@ -1248,7 +1760,11 @@ proxies:
 
       expect(runtime.status, AppDiagnosticStatus.passed);
       expect(dataPlane.status, AppDiagnosticStatus.warning);
-      expect(dataPlane.summary, contains('核心、系统服务和运行配置仍保持连接'));
+      expect(
+        dataPlane.summary,
+        '外部网络观察暂未通过；核心、系统服务和运行配置仍保持连接',
+      );
+      expect(dataPlane.summary, isNot(contains('恢复状态')));
     });
 
     test('reports a healthy data plane instead of omitting the check',
@@ -1261,6 +1777,22 @@ proxies:
       final dataPlane =
           report.checks.singleWhere((check) => check.id == 'data_plane');
 
+      expect(dataPlane.status, AppDiagnosticStatus.passed);
+      expect(dataPlane.errorCode, isNull);
+    });
+
+    test('does not report an ownership-only warning as data-plane failure',
+        () async {
+      final service = _DiagnosticClashService();
+      addTearDown(service.dispose);
+      service.setRunning(true);
+      service.publishOwnershipWarning('系统代理所有权暂时无法确认');
+
+      final report = await service.runDiagnostics();
+      final dataPlane =
+          report.checks.singleWhere((check) => check.id == 'data_plane');
+
+      expect(service.connectivityWarning, contains('系统代理所有权'));
       expect(dataPlane.status, AppDiagnosticStatus.passed);
       expect(dataPlane.errorCode, isNull);
     });
@@ -1366,6 +1898,8 @@ class _ProxyApiServer {
     required this.globalNow,
     required this.updateProxyOnPut,
     required this.putDelayByTarget,
+    required this.beforePutResponse,
+    required this.beforeDeleteResponse,
     required this.putStatusCode,
     required this.deleteStatusCode,
   }) {
@@ -1377,9 +1911,12 @@ class _ProxyApiServer {
   String globalNow;
   final bool updateProxyOnPut;
   final Map<String, Duration> putDelayByTarget;
+  final Future<void> Function(String target)? beforePutResponse;
+  final Future<void> Function()? beforeDeleteResponse;
   final int putStatusCode;
   final int deleteStatusCode;
   int closeConnectionCalls = 0;
+  final List<String> putTargets = [];
 
   int get port => _server.port;
 
@@ -1388,6 +1925,8 @@ class _ProxyApiServer {
     String globalNow = 'PROXY',
     bool updateProxyOnPut = true,
     Map<String, Duration> putDelayByTarget = const {},
+    Future<void> Function(String target)? beforePutResponse,
+    Future<void> Function()? beforeDeleteResponse,
     int putStatusCode = HttpStatus.noContent,
     int deleteStatusCode = HttpStatus.noContent,
   }) async {
@@ -1398,6 +1937,8 @@ class _ProxyApiServer {
       globalNow: globalNow,
       updateProxyOnPut: updateProxyOnPut,
       putDelayByTarget: putDelayByTarget,
+      beforePutResponse: beforePutResponse,
+      beforeDeleteResponse: beforeDeleteResponse,
       putStatusCode: putStatusCode,
       deleteStatusCode: deleteStatusCode,
     );
@@ -1426,6 +1967,8 @@ class _ProxyApiServer {
       final body = await utf8.decodeStream(request);
       final decoded = jsonDecode(body) as Map<String, dynamic>;
       final target = decoded['name']?.toString() ?? '';
+      putTargets.add('${segments.last}:$target');
+      await beforePutResponse?.call(target);
       final delay = putDelayByTarget[target];
       if (delay != null) await Future<void>.delayed(delay);
       if (putStatusCode >= 200 && putStatusCode < 300) {
@@ -1442,6 +1985,7 @@ class _ProxyApiServer {
 
     if (request.method == 'DELETE' && request.uri.path == '/connections') {
       closeConnectionCalls++;
+      await beforeDeleteResponse?.call();
       request.response.statusCode = deleteStatusCode;
       await request.response.close();
       return;
@@ -1481,10 +2025,16 @@ class _ApiClashService extends ClashServiceBase
     with _ExplicitTestDiagnosticCapability {
   void publishRunning() => setRunning(true);
 
+  void publishDataPlaneWarning(String? warning) =>
+      setConnectivityWarning(warning);
+
   Future<void> runRuleProviderRefresh() => refreshRuleProvidersOnce();
 
   Future<bool> runDesktopRecovery(int generation) =>
       recoverDesktopConnection(generation);
+
+  Future<bool> runBoundedHealthCheck(Future<bool> source) =>
+      boundedHealthCheck(source);
 
   void simulateTerminalConnectionLoss() => markConnectionLost();
 
@@ -1516,6 +2066,33 @@ class _ApiClashService extends ClashServiceBase
   Future<void> stop() async => setRunning(false);
 }
 
+class _ShortHealthTimeoutClashService extends _ApiClashService {
+  @override
+  Duration get healthCheckTimeout => const Duration(milliseconds: 10);
+}
+
+class _FailingDataPlaneClashService extends _TestClashService {
+  final Completer<void> failureLogged = Completer<void>();
+
+  void scheduleObservationForTest() => scheduleDataPlaneObservation();
+
+  @override
+  Future<void> observeDataPlaneHealth() =>
+      Future<void>.error(StateError('raw-data-plane-secret'));
+
+  @override
+  void log(
+    String message, {
+    RuntimeLogLevel level = RuntimeLogLevel.info,
+    String event = 'runtime',
+  }) {
+    super.log(message, level: level, event: event);
+    if (event == 'data_plane_probe' && !failureLogged.isCompleted) {
+      failureLogged.complete();
+    }
+  }
+}
+
 class _ControlledLatencyClashService extends _TestClashService {
   int testCalls = 0;
 
@@ -1533,6 +2110,12 @@ class _ControlledLatencyClashService extends _TestClashService {
 class _TestClashService extends ClashServiceBase
     with _ExplicitTestDiagnosticCapability {
   int refreshCalls = 0;
+
+  void publishDataPlaneWarning(String? warning) =>
+      setConnectivityWarning(warning);
+
+  void publishOwnershipWarning(String? warning) =>
+      setConnectivityOwnershipWarning(warning);
 
   @override
   Duration get ruleProviderStartupRefreshDelay =>
@@ -1575,6 +2158,38 @@ class _PlannedPortClashService extends _TestClashService {
     }
     return candidate;
   }
+
+  @override
+  Future<int> findAvailableTcpUdpPort(int preferred, Set<int> reserved) =>
+      findAvailablePort(preferred, reserved);
+}
+
+class _LocalMixedProxyClashService extends _TestClashService {
+  _LocalMixedProxyClashService({required this.configs});
+
+  final Map<String, dynamic>? configs;
+
+  @override
+  Future<Map<String, dynamic>?> getConfigs() async => configs;
+}
+
+Future<ServerSocket> _startSocks5GreetingServer() async {
+  final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+  server.listen((socket) async {
+    try {
+      final greeting = await socket.first.timeout(const Duration(seconds: 1));
+      if (greeting.length >= 3 &&
+          greeting[0] == 0x05 &&
+          greeting[1] == 0x01 &&
+          greeting[2] == 0x00) {
+        socket.add(const [0x05, 0x00]);
+        await socket.flush();
+      }
+    } finally {
+      await socket.close();
+    }
+  });
+  return server;
 }
 
 class _FallbackPortClashService extends _TestClashService {
@@ -1609,6 +2224,7 @@ class _DiagnosticClashService extends _TestClashService {
     this.platformChecks = const [],
     this.activeDiagnosticConfigPath,
     this.configRequired = true,
+    this.healthError,
   });
 
   final bool coreAvailable;
@@ -1616,6 +2232,7 @@ class _DiagnosticClashService extends _TestClashService {
   final List<AppDiagnosticCheck> platformChecks;
   final String? activeDiagnosticConfigPath;
   final bool configRequired;
+  final String? healthError;
   int healthCalls = 0;
 
   void publishConnectivityWarning(String? warning) =>
@@ -1637,6 +2254,7 @@ class _DiagnosticClashService extends _TestClashService {
   @override
   Future<bool> healthCheck() async {
     healthCalls++;
+    if (!healthHealthy) setLastHealthCheckError(healthError);
     return healthHealthy;
   }
 }
@@ -1820,6 +2438,9 @@ class _SessionHealthClashService extends _TestClashService {
       firstHealthStarted.complete();
       final healthy = await firstHealth.future;
       setLastHealthCheckError(healthy ? null : 'stale first-session error');
+      setConnectivityWarning(
+        healthy ? null : 'stale first-session connectivity warning',
+      );
       return healthy;
     }
     secondHealthStarted.complete();
@@ -1873,6 +2494,9 @@ class _SessionDataPlaneClashService extends _TestClashService {
 
   void scheduleObservationForTest() => scheduleDataPlaneObservation();
 
+  void scheduleCoalescedObservationForTest() =>
+      scheduleDataPlaneObservation(rerunIfActive: true);
+
   @override
   Future<void> observeDataPlaneHealth() {
     observationCalls++;
@@ -1882,6 +2506,33 @@ class _SessionDataPlaneClashService extends _TestClashService {
     }
     secondObservationStarted.complete();
     return Future<void>.value();
+  }
+}
+
+class _RouteDataPlaneClashService extends _TestClashService {
+  final Completer<void> firstObservationStarted = Completer<void>();
+  final Completer<void> secondObservationStarted = Completer<void>();
+  final Completer<void> firstObservation = Completer<void>();
+  int observationCalls = 0;
+
+  @override
+  Duration get dataPlaneObservationTimeout => const Duration(seconds: 2);
+
+  void scheduleObservationForTest() => scheduleDataPlaneObservation();
+
+  void simulateRouteChange() => onDataPlaneRouteChanged();
+
+  @override
+  Future<void> observeDataPlaneHealth() async {
+    observationCalls++;
+    if (observationCalls == 1) {
+      firstObservationStarted.complete();
+      await firstObservation.future;
+      setConnectivityWarning('旧探测迟到的外部联网告警');
+      return;
+    }
+    secondObservationStarted.complete();
+    setConnectivityWarning('当前节点外部联网告警');
   }
 }
 

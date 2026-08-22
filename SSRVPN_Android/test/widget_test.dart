@@ -5,8 +5,20 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ssrvpn_android/models/app_settings.dart';
 import 'package:ssrvpn_android/services/clash_service.dart';
+import 'package:ssrvpn_android/theme/app_theme.dart';
 
 void main() {
+  test('Android theme does not force a Windows-only font', () {
+    expect(
+      AppTheme.darkTheme.textTheme.bodyMedium?.fontFamily,
+      isNot('Segoe UI'),
+    );
+    expect(
+      AppTheme.lightTheme.textTheme.bodyMedium?.fontFamily,
+      isNot('Segoe UI'),
+    );
+  });
+
   group('AppSettings', () {
     test('默认值', () {
       final s = AppSettings();

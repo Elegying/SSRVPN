@@ -98,6 +98,8 @@ void main() {
         ],
       );
       expect(harness.running, isFalse);
+      expect(harness.switchContextBeforeChange, isTrue);
+      expect(harness.switchContextAfterChange, isFalse);
     });
 
     test(
@@ -141,7 +143,7 @@ void main() {
           calls.add('start');
           startCalls++;
           if (startCalls == 1) {
-            startError = 'listen tcp 127.0.0.1:32000: address already in use';
+            startError = 'LOCAL_PROXY_LISTENER_UNAVAILABLE: 本地代理端口未响应';
             return false;
           }
           startError = null;
@@ -533,6 +535,8 @@ class _CoordinatorHarness {
   bool throwOnGenerate = false;
   bool throwOnWrite = false;
   bool throwOnSwitch = false;
+  bool? switchContextBeforeChange;
+  bool? switchContextAfterChange;
   int stopCalls = 0;
   final List<String> calls = [];
 
@@ -570,10 +574,12 @@ class _CoordinatorHarness {
         stopCalls++;
         running = false;
       },
-      switchPreferredNode: () async {
+      switchPreferredNode: (isConnectionContextCurrent) async {
         calls.add('switch');
         if (throwOnSwitch) throw StateError('switch failed');
+        switchContextBeforeChange = isConnectionContextCurrent();
         if (changeRevisionOnSwitch) revision++;
+        switchContextAfterChange = isConnectionContextCurrent();
         return switchResult;
       },
       isRevisionCurrent: () => revision == _capturedRevision,

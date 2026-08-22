@@ -60,13 +60,13 @@ Future<_VerifiedPublicationOutcome> _publishVerifiedFileLocked({
     VerifiedUpdatePublicationTestStep.beforeDestinationCommit,
   );
   cancellation?.throwIfCancelled();
-  final linked = await _createHardLinkNoReplace(
+  final published = await _publishFileNoReplace(
     source: temporary,
     destination: destination,
     cancellation: cancellation,
     filePublisher: filePublisher,
   );
-  if (!linked) {
+  if (!published) {
     final matches = await _verifiedFileMatches(
       destination,
       expectedSha256: expectedSha256,
@@ -88,7 +88,10 @@ Future<_VerifiedPublicationOutcome> _publishVerifiedFileLocked({
     expectedSha256: expectedSha256,
     expectedLength: expectedLength,
     maxBytes: maxBytes,
-    cancellation: cancellation,
+    // Publication is the irreversible commit point. Once the publisher has
+    // returned success, finish verification and acknowledge the destination
+    // even if the user pressed Cancel while the native call was in flight.
+    cancellation: null,
   );
   if (!committedMatches) {
     throw StateError('更新文件原子发布后的校验失败，已拒绝使用');
@@ -100,10 +103,10 @@ Future<_VerifiedPublicationOutcome> _publishVerifiedFileLocked({
   return _VerifiedPublicationOutcome.committed;
 }
 
-/// Creates the destination as a hard link to the already verified staging
-/// inode. Hard-link creation is atomic and fails when the destination exists,
-/// so the commit point can never replace a user or another process's file.
-Future<bool> _createHardLinkNoReplace({
+/// Atomically publishes the verified staging file without replacing an
+/// existing destination. Cancellation is honored until the publisher starts;
+/// after that point its result must be reconciled before returning to the UI.
+Future<bool> _publishFileNoReplace({
   required File source,
   required File destination,
   required VerifiedUpdateCancellation? cancellation,
@@ -112,19 +115,15 @@ Future<bool> _createHardLinkNoReplace({
   cancellation?.throwIfCancelled();
   if (filePublisher != null) {
     try {
-      await _awaitWithCancellation(
-        filePublisher(source, destination),
-        cancellation,
-      );
-      cancellation?.throwIfCancelled();
+      await filePublisher(source, destination);
       return true;
     } catch (_) {
-      cancellation?.throwIfCancelled();
-      final destinationType = await _awaitWithCancellation(
-        FileSystemEntity.type(destination.path, followLinks: false),
-        cancellation,
+      final destinationType = await FileSystemEntity.type(
+        destination.path,
+        followLinks: false,
       );
       if (destinationType != FileSystemEntityType.notFound) return false;
+      cancellation?.throwIfCancelled();
       rethrow;
     }
   }
@@ -134,20 +133,17 @@ Future<bool> _createHardLinkNoReplace({
       'Windows verified update publication requires a native publisher',
     );
   }
-  result = await _awaitWithCancellation(
-    Process.run(
-      '/bin/ln',
-      <String>[source.absolute.path, destination.absolute.path],
-    ),
-    cancellation,
+  result = await Process.run(
+    '/bin/ln',
+    <String>[source.absolute.path, destination.absolute.path],
   );
-  cancellation?.throwIfCancelled();
   if (result.exitCode == 0) return true;
-  final destinationType = await _awaitWithCancellation(
-    FileSystemEntity.type(destination.path, followLinks: false),
-    cancellation,
+  final destinationType = await FileSystemEntity.type(
+    destination.path,
+    followLinks: false,
   );
   if (destinationType != FileSystemEntityType.notFound) return false;
+  cancellation?.throwIfCancelled();
   final details = result.stderr.toString().trim();
   throw FileSystemException(
     details.isEmpty ? '无法原子发布更新文件' : details,
@@ -216,10 +212,7 @@ Future<bool> _recoverInterruptedPublicationLocked(
       cancellation?.throwIfCancelled();
       final stat = await _awaitWithCancellation(entity.stat(), cancellation);
       cancellation?.throwIfCancelled();
-      if (stat.size < 0 || stat.size > maxBytes) {
-        await _deleteRecoveryBackupBestEffort(entity, cancellation);
-        continue;
-      }
+      if (stat.size < 0 || stat.size > maxBytes) continue;
 
       backups.add((
         file: entity,
@@ -232,11 +225,7 @@ Future<bool> _recoverInterruptedPublicationLocked(
         return right.file.path.compareTo(left.file.path);
       });
       if (backups.length > _recoveryCandidateLimit) {
-        final discarded = backups.removeLast();
-        await _deleteRecoveryBackupBestEffort(
-          discarded.file,
-          cancellation,
-        );
+        backups.removeLast();
       }
     }
   } finally {
@@ -252,17 +241,7 @@ Future<bool> _recoverInterruptedPublicationLocked(
     return false;
   }
 
-  Future<void> cleanBackups() async {
-    // A backup is publishable only when it matches trusted update metadata.
-    // Everything left after recovery is stale or unverified private state.
-    for (final backup in backups) {
-      cancellation?.throwIfCancelled();
-      await _deleteRecoveryBackupBestEffort(backup.file, cancellation);
-    }
-  }
-
   if (destinationType == FileSystemEntityType.file) {
-    await cleanBackups();
     if (destinationMatches) return true;
     throw StateError('目标更新文件已存在且校验不一致，已拒绝覆盖');
   }
@@ -319,7 +298,9 @@ Future<bool> _recoverInterruptedPublicationLocked(
     }
   }
 
-  await cleanBackups();
+  // Directory candidates are read-only recovery inputs, not proof of app
+  // ownership. Preserve every source path even after a successful recovery;
+  // only staging files created exclusively by this call may be deleted.
   return recovered;
 }
 

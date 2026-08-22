@@ -65,7 +65,15 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         workflow = (SCRIPT.parents[1] / ".github/workflows/release.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("group: ssrvpn-public-release", workflow)
+        concurrency = workflow[
+            workflow.index("concurrency:") : workflow.index("\nenv:")
+        ]
+        self.assertIn("startsWith(github.ref, 'refs/tags/')", concurrency)
+        self.assertIn("'ssrvpn-public-release'", concurrency)
+        self.assertIn(
+            "format('ssrvpn-release-build-{0}', github.ref)", concurrency
+        )
+        self.assertIn("cancel-in-progress: false", concurrency)
         self.assertIn("overwrite_files: false", workflow)
         self.assertIn("ANDROID_RELEASE_CERT_SHA256", workflow)
         self.assertIn("verify-release-transition.py", workflow)
@@ -232,14 +240,14 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
             'gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag"',
             verify_step,
         )
-        prerelease_guard = verify_step.index(
-            'if [ "$is_prerelease" != true ]; then'
+        stable_release_guard = verify_step.index(
+            'release.get("prerelease") is not False'
         )
         latest_lookup = verify_step.index(
             'gh api "repos/$GITHUB_REPOSITORY/releases/latest"'
         )
-        self.assertLess(prerelease_guard, latest_lookup)
-        self.assertNotIn("releases/latest", verify_step[:prerelease_guard])
+        self.assertLess(stable_release_guard, latest_lookup)
+        self.assertNotIn('if [ "$is_prerelease" != true ]; then', verify_step)
         self.assertIn("latest.get(\"id\") != release.get(\"id\")", verify_step)
         self.assertIn("$OSS_PREFIX/latest.json", verify_step)
         self.assertIn(

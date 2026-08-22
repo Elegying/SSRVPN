@@ -35,6 +35,7 @@
 - [OSS 发布运维](OSS_RELEASE_OPERATIONS.zh-CN.md)：发布、密钥轮换、故障恢复和回滚。
 - [免费分发与签名说明](RELEASE_SIGNING.md)：固定分发策略、校验方式和系统警告。
 - [核心资产来源](CORE_ASSETS.md)：Mihomo、Android 原生核心与 GeoIP 来源。
+- [第三方许可清单](../third_party/THIRD_PARTY_NOTICES.md)：随包组件的许可证、精确源码与修改说明。
 
 ## 安全与架构
 

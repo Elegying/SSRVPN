@@ -14,3 +14,6 @@ import '../services/subscription_service.dart';
 import '../theme/app_theme.dart';
 
 part 'package:ssrvpn_shared/desktop_ui/screens/desktop_node_edit_screen_part.dart';
+
+String get _desktopJsonEditorFontFamily => 'Menlo';
+List<String> get _desktopJsonEditorFontFallback => const <String>['Consolas'];

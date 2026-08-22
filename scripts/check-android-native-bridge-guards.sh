@@ -26,8 +26,10 @@ HOME_PARTS=(
 PUBLIC_ROUTES="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/PublicIpv4Routes.kt"
 VPN_ROUTE_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnRouteInstaller.kt"
 VPN_APP_EXCLUSION_INSTALLER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnAppExclusionInstaller.kt"
-VPN_DATA_PLANE_PROBE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnDataPlaneProbe.kt"
 VPN_PROTECT_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnProtectMonitor.kt"
+VPN_RUNTIME_HEALTH="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnRuntimeHealth.kt"
+MIHOMO_PROXY_SELECTION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/MihomoProxySelection.kt"
+ANDROID_RUNTIME_GUARD="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/AndroidRuntimeGuard.kt"
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
 NOTIFICATION_GATE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NotificationGenerationGate.kt"
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
@@ -41,6 +43,7 @@ NATIVE_SNAPSHOT_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrv
 NATIVE_CONNECTION_SESSION="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeConnectionSession.kt"
 NATIVE_SESSION_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeVpnSessionCoordinator.kt"
 NATIVE_RUNTIME_DIAGNOSTICS="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeRuntimeDiagnostics.kt"
+NATIVE_CORE_START_FAILURE_CATEGORY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeCoreStartFailureCategory.kt"
 NATIVE_SESSION_COMMITTER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeSessionCommitter.kt"
 NATIVE_START_PAYLOAD_REGISTRY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NativeStartPayloadRegistry.kt"
 VPN_RESTART_STORE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnServiceRestartStore.kt"
@@ -396,6 +399,189 @@ require_text "BRIDGE_IS_RUNNING_TIMEOUT_MS"
 require_text "startBridgeWithTimeout"
 require_text "stopBridgeWithTimeout"
 require_text "isBridgeRunningWithTimeout"
+require_text "event=mihomo_start_failed cause=\${failureCategory.logValue}"
+require_text "category.methodChannelFailureState"
+if grep -Fq "Mihomo start failed: \$startErr" "$SERVICE"; then
+  echo "Android native start error guard failed: raw Bridge.start details reach logcat" >&2
+  exit 1
+fi
+if grep -Fq "protect(\$socketFd)" "$VPN_PROTECT_MONITOR"; then
+  echo "Android protect-monitor guard failed: per-socket success logs are not allowed" >&2
+  exit 1
+fi
+require_file_text "$VPN_RUNTIME_HEALTH" "cause=\${readiness.logValue}"
+if grep -Fq 'cause=health_contract' "$VPN_RUNTIME_HEALTH"; then
+  echo "Android runtime-health guard failed: local API failures lost their category" >&2
+  exit 1
+fi
+require_file_text "$NATIVE_CORE_START_FAILURE_CATEGORY" \
+  "internal enum class NativeCoreStartFailureCategory"
+require_file_text "$NATIVE_CORE_START_FAILURE_CATEGORY" \
+  "private val matchPriority: Int"
+require_file_text "$NATIVE_CORE_START_FAILURE_CATEGORY" \
+  'PORT_CONFLICT("port_conflict", "CORE_START_PORT_CONFLICT", 1)'
+require_file_text "$NATIVE_CORE_START_FAILURE_CATEGORY" \
+  'const val FAILURE_CODE_KEY = "failureCode"'
+require_activity_text "NativeCoreStartFailureCategory.methodChannelCodeFromState("
+require_activity_text 'result.error("CORE_START_BUSY"'
+if grep -Fq 'result.error("CORE_BUSY"' "$MAIN_ACTIVITY"; then
+  echo "Android native busy-state guard failed: legacy CORE_BUSY escaped MainActivity" >&2
+  exit 1
+fi
+python3 - \
+  "$SERVICE" \
+  "$MAIN_ACTIVITY" \
+  "$MIHOMO_PROXY_SELECTION" \
+  "$VPN_PROTECT_MONITOR" \
+  "$CORE_RECOVERY_COORDINATOR" \
+  "$TILE_SERVICE" \
+  "$DISCONNECT_RECOVERY_ACTIVITY" \
+  "$NATIVE_SESSION_COMMITTER" \
+  "$NATIVE_SNAPSHOT_STORE" \
+  "$DETACHED_TUN_FD_OWNER" \
+  "$ANDROID_RUNTIME_GUARD" \
+  "$CLASH_DART" <<'PY'
+import sys
+import re
+from pathlib import Path
+
+(
+    service_path,
+    activity_path,
+    selection_path,
+    protect_path,
+    recovery_path,
+    tile_path,
+    disconnect_path,
+    committer_path,
+    snapshot_path,
+    detached_tun_path,
+    runtime_guard_path,
+    dart_path,
+) = map(Path, sys.argv[1:])
+
+checks = {
+    service_path: (
+        'Log.e(TAG, "VPN native bridge linkage failed", e)',
+        'Log.e(TAG, "startCoreWithVpn error", e)',
+        'Log.e(TAG, "Interrupted while waiting for Bridge.start", e)',
+        'Log.e(TAG, "Monitor error", e)',
+        'Log.e(TAG, "Unable to show core recovery failure", notificationError)',
+        'Log.e(TAG, "Bridge.isRunning linkage error", e)',
+        'Log.e(TAG, "Bridge.isRunning error", e)',
+        'Log.e(TAG, "Interrupted while waiting for Bridge.isRunning", e)',
+        'Log.e(TAG, "Stop cleanup failed; process termination scheduled", it)',
+        'Log.w(TAG, "stopForeground failed: ${e.message}")',
+        'Log.e(TAG, "Interrupted while waiting for protect monitor", error)',
+        'Log.e(TAG, "Bridge stop linkage error", e)',
+        'Log.e(TAG, "Bridge stop error", e)',
+        'Log.e(TAG, "Interrupted while waiting for Bridge.stop", e)',
+    ),
+    activity_path: (
+        '"startCoreWithVpn: dir=$configDir, config=$configPath, apiPort=$apiPort"',
+        'Log.e("MainActivity", "Unable to prepare API secret recovery", error)',
+        'Log.e("MainActivity", "Unable to sync native VPN snapshot", error)',
+        'Log.e("MainActivity", "Unable to request VPN permission", error)',
+        'Log.e("MainActivity", "Unable to stop VPN core", error)',
+        'Log.e("MainActivity", "Unable to start VPN service", error)',
+        'Pending update install failed: ${e.message}',
+    ),
+    selection_path: (
+        'node=$selectedNode',
+        '${e.message}',
+    ),
+    protect_path: (
+        'Log.e(TAG, "Protect monitor native linkage failed", error)',
+        'Log.e(TAG, "Protect monitor failed", error)',
+    ),
+    recovery_path: ('Log.e(TAG, failureLog, error)',),
+    tile_path: ('Log.e(TAG, "Unable to start VPN service from tile", error)',),
+    disconnect_path: (
+        'Log.e(TAG, "Unable to preserve foreground UI during core reset", error)',
+    ),
+    committer_path: (
+        'Log.e("NativeSessionCommitter", "Unable to update node snapshot", error)',
+    ),
+    snapshot_path: (
+        'Log.e(TAG, "Unable to decrypt the native connection snapshot", error)',
+        'Log.w(TAG, "Unable to delete the retired snapshot key", error)',
+    ),
+    detached_tun_path: (
+        'Log.e(TAG, "Unable to close unclaimed TUN fd=$rawDescriptor", error)',
+    ),
+    runtime_guard_path: ('Log.e(tag, message, error)',),
+    dart_path: (
+        'nativeLibDir: $_nativeLibDir',
+        '核心路径: $_corePath',
+        '核心文件不存在: $_corePath',
+        '配置目录: $configDir',
+        '配置: $startConfigPath',
+        "log('❌ 核心启动失败: $result')",
+        "log('❌ 启动异常: $e')",
+        "log('堆栈: $stack')",
+        "setLastStartError('无法启动VPN核心: $e')",
+        "log('停止异常: $e')",
+        "log('更新 VPN 通知失败: $e')",
+        '$snapshotError；$stopError',
+    ),
+}
+
+violations = []
+for path, forbidden in checks.items():
+    source = path.read_text(encoding="utf-8")
+    for needle in forbidden:
+        if needle in source:
+            violations.append(f"{path.name}: {needle}")
+
+dart_source = dart_path.read_text(encoding="utf-8")
+for line_number, line in enumerate(dart_source.splitlines(), start=1):
+    if "log(" in line and (
+        re.search(r"\$(?:e|error|stack|result)\b", line) or
+        "entity.path" in line
+    ):
+        violations.append(f"{dart_path.name}:{line_number}: raw Dart log interpolation")
+
+if violations:
+    raise SystemExit(
+        "Android connection logs expose raw paths, node names, or exception details:\n" +
+        "\n".join(violations)
+    )
+PY
+python3 - \
+  "$ROOT/SSRVPN_Android/lib/services" \
+  "$ROOT/packages/ssrvpn_shared/lib/services" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+violations = []
+raw_interpolation = re.compile(
+    r"\$(?:\{)?(?:e|error|stack|result|stopError)\b"
+)
+for service_dir in map(Path, sys.argv[1:]):
+    for path in service_dir.glob("clash_service*.dart"):
+        source = path.read_text(encoding="utf-8")
+        for call in re.finditer(
+            r"\b(?:log|setLastHealthCheckError|setLastStartError)\s*\(",
+            source,
+        ):
+            statement_end = source.find(");", call.end())
+            if statement_end < 0:
+                statement_end = len(source)
+            statement = source[call.start():statement_end + 2]
+            if raw_interpolation.search(statement) or \
+                    "$absolutePath" in statement or \
+                    "entity.path" in statement:
+                line_number = source.count("\n", 0, call.start()) + 1
+                violations.append(
+                    f"{path.name}:{line_number}: raw connection log detail"
+                )
+if violations:
+    raise SystemExit(
+        "Connection logs expose raw exceptions or paths:\n" +
+        "\n".join(violations)
+    )
+PY
 grep -Fq "CorePortReleaseVerifier::waitUntilAllReleased" "$CORE_STOP_DECISION" || {
   echo "Android stop decision no longer verifies data plane port release" >&2
   exit 1
@@ -465,7 +651,7 @@ cleanup = stop_internal.index(
 handoff = stop_internal.index("processTerminationPending.set(true)", cleanup)
 complete = stop_internal.index("stopOperation::complete", handoff)
 schedule = stop_internal.index("notificationHandler.postDelayed(", complete)
-failure_log = stop_internal.index("Stop cleanup failed; process termination scheduled", schedule)
+failure_log = stop_internal.index("event=vpn_stop_cleanup_failed", schedule)
 if not runner_call < initial < cleanup < handoff < complete < schedule < failure_log:
     raise SystemExit("Android cleanup exceptions can bypass ambiguous fd process termination")
 
@@ -727,7 +913,7 @@ require_activity_text "recordManualStop = true"
 require_tile_text "VpnServiceRestartStore.recordManualStop(this)"
 require_tile_text "service.stopAll(recordManualStop = true)"
 require_activity_text "VPN start timeout cleanup failed"
-require_activity_text "error.javaClass.simpleName"
+require_activity_text "NativeCoreStartFailureCategory.from(error).logValue"
 # These manifest placeholders must be matched literally, not expanded by Bash.
 # shellcheck disable=SC2016
 for needle in \
@@ -807,14 +993,13 @@ require_route_text "addRoute(route.address, route.prefixLength)"
 require_route_text "VpnIpv6Config.defaultRoute"
 require_text "builder.setBlocking(false)"
 require_text "VpnAppExclusionInstaller.install(builder)"
-require_text "VpnDataPlaneProbe.startupOutcome("
-require_file_text "$VPN_DATA_PLANE_PROBE" '"VPN 数据通道不可用，请切换节点或重试"'
-require_file_text "$VPN_DATA_PLANE_PROBE" '"previous_probe_still_running"'
-require_file_text "$VPN_DATA_PLANE_PROBE" '"上次 VPN 联网检查仍在结束，请稍后重试；若持续出现请重启应用"'
-require_file_text "$VPN_DATA_PLANE_PROBE" '"https://www.gstatic.com/generate_204"'
-require_file_text "$VPN_DATA_PLANE_PROBE" '"https://www.youtube.com/generate_204"'
-require_file_text "$VPN_DATA_PLANE_PROBE" '"https://cp.cloudflare.com/generate_204"'
-require_file_text "$VPN_DATA_PLANE_PROBE" "HttpURLConnection.HTTP_NO_CONTENT"
+if grep -Fq "VpnDataPlaneProbe" "$SERVICE"; then
+  echo "Android external reachability must not block native VPN startup" >&2
+  exit 1
+fi
+require_file_text "$CLASH_DART" "scheduleUserConnectivityObservation({bool rerunIfActive = false}) =>"
+require_file_text "$CLASH_DART" "scheduleDataPlaneObservation(rerunIfActive: rerunIfActive)"
+require_file_text "$CLASH_NATIVE_BRIDGE" "scheduleUserConnectivityObservation(rerunIfActive: true)"
 require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "fun install(builder: VpnService.Builder)"
 require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "DomesticAppBypassPolicy.applyInstalled"
 require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "adbPackages.forEach"
@@ -1080,7 +1265,9 @@ service = Path(sys.argv[1])
 support = Path(sys.argv[2])
 recovery = Path(sys.argv[3])
 line_count = len(service.read_text(encoding="utf-8").splitlines())
-if line_count > 970:
+# Typed startup-failure propagation adds a small fixed cost; keep the service
+# under a hard ceiling and move new policy into focused helpers.
+if line_count > 995:
     raise SystemExit(f"{service}: VPN service grew to {line_count} lines")
 if "fun formatBytes(bytes: Long)" not in support.read_text(encoding="utf-8"):
     raise SystemExit(f"{support}: missing notification byte formatter")
@@ -1104,7 +1291,11 @@ boundaries = (
 for start_marker, end_marker in boundaries:
     start = source.index(start_marker)
     end = source.index(end_marker, start)
-    if "catch (e: LinkageError)" not in source[start:end]:
+    boundary = source[start:end]
+    if not any(
+        guard in boundary
+        for guard in ("catch (e: LinkageError)", "catch (_: LinkageError)")
+    ):
         raise SystemExit(
             f"Android JNI crash boundary is missing LinkageError handling: {start_marker}"
         )

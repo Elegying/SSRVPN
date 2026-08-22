@@ -11,6 +11,9 @@ enum DesktopConnectionFailure {
   startFailed,
 }
 
+typedef DesktopPreferredNodeSwitch = Future<bool> Function(
+    bool Function() isConnectionContextCurrent);
+
 class DesktopConnectionResult {
   const DesktopConnectionResult._({
     this.failure,
@@ -85,7 +88,7 @@ class DesktopConnectionCoordinator {
     required bool Function() shouldRollbackStaleIntent,
     required void Function() cancelIntent,
     required String? Function() readStartFailureReason,
-    Future<bool> Function()? switchPreferredNode,
+    DesktopPreferredNodeSwitch? switchPreferredNode,
     String? Function()? readRuntimeNotice,
   }) async {
     var startedByTransaction = false;
@@ -156,8 +159,10 @@ class DesktopConnectionCoordinator {
           );
         }
 
-        final switchNode = switchPreferredNode;
-        final switchSucceeded = switchNode == null ? null : await switchNode();
+        bool isCurrent() => isRevisionCurrent() && isIntentCurrent();
+        final switchSucceeded = switchPreferredNode == null
+            ? null
+            : await switchPreferredNode(isCurrent);
         rejected = await rejectStaleState();
         if (rejected != null) return rejected;
 

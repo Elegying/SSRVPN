@@ -17,6 +17,10 @@ EXPECTED_WORKFLOW_PATH = ".github/workflows/ci.yml"
 ALLOWED_EVENTS = {"push", "workflow_dispatch"}
 SKIPPABLE_REQUIRED_JOB = "Dependency review"
 NOT_FOUND_EXIT = 3
+WAITABLE_EXIT = 4
+# GitHub can hold an Actions run in these pre-completion states while it waits
+# for scheduling, concurrency, an environment, or another platform gate.
+WAITABLE_STATUSES = {"queued", "in_progress", "requested", "waiting", "pending"}
 MAX_PAGE_SIZE = 100
 MAX_RESULTS = 1000
 MAX_JSON_BYTES = 16 * 1024 * 1024
@@ -201,7 +205,7 @@ def eligible_run(
     workflow_id: int,
     now: datetime,
     max_age: timedelta,
-) -> Tuple[bool, datetime]:
+) -> Tuple[Optional[str], datetime]:
     run_id = positive_int(run.get("id"), "workflow run id")
     actual_workflow_id = positive_int(
         run.get("workflow_id"), f"workflow run {run_id} workflow_id"
@@ -213,9 +217,11 @@ def eligible_run(
     path = required_string(run.get("path"), f"workflow run {run_id} path")
     event = required_string(run.get("event"), f"workflow run {run_id} event")
     status = required_string(run.get("status"), f"workflow run {run_id} status")
-    conclusion = required_string(
-        run.get("conclusion"), f"workflow run {run_id} conclusion"
-    )
+    conclusion = run.get("conclusion")
+    if conclusion is not None and (not isinstance(conclusion, str) or not conclusion):
+        raise VerificationError(
+            f"workflow run {run_id} conclusion must be null or a non-empty string"
+        )
     html_url = required_string(
         run.get("html_url"), f"workflow run {run_id} html_url"
     )
@@ -240,14 +246,28 @@ def eligible_run(
         and head_sha == sha
         and qualified_path == EXPECTED_WORKFLOW_PATH
         and event in ALLOWED_EVENTS
-        and status == "completed"
-        and conclusion == "success"
         and html_url == expected_url
         and source_repo == repo
         and head_repo == repo
         and age <= max_age
     )
-    return matches, created_at
+    if not matches:
+        return None, created_at
+    if status == "completed":
+        if conclusion is None:
+            raise VerificationError(
+                f"completed workflow run {run_id} has no conclusion"
+            )
+        return ("reusable" if conclusion == "success" else None), created_at
+    if status in WAITABLE_STATUSES:
+        if conclusion is not None:
+            raise VerificationError(
+                f"active workflow run {run_id} unexpectedly has a conclusion"
+            )
+        return "waitable", created_at
+    raise VerificationError(
+        f"exact-main workflow run {run_id} has unsupported status {status!r}"
+    )
 
 
 def required_jobs_succeeded(
@@ -292,11 +312,12 @@ def find_reusable_run(
     policy_path: Path,
     now: datetime,
     max_age: timedelta,
-) -> Optional[Tuple[int, str]]:
+) -> Optional[Tuple[int, str, bool]]:
     required_names = load_required_names(policy_path)
     workflow_id = canonical_workflow_id(repo)
-    # GitHub supports branch, head_sha, and conclusion filters for workflow
-    # runs; fields are still verified locally before any run is trusted.
+    # Deliberately omit the status filter so an existing queued/in-progress
+    # exact-main run can be waited instead of cancelled by a duplicate dispatch.
+    # Every identity and state field is still verified locally before use.
     # https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-workflow
     runs_endpoint = f"repos/{repo}/actions/workflows/{workflow_id}/runs"
     runs = paginated_items(
@@ -305,14 +326,14 @@ def find_reusable_run(
         (
             ("branch", "main"),
             ("head_sha", sha),
-            ("status", "success"),
             ("exclude_pull_requests", "true"),
         ),
     )
 
-    candidates = []
+    reusable_candidates = []
+    waitable_candidates = []
     for run in runs:
-        matches, created_at = eligible_run(
+        state, created_at = eligible_run(
             run,
             repo=repo,
             sha=sha,
@@ -320,11 +341,14 @@ def find_reusable_run(
             now=now,
             max_age=max_age,
         )
-        if matches:
-            candidates.append((created_at, run))
-    candidates.sort(key=lambda value: value[0], reverse=True)
+        if state == "reusable":
+            reusable_candidates.append((created_at, run))
+        elif state == "waitable":
+            waitable_candidates.append((created_at, run))
+    reusable_candidates.sort(key=lambda value: value[0], reverse=True)
+    waitable_candidates.sort(key=lambda value: value[0], reverse=True)
 
-    for _, run in candidates:
+    for _, run in reusable_candidates:
         run_id = positive_int(run.get("id"), "workflow run id")
         # `latest` excludes obsolete rerun attempts; every protected job is
         # checked by exact name and conclusion below.
@@ -341,8 +365,19 @@ def find_reusable_run(
             required_names=required_names,
         )
         if passed:
-            return run_id, required_string(run.get("html_url"), "workflow run URL")
+            return (
+                run_id,
+                required_string(run.get("html_url"), "workflow run URL"),
+                False,
+            )
         print(f"CI run {run_id} is not reusable: {reason}", file=sys.stderr)
+    if waitable_candidates:
+        run = waitable_candidates[0][1]
+        return (
+            positive_int(run.get("id"), "workflow run id"),
+            required_string(run.get("html_url"), "workflow run URL"),
+            True,
+        )
     return None
 
 
@@ -388,9 +423,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             file=sys.stderr,
         )
         return NOT_FOUND_EXIT
-    run_id, run_url = reusable
+    run_id, run_url, waitable = reusable
     print(f"{run_id}\t{run_url}")
-    return 0
+    return WAITABLE_EXIT if waitable else 0
 
 
 if __name__ == "__main__":

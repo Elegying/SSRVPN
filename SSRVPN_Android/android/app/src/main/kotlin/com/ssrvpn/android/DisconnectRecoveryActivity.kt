@@ -50,7 +50,8 @@ class DisconnectRecoveryActivity : Activity() {
                     )
                 )
             } catch (error: Exception) {
-                Log.e(TAG, "Unable to preserve foreground UI during core reset", error)
+                val category = NativeCoreStartFailureCategory.from(error).logValue
+                Log.e(TAG, "event=recovery_ui_handoff_failed cause=$category")
             }
         }
     }

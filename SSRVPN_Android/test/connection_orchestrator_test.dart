@@ -267,6 +267,44 @@ void main() {
     expect(clashService.generatedPorts, [32000, 32001]);
   });
 
+  test('controller authentication failure is actionable and is not retried',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDir = await Directory.systemTemp.createTemp(
+      'ssrvpn_android_api_auth_',
+    );
+    addTearDown(() async {
+      SubscriptionService.resetInstanceForTesting();
+      await tempDir.delete(recursive: true);
+    });
+    SubscriptionService.resetInstanceForTesting();
+    final subscriptionService =
+        await SubscriptionService.getInstance(tempDir.path);
+    await subscriptionService.setRawYaml(_yaml('Node', 'node.example.com'));
+    final settingsService = await SettingsService.createForTesting(
+      configPath: '${tempDir.path}/settings.json',
+      readApiSecret: () async => 'test-secret',
+      writeApiSecret: (_) async {},
+    );
+    final clashService = _AuthRejectedClashService();
+    final generation = clashService.requestConnectionIntent(true);
+    final orchestrator = ConnectionOrchestrator(
+      clashService: clashService,
+      settingsService: settingsService,
+      subscriptionService: subscriptionService,
+    );
+
+    final result = await orchestrator.connect(
+      null,
+      connectionGeneration: generation,
+    );
+
+    expect(result.message, contains('本地控制凭据不可用或与运行配置不一致'));
+    expect(result.message, isNot(contains('端口')));
+    expect(clashService.startCalls, 1);
+    expect(clashService.stopCalls, 0);
+  });
+
   test('cancelled connection does not resume after pending settings commit',
       () async {
     SharedPreferences.setMockInitialValues({});
@@ -438,11 +476,11 @@ void main() {
     expect(
       resolveAndroidConnectionFeedback(
         connected: false,
-        result: 'VPN 数据通道不可用，请切换节点或重试',
+        result: 'VPN 网络保护服务异常，请重新连接',
         runtimeNotice: null,
       ),
       (
-        errorMessage: 'VPN 数据通道不可用，请切换节点或重试',
+        errorMessage: 'VPN 网络保护服务异常，请重新连接',
         connectionNotice: null,
       ),
     );
@@ -456,23 +494,12 @@ void main() {
     expect(message, 'VPN 启动失败，请重试；若持续失败请打开诊断与运行日志');
     expect(message, isNot(contains('secret-value')));
     expect(message, isNot(contains('/data/user')));
+  });
+
+  test('stable unknown native code keeps the generic safe UI copy', () {
     expect(
-      userFriendlyAndroidConnectionError(
-        'VPN 数据通道不可用，请切换节点或重试',
-      ),
-      'VPN 数据通道不可用，请切换节点或重试',
-    );
-    expect(
-      userFriendlyAndroidConnectionError(
-        '上次 VPN 联网检查仍在结束，请稍后重试；若持续出现请重启应用',
-      ),
-      '上次 VPN 联网检查仍在结束，请稍后重试；若持续出现请重启应用',
-    );
-    expect(
-      userFriendlyAndroidConnectionError(
-        'VPN 联网检查超时，请稍后重试；若持续出现请重启应用',
-      ),
-      'VPN 联网检查超时，请稍后重试；若持续出现请重启应用',
+      userFriendlyAndroidConnectionError(androidUnknownCoreStartFailure),
+      'VPN 启动失败，请重试；若持续失败请打开诊断与运行日志',
     );
   });
 
@@ -510,6 +537,22 @@ void main() {
         '无法保存连接恢复信息，VPN 已安全回滚',
       ),
       '无法保存连接恢复信息，VPN 已安全回滚，请重试',
+    );
+    expect(
+      userFriendlyAndroidConnectionError('CORE_START_PORT_CONFLICT'),
+      '本地代理端口被占用，请关闭占用端口的应用后重试',
+    );
+    expect(
+      userFriendlyAndroidConnectionError('CORE_START_API_AUTH'),
+      '本地控制凭据不可用或与运行配置不一致，请重启应用后重试',
+    );
+    expect(
+      userFriendlyAndroidConnectionError('CORE_START_BUSY'),
+      'VPN 核心正在启动或清理，请稍后重试',
+    );
+    expect(
+      userFriendlyAndroidConnectionError('CORE_START_COMPONENT'),
+      'VPN 核心组件不可用，请重新安装官方版本',
     );
   });
 
@@ -811,7 +854,7 @@ class _PortRaceClashService extends _SettingsSnapshotClashService {
     startCalls++;
     if (startCalls == 1) {
       cleanupPending = true;
-      setLastStartError('listen tcp: address already in use');
+      setLastStartError('CORE_START_PORT_CONFLICT');
       return false;
     }
     if (cleanupPending) {
@@ -827,6 +870,23 @@ class _PortRaceClashService extends _SettingsSnapshotClashService {
   Future<void> stop() async {
     stopCalls++;
     cleanupPending = false;
+    setRunning(false);
+  }
+}
+
+class _AuthRejectedClashService extends _SettingsSnapshotClashService {
+  int stopCalls = 0;
+
+  @override
+  Future<bool> start({String? nodeName, String? preparedConfigPath}) async {
+    startCalls++;
+    setLastStartError('CORE_START_API_AUTH');
+    return false;
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCalls++;
     setRunning(false);
   }
 }

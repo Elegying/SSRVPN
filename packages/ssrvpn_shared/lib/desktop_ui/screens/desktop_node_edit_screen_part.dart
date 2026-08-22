@@ -418,8 +418,9 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                   minLines: 8,
                   maxLines: 18,
                   keyboardType: TextInputType.multiline,
-                  textStyle: const TextStyle(
-                    fontFamily: 'Consolas',
+                  textStyle: TextStyle(
+                    fontFamily: _desktopJsonEditorFontFamily,
+                    fontFamilyFallback: _desktopJsonEditorFontFallback,
                     fontSize: 13,
                     height: 1.4,
                   ),

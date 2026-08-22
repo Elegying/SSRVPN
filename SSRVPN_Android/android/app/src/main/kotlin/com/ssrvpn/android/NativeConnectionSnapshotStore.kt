@@ -91,7 +91,8 @@ internal object NativeConnectionSnapshotStore {
         } catch (error: Exception) {
             // Preserve the ciphertext: transient Keystore failures must not
             // destroy the last known-good cold-start snapshot.
-            Log.e(TAG, "Unable to decrypt the native connection snapshot", error)
+            val category = NativeCoreStartFailureCategory.from(error).logValue
+            Log.e(TAG, "event=native_snapshot_decrypt_failed cause=$category")
             null
         }
     }
@@ -138,7 +139,8 @@ internal object NativeConnectionSnapshotStore {
         } catch (error: Exception) {
             // Preferences are the ownership commit point. A leftover key has
             // no ciphertext to decrypt and can safely be reused or replaced.
-            Log.w(TAG, "Unable to delete the retired snapshot key", error)
+            val category = NativeCoreStartFailureCategory.from(error).logValue
+            Log.w(TAG, "event=retired_snapshot_key_delete_failed cause=$category")
         }
         return true
     }
@@ -151,7 +153,8 @@ internal object NativeConnectionSnapshotStore {
         try {
             deleteKey()
         } catch (error: Exception) {
-            Log.w(TAG, "Unable to delete the retired snapshot key", error)
+            val category = NativeCoreStartFailureCategory.from(error).logValue
+            Log.w(TAG, "event=retired_snapshot_key_delete_failed cause=$category")
         }
     }
 

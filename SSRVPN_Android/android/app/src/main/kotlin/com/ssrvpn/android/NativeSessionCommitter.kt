@@ -20,7 +20,11 @@ internal class NativeSessionCommitter(
                 onNodeCommitted(nodeName)
                 updated = true
             } catch (error: Exception) {
-                Log.e("NativeSessionCommitter", "Unable to update node snapshot", error)
+                val category = NativeCoreStartFailureCategory.from(error).logValue
+                Log.e(
+                    "NativeSessionCommitter",
+                    "event=node_snapshot_update_failed cause=$category"
+                )
             }
         }
         return accepted && updated

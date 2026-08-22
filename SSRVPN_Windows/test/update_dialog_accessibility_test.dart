@@ -57,9 +57,19 @@ void main() {
       client: MockClient(
         (_) async => http.Response.bytes(bytes, HttpStatus.ok),
       ),
+      filePublisher: (source, destination) async {
+        await source.copy(destination.path);
+      },
     );
     for (var attempt = 0;
-        attempt < 100 && find.text('最新版安装包已下载到桌面，请直接安装').evaluate().isEmpty;
+        attempt < 100 &&
+            find
+                .text(
+                  '最新版安装包已下载到桌面并完成安全标记。请手动安装；'
+                  '安装成功后会自动清理，取消或失败时保留。',
+                )
+                .evaluate()
+                .isEmpty;
         attempt++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
@@ -68,12 +78,18 @@ void main() {
     }
 
     expect(
-      find.text('最新版安装包已下载到桌面，请直接安装'),
+      find.text(
+        '最新版安装包已下载到桌面并完成安全标记。请手动安装；'
+        '安装成功后会自动清理，取消或失败时保留。',
+      ),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
     final completionDialog = find.ancestor(
-      of: find.text('最新版安装包已下载到桌面，请直接安装'),
+      of: find.text(
+        '最新版安装包已下载到桌面并完成安全标记。请手动安装；'
+        '安装成功后会自动清理，取消或失败时保留。',
+      ),
       matching: find.byType(AlertDialog),
     );
     expect(tester.widget<AlertDialog>(completionDialog).scrollable, isTrue);

@@ -65,6 +65,7 @@ add_executable(${LAUNCHER_TARGET} WIN32
 apply_standard_settings(${LAUNCHER_TARGET})
 target_compile_options(${LAUNCHER_TARGET} PRIVATE "/utf-8")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "NOMINMAX")
+target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "SSRVPN_LAUNCHER_RESOURCE=1")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")
 target_compile_definitions(${LAUNCHER_TARGET} PRIVATE "FLUTTER_VERSION_MINOR=${FLUTTER_VERSION_MINOR}")

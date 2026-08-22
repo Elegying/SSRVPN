@@ -145,7 +145,7 @@ extension AndroidSnapshotCleanup on ClashService {
     } else if (nativeState.running ||
         nativeState.transitioning ||
         nativeState.protectedConfigPath != null) {
-      log('原生 VPN 已认领配置，延后清理: $absolutePath');
+      log('原生 VPN 已认领配置，延后清理');
       return;
     }
     if (await FileSystemEntity.type(absolutePath, followLinks: false) ==
@@ -274,7 +274,7 @@ extension AndroidSnapshotCleanup on ClashService {
             version >= 2 ? expectedGeneration as String? : null,
       );
     } catch (error) {
-      log('快照配置清理标记无效，已安全保留文件: $error');
+      log('快照配置清理标记无效，已安全保留文件: cause=${_safeLogErrorCode(error)}');
       return null;
     }
   }
@@ -292,7 +292,10 @@ extension AndroidSnapshotCleanup on ClashService {
       try {
         marker = await _resolveCommittedDeferredReplacement(marker);
       } catch (error) {
-        log('恢复旧版快照配置延迟清理失败，保留候选文件: $error');
+        log(
+          '恢复旧版快照配置延迟清理失败，保留候选文件: '
+          'cause=${_safeLogErrorCode(error)}',
+        );
         return;
       }
       if (marker.deferredUntilReplacement) return;
@@ -331,7 +334,10 @@ extension AndroidSnapshotCleanup on ClashService {
           expectedNativeGeneration: marker.expectedNativeGeneration,
         );
       } catch (error) {
-        log('恢复原生快照清理事务失败，保留待清理配置: $error');
+        log(
+          '恢复原生快照清理事务失败，保留待清理配置: '
+          'cause=${_safeLogErrorCode(error)}',
+        );
         return;
       }
     }
@@ -510,7 +516,10 @@ extension AndroidSnapshotCleanup on ClashService {
         );
       }
     } catch (error) {
-      log('快照配置延迟清理失败，保留事务标记以便重试: $error');
+      log(
+        '快照配置延迟清理失败，保留事务标记以便重试: '
+        'cause=${_safeLogErrorCode(error)}',
+      );
     }
   }
 }

@@ -1,6 +1,8 @@
 Repo: MetaCubeX/meta-rules-dat
 Release ID: 373395005
 Release tag: latest
+Release tag commit SHA: 4178770badecb1b349fbcd62c737e0d7a2079729
+Immutable source archive: https://github.com/MetaCubeX/meta-rules-dat/archive/4178770badecb1b349fbcd62c737e0d7a2079729.tar.gz
 Release name: Release 2026-08-20 06:49
 Asset ID: 521439126
 Asset URL: https://api.github.com/repos/MetaCubeX/meta-rules-dat/releases/assets/521439126

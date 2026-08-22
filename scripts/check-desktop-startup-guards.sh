@@ -395,22 +395,48 @@ for token in (
 ):
     if token not in source:
         raise SystemExit(f"{home}: missing explicit desktop connection action: {token}")
-verification = connect.index("verifyUserConnectivity")
-connected_commit = connect.index("_isConnected = true")
-if connected_commit > verification:
-    raise SystemExit(
-        f"{home}: successful connection remains hidden behind advisory validation"
-    )
-finalization = connect[verification:]
-for token in ("!clashService.isRunning", "isConnectionIntentCurrent"):
-    if token not in finalization:
+runtime_source = runtime_actions.read_text(encoding="utf-8")
+for path, ui_source in ((home, connect), (runtime_actions, runtime_source)):
+    if "verifyUserConnectivity" in ui_source:
         raise SystemExit(
-            f"{home}: desktop connect finalization lacks {token} guard"
+            f"{path}: desktop UI duplicates the service-owned data-plane observation"
         )
+
+data_plane_support_path = Path(
+    "packages/ssrvpn_shared/lib/services/clash_service_data_plane_support.dart"
+)
+data_plane_support = data_plane_support_path.read_text(encoding="utf-8")
+base_path = Path("packages/ssrvpn_shared/lib/services/clash_service_base.dart")
+base_source = base_path.read_text(encoding="utf-8")
+for token in (
+    "void onDataPlaneRouteChanged()",
+    "if (isRunning) scheduleDataPlaneObservation();",
+):
+    if token not in data_plane_support:
+        raise SystemExit(f"{data_plane_support_path}: missing route observation guard {token}")
+switch_start = base_source.index("Future<bool> _switchSelectedProxy(")
+switch_end = base_source.index("Future<String?> currentSelectedProxyName()", switch_start)
+switch_body = base_source[switch_start:switch_end]
+route_change = switch_body.index("onDataPlaneRouteChanged();")
+route_notification = switch_body.index("_notifyStatusChanged();")
+if route_change > route_notification:
+    raise SystemExit(f"{base_path}: route observation starts after status publication")
+
+for path in paths:
+    lifecycle = path.read_text(encoding="utf-8")
+    for token in (
+        "Future<void> observeDataPlaneHealth() async",
+        "scheduleDataPlaneObservation();",
+    ):
+        if token not in lifecycle:
+            raise SystemExit(f"{path}: missing service-owned data-plane guard {token}")
+if "if (startedWithTun) scheduleDataPlaneObservation();" in windows_source:
+    raise SystemExit(
+        "Windows system-proxy startup does not schedule a data-plane observation"
+    )
 
 print("Desktop connect finalization guard passed.")
 
-runtime_source = runtime_actions.read_text(encoding="utf-8")
 if runtime_source.count("await clashService.testAllLatencies") != 1:
     raise SystemExit(f"{runtime_actions}: batch latency workflow is duplicated")
 for token in (

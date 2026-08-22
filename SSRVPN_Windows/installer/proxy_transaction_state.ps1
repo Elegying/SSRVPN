@@ -1,3 +1,43 @@
+function Enter-ProxyTransactionLock {
+  param([Parameter(Mandatory = $true)][int]$TimeoutMilliseconds)
+
+  if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA) -or
+      -not [System.IO.Path]::IsPathRooted($env:LOCALAPPDATA)) {
+    throw 'LOCALAPPDATA is unavailable for the proxy transaction lock.'
+  }
+  $runtimePath = Join-Path $env:LOCALAPPDATA 'SSRVPN\runtime'
+  [System.IO.Directory]::CreateDirectory($runtimePath) | Out-Null
+  $lockPath = Join-Path $runtimePath 'system_proxy_transaction.lock'
+  $fileShare = [System.IO.FileShare](
+    [int][System.IO.FileShare]::ReadWrite -bor
+    [int][System.IO.FileShare]::Delete)
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+
+  while ($true) {
+    $stream = $null
+    try {
+      $stream = New-Object System.IO.FileStream -ArgumentList @(
+        $lockPath,
+        [System.IO.FileMode]::OpenOrCreate,
+        [System.IO.FileAccess]::ReadWrite,
+        $fileShare
+      )
+      $stream.Lock(0, 1)
+      return $stream
+    } catch [System.IO.IOException] {
+      if ($null -ne $stream) { $stream.Dispose() }
+      if ([DateTime]::UtcNow -ge $deadline) {
+        throw [System.TimeoutException]::new(
+          'Timed out waiting for the proxy transaction lock.')
+      }
+      Start-Sleep -Milliseconds 100
+    } catch {
+      if ($null -ne $stream) { $stream.Dispose() }
+      throw
+    }
+  }
+}
+
 function Set-OrRemoveRegistryValue {
   param(
     [Parameter(Mandatory = $true)][string]$Path,

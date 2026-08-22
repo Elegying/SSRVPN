@@ -3,6 +3,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 
 export 'ssrvpn_about_dialog.dart' show showSsrvpnAboutDialog;
+export 'ssrvpn_info_dialog.dart' show showSsrvpnInfoDialog;
 import 'ssrvpn_version_update_footer.dart';
 
 abstract final class SsrvpnUiTokens {
