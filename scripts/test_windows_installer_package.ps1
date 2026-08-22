@@ -217,6 +217,26 @@ function Assert-PeVersionMetadataPolicy {
   }
 }
 
+function Get-ExpectedWindowsPeVersion {
+  $repositoryRoot = Split-Path -Path $PSScriptRoot -Parent
+  $pubspecPath = Join-Path $repositoryRoot 'SSRVPN_Windows\pubspec.yaml'
+  $versionLines = @(
+    Get-Content -LiteralPath $pubspecPath -Encoding UTF8 |
+      Where-Object { $_ -match '^version:' }
+  )
+  if ($versionLines.Count -ne 1) {
+    throw 'Windows pubspec must contain exactly one version field.'
+  }
+  $match = [regex]::Match(
+    [string]$versionLines[0],
+    '\Aversion:\s*(?<release>[0-9]+\.[0-9]+\.[0-9]+)\+(?<build>[0-9]+)\s*\z'
+  )
+  if (-not $match.Success) {
+    throw 'Windows pubspec version must use release+build format.'
+  }
+  return "$($match.Groups['release'].Value).$($match.Groups['build'].Value)"
+}
+
 function Assert-PeVersionMetadata {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
@@ -236,6 +256,17 @@ function Assert-PeVersionMetadata {
     $actual = [version]$normalizedValue
     if (-not (Test-PeVersionEquivalent -Actual $actual -Expected $expected)) {
       throw "$Path has PE $propertyName $normalizedValue; expected $ExpectedVersion."
+    }
+    $fixedValue = if ($propertyName -eq 'FileVersion') {
+      "$($versionInfo.FileMajorPart).$($versionInfo.FileMinorPart)." +
+        "$($versionInfo.FileBuildPart).$($versionInfo.FilePrivatePart)"
+    } else {
+      "$($versionInfo.ProductMajorPart).$($versionInfo.ProductMinorPart)." +
+        "$($versionInfo.ProductBuildPart).$($versionInfo.ProductPrivatePart)"
+    }
+    if (-not (Test-PeVersionEquivalent `
+        -Actual ([version]$fixedValue) -Expected $expected)) {
+      throw "$Path has PE fixed $propertyName $fixedValue; expected $ExpectedVersion."
     }
   }
   if ($ExpectedInternalName -and
@@ -659,16 +690,17 @@ try {
   if ($displayVersion -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') {
     throw "SSRVPN installer published an invalid display version: $displayVersion"
   }
+  $windowsPeVersion = Get-ExpectedWindowsPeVersion
   Assert-PeVersionMetadata -Path $sourceInstaller `
     -ExpectedVersion $displayVersion
   Assert-PeVersionMetadata `
     -Path (Join-Path $installDir 'ssrvpn_windows.exe') `
-    -ExpectedVersion $displayVersion `
+    -ExpectedVersion $windowsPeVersion `
     -ExpectedInternalName 'ssrvpn_windows' `
     -ExpectedOriginalFilename 'ssrvpn_windows.exe'
   Assert-PeVersionMetadata `
     -Path (Join-Path $installDir 'bin\ssrvpn_windows_app.exe') `
-    -ExpectedVersion $displayVersion `
+    -ExpectedVersion $windowsPeVersion `
     -ExpectedInternalName 'ssrvpn_windows_app' `
     -ExpectedOriginalFilename 'ssrvpn_windows_app.exe'
 

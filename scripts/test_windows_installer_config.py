@@ -2400,7 +2400,22 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("SSRVPN_LAUNCHER_RESOURCE", runner_cmake)
+        self.assertIn("set(SSRVPN_VERSION_AS_STRING", runner_cmake)
+        self.assertEqual(
+            runner_cmake.count(
+                '"SSRVPN_VERSION_AS_STRING=\\"${SSRVPN_VERSION_AS_STRING}\\""'
+            ),
+            2,
+        )
         self.assertIn("SSRVPN_RESOURCE_INTERNAL_NAME", runner_rc)
+        self.assertIn(
+            "#define VERSION_AS_STRING SSRVPN_VERSION_AS_STRING",
+            runner_rc,
+        )
+        self.assertNotIn(
+            "#define VERSION_AS_STRING FLUTTER_VERSION",
+            runner_rc,
+        )
         self.assertIn('"ssrvpn_windows"', runner_rc)
         self.assertIn('"ssrvpn_windows.exe"', runner_rc)
         self.assertIn('"ssrvpn_windows_app"', runner_rc)
@@ -2420,6 +2435,18 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertIn("Assert-PeVersionMetadataPolicy\n\ntry {", package_smoke)
         self.assertIn("function Assert-PeVersionMetadata", package_smoke)
+        self.assertIn(
+            "function Get-ExpectedWindowsPeVersion",
+            package_smoke,
+        )
+        self.assertIn(
+            "$windowsPeVersion = Get-ExpectedWindowsPeVersion",
+            package_smoke,
+        )
+        self.assertEqual(
+            package_smoke.count("-ExpectedVersion $windowsPeVersion"),
+            2,
+        )
         self.assertIn("[System.Diagnostics.FileVersionInfo]", package_smoke)
         metadata_check = package_smoke.split(
             "function ConvertFrom-PeVersionMetadataValue", 1
@@ -2436,6 +2463,17 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         )
         self.assertNotIn(".Trim", metadata_check)
         self.assertIn("$actual = [version]$normalizedValue", metadata_check)
+        for fixed_part in (
+            "FileMajorPart",
+            "FileMinorPart",
+            "FileBuildPart",
+            "FilePrivatePart",
+            "ProductMajorPart",
+            "ProductMinorPart",
+            "ProductBuildPart",
+            "ProductPrivatePart",
+        ):
+            self.assertIn(f"$versionInfo.{fixed_part}", metadata_check)
         self.assertIn(
             "[string]::Concat([string]$nul, '4.0.15')",
             metadata_check,
