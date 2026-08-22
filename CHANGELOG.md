@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.16] - 2026-08-22
+
+### 修复
+
+- Android、macOS 与 Windows 的节点延迟测试恢复为始终只测节点服务器 TCP 端口握手；连接前后以及 Hysteria、Hysteria2、TUIC 等协议均使用同一口径，不再经 Mihomo 发起完整代理 HTTP 测速。“私家车”节点既定的 24–39 ms 显示规则保持不变。
+
 ## [4.0.15] - 2026-08-22
 
 ### 修复

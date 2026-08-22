@@ -50,57 +50,7 @@ void main() {
   });
 
   group('ClashServiceBase node latency', () {
-    test('uses the running Mihomo delay API with the configured timeout',
-        () async {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      final service = _ApiClashService();
-      service.initHttpClient();
-      service.updateSettings(
-        AppSettings(
-          apiPort: server.port,
-          apiSecret: 'latency-secret',
-          latencyTestUrl: 'https://example.com/generate_204',
-        ),
-      );
-      service.publishRunning();
-      addTearDown(service.dispose);
-      addTearDown(server.close);
-
-      final requestSeen = Completer<HttpRequest>();
-      server.listen((request) async {
-        requestSeen.complete(request);
-        request.response.headers.contentType = ContentType.json;
-        request.response.write(jsonEncode({'delay': 47}));
-        await request.response.close();
-      });
-
-      final latency = await service.testNodeLatency(
-        ProxyNode(
-          name: 'Hysteria / Tokyo',
-          type: 'hysteria2',
-          server: '127.0.0.1',
-          port: 9,
-        ),
-        timeoutMs: 8700,
-      );
-      final request = await requestSeen.future;
-
-      expect(latency, 47);
-      expect(
-        request.uri.pathSegments,
-        ['proxies', 'Hysteria / Tokyo', 'delay'],
-      );
-      expect(request.uri.queryParameters['timeout'], '8700');
-      expect(
-        request.uri.queryParameters['url'],
-        'https://example.com/generate_204',
-      );
-      expect(request.headers.value(HttpHeaders.authorizationHeader),
-          'Bearer latency-secret');
-    });
-
-    test('running API rejection returns unknown without a direct TCP fallback',
-        () async {
+    test('running nodes always use the direct TCP socket probe', () async {
       final apiServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       final target = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       final service = _ApiClashService();
@@ -110,54 +60,29 @@ void main() {
       addTearDown(service.dispose);
       addTearDown(apiServer.close);
       addTearDown(target.close);
+      var apiRequests = 0;
       apiServer.listen((request) async {
+        apiRequests++;
         request.response.statusCode = HttpStatus.serviceUnavailable;
         await request.response.close();
       });
 
-      final latency = await service.testNodeLatency(
-        ProxyNode(
-          name: 'TCP node',
-          type: 'ss',
-          server: InternetAddress.loopbackIPv4.address,
-          port: target.port,
-        ),
-      );
-
-      expect(latency, -1);
-      expect(service.recentLogs, contains('节点延迟 API 请求失败: HTTP 503'));
+      for (final type in const ['ss', 'hysteria', 'hysteria2', 'tuic']) {
+        final latency = await service.testNodeLatency(
+          ProxyNode(
+            name: type,
+            type: type,
+            server: InternetAddress.loopbackIPv4.address,
+            port: target.port,
+          ),
+        );
+        expect(latency, greaterThanOrEqualTo(0));
+      }
+      expect(apiRequests, 0);
     });
 
-    test('running API exception returns unknown and records the failure',
+    test('offline UDP and QUIC-only nodes use the direct TCP socket probe',
         () async {
-      final unavailable =
-          await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      final unavailablePort = unavailable.port;
-      await unavailable.close(force: true);
-      final target = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-      final service = _ApiClashService();
-      service.initHttpClient();
-      service.updateSettings(AppSettings(apiPort: unavailablePort));
-      service.publishRunning();
-      addTearDown(service.dispose);
-      addTearDown(target.close);
-
-      final latency = await service.testNodeLatency(
-        ProxyNode(
-          name: 'TCP node',
-          type: 'ss',
-          server: InternetAddress.loopbackIPv4.address,
-          port: target.port,
-        ),
-      );
-
-      expect(latency, -1);
-      expect(service.recentLogs, contains('节点延迟 API 请求异常'));
-      expect(service.recentLogs, contains('cause='));
-      expect(service.recentLogs, isNot(contains(':$unavailablePort')));
-    });
-
-    test('offline UDP and QUIC-only nodes report unknown latency', () async {
       final listener = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       final service = _TestClashService();
       addTearDown(listener.close);
@@ -172,8 +97,7 @@ void main() {
             port: listener.port,
           ),
         );
-        expect(latency, -1,
-            reason: '$type must not use a TCP reachability lie');
+        expect(latency, greaterThanOrEqualTo(0));
       }
     });
 
