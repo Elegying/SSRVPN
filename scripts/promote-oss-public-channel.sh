@@ -120,11 +120,57 @@ fetch_object() {
   local destination="$2"
   local key
   key="$(object_key "$name")"
+  rm -f "$destination" "$destination.headers"
   "$curl_bin" -sS --retry 3 --connect-timeout 10 --max-time 180 \
     --max-filesize "$(download_limit "$name")" -o "$destination" \
+    --dump-header "$destination.headers" \
     -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
     -w '%{http_code}' \
     "$public_base/$key?ssrvpn_nocache=$$-$RANDOM-$name" || true
+}
+
+response_has_no_cache_metadata() {
+  local headers="$1"
+  LC_ALL=C awk '
+    BEGIN { cache_control = "" }
+    tolower($0) ~ /^http\// { cache_control = "" }
+    tolower($0) ~ /^cache-control:[[:space:]]*/ {
+      value = $0
+      sub(/^[^:]*:[[:space:]]*/, "", value)
+      gsub(/\r/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      cache_control = tolower(value)
+    }
+    END { exit(cache_control == "no-cache" ? 0 : 1) }
+  ' "$headers"
+}
+
+verify_public_object() {
+  local name="$1"
+  local source="$2"
+  local destination="$3"
+  local status
+  status="$(fetch_object "$name" "$destination")"
+  if [ "$status" != 200 ]; then
+    echo "Cannot verify promoted OSS object $name (HTTP ${status:-network error})" >&2
+    return 1
+  fi
+  if ! cmp -s "$source" "$destination"; then
+    echo "Promoted OSS object $name does not match its source" >&2
+    return 1
+  fi
+  if ! response_has_no_cache_metadata "$destination.headers"; then
+    echo "Promoted OSS object $name is missing Cache-Control: no-cache" >&2
+    return 1
+  fi
+}
+
+set_no_cache_metadata() {
+  local name="$1"
+  local key
+  key="$(object_key "$name")"
+  "$ossutil_bin" set-props "oss://$OSS_BUCKET/$key" \
+    --cache-control "no-cache" --metadata-directive update --force
 }
 
 copy_object_authoritatively() {
@@ -522,15 +568,20 @@ for name in "${publish_files[@]}"; do
     upload_source="oss://$OSS_BUCKET/$versioned_source_prefix/$name"
   fi
   key="$(object_key "$name")"
-  "$ossutil_bin" cp "$upload_source" "oss://$OSS_BUCKET/$key" \
-    --force --cache-control "no-cache"
+  case "$upload_source" in
+    oss://*)
+      "$ossutil_bin" cp "$upload_source" "oss://$OSS_BUCKET/$key" --force
+      set_no_cache_metadata "$name"
+      ;;
+    *)
+      "$ossutil_bin" cp "$upload_source" "oss://$OSS_BUCKET/$key" \
+        --force --cache-control "no-cache"
+      ;;
+  esac
   downloaded="$backup_dir/verify-$name"
-  status="$(fetch_object "$name" "$downloaded")"
-  if [ "$status" != 200 ]; then
-    echo "Cannot verify promoted OSS object $name (HTTP ${status:-network error})" >&2
+  if ! verify_public_object "$name" "$source" "$downloaded"; then
     exit 1
   fi
-  cmp "$source" "$downloaded"
 done
 
 retired_marker="$backup_dir/windows-portable-retired.txt"
@@ -552,10 +603,9 @@ for name in "${retired_files[@]}"; do
 
   "$ossutil_bin" cp "$retired_marker" "oss://$OSS_BUCKET/$key" \
     --force --cache-control "no-cache"
-  status="$(fetch_object "$name" "$backup_dir/verify-retired-$name")"
-  if [ "$status" != 200 ] || \
-    ! cmp -s "$retired_marker" "$backup_dir/verify-retired-$name"; then
-    echo "Cannot safely retire OSS object $name (HTTP ${status:-network error})" >&2
+  if ! verify_public_object \
+      "$name" "$retired_marker" "$backup_dir/verify-retired-$name"; then
+    echo "Cannot safely retire OSS object $name" >&2
     exit 1
   fi
 done
@@ -563,12 +613,11 @@ done
 latest_key="$(object_key latest.json)"
 "$ossutil_bin" cp "$manifest" "oss://$OSS_BUCKET/$latest_key" \
   --force --cache-control "no-cache"
-status="$(fetch_object latest.json "$backup_dir/verify-latest.json")"
-if [ "$status" != 200 ]; then
-  echo "Cannot verify promoted latest.json (HTTP ${status:-network error})" >&2
+if ! verify_public_object \
+    latest.json "$manifest" "$backup_dir/verify-latest.json"; then
+  echo "Cannot verify promoted latest.json" >&2
   exit 1
 fi
-cmp "$manifest" "$backup_dir/verify-latest.json"
 
 committed=1
 trap - EXIT

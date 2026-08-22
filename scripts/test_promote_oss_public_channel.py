@@ -90,6 +90,7 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
             (self.objects / "ssrvpn" / "latest.json").read_bytes(),
             self.manifest.read_bytes(),
         )
+        self._assert_no_cache_metadata((*PUBLISHED_FILES, "latest.json"))
 
     def test_success_uses_versioned_oss_objects_for_stable_assets(self) -> None:
         result = self._run(
@@ -103,6 +104,34 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                 (self.objects / "ssrvpn" / "downloads" / name).read_bytes(),
                 (self.source / name).read_bytes(),
             )
+        self._assert_no_cache_metadata(PUBLISHED_FILES)
+
+    def test_metadata_update_failure_restores_previous_channel(self) -> None:
+        before = self._snapshot_public_channel()
+
+        result = self._run(
+            versioned_source_prefix=self.versioned_prefix,
+            require_server_side_source=True,
+            set_props_fail_on="SSRVPN.dmg",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self._snapshot_public_channel(), before)
+        self._assert_no_cache_metadata((*MANAGED_FILES, "latest.json"))
+
+    def test_missing_public_no_cache_metadata_fails_closed(self) -> None:
+        before = self._snapshot_public_channel()
+
+        result = self._run(
+            versioned_source_prefix=self.versioned_prefix,
+            require_server_side_source=True,
+            set_props_noop_on="SSRVPN.dmg",
+            stale_response_header_on="SSRVPN.dmg",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Cache-Control: no-cache", result.stderr)
+        self.assertEqual(self._snapshot_public_channel(), before)
 
     def test_rejects_unsafe_versioned_source_prefix_before_mutation(self) -> None:
         before = self._snapshot_public_channel()
@@ -445,6 +474,9 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
         public_missing_on: str = "",
         versioned_source_prefix: str = "",
         require_server_side_source: bool = False,
+        set_props_fail_on: str = "",
+        set_props_noop_on: str = "",
+        stale_response_header_on: str = "",
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
@@ -466,6 +498,9 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                 "FAKE_REQUIRE_SERVER_SIDE_SOURCE": (
                     "1" if require_server_side_source else "0"
                 ),
+                "FAKE_SET_PROPS_FAIL_ON": set_props_fail_on,
+                "FAKE_SET_PROPS_NOOP_ON": set_props_noop_on,
+                "FAKE_STALE_RESPONSE_HEADER_ON": stale_response_header_on,
                 "RUNNER_TEMP": str(self.root),
                 "OSS_PRESERVE_BACKUP": "1" if preserve_backup else "0",
             }
@@ -525,6 +560,15 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
             )
             self.assertIn(hashlib.sha256(payload).hexdigest(), checksum.split())
 
+    def _assert_no_cache_metadata(self, names: tuple[str, ...]) -> None:
+        metadata_root = self.objects / ".fake-state" / "metadata" / "ssrvpn"
+        for name in names:
+            relative = Path("downloads", name) if name != "latest.json" else Path(name)
+            self.assertEqual(
+                (metadata_root / relative).read_text(encoding="utf-8"),
+                "no-cache",
+            )
+
     def _snapshot_public_channel(self) -> dict[str, Optional[bytes]]:
         channel = self.objects / "ssrvpn"
         snapshot: dict[str, Optional[bytes]] = {}
@@ -578,6 +622,8 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                 state.mkdir(exist_ok=True)
                 def object_path(value):
                     return root / value.split('/', 3)[3]
+                def metadata_path(value):
+                    return state / 'metadata' / value.split('/', 3)[3]
                 if command == 'cp':
                     source, destination = sys.argv[2], sys.argv[3]
                     if source.startswith('oss://'):
@@ -603,6 +649,14 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                         )
                         target.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copyfile(remote, target)
+                        if destination.startswith('oss://'):
+                            source_metadata = metadata_path(source)
+                            target_metadata = metadata_path(destination)
+                            target_metadata.parent.mkdir(parents=True, exist_ok=True)
+                            if source_metadata.is_file():
+                                shutil.copyfile(source_metadata, target_metadata)
+                            else:
+                                target_metadata.unlink(missing_ok=True)
                         raise SystemExit(0)
                     if (os.environ.get('FAKE_REQUIRE_SERVER_SIDE_SOURCE') == '1'
                             and destination.startswith('oss://')
@@ -627,12 +681,43 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                     target = object_path(destination)
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(source, target)
+                    target_metadata = metadata_path(destination)
+                    target_metadata.parent.mkdir(parents=True, exist_ok=True)
+                    if ('--cache-control' in sys.argv
+                            and sys.argv[sys.argv.index('--cache-control') + 1]
+                            == 'no-cache'):
+                        target_metadata.write_text('no-cache')
+                    else:
+                        target_metadata.unlink(missing_ok=True)
                     fail_after_write = os.environ.get(
                         'FAKE_RESTORE_WRITE_THEN_READ_FAIL_ON')
                     triggered = state / ('read-fail-triggered-' + target.name)
                     if fail_after_write == target.name and not triggered.exists():
                         triggered.touch()
                         (state / ('read-fail-' + target.name)).write_text('3')
+                elif command == 'set-props':
+                    destination = sys.argv[2]
+                    target = object_path(destination)
+                    if not target.is_file():
+                        raise SystemExit(12)
+                    failed_name = os.environ.get('FAKE_SET_PROPS_FAIL_ON')
+                    failure_marker = state / ('set-props-failed-' + target.name)
+                    if failed_name == target.name and not failure_marker.exists():
+                        failure_marker.touch()
+                        raise SystemExit(16)
+                    if ('--cache-control' not in sys.argv
+                            or sys.argv[sys.argv.index('--cache-control') + 1]
+                            != 'no-cache'
+                            or '--metadata-directive' not in sys.argv
+                            or sys.argv[sys.argv.index('--metadata-directive') + 1]
+                            != 'update'
+                            or '--force' not in sys.argv):
+                        raise SystemExit(17)
+                    if os.environ.get('FAKE_SET_PROPS_NOOP_ON') == target.name:
+                        raise SystemExit(0)
+                    target_metadata = metadata_path(destination)
+                    target_metadata.parent.mkdir(parents=True, exist_ok=True)
+                    target_metadata.write_text('no-cache')
                 elif command == 'stat':
                     if not object_path(sys.argv[2]).is_file():
                         print('ServerError: code: NoSuchKey', file=sys.stderr)
@@ -643,6 +728,7 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                                 'SSRVPN.zip', 'SSRVPN.zip.sha256'}):
                         raise SystemExit(11)
                     object_path(sys.argv[2]).unlink(missing_ok=True)
+                    metadata_path(sys.argv[2]).unlink(missing_ok=True)
                 else:
                     raise SystemExit(2)
                 """
@@ -656,6 +742,7 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                 #!/usr/bin/env python3
                 import os, pathlib, shutil, sys, urllib.parse
                 root = pathlib.Path(os.environ['FAKE_OSS_ROOT'])
+                state = root / '.fake-state'
                 args = sys.argv[1:]
                 destination = pathlib.Path(args[args.index('-o') + 1])
                 url = next(value for value in reversed(args) if value.startswith('https://'))
@@ -689,10 +776,30 @@ class PromoteOssPublicChannelTest(unittest.TestCase):
                     print('500', end='')
                     raise SystemExit(0)
                 if not path.is_file():
+                    if '--dump-header' in args:
+                        pathlib.Path(args[args.index('--dump-header') + 1]).write_text(
+                            'HTTP/1.1 404 Not Found\\n\\n')
                     print('404', end='')
                     raise SystemExit(0)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, destination)
+                if '--dump-header' in args:
+                    response_headers = ''
+                    if (os.environ.get('FAKE_STALE_RESPONSE_HEADER_ON')
+                            == path.name):
+                        response_headers = (
+                            'HTTP/1.1 503 Service Unavailable\\n'
+                            'Cache-Control: no-cache\\n\\n'
+                        )
+                    response_headers += 'HTTP/1.1 200 OK\\n'
+                    metadata = state / 'metadata' / parsed.path.lstrip('/')
+                    if metadata.is_file():
+                        response_headers += (
+                            'Cache-Control: ' + metadata.read_text() + '\\n'
+                        )
+                    response_headers += '\\n'
+                    pathlib.Path(args[args.index('--dump-header') + 1]).write_text(
+                        response_headers)
                 print('200', end='')
                 """
             ),

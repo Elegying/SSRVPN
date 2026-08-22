@@ -406,9 +406,29 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
             SCRIPT.parents[1] / ".github" / "workflows" / "maintenance.yml"
         ).read_text(encoding="utf-8")
         self.assertIn("group: ssrvpn-public-release", rollback)
+        rollback_job = rollback[rollback.index("  oss-rollback:\n") :]
+        self.assertIn("    environment: release\n", rollback_job)
+        self.assertLess(
+            rollback_job.index("    environment: release\n"),
+            rollback_job.index("    steps:\n"),
+        )
+        self.assertIn("          ref: ${{ github.sha }}\n", rollback_job)
+        self.assertIn('test "$GITHUB_REF" = "refs/heads/main"', rollback_job)
         self.assertIn("gh release download", rollback)
         self.assertIn("scripts/check-release-assets.sh", rollback)
         self.assertIn("ANDROID_RELEASE_CERT_SHA256", rollback)
+        self.assertIn(
+            'for name in SSRVPN.apk SSRVPN.apk.sha256 SSRVPN.dmg '
+            'SSRVPN.dmg.sha256 SSRVPN_Setup.exe SSRVPN_Setup.exe.sha256',
+            rollback,
+        )
+        self.assertIn(
+            'OSS_VERSIONED_SOURCE_PREFIX="$OSS_PREFIX/releases/$ROLLBACK_TAG"',
+            rollback,
+        )
+        self.assertIn('"$base_url/latest.json"', rollback)
+        self.assertIn('cmp "$RUNNER_TEMP/rollback-latest.json" \\', rollback)
+        self.assertIn('"$RUNNER_TEMP/oss-latest.json"', rollback)
         self.assertIn("scripts/promote-oss-public-channel.sh", rollback)
         self.assertIn("Preserve OSS recovery backup", rollback)
         self.assertNotIn("Download and verify immutable rollback bundle", rollback)
