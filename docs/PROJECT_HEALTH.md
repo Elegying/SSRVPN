@@ -22,7 +22,7 @@ SHA-256、发布证明和 OSS 同步均已完成；历史版本证据没有替�
 | 项目 | 当前结果 |
 | --- | --- |
 | 发布源码与标签 | `v4.0.17 = 3ebb033e249ebdffd140d1c5f9bf58cdd94ce62f` |
-| 当前 `main` | `6eeb23fb1a6cd4c229b4be759ad7ed1d1d907546`，仅比发布标签多发布状态与 CI 快线提交，不改变已发布二进制 |
+| 当前 `main` | 可因发布后的状态文档与 CI 快线提交领先发布标签；实时值以仓库 HEAD 为准，不改变已发布二进制 |
 | 版本同步 | `scripts/check-version-sync.sh` 通过，版本为 `4.0.17+4017` |
 | 精确 `main` CI | [run 32851128814](https://github.com/Elegying/SSRVPN/actions/runs/32851128814) 成功 |
 | 发布准备 workflow | [run 32849445057](https://github.com/Elegying/SSRVPN/actions/runs/32849445057) 成功 |
