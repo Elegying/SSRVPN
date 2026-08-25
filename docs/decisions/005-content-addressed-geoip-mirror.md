@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受；每日自动刷新策略已由 [ADR-011](011-release-gated-geoip-refresh.md) 取代，正式发版编排由 [ADR-012](012-automatic-release-preparation.md) 补充
+已接受；更新触发策略现由 [ADR-014](014-manual-only-geoip-updates.md) 约束
 
 ## 日期
 
@@ -37,7 +37,7 @@ freshness 任务把未经校验的上游内容直接带入发布构建。
    路径，限制下载大小、协议和超时，并同时验证 gzip SHA-256 与有界解压后的原始 SHA-256。
    镜像回读只允许 `github.com`、`release-assets.githubusercontent.com` 和
    `objects.githubusercontent.com` 的 HTTPS 链路，拒绝降级到 HTTP 或跳转到其他主机。
-5. `Prepare Release` 与 `Maintenance` 的手动 `geoip-refresh` 是仅有的、复用同一验证链并会
+5. `Maintenance` 的手动 `geoip-refresh` 是唯一复用验证链并会
    根据上游 `latest` 写入候选来源记录和上传镜像的自动化边界。它们按以下顺序执行：
    上游 checksum/API digest/实际内容校验 → deterministic gzip → 缺失时上传内容寻址镜像
    → 从公共镜像 URL 回读并验证双 SHA-256 → 创建只修改来源记录的 PR。旧来源记录中的
@@ -47,9 +47,8 @@ freshness 任务把未经校验的上游内容直接带入发布构建。
    提示修复支持 Release；已存在同名资产时只回读验证，不覆盖。回读失败或内容不符时不得
    创建更新 PR。若“列出资产”和“上传资产”之间发生同名竞态，上传不得 clobber；流程重新
    列出资产并以公共 URL 的 gzip/raw 双哈希回读为最终判断，匹配则复用，不匹配则失败。
-7. 正式 Release workflow 与普通 CI 继续共享提交中已审核的镜像指针。新 Release 会只读
-   访问上游 `latest` 来证明该指针仍然最新，但不会把上游响应直接作为构建输入。上游状态
-   无法确认、镜像缺失或损坏时均安全失败，不能回退到 mutable `latest`。
+7. 正式 Release workflow 与普通 CI 继续共享提交中已审核的镜像指针，只验证固定来源与
+   双 SHA-256，不访问上游判断新旧。镜像缺失或损坏时安全失败，不能回退到 mutable `latest`。
 
 ## 信任边界
 
@@ -61,14 +60,12 @@ freshness 任务把未经校验的上游内容直接带入发布构建。
   的命令路径。代码审查和仓库权限仍需保护支持 Release 不被人工删除。
 - `core-assets-v1` tag 已纳入仓库 release-tag ruleset；tag 更新和删除都会被拒绝。Release
   管理员仍可操作资产，因此内容寻址名称、双哈希和禁止 clobber 的流程约束仍不可省略。
-- 普通 CI 不需要信任当前上游状态；新正式发版必须通过只读最新性证明，但不会因上游旧
-  Asset ID 被回收而改变构建输入。
+- 普通 CI 和正式发版都不信任或查询当前上游状态，只验证仓库固定的内容寻址镜像。
 
 ## 结果
 
 - 全新 runner 可以仅凭已提交来源记录重建三端 GeoIP 资产。
-- 每次发版前的自动准备仍保留完整上游出处，且镜像存在并能从真实 bootstrap URL 回读后
-  才进入受保护分支 CI 和代码审查；手动 Maintenance 仅作为恢复入口。
+- 只有明确执行手动 Maintenance 更新时才读取上游并创建来源记录 PR；发版不触发更新。
 - 支持 prerelease 成为必须长期保留的运维资源；仓库所有者需保护其 tag 和已引用资产，
   并确保它永远不成为应用 `latest`。
 - GitHub Release 仍由仓库管理员控制，并非不可篡改账本；内容寻址名称和双哈希让错误替换

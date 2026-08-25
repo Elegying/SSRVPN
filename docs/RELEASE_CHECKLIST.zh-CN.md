@@ -4,8 +4,8 @@
 
 ## 发布前
 
-1. 不再单独运行 `Maintenance > geoip-refresh`。先完成版本号和 changelog 修改并合入 `main`；
-   后续 `Prepare Release` 会在创建 tag 前自动刷新 GeoIP。GeoIP 不再定时自动检查。
+1. 先完成版本号和 changelog 修改并合入 `main`。发版不检查或更新 GeoIP；只有收到明确更新
+   指令时，才单独运行 `Maintenance > geoip-refresh`、审查并合并它创建的 PR。
 2. 确认版本号一致：
 
    ```bash
@@ -22,18 +22,14 @@
 5. 确认 Release workflow 需要的 Android 自签名 secrets 已配置。桌面端固定走免费分发：
    macOS ad-hoc、未公证，Windows 未签名；仓库和 GitHub 配置中不应出现 Apple/Microsoft
    付费证书 secrets 或启用变量。
-6. 引导并确认核心二进制和 GeoIP 数据库哈希，同时以只读方式确认仓库固定的 GeoIP 仍是
-   上游最新版本：
+6. 引导并确认仓库内固定的核心二进制和 GeoIP 数据库哈希：
 
    ```bash
    make assets
    scripts/verify-core-assets.sh
-   python3 scripts/sync-geoip-metadb.py --check
    ```
-   `Prepare Release` 会在无 tag 状态下刷新来源记录；正式 Release workflow 会在三端构建前
-   重复只读最新性门禁。若此时上游已滚动，必须回到 `main` 更新版本并使用新的 tag 重新运行
-   准备流程，禁止删除、移动旧 tag 或在 Release 中动态改写已有 tag 的输入。门禁会在内容校验
-   完成后再次确认上游 Release 和资产身份；校验期间 `latest` 发生滚动也必须失败。
+   `Prepare Release` 与正式 `Release` 都不得请求上游 GeoIP、判断新旧或改写来源记录；固定
+   快照不是最新版也不得阻断发版。完整性、三端一致性和已记录来源仍必须验证通过。
    只有精确 tag 下的 Release/资产 ID、上传完成状态、摘要、commit 与 provenance 全部一致的
    已有发布恢复重试，才允许复用原 tag 快照；授权阶段固定的 Release ID 与全资产规范身份会在
    发布 job 再次验证。构建期间 Release 消失、变残或被替换时必须失败，禁止删除后新建；缺失、
@@ -112,9 +108,7 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 
 1. 首次运行前，将仅授权 `Elegying/SSRVPN`、Repository Administration read-only 的
    fine-grained PAT 保存为 repository secret `BRANCH_PROTECTION_READ_TOKEN`。随后运行
-   `Prepare Release`。GeoIP 有变化时，它推送只修改 `GEOIP_SOURCE.txt` 的临时分支，创建 PR，
-   维护者须在 30 分钟内到 GitHub Actions 批准该 PR 的待运行 workflow；编排等待关联的
-   九项必需检查全绿后 rebase 合并。随后验证合并后的精确 `main` 提交；
+   `Prepare Release`。它先验证固定核心资产和精确 `main` 提交；
    若已有 24 小时内同仓库、同 `main` SHA 的成功 `push`/`workflow_dispatch` CI，
    且工作流路径与九项必需 job 的唯一性、结论均通过精确验证，则安全复用；若同一
    workflow 的该精确提交仍为 `queued`、`in_progress`、`requested`、`waiting` 或 `pending`，
@@ -122,12 +116,12 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
    只跟随同 SHA 后继 run，最多等待/替换三轮；等待完成后的列表传播最多复核五次，期间绝不
    再次 dispatch。仅在没有合格记录且没有可等待 run 或记录已过期时按原路径调度；非取消
    失败、超过边界、等待后身份/状态不明或 API/JSON 状态不明均失败关闭，不得当作“没找到”
-   后补发新 run。在 tag 前再次只读确认 GeoIP 仍是上游最新，并确认 `main` 在验证期间没有前移。
+   后补发新 run。在 tag 前确认 `main` 在验证期间没有前移。
    编排会在开始和创建 tag 前按 `.github/main-branch-protection.json` 校验严格分支保护及九项
    GitHub Actions 检查的精确名称和应用身份；缺项、多项或策略弱化都会失败关闭。
 2. 只有上述步骤全部通过且远端不存在同名 tag/Release 时，编排才创建 annotated tag，并通过
    `workflow_dispatch` 显式启动该 tag 上的 `Release`。CI、合并、分支树一致性或 GitHub API
-   状态任一不明确都会失败关闭；失败分支在尚未创建 PR 时自动删除，已经创建的 PR 保留诊断。
+   状态任一不明确都会失败关闭。
    从编排最后一次复核 `main` 到 Release 的 `Validate release source` 通过前暂停合并 `main`；
    tag push 与 `main` 没有跨引用原子事务。若该窗口内 `main` 前移，Release 会拒绝旧 tip，且
    受保护的不可变 tag 不能删除或移动：此时必须升新版本创建新 tag，不能重跑这个搁浅 tag。
@@ -138,9 +132,9 @@ reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v 
 
 ### 手动恢复入口
 
-只有 `Prepare Release` 本身不可用时，才手动运行 `Maintenance > geoip-refresh`，合并其 PR 并
-等待 `main` CI 全绿，再按传统方式创建 annotated tag。手工推送的新 tag 仍会触发 `Release`
-的只读 GeoIP 最新性门禁，不能绕过来源记录和版本转换校验。
+GeoIP 更新不是发布回退步骤。只有收到明确更新指令时才手动运行
+`Maintenance > geoip-refresh`，合并其 PR 并等待 `main` CI；正常和手工发版都只使用并校验
+仓库内已经固定的快照。
 
 若 `Prepare Release` 已成功推送 tag，但 `Release` 调度失败或等待超时，不得删除、移动 tag，
 也不得用同名 tag 重跑准备流程。先确认失败不是“tag 后 `main` 前移”：若是该竞态，必须升新

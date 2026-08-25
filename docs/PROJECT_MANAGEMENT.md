@@ -60,7 +60,7 @@ cd SSRVPN_Android && flutter analyze && flutter test
 1. Confirm `main` is clean and synced.
 2. Confirm CI is green.
 3. Merge the matching application version and `CHANGELOG.md` entry into `main`.
-4. Run GitHub Actions `Prepare Release` with the new `vX.Y.Z` tag. The workflow refreshes and verifies GeoIP, validates the generated branch and final `main`, creates the annotated tag, and dispatches `Release`. Do not create or push the version tag manually.
+4. Run GitHub Actions `Prepare Release` with the new `vX.Y.Z` tag. The workflow verifies the repository-pinned core assets and final `main`, creates the annotated tag, and dispatches `Release`. It does not check or update upstream GeoIP. Do not create or push the version tag manually.
 5. Approve the protected release environment when required and wait for the public, non-draft Release.
 6. Download the published artifacts, verify checksums, and smoke test installation.
 
@@ -72,4 +72,4 @@ Current personal releases use the free path:
 
 Paid Apple Developer ID notarization and Windows Authenticode signing are intentionally out of scope. Do not add certificate secrets or optional paid-signing branches unless this product decision is explicitly replaced.
 
-See [ADR-012](decisions/012-automatic-release-preparation.md), the [release checklist](RELEASE_CHECKLIST.zh-CN.md), and [release signing](RELEASE_SIGNING.md).
+See [ADR-014](decisions/014-manual-only-geoip-updates.md), the [release checklist](RELEASE_CHECKLIST.zh-CN.md), and [release signing](RELEASE_SIGNING.md).

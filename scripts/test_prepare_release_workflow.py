@@ -236,7 +236,9 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                     ;;
                   diff)
                     if [ "${1:-}" = --quiet ]; then
-                      if [ "$FAKE_GEOIP_CHANGED" = true ]; then exit 1; fi
+                      if grep -Fq 'Upstream SHA256: refreshed' docs/GEOIP_SOURCE.txt; then
+                        exit 1
+                      fi
                       exit 0
                     fi
                     exit 0
@@ -511,10 +513,10 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
             for index, line in enumerate(command_lines)
             if "bootstrap-core-assets" in line
         )
-        freshness = next(
+        verify_assets = next(
             index
             for index, line in enumerate(command_lines)
-            if "sync-geoip-metadb.py --check" in line
+            if "verify-core-assets" in line
         )
         tag_push = next(
             index
@@ -522,7 +524,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
             if "git push origin refs/tags/v4.0.2" in line
         )
         self.assertLess(protection_reads[0], bootstrap)
-        self.assertLess(freshness, protection_reads[1])
+        self.assertLess(verify_assets, protection_reads[1])
         self.assertLess(protection_reads[1], tag_push)
         self.assertNotIn("test-admin-read-token", commands)
         self.assertNotIn("test-default-token", commands)
@@ -540,7 +542,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertIn("cancel-in-progress: false", workflow)
         self.assertIn("actions: write", workflow)
         self.assertIn("contents: write", workflow)
-        self.assertIn("pull-requests: write", workflow)
+        self.assertNotIn("pull-requests: write", workflow)
         self.assertNotIn("packages: write", workflow)
         self.assertIn("GH_TOKEN: ${{ github.token }}", workflow)
         self.assertIn("GITHUB_TOKEN: ${{ github.token }}", workflow)
@@ -557,7 +559,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
             'bash scripts/prepare-release.sh "${{ inputs.tag }}"', workflow
         )
 
-    def test_preparer_tags_only_after_geoip_and_exact_main_ci(self) -> None:
+    def test_preparer_tags_only_after_pinned_assets_and_exact_main_ci(self) -> None:
         preparer = PREPARER.read_text(encoding="utf-8")
 
         protection_calls = [
@@ -568,46 +570,30 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         ]
         self.assertEqual(len(protection_calls), 2)
         bootstrap = preparer.index("bash scripts/bootstrap-core-assets.sh")
-        sync = preparer.index("python3 scripts/sync-geoip-metadb.py")
-        mirror = preparer.index("python3 scripts/ensure-geoip-mirror.py --upload")
         verify = preparer.index("bash scripts/verify-core-assets.sh")
-        create_pr = preparer.index("gh pr create")
-        branch_checks = preparer.index(
-            'wait_for_pull_request_checks "$pr_number" "$branch_ci_url"'
-        )
-        merge_pr = preparer.index("gh pr merge")
         main_ci = preparer.index('dispatch_workflow "ci.yml" main')
         reusable_ci = preparer.index("find-reusable-main-ci.py")
-        final_freshness = preparer.index(
-            "python3 scripts/sync-geoip-metadb.py --check"
-        )
         create_tag = preparer.index('git tag -a "$tag"')
         push_tag = preparer.index('git push origin "refs/tags/$tag"')
         release = preparer.index('dispatch_workflow "release.yml" "$tag"')
 
         self.assertLess(protection_calls[0], bootstrap)
-        self.assertLess(bootstrap, sync)
-        self.assertLess(sync, mirror)
-        self.assertLess(mirror, verify)
-        self.assertLess(verify, create_pr)
-        self.assertLess(create_pr, branch_checks)
-        self.assertLess(branch_checks, merge_pr)
-        self.assertLess(merge_pr, reusable_ci)
+        self.assertLess(bootstrap, verify)
+        self.assertLess(verify, reusable_ci)
         self.assertLess(reusable_ci, main_ci)
-        self.assertLess(main_ci, final_freshness)
-        self.assertLess(final_freshness, protection_calls[1])
+        self.assertLess(main_ci, protection_calls[1])
         self.assertLess(protection_calls[1], create_tag)
-        self.assertLess(final_freshness, create_tag)
         self.assertLess(create_tag, push_tag)
         self.assertLess(push_tag, release)
         self.assertIn('wait_for_workflow "$release_run_id"', preparer)
-        self.assertIn("git add -- docs/GEOIP_SOURCE.txt", preparer)
+        self.assertNotIn("sync-geoip-metadb.py", preparer)
+        self.assertNotIn("ensure-geoip-mirror.py", preparer)
+        self.assertNotIn("gh pr create", preparer)
+        self.assertNotIn("gh pr merge", preparer)
+        self.assertNotIn("GEOIP_SOURCE.txt", preparer)
         self.assertNotIn("git add .", preparer)
         self.assertNotIn("git push --force", preparer)
         self.assertNotIn("--admin", preparer)
-        self.assertNotIn('dispatch_workflow "ci.yml" "$branch"', preparer)
-        self.assertIn("within 30 minutes", preparer)
-        self.assertIn("Approve the pending GitHub Actions workflow", preparer)
         self.assertIn(
             'branch_protection_read_token="${BRANCH_PROTECTION_READ_TOKEN:-}"',
             preparer,
@@ -626,66 +612,61 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertIn("BRANCH_PROTECTION_READ_TOKEN is required", result.stderr)
         self.assertNotIn("bootstrap-core-assets", commands)
 
-    def test_existing_tag_or_release_blocks_before_geoip_mutation(self) -> None:
+    def test_existing_tag_or_release_blocks_before_asset_bootstrap(self) -> None:
         preparer = PREPARER.read_text(encoding="utf-8")
 
         remote_tag_guard = preparer.index("refs/tags/$tag")
         release_guard = preparer.index('releases/tags/$tag')
-        sync = preparer.index("python3 scripts/sync-geoip-metadb.py")
-        self.assertLess(remote_tag_guard, sync)
-        self.assertLess(release_guard, sync)
+        bootstrap = preparer.index("bash scripts/bootstrap-core-assets.sh")
+        self.assertLess(remote_tag_guard, bootstrap)
+        self.assertLess(release_guard, bootstrap)
 
-    def test_release_workflow_retains_read_only_freshness_defense(self) -> None:
+    def test_release_workflow_uses_pinned_geoip_without_upstream_freshness(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("Require the latest GeoIP snapshot", workflow)
-        self.assertIn("python3 scripts/sync-geoip-metadb.py --check", workflow)
+        self.assertIn("Bootstrap pinned core assets", workflow)
+        self.assertIn("Verify pinned GeoIP assets", workflow)
+        self.assertNotIn("Require the latest GeoIP snapshot", workflow)
+        self.assertNotIn("scripts/sync-geoip-metadb.py", workflow)
         self.assertNotRegex(
             workflow,
             r"(?m)^\s*python3 scripts/sync-geoip-metadb\.py\s*$",
         )
 
-    def test_changed_geoip_runs_both_ci_gates_before_release(self) -> None:
+    def test_upstream_geoip_change_does_not_mutate_release_source(self) -> None:
         result, commands, output, summary = self._run_preparer(
             geoip_changed=True
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        create_pr = commands.index("gh pr create")
-        branch_checks = commands.index("gh pr checks 84")
-        merge_pr = commands.index("gh pr merge")
         main_dispatch = commands.index("ref=main")
         tag_push = commands.index("git push origin refs/tags/v4.0.2")
         release_dispatch = commands.index("workflows/release.yml/dispatches")
-        self.assertLess(create_pr, branch_checks)
-        self.assertLess(branch_checks, merge_pr)
-        self.assertLess(merge_pr, main_dispatch)
         self.assertLess(main_dispatch, tag_push)
         self.assertLess(tag_push, release_dispatch)
         self._assert_protection_reads_guard_mutation_and_tag(commands)
-        self.assertIn("geoip_changed=true", output)
-        self.assertIn("geoip_pr_url=https://github.com/Elegying/SSRVPN/pull/84", output)
+        self.assertNotIn("sync-geoip-metadb.py", commands)
+        self.assertNotIn("ensure-geoip-mirror.py", commands)
+        self.assertNotIn("gh pr create", commands)
+        self.assertNotIn("geoip_changed", output)
+        self.assertNotIn("GeoIP", summary)
         self.assertIn("Release workflow:", summary)
 
-    def test_pull_request_ci_failure_preserves_pr_without_tag(self) -> None:
+    def test_obsolete_geoip_pr_failure_flag_cannot_block_release(self) -> None:
         result, commands, output, _ = self._run_preparer(
             geoip_changed=True,
             fail_branch_ci=True,
         )
 
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("gh pr create", commands)
-        self.assertIn("gh pr checks 84", commands)
-        self.assertNotIn("ref=automation/release-4.0.2-geoip-9001-1", commands)
-        self.assertNotIn("gh run watch 101", commands)
-        self.assertNotIn("git push origin --delete", commands)
-        self.assertNotIn("git push origin refs/tags/v4.0.2", commands)
-        self.assertNotIn("workflows/release.yml/dispatches", commands)
-        self.assertEqual(output, "")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("gh pr", commands)
+        self.assertIn("git push origin refs/tags/v4.0.2", commands)
+        self.assertIn("workflows/release.yml/dispatches", commands)
+        self.assertNotIn("geoip_changed", output)
 
-    def test_current_geoip_skips_pr_but_rechecks_main_before_release(self) -> None:
+    def test_pinned_geoip_skips_pr_but_rechecks_main_before_release(self) -> None:
         result, commands, output, _ = self._run_preparer(geoip_changed=False)
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -697,7 +678,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         self.assertLess(main_dispatch, tag_push)
         self.assertLess(tag_push, release_dispatch)
         self._assert_protection_reads_guard_mutation_and_tag(commands)
-        self.assertIn("geoip_changed=false", output)
+        self.assertNotIn("geoip_changed", output)
 
     def test_dispatched_main_ci_is_strictly_reverified_before_tag(self) -> None:
         result, commands, output, summary = self._run_preparer(

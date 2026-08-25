@@ -76,15 +76,12 @@ the `Elegying/SSRVPN/releases/download/core-assets-v1/` path and verifies both
 hashes before installing the same bytes for all three platforms. It never needs
 the upstream project's mutable Release during a normal CI or release build.
 
-The `Prepare Release` workflow is the normal release entrypoint. Before any tag
-exists, it independently downloads and verifies the latest upstream checksum,
-API digest, and database, produces deterministic gzip, uploads a missing
-content-addressed mirror asset without overwrite, and reads it back through the
-public bootstrap URL. When the source record changes, it verifies the temporary
-branch, creates and rebase-merges a PR changing only `GEOIP_SOURCE.txt`, reruns CI
-on the exact merged `main`, and only then creates the application tag and starts
-`release.yml`. `Maintenance > geoip-refresh` retains the same mirror boundary as a
-manual recovery entrypoint. There is no scheduled GeoIP freshness job.
+The `Prepare Release` workflow is the normal release entrypoint. It bootstraps
+and verifies the repository-pinned assets, validates the exact `main`, and then
+creates the application tag and starts `release.yml`. It never queries upstream
+GeoIP freshness, changes `GEOIP_SOURCE.txt`, uploads a mirror asset, or creates a
+GeoIP PR. `Maintenance > geoip-refresh` is the only update entrypoint and is run
+only after an explicit maintainer decision; it has no schedule trigger.
 An expired Asset ID in the previous upstream provenance therefore cannot block
 the manual refresh. The trust boundary disables redirects on authenticated API
 calls; mirror readback permits only GitHub's HTTPS download/CDN hosts and strips
@@ -92,12 +89,10 @@ credentials from redirects. Concurrent same-name uploads are re-listed and
 accepted only when the public gzip/raw hashes match.
 
 For a new release, `release.yml` bootstraps and verifies the reviewed pinned
-asset, then runs `sync-geoip-metadb.py --check` against upstream `latest` without
-writing files. It re-reads the upstream release and asset identity after content
-verification, so a concurrent `latest` rollover also fails before platform builds.
-Only a recovery retry backed by an exact-tag Release whose IDs, upload states,
-digests, commit, and provenance all validate may reuse the immutable snapshot
-without repeating the live freshness gate. Hidden drafts are located through a
+asset without contacting upstream to judge whether it is current. A fixed snapshot
+may be released repeatedly until the maintainer explicitly requests an update.
+Recovery retries backed by an exact-tag Release still require IDs, upload states,
+digests, commit, and provenance to validate. Hidden drafts are located through a
 read-only paginated API fallback and provenance is fetched by validated asset ID;
 missing, duplicate, incomplete, or unreachable releases fail closed. The validated
 Release ID and a canonical hash of every asset identity are passed to the publish
@@ -108,11 +103,9 @@ Release ID; only the expected draft-to-public transition is excluded from the
 immutable asset identity. The retry identity is checked after OSS promotion but
 before the numeric-ID PATCH, and again after the public-state poll before the OSS
 recovery backup is discarded. These trust boundaries are recorded in
-[ADR-005](decisions/005-content-addressed-geoip-mirror.md), and the release-only
-refresh policy is recorded in
-[ADR-011](decisions/011-release-gated-geoip-refresh.md), superseded for release
-orchestration by
-[ADR-012](decisions/012-automatic-release-preparation.md).
+[ADR-005](decisions/005-content-addressed-geoip-mirror.md), and the manual-only
+update policy is recorded in
+[ADR-014](decisions/014-manual-only-geoip-updates.md).
 
 `scripts/verify-core-assets.sh` checks fixed SHA256 hashes, macOS decompressed
 executable equivalence, Android embedded Go build properties and 16 KiB ELF/JNI

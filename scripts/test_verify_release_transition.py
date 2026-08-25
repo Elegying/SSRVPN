@@ -98,8 +98,8 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         self.assertIn("--ignore-existing", workflow)
         self.assertIn('cmp "$file" "$downloaded"', workflow)
         self.assertNotIn("Sync latest geoip.metadb", workflow)
-        self.assertIn("Require the latest GeoIP snapshot", workflow)
-        self.assertIn("scripts/sync-geoip-metadb.py --check", workflow)
+        self.assertNotIn("Require the latest GeoIP snapshot", workflow)
+        self.assertNotIn("scripts/sync-geoip-metadb.py", workflow)
         self.assertNotRegex(
             workflow,
             r"(?m)^\s*python3 scripts/sync-geoip-metadb\.py\s*$",

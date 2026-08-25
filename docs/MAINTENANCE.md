@@ -62,7 +62,8 @@ This guide keeps local development, GitHub automation, and releases aligned.
   workflow file. `prepare-release.yml` is intentionally separate because it owns
   the write permissions, global concurrency lock, exact-main verification, tag
   creation, and handoff to `release.yml`. GeoIP must not regain a `schedule`
-  trigger; `Maintenance > geoip-refresh` remains only a manual recovery path.
+  trigger or enter either release workflow; `Maintenance > geoip-refresh` is the
+  only update path and is run only after an explicit maintainer decision.
 - Split a workflow only when it needs an incompatible trigger, permission boundary,
   or concurrency lock.
 - Pin every third-party action to a full commit SHA. Dependency Review on pull requests
@@ -197,17 +198,16 @@ and run both platform suites for shared desktop changes.
 
 1. Update the application version on `main`. Review `CHANGELOG.md` and move
    relevant entries from `Unreleased` to the target version.
-2. Verify the pinned assets and prove that GeoIP still matches upstream `latest`:
+2. Bootstrap and verify the repository-pinned assets:
 
    ```bash
    make assets
    scripts/verify-core-assets.sh
-   python3 scripts/sync-geoip-metadb.py --check
    ```
 
-   The check re-reads the upstream Release and asset identity after verifying the
-   downloaded content. A `latest` rollover during verification is a failure, not
-   permission to accept either snapshot.
+   These commands verify the committed source records and hashes. They do not
+   query upstream GeoIP freshness. Do not run the GeoIP update task merely to
+   prepare a release.
 
 3. Verify the free Android self-signed keystore secrets and the
    `ANDROID_RELEASE_CERT_SHA256` Actions Variable are available. Desktop
@@ -223,21 +223,17 @@ and run both platform suites for shared desktop changes.
    gh secret set BRANCH_PROTECTION_READ_TOKEN --repo Elegying/SSRVPN
    ```
 
-   The normal `GITHUB_TOKEN` remains responsible for Actions, contents, and PR
-   writes; the read-only token is injected only into the two classic branch
+   The normal `GITHUB_TOKEN` remains responsible for Actions and tag writes; the
+   read-only token is injected only into the two classic branch
    protection API reads and is removed from the inherited environment.
 4. Start GitHub Actions `Prepare Release` with the matching new `vX.Y.Z` tag. It
-   automatically refreshes GeoIP. Only when the source record changes does it
-   push a branch and create a PR; approve that PR's pending workflow in GitHub
-   Actions within 30 minutes. The orchestrator then waits for the protected PR
-   checks, rebase-merges it, and either reuses a qualifying completed exact-`main`
+   verifies the pinned assets and either reuses a qualifying completed exact-`main`
    CI run, waits for a qualifying queued/in-progress run and then performs the
    same strict nine-job verification, or dispatches one only when no qualifying
    run exists. A failed wait or ambiguous post-wait identity fails closed rather
    than dispatching a replacement. It finally creates the annotated tag and
    dispatches `Release`. Do not create the tag manually first.
-5. Confirm the protected PR checks (when a GeoIP PR is needed) and exact-`main`
-   CI evidence are green, then watch the automatic handoff
+5. Confirm the exact-`main` CI evidence is green, then watch the automatic handoff
    to the `Release` workflow. The protected branch requires the exact nine
    GitHub Actions checks recorded in `.github/main-branch-protection.json`; the
    orchestrator verifies that policy twice and does not bypass or impersonate it.
@@ -252,13 +248,12 @@ and run both platform suites for shared desktop changes.
        --expected .github/main-branch-protection.json
    ```
 
-   If automated preparation is unavailable, use `Maintenance > geoip-refresh` as
-   the manual fallback, merge its PR, wait for `main` CI, and only then create the
-   application tag.
-6. New releases fail before platform builds if the
-   reviewed GeoIP pointer is no longer current; the workflow never rewrites a tag.
-   An existing-release retry bypasses this live check only after the exact tag,
-   completed asset states, IDs, digests, commit, and provenance all validate.
+6. `Prepare Release` and `Release` never query upstream GeoIP, rewrite its source
+   record, create an update PR, or require the newest snapshot. They only bootstrap
+   and verify the repository-pinned bytes. Run `Maintenance > geoip-refresh` only
+   after an explicit update decision, then review and merge its PR separately.
+   Existing-release retries still require the exact tag,
+   completed asset states, IDs, digests, commit, and provenance to validate.
    The publish job must then find the same Release ID and canonical asset identity;
    it cannot delete or replace an authorized retry if the Release changes mid-run.
    Finalization, polling, and post-publication validation stay bound to that numeric

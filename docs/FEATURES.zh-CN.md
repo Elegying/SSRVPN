@@ -157,7 +157,7 @@ Windows 安装器未签名；Android 使用固定自签名证书谱系支持覆�
 - Monorepo 统一管理三端客户端、共享包、原生桥接、安装器、测试和发布脚本。
 - `make verify` 聚合格式、静态分析、资源、秘密、性能、共享/平台测试、原生测试和覆盖率门槛。
 - 高风险生命周期和安装事务有职责边界、规模护栏及针对失败路径的回归。
-- `Prepare Release` 自动完成版本核对、GeoIP 准备、受保护 PR、精确 `main` CI、不可变 tag 和 Release 调度。
+- `Prepare Release` 自动完成版本核对、固定核心资产校验、精确 `main` CI、不可变 tag 和 Release 调度；GeoIP 更新独立为显式手动维护任务。
 - Release workflow 构建三端资产，验证来源和摘要，同步 OSS，并在失败时执行有界恢复或回滚。
 
 ## 明确不提供的能力
