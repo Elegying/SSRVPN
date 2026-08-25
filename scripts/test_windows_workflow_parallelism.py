@@ -24,8 +24,8 @@ class WindowsWorkflowParallelismTest(unittest.TestCase):
         aggregate = job(workflow, "windows")
 
         self.assertNotIn("          - name: Windows\n", platform)
-        self.assertIn("    needs: secret-scan\n", policy)
-        self.assertIn("    needs: [core-assets, secret-scan]\n", build)
+        self.assertIn("    needs: [changes, secret-scan]\n", policy)
+        self.assertIn("    needs: [changes, core-assets, secret-scan]\n", build)
         for child in (policy, build):
             self.assertIn("    runs-on: windows-latest\n", child)
 
@@ -44,7 +44,10 @@ class WindowsWorkflowParallelismTest(unittest.TestCase):
         self.assert_windows_build_gates(build)
         self.assertIn("    name: Windows\n", aggregate)
         self.assertIn("    if: always()\n", aggregate)
-        self.assertIn("    needs: [windows-policy-tests, windows-build]\n", aggregate)
+        self.assertIn(
+            "    needs: [changes, windows-policy-tests, windows-build]\n",
+            aggregate,
+        )
         self.assertIn("POLICY_RESULT: ${{ needs.windows-policy-tests.result }}", aggregate)
         self.assertIn("BUILD_RESULT: ${{ needs.windows-build.result }}", aggregate)
         self.assertIn('if [ "$POLICY_RESULT" != success ] ||', aggregate)

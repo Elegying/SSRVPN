@@ -19,6 +19,38 @@ env:
   FLUTTER_VERSION: '3.44.1'
 
 jobs:
+  changes:
+    name: Classify CI scope
+    runs-on: ubuntu-latest
+    outputs:
+      platform_required: ${{ steps.scope.outputs.platform_required }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          platform_required="$(
+            python3 scripts/classify-ci-scope.py \
+              --event "$EVENT_NAME" \
+              --base "$BASE_SHA" \
+              --head "$HEAD_SHA"
+          )"
+          case "$platform_required" in
+            true|false) ;;
+            *)
+              echo "Invalid CI scope output: $platform_required" >&2
+              exit 1
+              ;;
+          esac
+          echo "platform_required=$platform_required" >> "$GITHUB_OUTPUT"
+
   secret-scan:
     name: Full-history secret scan
     runs-on: ubuntu-latest
@@ -137,7 +169,8 @@ jobs:
 
   macos-native:
     name: macOS native unit tests
-    needs: [core-assets, secret-scan]
+    if: needs.changes.outputs.platform_required == 'true'
+    needs: [changes, core-assets, secret-scan]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -162,8 +195,8 @@ jobs:
 
   flutter-app:
     name: ${{ matrix.name }}
-    needs: [core-assets, secret-scan]
-    runs-on: ${{ matrix.os }}
+    needs: [changes, core-assets, secret-scan]
+    runs-on: ${{ needs.changes.outputs.platform_required == 'true' && matrix.os || 'ubuntu-latest' }}
     permissions:
       contents: read
       security-events: write
@@ -180,25 +213,40 @@ jobs:
             os: macos-15
             directory: SSRVPN_MacOS
     steps:
+      - name: Reject invalid CI scope
+        if: needs.changes.outputs.platform_required != 'true' && needs.changes.outputs.platform_required != 'false'
+        run: |
+          echo "Invalid CI scope classification" >&2
+          exit 1
+
+      - name: Skip platform build for documentation-only changes
+        if: needs.changes.outputs.platform_required == 'false'
+        run: echo "Documentation-only change; platform build is not required."
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: needs.changes.outputs.platform_required == 'true'
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: needs.changes.outputs.platform_required == 'true'
         with:
           name: core-assets
           path: .
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        if: needs.changes.outputs.platform_required == 'true'
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
-      - run: bash scripts/verify-core-assets.sh
+      - if: needs.changes.outputs.platform_required == 'true'
+        run: bash scripts/verify-core-assets.sh
 
-      - run: flutter pub get --enforce-lockfile
+      - if: needs.changes.outputs.platform_required == 'true'
+        run: flutter pub get --enforce-lockfile
 
       - name: Initialize CodeQL
-        if: matrix.directory != 'SSRVPN_MacOS'
+        if: needs.changes.outputs.platform_required == 'true' && matrix.directory != 'SSRVPN_MacOS'
         uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
         with:
           languages: ${{ matrix.codeql_language }}
@@ -206,43 +254,47 @@ jobs:
           queries: security-extended
 
       - name: Cache Gradle dependencies
-        if: matrix.directory == 'SSRVPN_Android'
+        if: needs.changes.outputs.platform_required == 'true' && matrix.directory == 'SSRVPN_Android'
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
         with:
           cache-provider: basic
           cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}
 
-      - run: flutter analyze
+      - if: needs.changes.outputs.platform_required == 'true'
+        run: flutter analyze
         working-directory: ${{ matrix.directory }}
 
-      - run: bash scripts/run-flutter-coverage.sh ${{ matrix.directory }}
+      - if: needs.changes.outputs.platform_required == 'true'
+        run: bash scripts/run-flutter-coverage.sh ${{ matrix.directory }}
 
       - name: Android native unit tests
-        if: matrix.directory == 'SSRVPN_Android'
+        if: needs.changes.outputs.platform_required == 'true' && matrix.directory == 'SSRVPN_Android'
         shell: bash
         run: bash scripts/test-android-native.sh
 
-      - run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
+      - if: needs.changes.outputs.platform_required == 'true'
+        run: bash scripts/check-coverage-thresholds.sh ${{ matrix.directory }}
 
       - name: Build macOS app
-        if: matrix.directory == 'SSRVPN_MacOS'
+        if: needs.changes.outputs.platform_required == 'true' && matrix.directory == 'SSRVPN_MacOS'
         timeout-minutes: 15
         working-directory: SSRVPN_MacOS
         run: flutter build macos --debug
 
       - name: Analyze native code
-        if: matrix.directory != 'SSRVPN_MacOS'
+        if: needs.changes.outputs.platform_required == 'true' && matrix.directory != 'SSRVPN_MacOS'
         uses: github/codeql-action/analyze@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always()
+        if: always() && needs.changes.outputs.platform_required == 'true'
         with:
           name: coverage-${{ matrix.directory }}
           path: ${{ matrix.directory }}/coverage/lcov.info
 
   windows-policy-tests:
     name: Windows policy tests
-    needs: secret-scan
+    if: needs.changes.outputs.platform_required == 'true'
+    needs: [changes, secret-scan]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -256,7 +308,8 @@ jobs:
 
   windows-build:
     name: Windows build
-    needs: [core-assets, secret-scan]
+    if: needs.changes.outputs.platform_required == 'true'
+    needs: [changes, core-assets, secret-scan]
     runs-on: windows-latest
     permissions:
       contents: read
@@ -339,16 +392,32 @@ jobs:
   windows:
     name: Windows
     if: always()
-    needs: [windows-policy-tests, windows-build]
+    needs: [changes, windows-policy-tests, windows-build]
     runs-on: ubuntu-latest
     steps:
       - name: Require every Windows gate
         env:
+          SCOPE: ${{ needs.changes.outputs.platform_required }}
           POLICY_RESULT: ${{ needs.windows-policy-tests.result }}
           BUILD_RESULT: ${{ needs.windows-build.result }}
         run: |
-          if [ "$POLICY_RESULT" != success ] ||
-             [ "$BUILD_RESULT" != success ]; then
-            echo "Windows gates failed: policy=$POLICY_RESULT build=$BUILD_RESULT" >&2
-            exit 1
+          if [ "$SCOPE" = true ]; then
+            if [ "$POLICY_RESULT" != success ] ||
+               [ "$BUILD_RESULT" != success ]; then
+              echo "Windows gates failed: policy=$POLICY_RESULT build=$BUILD_RESULT" >&2
+              exit 1
+            fi
+            exit 0
           fi
+
+          if [ "$SCOPE" = false ]; then
+            if [ "$POLICY_RESULT" != skipped ] ||
+               [ "$BUILD_RESULT" != skipped ]; then
+              echo "Unexpected docs-only Windows state: policy=$POLICY_RESULT build=$BUILD_RESULT" >&2
+              exit 1
+            fi
+            exit 0
+          fi
+
+          echo "Invalid CI scope classification: $SCOPE" >&2
+          exit 1
