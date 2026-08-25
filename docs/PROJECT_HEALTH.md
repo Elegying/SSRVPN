@@ -4,13 +4,13 @@
 
 当前应用版本：`v4.0.17`（[正式 Release](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.17)）
 
-版本基线提交：`f85135ad5f50908982fa31a94cdb527f1b3d958c`
+版本基线提交：`3ebb033e249ebdffd140d1c5f9bf58cdd94ce62f`
 
 ## 当前结论
 
-`v4.0.17` 修复 macOS 系统代理应用会被已禁用网络服务阻断的问题，并补充稳定、可操作的
-故障分类。该版本必须完成精确 `main` CI、三端线上构建、GitHub Release、SHA-256、
-发布证明和 OSS 同步后，才视为正式发布；历史版本证据不能替代本轮门禁。
+`v4.0.17` 已正式发布。该版本修复 macOS 系统代理应用会被已禁用网络服务阻断的问题，
+并补充稳定、可操作的故障分类。精确 `main` CI、三端线上构建、GitHub Release、
+SHA-256、发布证明和 OSS 同步均已完成；历史版本证据没有替代本轮门禁。
 
 本文件只记录当前状态和仍需跟进的证据边界。版本变更明细以
 [CHANGELOG](../CHANGELOG.md) 为准，硬性产品约束以
@@ -21,17 +21,18 @@
 
 | 项目 | 当前结果 |
 | --- | --- |
-| 源码、远端与标签 | `HEAD = origin/main = v4.0.16 = f85135ad5f50908982fa31a94cdb527f1b3d958c` |
-| 版本同步 | `scripts/check-version-sync.sh` 通过，版本为 `4.0.16+4016` |
-| 精确 `main` CI | [run 32565194924](https://github.com/Elegying/SSRVPN/actions/runs/32565194924) 成功 |
-| 正式 Release workflow | [run 32565752097](https://github.com/Elegying/SSRVPN/actions/runs/32565752097) 成功 |
+| 源码、远端与标签 | `origin/main = v4.0.17 = 3ebb033e249ebdffd140d1c5f9bf58cdd94ce62f` |
+| 版本同步 | `scripts/check-version-sync.sh` 通过，版本为 `4.0.17+4017` |
+| 精确 `main` CI | [run 32851128814](https://github.com/Elegying/SSRVPN/actions/runs/32851128814) 成功 |
+| 发布准备 workflow | [run 32849445057](https://github.com/Elegying/SSRVPN/actions/runs/32849445057) 成功 |
+| 正式 Release workflow | [run 32852593059](https://github.com/Elegying/SSRVPN/actions/runs/32852593059) 成功 |
 | GitHub Release | 非草稿、非预发布，公开资产共 7 项 |
 | 正式安装包 | `SSRVPN.apk`、`SSRVPN.dmg`、`SSRVPN_Setup.exe` |
 | 完整性与来源 | 三个 `.sha256`、`SSRVPN-release-provenance.json` 和 GitHub Attestations 均已验证 |
-| OSS 公共通道 | `latest.json`、版本化对象与固定下载地址已核对为 `4.0.16` |
+| OSS 公共通道 | `latest.json`、版本化对象与固定下载地址已核对为 `4.0.17` |
 | 仓库安全告警 | 终审时 Code Scanning、Secret Scanning、Dependabot 开放安全告警均为 0 |
 
-以上发布证据绑定 `v4.0.16` 的精确提交和正式资产。后续文档提交不会改变已经发布的
+以上发布证据绑定 `v4.0.17` 的精确提交和正式资产。后续文档提交不会改变已经发布的
 二进制；下一版本仍须重新执行全部门禁，不能继承本表结论。
 
 ## 质量评分
@@ -48,18 +49,18 @@
 
 ## 自动化验证摘要
 
-- Release tooling：376 项通过。
-- Shared：641 项通过，行覆盖率 84.62%。
+- Release tooling：377 项通过。
+- Shared：642 项通过，行覆盖率 85.07%。
 - Android Flutter：275 项通过，行覆盖率 67.84%；Android 原生测试和 CodeQL 通过。
-- macOS Flutter：281 项通过，行覆盖率 67.30%；原生 RunnerTests 通过。
-- Windows Flutter：268 项通过，行覆盖率 55.68%；原生恢复、安装器构建、安装和卸载 smoke 通过。
+- macOS Flutter：284 项通过，行覆盖率 67.40%；原生 RunnerTests 通过。
+- Windows Flutter：260 项通过（另有 8 项仅 Windows 主机执行的用例在本地门禁跳过），行覆盖率 53.00%；线上原生恢复、安装器构建、安装和卸载 smoke 通过。
 - 分支保护要求严格提交同步、管理员不可绕过、禁止 force-push/删除，并固定九项必需检查。
 
 ## 当前证据边界
 
 以下项目是尚未补齐的人工或长期证据，不是已经确认的客户端故障：
 
-1. `v4.0.16` 没有重新执行完整三端人工实机矩阵；自动化和旧版本真机记录不能替代当前版本实机 UAT。
+1. `v4.0.17` 没有重新执行完整三端人工实机矩阵；自动化和旧版本真机记录不能替代当前版本实机 UAT。
 2. Windows 11 仍需人工复验 Explorer 可见性、UAC 取消，以及应用内更新安装包成功安装后的自动清理体验。
 3. Android 仍缺原生 16 KiB page-size 硬件，以及长时、Doze、不同 OEM 和同口径电量复测。
 4. macOS 持续断网后的取消专项仍未执行；免费 ad-hoc、未公证分发属于既定边界。
