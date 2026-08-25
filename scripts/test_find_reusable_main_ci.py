@@ -329,6 +329,18 @@ class FindReusableMainCiTest(unittest.TestCase):
                 result, _ = self._invoke(jobs=jobs)
                 self.assertEqual(result.returncode, 3, result.stderr)
 
+    def test_docs_only_main_ci_is_not_reusable_for_prepare(self) -> None:
+        jobs = self._jobs()
+        next(
+            job
+            for job in jobs["jobs"]
+            if job["name"] == "macOS native unit tests"
+        )["conclusion"] = "skipped"
+
+        result, _ = self._invoke(jobs=jobs)
+
+        self.assertEqual(result.returncode, 3, result.stderr)
+
     def test_no_matching_or_expired_run_has_distinct_fallback_exit(self) -> None:
         no_runs, commands = self._invoke(runs=[])
         self.assertEqual(no_runs.returncode, 3, no_runs.stderr)

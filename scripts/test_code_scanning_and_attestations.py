@@ -42,7 +42,11 @@ class CodeScanningAndAttestationWorkflowTest(unittest.TestCase):
         self.assertNotIn("Prepare macOS dependencies before CodeQL", platform_job)
         self.assertNotIn("Build macOS native target for CodeQL", platform_job)
         self.assertEqual(
-            platform_job.count("if: matrix.directory != 'SSRVPN_MacOS'"), 2
+            platform_job.count(
+                "if: needs.changes.outputs.platform_required == 'true' && "
+                "matrix.directory != 'SSRVPN_MacOS'"
+            ),
+            2,
         )
         self.assertIn("Build macOS app", platform_job)
         self.assertIn("flutter build macos --debug", platform_job)

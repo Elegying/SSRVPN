@@ -105,7 +105,7 @@ python3 -m unittest \\
         platform_header = platform_job[: platform_job.index("    steps:\n")]
 
         self.assertIn(
-            "    needs: [core-assets, secret-scan]\n",
+            "    needs: [changes, core-assets, secret-scan]\n",
             platform_header,
         )
         self.assertNotIn("shared", platform_header)
@@ -173,7 +173,11 @@ python3 -m unittest \\
         ).read_text(encoding="utf-8")
 
         self.assertIn(expected_action, ci)
-        self.assertIn("if: matrix.directory == 'SSRVPN_Android'", ci)
+        self.assertIn(
+            "if: needs.changes.outputs.platform_required == 'true' && "
+            "matrix.directory == 'SSRVPN_Android'",
+            ci,
+        )
         self.assertIn(expected_action, release)
         for workflow in (ci, release):
             self.assertIn("cache-provider: basic", workflow)
