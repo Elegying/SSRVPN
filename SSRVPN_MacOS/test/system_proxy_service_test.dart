@@ -154,6 +154,7 @@ void main() {
     var enabledIdentityCalls = 0;
     var allIdentityCalls = 0;
     final service = _testSystemProxyService(
+      networkSetupRunner: _successfulNetworkSetupRunner,
       networkServiceIdentityRunner: () async {
         allIdentityCalls++;
         return {
