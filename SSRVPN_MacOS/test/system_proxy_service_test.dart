@@ -77,6 +77,103 @@ void main() {
     );
   });
 
+  test('proxy setup preserves stdout-only networksetup failure details',
+      () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'ssrvpn_macos_proxy_stdout_failure_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final service = _testSystemProxyService(
+      networkServiceIdentityRunner: () async => {
+        'Ethernet Adapter (en3)': 'test-service-ethernet',
+      },
+      networkSetupRunner: (arguments) async {
+        if (arguments.first.startsWith('-get')) {
+          return ProcessResult(
+            1,
+            0,
+            'Enabled: No\nServer: \nPort: 0\n',
+            '',
+          );
+        }
+        if (arguments.first == '-setwebproxy') {
+          return ProcessResult(
+            1,
+            4,
+            '** Error: The parameters were not valid.\n',
+            '',
+          );
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+    await service.initialize(tempDirectory.path);
+
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+
+    expect(service.lastError, contains('SYSTEM_PROXY_APPLY_FAILED'));
+    expect(service.lastError, contains('退出码 4'));
+    expect(service.lastError, contains('parameters were not valid'));
+    expect(service.lastError, contains('Ethernet Adapter (en3)'));
+    expect(service.lastError, isNot(contains('test-service-ethernet')));
+  });
+
+  test('proxy setup records both networksetup output streams', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'ssrvpn_macos_proxy_both_streams_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final service = _testSystemProxyService(
+      networkSetupRunner: (arguments) async {
+        if (arguments.first.startsWith('-get')) {
+          return ProcessResult(
+            1,
+            0,
+            'Enabled: No\nServer: \nPort: 0\n',
+            '',
+          );
+        }
+        if (arguments.first == '-setwebproxy') {
+          return ProcessResult(1, 5, 'stdout detail', 'stderr detail');
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+    await service.initialize(tempDirectory.path);
+
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
+    expect(service.lastError, contains('错误：stderr detail'));
+    expect(service.lastError, contains('输出：stdout detail'));
+  });
+
+  test('proxy setup rechecks the same enabled-only service snapshot', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'ssrvpn_macos_proxy_enabled_identity_recheck_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    var enabledIdentityCalls = 0;
+    var allIdentityCalls = 0;
+    final service = _testSystemProxyService(
+      networkServiceIdentityRunner: () async {
+        allIdentityCalls++;
+        return {
+          'Wi-Fi': 'test-service-wifi',
+          'Disabled Ethernet': 'test-service-disabled',
+        };
+      },
+      enabledNetworkServiceIdentityRunner: () async {
+        enabledIdentityCalls++;
+        return {'Wi-Fi': 'test-service-wifi'};
+      },
+    );
+    await service.initialize(tempDirectory.path);
+
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+
+    expect(enabledIdentityCalls, 3);
+    expect(allIdentityCalls, 0);
+  });
+
   test(
     'effective proxy ownership detects an external change without mutating it',
     () async {
@@ -1348,6 +1445,7 @@ Future<void> _expectUnsafeStatePathIsPreserved(
 SystemProxyService _testSystemProxyService({
   MacNetworkSetupRunner? networkSetupRunner,
   MacNetworkServiceIdentityRunner? networkServiceIdentityRunner,
+  MacNetworkServiceIdentityRunner? enabledNetworkServiceIdentityRunner,
   MacProxyLifecycleBegin? beginProxyLifecycleTransaction,
   MacProxyLifecycleEnd? endProxyLifecycleTransaction,
   MacProxyGuardianStart? startProxyGuardian,
@@ -1356,6 +1454,7 @@ SystemProxyService _testSystemProxyService({
       networkSetupRunner: networkSetupRunner,
       networkServiceIdentityRunner: networkServiceIdentityRunner ??
           () async => {'Wi-Fi': 'test-service-wifi'},
+      enabledNetworkServiceIdentityRunner: enabledNetworkServiceIdentityRunner,
       beginProxyLifecycleTransaction:
           beginProxyLifecycleTransaction ?? () async => 'test-proxy-lease',
       endProxyLifecycleTransaction:

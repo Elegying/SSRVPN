@@ -92,6 +92,19 @@ void main() {
       expect(timeout.userMessage, isNot(contains('secret.ps1')));
     });
 
+    test('maps macOS system proxy apply failures without leaking details', () {
+      final failure = AppFailure.fromMessage(
+        'SYSTEM_PROXY_APPLY_FAILED: networksetup failed for '
+        'Ethernet Adapter (en3); secret=/Users/me/private',
+      );
+
+      expect(failure.code.wireName, 'SYSTEM_PROXY_APPLY_FAILED');
+      expect(failure.title, '系统代理未能启用');
+      expect(failure.recommendedAction, contains('其他代理或 VPN'));
+      expect(failure.userMessage, isNot(contains('Ethernet Adapter')));
+      expect(failure.userMessage, isNot(contains('/Users/me')));
+    });
+
     test('maps Windows TUN failures to actionable permission guidance', () {
       for (final message in const [
         'TUN 模式需要以管理员身份运行 SSRVPN',

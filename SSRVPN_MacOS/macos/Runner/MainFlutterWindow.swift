@@ -99,8 +99,11 @@ class MainFlutterWindow: NSWindow {
         return
       }
       if call.method == "listNetworkServiceIdentities" {
+        let enabledOnly = (call.arguments as? [String: Any])?["enabledOnly"] as? Bool ?? false
         delegate.enqueueCoreProcessOperation {
-          let identities = delegate.currentNetworkServiceIdentities()
+          let identities = delegate.currentNetworkServiceIdentities(
+            enabledOnly: enabledOnly
+          )
           DispatchQueue.main.async {
             guard let identities else {
               result(FlutterError(

@@ -28,12 +28,15 @@ class SystemProxyService {
     MacNetworkSetupRunner? networkSetupRunner,
     MacEffectiveProxyRunner? effectiveProxyRunner,
     MacNetworkServiceIdentityRunner? networkServiceIdentityRunner,
+    MacNetworkServiceIdentityRunner? enabledNetworkServiceIdentityRunner,
     MacProxyLifecycleBegin? beginProxyLifecycleTransaction,
     MacProxyLifecycleEnd? endProxyLifecycleTransaction,
     MacProxyGuardianStart? startProxyGuardian,
   })  : _networkSetupRunner = networkSetupRunner,
         _effectiveProxyRunner = effectiveProxyRunner,
         _networkServiceIdentityRunner = networkServiceIdentityRunner,
+        _enabledNetworkServiceIdentityRunner =
+            enabledNetworkServiceIdentityRunner,
         _beginProxyLifecycleTransaction = beginProxyLifecycleTransaction,
         _endProxyLifecycleTransaction = endProxyLifecycleTransaction,
         _startProxyGuardian = startProxyGuardian;
@@ -54,6 +57,7 @@ class SystemProxyService {
   final MacNetworkSetupRunner? _networkSetupRunner;
   final MacEffectiveProxyRunner? _effectiveProxyRunner;
   final MacNetworkServiceIdentityRunner? _networkServiceIdentityRunner;
+  final MacNetworkServiceIdentityRunner? _enabledNetworkServiceIdentityRunner;
   final MacProxyLifecycleBegin? _beginProxyLifecycleTransaction;
   final MacProxyLifecycleEnd? _endProxyLifecycleTransaction;
   final MacProxyGuardianStart? _startProxyGuardian;
@@ -151,7 +155,8 @@ class SystemProxyService {
     try {
       final result = await _runNetworkSetup(['-listallnetworkservices']);
       if (result.exitCode != 0) {
-        _lastError = '无法读取网络服务列表: ${result.stderr}'.trim();
+        _lastError = '无法读取网络服务列表: '
+            '${_networkSetupFailure(['-listallnetworkservices'], result)}';
         return [];
       }
       return parseMacNetworkServiceList(result.stdout.toString());
@@ -161,13 +166,19 @@ class SystemProxyService {
     }
   }
 
-  Future<Map<String, String>?> _listNetworkServiceIdentities() async {
+  Future<Map<String, String>?> _listNetworkServiceIdentities({
+    bool enabledOnly = false,
+  }) async {
     try {
-      final injected = _networkServiceIdentityRunner;
+      final injected = enabledOnly
+          ? _enabledNetworkServiceIdentityRunner ??
+              _networkServiceIdentityRunner
+          : _networkServiceIdentityRunner;
       final Map<dynamic, dynamic>? raw = injected != null
           ? await injected()
           : await _coreProcessChannel.invokeMethod<Map<dynamic, dynamic>>(
               'listNetworkServiceIdentities',
+              {'enabledOnly': enabledOnly},
             );
       if (raw == null) {
         _lastError = '无法读取 macOS 网络服务稳定标识';
@@ -224,7 +235,9 @@ class SystemProxyService {
       // service names and their stable IDs. Combining this with a separate
       // `networksetup` listing creates a false mismatch when command output is
       // localized, contains a banner, or changes between the two reads.
-      final capturedServiceIdentities = await _listNetworkServiceIdentities();
+      final capturedServiceIdentities = await _listNetworkServiceIdentities(
+        enabledOnly: true,
+      );
       if (capturedServiceIdentities == null ||
           capturedServiceIdentities.isEmpty) {
         _lastError ??= '没有找到当前 macOS 网络配置中的可用服务';
@@ -276,7 +289,7 @@ class SystemProxyService {
       return true;
     } catch (e) {
       final detail = e is StateError ? e.message : e.toString();
-      final originalError = '系统代理设置失败: $detail';
+      final originalError = 'SYSTEM_PROXY_APPLY_FAILED: 系统代理设置失败: $detail';
       await _clearSystemProxyOnce();
       _lastError = originalError;
       return false;
@@ -457,7 +470,7 @@ class SystemProxyService {
   Future<void> _requireUnchangedNetworkServiceIdentities(
     Map<String, String> expected,
   ) async {
-    final current = await _listNetworkServiceIdentities();
+    final current = await _listNetworkServiceIdentities(enabledOnly: true);
     final unchanged = current != null &&
         current.length == expected.length &&
         expected.entries.every((entry) => current[entry.key] == entry.value);
@@ -829,7 +842,10 @@ class SystemProxyService {
   ) async {
     final result = await _runNetworkSetup([command, service]);
     if (result.exitCode != 0) {
-      throw Exception('读取 $service 代理状态失败: ${result.stderr}');
+      throw Exception(
+        '读取系统代理状态失败: '
+        '${_networkSetupFailure([command, service], result)}',
+      );
     }
     final state = parseVerifiedMacProxyState(result.stdout.toString());
     if (state == null) {
@@ -941,11 +957,27 @@ class SystemProxyService {
   Future<void> _checkedRun(List<String> args) async {
     final result = await _runNetworkSetup(args);
     if (result.exitCode != 0) {
-      final stderr = result.stderr.toString().trim();
-      throw Exception(
-        stderr.isEmpty ? 'networksetup ${args.join(' ')} 失败' : stderr,
-      );
+      throw Exception(_networkSetupFailure(args, result));
     }
+  }
+
+  String _networkSetupFailure(List<String> args, ProcessResult result) {
+    String normalize(Object? value) =>
+        value.toString().trim().replaceAll(RegExp(r'\s+'), ' ');
+
+    final stderr = normalize(result.stderr);
+    final stdout = normalize(result.stdout);
+    final details = <String>[
+      if (stderr.isNotEmpty) '错误：$stderr',
+      if (stdout.isNotEmpty) '输出：$stdout',
+    ].join('；');
+    final boundedDetail =
+        details.length > 400 ? '${details.substring(0, 400)}…' : details;
+    final command = args.isEmpty ? '命令' : args.first;
+    final service = args.length > 1 ? normalize(args[1]) : '';
+    final serviceLabel = service.isEmpty ? '' : '，服务：$service';
+    final suffix = boundedDetail.isEmpty ? '' : '：$boundedDetail';
+    return 'networksetup $command 失败（退出码 ${result.exitCode}$serviceLabel）$suffix';
   }
 
   Future<ProcessResult> _runNetworkSetup(List<String> args) {
