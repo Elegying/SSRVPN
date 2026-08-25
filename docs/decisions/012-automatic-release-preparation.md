@@ -2,8 +2,8 @@
 
 ## 状态
 
-已接受；取代 ADR-011 中“维护者必须手动刷新、合并并创建 tag”的发版编排，不改变其
-取消日程刷新、内容寻址镜像、双哈希、只读最新性门禁和精确 Release 重试边界
+GeoIP 自动准备部分已由 [ADR-014](014-manual-only-geoip-updates.md) 取代；精确 `main` CI、
+不可变 tag、Release 调度、分支保护复核和精确 Release 重试边界继续有效
 
 ## 日期
 

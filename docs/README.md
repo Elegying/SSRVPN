@@ -57,6 +57,7 @@
 - [ADR-011：只在正式发版前刷新并强制验证 GeoIP](decisions/011-release-gated-geoip-refresh.md)
 - [ADR-012：自动准备可复现的正式版本](decisions/012-automatic-release-preparation.md)
 - [ADR-013：客户端连接后仅使用 GitHub Releases 更新](decisions/013-github-release-connected-update.md)
+- [ADR-014：GeoIP 仅按明确指令手动更新](decisions/014-manual-only-geoip-updates.md)
 
 ## 文档维护规则
 

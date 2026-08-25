@@ -2,7 +2,7 @@
 
 ## 状态
 
-已由 [ADR-012](012-automatic-release-preparation.md) 取代其中的人工发版编排；取消每日刷新、内容寻址镜像、双哈希和 Release 只读门禁继续有效
+已由 [ADR-014](014-manual-only-geoip-updates.md) 全面取代；本文仅保留历史背景
 
 ## 日期
 

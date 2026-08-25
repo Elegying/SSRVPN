@@ -918,7 +918,7 @@ cp "$FAKE_MIRROR_FILE" "$output"
                         upload=True,
                     )
 
-    def test_release_geoip_refresh_is_manual_and_fail_closed(self) -> None:
+    def test_geoip_update_is_manual_only_and_release_uses_pinned_assets(self) -> None:
         workflow = (ROOT / ".github/workflows/maintenance.yml").read_text(
             encoding="utf-8"
         )
@@ -972,27 +972,14 @@ cp "$FAKE_MIRROR_FILE" "$output"
         release_workflow = (ROOT / ".github/workflows/release.yml").read_text(
             encoding="utf-8"
         )
-        freshness_check = "python3 scripts/sync-geoip-metadb.py --check"
-        self.assertIn("Require the latest GeoIP snapshot", release_workflow)
-        self.assertIn(
-            "release_retry: ${{ steps.source.outputs.release_retry }}",
-            release_workflow,
-        )
-        self.assertIn(
-            'echo "release_retry=true" >> "$GITHUB_OUTPUT"',
-            release_workflow,
-        )
-        self.assertIn(
-            "if: needs.validate-source.outputs.release_retry != 'true'",
-            release_workflow,
-        )
-        self.assertIn(freshness_check, release_workflow)
+        self.assertNotIn("Require the latest GeoIP snapshot", release_workflow)
+        self.assertNotIn("scripts/sync-geoip-metadb.py", release_workflow)
         self.assertLess(
             release_workflow.index("bash scripts/bootstrap-core-assets.sh"),
-            release_workflow.index(freshness_check),
+            release_workflow.index("bash scripts/verify-core-assets.sh"),
         )
         self.assertLess(
-            release_workflow.index(freshness_check),
+            release_workflow.index("bash scripts/verify-core-assets.sh"),
             release_workflow.index("name: Upload verified core assets"),
         )
 

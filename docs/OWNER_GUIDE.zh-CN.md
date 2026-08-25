@@ -86,9 +86,9 @@ GitHub Release workflow 必须继续使用同一套签名 secrets。本地可以
 ## 当前发布方式
 
 发布版本时，在 GitHub Actions 打开 `Prepare Release`，输入与当前源码版本一致且尚不存在的
-标签，例如 `vX.Y.Z`。它会自动刷新 GeoIP、运行临时分支和合并后 `main` 的完整检查、合并
-来源记录、创建标签并启动正式构建，不要提前手工创建 tag。只有自动编排不可用时，才按发布
-检查清单使用 `Maintenance > geoip-refresh` 和手工标签回退流程。
+标签，例如 `vX.Y.Z`。它会校验仓库内固定核心资产、复用或运行精确 `main` 的完整检查、创建
+标签并启动正式构建，不要提前手工创建 tag。发版不会查询、更新或强制使用上游最新 GeoIP；
+只有收到明确更新指令时才单独运行 `Maintenance > geoip-refresh` 并合并其 PR。
 
 准备流程完成后，GitHub 会自动构建：
 

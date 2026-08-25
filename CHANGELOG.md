@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 工程与发布
+
+- GeoIP 改为完全手动维护：正式发版不再查询上游最新版本、自动更新来源记录或创建 GeoIP PR，也不会因仓库内固定快照不是最新版而阻断；构建仍严格校验已固定资产的来源和 SHA-256。
+
 ## [4.0.17] - 2026-08-25
 
 ### 修复
