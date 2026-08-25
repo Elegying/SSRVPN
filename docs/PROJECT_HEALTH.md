@@ -1,16 +1,16 @@
 # SSRVPN 项目健康与发布状态
 
-最近更新：2026-08-22
+最近更新：2026-08-25
 
-当前应用版本：`v4.0.16`（[正式 Release](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.16)）
+当前应用版本：`v4.0.17`（[正式 Release](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.17)）
 
 版本基线提交：`f85135ad5f50908982fa31a94cdb527f1b3d958c`
 
 ## 当前结论
 
-`v4.0.16` 已完成正式发布，不再是候选版本。标签、`main`、三端构建、GitHub Release、
-SHA-256、发布证明和 OSS 同步均已闭环；终审未发现需要回滚或紧急热修的 P0、P1、P2
-代码缺陷。当前项目达到正式发布质量，综合评分为 **92/100（A级）**。
+`v4.0.17` 修复 macOS 系统代理应用会被已禁用网络服务阻断的问题，并补充稳定、可操作的
+故障分类。该版本必须完成精确 `main` CI、三端线上构建、GitHub Release、SHA-256、
+发布证明和 OSS 同步后，才视为正式发布；历史版本证据不能替代本轮门禁。
 
 本文件只记录当前状态和仍需跟进的证据边界。版本变更明细以
 [CHANGELOG](../CHANGELOG.md) 为准，硬性产品约束以
