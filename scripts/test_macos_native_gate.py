@@ -810,6 +810,34 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         ):
             self.assertIn(token, source)
 
+    def test_proxy_apply_filters_disabled_services_without_hiding_recovery(self) -> None:
+        source = self.read("SSRVPN_MacOS/macos/Runner/AppDelegate.swift")
+        start = source.index("func currentNetworkServiceIdentities(")
+        end = source.index(
+            "private func resetCommittedApplicationTermination", start
+        )
+
+        body = source[start:end]
+        self.assertIn("enabledOnly: Bool = false", body)
+        self.assertIn(
+            "!enabledOnly || SCNetworkServiceGetEnabled(service)", body
+        )
+        system_proxy = self.read(
+            "SSRVPN_MacOS/lib/services/system_proxy_service.dart"
+        )
+        setup_start = system_proxy.index("Future<bool> _setSystemProxyOnce(")
+        setup_end = system_proxy.index("Future<bool> clearSystemProxy()", setup_start)
+        self.assertIn("enabledOnly: true", system_proxy[setup_start:setup_end])
+        recheck_start = system_proxy.index(
+            "Future<void> _requireUnchangedNetworkServiceIdentities("
+        )
+        recheck_end = system_proxy.index(
+            "Future<bool> _restoreSavedState()", recheck_start
+        )
+        self.assertIn(
+            "enabledOnly: true", system_proxy[recheck_start:recheck_end]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

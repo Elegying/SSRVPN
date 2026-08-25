@@ -244,7 +244,7 @@ class AppDelegate: FlutterAppDelegate {
     return active
   }
 
-  func currentNetworkServiceIdentities() -> [String: String]? {
+  func currentNetworkServiceIdentities(enabledOnly: Bool = false) -> [String: String]? {
     guard
       let preferences = SCPreferencesCreate(
         nil,
@@ -261,7 +261,7 @@ class AppDelegate: FlutterAppDelegate {
     let services = rawServices as NSArray
     var identities: [String: String] = [:]
     var seenIDs = Set<String>()
-    for case let service as SCNetworkService in services {
+    for case let service as SCNetworkService in services where !enabledOnly || SCNetworkServiceGetEnabled(service) {
       guard
         let rawName = SCNetworkServiceGetName(service),
         let rawServiceID = SCNetworkServiceGetServiceID(service)

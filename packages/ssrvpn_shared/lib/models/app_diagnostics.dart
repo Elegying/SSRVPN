@@ -8,6 +8,7 @@ enum AppErrorCode {
   dataPlaneDegraded('DATA_PLANE_DEGRADED'),
   appLocationRequired('APP_LOCATION_REQUIRED'),
   networkConflict('NETWORK_CONFLICT'),
+  systemProxyApplyFailed('SYSTEM_PROXY_APPLY_FAILED'),
   systemProxyChanged('SYSTEM_PROXY_CHANGED'),
   systemProxyOwnershipUnavailable('SYSTEM_PROXY_OWNERSHIP_UNAVAILABLE'),
   tunRecoveryPending('TUN_RECOVERY_PENDING'),
@@ -121,6 +122,12 @@ class AppFailure {
           recommendedAction: requiresNetworkRestart
               ? '请重启电脑后重新连接。'
               : '请先断开其他 VPN，确认当前网络稳定后重新连接。',
+        ),
+      AppErrorCode.systemProxyApplyFailed => const AppFailure(
+          code: AppErrorCode.systemProxyApplyFailed,
+          title: '系统代理未能启用',
+          message: '运行核心已启动，但系统未能把本地代理应用到当前网络服务。',
+          recommendedAction: '请使用管理员账户，关闭其他代理或 VPN 后重试；若持续失败，请复制诊断报告。',
         ),
       AppErrorCode.systemProxyChanged => const AppFailure(
           code: AppErrorCode.systemProxyChanged,
@@ -239,6 +246,9 @@ class AppFailure {
       'local_proxy_config_mismatch',
     ])) {
       return AppErrorCode.localProxyUnavailable;
+    }
+    if (text.contains('system_proxy_apply_failed')) {
+      return AppErrorCode.systemProxyApplyFailed;
     }
     if (text.contains('system_proxy_ownership_unavailable')) {
       return AppErrorCode.systemProxyOwnershipUnavailable;

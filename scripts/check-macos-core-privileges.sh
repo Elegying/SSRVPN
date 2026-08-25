@@ -481,7 +481,7 @@ from pathlib import Path
 
 path = Path("SSRVPN_MacOS/macos/Runner/AppDelegate.swift")
 source = path.read_text(encoding="utf-8")
-identity_start = source.index("func currentNetworkServiceIdentities()")
+identity_start = source.index("func currentNetworkServiceIdentities(")
 identity_end = source.index(
     "private func resetCommittedApplicationTermination", identity_start
 )
@@ -496,6 +496,10 @@ if "SCNetworkServiceCopyAll" in identity_body:
     raise SystemExit(
         f"{path}: all preference services include orphaned entries that networksetup cannot manage"
     )
+if "!enabledOnly || SCNetworkServiceGetEnabled(service)" not in identity_body:
+    raise SystemExit(
+        f"{path}: apply must filter disabled services without hiding them from recovery"
+    )
 
 print("macOS network-service identity scope guards passed.")
 PY
@@ -509,8 +513,15 @@ setup_start = source.index("Future<bool> _setSystemProxyOnce(")
 setup_end = source.index("Future<bool> clearSystemProxy()", setup_start)
 setup_body = source[setup_start:setup_end]
 
-if "await _listNetworkServiceIdentities()" not in setup_body:
+if "enabledOnly: true" not in setup_body:
     raise SystemExit(f"{path}: proxy setup must capture stable service identities first")
+
+recheck_start = source.index("Future<void> _requireUnchangedNetworkServiceIdentities(")
+recheck_end = source.index("Future<bool> _restoreSavedState()", recheck_start)
+if "enabledOnly: true" not in source[recheck_start:recheck_end]:
+    raise SystemExit(
+        f"{path}: proxy setup must recheck the same enabled-only identity view"
+    )
 if "await _listNetworkServices()" in setup_body:
     raise SystemExit(
         f"{path}: proxy setup must not merge a second networksetup service listing"
