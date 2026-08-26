@@ -163,7 +163,7 @@ python3 -m unittest \\
     def test_android_jobs_cache_gradle_dependencies_read_only_off_main(self) -> None:
         expected_action = (
             "gradle/actions/setup-gradle@"
-            "3f131e8634966bd73d06cc69884922b02e6faf92"
+            "9c971963bec38e04b3d30dcc455b5382be2fdbfb"
         )
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"
