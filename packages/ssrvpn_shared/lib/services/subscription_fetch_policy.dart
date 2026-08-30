@@ -102,7 +102,51 @@ class SubscriptionFetchPolicy {
       if (_isIpv4Mapped(bytes)) {
         return !_isNonPublicIpv4(bytes.sublist(12));
       }
-      return (bytes[0] & 0xfe) != 0xfc;
+      // RFC 6052's well-known NAT64 prefix carries the destination IPv4
+      // address in the final 32 bits. Validate that embedded address instead
+      // of treating the translation address as an unrelated public IPv6.
+      if (_hasIpv6Prefix(
+          bytes,
+          const [
+            0x00,
+            0x64,
+            0xff,
+            0x9b,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+          ],
+          96)) {
+        return !_isNonPublicIpv4(bytes.sublist(12));
+      }
+
+      // Domain answers are fail-closed to globally routable unicast space.
+      // This excludes ULA, link-local-adjacent special-use ranges, local-use
+      // translation prefixes (including 64:ff9b:1::/48), and documentation
+      // ranges without relying on an ever-growing denylist alone.
+      if (!_hasIpv6Prefix(bytes, const [0x20], 3)) return false;
+      return !_hasIpv6Prefix(bytes, const [0x20, 0x01, 0x00, 0x00], 32) &&
+          !_hasIpv6Prefix(
+              bytes,
+              const [
+                0x20,
+                0x01,
+                0x00,
+                0x02,
+                0x00,
+                0x00,
+              ],
+              48) &&
+          !_hasIpv6Prefix(bytes, const [0x20, 0x01, 0x00, 0x10], 28) &&
+          !_hasIpv6Prefix(bytes, const [0x20, 0x01, 0x00, 0x20], 28) &&
+          !_hasIpv6Prefix(bytes, const [0x20, 0x01, 0x0d, 0xb8], 32) &&
+          !_hasIpv6Prefix(bytes, const [0x20, 0x02], 16) &&
+          !_hasIpv6Prefix(bytes, const [0x3f, 0xff, 0x00], 20);
     }
     return false;
   }
@@ -110,14 +154,20 @@ class SubscriptionFetchPolicy {
   static bool _isNonPublicIpv4(List<int> bytes) {
     final first = bytes[0];
     final second = bytes[1];
+    final third = bytes[2];
     return first == 0 ||
         first == 10 ||
         first == 127 ||
         (first == 100 && second >= 64 && second <= 127) ||
         (first == 169 && second == 254) ||
         (first == 172 && second >= 16 && second <= 31) ||
+        (first == 192 && second == 0 && third == 0) ||
+        (first == 192 && second == 0 && third == 2) ||
         (first == 192 && second == 168) ||
+        (first == 192 && second == 88 && third == 99) ||
         (first == 198 && (second == 18 || second == 19)) ||
+        (first == 198 && second == 51 && third == 100) ||
+        (first == 203 && second == 0 && third == 113) ||
         first >= 224;
   }
 
@@ -141,6 +191,21 @@ class SubscriptionFetchPolicy {
       if (bytes[i] != 0) return false;
     }
     return true;
+  }
+
+  static bool _hasIpv6Prefix(
+    List<int> bytes,
+    List<int> prefix,
+    int prefixLength,
+  ) {
+    final wholeBytes = prefixLength ~/ 8;
+    for (var i = 0; i < wholeBytes; i++) {
+      if (bytes[i] != prefix[i]) return false;
+    }
+    final remainingBits = prefixLength % 8;
+    if (remainingBits == 0) return true;
+    final mask = 0xff << (8 - remainingBits) & 0xff;
+    return (bytes[wholeBytes] & mask) == (prefix[wholeBytes] & mask);
   }
 }
 

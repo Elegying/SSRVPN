@@ -177,10 +177,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       return;
     }
     if (_unexpectedExitRecoveryPolicy.recordHealthy(DateTime.now())) {
-      log(
-        '连接达到稳定健康观察窗口，自动恢复次数预算已复位',
-        event: 'health_recovery',
-      );
+      log('连接达到稳定健康观察窗口，自动恢复次数预算已复位', event: 'health_recovery');
     }
   }
 
@@ -222,9 +219,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
         : proxyRecoveryListenerActive
             ? '本地保护监听'
             : '系统代理';
-    setConnectivityWarning(
-      '连接与 $routeMode 仍在运行；外部网络观察暂未通过，仅供参考：$warning',
-    );
+    setConnectivityWarning('连接与 $routeMode 仍在运行；外部网络观察暂未通过，仅供参考：$warning');
     log(
       '外部网络观察未通过: $warning；未断开连接，未切换节点',
       level: RuntimeLogLevel.warning,
@@ -335,10 +330,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       var ownershipStatus = await inspectSystemProxyOwnership();
       if (ownershipStatus == SystemProxyOwnershipStatus.unavailable) {
         await waitBeforeProxyOwnershipRecoveryRecheck();
-        if (!isConnectionIntentCurrent(
-          connectionGeneration,
-          connected: true,
-        )) {
+        if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
           return false;
         }
         ownershipStatus = await inspectSystemProxyOwnership();
@@ -417,7 +409,8 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
     log(reason);
   }
 
-  Future<void> _logCoreVersion() async {
+  @protected
+  Future<void> logCoreVersion() async {
     Process? process;
     try {
       process = await Process.start(_corePath, ['-v']);
@@ -481,7 +474,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       if (disposition == _VerifiedCoreTermination.wrongInstallation) {
         throw StateError('进程身份记录指向其他安装目录，已拒绝清理');
       }
-      final recordDeleted = await _deleteCorePid(expectedRecord: record);
+      final recordDeleted = await deleteCorePid(expectedRecord: record);
       if (!recordDeleted) {
         throw StateError('进程身份记录在清理期间发生变化，已拒绝删除');
       }
@@ -847,7 +840,7 @@ try {
       _coreIdentityEstablishment = identityEstablishment;
       final startedPidRecord = await identityEstablishment.establish(
         capture: _captureCorePidRecord,
-        persist: _writeCorePid,
+        persist: writeCorePid,
         ensureStartCurrent: () => _ensureStartCurrent(startToken),
       );
       _corePidRecord = startedPidRecord;
@@ -900,7 +893,7 @@ try {
         if (recoveryListenerWasActive) {
           log('⚠️ 系统代理保护监听已退出，重新执行安全恢复');
         }
-        final cleanup = _deleteCorePid(expectedRecord: startedPidRecord)
+        final cleanup = deleteCorePid(expectedRecord: startedPidRecord)
             .then<void>((recordDeleted) {
           final ownsExitedProcess = identical(_coreProcess, startedProcess);
           final ownsPidRecord = identical(_corePidRecord, startedPidRecord);
@@ -1265,9 +1258,7 @@ try {
     if (_coreProcess == null) _coreUsesTun = false;
     var pidRecordCleaned = true;
     if (expectedPidRecord != null) {
-      pidRecordCleaned = await _deleteCorePid(
-        expectedRecord: expectedPidRecord,
-      );
+      pidRecordCleaned = await deleteCorePid(expectedRecord: expectedPidRecord);
       if (pidRecordCleaned && identical(_corePidRecord, expectedPidRecord)) {
         _corePidRecord = null;
       }
@@ -1312,7 +1303,8 @@ try {
     if (startToken != _startGeneration) throw _DesktopStartCancelled();
   }
 
-  Future<void> _writeCorePid(WindowsCorePidRecord record) async {
+  @protected
+  Future<void> writeCorePid(WindowsCorePidRecord record) async {
     final file = File('$configDir${Platform.pathSeparator}mihomo.pid');
     final existingType = await FileSystemEntity.type(
       file.path,
@@ -1364,7 +1356,8 @@ try {
     }
   }
 
-  Future<bool> _deleteCorePid({
+  @protected
+  Future<bool> deleteCorePid({
     required WindowsCorePidRecord expectedRecord,
   }) async {
     final file = File('$configDir${Platform.pathSeparator}mihomo.pid');
@@ -1606,9 +1599,7 @@ try {
       if (!_unexpectedExitRecoveryPolicy.tryAcquire()) {
         markConnectionLost();
         notifyRuntimeNotice(
-          const RuntimeNotice.error(
-            '连接已断开：核心再次异常退出，自动恢复失败，请重新连接',
-          ),
+          const RuntimeNotice.error('连接已断开：核心再次异常退出，自动恢复失败，请重新连接'),
         );
         return false;
       }
@@ -1713,7 +1704,8 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
   // ── Config validation ──
 
-  Future<bool> _validateConfig(Map<String, String> environment) async {
+  @protected
+  Future<bool> validateConfig(Map<String, String> environment) async {
     log('正在校验 Mihomo 配置...');
     final watch = Stopwatch()..start();
     try {
@@ -1736,9 +1728,7 @@ $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
       }
       if (result.exitCode == 125) throw _DesktopStartCancelled();
       if (result.exitCode == 124) {
-        setLastStartError(
-          'Windows Mihomo 核心启动配置校验响应超时；可能是系统繁忙或安全软件暂时拦截，请稍后重试',
-        );
+        setLastStartError('Windows Mihomo 核心启动配置校验响应超时；可能是系统繁忙或安全软件暂时拦截，请稍后重试');
         log('❌ $lastStartError');
         return false;
       }

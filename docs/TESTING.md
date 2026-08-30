@@ -10,6 +10,11 @@
 make verify
 ```
 
+项目精确固定 `.fvmrc` 中的 Flutter `3.44.1`。统一入口会在任何依赖解析和测试之前校验版本；
+本地可执行 `fvm install && fvm exec make verify` 或
+`mise exec flutter@3.44.1 -- make verify`。完整入口会自动引导并校验核心资产，离线测试前可先运行
+`make assets` 预取资源。
+
 当前门禁依次验证：
 
 - 全部受版本控制 Dart 源码格式、Shell 脚本 ShellCheck、共享包导入、版本同步、安装包内指南和当前文档一致性。
@@ -46,7 +51,7 @@ make verify
 
 | 关键文件 | 最低行覆盖率 | 当前锁定证据 |
 | --- | ---: | ---: |
-| Windows `clash_service_lifecycle.dart` | 25.00% | `174/655`（26.56%） |
+| Windows `clash_service_lifecycle.dart` | 50.00% | `350/700`（50.00%） |
 | macOS `clash_service_lifecycle.dart` | 60.00% | `308/485`（63.51%） |
 | macOS `system_proxy_service.dart` | 80.00% | `220/258`（85.27%） |
 
@@ -61,7 +66,7 @@ ABA、代理事务令牌延迟 Cmd+Q、严格快照 schema、保留键冲突、�
 
 覆盖率执行由 `scripts/run-flutter-coverage.sh` 统一配置。每个平台的 manifest 测试会加载所有可
 独立导入的生产库；门禁再把平台库通过真实 `part` 指令拥有的片段加入同一清单。macOS/Windows
-的 16 个 `packages/ssrvpn_shared/lib/desktop_ui` 片段因此分别计入消费平台的分母，普通 shared
+的 12 个 `packages/ssrvpn_shared/lib/desktop_ui` 片段因此分别计入消费平台的分母，普通 shared
 依赖不会抬高平台分子或分母。生产源码缺失于 LCOV、伪造或越界 `SF`、路径穿越/别名、非法
 UTF-8、注释或字符串伪装的 `part` 指令都会使门禁失败。只有明确的生成代码、纯声明文件和由
 另一目标实际拥有的片段可以按可审计分类排除。

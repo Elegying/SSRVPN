@@ -956,7 +956,7 @@ class CheckCoverageThresholdsTests(unittest.TestCase):
         self.assertGreaterEqual(
             coverage.CRITICAL_FILE_THRESHOLDS["SSRVPN_Windows"]
             ["lib/services/clash_service_lifecycle.dart"],
-            4.19,
+            50.0,
         )
         self.assertGreaterEqual(
             coverage.CRITICAL_FILE_THRESHOLDS["SSRVPN_MacOS"]
