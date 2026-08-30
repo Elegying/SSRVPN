@@ -35,6 +35,7 @@ class DesktopSubscriptionFetcher {
   }) async {
     control?.throwIfStopped();
     final uri = SubscriptionUrlPolicy.parse(url);
+    final requestBudget = SubscriptionRequestBudget();
 
     if (_shouldTryDirectFetch(uri, allowDirectFetch: allowDirectFetch)) {
       try {
@@ -47,6 +48,7 @@ class DesktopSubscriptionFetcher {
           requestTimeout: directRequestTimeout,
           addressLookup: directAddressLookup,
           cancellation: control?.cancellation,
+          requestBudget: requestBudget,
         );
         final response =
             control == null ? await operation : await control.wait(operation);
@@ -65,6 +67,11 @@ class DesktopSubscriptionFetcher {
         rethrow;
       } on SubscriptionCompatibilityException {
         rethrow;
+      } on SubscriptionRequestBudgetExceeded {
+        rethrow;
+      } on SubscriptionHttpStatusException catch (e) {
+        if (!e.isRetryable) rethrow;
+        AppLogger.info('Subscription', '直连通道收到可重试响应，降级到常规 HTTP: $e');
       } catch (e) {
         AppLogger.info('Subscription', '直连通道失败，降级到常规 HTTP: $e');
       }
@@ -79,6 +86,7 @@ class DesktopSubscriptionFetcher {
           attempt: attempt,
           requestTimeout: requestTimeout,
           control: control,
+          requestBudget: requestBudget,
         );
         return DesktopSubscriptionFetchResult(
           body: response.body,
@@ -94,6 +102,11 @@ class DesktopSubscriptionFetcher {
         rethrow;
       } on SubscriptionCompatibilityException {
         rethrow;
+      } on SubscriptionRequestBudgetExceeded {
+        rethrow;
+      } on SubscriptionHttpStatusException catch (e) {
+        if (!e.isRetryable) rethrow;
+        lastException = e;
       } on SocketException catch (e) {
         lastException = Exception('网络连接失败: ${e.message}');
       } on TimeoutException catch (e) {
@@ -176,58 +189,47 @@ class DesktopSubscriptionFetcher {
     required Duration requestTimeout,
     Future<List<InternetAddress>> Function(String host)? addressLookup,
     SubscriptionRefreshCancellation? cancellation,
+    required SubscriptionRequestBudget requestBudget,
   }) async {
-    for (var index = 0;
-        index < SubscriptionFetchPolicy.userAgents.length;
-        index++) {
-      final isCompatibilityAttempt = index == 1;
-      DirectFetchResponse response;
-      try {
-        response = await DirectFetcher.fetchResponse(
-          url,
-          headers: {
-            'User-Agent': SubscriptionFetchPolicy.userAgents[index],
-            'Accept': 'text/yaml, application/x-yaml, */*',
-          },
-          allowErrorStatus: true,
-          maxBodyBytes: maxSubscriptionBytes,
-          requestTimeout: requestTimeout,
-          addressLookup: addressLookup,
-          cancellation: cancellation,
-        );
-      } on SubscriptionRefreshCancelled {
-        rethrow;
-      } on SubscriptionAddressException {
-        rethrow;
-      } catch (error) {
-        if (isCompatibilityAttempt) {
-          throw SubscriptionCompatibilityException(
-            '兼容 User-Agent 重试失败: $error',
+    final negotiated = await SubscriptionFetchPolicy.negotiateClientIdentity<
+        DirectFetchResponse>(
+      request: (identity, isCompatibilityAttempt) async {
+        requestBudget.consume();
+        try {
+          return await DirectFetcher.fetchResponse(
+            url,
+            headers: {
+              'User-Agent': identity.userAgent,
+              'Accept': 'text/yaml, application/x-yaml, */*',
+            },
+            allowErrorStatus: true,
+            maxBodyBytes: maxSubscriptionBytes,
+            requestTimeout: requestTimeout,
+            addressLookup: addressLookup,
+            cancellation: cancellation,
           );
+        } on SubscriptionRefreshCancelled {
+          rethrow;
+        } on SubscriptionAddressException {
+          rethrow;
+        } on SubscriptionRequestBudgetExceeded {
+          rethrow;
+        } catch (error) {
+          if (isCompatibilityAttempt) {
+            throw SubscriptionCompatibilityException(
+              '${identity.label} 兼容请求失败: $error',
+            );
+          }
+          rethrow;
         }
-        rethrow;
-      }
-
-      final shouldRetry = !isCompatibilityAttempt &&
-          SubscriptionFetchPolicy.shouldRetryWithCompatibility(
-            statusCode: response.statusCode,
-            body: response.body,
-          );
-      if (shouldRetry) continue;
-      if (response.statusCode != 200) {
-        if (isCompatibilityAttempt) {
-          throw SubscriptionCompatibilityException(
-            '兼容 User-Agent 仍被服务器拒绝 (HTTP ${response.statusCode})',
-          );
-        }
-        _throwHttpStatus(response.statusCode);
-      }
-      return _NormalizedSubscriptionResponse(
-        body: _normalizeFetchedBody(response.body),
-        headers: response.headers,
-      );
-    }
-    throw const SubscriptionCompatibilityException('兼容 User-Agent 重试失败');
+      },
+      statusCodeOf: (response) => response.statusCode,
+      readBody: (response, _, __) async => response.body,
+    );
+    return _NormalizedSubscriptionResponse(
+      body: SubscriptionFetchPolicy.requireRecognizedBody(negotiated),
+      headers: negotiated.response.headers,
+    );
   }
 
   static Future<_NormalizedSubscriptionResponse> _fetchRegularWithCompatibility(
@@ -235,60 +237,58 @@ class DesktopSubscriptionFetcher {
     required int attempt,
     required Duration requestTimeout,
     SubscriptionRefreshControl? control,
+    required SubscriptionRequestBudget requestBudget,
   }) async {
-    final primary = await _fetchRegularWithUserAgent(
-      uri,
-      userAgent: SubscriptionFetchPolicy.userAgents.first,
-      attempt: attempt,
-      requestTimeout: requestTimeout,
-      control: control,
+    final negotiated = await SubscriptionFetchPolicy.negotiateClientIdentity<
+        _DesktopHttpResponse>(
+      request: (identity, isCompatibilityAttempt) async {
+        requestBudget.consume();
+        try {
+          return await _fetchRegularWithUserAgent(
+            uri,
+            userAgent: identity.userAgent,
+            attempt: attempt,
+            requestTimeout: requestTimeout,
+            control: control,
+          );
+        } on SubscriptionRefreshCancelled {
+          rethrow;
+        } on SubscriptionRefreshDeadlineExceeded {
+          rethrow;
+        } on SubscriptionAddressException {
+          rethrow;
+        } on SubscriptionRequestBudgetExceeded {
+          rethrow;
+        } catch (error) {
+          if (isCompatibilityAttempt) {
+            throw SubscriptionCompatibilityException(
+              '${identity.label} 兼容请求失败: $error',
+            );
+          }
+          rethrow;
+        }
+      },
+      statusCodeOf: (response) => response.statusCode,
+      readBody: (response, identity, isCompatibilityAttempt) async {
+        try {
+          return decodeSubscriptionUtf8(response.bodyBytes);
+        } catch (error) {
+          if (isCompatibilityAttempt) {
+            throw SubscriptionCompatibilityException(
+              '${identity.label} 兼容响应解码失败: $error',
+            );
+          }
+          rethrow;
+        }
+      },
     );
-    final primaryBody = primary.statusCode == 200
-        ? decodeSubscriptionUtf8(primary.bodyBytes)
-        : '';
-    var response = primary;
-    var body = primaryBody;
-    final shouldRetry = SubscriptionFetchPolicy.shouldRetryWithCompatibility(
-      statusCode: primary.statusCode,
-      body: primaryBody,
-    );
-    if (shouldRetry) {
-      try {
-        response = await _fetchRegularWithUserAgent(
-          uri,
-          userAgent: SubscriptionFetchPolicy.userAgents.last,
-          attempt: attempt,
-          requestTimeout: requestTimeout,
-          control: control,
-        );
-        body = response.statusCode == 200
-            ? decodeSubscriptionUtf8(response.bodyBytes)
-            : '';
-      } on SubscriptionRefreshCancelled {
-        rethrow;
-      } on SubscriptionRefreshDeadlineExceeded {
-        rethrow;
-      } on SubscriptionAddressException {
-        rethrow;
-      } catch (error) {
-        throw SubscriptionCompatibilityException(
-          '兼容 User-Agent 重试失败: $error',
-        );
-      }
-      if (response.statusCode != 200) {
-        throw SubscriptionCompatibilityException(
-          '兼容 User-Agent 仍被服务器拒绝 (HTTP ${response.statusCode})',
-        );
-      }
-    } else if (response.statusCode != 200) {
-      _throwHttpStatus(response.statusCode);
-    }
 
     return _NormalizedSubscriptionResponse(
-      body: _normalizeFetchedBody(body),
+      body: SubscriptionFetchPolicy.requireRecognizedBody(negotiated),
       headers: {
-        'profile-title': response.headers['profile-title'] ?? '',
-        'content-disposition': response.headers['content-disposition'] ?? '',
+        'profile-title': negotiated.response.headers['profile-title'] ?? '',
+        'content-disposition':
+            negotiated.response.headers['content-disposition'] ?? '',
       },
     );
   }
@@ -318,16 +318,6 @@ class DesktopSubscriptionFetcher {
       );
     }
     throw Exception('重定向次数过多');
-  }
-
-  static Never _throwHttpStatus(int statusCode) {
-    if (statusCode == 429) {
-      throw Exception('请求过于频繁 (HTTP 429)');
-    }
-    if (statusCode == 403) {
-      throw Exception('访问被拒绝 (HTTP 403)');
-    }
-    throw Exception('HTTP $statusCode');
   }
 
   static Future<_DesktopHttpResponse> _fetchOnce(
@@ -445,10 +435,6 @@ class DesktopSubscriptionFetcher {
           (first == 192 && second == 168));
     }
     return true;
-  }
-
-  static String _normalizeFetchedBody(String body) {
-    return SubscriptionFetchPolicy.normalizeRecognizedBody(body);
   }
 
   static Future<Uint8List> _readLimitedResponse(

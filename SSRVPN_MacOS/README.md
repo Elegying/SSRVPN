@@ -7,8 +7,11 @@ SSRVPN macOS 版，基于 Flutter 和 Mihomo/Clash Meta 核心的桌面客户端
 
 > 主动开发已迁移到 `Elegying/SSRVPN` Monorepo。本目录是该工作区内的 macOS 应用。
 
+[下载正式版](https://github.com/Elegying/SSRVPN/releases/latest) · [用户指南](USER_GUIDE.md) · [获取帮助](../SUPPORT.md) · [返回主项目](../README.md)
+
 ## 支持范围
 
+- macOS 11 或更高版本，正式包仅支持 Apple M 系列芯片。
 - 永久使用 IPv4-only Mihomo 运行配置；不请求 DNS AAAA，不通过核心建立 IPv6 连接。客户端不会修改 macOS 的全局 IPv6 开关。
 - TUN 每次连接由 macOS 系统管理员授权窗口确认，SSRVPN 不读取或保存管理员密码。
 - Release 使用 AOT 与最小化 entitlement，不包含调试、JIT、未签名可执行内存或禁用库校验权限；免费 ad-hoc、未公证分发边界不变。
@@ -16,7 +19,7 @@ SSRVPN macOS 版，基于 Flutter 和 Mihomo/Clash Meta 核心的桌面客户端
 ## 构建要求
 
 - 安装 Xcode Command Line Tools 的 macOS
-- Flutter SDK 3.44.1 或兼容的 stable 版本
+- Flutter SDK **3.44.1**；其他 stable 版本不能替代
 - 用于 DMG 打包的 `hdiutil`
 
 ## 验证
@@ -57,6 +60,4 @@ https://github.com/MetaCubeX/mihomo/releases
 下载后可保留官方 gzip，或将解压后的可执行文件重新压缩为
 `AtlasCore.gz`；验证时优先比对解压后的可执行文件 SHA256。
 
-## 开发路线图
-
-详见主仓 [Roadmap](../docs/ROADMAP.md) — 三平台代码去重和发布规划。
+完整验证、贡献规则和路线图请从仓库根目录的[贡献指南](../CONTRIBUTING.md)与[文档中心](../docs/README.md)进入。

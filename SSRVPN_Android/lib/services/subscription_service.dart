@@ -95,6 +95,7 @@ class SubscriptionService extends SubscriptionServiceBase {
   }) async {
     Exception? lastException;
     final uri = SubscriptionUrlPolicy.parse(url);
+    final requestBudget = SubscriptionRequestBudget();
     control?.throwIfStopped();
 
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
@@ -106,6 +107,7 @@ class SubscriptionService extends SubscriptionServiceBase {
           stopwatch,
           attempt,
           control,
+          requestBudget,
         );
         control?.throwIfStopped();
         if (result != null) return result;
@@ -119,6 +121,11 @@ class SubscriptionService extends SubscriptionServiceBase {
         rethrow;
       } on SubscriptionCompatibilityException {
         rethrow;
+      } on SubscriptionRequestBudgetExceeded {
+        rethrow;
+      } on SubscriptionHttpStatusException catch (e) {
+        if (!e.isRetryable) rethrow;
+        lastException = e;
       } on SocketException catch (e) {
         _log(
             'Socket异常 (尝试$attempt/$maxRetries): ${e.message} (${stopwatch.elapsedMilliseconds}ms)');
@@ -157,55 +164,57 @@ class SubscriptionService extends SubscriptionServiceBase {
     Stopwatch stopwatch,
     int attempt,
     SubscriptionRefreshControl? control,
+    SubscriptionRequestBudget requestBudget,
   ) async {
-    var response = await _fetchFollowingRedirects(
-      uri,
-      stopwatch,
-      attempt,
-      SubscriptionFetchPolicy.userAgents.first,
-      control,
+    final negotiated =
+        await SubscriptionFetchPolicy.negotiateClientIdentity<_RawHttpResponse>(
+      request: (identity, isCompatibilityAttempt) async {
+        requestBudget.consume();
+        try {
+          return await _fetchFollowingRedirects(
+            uri,
+            stopwatch,
+            attempt,
+            identity.userAgent,
+            control,
+          );
+        } on SubscriptionRefreshCancelled {
+          rethrow;
+        } on SubscriptionRefreshDeadlineExceeded {
+          rethrow;
+        } on SubscriptionAddressException {
+          rethrow;
+        } on SubscriptionRequestBudgetExceeded {
+          rethrow;
+        } catch (error) {
+          if (isCompatibilityAttempt) {
+            throw SubscriptionCompatibilityException(
+              '${identity.label} 兼容请求失败: $error',
+            );
+          }
+          rethrow;
+        }
+      },
+      statusCodeOf: (response) => response.statusCode,
+      readBody: (response, identity, isCompatibilityAttempt) async {
+        try {
+          return await _decodeResponseBody(response, control);
+        } catch (error) {
+          if (isCompatibilityAttempt) {
+            throw SubscriptionCompatibilityException(
+              '${identity.label} 兼容响应解码失败: $error',
+            );
+          }
+          rethrow;
+        }
+      },
     );
-    var body = response.statusCode == 200
-        ? await _decodeResponseBody(response, control)
-        : '';
-    final shouldRetry = SubscriptionFetchPolicy.shouldRetryWithCompatibility(
-      statusCode: response.statusCode,
-      body: body,
-    );
-    if (shouldRetry) {
-      try {
-        response = await _fetchFollowingRedirects(
-          uri,
-          stopwatch,
-          attempt,
-          SubscriptionFetchPolicy.userAgents.last,
-          control,
-        );
-        body = response.statusCode == 200
-            ? await _decodeResponseBody(response, control)
-            : '';
-      } on SubscriptionRefreshCancelled {
-        rethrow;
-      } on SubscriptionRefreshDeadlineExceeded {
-        rethrow;
-      } on SubscriptionAddressException {
-        rethrow;
-      } catch (error) {
-        throw SubscriptionCompatibilityException(
-          '兼容 User-Agent 重试失败: $error',
-        );
-      }
-      if (response.statusCode != 200) {
-        throw SubscriptionCompatibilityException(
-          '兼容 User-Agent 仍被服务器拒绝 (HTTP ${response.statusCode})',
-        );
-      }
-    } else if (response.statusCode != 200) {
-      _throwHttpStatus(response.statusCode);
-    }
 
-    recordSubscriptionResponseHeaders(uri.toString(), response.headers);
-    return SubscriptionFetchPolicy.normalizeRecognizedBody(body);
+    recordSubscriptionResponseHeaders(
+      uri.toString(),
+      negotiated.response.headers,
+    );
+    return SubscriptionFetchPolicy.requireRecognizedBody(negotiated);
   }
 
   Future<_RawHttpResponse> _fetchFollowingRedirects(
@@ -259,16 +268,6 @@ class SubscriptionService extends SubscriptionServiceBase {
       throw Exception('不支持的 Content-Encoding: $contentEncoding');
     }
     return decodeSubscriptionUtf8(bodyBytes);
-  }
-
-  Never _throwHttpStatus(int statusCode) {
-    if (statusCode == 429) {
-      throw Exception('请求过于频繁 (HTTP 429)');
-    }
-    if (statusCode == 403) {
-      throw Exception('访问被拒绝 (HTTP 403)，可能需要更换订阅地址');
-    }
-    throw Exception('HTTP $statusCode: 订阅获取失败');
   }
 
   Future<_RawHttpResponse> _fetchOnce(

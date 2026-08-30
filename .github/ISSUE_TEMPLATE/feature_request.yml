@@ -1,35 +1,37 @@
-name: Feature request
-description: Suggest an improvement or new capability.
-title: "[Feature]: "
+name: 功能建议
+description: 描述希望解决的用户问题，而不只是一个功能名称。
+title: "[Feature] "
 labels: ["enhancement"]
 body:
   - type: dropdown
     id: platform
     attributes:
-      label: Platform
+      label: 适用平台
       options:
         - Android
         - macOS
         - Windows
-        - Shared package
-        - CI/release
-        - Documentation
+        - 跨平台共享逻辑
+        - CI / 发布
+        - 文档
     validations:
       required: true
   - type: textarea
     id: problem
     attributes:
-      label: Problem or user need
-      description: What workflow, bug risk, or maintenance problem would this solve?
+      label: 用户问题
+      description: 现在什么流程不顺畅？谁会受益？请尽量给出具体场景。
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed solution
+      label: 建议方案
+      description: 描述理想结果即可，不要求先设计技术实现。
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives considered
+      label: 已考虑的替代办法
+      description: 目前是否有临时绕过方法？为什么仍不够好？

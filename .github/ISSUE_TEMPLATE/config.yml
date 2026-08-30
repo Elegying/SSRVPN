@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Security report
+  - name: 使用帮助与故障排查
+    url: https://github.com/Elegying/SSRVPN/blob/main/SUPPORT.md
+    about: 提交 Issue 前，请先按支持指南排查并准备脱敏信息。
+  - name: 私下报告安全问题
     url: https://github.com/Elegying/SSRVPN/blob/main/SECURITY.md
-    about: Do not open public issues for vulnerabilities or credential leakage.
+    about: 漏洞、凭据泄露或代理绕过请勿创建公开 Issue。
