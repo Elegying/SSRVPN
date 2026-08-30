@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: New release tag matching the app version, for example v4.0.2
+        description: New release tag matching the app version, for example v4.0.19
         required: true
         type: string
 
