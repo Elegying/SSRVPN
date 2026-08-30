@@ -2,10 +2,12 @@
 
 `ssrvpn_shared` 是 SSRVPN 三端共用的 Dart/Flutter 业务逻辑包。Android、macOS 和 Windows 应用都通过本地 path 依赖使用它，避免每个平台重复维护订阅解析、节点模型、配置生成和安全脱敏逻辑。
 
+[返回主项目](../../README.md) · [贡献指南](../../CONTRIBUTING.md) · [测试策略](../../docs/TESTING.md)
+
 ## 包含内容
 
 - `models/`：代理节点、代理组、订阅和应用设置等数据结构。
-- `services/`：订阅解析、SSR 链接导入、Clash/Mihomo 配置生成和更新检查等基础服务。
+- `services/`：订阅解析、客户端标识兼容协商、节点链接导入、Mihomo 配置生成和更新检查等基础服务。
 - `utils/`：日志脱敏、强制代理站点策略、私有节点延迟策略等通用工具。
 - `constants/`：默认端口、超时时间和应用级常量。
 - `test/`：订阅解析、配置生成、策略和脱敏行为的单元测试。
@@ -70,16 +72,17 @@ final ssrYaml = SubscriptionParser.importSsrLink('ssr://...');
 
 ## 本地验证
 
+项目固定 Flutter `3.44.1`。从仓库根目录执行：
+
 ```bash
-dart pub get
-dart analyze
-dart test
+mise x flutter@3.44.1 -- scripts/workspace.sh analyze
+mise x flutter@3.44.1 -- scripts/workspace.sh test
 ```
 
 如需覆盖率：
 
 ```bash
-flutter test --coverage
+mise x flutter@3.44.1 -- scripts/run-flutter-coverage.sh packages/ssrvpn_shared
 ```
 
 ## 开发约定
@@ -91,4 +94,4 @@ flutter test --coverage
 
 ## 许可证
 
-MIT License，详见仓库根目录 `LICENSE`。
+SSRVPN 自有代码采用 [MIT License](../../LICENSE)；内置组件的精确许可证和来源见[第三方许可清单](../../third_party/THIRD_PARTY_NOTICES.md)。

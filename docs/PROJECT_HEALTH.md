@@ -1,40 +1,32 @@
 # SSRVPN 项目健康与发布状态
 
-最近更新：2026-08-25
+最近更新：2026-08-31
 
-当前应用版本：`v4.0.17`（[正式 Release](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.17)）
+当前应用版本：`v4.0.18`
 
-版本基线提交：`3ebb033e249ebdffd140d1c5f9bf58cdd94ce62f`
+最新正式版本：[`v4.0.17`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.17)
 
 ## 当前结论
 
-`v4.0.17` 已正式发布。该版本修复 macOS 系统代理应用会被已禁用网络服务阻断的问题，
-并补充稳定、可操作的故障分类。精确 `main` CI、三端线上构建、GitHub Release、
-SHA-256、发布证明和 OSS 同步均已完成；历史版本证据没有替代本轮门禁。
+`v4.0.18` 已完成本地全量门禁，当前处于发布候选阶段。本轮增加四种受控订阅客户端标识兼容协商，统一 GitHub 对外内容，并保持订阅地址、DNS、重定向、限流、取消和总请求预算的安全边界。正式发布证据必须在精确源码合入 `main`、线上三端构建和公开资产校验完成后回填。
 
 本文件只记录当前状态和仍需跟进的证据边界。版本变更明细以
 [CHANGELOG](../CHANGELOG.md) 为准，硬性产品约束以
 [项目硬性规则](PRODUCT_REQUIREMENTS.zh-CN.md) 为准，完整能力以
 [功能列表](FEATURES.zh-CN.md) 为准。
 
-## 发布证据
+## 当前候选证据
 
 | 项目 | 当前结果 |
 | --- | --- |
-| 发布源码与标签 | `v4.0.17 = 3ebb033e249ebdffd140d1c5f9bf58cdd94ce62f` |
-| 当前 `main` | 可因发布后的状态文档与 CI 快线提交领先发布标签；实时值以仓库 HEAD 为准，不改变已发布二进制 |
-| 版本同步 | `scripts/check-version-sync.sh` 通过，版本为 `4.0.17+4017` |
-| 精确 `main` CI | [run 32851128814](https://github.com/Elegying/SSRVPN/actions/runs/32851128814) 成功 |
-| 发布准备 workflow | [run 32849445057](https://github.com/Elegying/SSRVPN/actions/runs/32849445057) 成功 |
-| 正式 Release workflow | [run 32852593059](https://github.com/Elegying/SSRVPN/actions/runs/32852593059) 成功 |
-| GitHub Release | 非草稿、非预发布，公开资产共 7 项 |
-| 正式安装包 | `SSRVPN.apk`、`SSRVPN.dmg`、`SSRVPN_Setup.exe` |
-| 完整性与来源 | 三个 `.sha256`、`SSRVPN-release-provenance.json` 和 GitHub Attestations 均已验证 |
-| OSS 公共通道 | `latest.json`、版本化对象与固定下载地址已核对为 `4.0.17` |
-| 仓库安全告警 | 终审时 Code Scanning、Secret Scanning、Dependabot 开放安全告警均为 0 |
+| 候选版本 | `4.0.18+4018`，三端 pubspec 与共享常量一致 |
+| 本地完整门禁 | Flutter `3.44.1` 下 `scripts/verify-all.sh` 退出码 0 |
+| 精确 `main` CI | 待候选变更合入后由受保护分支工作流生成 |
+| 发布准备与标签 | 待 `Prepare Release` 在冻结的 `main` 上验证并创建 |
+| GitHub Release | 待 `Release` 完成三端线上构建、摘要、provenance 与公开状态校验 |
+| 最新已发布基线 | `v4.0.17` 的历史证据仍有效，但不能替代 `v4.0.18` 门禁 |
 
-以上发布证据绑定 `v4.0.17` 的精确提交和正式资产。后续文档提交不会改变已经发布的
-二进制；下一版本仍须重新执行全部门禁，不能继承本表结论。
+候选状态不等于已经发布。只有 GitHub Release 公开、七项资产身份一致且发布后检查通过，才能把本节更新为正式发布证据。
 
 ## 质量评分
 
@@ -46,15 +38,15 @@ SHA-256、发布证明和 OSS 同步均已完成；历史版本证据没有替�
 | 测试与 CI | 19/20 | 九项受保护检查、四套 Flutter 测试、三端原生/平台门禁和渐进覆盖率门槛通过 |
 | 发布工程 | 11/12 | 自动准备、不可变标签、精确 SHA、Draft/OSS/公开事务、失败恢复和发布后终验形成闭环 |
 | 文档与治理 | 7/8 | README、用户指南、安全策略、ADR、UAT 和维护手册齐全；发布后状态需要持续及时回填 |
-| **综合** | **92/100** | **正式发布质量；非零风险，不等同于完整三端人工实机矩阵** |
+| **综合** | **92/100** | **发布候选质量；非零风险，不等同于正式线上产物或完整三端人工实机矩阵** |
 
 ## 自动化验证摘要
 
-- Release tooling：377 项通过。
-- Shared：642 项通过，行覆盖率 85.07%。
-- Android Flutter：275 项通过，行覆盖率 67.84%；Android 原生测试和 CodeQL 通过。
-- macOS Flutter：284 项通过，行覆盖率 67.40%；原生 RunnerTests 通过。
-- Windows Flutter：260 项通过（另有 8 项仅 Windows 主机执行的用例在本地门禁跳过），行覆盖率 53.00%；线上原生恢复、安装器构建、安装和卸载 smoke 通过。
+- Release tooling：395 项通过。
+- Shared：650 项通过，行覆盖率 85.15%。
+- Android Flutter：276 项通过，行覆盖率 67.95%；Android 原生单元测试、守卫和订阅专项测试通过。
+- macOS Flutter：284 项通过，行覆盖率 67.38%；原生 RunnerTests 通过。
+- Windows Flutter：273 项通过（另有 8 项仅 Windows 主机执行的用例在本地门禁跳过），行覆盖率 54.81%；原生恢复、安装器构建、安装和卸载 smoke 等待候选 CI 复验。
 - 分支保护要求严格提交同步、管理员不可绕过、禁止 force-push/删除，并固定九项必需检查。
 - 纯文档保留同名必需检查和 Workspace 门禁，但跳过三端平台重构建；手动 GeoIP 更新 PR、发布与非文档变更始终执行全量矩阵。
 
@@ -62,7 +54,7 @@ SHA-256、发布证明和 OSS 同步均已完成；历史版本证据没有替�
 
 以下项目是尚未补齐的人工或长期证据，不是已经确认的客户端故障：
 
-1. `v4.0.17` 没有重新执行完整三端人工实机矩阵；自动化和旧版本真机记录不能替代当前版本实机 UAT。
+1. `v4.0.18` 尚未完成正式线上构建与完整三端人工实机矩阵；自动化和旧版本真机记录不能替代当前版本实机 UAT。
 2. Windows 11 仍需人工复验 Explorer 可见性、UAC 取消，以及应用内更新安装包成功安装后的自动清理体验。
 3. Android 仍缺原生 16 KiB page-size 硬件，以及长时、Doze、不同 OEM 和同口径电量复测。
 4. macOS 持续断网后的取消专项仍未执行；免费 ad-hoc、未公证分发属于既定边界。
