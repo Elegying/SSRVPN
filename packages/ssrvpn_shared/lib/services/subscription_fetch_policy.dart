@@ -3,15 +3,164 @@ import 'dart:io';
 import '../constants/app_constants.dart';
 import 'subscription_parser.dart';
 
+class SubscriptionClientIdentity {
+  const SubscriptionClientIdentity({
+    required this.id,
+    required this.label,
+    required this.userAgent,
+  });
+
+  final String id;
+  final String label;
+  final String userAgent;
+}
+
+class SubscriptionIdentityNegotiationResult<T> {
+  const SubscriptionIdentityNegotiationResult({
+    required this.response,
+    required this.body,
+    required this.identity,
+    required this.attemptCount,
+    required this.statusCode,
+  });
+
+  final T response;
+  final String body;
+  final SubscriptionClientIdentity identity;
+  final int attemptCount;
+  final int statusCode;
+
+  bool get usedCompatibilityIdentity => attemptCount > 1;
+}
+
+class SubscriptionRequestBudget {
+  SubscriptionRequestBudget({
+    this.maxAttempts = SubscriptionFetchPolicy.maxTotalHttpAttempts,
+  }) : assert(maxAttempts > 0, 'maxAttempts must be positive');
+
+  final int maxAttempts;
+  int _usedAttempts = 0;
+
+  int get usedAttempts => _usedAttempts;
+  int get remainingAttempts => maxAttempts - _usedAttempts;
+
+  void consume() {
+    if (_usedAttempts >= maxAttempts) {
+      throw SubscriptionRequestBudgetExceeded(maxAttempts);
+    }
+    _usedAttempts++;
+  }
+}
+
 class SubscriptionFetchPolicy {
   const SubscriptionFetchPolicy._();
 
+  static const int maxClientIdentityAttempts = 4;
+  static const int maxTotalHttpAttempts = 6;
+
   static const compatibilityUserAgent =
-      'clash-verge/v2.4.0 ${AppConstants.appUserAgent}';
+      'clash-verge/v2.5.2 ${AppConstants.appUserAgent}';
+  static const v2rayNUserAgent = 'v2rayN/7.24.8 ${AppConstants.appUserAgent}';
+  static const shadowrocketUserAgent =
+      'Shadowrocket/2.2.91 ${AppConstants.appUserAgent}';
   static const userAgents = <String>[
     AppConstants.appUserAgent,
     compatibilityUserAgent,
+    v2rayNUserAgent,
+    shadowrocketUserAgent,
   ];
+  static const clientIdentities = <SubscriptionClientIdentity>[
+    SubscriptionClientIdentity(
+      id: 'ssrvpn',
+      label: 'SSRVPN',
+      userAgent: AppConstants.appUserAgent,
+    ),
+    SubscriptionClientIdentity(
+      id: 'clash-verge',
+      label: 'Clash Verge',
+      userAgent: compatibilityUserAgent,
+    ),
+    SubscriptionClientIdentity(
+      id: 'v2rayn',
+      label: 'v2rayN',
+      userAgent: v2rayNUserAgent,
+    ),
+    SubscriptionClientIdentity(
+      id: 'shadowrocket',
+      label: 'Shadowrocket',
+      userAgent: shadowrocketUserAgent,
+    ),
+  ];
+
+  static Future<SubscriptionIdentityNegotiationResult<T>>
+      negotiateClientIdentity<T>({
+    required Future<T> Function(
+      SubscriptionClientIdentity identity,
+      bool isCompatibilityAttempt,
+    ) request,
+    required int Function(T response) statusCodeOf,
+    required Future<String> Function(
+      T response,
+      SubscriptionClientIdentity identity,
+      bool isCompatibilityAttempt,
+    ) readBody,
+  }) async {
+    assert(clientIdentities.length == maxClientIdentityAttempts);
+    for (var index = 0; index < clientIdentities.length; index++) {
+      final identity = clientIdentities[index];
+      final isCompatibilityAttempt = index > 0;
+      final response = await request(identity, isCompatibilityAttempt);
+      final statusCode = statusCodeOf(response);
+      final body = statusCode == HttpStatus.ok
+          ? await readBody(response, identity, isCompatibilityAttempt)
+          : '';
+      final result = SubscriptionIdentityNegotiationResult<T>(
+        response: response,
+        body: body,
+        identity: identity,
+        attemptCount: index + 1,
+        statusCode: statusCode,
+      );
+      final hasAnotherIdentity = index + 1 < clientIdentities.length;
+      if (!hasAnotherIdentity ||
+          !shouldRetryWithCompatibility(
+            statusCode: statusCode,
+            body: body,
+          )) {
+        return result;
+      }
+    }
+    throw StateError('订阅客户端标识列表不能为空');
+  }
+
+  static String requireRecognizedBody<T>(
+    SubscriptionIdentityNegotiationResult<T> result,
+  ) {
+    if (result.statusCode != HttpStatus.ok) {
+      final statusError = SubscriptionHttpStatusException(result.statusCode);
+      final isCompatibilityRefusal = result.statusCode == 403 ||
+          result.statusCode == 406 ||
+          result.statusCode == 415;
+      if (result.usedCompatibilityIdentity &&
+          (isCompatibilityRefusal || statusError.isRetryable)) {
+        throw SubscriptionCompatibilityException(
+          '使用 ${result.identity.label} 兼容模式仍被服务器拒绝 '
+          '(HTTP ${result.statusCode}，已尝试 ${result.attemptCount} 种客户端标识)',
+        );
+      }
+      throw statusError;
+    }
+    try {
+      return normalizeRecognizedBody(result.body);
+    } on SubscriptionContentException {
+      if (result.usedCompatibilityIdentity) {
+        throw SubscriptionCompatibilityException(
+          '已尝试 ${result.attemptCount} 种客户端标识，订阅内容仍无法识别',
+        );
+      }
+      rethrow;
+    }
+  }
 
   static bool shouldRetryWithCompatibility({
     required int statusCode,
@@ -234,4 +383,37 @@ class SubscriptionCompatibilityException implements Exception {
 
   @override
   String toString() => message;
+}
+
+class SubscriptionHttpStatusException implements Exception {
+  const SubscriptionHttpStatusException(this.statusCode);
+
+  final int statusCode;
+
+  bool get isRetryable =>
+      statusCode == HttpStatus.requestTimeout ||
+      (statusCode >= 500 && statusCode <= 599);
+
+  String get message {
+    return switch (statusCode) {
+      HttpStatus.unauthorized => '订阅认证失败 (HTTP 401)',
+      HttpStatus.forbidden => '访问被拒绝 (HTTP 403)',
+      HttpStatus.notFound => '订阅地址不存在 (HTTP 404)',
+      HttpStatus.gone => '订阅地址已失效 (HTTP 410)',
+      HttpStatus.tooManyRequests => '请求过于频繁 (HTTP 429)',
+      _ => 'HTTP $statusCode: 订阅获取失败',
+    };
+  }
+
+  @override
+  String toString() => message;
+}
+
+class SubscriptionRequestBudgetExceeded implements Exception {
+  const SubscriptionRequestBudgetExceeded(this.maxAttempts);
+
+  final int maxAttempts;
+
+  @override
+  String toString() => '订阅请求超过 $maxAttempts 次总尝试上限';
 }

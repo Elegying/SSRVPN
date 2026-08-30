@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修复
+
+- Android、macOS 与 Windows 获取订阅时按 SSRVPN、Clash Verge、v2rayN、Shadowrocket 的顺序进行最多四种客户端标识兼容协商，只在 HTTP 403/406/415 或成功响应内容无法识别时切换；认证失败、地址失效、限流、DNS 地址安全失败和取消不会触发无意义轮换。兼容协商与网络重试共享六次逻辑请求总预算，避免失败订阅产生请求次数乘积。
+
 ### 工程与发布
 
 - GeoIP 改为完全手动维护：正式发版不再查询上游最新版本、自动更新来源记录或创建 GeoIP PR，也不会因仓库内固定快照不是最新版而阻断；构建仍严格校验已固定资产的来源和 SHA-256。
