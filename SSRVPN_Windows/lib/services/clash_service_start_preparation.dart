@@ -14,9 +14,7 @@ extension _WindowsStartPreparationSupport on _WindowsCoreLifecycle {
       final stoppedSafely = await _stopInternal();
       _ensureStartCurrent(startToken);
       if (!stoppedSafely) {
-        setLastStartError(
-          _lastStopError ?? '现有 Mihomo 连接无法安全停止，已拒绝启动新的核心',
-        );
+        setLastStartError(_lastStopError ?? '现有 Mihomo 连接无法安全停止，已拒绝启动新的核心');
         log('❌ $lastStartError');
         return _WindowsExistingRuntimePreparation.blocked;
       }
@@ -26,9 +24,7 @@ extension _WindowsStartPreparationSupport on _WindowsCoreLifecycle {
       final stoppedSafely = await _stopInternal();
       _ensureStartCurrent(startToken);
       if (!stoppedSafely || _coreProcess != null) {
-        setLastStartError(
-          _lastStopError ?? '上一个 Mihomo 进程尚未退出，已拒绝启动新的核心',
-        );
+        setLastStartError(_lastStopError ?? '上一个 Mihomo 进程尚未退出，已拒绝启动新的核心');
         log('❌ $lastStartError');
         return _WindowsExistingRuntimePreparation.blocked;
       }
@@ -69,10 +65,8 @@ extension _WindowsStartPreparationSupport on _WindowsCoreLifecycle {
     await Directory(tmpDir).create(recursive: true);
     _ensureStartCurrent(startToken);
     final environment = {'TMPDIR': tmpDir, 'TMP': tmpDir, 'TEMP': tmpDir};
-    if (!await _validateConfig(environment)) {
-      setLastStartError(
-        lastStartError ?? 'Mihomo 配置校验失败，请打开运行日志查看具体配置错误',
-      );
+    if (!await validateConfig(environment)) {
+      setLastStartError(lastStartError ?? 'Mihomo 配置校验失败，请打开运行日志查看具体配置错误');
       return null;
     }
     _ensureStartCurrent(startToken);

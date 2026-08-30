@@ -18,6 +18,7 @@ run_in() {
   (cd "$dir" && "$@")
 }
 
+run_step "Flutter toolchain version" scripts/check-flutter-version.sh
 run_step "Shared barrel imports" scripts/check-shared-barrel-imports.sh
 run_step "Version sync" scripts/check-version-sync.sh
 run_step "Package guides" scripts/check-package-guides.sh

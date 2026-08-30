@@ -109,7 +109,7 @@ macOS 原生核心支持、单实例租约和窗口恢复脱离应用委托；Wi
 
 ## 开发与验证
 
-推荐使用 Flutter `3.44.1` 或兼容 stable 版本。Android 构建还需要 Android SDK、NDK 与 JDK；macOS 需要 Xcode；Windows 需要 Visual Studio 2022 的“使用 C++ 的桌面开发”工作负载，安装器还需要 Inno Setup 6.5 或更高版本。
+项目精确固定 Flutter `3.44.1`，不接受其他 stable 版本代替；`make verify` 会在执行任何依赖解析或测试前按 `.fvmrc` 失败关闭。可使用 `fvm install && fvm exec make verify`，或使用 `mise exec flutter@3.44.1 -- make verify`。Android 构建还需要 Android SDK、NDK 与 JDK；macOS 需要 Xcode；Windows 需要 Visual Studio 2022 的“使用 C++ 的桌面开发”工作负载，安装器还需要 Inno Setup 6.5 或更高版本。
 
 根目录统一入口：
 
@@ -117,7 +117,7 @@ macOS 原生核心支持、单实例租约和窗口恢复脱离应用委托；Wi
 make verify
 ```
 
-它会检查全部受版本控制的 Dart 格式和 ShellCheck、版本与资源、职责边界、Android 内置 Kotlin、免费桌面分发策略、密钥扫描、发布工具、关键路径性能、依赖解析、严格静态分析、四套 Flutter 测试、Android/macOS 原生测试和覆盖率门槛。Windows 原生代理恢复测试会在 GitHub Windows runner 上编译并运行。日常可按需执行：
+它会先校验精确 Flutter 版本，并自动下载和校验所需 Mihomo/GeoIP 核心资产，然后检查全部受版本控制的 Dart 格式和 ShellCheck、版本与资源、职责边界、Android 内置 Kotlin、免费桌面分发策略、密钥扫描、发布工具、关键路径性能、依赖解析、严格静态分析、四套 Flutter 测试、Android/macOS 原生测试和覆盖率门槛。需要提前准备资源时可单独运行 `make assets`；Windows 原生代理恢复测试会在 GitHub Windows runner 上编译并运行。日常可按需执行：
 
 ```bash
 scripts/workspace.sh pub-get

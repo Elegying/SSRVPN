@@ -444,7 +444,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         ]
         missing_identity = stop.index("if (expectedPidRecord == null)")
         core_exit = stop.index("await _terminateVerifiedCore(expectedPidRecord)")
-        pid_cleanup = stop.index("await _deleteCorePid(", core_exit)
+        pid_cleanup = stop.index("await deleteCorePid(", core_exit)
         expected_identity = stop.index(
             "expectedRecord: expectedPidRecord", pid_cleanup
         )

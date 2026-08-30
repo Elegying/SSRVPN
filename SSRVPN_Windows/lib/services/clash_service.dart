@@ -134,7 +134,7 @@ class ClashService extends ClashServiceBase
       final size = await coreFile.length();
       log('✅ 核心文件存在: ${(size / 1024 / 1024).toStringAsFixed(1)} MB');
       if (!skipCoreProbes) {
-        await _logCoreVersion();
+        await logCoreVersion();
       }
     } else {
       log('❌ 核心文件不存在: $_corePath');
