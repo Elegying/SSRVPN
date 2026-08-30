@@ -95,6 +95,17 @@ class VerifyReleaseTransitionTest(unittest.TestCase):
         )
         self.assertIn("SSRVPN-release-provenance.json", workflow)
         self.assertIn("generate-release-provenance.py", workflow)
+        publish_start = workflow.index("name: Publish Release")
+        notes_start = workflow.index("Generate release notes", publish_start)
+        download_steps = workflow[publish_start:notes_start]
+        for name, path in (
+            ("android", "artifacts/android"),
+            ("macos", "artifacts/macos"),
+            ("windows", "artifacts/windows"),
+        ):
+            self.assertIn(f"name: {name}", download_steps)
+            self.assertIn(f"path: {path}", download_steps)
+        self.assertNotIn("Download all artifacts", download_steps)
         self.assertIn("--ignore-existing", workflow)
         self.assertIn('cmp "$file" "$downloaded"', workflow)
         self.assertNotIn("Sync latest geoip.metadb", workflow)
