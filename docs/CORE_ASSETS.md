@@ -118,11 +118,13 @@ Windows executable verification is also performed by
 
 ## Runtime rule providers
 
-Generated Mihomo configurations use the MetaCubeX `geoip/cn.mrs` and
-`geosite/cn.mrs` rule providers pinned to commit
+Generated Mihomo configurations use the MetaCubeX `geosite/gfw.mrs` and
+`geosite/cn.mrs` rule providers pinned to the same commit
 `200e6a86736cfab29aae7b07dc266e59f13bc13d`; they do not follow the mutable
-`meta` branch. The generated rules also keep built-in `DOMAIN-SUFFIX,cn` and
-`GEOIP,CN` fallbacks, so a temporary provider download failure does not remove
-the baseline China-direct routing behavior. Updating the pinned commit requires
-reviewing both files and updating the configuration regression test in the same
-change.
+`main`, `master`, `latest`, or `release` references. Both providers use the
+`PROXY` group for downloads, fixed cache paths under `providers/`, and the same
+one-shot startup refresh. Mihomo retains an existing usable cache when a refresh
+fails; SSRVPN never deletes provider files in the failure path. The generated
+rules keep local/private, `DOMAIN-SUFFIX,cn`, and `GEOIP,CN` direct fallbacks,
+then finish with `MATCH,DIRECT`. Updating the pinned commit requires reviewing
+both files and updating the configuration regression tests in the same change.

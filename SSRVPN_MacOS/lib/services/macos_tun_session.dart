@@ -67,7 +67,7 @@ class MacosTunSession {
 
   static const _osascriptPath = '/usr/bin/osascript';
   static const _runnerSha256 =
-      'a1c5748f62c061686a8ebc3881c8f4b97c258323cf8f2cbad02ad0277d63f3f6';
+      'ecf7917a6b965df7b6efcc74bba13de84b01f521c717a109510cd21632469a0f';
   static const _coreArchiveSha256 =
       '4dc25df9e899f14161911302a8ee5fc9e202ed9c976fc405bf82c50ff27466ca';
   static const _coreManifestSha256 =

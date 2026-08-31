@@ -42,7 +42,7 @@ body:
     id: version
     attributes:
       label: SSRVPN 版本或提交
-      placeholder: 例如 v4.0.18 或完整 commit SHA
+      placeholder: 例如 v4.0.19 或完整 commit SHA
     validations:
       required: true
   - type: input

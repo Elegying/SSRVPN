@@ -1,26 +1,31 @@
 # SSRVPN 项目健康与发布状态
 
-最近更新：2026-08-31
+最近更新：2026-09-01
 
-当前应用版本：`v4.0.18`
+当前应用版本：`v4.0.19`
 
 最新正式版本：[`v4.0.18`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.18)
 
 ## 当前结论
 
-`v4.0.18` 已完成受保护主分支合入、精确源码 CI、不可变标签、三端线上构建、GitHub Release 与 OSS 公共通道终验，现为正式版本。本轮增加四种受控订阅客户端标识兼容协商，统一 GitHub 对外内容，并保持订阅地址、DNS、重定向、限流、取消和总请求预算的安全边界。
+`v4.0.19` 是当前待发布版本：“智能”模式改为只代理用户强制代理、SSRVPN
+内置强制代理和固定版本 GFW 规则集命中的目标，其他流量默认直连。IPv6
+防泄漏、私有网络安全、中国直连、DNS 防循环和“全局”模式语义保持不变。
+当前最新已完成线上闭环的正式版本仍是 `v4.0.18`；`v4.0.19` 的精确提交、
+`main` CI、线上构建、Release 资产和 OSS 终验将在发布成功后回填，不预先冒充已完成证据。
 
 本文件只记录当前状态和仍需跟进的证据边界。版本变更明细以
 [CHANGELOG](../CHANGELOG.md) 为准，硬性产品约束以
 [项目硬性规则](PRODUCT_REQUIREMENTS.zh-CN.md) 为准，完整能力以
 [功能列表](FEATURES.zh-CN.md) 为准。
 
-## 正式发布证据
+## 当前版本与最近正式发布证据
 
 | 项目 | 当前结果 |
 | --- | --- |
-| 正式版本 | `4.0.18+4018`，三端 pubspec 与共享常量一致 |
-| 本地完整门禁 | Flutter `3.44.1` 下 `scripts/verify-all.sh` 退出码 0 |
+| 当前待发布版本 | `4.0.19+4019`，三端 pubspec 与共享常量一致；发布证据待本轮工作流完成后回填 |
+| 最近正式版本 | `4.0.18+4018`，已完成三端线上构建与公开分发 |
+| 当前版本本地门禁 | Flutter `3.44.1` 下 `scripts/verify-all.sh` 退出码 0 |
 | 发布源码 | 受保护 `main` 提交 [`4aae687`](https://github.com/Elegying/SSRVPN/commit/4aae687fd93ad81c97b925d61996b95343bacf96)；注释标签 `v4.0.18` 解引用到同一提交 |
 | 精确 `main` CI | [`33323073917`](https://github.com/Elegying/SSRVPN/actions/runs/33323073917) 成功，九项必需检查通过 |
 | 发布准备与标签 | [`33323785216`](https://github.com/Elegying/SSRVPN/actions/runs/33323785216) 冻结主分支、复用精确 CI 并创建标签；其首次下游发布因 GitHub Artifact 临时返回空列表而失败 |
@@ -44,9 +49,9 @@
 
 ## 自动化验证摘要
 
-- Release tooling：395 项通过。
-- Shared：650 项通过，行覆盖率 85.15%。
-- Android Flutter：276 项通过，行覆盖率 67.95%；Android 原生单元测试、守卫和订阅专项测试通过。
+- Release tooling：396 项通过。
+- Shared：652 项通过，行覆盖率 85.21%。
+- Android Flutter：276 项通过，行覆盖率 67.98%；Android 原生单元测试、守卫和订阅专项测试通过。
 - macOS Flutter：284 项通过，行覆盖率 67.38%；原生 RunnerTests 通过。
 - Windows Flutter：273 项通过（另有 8 项仅 Windows 主机执行的用例在本地门禁跳过），行覆盖率 54.81%；原生恢复、安装器构建及安装/卸载 smoke 已在线通过。
 - 分支保护要求严格提交同步、管理员不可绕过、禁止 force-push/删除，并固定九项必需检查。
