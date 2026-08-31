@@ -4,15 +4,15 @@
 
 当前应用版本：`v4.0.19`
 
-最新正式版本：[`v4.0.18`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.18)
+最新正式版本：[`v4.0.19`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.19)
 
 ## 当前结论
 
-`v4.0.19` 是当前待发布版本：“智能”模式改为只代理用户强制代理、SSRVPN
+`v4.0.19` 是当前正式版本：“智能”模式改为只代理用户强制代理、SSRVPN
 内置强制代理和固定版本 GFW 规则集命中的目标，其他流量默认直连。IPv6
 防泄漏、私有网络安全、中国直连、DNS 防循环和“全局”模式语义保持不变。
-当前最新已完成线上闭环的正式版本仍是 `v4.0.18`；`v4.0.19` 的精确提交、
-`main` CI、线上构建、Release 资产和 OSS 终验将在发布成功后回填，不预先冒充已完成证据。
+受保护主分支、精确提交 CI、三平台线上构建、GitHub Release、SHA-256、
+provenance 和 OSS 公共通道终验均已完成。
 
 本文件只记录当前状态和仍需跟进的证据边界。版本变更明细以
 [CHANGELOG](../CHANGELOG.md) 为准，硬性产品约束以
@@ -23,17 +23,17 @@
 
 | 项目 | 当前结果 |
 | --- | --- |
-| 当前待发布版本 | `4.0.19+4019`，三端 pubspec 与共享常量一致；发布证据待本轮工作流完成后回填 |
-| 最近正式版本 | `4.0.18+4018`，已完成三端线上构建与公开分发 |
+| 当前正式版本 | `4.0.19+4019`，三端 pubspec 与共享常量一致；已完成三端线上构建与公开分发 |
 | 当前版本本地门禁 | Flutter `3.44.1` 下 `scripts/verify-all.sh` 退出码 0 |
-| 发布源码 | 受保护 `main` 提交 [`4aae687`](https://github.com/Elegying/SSRVPN/commit/4aae687fd93ad81c97b925d61996b95343bacf96)；注释标签 `v4.0.18` 解引用到同一提交 |
-| 精确 `main` CI | [`33323073917`](https://github.com/Elegying/SSRVPN/actions/runs/33323073917) 成功，九项必需检查通过 |
-| 发布准备与标签 | [`33323785216`](https://github.com/Elegying/SSRVPN/actions/runs/33323785216) 冻结主分支、复用精确 CI 并创建标签；其首次下游发布因 GitHub Artifact 临时返回空列表而失败 |
-| 正式线上构建 | [`33323997390`](https://github.com/Elegying/SSRVPN/actions/runs/33323997390) 第 2 次运行成功；Android APK、macOS DMG、Windows 安装器、共享包测试和发布后终验全部通过 |
-| GitHub Release | [`v4.0.18`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.18) 已公开，共 7 项预期资产；三端二进制 SHA-256、GitHub API digest 与 provenance 一致 |
+| 发布源码 | 受保护 `main` 提交 [`027baad`](https://github.com/Elegying/SSRVPN/commit/027baad349bd9cd071c5387a47abd692d665d0a8)；注释标签 `v4.0.19` 解引用到同一提交 |
+| 精确 `main` CI | [`33423245637`](https://github.com/Elegying/SSRVPN/actions/runs/33423245637) 成功；工作区、Android、macOS、Windows、安全与原生门禁全部通过 |
+| 发布准备与标签 | [`33424668503`](https://github.com/Elegying/SSRVPN/actions/runs/33424668503) 冻结主分支、复用精确 CI、创建标签并等待正式发布成功 |
+| 正式线上构建 | [`33424705678`](https://github.com/Elegying/SSRVPN/actions/runs/33424705678) 成功；Android APK、macOS DMG、Windows 安装器、共享包测试和发布后终验全部通过 |
+| GitHub Release | [`v4.0.19`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.19) 已公开，共 7 项预期资产；三端二进制 SHA-256、GitHub API digest 与 provenance 一致 |
 | OSS 公共通道 | 不可变版本目录、`latest.json` 提升与发布后下载回读均由正式 Release 工作流验证通过 |
 
-首次发布尝试没有创建不完整的公开版本；同一标签、同一提交完整重建后发布成功。后续发布工作流将按平台名称逐项下载产物，使 Artifact 列表异常在进入制品生成前立即失败。
+发布流程在三平台产物和 shared 测试全部成功后才获准进入 `release` 环境；
+Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最终发布按事务顺序完成。
 
 ## 质量评分
 
@@ -61,7 +61,7 @@
 
 以下项目是尚未补齐的人工或长期证据，不是已经确认的客户端故障：
 
-1. `v4.0.18` 已完成正式线上构建，但尚未完成完整三端人工实机矩阵；自动化和旧版本真机记录不能替代当前版本实机 UAT。
+1. `v4.0.19` 已完成正式线上构建，但尚未完成完整三端人工实机矩阵；自动化和旧版本真机记录不能替代当前版本实机 UAT。
 2. Windows 11 仍需人工复验 Explorer 可见性、UAC 取消，以及应用内更新安装包成功安装后的自动清理体验。
 3. Android 仍缺原生 16 KiB page-size 硬件，以及长时、Doze、不同 OEM 和同口径电量复测。
 4. macOS 持续断网后的取消专项仍未执行；免费 ad-hoc、未公证分发属于既定边界。
