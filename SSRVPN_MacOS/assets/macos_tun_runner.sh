@@ -752,7 +752,7 @@ if [[ -f "$data_dir/geoip.metadb" && ! -L "$data_dir/geoip.metadb" ]]; then
   /bin/chmod 600 "$runtime_dir/geoip.metadb"
 fi
 /bin/mkdir -m 700 "$runtime_dir/providers" "$runtime_dir/tmp"
-for provider_name in ssrvpn-geosite-cn.mrs ssrvpn-geoip-cn.mrs; do
+for provider_name in ssrvpn-geosite-gfw.mrs ssrvpn-geosite-cn.mrs; do
   provider_source="$data_dir/providers/$provider_name"
   if [[ -f $provider_source && ! -L $provider_source && \
         $(/usr/bin/stat -f '%u' "$provider_source") == "$user_id" ]]; then

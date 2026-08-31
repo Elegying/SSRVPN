@@ -51,7 +51,7 @@
 - [ADR-004：三端只保留首页与订阅](decisions/004-two-page-product-surface.md)
 - [ADR-005：使用 SSRVPN 自控的内容寻址 GeoIP 镜像](decisions/005-content-addressed-geoip-mirror.md)
 - [ADR-006：macOS 核心进程所有权使用持久化原生代际](decisions/006-macos-core-process-identity.md)
-- [ADR-007：默认路由使用国内直连与国外兜底代理](decisions/007-domain-based-domestic-routing.md)
+- [ADR-007：默认路由使用国内直连与国外兜底代理（已取代）](decisions/007-domain-based-domestic-routing.md)
 - [ADR-008：macOS API Secret 的会话轮换边界](decisions/008-macos-session-api-secret-rotation.md)
 - [ADR-009：macOS Release 权限最小化](decisions/009-macos-release-entitlement-minimization.md)
 - [ADR-010：以行为证据控制高风险职责拆分](decisions/010-risk-controlled-maintainability-boundaries.md)
@@ -59,6 +59,7 @@
 - [ADR-012：自动准备可复现的正式版本](decisions/012-automatic-release-preparation.md)
 - [ADR-013：客户端连接后仅使用 GitHub Releases 更新](decisions/013-github-release-connected-update.md)
 - [ADR-014：GeoIP 仅按明确指令手动更新](decisions/014-manual-only-geoip-updates.md)
+- [ADR-015：智能模式使用 GFW 代理与默认直连](decisions/015-gfw-proxy-default-direct-routing.md)
 
 ## 文档维护规则
 

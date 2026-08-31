@@ -44,7 +44,12 @@ void main() {
         AppSettings(proxyMode: ProxyMode.global),
       );
 
-      expect(config, contains('mode: global'));
+      final parsed = loadYaml(config) as YamlMap;
+      final groups = (parsed['proxy-groups'] as YamlList).cast<YamlMap>();
+      final global = groups.firstWhere((group) => group['name'] == 'GLOBAL');
+
+      expect(parsed['mode'], 'global');
+      expect((global['proxies'] as YamlList).first, 'PROXY');
     });
   });
 
@@ -144,13 +149,21 @@ void main() {
       expect(config, contains('IP-CIDR,1.2.3.4/32'));
     });
 
-    test('MATCH 规则始终存在并指向 PROXY', () {
+    test('智能模式使用 GFW 代理并最终默认直连', () {
       final config = clashService.generateClashConfig(
         _testProxies,
         AppSettings(),
       );
 
-      expect(config, contains('MATCH,PROXY'));
+      final parsed = loadYaml(config) as YamlMap;
+      final rules = (parsed['rules'] as YamlList).cast<String>();
+      final gfw = rules.indexOf('RULE-SET,ssrvpn-geosite-gfw,PROXY');
+      final cn = rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT');
+
+      expect(gfw, isNonNegative);
+      expect(gfw, lessThan(cn));
+      expect(rules.last, 'MATCH,DIRECT');
+      expect(rules, isNot(contains('MATCH,PROXY')));
     });
   });
 }

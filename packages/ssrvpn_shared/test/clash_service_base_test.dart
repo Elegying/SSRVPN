@@ -1203,8 +1203,7 @@ proxies:
       );
     });
 
-    test('updates only the domain-based CN provider through Mihomo API',
-        () async {
+    test('updates both pinned domain providers through Mihomo API', () async {
       final requests = <String>[];
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
@@ -1227,8 +1226,60 @@ proxies:
       await requestsDone.timeout(const Duration(seconds: 1));
 
       expect(requests, [
+        'PUT /providers/rules/ssrvpn-geosite-gfw Bearer test-token',
         'PUT /providers/rules/ssrvpn-geosite-cn Bearer test-token',
       ]);
+    });
+
+    test('failed provider refresh preserves every existing cache', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_rule_provider_cache_',
+      );
+      addTearDown(() => tempDir.delete(recursive: true));
+      final providerDir = Directory(
+        '${tempDir.path}${Platform.pathSeparator}providers',
+      );
+      await providerDir.create(recursive: true);
+      final caches = <File>[];
+      for (final providerName in AppConstants.ruleProviderNames) {
+        final cache = File(
+          '${providerDir.path}${Platform.pathSeparator}$providerName.mrs',
+        );
+        await cache.writeAsString('verified-cache:$providerName', flush: true);
+        caches.add(cache);
+      }
+
+      final requests = <String>[];
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final requestsDone = _recordRequests(
+        server,
+        requests,
+        AppConstants.ruleProviderNames.length,
+        statusCode: HttpStatus.serviceUnavailable,
+      );
+
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      service.initHttpClient();
+      service.setPaths(
+        configDir: tempDir.path,
+        configPath: '${tempDir.path}${Platform.pathSeparator}config.yaml',
+      );
+      service.updateSettings(AppSettings(apiPort: server.port));
+      service.setRunning(true);
+
+      await service.runRuleProviderRefresh();
+      await requestsDone.timeout(const Duration(seconds: 1));
+
+      expect(requests, hasLength(AppConstants.ruleProviderNames.length));
+      for (var index = 0; index < caches.length; index++) {
+        expect(await caches[index].exists(), isTrue);
+        expect(
+          await caches[index].readAsString(),
+          'verified-cache:${AppConstants.ruleProviderNames[index]}',
+        );
+      }
     });
 
     test('runs once after the configured startup delay', () async {
@@ -1932,14 +1983,15 @@ class _ProxyApiServer {
 Future<void> _recordRequests(
   HttpServer server,
   List<String> requests,
-  int expectedCount,
-) async {
+  int expectedCount, {
+  int statusCode = HttpStatus.noContent,
+}) async {
   await for (final request in server) {
     requests.add(
       '${request.method} ${request.uri.path} '
       '${request.headers.value(HttpHeaders.authorizationHeader) ?? ''}',
     );
-    request.response.statusCode = HttpStatus.noContent;
+    request.response.statusCode = statusCode;
     await request.response.close();
     if (requests.length >= expectedCount) return;
   }
