@@ -198,6 +198,21 @@ class NativeRuntimeDiagnosticsTest {
     }
 
     @Test
+    fun `default release grace covers delayed Android 11 TUN teardown`() {
+        var probes = 0
+
+        val released = TunReleaseVerifier.waitUntilReleased(
+            retryDelayMillis = 0
+        ) {
+            probes += 1
+            probes == 61
+        }
+
+        assertTrue(released)
+        assertEquals(61, probes)
+    }
+
+    @Test
     fun `failed bridge stop still closes the retained VPN lease`() {
         var closeCount = 0
         var verifierCalled = false

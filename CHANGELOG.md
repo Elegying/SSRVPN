@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 修复
 
-- Android 停止 VPN 时继续要求 Bridge 与原始 TUN 描述符完成关闭，但只把仍处于活动状态的自有 TUN 接口视为未释放；Android 11 短暂保留的非活动接口名称不再误触发 fail-closed 进程终止，未知基线、活动接口或描述符仍存在时仍会安全失败。
+- Android 停止 VPN 时继续要求 Bridge 与原始 TUN 描述符完成关闭，只把仍处于活动状态的自有 TUN 接口视为未释放，并为 Android 11 的异步接口回收保留最多约 6 秒的有界等待；未知基线、活动接口或描述符仍存在时仍会安全失败。
 - Windows 在安装事务成功后、原用户启动通道仍可用时立即启动可信更新包清理助手；助手绑定当前安装器进程并等待其实际退出，再复用原有 sidecar、SHA-256、NTFS owner stream、普通文件与路径身份校验删除应用内更新包。手动包、失败包和身份不匹配文件继续保留。
 
 ### 验收
