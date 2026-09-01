@@ -3,6 +3,7 @@ package com.ssrvpn.android
 import android.system.Os
 import android.system.ErrnoException
 import android.system.OsConstants
+import java.io.File
 import java.net.NetworkInterface
 
 internal data class NativeRuntimeDiagnostics(
@@ -21,6 +22,17 @@ internal data class NativeRuntimeDiagnostics(
         "protectMonitorAlive" to protectMonitorAlive
     )
 }
+
+internal data class TunReleaseEvidence(
+    val ownedInterfaceActive: Boolean?,
+    val descriptorTargetsTun: Boolean?,
+    val descriptorAttachedToOwnedInterface: Boolean?
+)
+
+internal data class TunDescriptorInterface(
+    val readable: Boolean,
+    val name: String?
+)
 
 internal class NativeRuntimeDiagnosticsTracker {
     private data class TunOwnershipClaim(
@@ -59,7 +71,8 @@ internal class NativeRuntimeDiagnosticsTracker {
 
     fun releaseTunDescriptorIfClosed(
         tunInterfaces: () -> Set<String>? = ::activeTunInterfaceNames,
-        descriptorTarget: (Long) -> String? = ::descriptorTarget
+        descriptorTarget: (Long) -> String? = ::descriptorTarget,
+        descriptorInterface: (Long) -> TunDescriptorInterface = ::descriptorInterface
     ): Boolean {
         val claim = tunOwnershipClaim
         if (claim == null) {
@@ -72,14 +85,55 @@ internal class NativeRuntimeDiagnosticsTracker {
         if (ownedInterfaces.any(currentInterfaces::contains)) return false
         val target = descriptorTarget(claim.descriptor)
         if (target == UNKNOWN_DESCRIPTOR_TARGET ||
-            target == "/dev/tun" ||
-            target?.startsWith("/dev/tun") == true
+            target == "/dev/tun" || target?.startsWith("/dev/tun") == true
         ) {
-            return false
+            if (target == UNKNOWN_DESCRIPTOR_TARGET) return false
+            val currentDescriptorInterface = descriptorInterface(claim.descriptor)
+            if (!currentDescriptorInterface.readable) return false
+            val interfaceName = currentDescriptorInterface.name
+            if (interfaceName != null &&
+                descriptorBelongsToClaim(claim, interfaceName) != false
+            ) return false
         }
         if (tunOwnershipClaim !== claim) return false
         tunOwnershipClaim = null
         return true
+    }
+
+    fun tunReleaseEvidence(
+        tunInterfaces: () -> Set<String>? = ::activeTunInterfaceNames,
+        descriptorTarget: (Long) -> String? = ::descriptorTarget,
+        descriptorInterface: (Long) -> TunDescriptorInterface = ::descriptorInterface
+    ): TunReleaseEvidence {
+        val claim = tunOwnershipClaim
+            ?: return TunReleaseEvidence(false, false, false)
+        val currentInterfaces = tunInterfaces()
+        val ownedInterfaceActive = currentInterfaces?.let { current ->
+            resolveOwnedTunInterfaces(claim, current)?.any(current::contains)
+        }
+        val target = descriptorTarget(claim.descriptor)
+        val descriptorTargetsTun = when {
+            target == UNKNOWN_DESCRIPTOR_TARGET -> null
+            target == null -> false
+            else -> target == "/dev/tun" || target.startsWith("/dev/tun")
+        }
+        val descriptorAttachedToOwnedInterface = when (descriptorTargetsTun) {
+            null -> null
+            false -> false
+            true -> {
+                val currentDescriptorInterface = descriptorInterface(claim.descriptor)
+                if (!currentDescriptorInterface.readable) null else {
+                    currentDescriptorInterface.name?.let {
+                        descriptorBelongsToClaim(claim, it)
+                    } ?: false
+                }
+            }
+        }
+        return TunReleaseEvidence(
+            ownedInterfaceActive,
+            descriptorTargetsTun,
+            descriptorAttachedToOwnedInterface
+        )
     }
 
     fun snapshot(
@@ -118,6 +172,16 @@ internal class NativeRuntimeDiagnosticsTracker {
             tunOwnershipClaim = claim.copy(interfaceNames = resolvedInterfaces)
         }
         return resolvedInterfaces
+    }
+
+    private fun descriptorBelongsToClaim(
+        claim: TunOwnershipClaim,
+        interfaceName: String
+    ): Boolean? {
+        val knownInterfaces = claim.interfaceNames ?: return null
+        if (interfaceName in knownInterfaces) return true
+        val baselineInterfaces = claim.baselineInterfaceNames ?: return null
+        return interfaceName !in baselineInterfaces
     }
 
     private companion object {
@@ -162,6 +226,20 @@ internal class NativeRuntimeDiagnosticsTracker {
                 ) null else UNKNOWN_DESCRIPTOR_TARGET
             } catch (_: Exception) {
                 UNKNOWN_DESCRIPTOR_TARGET
+            }
+
+        fun descriptorInterface(descriptor: Long): TunDescriptorInterface =
+            try {
+                val interfaceName = File("/proc/self/fdinfo/$descriptor").useLines { lines ->
+                    lines.take(32)
+                        .firstOrNull { it.startsWith("iff:") }
+                        ?.substringAfter(':')
+                        ?.trim()
+                        ?.takeIf(String::isNotEmpty)
+                }
+                TunDescriptorInterface(readable = true, name = interfaceName)
+            } catch (_: Exception) {
+                TunDescriptorInterface(readable = false, name = null)
             }
     }
 }

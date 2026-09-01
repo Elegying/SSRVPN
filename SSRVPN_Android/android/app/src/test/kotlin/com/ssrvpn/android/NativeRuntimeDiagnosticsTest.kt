@@ -96,7 +96,10 @@ class NativeRuntimeDiagnosticsTest {
         assertFalse(
             tracker.releaseTunDescriptorIfClosed(
                 tunInterfaces = { emptySet() },
-                descriptorTarget = { "/dev/tun" }
+                descriptorTarget = { "/dev/tun" },
+                descriptorInterface = {
+                    TunDescriptorInterface(readable = true, name = "tun0")
+                }
             )
         )
         assertTrue(
@@ -157,6 +160,70 @@ class NativeRuntimeDiagnosticsTest {
             tracker.releaseTunDescriptorIfClosed(
                 tunInterfaces = { emptySet() },
                 descriptorTarget = { null }
+            )
+        )
+    }
+
+    @Test
+    fun `unbound reused TUN descriptor does not retain the old lease`() {
+        tracker.beginTunLease { emptySet() }
+        tracker.claimTunDescriptor(42) { setOf("tun0") }
+
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { "/dev/tun" },
+                descriptorInterface = {
+                    TunDescriptorInterface(readable = true, name = null)
+                }
+            )
+        )
+    }
+
+    @Test
+    fun `descriptor still attached to the owned TUN remains fail closed`() {
+        tracker.beginTunLease { emptySet() }
+        tracker.claimTunDescriptor(42) { setOf("tun0") }
+
+        assertFalse(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { "/dev/tun" },
+                descriptorInterface = {
+                    TunDescriptorInterface(readable = true, name = "tun0")
+                }
+            )
+        )
+    }
+
+    @Test
+    fun `descriptor reused by a baseline TUN does not retain the owned lease`() {
+        tracker.beginTunLease { setOf("tun0") }
+        tracker.claimTunDescriptor(42) { setOf("tun0", "tun1") }
+
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { setOf("tun0") },
+                descriptorTarget = { "/dev/tun" },
+                descriptorInterface = {
+                    TunDescriptorInterface(readable = true, name = "tun0")
+                }
+            )
+        )
+    }
+
+    @Test
+    fun `unreadable descriptor interface remains fail closed`() {
+        tracker.beginTunLease { emptySet() }
+        tracker.claimTunDescriptor(42) { setOf("tun0") }
+
+        assertFalse(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { "/dev/tun" },
+                descriptorInterface = {
+                    TunDescriptorInterface(readable = false, name = null)
+                }
             )
         )
     }
