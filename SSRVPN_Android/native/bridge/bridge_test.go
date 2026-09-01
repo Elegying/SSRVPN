@@ -7,6 +7,9 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/metacubex/mihomo/listener"
+	LC "github.com/metacubex/mihomo/listener/config"
 )
 
 type fixedRawConn uintptr
@@ -111,6 +114,26 @@ func TestStopCancelsProtectBeforeCoreLock(t *testing.T) {
 	case <-stopReturned:
 	case <-time.After(time.Second):
 		t.Fatal("Stop did not return after coreMu was released")
+	}
+}
+
+func TestStopResetsTunConfigForRepeatedDescriptor(t *testing.T) {
+	listener.LastTunConf = LC.Tun{
+		Enable:         true,
+		FileDescriptor: 128,
+	}
+	running = true
+
+	Stop()
+
+	if listener.LastTunConf.Enable {
+		t.Fatal("TUN config remained enabled after Stop")
+	}
+	if listener.LastTunConf.FileDescriptor != 0 {
+		t.Fatalf(
+			"TUN descriptor after Stop = %d, want 0",
+			listener.LastTunConf.FileDescriptor,
+		)
 	}
 }
 
