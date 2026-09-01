@@ -28,8 +28,8 @@ App 入口连续 20/20 轮连接与断开、10/10 轮连接中快速取消均保
 
 候选 APK 的版本仍是 4.0.19，因为它来自版本提升之前的精确修复提交；provenance 已把 APK
 绑定到上述 `main` 提交。v4.0.20 的版本提交只修改版本号、变更日志和发布证据，不改变该实测
-Android 运行路径；正式包仍必须由受保护 `main` 重新构建并完成摘要、签名谱系和 provenance
-终验。
+Android 运行路径。正式包已经由受保护 `main` 重新构建，并完成摘要、签名谱系、provenance、
+attestation 和公共下载终验。
 
 ## 候选包与供应链证据
 
@@ -78,6 +78,30 @@ Android 运行路径；正式包仍必须由受保护 `main` 重新构建并完�
 - 非标签 Release candidate
   [33545476322](https://github.com/Elegying/SSRVPN/actions/runs/33545476322) 从同一提交完成三端
   正式形态构建和产物验证；发布步骤按设计未执行。
+
+## 正式发布闭环
+
+- 正式版本 `4.0.20+4020` 的受保护 `main` 与标签 `v4.0.20` 精确指向
+  `c7667ff0075ae9b5c4848cb72de842b9b7bcbe07`；精确主分支 CI
+  [33553184498](https://github.com/Elegying/SSRVPN/actions/runs/33553184498)、
+  [Prepare Release 33554832427](https://github.com/Elegying/SSRVPN/actions/runs/33554832427) 和
+  [Release 33554866473](https://github.com/Elegying/SSRVPN/actions/runs/33554866473) 均成功。
+- [v4.0.20 正式 Release](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.20) 已公开，共七项
+  资产。APK SHA-256 为
+  `f6cae87cd42825bdae68dc9879605a5749414d357cea6b932883bbfc5497f977`，DMG 为
+  `2c988fb8b7563591763c2798e43a26d3f7587d2301390fa1e96a65dca59fa1f9`，Windows 安装器为
+  `3f662fb2670b3d2247ba170d024458a4c6d43a6f65633125771c29a55bf3fba3`；三份 sidecar、
+  Release API digest 和 provenance 一致。
+- 正式 APK 身份为 `com.ssrvpn.android`、`4.0.20+4020`，APK v2 单一 signer，证书 SHA-256
+  仍为 `caf5bb670e4513c4e3d7815a7314f489281c37f02827db07d0a59e1242f2cc0c`，16 KiB zipalign
+  通过。正式 DMG 为 `4.0.20+4020`、arm64，可校验和挂载，继续使用既定 ad-hoc 签名；
+  Windows 安装器摘要与 provenance 一致。
+- APK、DMG、EXE 的 Sigstore/SLSA attestation 均验证到同一标签、提交和正式工作流；OSS
+  `latest.json` 已指向 `4.0.20`，三个版本化资产独立完整下载后的摘要与 GitHub Release 一致。
+- 候选实机结论可以沿用到正式包：从实测提交 `ae83e52` 到正式提交 `c7667ff` 只修改三端版本、
+  共享版本常量、CHANGELOG 和发布证据，没有修改 Android TUN、VPN Service 或配置运行路径。
+  该差异边界不扩大实机结论；本报告保留的快捷磁贴 20 轮、原生 16 KiB、蜂窝/第二 VPN 和
+  其他 OEM 缺口仍保持原状态。
 
 ## 最终现场恢复
 

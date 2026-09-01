@@ -4,11 +4,11 @@
 
 当前应用版本：`v4.0.20`
 
-最新正式版本：[`v4.0.19`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.19)
+最新正式版本：[`v4.0.20`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.20)
 
 ## 当前结论
 
-`v4.0.20` 是针对 v4.0.19 两项实机问题的补丁候选：Android 停止事务现在能区分仍由应用
+`v4.0.20` 已正式发布，修复了 v4.0.19 暴露的两项实机问题：Android 停止事务现在能区分仍由应用
 持有的 TUN 与 MIUI 延迟移除但描述符已经关闭的接口，继续对未知或活动自有 TUN 失败关闭；
 Windows 安装事务会在成功提交后启动可信更新包清理助手，同时继续保留手动包、失败包和
 身份不匹配文件。“智能”、全局、订阅、节点格式和连接协议没有变化。
@@ -18,8 +18,8 @@ Windows 安装事务会在成功提交后启动可信更新包清理助手，同
 进程终止复现；完整证据见
 [v4.0.20 Android 修复候选报告](uat/SSRVPN_Android_v4.0.20_修复候选实机验收报告_20260902.md)。
 Windows 修复已通过正式安装器在线 smoke，但没有把线上自动化冒充新的桌面人工 UAT。
-当前最新公开版本仍是 v4.0.19；v4.0.20 需在版本提交合并后完成标签、Release、七项资产、
-摘要、provenance 和公共下载终验。
+受保护主分支、正式标签、GitHub Release、七项公开资产、摘要、provenance、GitHub
+Attestations 和 OSS 公共下载均已完成独立终验。
 
 本文件只记录当前状态和仍需跟进的证据边界。版本变更明细以
 [CHANGELOG](../CHANGELOG.md) 为准，硬性产品约束以
@@ -30,13 +30,14 @@ Windows 修复已通过正式安装器在线 smoke，但没有把线上自动化
 
 | 项目 | 当前结果 |
 | --- | --- |
-| 当前候选版本 | `4.0.20+4020`，三端 pubspec、共享常量和 CHANGELOG 一致；尚未创建标签或 Release |
+| 当前正式版本 | `4.0.20+4020`，三端 pubspec、共享常量、CHANGELOG、正式资产身份一致 |
 | 当前版本本地门禁 | Flutter `3.44.1` 下完整 `make verify` 退出码 0；版本、文档、格式、三端测试和覆盖率门禁全部通过 |
-| 修复源码 | 受保护 `main` 提交 [`ae83e52`](https://github.com/Elegying/SSRVPN/commit/ae83e529a60830e51054b710db764293dcf53732)；版本提升只允许修改版本和证据文件 |
-| 精确修复 `main` CI | [`33543771035`](https://github.com/Elegying/SSRVPN/actions/runs/33543771035) 成功；工作区、Android、macOS、Windows、安全与原生门禁全部通过 |
-| 三端候选构建 | [`33545476322`](https://github.com/Elegying/SSRVPN/actions/runs/33545476322) 成功；Android APK、macOS DMG、Windows 安装器和 shared 全部通过，发布步骤按非标签运行设计跳过 |
-| Android 实机候选 | APK SHA-256 `432e385f…6ae`；App 20/20、快速取消 10/10、后台/Doze 与真实 HTTPS 通过 |
-| 最新正式版本 | [`v4.0.19`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.19) 仍公开；v4.0.20 标签、七项资产和公共通道待本轮正式发布 |
+| 正式源码与标签 | 受保护 `main` 提交 [`c7667ff`](https://github.com/Elegying/SSRVPN/commit/c7667ff0075ae9b5c4848cb72de842b9b7bcbe07)；带注释标签 `v4.0.20` 精确解引用到该提交 |
+| 精确正式 `main` CI | [`33553184498`](https://github.com/Elegying/SSRVPN/actions/runs/33553184498) 成功；工作区、Android、macOS、Windows、安全与原生门禁全部通过 |
+| 标签与正式构建 | [`Prepare Release 33554832427`](https://github.com/Elegying/SSRVPN/actions/runs/33554832427) 和 [`Release 33554866473`](https://github.com/Elegying/SSRVPN/actions/runs/33554866473) 均成功 |
+| Android 实机 | 修复候选 App 20/20、快速取消 10/10、后台/Doze 与真实 HTTPS 通过；正式 APK 与候选之间只有版本和证据变更 |
+| 正式公开资产 | [`v4.0.20`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.20) 共七项资产；APK `f6cae87c…f977`、DMG `2c988fb8…fa1f9`、EXE `3f662fb2…fba3`，摘要、provenance 与 attestation 一致 |
+| OSS 公共通道 | `latest.json` 已指向 `4.0.20`；三端版本化资产完整下载后的 SHA-256 与 GitHub Release 逐项一致 |
 
 发布流程在三平台产物和 shared 测试全部成功后才获准进入 `release` 环境；
 Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最终发布按事务顺序完成。
@@ -49,9 +50,9 @@ Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最�
 | 安全、隐私与供应链 | 19/20 | 订阅和更新输入有界，日志与诊断脱敏，进程和系统设置按所有权处理，正式资产可校验来源 |
 | 架构与可维护性 | 18/20 | 以描述符证据和现有清理助手完成局部修复，没有放宽所有权边界或引入新依赖 |
 | 测试与 CI | 19/20 | 九项受保护检查、完整三端门禁、候选构建和 Android 真实故障机回归通过；仍缺部分硬件矩阵 |
-| 发布工程 | 10/12 | 候选资产、摘要、签名谱系和 provenance 已预验；v4.0.20 正式标签、公开资产与通道终验待执行 |
+| 发布工程 | 12/12 | 精确标签、三端正式构建、七项公开资产、摘要、provenance、attestation 和 OSS 公共通道均已终验 |
 | 文档与治理 | 8/8 | README、用户指南、安全策略、ADR、UAT、维护手册与正式发布证据齐全 |
-| **综合** | **93/100** | **修复候选达到补丁发版条件；正式发布事务和发布后公开资产复验尚未完成** |
+| **综合** | **95/100** | **达到成熟正式发布状态；剩余缺口是扩大设备与人工场景证据，不阻断当前补丁版本** |
 
 ## 自动化验证摘要
 
@@ -87,11 +88,11 @@ Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最�
 
 ## 下一阶段优先级
 
-1. 合并 v4.0.20 版本与证据提交，等待精确 `main` 的九项必需检查全部成功。
-2. 通过 `Prepare Release` 创建不可变 `v4.0.20` 标签，等待三端正式构建和发布事务完成。
-3. 重新下载七项公开资产，核对 SHA-256、Android 签名谱系、三端版本身份、provenance、attestation 和 OSS 公共通道。
-4. 发布后回填精确标签、CI、Release、资产摘要和公共下载证据，并关闭已完成的 Android 故障 Issue。
-5. 后续补齐原生 16 KiB Android、可靠的 MIUI 磁贴 20 轮、蜂窝/第二 VPN/更多 OEM，以及 Windows 被策略阻塞的人工场景。
+1. 在可可靠记录独立单击的 MIUI 环境中补做快捷磁贴 20 轮连接/断开，证明 UI、Service、TUN 和最终状态始终一致。
+2. 在原生 16 KiB page-size Android 设备上完成安装、连接、真实数据路径、断开和覆盖升级，补齐结构检查无法替代的硬件证据。
+3. 扩展 Android 真机矩阵：补做蜂窝/Wi-Fi 切换、第二 VPN 竞争、至少一种其他 OEM 后台策略，并建立同机同口径空闲电量基线。
+4. 在普通 Windows 桌面会话补做修复后 UAT，重点保留 UAC 取消、托盘正常退出和可信更新安装器清理的可复核证据。
+5. 在 macOS 补做持续离线后的取消与网络恢复专项；如需更早发现现场问题，可在不上传用户流量内容的前提下建立可选本地诊断趋势基线。
 
 ## 更新规则
 
