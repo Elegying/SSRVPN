@@ -309,9 +309,7 @@ try {
     $InstallerProcessId
   )
   try {
-    if (-not $installerProcess.WaitForExit(120000)) {
-      exit 0
-    }
+    $installerProcess.WaitForExit()
   } finally {
     $installerProcess.Dispose()
   }

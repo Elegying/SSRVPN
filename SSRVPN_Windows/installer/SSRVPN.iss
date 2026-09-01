@@ -723,6 +723,8 @@ begin
     Log('SSRVPN could not remove a verified stale opposite-scope uninstall entry.');
 end;
 
+procedure LaunchVerifiedUpdatePackageCleanup; forward;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
@@ -736,6 +738,8 @@ begin
           LastProgramFilesTransactionStatus + '。');
     end;
     InstallSucceeded := True;
+    if VerifiedUpdateCleanupRequested then
+      LaunchVerifiedUpdatePackageCleanup;
     try
       RemoveVerifiedOppositeScopeUninstallEntry;
     except
@@ -815,8 +819,6 @@ begin
   if InstallSucceeded then
   begin
     LaunchPostInstallCleanup;
-    if VerifiedUpdateCleanupRequested then
-      LaunchVerifiedUpdatePackageCleanup;
   end;
 end;
 

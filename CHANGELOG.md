@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 修复
+
+- Android 停止 VPN 时继续要求 Bridge 与原始 TUN 描述符完成关闭，但只把仍处于活动状态的自有 TUN 接口视为未释放；Android 11 短暂保留的非活动接口名称不再误触发 fail-closed 进程终止，未知基线、活动接口或描述符仍存在时仍会安全失败。
+- Windows 在安装事务成功后、原用户启动通道仍可用时立即启动可信更新包清理助手；助手绑定当前安装器进程并等待其实际退出，再复用原有 sidecar、SHA-256、NTFS owner stream、普通文件与路径身份校验删除应用内更新包。手动包、失败包和身份不匹配文件继续保留。
+
+### 验收
+
+- 固化 v4.0.19 Windows、Android 与 macOS 脱敏实机证据，明确 Android 连接循环和 Windows 安装包清理两个修复版放行项；macOS 持续离线取消、原生 16 KiB Android、蜂窝切换与更多 OEM 覆盖继续保持未执行或阻塞，不以自动化替代真机结论。
+
 ## [4.0.19] - 2026-09-01
 
 ### 功能

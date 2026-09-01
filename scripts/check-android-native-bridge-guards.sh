@@ -831,6 +831,7 @@ for required in (
     "baselineInterfaceNames",
     "releaseTunDescriptorIfClosed",
     "tunInterfaceNames",
+    "activeTunInterfaceNames",
     'Os.readlink("/proc/self/fd/$descriptor")',
     "resolveOwnedTunInterfaces(claim, currentTunInterfaces)",
     "bridgeReady = bridgeReady",

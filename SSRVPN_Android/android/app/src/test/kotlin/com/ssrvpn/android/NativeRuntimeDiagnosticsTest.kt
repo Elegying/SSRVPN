@@ -149,6 +149,19 @@ class NativeRuntimeDiagnosticsTest {
     }
 
     @Test
+    fun `inactive lingering TUN releases after fd closes`() {
+        tracker.beginTunLease { emptySet() }
+        tracker.claimTunDescriptor(42) { setOf("tun0") }
+
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { emptySet() },
+                descriptorTarget = { null }
+            )
+        )
+    }
+
+    @Test
     fun `unknown TUN baseline remains fail closed after fd release`() {
         tracker.beginTunLease { null }
         tracker.claimTunDescriptor(42) { null }

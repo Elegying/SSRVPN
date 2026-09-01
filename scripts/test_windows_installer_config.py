@@ -171,13 +171,17 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             post_install.index("CommitProgramFilesTransaction"),
             post_install.index("InstallSucceeded := True"),
         )
+        self.assertLess(
+            post_install.index("InstallSucceeded := True"),
+            post_install.index("LaunchVerifiedUpdatePackageCleanup"),
+        )
         deinitialize = installer.split("procedure DeinitializeSetup;", 1)[1].split(
             "function InitializeUninstall", 1
         )[0]
         self.assertIn("if InstallSucceeded then", deinitialize)
         self.assertIn("LaunchPostInstallCleanup", deinitialize)
-        self.assertIn("if VerifiedUpdateCleanupRequested then", deinitialize)
-        self.assertIn("LaunchVerifiedUpdatePackageCleanup", deinitialize)
+        self.assertNotIn("VerifiedUpdateCleanupRequested", deinitialize)
+        self.assertNotIn("LaunchVerifiedUpdatePackageCleanup", deinitialize)
         self.assertIn("ExecAsOriginalUser", installer)
         cleanup_launcher = installer.split(
             "procedure LaunchPostInstallCleanup;", 1
@@ -197,10 +201,6 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             package_cleanup_launcher,
         )
         self.assertIn("IntToStr(WinGetCurrentProcessId)", package_cleanup_launcher)
-        self.assertLess(
-            deinitialize.index("LaunchPostInstallCleanup"),
-            deinitialize.index("LaunchVerifiedUpdatePackageCleanup"),
-        )
 
         self.assertIn("SpecialFolder]::DesktopDirectory", cleanup)
         self.assertIn("SpecialFolder]::Programs", cleanup)
@@ -228,7 +228,8 @@ class WindowsInstallerConfigTest(unittest.TestCase):
             cleanup.index("Get-FileHash -LiteralPath $InstallerPath"),
         )
         self.assertIn("ReparsePoint", cleanup)
-        self.assertIn("WaitForExit(120000)", cleanup)
+        self.assertIn("$installerProcess.WaitForExit()", cleanup)
+        self.assertNotIn("WaitForExit(120000)", cleanup)
         self.assertIn(
             "Move-Item -LiteralPath $markerPath -Destination $markerQuarantinePath",
             cleanup,

@@ -21,6 +21,24 @@ VPN、代理、TUN、安装、无障碍及电量在目标系统上实际成立�
 每个失败必须附最小复现步骤、发生时间、应用诊断、系统日志和预期结果；禁止上传原始订阅、
 节点密码、Token、API secret、用户名路径或未脱敏截图。
 
+## 2026-09-01 v4.0.19 Android / macOS 增量验收快照
+
+- Android 正式 APK 已在 Redmi Note 8 / Android 11 上完成安装、首次启动、VPN 授权拒绝后重试、真实 `CONNECTED/VALIDATED` 数据路径、通知、快捷磁贴、同版本覆盖和恢复验证；真实 HTTPS 探针返回 204。
+- Android C-03/C-04 失败：快速连接/断开第 2 轮、正常节奏第 5 轮均出现“自有 TUN lease 仍存在”，应用按 fail-closed 设计终止进程后恢复。旧 TUN 与数据端口最终清理，但进程稳定性不满足 20 轮标准；见 [#167](https://github.com/Elegying/SSRVPN/issues/167)。
+- Android 锁屏强制 Doze 30 分钟后保持同一 PID、前台 Service、`tun0` 与 `CONNECTED/VALIDATED` VPN，真实 HTTPS 探针仍返回 204；Wi-Fi 中断后请求有界失败，恢复后同一会话重新返回 204。设备无 SIM，蜂窝切换仍为 BLOCKED。
+- Android 实际启用 TalkBack 与 200% 字体，关键控件可取得无障碍焦点并由键盘顺序到达；诊断报告写入后读回一致，且对真实剪贴板的无正文扫描未命中 URL、非回环私网 IP、本机用户名路径或 fixture 敏感值。设备为 4 KiB page size，正式 core 的 16 KiB ELF 对齐不冒充原生 16 KiB 硬件 UAT。
+- macOS 正式 DMG 已完成系统代理连接/断开、GUI 异常退出恢复、TUN 授权取消与同意、真实 TUN 数据路径、DNS 防泄漏与正常断开恢复；应用退出重开和单实例行为通过。持续离线取消未取得有效证据，保持“未执行”。
+- macOS Developer ID/notarization 和 Windows Authenticode 已由维护者再次明确为“不需要”，继续按免费 ad-hoc / 未公证和 Windows 未签名分发，不列为缺口。
+- 完整步骤、日志摘要和未执行边界见 [v4.0.19 Android/macOS 实机验收报告](uat/SSRVPN_Android_MacOS_v4.0.19_实机验收报告_20260901.md)。
+
+## 2026-09-01 v4.0.19 Windows 增量验收快照
+
+- 完整脱敏报告见 [v4.0.19 Windows 实机验收报告](uat/SSRVPN_Windows_v4.0.19_实机验收报告_20260901.md)。
+- Windows 11 正式安装版完成 4.0.17 -> 4.0.19 覆盖升级、用户数据保留、系统代理、TUN 数据路径，以及系统代理/TUN 的 GUI 异常退出恢复；正式资产、SHA-256 和 provenance 一致。
+- Windows 内置更新器下载并正确标记的 4.0.19 安装包，在安装成功并完整等待 130 秒后仍未自动清理；隔离复现结果相同。手动未标记安装器正确保留。该失败阻断本轮发布放行。
+- 本机 UAC 管理员策略自动批准，因此弹窗同意/取消路径保持 `blocked`；托盘菜单正常退出无法由当前高完整性自动化会话可靠触发，同样保持 `blocked`。
+- Windows 执行主机本轮没有 macOS 主机或 Android 真机，因此该报告不评价另外两端；项目当前 macOS/Android 结果见同日独立实机报告。自动化和包结构证据仍不替代真机。
+
 ## 2026-08-22 v4.0.16 正式发布证据边界
 
 - `v4.0.16` 已正式发布，标签、`main` 和版本基线均为 `f85135ad5f50908982fa31a94cdb527f1b3d958c`；精确 `main` CI、Release workflow、三端正式资产、SHA-256、provenance、GitHub Attestations 和 OSS 公共通道均已通过。它们属于自动化与公开资产证据，不替代下列人工实机项目。
