@@ -243,6 +243,19 @@ void main() {
     expect(service.proxyOwnershipInspectionCalls, 0);
   });
 
+  test('a successful recovery health recheck restores the running state',
+      () async {
+    final service = _HealthyHealthRecoveryClashService();
+    addTearDown(service.dispose);
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(false);
+
+    expect(await service.recoverAfterHealthCheckFailure(generation), isTrue);
+    expect(service.isRunning, isTrue);
+    expect(service.connectionDesired, isTrue);
+    expect(service.stopCalls, 0);
+  });
+
   test(
       'unexpected core exit clears external takeover state without restarting or reacquiring',
       () async {
@@ -627,6 +640,79 @@ void main() {
     expect(service.automaticRecoveryStartCalls, 0);
     expect(notices, isEmpty);
   });
+
+  test('current TUN teardown timeout cancels recovery with an actionable error',
+      () async {
+    final notices = <RuntimeNotice>[];
+    final service = _SerializedUnexpectedExitRecoveryClashService()
+      ..onRuntimeNotice = notices.add;
+    addTearDown(service.dispose);
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(false);
+
+    final recovery = service.simulateUnexpectedTunExit(generation);
+    await service.tunTeardownStarted.future;
+    service.tunTeardownResult.complete(false);
+    await recovery;
+
+    expect(service.connectionDesired, isFalse);
+    expect(service.automaticRecoveryStartCalls, 0);
+    expect(service.lastStartError, contains('TUN'));
+    expect(notices.single.message, contains('TUN'));
+  });
+
+  test('a third unexpected exit exhausts the bounded automatic recovery budget',
+      () async {
+    final notices = <RuntimeNotice>[];
+    final service = _SerializedUnexpectedExitRecoveryClashService()
+      ..onRuntimeNotice = notices.add;
+    addTearDown(service.dispose);
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async =>
+          'mixed-port: ${runtimeSettings.proxyPort}',
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(false);
+
+    await service.simulateUnexpectedExit(generation);
+    service.setRunning(false);
+    await service.simulateUnexpectedExit(generation);
+    service.setRunning(false);
+    await service.simulateUnexpectedExit(generation);
+
+    expect(service.automaticRecoveryStartCalls, 2);
+    expect(service.connectionDesired, isFalse);
+    expect(
+      notices.last.message,
+      allOf(contains('再次异常退出'), contains('请重新连接')),
+    );
+  });
+
+  test('automatic restart failure clears connection intent and reports it',
+      () async {
+    final notices = <RuntimeNotice>[];
+    final service = _FailedAutomaticRecoveryClashService()
+      ..onRuntimeNotice = notices.add;
+    addTearDown(service.dispose);
+    service.rememberDesktopConnectionRecoveryPlan(
+      preferredSettings: AppSettings(),
+      generateConfig: (runtimeSettings, preferredNodeName) async =>
+          'mixed-port: ${runtimeSettings.proxyPort}',
+      isRevisionCurrent: () => true,
+    );
+    final generation = service.requestConnectionIntent(true);
+    service.setRunning(false);
+
+    await service.simulateUnexpectedExit(generation);
+
+    expect(service.automaticRecoveryStartCalls, 1);
+    expect(service.connectionDesired, isFalse);
+    expect(service.isRunning, isFalse);
+    expect(service.lastStartError, contains('拒绝启动'));
+    expect(notices.single.message, contains('正在自动恢复'));
+  });
 }
 
 class _ExternalProxyTakeoverRecoveryClashService extends ClashService {
@@ -732,6 +818,19 @@ class _StaleHealthProbeRecoveryClashService
   }
 }
 
+class _HealthyHealthRecoveryClashService extends ClashService {
+  int stopCalls = 0;
+
+  @override
+  Future<bool> healthCheck() async => true;
+
+  @override
+  Future<void> stop() async {
+    stopCalls++;
+    setRunning(false);
+  }
+}
+
 class _ProxyChangedDuringCleanupRecoveryClashService
     extends _ExternalProxyTakeoverRecoveryClashService {
   @override
@@ -827,5 +926,15 @@ class _SerializedUnexpectedExitRecoveryClashService extends ClashService {
     automaticRecoveryStartCalls++;
     setRunning(true);
     return true;
+  }
+}
+
+class _FailedAutomaticRecoveryClashService
+    extends _SerializedUnexpectedExitRecoveryClashService {
+  @override
+  Future<bool> startForAutomaticRecovery() async {
+    automaticRecoveryStartCalls++;
+    setLastStartError('测试核心拒绝启动');
+    return false;
   }
 }

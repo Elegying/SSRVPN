@@ -1,31 +1,31 @@
-name: Bug report
-description: Report a reproducible problem in SSRVPN.
-title: "[Bug]: "
+name: Bug 报告
+description: 报告可以稳定复现的 SSRVPN 问题。
+title: "[Bug] "
 labels: ["bug"]
 body:
   - type: dropdown
     id: platform
     attributes:
-      label: Platform
+      label: 受影响平台
       options:
         - Android
         - macOS
         - Windows
-        - Shared package
-        - CI/release
+        - 跨平台共享逻辑
+        - CI / 发布
     validations:
       required: true
   - type: textarea
     id: description
     attributes:
-      label: What happened?
-      description: Describe the behavior and what you expected instead.
+      label: 问题描述
+      description: 请分别说明实际发生了什么，以及你原本期望什么。
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Reproduction steps
+      label: 最短复现步骤
       placeholder: |
         1. ...
         2. ...
@@ -35,39 +35,39 @@ body:
   - type: textarea
     id: logs
     attributes:
-      label: Logs or screenshots
-      description: Redact subscription URLs, API secrets, passwords, bearer tokens, and proxy credentials.
+      label: 已脱敏的日志或截图
+      description: 请移除订阅 URL、Token、API secret、密码、节点地址、Bearer token、个人路径和代理凭据。
       render: text
   - type: input
     id: version
     attributes:
-      label: Version or commit
-      placeholder: Latest release tag or commit SHA
+      label: SSRVPN 版本或提交
+      placeholder: 例如 v4.0.19 或完整 commit SHA
     validations:
       required: true
   - type: input
     id: environment
     attributes:
-      label: OS and device
-      description: Include the OS version and device model or CPU architecture when known.
-      placeholder: Android 16 / Pixel 9, macOS 26 / Apple silicon, or Windows 11 / x64
+      label: 系统与设备
+      description: 请提供操作系统版本、设备型号和 CPU 架构（如已知）。
+      placeholder: Android 16 / Pixel 9、macOS 26 / Apple M 系列，或 Windows 11 / x64
     validations:
       required: true
   - type: dropdown
     id: connection_mode
     attributes:
-      label: Connection mode
+      label: 连接方式
       options:
-        - Android system VPN
-        - System proxy
+        - Android 系统 VPN
+        - 系统代理
         - TUN
-        - Not connected / not applicable
+        - 未连接 / 不适用
     validations:
       required: true
   - type: checkboxes
     id: sensitive_data
     attributes:
-      label: Sensitive data check
+      label: 敏感信息确认
       options:
-        - label: I removed subscription URLs, API secrets, passwords, bearer tokens, proxy credentials, and private server addresses.
+        - label: 我已移除订阅 URL、Token、API secret、密码、Bearer token、节点地址、个人路径和代理凭据。
           required: true

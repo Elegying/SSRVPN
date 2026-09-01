@@ -189,6 +189,9 @@ class ClashConfigGenerator {
           () => AppConstants.trustedProxyNameservers,
         );
       }
+      nameserverPolicies[
+              'rule-set:${AppConstants.geositeGfwRuleProviderName}'] =
+          AppConstants.trustedProxyNameservers;
       nameserverPolicies['rule-set:${AppConstants.geositeCnRuleProviderName}'] =
           AppConstants.domesticDohNameservers;
       nameserverPolicies['+.cn'] = AppConstants.domesticDohNameservers;
@@ -276,25 +279,34 @@ class ClashConfigGenerator {
     result.writeln('rule-providers:');
     _writeRuleProvider(
       result,
+      name: AppConstants.geositeGfwRuleProviderName,
+      behavior: 'domain',
+      path: AppConstants.geositeGfwRuleProviderPath,
+      url: AppConstants.geositeGfwRuleProviderUrl,
+    );
+    _writeRuleProvider(
+      result,
       name: AppConstants.geositeCnRuleProviderName,
       behavior: 'domain',
       path: AppConstants.geositeCnRuleProviderPath,
       url: AppConstants.geositeCnRuleProviderUrl,
     );
-    // 规则。按首次出现顺序去重，确保用户强制代理优先于内置直连，
-    // 同时避免重复 matcher 让运行配置含义变得含混。
+    // 规则。按首次出现顺序去重：IPv6/私网安全、用户强制代理、
+    // 内置强制代理、GFW 代理、CN 直连、固定直连，最后默认直连。
     final orderedRules = <String>{AppConstants.rejectIpv6Rule};
+    orderedRules.addAll(AppConstants.defaultPrivateDirectRules);
     orderedRules.addAll(buildForceProxyRules(settings));
-    orderedRules.addAll(
-      extraRulesBeforeDirect.map((rule) => rule.trim()).where(
-            (rule) => rule.isNotEmpty,
-          ),
-    );
     orderedRules.addAll(
       AppConstants.defaultProxyDomainSuffixes.map(
         (domain) => 'DOMAIN-SUFFIX,$domain,PROXY',
       ),
     );
+    orderedRules.addAll(
+      extraRulesBeforeDirect.map((rule) => rule.trim()).where(
+            (rule) => rule.isNotEmpty,
+          ),
+    );
+    orderedRules.addAll(AppConstants.defaultRuleProviderProxyRules);
     orderedRules.addAll(AppConstants.defaultRuleProviderDirectRules);
     orderedRules.addAll(AppConstants.defaultDirectRules);
     orderedRules.add(AppConstants.defaultGeoIpDirectRule);

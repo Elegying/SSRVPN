@@ -310,6 +310,22 @@ void main() {
     expect(service.connectionDesired, isTrue);
   });
 
+  test('data-plane observation is throttled within one route session',
+      () async {
+    final service = _AdvisoryTunDataPlaneClashService()
+      ..observationInterval = const Duration(hours: 1)
+      ..updateSettings(AppSettings(enableTun: true))
+      ..requestConnectionIntent(true)
+      ..setRunning(true);
+    addTearDown(service.dispose);
+
+    await service.runDataPlaneObservation();
+    await service.runDataPlaneObservation();
+
+    expect(service.probeCalls, 1);
+    expect(service.shouldContinueResult, isTrue);
+  });
+
   test('a route change starts one fresh probe and rejects the old result',
       () async {
     final service = _ControllableDataPlaneClashService()
@@ -341,6 +357,8 @@ class _AdvisoryTunDataPlaneClashService extends ClashService {
   String? nextWarning = 'external endpoint blocked';
   int probeCalls = 0;
   bool recoveryListenerActive = false;
+  bool? shouldContinueResult;
+  Duration observationInterval = Duration.zero;
 
   @override
   bool get proxyRecoveryListenerActive => recoveryListenerActive;
@@ -350,7 +368,7 @@ class _AdvisoryTunDataPlaneClashService extends ClashService {
   void beginNewDataPlaneSession() => resetTunDataPlaneObservationSession();
 
   @override
-  Duration get tunDataPlaneObservationInterval => Duration.zero;
+  Duration get tunDataPlaneObservationInterval => observationInterval;
 
   @override
   Future<String?> verifyUserConnectivity({
@@ -360,6 +378,7 @@ class _AdvisoryTunDataPlaneClashService extends ClashService {
     bool Function()? shouldContinue,
   }) async {
     probeCalls++;
+    shouldContinueResult = shouldContinue?.call();
     return nextWarning;
   }
 }

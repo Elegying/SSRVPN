@@ -518,10 +518,26 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download all artifacts
+      # Download each required platform artifact explicitly. A name-less bulk
+      # download succeeds when GitHub temporarily returns an empty artifact
+      # list, which defers the real error until provenance generation.
+      - name: Download Android artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          path: artifacts
+          name: android
+          path: artifacts/android
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: macos
+          path: artifacts/macos
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: windows
+          path: artifacts/windows
 
       - name: Generate release notes
         id: notes

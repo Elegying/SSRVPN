@@ -2539,7 +2539,7 @@ class WindowsInstallerConfigTest(unittest.TestCase):
         capture = lifecycle.index(
             "capture: _captureCorePidRecord", establish
         )
-        persist = lifecycle.index("persist: _writeCorePid", establish)
+        persist = lifecycle.index("persist: writeCorePid", establish)
         current = lifecycle.index(
             "ensureStartCurrent: () => _ensureStartCurrent(startToken)",
             establish,

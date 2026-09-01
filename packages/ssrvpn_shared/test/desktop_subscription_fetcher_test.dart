@@ -4,21 +4,22 @@ import 'dart:io';
 
 import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/services/desktop_subscription_fetcher.dart';
+import 'package:ssrvpn_shared/services/subscription_fetch_policy.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('direct fetch also negotiates the compatibility UA only once', () async {
+  test('direct fetch negotiates all four client identities in order', () async {
     final userAgents = <String>[];
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final subscription = server.listen((request) {
       final userAgent =
           request.headers.value(HttpHeaders.userAgentHeader) ?? '';
       userAgents.add(userAgent);
-      if (userAgent.startsWith('clash-verge/v')) {
+      if (userAgent.startsWith('Shadowrocket/')) {
         request.response
           ..statusCode = HttpStatus.ok
-          ..write(_validYaml)
+          ..write(_shadowrocketSubscription)
           ..close();
       } else {
         request.response
@@ -27,6 +28,8 @@ void main() {
       }
     });
     final directSockets = [
+      await Socket.connect(server.address, server.port),
+      await Socket.connect(server.address, server.port),
       await Socket.connect(server.address, server.port),
       await Socket.connect(server.address, server.port),
     ];
@@ -50,11 +53,8 @@ void main() {
             Future.value(directSockets[socketIndex++]),
       );
 
-      expect(result.body, contains('Valid Node'));
-      expect(userAgents, [
-        AppConstants.appUserAgent,
-        'clash-verge/v2.4.0 ${AppConstants.appUserAgent}',
-      ]);
+      expect(result.body, contains('Shadow Node'));
+      expect(userAgents, SubscriptionFetchPolicy.userAgents);
     } finally {
       for (final socket in directSockets) {
         socket.destroy();
@@ -64,14 +64,15 @@ void main() {
     }
   });
 
-  test('retries once with the compatibility UA after HTTP 403', () async {
+  test('regular fetch reaches the third client identity after refusals',
+      () async {
     final userAgents = <String>[];
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final subscription = server.listen((request) {
       final userAgent =
           request.headers.value(HttpHeaders.userAgentHeader) ?? '';
       userAgents.add(userAgent);
-      if (userAgent.startsWith('clash-verge/v')) {
+      if (userAgent.startsWith('v2rayN/')) {
         request.response
           ..statusCode = HttpStatus.ok
           ..write(_validYaml)
@@ -91,17 +92,14 @@ void main() {
       );
 
       expect(result.body, contains('Valid Node'));
-      expect(userAgents, [
-        AppConstants.appUserAgent,
-        'clash-verge/v2.4.0 ${AppConstants.appUserAgent}',
-      ]);
+      expect(userAgents, SubscriptionFetchPolicy.userAgents.take(3));
     } finally {
       await subscription.cancel();
       await server.close(force: true);
     }
   });
 
-  test('an unparseable success gets only one compatibility retry', () async {
+  test('an unparseable success stops after four identity attempts', () async {
     final userAgents = <String>[];
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final subscription = server.listen((request) {
@@ -123,9 +121,91 @@ void main() {
         ),
         throwsA(isA<Exception>()),
       );
-      expect(userAgents, hasLength(2));
-      expect(userAgents.last, startsWith('clash-verge/v'));
+      expect(userAgents, SubscriptionFetchPolicy.userAgents);
     } finally {
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test('HTTP 429 neither rotates identities nor consumes transport retries',
+      () async {
+    final userAgents = <String>[];
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final subscription = server.listen((request) {
+      userAgents.add(
+        request.headers.value(HttpHeaders.userAgentHeader) ?? '',
+      );
+      request.response
+        ..statusCode = HttpStatus.tooManyRequests
+        ..close();
+    });
+
+    try {
+      await expectLater(
+        DesktopSubscriptionFetcher.fetch(
+          'http://127.0.0.1:${server.port}/subscription',
+          allowDirectFetch: false,
+          maxRetries: 3,
+        ),
+        throwsA(
+          isA<SubscriptionHttpStatusException>().having(
+            (error) => error.statusCode,
+            'statusCode',
+            HttpStatus.tooManyRequests,
+          ),
+        ),
+      );
+      expect(userAgents, [AppConstants.appUserAgent]);
+    } finally {
+      await subscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test('direct HTTP 429 does not fall through to the regular channel',
+      () async {
+    final userAgents = <String>[];
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final subscription = server.listen((request) {
+      userAgents.add(
+        request.headers.value(HttpHeaders.userAgentHeader) ?? '',
+      );
+      request.response
+        ..statusCode = HttpStatus.tooManyRequests
+        ..close();
+    });
+    final directSocket = await Socket.connect(server.address, server.port);
+
+    try {
+      await expectLater(
+        IOOverrides.runZoned(
+          () => DesktopSubscriptionFetcher.fetch(
+            'http://direct-limit.test:${server.port}/subscription',
+            allowDirectFetch: true,
+            maxRetries: 3,
+            directAddressLookup: (_) async => [InternetAddress('1.1.1.1')],
+          ),
+          socketConnect: (
+            host,
+            port, {
+            sourceAddress,
+            sourcePort = 0,
+            timeout,
+          }) =>
+              Future.value(directSocket),
+        ),
+        throwsA(
+          isA<SubscriptionHttpStatusException>().having(
+            (error) => error.statusCode,
+            'statusCode',
+            HttpStatus.tooManyRequests,
+          ),
+        ),
+      );
+      expect(userAgents, [AppConstants.appUserAgent]);
+    } finally {
+      directSocket.destroy();
       await subscription.cancel();
       await server.close(force: true);
     }
@@ -365,3 +445,10 @@ proxies:
     cipher: aes-128-gcm
     password: test
 ''';
+
+final _shadowrocketSubscription = base64Encode(
+  utf8.encode(
+    'STATUS=Available\n'
+    'ss://aes-256-gcm:pass123@1.2.3.4:8388#Shadow%20Node',
+  ),
+);

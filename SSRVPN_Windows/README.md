@@ -7,9 +7,11 @@ Windows 管理员权限，因此每次启动都会显示 UAC；授权后系统�
 实例中运行。安装完成后不会自动启动客户端，用户需从桌面或开始菜单自行打开并确认 UAC。
 Windows 对外只发布每用户安装器 `SSRVPN_Setup.exe`；不再构建或发布便携 ZIP。
 
+[下载正式版](https://github.com/Elegying/SSRVPN/releases/latest) · [用户指南](USER_GUIDE.md) · [获取帮助](../SUPPORT.md) · [返回主项目](../README.md)
+
 ## 构建要求
 
-- Flutter SDK 3.44.1 或兼容 stable 版本；
+- Flutter SDK **3.44.1**，其他 stable 版本不能替代；
 - Visual Studio 2022，安装“使用 C++ 的桌面开发”工作负载；
 - Inno Setup 6.5 或更高版本；
 - Windows 10 1507（build 10240）或更高版本的 x64 Windows。

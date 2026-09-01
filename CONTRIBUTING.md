@@ -7,6 +7,13 @@ SSRVPN 是一个多平台 Flutter Monorepo：
 
 参与本项目即表示同意遵守[社区行为准则](CODE_OF_CONDUCT.md)。
 
+## 开始之前
+
+1. 先搜索已有 Issue 和 Pull Request，避免重复工作。
+2. Bug 请提供最短复现步骤；较大的功能建议先开 Issue 对齐范围。
+3. 安全问题不要公开讨论，改用[私有漏洞报告](SECURITY.md)。
+4. 项目固定 Flutter `3.44.1`，请先准备一致的工具链。
+
 ## 开发规则
 
 - `main` 分支保持稳定，新功能使用 `feature/*` 分支，修复使用 `fix/*` 分支，维护类改动使用 `chore/*` 分支。
@@ -21,24 +28,14 @@ SSRVPN 是一个多平台 Flutter Monorepo：
 先在仓库根目录执行完整门禁：
 
 ```bash
-make verify
+mise x flutter@3.44.1 -- make verify
 ```
 
-更快的日常检查可以按层执行。共享包检查：
+更快的日常检查可以按层执行：
 
 ```bash
-cd packages/ssrvpn_shared
-dart pub get
-dart test
-dart analyze
-```
-
-平台应用检查：
-
-```bash
-flutter pub get
-flutter analyze
-flutter test
+mise x flutter@3.44.1 -- scripts/workspace.sh analyze
+mise x flutter@3.44.1 -- scripts/workspace.sh test
 ```
 
 修改共享行为时，需要在三端应用目录都执行平台检查。提交 PR 前应保持 Dart 格式、ShellCheck、`flutter analyze` 和 `dart analyze` 干净；共享包和三端均启用 strict casts、inference 和 raw types，不要用排除或降低规则掩盖问题。
@@ -57,7 +54,7 @@ flutter test
 
 ## Pull Request 要求
 
-每个 PR 应包含：
+每个 PR 应尽量只解决一个清晰问题，并包含：
 
 - 用户可感知变化的简短说明。
 - 影响范围：Android、macOS、Windows、shared 或 docs。
@@ -65,5 +62,7 @@ flutter test
 - UI 改动的截图或录屏。
 - 发布、迁移或兼容风险说明。
 - 依赖变更需提交 lockfile，并通过 Dependency Review；不要用浮动 GitHub Action 版本替代完整提交 SHA。
+
+提交信息建议使用简洁的 Conventional Commit 风格，例如 `fix: ...`、`feat: ...`、`docs: ...`。合并前请处理所有审查意见，并确保受保护分支要求的检查全部通过。
 
 更多维护节奏、发布检查和线上/本地一致性规则见[维护指南](docs/MAINTENANCE.md)。分支模型和产物策略见[项目管理](docs/PROJECT_MANAGEMENT.md)。

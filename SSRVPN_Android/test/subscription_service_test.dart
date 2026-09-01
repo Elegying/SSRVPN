@@ -27,6 +27,13 @@ class _FakeHttpClientAdapter implements HttpClientAdapter {
 }
 
 class _UserAgentHttpClientAdapter implements HttpClientAdapter {
+  _UserAgentHttpClientAdapter({
+    required this.successPrefix,
+    required this.successBody,
+  });
+
+  final String successPrefix;
+  final String successBody;
   final userAgents = <String>[];
 
   @override
@@ -36,15 +43,36 @@ class _UserAgentHttpClientAdapter implements HttpClientAdapter {
     String? userAgent,
   }) async {
     userAgents.add(userAgent ?? '');
-    if (userAgent?.startsWith('clash-verge/v') ?? false) {
+    if (userAgent?.startsWith(successPrefix) ?? false) {
       return AdapterResponse(
         statusCode: HttpStatus.ok,
         headers: const {},
-        bodyBytes: utf8.encode(_validYaml),
+        bodyBytes: utf8.encode(successBody),
       );
     }
     return AdapterResponse(
       statusCode: HttpStatus.forbidden,
+      headers: const {},
+      bodyBytes: const [],
+    );
+  }
+}
+
+class _RecordingStatusHttpClientAdapter implements HttpClientAdapter {
+  _RecordingStatusHttpClientAdapter(this.statusCode);
+
+  final int statusCode;
+  final userAgents = <String>[];
+
+  @override
+  Future<AdapterResponse> get(
+    Uri uri, {
+    Duration? timeout,
+    String? userAgent,
+  }) async {
+    userAgents.add(userAgent ?? '');
+    return AdapterResponse(
+      statusCode: statusCode,
       headers: const {},
       bodyBytes: const [],
     );
@@ -153,9 +181,17 @@ void main() {
     );
   });
 
-  test('Android retries once with the compatibility UA after HTTP 403',
+  test('Android negotiates all four client identities after HTTP 403',
       () async {
-    final adapter = _UserAgentHttpClientAdapter();
+    final adapter = _UserAgentHttpClientAdapter(
+      successPrefix: 'Shadowrocket/',
+      successBody: base64Encode(
+        utf8.encode(
+          'STATUS=Available\n'
+          'ss://aes-256-gcm:pass123@1.2.3.4:8388#Shadow%20Node',
+        ),
+      ),
+    );
     SubscriptionService.overrideHttpClient(adapter);
 
     final body = await service.fetchSubscription(
@@ -163,11 +199,32 @@ void main() {
       maxRetries: 1,
     );
 
-    expect(body, contains('Valid Node'));
-    expect(adapter.userAgents, [
-      AppConstants.appUserAgent,
-      'clash-verge/v2.4.0 ${AppConstants.appUserAgent}',
-    ]);
+    expect(body, contains('Shadow Node'));
+    expect(adapter.userAgents, SubscriptionFetchPolicy.userAgents);
+  });
+
+  test('Android HTTP 429 neither rotates identities nor retries transport',
+      () async {
+    final adapter = _RecordingStatusHttpClientAdapter(
+      HttpStatus.tooManyRequests,
+    );
+    SubscriptionService.overrideHttpClient(adapter);
+
+    await expectLater(
+      service.fetchSubscription(
+        'https://example.com/feed',
+        maxRetries: 3,
+      ),
+      throwsA(
+        isA<SubscriptionHttpStatusException>().having(
+          (error) => error.statusCode,
+          'statusCode',
+          HttpStatus.tooManyRequests,
+        ),
+      ),
+    );
+
+    expect(adapter.userAgents, [AppConstants.appUserAgent]);
   });
 
   test('Android rejects a public hostname resolving to loopback', () async {

@@ -300,6 +300,15 @@ void main() {
         tunConfig,
         contains('"IP-CIDR6,::/0,REJECT,no-resolve"'),
       );
+
+      for (final config in [systemProxyConfig, tunConfig]) {
+        final gfwProxy = config.indexOf('"RULE-SET,ssrvpn-geosite-gfw,PROXY"');
+        final cnDirect = config.indexOf('"RULE-SET,ssrvpn-geosite-cn,DIRECT"');
+        expect(gfwProxy, greaterThan(0));
+        expect(gfwProxy, lessThan(cnDirect));
+        expect(config, contains('"MATCH,DIRECT"'));
+        expect(config, isNot(contains('"MATCH,PROXY"')));
+      }
     });
 
     test('上次节点已失效时回退到第一个节点', () {
@@ -331,10 +340,14 @@ void main() {
 
       final blocked = config.indexOf('"DOMAIN-SUFFIX,blocked.example,PROXY"');
       final youtube = config.indexOf('"DOMAIN-SUFFIX,youtube.com,PROXY"');
+      final gfwProxy = config.indexOf('"RULE-SET,ssrvpn-geosite-gfw,PROXY"');
       final cnDirect = config.indexOf('"DOMAIN-SUFFIX,cn,DIRECT"');
       expect(blocked, greaterThan(0));
       expect(youtube, greaterThan(blocked));
-      expect(youtube, lessThan(cnDirect));
+      expect(youtube, lessThan(gfwProxy));
+      expect(gfwProxy, lessThan(cnDirect));
+      expect(config, contains('"MATCH,DIRECT"'));
+      expect(config, isNot(contains('"MATCH,PROXY"')));
     });
 
     test('内置 Mihomo 核心接受 IPv4-only TUN 配置', () async {

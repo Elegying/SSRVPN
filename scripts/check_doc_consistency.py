@@ -238,6 +238,23 @@ def required_claims(relative_name: str, markdown: str) -> list[str]:
     return []
 
 
+def desktop_ui_count_claim(markdown: str, actual_count: int) -> list[str]:
+    match = re.search(
+        r"的[ \t]+(?P<count>\d+)[ \t]+个[ \t]+"
+        r"`packages/ssrvpn_shared/lib/desktop_ui`[ \t]+片段",
+        markdown,
+    )
+    if match is None:
+        return ["missing desktop_ui owned-part count"]
+    documented_count = int(match.group("count"))
+    if documented_count != actual_count:
+        return [
+            "stale desktop_ui owned-part count: "
+            f"documented {documented_count}, actual {actual_count}"
+        ]
+    return []
+
+
 def _is_external(target: str) -> bool:
     if target.startswith(("#", "//")):
         return True
@@ -283,6 +300,16 @@ def validate(root: Path, docs: list[str], *, links_only: bool = False) -> list[s
                 errors.append(f"{relative_name}: {finding}")
             for finding in required_claims(relative_name, markdown):
                 errors.append(f"{relative_name}: {finding}")
+            if relative_name == "docs/TESTING.md":
+                desktop_ui_parts = sum(
+                    1
+                    for path in (
+                        root / "packages" / "ssrvpn_shared" / "lib" / "desktop_ui"
+                    ).rglob("*.dart")
+                    if path.is_file()
+                )
+                for finding in desktop_ui_count_claim(markdown, desktop_ui_parts):
+                    errors.append(f"{relative_name}: {finding}")
     return sorted(set(errors))
 
 
@@ -330,6 +357,12 @@ def self_test() -> None:
     assert required_claims("README.md", "macOS 11 及以上")
     assert not required_claims("README.md", "macOS 仅支持 Apple M 系列芯片。")
     assert not required_claims("docs/OTHER.md", "macOS 11 及以上")
+    assert not desktop_ui_count_claim(
+        "的 12 个 `packages/ssrvpn_shared/lib/desktop_ui` 片段", 12
+    )
+    assert desktop_ui_count_claim(
+        "的 16 个 `packages/ssrvpn_shared/lib/desktop_ui` 片段", 12
+    )
 
 
 def main() -> int:

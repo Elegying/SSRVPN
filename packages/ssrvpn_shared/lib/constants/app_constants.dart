@@ -85,7 +85,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '4.0.17';
+  static const String appVersion = '4.0.19';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 
@@ -118,8 +118,14 @@ class AppConstants {
   // ── 代理规则 ──
   static const Duration ruleProviderStartupRefreshDelay = Duration(minutes: 10);
   static const String ruleProviderDownloadProxy = 'PROXY';
+  static const String geositeGfwRuleProviderName = 'ssrvpn-geosite-gfw';
   static const String geositeCnRuleProviderName = 'ssrvpn-geosite-cn';
-  static const List<String> ruleProviderNames = [geositeCnRuleProviderName];
+  static const List<String> ruleProviderNames = [
+    geositeGfwRuleProviderName,
+    geositeCnRuleProviderName,
+  ];
+  static const String geositeGfwRuleProviderPath =
+      './providers/ssrvpn-geosite-gfw.mrs';
   static const String geositeCnRuleProviderPath =
       './providers/ssrvpn-geosite-cn.mrs';
   // Pin the upstream commit so a mutable branch cannot silently change routing.
@@ -128,6 +134,23 @@ class AppConstants {
   static const String geositeCnRuleProviderUrl =
       'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
       '$metaRulesCommit/geo/geosite/cn.mrs';
+  static const String geositeGfwRuleProviderUrl =
+      'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
+      '$metaRulesCommit/geo/geosite/gfw.mrs';
+  // Local and private destinations outrank user-defined proxy rules. This
+  // keeps management pages, loopback services, and LAN traffic off the proxy.
+  static const List<String> defaultPrivateDirectRules = [
+    'DOMAIN,localhost,DIRECT',
+    'DOMAIN-SUFFIX,localhost,DIRECT',
+    'DOMAIN-SUFFIX,local,DIRECT',
+    'DOMAIN-SUFFIX,lan,DIRECT',
+    'IP-CIDR,127.0.0.0/8,DIRECT,no-resolve',
+    'IP-CIDR,10.0.0.0/8,DIRECT,no-resolve',
+    'IP-CIDR,172.16.0.0/12,DIRECT,no-resolve',
+    'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve',
+    'IP-CIDR,100.64.0.0/10,DIRECT,no-resolve',
+    'IP-CIDR,169.254.0.0/16,DIRECT,no-resolve',
+  ];
   // High-traffic domestic suffixes stay local so apps such as Douyin remain
   // direct even when an externally refreshed CN domain set misses one.
   static const List<String> defaultDirectRules = [
@@ -142,10 +165,10 @@ class AppConstants {
     'DOMAIN-SUFFIX,toutiao.com,DIRECT',
     'DOMAIN-SUFFIX,ixigua.com,DIRECT',
     'DOMAIN-SUFFIX,pstatp.com,DIRECT',
-    'IP-CIDR,10.0.0.0/8,DIRECT,no-resolve',
-    'IP-CIDR,172.16.0.0/12,DIRECT,no-resolve',
-    'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve',
-    'IP-CIDR,100.64.0.0/10,DIRECT,no-resolve',
+  ];
+
+  static const List<String> defaultRuleProviderProxyRules = [
+    'RULE-SET,$geositeGfwRuleProviderName,PROXY',
   ];
 
   static const List<String> defaultRuleProviderDirectRules = [
@@ -156,5 +179,5 @@ class AppConstants {
   // runtime config, so this rule works offline without another provider.
   static const String rejectIpv6Rule = 'IP-CIDR6,::/0,REJECT,no-resolve';
   static const String defaultGeoIpDirectRule = 'GEOIP,CN,DIRECT';
-  static const String defaultMatchRule = 'MATCH,PROXY';
+  static const String defaultMatchRule = 'MATCH,DIRECT';
 }

@@ -11,7 +11,7 @@
 - 原始证据：`%TEMP%\SSRVPN-Windows-UAT-v4.0.13-<session>\raw`，未加入 Git
 - 脱敏约定：节点仅写作 A/B；用户名、用户目录、订阅 URL、凭据和完整公网 IP 均不进入本报告
 
-仓库没有 `AGENTS.md`，当前环境也没有项目知识图工具，因此按要求降级为 Git、`rg` 和文件读取。正式 Release 资产来自固定的 [v4.0.13 Release](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.13)。
+本次验收通过 Git、仓库内全文检索和文件审查复核源码。测试时使用的是当时公开的 v4.0.13 正式安装器；该历史 Release 现已按项目保留范围移除，源码仍可通过 [v4.0.13 标签](https://github.com/Elegying/SSRVPN/tree/v4.0.13) 追溯。
 
 ## 结论
 
@@ -55,7 +55,7 @@
 
 | 项目 | 结果 |
 |---|---|
-| Release URL | `https://github.com/Elegying/SSRVPN/releases/download/v4.0.13/SSRVPN_Setup.exe` |
+| 历史 Release 资产 | 测试时来自 `v4.0.13` 的 `SSRVPN_Setup.exe`；现已按保留范围移除，不再提供公开下载 |
 | 下载时间（UTC） | 2026-08-20 03:58:20 ~ 03:58:28 |
 | 文件大小 | 32,057,880 bytes |
 | SHA-256 | `50d803295e7f3947893eb1351b743f41f1bb23dac4838b8d77ee95dbebc0b3f2` |

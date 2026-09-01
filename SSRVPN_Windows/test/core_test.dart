@@ -142,6 +142,15 @@ proxies:
         (enabled['rules'] as YamlList).first,
         'IP-CIDR6,::/0,REJECT,no-resolve',
       );
+      for (final config in [disabled, enabled]) {
+        final rules = (config['rules'] as YamlList).cast<String>();
+        final gfw = rules.indexOf('RULE-SET,ssrvpn-geosite-gfw,PROXY');
+        final cn = rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT');
+        expect(gfw, isNonNegative);
+        expect(gfw, lessThan(cn));
+        expect(rules.last, 'MATCH,DIRECT');
+        expect(rules, isNot(contains('MATCH,PROXY')));
+      }
     });
 
     test('writes custom force proxy rules before direct rules', () {
@@ -166,19 +175,28 @@ proxies:
       final parsed = loadYaml(config) as YamlMap;
       final rules = (parsed['rules'] as YamlList).cast<String>();
       expect(rules[0], 'IP-CIDR6,::/0,REJECT,no-resolve');
-      expect(rules[1], 'DOMAIN-SUFFIX,blocked.example,PROXY');
-      expect(rules[2], 'DOMAIN-SUFFIX,youtube.com,PROXY');
-      expect(rules[3], 'DOMAIN,api.country.is,SSRVPN-GEO');
-      expect(rules[4], 'DOMAIN,ipinfo.io,SSRVPN-GEO');
-      expect(rules[5], 'DOMAIN,ifconfig.co,SSRVPN-GEO');
+      final blocked = rules.indexOf('DOMAIN-SUFFIX,blocked.example,PROXY');
+      final youtube = rules.indexOf('DOMAIN-SUFFIX,youtube.com,PROXY');
+      final builtIn = rules.indexOf('DOMAIN-SUFFIX,openai.com,PROXY');
+      final geoLookup = rules.indexOf('DOMAIN,api.country.is,SSRVPN-GEO');
+      final gfw = rules.indexOf('RULE-SET,ssrvpn-geosite-gfw,PROXY');
+      final cn = rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT');
+      expect(blocked, isNonNegative);
+      expect(blocked, lessThan(youtube));
+      expect(youtube, lessThan(builtIn));
+      expect(builtIn, lessThan(geoLookup));
+      expect(geoLookup, lessThan(gfw));
+      expect(gfw, lessThan(cn));
       expect(
         rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT'),
-        greaterThan(5),
+        greaterThan(gfw),
       );
       expect(
         rules.indexOf('DOMAIN-SUFFIX,cn,DIRECT'),
         greaterThan(rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT')),
       );
+      expect(rules.last, 'MATCH,DIRECT');
+      expect(rules, isNot(contains('MATCH,PROXY')));
     });
 
     test('selects temporary ports when preferred ports are occupied', () async {

@@ -322,6 +322,7 @@ void main() {
     expect(find.text('代理模式'), findsOneWidget);
     expect(find.text('智能'), findsOneWidget);
     expect(find.text('全局'), findsOneWidget);
+    expect(find.text('受限服务走代理，其他服务直接连接'), findsOneWidget);
     expect(find.text('系统代理'), findsNothing);
     expect(find.text('TUN'), findsOneWidget);
     expect(find.text('全部订阅'), findsOneWidget);
@@ -417,7 +418,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(proxyMode, ProxyMode.global);
     expect(find.text('所有流量都走代理'), findsOneWidget);
-    expect(find.text('国内直连，国外走代理'), findsNothing);
+    expect(find.text('受限服务走代理，其他服务直接连接'), findsNothing);
 
     final nodeAction = find.bySemanticsLabel('选择服务器 日本 | IEPL ①');
     await _focusSemanticAction(tester, nodeAction);

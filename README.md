@@ -14,7 +14,7 @@ Android、macOS、Windows 三端一致的连接体验：导入订阅，选择节
 [![License: MIT + third-party](https://img.shields.io/badge/License-MIT%20%2B%20third--party-22c55e.svg)](#许可证)
 [![Platforms](https://img.shields.io/badge/Android%20%7C%20macOS%20%7C%20Windows-6c63ff)](#下载)
 
-[立即下载](#下载) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md) · [报告问题](https://github.com/Elegying/SSRVPN/issues/new/choose) · [项目文档](docs/README.md)
+[立即下载](#下载) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md) · [获取帮助](SUPPORT.md) · [参与开发](CONTRIBUTING.md)
 
 下图为界面示意，版本号以 GitHub Release 和应用“关于”页为准。
 
@@ -25,7 +25,7 @@ Android、macOS、Windows 三端一致的连接体验：导入订阅，选择节
 
 ## SSRVPN 是什么
 
-SSRVPN 是面向 Android、macOS 和 Windows 的开源 Mihomo 客户端。它把常用功能收敛为清晰的“主页 + 订阅”两页流程，适合希望快速导入订阅或节点、查看延迟并稳定连接的用户。
+SSRVPN 是面向 Android、macOS 和 Windows 的开源 Mihomo 客户端。它把常用功能收敛为清晰的“主页 + 订阅”两页流程：导入订阅、选择节点、点击连接，不要求用户先理解复杂的代理配置。
 
 本仓库提供客户端源代码和安装包，不提供代理节点或订阅服务。使用前需要准备兼容 Mihomo 的订阅链接或节点链接。
 
@@ -33,6 +33,7 @@ SSRVPN 是面向 Android、macOS 和 Windows 的开源 Mihomo 客户端。它把
 
 - **三端一致**：Android、macOS、Windows 使用统一的订阅、节点和路由逻辑，换设备也无需重新学习。
 - **开箱即用**：导入订阅或节点链接，完成刷新与测速后即可选择节点并连接。
+- **订阅兼容**：服务商拒绝默认客户端标识时，可按受控顺序兼容 Clash Verge、v2rayN 和 Shadowrocket；认证失败、地址失效或限流不会盲目重试。
 - **连接方式完整**：Android 使用系统 VPN；macOS 和 Windows 支持系统代理与 TUN。
 - **更新可验证**：正式安装包同时提供 SHA-256 校验文件和发布来源记录。
 - **诊断默认脱敏**：内置带错误编号和操作建议的限长诊断报告；公开分享前仍应人工检查。
@@ -73,7 +74,7 @@ Get-FileHash .\SSRVPN_Setup.exe -Algorithm SHA256
 3. 等待刷新与测速完成，选择可用节点。
 4. 点击连接；以首页连接状态和系统 VPN、系统代理或 TUN 状态为准。
 
-遇到问题时，从应用日志入口打开“诊断与运行日志”。报告会提供稳定错误编号、操作建议和经过大小限制与脱敏的可复制内容。不要在 Issue、PR 或公开聊天中粘贴原始订阅、节点密码或未脱敏日志。
+遇到问题时，从应用日志入口打开“诊断与运行日志”。报告会提供稳定错误编号、操作建议和经过大小限制与脱敏的可复制内容。请先阅读[故障排查](docs/TROUBLESHOOTING.zh-CN.md)和[获取帮助](SUPPORT.md)，不要在 Issue、PR 或公开聊天中粘贴原始订阅、节点密码或未脱敏日志。
 
 更完整的操作说明：
 
@@ -101,15 +102,11 @@ SSRVPN/
 └── scripts/                   # 验证、资源、发布与维护脚本
 ```
 
-大型生命周期文件按“可独立验证的职责”渐进拆分：共享更新保留稳定 façade，下载与原子发布分开；
-macOS 原生核心支持、单实例租约和窗口恢复脱离应用委托；Windows 代理事务保留原有执行顺序，
-私有快照与取消模型使用同一 Dart library 的 part。高风险 Android VPN 和 Windows 安装回滚
-不会为追求行数而强拆，规则与验证要求见
-[ADR-010](docs/decisions/010-risk-controlled-maintainability-boundaries.md)。
+共享层负责跨平台业务规则，平台目录负责操作系统能力。高风险的 VPN、系统代理、TUN 和安装回滚只在行为测试保护下渐进调整，不以“文件更短”代替正确性证据；维护边界见 [ADR-010](docs/decisions/010-risk-controlled-maintainability-boundaries.md)。
 
 ## 开发与验证
 
-推荐使用 Flutter `3.44.1` 或兼容 stable 版本。Android 构建还需要 Android SDK、NDK 与 JDK；macOS 需要 Xcode；Windows 需要 Visual Studio 2022 的“使用 C++ 的桌面开发”工作负载，安装器还需要 Inno Setup 6.5 或更高版本。
+项目精确固定 Flutter `3.44.1`，不接受其他 stable 版本代替；`make verify` 会在解析依赖或运行测试前检查版本。可使用 `fvm install && fvm exec make verify`，或使用 `mise x flutter@3.44.1 -- make verify`。Android 构建还需要 Android SDK、NDK 与 JDK；macOS 需要 Xcode；Windows 需要 Visual Studio 2022 的“使用 C++ 的桌面开发”工作负载，安装器还需要 Inno Setup 6.5 或更高版本。
 
 根目录统一入口：
 
@@ -117,7 +114,7 @@ macOS 原生核心支持、单实例租约和窗口恢复脱离应用委托；Wi
 make verify
 ```
 
-它会检查全部受版本控制的 Dart 格式和 ShellCheck、版本与资源、职责边界、Android 内置 Kotlin、免费桌面分发策略、密钥扫描、发布工具、关键路径性能、依赖解析、严格静态分析、四套 Flutter 测试、Android/macOS 原生测试和覆盖率门槛。Windows 原生代理恢复测试会在 GitHub Windows runner 上编译并运行。日常可按需执行：
+它会先校验精确 Flutter 版本，并自动下载和校验所需 Mihomo/GeoIP 核心资产，然后检查全部受版本控制的 Dart 格式和 ShellCheck、版本与资源、职责边界、Android 内置 Kotlin、免费桌面分发策略、密钥扫描、发布工具、关键路径性能、依赖解析、严格静态分析、四套 Flutter 测试、Android/macOS 原生测试和覆盖率门槛。需要提前准备资源时可单独运行 `make assets`；Windows 原生代理恢复测试会在 GitHub Windows runner 上编译并运行。日常可按需执行：
 
 ```bash
 scripts/workspace.sh pub-get
@@ -133,13 +130,13 @@ Pull Request 还会执行 GitHub Dependency Review；新增中等及以上已知
 
 ## 发布
 
-正式发版从 GitHub Actions 的 `Prepare Release` 启动：输入与源码版本一致的新 `v*` tag 后，工作流会自动刷新 GeoIP、验证临时分支、合并来源记录、复验精确 `main`、创建标签并启动 `Release`。macOS 始终生成 ad-hoc、未公证 DMG，Windows 只生成未签名安装器；仓库不保留付费桌面签名自动化。发布前必须保持 `main`、版本号、CHANGELOG 与资产清单一致，并在发布后重新下载校验。
+正式发版从 GitHub Actions 的 `Prepare Release` 启动。它会核对版本号、固定核心资产、受保护的精确 `main` 提交和完整 CI，再创建不可变标签并启动 `Release`。普通发版不会查询或自动更新 GeoIP；只有维护者收到明确更新指令时，才通过独立维护任务更新固定快照。macOS 生成 ad-hoc、未公证 DMG，Windows 生成未签名安装器；发布后必须重新下载并校验三端资产。
 
 详细流程见 [发布检查清单](docs/RELEASE_CHECKLIST.zh-CN.md)、[免费分发与签名说明](docs/RELEASE_SIGNING.md) 与 [OSS 运维手册](docs/OSS_RELEASE_OPERATIONS.zh-CN.md)。
 
 ## 文档与安全
 
-[文档索引](docs/README.md) 区分当前规范、维护手册、架构决策与历史审查。项目状态以当前代码、自动验证和该索引中的有效文档为准。
+[文档索引](docs/README.md) 按用户、贡献者和维护者区分当前指南、规范、架构决策与历史证据。项目状态以当前代码、自动验证和该索引中的有效文档为准。
 
 - [完整功能列表](docs/FEATURES.zh-CN.md)
 - [项目硬性规则](docs/PRODUCT_REQUIREMENTS.zh-CN.md)
