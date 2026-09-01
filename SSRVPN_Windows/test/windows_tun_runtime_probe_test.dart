@@ -494,7 +494,9 @@ void main() {
       );
     },
     skip: Platform.isWindows ? false : 'Windows network cmdlets are required',
-    timeout: const Timeout(Duration(seconds: 45)),
+    // Includes the baseline PowerShell probe before the 30-second production
+    // teardown budget; loaded CI runners need margin for process startup.
+    timeout: const Timeout(Duration(seconds: 60)),
   );
 
   test('runtime probe rejects a missing or duplicate TUN address', () {

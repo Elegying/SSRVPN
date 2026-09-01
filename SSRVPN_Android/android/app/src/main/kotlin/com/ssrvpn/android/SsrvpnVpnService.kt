@@ -871,7 +871,8 @@ class SsrvpnVpnService : VpnService() {
             isReleased = runtimeDiagnostics::releaseTunDescriptorIfClosed
         )
         if (bridgeStopped && !tunReleased)
-            Log.e(TAG, "Bridge stopped but the owned TUN lease is still present")
+            Log.e(TAG, "Bridge stopped but the owned TUN lease is still present " +
+                runtimeDiagnostics.tunReleaseEvidence())
         val protectMonitorStopped = waitForProtectMonitor(activeProtectMonitor?.thread)
         val stopDecision = CoreStopDecision.afterBridgeCheck(
             pendingStartStopped,
