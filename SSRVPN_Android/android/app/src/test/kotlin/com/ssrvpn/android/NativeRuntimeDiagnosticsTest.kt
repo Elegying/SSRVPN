@@ -111,7 +111,7 @@ class NativeRuntimeDiagnosticsTest {
     }
 
     @Test
-    fun `delayed TUN discovery is captured before release`() {
+    fun `delayed TUN discovery does not outlive a closed descriptor`() {
         tracker.beginTunLease { emptySet() }
         tracker.claimTunDescriptor(42) { emptySet() }
 
@@ -124,15 +124,9 @@ class NativeRuntimeDiagnosticsTest {
         ).toMap()
 
         assertTrue(connected["tunEstablished"] as Boolean)
-        assertFalse(
-            tracker.releaseTunDescriptorIfClosed(
-                tunInterfaces = { setOf("tun0") },
-                descriptorTarget = { null }
-            )
-        )
         assertTrue(
             tracker.releaseTunDescriptorIfClosed(
-                tunInterfaces = { emptySet() },
+                tunInterfaces = { setOf("tun0") },
                 descriptorTarget = { null }
             )
         )
@@ -160,6 +154,32 @@ class NativeRuntimeDiagnosticsTest {
             tracker.releaseTunDescriptorIfClosed(
                 tunInterfaces = { emptySet() },
                 descriptorTarget = { null }
+            )
+        )
+    }
+
+    @Test
+    fun `Android retained interface releases after owned fd closes`() {
+        tracker.beginTunLease { emptySet() }
+        tracker.claimTunDescriptor(42) { setOf("tun0") }
+
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { setOf("tun0") },
+                descriptorTarget = { null }
+            )
+        )
+    }
+
+    @Test
+    fun `Android retained interface releases after fd is reused outside TUN`() {
+        tracker.beginTunLease { emptySet() }
+        tracker.claimTunDescriptor(42) { setOf("tun0") }
+
+        assertTrue(
+            tracker.releaseTunDescriptorIfClosed(
+                tunInterfaces = { setOf("tun0") },
+                descriptorTarget = { "socket:[1234]" }
             )
         )
     }
