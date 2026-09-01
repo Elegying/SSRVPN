@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [4.0.20] - 2026-09-02
 
 ### 修复
 
@@ -14,7 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 验收
 
-- 固化 v4.0.19 Windows、Android 与 macOS 脱敏实机证据，明确 Android 连接循环和 Windows 安装包清理两个修复版放行项；macOS 持续离线取消、原生 16 KiB Android、蜂窝切换与更多 OEM 覆盖继续保持未执行或阻塞，不以自动化替代真机结论。
+- Android 11 修复候选在同一进程内完成 App 入口 20/20 轮连接与断开、10/10 轮快速取消，以及后台和强制 Doze 数据通道回归；每轮断开后 VPN、TUN 和数据端口均释放，超过旧终止窗口后无进程退出或 fail-closed 日志。快捷磁贴单轮真实连接与断开通过；MIUI 的组件命令会连续注入两次点击，因此不把该自动化入口包装成 20/20 人工磁贴验收。
+- Windows 清理修复通过受保护 CI 和正式安装器在线 smoke：可信更新包清理助手在安装事务提交后启动并等待安装器退出；手动包、失败包和身份不匹配文件继续保留。Windows、macOS 的旧版实机证据按未触达边界引用，未新增签名或公证要求。
+- 原生 16 KiB page-size Android、蜂窝切换、第二 VPN 竞争、更多 OEM、macOS 持续离线取消，以及 Windows UAC 取消/托盘人工路径继续保持未执行或阻塞，不以自动化或 4 KiB 设备替代。
 
 ## [4.0.19] - 2026-09-01
 
