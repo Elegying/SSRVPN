@@ -272,11 +272,11 @@ class NativeRuntimeDiagnosticsTest {
             retryDelayMillis = 0
         ) {
             probes += 1
-            probes == 61
+            probes == 101
         }
 
         assertTrue(released)
-        assertEquals(61, probes)
+        assertEquals(101, probes)
     }
 
     @Test
