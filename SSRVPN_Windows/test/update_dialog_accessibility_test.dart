@@ -62,14 +62,7 @@ void main() {
       },
     );
     final completionTitle = find.text('下载完成');
-    for (var attempt = 0;
-        attempt < 100 && completionTitle.evaluate().isEmpty;
-        attempt++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump(const Duration(milliseconds: 20));
-    }
+    await _pumpUntilFound(tester, completionTitle);
 
     expect(completionTitle, findsOneWidget);
     expect(find.textContaining(desktop.path), findsOneWidget);
@@ -86,4 +79,14 @@ void main() {
     await tester.pumpAndSettle();
     await task;
   });
+}
+
+Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump(const Duration(milliseconds: 20));
+  }
 }
