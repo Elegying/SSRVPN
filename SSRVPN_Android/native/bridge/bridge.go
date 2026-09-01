@@ -21,7 +21,9 @@ import (
 	"github.com/metacubex/mihomo/hub"
 	"github.com/metacubex/mihomo/hub/executor"
 	"github.com/metacubex/mihomo/listener"
+	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/log"
+	"github.com/metacubex/mihomo/tunnel"
 )
 
 var (
@@ -288,6 +290,10 @@ func Stop() {
 	if running {
 		listener.ReCreateMixed(0, nil)
 		listener.ReCreateSocks(0, nil)
+		// Cleanup closes the active TUN listener but retains LastTunConf. Reset
+		// it through the listener lock so a later start that reuses the same
+		// numeric Android fd cannot be mistaken for an unchanged configuration.
+		listener.ReCreateTun(LC.Tun{}, tunnel.Tunnel)
 		executor.Shutdown()
 		running = false
 	}

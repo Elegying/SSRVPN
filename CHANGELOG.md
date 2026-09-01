@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 修复
 
-- Android 停止 VPN 时继续要求 Bridge 与自有 TUN 完成关闭，并为 Android 11 的异步接口回收保留最多约 10 秒的有界等待；描述符编号被内核复用时，会通过 `/proc/self/fdinfo` 区分仍绑定自有 TUN、已解除绑定和其他既有 TUN，避免把已释放连接误判为残留。未知基线、不可读证据、活动接口或仍绑定自有 TUN 的描述符继续安全失败。
+- Android 停止 VPN 时继续要求 Bridge 与自有 TUN 完成关闭，并为 Android 11 的异步接口回收保留最多约 10 秒的有界等待；停止时同时清空 Mihomo 已关闭的 TUN 配置，避免后续连接复用相同描述符编号时跳过 listener 重建。描述符编号被内核复用时，会通过 `/proc/self/fdinfo` 区分仍绑定自有 TUN、已解除绑定和其他既有 TUN；未知基线、不可读证据、活动接口或仍绑定自有 TUN 的描述符继续安全失败。
 - Windows 在安装事务成功后、原用户启动通道仍可用时立即启动可信更新包清理助手；助手绑定当前安装器进程并等待其实际退出，再复用原有 sidecar、SHA-256、NTFS owner stream、普通文件与路径身份校验删除应用内更新包。手动包、失败包和身份不匹配文件继续保留。
 
 ### 验收
