@@ -741,57 +741,24 @@ void main() {
     expect(find.text('立即更新'), findsNothing);
     await tester.tap(find.text('下载到桌面'));
     await tester.pump();
-    for (var attempt = 0; attempt < 100; attempt++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump(const Duration(milliseconds: 20));
-      if (find
-          .text(
-            '下载并通过 SHA-256 校验后保存到桌面，不会自动启动；'
-            '仅带有效专属标记的应用内安装包会在安装成功后自动清理；'
-            '未带标记的已有文件会保留。',
-          )
-          .evaluate()
-          .isNotEmpty) {
-        break;
-      }
-    }
+    final progressDescription = find.text(
+      '下载并通过 SHA-256 校验后保存到桌面，不会自动启动；'
+      '仅带有效专属标记的应用内安装包会在安装成功后自动清理；'
+      '未带标记的已有文件会保留。',
+    );
+    await _pumpUntilFound(tester, progressDescription);
 
-    final showedDesktopProgress = find
-        .text(
-          '下载并通过 SHA-256 校验后保存到桌面，不会自动启动；'
-          '仅带有效专属标记的应用内安装包会在安装成功后自动清理；'
-          '未带标记的已有文件会保留。',
-        )
-        .evaluate()
-        .isNotEmpty;
+    final showedDesktopProgress = progressDescription.evaluate().isNotEmpty;
     final stalePartSurvivedUntilDownloadStarted = stalePart.existsSync();
 
     response.complete(http.Response.bytes(bytes, HttpStatus.ok));
-    for (var attempt = 0; attempt < 100; attempt++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump(const Duration(milliseconds: 20));
-      if (find
-          .text(
-            '最新版安装包已下载到桌面并完成安全标记。请手动安装；'
-            '安装成功后会自动清理，取消或失败时保留。',
-          )
-          .evaluate()
-          .isNotEmpty) {
-        break;
-      }
-    }
+    final completionMessage = find.text(
+      '最新版安装包已下载到桌面并完成安全标记。请手动安装；'
+      '安装成功后会自动清理，取消或失败时保留。',
+    );
+    await _pumpUntilFound(tester, completionMessage);
 
-    final showedCompletion = find
-        .text(
-          '最新版安装包已下载到桌面并完成安全标记。请手动安装；'
-          '安装成功后会自动清理，取消或失败时保留。',
-        )
-        .evaluate()
-        .isNotEmpty;
+    final showedCompletion = completionMessage.evaluate().isNotEmpty;
 
     final installers = desktop
         .listSync()
@@ -892,13 +859,7 @@ void main() {
 
       const retainedMessage = '桌面已有通过 SHA-256 校验的同版本安装包。请手动安装；'
           '该文件未由本次下载认领，安装后会保留。';
-      for (var attempt = 0; attempt < 100; attempt++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
-        );
-        await tester.pump(const Duration(milliseconds: 20));
-        if (find.text(retainedMessage).evaluate().isNotEmpty) break;
-      }
+      await _pumpUntilFound(tester, find.text(retainedMessage));
       expect(find.text(retainedMessage), findsOneWidget);
       expect(marker.existsSync(), isFalse);
       await tester.tap(find.text('知道了').last);
@@ -950,14 +911,7 @@ void main() {
         },
       );
 
-      for (var attempt = 0;
-          attempt < 100 && find.text('下载完成').evaluate().isEmpty;
-          attempt++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
-        );
-        await tester.pump(const Duration(milliseconds: 20));
-      }
+      await _pumpUntilFound(tester, find.text('下载完成'));
 
       const expectedMessage = '安装包已下载到桌面并通过 SHA-256 校验，但安装后无法自动删除。'
           '请手动安装；安装完成后请自行删除桌面安装包。';
@@ -971,4 +925,14 @@ void main() {
       expect(showedExpectedMessage, isTrue);
     },
   );
+}
+
+Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump(const Duration(milliseconds: 20));
+  }
 }
