@@ -245,8 +245,8 @@ internal class NativeRuntimeDiagnosticsTracker {
 }
 
 internal object TunReleaseVerifier {
-    // Android 11 can keep a closed TUN visible for more than two seconds.
-    private const val DEFAULT_ATTEMPTS = 61
+    // Android 11 can keep a closed TUN visible beyond the previous six-second grace.
+    private const val DEFAULT_ATTEMPTS = 101
     private const val DEFAULT_RETRY_DELAY_MILLIS = 100L
 
     fun waitUntilReleased(
