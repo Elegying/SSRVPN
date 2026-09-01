@@ -79,22 +79,28 @@ internal class NativeRuntimeDiagnosticsTracker {
             tunInterfaceBaseline = null
             return true
         }
+        if (claim.baselineInterfaceNames == null && claim.interfaceNames == null) {
+            return false
+        }
+        val target = descriptorTarget(claim.descriptor)
+        if (target == UNKNOWN_DESCRIPTOR_TARGET) return false
+        if (target == null ||
+            target != "/dev/tun" && !target.startsWith("/dev/tun")
+        ) {
+            if (tunOwnershipClaim !== claim) return false
+            tunOwnershipClaim = null
+            return true
+        }
         val currentInterfaces = tunInterfaces() ?: return false
         val ownedInterfaces = resolveOwnedTunInterfaces(claim, currentInterfaces)
             ?: return false
         if (ownedInterfaces.any(currentInterfaces::contains)) return false
-        val target = descriptorTarget(claim.descriptor)
-        if (target == UNKNOWN_DESCRIPTOR_TARGET ||
-            target == "/dev/tun" || target?.startsWith("/dev/tun") == true
-        ) {
-            if (target == UNKNOWN_DESCRIPTOR_TARGET) return false
-            val currentDescriptorInterface = descriptorInterface(claim.descriptor)
-            if (!currentDescriptorInterface.readable) return false
-            val interfaceName = currentDescriptorInterface.name
-            if (interfaceName != null &&
-                descriptorBelongsToClaim(claim, interfaceName) != false
-            ) return false
-        }
+        val currentDescriptorInterface = descriptorInterface(claim.descriptor)
+        if (!currentDescriptorInterface.readable) return false
+        val interfaceName = currentDescriptorInterface.name
+        if (interfaceName != null &&
+            descriptorBelongsToClaim(claim, interfaceName) != false
+        ) return false
         if (tunOwnershipClaim !== claim) return false
         tunOwnershipClaim = null
         return true
