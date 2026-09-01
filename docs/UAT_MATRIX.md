@@ -21,6 +21,30 @@ VPN、代理、TUN、安装、无障碍及电量在目标系统上实际成立�
 每个失败必须附最小复现步骤、发生时间、应用诊断、系统日志和预期结果；禁止上传原始订阅、
 节点密码、Token、API secret、用户名路径或未脱敏截图。
 
+## 2026-09-02 v4.0.20 正式发布证据
+
+- 正式版本 `4.0.20+4020` 的受保护 `main` 和标签 `v4.0.20` 精确指向提交
+  `c7667ff0075ae9b5c4848cb72de842b9b7bcbe07`；精确主分支 CI
+  [33553184498](https://github.com/Elegying/SSRVPN/actions/runs/33553184498)、
+  [Prepare Release 33554832427](https://github.com/Elegying/SSRVPN/actions/runs/33554832427) 和
+  [正式 Release 33554866473](https://github.com/Elegying/SSRVPN/actions/runs/33554866473) 均成功。
+- [GitHub Release v4.0.20](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.20) 已公开，非
+  draft、非 prerelease，共七项资产。完整下载后 APK SHA-256 为
+  `f6cae87cd42825bdae68dc9879605a5749414d357cea6b932883bbfc5497f977`，DMG 为
+  `2c988fb8b7563591763c2798e43a26d3f7587d2301390fa1e96a65dca59fa1f9`，Windows 安装器为
+  `3f662fb2670b3d2247ba170d024458a4c6d43a6f65633125771c29a55bf3fba3`；三份 sidecar、
+  Release API digest 和 provenance 逐项一致。
+- provenance 精确记录标签、提交和三端摘要；APK、DMG、EXE 的 GitHub Attestations 均通过
+  Sigstore/SLSA 验证，workflow ref、源码摘要和 run attempt 与正式发布一致。
+- 正式 APK 为 `com.ssrvpn.android`、`versionName=4.0.20`、`versionCode=4020`、
+  `minSdk=24`、`targetSdk=36`、arm64-v8a；APK v2 签名、单一 signer，证书 SHA-256 为
+  `caf5bb670e4513c4e3d7815a7314f489281c37f02827db07d0a59e1242f2cc0c`，16 KiB zipalign
+  检查通过。正式 DMG 可校验和挂载，应用版本为 `4.0.20+4020`、arm64，继续使用项目明确的
+  ad-hoc、未公证免费分发边界。
+- OSS `latest.json` 已指向 `4.0.20`，三个公开版本化资产独立完整下载后的 SHA-256 与 GitHub
+  Release 完全一致。正式资产、构建和公共通道证据证明发布事务完整，不替代下方仍标记为
+  `BLOCKED` 或“未执行”的硬件、OEM 与人工桌面 UAT。
+
 ## 2026-09-02 v4.0.20 Android 修复候选增量验收快照
 
 - 修复候选提交 `ae83e529a60830e51054b710db764293dcf53732` 的 APK 在同一 Redmi Note 8 /
@@ -32,8 +56,8 @@ VPN、代理、TUN、安装、无障碍及电量在目标系统上实际成立�
   `cmd statusbar click-tile` 连续注入两次点击，面板收起时不投递；因此自动 20 轮保持
   `BLOCKED`，不把系统双击包装成人工单击验收。
 - 候选来自版本提升前的精确修复提交，APK 身份仍为 `4.0.19+4019`；provenance 和 SHA-256
-  将二进制绑定到该提交。v4.0.20 版本提交只允许修改版本、变更日志和发布证据，正式包仍需
-  受保护 `main` 重建和终验。
+  将二进制绑定到该提交。正式 v4.0.20 已由受保护 `main` 重建并通过上方发布终验；候选与
+  正式提交之间只有版本、变更日志和证据文件变化，没有改变本表实测的 Android 运行路径。
 - 原生 16 KiB page-size 设备、蜂窝切换、第二 VPN、更多 OEM 继续保持未执行；本机 4 KiB
   设备和 ELF 16 KiB 对齐不替代硬件 UAT。
 - 完整步骤、候选包身份、日志摘要和现场恢复见
