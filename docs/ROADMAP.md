@@ -8,6 +8,8 @@ Android 应用模块内置 Kotlin、Windows 中文每用户目录安装与核心
 
 ### 1. 真机无障碍与生命周期矩阵
 
+- 优先关闭 [#167](https://github.com/Elegying/SSRVPN/issues/167)：Android 11 真机断开时 TUN lease 无法确认释放并触发 fail-closed 进程终止。修复不得移除安全兜底，必须让 App 与快捷磁贴各完成 20/20 轮连接/断开且无进程终止、陈旧 TUN 或数据端口残留。
+- 修复 Windows 可信标记安装包清理助手的启动时机；真实安装器必须证明成功安装后删除可信包和 sidecar，同时继续保留手动包、失败包和内容不匹配文件。
 - 用 TalkBack、VoiceOver 和 Narrator 走完首次导入、节点选择、连接/取消、错误重试和断开。
 - Android 真机验证首次授权、后台重启、快捷磁贴、通知断开、休眠/唤醒和弱网取消。
 - macOS 验证系统代理和 TUN 的授权取消、连接、异常退出、Dock 重开与网络设置恢复。

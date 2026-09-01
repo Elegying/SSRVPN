@@ -58,7 +58,7 @@ internal class NativeRuntimeDiagnosticsTracker {
     }
 
     fun releaseTunDescriptorIfClosed(
-        tunInterfaces: () -> Set<String>? = ::tunInterfaceNames,
+        tunInterfaces: () -> Set<String>? = ::activeTunInterfaceNames,
         descriptorTarget: (Long) -> String? = ::descriptorTarget
     ): Boolean {
         val claim = tunOwnershipClaim
@@ -128,6 +128,22 @@ internal class NativeRuntimeDiagnosticsTracker {
                 while (interfaces.hasMoreElements()) {
                     val network = interfaces.nextElement()
                     if (network.name.startsWith("tun")) names += network.name
+                }
+                names
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        fun activeTunInterfaceNames(): Set<String>? {
+            return try {
+                val interfaces = NetworkInterface.getNetworkInterfaces() ?: return null
+                val names = mutableSetOf<String>()
+                while (interfaces.hasMoreElements()) {
+                    val network = interfaces.nextElement()
+                    if (network.isUp && network.name.startsWith("tun")) {
+                        names += network.name
+                    }
                 }
                 names
             } catch (_: Exception) {
