@@ -37,6 +37,7 @@ export 'services/direct_fetcher.dart';
 export 'services/crash_reporter.dart';
 export 'services/timed_process_runner.dart';
 export 'services/public_ip_info_service.dart';
+export 'services/smart_rule_bundle.dart';
 
 // 工具类
 export 'utils/log_redactor.dart';

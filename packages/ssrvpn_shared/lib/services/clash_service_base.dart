@@ -23,6 +23,7 @@ import '../utils/runtime_config_name_policy.dart';
 import 'app_diagnostic_history_store.dart';
 import 'desktop_connection_coordinator.dart';
 import 'public_ip_info_service.dart';
+import 'smart_rule_bundle.dart';
 
 part 'clash_service_config_support.dart';
 part 'clash_service_diagnostics.dart';
@@ -160,6 +161,7 @@ abstract class ClashServiceBase
   }) {
     final settingsSnapshot = preferredSettings.copyWith(
       forceProxySites: List<String>.of(preferredSettings.forceProxySites),
+      forceDirectSites: List<String>.of(preferredSettings.forceDirectSites),
     );
     _desktopRecoveryPreferredNodeName = preferredNodeName;
     _desktopConnectionRecoveryPlan = DesktopConnectionRecoveryPlan(
@@ -315,9 +317,7 @@ abstract class ClashServiceBase
         if (response.statusCode == 200 || response.statusCode == 204) {
           this.log('规则集已检查更新: $providerName');
         } else {
-          this.log(
-            '规则集更新检查失败 $providerName: HTTP ${response.statusCode}',
-          );
+          this.log('规则集更新检查失败 $providerName: HTTP ${response.statusCode}');
         }
       } catch (e) {
         this.log(

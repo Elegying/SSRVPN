@@ -42,6 +42,7 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
     this.onEnableTunChanged,
     this.tunLabel,
     this.onShowForceProxySites,
+    this.onShowForceDirectSites,
     this.onShowLogs,
     this.onSecondaryTapDown,
     this.onLongPressNode,
@@ -69,6 +70,7 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
   final Future<void> Function(bool enabled)? onEnableTunChanged;
   final String? tunLabel;
   final VoidCallback? onShowForceProxySites;
+  final VoidCallback? onShowForceDirectSites;
   final VoidCallback? onShowLogs;
   final void Function(ProxyNode node, TapDownDetails details)?
       onSecondaryTapDown;
@@ -166,10 +168,7 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
     return names;
   }
 
-  List<ProxyNode> _visibleNodes(
-    List<ProxyNode> nodes,
-    String subscription,
-  ) {
+  List<ProxyNode> _visibleNodes(List<ProxyNode> nodes, String subscription) {
     if (subscription == _allSubscriptions) return nodes;
     return nodes.where((node) => node.group.trim() == subscription).toList();
   }
@@ -255,21 +254,21 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
           enableTun: _enableTun,
           tunLabel: widget.tunLabel,
           busy: selectionBusy,
-          onProxyModeChanged: (mode) => _runAction(
-            () => widget.onProxyModeChanged(mode),
-          ),
+          onProxyModeChanged: (mode) =>
+              _runAction(() => widget.onProxyModeChanged(mode)),
           onEnableTunChanged: widget.onEnableTunChanged == null
               ? null
-              : (enabled) => _runAction(
-                    () => widget.onEnableTunChanged!(enabled),
-                  ),
+              : (enabled) =>
+                  _runAction(() => widget.onEnableTunChanged!(enabled)),
         ),
         if (widget.onShowForceProxySites != null ||
+            widget.onShowForceDirectSites != null ||
             widget.onShowLogs != null) ...[
           const SizedBox(height: 10),
           _UtilityActions(
             forceProxyEnabled: !selectionBusy,
             onShowForceProxySites: widget.onShowForceProxySites,
+            onShowForceDirectSites: widget.onShowForceDirectSites,
             onShowLogs: widget.onShowLogs,
           ),
         ],

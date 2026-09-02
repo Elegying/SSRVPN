@@ -11,17 +11,26 @@ import '../widgets/glass_container.dart';
 /// 通过 [show] 静态方法弹出，返回用户提交的站点列表，返回 null 表示取消。
 class ForceProxySitesDialog extends StatefulWidget {
   final List<String> savedSites;
+  final bool forceDirect;
 
-  const ForceProxySitesDialog({super.key, required this.savedSites});
+  const ForceProxySitesDialog({
+    super.key,
+    required this.savedSites,
+    this.forceDirect = false,
+  });
 
   /// 弹出对话框，返回用户确认的站点列表（null 表示取消）
   static Future<List<String>?> show(
     BuildContext context, {
     required List<String> savedSites,
+    bool forceDirect = false,
   }) {
     return showDialog<List<String>>(
       context: context,
-      builder: (_) => ForceProxySitesDialog(savedSites: savedSites),
+      builder: (_) => ForceProxySitesDialog(
+        savedSites: savedSites,
+        forceDirect: forceDirect,
+      ),
     );
   }
 
@@ -84,9 +93,7 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: GlassContainer(
         borderRadius: 16,
         enableShadow: true,
@@ -113,13 +120,15 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
                           gradient: const LinearGradient(
                             colors: [
                               AppTheme.primaryColor,
-                              AppTheme.accentColor
+                              AppTheme.accentColor,
                             ],
                           ),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(
-                          Icons.add_link_rounded,
+                        child: Icon(
+                          widget.forceDirect
+                              ? Icons.link_off_rounded
+                              : Icons.add_link_rounded,
                           color: Colors.white,
                           size: 20,
                         ),
@@ -127,7 +136,7 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          '添加强制代理网站',
+                          widget.forceDirect ? '添加强制直连网站' : '添加强制代理网站',
                           style: TextStyle(
                             fontSize: Responsive.sp(18),
                             fontWeight: FontWeight.w700,
@@ -139,7 +148,9 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    '默认规则已涵盖绝大部分网站，如出现个别网站无法访问的情况，再使用此功能，粘贴需要强制代理的网址：',
+                    widget.forceDirect
+                        ? '仅在确认网站无需节点时使用。手动直连高于所有自动规则，但低于手动强制代理：'
+                        : '默认规则已涵盖绝大部分网站，如出现个别网站无法访问的情况，再使用此功能，粘贴需要强制代理的网址：',
                     style: TextStyle(
                       fontSize: Responsive.sp(13),
                       height: 1.45,

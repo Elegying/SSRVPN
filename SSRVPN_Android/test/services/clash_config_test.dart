@@ -149,7 +149,7 @@ void main() {
       expect(config, contains('IP-CIDR,1.2.3.4/32'));
     });
 
-    test('智能模式使用 GFW 代理并最终默认直连', () {
+    test('智能模式使用分层规则并最终默认代理保可用', () {
       final config = clashService.generateClashConfig(
         _testProxies,
         AppSettings(),
@@ -162,8 +162,8 @@ void main() {
 
       expect(gfw, isNonNegative);
       expect(gfw, lessThan(cn));
-      expect(rules.last, 'MATCH,DIRECT');
-      expect(rules, isNot(contains('MATCH,PROXY')));
+      expect(rules.last, 'MATCH,PROXY');
+      expect(rules, isNot(contains('MATCH,DIRECT')));
     });
 
     test('国外应用包名在 Android 智能模式中强制走代理', () {
@@ -193,7 +193,7 @@ void main() {
           'PROCESS-NAME,com.netflix.mediaclient,PROXY',
         ]),
       );
-      expect(rules.last, 'MATCH,DIRECT');
+      expect(rules.last, 'MATCH,PROXY');
     });
   });
 }

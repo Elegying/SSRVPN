@@ -152,8 +152,8 @@ proxies:
         expect(telegram, lessThan(gfw));
         expect(gfw, isNonNegative);
         expect(gfw, lessThan(cn));
-        expect(rules.last, 'MATCH,DIRECT');
-        expect(rules, isNot(contains('MATCH,PROXY')));
+        expect(rules.last, 'MATCH,PROXY');
+        expect(rules, isNot(contains('MATCH,DIRECT')));
         expect(rules, isNot(anyElement(contains('org.telegram.messenger'))));
       }
     });
@@ -200,8 +200,8 @@ proxies:
         rules.indexOf('DOMAIN-SUFFIX,cn,DIRECT'),
         greaterThan(rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT')),
       );
-      expect(rules.last, 'MATCH,DIRECT');
-      expect(rules, isNot(contains('MATCH,PROXY')));
+      expect(rules.last, 'MATCH,PROXY');
+      expect(rules, isNot(contains('MATCH,DIRECT')));
     });
 
     test('selects temporary ports when preferred ports are occupied', () async {

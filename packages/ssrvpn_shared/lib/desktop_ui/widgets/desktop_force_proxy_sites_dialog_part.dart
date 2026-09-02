@@ -1,17 +1,25 @@
 part of desktop_home_screen;
 
 class _DesktopForceProxySitesDialog extends StatefulWidget {
-  const _DesktopForceProxySitesDialog({required this.savedSites});
+  const _DesktopForceProxySitesDialog({
+    required this.savedSites,
+    this.forceDirect = false,
+  });
 
   final List<String> savedSites;
+  final bool forceDirect;
 
   static Future<List<String>?> show(
     BuildContext context, {
     required List<String> savedSites,
+    bool forceDirect = false,
   }) {
     return showDialog<List<String>>(
       context: context,
-      builder: (_) => _DesktopForceProxySitesDialog(savedSites: savedSites),
+      builder: (_) => _DesktopForceProxySitesDialog(
+        savedSites: savedSites,
+        forceDirect: forceDirect,
+      ),
     );
   }
 
@@ -76,9 +84,7 @@ class _DesktopForceProxySitesDialogState
 
     return Dialog(
       backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 460),
         child: SingleChildScrollView(
@@ -98,15 +104,14 @@ class _DesktopForceProxySitesDialogState
                       height: 40,
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [
-                            AppTheme.primary,
-                            AppTheme.accentColor,
-                          ],
+                          colors: [AppTheme.primary, AppTheme.accentColor],
                         ),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(
-                        Icons.add_link_rounded,
+                      child: Icon(
+                        widget.forceDirect
+                            ? Icons.link_off_rounded
+                            : Icons.add_link_rounded,
                         color: Colors.white,
                         size: 22,
                       ),
@@ -114,7 +119,7 @@ class _DesktopForceProxySitesDialogState
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        '添加强制代理网站',
+                        widget.forceDirect ? '添加强制直连网站' : '添加强制代理网站',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
@@ -126,7 +131,9 @@ class _DesktopForceProxySitesDialogState
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  '默认规则已涵盖绝大部分网站，如出现个别网站无法访问的情况，再使用此功能，粘贴需要强制代理的网址：',
+                  widget.forceDirect
+                      ? '仅在确认网站无需节点时使用。手动直连高于所有自动规则，但低于手动强制代理：'
+                      : '默认规则已涵盖绝大部分网站，如出现个别网站无法访问的情况，再使用此功能，粘贴需要强制代理的网址：',
                   style: TextStyle(
                     fontSize: 13,
                     height: 1.45,
@@ -164,10 +171,7 @@ class _DesktopForceProxySitesDialogState
                   const SizedBox(height: 12),
                   Text(
                     _errorText!,
-                    style: const TextStyle(
-                      color: AppTheme.error,
-                      fontSize: 12,
-                    ),
+                    style: const TextStyle(color: AppTheme.error, fontSize: 12),
                   ),
                 ],
                 const SizedBox(height: 18),

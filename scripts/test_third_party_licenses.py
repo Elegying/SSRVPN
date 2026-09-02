@@ -154,7 +154,7 @@ class ThirdPartyLicenseDistributionTest(unittest.TestCase):
     def test_privacy_copy_lists_primary_network_requests(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("应用主要会为", readme)
-        self.assertIn("固定提交的路由规则刷新", readme)
+        self.assertIn("内置基线及受审查通道的路由规则刷新", readme)
         self.assertIn("DNS 解析", readme)
 
 

@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "upstream": {
+    "repository": "MetaCubeX/meta-rules-dat",
+    "commit": "200e6a86736cfab29aae7b07dc266e59f13bc13d"
+  },
+  "files": [
+    {
+      "name": "ai_services.yaml",
+      "behavior": "domain",
+      "count": 69,
+      "sha256": "7712a2c6fb8dbf5477f3f13f425c990c69fe591fbf3aacaab2b7ed4592302774"
+    },
+    {
+      "name": "foreign_services.yaml",
+      "behavior": "domain",
+      "count": 1180,
+      "sha256": "34a3b682360c0cde629821434c8533605c05a9ba49d01c4ed5ea8f768cfd0aa1"
+    },
+    {
+      "name": "streaming_services.yaml",
+      "behavior": "domain",
+      "count": 301,
+      "sha256": "d6271ec56c063a7903e8623628fcedb9b4f677f8c3721b9e5f046bfde5794b74"
+    },
+    {
+      "name": "china_domains.yaml",
+      "behavior": "domain",
+      "count": 2972,
+      "sha256": "24fab61fcf08d14eca0a291ca66409334af4d5e7660b62789ac04b16ead394ba"
+    },
+    {
+      "name": "user_feedback_rules.yaml",
+      "behavior": "domain",
+      "count": 2,
+      "sha256": "88d366d858de6d7b6c50cfddb5123e9536016598f59d4e5c8a2d801d841f9074"
+    },
+    {
+      "name": "company_asn.yaml",
+      "behavior": "ipcidr",
+      "count": 1639,
+      "sha256": "593efbb9021f2ed063f95cd7f931f3cb0998c38151cfe5e115ebe0b7f2a07abb"
+    }
+  ],
+  "companyAsns": {
+    "Alibaba": [
+      45102,
+      37963,
+      24429
+    ],
+    "Tencent": [
+      132203,
+      45090
+    ],
+    "Baidu": [
+      55967,
+      38365
+    ],
+    "ByteDance": [
+      138699,
+      396986
+    ]
+  },
+  "rollback": "Revert packages/ssrvpn_shared/assets/rules/latest as one commit; clients retain the last valid local provider when refresh fails."
+}
