@@ -311,6 +311,7 @@ class ClashService extends ClashServiceBase {
       platformHeader: '# ===== SSRVPN Android =====',
       tunConfig: _androidTunConfig(settings),
       latencyTestUrl: settings.latencyTestUrl,
+      extraRulesBeforeDirect: _androidForcedProxyAppRules,
     );
   }
 
@@ -326,6 +327,7 @@ class ClashService extends ClashServiceBase {
       platformHeader: '# ===== SSRVPN Android =====',
       tunConfig: _androidTunConfig(settings),
       latencyTestUrl: settings.latencyTestUrl,
+      extraRulesBeforeDirect: _androidForcedProxyAppRules,
     );
   }
 

@@ -231,6 +231,42 @@ proxies:
       );
     });
 
+    test('Telegram official IPv4 ranges proxy before direct fallbacks', () {
+      const yaml = '''
+proxies:
+  - name: "Test Node"
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+''';
+
+      final parsed = loadYaml(
+        ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+      ) as YamlMap;
+      final rules = (parsed['rules'] as YamlList).cast<String>();
+      final gfwProxyIndex = rules.indexOf('RULE-SET,ssrvpn-geosite-gfw,PROXY');
+
+      for (final cidr in const [
+        '91.108.56.0/22',
+        '91.108.4.0/22',
+        '91.108.8.0/22',
+        '91.108.16.0/22',
+        '91.108.12.0/22',
+        '149.154.160.0/20',
+        '91.105.192.0/23',
+        '91.108.20.0/22',
+        '185.76.151.0/24',
+      ]) {
+        final index = rules.indexOf('IP-CIDR,$cidr,PROXY,no-resolve');
+        expect(index, isNonNegative, reason: cidr);
+        expect(index, lessThan(gfwProxyIndex), reason: cidr);
+      }
+      expect(gfwProxyIndex, lessThan(rules.indexOf('GEOIP,CN,DIRECT')));
+      expect(rules.last, 'MATCH,DIRECT');
+    });
+
     test('generateConfig enables bounded HTTP TLS and QUIC domain sniffing',
         () {
       const yaml = '''

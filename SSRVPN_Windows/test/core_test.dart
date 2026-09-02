@@ -144,12 +144,17 @@ proxies:
       );
       for (final config in [disabled, enabled]) {
         final rules = (config['rules'] as YamlList).cast<String>();
+        final telegram =
+            rules.indexOf('IP-CIDR,91.108.56.0/22,PROXY,no-resolve');
         final gfw = rules.indexOf('RULE-SET,ssrvpn-geosite-gfw,PROXY');
         final cn = rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT');
+        expect(telegram, isNonNegative);
+        expect(telegram, lessThan(gfw));
         expect(gfw, isNonNegative);
         expect(gfw, lessThan(cn));
         expect(rules.last, 'MATCH,DIRECT');
         expect(rules, isNot(contains('MATCH,PROXY')));
+        expect(rules, isNot(anyElement(contains('org.telegram.messenger'))));
       }
     });
 
