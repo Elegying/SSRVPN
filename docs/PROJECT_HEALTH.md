@@ -4,27 +4,23 @@
 
 当前应用版本：`v4.0.21`
 
-最新正式版本：[`v4.0.20`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.20)
+最新正式版本：[`v4.0.21`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.21)
 
 ## 当前结论
 
-`v4.0.21` 是 Telegram 与常用国外应用智能分流补丁候选：三端共享 Telegram
-官方 IPv4 机房网段强制代理，Android 再按精确应用包名提供第二层保障；浏览器、国内应用
-排除、全局模式和最终默认直连语义均不变。最新已发布正式版在本候选完成受保护主分支与
-线上构建前仍为 `v4.0.20`，下方既有正式发布证据继续对应 `v4.0.20`。
+`v4.0.21` 已正式发布，修复 Telegram 在“智能”模式下使用裸 IP 建链时绕过域名规则、
+落入最终直连并超时的问题。Android、macOS 与 Windows 共享 Telegram 官方 IPv4 机房
+网段强制代理；Android 再按精确应用包名强制代理常用国外应用，形成域名/IP 与应用身份
+双重保障。浏览器不在强制名单内，国内应用排除、全局模式、订阅格式和最终默认直连语义
+均保持不变。
 
-`v4.0.20` 已正式发布，修复了 v4.0.19 暴露的两项实机问题：Android 停止事务现在能区分仍由应用
-持有的 TUN 与 MIUI 延迟移除但描述符已经关闭的接口，继续对未知或活动自有 TUN 失败关闭；
-Windows 安装事务会在成功提交后启动可信更新包清理助手，同时继续保留手动包、失败包和
-身份不匹配文件。“智能”、全局、订阅、节点格式和连接协议没有变化。
+Android v4.0.20 实机日志确认 Telegram 三处数据中心地址被旧规则判为 `DIRECT` 后超时，
+同一节点经代理访问全部成功；因此根因是分流遗漏，不是节点不可用。正式 v4.0.21 APK
+发布后手机已断开 USB，未把未执行的正式 APK 原地升级和 Telegram 复验冒充实机通过。
 
-修复代码已通过受保护主分支 CI 和三端正式形态候选构建。Redmi Note 8 / Android 11 实机
-完成 App 入口 20/20 轮连接与断开、10/10 轮快速取消，以及后台和 Doze 回归，关闭了旧版
-进程终止复现；完整证据见
-[v4.0.20 Android 修复候选报告](uat/SSRVPN_Android_v4.0.20_修复候选实机验收报告_20260902.md)。
-Windows 修复已通过正式安装器在线 smoke，但没有把线上自动化冒充新的桌面人工 UAT。
-受保护主分支、正式标签、GitHub Release、七项公开资产、摘要、provenance、GitHub
-Attestations 和 OSS 公共下载均已完成独立终验。
+修复代码已通过 PR、受保护主分支精确 CI 和三端正式构建。带注释标签、公开 GitHub
+Release、七项资产、摘要、provenance 与 OSS 公共通道均已终验；Windows 正式安装器
+同时通过在线安装/卸载 smoke。
 
 本文件只记录当前状态和仍需跟进的证据边界。版本变更明细以
 [CHANGELOG](../CHANGELOG.md) 为准，硬性产品约束以
@@ -35,14 +31,14 @@ Attestations 和 OSS 公共下载均已完成独立终验。
 
 | 项目 | 当前结果 |
 | --- | --- |
-| 当前正式版本 | `4.0.20+4020`，三端 pubspec、共享常量、CHANGELOG、正式资产身份一致 |
-| 当前版本本地门禁 | Flutter `3.44.1` 下完整 `make verify` 退出码 0；版本、文档、格式、三端测试和覆盖率门禁全部通过 |
-| 正式源码与标签 | 受保护 `main` 提交 [`c7667ff`](https://github.com/Elegying/SSRVPN/commit/c7667ff0075ae9b5c4848cb72de842b9b7bcbe07)；带注释标签 `v4.0.20` 精确解引用到该提交 |
-| 精确正式 `main` CI | [`33553184498`](https://github.com/Elegying/SSRVPN/actions/runs/33553184498) 成功；工作区、Android、macOS、Windows、安全与原生门禁全部通过 |
-| 标签与正式构建 | [`Prepare Release 33554832427`](https://github.com/Elegying/SSRVPN/actions/runs/33554832427) 和 [`Release 33554866473`](https://github.com/Elegying/SSRVPN/actions/runs/33554866473) 均成功 |
-| Android 实机 | 修复候选 App 20/20、快速取消 10/10、后台/Doze 与真实 HTTPS 通过；正式 APK 与候选之间只有版本和证据变更 |
-| 正式公开资产 | [`v4.0.20`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.20) 共七项资产；APK `f6cae87c…f977`、DMG `2c988fb8…fa1f9`、EXE `3f662fb2…fba3`，摘要、provenance 与 attestation 一致 |
-| OSS 公共通道 | `latest.json` 已指向 `4.0.20`；三端版本化资产完整下载后的 SHA-256 与 GitHub Release 逐项一致 |
+| 当前正式版本 | `4.0.21+4021`，三端 pubspec、共享常量、CHANGELOG、正式资产身份一致 |
+| 当前版本本地门禁 | Flutter `3.44.1` 下定向规则测试、Android 完整 Flutter 测试与覆盖率、版本/文档/格式/架构守卫通过；完整三端门禁由线上正式 CI 执行 |
+| 正式源码与标签 | 受保护 `main` 提交 [`5954b86`](https://github.com/Elegying/SSRVPN/commit/5954b863403c27dfd8ac640fbc7835e10f07ec73)；带注释标签 `v4.0.21` 精确解引用到该提交 |
+| 精确正式 `main` CI | [`33613958571`](https://github.com/Elegying/SSRVPN/actions/runs/33613958571) 成功；工作区、Android、macOS、Windows、安全与原生门禁全部通过 |
+| 标签与正式构建 | [`Prepare Release 33615546792`](https://github.com/Elegying/SSRVPN/actions/runs/33615546792) 和 [`Release 33615580444`](https://github.com/Elegying/SSRVPN/actions/runs/33615580444) 均成功 |
+| Android 实机 | v4.0.20 旧规则根因与同节点代理可达性已实机确认；v4.0.21 正式 APK 发布后手机断开 USB，正式包原地升级与 Telegram 复验保持未执行 |
+| 正式公开资产 | [`v4.0.21`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.21) 共七项资产；APK `7f477620…2cd4`、DMG `b6881b9c…aa77`、EXE `dbb21f27…6af6`，摘要与 provenance 一致 |
+| OSS 公共通道 | `latest.json` 已指向 `4.0.21`；Release 发布后步骤已逐项验证 GitHub 与 OSS 公共通道 |
 
 发布流程在三平台产物和 shared 测试全部成功后才获准进入 `release` 环境；
 Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最终发布按事务顺序完成。
