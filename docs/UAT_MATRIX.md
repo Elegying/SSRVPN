@@ -21,7 +21,22 @@ VPN、代理、TUN、安装、无障碍及电量在目标系统上实际成立�
 每个失败必须附最小复现步骤、发生时间、应用诊断、系统日志和预期结果；禁止上传原始订阅、
 节点密码、Token、API secret、用户名路径或未脱敏截图。
 
-## 2026-09-02 v4.0.22 智能分流候选证据
+## 2026-09-02 v4.0.22 智能分流正式发布与候选证据
+
+- 受保护 PR [#183](https://github.com/Elegying/SSRVPN/pull/183) 已 squash 合并；`main`、标签
+  `v4.0.22` 均精确指向提交 `eb3d161015f1abdb154c370b0c2de3bc2b0be57d`。精确
+  [主分支 CI 33625677508](https://github.com/Elegying/SSRVPN/actions/runs/33625677508)、
+  [Prepare Release 33627188347](https://github.com/Elegying/SSRVPN/actions/runs/33627188347) 和
+  [Release 33627219065](https://github.com/Elegying/SSRVPN/actions/runs/33627219065) 均成功。
+- [GitHub Release v4.0.22](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.22) 已公开，非
+  draft、非 prerelease，共七项资产。完整下载后 APK SHA-256 为
+  `81faed6d73c707baf8ae8c7ff1dd89119d581fccdb44624bcd0d06b1dcb1ac72`，DMG 为
+  `c66039fb4d5c66ac44e6ecb2619e0d51be3c4edce9db93ef50d52819dd91c3ef`，Windows 安装器为
+  `5a15890d38a97087be7edb2996030f542d68006aecec55a4822472742d580152`；实际文件、三份
+  sidecar、Release API digest、provenance 与 GitHub Attestations 逐项一致。
+- OSS `latest.json` 已指向 `4.0.22`；三个版本化资产独立完整下载后的 SHA-256 与 GitHub
+  Release 一致，版本化和公共 `latest.json` 逐字节一致。发布事务证据不替代下表保持
+  “未执行”的真实网络和人工桌面 UAT。
 
 - 共享配置测试已覆盖“用户强制代理 → 用户强制直连 → 海外服务代理 → 国内企业域名/ASN
   直连 → GFW/CN/GeoIP → `MATCH,PROXY`”顺序、冲突目标代理优先及对应 DNS policy。
@@ -29,11 +44,12 @@ VPN、代理、TUN、安装、无障碍及电量在目标系统上实际成立�
   已离线校验；有效远程缓存保留、损坏缓存恢复内置基线、刷新失败不改写缓存均有自动回归。
 - macOS M1 / macOS 26.6.2 已使用项目内置 Mihomo v1.19.29 实际加载系统代理与 TUN 配置，
   配置校验成功；完整 macOS Flutter 定向生命周期测试通过。Windows 配置回归通过，真实
-  Windows TUN、系统代理和安装器继续由候选线上构建执行。
+  Windows TUN、系统代理和安装器配置回归、构建及安装/卸载 smoke 已由正式 Windows runner
+  执行；真实桌面流量矩阵仍需人工执行。
 - Android Flutter 配置、原生桥守卫和 Kotlin 单测构建通过；本轮检查时 `adb devices` 没有
   在线设备，因此不能把旧版 Telegram 实机证据或本地编译冒充 v4.0.22 正式 APK 实机复验。
 
-正式候选仍需按下表记录真实数据通道；未取得设备证据时保持“未执行”：
+正式版仍需按下表记录真实数据通道；未取得设备证据时保持“未执行”：
 
 | ID | 平台/模式 | 目标 | 通过标准 | 当前状态 |
 | --- | --- | --- | --- | --- |
@@ -42,8 +58,8 @@ VPN、代理、TUN、安装、无障碍及电量在目标系统上实际成立�
 | R-03 | Android TUN | 百度智能云、阿里云、火山引擎、华为云 | 主域名、API 和已知 CDN 域名优先直连；用户强制代理可覆盖 | 未执行 |
 | R-04 | macOS TUN | 国内/海外/国内 AI/海外 CDN | DNS 无旁路，TCP/UDP/QUIC 可用，嗅探失败不阻断 | 未执行 |
 | R-05 | macOS 系统代理 | 同上 | 遵循系统代理的应用可用；不遵循系统代理的应用按产品说明改用 TUN | 未执行 |
-| R-06 | Windows TUN | 同上 | IPv4、DNS、TCP/UDP/QUIC、断开恢复与系统路由正常 | 待线上 smoke / 人工未执行 |
-| R-07 | Windows 系统代理 | 同上 | 浏览器及遵循系统代理的应用可用，断开后系统代理完整恢复 | 待线上 smoke / 人工未执行 |
+| R-06 | Windows TUN | 同上 | IPv4、DNS、TCP/UDP/QUIC、断开恢复与系统路由正常 | 线上构建/安装器 smoke 通过 / 人工未执行 |
+| R-07 | Windows 系统代理 | 同上 | 浏览器及遵循系统代理的应用可用，断开后系统代理完整恢复 | 线上构建/安装器 smoke 通过 / 人工未执行 |
 | R-08 | 三端故障注入 | 规则更新失败、DNS 短时失败、节点断开恢复 | 保留旧规则与连接状态；未知目标走代理，不因刷新失败阻断建连 | 自动化通过 / 人工未执行 |
 
 ## 2026-09-02 v4.0.20 正式发布证据
