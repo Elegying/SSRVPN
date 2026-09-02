@@ -120,8 +120,9 @@ class HomeScreenState extends State<HomeScreen>
   void refreshNodes() {
     if (_disposed || !mounted) return;
     final subService = context.read<SubscriptionService>();
-    final latestNodes =
-        HomeNodeController.runnableNodesFrom(subService.allNodes);
+    final latestNodes = HomeNodeController.runnableNodesFrom(
+      subService.allNodes,
+    );
     final revision = subService.revision;
     if (revision != _lastRevision || _nodes.length != latestNodes.length) {
       _cancelSingleLatencyTest();
@@ -255,6 +256,7 @@ class HomeScreenState extends State<HomeScreen>
           onSelectNode: _handleSelectNode,
           onProxyModeChanged: (mode) => _handleProxyModeChanged(mode.name),
           onShowForceProxySites: _showForceProxySitesDialog,
+          onShowForceDirectSites: _showForceDirectSitesDialog,
           onShowLogs: () => _showAndroidHomeLogsSheet(context),
           onLongPressNode: (node) => unawaited(_editNode(node)),
         ),

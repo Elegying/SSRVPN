@@ -213,9 +213,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
       });
       int? connectionGeneration;
       try {
-        final nodes = HomeNodeController.runnableNodesFrom(
-          subService.allNodes,
-        );
+        final nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
         if (nodes.isEmpty) {
           _updateHomeState(() {
             _errorMessage = '订阅中没有可用节点，请刷新订阅';
@@ -237,20 +235,18 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           settingsService: settingsService,
           subscriptionService: subService,
         );
-        final outcome = await clashService.runConnectionTransition(
-          () async {
-            if (!clashService.isConnectionIntentCurrent(
-              connectionGeneration!,
-              connected: true,
-            )) {
-              return const AndroidConnectionOutcome();
-            }
-            return orchestrator.connect(
-              autoSelect?.name,
-              connectionGeneration: connectionGeneration,
-            );
-          },
-        );
+        final outcome = await clashService.runConnectionTransition(() async {
+          if (!clashService.isConnectionIntentCurrent(
+            connectionGeneration!,
+            connected: true,
+          )) {
+            return const AndroidConnectionOutcome();
+          }
+          return orchestrator.connect(
+            autoSelect?.name,
+            connectionGeneration: connectionGeneration,
+          );
+        });
         if (!clashService.isConnectionIntentCurrent(
           connectionGeneration,
           connected: true,
@@ -394,44 +390,64 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     }
   }
 
-  Future<void> _showForceProxySitesDialog() async {
+  Future<void> _showForceProxySitesDialog() =>
+      _showRoutingSitesDialog(forceDirect: false);
+
+  Future<void> _showForceDirectSitesDialog() =>
+      _showRoutingSitesDialog(forceDirect: true);
+
+  Future<void> _showRoutingSitesDialog({required bool forceDirect}) async {
     final settings = context.read<SettingsService>().settings;
-    final savedSites = AppSettings.normalizeForceProxySites(
-      settings.forceProxySites,
-    );
+    final savedSites = forceDirect
+        ? AppSettings.normalizeForceDirectSites(settings.forceDirectSites)
+        : AppSettings.normalizeForceProxySites(settings.forceProxySites);
     final sites = await ForceProxySitesDialog.show(
       context,
       savedSites: savedSites,
+      forceDirect: forceDirect,
     );
     if (sites == null || !mounted || _disposed) return;
     try {
-      await _applyForceProxySites(sites);
+      await _applyRoutingSites(sites, forceDirect: forceDirect);
     } catch (error) {
-      AppLogger.warning('ForceProxySites', '保存强制代理网站失败: $error');
+      AppLogger.warning(
+        'RoutingSites',
+        '保存${forceDirect ? '强制直连' : '强制代理'}网站失败: $error',
+      );
       if (!mounted || _disposed) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
-          content: Text('强制代理网站保存失败，请重试'),
-          duration: Duration(seconds: 3),
+        SnackBar(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+          content: Text('${forceDirect ? '强制直连' : '强制代理'}网站保存失败，请重试'),
+          duration: const Duration(seconds: 3),
         ),
       );
     }
   }
 
-  Future<void> _applyForceProxySites(List<String> sites) async {
+  Future<void> _applyRoutingSites(
+    List<String> sites, {
+    required bool forceDirect,
+  }) async {
     final settingsService = context.read<SettingsService>();
     final clashService = context.read<ClashService>();
-    final normalizedSites = AppSettings.normalizeForceProxySites(sites);
-    final settingsChanged =
-        settingsService.settings.copyWith(forceProxySites: normalizedSites) !=
-            settingsService.settings;
+    final normalizedSites = forceDirect
+        ? AppSettings.normalizeForceDirectSites(sites)
+        : AppSettings.normalizeForceProxySites(sites);
+    final candidate = forceDirect
+        ? settingsService.settings.copyWith(forceDirectSites: normalizedSites)
+        : settingsService.settings.copyWith(forceProxySites: normalizedSites);
+    final settingsChanged = candidate != settingsService.settings;
     final shouldReload =
         (_isConnected || clashService.isRunning) && !_isConnecting;
     if (settingsChanged && !shouldReload) {
       await clashService.invalidateIdleNativeConnectionSnapshot();
     }
-    await settingsService.updateForceProxySites(normalizedSites);
+    if (forceDirect) {
+      await settingsService.updateForceDirectSites(normalizedSites);
+    } else {
+      await settingsService.updateForceProxySites(normalizedSites);
+    }
     clashService.updateSettings(settingsService.settings);
 
     var reloadSucceeded = false;
@@ -448,9 +464,9 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         content: Text(
           shouldReload
               ? reloadSucceeded
-                  ? '强制代理网站已实时生效'
-                  : '强制代理网站已保存，当前连接重载失败，请重新连接'
-              : '强制代理网站已保存',
+                  ? '${forceDirect ? '强制直连' : '强制代理'}网站已实时生效'
+                  : '${forceDirect ? '强制直连' : '强制代理'}网站已保存，当前连接重载失败，请重新连接'
+              : '${forceDirect ? '强制直连' : '强制代理'}网站已保存',
         ),
         backgroundColor:
             shouldReload && !reloadSucceeded ? AppTheme.warningColor : null,

@@ -59,7 +59,8 @@
 - [ADR-012：自动准备可复现的正式版本](decisions/012-automatic-release-preparation.md)
 - [ADR-013：客户端连接后仅使用 GitHub Releases 更新](decisions/013-github-release-connected-update.md)
 - [ADR-014：GeoIP 仅按明确指令手动更新](decisions/014-manual-only-geoip-updates.md)
-- [ADR-015：智能模式使用 GFW 代理与默认直连](decisions/015-gfw-proxy-default-direct-routing.md)
+- [ADR-015：智能模式使用 GFW 代理与默认直连（已取代）](decisions/015-gfw-proxy-default-direct-routing.md)
+- [ADR-016：分层智能路由与可用性优先的代理兜底](decisions/016-layered-smart-routing-safe-fallback.md)
 
 ## 文档维护规则
 

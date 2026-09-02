@@ -100,13 +100,12 @@ class ClashService extends ClashServiceBase
     final tunDnsRecovered = await _tunSession!.recoverStaleDnsIfNeeded();
     if (!tunDnsRecovered) {
       _startupBlockedByTunDnsRecovery = true;
-      disableStartup(
-        _tunSession!.lastError ?? '检测到未恢复的 TUN DNS 状态，已暂停新连接',
-      );
+      disableStartup(_tunSession!.lastError ?? '检测到未恢复的 TUN DNS 状态，已暂停新连接');
     }
     await Directory(
       '$configDir${Platform.pathSeparator}providers',
     ).create(recursive: true);
+    await ensureBundledSmartRules();
     _logFile = File('$configDir${Platform.pathSeparator}ssrvpn.log');
     await _rotateLogFile();
     _fileLogger = BoundedFileLogger(_logFile!);
@@ -153,10 +152,7 @@ class ClashService extends ClashServiceBase
     if (!_coreAssetsPrepared) {
       // 必须先用旧路径确认并终止遗留代际；替换 executable 会破坏 proc_pidpath 证据。
       await _terminateOrphanedCores();
-      await _installCoreAsset(
-        'assets/AtlasCore.gz',
-        _corePath,
-      );
+      await _installCoreAsset('assets/AtlasCore.gz', _corePath);
       await _installAsset(
         'assets/geoip.metadb.gz',
         '$configDir${Platform.pathSeparator}geoip.metadb',
@@ -354,10 +350,12 @@ class ClashService extends ClashServiceBase
 
   Future<void> _setExecutableMode(String path) async {
     final result = await _runProcess(
-      _chmodPath,
-      ['755', path],
-      timeout: const Duration(seconds: 5),
-    );
+        _chmodPath,
+        [
+          '755',
+          path,
+        ],
+        timeout: const Duration(seconds: 5));
     if (result.exitCode != 0) {
       throw FileSystemException(
         'Unable to set safe executable mode: ${result.stderr}'.trim(),
@@ -377,10 +375,7 @@ class ClashService extends ClashServiceBase
   }
 
   /// 从应用包内释放非可执行资源文件到目标路径。
-  Future<void> _installAsset(
-    String assetKey,
-    String destPath,
-  ) async {
+  Future<void> _installAsset(String assetKey, String destPath) async {
     try {
       final dest = File(destPath);
       final marker = File('$destPath.rev');

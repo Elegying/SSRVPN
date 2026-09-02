@@ -1203,7 +1203,7 @@ proxies:
       );
     });
 
-    test('updates both pinned domain providers through Mihomo API', () async {
+    test('updates every configured rule provider through Mihomo API', () async {
       final requests = <String>[];
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
@@ -1226,6 +1226,12 @@ proxies:
       await requestsDone.timeout(const Duration(seconds: 1));
 
       expect(requests, [
+        'PUT /providers/rules/ssrvpn-user-feedback-rules Bearer test-token',
+        'PUT /providers/rules/ssrvpn-ai-services Bearer test-token',
+        'PUT /providers/rules/ssrvpn-foreign-services Bearer test-token',
+        'PUT /providers/rules/ssrvpn-streaming-services Bearer test-token',
+        'PUT /providers/rules/ssrvpn-china-domains Bearer test-token',
+        'PUT /providers/rules/ssrvpn-company-asn Bearer test-token',
         'PUT /providers/rules/ssrvpn-geosite-gfw Bearer test-token',
         'PUT /providers/rules/ssrvpn-geosite-cn Bearer test-token',
       ]);
@@ -1242,8 +1248,10 @@ proxies:
       await providerDir.create(recursive: true);
       final caches = <File>[];
       for (final providerName in AppConstants.ruleProviderNames) {
+        final fileName = AppConstants.smartRuleProviderFiles[providerName] ??
+            '$providerName.mrs';
         final cache = File(
-          '${providerDir.path}${Platform.pathSeparator}$providerName.mrs',
+          '${providerDir.path}${Platform.pathSeparator}$fileName',
         );
         await cache.writeAsString('verified-cache:$providerName', flush: true);
         caches.add(cache);

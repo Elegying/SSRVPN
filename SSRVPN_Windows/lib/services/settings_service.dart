@@ -174,8 +174,10 @@ class SettingsService extends ChangeNotifier {
       final sourceFile = File('$installedDir${Platform.pathSeparator}$name');
       final targetFile = File('$fallbackDir${Platform.pathSeparator}$name');
       final critical = _criticalInstalledDataFiles.contains(name);
-      final sourceType =
-          await FileSystemEntity.type(sourceFile.path, followLinks: false);
+      final sourceType = await FileSystemEntity.type(
+        sourceFile.path,
+        followLinks: false,
+      );
       if (sourceType == FileSystemEntityType.notFound) continue;
       if (sourceType != FileSystemEntityType.file) {
         if (critical) {
@@ -187,8 +189,10 @@ class SettingsService extends ChangeNotifier {
         continue;
       }
 
-      final targetType =
-          await FileSystemEntity.type(targetFile.path, followLinks: false);
+      final targetType = await FileSystemEntity.type(
+        targetFile.path,
+        followLinks: false,
+      );
       if (targetType != FileSystemEntityType.notFound) {
         if (critical) {
           if (targetType != FileSystemEntityType.file) {
@@ -218,7 +222,8 @@ class SettingsService extends ChangeNotifier {
             )) {
           await targetFile.delete();
           throw StateError(
-              'Installed data migration verification failed: $name');
+            'Installed data migration verification failed: $name',
+          );
         }
       } catch (error, stackTrace) {
         if (critical) {
@@ -288,11 +293,7 @@ class SettingsService extends ChangeNotifier {
     }
 
     if (badSettingsReason != null) {
-      await _backupBadFile(
-        file,
-        badSettingsReason,
-        decoded: decodedSettings,
-      );
+      await _backupBadFile(file, badSettingsReason, decoded: decodedSettings);
     }
 
     if (legacySecret.isNotEmpty ||
@@ -318,7 +319,8 @@ class SettingsService extends ChangeNotifier {
       await _writeSecureApiSecret(value);
       if (await _readSecureApiSecret() != value) {
         throw StateError(
-            'Windows secure storage did not retain the API secret');
+          'Windows secure storage did not retain the API secret',
+        );
       }
       _settings = candidate;
     } catch (error, stackTrace) {
@@ -326,7 +328,8 @@ class SettingsService extends ChangeNotifier {
         await _writeSecureApiSecret(previousSecret);
         if (await _readSecureApiSecret() != previousSecret) {
           throw StateError(
-              'Windows secure storage rollback verification failed');
+            'Windows secure storage rollback verification failed',
+          );
         }
       } catch (rollbackError) {
         throw StateError(
@@ -350,10 +353,7 @@ class SettingsService extends ChangeNotifier {
         .replaceAll('.', '');
     final backup = File('${file.path}.bad-$stamp');
     final sanitized = decoded == null
-        ? <String, dynamic>{
-            'originalContentOmitted': true,
-            'reason': reason,
-          }
+        ? <String, dynamic>{'originalContentOmitted': true, 'reason': reason}
         : (Map<String, dynamic>.from(decoded)..remove('apiSecret'));
     await backup.writeAsString(jsonEncode(sanitized), flush: true);
     await File('${backup.path}.reason.txt').writeAsString(reason, flush: true);
@@ -363,7 +363,9 @@ class SettingsService extends ChangeNotifier {
   String _generateSecret() {
     final rand = Random.secure();
     return List.generate(
-        16, (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+      16,
+      (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
   }
 
   final RecoveringSerialQueue _saveQueue = RecoveringSerialQueue();
@@ -466,8 +468,7 @@ class SettingsService extends ChangeNotifier {
         notifyListeners();
         if (failures.isNotEmpty) {
           throw StateError(
-            'App data reset was incomplete: ${failures.join('; ')}',
-          );
+              'App data reset was incomplete: ${failures.join('; ')}');
         }
       });
 
@@ -516,6 +517,13 @@ class SettingsService extends ChangeNotifier {
     await _updateSettings(
       (settings) => settings.forceProxySites =
           AppSettings.normalizeForceProxySites(sites),
+    );
+  }
+
+  Future<void> updateForceDirectSites(List<String> sites) async {
+    await _updateSettings(
+      (settings) => settings.forceDirectSites =
+          AppSettings.normalizeForceDirectSites(sites),
     );
   }
 

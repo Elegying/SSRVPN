@@ -310,8 +310,8 @@ void main() {
         expect(telegram, lessThan(gfwProxy));
         expect(gfwProxy, greaterThan(0));
         expect(gfwProxy, lessThan(cnDirect));
-        expect(config, contains('"MATCH,DIRECT"'));
-        expect(config, isNot(contains('"MATCH,PROXY"')));
+        expect(config, contains('"MATCH,PROXY"'));
+        expect(config, isNot(contains('"MATCH,DIRECT"')));
         expect(config, isNot(contains('PROCESS-NAME,org.telegram.messenger')));
       }
     });
@@ -351,8 +351,8 @@ void main() {
       expect(youtube, greaterThan(blocked));
       expect(youtube, lessThan(gfwProxy));
       expect(gfwProxy, lessThan(cnDirect));
-      expect(config, contains('"MATCH,DIRECT"'));
-      expect(config, isNot(contains('"MATCH,PROXY"')));
+      expect(config, contains('"MATCH,PROXY"'));
+      expect(config, isNot(contains('"MATCH,DIRECT"')));
     });
 
     test('内置 Mihomo 核心接受 IPv4-only TUN 配置', () async {

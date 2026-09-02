@@ -2,25 +2,25 @@
 
 最近更新：2026-09-02
 
-当前应用版本：`v4.0.21`
+当前应用版本：`v4.0.22`
 
 最新正式版本：[`v4.0.21`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.21)
 
 ## 当前结论
 
-`v4.0.21` 已正式发布，修复 Telegram 在“智能”模式下使用裸 IP 建链时绕过域名规则、
-落入最终直连并超时的问题。Android、macOS 与 Windows 共享 Telegram 官方 IPv4 机房
-网段强制代理；Android 再按精确应用包名强制代理常用国外应用，形成域名/IP 与应用身份
-双重保障。浏览器不在强制名单内，国内应用排除、全局模式、订阅格式和最终默认直连语义
-均保持不变。
+`v4.0.22` 是当前待发布版本：在 v4.0.21 Telegram 修复基础上，将三端“智能”模式升级为
+用户规则优先、海外服务代理、国内企业域名/ASN 直连、GFW/CN/GeoIP 兜底和未知流量默认代理
+的统一分层。六份带版本与 SHA-256 清单的规则随包内置，远程刷新失败不阻断连接；Android
+普通用户应用全部进入 TUN，使手动强制代理不再被应用级旁路绕过。
 
 Android v4.0.20 实机日志确认 Telegram 三处数据中心地址被旧规则判为 `DIRECT` 后超时，
 同一节点经代理访问全部成功；因此根因是分流遗漏，不是节点不可用。正式 v4.0.21 APK
 发布后手机已断开 USB，未把未执行的正式 APK 原地升级和 Telegram 复验冒充实机通过。
 
-修复代码已通过 PR、受保护主分支精确 CI 和三端正式构建。带注释标签、公开 GitHub
-Release、七项资产、摘要、provenance 与 OSS 公共通道均已终验；Windows 正式安装器
-同时通过在线安装/卸载 smoke。
+当前候选已在固定 Flutter 3.44.1 工具链通过完整 `make verify`，覆盖共享规则、三端 Flutter、
+Android 原生构建、macOS 原生测试和内置 Mihomo 配置校验；受保护 PR、精确主分支 CI、
+正式三端构建、标签、公开资产与 OSS 公共通道仍需完成后才能将 v4.0.22 标记为正式发布。
+最新已完成全部发布终验的版本仍是 v4.0.21。
 
 本文件只记录当前状态和仍需跟进的证据边界。版本变更明细以
 [CHANGELOG](../CHANGELOG.md) 为准，硬性产品约束以
@@ -31,8 +31,8 @@ Release、七项资产、摘要、provenance 与 OSS 公共通道均已终验；
 
 | 项目 | 当前结果 |
 | --- | --- |
-| 当前正式版本 | `4.0.21+4021`，三端 pubspec、共享常量、CHANGELOG、正式资产身份一致 |
-| 当前版本本地门禁 | Flutter `3.44.1` 下定向规则测试、Android 完整 Flutter 测试与覆盖率、版本/文档/格式/架构守卫通过；完整三端门禁由线上正式 CI 执行 |
+| 当前代码版本 | `4.0.22+4022`，三端 pubspec、共享常量、CHANGELOG 一致；正式资产尚待线上构建 |
+| 当前版本本地门禁 | `mise exec flutter@3.44.1 -- make verify` 全部通过：Release tooling 396 项、Shared 658 项（85.68%）、macOS 284 项（67.28%）、Windows 273 项（54.80%），并包含 Android Flutter/原生构建、规则清单离线校验与 macOS 内置 Mihomo 配置加载；8 项 Windows 主机专属用例按设计留给线上 CI |
 | 正式源码与标签 | 受保护 `main` 提交 [`5954b86`](https://github.com/Elegying/SSRVPN/commit/5954b863403c27dfd8ac640fbc7835e10f07ec73)；带注释标签 `v4.0.21` 精确解引用到该提交 |
 | 精确正式 `main` CI | [`33613958571`](https://github.com/Elegying/SSRVPN/actions/runs/33613958571) 成功；工作区、Android、macOS、Windows、安全与原生门禁全部通过 |
 | 标签与正式构建 | [`Prepare Release 33615546792`](https://github.com/Elegying/SSRVPN/actions/runs/33615546792) 和 [`Release 33615580444`](https://github.com/Elegying/SSRVPN/actions/runs/33615580444) 均成功 |
@@ -43,7 +43,7 @@ Release、七项资产、摘要、provenance 与 OSS 公共通道均已终验；
 发布流程在三平台产物和 shared 测试全部成功后才获准进入 `release` 环境；
 Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最终发布按事务顺序完成。
 
-## 质量评分
+## 最近正式版本质量评分（v4.0.21）
 
 | 维度 | 得分 | 主要依据 |
 | --- | ---: | --- |

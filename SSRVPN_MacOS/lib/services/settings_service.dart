@@ -354,18 +354,12 @@ class SettingsService extends ChangeNotifier {
           ? await _removeLegacyPreferencesOverride()
           : await prefs.remove('app_settings');
       if (!removed) {
-        AppLogger.warning(
-          'Settings',
-          '旧版 app_settings 清理失败，将在下次启动重试',
-        );
+        AppLogger.warning('Settings', '旧版 app_settings 清理失败，将在下次启动重试');
       }
     } catch (_) {
       // This is a retired duplicate. Once modern settings and the private
       // secret are durable, cleanup failure must not become a startup loop.
-      AppLogger.warning(
-        'Settings',
-        '旧版 app_settings 清理失败，将在下次启动重试',
-      );
+      AppLogger.warning('Settings', '旧版 app_settings 清理失败，将在下次启动重试');
     }
   }
 
@@ -384,8 +378,9 @@ class SettingsService extends ChangeNotifier {
       // secret that cannot be parsed and scrubbed safely. Keep only diagnostic
       // metadata, retire the raw file, then let _load rebuild defaults around
       // the independently stored secret.
-      await File('${file.path}.bad-$stamp.reason.txt')
-          .writeAsString(reason, flush: true);
+      await File(
+        '${file.path}.bad-$stamp.reason.txt',
+      ).writeAsString(reason, flush: true);
       await file.delete();
       _syncDataDirectory();
       return;
@@ -401,8 +396,9 @@ class SettingsService extends ChangeNotifier {
       await scrubbedTemp.rename(file.path);
       _syncDataDirectory();
       await file.rename(backup.path);
-      await File('${backup.path}.reason.txt')
-          .writeAsString(reason, flush: true);
+      await File(
+        '${backup.path}.reason.txt',
+      ).writeAsString(reason, flush: true);
       _syncDataDirectory();
     } finally {
       if (await scrubbedTemp.exists()) await scrubbedTemp.delete();
@@ -412,7 +408,9 @@ class SettingsService extends ChangeNotifier {
   String _generateSecret() {
     final rand = Random.secure();
     return List.generate(
-        16, (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+      16,
+      (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
   }
 
   final RecoveringSerialQueue _saveQueue = RecoveringSerialQueue();
@@ -584,8 +582,7 @@ class SettingsService extends ChangeNotifier {
         notifyListeners();
         if (failures.isNotEmpty) {
           throw StateError(
-            'App data reset was incomplete: ${failures.join('; ')}',
-          );
+              'App data reset was incomplete: ${failures.join('; ')}');
         }
       });
 
@@ -640,6 +637,13 @@ class SettingsService extends ChangeNotifier {
     await _updateSettings(
       (settings) => settings.forceProxySites =
           AppSettings.normalizeForceProxySites(sites),
+    );
+  }
+
+  Future<void> updateForceDirectSites(List<String> sites) async {
+    await _updateSettings(
+      (settings) => settings.forceDirectSites =
+          AppSettings.normalizeForceDirectSites(sites),
     );
   }
 

@@ -1,6 +1,35 @@
 part of 'clash_service_base.dart';
 
 mixin _ClashConfigSupport {
+  String get configDir;
+
+  void log(
+    String message, {
+    RuntimeLogLevel level = RuntimeLogLevel.info,
+    String event = 'runtime',
+  });
+
+  /// Restores only missing or invalid remotely refreshable rule providers.
+  /// Packaging problems stay advisory so core startup can use an existing
+  /// cache or fetch the provider later.
+  @protected
+  Future<void> ensureBundledSmartRules() async {
+    try {
+      final baseline = await SmartRuleBundle.ensureInstalled(configDir);
+      log(
+        '智能规则基线 ${baseline.version} 已就绪：'
+        '安装 ${baseline.installedFiles}，复用 ${baseline.reusedFiles}',
+      );
+    } catch (error) {
+      log(
+        '智能规则基线准备失败，保留现有缓存并继续启动: '
+        'cause=${_safeRuntimeLogErrorCode(error)}',
+        level: RuntimeLogLevel.warning,
+        event: 'rule_provider_baseline',
+      );
+    }
+  }
+
   @protected
   String buildClashConfig(
     String rawYaml,

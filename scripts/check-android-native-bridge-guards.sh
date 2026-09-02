@@ -1002,8 +1002,12 @@ require_file_text "$CLASH_DART" "scheduleUserConnectivityObservation({bool rerun
 require_file_text "$CLASH_DART" "scheduleDataPlaneObservation(rerunIfActive: rerunIfActive)"
 require_file_text "$CLASH_NATIVE_BRIDGE" "scheduleUserConnectivityObservation(rerunIfActive: true)"
 require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "fun install(builder: VpnService.Builder)"
-require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "DomesticAppBypassPolicy.applyInstalled"
-require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "adbPackages.forEach"
+require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "adbPackages.filter(addDisallowedApplication)"
+if grep -Fq "DomesticAppBypassPolicy" "$VPN_APP_EXCLUSION_INSTALLER" ||
+  grep -Fq "domestic-app-bypass" "$MANIFEST"; then
+  echo "Android VPN exclusion guard failed: user apps must stay inside TUN for rule routing" >&2
+  exit 1
+fi
 if grep -Fq "vpnPackageName" "$VPN_APP_EXCLUSION_INSTALLER" ||
   grep -Fq "VpnAppExclusionInstaller.install(builder, packageName)" "$SERVICE"; then
   echo "Android VPN app exclusion guard failed: SSRVPN must stay inside its own TUN" >&2

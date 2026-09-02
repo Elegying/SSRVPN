@@ -1,5 +1,6 @@
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
+import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
@@ -177,8 +178,8 @@ proxies:
       expect(dns['ipv6'], isFalse);
       expect(dns.containsKey('fake-ip-range6'), isFalse);
       expect(rules.first, 'IP-CIDR6,::/0,REJECT,no-resolve');
-      expect(rules.last, 'MATCH,DIRECT');
-      expect(rules, isNot(contains('MATCH,PROXY')));
+      expect(rules.last, 'MATCH,PROXY');
+      expect(rules, isNot(contains('MATCH,DIRECT')));
       expect(config, contains('proxies:'));
       expect(config, contains('proxy-groups:'));
       expect(config, contains('rules:'));
@@ -264,7 +265,7 @@ proxies:
         expect(index, lessThan(gfwProxyIndex), reason: cidr);
       }
       expect(gfwProxyIndex, lessThan(rules.indexOf('GEOIP,CN,DIRECT')));
-      expect(rules.last, 'MATCH,DIRECT');
+      expect(rules.last, 'MATCH,PROXY');
     });
 
     test('generateConfig enables bounded HTTP TLS and QUIC domain sniffing',
@@ -560,6 +561,55 @@ proxies:
       );
     });
 
+    test('manual proxy then manual direct outrank every automatic rule', () {
+      const yaml = '''
+proxies:
+  - name: Test Node
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: test123
+''';
+      final parsed = loadYaml(
+        ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(
+            forceProxySites: const ['conflict.example', 'baidu.com'],
+            forceDirectSites: const ['conflict.example', 'openai.com'],
+          ),
+        ),
+      ) as YamlMap;
+      final dns = parsed['dns'] as YamlMap;
+      final policy = dns['nameserver-policy'] as YamlMap;
+      final rules = (parsed['rules'] as YamlList).cast<String>();
+
+      final proxyConflict =
+          rules.indexOf('DOMAIN-SUFFIX,conflict.example,PROXY');
+      final directConflict =
+          rules.indexOf('DOMAIN-SUFFIX,conflict.example,DIRECT');
+      final forcedDomesticProxy =
+          rules.indexOf('DOMAIN-SUFFIX,baidu.com,PROXY');
+      final forcedForeignDirect =
+          rules.indexOf('DOMAIN-SUFFIX,openai.com,DIRECT');
+      final builtInForeignProxy =
+          rules.indexOf('DOMAIN-SUFFIX,openai.com,PROXY');
+      final chinaDirect = rules.indexOf('RULE-SET,ssrvpn-china-domains,DIRECT');
+
+      expect(proxyConflict, isNonNegative);
+      expect(proxyConflict, lessThan(directConflict));
+      expect(forcedDomesticProxy, lessThan(chinaDirect));
+      expect(forcedForeignDirect, lessThan(builtInForeignProxy));
+      expect(
+        (policy['+.conflict.example'] as YamlList).cast<String>(),
+        everyElement(contains('#PROXY')),
+      );
+      expect(
+        (policy['+.openai.com'] as YamlList).cast<String>(),
+        containsAll(AppConstants.domesticDohNameservers),
+      );
+    });
+
     test('generateConfig emits each exact rule only once', () {
       const yaml = '''
 proxies:
@@ -725,7 +775,7 @@ proxies:
       }
     });
 
-    test('smart mode proxies only forced and GFW traffic by default', () {
+    test('smart mode uses layered services and a safe proxy fallback', () {
       final yaml = '''
 proxies:
   - name: "Test Node"
@@ -740,8 +790,16 @@ proxies:
         ClashConfigGenerator.generateConfig(yaml, AppSettings()),
       ) as YamlMap;
       final providers = parsed['rule-providers'] as YamlMap;
+      final feedbackProvider =
+          providers['ssrvpn-user-feedback-rules'] as YamlMap;
       final gfwProvider = providers['ssrvpn-geosite-gfw'] as YamlMap;
       final cnProvider = providers['ssrvpn-geosite-cn'] as YamlMap;
+      final aiProvider = providers['ssrvpn-ai-services'] as YamlMap;
+      final foreignProvider = providers['ssrvpn-foreign-services'] as YamlMap;
+      final streamingProvider =
+          providers['ssrvpn-streaming-services'] as YamlMap;
+      final chinaProvider = providers['ssrvpn-china-domains'] as YamlMap;
+      final asnProvider = providers['ssrvpn-company-asn'] as YamlMap;
       final dns = parsed['dns'] as YamlMap;
       final policy = dns['nameserver-policy'] as YamlMap;
       final rules = (parsed['rules'] as YamlList).cast<String>();
@@ -753,7 +811,28 @@ proxies:
         expect(provider['format'], 'mrs');
         expect(provider.containsKey('interval'), isFalse);
         expect(provider['proxy'], 'PROXY');
+        expect(provider['size-limit'], 2 * 1024 * 1024);
       }
+      for (final provider in [
+        feedbackProvider,
+        aiProvider,
+        foreignProvider,
+        streamingProvider,
+        chinaProvider,
+        asnProvider,
+      ]) {
+        expect(provider['type'], 'http');
+        expect(provider['format'], 'yaml');
+        expect(provider.containsKey('interval'), isFalse);
+        expect(provider['proxy'], 'PROXY');
+        expect(provider['size-limit'], 2 * 1024 * 1024);
+      }
+      expect(feedbackProvider['behavior'], 'domain');
+      expect(aiProvider['behavior'], 'domain');
+      expect(foreignProvider['behavior'], 'domain');
+      expect(streamingProvider['behavior'], 'domain');
+      expect(chinaProvider['behavior'], 'domain');
+      expect(asnProvider['behavior'], 'ipcidr');
       expect(
         gfwProvider['url'],
         'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
@@ -775,22 +854,62 @@ proxies:
           isNot(matches(RegExp(r'/(?:main|master|latest|release)(?:/|$)'))),
         );
       }
+      expect(aiProvider['path'], './providers/ai_services.yaml');
+      expect(
+        aiProvider['url'],
+        'https://raw.githubusercontent.com/Elegying/SSRVPN/main/'
+        'packages/ssrvpn_shared/assets/rules/latest/ai_services.yaml',
+      );
       expect(providers, isNot(contains('ssrvpn-geoip-cn')));
       final openAiProxyIndex = rules.indexOf('DOMAIN-SUFFIX,openai.com,PROXY');
+      final aiProxyIndex = rules.indexOf('RULE-SET,ssrvpn-ai-services,PROXY');
+      final foreignProxyIndex =
+          rules.indexOf('RULE-SET,ssrvpn-foreign-services,PROXY');
+      final streamingProxyIndex =
+          rules.indexOf('RULE-SET,ssrvpn-streaming-services,PROXY');
+      final chinaDirectIndex =
+          rules.indexOf('RULE-SET,ssrvpn-china-domains,DIRECT');
+      final asnDirectIndex = rules.indexOf(
+        'RULE-SET,ssrvpn-company-asn,DIRECT,no-resolve',
+      );
       final gfwProxyIndex = rules.indexOf('RULE-SET,ssrvpn-geosite-gfw,PROXY');
       final domainDirectIndex =
           rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT');
       final geoIpDirectIndex = rules.indexOf('GEOIP,CN,DIRECT');
-      final matchIndex = rules.indexOf('MATCH,DIRECT');
+      final matchIndex = rules.indexOf('MATCH,PROXY');
       expect(openAiProxyIndex, isNonNegative);
       expect(gfwProxyIndex, isNonNegative);
+      expect(aiProxyIndex, isNonNegative);
+      expect(foreignProxyIndex, isNonNegative);
+      expect(streamingProxyIndex, isNonNegative);
+      expect(chinaDirectIndex, isNonNegative);
+      expect(asnDirectIndex, isNonNegative);
       expect(domainDirectIndex, isNonNegative);
       expect(geoIpDirectIndex, isNonNegative);
       expect(matchIndex, isNonNegative);
       expect(openAiProxyIndex, lessThan(gfwProxyIndex));
+      expect(aiProxyIndex, lessThan(chinaDirectIndex));
+      expect(foreignProxyIndex, lessThan(chinaDirectIndex));
+      expect(streamingProxyIndex, lessThan(chinaDirectIndex));
+      expect(chinaDirectIndex, lessThan(asnDirectIndex));
+      expect(asnDirectIndex, lessThan(gfwProxyIndex));
       expect(gfwProxyIndex, lessThan(domainDirectIndex));
       expect(domainDirectIndex, lessThan(geoIpDirectIndex));
       expect(geoIpDirectIndex, lessThan(matchIndex));
+      expect(
+        (policy['rule-set:ssrvpn-ai-services'] as YamlList).cast<String>(),
+        [
+          'https://1.1.1.1/dns-query#PROXY',
+          'https://8.8.8.8/dns-query#PROXY',
+        ],
+      );
+      expect(
+        (policy['rule-set:ssrvpn-china-domains'] as YamlList).cast<String>(),
+        [
+          'https://dns.alidns.com/dns-query',
+          'https://doh.pub/dns-query',
+        ],
+      );
       expect(
         (policy['rule-set:ssrvpn-geosite-gfw'] as YamlList).cast<String>(),
         [
@@ -810,8 +929,8 @@ proxies:
       expect(rules, contains('DOMAIN-SUFFIX,snssdk.com,DIRECT'));
       expect(rules, contains('IP-CIDR,192.168.0.0/16,DIRECT,no-resolve'));
       expect(rules, isNot(anyElement(contains('ssrvpn-geoip-cn'))));
-      expect(rules, isNot(contains('MATCH,PROXY')));
-      expect(rules.last, 'MATCH,DIRECT');
+      expect(rules, isNot(contains('MATCH,DIRECT')));
+      expect(rules.last, 'MATCH,PROXY');
     });
 
     test('global mode still sends all traffic through the global selector', () {

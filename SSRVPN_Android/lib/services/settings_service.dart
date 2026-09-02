@@ -186,9 +186,7 @@ class SettingsService extends ChangeNotifier {
     // normal settings write never spans JSON and Android Keystore storage.
     final snapshot = AppSettings.fromJson(newSettings.toJson());
     return _saveQueue.add(() async {
-      final candidate = snapshot.copyWith(
-        apiSecret: _settings.apiSecret,
-      );
+      final candidate = snapshot.copyWith(apiSecret: _settings.apiSecret);
       if (candidate == _settings) return;
       await _saveSettings(candidate);
       _settings = candidate;
@@ -229,6 +227,18 @@ class SettingsService extends ChangeNotifier {
   /// 别名：供 home_screen 使用
   Future<void> updateForceProxySites(List<String> sites) =>
       setForceProxySites(sites);
+
+  Future<void> setForceDirectSites(List<String> sites) {
+    final snapshot = AppSettings.normalizeForceDirectSites(
+      List<String>.of(sites),
+    );
+    return _updateSettings(
+      (settings) => settings.copyWith(forceDirectSites: snapshot),
+    );
+  }
+
+  Future<void> updateForceDirectSites(List<String> sites) =>
+      setForceDirectSites(sites);
 
   /// ── 持久化 ──
 

@@ -55,15 +55,11 @@ class ClashConfigGenerator {
     final seenProxyNames = <String>{};
     for (final proxyName in proxyNames) {
       if (!seenProxyNames.add(proxyName)) {
-        throw FormatException(
-          '订阅中的节点名称重复：“$proxyName”，请刷新订阅或修改节点名称后重试',
-        );
+        throw FormatException('订阅中的节点名称重复：“$proxyName”，请刷新订阅或修改节点名称后重试');
       }
     }
     final normalizedExtraGroupNames =
-        RuntimeConfigNamePolicy.normalizeExtraGroupNames(
-      extraSelectGroupNames,
-    );
+        RuntimeConfigNamePolicy.normalizeExtraGroupNames(extraSelectGroupNames);
     final reservedRuntimeNames = <String>{
       ...RuntimeConfigNamePolicy.reservedProxyNames,
       ...normalizedExtraGroupNames,
@@ -99,6 +95,13 @@ class ClashConfigGenerator {
         forceProxyDomainSuffixes.add(host);
       }
     }
+    final forceDirectDomainSuffixes = <String>{};
+    for (final site in settings.forceDirectSites) {
+      final host = AppSettings.extractForceProxyHost(site);
+      if (host != null && InternetAddress.tryParse(host) == null) {
+        forceDirectDomainSuffixes.add(host);
+      }
+    }
 
     final result = StringBuffer();
 
@@ -117,8 +120,9 @@ class ClashConfigGenerator {
     // Keep racing multiple IPv4 answers to reduce single-address failures.
     result.writeln('tcp-concurrent: true');
     result.writeln('etag-support: true');
-    final apiSecret =
-        RuntimeConfigNamePolicy.canonicalApiSecret(settings.apiSecret);
+    final apiSecret = RuntimeConfigNamePolicy.canonicalApiSecret(
+      settings.apiSecret,
+    );
     if (apiSecret.isNotEmpty) {
       result.writeln('secret: ${_quote(apiSecret)}');
     }
@@ -183,12 +187,30 @@ class ClashConfigGenerator {
       for (final domain in forceProxyDomainSuffixes) {
         nameserverPolicies['+.$domain'] = AppConstants.trustedProxyNameservers;
       }
+      for (final domain in forceDirectDomainSuffixes) {
+        nameserverPolicies.putIfAbsent(
+          '+.$domain',
+          () => AppConstants.domesticDohNameservers,
+        );
+      }
       for (final domain in AppConstants.defaultProxyDomainSuffixes) {
         nameserverPolicies.putIfAbsent(
           '+.$domain',
           () => AppConstants.trustedProxyNameservers,
         );
       }
+      for (final providerName in const [
+        AppConstants.userFeedbackRuleProviderName,
+        AppConstants.aiServicesRuleProviderName,
+        AppConstants.foreignServicesRuleProviderName,
+        AppConstants.streamingServicesRuleProviderName,
+      ]) {
+        nameserverPolicies['rule-set:$providerName'] =
+            AppConstants.trustedProxyNameservers;
+      }
+      nameserverPolicies[
+              'rule-set:${AppConstants.chinaDomainsRuleProviderName}'] =
+          AppConstants.domesticDohNameservers;
       nameserverPolicies[
               'rule-set:${AppConstants.geositeGfwRuleProviderName}'] =
           AppConstants.trustedProxyNameservers;
@@ -277,6 +299,18 @@ class ClashConfigGenerator {
     // Mihomo 核心启动后会通过 API 触发一次更新；这里不写 interval，避免周期刷新。
     result.writeln();
     result.writeln('rule-providers:');
+    for (final entry in AppConstants.smartRuleProviderFiles.entries) {
+      _writeRuleProvider(
+        result,
+        name: entry.key,
+        behavior: entry.key == AppConstants.companyAsnRuleProviderName
+            ? 'ipcidr'
+            : 'domain',
+        format: 'yaml',
+        path: './providers/${entry.value}',
+        url: '${AppConstants.smartRuleChannelBaseUrl}/${entry.value}',
+      );
+    }
     _writeRuleProvider(
       result,
       name: AppConstants.geositeGfwRuleProviderName,
@@ -292,11 +326,12 @@ class ClashConfigGenerator {
       url: AppConstants.geositeCnRuleProviderUrl,
     );
     // 规则。按首次出现顺序去重：IPv6/私网安全、用户强制代理、
-    // 内置强制代理域名/IP、平台规则、GFW 代理、CN 直连、固定直连，
-    // 最后默认直连。
+    // 用户强制直连、已知海外服务、国内企业域名/ASN、GFW 代理、
+    // CN 与 GeoIP 直连，最后未知流量安全回退到代理。
     final orderedRules = <String>{AppConstants.rejectIpv6Rule};
     orderedRules.addAll(AppConstants.defaultPrivateDirectRules);
     orderedRules.addAll(buildForceProxyRules(settings));
+    orderedRules.addAll(buildForceDirectRules(settings));
     orderedRules.addAll(
       AppConstants.defaultProxyDomainSuffixes.map(
         (domain) => 'DOMAIN-SUFFIX,$domain,PROXY',
@@ -308,11 +343,13 @@ class ClashConfigGenerator {
       ),
     );
     orderedRules.addAll(
-      extraRulesBeforeDirect.map((rule) => rule.trim()).where(
-            (rule) => rule.isNotEmpty,
-          ),
+      extraRulesBeforeDirect
+          .map((rule) => rule.trim())
+          .where((rule) => rule.isNotEmpty),
     );
     orderedRules.addAll(AppConstants.defaultRuleProviderProxyRules);
+    orderedRules.addAll(AppConstants.defaultDomesticServiceDirectRules);
+    orderedRules.addAll(AppConstants.defaultGfwProxyRules);
     orderedRules.addAll(AppConstants.defaultRuleProviderDirectRules);
     orderedRules.addAll(AppConstants.defaultDirectRules);
     orderedRules.add(AppConstants.defaultGeoIpDirectRule);
@@ -399,9 +436,7 @@ class ClashConfigGenerator {
           if (name.isEmpty) continue;
           final normalizedProxy = Map<Object?, Object?>.from(proxy)
             ..['name'] = name;
-          buffer.writeln(
-            '  - ${jsonEncode(_plainYamlValue(normalizedProxy))}',
-          );
+          buffer.writeln('  - ${jsonEncode(_plainYamlValue(normalizedProxy))}');
         }
         final text = buffer.toString().trimRight();
         if (text.isNotEmpty) return text;
@@ -489,7 +524,12 @@ class ClashConfigGenerator {
 
   /// 构建强制代理规则
   static List<String> buildForceProxyRules(AppSettings settings) {
-    return buildForceProxyRulesFromSites(settings.forceProxySites);
+    return buildRoutingRulesFromSites(settings.forceProxySites, 'PROXY');
+  }
+
+  /// 构建用户强制直连规则。与强制代理共用输入规范化，但规则顺序较低。
+  static List<String> buildForceDirectRules(AppSettings settings) {
+    return buildRoutingRulesFromSites(settings.forceDirectSites, 'DIRECT');
   }
 
   /// 从用户输入的站点列表构建强制代理规则。
@@ -498,21 +538,30 @@ class ClashConfigGenerator {
   /// IPv4/IPv6 主机规范化、去重和 Clash rule 生成逻辑。
   static List<String> buildForceProxyRulesFromSites(
     Iterable<Object?>? forceProxySites,
+  ) =>
+      buildRoutingRulesFromSites(forceProxySites, 'PROXY');
+
+  static List<String> buildRoutingRulesFromSites(
+    Iterable<Object?>? sites,
+    String action,
   ) {
+    if (action != 'PROXY' && action != 'DIRECT') {
+      throw ArgumentError.value(action, 'action', 'must be PROXY or DIRECT');
+    }
     final hosts = <String>{};
     final rules = <String>[];
 
-    for (final site in forceProxySites ?? const <Object?>[]) {
+    for (final site in sites ?? const <Object?>[]) {
       final host = AppSettings.extractForceProxyHost(site?.toString() ?? '');
       if (host == null || !hosts.add(host)) continue;
 
       final address = InternetAddress.tryParse(host);
       if (address == null) {
-        rules.add('DOMAIN-SUFFIX,$host,PROXY');
+        rules.add('DOMAIN-SUFFIX,$host,$action');
       } else if (address.type == InternetAddressType.IPv4) {
-        rules.add('IP-CIDR,$host/32,PROXY,no-resolve');
+        rules.add('IP-CIDR,$host/32,$action,no-resolve');
       } else {
-        rules.add('IP-CIDR6,$host/128,PROXY,no-resolve');
+        rules.add('IP-CIDR6,$host/128,$action,no-resolve');
       }
     }
 
@@ -525,14 +574,16 @@ class ClashConfigGenerator {
     required String behavior,
     required String path,
     required String url,
+    String format = 'mrs',
   }) {
     result.writeln('  $name:');
     result.writeln('    type: http');
     result.writeln('    behavior: $behavior');
-    result.writeln('    format: mrs');
+    result.writeln('    format: $format');
     result.writeln('    path: ${_quote(path)}');
     result.writeln('    url: ${_quote(url)}');
     result.writeln('    proxy: ${AppConstants.ruleProviderDownloadProxy}');
+    result.writeln('    size-limit: ${AppConstants.ruleProviderSizeLimit}');
   }
 
   /// 为 YAML 字符串添加引号（如果需要）

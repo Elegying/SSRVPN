@@ -118,13 +118,21 @@ Windows executable verification is also performed by
 
 ## Runtime rule providers
 
-Generated Mihomo configurations use the MetaCubeX `geosite/gfw.mrs` and
-`geosite/cn.mrs` rule providers pinned to the same commit
+Generated Mihomo configurations use six SSRVPN-reviewed YAML providers for AI,
+foreign services, streaming, domestic companies, company ASN prefixes, and user
+feedback. A complete versioned snapshot and SHA256 manifest ship in the app;
+`scripts/verify-smart-rules.py` validates required services, counts, syntax, fixed
+upstream commit, and digests without network access. Startup repairs only missing
+or invalid files, while a valid remotely refreshed cache is retained. Background
+refresh failures never delete the local provider or block an existing connection.
+
+The MetaCubeX `geosite/gfw.mrs` and `geosite/cn.mrs` providers remain pinned to the same commit
 `200e6a86736cfab29aae7b07dc266e59f13bc13d`; they do not follow the mutable
 `main`, `master`, `latest`, or `release` references. Both providers use the
 `PROXY` group for downloads, fixed cache paths under `providers/`, and the same
 one-shot startup refresh. Mihomo retains an existing usable cache when a refresh
 fails; SSRVPN never deletes provider files in the failure path. The generated
-rules keep local/private, `DOMAIN-SUFFIX,cn`, and `GEOIP,CN` direct fallbacks,
-then finish with `MATCH,DIRECT`. Updating the pinned commit requires reviewing
-both files and updating the configuration regression tests in the same change.
+rules apply user choices before automatic service/domain/ASN decisions, keep
+local/private, `DOMAIN-SUFFIX,cn`, and `GEOIP,CN` direct fallbacks, then finish
+with `MATCH,PROXY`. Updating the pinned commit requires reviewing all derived
+files and updating the manifest and configuration regression tests together.

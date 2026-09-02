@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.22] - 2026-09-02
+
+### 智能分流
+
+- “智能”模式升级为统一的首次匹配分层：IPv6/私网安全、用户强制代理、用户强制直连、已知海外与 AI/流媒体服务代理、国内企业域名和已审查 ASN 直连、GFW 代理、CN/GeoIP 直连，最后以 `MATCH,PROXY` 承接未知流量。用户手动规则不会被自动域名、ASN 或 GeoIP 判断覆盖；同一目标同时配置代理和直连时，强制代理优先。
+- 三端新增“强制直连网站”，沿用现有站点输入、规范化、持久化和连接中热重载路径；旧版设置无须迁移。强制代理域名使用代理 DoH，强制直连和国内企业域名使用国内 DoH，域名判断先于 IP/ASN/GeoIP。
+- 新增 OpenAI、Claude、Gemini、Google、YouTube、Telegram、GitHub、Discord 等海外服务规则，以及阿里、百度、腾讯、字节、华为、小米、京东、网易和讯飞等国内企业域名规则；阿里、腾讯、百度、字节的窄范围已审查 ASN 前缀作为域名规则之后的辅助判断。
+
+### 可用性与规则更新
+
+- 六份 SSRVPN 智能规则随客户端内置并带版本、条目数和 SHA-256 清单；首次连接不依赖远程下载。核心启动后才在后台检查远程规则，下载、解析或更新失败继续使用本地有效版本，不阻断节点连接；GFW/CN 规则仍固定到同一不可变上游提交。
+- Android 不再把国内应用排除在 VPN 之外，所有普通用户应用都进入同一 TUN 分流链，使用户强制代理能够覆盖微信、淘宝、国内 AI 等应用的具体域名；只保留 ADB 工具的既有旁路。Telegram 官方 IP 与常用国外应用包名强制代理继续作为域名规则之外的双重保障。
+- HTTP、TLS、QUIC 嗅探继续保持有界；全局目标改写仍关闭，识别失败由后续 IP/GeoIP/最终代理规则承接，不把嗅探成功作为连接成立条件。智能学习未在本版启用，避免历史网络噪声或投毒自动覆盖稳定规则。
+
+### 验证
+
+- 规则清单离线校验、旧设置兼容、用户代理/直连冲突、DNS 策略、远程缓存保留和损坏缓存恢复测试通过；macOS 内置 Mihomo 已实际接受系统代理与 TUN 配置。
+- Android Flutter 配置、原生桥守卫和 Kotlin 单测构建通过；macOS TUN/系统代理、Windows TUN/系统代理配置回归通过。Windows 的真实 TUN/安装器由正式线上构建继续执行，不以 macOS 主机测试替代。
+
 ## [4.0.21] - 2026-09-02
 
 ### 修复

@@ -85,11 +85,13 @@ class _UtilityActions extends StatelessWidget {
   const _UtilityActions({
     required this.forceProxyEnabled,
     this.onShowForceProxySites,
+    this.onShowForceDirectSites,
     this.onShowLogs,
   });
 
   final bool forceProxyEnabled;
   final VoidCallback? onShowForceProxySites;
+  final VoidCallback? onShowForceDirectSites;
   final VoidCallback? onShowLogs;
 
   @override
@@ -105,6 +107,12 @@ class _UtilityActions extends StatelessWidget {
             onPressed: forceProxyEnabled ? onShowForceProxySites : null,
             icon: const Icon(Icons.add_link_rounded, size: 17),
             label: const Text('强制代理网站'),
+          ),
+        if (onShowForceDirectSites != null)
+          TextButton.icon(
+            onPressed: forceProxyEnabled ? onShowForceDirectSites : null,
+            icon: const Icon(Icons.link_off_rounded, size: 17),
+            label: const Text('强制直连网站'),
           ),
         if (onShowLogs != null)
           TextButton.icon(

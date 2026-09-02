@@ -20,7 +20,7 @@ class _ModePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final modeDescription =
-        proxyMode == ProxyMode.global ? '所有流量都走代理' : '受限服务走代理，其他服务直接连接';
+        proxyMode == ProxyMode.global ? '所有流量都走代理' : '国内服务直接连接，海外及未知流量走代理';
     final proxyChoices = _ModeSection<ProxyMode>(
       title: '代理模式',
       description: modeDescription,

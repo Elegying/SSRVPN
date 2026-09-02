@@ -471,8 +471,8 @@ class SsrvpnVpnService : VpnService() {
             // Keep Android's documented default non-blocking TUN contract.
             builder.setBlocking(false)
             // Keep this app inside TUN; protect Mihomo outbound sockets individually.
-            val bypassedDomesticApps = VpnAppExclusionInstaller.install(builder)
-            Log.i(TAG, "Bypassing ${bypassedDomesticApps.size} installed domestic apps")
+            val bypassedToolingApps = VpnAppExclusionInstaller.install(builder)
+            Log.i(TAG, "Bypassing ${bypassedToolingApps.size} installed Android tooling apps")
 
             runtimeDiagnostics.beginTunLease()
             vpnFd = builder.establish()

@@ -233,23 +233,37 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _showForceProxySitesDialog() async {
+  Future<void> _showForceProxySitesDialog() =>
+      _showRoutingSitesDialog(forceDirect: false);
+
+  Future<void> _showForceDirectSitesDialog() =>
+      _showRoutingSitesDialog(forceDirect: true);
+
+  Future<void> _showRoutingSitesDialog({required bool forceDirect}) async {
     final settings = context.read<SettingsService>().settings;
-    final savedSites = AppSettings.normalizeForceProxySites(
-      settings.forceProxySites,
-    );
+    final savedSites = forceDirect
+        ? AppSettings.normalizeForceDirectSites(settings.forceDirectSites)
+        : AppSettings.normalizeForceProxySites(settings.forceProxySites);
     final sites = await _DesktopForceProxySitesDialog.show(
       context,
       savedSites: savedSites,
+      forceDirect: forceDirect,
     );
     if (sites == null || !_canUpdateUi) return;
-    await _applyForceProxySites(sites);
+    await _applyRoutingSites(sites, forceDirect: forceDirect);
   }
 
-  Future<void> _applyForceProxySites(List<String> sites) async {
+  Future<void> _applyRoutingSites(
+    List<String> sites, {
+    required bool forceDirect,
+  }) async {
     final settingsService = context.read<SettingsService>();
     final clashService = context.read<ClashService>();
-    await settingsService.updateForceProxySites(sites);
+    if (forceDirect) {
+      await settingsService.updateForceDirectSites(sites);
+    } else {
+      await settingsService.updateForceProxySites(sites);
+    }
     clashService.updateSettings(settingsService.settings);
 
     final shouldReload = _isConnected && !_isConnecting;
@@ -267,9 +281,9 @@ class _HomeScreenState extends State<HomeScreen> {
         content: Text(
           shouldReload
               ? reloadSucceeded
-                  ? '强制代理网站已实时生效'
-                  : '强制代理网站已保存，当前连接重载失败，请重新连接'
-              : '强制代理网站已保存',
+                  ? '${forceDirect ? '强制直连' : '强制代理'}网站已实时生效'
+                  : '${forceDirect ? '强制直连' : '强制代理'}网站已保存，当前连接重载失败，请重新连接'
+              : '${forceDirect ? '强制直连' : '强制代理'}网站已保存',
         ),
         backgroundColor:
             shouldReload && !reloadSucceeded ? AppTheme.warning : null,
@@ -278,9 +292,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _handleConnectionAction(
-    _DesktopConnectionAction action,
-  ) async {
+  Future<void> _handleConnectionAction(_DesktopConnectionAction action) async {
     final clashService = context.read<ClashService>();
     final subService = context.read<SubscriptionService>();
     final settingsService = context.read<SettingsService>();
@@ -316,9 +328,9 @@ class _HomeScreenState extends State<HomeScreen> {
         isRunning: clashService.isRunning,
       );
       if (notice != null && _canUpdateUi) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(notice)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(notice)));
       }
       return;
     }
@@ -691,6 +703,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           tunLabel: 'TUN 模式（需管理员权限）',
           onShowForceProxySites: _showForceProxySitesDialog,
+          onShowForceDirectSites: _showForceDirectSitesDialog,
           onShowLogs: () => _showDesktopHomeLogsDialog(context),
           onSecondaryTapDown: _showNodeContextMenu,
           onLongPressNode: (node) {
@@ -707,8 +720,4 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-enum _DesktopConnectionAction {
-  connect,
-  disconnect,
-  cancelPendingConnection,
-}
+enum _DesktopConnectionAction { connect, disconnect, cancelPendingConnection }

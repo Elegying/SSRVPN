@@ -59,4 +59,23 @@ void main() {
     expect(copied.enableTun, isTrue);
     expect(copied.lastSelectedNodeName, 'copied-node');
   });
+
+  test('manual direct rules round-trip without changing old settings', () {
+    final oldSettings = AppSettings.fromJson({
+      'forceProxySites': ['proxy.example'],
+    });
+    expect(oldSettings.forceDirectSites, everyElement(isEmpty));
+
+    final settings = oldSettings.copyWith(
+      forceDirectSites: const ['direct.example', 'https://api.example/path'],
+    );
+    final restored = AppSettings.fromJson(settings.toJson());
+
+    expect(restored.forceProxySites.first, 'proxy.example');
+    expect(restored.forceDirectSites.take(2), [
+      'direct.example',
+      'https://api.example/path',
+    ]);
+    expect(restored, settings);
+  });
 }

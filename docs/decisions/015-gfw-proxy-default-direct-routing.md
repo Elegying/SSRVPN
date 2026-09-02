@@ -2,7 +2,8 @@
 
 ## 状态
 
-已接受（2026-09-01），取代 [ADR-007](007-domain-based-domestic-routing.md)。
+已取代（2026-09-02），由 [ADR-016](016-layered-smart-routing-safe-fallback.md) 取代；
+历史决策与 v4.0.19 行为继续保留供审计。
 
 ## 背景
 

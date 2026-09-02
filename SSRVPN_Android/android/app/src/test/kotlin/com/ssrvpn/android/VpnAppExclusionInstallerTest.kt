@@ -6,7 +6,7 @@ import org.junit.Test
 
 class VpnAppExclusionInstallerTest {
     @Test
-    fun `vpn app stays inside tunnel while domestic and adb apps remain bypassed`() {
+    fun `all user apps stay inside tunnel while adb tooling remains bypassed`() {
         val installed = setOf(
             "com.ssrvpn.android",
             "com.ss.android.ugc.aweme",
@@ -21,8 +21,8 @@ class VpnAppExclusionInstallerTest {
         }
 
         assertFalse(attempted.contains("com.ssrvpn.android"))
-        assertTrue(attempted.contains("com.ss.android.ugc.aweme"))
-        assertTrue(attempted.contains("com.tencent.mm"))
+        assertFalse(attempted.contains("com.ss.android.ugc.aweme"))
+        assertFalse(attempted.contains("com.tencent.mm"))
         assertTrue(attempted.contains("com.android.adb"))
     }
 }

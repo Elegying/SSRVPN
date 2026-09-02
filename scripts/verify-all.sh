@@ -21,6 +21,7 @@ run_in() {
 run_step "Flutter toolchain version" scripts/check-flutter-version.sh
 run_step "Shared barrel imports" scripts/check-shared-barrel-imports.sh
 run_step "Version sync" scripts/check-version-sync.sh
+run_step "Bundled smart-routing rules" python3 scripts/verify-smart-rules.py
 run_step "Package guides" scripts/check-package-guides.sh
 run_step "Documentation consistency" scripts/check-doc-consistency.sh
 run_step "Workspace pub get" flutter pub get --enforce-lockfile

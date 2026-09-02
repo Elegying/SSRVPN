@@ -7,6 +7,7 @@ import '../constants/app_constants.dart';
 /// 这里只保留连接和运行时状态；用户可配置的软件设置不再持久化。
 class AppSettings {
   static const int forceProxySiteLimit = ForceProxySitePolicy.defaultLimit;
+  static const int forceDirectSiteLimit = ForceProxySitePolicy.defaultLimit;
 
   // ── 端口 ──
   int proxyPort; // mixed-port, 默认7890
@@ -28,6 +29,7 @@ class AppSettings {
 
   // ── 强制代理站点 ──
   List<String> forceProxySites;
+  List<String> forceDirectSites;
 
   AppSettings({
     this.proxyPort = 7890,
@@ -45,12 +47,14 @@ class AppSettings {
     @Deprecated('Use lastSelectedNodeName instead.') String? lastSelectedNode,
     this.latencyTestTimeout = 5000,
     Iterable<Object?>? forceProxySites,
+    Iterable<Object?>? forceDirectSites,
   })  : enableTun = enableTun ??
             tunMode ??
             (enableSystemProxy == null ? false : !enableSystemProxy),
         tunStack = _parseTunStack(tunStack),
         lastSelectedNodeName = lastSelectedNodeName ?? lastSelectedNode,
-        forceProxySites = normalizeForceProxySites(forceProxySites);
+        forceProxySites = normalizeForceProxySites(forceProxySites),
+        forceDirectSites = normalizeForceDirectSites(forceDirectSites);
 
   // ── 便捷 getter/setter ──
 
@@ -87,6 +91,7 @@ class AppSettings {
     @Deprecated('Use lastSelectedNodeName instead.') String? lastSelectedNode,
     int? latencyTestTimeout,
     Iterable<Object?>? forceProxySites,
+    Iterable<Object?>? forceDirectSites,
   }) {
     return AppSettings(
       proxyPort: proxyPort ?? this.proxyPort,
@@ -103,6 +108,7 @@ class AppSettings {
           lastSelectedNodeName ?? lastSelectedNode ?? this.lastSelectedNodeName,
       latencyTestTimeout: latencyTestTimeout ?? this.latencyTestTimeout,
       forceProxySites: forceProxySites ?? this.forceProxySites,
+      forceDirectSites: forceDirectSites ?? this.forceDirectSites,
     );
   }
 
@@ -121,6 +127,7 @@ class AppSettings {
       'lastSelectedNodeName': lastSelectedNodeName,
       'latencyTestTimeout': latencyTestTimeout,
       'forceProxySites': forceProxySites,
+      'forceDirectSites': forceDirectSites,
     };
   }
 
@@ -138,8 +145,14 @@ class AppSettings {
           _optionalString(json['lastSelectedNode']),
       latencyTestTimeout: _parseTimeout(json['latencyTestTimeout'], 5000),
       forceProxySites: json['forceProxySites'] is Iterable
-          ? (json['forceProxySites'] as Iterable)
-              .map((e) => e?.toString() ?? '')
+          ? (json['forceProxySites'] as Iterable).map(
+              (e) => e?.toString() ?? '',
+            )
+          : null,
+      forceDirectSites: json['forceDirectSites'] is Iterable
+          ? (json['forceDirectSites'] as Iterable).map(
+              (e) => e?.toString() ?? '',
+            )
           : null,
     );
   }
@@ -160,7 +173,8 @@ class AppSettings {
         other.latencyTestUrl == latencyTestUrl &&
         other.lastSelectedNodeName == lastSelectedNodeName &&
         other.latencyTestTimeout == latencyTestTimeout &&
-        _listEquals(other.forceProxySites, forceProxySites);
+        _listEquals(other.forceProxySites, forceProxySites) &&
+        _listEquals(other.forceDirectSites, forceDirectSites);
   }
 
   @override
@@ -177,6 +191,7 @@ class AppSettings {
       lastSelectedNodeName,
       latencyTestTimeout,
       Object.hashAll(forceProxySites),
+      Object.hashAll(forceDirectSites),
     );
   }
 
@@ -191,10 +206,11 @@ class AppSettings {
   // ── 静态工具方法 ──
 
   static List<String> normalizeForceProxySites(Iterable<Object?>? sites) {
-    return ForceProxySitePolicy.normalize(
-      sites,
-      limit: forceProxySiteLimit,
-    );
+    return ForceProxySitePolicy.normalize(sites, limit: forceProxySiteLimit);
+  }
+
+  static List<String> normalizeForceDirectSites(Iterable<Object?>? sites) {
+    return ForceProxySitePolicy.normalize(sites, limit: forceDirectSiteLimit);
   }
 
   static String? extractForceProxyHost(String site) {
