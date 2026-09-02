@@ -302,12 +302,17 @@ void main() {
       );
 
       for (final config in [systemProxyConfig, tunConfig]) {
+        final telegram =
+            config.indexOf('"IP-CIDR,91.108.56.0/22,PROXY,no-resolve"');
         final gfwProxy = config.indexOf('"RULE-SET,ssrvpn-geosite-gfw,PROXY"');
         final cnDirect = config.indexOf('"RULE-SET,ssrvpn-geosite-cn,DIRECT"');
+        expect(telegram, greaterThan(0));
+        expect(telegram, lessThan(gfwProxy));
         expect(gfwProxy, greaterThan(0));
         expect(gfwProxy, lessThan(cnDirect));
         expect(config, contains('"MATCH,DIRECT"'));
         expect(config, isNot(contains('"MATCH,PROXY"')));
+        expect(config, isNot(contains('PROCESS-NAME,org.telegram.messenger')));
       }
     });
 

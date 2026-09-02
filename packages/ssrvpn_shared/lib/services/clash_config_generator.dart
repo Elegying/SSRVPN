@@ -292,13 +292,19 @@ class ClashConfigGenerator {
       url: AppConstants.geositeCnRuleProviderUrl,
     );
     // 规则。按首次出现顺序去重：IPv6/私网安全、用户强制代理、
-    // 内置强制代理、GFW 代理、CN 直连、固定直连，最后默认直连。
+    // 内置强制代理域名/IP、平台规则、GFW 代理、CN 直连、固定直连，
+    // 最后默认直连。
     final orderedRules = <String>{AppConstants.rejectIpv6Rule};
     orderedRules.addAll(AppConstants.defaultPrivateDirectRules);
     orderedRules.addAll(buildForceProxyRules(settings));
     orderedRules.addAll(
       AppConstants.defaultProxyDomainSuffixes.map(
         (domain) => 'DOMAIN-SUFFIX,$domain,PROXY',
+      ),
+    );
+    orderedRules.addAll(
+      AppConstants.defaultProxyIpv4Cidrs.map(
+        (cidr) => 'IP-CIDR,$cidr,PROXY,no-resolve',
       ),
     );
     orderedRules.addAll(

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.21] - 2026-09-02
+
+### 修复
+
+- “智能”模式在 Android、macOS 与 Windows 上新增 Telegram 官方 IPv4 机房网段强制代理，修复 Telegram 使用裸 IP 建链时绕过 GFW 域名规则、落入最终直连并超时的问题。
+- Android 额外按精确应用包名强制代理 Telegram、WhatsApp、Signal、Instagram、X、YouTube、Gemini、ChatGPT、Netflix 等常用国外应用，作为域名/IP 规则之外的第二层保障；浏览器不在名单内，国内应用排除和智能模式最终直连语义保持不变。
+
+### 验证
+
+- Android v4.0.20 实机日志确认 Telegram 的 `91.108.56.100`、`149.154.167.50` 和 `149.154.175.58` 被旧规则判为直连后超时；同一节点经本地代理访问三处地址均成功，定位为分流遗漏而非节点故障。
+- 共享规则、Android 应用包名规则、macOS 与 Windows 配置生成定向测试通过；macOS 内置 Mihomo 核心接受新增 IPv4 CIDR 配置。桌面端不写入 Android 包名规则，只共享 Telegram 官方网段修复。
+
 ## [4.0.20] - 2026-09-02
 
 ### 修复

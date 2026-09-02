@@ -77,6 +77,21 @@ class AppConstants {
     'xn--ngstr-lra8j.com',
   ];
 
+  /// Official Telegram IPv4 data-center ranges. Telegram clients commonly
+  /// connect to these addresses directly, so domain-only GFW rules cannot
+  /// classify the traffic. Source: https://core.telegram.org/resources/cidr.txt
+  static const List<String> defaultProxyIpv4Cidrs = [
+    '91.108.56.0/22',
+    '91.108.4.0/22',
+    '91.108.8.0/22',
+    '91.108.16.0/22',
+    '91.108.12.0/22',
+    '149.154.160.0/20',
+    '91.105.192.0/23',
+    '91.108.20.0/22',
+    '185.76.151.0/24',
+  ];
+
   // ── 文件路径 ──
   static const String configFileName = 'config.yaml';
   static const String subscriptionCacheFileName = 'subscription_cache.yaml';
@@ -85,7 +100,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '4.0.20';
+  static const String appVersion = '4.0.21';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 

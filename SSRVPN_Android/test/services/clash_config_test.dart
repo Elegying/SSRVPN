@@ -165,5 +165,35 @@ void main() {
       expect(rules.last, 'MATCH,DIRECT');
       expect(rules, isNot(contains('MATCH,PROXY')));
     });
+
+    test('国外应用包名在 Android 智能模式中强制走代理', () {
+      final parsed = loadYaml(
+        clashService.generateClashConfig(_testProxies, AppSettings()),
+      ) as YamlMap;
+      final rules = (parsed['rules'] as YamlList).cast<String>();
+      final telegramIp = rules.indexOf(
+        'IP-CIDR,91.108.56.0/22,PROXY,no-resolve',
+      );
+      final telegramApp = rules.indexOf(
+        'PROCESS-NAME,org.telegram.messenger,PROXY',
+      );
+      final gfw = rules.indexOf('RULE-SET,ssrvpn-geosite-gfw,PROXY');
+
+      expect(telegramIp, isNonNegative);
+      expect(telegramApp, greaterThan(telegramIp));
+      expect(telegramApp, lessThan(gfw));
+      expect(
+        rules,
+        containsAll(const [
+          'PROCESS-NAME,com.whatsapp,PROXY',
+          'PROCESS-NAME,com.instagram.android,PROXY',
+          'PROCESS-NAME,com.twitter.android,PROXY',
+          'PROCESS-NAME,com.google.android.youtube,PROXY',
+          'PROCESS-NAME,com.openai.chatgpt,PROXY',
+          'PROCESS-NAME,com.netflix.mediaclient,PROXY',
+        ]),
+      );
+      expect(rules.last, 'MATCH,DIRECT');
+    });
   });
 }
