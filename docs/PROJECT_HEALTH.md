@@ -2,31 +2,24 @@
 
 最近更新：2026-09-03
 
-当前应用版本：`v4.0.24`
+当前应用版本：`v4.0.25`（发布候选）
 
 最新正式版本：[`v4.0.24`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.24)
 
 ## 当前结论
 
-`v4.0.24` 已正式发布：规则后台检查提前到连接成功两分钟后，并改为先获取 122 字节的
-版本描述；本地版本相同或更高时不再下载清单或规则，发现更高版本才校验清单摘要，并只刷新
-内容实际变化的 SSRVPN 自有 provider；全部文件通过摘要、条目数与语法校验后才持久化新版本。任一阶段失败
-都继续使用本地规则且不改变连接状态。国内应用旁路增至 182 个明确包名，浏览器仍留在 TUN。
+`v4.0.25` 是当前发布候选：三端“运行日志”统一为订阅页右上角的可见文字按钮，节点选择页
+不再保留重复入口。诊断默认展示一句话结论、中文检查结果及按本地时间整理的运行记录，内部
+事件名、会话编号、路径和冗余核心信息移入默认收起的脱敏技术明细。
 
-规则版本 `1.1.0` 增补汽车之家、车 168、易车等国内服务域名，并为 Android 增加汽车之家、
-懂车帝、飞猪和易车的精确包名旁路。浏览器、Telegram、ChatGPT、Claude、Lark 国际版及
-不确定包名明确不旁路；“全局”模式不启用国内应用旁路，仍允许用户在需要时让全部应用进入 TUN。
+本候选同时修复 v4.0.24 远程 provider 已在 Mihomo 内存中刷新、但长期本地 YAML 未更新而
+持续触发校验失败的问题。新流程先下载并校验变化文件，再执行核心热更新；全部成功后原子
+持久化本地文件并最后提交版本清单。任何失败继续使用旧规则和当前连接。TUN、系统代理、DNS、
+路由顺序、国内应用旁路名单和未知流量代理兜底均未改变。
 
-桌面端已把“运行日志”从节点选择页移到订阅页右上角，并在“关于”页增加手动“检查更新”；
-未连接时允许用户主动检查，自动检查仍只在连接成功后执行。macOS 系统代理连接去掉了三次
-由 `networksetup -set*proxy` 已隐式完成的重复启用调用，保留代理快照、网络服务身份复核、
-guardian、回读确认和失败回滚。Windows/macOS 其余连接门禁未为追求耗时数字而删除。
-
-当前版本已在固定 Flutter 3.44.1 工具链通过完整 `make verify`，覆盖共享规则、三端 Flutter、
-Android 原生构建、macOS 原生测试和内置 Mihomo 配置校验；受保护 PR #188、精确主分支 CI、
-正式三端构建、标签、公开七项资产、GitHub Attestations 与 OSS 公共通道均已完成终验。
-发布时 USB 手机不在线，因此未把自动回归或旧版本实机证据冒充 v4.0.24 抖音/Telegram 真机
-复验。
+`v4.0.24` 仍是最新正式版本；其受保护源码、三端线上产物、公开七项资产、供应链证明和 OSS
+公共通道证据保留在下表。v4.0.25 只有完成固定工具链门禁、受保护合并、精确主分支 CI、正式
+三端构建及公开资产复核后才可改记为正式发布。
 
 本文件只记录当前状态和仍需跟进的证据边界。版本变更明细以
 [CHANGELOG](../CHANGELOG.md) 为准，硬性产品约束以
@@ -37,8 +30,8 @@ Android 原生构建、macOS 原生测试和内置 Mihomo 配置校验；受保�
 
 | 项目 | 当前结果 |
 | --- | --- |
-| 当前代码版本 | `4.0.24+4024`，三端 pubspec、共享常量、CHANGELOG 一致；七项正式资产已发布 |
-| 当前版本本地门禁 | `mise exec flutter@3.44.1 -- make verify` 全部通过：Release tooling 396 项、Shared 665 项（85.01%）、macOS 286 项（66.75%）、Windows 本地 274 项（54.46%，另有 8 项主机专属用例按设计跳过），并包含 Android Flutter/原生构建、版本描述与规则清单离线校验、macOS 内置 Mihomo 配置加载 |
+| 当前代码版本 | `4.0.25+4025` 发布候选，三端 pubspec、共享常量和 CHANGELOG 一致；最新正式资产仍为 v4.0.24 |
+| 当前版本本地门禁 | v4.0.25 使用 `mise exec flutter@3.44.1 -- make verify` 全部通过：Release tooling 396 项，Shared 覆盖率 85.52%，Android 279 项及原生构建通过（68.15%），macOS 286 项、原生测试和内置 Mihomo 配置加载通过（66.75%），Windows 本地 274 项通过、8 项主机专属用例按设计跳过（54.46%） |
 | 正式源码与标签 | 受保护 PR [#188](https://github.com/Elegying/SSRVPN/pull/188) 已 squash 合并；`main` 提交 [`ff801ba`](https://github.com/Elegying/SSRVPN/commit/ff801ba482a40333077fed92806f4d255d2b66d4)，标签 `v4.0.24` 精确解引用到同一提交 |
 | 精确正式 `main` CI | [`33726967743`](https://github.com/Elegying/SSRVPN/actions/runs/33726967743) 成功；工作区、Android、macOS、Windows、安全、安装器 smoke 与原生门禁全部通过 |
 | 标签与正式构建 | [`Prepare Release 33728358633`](https://github.com/Elegying/SSRVPN/actions/runs/33728358633) 和 [`Release 33728388311`](https://github.com/Elegying/SSRVPN/actions/runs/33728388311) 均成功 |
@@ -63,6 +56,9 @@ Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最�
 
 ## 自动化验证摘要
 
+- v4.0.25 发布候选：固定 Flutter 3.44.1 完整 `make verify` 通过；三端订阅日志文字入口、Android
+  诊断弹层、规整日志与技术明细、旧 provider 缓存升级后长期落盘，以及下载/API/落盘失败保留
+  旧版本均有行为回归。受保护合并、主分支 CI 和正式资产尚待完成。
 - Release tooling：396 项通过。
 - Shared：665 项通过，行覆盖率 85.01%；分层顺序、冲突处理、DNS policy、版本描述、六份规则清单、同版本零下载及远程缓存失败回退均有回归。
 - Android：Flutter 278 项、原生桥守卫、Kotlin 单测与原生构建通过；正式 Release 生成签名 APK，v2 signer 证书与既有版本一致，arm64 核心保持 16 KiB ELF 对齐。

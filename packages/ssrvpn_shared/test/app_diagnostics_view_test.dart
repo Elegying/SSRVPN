@@ -124,11 +124,53 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('最近日志（已脱敏）'));
+    await tester.tap(find.text('最近运行记录（1）'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('private-value'), findsNothing);
     expect(find.textContaining('token: ***'), findsOneWidget);
+  });
+
+  testWidgets('presents technical runtime logs as a readable timeline',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppDiagnosticsView(
+            runDiagnostics: () async => AppDiagnosticReport(
+              generatedAt: DateTime.utc(2026, 9, 3, 8, 42),
+              checks: const [],
+              recentLogs: '[2026-09-03T08:38:01.753693Z] [WARNING] '
+                  '[rule_provider_refresh] [session=private-session] '
+                  '智能规则文件校验未通过，保留旧版本记录并在下次连接重试\n'
+                  '[2026-09-03T08:35:48.431181Z] [INFO] [runtime] '
+                  '[session=private-session] [配置校验] internal output '
+                  'test is successful\n'
+                  '[2026-09-03T08:35:57.725511Z] [INFO] [runtime] '
+                  '[session=private-session] macOS TUN 核心、服务与配置已就绪',
+            ),
+            loadHistory: () async => const [],
+            repair: (_) async => const AppRepairResult(
+              success: false,
+              message: 'unused',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('当前检查正常，最近有 1 条提醒'), findsOneWidget);
+    expect(find.text('最近运行记录（2）'), findsOneWidget);
+    expect(find.text('智能规则'), findsOneWidget);
+    expect(find.text('提醒'), findsOneWidget);
+    expect(
+      find.text('智能规则文件校验未通过，保留旧版本记录并在下次连接重试'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('private-session'), findsNothing);
+    expect(find.textContaining('internal output'), findsNothing);
+    expect(find.text('技术明细（已脱敏）'), findsOneWidget);
   });
 
   testWidgets('copy reports visible live feedback and redacts account paths',

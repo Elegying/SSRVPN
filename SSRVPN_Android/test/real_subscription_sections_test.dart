@@ -1,11 +1,21 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:ssrvpn_android/screens/subscription_screen.dart';
+import 'package:ssrvpn_android/services/clash_service.dart';
+import 'package:ssrvpn_android/services/subscription_service.dart';
 import 'package:ssrvpn_android/theme/app_theme.dart';
 import 'package:ssrvpn_android/utils/responsive.dart';
 import 'package:ssrvpn_android/widgets/subscription_network_error_dialog.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  tearDown(SubscriptionService.resetInstanceForTesting);
+
   Widget host(
     Widget child, {
     Size size = const Size(430, 900),
@@ -64,6 +74,47 @@ void main() {
     await tester.tap(find.byKey(const Key('ssrvpn-subscription-add')));
     expect(submissions, 2);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'Android subscription keeps a textual logs action on compact large text',
+      (tester) async {
+    final directory = Directory.systemTemp.createTempSync('ssrvpn-sub-logs-');
+    final subscriptionService = (await tester.runAsync(
+      () => SubscriptionService.getInstance(directory.path),
+    ))!;
+    addTearDown(() {
+      subscriptionService.dispose();
+      if (directory.existsSync()) directory.deleteSync(recursive: true);
+    });
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SubscriptionService>.value(
+            value: subscriptionService,
+          ),
+          Provider<ClashService>.value(value: _TestDiagnosticsClashService()),
+        ],
+        child: host(
+          const SubscriptionScreen(),
+          size: const Size(320, 568),
+          textScaleFactor: 2,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final logsButton = find.byKey(
+      const Key('ssrvpn-subscription-logs-button'),
+    );
+    expect(logsButton, findsOneWidget);
+    expect(find.text('运行日志'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(logsButton);
+    await tester.pumpAndSettle();
+    expect(find.text('诊断与运行日志'), findsOneWidget);
   });
 
   testWidgets('subscription surface renders safe status and actions',
@@ -173,4 +224,9 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
   });
+}
+
+class _TestDiagnosticsClashService extends ClashService {
+  @override
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async => const [];
 }

@@ -43,7 +43,6 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
     this.tunLabel,
     this.onShowForceProxySites,
     this.onShowForceDirectSites,
-    this.onShowLogs,
     this.onSecondaryTapDown,
     this.onLongPressNode,
     this.canSelectNode,
@@ -71,7 +70,6 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
   final String? tunLabel;
   final VoidCallback? onShowForceProxySites;
   final VoidCallback? onShowForceDirectSites;
-  final VoidCallback? onShowLogs;
   final void Function(ProxyNode node, TapDownDetails details)?
       onSecondaryTapDown;
   final ValueChanged<ProxyNode>? onLongPressNode;
@@ -262,14 +260,12 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
                   _runAction(() => widget.onEnableTunChanged!(enabled)),
         ),
         if (widget.onShowForceProxySites != null ||
-            widget.onShowForceDirectSites != null ||
-            widget.onShowLogs != null) ...[
+            widget.onShowForceDirectSites != null) ...[
           const SizedBox(height: 10),
           _UtilityActions(
             forceProxyEnabled: !selectionBusy,
             onShowForceProxySites: widget.onShowForceProxySites,
             onShowForceDirectSites: widget.onShowForceDirectSites,
-            onShowLogs: widget.onShowLogs,
           ),
         ],
         const SizedBox(height: 14),

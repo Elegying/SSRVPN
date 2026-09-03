@@ -416,6 +416,30 @@ void main() {
   });
 
   group('AppDiagnosticReport', () {
+    test('turns runtime metadata into a short local-time activity list', () {
+      final entries = readableDiagnosticLogs(
+        '[2026-09-03T08:38:01.753693Z] [WARNING] '
+        '[rule_provider_refresh] [session=private-session] '
+        '智能规则文件校验未通过，保留旧版本记录并在下次连接重试\n'
+        '[2026-09-03T08:35:48.431181Z] [INFO] [runtime] '
+        '[session=private-session] [配置校验] internal output '
+        'test is successful\n'
+        '[2026-09-03T08:35:57.725511Z] [INFO] [runtime] '
+        '[session=private-session] macOS TUN 核心、服务与配置已就绪',
+      );
+
+      expect(entries, hasLength(2));
+      expect(entries.first.levelLabel, '提醒');
+      expect(entries.first.category, '智能规则');
+      expect(entries.first.requiresAttention, isTrue);
+      expect(entries.first.timeLabel, isNot(contains('T')));
+      expect(entries.last.message, 'macOS TUN 核心、服务与配置已就绪');
+      expect(
+        entries.map((entry) => entry.message).join('\n'),
+        isNot(contains('internal output')),
+      );
+    });
+
     test('exports bounded redacted text with stable check codes', () {
       final report = AppDiagnosticReport(
         generatedAt: DateTime.utc(2026, 7, 14, 12, 30),
@@ -464,7 +488,9 @@ void main() {
       final text = report.toText(maxLength: 4096);
 
       expect(text.length, lessThanOrEqualTo(4096));
-      expect(text, contains('2026-07-14T12:30:00.000Z'));
+      expect(text, contains('生成时间（本地）：'));
+      expect(text, contains('结论：发现 1 项需要处理的问题'));
+      expect(text, contains('检查结果'));
       expect(text, contains('PROXY_RECOVERY_PENDING'));
       expect(text, contains('SYSTEM_PROXY_OWNERSHIP_UNAVAILABLE'));
       expect(text, isNot(contains('(UNKNOWN)')));

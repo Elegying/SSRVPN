@@ -609,7 +609,6 @@ void main() {
           onEnableTunChanged: (_) async {},
           tunLabel: 'TUN 模式（需管理员权限）',
           onShowForceProxySites: () {},
-          onShowLogs: () {},
         ),
       ),
     );
@@ -677,14 +676,7 @@ void main() {
           .onPressed,
       isNull,
     );
-    expect(
-      tester
-          .widget<TextButton>(
-            find.widgetWithText(TextButton, '运行日志'),
-          )
-          .onPressed,
-      isNotNull,
-    );
+    expect(find.text('运行日志'), findsNothing);
   });
 
   testWidgets('node filter recovers when its subscription disappears',
@@ -1576,7 +1568,6 @@ void main() {
           onSelectNode: (_) async {},
           onProxyModeChanged: (_) async {},
           onShowForceProxySites: () {},
-          onShowLogs: () {},
         ),
         size: const Size(320, 568),
         textScaleFactor: 2,
@@ -1585,8 +1576,8 @@ void main() {
     await tester.pump();
 
     final forceProxyRect = tester.getRect(find.text('强制代理网站'));
-    final logsRect = tester.getRect(find.text('运行日志'));
-    expect(forceProxyRect.overlaps(logsRect), isFalse);
+    expect(forceProxyRect, isNot(Rect.zero));
+    expect(find.text('运行日志'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

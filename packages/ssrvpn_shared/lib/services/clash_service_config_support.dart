@@ -17,8 +17,11 @@ mixin _ClashConfigSupport {
     try {
       final baseline = await SmartRuleBundle.ensureInstalled(configDir);
       log(
-        '智能规则基线 ${baseline.version} 已就绪：'
-        '安装 ${baseline.installedFiles}，复用 ${baseline.reusedFiles}',
+        baseline.activeVersion == null
+            ? '智能规则本地文件已就绪，版本将在连接后校验：'
+                '安装 ${baseline.installedFiles}，复用 ${baseline.reusedFiles}'
+            : '智能规则基线 ${baseline.activeVersion} 已就绪：'
+                '安装 ${baseline.installedFiles}，复用 ${baseline.reusedFiles}',
       );
     } catch (error) {
       log(

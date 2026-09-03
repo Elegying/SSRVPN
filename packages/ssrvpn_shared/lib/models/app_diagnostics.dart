@@ -444,6 +444,132 @@ enum AppDiagnosticStatus { passed, warning, failed, skipped }
 
 enum AppRepairAction { retryOwnedProxyRecovery }
 
+enum AppDiagnosticLogLevel { information, warning, error }
+
+class AppDiagnosticLogEntry {
+  const AppDiagnosticLogEntry({
+    required this.timeLabel,
+    required this.level,
+    required this.category,
+    required this.message,
+  });
+
+  final String timeLabel;
+  final AppDiagnosticLogLevel level;
+  final String category;
+  final String message;
+
+  String get levelLabel => switch (level) {
+        AppDiagnosticLogLevel.information => '信息',
+        AppDiagnosticLogLevel.warning => '提醒',
+        AppDiagnosticLogLevel.error => '错误',
+      };
+
+  bool get requiresAttention => level != AppDiagnosticLogLevel.information;
+}
+
+List<AppDiagnosticLogEntry> readableDiagnosticLogs(
+  String rawLogs, {
+  int maxEntries = 20,
+}) {
+  if (maxEntries <= 0) throw ArgumentError.value(maxEntries, 'maxEntries');
+  final sanitized = LogRedactor.sanitizeForDisplay(rawLogs);
+  final pattern = RegExp(
+    r'^\[([^\]]+)\] \[([^\]]+)\] \[([^\]]+)\] '
+    r'(?:\[session=[^\]]+\] )?(.*)$',
+  );
+  final entries = <AppDiagnosticLogEntry>[];
+  final seen = <String>{};
+  for (final rawLine in sanitized.split(RegExp(r'[\r\n]+'))) {
+    final line = rawLine.trim();
+    if (line.isEmpty) continue;
+    final match = pattern.firstMatch(line);
+    final rawMessage = match?.group(4) ?? line;
+    final message = _readableDiagnosticMessage(rawMessage);
+    if (message == null || message.isEmpty) continue;
+    final level = switch (match?.group(2)?.toUpperCase()) {
+      'WARNING' || 'WARN' => AppDiagnosticLogLevel.warning,
+      'ERROR' || 'SEVERE' => AppDiagnosticLogLevel.error,
+      _ => AppDiagnosticLogLevel.information,
+    };
+    final category = _readableDiagnosticCategory(match?.group(3));
+    final deduplicationKey = '${level.name}|$category|$message';
+    if (!seen.add(deduplicationKey)) continue;
+    entries.add(
+      AppDiagnosticLogEntry(
+        timeLabel: _readableDiagnosticTime(match?.group(1)),
+        level: level,
+        category: category,
+        message: message,
+      ),
+    );
+    if (entries.length == maxEntries) break;
+  }
+  return List.unmodifiable(entries);
+}
+
+String _readableDiagnosticCategory(String? event) => switch (event) {
+      'rule_provider_baseline' || 'rule_provider_refresh' => '智能规则',
+      'data_plane_probe' => '网络检查',
+      'health_check' || 'health_recovery' => '连接恢复',
+      'system_proxy_health' => '系统代理',
+      'proxy_switch' => '节点切换',
+      'connection_cleanup' => '断开连接',
+      'runtime' => '连接',
+      _ => '运行记录',
+    };
+
+String _readableDiagnosticTime(String? value) {
+  final parsed = value == null ? null : DateTime.tryParse(value);
+  if (parsed == null) return '时间未记录';
+  final local = parsed.toLocal();
+  String two(int part) => part.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
+}
+
+String? _readableDiagnosticMessage(String? rawMessage) {
+  if (rawMessage == null) return null;
+  var message = rawMessage.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (message.isEmpty) return null;
+  const hiddenInventoryPrefixes = [
+    '核心文件大小:',
+    '核心架构:',
+    '核心版本:',
+    '系统:',
+    '程序路径:',
+    '配置目录:',
+    '核心路径:',
+    '诊断日志:',
+  ];
+  if (hiddenInventoryPrefixes.any(message.startsWith)) return null;
+  if (message.startsWith('正在校验 Mihomo 配置')) return null;
+  if (message.startsWith('[配置校验]') && message.contains('test is successful')) {
+    return null;
+  }
+  const providerNames = {
+    'ssrvpn-user-feedback-rules': '用户反馈规则',
+    'ssrvpn-ai-services': 'AI 服务规则',
+    'ssrvpn-foreign-services': '海外服务规则',
+    'ssrvpn-streaming-services': '流媒体规则',
+    'ssrvpn-china-domains': '国内服务规则',
+    'ssrvpn-company-asn': '国内企业网络规则',
+  };
+  for (final entry in providerNames.entries) {
+    message = message.replaceAll(entry.key, entry.value);
+  }
+  message = message.replaceFirstMapped(
+    RegExp(r'^智能规则基线 ([0-9.]+) 已就绪：.*$'),
+    (match) => '内置智能规则 ${match.group(1)} 已就绪',
+  );
+  message = message.replaceFirstMapped(
+    RegExp(r'^规则集已检查更新: (.+)$'),
+    (match) => '${match.group(1)}已更新',
+  );
+  if (message.length > 180) return '${message.substring(0, 179)}…';
+  return message;
+}
+
 class AppDiagnosticCheck {
   const AppDiagnosticCheck({
     required this.id,
@@ -476,26 +602,61 @@ class AppDiagnosticReport {
   bool get hasFailures =>
       checks.any((check) => check.status == AppDiagnosticStatus.failed);
 
+  List<AppDiagnosticLogEntry> get readableLogs =>
+      readableDiagnosticLogs(recentLogs);
+
+  String get userConclusion {
+    final failureCount = checks
+        .where((check) => check.status == AppDiagnosticStatus.failed)
+        .length;
+    if (failureCount > 0) return '发现 $failureCount 项需要处理的问题';
+    final warningCount = checks
+        .where((check) => check.status == AppDiagnosticStatus.warning)
+        .length;
+    if (warningCount > 0) return '检查完成，发现 $warningCount 项提醒';
+    final logAttentionCount =
+        readableLogs.where((entry) => entry.requiresAttention).length;
+    if (logAttentionCount > 0) {
+      return '当前检查正常，最近有 $logAttentionCount 条提醒';
+    }
+    return '运行正常，未发现异常';
+  }
+
   String toText({int maxLength = 8192}) {
     if (maxLength <= 0) throw ArgumentError.value(maxLength, 'maxLength');
+    final localTime = generatedAt.toLocal().toIso8601String();
     final buffer = StringBuffer()
       ..writeln('SSRVPN 诊断报告')
-      ..writeln('生成时间: ${generatedAt.toUtc().toIso8601String()}');
+      ..writeln('生成时间（本地）：$localTime')
+      ..writeln('结论：$userConclusion')
+      ..writeln()
+      ..writeln('检查结果');
     for (final check in checks) {
       final code = check.errorCode?.wireName;
       final title = _safeField(check.title);
       final summary = _safeField(check.summary);
+      final status = switch (check.status) {
+        AppDiagnosticStatus.passed => '正常',
+        AppDiagnosticStatus.warning => '提醒',
+        AppDiagnosticStatus.failed => '需要处理',
+        AppDiagnosticStatus.skipped => '未检查',
+      };
       buffer.writeln(
-        '[${check.status.name.toUpperCase()}] $title'
-        '${code == null ? '' : ' ($code)'}: $summary',
+        '- $status｜$title：$summary'
+        '${code == null ? '' : '（错误编号：$code）'}',
       );
     }
-    final logs = LogRedactor.sanitizeForDisplay(recentLogs).trim();
+    final logs = readableLogs;
     if (logs.isNotEmpty) {
       buffer
         ..writeln()
-        ..writeln('最近日志（已脱敏）:')
-        ..writeln(logs);
+        ..writeln('最近运行记录（已整理、已脱敏）');
+      for (final entry in logs) {
+        buffer.writeln(
+          '- ${entry.timeLabel}｜${entry.levelLabel}｜${entry.category}：'
+          '${entry.message}',
+        );
+      }
     }
     final text = buffer.toString();
     if (text.length <= maxLength) return text;

@@ -11,6 +11,7 @@ import '../services/update_service.dart';
 import '../services/connection_orchestrator.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
+import '../widgets/android_diagnostics_sheet.dart';
 import '../widgets/force_proxy_sites_dialog.dart';
 import 'home_latency_result_guard.dart';
 import 'home_connection_status_policy.dart';
@@ -213,7 +214,7 @@ class HomeScreenState extends State<HomeScreen>
           onCheckForUpdate: () => unawaited(_checkForUpdateManually()),
         ),
         onShowTutorial: () => _showAndroidHomeTutorialDialog(context),
-        onShowLogs: () => _showAndroidHomeLogsSheet(context),
+        onShowLogs: () => showAndroidDiagnosticsSheet(context),
         onRefreshPublicIp: () => unawaited(_refreshPublicIpInfo()),
       ),
     );
@@ -260,7 +261,6 @@ class HomeScreenState extends State<HomeScreen>
           onProxyModeChanged: (mode) => _handleProxyModeChanged(mode.name),
           onShowForceProxySites: _showForceProxySitesDialog,
           onShowForceDirectSites: _showForceDirectSitesDialog,
-          onShowLogs: () => _showAndroidHomeLogsSheet(context),
           onLongPressNode: (node) => unawaited(_editNode(node)),
         ),
       ),
