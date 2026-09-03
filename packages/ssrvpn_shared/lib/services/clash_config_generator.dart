@@ -325,13 +325,13 @@ class ClashConfigGenerator {
       path: AppConstants.geositeCnRuleProviderPath,
       url: AppConstants.geositeCnRuleProviderUrl,
     );
-    // 规则。按首次出现顺序去重：IPv6/私网安全、用户强制代理、
-    // 用户强制直连、已知海外服务、国内企业域名/ASN、GFW 代理、
+    // 规则。按首次出现顺序去重：IPv6 泄漏保护、用户强制代理、
+    // 用户强制直连、私网安全、已知海外服务、国内企业域名/ASN、GFW 代理、
     // CN 与 GeoIP 直连，最后未知流量安全回退到代理。
     final orderedRules = <String>{AppConstants.rejectIpv6Rule};
-    orderedRules.addAll(AppConstants.defaultPrivateDirectRules);
     orderedRules.addAll(buildForceProxyRules(settings));
     orderedRules.addAll(buildForceDirectRules(settings));
+    orderedRules.addAll(AppConstants.defaultPrivateDirectRules);
     orderedRules.addAll(
       AppConstants.defaultProxyDomainSuffixes.map(
         (domain) => 'DOMAIN-SUFFIX,$domain,PROXY',

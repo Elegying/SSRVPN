@@ -690,7 +690,13 @@ void main() {
               '',
             );
           }
-          if (arguments.first.endsWith('state')) {
+          if (const {
+            '-setwebproxy',
+            '-setsecurewebproxy',
+            '-setsocksfirewallproxy',
+          }.contains(arguments.first)) {
+            proxyOwned = true;
+          } else if (arguments.first.endsWith('state')) {
             proxyOwned = arguments.last == 'on';
           }
           return ProcessResult(1, 0, '', '');
@@ -806,7 +812,13 @@ void main() {
               '',
             );
           }
-          if (arguments.first.endsWith('state')) {
+          if (const {
+            '-setwebproxy',
+            '-setsecurewebproxy',
+            '-setsocksfirewallproxy',
+          }.contains(arguments.first)) {
+            proxyOwned = true;
+          } else if (arguments.first.endsWith('state')) {
             proxyOwned = arguments.last == 'on';
           }
           return ProcessResult(1, 0, '', '');

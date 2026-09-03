@@ -10,12 +10,14 @@ internal data class NativeConnectionSnapshot(
     val configPath: String,
     val apiPort: Int,
     val apiSecret: String,
-    val selectedNodeName: String?
+    val selectedNodeName: String?,
+    val bypassDomesticApps: Boolean = false
 )
 
 internal object NativeConnectionSnapshotCodec {
     private const val LEGACY_VERSION = 1
-    private const val VERSION = 2
+    private const val PREVIOUS_VERSION = 2
+    private const val VERSION = 3
     // Shared subscription validation permits 64 KiB UTF-16 strings. This
     // covers their worst-case UTF-8 representation while bounding allocations.
     private const val MAX_UTF8_FIELD_BYTES = 256 * 1024
@@ -30,6 +32,7 @@ internal object NativeConnectionSnapshotCodec {
                 writeUtf8(output, snapshot.apiSecret)
                 output.writeBoolean(snapshot.selectedNodeName != null)
                 snapshot.selectedNodeName?.let { writeUtf8(output, it) }
+                output.writeBoolean(snapshot.bypassDomesticApps)
             }
             bytes.toByteArray()
         }
@@ -37,8 +40,9 @@ internal object NativeConnectionSnapshotCodec {
     fun decode(bytes: ByteArray): NativeConnectionSnapshot? = try {
         DataInputStream(ByteArrayInputStream(bytes)).use { input ->
             val snapshot = when (input.readInt()) {
-                LEGACY_VERSION -> readSnapshot(input) { it.readUTF() }
-                VERSION -> readSnapshot(input, ::readUtf8)
+                LEGACY_VERSION -> readSnapshot(input, { it.readUTF() }, false)
+                PREVIOUS_VERSION -> readSnapshot(input, ::readUtf8, false)
+                VERSION -> readSnapshot(input, ::readUtf8, true)
                 else -> return null
             }
             snapshot.takeIf {
@@ -54,13 +58,15 @@ internal object NativeConnectionSnapshotCodec {
 
     private fun readSnapshot(
         input: DataInputStream,
-        readString: (DataInputStream) -> String
+        readString: (DataInputStream) -> String,
+        hasDomesticBypassField: Boolean
     ): NativeConnectionSnapshot = NativeConnectionSnapshot(
         configDir = readString(input),
         configPath = readString(input),
         apiPort = input.readInt(),
         apiSecret = readString(input),
-        selectedNodeName = if (input.readBoolean()) readString(input) else null
+        selectedNodeName = if (input.readBoolean()) readString(input) else null,
+        bypassDomesticApps = hasDomesticBypassField && input.readBoolean()
     )
 
     private fun writeUtf8(output: DataOutputStream, value: String) {

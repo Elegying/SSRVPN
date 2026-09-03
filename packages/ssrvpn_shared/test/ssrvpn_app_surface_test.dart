@@ -1058,6 +1058,32 @@ void main() {
     );
   });
 
+  testWidgets('About check update closes the dialog and invokes the caller',
+      (tester) async {
+    var checks = 0;
+    await tester.pumpWidget(
+      host(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showSsrvpnAboutDialog(
+              context,
+              onCheckForUpdate: () => checks++,
+            ),
+            child: const Text('打开关于'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开关于'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ssrvpn-check-update-button')));
+    await tester.pumpAndSettle();
+
+    expect(checks, 1);
+    expect(find.byKey(const Key('ssrvpn-about-glass')), findsNothing);
+  });
+
   testWidgets('About remains scrollable and dismissible with large text',
       (tester) async {
     await tester.pumpWidget(

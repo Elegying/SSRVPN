@@ -24,6 +24,7 @@ const List<String> _androidForcedProxyAppRules = [
   'PROCESS-NAME,com.google.android.apps.maps,PROXY',
   'PROCESS-NAME,com.google.android.apps.photos,PROXY',
   'PROCESS-NAME,com.openai.chatgpt,PROXY',
+  'PROCESS-NAME,com.anthropic.claude,PROXY',
   'PROCESS-NAME,com.netflix.mediaclient,PROXY',
   'PROCESS-NAME,com.spotify.music,PROXY',
   'PROCESS-NAME,com.zhiliaoapp.musically,PROXY',

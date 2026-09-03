@@ -196,4 +196,40 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
       _checkUpdateDelayed(delay: const Duration(minutes: 1));
     }
   }
+
+  Future<void> _checkForUpdateManually() async {
+    if (!_canUpdateUi) return;
+    if (_updateCheckInProgress) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('正在检查更新，请稍候')),
+      );
+      return;
+    }
+    _updateCheckTimer?.cancel();
+    _updateCheckInProgress = true;
+    try {
+      const currentVersion = UpdateService.appVersion;
+      final update = await UpdateService.checkForUpdate(currentVersion);
+      if (!_canUpdateUi) return;
+      if (update == null) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text('当前已是最新版本')),
+        );
+        return;
+      }
+      context.read<UpdateAvailabilityController>().publish(update);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('发现新版本 v${update.version}，请点击底部版本号更新')),
+      );
+    } catch (error) {
+      AppLogger.warning('Update', '手动检查更新异常: $error');
+      if (_canUpdateUi) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text('检查更新失败，请检查网络后重试')),
+        );
+      }
+    } finally {
+      _updateCheckInProgress = false;
+    }
+  }
 }

@@ -147,8 +147,7 @@ void main() {
     );
   });
 
-  testWidgets(
-      'desktop diagnostics header keeps its close action at maximum text scale',
+  testWidgets('desktop node selection no longer duplicates the logs action',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(380, 560));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -164,21 +163,11 @@ void main() {
     await tester.pump();
     await tester.tap(currentNode);
     await tester.pumpAndSettle();
-    final logs = find.text('运行日志');
-    await tester.ensureVisible(logs);
-    await tester.pump();
-    await tester.tap(logs);
-    await _pumpUntil(
-      tester,
-      () => find.text('诊断与运行日志').evaluate().isNotEmpty,
-    );
-    await tester.pump(const Duration(milliseconds: 400));
-
     expect(tester.takeException(), isNull);
-    expect(find.text('诊断与运行日志'), findsOneWidget);
+    expect(find.text('运行日志'), findsNothing);
     expect(
-      find.widgetWithIcon(IconButton, Icons.close).hitTestable(),
-      findsOneWidget,
+      find.byKey(const Key('ssrvpn-subscription-logs-button')),
+      findsNothing,
     );
   });
 

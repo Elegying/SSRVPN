@@ -993,7 +993,7 @@ require_route_text "VpnIpv6Config.address"
 require_route_text "addRoute(route.address, route.prefixLength)"
 require_route_text "VpnIpv6Config.defaultRoute"
 require_text "builder.setBlocking(false)"
-require_text "VpnAppExclusionInstaller.install(builder)"
+require_text "VpnAppExclusionInstaller.install("
 if grep -Fq "VpnDataPlaneProbe" "$SERVICE"; then
   echo "Android external reachability must not block native VPN startup" >&2
   exit 1
@@ -1001,13 +1001,13 @@ fi
 require_file_text "$CLASH_DART" "scheduleUserConnectivityObservation({bool rerunIfActive = false}) =>"
 require_file_text "$CLASH_DART" "scheduleDataPlaneObservation(rerunIfActive: rerunIfActive)"
 require_file_text "$CLASH_NATIVE_BRIDGE" "scheduleUserConnectivityObservation(rerunIfActive: true)"
-require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "fun install(builder: VpnService.Builder)"
-require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "adbPackages.filter(addDisallowedApplication)"
-if grep -Fq "DomesticAppBypassPolicy" "$VPN_APP_EXCLUSION_INSTALLER" ||
-  grep -Fq "domestic-app-bypass" "$MANIFEST"; then
-  echo "Android VPN exclusion guard failed: user apps must stay inside TUN for rule routing" >&2
-  exit 1
-fi
+require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "bypassDomesticApps: Boolean"
+require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "DomesticAppBypassPolicy.applyInstalled"
+require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "adbPackages.forEach"
+require_file_text "$MANIFEST" "domestic-app-bypass:start"
+require_file_text "$MANIFEST" "domestic-app-bypass:end"
+require_file_text "$CLASH_DART" "'bypassDomesticApps': settings.proxyMode == ProxyMode.rule"
+require_text "snapshot?.bypassDomesticApps == true"
 if grep -Fq "vpnPackageName" "$VPN_APP_EXCLUSION_INSTALLER" ||
   grep -Fq "VpnAppExclusionInstaller.install(builder, packageName)" "$SERVICE"; then
   echo "Android VPN app exclusion guard failed: SSRVPN must stay inside its own TUN" >&2

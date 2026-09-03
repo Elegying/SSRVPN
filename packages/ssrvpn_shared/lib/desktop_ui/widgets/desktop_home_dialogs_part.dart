@@ -91,73 +91,19 @@ void _showDesktopHomeTutorialDialog(BuildContext context) {
 
 void _showDesktopHomeLogsDialog(BuildContext context) {
   final clashService = context.read<ClashService>();
-  showDialog(
-    context: context,
-    builder: (ctx) => Dialog(
-      backgroundColor: const Color(0xFF0E1018),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.88,
+  showSsrvpnDiagnosticsDialog(
+    context,
+    runDiagnostics: clashService.runDiagnostics,
+    loadHistory: clashService.loadDiagnosticHistory,
+    repair: clashService.repairDiagnosticIssue,
+    onMessage: (message) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          content: Text(message),
         ),
-        child: Container(
-          width: 640,
-          height: 560,
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.bug_report,
-                    size: 18,
-                    color: AppTheme.warning,
-                  ),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      '诊断与运行日志',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textPrimary,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '关闭诊断中心',
-                    icon: const Icon(
-                      Icons.close,
-                      size: 18,
-                      color: AppTheme.textSecondary,
-                    ),
-                    onPressed: () => Navigator.pop(ctx),
-                  ),
-                ],
-              ),
-              const Divider(color: AppTheme.border),
-              Expanded(
-                child: AppDiagnosticsView(
-                  runDiagnostics: clashService.runDiagnostics,
-                  loadHistory: clashService.loadDiagnosticHistory,
-                  repair: clashService.repairDiagnosticIssue,
-                  onMessage: (message) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        content: Text(message),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
+      );
+    },
   );
 }

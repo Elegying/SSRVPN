@@ -34,6 +34,7 @@ class SsrvpnSubscriptionView extends StatefulWidget {
     required this.onCancelRefresh,
     required this.onDelete,
     this.onEdit,
+    this.onShowLogs,
   });
 
   final List<Subscription> subscriptions;
@@ -50,6 +51,7 @@ class SsrvpnSubscriptionView extends StatefulWidget {
   final VoidCallback onCancelRefresh;
   final ValueChanged<String> onDelete;
   final ValueChanged<Subscription>? onEdit;
+  final VoidCallback? onShowLogs;
 
   @override
   State<SsrvpnSubscriptionView> createState() => _SsrvpnSubscriptionViewState();
@@ -172,7 +174,7 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const _SubscriptionHeader(),
+                    _SubscriptionHeader(onShowLogs: widget.onShowLogs),
                     if (widget.connectionStatus != null) ...[
                       const SizedBox(height: 20),
                       _SubscriptionConnectionCard(

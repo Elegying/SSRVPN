@@ -647,7 +647,10 @@ class _HomeScreenState extends State<HomeScreen> {
           unawaited(_handleConnectionAction(connectionAction));
         },
         onOpenNodes: _openNodeSelection,
-        onShowAbout: () => showSsrvpnAboutDialog(context),
+        onShowAbout: () => showSsrvpnAboutDialog(
+          context,
+          onCheckForUpdate: () => unawaited(_checkForUpdateManually()),
+        ),
         onShowTutorial: () => _showDesktopHomeTutorialDialog(context),
         onShowLogs: () => _showDesktopHomeLogsDialog(context),
         onRefreshPublicIp: () => unawaited(_refreshPublicIpInfo()),
@@ -704,7 +707,6 @@ class _HomeScreenState extends State<HomeScreen> {
           tunLabel: 'TUN 模式（需管理员权限）',
           onShowForceProxySites: _showForceProxySitesDialog,
           onShowForceDirectSites: _showForceDirectSitesDialog,
-          onShowLogs: () => _showDesktopHomeLogsDialog(context),
           onSecondaryTapDown: _showNodeContextMenu,
           onLongPressNode: (node) {
             unawaited(

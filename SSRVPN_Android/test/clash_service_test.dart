@@ -1919,6 +1919,58 @@ void main() {
     expect(runtimeSecret, isNot(rawSecret));
     expect(startArguments?['apiSecret'], runtimeSecret);
     expect(syncArguments?['apiSecret'], runtimeSecret);
+    expect(startArguments?['bypassDomesticApps'], isTrue);
+    expect(syncArguments?['bypassDomesticApps'], isTrue);
+  });
+
+  test('global mode keeps domestic apps inside Android VPN', () async {
+    SharedPreferences.setMockInitialValues({});
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir = await Directory.systemTemp.createTemp(
+      'ssrvpn_native_global_apps_',
+    );
+    final config = File('${dir.path}${Platform.pathSeparator}config.yaml');
+    final settings = AppSettings(proxyMode: ProxyMode.global);
+    Map<Object?, Object?>? startArguments;
+    Map<Object?, Object?>? syncArguments;
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: config.path)
+      ..updateSettings(settings);
+    await config.writeAsString(
+      service.generateClashConfig(_testProxies, settings),
+    );
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'startCoreWithVpn':
+          startArguments = call.arguments as Map<Object?, Object?>;
+          return <String, Object?>{
+            'running': true,
+            'transitioning': false,
+            'protectedConfigPath': config.path,
+            'sessionGeneration': 74,
+          };
+        case 'syncSettings':
+          syncArguments = call.arguments as Map<Object?, Object?>;
+          return 'generation-global-apps';
+        case 'notifyVpnStateChanged':
+          return true;
+      }
+      return null;
+    });
+    addTearDown(() async {
+      service.dispose();
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    });
+
+    expect(
+      await service.start(nodeName: 'A', preparedConfigPath: config.path),
+      isTrue,
+    );
+    expect(startArguments?['bypassDomesticApps'], isFalse);
+    expect(syncArguments?['bypassDomesticApps'], isFalse);
   });
 
   test('native start without a trusted running config is rolled back',
