@@ -4,9 +4,7 @@ mixin _ClashRuleProviderSupport {
   bool get isRunning;
   String get configDir;
   AppSettings get settings;
-  http.Client? get apiClient;
-  String _apiUrl(String path);
-  Map<String, String> apiHeaders({bool json = false});
+  void useSmartRuleVersionForFutureConfigs(String version);
   void log(
     String message, {
     RuntimeLogLevel level = RuntimeLogLevel.info,
@@ -16,8 +14,6 @@ mixin _ClashRuleProviderSupport {
   @protected
   Future<void> refreshRuleProvidersOnce() async {
     if (!isRunning || configDir.isEmpty) return;
-    final client = apiClient;
-    if (client == null) return;
 
     final expectedFileNames =
         AppConstants.smartRuleProviderFiles.values.toSet();
@@ -74,29 +70,6 @@ mixin _ClashRuleProviderSupport {
         throw const FormatException('智能规则文件与清单不匹配');
       }
 
-      var refreshedProviders = 0;
-      for (final entry in changedProviders) {
-        if (!isRunning) return;
-        final response = await client
-            .put(
-              Uri.parse(
-                _apiUrl(
-                  '/providers/rules/${Uri.encodeComponent(entry.key)}',
-                ),
-              ),
-              headers: apiHeaders(),
-            )
-            .timeout(AppConstants.apiTimeout);
-        if (response.statusCode != 200 && response.statusCode != 204) {
-          log(
-            '智能规则更新未完成 ${entry.key}: HTTP ${response.statusCode}，保留旧版本记录',
-            level: RuntimeLogLevel.warning,
-            event: 'rule_provider_refresh',
-          );
-          return;
-        }
-        refreshedProviders++;
-      }
       if (!isRunning) return;
       final installed = await SmartRuleBundle.installVerifiedProviderFiles(
         configDir,
@@ -124,9 +97,11 @@ mixin _ClashRuleProviderSupport {
         );
         return;
       }
+      useSmartRuleVersionForFutureConfigs(remote.version);
       log(
-        '智能规则已从 ${installedVersion ?? '未知版本'} 更新至 ${remote.version}'
-        '（刷新 $refreshedProviders 个变更文件）',
+        '智能规则 ${remote.version} 已完整下载并校验'
+        '（更新 ${changedProviders.length} 个文件），下次连接整体启用；'
+        '当前连接继续使用 ${installedVersion ?? '现有'} 版本',
         event: 'rule_provider_refresh',
       );
     } catch (error) {

@@ -17,9 +17,8 @@ Future<SsrvpnSubscriptionEditDraft?> showSsrvpnSubscriptionEditDialog(
 ) {
   return showDialog<SsrvpnSubscriptionEditDraft>(
     context: context,
-    builder: (dialogContext) => _SubscriptionEditDialog(
-      subscription: subscription,
-    ),
+    builder: (dialogContext) =>
+        _SubscriptionEditDialog(subscription: subscription),
   );
 }
 
@@ -76,8 +75,10 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
       child: SsrvpnFrostedPanel(
         key: const Key('ssrvpn-subscription-edit-glass'),
         child: ConstrainedBox(
-          constraints:
-              BoxConstraints(maxWidth: 440, maxHeight: availableHeight),
+          constraints: BoxConstraints(
+            maxWidth: 440,
+            maxHeight: availableHeight,
+          ),
           child: Form(
             key: _formKey,
             child: Column(
@@ -85,10 +86,7 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
               children: [
                 const Row(
                   children: [
-                    Icon(
-                      Icons.edit_rounded,
-                      color: SsrvpnUiTokens.primary,
-                    ),
+                    Icon(Icons.edit_rounded, color: SsrvpnUiTokens.primary),
                     SizedBox(width: 10),
                     Expanded(
                       child: Text(
@@ -136,7 +134,7 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
                           minLines: 1,
                           decoration: const InputDecoration(
                             labelText: '订阅链接',
-                            hintText: 'HTTP、HTTPS 或受支持的节点链接',
+                            hintText: '建议使用 HTTPS；也支持 HTTP 或节点链接',
                             prefixIcon: Icon(Icons.link_rounded),
                           ),
                           validator: (value) =>

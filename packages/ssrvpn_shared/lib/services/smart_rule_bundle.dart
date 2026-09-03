@@ -9,12 +9,14 @@ class SmartRuleBundleInstallResult {
   const SmartRuleBundleInstallResult({
     required this.version,
     required this.activeVersion,
+    required this.providerPathPrefix,
     required this.installedFiles,
     required this.reusedFiles,
   });
 
   final String version;
   final String? activeVersion;
+  final String? providerPathPrefix;
   final int installedFiles;
   final int reusedFiles;
 }
@@ -73,17 +75,16 @@ class SmartRuleManifest {
 
 /// Installs and tracks a verified local baseline for remotely refreshable rules.
 ///
-/// Existing valid files are retained because Mihomo may have refreshed them to
-/// a newer reviewed rules-channel version. Missing, linked, oversized, or
-/// malformed files are replaced from the signed application bundle so a first
-/// connection never depends on remote rule availability. The active manifest
-/// is written only after every provider matches it, making its version a durable
-/// commit marker rather than an optimistic download record.
+/// Every complete version lives in its own immutable directory. The active
+/// manifest is written only after all providers in that directory match it, so
+/// a partial download or write can never mix rule versions in a running config.
+/// Older root-level providers remain readable for migration and rollback.
 class SmartRuleBundle {
   static const String assetPrefix =
       'packages/ssrvpn_shared/assets/rules/latest';
   static const String installedManifestFileName =
       'ssrvpn-smart-rules-manifest.json';
+  static const String bundlesDirectoryName = 'bundles';
   static const int maxProviderBytes = 2 * 1024 * 1024;
   static const int maxManifestBytes = 64 * 1024;
   static const int maxVersionDescriptorBytes = 4 * 1024;
@@ -92,6 +93,13 @@ class SmartRuleBundle {
   static final RegExp _sha256 = RegExp(r'^[0-9a-f]{64}$');
   static final RegExp _domainRule =
       RegExp(r'^(?:\+\.)?[a-z0-9_*?][a-z0-9._*?+-]*$');
+
+  static String providerPathPrefix(String version) {
+    if (!_semanticVersion.hasMatch(version)) {
+      throw ArgumentError.value(version, 'version', '规则版本号无效');
+    }
+    return './providers/$bundlesDirectoryName/$version';
+  }
 
   static SmartRuleVersionDescriptor parseVersionDescriptor(String text) {
     if (utf8.encode(text).length > maxVersionDescriptorBytes) {
@@ -179,9 +187,52 @@ class SmartRuleBundle {
     final manifestText = await bundle.loadString('$assetPrefix/manifest.json');
     final manifest = parseManifest(manifestText);
 
-    final providersDir = Directory(
-      '$configDir${Platform.pathSeparator}providers',
+    await _providersDirectory(configDir).create(recursive: true);
+    final expectedFileNames = manifest.files.keys.toSet();
+    final existing = await readInstalledManifest(
+      configDir,
+      expectedFileNames: expectedFileNames,
     );
+    if (existing != null &&
+        _compareVersions(existing.version, manifest.version) >= 0) {
+      final existingDirectory = await _matchingProviderDirectory(
+        configDir,
+        existing,
+      );
+      if (existingDirectory != null) {
+        final versionDirectory = _bundleDirectory(configDir, existing.version);
+        if (versionDirectory.path == existingDirectory.path ||
+            await _copyCompleteBundle(
+              existingDirectory,
+              versionDirectory,
+              existing,
+            )) {
+          return SmartRuleBundleInstallResult(
+            version: manifest.version,
+            activeVersion: existing.version,
+            providerPathPrefix: providerPathPrefix(existing.version),
+            installedFiles: versionDirectory.path == existingDirectory.path
+                ? 0
+                : existing.files.length,
+            reusedFiles: versionDirectory.path == existingDirectory.path
+                ? existing.files.length
+                : 0,
+          );
+        }
+
+        // A legacy complete bundle is still safer than a remote dependency if
+        // migration cannot be persisted on this launch.
+        return SmartRuleBundleInstallResult(
+          version: manifest.version,
+          activeVersion: existing.version,
+          providerPathPrefix: './providers',
+          installedFiles: 0,
+          reusedFiles: existing.files.length,
+        );
+      }
+    }
+
+    final providersDir = _bundleDirectory(configDir, manifest.version);
     await providersDir.create(recursive: true);
     var installed = 0;
     var reused = 0;
@@ -190,7 +241,12 @@ class SmartRuleBundle {
       final destination = File(
         '${providersDir.path}${Platform.pathSeparator}${entry.name}',
       );
-      if (await _isValidProviderFile(destination, entry.behavior)) {
+      if (await _isValidProviderFile(
+        destination,
+        entry.behavior,
+        expectedCount: entry.count,
+        expectedHash: entry.sha256,
+      )) {
         reused++;
         continue;
       }
@@ -217,23 +273,18 @@ class SmartRuleBundle {
       installed++;
     }
 
-    final expectedFileNames = manifest.files.keys.toSet();
-    var activeVersion = await readInstalledVersion(
+    if (!await activateInstalledManifest(
       configDir,
+      manifestText,
       expectedFileNames: expectedFileNames,
-    );
-    if (activeVersion == null &&
-        await activateInstalledManifest(
-          configDir,
-          manifestText,
-          expectedFileNames: expectedFileNames,
-        )) {
-      activeVersion = manifest.version;
+    )) {
+      throw const FormatException('内置智能规则未能完整激活');
     }
 
     return SmartRuleBundleInstallResult(
       version: manifest.version,
-      activeVersion: activeVersion,
+      activeVersion: manifest.version,
+      providerPathPrefix: providerPathPrefix(manifest.version),
       installedFiles: installed,
       reusedFiles: reused,
     );
@@ -271,9 +322,9 @@ class SmartRuleBundle {
         text,
         expectedFileNames: expectedFileNames,
       );
-      return await _matchesInstalledProviders(configDir, manifest)
-          ? manifest
-          : null;
+      return await _matchingProviderDirectory(configDir, manifest) == null
+          ? null
+          : manifest;
     } on Object {
       return null;
     }
@@ -291,7 +342,19 @@ class SmartRuleBundle {
       manifestText,
       expectedFileNames: expectedFileNames,
     );
-    if (!await _matchesInstalledProviders(configDir, manifest)) return false;
+    if (!await _matchesProviderDirectory(
+      _bundleDirectory(configDir, manifest.version),
+      manifest,
+    )) {
+      // Backward-compatible activation of the pre-versioned layout. Startup
+      // migrates this complete legacy set before generating a local config.
+      if (!await _matchesProviderDirectory(
+        _providersDirectory(configDir),
+        manifest,
+      )) {
+        return false;
+      }
+    }
     await _replaceFile(
         _installedManifest(configDir), utf8.encode(manifestText));
     return true;
@@ -319,38 +382,57 @@ class SmartRuleBundle {
     return true;
   }
 
-  /// Persists already downloaded provider content only after every changed
-  /// file and every retained file match the new manifest. Each replacement is
-  /// atomic; the manifest remains the final durable commit marker.
+  /// Stages a complete version without touching the active manifest or files.
+  /// Unchanged providers are copied from the currently active complete bundle.
+  /// The caller may activate the new version only after this returns true.
   static Future<bool> installVerifiedProviderFiles(
     String configDir,
     SmartRuleManifest manifest,
     Map<String, String> providerContents,
   ) async {
     if (!providerContentsMatch(manifest, providerContents)) return false;
-    final providersDir = Directory(
-      '$configDir${Platform.pathSeparator}providers',
+    final activeManifest = await readInstalledManifest(
+      configDir,
+      expectedFileNames: manifest.files.keys.toSet(),
     );
-    await providersDir.create(recursive: true);
+    final sourceDirectory = activeManifest == null
+        ? null
+        : await _matchingProviderDirectory(configDir, activeManifest);
+    final targetDirectory = _bundleDirectory(configDir, manifest.version);
+    await targetDirectory.create(recursive: true);
 
     for (final entry in manifest.files.values) {
-      if (providerContents.containsKey(entry.name)) continue;
+      final destination = File(
+        '${targetDirectory.path}${Platform.pathSeparator}${entry.name}',
+      );
+      if (await _isValidProviderFile(
+        destination,
+        entry.behavior,
+        expectedCount: entry.count,
+        expectedHash: entry.sha256,
+      )) {
+        continue;
+      }
+      final downloaded = providerContents[entry.name];
+      if (downloaded != null) {
+        await _replaceFile(destination, utf8.encode(downloaded));
+        continue;
+      }
+      if (sourceDirectory == null) return false;
+      final source = File(
+        '${sourceDirectory.path}${Platform.pathSeparator}${entry.name}',
+      );
       if (!await _isValidProviderFile(
-        File('${providersDir.path}${Platform.pathSeparator}${entry.name}'),
+        source,
         entry.behavior,
         expectedCount: entry.count,
         expectedHash: entry.sha256,
       )) {
         return false;
       }
+      await _replaceFile(destination, await source.readAsBytes());
     }
-    for (final entry in providerContents.entries) {
-      await _replaceFile(
-        File('${providersDir.path}${Platform.pathSeparator}${entry.key}'),
-        utf8.encode(entry.value),
-      );
-    }
-    return _matchesInstalledProviders(configDir, manifest);
+    return _matchesProviderDirectory(targetDirectory, manifest);
   }
 
   static File _installedManifest(String configDir) => File(
@@ -358,14 +440,69 @@ class SmartRuleBundle {
         '${Platform.pathSeparator}$installedManifestFileName',
       );
 
-  static Future<bool> _matchesInstalledProviders(
+  static Directory _providersDirectory(String configDir) => Directory(
+        '$configDir${Platform.pathSeparator}providers',
+      );
+
+  static Directory _bundleDirectory(String configDir, String version) =>
+      Directory(
+        '${_providersDirectory(configDir).path}${Platform.pathSeparator}'
+        '$bundlesDirectoryName${Platform.pathSeparator}$version',
+      );
+
+  static Future<Directory?> _matchingProviderDirectory(
     String configDir,
     SmartRuleManifest manifest,
   ) async {
-    final providersDir =
-        '$configDir${Platform.pathSeparator}providers${Platform.pathSeparator}';
+    final versionDirectory = _bundleDirectory(configDir, manifest.version);
+    if (await _matchesProviderDirectory(versionDirectory, manifest)) {
+      return versionDirectory;
+    }
+    final legacyDirectory = _providersDirectory(configDir);
+    if (await _matchesProviderDirectory(legacyDirectory, manifest)) {
+      return legacyDirectory;
+    }
+    return null;
+  }
+
+  static Future<bool> _copyCompleteBundle(
+    Directory source,
+    Directory destination,
+    SmartRuleManifest manifest,
+  ) async {
+    try {
+      await destination.create(recursive: true);
+      for (final entry in manifest.files.values) {
+        final sourceFile = File(
+          '${source.path}${Platform.pathSeparator}${entry.name}',
+        );
+        final destinationFile = File(
+          '${destination.path}${Platform.pathSeparator}${entry.name}',
+        );
+        if (await _isValidProviderFile(
+          destinationFile,
+          entry.behavior,
+          expectedCount: entry.count,
+          expectedHash: entry.sha256,
+        )) {
+          continue;
+        }
+        await _replaceFile(destinationFile, await sourceFile.readAsBytes());
+      }
+      return _matchesProviderDirectory(destination, manifest);
+    } on Object {
+      return false;
+    }
+  }
+
+  static Future<bool> _matchesProviderDirectory(
+    Directory directory,
+    SmartRuleManifest manifest,
+  ) async {
     for (final entry in manifest.files.values) {
-      final file = File('$providersDir${entry.name}');
+      final file = File(
+        '${directory.path}${Platform.pathSeparator}${entry.name}',
+      );
       if (!await _isValidProviderFile(
         file,
         entry.behavior,
@@ -447,6 +584,16 @@ class SmartRuleBundle {
     if (address == null || prefix == null) return false;
     final maxPrefix = address.type == InternetAddressType.IPv4 ? 32 : 128;
     return prefix >= 0 && prefix <= maxPrefix;
+  }
+
+  static int _compareVersions(String left, String right) {
+    final leftParts = left.split('.').map(int.parse).toList(growable: false);
+    final rightParts = right.split('.').map(int.parse).toList(growable: false);
+    for (var index = 0; index < leftParts.length; index++) {
+      final comparison = leftParts[index].compareTo(rightParts[index]);
+      if (comparison != 0) return comparison;
+    }
+    return 0;
   }
 
   static Future<void> _replaceFile(File destination, List<int> bytes) async {

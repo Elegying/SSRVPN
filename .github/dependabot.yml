@@ -20,9 +20,16 @@ updates:
     schedule:
       interval: "weekly"
     groups:
-      pub-workspace:
+      pub-minor-patch:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     open-pull-requests-limit: 3
     commit-message:
       prefix: "chore"
@@ -35,9 +42,16 @@ updates:
     schedule:
       interval: "weekly"
     groups:
-      android-gradle:
+      android-gradle-minor-patch:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
     open-pull-requests-limit: 3
     commit-message:
       prefix: "chore"

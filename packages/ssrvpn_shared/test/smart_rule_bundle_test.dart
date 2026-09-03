@@ -22,10 +22,13 @@ void main() {
 
     expect(result.version, '1.0.0');
     expect(result.activeVersion, '1.0.0');
+    expect(result.providerPathPrefix, './providers/bundles/1.0.0');
     expect(result.installedFiles, 1);
     expect(result.reusedFiles, 0);
     expect(
-      await File('${directory.path}/providers/example.yaml').readAsString(),
+      await File(
+        '${directory.path}/providers/bundles/1.0.0/example.yaml',
+      ).readAsString(),
       'payload:\n  - "+.example.com"\n',
     );
     expect(
@@ -37,7 +40,7 @@ void main() {
     );
   });
 
-  test('retains a valid remotely refreshed provider without guessing version',
+  test('does not trust an unversioned provider without a verified manifest',
       () async {
     final directory = await Directory.systemTemp.createTemp('smart_rules_');
     addTearDown(() => directory.delete(recursive: true));
@@ -51,16 +54,84 @@ void main() {
       assetBundle: _bundleFor('payload:\n  - "+.baseline.example"\n'),
     );
 
-    expect(result.installedFiles, 0);
-    expect(result.reusedFiles, 1);
-    expect(result.activeVersion, isNull);
+    expect(result.installedFiles, 1);
+    expect(result.reusedFiles, 0);
+    expect(result.activeVersion, '1.0.0');
     expect(await active.readAsString(), contains('newer.example'));
     expect(
       await SmartRuleBundle.readInstalledVersion(
         directory.path,
         expectedFileNames: {'example.yaml'},
       ),
-      isNull,
+      '1.0.0',
+    );
+  });
+
+  test('migrates a complete legacy active version without downgrading it',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('smart_rules_');
+    addTearDown(() => directory.delete(recursive: true));
+    final providers = Directory('${directory.path}/providers');
+    await providers.create(recursive: true);
+    const remoteProvider = 'payload:\n  - "+.newer.example"\n';
+    await File('${providers.path}/example.yaml').writeAsString(remoteProvider);
+    final remoteManifest = _manifestFor(
+      version: '2.0.0',
+      provider: remoteProvider,
+    );
+    expect(
+      await SmartRuleBundle.activateInstalledManifest(
+        directory.path,
+        remoteManifest,
+        expectedFileNames: {'example.yaml'},
+      ),
+      isTrue,
+    );
+
+    final result = await SmartRuleBundle.ensureInstalled(
+      directory.path,
+      assetBundle: _bundleFor('payload:\n  - "+.baseline.example"\n'),
+    );
+
+    expect(result.version, '1.0.0');
+    expect(result.activeVersion, '2.0.0');
+    expect(result.providerPathPrefix, './providers/bundles/2.0.0');
+    expect(
+      await File(
+        '${directory.path}/providers/bundles/2.0.0/example.yaml',
+      ).readAsString(),
+      remoteProvider,
+    );
+  });
+
+  test('replaces an older active version with the bundled baseline', () async {
+    final directory = await Directory.systemTemp.createTemp('smart_rules_');
+    addTearDown(() => directory.delete(recursive: true));
+    final providers = Directory('${directory.path}/providers');
+    await providers.create(recursive: true);
+    const oldProvider = 'payload:\n  - "+.old.example"\n';
+    await File('${providers.path}/example.yaml').writeAsString(oldProvider);
+    expect(
+      await SmartRuleBundle.activateInstalledManifest(
+        directory.path,
+        _manifestFor(version: '0.9.0', provider: oldProvider),
+        expectedFileNames: {'example.yaml'},
+      ),
+      isTrue,
+    );
+
+    final result = await SmartRuleBundle.ensureInstalled(
+      directory.path,
+      assetBundle: _bundleFor('payload:\n  - "+.baseline.example"\n'),
+    );
+
+    expect(result.activeVersion, '1.0.0');
+    expect(result.providerPathPrefix, './providers/bundles/1.0.0');
+    expect(
+      await File(
+        '${directory.path}/providers/bundles/1.0.0/example.yaml',
+      ).readAsString(),
+      contains('baseline.example'),
     );
   });
 
@@ -79,7 +150,13 @@ void main() {
     );
 
     expect(result.installedFiles, 1);
-    expect(await active.readAsString(), contains('baseline.example'));
+    expect(await active.readAsString(), contains('broken'));
+    expect(
+      await File(
+        '${directory.path}/providers/bundles/1.0.0/example.yaml',
+      ).readAsString(),
+      contains('baseline.example'),
+    );
     expect(
       await SmartRuleBundle.readInstalledVersion(
         directory.path,
@@ -168,7 +245,13 @@ void main() {
       ),
       isTrue,
     );
-    expect(await active.readAsString(), updated);
+    expect(await active.readAsString(), contains('legacy.example'));
+    expect(
+      await File(
+        '${directory.path}/providers/bundles/1.1.0/example.yaml',
+      ).readAsString(),
+      updated,
+    );
     expect(
       await SmartRuleBundle.activateInstalledManifest(
         directory.path,
@@ -176,6 +259,65 @@ void main() {
         expectedFileNames: {'example.yaml'},
       ),
       isTrue,
+    );
+  });
+
+  test('a staged version cannot replace the active bundle until complete',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('smart_rules_');
+    addTearDown(() => directory.delete(recursive: true));
+    const oldProvider = 'payload:\n  - "+.old.example"\n';
+    const newProvider = 'payload:\n  - "+.new.example"\n';
+    final oldManifestText = _manifestFor(
+      version: '1.0.0',
+      provider: oldProvider,
+    );
+    final newManifestText = _manifestFor(
+      version: '1.1.0',
+      provider: newProvider,
+    );
+    final oldManifest = SmartRuleBundle.parseManifest(oldManifestText);
+    final newManifest = SmartRuleBundle.parseManifest(newManifestText);
+
+    expect(
+      await SmartRuleBundle.installVerifiedProviderFiles(
+        directory.path,
+        oldManifest,
+        const {'example.yaml': oldProvider},
+      ),
+      isTrue,
+    );
+    expect(
+      await SmartRuleBundle.activateInstalledManifest(
+        directory.path,
+        oldManifestText,
+        expectedFileNames: {'example.yaml'},
+      ),
+      isTrue,
+    );
+    expect(
+      await SmartRuleBundle.installVerifiedProviderFiles(
+        directory.path,
+        newManifest,
+        const {'example.yaml': 'payload:\n  - "+.tampered.example"\n'},
+      ),
+      isFalse,
+    );
+
+    expect(
+      await SmartRuleBundle.readInstalledVersion(
+        directory.path,
+        expectedFileNames: {'example.yaml'},
+      ),
+      '1.0.0',
+    );
+    expect(
+      await SmartRuleBundle.activateInstalledManifest(
+        directory.path,
+        newManifestText,
+        expectedFileNames: {'example.yaml'},
+      ),
+      isFalse,
     );
   });
 
