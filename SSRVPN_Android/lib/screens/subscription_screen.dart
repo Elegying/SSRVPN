@@ -6,6 +6,7 @@ import '../services/clash_service.dart';
 import '../services/subscription_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_container.dart';
+import '../widgets/android_diagnostics_sheet.dart';
 import '../widgets/subscription_network_error_dialog.dart';
 
 /// 订阅管理页面 - 液态玻璃风格
@@ -332,6 +333,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
         onCancelRefresh: _cancelRefresh,
         onDelete: _deleteSubscription,
         onEdit: _editSubscription,
+        onShowLogs: () => showAndroidDiagnosticsSheet(context),
       ),
     );
   }

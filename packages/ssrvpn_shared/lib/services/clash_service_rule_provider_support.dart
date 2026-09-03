@@ -60,7 +60,20 @@ mixin _ClashRuleProviderSupport {
       final changedProviders = AppConstants.smartRuleProviderFiles.entries
           .where((entry) => !manifest.files[entry.value]!.hasSameContentAs(
                 installedManifest?.files[entry.value],
-              ));
+              ))
+          .toList(growable: false);
+      final providerContents = <String, String>{};
+      for (final entry in changedProviders) {
+        if (!isRunning) return;
+        providerContents[entry.value] = await fetchSmartRuleChannelFile(
+          entry.value,
+          maxBytes: SmartRuleBundle.maxProviderBytes,
+        );
+      }
+      if (!SmartRuleBundle.providerContentsMatch(manifest, providerContents)) {
+        throw const FormatException('智能规则文件与清单不匹配');
+      }
+
       var refreshedProviders = 0;
       for (final entry in changedProviders) {
         if (!isRunning) return;
@@ -85,6 +98,19 @@ mixin _ClashRuleProviderSupport {
         refreshedProviders++;
       }
       if (!isRunning) return;
+      final installed = await SmartRuleBundle.installVerifiedProviderFiles(
+        configDir,
+        manifest,
+        providerContents,
+      );
+      if (!installed) {
+        log(
+          '智能规则本地文件未能安全落盘，保留旧版本记录并在下次连接重试',
+          level: RuntimeLogLevel.warning,
+          event: 'rule_provider_refresh',
+        );
+        return;
+      }
       final activated = await SmartRuleBundle.activateInstalledManifest(
         configDir,
         manifestText,
@@ -113,17 +139,21 @@ mixin _ClashRuleProviderSupport {
     }
   }
 
-  /// Fetches only small rule-channel metadata through the currently selected
-  /// proxy. Provider payloads remain Mihomo-owned and are downloaded only after
-  /// the version and manifest gates pass.
+  /// Fetches allowlisted rule-channel files through the currently selected
+  /// proxy. Provider payloads are requested only after the small version and
+  /// manifest gates prove that a newer, bound bundle exists.
   @protected
   Future<String> fetchSmartRuleChannelFile(
     String fileName, {
     required int maxBytes,
   }) async {
-    const allowedFiles = {
+    const allowedMetadataFiles = {
       AppConstants.smartRuleVersionDescriptorFile,
       AppConstants.smartRuleManifestFile,
+    };
+    final allowedFiles = {
+      ...allowedMetadataFiles,
+      ...AppConstants.smartRuleProviderFiles.values,
     };
     if (!allowedFiles.contains(fileName) || maxBytes <= 0) {
       throw ArgumentError.value(fileName, 'fileName', '规则元数据文件无效');
@@ -137,23 +167,26 @@ mixin _ClashRuleProviderSupport {
         'GET',
         Uri.parse('${AppConstants.smartRuleChannelBaseUrl}/$fileName'),
       )
-        ..headers[HttpHeaders.acceptHeader] = 'application/json'
+        ..headers[HttpHeaders.acceptHeader] =
+            allowedMetadataFiles.contains(fileName)
+                ? 'application/json'
+                : 'application/yaml, text/yaml, text/plain'
         ..headers[HttpHeaders.cacheControlHeader] = 'no-cache'
         ..headers[HttpHeaders.userAgentHeader] = AppConstants.appUserAgent;
       final response =
           await proxyClient.send(request).timeout(const Duration(seconds: 8));
       if (response.statusCode != HttpStatus.ok) {
-        throw HttpException('规则元数据返回 HTTP ${response.statusCode}');
+        throw HttpException('规则通道返回 HTTP ${response.statusCode}');
       }
       final declaredLength = response.contentLength;
       if (declaredLength != null && declaredLength > maxBytes) {
-        throw const FormatException('规则元数据超过大小限制');
+        throw const FormatException('规则通道文件超过大小限制');
       }
       final bytes = BytesBuilder(copy: false);
       await (() async {
         await for (final chunk in response.stream) {
           if (bytes.length + chunk.length > maxBytes) {
-            throw const FormatException('规则元数据超过大小限制');
+            throw const FormatException('规则通道文件超过大小限制');
           }
           bytes.add(chunk);
         }

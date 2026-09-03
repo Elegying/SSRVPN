@@ -8,11 +8,13 @@ import 'package:yaml/yaml.dart';
 class SmartRuleBundleInstallResult {
   const SmartRuleBundleInstallResult({
     required this.version,
+    required this.activeVersion,
     required this.installedFiles,
     required this.reusedFiles,
   });
 
   final String version;
+  final String? activeVersion;
   final int installedFiles;
   final int reusedFiles;
 }
@@ -216,20 +218,22 @@ class SmartRuleBundle {
     }
 
     final expectedFileNames = manifest.files.keys.toSet();
-    final installedVersion = await readInstalledVersion(
+    var activeVersion = await readInstalledVersion(
       configDir,
       expectedFileNames: expectedFileNames,
     );
-    if (installedVersion == null) {
-      await activateInstalledManifest(
-        configDir,
-        manifestText,
-        expectedFileNames: expectedFileNames,
-      );
+    if (activeVersion == null &&
+        await activateInstalledManifest(
+          configDir,
+          manifestText,
+          expectedFileNames: expectedFileNames,
+        )) {
+      activeVersion = manifest.version;
     }
 
     return SmartRuleBundleInstallResult(
       version: manifest.version,
+      activeVersion: activeVersion,
       installedFiles: installed,
       reusedFiles: reused,
     );
@@ -291,6 +295,62 @@ class SmartRuleBundle {
     await _replaceFile(
         _installedManifest(configDir), utf8.encode(manifestText));
     return true;
+  }
+
+  static bool providerContentsMatch(
+    SmartRuleManifest manifest,
+    Map<String, String> providerContents,
+  ) {
+    for (final entry in providerContents.entries) {
+      final expected = manifest.files[entry.key];
+      if (expected == null) return false;
+      final bytes = utf8.encode(entry.value);
+      if (bytes.isEmpty ||
+          bytes.length > maxProviderBytes ||
+          crypto.sha256.convert(bytes).toString() != expected.sha256 ||
+          !_isValidProviderBytes(
+            bytes,
+            expected.behavior,
+            expectedCount: expected.count,
+          )) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Persists already downloaded provider content only after every changed
+  /// file and every retained file match the new manifest. Each replacement is
+  /// atomic; the manifest remains the final durable commit marker.
+  static Future<bool> installVerifiedProviderFiles(
+    String configDir,
+    SmartRuleManifest manifest,
+    Map<String, String> providerContents,
+  ) async {
+    if (!providerContentsMatch(manifest, providerContents)) return false;
+    final providersDir = Directory(
+      '$configDir${Platform.pathSeparator}providers',
+    );
+    await providersDir.create(recursive: true);
+
+    for (final entry in manifest.files.values) {
+      if (providerContents.containsKey(entry.name)) continue;
+      if (!await _isValidProviderFile(
+        File('${providersDir.path}${Platform.pathSeparator}${entry.name}'),
+        entry.behavior,
+        expectedCount: entry.count,
+        expectedHash: entry.sha256,
+      )) {
+        return false;
+      }
+    }
+    for (final entry in providerContents.entries) {
+      await _replaceFile(
+        File('${providersDir.path}${Platform.pathSeparator}${entry.key}'),
+        utf8.encode(entry.value),
+      );
+    }
+    return _matchesInstalledProviders(configDir, manifest);
   }
 
   static File _installedManifest(String configDir) => File(

@@ -172,7 +172,7 @@ void main() {
   });
 
   testWidgets(
-      'Android diagnostics header keeps its close action at maximum text scale',
+      'Android node selector never exposes the subscription logs action',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(380, 568));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -191,18 +191,12 @@ void main() {
     await tester.pump();
     await tester.tap(currentNode);
     await tester.pumpAndSettle();
-    final logs = find.text('运行日志');
-    await tester.ensureVisible(logs);
-    await tester.pump();
-    await tester.tap(logs);
-    await _waitForWidget(tester, find.text('诊断与运行日志'));
-    await tester.pump(const Duration(milliseconds: 400));
 
     expect(tester.takeException(), isNull);
-    expect(find.text('诊断与运行日志'), findsOneWidget);
+    expect(find.text('运行日志'), findsNothing);
     expect(
-      find.widgetWithIcon(IconButton, Icons.close).hitTestable(),
-      findsOneWidget,
+      find.byKey(const Key('ssrvpn-subscription-logs-button')),
+      findsNothing,
     );
   });
 
@@ -840,7 +834,6 @@ void main() {
           },
           onProxyModeChanged: (_) async {},
           onShowForceProxySites: () {},
-          onShowLogs: () {},
         ),
       ),
     );
@@ -850,7 +843,7 @@ void main() {
     expect(find.text('系统代理'), findsNothing);
     expect(find.textContaining('TUN'), findsNothing);
     expect(find.text('强制代理网站'), findsOneWidget);
-    expect(find.text('运行日志'), findsOneWidget);
+    expect(find.text('运行日志'), findsNothing);
     expect(find.text('超时'), findsOneWidget);
 
     await tester.tap(

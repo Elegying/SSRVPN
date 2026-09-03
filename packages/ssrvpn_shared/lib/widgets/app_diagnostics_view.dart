@@ -158,29 +158,27 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
     }
 
     final report = _report!;
-    final failureCount = report.checks
-        .where((check) => check.status == AppDiagnosticStatus.failed)
-        .length;
-    final warningCount = report.checks
-        .where((check) => check.status == AppDiagnosticStatus.warning)
-        .length;
-    final summary = failureCount > 0
-        ? '发现 $failureCount 项需要处理的问题'
-        : warningCount > 0
-            ? '检查完成，发现 $warningCount 项提醒'
-            : '检查完成，未发现异常';
-    final stackSummaryActions = MediaQuery.textScalerOf(context).scale(14) > 24;
-    final summaryText = Text(summary, style: theme.textTheme.titleSmall);
+    final readableLogs = report.readableLogs;
+    final summaryText = Text(
+      report.userConclusion,
+      style: theme.textTheme.titleSmall,
+    );
     final summaryActions = <Widget>[
       Semantics(
         button: true,
         label: '复制脱敏诊断报告',
         onTap: _copyReport,
         child: ExcludeSemantics(
-          child: IconButton(
-            tooltip: '复制脱敏诊断报告',
+          child: TextButton.icon(
             onPressed: _copyReport,
-            icon: const Icon(Icons.copy, size: 19),
+            icon: const Icon(Icons.copy, size: 18),
+            label: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 56),
+              child: const FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text('复制报告'),
+              ),
+            ),
           ),
         ),
       ),
@@ -188,15 +186,21 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
         button: true,
         label: '重新运行诊断',
         child: ExcludeSemantics(
-          child: IconButton(
-            tooltip: '重新运行诊断',
+          child: TextButton.icon(
             onPressed: _loading ? null : _load,
             icon: _loading
                 ? const SizedBox.square(
                     dimension: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.refresh, size: 20),
+                : const Icon(Icons.refresh, size: 18),
+            label: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 56),
+              child: const FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text('重新检查'),
+              ),
+            ),
           ),
         ),
       ),
@@ -207,23 +211,19 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
       children: [
         Semantics(
           liveRegion: true,
-          child: stackSummaryActions
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    summaryText,
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: summaryActions,
-                    ),
-                  ],
-                )
-              : Row(
-                  children: [
-                    Expanded(child: summaryText),
-                    ...summaryActions,
-                  ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              summaryText,
+              Align(
+                alignment: Alignment.centerRight,
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  children: summaryActions,
                 ),
+              ),
+            ],
+          ),
         ),
         if (_copyStatus != null) ...[
           const SizedBox(height: 6),
@@ -251,10 +251,23 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
                       ? null
                       : () => _repair(check.repairAction!),
                 ),
-              if (report.recentLogs.trim().isNotEmpty)
+              if (readableLogs.isNotEmpty)
                 ExpansionTile(
                   leading: const Icon(Icons.article_outlined, size: 20),
-                  title: const Text('最近日志（已脱敏）'),
+                  title: Text('最近运行记录（${readableLogs.length}）'),
+                  subtitle: const Text('已按本地时间整理，并隐藏内部标识'),
+                  initiallyExpanded:
+                      readableLogs.any((entry) => entry.requiresAttention),
+                  children: [
+                    for (final entry in readableLogs)
+                      _ReadableLogTile(entry: entry),
+                  ],
+                ),
+              if (report.recentLogs.trim().isNotEmpty)
+                ExpansionTile(
+                  leading: const Icon(Icons.code_rounded, size: 20),
+                  title: const Text('技术明细（已脱敏）'),
+                  subtitle: const Text('仅在需要深入排障时查看'),
                   childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                   children: [
                     Align(
@@ -305,6 +318,78 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ReadableLogTile extends StatelessWidget {
+  const _ReadableLogTile({required this.entry});
+
+  final AppDiagnosticLogEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final (icon, color) = switch (entry.level) {
+      AppDiagnosticLogLevel.information => (
+          Icons.info_outline_rounded,
+          theme.colorScheme.primary,
+        ),
+      AppDiagnosticLogLevel.warning => (
+          Icons.warning_amber_rounded,
+          Colors.orange,
+        ),
+      AppDiagnosticLogLevel.error => (
+          Icons.error_outline_rounded,
+          theme.colorScheme.error,
+        ),
+    };
+    return Semantics(
+      label:
+          '${entry.timeLabel}，${entry.levelLabel}，${entry.category}，${entry.message}',
+      child: Card(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ExcludeSemantics(child: Icon(icon, color: color, size: 20)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        Text(
+                          entry.levelLabel,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: color,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(entry.category,
+                            style: theme.textTheme.labelMedium),
+                        Text(
+                          entry.timeLabel,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(entry.message, style: theme.textTheme.bodySmall),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

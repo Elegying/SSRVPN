@@ -21,6 +21,7 @@ void main() {
     );
 
     expect(result.version, '1.0.0');
+    expect(result.activeVersion, '1.0.0');
     expect(result.installedFiles, 1);
     expect(result.reusedFiles, 0);
     expect(
@@ -52,6 +53,7 @@ void main() {
 
     expect(result.installedFiles, 0);
     expect(result.reusedFiles, 1);
+    expect(result.activeVersion, isNull);
     expect(await active.readAsString(), contains('newer.example'));
     expect(
       await SmartRuleBundle.readInstalledVersion(
@@ -144,6 +146,36 @@ void main() {
         expectedFileNames: {'example.yaml'},
       ),
       '1.0.0',
+    );
+  });
+
+  test('verified remote content becomes the durable local provider', () async {
+    final directory = await Directory.systemTemp.createTemp('smart_rules_');
+    addTearDown(() => directory.delete(recursive: true));
+    final providers = Directory('${directory.path}/providers');
+    await providers.create(recursive: true);
+    final active = File('${providers.path}/example.yaml');
+    await active.writeAsString('payload:\n  - "+.legacy.example"\n');
+    const updated = 'payload:\n  - "+.updated.example"\n';
+    final manifestText = _manifestFor(version: '1.1.0', provider: updated);
+    final manifest = SmartRuleBundle.parseManifest(manifestText);
+
+    expect(
+      await SmartRuleBundle.installVerifiedProviderFiles(
+        directory.path,
+        manifest,
+        const {'example.yaml': updated},
+      ),
+      isTrue,
+    );
+    expect(await active.readAsString(), updated);
+    expect(
+      await SmartRuleBundle.activateInstalledManifest(
+        directory.path,
+        manifestText,
+        expectedFileNames: {'example.yaml'},
+      ),
+      isTrue,
     );
   });
 

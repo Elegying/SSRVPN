@@ -61,15 +61,19 @@ class _SubscriptionHeader extends StatelessWidget {
               final compact = MediaQuery.sizeOf(context).width < 390 ||
                   MediaQuery.textScalerOf(context).scale(14) > 18;
               if (compact) {
-                return Semantics(
-                  button: true,
-                  label: '打开运行日志',
-                  child: ExcludeSemantics(
-                    child: IconButton(
-                      key: const Key('ssrvpn-subscription-logs-button'),
-                      tooltip: '运行日志',
-                      onPressed: onShowLogs,
-                      icon: const Icon(Icons.article_outlined),
+                return TextButton(
+                  key: const Key('ssrvpn-subscription-logs-button'),
+                  onPressed: onShowLogs,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(64, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 70),
+                    child: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('运行日志'),
                     ),
                   ),
                 );
