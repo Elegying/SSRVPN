@@ -100,7 +100,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '4.0.23';
+  static const String appVersion = '4.0.24';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 
@@ -131,9 +131,11 @@ class AppConstants {
   ];
 
   // ── 代理规则 ──
-  static const Duration ruleProviderStartupRefreshDelay = Duration(minutes: 10);
+  static const Duration ruleProviderStartupRefreshDelay = Duration(minutes: 2);
   static const String ruleProviderDownloadProxy = 'PROXY';
   static const int ruleProviderSizeLimit = 2 * 1024 * 1024;
+  static const String smartRuleVersionDescriptorFile = 'version.json';
+  static const String smartRuleManifestFile = 'manifest.json';
   static const String smartRuleChannelBaseUrl =
       'https://raw.githubusercontent.com/Elegying/SSRVPN/main/'
       'packages/ssrvpn_shared/assets/rules/latest';
@@ -148,16 +150,6 @@ class AppConstants {
   static const String companyAsnRuleProviderName = 'ssrvpn-company-asn';
   static const String geositeGfwRuleProviderName = 'ssrvpn-geosite-gfw';
   static const String geositeCnRuleProviderName = 'ssrvpn-geosite-cn';
-  static const List<String> ruleProviderNames = [
-    userFeedbackRuleProviderName,
-    aiServicesRuleProviderName,
-    foreignServicesRuleProviderName,
-    streamingServicesRuleProviderName,
-    chinaDomainsRuleProviderName,
-    companyAsnRuleProviderName,
-    geositeGfwRuleProviderName,
-    geositeCnRuleProviderName,
-  ];
   static const Map<String, String> smartRuleProviderFiles = {
     userFeedbackRuleProviderName: 'user_feedback_rules.yaml',
     aiServicesRuleProviderName: 'ai_services.yaml',

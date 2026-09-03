@@ -24,6 +24,10 @@ class DomesticAppBypassPolicyTest {
         assertTrue(packages.contains("com.xiaomi.smarthome"))
         assertTrue(packages.contains("com.moonshot.kimichat"))
         assertTrue(packages.contains("com.tencent.hunyuan.app.chat"))
+        assertTrue(packages.contains("com.cubic.autohome"))
+        assertTrue(packages.contains("com.ss.android.auto"))
+        assertTrue(packages.contains("com.taobao.trip"))
+        assertTrue(packages.contains("com.yiche.autoeasy"))
     }
 
     @Test
@@ -60,6 +64,7 @@ class DomesticAppBypassPolicyTest {
             "com.chaoxing.mobile",
             "com.chinamworld.bocmbci",
             "com.cmcc.cmvideo",
+            "com.cubic.autohome",
             "com.dianping.v1",
             "com.didapinche.booking",
             "com.douban.frodo",
@@ -102,6 +107,7 @@ class DomesticAppBypassPolicyTest {
             "com.sohu.sohuvideo",
             "com.ss.android.article.news",
             "com.ss.android.article.video",
+            "com.ss.android.auto",
             "com.ss.android.ugc.aweme.lite",
             "com.tencent.docs",
             "com.tencent.karaoke",
@@ -112,6 +118,7 @@ class DomesticAppBypassPolicyTest {
             "com.tencent.wemeet.app",
             "com.tencent.weread",
             "com.tmall.wireless",
+            "com.taobao.trip",
             "com.umetrip.android.msky.app",
             "com.unionpay",
             "com.wm.dmall",
@@ -124,6 +131,7 @@ class DomesticAppBypassPolicyTest {
             "com.ximalaya.ting.lite",
             "com.xueqiu.android",
             "com.yek.android.kfc.activitys",
+            "com.yiche.autoeasy",
             "com.yitong.mbank.psbc",
             "com.youku.phone",
             "com.yuque.mobile.android.app",
@@ -134,8 +142,8 @@ class DomesticAppBypassPolicyTest {
             "tv.danmaku.bilibilihd"
         )
 
-        assertEquals(102, requestedAdditions.size)
-        assertEquals(178, packages.size)
+        assertEquals(106, requestedAdditions.size)
+        assertEquals(182, packages.size)
         requestedAdditions.forEach { packageName ->
             assertTrue("$packageName must bypass the VPN", packages.contains(packageName))
         }

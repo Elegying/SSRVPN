@@ -1,5 +1,4 @@
 # SSRVPN smart-routing rule snapshot
-# version: 1.0.0
 # upstream: MetaCubeX/meta-rules-dat@200e6a86736cfab29aae7b07dc266e59f13bc13d
 # kind: ipcidr
 # sources: Alibaba:AS45102, Alibaba:AS37963, Alibaba:AS24429, Tencent:AS132203, Tencent:AS45090, Baidu:AS55967, Baidu:AS38365, ByteDance:AS138699, ByteDance:AS396986

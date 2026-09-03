@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT / "packages" / "ssrvpn_shared" / "assets" / "rules" / "latest"
-RULE_VERSION = "1.0.0"
+RULE_VERSION = "1.1.0"
 UPSTREAM_COMMIT = "200e6a86736cfab29aae7b07dc266e59f13bc13d"
 RAW_BASE = (
     "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/"
@@ -58,6 +58,17 @@ DOMAIN_GROUPS: OrderedDict[str, tuple[str, ...]] = OrderedDict(
 USER_FEEDBACK_PROXY_DOMAINS = (
     "+.services.googleapis.cn",
     "+.xn--ngstr-lra8j.com",
+)
+
+# Conservative additions for established domestic travel/automotive services.
+# Domain matching stays above ASN/GeoIP so their overseas CDN endpoints remain
+# direct without broadening the policy to shared hosting providers.
+REVIEWED_CHINA_SERVICE_DOMAINS = (
+    "+.autohome.com",
+    "+.autohome.com.cn",
+    "+.bitauto.com",
+    "+.che168.com",
+    "+.yiche.com",
 )
 
 # PeeringDB organization/network records reviewed on 2026-09-02. The runtime
@@ -140,7 +151,6 @@ def unique(values: list[str]) -> list[str]:
 def render_payload(values: list[str], *, kind: str, sources: list[str]) -> bytes:
     lines = [
         "# SSRVPN smart-routing rule snapshot",
-        f"# version: {RULE_VERSION}",
         f"# upstream: MetaCubeX/meta-rules-dat@{UPSTREAM_COMMIT}",
         f"# kind: {kind}",
         f"# sources: {', '.join(sources)}",
@@ -161,6 +171,9 @@ def build() -> tuple[dict[str, bytes], dict[str, object]]:
             source = f"geo/geosite/{category}.yaml"
             sources.append(source)
             values.extend(parse_yaml_payload(fetch_text(source), source))
+        if filename == "china_domains.yaml":
+            sources.append("SSRVPN reviewed domestic services")
+            values.extend(REVIEWED_CHINA_SERVICE_DOMAINS)
         values = unique(values)
         content = render_payload(values, kind="domain", sources=sources)
         generated[filename] = content
@@ -218,8 +231,8 @@ def build() -> tuple[dict[str, bytes], dict[str, object]]:
         "files": file_metadata,
         "companyAsns": {name: list(asns) for name, asns in COMPANY_ASNS.items()},
         "rollback": (
-            "Revert packages/ssrvpn_shared/assets/rules/latest as one commit; "
-            "clients retain the last valid local provider when refresh fails."
+            "Republish the last known-good content under a higher rule version; "
+            "clients reject downgrades and retain valid local providers on failure."
         ),
     }
     return generated, manifest
@@ -240,8 +253,17 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
     for filename, content in generated.items():
         (output / filename).write_bytes(content)
-    (output / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+    manifest_content = (
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
+    ).encode("utf-8")
+    (output / "manifest.json").write_bytes(manifest_content)
+    version_descriptor = {
+        "schemaVersion": 1,
+        "version": RULE_VERSION,
+        "manifestSha256": hashlib.sha256(manifest_content).hexdigest(),
+    }
+    (output / "version.json").write_text(
+        json.dumps(version_descriptor, ensure_ascii=False, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )
     print(f"wrote SSRVPN smart rules {RULE_VERSION} to {output}")

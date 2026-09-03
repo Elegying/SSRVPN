@@ -20,6 +20,7 @@ EXPECTED_FILES = {
     "company_asn.yaml": "ipcidr",
     "user_feedback_rules.yaml": "domain",
 }
+EXPECTED_DIRECTORY_FILES = set(EXPECTED_FILES) | {"manifest.json", "version.json"}
 DOMAIN_VALUE = re.compile(r"^(?:\+\.)?[a-z0-9_*?][a-z0-9._*?+-]*$")
 REQUIRED_DOMAIN_MARKERS = {
     "ai_services.yaml": {"+.openai.com", "+.anthropic.com", "+.gemini.google.com"},
@@ -42,6 +43,11 @@ REQUIRED_DOMAIN_MARKERS = {
         "+.163.com",
         "+.iflytek.com",
         "+.volcengine.com",
+        "+.autohome.com",
+        "+.autohome.com.cn",
+        "+.bitauto.com",
+        "+.che168.com",
+        "+.yiche.com",
     },
     "user_feedback_rules.yaml": {
         "+.services.googleapis.cn",
@@ -83,12 +89,33 @@ def load_payload(path: Path, behavior: str) -> list[str]:
 
 def main() -> int:
     manifest_path = RULE_DIR / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    actual_files = {path.name for path in RULE_DIR.iterdir() if path.is_file()}
+    if actual_files != EXPECTED_DIRECTORY_FILES:
+        raise SystemExit(
+            "smart-rule directory file set is incomplete or unexpected: "
+            f"{sorted(actual_files)}"
+        )
+    manifest_content = manifest_path.read_bytes()
+    if len(manifest_content) > 64 * 1024:
+        raise SystemExit("smart-rule manifest exceeds the 64 KiB limit")
+    manifest = json.loads(manifest_content)
     if manifest.get("schemaVersion") != 1:
         raise SystemExit("smart-rule manifest schemaVersion must be 1")
     version = manifest.get("version")
     if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise SystemExit("smart-rule manifest version is invalid")
+
+    version_path = RULE_DIR / "version.json"
+    version_content = version_path.read_bytes()
+    if not version_content or len(version_content) > 4 * 1024:
+        raise SystemExit("smart-rule version descriptor size is invalid")
+    descriptor = json.loads(version_content)
+    if descriptor.get("schemaVersion") != 1:
+        raise SystemExit("smart-rule version descriptor schemaVersion must be 1")
+    if descriptor.get("version") != version:
+        raise SystemExit("smart-rule version descriptor does not match manifest")
+    if descriptor.get("manifestSha256") != hashlib.sha256(manifest_content).hexdigest():
+        raise SystemExit("smart-rule version descriptor manifest SHA256 mismatch")
     upstream = manifest.get("upstream")
     if not isinstance(upstream, dict) or not re.fullmatch(
         r"[0-9a-f]{40}", str(upstream.get("commit", ""))
@@ -120,8 +147,10 @@ def main() -> int:
         if missing:
             raise SystemExit(f"{name}: missing required service markers {sorted(missing)}")
         text = content.decode("utf-8")
-        if f"# version: {version}\n" not in text:
-            raise SystemExit(f"{name}: version header does not match manifest")
+        if "# version:" in text:
+            raise SystemExit(
+                f"{name}: channel version belongs only in manifest/version.json"
+            )
 
     print(f"Smart-rule bundle verified: {version}, {len(EXPECTED_FILES)} files")
     return 0
