@@ -100,7 +100,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '4.0.22';
+  static const String appVersion = '4.0.23';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 
@@ -179,8 +179,8 @@ class AppConstants {
   static const String geositeGfwRuleProviderUrl =
       'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
       '$metaRulesCommit/geo/geosite/gfw.mrs';
-  // Local and private destinations outrank user-defined proxy rules. This
-  // keeps management pages, loopback services, and LAN traffic off the proxy.
+  // Local and private destinations stay direct unless the user explicitly
+  // overrides them. Manual proxy/direct rules are ordered before this list.
   static const List<String> defaultPrivateDirectRules = [
     'DOMAIN,localhost,DIRECT',
     'DOMAIN-SUFFIX,localhost,DIRECT',

@@ -272,11 +272,8 @@ class SystemProxyService {
 
       for (final svc in services) {
         await _checkedRun(['-setwebproxy', svc, host, '$port']);
-        await _checkedRun(['-setwebproxystate', svc, 'on']);
         await _checkedRun(['-setsecurewebproxy', svc, host, '$port']);
-        await _checkedRun(['-setsecurewebproxystate', svc, 'on']);
         await _checkedRun(['-setsocksfirewallproxy', svc, host, '$port']);
-        await _checkedRun(['-setsocksfirewallproxystate', svc, 'on']);
         await _requireUnchangedNetworkServiceIdentities(
           capturedServiceIdentities,
         );
@@ -911,7 +908,6 @@ class SystemProxyService {
 
     if (enabled && server.isNotEmpty && port > 0) {
       await _checkedRun([setCommand, service, server, '$port']);
-      await _checkedRun([stateCommand, service, 'on']);
     } else {
       await _checkedRun([stateCommand, service, 'off']);
     }

@@ -210,6 +210,25 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
+  void _showLogs() {
+    final clashService = context.read<ClashService>();
+    showSsrvpnDiagnosticsDialog(
+      context,
+      runDiagnostics: clashService.runDiagnostics,
+      loadHistory: clashService.loadDiagnosticHistory,
+      repair: clashService.repairDiagnosticIssue,
+      onMessage: (message) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            content: Text(message),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _deleteSubscription(String id) async {
     if (_hasBlockingOperation) return;
     setState(() => _isDeleting = true);
@@ -377,6 +396,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         onCancelRefresh: _cancelRefresh,
         onDelete: _deleteSubscription,
         onEdit: _editSubscription,
+        onShowLogs: _showLogs,
       ),
     );
   }

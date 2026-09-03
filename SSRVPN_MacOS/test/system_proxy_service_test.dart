@@ -44,6 +44,37 @@ void main() {
     expect(guardianSnapshot!['_ownerPid'], pid);
   });
 
+  test('proxy setup uses one enabling command per proxy type', () async {
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'ssrvpn_macos_proxy_minimal_mutations_',
+    );
+    addTearDown(() => tempDirectory.delete(recursive: true));
+    final mutations = <String>[];
+    final service = _testSystemProxyService(
+      networkSetupRunner: (arguments) async {
+        if (arguments.first.startsWith('-get')) {
+          return ProcessResult(
+            1,
+            0,
+            'Enabled: No\nServer: \nPort: 0\n',
+            '',
+          );
+        }
+        mutations.add(arguments.join(' '));
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+    await service.initialize(tempDirectory.path);
+
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+
+    expect(mutations, [
+      '-setwebproxy Wi-Fi 127.0.0.1 7890',
+      '-setsecurewebproxy Wi-Fi 127.0.0.1 7890',
+      '-setsocksfirewallproxy Wi-Fi 127.0.0.1 7890',
+    ]);
+  });
+
   test('proxy setup fails closed when its guardian is unavailable', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'ssrvpn_macos_proxy_guardian_unavailable_',
@@ -1006,8 +1037,7 @@ void main() {
             );
           }
           mutations.add(arguments.join(' '));
-          if (arguments.first.endsWith('proxystate') &&
-              arguments.last == 'on') {
+          if (arguments.first == '-setwebproxy') {
             proxyOwned = true;
           }
           return ProcessResult(1, 0, '', '');
@@ -1017,7 +1047,7 @@ void main() {
 
       expect(await service.setSystemProxy('127.0.0.1', 7890), isFalse);
 
-      expect(mutations, hasLength(6));
+      expect(mutations, hasLength(3));
       expect(service.lastError, contains('稳定标识已变化'));
       expect(await snapshot.exists(), isTrue);
       expect(service.recoveryPending, isTrue);

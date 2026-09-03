@@ -277,6 +277,7 @@ class SsrvpnVpnService : VpnService() {
         val configPath = snapshot?.configPath
         val apiPort = snapshot?.apiPort ?: 9090
         val apiSecret = snapshot?.apiSecret.orEmpty()
+        val bypassDomesticApps = snapshot?.bypassDomesticApps == true
         currentApiPort = apiPort
         currentDataPorts = CoreDataPorts.fromPreferences(
             getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE).all
@@ -347,6 +348,7 @@ class SsrvpnVpnService : VpnService() {
                     apiPort,
                     apiSecret,
                     selectedNodeName,
+                    bypassDomesticApps,
                     startToken,
                     requestId,
                     recoveryAttempt
@@ -456,6 +458,7 @@ class SsrvpnVpnService : VpnService() {
         apiPort: Int,
         apiSecret: String,
         selectedNodeName: String?,
+        bypassDomesticApps: Boolean,
         startToken: Long,
         requestId: String?,
         recoveryAttempt: Int
@@ -470,9 +473,8 @@ class SsrvpnVpnService : VpnService() {
             builder.setMtu(1500)
             // Keep Android's documented default non-blocking TUN contract.
             builder.setBlocking(false)
-            // Keep this app inside TUN; protect Mihomo outbound sockets individually.
-            val bypassedToolingApps = VpnAppExclusionInstaller.install(builder)
-            Log.i(TAG, "Bypassing ${bypassedToolingApps.size} installed Android tooling apps")
+            val bypassedDomesticApps = VpnAppExclusionInstaller.install(builder, bypassDomesticApps)
+            Log.i(TAG, "Bypassing ${bypassedDomesticApps.size} installed domestic apps")
 
             runtimeDiagnostics.beginTunLease()
             vpnFd = builder.establish()

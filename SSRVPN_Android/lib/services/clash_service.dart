@@ -429,6 +429,7 @@ class ClashService extends ClashServiceBase {
         'apiPort': settings.apiPort,
         'apiSecret': runtimeApiSecret,
         'nodeName': nodeName,
+        'bypassDomesticApps': settings.proxyMode == ProxyMode.rule,
       });
       _ensureStartCurrent(startToken);
 
@@ -591,6 +592,7 @@ class ClashService extends ClashServiceBase {
           'socksPort': settings.socksPort,
           'apiSecret': runtimeApiSecret,
           'selectedNodeName': nodeName,
+          'bypassDomesticApps': settings.proxyMode == ProxyMode.rule,
           'expectedSessionGeneration': effectiveSessionGeneration,
         });
         if (generation == null || generation.isEmpty) {

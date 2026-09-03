@@ -14,7 +14,8 @@ class NativeConnectionSnapshotCodecTest {
             configPath = "/data/user/0/com.ssrvpn/files/ssrvpn/config.yaml",
             apiPort = 9090,
             apiSecret = "secret-value",
-            selectedNodeName = "Tokyo"
+            selectedNodeName = "Tokyo",
+            bypassDomesticApps = true
         )
 
         assertEquals(snapshot, NativeConnectionSnapshotCodec.decode(
@@ -59,6 +60,19 @@ class NativeConnectionSnapshotCodecTest {
     }
 
     @Test
+    fun `version two snapshot keeps prior all-apps-in-tun behavior`() {
+        val snapshot = NativeConnectionSnapshot(
+            configDir = "/data/user/0/com.ssrvpn/files/ssrvpn",
+            configPath = "/data/user/0/com.ssrvpn/files/ssrvpn/config.yaml",
+            apiPort = 9090,
+            apiSecret = "previous-secret",
+            selectedNodeName = "Previous Tokyo"
+        )
+
+        assertEquals(snapshot, NativeConnectionSnapshotCodec.decode(encodeVersionTwo(snapshot)))
+    }
+
+    @Test
     fun `invalid snapshots are rejected before a cold start`() {
         assertNull(NativeConnectionSnapshotCodec.decode(byteArrayOf(1, 2, 3)))
         assertNull(
@@ -80,6 +94,32 @@ class NativeConnectionSnapshotCodecTest {
                 output.writeUTF(snapshot.apiSecret)
                 output.writeBoolean(snapshot.selectedNodeName != null)
                 snapshot.selectedNodeName?.let(output::writeUTF)
+            }
+            bytes.toByteArray()
+        }
+
+    private fun encodeVersionTwo(snapshot: NativeConnectionSnapshot): ByteArray =
+        ByteArrayOutputStream().use { bytes ->
+            DataOutputStream(bytes).use { output ->
+                output.writeInt(2)
+                listOf(
+                    snapshot.configDir,
+                    snapshot.configPath
+                ).forEach { value ->
+                    val encoded = value.toByteArray(Charsets.UTF_8)
+                    output.writeInt(encoded.size)
+                    output.write(encoded)
+                }
+                output.writeInt(snapshot.apiPort)
+                val secret = snapshot.apiSecret.toByteArray(Charsets.UTF_8)
+                output.writeInt(secret.size)
+                output.write(secret)
+                output.writeBoolean(snapshot.selectedNodeName != null)
+                snapshot.selectedNodeName?.let { value ->
+                    val encoded = value.toByteArray(Charsets.UTF_8)
+                    output.writeInt(encoded.size)
+                    output.write(encoded)
+                }
             }
             bytes.toByteArray()
         }

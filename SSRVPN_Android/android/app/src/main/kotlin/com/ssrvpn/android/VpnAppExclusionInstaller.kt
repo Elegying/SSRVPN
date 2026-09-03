@@ -9,11 +9,27 @@ internal object VpnAppExclusionInstaller {
         "com.google.android.adb"
     )
 
-    fun install(builder: VpnService.Builder): List<String> =
-        install { packageName -> addIfInstalled(builder, packageName) }
+    fun install(
+        builder: VpnService.Builder,
+        bypassDomesticApps: Boolean
+    ): List<String> = install(bypassDomesticApps) { packageName ->
+        addIfInstalled(builder, packageName)
+    }
 
-    internal fun install(addDisallowedApplication: (String) -> Boolean): List<String> =
-        adbPackages.filter(addDisallowedApplication)
+    internal fun install(
+        bypassDomesticApps: Boolean,
+        addDisallowedApplication: (String) -> Boolean
+    ): List<String> {
+        val bypassedDomesticApps = if (bypassDomesticApps) {
+            DomesticAppBypassPolicy.applyInstalled(addDisallowedApplication)
+        } else {
+            emptyList()
+        }
+        adbPackages.forEach { packageName ->
+            addDisallowedApplication(packageName)
+        }
+        return bypassedDomesticApps
+    }
 
     private fun addIfInstalled(
         builder: VpnService.Builder,

@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.23] - 2026-09-03
+
+### 修复与分流
+
+- Android“智能”模式恢复经过审查的国内应用系统级直连，抖音、抖音极速版和抖音火山版不再进入 TUN，避免评论区和私信图片因节点链路或海外 CDN 判断波动偶发加载失败；名单覆盖 178 个明确国内应用包，并新增 Kimi、腾讯元宝。Chrome、Edge、Firefox、Safari 同类通用浏览器、UC、QQ 浏览器、夸克以及海外应用均明确不在旁路名单中，继续进入 TUN 按域名规则分流。
+- 国内应用旁路只在“智能”模式启用；“全局”模式仍把所有普通应用流量送入 VPN。旧版原生快速启动快照按原有“所有应用进入 TUN”语义兼容读取，模式切换通过既有重连事务更新应用范围，不复用旧 TUN 状态。
+- 用户手动强制代理、强制直连规则提前到自动私网、海外服务、国内企业、ASN、GFW、CN 和 GeoIP 规则之前；IPv6 防泄漏拒绝仍是唯一更高的安全规则。Android 强制代理应用名单补充 Claude 官方包名，未知公网流量继续以 `MATCH,PROXY` 保证可访问。
+
+### 桌面与界面
+
+- macOS 和 Windows 的“运行日志”从节点选择页移到订阅页右上角；窄窗口和大字体自动使用带语义标签的图标按钮，诊断、历史和修复能力保持不变。Android 的既有日志入口不变。
+- Android、macOS 和 Windows 的“关于”窗口新增“检查更新”，可由用户主动联网检查；发现新版仍复用原有签名、摘要和规范资产校验流程，不自动下载或安装。
+- macOS 系统代理启用与恢复删除三条重复 `networksetup -set*proxystate on` 调用；`-setwebproxy`、`-setsecurewebproxy` 和 `-setsocksfirewallproxy` 本身即完成启用，原有快照、网络服务身份复核、读回验证、守护与失败回滚全部保留。
+
+### 验证
+
+- 新增 Android 国内应用清单/浏览器反向断言、智能与全局模式应用范围、原生快照 v1/v2 兼容测试；补充三端检查更新、桌面订阅日志入口、用户规则优先级和 macOS 系统代理命令数回归。
+- 固定 Flutter 3.44.1 工具链执行共享、Android、macOS、Windows、原生 Kotlin、规则清单、Mihomo 配置与发布工具门禁；正式 Windows 主机构建、三端产物及供应链证明由标签流水线继续完成。
+
 ## [4.0.22] - 2026-09-02
 
 ### 智能分流

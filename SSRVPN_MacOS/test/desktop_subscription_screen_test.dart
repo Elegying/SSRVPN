@@ -7,6 +7,7 @@ import 'package:ssrvpn_macos/screens/subscription_screen.dart';
 import 'package:ssrvpn_macos/services/clash_service.dart';
 import 'package:ssrvpn_macos/services/subscription_service.dart';
 import 'package:ssrvpn_macos/theme/app_theme.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 const _singleNodeUrl =
     'ss://aes-256-gcm:pass123@127.0.0.1:8388#Keyboard%20Node';
@@ -37,6 +38,22 @@ void main() {
     expect(find.text('添加订阅'), findsOneWidget);
     expect(find.text('关于'), findsNothing);
     expect(find.bySemanticsLabel('打开关于 SSRVPN'), findsNothing);
+  });
+
+  testWidgets('subscription header opens diagnostics from the requested slot',
+      (tester) async {
+    final fixture =
+        (await tester.runAsync(() => _SubscriptionFixture.create()))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('ssrvpn-subscription-logs-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('诊断与运行日志'), findsOneWidget);
+    expect(find.widgetWithIcon(IconButton, Icons.close), findsOneWidget);
+    expect(fixture.clash.diagnosticRuns, 1);
   });
 
   testWidgets('subscription page follows runtime connection and node',
@@ -167,12 +184,39 @@ class _IdleClashService extends ClashService {
   bool _running;
   String? _currentNodeName;
   int stopCalls = 0;
+  int diagnosticRuns = 0;
 
   @override
   bool get isRunning => _running;
 
   @override
   Future<String?> currentSelectedProxyName() async => _currentNodeName;
+
+  @override
+  Future<AppDiagnosticReport> runDiagnostics({
+    DateTime Function()? clock,
+  }) async {
+    diagnosticRuns++;
+    return AppDiagnosticReport(
+      generatedAt: (clock ?? DateTime.now)(),
+      checks: const [
+        AppDiagnosticCheck(
+          id: 'core',
+          title: '运行核心',
+          status: AppDiagnosticStatus.passed,
+          summary: '核心文件可用',
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<List<AppDiagnosticHistoryEntry>> loadDiagnosticHistory() async =>
+      const [];
+
+  @override
+  Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async =>
+      const AppRepairResult(success: true, message: '无需修复');
 
   @override
   Future<void> stop() async {

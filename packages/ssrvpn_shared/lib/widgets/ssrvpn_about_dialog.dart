@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import 'ssrvpn_info_dialog.dart';
 
-Future<void> showSsrvpnAboutDialog(BuildContext context) {
+Future<void> showSsrvpnAboutDialog(
+  BuildContext context, {
+  VoidCallback? onCheckForUpdate,
+}) {
   return showSsrvpnInfoDialog(
     context,
     panelKey: const Key('ssrvpn-about-glass'),
@@ -28,6 +31,21 @@ Future<void> showSsrvpnAboutDialog(BuildContext context) {
               '版本 ${AppConstants.appVersion}',
               style: TextStyle(color: accentText),
             ),
+            if (onCheckForUpdate != null) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  key: const Key('ssrvpn-check-update-button'),
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                    onCheckForUpdate();
+                  },
+                  icon: const Icon(Icons.system_update_alt_rounded),
+                  label: const Text('检查更新'),
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             const Text(
               '项目地址',

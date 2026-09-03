@@ -62,6 +62,7 @@ export 'utils/desktop_window_state_store.dart';
 export 'utils/desktop_startup_file_logger.dart';
 export 'widgets/country_flag_icon.dart';
 export 'widgets/app_diagnostics_view.dart';
+export 'widgets/ssrvpn_diagnostics_dialog.dart';
 export 'widgets/ssrvpn_app_surface.dart';
 export 'widgets/ssrvpn_subscription_error_dialog.dart';
 export 'widgets/ssrvpn_subscription_edit_dialog.dart';

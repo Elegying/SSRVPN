@@ -208,7 +208,10 @@ class HomeScreenState extends State<HomeScreen>
         publicIpError: _publicIpError,
         onToggleConnection: _handleConnectToggle,
         onOpenNodes: _openNodeSelection,
-        onShowAbout: () => showSsrvpnAboutDialog(context),
+        onShowAbout: () => showSsrvpnAboutDialog(
+          context,
+          onCheckForUpdate: () => unawaited(_checkForUpdateManually()),
+        ),
         onShowTutorial: () => _showAndroidHomeTutorialDialog(context),
         onShowLogs: () => _showAndroidHomeLogsSheet(context),
         onRefreshPublicIp: () => unawaited(_refreshPublicIpInfo()),

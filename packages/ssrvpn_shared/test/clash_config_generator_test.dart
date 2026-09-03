@@ -213,8 +213,8 @@ proxies:
       expect(forcedIpv6Index, greaterThan(0));
       expect(
         rules.indexOf('IP-CIDR,192.168.0.0/16,DIRECT,no-resolve'),
-        lessThan(forcedIpv6Index),
-        reason: 'private network safety must precede user exceptions',
+        greaterThan(forcedIpv6Index),
+        reason: 'manual rules must precede automatic private routing',
       );
       expect(rules, contains('RULE-SET,ssrvpn-geosite-cn,DIRECT'));
       expect(rules, contains('GEOIP,CN,DIRECT'));
@@ -547,8 +547,8 @@ proxies:
       final builtInProxyIndex = rules.indexOf('DOMAIN-SUFFIX,openai.com,PROXY');
       final gfwProxyIndex = rules.indexOf('RULE-SET,ssrvpn-geosite-gfw,PROXY');
       expect(privateDirectIndex, greaterThan(0));
-      expect(privateDirectIndex, lessThan(forcedDomainIndex));
       expect(forcedDomainIndex, lessThan(forcedIpIndex));
+      expect(forcedIpIndex, lessThan(privateDirectIndex));
       expect(forcedIpIndex, lessThan(builtInProxyIndex));
       expect(builtInProxyIndex, lessThan(gfwProxyIndex));
       expect(
@@ -600,6 +600,10 @@ proxies:
       expect(proxyConflict, lessThan(directConflict));
       expect(forcedDomesticProxy, lessThan(chinaDirect));
       expect(forcedForeignDirect, lessThan(builtInForeignProxy));
+      expect(
+        directConflict,
+        lessThan(rules.indexOf('DOMAIN,localhost,DIRECT')),
+      );
       expect(
         (policy['+.conflict.example'] as YamlList).cast<String>(),
         everyElement(contains('#PROXY')),

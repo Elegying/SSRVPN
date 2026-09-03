@@ -234,13 +234,15 @@ class MainActivity : FlutterActivity() {
         val apiPort = (args?.get("apiPort") as? Number)?.toInt()
         val apiSecret = args?.get("apiSecret") as? String
         val selectedNodeName = args?.get("selectedNodeName") as? String
+        val bypassDomesticApps = args?.get("bypassDomesticApps") as? Boolean ?: false
         try {
             val snapshot = NativeConnectionSnapshot(
                 configDir = configDir.orEmpty(),
                 configPath = configPath.orEmpty(),
                 apiPort = apiPort ?: 0,
                 apiSecret = apiSecret.orEmpty(),
-                selectedNodeName = selectedNodeName
+                selectedNodeName = selectedNodeName,
+                bypassDomesticApps = bypassDomesticApps
             )
             val expectedSessionGeneration =
                 (args?.get("expectedSessionGeneration") as? Number)?.toLong()
@@ -286,6 +288,7 @@ class MainActivity : FlutterActivity() {
         val apiPort = args?.get("apiPort") as? Int ?: 9090
         val apiSecret = args?.get("apiSecret") as? String ?: ""
         val nodeName = args?.get("nodeName") as? String
+        val bypassDomesticApps = args?.get("bypassDomesticApps") as? Boolean ?: false
         if (configDir == null || configPath == null) {
             result.error("INVALID_ARGS", "连接参数不完整，请重试", null)
             return
@@ -378,7 +381,8 @@ class MainActivity : FlutterActivity() {
                     configPath = configPath,
                     apiPort = apiPort,
                     apiSecret = apiSecret,
-                    selectedNodeName = nodeName
+                    selectedNodeName = nodeName,
+                    bypassDomesticApps = bypassDomesticApps
                 )
             )
         } catch (error: Exception) {

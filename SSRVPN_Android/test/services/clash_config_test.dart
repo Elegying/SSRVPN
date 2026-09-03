@@ -190,6 +190,7 @@ void main() {
           'PROCESS-NAME,com.twitter.android,PROXY',
           'PROCESS-NAME,com.google.android.youtube,PROXY',
           'PROCESS-NAME,com.openai.chatgpt,PROXY',
+          'PROCESS-NAME,com.anthropic.claude,PROXY',
           'PROCESS-NAME,com.netflix.mediaclient,PROXY',
         ]),
       );

@@ -1,7 +1,9 @@
 part of 'ssrvpn_subscription_view.dart';
 
 class _SubscriptionHeader extends StatelessWidget {
-  const _SubscriptionHeader();
+  const _SubscriptionHeader({this.onShowLogs});
+
+  final VoidCallback? onShowLogs;
 
   @override
   Widget build(BuildContext context) {
@@ -52,6 +54,35 @@ class _SubscriptionHeader extends StatelessWidget {
             ],
           ),
         ),
+        if (onShowLogs != null) ...[
+          const SizedBox(width: 10),
+          Builder(
+            builder: (context) {
+              final compact = MediaQuery.sizeOf(context).width < 390 ||
+                  MediaQuery.textScalerOf(context).scale(14) > 18;
+              if (compact) {
+                return Semantics(
+                  button: true,
+                  label: '打开运行日志',
+                  child: ExcludeSemantics(
+                    child: IconButton(
+                      key: const Key('ssrvpn-subscription-logs-button'),
+                      tooltip: '运行日志',
+                      onPressed: onShowLogs,
+                      icon: const Icon(Icons.article_outlined),
+                    ),
+                  ),
+                );
+              }
+              return TextButton.icon(
+                key: const Key('ssrvpn-subscription-logs-button'),
+                onPressed: onShowLogs,
+                icon: const Icon(Icons.article_outlined, size: 19),
+                label: const Text('运行日志'),
+              );
+            },
+          ),
+        ],
       ],
     );
   }
