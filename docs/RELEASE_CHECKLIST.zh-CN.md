@@ -22,6 +22,9 @@
 5. 确认 Release workflow 需要的 Android 自签名 secrets 已配置。桌面端固定走免费分发：
    macOS ad-hoc、未公证，Windows 未签名；仓库和 GitHub 配置中不应出现 Apple/Microsoft
    付费证书 secrets 或启用变量。
+   同时确认仓库 Actions 要求第三方 Action 固定到完整提交 SHA、`GITHUB_TOKEN` 不允许审批
+   Pull Request，且 GitHub Release immutability 已启用。Release 必须先创建 Draft、上传齐全
+   并校验资产，再一次性公开；公开后不得替换或删除同版本资产。
 6. 引导并确认仓库内固定的核心二进制和 GeoIP 数据库哈希：
 
    ```bash

@@ -14,7 +14,7 @@ Android、macOS、Windows 三端一致的连接体验：导入订阅，选择节
 [![License: MIT + third-party](https://img.shields.io/badge/License-MIT%20%2B%20third--party-22c55e.svg)](#许可证)
 [![Platforms](https://img.shields.io/badge/Android%20%7C%20macOS%20%7C%20Windows-6c63ff)](#下载)
 
-[立即下载](#下载) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md) · [获取帮助](SUPPORT.md) · [参与开发](CONTRIBUTING.md)
+[立即下载](#下载) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md) · [获取帮助](SUPPORT.md) · [参与开发](CONTRIBUTING.md) · [使用边界](ACCEPTABLE_USE.md)
 
 下图为界面示意，版本号以 GitHub Release 和应用“关于”页为准。
 
@@ -144,7 +144,7 @@ Pull Request 还会执行 GitHub Dependency Review；新增中等及以上已知
 
 不要在日志、Issue、PR、截图或崩溃报告中泄露订阅 URL、API secret、Bearer token、节点密码、服务端凭据或签名材料。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
-参与 Issue、Pull Request 或其他社区协作前，请阅读[贡献指南](CONTRIBUTING.md)和[社区行为准则](CODE_OF_CONDUCT.md)。
+参与 Issue、Pull Request 或其他社区协作前，请阅读[贡献指南](CONTRIBUTING.md)、[社区行为准则](CODE_OF_CONDUCT.md)和[可接受使用政策](ACCEPTABLE_USE.md)。修改版和重新分发版本还应遵守[名称与官方版本说明](TRADEMARKS.md)，不得冒充官方发布。
 
 ## 隐私与数据
 

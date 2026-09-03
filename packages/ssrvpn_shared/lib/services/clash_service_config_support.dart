@@ -2,6 +2,7 @@ part of 'clash_service_base.dart';
 
 mixin _ClashConfigSupport {
   String get configDir;
+  String? _smartRuleProviderPathPrefix;
 
   void log(
     String message, {
@@ -16,6 +17,7 @@ mixin _ClashConfigSupport {
   Future<void> ensureBundledSmartRules() async {
     try {
       final baseline = await SmartRuleBundle.ensureInstalled(configDir);
+      _smartRuleProviderPathPrefix = baseline.providerPathPrefix;
       log(
         baseline.activeVersion == null
             ? '智能规则本地文件已就绪，版本将在连接后校验：'
@@ -31,6 +33,10 @@ mixin _ClashConfigSupport {
         event: 'rule_provider_baseline',
       );
     }
+  }
+
+  void useSmartRuleVersionForFutureConfigs(String version) {
+    _smartRuleProviderPathPrefix = SmartRuleBundle.providerPathPrefix(version);
   }
 
   @protected
@@ -60,6 +66,7 @@ mixin _ClashConfigSupport {
       includeFallbackGroup: includeFallbackGroup,
       extraSelectGroupNames: extraGroups,
       extraRulesBeforeDirect: extraRules,
+      smartRuleProviderPathPrefix: _smartRuleProviderPathPrefix,
     );
   }
 
@@ -88,6 +95,7 @@ mixin _ClashConfigSupport {
       includeFallbackGroup: includeFallbackGroup,
       extraSelectGroupNames: extraSelectGroupNames,
       extraRulesBeforeDirect: extraRulesBeforeDirect,
+      smartRuleProviderPathPrefix: _smartRuleProviderPathPrefix,
     );
   }
 

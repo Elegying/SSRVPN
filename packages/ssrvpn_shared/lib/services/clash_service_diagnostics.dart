@@ -35,15 +35,21 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   String get configPath;
   @protected
   Duration get diagnosticCheckTimeout => const Duration(seconds: 10);
+
+  /// Returns the best currently available data-plane warning for a manual
+  /// diagnostic run. Platforms may override this to query an authoritative,
+  /// read-only network snapshot before the report is classified.
+  @protected
+  Future<String?> diagnosticDataPlaneWarning() async =>
+      dataPlaneConnectivityWarning;
   void log(
     String message, {
     RuntimeLogLevel level = RuntimeLogLevel.info,
     String event = 'runtime',
   }) {
-    final sanitized = LogRedactor.sanitize(message).replaceAll(
-      RegExp(r'[\r\n]+'),
-      ' ↩ ',
-    );
+    final sanitized = LogRedactor.sanitize(
+      message,
+    ).replaceAll(RegExp(r'[\r\n]+'), ' ↩ ');
     final normalizedEvent = event.trim().toLowerCase();
     final safeEvent =
         RegExp(r'^[a-z0-9][a-z0-9_.-]{0,47}$').hasMatch(normalizedEvent)
@@ -198,7 +204,13 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
       );
     }
 
-    final dataPlaneWarning = dataPlaneConnectivityWarning?.trim();
+    final dataPlaneWarning = isRunning
+        ? (await _runDiagnosticCheck(
+            'data_plane',
+            diagnosticDataPlaneWarning,
+          ))
+            ?.trim()
+        : null;
     if (isRunning && dataPlaneWarning != null && dataPlaneWarning.isNotEmpty) {
       checks.add(
         const AppDiagnosticCheck(

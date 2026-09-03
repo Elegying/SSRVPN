@@ -122,9 +122,10 @@ Generated Mihomo configurations use six SSRVPN-reviewed YAML providers for AI,
 foreign services, streaming, domestic companies, company ASN prefixes, and user
 feedback. A complete versioned snapshot and SHA256 manifest ship in the app;
 `scripts/verify-smart-rules.py` validates required services, counts, syntax, fixed
-upstream commit, and digests without network access. Startup repairs only missing
-or invalid files, while a valid remotely refreshed cache is retained. Background
-refresh failures never delete the local provider or block an existing connection.
+upstream commit, and digests without network access. Every accepted rule version
+is stored in its own local directory; startup migrates a complete legacy cache or
+installs the bundled baseline. Background refresh failures never replace the
+active version, delete its providers, or block an existing connection.
 
 The MetaCubeX `geosite/gfw.mrs` and `geosite/cn.mrs` providers remain pinned to the same commit
 `200e6a86736cfab29aae7b07dc266e59f13bc13d`; they do not follow the mutable

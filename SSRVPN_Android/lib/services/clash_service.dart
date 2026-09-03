@@ -156,6 +156,10 @@ class ClashService extends ClashServiceBase {
       _androidPlatformDiagnosticChecks();
 
   @override
+  Future<String?> diagnosticDataPlaneWarning() =>
+      _androidDiagnosticDataPlaneWarning();
+
+  @override
   Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async =>
       const AppRepairResult(
         success: false,

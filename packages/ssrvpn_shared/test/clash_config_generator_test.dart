@@ -937,6 +937,43 @@ proxies:
       expect(rules.last, 'MATCH,PROXY');
     });
 
+    test('verified smart rules use one local version without remote refresh',
+        () {
+      const yaml = '''
+proxies:
+  - name: "Test Node"
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-256-gcm
+    password: "test123"
+''';
+      final parsed = loadYaml(
+        ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(),
+          smartRuleProviderPathPrefix: './providers/bundles/1.1.0',
+        ),
+      ) as YamlMap;
+      final providers = parsed['rule-providers'] as YamlMap;
+
+      for (final name in AppConstants.smartRuleProviderFiles.keys) {
+        final provider = providers[name] as YamlMap;
+        expect(provider['type'], 'file');
+        expect(
+          provider['path'],
+          './providers/bundles/1.1.0/'
+          '${AppConstants.smartRuleProviderFiles[name]}',
+        );
+        expect(provider.containsKey('url'), isFalse);
+        expect(provider.containsKey('proxy'), isFalse);
+      }
+      expect(
+        (providers[AppConstants.geositeGfwRuleProviderName] as YamlMap)['type'],
+        'http',
+      );
+    });
+
     test('global mode still sends all traffic through the global selector', () {
       const yaml = '''
 proxies:

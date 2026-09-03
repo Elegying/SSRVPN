@@ -5,7 +5,7 @@ SSRVPN 是一个多平台 Flutter Monorepo：
 - `packages/ssrvpn_shared` 保存平台无关的模型、策略、订阅解析、配置生成和工具函数。
 - `SSRVPN_Android`、`SSRVPN_MacOS`、`SSRVPN_Windows` 保存平台专属 UI、原生集成、打包脚本和系统能力。
 
-参与本项目即表示同意遵守[社区行为准则](CODE_OF_CONDUCT.md)。
+参与本项目即表示同意遵守[社区行为准则](CODE_OF_CONDUCT.md)和[可接受使用政策](ACCEPTABLE_USE.md)。分叉、重新分发和品牌使用边界见[名称与官方版本说明](TRADEMARKS.md)。
 
 ## 开始之前
 

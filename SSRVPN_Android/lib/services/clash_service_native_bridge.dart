@@ -84,6 +84,25 @@ typedef _NativeConnectionState = ({
 });
 
 extension AndroidNativeBridge on ClashService {
+  Future<String?> _androidDiagnosticDataPlaneWarning() async {
+    if (!isRunning) return null;
+    final nativeState = await _queryNativeConnectionState();
+    if (nativeState == null) {
+      return dataPlaneConnectivityWarning ?? '暂时无法确认设备网络状态，请稍后重新检查';
+    }
+    if (!nativeState.running) {
+      return '原生 VPN 会话已停止，外部网络状态无法确认';
+    }
+    if (nativeState.underlyingNetworkAvailable == false) {
+      return '设备当前没有可用网络，VPN 正在等待网络恢复';
+    }
+    if (nativeState.underlyingNetworkAvailable == true &&
+        nativeState.underlyingNetworkValidated == false) {
+      return '设备网络尚未通过系统验证，VPN 正在等待网络恢复';
+    }
+    return dataPlaneConnectivityWarning;
+  }
+
   Future<bool> _canReuseIdleNativeControllerPort(
     AppSettings preferred,
   ) async {

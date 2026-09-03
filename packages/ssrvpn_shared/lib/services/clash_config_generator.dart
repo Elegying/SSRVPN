@@ -34,6 +34,8 @@ class ClashConfigGenerator {
   /// [includeFallbackGroup] 是否额外写入故障转移组
   /// [extraSelectGroupNames] 额外的 select 代理组名称
   /// [extraRulesBeforeDirect] 插入在内置直连规则前的平台规则
+  /// [smartRuleProviderPathPrefix] 已完整校验的本地智能规则目录；为空时
+  /// 保留远程 Provider 作为启动可用性的安全降级。
   static String generateConfig(
     String rawYaml,
     AppSettings settings, {
@@ -46,6 +48,7 @@ class ClashConfigGenerator {
     bool includeFallbackGroup = false,
     Iterable<String> extraSelectGroupNames = const [],
     Iterable<String> extraRulesBeforeDirect = const [],
+    String? smartRuleProviderPathPrefix,
   }) {
     final proxyNames = extractProxyNames(rawYaml);
     final proxiesText = buildProxiesText(rawYaml);
@@ -295,21 +298,32 @@ class ClashConfigGenerator {
       }
     }
 
-    // 规则 Provider。下载路径为相对路径，确保 Mihomo 将缓存写在 HomeDir 内。
-    // Mihomo 核心启动后会通过 API 触发一次更新；这里不写 interval，避免周期刷新。
+    // 已验证的应用规则使用完整版本目录，运行中的核心不会被后台下载逐文件热切换。
+    // 本地基线准备失败时仍保留原有 HTTP Provider，优先保证用户可以连接。
     result.writeln();
     result.writeln('rule-providers:');
     for (final entry in AppConstants.smartRuleProviderFiles.entries) {
-      _writeRuleProvider(
-        result,
-        name: entry.key,
-        behavior: entry.key == AppConstants.companyAsnRuleProviderName
-            ? 'ipcidr'
-            : 'domain',
-        format: 'yaml',
-        path: './providers/${entry.value}',
-        url: '${AppConstants.smartRuleChannelBaseUrl}/${entry.value}',
-      );
+      final behavior = entry.key == AppConstants.companyAsnRuleProviderName
+          ? 'ipcidr'
+          : 'domain';
+      if (smartRuleProviderPathPrefix == null) {
+        _writeRuleProvider(
+          result,
+          name: entry.key,
+          behavior: behavior,
+          format: 'yaml',
+          path: './providers/${entry.value}',
+          url: '${AppConstants.smartRuleChannelBaseUrl}/${entry.value}',
+        );
+      } else {
+        _writeLocalRuleProvider(
+          result,
+          name: entry.key,
+          behavior: behavior,
+          format: 'yaml',
+          path: '$smartRuleProviderPathPrefix/${entry.value}',
+        );
+      }
     }
     _writeRuleProvider(
       result,
@@ -381,6 +395,7 @@ class ClashConfigGenerator {
     bool includeFallbackGroup = false,
     Iterable<String> extraSelectGroupNames = const [],
     Iterable<String> extraRulesBeforeDirect = const [],
+    String? smartRuleProviderPathPrefix,
   }) {
     final extraGroups = List<String>.of(extraSelectGroupNames);
     final extraRules = List<String>.of(extraRulesBeforeDirect);
@@ -397,6 +412,7 @@ class ClashConfigGenerator {
           includeFallbackGroup: includeFallbackGroup,
           extraSelectGroupNames: extraGroups,
           extraRulesBeforeDirect: extraRules,
+          smartRuleProviderPathPrefix: smartRuleProviderPathPrefix,
         );
 
     if (rawYaml.length < isolateThreshold) {
@@ -584,6 +600,20 @@ class ClashConfigGenerator {
     result.writeln('    url: ${_quote(url)}');
     result.writeln('    proxy: ${AppConstants.ruleProviderDownloadProxy}');
     result.writeln('    size-limit: ${AppConstants.ruleProviderSizeLimit}');
+  }
+
+  static void _writeLocalRuleProvider(
+    StringBuffer result, {
+    required String name,
+    required String behavior,
+    required String path,
+    required String format,
+  }) {
+    result.writeln('  $name:');
+    result.writeln('    type: file');
+    result.writeln('    behavior: $behavior');
+    result.writeln('    format: $format');
+    result.writeln('    path: ${_quote(path)}');
   }
 
   /// 为 YAML 字符串添加引号（如果需要）
