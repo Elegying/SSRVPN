@@ -2,11 +2,16 @@
 
 最近更新：2026-09-03
 
-当前应用版本：`v4.0.26`（正式）
+当前应用版本：`v4.0.27`（候选）
 
 最新正式版本：[`v4.0.26`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.26)
 
 ## 当前结论
+
+`v4.0.27` 候选版已进入发布验收：它修复 Android 真实完全断网时外部网络诊断误报通过，
+并把六份自有智能规则改为按版本完整校验、原子激活和下次连接整体启用。当前正式更新通道
+仍为 `v4.0.26`；只有候选 APK 在 Android 真机完成飞行模式、Wi-Fi/移动网络断开、VPN
+保持、诊断显示、网络恢复和数据通道复测后，才允许创建 `v4.0.27` 标签。
 
 `v4.0.26` 已正式发布：三端“运行日志”统一为订阅页右上角的可见文字按钮，节点选择页
 不再保留重复入口。诊断默认展示一句话结论、中文检查结果及按本地时间整理的运行记录，内部
@@ -38,7 +43,7 @@ macOS 26.6.2 完成增量实机验收：Android 国内应用旁路、浏览器/�
 
 | 项目 | 当前结果 |
 | --- | --- |
-| 当前代码版本 | `4.0.26+4026` 正式版，三端 pubspec、共享常量、CHANGELOG、公开 Release 与 OSS `latest.json` 一致 |
+| 当前代码版本 | `4.0.27+4027` 候选版，三端 pubspec、共享常量与 CHANGELOG 一致；公开 Release 与 OSS `latest.json` 在候选真机通过前继续保持 `4.0.26` |
 | 当前版本本地门禁 | v4.0.26 使用 `mise exec flutter@3.44.1 -- make verify` 全部通过：Release tooling 396 项，Shared 覆盖率 85.52%，Android 279 项及原生构建通过（68.15%），macOS 286 项、原生测试和内置 Mihomo 配置加载通过（66.75%），Windows 本地 274 项通过、8 项主机专属用例按设计跳过（54.46%） |
 | 正式源码与标签 | 受保护 PR [#190](https://github.com/Elegying/SSRVPN/pull/190) 与 [#191](https://github.com/Elegying/SSRVPN/pull/191) 已 squash 合并；最终 `main` 提交 [`35f099d`](https://github.com/Elegying/SSRVPN/commit/35f099d40cc4917aea0381c1d0e78641a105dfc3)，注释标签 `v4.0.26` 精确解引用到同一提交 |
 | 精确正式 `main` CI | [`33742979692`](https://github.com/Elegying/SSRVPN/actions/runs/33742979692) 成功；Workspace、Android、macOS、Windows、安全、安装器 smoke 与原生门禁全部通过 |
