@@ -22,6 +22,13 @@
 端口测试使用了不可靠的随机端口假设而在资产公开前停止；该测试已改为确定性协议占用模型，
 产品端口逻辑没有改变，v4.0.25 未生成公开 Release，也未切换 OSS 更新通道。
 
+`v4.0.26` 正式包随后已在 Xiaomi 2509FPN0BC / Android 17 和本机 Apple Silicon /
+macOS 26.6.2 完成增量实机验收：Android 国内应用旁路、浏览器/海外应用负例、抖音评论与
+私信图片、五轮重连和真实断网恢复可用；macOS TUN、系统代理、国内/海外数据、DNS、规则
+同版零下载与断开恢复可用。Android 完全断网时“节点与外部网络”诊断误报通过已记录为
+[#193](https://github.com/Elegying/SSRVPN/issues/193)，安排下一客户端版本修复。macOS 两次
+约 14 秒的 TUN 端到端观察包含人工输入管理员密码时间，不认定为程序性能缺陷。
+
 本文件只记录当前状态和仍需跟进的证据边界。版本变更明细以
 [CHANGELOG](../CHANGELOG.md) 为准，硬性产品约束以
 [项目硬性规则](PRODUCT_REQUIREMENTS.zh-CN.md) 为准，完整能力以
@@ -36,7 +43,7 @@
 | 正式源码与标签 | 受保护 PR [#190](https://github.com/Elegying/SSRVPN/pull/190) 与 [#191](https://github.com/Elegying/SSRVPN/pull/191) 已 squash 合并；最终 `main` 提交 [`35f099d`](https://github.com/Elegying/SSRVPN/commit/35f099d40cc4917aea0381c1d0e78641a105dfc3)，注释标签 `v4.0.26` 精确解引用到同一提交 |
 | 精确正式 `main` CI | [`33742979692`](https://github.com/Elegying/SSRVPN/actions/runs/33742979692) 成功；Workspace、Android、macOS、Windows、安全、安装器 smoke 与原生门禁全部通过 |
 | 标签与正式构建 | [`Prepare Release 33744510425`](https://github.com/Elegying/SSRVPN/actions/runs/33744510425) 和 [`Release 33744541261`](https://github.com/Elegying/SSRVPN/actions/runs/33744541261) 均成功 |
-| Android 实机 | 182 个国内应用旁路、浏览器/国外应用负例、“智能”/“全局”作用域和旧快照兼容均有自动回归；v4.0.26 正式 APK 原地升级、抖音评论/私信图片与 Telegram 真机复验保持未执行 |
+| Android 实机 | v4.0.26 正式 APK 已验证智能/全局 UID 作用域、抖音两个评论面板与一个私信会话图片、Telegram/Google、五轮重连及真实断网恢复；完全断网时外部网络诊断误报通过见 [#193](https://github.com/Elegying/SSRVPN/issues/193)，20 轮长期矩阵仍未执行 |
 | 正式公开资产 | [`v4.0.26`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.26) 非 draft、非 prerelease，共七项资产；独立完整下载后 APK `43f89562…21aa4`、DMG `cd2b1c14…a498d`、EXE `2db0dd5a…73089`，实际文件、sidecar、Release API digest、provenance 与 GitHub Attestations 一致 |
 | OSS 公共通道 | `latest.json` 已指向 `4.0.26`；三个版本化安装包完整下载后的 SHA-256 与 GitHub 一致，且文件逐字节相同 |
 
@@ -47,7 +54,7 @@ Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最�
 
 | 维度 | 得分 | 主要依据 |
 | --- | ---: | --- |
-| 功能正确性与失败恢复 | 19/20 | 用户规则、国内应用旁路作用域、浏览器/国外应用负例、海外服务、国内企业、GFW/CN/GeoIP 和未知流量安全兜底均有行为测试；正式 Android 包和桌面人工流量矩阵仍未执行 |
+| 功能正确性与失败恢复 | 19/20 | 用户规则、分流与未知流量安全兜底均有行为测试；Android/macOS 正式包增量实机通过，Android 断网诊断误报已跟踪，Windows 和未覆盖人工矩阵仍待执行 |
 | 安全、隐私与供应链 | 19/20 | 规则下载大小、格式、条目与 SHA-256 均有界，失败保留已验证旧规则；正式资产可独立校验来源 |
 | 架构与可维护性 | 19/20 | 三端复用同一分层构建器与版本化规则包，没有替换代理核心、改变订阅格式或引入自动学习和新依赖 |
 | 测试与 CI | 19/20 | 九项受保护检查、完整三端门禁、正式构建、配置加载和安装器 smoke 通过；仍缺部分真机与人工矩阵 |
@@ -67,6 +74,9 @@ Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最�
 - Windows 正式 runner：282 项通过，行覆盖率 57.13%；生命周期关键文件保持 50.00% 门槛，主机专属检查、安装器构建及安装/卸载 smoke 通过。本地固定工具链执行 274 项并按设计跳过 8 项 Windows 主机专属用例。
 - GitHub 清理仅删除未公开 v4.0.25 的两个临时 Actions 产物及已被最终提交取代的两份 CodeQL trap 缓存；正在使用的构建缓存、v4.0.26 恢复产物、`v4.0.15` 起的正式发行版和全部 Git 历史均保留。
 - 规则版本端点、清单与六份 provider 已独立从公开 `main` 下载复核；122 字节版本描述声明的清单 SHA-256 与实算值一致。
+- v4.0.26 Android/macOS 实机步骤、真实覆盖范围和恢复后终态见
+  [实机验收报告](uat/SSRVPN_Android_MacOS_v4.0.26_实机验收报告_20260903.md)；原始设备标识、
+  用户路径、订阅、节点和出口信息未写入仓库。
 - 依赖 PR [#145](https://github.com/Elegying/SSRVPN/pull/145) 仅升级 `gradle/actions/setup-gradle` 6.2.0 → 6.3.0；独立验证后合并，提交 `5e56ed4` 的 [主分支 CI](https://github.com/Elegying/SSRVPN/actions/runs/33497028016) 全部成功。
 - 依赖 PR [#121](https://github.com/Elegying/SSRVPN/pull/121) 未与 #145 打包：`flutter_secure_storage` 11.0.0 要求 Android `compileSdk 37`，而当前 AGP 9.0.1 支持边界为 36；真实构建失败后已独立关闭，未降低平台门槛强行合并。
 - 分支保护要求严格提交同步、管理员不可绕过、禁止 force-push/删除，并固定九项必需检查。
@@ -76,10 +86,10 @@ Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最�
 
 以下项目是仍未补齐的人工或长期证据，不得由自动化或其他设备替代：
 
-1. v4.0.26 正式 APK 尚未在旧故障手机完成原地升级、抖音评论/私信图片、Telegram、国内站点、海外站点和国内 AI 服务复验；旧版根因日志与自动回归不能替代正式包真机证据。
+1. v4.0.26 正式 APK 已在 Android 17 真机验证抖音两个评论面板、一个私信会话图片、Telegram/Google、国内应用启动、智能/全局 UID 作用域、五轮重连和真实断网恢复；尚未达到连续 20 轮长期矩阵，也未覆盖完整国内 AI 场景。完全断网时“节点与外部网络”诊断误报通过见 [#193](https://github.com/Elegying/SSRVPN/issues/193)。
 2. Android 仍缺原生 16 KiB page-size 硬件、其他 VPN 竞争、蜂窝切换、不同 OEM 和同口径电量复测；4 KiB 真机和 ELF 对齐门禁不能替代这些证据。
 3. Windows 正式安装器在线构建、安装/卸载 smoke 已通过，但 v4.0.26 尚无普通桌面 TUN/系统代理人工流量矩阵；UAC 取消和托盘正常退出仍受当前实机策略/自动化边界阻塞。
-4. macOS 已用内置核心加载 TUN/系统代理配置并通过自动生命周期测试，但 v4.0.26 尚未执行国内、海外、国内 AI、海外 CDN 与持续断网恢复的完整人工流量矩阵。
+4. macOS v4.0.26 已人工验证 TUN/系统代理、国内/海外 HTTP、DNS、TCP、同版规则零下载及断开恢复；国内 AI 业务、海外 CDN、UDP/QUIC 和持续断网恢复仍未形成完整人工矩阵。本轮按维护者要求未断开本机网络。
 5. Windows 未签名安装器、macOS ad-hoc/未公证属于既定免费分发边界；Windows Authenticode、macOS Developer ID 与 notarization 均不计划增加。
 6. 崩溃与诊断默认只保存在本机，没有自动遥测、集中聚合、规则命中上报或趋势告警；本版也未实现会自动改变路由的学习机制。
 
@@ -94,10 +104,10 @@ Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最�
 
 ## 下一阶段优先级
 
-1. 在旧故障 Android 手机安装 v4.0.26 正式 APK；完成标准：抖音评论和私信图片连续 20 轮、Telegram、国内/海外站点、国内 AI、同版本规则零下载、规则刷新失败及节点断开恢复均有脱敏日志且无失败。
+1. 下一客户端版本修复 Android 真实断网诊断误报 [#193](https://github.com/Elegying/SSRVPN/issues/193)；完成标准：完全断网显示提醒/失败，恢复后重新诊断通过，探测异常不阻断连接或 TUN，并有自动回归和真机复验。
 2. 在普通 Windows 桌面分别执行 TUN 与系统代理矩阵；完成标准：DNS、TCP/UDP/QUIC、IPv6 禁用、嗅探失败兜底、异常退出和系统设置恢复全部记录通过。
-3. 在 macOS 分别执行 TUN 与系统代理矩阵；完成标准：国内/海外/国内 AI/海外 CDN、持续离线取消、网络恢复和连接耗时中位数/P95 全部形成同机证据。
-4. 扩展 Android 硬件矩阵；完成标准：原生 16 KiB page size、蜂窝/Wi-Fi 切换、第二 VPN、至少一种其他 OEM 后台策略和同机 30 分钟电量基线均完成。
+3. 补齐 Android 长期与硬件矩阵；完成标准：抖音评论/私信图片连续 20 轮、国内 AI、原生 16 KiB page size、蜂窝/Wi-Fi 切换、第二 VPN、其他 OEM 后台策略和同机 30 分钟电量基线形成证据。
+4. 按实际产品风险补齐 macOS 尚未覆盖的国内 AI、海外 CDN、UDP/QUIC 场景；本机断网仅在不影响工作网络的独立窗口执行。约 14 秒端到端观察含人工授权等待，不作为待修性能问题；只有分离计时后才能评价程序阶段。
 5. 观察版本化规则通道与国内应用名单；完成标准：每次调整都有可复现用户反馈、人工审核、包名来源、浏览器/国外应用负例和失败回退测试，不引入会覆盖用户选择的自动学习。
 
 ## 更新规则
