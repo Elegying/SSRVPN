@@ -21,6 +21,49 @@ VPN、代理、TUN、安装、无障碍及电量在目标系统上实际成立�
 每个失败必须附最小复现步骤、发生时间、应用诊断、系统日志和预期结果；禁止上传原始订阅、
 节点密码、Token、API secret、用户名路径或未脱敏截图。
 
+## 2026-09-04 v4.0.27 Android 断网诊断与正式发布证据
+
+- 修复 PR [#195](https://github.com/Elegying/SSRVPN/pull/195) 与版本 PR
+  [#198](https://github.com/Elegying/SSRVPN/pull/198) 经受保护检查后 squash 合并；最终 `main`、
+  注释标签 `v4.0.27` 均精确指向提交 `40a0083cc96380488c40638a087a52eebab875e8`。
+  [主分支 CI 33774884684](https://github.com/Elegying/SSRVPN/actions/runs/33774884684)、
+  [Prepare Release 33782361025](https://github.com/Elegying/SSRVPN/actions/runs/33782361025) 和
+  [Release 33782400613](https://github.com/Elegying/SSRVPN/actions/runs/33782400613) 全部成功。
+- 同一提交的候选 APK 来自
+  [Release workflow 33776553209](https://github.com/Elegying/SSRVPN/actions/runs/33776553209)，
+  包身份 `com.ssrvpn.android`、`4.0.27+4027`，SHA-256 为
+  `43e88d7573b9f8015a8c8e48a0d5cd708fe229e0412c63be3616b02e5cdfad58`；v2 签名、正式证书
+  指纹和 GitHub Attestation 均通过。使用 `adb install -r` 覆盖安装后用户数据保留。
+- Android 17 真机在正常 Wi-Fi 下 Google `generate_204` 返回 204、Telegram API 返回 200，
+  正常诊断六项全绿。关闭 Wi-Fi/移动数据并开启飞行模式后，外部 HTTPS 真实失败，但 VPN
+  前台服务、Android VPN 网络、原生 Bridge 状态与应用进程保持；重新诊断只把“节点与外部
+  网络”显示为橙色 `DATA_PLANE_DEGRADED`，没有停止连接或 TUN。
+- 关闭飞行模式并恢复 Wi-Fi 后无需点击连接，Google、Telegram 和全部绿色诊断自行恢复。
+  随后实际完成 Wi-Fi → 蜂窝、蜂窝完全断开、再恢复 Wi-Fi：蜂窝阶段代理出口国家为新加坡，
+  完全断网请求失败且 VPN 会话保持，最后一次恢复约 3 秒重新取得数据通道。最终恢复为测试前
+  的飞行模式关闭、Wi-Fi 开启、移动数据关闭状态。
+- [#193](https://github.com/Elegying/SSRVPN/issues/193) 在候选实机验收通过后关闭。完整脱敏步骤、
+  证据边界和发布摘要见
+  [v4.0.27 Android 实机验收报告](uat/SSRVPN_Android_v4.0.27_实机验收报告_20260904.md)。
+- [GitHub Release v4.0.27](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.27) 为不可变、
+  非 draft、非 prerelease 的 latest，共七项资产。独立完整下载后 APK、DMG、EXE SHA-256
+  分别为 `c001c392d89009753264d50fa4e0a3950ecd624ee430de5d04ac5be3e54b2847`、
+  `ea59a57af7f5556e0668973846adace608cc4514710a6ae738d7947873f28044`、
+  `987231d64e1495c85c2f9e4116ab5966b39ecba30a11185377a05cc5bb4450d1`。sidecar、Release API
+  digest、统一 provenance、三份 GitHub Attestation 及 OSS 三份逐字节副本全部一致。
+
+| ID | 平台/模式 | 目标 | 通过标准 | 当前状态 |
+| --- | --- | --- | --- | --- |
+| V27-01 | Android / 智能 | 飞行模式完全断网与诊断 | 外部请求失败；诊断明确提醒而非误报通过；VPN 和应用不被诊断停止 | 候选真机通过，#193 已关闭 |
+| V27-02 | Android / 智能 | 飞行模式恢复 | 不点击连接或重启应用即可恢复 Google、Telegram 与正常诊断 | 候选真机通过 |
+| V27-03 | Android / 智能 | Wi-Fi/蜂窝切换与再次完全断网 | 蜂窝仍经代理；无底层网络时数据失败但 VPN 会话保持；恢复 Wi-Fi 后自行恢复 | 候选真机通过 |
+| V27-04 | Android 安装 | v4.0.26 → 候选覆盖升级 | 正式包身份与证书一致，用户订阅、节点和设置保留 | 候选真机通过 |
+| V27-05 | 三端正式发布 | 标签、构建、资产、摘要与 provenance | 精确主分支来源；三端门禁成功；GitHub/OSS 公开文件一致 | 线上正式发布与独立复核通过 |
+
+本轮没有在手机上再次安装发布后独立重建的正式 APK，不把同一提交的线上自动化写成第二次
+真机验收；也没有新增 Android 长期 20 轮、多 OEM、16 KiB page-size 硬件、Windows 人工
+桌面或 macOS 断网证据。macOS 本机网络按维护者要求始终保持在线。
+
 ## 2026-09-03 v4.0.26 规整日志与规则文件持久化正式发布证据
 
 - 实现 PR [#190](https://github.com/Elegying/SSRVPN/pull/190) 与发布稳定性 PR
