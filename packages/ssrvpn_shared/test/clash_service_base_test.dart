@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
 import 'package:http/http.dart' as http;
 import 'package:yaml/yaml.dart';
@@ -10,6 +11,7 @@ import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
+import 'package:ssrvpn_shared/services/smart_rule_bundle.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
 void main() {
@@ -1203,7 +1205,64 @@ proxies:
       );
     });
 
-    test('updates every configured rule provider through Mihomo API', () async {
+    test('same installed version fetches only tiny version metadata', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_rule_provider_same_',
+      );
+      addTearDown(() => tempDir.delete(recursive: true));
+      final manifest = await _writeRuleFixture(tempDir.path, version: '1.1.0');
+      final activated = await SmartRuleBundle.activateInstalledManifest(
+        tempDir.path,
+        manifest,
+        expectedFileNames: AppConstants.smartRuleProviderFiles.values.toSet(),
+      );
+      expect(activated, isTrue);
+
+      final service = _ApiClashService()
+        ..ruleChannelFiles = {
+          AppConstants.smartRuleVersionDescriptorFile:
+              _ruleVersionDescriptor('1.1.0', manifest),
+        };
+      addTearDown(service.dispose);
+      service.initHttpClient();
+      service.setPaths(
+        configDir: tempDir.path,
+        configPath: '${tempDir.path}/config.yaml',
+      );
+      service.updateSettings(AppSettings(apiPort: 1));
+      service.setRunning(true);
+
+      await service.runRuleProviderRefresh();
+
+      expect(service.ruleChannelRequests, ['version.json']);
+      expect(service.recentLogs, contains('无需下载'));
+    });
+
+    test(
+        'new version refreshes only changed mutable providers and commits version',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_rule_provider_new_',
+      );
+      addTearDown(() => tempDir.delete(recursive: true));
+      final oldManifest =
+          await _writeRuleFixture(tempDir.path, version: '1.0.0');
+      expect(
+        await SmartRuleBundle.activateInstalledManifest(
+          tempDir.path,
+          oldManifest,
+          expectedFileNames: AppConstants.smartRuleProviderFiles.values.toSet(),
+        ),
+        isTrue,
+      );
+      const changedFile = 'ai_services.yaml';
+      const changedContent = 'payload:\n  - "+.updated.example"\n';
+      final newManifest = await _writeRuleFixture(
+        tempDir.path,
+        version: '1.1.0',
+        providerOverrides: const {changedFile: changedContent},
+        writeFiles: false,
+      );
       final requests = <String>[];
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
@@ -1211,12 +1270,29 @@ proxies:
       final requestsDone = _recordRequests(
         server,
         requests,
-        AppConstants.ruleProviderNames.length,
+        1,
+        beforeResponse: (request) async {
+          expect(
+            request.uri.path,
+            '/providers/rules/ssrvpn-ai-services',
+          );
+          await File('${tempDir.path}/providers/$changedFile')
+              .writeAsString(changedContent, flush: true);
+        },
       );
 
-      final service = _ApiClashService();
+      final service = _ApiClashService()
+        ..ruleChannelFiles = {
+          AppConstants.smartRuleVersionDescriptorFile:
+              _ruleVersionDescriptor('1.1.0', newManifest),
+          AppConstants.smartRuleManifestFile: newManifest,
+        };
       addTearDown(service.dispose);
       service.initHttpClient();
+      service.setPaths(
+        configDir: tempDir.path,
+        configPath: '${tempDir.path}/config.yaml',
+      );
       service.updateSettings(
         AppSettings(apiPort: server.port, apiSecret: 'test-token'),
       );
@@ -1226,36 +1302,48 @@ proxies:
       await requestsDone.timeout(const Duration(seconds: 1));
 
       expect(requests, [
-        'PUT /providers/rules/ssrvpn-user-feedback-rules Bearer test-token',
         'PUT /providers/rules/ssrvpn-ai-services Bearer test-token',
-        'PUT /providers/rules/ssrvpn-foreign-services Bearer test-token',
-        'PUT /providers/rules/ssrvpn-streaming-services Bearer test-token',
-        'PUT /providers/rules/ssrvpn-china-domains Bearer test-token',
-        'PUT /providers/rules/ssrvpn-company-asn Bearer test-token',
-        'PUT /providers/rules/ssrvpn-geosite-gfw Bearer test-token',
-        'PUT /providers/rules/ssrvpn-geosite-cn Bearer test-token',
       ]);
+      expect(service.ruleChannelRequests, ['version.json', 'manifest.json']);
+      expect(
+        await SmartRuleBundle.readInstalledVersion(
+          tempDir.path,
+          expectedFileNames: AppConstants.smartRuleProviderFiles.values.toSet(),
+        ),
+        '1.1.0',
+      );
     });
 
-    test('failed provider refresh preserves every existing cache', () async {
+    test('failed provider refresh preserves caches and old active version',
+        () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_rule_provider_cache_',
       );
       addTearDown(() => tempDir.delete(recursive: true));
-      final providerDir = Directory(
-        '${tempDir.path}${Platform.pathSeparator}providers',
+      final oldManifest =
+          await _writeRuleFixture(tempDir.path, version: '1.0.0');
+      expect(
+        await SmartRuleBundle.activateInstalledManifest(
+          tempDir.path,
+          oldManifest,
+          expectedFileNames: AppConstants.smartRuleProviderFiles.values.toSet(),
+        ),
+        isTrue,
       );
-      await providerDir.create(recursive: true);
-      final caches = <File>[];
-      for (final providerName in AppConstants.ruleProviderNames) {
-        final fileName = AppConstants.smartRuleProviderFiles[providerName] ??
-            '$providerName.mrs';
-        final cache = File(
-          '${providerDir.path}${Platform.pathSeparator}$fileName',
-        );
-        await cache.writeAsString('verified-cache:$providerName', flush: true);
-        caches.add(cache);
-      }
+      final newManifest = await _writeRuleFixture(
+        tempDir.path,
+        version: '1.1.0',
+        providerOverrides: const {
+          'user_feedback_rules.yaml': 'payload:\n  - "+.updated.example"\n',
+        },
+        writeFiles: false,
+      );
+      final providerDir = Directory('${tempDir.path}/providers');
+      final caches = await Future.wait(
+        AppConstants.smartRuleProviderFiles.values.map(
+          (name) => File('${providerDir.path}/$name').readAsBytes(),
+        ),
+      );
 
       final requests = <String>[];
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -1263,11 +1351,16 @@ proxies:
       final requestsDone = _recordRequests(
         server,
         requests,
-        AppConstants.ruleProviderNames.length,
+        1,
         statusCode: HttpStatus.serviceUnavailable,
       );
 
-      final service = _ApiClashService();
+      final service = _ApiClashService()
+        ..ruleChannelFiles = {
+          AppConstants.smartRuleVersionDescriptorFile:
+              _ruleVersionDescriptor('1.1.0', newManifest),
+          AppConstants.smartRuleManifestFile: newManifest,
+        };
       addTearDown(service.dispose);
       service.initHttpClient();
       service.setPaths(
@@ -1280,14 +1373,55 @@ proxies:
       await service.runRuleProviderRefresh();
       await requestsDone.timeout(const Duration(seconds: 1));
 
-      expect(requests, hasLength(AppConstants.ruleProviderNames.length));
-      for (var index = 0; index < caches.length; index++) {
-        expect(await caches[index].exists(), isTrue);
+      expect(requests, hasLength(1));
+      for (var index = 0;
+          index < AppConstants.smartRuleProviderFiles.length;
+          index++) {
+        final fileName =
+            AppConstants.smartRuleProviderFiles.values.elementAt(index);
         expect(
-          await caches[index].readAsString(),
-          'verified-cache:${AppConstants.ruleProviderNames[index]}',
+          await File('${providerDir.path}/$fileName').readAsBytes(),
+          caches[index],
         );
       }
+      expect(
+        await SmartRuleBundle.readInstalledVersion(
+          tempDir.path,
+          expectedFileNames: AppConstants.smartRuleProviderFiles.values.toSet(),
+        ),
+        '1.0.0',
+      );
+    });
+
+    test('metadata failure does not touch Mihomo providers or connection',
+        () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'ssrvpn_rule_provider_metadata_failure_',
+      );
+      addTearDown(() => tempDir.delete(recursive: true));
+      final service = _ApiClashService()
+        ..ruleChannelFailure = const FormatException('bad descriptor');
+      addTearDown(service.dispose);
+      service.initHttpClient();
+      service.setPaths(
+        configDir: tempDir.path,
+        configPath: '${tempDir.path}/config.yaml',
+      );
+      service.updateSettings(AppSettings(apiPort: 1));
+      service.setRunning(true);
+
+      await service.runRuleProviderRefresh();
+
+      expect(service.isRunning, isTrue);
+      expect(service.ruleChannelRequests, ['version.json']);
+      expect(service.recentLogs, contains('继续使用现有本地规则'));
+    });
+
+    test('production refresh delay is two minutes', () {
+      expect(
+        AppConstants.ruleProviderStartupRefreshDelay,
+        const Duration(minutes: 2),
+      );
     });
 
     test('runs once after the configured startup delay', () async {
@@ -1993,26 +2127,94 @@ Future<void> _recordRequests(
   List<String> requests,
   int expectedCount, {
   int statusCode = HttpStatus.noContent,
+  FutureOr<void> Function(HttpRequest request)? beforeResponse,
 }) async {
   await for (final request in server) {
     requests.add(
       '${request.method} ${request.uri.path} '
       '${request.headers.value(HttpHeaders.authorizationHeader) ?? ''}',
     );
+    await beforeResponse?.call(request);
     request.response.statusCode = statusCode;
     await request.response.close();
     if (requests.length >= expectedCount) return;
   }
 }
 
+Future<String> _writeRuleFixture(
+  String configDir, {
+  required String version,
+  Map<String, String> providerOverrides = const {},
+  bool writeFiles = true,
+}) async {
+  final providerDir = Directory('$configDir/providers');
+  await providerDir.create(recursive: true);
+  final entries = <Map<String, Object>>[];
+  var index = 0;
+  for (final fileName in AppConstants.smartRuleProviderFiles.values) {
+    final behavior = fileName == 'company_asn.yaml' ? 'ipcidr' : 'domain';
+    final content = providerOverrides[fileName] ??
+        (behavior == 'ipcidr'
+            ? 'payload:\n  - "192.0.2.0/24"\n'
+            : 'payload:\n  - "+.rule$index.example"\n');
+    final bytes = utf8.encode(content);
+    if (writeFiles) {
+      await File('${providerDir.path}/$fileName')
+          .writeAsBytes(bytes, flush: true);
+    }
+    entries.add({
+      'name': fileName,
+      'behavior': behavior,
+      'count': 1,
+      'sha256': sha256.convert(bytes).toString(),
+    });
+    index++;
+  }
+  return jsonEncode({
+    'schemaVersion': 1,
+    'version': version,
+    'files': entries,
+  });
+}
+
+String _ruleVersionDescriptor(String version, String manifest) => jsonEncode({
+      'schemaVersion': 1,
+      'version': version,
+      'manifestSha256': sha256.convert(utf8.encode(manifest)).toString(),
+    });
+
 class _ApiClashService extends ClashServiceBase
     with _ExplicitTestDiagnosticCapability {
+  Map<String, String>? ruleChannelFiles;
+  Object? ruleChannelFailure;
+  final List<String> ruleChannelRequests = [];
+
   void publishRunning() => setRunning(true);
 
   void publishDataPlaneWarning(String? warning) =>
       setConnectivityWarning(warning);
 
   Future<void> runRuleProviderRefresh() => refreshRuleProvidersOnce();
+
+  @override
+  Future<String> fetchSmartRuleChannelFile(
+    String fileName, {
+    required int maxBytes,
+  }) async {
+    ruleChannelRequests.add(fileName);
+    final failure = ruleChannelFailure;
+    if (failure != null) throw failure;
+    final files = ruleChannelFiles;
+    if (files == null) {
+      return super.fetchSmartRuleChannelFile(fileName, maxBytes: maxBytes);
+    }
+    final content = files[fileName];
+    if (content == null) throw StateError('missing fixture: $fileName');
+    if (utf8.encode(content).length > maxBytes) {
+      throw const FormatException('fixture too large');
+    }
+    return content;
+  }
 
   Future<bool> runDesktopRecovery(int generation) =>
       recoverDesktopConnection(generation);

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
 import 'package:http/http.dart' as http;
@@ -31,6 +32,7 @@ part 'clash_service_runtime_support.dart';
 part 'clash_service_data_plane_support.dart';
 part 'clash_service_health_monitor.dart';
 part 'clash_service_latency_support.dart';
+part 'clash_service_rule_provider_support.dart';
 
 enum RuntimeLogLevel { debug, info, warning, error }
 
@@ -50,7 +52,8 @@ abstract class ClashServiceBase
         _ClashDataPlaneSupport,
         _ClashDiagnosticsSupport,
         _ClashHealthSupport,
-        _ClashLatencySupport {
+        _ClashLatencySupport,
+        _ClashRuleProviderSupport {
   // ── 状态 ──
   bool _isRunning = false;
   int _consecutiveHealthCheckFailures = 0;
@@ -293,39 +296,6 @@ abstract class ClashServiceBase
       if (apiSecret.isNotEmpty) 'Authorization': 'Bearer $apiSecret',
       if (json) 'Content-Type': 'application/json',
     };
-  }
-
-  @protected
-  Future<void> refreshRuleProvidersOnce() async {
-    if (!_isRunning) return;
-    final client = _apiClient;
-    if (client == null) return;
-
-    for (final providerName in AppConstants.ruleProviderNames) {
-      if (!_isRunning) return;
-      try {
-        final response = await client
-            .put(
-              Uri.parse(
-                _apiUrl(
-                  '/providers/rules/${Uri.encodeComponent(providerName)}',
-                ),
-              ),
-              headers: apiHeaders(),
-            )
-            .timeout(AppConstants.apiTimeout);
-        if (response.statusCode == 200 || response.statusCode == 204) {
-          this.log('规则集已检查更新: $providerName');
-        } else {
-          this.log('规则集更新检查失败 $providerName: HTTP ${response.statusCode}');
-        }
-      } catch (e) {
-        this.log(
-          '规则集更新检查失败 $providerName: '
-          'cause=${_safeRuntimeLogErrorCode(e)}',
-        );
-      }
-    }
   }
 
   /// 获取代理节点列表

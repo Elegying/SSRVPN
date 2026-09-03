@@ -131,6 +131,7 @@
         <package android:name="com.cmcc.cmvideo" />
         <package android:name="com.coolapk.market" />
         <package android:name="com.ct.client" />
+        <package android:name="com.cubic.autohome" />
         <package android:name="com.dada.mobile.shop.android" />
         <package android:name="com.deepseek.chat" />
         <package android:name="com.dianping.v1" />
@@ -214,12 +215,14 @@
         <package android:name="com.sohu.sohuvideo" />
         <package android:name="com.ss.android.article.news" />
         <package android:name="com.ss.android.article.video" />
+        <package android:name="com.ss.android.auto" />
         <package android:name="com.ss.android.lark" />
         <package android:name="com.ss.android.ugc.aweme" />
         <package android:name="com.ss.android.ugc.aweme.lite" />
         <package android:name="com.ss.android.ugc.livelite" />
         <package android:name="com.taobao.idlefish" />
         <package android:name="com.taobao.taobao" />
+        <package android:name="com.taobao.trip" />
         <package android:name="com.tencent.docs" />
         <package android:name="com.tencent.hunyuan.app.chat" />
         <package android:name="com.tencent.karaoke" />
@@ -257,6 +260,7 @@
         <package android:name="com.xueqiu.android" />
         <package android:name="com.xunmeng.pinduoduo" />
         <package android:name="com.yek.android.kfc.activitys" />
+        <package android:name="com.yiche.autoeasy" />
         <package android:name="com.yitong.mbank.psbc" />
         <package android:name="com.youku.phone" />
         <package android:name="com.yuque.mobile.android.app" />

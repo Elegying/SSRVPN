@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "upstream": {
     "repository": "MetaCubeX/meta-rules-dat",
     "commit": "200e6a86736cfab29aae7b07dc266e59f13bc13d"
@@ -10,37 +10,37 @@
       "name": "ai_services.yaml",
       "behavior": "domain",
       "count": 69,
-      "sha256": "7712a2c6fb8dbf5477f3f13f425c990c69fe591fbf3aacaab2b7ed4592302774"
+      "sha256": "7c402e74cc68378df416828210ef69e9cab0687bdf797a48c70d5016ea0fde1e"
     },
     {
       "name": "foreign_services.yaml",
       "behavior": "domain",
       "count": 1180,
-      "sha256": "34a3b682360c0cde629821434c8533605c05a9ba49d01c4ed5ea8f768cfd0aa1"
+      "sha256": "600ced83a3403a9bd12b313aba78b2c104372d8c0baab8c731298c326abfaf64"
     },
     {
       "name": "streaming_services.yaml",
       "behavior": "domain",
       "count": 301,
-      "sha256": "d6271ec56c063a7903e8623628fcedb9b4f677f8c3721b9e5f046bfde5794b74"
+      "sha256": "6f4fc76f59e4017867b15f28a3885766455da631d500190c2c0879023c8c5bcb"
     },
     {
       "name": "china_domains.yaml",
       "behavior": "domain",
-      "count": 2972,
-      "sha256": "24fab61fcf08d14eca0a291ca66409334af4d5e7660b62789ac04b16ead394ba"
+      "count": 2977,
+      "sha256": "5a69f8551c774526495b4c2ec0826de30d08158a077f88c3b930ab157548f13a"
     },
     {
       "name": "user_feedback_rules.yaml",
       "behavior": "domain",
       "count": 2,
-      "sha256": "88d366d858de6d7b6c50cfddb5123e9536016598f59d4e5c8a2d801d841f9074"
+      "sha256": "343901530efdacc5eb5b2162abe53b904d23db9d99d651c198225d4805975f18"
     },
     {
       "name": "company_asn.yaml",
       "behavior": "ipcidr",
       "count": 1639,
-      "sha256": "593efbb9021f2ed063f95cd7f931f3cb0998c38151cfe5e115ebe0b7f2a07abb"
+      "sha256": "f07cfdfe073bca08f7e6ee0162e65fc198f54cc1ab43365fe5319fbb3bcfe5c3"
     }
   ],
   "companyAsns": {
@@ -62,5 +62,5 @@
       396986
     ]
   },
-  "rollback": "Revert packages/ssrvpn_shared/assets/rules/latest as one commit; clients retain the last valid local provider when refresh fails."
+  "rollback": "Republish the last known-good content under a higher rule version; clients reject downgrades and retain valid local providers on failure."
 }

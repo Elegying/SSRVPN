@@ -1,5 +1,4 @@
 # SSRVPN smart-routing rule snapshot
-# version: 1.0.0
 # upstream: MetaCubeX/meta-rules-dat@200e6a86736cfab29aae7b07dc266e59f13bc13d
 # kind: domain
 # sources: geo/geosite/openai.yaml, geo/geosite/anthropic.yaml, geo/geosite/google-gemini.yaml

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,7 +9,8 @@ import 'package:ssrvpn_shared/services/smart_rule_bundle.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('installs a verified baseline without a network dependency', () async {
+  test('installs a verified baseline and persists its active version',
+      () async {
     final directory = await Directory.systemTemp.createTemp('smart_rules_');
     addTearDown(() => directory.delete(recursive: true));
     final bundle = _bundleFor('payload:\n  - "+.example.com"\n');
@@ -25,9 +27,17 @@ void main() {
       await File('${directory.path}/providers/example.yaml').readAsString(),
       'payload:\n  - "+.example.com"\n',
     );
+    expect(
+      await SmartRuleBundle.readInstalledVersion(
+        directory.path,
+        expectedFileNames: {'example.yaml'},
+      ),
+      '1.0.0',
+    );
   });
 
-  test('retains a valid remotely refreshed provider', () async {
+  test('retains a valid remotely refreshed provider without guessing version',
+      () async {
     final directory = await Directory.systemTemp.createTemp('smart_rules_');
     addTearDown(() => directory.delete(recursive: true));
     final providers = Directory('${directory.path}/providers');
@@ -43,9 +53,16 @@ void main() {
     expect(result.installedFiles, 0);
     expect(result.reusedFiles, 1);
     expect(await active.readAsString(), contains('newer.example'));
+    expect(
+      await SmartRuleBundle.readInstalledVersion(
+        directory.path,
+        expectedFileNames: {'example.yaml'},
+      ),
+      isNull,
+    );
   });
 
-  test('repairs a malformed cached provider from the bundled baseline',
+  test('repairs a malformed cache and activates the bundled baseline',
       () async {
     final directory = await Directory.systemTemp.createTemp('smart_rules_');
     addTearDown(() => directory.delete(recursive: true));
@@ -61,27 +78,120 @@ void main() {
 
     expect(result.installedFiles, 1);
     expect(await active.readAsString(), contains('baseline.example'));
+    expect(
+      await SmartRuleBundle.readInstalledVersion(
+        directory.path,
+        expectedFileNames: {'example.yaml'},
+      ),
+      '1.0.0',
+    );
+  });
+
+  test('tiny version descriptor compares semantic versions and binds manifest',
+      () {
+    final manifest = _manifestFor(
+      version: '1.1.0',
+      provider: 'payload:\n  - "+.example.com"\n',
+    );
+    final descriptor = SmartRuleBundle.parseVersionDescriptor(
+      _versionDescriptor('1.1.0', manifest),
+    );
+
+    expect(descriptor.isNewerThan(null), isTrue);
+    expect(descriptor.isNewerThan('1.0.9'), isTrue);
+    expect(descriptor.isNewerThan('1.1.0'), isFalse);
+    expect(descriptor.isNewerThan('2.0.0'), isFalse);
+    expect(descriptor.acceptsManifest(manifest), isTrue);
+    expect(descriptor.acceptsManifest('$manifest '), isFalse);
+  });
+
+  test('manifest activation commits only after every provider matches',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('smart_rules_');
+    addTearDown(() => directory.delete(recursive: true));
+    final providers = Directory('${directory.path}/providers');
+    await providers.create(recursive: true);
+    const activeProvider = 'payload:\n  - "+.active.example"\n';
+    await File('${providers.path}/example.yaml').writeAsString(activeProvider);
+    final oldManifest = _manifestFor(
+      version: '1.0.0',
+      provider: activeProvider,
+    );
+    final newManifest = _manifestFor(
+      version: '1.1.0',
+      provider: 'payload:\n  - "+.different.example"\n',
+    );
+
+    expect(
+      await SmartRuleBundle.activateInstalledManifest(
+        directory.path,
+        oldManifest,
+        expectedFileNames: {'example.yaml'},
+      ),
+      isTrue,
+    );
+    expect(
+      await SmartRuleBundle.activateInstalledManifest(
+        directory.path,
+        newManifest,
+        expectedFileNames: {'example.yaml'},
+      ),
+      isFalse,
+    );
+    expect(
+      await SmartRuleBundle.readInstalledVersion(
+        directory.path,
+        expectedFileNames: {'example.yaml'},
+      ),
+      '1.0.0',
+    );
+  });
+
+  test('manifest rejects missing or unexpected provider files', () {
+    final manifest = _manifestFor(
+      version: '1.0.0',
+      provider: 'payload:\n  - "+.example.com"\n',
+    );
+
+    expect(
+      () => SmartRuleBundle.parseManifest(
+        manifest,
+        expectedFileNames: {'other.yaml'},
+      ),
+      throwsFormatException,
+    );
   });
 }
 
 _MemoryAssetBundle _bundleFor(String provider) {
+  final manifest = _manifestFor(version: '1.0.0', provider: provider);
+  return _MemoryAssetBundle({
+    '${SmartRuleBundle.assetPrefix}/manifest.json': utf8.encode(manifest),
+    '${SmartRuleBundle.assetPrefix}/example.yaml': utf8.encode(provider),
+  });
+}
+
+String _manifestFor({required String version, required String provider}) {
   final bytes = utf8.encode(provider);
-  final manifest = jsonEncode({
+  return jsonEncode({
     'schemaVersion': 1,
-    'version': '1.0.0',
+    'version': version,
     'files': [
       {
         'name': 'example.yaml',
         'behavior': 'domain',
+        'count': RegExp(r'^  - ', multiLine: true).allMatches(provider).length,
         'sha256': sha256.convert(bytes).toString(),
       },
     ],
   });
-  return _MemoryAssetBundle({
-    '${SmartRuleBundle.assetPrefix}/manifest.json': utf8.encode(manifest),
-    '${SmartRuleBundle.assetPrefix}/example.yaml': bytes,
-  });
 }
+
+String _versionDescriptor(String version, String manifest) => jsonEncode({
+      'schemaVersion': 1,
+      'version': version,
+      'manifestSha256': sha256.convert(utf8.encode(manifest)).toString(),
+    });
 
 class _MemoryAssetBundle extends CachingAssetBundle {
   _MemoryAssetBundle(this.assets);

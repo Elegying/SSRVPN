@@ -24,6 +24,7 @@ services = {
             "clash_service_diagnostics.dart",
             "clash_service_runtime_support.dart",
             "clash_service_health_monitor.dart",
+            "clash_service_rule_provider_support.dart",
         ),
     ),
     Path("SSRVPN_MacOS/lib/services/clash_service.dart"): (

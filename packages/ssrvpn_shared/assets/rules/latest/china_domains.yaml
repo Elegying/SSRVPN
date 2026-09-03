@@ -1,8 +1,7 @@
 # SSRVPN smart-routing rule snapshot
-# version: 1.0.0
 # upstream: MetaCubeX/meta-rules-dat@200e6a86736cfab29aae7b07dc266e59f13bc13d
 # kind: domain
-# sources: geo/geosite/alibaba.yaml, geo/geosite/alibabacloud.yaml, geo/geosite/aliyun.yaml, geo/geosite/baidu.yaml, geo/geosite/tencent.yaml, geo/geosite/bytedance.yaml, geo/geosite/huawei.yaml, geo/geosite/huaweicloud.yaml, geo/geosite/xiaomi.yaml, geo/geosite/jd.yaml, geo/geosite/netease.yaml, geo/geosite/iflytek.yaml, geo/geosite/volcengine.yaml, geo/geosite/category-ai-cn.yaml
+# sources: geo/geosite/alibaba.yaml, geo/geosite/alibabacloud.yaml, geo/geosite/aliyun.yaml, geo/geosite/baidu.yaml, geo/geosite/tencent.yaml, geo/geosite/bytedance.yaml, geo/geosite/huawei.yaml, geo/geosite/huaweicloud.yaml, geo/geosite/xiaomi.yaml, geo/geosite/jd.yaml, geo/geosite/netease.yaml, geo/geosite/iflytek.yaml, geo/geosite/volcengine.yaml, geo/geosite/category-ai-cn.yaml, SSRVPN reviewed domestic services
 payload:
   - "+.alibaba"
   - "+.alipay"
@@ -2976,3 +2975,8 @@ payload:
   - "+.yiyan.baidu.com"
   - "+.tongyi.aliyun.com"
   - "+.qianwen.aliyun.com"
+  - "+.autohome.com"
+  - "+.autohome.com.cn"
+  - "+.bitauto.com"
+  - "+.che168.com"
+  - "+.yiche.com"
