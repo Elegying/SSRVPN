@@ -309,24 +309,18 @@ void main() {
 
     test('proxy ports skip UDP-only conflicts without restricting API ports',
         () async {
-      final occupied = await RawDatagramSocket.bind(
-        InternetAddress.loopbackIPv4,
-        0,
-        reuseAddress: false,
-        reusePort: false,
-      );
-      final service = _TestClashService();
+      const occupiedPort = 32000;
+      final service = _ProtocolAwarePortClashService({occupiedPort});
       addTearDown(service.dispose);
-      addTearDown(occupied.close);
 
-      final apiPort = await service.findAvailablePort(occupied.port, {});
+      final apiPort = await service.findAvailablePort(occupiedPort, {});
       final mixedPort = await service.findAvailableTcpUdpPort(
-        occupied.port,
+        occupiedPort,
         {},
       );
 
-      expect(apiPort, occupied.port);
-      expect(mixedPort, isNot(occupied.port));
+      expect(apiPort, occupiedPort);
+      expect(mixedPort, occupiedPort + 1);
     });
 
     test('startup skips UDP-only conflicts for mixed and SOCKS ports',
@@ -2429,6 +2423,19 @@ class _PlannedPortClashService extends _TestClashService {
   @override
   Future<int> findAvailableTcpUdpPort(int preferred, Set<int> reserved) =>
       findAvailablePort(preferred, reserved);
+}
+
+class _ProtocolAwarePortClashService extends _TestClashService {
+  _ProtocolAwarePortClashService(this.udpBlockedPorts);
+
+  final Set<int> udpBlockedPorts;
+
+  @override
+  Future<bool> canBindRuntimePort(int port) async => true;
+
+  @override
+  Future<bool> canBindTcpUdpRuntimePort(int port) async =>
+      !udpBlockedPorts.contains(port);
 }
 
 class _LocalMixedProxyClashService extends _TestClashService {
