@@ -21,6 +21,46 @@ VPN、代理、TUN、安装、无障碍及电量在目标系统上实际成立�
 每个失败必须附最小复现步骤、发生时间、应用诊断、系统日志和预期结果；禁止上传原始订阅、
 节点密码、Token、API secret、用户名路径或未脱敏截图。
 
+## 2026-09-03 v4.0.23 国内应用旁路与桌面体验正式发布证据
+
+- 受保护 PR [#186](https://github.com/Elegying/SSRVPN/pull/186) 已 squash 合并；`main`、标签
+  `v4.0.23` 均精确指向提交 `2fe43b56b1e45f3462e4362aabcecd6140f3d9aa`。精确
+  [主分支 CI 33713779646](https://github.com/Elegying/SSRVPN/actions/runs/33713779646)、
+  [Prepare Release 33714753378](https://github.com/Elegying/SSRVPN/actions/runs/33714753378) 和
+  [Release 33714772096](https://github.com/Elegying/SSRVPN/actions/runs/33714772096) 均成功。
+- [GitHub Release v4.0.23](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.23) 已公开，非
+  draft、非 prerelease，共七项资产。独立完整下载后 APK SHA-256 为
+  `7b970325eeab297558c4134cfe3d94730896b546257cce4f20c8eac7490d356e`，DMG 为
+  `a72faf077f0f22bed3a0c140b851854c56d0ee28318f2695094f27718b76e398`，Windows 安装器为
+  `e0ede592c37f51cde820e26d7e12f69bff20565260359dbcb478475228dfc3a1`；实际文件、三份
+  sidecar、Release API digest、provenance 与三个 GitHub Attestations 逐项一致。
+- OSS `latest.json` 已指向 `4.0.23`；三个版本化安装包再次独立完整下载，SHA-256 与 GitHub
+  一致且逐字节相同。发布事务证据不替代下表保持“未执行”的真实网络与人工桌面 UAT。
+- 固定 Flutter 3.44.1 的完整本地门禁通过；正式 Release 中 Shared 659 项（84.98%）、Android
+  Flutter 278 项、macOS 286 项（66.75%）和 Windows 282 项（57.13%）通过，Android Kotlin
+  原生单测/Release 构建、macOS 原生测试、Windows 安装/卸载 smoke 和三端包结构门禁均成功。
+- Android 仅在“智能”模式把 178 个经审查的国内应用排除在 TUN 外，包含抖音及轻量版；
+  Chrome 各通道、Edge、Firefox、Brave、DuckDuckGo、Opera、三星、UC、QQ、夸克、华为、
+  Vivo、百度、360、Via、Vivaldi 等浏览器，以及 Telegram、ChatGPT、Claude、Lark 国际版和
+  不确定包名均有“不旁路”负例。“全局”模式禁用国内应用旁路；ADB 调试包保留既有旁路。
+- 桌面订阅页右上角运行日志、节点页入口移除、关于页手动检查更新和紧凑宽度图标回退均有
+  Widget 回归。macOS 系统代理减少三次重复 `networksetup` 启用调用，但快照、服务身份复核、
+  guardian、回读和失败回滚仍有定向测试。Windows 连接事务未删除任何稳定性门禁。
+- 发布时 `adb devices` 没有在线设备，因此 v4.0.23 正式 APK 的原地升级、抖音评论/私信图片
+  和 Telegram 真实数据路径保持未执行；自动化不能替代该证据。
+
+正式版仍需按下表记录真实数据通道；未取得设备证据时保持“未执行”：
+
+| ID | 平台/模式 | 目标 | 通过标准 | 当前状态 |
+| --- | --- | --- | --- | --- |
+| V23-01 | Android 智能 | 抖音评论区、私信图片，微信、QQ、淘宝等国内应用 | 已维护国内包名不进入 TUN；连续 20 轮图片、评论和消息正常，无随机超时 | 自动化通过 / 真机未执行 |
+| V23-02 | Android 智能 | Chrome/Edge/Firefox 等浏览器、Telegram、ChatGPT、Claude | 浏览器和国外应用继续进入 TUN，域名规则或强制代理规则生效 | 自动化通过 / 真机未执行 |
+| V23-03 | Android 全局 | 国内与国外应用 | 国内应用旁路关闭，除既有 ADB 调试包外全部应用进入 TUN | 自动化通过 / 真机未执行 |
+| V23-04 | Android 升级/恢复 | v4.0.22 原地升级、旧原生快照、模式切换 | 数据保留；旧 v1/v2 快照按“不旁路”解码；切换模式完整重连且无残留 VPN | 自动化通过 / 真机未执行 |
+| V23-05 | macOS 系统代理 | 连接、断开、失败回滚和连接耗时 | 系统代理正确启用/恢复，失败不留脏状态；同机记录 10 次中位数和 P95 | 自动化通过 / 人工未执行 |
+| V23-06 | Windows TUN/系统代理 | 国内、海外、DNS、UDP/QUIC、异常退出 | 数据路径正常，未知流量可访问，异常退出后系统网络设置恢复 | 线上构建/安装 smoke 通过 / 人工未执行 |
+| V23-07 | Windows/macOS UI | 订阅页日志、关于页检查更新、未连接手动检查 | 键盘/读屏可达，窄窗口不溢出；手动检查可执行，自动检查仍只在连接后运行 | 自动化通过 / 人工未执行 |
+
 ## 2026-09-02 v4.0.22 智能分流正式发布与候选证据
 
 - 受保护 PR [#183](https://github.com/Elegying/SSRVPN/pull/183) 已 squash 合并；`main`、标签
