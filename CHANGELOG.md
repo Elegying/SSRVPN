@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.26] - 2026-09-03
+
+### 发布稳定性
+
+- 修复发布级并行测试中端口用例偶发与其他进程争用同一 TCP 临时端口的问题。测试现在以确定性的协议占用模型分别验证 API 仅需 TCP、代理端口同时需要 TCP/UDP；产品运行逻辑、连接流程和端口分配策略不变。
+- 完整包含 v4.0.25 的三端规整运行日志、订阅页文字入口、Android 诊断入口及智能规则安全持久化修复。v4.0.25 标签的首次发布在资产公开前因上述测试失败而停止，没有生成公开 Release 或切换 OSS 更新通道。
+
 ## [4.0.25] - 2026-09-03
 
 ### 运行日志
