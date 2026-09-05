@@ -85,6 +85,14 @@ typedef _NativeConnectionState = ({
 });
 
 extension AndroidNativeBridge on ClashService {
+  // The embedded core retains lifetime counters; the native VPN service owns
+  // the connection baseline, including when Flutter is paused or recreated.
+  Future<VpnTrafficSample?> _readNativeTrafficSample() async {
+    final data = await ClashService._channel
+        .invokeMapMethod<String, dynamic>('getTrafficStats');
+    return data == null ? null : VpnTrafficSample.fromMap(data);
+  }
+
   Future<String?> _androidDiagnosticDataPlaneWarning() async {
     if (!isRunning) return null;
     final nativeState = await _queryNativeConnectionState();

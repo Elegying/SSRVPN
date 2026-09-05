@@ -873,6 +873,9 @@ class _HomeFixture {
 }
 
 class _FakeClashService extends ClashService {
+  @override
+  Future<VpnTrafficSample?> readTrafficSample() async => null;
+
   _FakeClashService({
     this.recordBatchLatencyResults = true,
     bool running = false,

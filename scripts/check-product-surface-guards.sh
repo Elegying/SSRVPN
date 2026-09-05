@@ -108,7 +108,7 @@ android_app_path = Path("SSRVPN_Android/lib/app.dart")
 android_app = read_source(android_app_path)
 for token in (
     "PageView(",
-    "HomeScreen(key: _homeKey)",
+    "HomeScreen(key: _homeKey, active: _currentIndex == 0)",
     "const SubscriptionScreen()",
     "SsrvpnBottomNavigation(",
     "version: AppConstants.appVersion",
@@ -124,7 +124,7 @@ desktop_shell_path = Path(
 desktop_shell = read_source(desktop_shell_path)
 for token in (
     "IndexedStack(",
-    "HomeScreen()",
+    "HomeScreen(active: currentIndex == 0)",
     "SubscriptionScreen()",
     "SsrvpnBottomNavigation(",
     "version: AppConstants.appVersion",

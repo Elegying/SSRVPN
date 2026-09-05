@@ -2,7 +2,9 @@ part of desktop_home_screen;
 
 /// 主屏幕 — 桌面优化
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.active = true});
+
+  final bool active;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -634,6 +636,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
+        bottomContent: SsrvpnHomeTrafficPanel(
+          active: widget.active,
+          connected: _isConnected,
+          readSample: context.read<ClashService>().readTrafficSample,
+        ),
         isConnected: _isConnected,
         isConnecting: isConnectionTransition,
         selectedNode: displayNode,

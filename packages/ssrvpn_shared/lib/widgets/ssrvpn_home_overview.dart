@@ -27,6 +27,7 @@ class SsrvpnHomeOverview extends StatelessWidget {
     this.publicIpv4,
     this.publicIpError,
     this.isRefreshingPublicIp = false,
+    this.bottomContent,
   });
 
   final bool isConnected;
@@ -39,6 +40,7 @@ class SsrvpnHomeOverview extends StatelessWidget {
   final String? publicIpv4;
   final String? publicIpError;
   final bool isRefreshingPublicIp;
+  final Widget? bottomContent;
   final VoidCallback onToggleConnection;
   final VoidCallback onOpenNodes;
   final VoidCallback onShowAbout;
@@ -83,57 +85,68 @@ class SsrvpnHomeOverview extends StatelessWidget {
             child: Center(
               child: ConstrainedBox(
                 key: const Key('ssrvpn-home-content'),
-                constraints: const BoxConstraints(
+                constraints: BoxConstraints(
                   maxWidth: SsrvpnUiTokens.pageMaxWidth,
+                  minHeight: bottomContent == null
+                      ? 0
+                      : (constraints.maxHeight - (short ? 6 : 14) - 24)
+                          .clamp(0, double.infinity),
                 ),
                 child: Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _HomeHeader(
-                      compact: compact,
-                      onShowAbout: onShowAbout,
-                      onShowTutorial: onShowTutorial,
+                    Column(
+                      children: [
+                        _HomeHeader(
+                          compact: compact,
+                          onShowAbout: onShowAbout,
+                          onShowTutorial: onShowTutorial,
+                        ),
+                        SizedBox(height: short ? 6 : 10),
+                        _ConnectionStatusPill(
+                          label: _statusText,
+                          color: _statusColor,
+                        ),
+                        SizedBox(height: short ? 20 : 42),
+                        SsrvpnPowerButton(
+                          size: powerSize,
+                          isConnected: isConnected,
+                          isConnecting: isConnecting,
+                          hasConnectionError: errorMessage != null,
+                          onTap: onToggleConnection,
+                        ),
+                        SizedBox(height: short ? 26 : 58),
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: compact
+                                ? 300
+                                : SsrvpnUiTokens.currentNodeMaxWidth,
+                          ),
+                          child: SsrvpnCurrentNodeCard(
+                            node: selectedNode,
+                            latency: selectedLatency,
+                            countryCode: selectedCountryCode,
+                            compact: compact,
+                            onTap: onOpenNodes,
+                          ),
+                        ),
+                        if (isConnected ||
+                            errorMessage != null ||
+                            connectionNotice != null) ...[
+                          const SizedBox(height: 14),
+                          _ConnectionDetails(
+                            errorMessage: errorMessage,
+                            connectionNotice: connectionNotice,
+                            publicIpv4: publicIpv4,
+                            publicIpError: publicIpError,
+                            isRefreshingPublicIp: isRefreshingPublicIp,
+                            onShowLogs: onShowLogs,
+                            onRefreshPublicIp: onRefreshPublicIp,
+                          ),
+                        ],
+                      ],
                     ),
-                    SizedBox(height: short ? 6 : 10),
-                    _ConnectionStatusPill(
-                      label: _statusText,
-                      color: _statusColor,
-                    ),
-                    SizedBox(height: short ? 20 : 42),
-                    SsrvpnPowerButton(
-                      size: powerSize,
-                      isConnected: isConnected,
-                      isConnecting: isConnecting,
-                      hasConnectionError: errorMessage != null,
-                      onTap: onToggleConnection,
-                    ),
-                    SizedBox(height: short ? 26 : 58),
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth:
-                            compact ? 300 : SsrvpnUiTokens.currentNodeMaxWidth,
-                      ),
-                      child: SsrvpnCurrentNodeCard(
-                        node: selectedNode,
-                        latency: selectedLatency,
-                        countryCode: selectedCountryCode,
-                        compact: compact,
-                        onTap: onOpenNodes,
-                      ),
-                    ),
-                    if (isConnected ||
-                        errorMessage != null ||
-                        connectionNotice != null) ...[
-                      const SizedBox(height: 14),
-                      _ConnectionDetails(
-                        errorMessage: errorMessage,
-                        connectionNotice: connectionNotice,
-                        publicIpv4: publicIpv4,
-                        publicIpError: publicIpError,
-                        isRefreshingPublicIp: isRefreshingPublicIp,
-                        onShowLogs: onShowLogs,
-                        onRefreshPublicIp: onRefreshPublicIp,
-                      ),
-                    ],
+                    if (bottomContent != null) bottomContent!,
                   ],
                 ),
               ),

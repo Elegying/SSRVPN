@@ -25,7 +25,9 @@ part 'home_public_ip_part.dart';
 
 /// 主屏幕 — 移动端优化设计
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.active = true});
+
+  final bool active;
 
   @override
   State<HomeScreen> createState() => HomeScreenState();
@@ -197,6 +199,11 @@ class HomeScreenState extends State<HomeScreen>
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
+        bottomContent: SsrvpnHomeTrafficPanel(
+          active: widget.active,
+          connected: _isConnected,
+          readSample: context.read<ClashService>().readTrafficSample,
+        ),
         isConnected: _isConnected,
         isConnecting: _isConnecting,
         selectedNode: displayNode,

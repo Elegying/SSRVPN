@@ -838,7 +838,7 @@ try {
       $env:CMAKE_BUILD_PARALLEL_LEVEL = '1'
       Invoke-FlutterPubGet -Flutter $flutter
       Repair-WindowsPluginLinks -Root $projectRoot
-      & $flutter build windows --release --no-pub
+      & $flutter build windows --release --no-pub --split-debug-info=build/symbols
       if ($LASTEXITCODE -ne 0) {
         throw "flutter build failed with exit code $LASTEXITCODE"
       }

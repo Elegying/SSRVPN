@@ -115,6 +115,7 @@ class MainActivity : FlutterActivity() {
             "getNativeLibraryDir" -> result.success(applicationInfo.nativeLibraryDir)
             "getAppDataDir" -> result.success(applicationInfo.dataDir)
             "isCoreRunning" -> result.success(SsrvpnVpnService.isRunning)
+            "getTrafficStats" -> result.success(VpnTrafficBridge.snapshot())
             "getConnectionState" ->
                 result.success(NativeVpnSessionCoordinator.connectionState())
             "getNativeDiagnostics" -> Thread({

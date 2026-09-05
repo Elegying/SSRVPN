@@ -206,3 +206,16 @@ GeoIP 更新不是发布回退步骤。只有收到明确更新指令时才手�
 - 清理旧 Release 只删除 GitHub Release 对象及其附件，不删除 Git 标签，也不改写提交历史。
 - 清理前应确认 `latest`、OSS `latest.json` 和保留版本不受影响；清理后应再次扫描文档中的 Release 与下载链接。
 - 历史验收报告可保留当时的文件名、摘要和结论，但必须明确附件已移除，不能继续提供失效的下载链接。
+
+## 优化构建的调试符号
+
+三端正式构建使用 `--split-debug-info=build/symbols`，符号不会进入安装包；未启用 Dart
+名称混淆。Release workflow 单独上传绑定完整提交 SHA 的 `android-symbols-*`、
+`macos-symbols-*`、`windows-symbols-*` Artifact，保留 90 天。发布后须将这些 Artifact
+下载到维护者归档，连同 tag、提交和安装包 SHA-256 长期保存，以便恢复 Dart 异常栈。
+本仓库固定 Flutter 3.44.1，三端均生成 `.symbols`，使用匹配文件执行
+`flutter symbolize`。不要用其他版本的符号解析当前包。
+
+macOS DMG 使用 ULMO（LZMA），系统从 macOS 10.15 支持，低于本项目 macOS 11.0
+最低要求；Windows 使用 `lzma2/ultra64` 固实压缩，解压字典约 64 MB，仅增加安装阶段
+的内存需求，不增加应用运行内存。核心、GeoIP、许可与运行文件集合均继续通过原有校验。

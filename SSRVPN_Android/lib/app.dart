@@ -316,7 +316,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                       if (i == 0) _homeKey.currentState?.refreshNodes();
                     },
                     children: <Widget>[
-                      HomeScreen(key: _homeKey),
+                      HomeScreen(key: _homeKey, active: _currentIndex == 0),
                       const SubscriptionScreen(),
                     ],
                   ),

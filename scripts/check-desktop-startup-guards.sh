@@ -324,7 +324,9 @@ aggregate_lines = sum(
     len(path.read_text(encoding="utf-8").splitlines())
     for path in (home, runtime_actions, background_tasks)
 )
-if aggregate_lines > 1400:
+# Allow the active-page property and shared traffic-panel wiring only;
+# sampling and layout remain in the standalone shared widget.
+if aggregate_lines > 1410:
     raise SystemExit(
         f"desktop home state/runtime/background parts grew to {aggregate_lines} aggregate lines"
     )
