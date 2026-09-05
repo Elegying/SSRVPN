@@ -164,9 +164,9 @@ class _PageStack extends StatelessWidget {
   Widget build(BuildContext context) {
     return IndexedStack(
       index: currentIndex,
-      children: const [
-        HomeScreen(),
-        SubscriptionScreen(),
+      children: [
+        HomeScreen(active: currentIndex == 0),
+        const SubscriptionScreen(),
       ],
     );
   }

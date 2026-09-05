@@ -37,7 +37,7 @@ if mount | grep -qF " on $STANDARD_VOLUME_MOUNT ("; then
 fi
 
 echo "Building $APP_NAME $VERSION_RAW for macOS $ARCH..."
-flutter build macos --release
+flutter build macos --release --split-debug-info=build/symbols
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "Release app not found: $APP_PATH" >&2
@@ -157,8 +157,7 @@ done
 rm -rf "$MOUNT_DIR"
 
 hdiutil convert "$RW_DMG_PATH" \
-  -format UDZO \
-  -imagekey zlib-level=9 \
+  -format ULMO \
   -o "$VERSIONED_DMG_PATH"
 
 hdiutil verify "$VERSIONED_DMG_PATH"

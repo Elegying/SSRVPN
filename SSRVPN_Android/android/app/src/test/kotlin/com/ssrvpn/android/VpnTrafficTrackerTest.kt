@@ -10,6 +10,36 @@ import org.junit.Test
 
 class VpnTrafficTrackerTest {
     @Test
+    fun `foreground totals preserve background usage and reset only for a new session`() {
+        var tx = 100L
+        var rx = 200L
+        var now = 1_000L
+        val tracker = VpnTrafficTracker({ tx }, { rx }, { now })
+        tracker.reset()
+        tx = 1_100L
+        rx = 2_200L
+        now = 2_000L
+        tracker.update { delta, elapsed -> delta * 1_000L / elapsed }
+        val notificationSample = tracker.snapshot()
+        tx = 5_100L
+        rx = 8_200L
+        now = 60_000L
+        assertEquals(5_000L, tracker.currentSessionSnapshot().sessionUpload)
+        assertEquals(8_000L, tracker.currentSessionSnapshot().sessionDownload)
+        assertEquals(
+            mapOf("sessionGeneration" to 7L, "sampledAtMillis" to now,
+                "upload" to 5_000L, "download" to 8_000L),
+            tracker.currentSessionSnapshot().toMethodChannelMap(7L, now)
+        )
+        assertEquals(notificationSample, tracker.snapshot())
+        tracker.resetSample()
+        assertEquals(5_000L, tracker.currentSessionSnapshot().sessionUpload)
+        tracker.reset()
+        assertEquals(0L, tracker.currentSessionSnapshot().sessionUpload)
+        assertEquals(0L, tracker.currentSessionSnapshot().sessionDownload)
+    }
+
+    @Test
     fun `traffic rates and session totals share one monotonic snapshot`() {
         var tx = 100L
         var rx = 200L

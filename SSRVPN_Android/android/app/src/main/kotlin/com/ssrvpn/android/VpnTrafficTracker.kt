@@ -5,7 +5,14 @@ internal data class VpnTrafficSnapshot(
     val downloadRate: Long,
     val sessionUpload: Long,
     val sessionDownload: Long
-)
+) {
+    fun toMethodChannelMap(generation: Long, sampledAtMillis: Long) = mapOf(
+        "sessionGeneration" to generation,
+        "sampledAtMillis" to sampledAtMillis,
+        "upload" to sessionUpload,
+        "download" to sessionDownload
+    )
+}
 
 internal class VpnTrafficTracker(
     private val readTransmittedBytes: () -> Long,
@@ -54,6 +61,13 @@ internal class VpnTrafficTracker(
         downloadRate = downloadRate,
         sessionUpload = (lastTx - baselineTx).coerceAtLeast(0L),
         sessionDownload = (lastRx - baselineRx).coerceAtLeast(0L)
+    )
+
+    // Fresh foreground totals must not change the notification sampling window.
+    @Synchronized
+    fun currentSessionSnapshot() = snapshot().copy(
+        sessionUpload = (readTransmittedBytes().coerceAtLeast(0L) - baselineTx).coerceAtLeast(0L),
+        sessionDownload = (readReceivedBytes().coerceAtLeast(0L) - baselineRx).coerceAtLeast(0L)
     )
 
     private fun resetSample(tx: Long, rx: Long) {

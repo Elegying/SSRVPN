@@ -14,6 +14,7 @@ import '../models/app_settings.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
 import '../models/public_ip_info.dart';
+import '../models/vpn_traffic_sample.dart';
 import '../runtime_notice.dart';
 import 'clash_config_generator.dart';
 import '../utils/log_redactor.dart';
@@ -33,6 +34,7 @@ part 'clash_service_data_plane_support.dart';
 part 'clash_service_health_monitor.dart';
 part 'clash_service_latency_support.dart';
 part 'clash_service_rule_provider_support.dart';
+part 'clash_service_traffic.dart';
 
 enum RuntimeLogLevel { debug, info, warning, error }
 
@@ -56,6 +58,8 @@ abstract class ClashServiceBase
         _ClashRuleProviderSupport {
   // ── 状态 ──
   bool _isRunning = false;
+  int _trafficSessionGeneration = 0;
+  final Stopwatch _trafficClock = Stopwatch()..start();
   int _consecutiveHealthCheckFailures = 0;
   String? _lastHealthCheckError;
   String? _lastStartError;
@@ -107,6 +111,7 @@ abstract class ClashServiceBase
   // ── Getters ──
   @override
   bool get isRunning => _isRunning;
+  Future<VpnTrafficSample?> readTrafficSample() => _readTrafficSample();
   @override
   String? get lastStartError => _lastStartError;
   @override
@@ -664,6 +669,7 @@ abstract class ClashServiceBase
 
   void setRunning(bool running) {
     if (_isRunning != running) {
+      _trafficSessionGeneration++;
       _invalidateHealthMonitorSession();
       _resetDataPlaneObservationSession();
     }

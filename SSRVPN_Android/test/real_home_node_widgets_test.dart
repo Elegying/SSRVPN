@@ -1045,6 +1045,9 @@ class _AndroidHomeFixture {
 }
 
 class _RecordingAndroidClashService extends ClashService {
+  @override
+  Future<VpnTrafficSample?> readTrafficSample() async => null;
+
   final Completer<void> releaseConfigGeneration = Completer<void>();
   String? generatedPreferredNodeName;
   int liveSwitchCalls = 0;
@@ -1228,6 +1231,9 @@ class _UnknownReadbackAndroidClashService
 }
 
 class _DelayedAndroidClashService extends ClashService {
+  @override
+  Future<VpnTrafficSample?> readTrafficSample() async => null;
+
   final Completer<void> latencyStarted = Completer<void>();
   final Completer<void> releaseLatency = Completer<void>();
   bool _running = false;
@@ -1263,6 +1269,9 @@ class _DelayedAndroidClashService extends ClashService {
 }
 
 class _RecoveryAndroidClashService extends ClashService {
+  @override
+  Future<VpnTrafficSample?> readTrafficSample() async => null;
+
   bool _transitioning = false;
   int stopCalls = 0;
 

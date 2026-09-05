@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.29] - 2026-09-05
+
+### 首页流量
+
+- Android、macOS、Windows 首页同步显示上传速率、下载速率与本次连接累计总流量；切换页面或进入后台暂停界面刷新，恢复时重新采样，断开后清零。
+- 三张卡片固定等宽等高，数值和单位分行、数字等宽显示；支持小屏、大字号及 PB 至 YB 大流量，数值变化不再引起模块伸缩或裁切。
+- Android 复用当前 VPN 会话计数，桌面读取核心总流量；旧会话和延迟响应不能覆盖新会话，读取失败显示占位并避免恢复时速率突增。
+
+### 安装包优化
+
+- 三端 Release 构建将 Dart 调试符号单独归档，保留完整核心、规则、协议与诊断能力。
+- macOS DMG 改用系统支持的 LZMA 无损压缩；Windows 安装器提高 LZMA2 压缩级别，解压后的运行文件保持完整。
+
 ## [4.0.28] - 2026-09-05
 
 ### 连接与失败提示

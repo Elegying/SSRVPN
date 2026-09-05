@@ -258,7 +258,7 @@ jobs:
       - name: Build APK
         run: |
           cd SSRVPN_Android
-          flutter build apk --release
+          flutter build apk --release --target-platform=android-arm64 --split-debug-info=build/symbols
           cp build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk
 
       - name: Generate checksum
@@ -297,6 +297,14 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: SSRVPN_Android/SSRVPN.apk
+
+      - name: Archive Dart debug symbols
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: android-symbols-${{ github.sha }}
+          path: SSRVPN_Android/build/symbols/
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -399,6 +407,14 @@ jobs:
         with:
           subject-path: SSRVPN_MacOS/SSRVPN.dmg
 
+      - name: Archive Dart debug symbols
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-symbols-${{ github.sha }}
+          path: SSRVPN_MacOS/build/symbols/
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -494,6 +510,14 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: SSRVPN_Windows/SSRVPN_Setup.exe
+
+      - name: Archive Dart debug symbols
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-symbols-${{ github.sha }}
+          path: SSRVPN_Windows/build/symbols/
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
