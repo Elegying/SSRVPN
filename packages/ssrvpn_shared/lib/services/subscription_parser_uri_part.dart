@@ -41,6 +41,7 @@ class _SubscriptionUriParser {
     final uri = Uri.tryParse(line);
     if (uri == null) return null;
     final scheme = uri.scheme.toLowerCase();
+    if (!ProxyNodeUsagePolicy.nodeUriSchemes.contains(scheme)) return null;
 
     if (scheme == 'ss') return _parseSsUri(uri);
     if (scheme == 'vmess') return _parseVmessUri(line);

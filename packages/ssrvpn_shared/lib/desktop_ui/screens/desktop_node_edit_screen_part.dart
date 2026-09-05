@@ -235,20 +235,29 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     final settingsService = context.read<SettingsService>();
     final renameRememberedNode = originalName != updatedName &&
         settingsService.settings.lastSelectedNodeName == originalName;
+    var preferenceRenamed = false;
     try {
+      subscriptionService.validateNodeUpdate(originalName, config);
       if (renameRememberedNode) {
         await settingsService.renameLastSelectedNode(originalName, updatedName);
+        preferenceRenamed = true;
       }
       await subscriptionService.updateNode(originalName, config);
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
-      if (renameRememberedNode) {
-        await settingsService.renameLastSelectedNode(updatedName, originalName);
+      var message = _readableError(e);
+      if (preferenceRenamed) {
+        try {
+          await settingsService.renameLastSelectedNode(
+              updatedName, originalName);
+        } catch (rollbackError) {
+          AppLogger.warning('NodeEdit', '恢复首选节点失败: $rollbackError');
+          message = '$message 首选节点恢复失败，请返回首页重新选择节点。';
+        }
       }
-      if (mounted) {
-        setState(() => _saving = false);
-        _showError(_readableError(e));
-      }
+      if (mounted) _showError(message);
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 

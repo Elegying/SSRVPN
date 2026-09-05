@@ -35,7 +35,21 @@ class _ReleaseAsset {
   final String downloadUrl;
 }
 
+/// A newer version exists, but no verified installer can be offered yet.
+class UpdateNotReady implements Exception {
+  const UpdateNotReady(this.version);
+
+  final String version;
+  String get userMessage => '发现新版本 v$version，但当前平台安装包或校验信息暂不可用，请稍后重新检查';
+
+  @override
+  String toString() => userMessage;
+}
+
 class UpdateChecker {
+  static String checkFailureMessage(Object error) =>
+      error is UpdateNotReady ? error.userMessage : '检查更新失败，请检查网络后重试';
+
   static const int maxMetadataResponseBytes = 1024 * 1024;
   static const int _maxChecksumResponseBytes = 4096;
   static const String owner = 'Elegying';
@@ -104,14 +118,14 @@ class UpdateChecker {
 
     final releaseAssets = _releaseAssets(data['assets']);
     final selectedAsset = _assetFor(releaseAssets, assetExtension);
-    if (selectedAsset == null) return null;
+    if (selectedAsset == null) throw UpdateNotReady(latestVersion);
     final downloadUrl = selectedAsset.downloadUrl;
     if (!_isExpectedGitHubAssetUrl(
       downloadUrl,
       version: latestVersion,
       assetName: selectedAsset.name,
     )) {
-      return null;
+      throw UpdateNotReady(latestVersion);
     }
     final sha256 = await _sha256ForAsset(
       releaseAssets,
@@ -120,7 +134,7 @@ class UpdateChecker {
       client,
       timeout,
     );
-    if (sha256 == null) return null;
+    if (sha256 == null) throw UpdateNotReady(latestVersion);
     final sourceHost = Uri.parse(downloadUrl).host;
 
     return AppUpdateInfo(

@@ -1,5 +1,16 @@
 part of 'subscription_service_base.dart';
 
+typedef _SubscriptionSnapshot = ({
+  String? yaml,
+  List<ProxyNode> nodes,
+  List<ProxyGroup> groups,
+  List<Subscription> subscriptions,
+  int revision,
+  int displayRevision,
+  String runtimeText,
+  Map<String, String> names,
+});
+
 /// One undo record covers the existing JSON/YAML pair. Deleting it commits the
 /// pair; a crash before that point restores both files before loading them.
 extension _SubscriptionTransaction on _SubscriptionPersistence {
@@ -11,16 +22,18 @@ extension _SubscriptionTransaction on _SubscriptionPersistence {
     await _recoverDiskTransaction();
     final subscriptions = List<Subscription>.of(_subscriptions);
     final states = {for (final sub in subscriptions) sub: sub.toJson()};
-    final snapshot = (
+    // Readers keep using the last committed state, including while a failed
+    // write is being rolled back. Notification deferral alone is not isolation.
+    final snapshot = _transactionSnapshot = (
       yaml: _rawYaml,
       nodes: _allNodes,
       groups: _allGroups,
+      subscriptions: states.values.map(Subscription.fromJson).toList(),
       revision: _revision,
       displayRevision: _displayRevision,
       runtimeText: _runtimeProxyText,
       names: Map<String, String>.of(_fetchedProfileNames),
     );
-    _transactionActive = true;
     var committed = false;
     try {
       final result = await operation();
@@ -58,7 +71,7 @@ extension _SubscriptionTransaction on _SubscriptionPersistence {
       }
       Error.throwWithStackTrace(error, stack);
     } finally {
-      _transactionActive = false;
+      _transactionSnapshot = null;
       final notify = _notificationPending;
       _notificationPending = false;
       if (committed && notify) notifyListeners();

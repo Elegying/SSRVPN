@@ -52,6 +52,80 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   tearDown(SubscriptionService.resetInstanceForTesting);
+  for (final failCommit in [true, false]) {
+    testWidgets(
+        'Home connects from the committed snapshot while refresh is pending, fail=$failCommit',
+        (tester) async {
+      final directory = await tester.runAsync(
+          () => Directory.systemTemp.createTemp('ssrvpn-third-home-'));
+      final subscription =
+          (await tester.runAsync(() async => _GateSubscription()))!;
+      subscription.failAfterMetadata = failCommit;
+      final settings = await tester.runAsync(() async {
+        await subscription.init(directory!.path);
+        await subscription.addSubscription(
+            'Synthetic', 'https://a.invalid/sub');
+        subscription.response = _nodeYaml;
+        await subscription.refreshAllSubscriptionsDetailed();
+        return SettingsService.createForTesting(
+            settings: AppSettings(lastSelectedNodeName: '东京节点'),
+            dataDir: directory.path,
+            settingsPath: '${directory.path}/settings.json',
+            readApiSecret: () async => '',
+            writeApiSecret: (_) async {},
+            writeSettings: (_) async {});
+      });
+      final clash = _FakeClashService()..runtimeSelectedNodeName = '东京节点';
+      final fixture = _HomeFixture(
+          directory: directory!,
+          subscription: subscription,
+          settings: settings!,
+          clash: clash);
+      addTearDown(fixture.dispose);
+      await tester.pumpWidget(fixture.build());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      late Completer<void> release;
+      subscription.response =
+          _nodeYaml.replaceFirst('127.0.0.1', 'uncommitted.invalid');
+      late Future<void> failed;
+      await tester.runAsync(() async {
+        final entered = subscription.metadataEntered = Completer<void>();
+        release = subscription.metadataRelease = Completer<void>();
+        final refresh = subscription.refreshAllSubscriptionsDetailed();
+        failed = failCommit
+            ? expectLater(refresh, throwsA(isA<FileSystemException>()))
+            : refresh.then<void>((_) {});
+        await entered.future.timeout(const Duration(seconds: 5));
+      });
+      expect(subscription.allNodes.first.server, '127.0.0.1');
+      await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+      await _pumpUntil(tester, () => find.text('已连接').evaluate().isNotEmpty);
+      expect(clash.writtenConfig, contains('127.0.0.1'));
+      expect(clash.isRunning, isTrue);
+      await tester.runAsync(() async {
+        release.complete();
+        await failed;
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      if (!failCommit) {
+        await _pumpUntil(
+            tester,
+            () =>
+                clash.startCalls == 2 &&
+                find.text('已连接').evaluate().isNotEmpty);
+      }
+      final expectedServer = failCommit ? '127.0.0.1' : 'uncommitted.invalid';
+      expect(subscription.allNodes.first.server, expectedServer);
+      expect(find.text('已连接'), findsWidgets);
+      expect(clash.writtenConfig, contains(expectedServer));
+      expect(clash.isRunning, isTrue);
+      if (failCommit) expect(clash.transitionEvents, isNot(contains('stop')));
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+  }
 
   testWidgets(
       'renaming a source keeps the active connection and runtime config',
@@ -1494,8 +1568,12 @@ class _FakeClashService extends ClashService {
     );
   }
 
+  String? writtenConfig;
+
   @override
-  Future<void> writeConfig(String configContent) async {}
+  Future<void> writeConfig(String configContent) async {
+    writtenConfig = configContent;
+  }
 
   @override
   Future<bool> start() async {
@@ -1626,5 +1704,30 @@ class _FakeClashService extends ClashService {
   @override
   Future<PublicIpInfo> fetchCurrentPublicIpInfo() async {
     return const PublicIpInfo(ip: '203.0.113.7', countryCode: 'JP');
+  }
+}
+
+class _GateSubscription extends SubscriptionServiceBase
+    implements SubscriptionService {
+  Completer<void>? metadataEntered;
+  Completer<void>? metadataRelease;
+  String response = '';
+  bool failAfterMetadata = true;
+  @override
+  Future<String?> fetchSubscription(String url,
+          {int maxRetries = 3, SubscriptionRefreshControl? control}) async =>
+      response;
+  @override
+  Future<void> saveToDisk() async {
+    final gate = metadataRelease;
+    if (gate != null) {
+      metadataRelease = null;
+      metadataEntered!.complete();
+      await gate.future;
+      if (failAfterMetadata) {
+        throw const FileSystemException('synthetic metadata write failure');
+      }
+    }
+    await super.saveToDisk();
   }
 }

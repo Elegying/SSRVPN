@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
 import 'package:ssrvpn_shared/controllers/subscription_screen_controller.dart';
 import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/models/subscription.dart';
@@ -57,6 +58,99 @@ void main() {
     service.dispose();
     service = _DiskService();
     await service.init(directory.path);
+  }
+
+  test(
+      'partial refresh preserves selected identity when another source collides',
+      () async {
+    final a = await addFeed('A', 'a', _yaml('A only', 'a'));
+    final b = await addFeed('B', 'b', _yaml('Chosen', 'b'));
+    await service.refreshAllSubscriptionsDetailed();
+    service.responses[a.url] = _yaml('Chosen', 'a-new');
+    service.responses[b.url] = const SocketException('offline');
+    final result = await service.refreshAllSubscriptionsDetailed();
+    expect(result.isPartialSuccess, isTrue);
+    expect(
+        HomeNodeController.resolveDefaultNodeFrom(service.allNodes, 'Chosen')!
+            .server,
+        'b.invalid');
+    expect(
+        service.allNodes
+            .singleWhere((node) => node.server == 'a-new.invalid')
+            .name,
+        'Chosen (2)');
+    await reload();
+    expect(
+        HomeNodeController.resolveDefaultNodeFrom(service.allNodes, 'Chosen')!
+            .server,
+        'b.invalid');
+    await service.removeSubscription(a.id);
+    expect(service.allNodes.single.name, 'Chosen');
+  });
+
+  test(
+      'splitting a shared node reserves the unchanged owner before rotated endpoints',
+      () async {
+    final a = await addFeed('A', 'a', _yaml('Shared', 'shared'));
+    final b = await addFeed('B', 'b', _yaml('Shared', 'shared'));
+    await service.refreshAllSubscriptionsDetailed();
+    service.responses[a.url] = _yaml('Shared', 'rotated');
+    service.responses[b.url] = const SocketException('offline');
+    await service.refreshAllSubscriptionsDetailed();
+    expect(
+        HomeNodeController.resolveDefaultNodeFrom(service.allNodes, 'Shared')!
+            .server,
+        'shared.invalid');
+    expect(
+        service.allNodes
+            .singleWhere((node) => node.server == 'rotated.invalid')
+            .name,
+        'Shared (2)');
+    await service.removeSubscription(b.id);
+    expect(service.allNodes.single.name, 'Shared (2)');
+    service.responses[a.url] = _yaml('Shared', 'rotated-again');
+    await service.refreshAllSubscriptionsDetailed();
+    expect(service.allNodes.single.name, 'Shared (2)');
+    expect(service.allNodes.single.server, 'rotated-again.invalid');
+  });
+
+  for (final legacy in [false, true]) {
+    test('same-source reordering preserves selection, legacy=$legacy',
+        () async {
+      String nodes(String first, String second) =>
+          '${_yaml('Chosen', first)}${_yaml('Chosen', second).replaceFirst('proxies:\n', '')}';
+      final source = await addFeed('A', 'a', nodes('first', 'second'));
+      await service.refreshAllSubscriptionsDetailed();
+      expect(service.allNodes.first.name, 'Chosen');
+      expect(service.allNodes.last.name, 'Chosen (2)');
+      if (legacy) {
+        final document =
+            jsonDecode(jsonEncode(BoundedYaml.load(service.rawYaml!)))
+                as Map<String, dynamic>;
+        for (final proxy in document['proxies'] as List) {
+          proxy[SubscriptionParser.proxyOriginalNameKey] = proxy['name'];
+        }
+        await service.setRawYaml(SubscriptionNodeCodec.encodeConfig(document));
+        await service.refreshAllSubscriptionsDetailed();
+        expect(service.allNodes.map((node) => node.name),
+            ['Chosen', 'Chosen (2)']);
+      }
+      service.responses[source.url] = nodes('second', 'first');
+      await service.refreshAllSubscriptionsDetailed();
+      expect(
+          HomeNodeController.resolveDefaultNodeFrom(service.allNodes, 'Chosen')!
+              .server,
+          'first.invalid');
+      expect(
+          HomeNodeController.resolveDefaultNodeFrom(
+                  service.allNodes, 'Chosen (2)')!
+              .server,
+          'second.invalid');
+      await reload();
+      expect(
+          service.allNodes.singleWhere((node) => node.name == 'Chosen').server,
+          'first.invalid');
+    });
   }
 
   test('offline deletion survives source rename, node edit and restart',

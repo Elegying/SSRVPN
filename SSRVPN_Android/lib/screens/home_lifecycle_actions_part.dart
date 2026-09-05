@@ -312,7 +312,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
       AppLogger.warning('Update', '手动检查更新异常: $error');
       if (mounted && !_disposed) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          const SnackBar(content: Text('检查更新失败，请检查网络后重试')),
+          SnackBar(content: Text(UpdateChecker.checkFailureMessage(error))),
         );
       }
     } finally {

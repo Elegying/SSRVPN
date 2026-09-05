@@ -559,6 +559,24 @@ proxies:
       originalState.expectUnchanged(service);
     });
 
+    test('unrunnable edits cannot hide behind another valid node', () async {
+      await service.setRawYaml('${_yamlFor('Old Node')}'
+          '  - {name: Other, type: socks5, server: other.invalid, port: 443}\n');
+      final before = service.rawYaml;
+      final config = {
+        'name': 'Edited Node',
+        'type': 'unsupported-type',
+        'server': 'edited.invalid',
+        'port': 443,
+      };
+      expect(() => service.validateNodeUpdate('Old Node', config),
+          throwsA(isA<FormatException>()));
+      await expectLater(service.updateNode('Old Node', config),
+          throwsA(isA<FormatException>()));
+      expect(service.rawYaml, before);
+      expect(service.allNodes.map((node) => node.name), ['Old Node', 'Other']);
+    });
+
     test('edited node cannot claim an SSRVPN runtime group name', () async {
       await expectLater(
         service.updateNode('Old Node', {

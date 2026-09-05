@@ -31,6 +31,7 @@ class SubscriptionYamlMerger {
     List<String> yamls, {
     List<String>? sourceNames,
     List<String>? sourceIds,
+    String? previousYaml,
     String proxySourceKey = SubscriptionParser.proxySourceKey,
     String standaloneGroupName = SubscriptionParser.standaloneGroupName,
   }) {
@@ -45,10 +46,6 @@ class SubscriptionYamlMerger {
       standaloneGroupName,
     );
 
-    final usedNames = <String>{
-      ...RuntimeConfigNamePolicy.reservedProxyNames,
-    };
-    final nextSuffixByBase = <String, int>{};
     final fingerprintsByName = <String, Map<String, Map<String, dynamic>>>{};
     final mergedProxies = <Map<String, dynamic>>[];
     final usedSourceNames = <String>{};
@@ -105,11 +102,6 @@ class SubscriptionYamlMerger {
         }
         fingerprints[fingerprint] = proxy;
 
-        proxy['name'] = uniqueProxyName(
-          originalName,
-          usedNames,
-          nextSuffixByBase: nextSuffixByBase,
-        );
         if (sourceName != null && sourceName.isNotEmpty) {
           proxy[proxySourceKey] = sourceName;
         }
@@ -123,6 +115,7 @@ class SubscriptionYamlMerger {
       }
     }
 
+    _assignProxyNames(mergedProxies, previousYaml, proxySourceKey);
     final buffer = StringBuffer('proxies:\n');
     var outputBytes = 'proxies:\n'.length;
     for (final proxy in mergedProxies) {
@@ -148,6 +141,115 @@ class SubscriptionYamlMerger {
           SubscriptionParser.standaloneGroupName,
         ),
     ];
+  }
+
+  /// Existing identities claim their runtime names before new collisions.
+  /// Exact matches go first so splitting a previously shared node cannot take
+  /// the unchanged owner's name. A unique source/original-name match then
+  /// preserves names across a provider's endpoint or credential rotation.
+  static void _assignProxyNames(List<Map<String, dynamic>> proxies,
+      String? previousYaml, String sourceKey) {
+    final used = <String>{...RuntimeConfigNamePolicy.reservedProxyNames};
+    final assigned = HashSet<Map<String, dynamic>>.identity();
+    final exact = <(String, String), String?>{};
+    final legacySuffixExact = <(String, String), String?>{};
+    final identity = <(String, String), String?>{};
+    final previousNames = <String>{};
+    final legacySuffixPattern = RegExp(r' \(([0-9]+)\)$');
+    if (previousYaml != null) {
+      _validateMergeEnvelope([previousYaml], null, sourceKey, '');
+      var count = 0;
+      for (final item in _proxyItemsFromYaml(previousYaml)) {
+        if (++count > maxMergedProxyNodes) {
+          throw const _MergeLimitException('历史缓存节点数量超过上限');
+        }
+        _checkItemSize(item);
+        final old = parseProxyItem(item);
+        if (old == null) continue;
+        final name = RuntimeConfigNamePolicy.canonicalName(old['name']);
+        if (name.isEmpty || used.contains(name)) continue;
+        previousNames.add(name);
+        final original = _originalProxyName(old);
+        final fingerprint = _proxyIdentityContent(old, sourceKey);
+        // Older per-source validation stored its generated suffix as the
+        // original name. Match the full node content before restoring its base.
+        final suffix = legacySuffixPattern.firstMatch(original);
+        final legacyFingerprint =
+            suffix != null && (int.tryParse(suffix[1]!) ?? 0) >= 2
+                ? _proxyIdentityContent(old, sourceKey,
+                    originalName: original.substring(0, suffix.start))
+                : null;
+        for (final owner in _proxyOwners(old)) {
+          for (final entry in [
+            (exact, fingerprint),
+            if (legacyFingerprint != null)
+              (legacySuffixExact, legacyFingerprint),
+            (identity, original),
+          ]) {
+            final key = (owner, entry.$2);
+            entry.$1.update(key, (value) => value == name ? value : null,
+                ifAbsent: () => name);
+          }
+        }
+      }
+    }
+    final fingerprints = {
+      if (exact.isNotEmpty)
+        for (final proxy in proxies)
+          proxy: _proxyIdentityContent(proxy, sourceKey)
+    };
+    // Legacy caches can lack owner IDs. Only an identical node may inherit
+    // that name, after nodes with a known owner have claimed their own names.
+    for (final (names, legacy) in [
+      (exact, false),
+      (exact, true),
+      (legacySuffixExact, false),
+      (legacySuffixExact, true),
+      (identity, false),
+    ]) {
+      if (names.isEmpty) continue;
+      for (final proxy in proxies) {
+        if (assigned.contains(proxy)) continue;
+        final key = identical(names, identity)
+            ? _originalProxyName(proxy)
+            : fingerprints[proxy]!;
+        final candidates = {
+          for (final owner in legacy ? const [''] : _proxyOwners(proxy))
+            if (names[(owner, key)] != null) names[(owner, key)]!
+        };
+        if (candidates.length == 1 && used.add(candidates.single)) {
+          proxy['name'] = candidates.single;
+          assigned.add(proxy);
+        }
+      }
+    }
+    used.addAll(previousNames);
+    final suffixes = <String, int>{};
+    for (final proxy in proxies) {
+      if (assigned.contains(proxy)) continue;
+      proxy['name'] = uniqueProxyName(_originalProxyName(proxy), used,
+          nextSuffixByBase: suffixes);
+    }
+  }
+
+  static Iterable<String> _proxyOwners(Map<String, dynamic> proxy) {
+    final ids = proxy[SubscriptionParser.proxySourceIdsKey];
+    return ids is List && ids.isNotEmpty ? ids.whereType<String>() : const [''];
+  }
+
+  static String _originalProxyName(Map<String, dynamic> proxy) =>
+      RuntimeConfigNamePolicy.canonicalName(
+          proxy[SubscriptionParser.proxyOriginalNameKey] ?? proxy['name']);
+
+  static String _proxyIdentityContent(
+      Map<String, dynamic> proxy, String sourceKey,
+      {String? originalName}) {
+    final content = Map<String, dynamic>.from(proxy)
+      ..['name'] = originalName ?? _originalProxyName(proxy)
+      ..remove(sourceKey)
+      ..remove(SubscriptionParser.proxySourceIdsKey)
+      ..remove(SubscriptionParser.proxyOriginalNameKey);
+    return jsonEncode(_canonicalJsonValue(content));
   }
 
   static List<String> splitProxyItems(String proxiesText) {

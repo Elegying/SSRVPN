@@ -1,7 +1,28 @@
 import 'package:ssrvpn_shared/utils/log_redactor.dart';
+import 'package:ssrvpn_shared/utils/proxy_node_usage_policy.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('all supported private URI schemes hide their entire payload', () {
+    for (final scheme in ProxyNodeUsagePolicy.nodeUriSchemes
+        .difference(const {'http', 'https'})) {
+      final uri = '$scheme://credential@node.invalid:443?psk=private#label';
+      expect(LogRedactor.subscriptionUrlForDisplay(uri), '$scheme://***');
+      expect(LogRedactor.sanitizeForDisplay('failed: $uri'),
+          'failed: $scheme://***');
+      expect(LogRedactor.sanitize(uri.toUpperCase()), '$scheme://***');
+    }
+  });
+
+  test('redacts protocol authentication fields in structured diagnostics', () {
+    for (final key in ['psk', 'auth', 'auth-str', 'auth_str', 'uuid']) {
+      expect(LogRedactor.sanitize('$key=credential'), '$key: ***');
+      expect(LogRedactor.sanitize('{"$key":"credential"}'), '{"$key":"***"}');
+      expect(LogRedactor.sanitize('$key: |\n  credential\n  next-line'),
+          '$key: ***');
+    }
+  });
+
   test('redacts public IPv4 while retaining local endpoint diagnostics', () {
     final publicAddress = ['8', '8', '4', '4'].join('.');
     final sanitized = LogRedactor.sanitize(

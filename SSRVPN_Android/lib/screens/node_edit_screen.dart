@@ -185,18 +185,26 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
         settingsService.settings.lastSelectedNodeName == originalName;
 
     setState(() => _saving = true);
+    var preferenceRenamed = false;
     try {
+      subscriptionService.validateNodeUpdate(originalName, result);
       if (renameRemembered) {
         await settingsService.renameLastSelectedNode(originalName, newName);
+        preferenceRenamed = true;
       }
       await subscriptionService.updateNode(originalName, result);
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      if (renameRemembered) {
-        await settingsService.renameLastSelectedNode(newName, originalName);
+      var recoveryFailed = false;
+      if (preferenceRenamed) {
+        try {
+          await settingsService.renameLastSelectedNode(newName, originalName);
+        } catch (rollbackError) {
+          recoveryFailed = true;
+          AppLogger.warning('NodeEdit', '恢复首选节点失败: $rollbackError');
+        }
       }
       if (mounted) {
-        setState(() => _saving = false);
         final msg = e.toString();
         final friendlyMsg = msg.contains('备注名已存在')
             ? '节点名称重复，请使用不同的名称'
@@ -206,11 +214,15 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
-            content: Text(friendlyMsg),
+            content: Text(recoveryFailed
+                ? '$friendlyMsg；首选节点恢复失败，请返回首页重新选择节点'
+                : friendlyMsg),
             backgroundColor: AppTheme.errorColor,
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 

@@ -41,17 +41,19 @@ class SubscriptionProcessing {
     required String proxySourceKey,
     required String standaloneGroupName,
     List<String>? sourceIds,
+    String? previousYaml,
   }) {
     final input = _SubscriptionProcessingInput(
       yamls: List<String>.of(yamls),
       sourceNames: List<String>.of(sourceNames),
       sourceIds: sourceIds == null ? null : List<String>.of(sourceIds),
+      previousYaml: previousYaml,
       proxySourceKey: proxySourceKey,
       standaloneGroupName: standaloneGroupName,
       workerStartDelay: _workerStartDelayForTesting,
     );
     final workload = input.yamls.fold<int>(
-      0,
+      input.previousYaml?.length ?? 0,
       (sum, yaml) => sum + yaml.length,
     );
 
@@ -77,6 +79,7 @@ class _SubscriptionProcessingInput {
     required this.yamls,
     required this.sourceNames,
     required this.sourceIds,
+    required this.previousYaml,
     required this.proxySourceKey,
     required this.standaloneGroupName,
     required this.workerStartDelay,
@@ -85,6 +88,7 @@ class _SubscriptionProcessingInput {
   final List<String> yamls;
   final List<String> sourceNames;
   final List<String>? sourceIds;
+  final String? previousYaml;
   final String proxySourceKey;
   final String standaloneGroupName;
   final Duration workerStartDelay;
@@ -97,6 +101,7 @@ MergedSubscriptionResult _processSubscription(
     input.yamls,
     sourceNames: input.sourceNames,
     sourceIds: input.sourceIds,
+    previousYaml: input.previousYaml,
     proxySourceKey: input.proxySourceKey,
     standaloneGroupName: input.standaloneGroupName,
   );

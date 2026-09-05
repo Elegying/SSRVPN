@@ -1,6 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ssrvpn_android/screens/node_edit_screen.dart';
+import 'package:ssrvpn_android/services/settings_service.dart';
+import 'package:ssrvpn_android/services/subscription_service.dart';
 import 'package:ssrvpn_android/theme/app_theme.dart';
 import 'package:ssrvpn_android/utils/responsive.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
@@ -41,6 +47,81 @@ void main() {
     );
   }
 
+  for (final failure in ['duplicate', 'preference', 'node', 'rollback']) {
+    testWidgets(
+        'node edit reports $failure failure and restores its save control',
+        (tester) async {
+      late Directory directory;
+      late _EditorFaultSubscription subscription;
+      late SettingsService settings;
+      var writes = 0;
+      Future<void> blockSettingsFile() async {
+        final file = File('${directory.path}/settings.json');
+        if (await file.exists()) await file.delete();
+        await Directory(file.path).create();
+      }
+
+      final targetName = failure == 'duplicate' ? 'Second' : 'Edited';
+      SharedPreferences.setMockInitialValues({});
+      await tester.runAsync(() async {
+        directory = await Directory.systemTemp.createTemp('ssrvpn-node-edit-');
+        subscription = _EditorFaultSubscription();
+        await subscription.init(directory.path);
+        await subscription.setRawYaml('proxies:\n'
+            '  - {name: Original, type: socks5, server: original.invalid, port: 443}\n'
+            '  - {name: Second, type: socks5, server: second.invalid, port: 443}\n');
+        settings = await SettingsService.createForTesting(
+            configPath: '${directory.path}/settings.json',
+            readApiSecret: () async => 'synthetic-secret',
+            writeApiSecret: (_) async {});
+        await settings.setLastSelectedNodeName('Original');
+        subscription.beforeCacheFailure = () async {
+          if (failure == 'rollback') await blockSettingsFile();
+        };
+        settings.addListener(() => writes++);
+        if (failure == 'preference') await blockSettingsFile();
+        subscription.failNextCache = failure != 'duplicate';
+      });
+      addTearDown(() async {
+        subscription.dispose();
+        settings.dispose();
+        await directory.delete(recursive: true);
+      });
+      await tester.pumpWidget(MultiProvider(providers: [
+        ChangeNotifierProvider<SubscriptionService>.value(value: subscription),
+        ChangeNotifierProvider<SettingsService>.value(value: settings),
+      ], child: host(NodeEditScreen(node: subscription.allNodes.first))));
+      await tester.enterText(find.byType(TextFormField).first, targetName);
+      final submit = tester
+          .widget<TextButton>(find.widgetWithText(TextButton, '保存'))
+          .onPressed! as Future<void> Function();
+      await tester.runAsync(submit);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(subscription.allNodes.first.name, 'Original');
+      expect(
+          tester
+              .widget<TextButton>(find.widgetWithText(TextButton, '保存'))
+              .onPressed,
+          isNotNull);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      if (failure == 'rollback') {
+        expect(find.textContaining('首选节点恢复失败'), findsOneWidget);
+      } else {
+        expect(settings.settings.lastSelectedNodeName, 'Original');
+      }
+      expect(
+          writes,
+          switch (failure) {
+            'duplicate' || 'preference' => 0,
+            'rollback' => 1,
+            _ => 2
+          });
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+  }
   testWidgets('editor renders protocol-specific fields and preserved extras',
       (tester) async {
     final ssrNode = node(
@@ -142,4 +223,23 @@ void main() {
     await tester.pump();
     expect(find.text('其他参数必须是有效的 JSON 对象'), findsOneWidget);
   });
+}
+
+class _EditorFaultSubscription extends SubscriptionServiceBase
+    implements SubscriptionService {
+  bool failNextCache = false;
+  Future<void> Function()? beforeCacheFailure;
+  @override
+  Future<String?> fetchSubscription(String url,
+          {int maxRetries = 3, SubscriptionRefreshControl? control}) async =>
+      throw StateError('unexpected fetch');
+  @override
+  Future<void> cacheYaml(String yaml) async {
+    if (failNextCache) {
+      failNextCache = false;
+      await beforeCacheFailure?.call();
+      throw const FileSystemException('synthetic node save failure');
+    }
+    await super.cacheYaml(yaml);
+  }
 }

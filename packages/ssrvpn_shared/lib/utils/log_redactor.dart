@@ -1,23 +1,17 @@
 import 'dart:io';
 
+import 'proxy_node_usage_policy.dart';
+
 class LogRedactor {
   static const int maxInputCharacters = 4 * 1024;
   static const _truncatedMarker = '\n... log entry truncated ...';
   static const _sensitiveKeyPattern =
-      r'apiSecret|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|secret|password|token';
-  static const _proxyUriSchemes = {
-    'ss',
-    'ssr',
-    'trojan',
-    'vless',
-    'vmess',
-    'hysteria2',
-    'hy2',
-    'tuic',
-    'anytls',
-  };
+      r'apiSecret|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|secret|password|token|psk|auth(?:[_-]?str)?|uuid';
+  static final _proxyUriSchemes =
+      ProxyNodeUsagePolicy.nodeUriSchemes.difference(const {'http', 'https'});
   static final _proxyUriPattern = RegExp(
-    r"""\b(ss|ssr|trojan|vless|vmess|hysteria2|hy2|tuic|anytls)://[^\s<>"']+""",
+    '\\b(${_proxyUriSchemes.map(RegExp.escape).join('|')})'
+    r'''://[^\s<>"']+''',
     caseSensitive: false,
   );
   static final _httpUrlPattern = RegExp(

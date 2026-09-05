@@ -1713,6 +1713,39 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final link in const [
+    'snell://synthetic-psk@snell.invalid:443#Synthetic',
+    'snell://snell.invalid:443?psk=synthetic-psk#Synthetic',
+    'hysteria://hy.invalid:443?auth=synthetic-auth#Synthetic',
+  ]) {
+    testWidgets('subscription row and tooltip hide credentials in $link',
+        (tester) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(host(SsrvpnSubscriptionView(
+        subscriptions: [
+          Subscription(id: 'synthetic', name: 'Synthetic', url: link),
+        ],
+        urlController: controller,
+        isAdding: false,
+        isRefreshing: false,
+        isBusy: false,
+        refreshMessage: null,
+        refreshMessageColor: null,
+        onAdd: () {},
+        onRefresh: () {},
+        onCancelRefresh: () {},
+        onDelete: (_) {},
+      )));
+      final safeLabel = '${Uri.parse(link).scheme}://***';
+      expect(find.text(safeLabel), findsOneWidget);
+      expect(find.byTooltip(safeLabel), findsOneWidget);
+      expect(find.textContaining('synthetic-'), findsNothing);
+      expect(find.byTooltip(link), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('subscription view has no About action', (tester) async {
     final controller = TextEditingController();
     addTearDown(controller.dispose);

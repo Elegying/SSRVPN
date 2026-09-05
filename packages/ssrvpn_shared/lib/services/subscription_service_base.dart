@@ -44,16 +44,21 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
 
   Future<void> _operationTail = Future<void>.value();
 
-  List<Subscription> get subscriptions => List.unmodifiable(_subscriptions);
-  String? get rawYaml => _rawYaml;
+  List<Subscription> get subscriptions =>
+      List.unmodifiable(_transactionSnapshot?.subscriptions ?? _subscriptions);
+  String? get rawYaml =>
+      _transactionSnapshot == null ? _rawYaml : _transactionSnapshot!.yaml;
 
   /// Changes only when the proxy content used by the runtime changes.
-  int get revision => _revision;
+  int get revision => _transactionSnapshot?.revision ?? _revision;
 
   /// Also tracks source labels so UI metadata can update without reconnecting.
-  int get displayRevision => _displayRevision;
-  List<ProxyNode> get allNodes => List.unmodifiable(_allNodes);
-  List<ProxyGroup> get allGroups => List.unmodifiable(_allGroups);
+  int get displayRevision =>
+      _transactionSnapshot?.displayRevision ?? _displayRevision;
+  List<ProxyNode> get allNodes =>
+      List.unmodifiable(_transactionSnapshot?.nodes ?? _allNodes);
+  List<ProxyGroup> get allGroups =>
+      List.unmodifiable(_transactionSnapshot?.groups ?? _allGroups);
   @visibleForTesting
   int get retainedFetchedProfileNameCount => _fetchedProfileNames.length;
 
@@ -357,7 +362,9 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     if (validated.parsed.nodes.isEmpty) {
       throw const FormatException('订阅不包含可运行节点');
     }
-    return validated.yaml;
+    // Validation may allocate temporary collision suffixes. Keep the source's
+    // original names so the final merge can match identities against its cache.
+    return yaml;
   }
 
   Map<String, String> _cachedSourceYamls() => SubscriptionSourceCache.extract(
@@ -402,6 +409,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
         for (final sub in active) sub.id,
         if (sources[''] != null) ''
       ],
+      previousYaml: _rawYaml,
     );
     return result.yaml.isEmpty
         ? MergedSubscriptionResult(yaml: 'proxies: []\n', parsed: result.parsed)
@@ -467,6 +475,12 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
 
   // ── 节点编辑 ──
 
+  /// Preflight before a caller changes related preferences. The queued write
+  /// repeats validation against its current state to cover intervening edits.
+  void validateNodeUpdate(String originalName, Map<String, dynamic> config) {
+    _prepareNodeUpdate(rawYaml, originalName, config);
+  }
+
   Future<void> updateNode(
     String originalName,
     Map<String, dynamic> updatedConfig,
@@ -478,11 +492,19 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     String originalName,
     Map<String, dynamic> updatedConfig,
   ) async {
-    if (_rawYaml == null || _rawYaml!.isEmpty) {
+    final candidate = _prepareNodeUpdate(_rawYaml, originalName, updatedConfig);
+    await cacheYaml(candidate.yaml);
+    _acceptCache(candidate.yaml, candidate.parsed);
+    notifyListeners();
+  }
+
+  MergedSubscriptionResult _prepareNodeUpdate(String? rawYaml,
+      String originalName, Map<String, dynamic> updatedConfig) {
+    if (rawYaml == null || rawYaml.isEmpty) {
       throw StateError('当前没有可编辑的订阅配置');
     }
 
-    final parsed = jsonValue(BoundedYaml.load(_rawYaml!));
+    final parsed = jsonValue(BoundedYaml.load(rawYaml));
     if (parsed is! Map<String, dynamic> || parsed['proxies'] is! List) {
       throw const FormatException('订阅配置中没有有效的节点列表');
     }
@@ -543,13 +565,10 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
 
     final yaml = encodeConfig(parsed);
     final candidate = SubscriptionParser.parseYaml(yaml);
-    if (candidate.nodes.isEmpty) {
-      throw const FormatException('修改后的订阅不包含可运行节点');
+    if (!candidate.nodes.any((node) => node.name == newName)) {
+      throw const FormatException('修改后的节点不可运行');
     }
-    await cacheYaml(yaml);
-
-    _acceptCache(yaml, candidate);
-    notifyListeners();
+    return MergedSubscriptionResult(yaml: yaml, parsed: candidate);
   }
 
   Future<void> setRawYaml(String yaml) {

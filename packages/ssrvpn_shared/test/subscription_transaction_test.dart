@@ -24,6 +24,56 @@ void main() {
     await directory.delete(recursive: true);
   });
 
+  for (final failCommit in [false, true]) {
+    test('readers only see the committed snapshot, failure=$failCommit',
+        () async {
+      final old = await service.addSubscription('Old', _oldLink);
+      final yaml = service.rawYaml;
+      final revision = service.revision;
+      final displayRevision = service.displayRevision;
+      var checkpoints = 0;
+      service.afterWrite = (file) async {
+        if (!file.path.endsWith('/$_cache') &&
+            !file.path.endsWith('/$_metadata')) {
+          return;
+        }
+        expect(service.rawYaml, yaml);
+        expect(service.allNodes.map((node) => node.name), ['Old']);
+        expect(service.subscriptions.map((sub) => sub.id), [old.id]);
+        expect(service.revision, revision);
+        expect(service.displayRevision, displayRevision);
+        checkpoints++;
+        if (failCommit && file.path.endsWith('/$_metadata')) {
+          service.afterWrite = null;
+          throw const FileSystemException('commit rejected');
+        }
+      };
+      final operation = service.addSubscription('New', _newLink);
+      if (failCommit) {
+        await expectLater(operation, throwsA(isA<FileSystemException>()));
+        expect(service.rawYaml, yaml);
+        expect(service.revision, revision);
+      } else {
+        await operation;
+        expect(service.allNodes.map((node) => node.name), ['Old', 'New']);
+        expect(service.revision, revision + 1);
+      }
+      expect(checkpoints, 2);
+    });
+  }
+
+  test('an initial pending import remains invisible, including its null YAML',
+      () async {
+    service.afterWrite = (file) async {
+      expect(service.rawYaml, isNull);
+      expect(service.allNodes, isEmpty);
+      expect(service.subscriptions, isEmpty);
+      expect(service.revision, 0);
+    };
+    await service.addSubscription('Old', _oldLink);
+    expect(service.allNodes.single.name, 'Old');
+  });
+
   for (final checkpoint in [_cache, _metadata]) {
     for (final hasPreviousState in [true, false]) {
       test('restart recovers the pair after $checkpoint, old=$hasPreviousState',

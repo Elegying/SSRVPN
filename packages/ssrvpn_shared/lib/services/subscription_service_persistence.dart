@@ -7,7 +7,8 @@ mixin _SubscriptionPersistence on ChangeNotifier {
   int _revision = 0;
   int _displayRevision = 0;
   String _runtimeProxyText = '';
-  bool _transactionActive = false;
+  _SubscriptionSnapshot? _transactionSnapshot;
+  bool get _transactionActive => _transactionSnapshot != null;
   bool _notificationPending = false;
   final Map<String, String> _fetchedProfileNames = {};
   List<ProxyNode> _allNodes = [];
