@@ -448,10 +448,19 @@ class _ConnectionDetails extends StatelessWidget {
       return TextButton.icon(
         onPressed: onShowLogs,
         icon: const Icon(Icons.error_outline_rounded, size: 18),
-        label: Text(
-          errorMessage!,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
+        label: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(errorMessage!),
+            const SizedBox(height: 8),
+            const Text(
+              '查看诊断与解决建议',
+              style: TextStyle(
+                color: SsrvpnUiTokens.textSecondary,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ],
         ),
         style: TextButton.styleFrom(foregroundColor: SsrvpnUiTokens.error),
       );

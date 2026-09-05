@@ -230,6 +230,41 @@ void main() {
     expect(find.byIcon(Icons.error_outline_rounded), findsNothing);
   });
 
+  testWidgets(
+      'connection failure remains readable and actionable at large text',
+      (tester) async {
+    var diagnosticsOpened = false;
+    const error = '尚未允许 VPN 连接\n系统 VPN 授权未通过，本次连接没有建立。\n'
+        '请再次点击连接，在系统“网络连接请求”中选择允许或确定。';
+    await tester.pumpWidget(host(
+      SsrvpnHomeOverview(
+        isConnected: false,
+        isConnecting: false,
+        selectedNode: null,
+        selectedLatency: null,
+        selectedCountryCode: null,
+        errorMessage: error,
+        onToggleConnection: () {},
+        onOpenNodes: () {},
+        onShowAbout: () {},
+        onShowTutorial: () {},
+        onShowLogs: () => diagnosticsOpened = true,
+        onRefreshPublicIp: () {},
+      ),
+      size: const Size(320, 640),
+      textScaleFactor: 2,
+    ));
+    final errorText = tester.widget<Text>(find.text(error));
+    expect(errorText.maxLines, isNull);
+    expect(errorText.overflow, isNot(TextOverflow.ellipsis));
+    final diagnostics = find.text('查看诊断与解决建议');
+    await tester.ensureVisible(diagnostics);
+    await tester.pumpAndSettle();
+    await tester.tap(diagnostics);
+    expect(diagnosticsOpened, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('home node latency distinguishes unknown from timeout',
       (tester) async {
     final node = ProxyNode(

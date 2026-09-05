@@ -1077,8 +1077,12 @@ for needle in \
     exit 1
   }
 done
-require_file_text "$CLASH_NATIVE_BRIDGE" \
-  '连接服务意外停止，请点击连接重试；如仍失败，请查看运行日志。'
+for needle in \
+  'if (terminalUnexpectedStop)' \
+  '_markNativeConnectionLost();' \
+  'const RuntimeNotice.error('; do
+  require_file_text "$CLASH_NATIVE_BRIDGE" "$needle"
+done
 for needle in \
   '"PERMISSION_DENIED"' \
   'Unable to request VPN permission' \

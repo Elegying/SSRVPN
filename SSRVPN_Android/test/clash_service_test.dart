@@ -653,14 +653,15 @@ void main() {
     const channel = MethodChannel('com.ssrvpn/native');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var nativeState = <String, Object?>{
+      // Missing `running` used to be interpreted as false.
+      'transitioning': false,
+      'protectedConfigPath': null,
+      'sessionGeneration': null,
+    };
     messenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == 'getConnectionState') {
-        return <String, Object?>{
-          // Missing `running` used to be interpreted as false.
-          'transitioning': false,
-          'protectedConfigPath': null,
-          'sessionGeneration': null,
-        };
+        return nativeState;
       }
       return null;
     });
@@ -673,6 +674,15 @@ void main() {
     expect(await service.refreshNativeConnectionState(), isFalse);
     expect(service.isRunning, isTrue);
     expect(service.connectionDesired, isTrue);
+    for (final invalid in <Map<String, Object?>>[
+      {'running': false, 'manuallyStopped': 'true'},
+      {'running': true, 'manuallyStopped': true},
+    ]) {
+      nativeState = {'transitioning': false, ...invalid};
+      expect(await service.refreshNativeConnectionState(), isFalse);
+      expect(service.isRunning, isTrue);
+      expect(service.connectionDesired, isTrue);
+    }
   });
 
   test(
@@ -744,10 +754,56 @@ void main() {
       expect(service.connectionDesired, isFalse);
       expect(notices, hasLength(1));
       expect(notices.single.level, RuntimeNoticeLevel.error);
-      expect(notices.single.message, '连接服务意外停止，请点击连接重试；如仍失败，请查看运行日志。');
+      expect(notices.single.message, startsWith('VPN 连接已断开\n'));
+      expect(notices.single.message, contains('本地 VPN 服务已停止'));
+      expect(notices.single.message, contains('运行日志'));
       expect(notices.single.message, isNot(contains('sensitive')));
     },
   );
+
+  test('native user stop retires intent without hiding a later core failure',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var nativeState = <String, Object?>{
+      'running': false,
+      'transitioning': true,
+      'manuallyStopped': true,
+    };
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getConnectionState') return nativeState;
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final notices = <RuntimeNotice>[];
+    final service = ClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true)
+      ..onRuntimeNotice = notices.add;
+    addTearDown(service.dispose);
+
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(service.connectionDesired, isTrue);
+    nativeState['transitioning'] = false;
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(service.connectionDesired, isFalse);
+    expect(service.isRunning, isFalse);
+    expect(notices, isEmpty);
+
+    nativeState = {
+      'running': true,
+      'transitioning': false,
+      'manuallyStopped': false,
+      'sessionGeneration': 4,
+    };
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(service.connectionDesired, isTrue);
+    nativeState = {'running': false, 'transitioning': false};
+    expect(await service.refreshNativeConnectionState(), isTrue);
+    expect(service.connectionDesired, isFalse);
+    expect(notices.single.level, RuntimeNoticeLevel.error);
+  });
 
   test('native running sync adopts the externally started session', () async {
     const channel = MethodChannel('com.ssrvpn/native');

@@ -36,8 +36,7 @@ class SubscriptionParser {
     final body = decoded != content ? decoded : content;
 
     if (_looksLikeYaml(body)) {
-      final section = extractSection(body, 'proxies');
-      if (section.trim().isNotEmpty) return body;
+      return body;
     }
 
     final uriYaml = uriListToYaml(body);
@@ -108,7 +107,9 @@ String _jsonEncode(Object? value) => jsonEncode(value);
 bool _looksLikeYaml(String text) {
   try {
     final document = BoundedYaml.load(text);
-    return document is Map && document['proxies'] is List;
+    return document is Map &&
+        document['proxies'] is List &&
+        (document['proxies'] as List).isNotEmpty;
   } catch (_) {
     return false;
   }

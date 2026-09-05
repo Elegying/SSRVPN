@@ -303,45 +303,48 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
     return Builder(
       builder: (context) {
         Responsive.init(context);
-        return SsrvpnAppBackdrop(
-          child: Column(
-            children: [
-              Expanded(
-                child: PageView(
-                  controller: _pageController,
-                  onPageChanged: (i) {
-                    setState(() => _currentIndex = i);
-                    if (i == 0) _homeKey.currentState?.refreshNodes();
-                  },
-                  children: <Widget>[
-                    HomeScreen(key: _homeKey),
-                    const SubscriptionScreen(),
-                  ],
-                ),
-              ),
-              Consumer<UpdateAvailabilityController>(
-                builder: (context, availability, _) {
-                  final update = availability.availableUpdate;
-                  return SsrvpnBottomNavigation(
-                    currentIndex: _currentIndex,
-                    version: AppConstants.appVersion,
-                    availableVersion: update?.version,
-                    onUpdateTap: update == null
-                        ? null
-                        : () => unawaited(_openAvailableUpdate(context)),
-                    onTap: (i) {
-                      if (i == 0) _homeKey.currentState?.refreshNodes();
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          body: SsrvpnAppBackdrop(
+            child: Column(
+              children: [
+                Expanded(
+                  child: PageView(
+                    controller: _pageController,
+                    onPageChanged: (i) {
                       setState(() => _currentIndex = i);
-                      _pageController.animateToPage(
-                        i,
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeOutCubic,
-                      );
+                      if (i == 0) _homeKey.currentState?.refreshNodes();
                     },
-                  );
-                },
-              ),
-            ],
+                    children: <Widget>[
+                      HomeScreen(key: _homeKey),
+                      const SubscriptionScreen(),
+                    ],
+                  ),
+                ),
+                Consumer<UpdateAvailabilityController>(
+                  builder: (context, availability, _) {
+                    final update = availability.availableUpdate;
+                    return SsrvpnBottomNavigation(
+                      currentIndex: _currentIndex,
+                      version: AppConstants.appVersion,
+                      availableVersion: update?.version,
+                      onUpdateTap: update == null
+                          ? null
+                          : () => unawaited(_openAvailableUpdate(context)),
+                      onTap: (i) {
+                        if (i == 0) _homeKey.currentState?.refreshNodes();
+                        setState(() => _currentIndex = i);
+                        _pageController.animateToPage(
+                          i,
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeOutCubic,
+                        );
+                      },
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },

@@ -338,7 +338,7 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         self.assertNotIn("$pendingStateCorroborated", installer)
         self.assertNotIn("_isCorroboratedTransactionState", dart)
 
-    def test_expected_failures_skip_reports_but_unexpected_failures_keep_them(
+    def test_handled_connection_failures_keep_logs_without_crash_reports(
         self,
     ) -> None:
         for platform in ("SSRVPN_Windows", "SSRVPN_MacOS"):
@@ -351,9 +351,11 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
                 self.assertIn("if (expected)", recorder)
                 self.assertNotIn("if (error != null || stack != null)", recorder)
                 self.assertIn(
-                    "CrashReporter.recordSync(message, error ?? message, stack)",
+                    "StartupLogger.error(message, error ?? message, stack)",
                     recorder,
                 )
+                self.assertNotIn("CrashReporter.recordSync", recorder)
+                self.assertNotIn("writeDesktopFailureReportSync", recorder)
 
         shared_home = (
             ROOT
@@ -390,10 +392,15 @@ class WindowsProxyShutdownRecoveryTest(unittest.TestCase):
         )
         warning = tray_start_failure.index("StartupLogger.warning", permission_gate)
         report = tray_start_failure.index(
-            "StartupLogger.writeDesktopFailureReportSync", warning
+            "recordDesktopConnectionFailure", warning
         )
         self.assertLess(permission_gate, warning)
         self.assertLess(warning, report)
+        tray_actions = (
+            ROOT / "SSRVPN_Windows" / "lib" / "app_runtime_actions_part.dart"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("writeDesktopFailureReportSync", tray_actions)
+        self.assertIn("await _presentTrayFailure(error)", tray_actions)
 
     def test_tun_start_requires_launcher_guardian_before_core_spawn(self) -> None:
         services = ROOT / "SSRVPN_Windows" / "lib" / "services"

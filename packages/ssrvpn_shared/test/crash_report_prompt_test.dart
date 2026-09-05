@@ -30,6 +30,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('发现运行异常记录'), findsOneWidget);
+    expect(find.text('上次崩溃了'), findsNothing);
     expect(find.text('复制报告'), findsOneWidget);
     await tester.tap(find.text('复制报告'));
     await tester.pumpAndSettle();
@@ -55,7 +57,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('崩溃报告操作失败，未确认报告已删除，请稍后重试'), findsOneWidget);
+    expect(find.text('异常报告操作失败，未确认报告已删除，请稍后重试'), findsOneWidget);
   });
 
   testWidgets('reader failure preserves the report and stays contained',
@@ -78,7 +80,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(copiedText, isNull);
     expect(deleteCalls, 0);
-    expect(find.text('崩溃报告操作失败，未确认报告已删除，请稍后重试'), findsOneWidget);
+    expect(find.text('异常报告操作失败，未确认报告已删除，请稍后重试'), findsOneWidget);
   });
 
   testWidgets('clipboard failure preserves the report and stays contained',
@@ -100,7 +102,7 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(deleteCalls, 0);
-    expect(find.text('崩溃报告操作失败，未确认报告已删除，请稍后重试'), findsOneWidget);
+    expect(find.text('异常报告操作失败，未确认报告已删除，请稍后重试'), findsOneWidget);
   });
 
   testWidgets('delete failure remains retryable and stays contained',
@@ -121,6 +123,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('崩溃报告操作失败，未确认报告已删除，请稍后重试'), findsOneWidget);
+    expect(find.text('异常报告操作失败，未确认报告已删除，请稍后重试'), findsOneWidget);
   });
 }

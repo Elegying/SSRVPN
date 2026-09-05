@@ -51,7 +51,7 @@ void main() {
   });
 
   test(
-    'unexpected connection failures write desktop and crash reports',
+    'handled connection failures stay in the log without crash or desktop reports',
     () async {
       final root = await Directory.systemTemp.createTemp(
         'ssrvpn_unexpected_connection_failure_test_',
@@ -72,9 +72,9 @@ void main() {
 
       expect(
         desktop.listSync().whereType<File>(),
-        hasLength(1),
+        isEmpty,
       );
-      expect(await CrashReporter.pendingReports(), hasLength(1));
+      expect(await CrashReporter.pendingReports(), isEmpty);
 
       IOOverrides.runWithIOOverrides(
         () => recordDesktopConnectionFailure(
@@ -87,10 +87,10 @@ void main() {
 
       expect(
         desktop.listSync().whereType<File>(),
-        hasLength(1),
+        isEmpty,
       );
-      expect(await CrashReporter.pendingReports(), hasLength(2));
+      expect(await CrashReporter.pendingReports(), isEmpty);
+      expect(await startupLog.readAsString(), contains('[ERROR]'));
     },
-    skip: Platform.isWindows ? false : 'Windows Desktop discovery is required',
   );
 }

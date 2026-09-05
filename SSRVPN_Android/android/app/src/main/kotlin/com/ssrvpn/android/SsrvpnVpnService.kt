@@ -798,19 +798,19 @@ class SsrvpnVpnService : VpnService() {
         }
         manualStopRequested.set(true)
         CoreRecoveryCoordinator.cancelPendingRecovery()
-        stopInternal(true, preserveForegroundUi, onComplete)
+        stopInternal(true, preserveForegroundUi, recordManualStop, onComplete)
     }
     internal fun stopForRecovery(onComplete: () -> Unit) =
         stopInternal(false, true) { onComplete() }
 
     private fun stopInternal(
         stopServiceWhenDone: Boolean, preserveForegroundUi: Boolean,
-        onComplete: ((Boolean) -> Unit)?
+        userInitiated: Boolean = false, onComplete: ((Boolean) -> Unit)?
     ) {
         val stopToken = serviceStopGate.beginOrJoinStop()
         notificationGeneration.invalidate()
         startGeneration.invalidate {
-            NativeConnectionSession.beginStopping()
+            NativeConnectionSession.beginStopping(userInitiated)
             isRunning = false
             if (manualStopRequested.get()) {
                 NativeConnectionSession.clearRecovery()

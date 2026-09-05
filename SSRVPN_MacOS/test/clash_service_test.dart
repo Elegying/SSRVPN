@@ -673,7 +673,7 @@ void main() {
         effectiveProxyRunner: () async => ProcessResult(
           1,
           0,
-          proxyOwned ? _effectiveProxyOutput(7890) : '<dictionary> {}',
+          proxyOwned ? _effectiveProxyOutput(7890) : '<dictionary> {\n}',
           '',
         ),
         networkSetupRunner: (arguments) async {
@@ -795,7 +795,7 @@ void main() {
         effectiveProxyRunner: () async => ProcessResult(
           1,
           0,
-          proxyOwned ? _effectiveProxyOutput(7890) : '<dictionary> {}',
+          proxyOwned ? _effectiveProxyOutput(7890) : '<dictionary> {\n}',
           '',
         ),
         networkSetupRunner: (arguments) async {
@@ -930,6 +930,12 @@ void main() {
         networkServiceIdentityRunner: () async => {
           'Wi-Fi': 'test-service-wifi',
         },
+        effectiveProxyRunner: () async => ProcessResult(
+          1,
+          0,
+          proxyOwned ? _effectiveProxyOutput(7890) : '<dictionary> {\n}',
+          '',
+        ),
         networkSetupRunner: (arguments) async {
           if (arguments.first == '-listallnetworkservices') {
             return ProcessResult(1, 0, 'Wi-Fi\n', '');
@@ -944,7 +950,13 @@ void main() {
               '',
             );
           }
-          if (arguments.first.endsWith('state')) {
+          if (const {
+            '-setwebproxy',
+            '-setsecurewebproxy',
+            '-setsocksfirewallproxy',
+          }.contains(arguments.first)) {
+            proxyOwned = true;
+          } else if (arguments.first.endsWith('state')) {
             proxyOwned = arguments.last == 'on';
           }
           return ProcessResult(1, 0, '', '');
@@ -1223,6 +1235,7 @@ void main() {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_precommit_proxy_health_',
       );
+      var effectivePort = 7890;
       final proxyService = SystemProxyService(
         startProxyGuardian: (_, __) async => true,
         beginProxyLifecycleTransaction: () async => 'test-proxy-lease',
@@ -1233,7 +1246,7 @@ void main() {
         effectiveProxyRunner: () async => ProcessResult(
           1,
           0,
-          _effectiveProxyOutput(8888),
+          _effectiveProxyOutput(effectivePort),
           '',
         ),
         networkSetupRunner: (arguments) async {
@@ -1260,6 +1273,7 @@ void main() {
       await proxyService.initialize(tempDir.path);
 
       expect(await proxyService.setSystemProxy('127.0.0.1', 7890), isTrue);
+      effectivePort = 8888;
       expect(service.isRunning, isFalse);
       expect(await service.healthCheck(), isFalse);
       expect(service.lastHealthCheckError, contains('关闭或修改'));

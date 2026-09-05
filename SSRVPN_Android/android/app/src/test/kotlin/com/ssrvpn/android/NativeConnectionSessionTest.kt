@@ -8,6 +8,26 @@ import org.junit.Test
 
 class NativeConnectionSessionTest {
     @Test
+    fun `user stop cause survives cleanup and resets on the next accepted start`() {
+        NativeConnectionSession.clearRecovery()
+        NativeConnectionSession.clearStarting()
+        NativeConnectionSession.publishRunning("/data/config-active.yaml")
+        NativeConnectionSession.beginStopping(userInitiated = true)
+        NativeConnectionSession.beginStopping()
+        NativeConnectionSession.clearRunning()
+        val stopped = NativeConnectionSession.snapshot(false, 2)
+        assertEquals(true, stopped["manuallyStopped"])
+        assertEquals(false, stopped["transitioning"])
+
+        assertTrue(NativeConnectionSession.beginStarting(null))
+        assertEquals(false, NativeConnectionSession.snapshot(false, 3)["manuallyStopped"])
+        NativeConnectionSession.publishRunning("/data/config-next.yaml")
+        NativeConnectionSession.beginStopping()
+        NativeConnectionSession.clearRunning()
+        assertEquals(false, NativeConnectionSession.snapshot(false, 4)["manuallyStopped"])
+    }
+
+    @Test
     fun `recovery reservation survives the native stop gap`() {
         val gate = StartGenerationGate()
         val runningToken = gate.beginStart()

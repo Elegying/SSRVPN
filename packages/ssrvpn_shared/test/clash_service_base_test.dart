@@ -2026,7 +2026,8 @@ proxies:
       );
 
       expect(runtime.errorCode, AppErrorCode.systemProxyChanged);
-      expect(runtime.summary, contains('其他程序关闭或替换'));
+      expect(runtime.summary, contains('与 SSRVPN 本次连接不一致'));
+      expect(runtime.summary, contains('可能已被手动或其他程序修改'));
       expect(runtime.summary, contains('关闭其他代理或 VPN'));
       expect(runtime.summary, isNot(contains('未分类')));
     });

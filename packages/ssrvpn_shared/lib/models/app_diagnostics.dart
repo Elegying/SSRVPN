@@ -8,6 +8,9 @@ enum AppErrorCode {
   dataPlaneDegraded('DATA_PLANE_DEGRADED'),
   appLocationRequired('APP_LOCATION_REQUIRED'),
   networkConflict('NETWORK_CONFLICT'),
+  networkUnavailable('NETWORK_UNAVAILABLE'),
+  networkTimeout('NETWORK_TIMEOUT'),
+  secureConnectionFailed('SECURE_CONNECTION_FAILED'),
   systemProxyApplyFailed('SYSTEM_PROXY_APPLY_FAILED'),
   systemProxyChanged('SYSTEM_PROXY_CHANGED'),
   systemProxyOwnershipUnavailable('SYSTEM_PROXY_OWNERSHIP_UNAVAILABLE'),
@@ -67,10 +70,59 @@ class AppFailure {
   final String message;
   final String recommendedAction;
 
-  String get userMessage => '$title：$message $recommendedAction';
+  String get userMessage => '$title\n$message\n$recommendedAction';
 
   static AppFailure fromMessage(Object? error) {
     final text = error?.toString().trim().toLowerCase() ?? '';
+    if (text.contains('vpn_permission_denied') ||
+        text.contains('用户拒绝了 vpn 权限')) {
+      return const AppFailure(
+        code: AppErrorCode.permissionRequired,
+        title: '尚未允许 VPN 连接',
+        message: '系统 VPN 授权未通过，本次连接没有建立。',
+        recommendedAction: '请再次点击连接，在系统“网络连接请求”中选择允许或确定。',
+      );
+    }
+    if (text.contains('取消了管理员授权')) {
+      return const AppFailure(
+        code: AppErrorCode.permissionRequired,
+        title: '已取消 TUN 授权',
+        message: '管理员验证未完成，本次 TUN 连接没有启动。',
+        recommendedAction: '需要使用 TUN 时，请再次连接并在系统窗口完成管理员验证。',
+      );
+    }
+    if (text.contains('core_start_api_auth')) {
+      return const AppFailure(
+        code: AppErrorCode.coreUnavailable,
+        title: '本地控制服务认证失败',
+        message: '应用与本地 VPN 服务的连接信息不一致。',
+        recommendedAction: '请退出并重新打开 SSRVPN 后重试；仍失败请查看诊断中的核心状态。',
+      );
+    }
+    if (text.contains('core_start_tun')) {
+      return const AppFailure(
+        code: AppErrorCode.coreUnavailable,
+        title: '系统 VPN 接口未能就绪',
+        message: 'VPN 接口或网络保护组件未能完成初始化。',
+        recommendedAction: '请确认已允许 VPN，断开其他 VPN 后重新连接；仍失败请重启应用。',
+      );
+    }
+    if (text.contains('core_start_busy')) {
+      return const AppFailure(
+        code: AppErrorCode.coreUnavailable,
+        title: '上一项连接操作尚未结束',
+        message: 'VPN 服务仍在启动或清理上一条连接。',
+        recommendedAction: '请等待几秒后再次连接；若一直无法完成，请查看诊断中的核心状态。',
+      );
+    }
+    if (text.contains('system_proxy_settle_timeout')) {
+      return const AppFailure(
+        code: AppErrorCode.systemProxyApplyFailed,
+        title: '系统代理尚未确认生效',
+        message: '代理设置已提交，但 macOS 当前网络未能及时确认使用该设置。',
+        recommendedAction: '请确认当前网络稳定后重新连接；若反复发生，请检查其他代理软件并运行诊断。',
+      );
+    }
     final code = _classify(text);
     final isTunRuntimeFailure = text.contains('tun 监听未能启用') ||
         text.contains('tun_runtime_unavailable') ||
@@ -89,8 +141,8 @@ class AppFailure {
       AppErrorCode.coreStartTimeout => const AppFailure(
           code: AppErrorCode.coreStartTimeout,
           title: '核心启动超时',
-          message: '运行核心未能在限定时间内就绪。',
-          recommendedAction: '请重试；若持续失败，请运行诊断并复制报告。',
+          message: '设备上的 VPN 服务未能在限定时间内完成启动。',
+          recommendedAction: '请重新连接；若反复发生，请重启应用，再运行诊断检查核心状态。',
         ),
       AppErrorCode.coreUnavailable => const AppFailure(
           code: AppErrorCode.coreUnavailable,
@@ -124,6 +176,33 @@ class AppFailure {
               ? '请重启电脑后重新连接。'
               : '请先断开其他 VPN，确认当前网络稳定后重新连接。',
         ),
+      AppErrorCode.networkUnavailable => AppFailure(
+          code: AppErrorCode.networkUnavailable,
+          title: text.contains('connection refused') || text.contains('目标服务拒绝')
+              ? '目标服务拒绝连接'
+              : text.contains('failed host lookup') || text.contains('地址解析失败')
+                  ? '服务器地址解析失败'
+                  : '网络连接未建立',
+          message: text.contains('connection refused') ||
+                  text.contains('目标服务拒绝')
+              ? '目标地址的服务端口拒绝了本次连接。'
+              : text.contains('failed host lookup') || text.contains('地址解析失败')
+                  ? '当前网络未能把服务器域名解析为可连接的地址。'
+                  : '当前网络无法与目标服务建立连接。',
+          recommendedAction: '请先确认普通网页能够打开，再刷新订阅或切换节点；仍失败请联系节点提供方。',
+        ),
+      AppErrorCode.networkTimeout => const AppFailure(
+          code: AppErrorCode.networkTimeout,
+          title: '等待服务器响应超时',
+          message: '目标服务未在限定时间内响应，网络或节点可能暂时不可达。',
+          recommendedAction: '请先确认网络可用，再重试或切换节点。',
+        ),
+      AppErrorCode.secureConnectionFailed => const AppFailure(
+          code: AppErrorCode.secureConnectionFailed,
+          title: '安全连接校验失败',
+          message: '无法完成加密连接或验证服务器证书。',
+          recommendedAction: '请确认设备日期和时间正确，再更新订阅或切换网络重试。',
+        ),
       AppErrorCode.systemProxyApplyFailed => const AppFailure(
           code: AppErrorCode.systemProxyApplyFailed,
           title: '系统代理未能启用',
@@ -133,8 +212,8 @@ class AppFailure {
       AppErrorCode.systemProxyChanged => const AppFailure(
           code: AppErrorCode.systemProxyChanged,
           title: '系统代理已被修改',
-          message: 'SSRVPN 设置的系统代理被其他程序关闭或替换。',
-          recommendedAction: '请关闭其他代理或 VPN 后重新连接。',
+          message: '当前系统代理设置与 SSRVPN 本次连接不一致，可能已被手动或其他程序修改。',
+          recommendedAction: '请确认需要使用哪个代理，关闭其他代理或 VPN 后重新连接。',
         ),
       AppErrorCode.systemProxyOwnershipUnavailable => const AppFailure(
           code: AppErrorCode.systemProxyOwnershipUnavailable,
@@ -151,8 +230,8 @@ class AppFailure {
       AppErrorCode.portOccupied => const AppFailure(
           code: AppErrorCode.portOccupied,
           title: '本地端口被占用',
-          message: '所需本地端口正被其他程序使用。',
-          recommendedAction: '请再次连接以自动选择可用端口。',
+          message: 'VPN 服务需要的本地监听端口正在被其他程序使用。',
+          recommendedAction: '请关闭占用端口的程序后重试；再次连接时会尝试选择可用端口。',
         ),
       AppErrorCode.permissionRequired => AppFailure(
           code: AppErrorCode.permissionRequired,
@@ -205,8 +284,8 @@ class AppFailure {
       AppErrorCode.unknown => const AppFailure(
           code: AppErrorCode.unknown,
           title: '操作未完成',
-          message: '发生了未分类的本地错误，原始敏感细节不会显示。',
-          recommendedAction: '请运行诊断并复制脱敏报告。',
+          message: '暂时无法确定具体原因。',
+          recommendedAction: '请重试；若仍失败，运行诊断查看检查结果，并复制报告反馈。',
         ),
     };
   }
@@ -248,14 +327,14 @@ class AppFailure {
     ])) {
       return AppErrorCode.localProxyUnavailable;
     }
+    if (text.contains('system_proxy_ownership_lost')) {
+      return AppErrorCode.systemProxyChanged;
+    }
     if (text.contains('system_proxy_apply_failed')) {
       return AppErrorCode.systemProxyApplyFailed;
     }
     if (text.contains('system_proxy_ownership_unavailable')) {
       return AppErrorCode.systemProxyOwnershipUnavailable;
-    }
-    if (text.contains('system_proxy_ownership_lost')) {
-      return AppErrorCode.systemProxyChanged;
     }
     if (hasAny(const ['core_api_unavailable', 'tun_service_lost'])) {
       return AppErrorCode.coreUnavailable;
@@ -436,6 +515,42 @@ class AppFailure {
       '网络验证失败',
     ])) {
       return AppErrorCode.dataPlaneDegraded;
+    }
+    if (hasAny(const [
+      'handshakeexception',
+      'certificate_verify_failed',
+      'certificate verify failed',
+      'tls handshake',
+      '安全连接校验失败',
+    ])) {
+      return AppErrorCode.secureConnectionFailed;
+    }
+    if (hasAny(const ['timeoutexception', 'timed out', 'timeout', '超时']) &&
+        hasAny(const [
+          'socketexception',
+          'httpexception',
+          'network request',
+          'http request',
+          'request timed out',
+          'request timeout',
+          '网络请求',
+          '网络连接',
+          '连接超时',
+          '服务器响应',
+        ])) {
+      return AppErrorCode.networkTimeout;
+    }
+    if (hasAny(const [
+      'socketexception',
+      'connection refused',
+      'failed host lookup',
+      'network is unreachable',
+      'no route to host',
+      '目标服务拒绝',
+      '地址解析失败',
+      '网络连接未建立',
+    ])) {
+      return AppErrorCode.networkUnavailable;
     }
     return AppErrorCode.unknown;
   }

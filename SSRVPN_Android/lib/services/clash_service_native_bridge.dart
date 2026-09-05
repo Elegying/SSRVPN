@@ -77,6 +77,7 @@ class AndroidProxySwitchResult {
 typedef _NativeConnectionState = ({
   bool running,
   bool transitioning,
+  bool manuallyStopped,
   String? protectedConfigPath,
   int? sessionGeneration,
   bool? underlyingNetworkAvailable,
@@ -438,6 +439,15 @@ extension AndroidNativeBridge on ClashService {
       // cancellable from the application UI.
       requestConnectionIntent(true);
     }
+    if (!state.running &&
+        !state.transitioning &&
+        state.manuallyStopped &&
+        !dartOwnsStart &&
+        !dartOwnsStop) {
+      // Notification and tile actions do not create a Dart stop transaction.
+      // Adopt the native user's intent only after that stop has settled.
+      requestConnectionIntent(false);
+    }
     final terminalUnexpectedStop = !state.running &&
         !state.transitioning &&
         connectionDesired &&
@@ -454,7 +464,8 @@ extension AndroidNativeBridge on ClashService {
         _markNativeConnectionLost();
         _notifyNativeRuntimeNotice(
           const RuntimeNotice.error(
-            '连接服务意外停止，请点击连接重试；如仍失败，请查看运行日志。',
+            'VPN 连接已断开\n本地 VPN 服务已停止，尚未确认具体原因。\n'
+            '请重新连接；若反复发生，请打开运行日志检查核心状态。',
           ),
         );
       } else {
@@ -723,6 +734,16 @@ extension AndroidNativeBridge on ClashService {
     }
     final running = rawRunning;
     final transitioning = rawTransitioning;
+    final rawManuallyStopped = value['manuallyStopped'];
+    if (rawManuallyStopped != null && rawManuallyStopped is! bool) {
+      log('原生 VPN 返回了无效的手动停止状态');
+      return null;
+    }
+    final manuallyStopped = rawManuallyStopped == true;
+    if (running && manuallyStopped) {
+      log('原生 VPN 的运行状态与手动停止状态不一致');
+      return null;
+    }
     final rawSessionGeneration = value['sessionGeneration'];
     if (rawSessionGeneration != null &&
         (rawSessionGeneration is! int || rawSessionGeneration <= 0)) {
@@ -763,6 +784,7 @@ extension AndroidNativeBridge on ClashService {
       return (
         running: running,
         transitioning: transitioning,
+        manuallyStopped: manuallyStopped,
         protectedConfigPath: null,
         sessionGeneration: sessionGeneration,
         underlyingNetworkAvailable: underlyingNetworkAvailable,
@@ -782,6 +804,7 @@ extension AndroidNativeBridge on ClashService {
       return (
         running: running,
         transitioning: transitioning,
+        manuallyStopped: manuallyStopped,
         protectedConfigPath: null,
         sessionGeneration: sessionGeneration,
         underlyingNetworkAvailable: underlyingNetworkAvailable,
@@ -791,6 +814,7 @@ extension AndroidNativeBridge on ClashService {
     return (
       running: running,
       transitioning: transitioning,
+      manuallyStopped: manuallyStopped,
       protectedConfigPath: file.path,
       sessionGeneration: sessionGeneration,
       underlyingNetworkAvailable: underlyingNetworkAvailable,

@@ -638,6 +638,36 @@ trojan://pass@host:443#Node
     });
 
     group('parseSubscriptionContent', () {
+      for (final entry in {
+        'indentless sequence': '''
+proxies:
+- name: UAT
+  type: socks5
+  server: 127.0.0.1
+  port: 19992
+''',
+        'flow sequence':
+            'proxies: [{name: UAT, type: socks5, server: 127.0.0.1, port: 19992}]',
+        'JSON document':
+            '{"proxies":[{"name":"UAT","type":"socks5","server":"127.0.0.1","port":19992}]}',
+      }.entries) {
+        test('recognizes ${entry.key} without relying on indentation', () {
+          final result =
+              SubscriptionParser.parseSubscriptionContent(entry.value);
+          expect(result, isNotNull);
+          final node = SubscriptionParser.parseYaml(result!).nodes.single;
+          expect(node.name, 'UAT');
+          expect(node.type, 'socks5');
+          expect(node.port, 19992);
+        });
+      }
+
+      test('does not recognize empty or malformed proxy lists', () {
+        for (final input in ['proxies: []', 'proxies:', 'proxies: [broken']) {
+          expect(SubscriptionParser.parseSubscriptionContent(input), isNull);
+        }
+      });
+
       test('detects Clash YAML format', () {
         final yaml = '''
 proxies:
