@@ -1,16 +1,38 @@
 # SSRVPN 项目健康与发布状态
 
-最近更新：2026-09-05
+最近更新：2026-09-06
 
 当前应用版本：`v4.0.29`
 
-最新正式版本：[`v4.0.28`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.28)
+最新正式版本：[`v4.0.29`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.29)
 
 ## 当前结论
 
-`v4.0.29` 为待发布候选，增加三端固定尺寸流量卡片与无损打包优化。Android 测试版已通过
-USB 覆盖安装与首页显示检查；小屏、大字号和极端数值布局已通过自动化验证。正式包体积、
-受保护 CI 和发布终验以本次构建完成后的证据为准。
+`v4.0.29` 已正式发布，三端首页同步显示上传速率、下载速率与本次累计流量。
+卡片固定等宽等高，数值与单位分行；小屏、大字号、极端数值和前后台采样均通过回归。
+三端分离 Dart 调试符号，macOS 与 Windows 提高安装容器无损压缩强度，保留核心、规则和运行功能。
+
+受保护 [PR #202](https://github.com/Elegying/SSRVPN/pull/202)、精确主分支
+[CI](https://github.com/Elegying/SSRVPN/actions/runs/33976690480)、
+[Prepare Release](https://github.com/Elegying/SSRVPN/actions/runs/33976701467) 和
+[Release](https://github.com/Elegying/SSRVPN/actions/runs/33977507611) 均成功。
+发布提交为 `5a6518731150a763325640fca94af3712076143f`。本地完整 `make verify` 通过，
+包含共享 765、Android 288、macOS 314、Windows 291 项通过测试，以及原生、覆盖率与发布工具门禁；
+本地非 Windows 平台跳过的 7 项 Windows 专属测试由原生 CI 验证。
+
+| 正式产物 | v4.0.28 字节数 | v4.0.29 字节数 | 减少 |
+| --- | ---: | ---: | ---: |
+| Android APK | 31,291,572 | 30,727,312 | 1.8% |
+| macOS DMG | 30,946,657 | 27,393,856 | 11.5% |
+| Windows EXE | 32,108,502 | 31,125,187 | 3.1% |
+
+七项公开资产、SHA-256 与 provenance 校验通过；三端构建证明绑定同一标签，调试符号已单独下载归档。
+GitHub 公开包与 OSS 固定下载逐一独立下载，摘要完全一致，OSS 最新指针为 4.0.29。
+Android 正式包与上一版签名一致，16 KB 对齐通过；正式 DMG 重新挂载后签名、架构、布局及核心摘要通过；
+Windows 正式安装包原始日志确认安装、覆盖升级、卸载事务全部成功。
+
+固定布局 Android 测试 APK 已在 USB 真机覆盖安装并核对首页显示。本轮未新增正式安装包的完整三端
+人工网络验收；自动化与结构终验不替代三端所有真实网络场景的人工验证。
 
 ## v4.0.28 发布结论
 
