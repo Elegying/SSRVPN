@@ -63,7 +63,7 @@ void main() {
     );
 
     expect(find.text('订阅管理'), findsOneWidget);
-    expect(find.text('支持订阅链接与 ssr:// 导入'), findsOneWidget);
+    expect(find.text('支持订阅或节点链接导入'), findsOneWidget);
     expect(find.text('关于'), findsNothing);
     expect(find.text('暂无订阅'), findsOneWidget);
     await tester.enterText(

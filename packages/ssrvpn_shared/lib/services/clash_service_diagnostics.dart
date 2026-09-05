@@ -204,14 +204,27 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
       );
     }
 
-    final dataPlaneWarning = isRunning
-        ? (await _runDiagnosticCheck(
+    // A completed check may legitimately have no warning. Keep that separate
+    // from the null returned when the check itself fails or times out.
+    final dataPlaneResult = isRunning
+        ? await _runDiagnosticCheck(
             'data_plane',
-            diagnosticDataPlaneWarning,
-          ))
-            ?.trim()
+            () async => (warning: await diagnosticDataPlaneWarning()),
+          )
         : null;
-    if (isRunning && dataPlaneWarning != null && dataPlaneWarning.isNotEmpty) {
+    final dataPlaneWarning = dataPlaneResult?.warning?.trim();
+    if (isRunning && dataPlaneResult == null) {
+      checks.add(
+        const AppDiagnosticCheck(
+          id: 'data_plane',
+          title: '节点与外部网络',
+          status: AppDiagnosticStatus.warning,
+          summary: '检查未完成，暂时无法判断外部网络状态；请重新检查',
+        ),
+      );
+    } else if (isRunning &&
+        dataPlaneWarning != null &&
+        dataPlaneWarning.isNotEmpty) {
       checks.add(
         const AppDiagnosticCheck(
           id: 'data_plane',

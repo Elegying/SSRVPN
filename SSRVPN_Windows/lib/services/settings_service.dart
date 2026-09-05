@@ -4,14 +4,21 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
-    show AsyncLazy, RecoveringSerialQueue;
+    show
+        AsyncLazy,
+        RecoveringSerialQueue,
+        NodePreferenceStore,
+        NodePreferenceRename,
+        NodePreferenceWrite,
+        RuntimeConfigNamePolicy,
+        SubscriptionUndoRecord;
 import '../models/app_settings.dart';
 import 'windows_dpapi_secret_store.dart';
 
 /// 设置持久化服务（Windows 安装版）。
 ///
 /// 数据优先放在内部应用 EXE 旁；目录不可写时回退到 LocalAppData。
-class SettingsService extends ChangeNotifier {
+class SettingsService extends ChangeNotifier implements NodePreferenceStore {
   static const _apiSecretFileName = '.api-secret.dpapi';
   // Keep the legacy filename so completed migrations are not replayed after
   // the portable distribution channel is retired.
@@ -170,16 +177,41 @@ class SettingsService extends ChangeNotifier {
       );
     }
 
+    // The installed directory may be read-only. Migrate the committed snapshot
+    // from its undo record without changing the source or copying staged data.
+    final undo = await SubscriptionUndoRecord.read(File(
+      '$installedDir${Platform.pathSeparator}${SubscriptionUndoRecord.fileName}',
+    ));
+    final recovered = <String, String?>{...?undo?.files};
+    final preference = undo?.preference;
+    if (preference != null) {
+      final settings = await NodePreferenceWrite.readSettings(
+        File('$installedDir${Platform.pathSeparator}settings.json'),
+      );
+      if (settings != null && preference.recoverJson(settings)) {
+        recovered['settings.json'] = jsonEncode(settings);
+      }
+    }
+    final targetJournal =
+        '$fallbackDir${Platform.pathSeparator}${SubscriptionUndoRecord.fileName}';
+    if (await FileSystemEntity.type(targetJournal, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      throw StateError('Fallback data has a pending subscription recovery');
+    }
+
     for (final name in _installedDataFiles) {
       final sourceFile = File('$installedDir${Platform.pathSeparator}$name');
       final targetFile = File('$fallbackDir${Platform.pathSeparator}$name');
-      final critical = _criticalInstalledDataFiles.contains(name);
+      final fromUndo = recovered.containsKey(name);
+      final restoredBytes =
+          recovered[name] == null ? null : utf8.encode(recovered[name]!);
+      final critical = _criticalInstalledDataFiles.contains(name) || fromUndo;
       final sourceType = await FileSystemEntity.type(
         sourceFile.path,
         followLinks: false,
       );
-      if (sourceType == FileSystemEntityType.notFound) continue;
-      if (sourceType != FileSystemEntityType.file) {
+      if (!fromUndo && sourceType == FileSystemEntityType.notFound) continue;
+      if (!fromUndo && sourceType != FileSystemEntityType.file) {
         if (critical) {
           throw FileSystemException(
             'Critical installed data must be a regular file',
@@ -193,6 +225,12 @@ class SettingsService extends ChangeNotifier {
         targetFile.path,
         followLinks: false,
       );
+      if (fromUndo && restoredBytes == null) {
+        if (targetType != FileSystemEntityType.notFound) {
+          throw StateError('Installed recovery conflicts with fallback $name');
+        }
+        continue;
+      }
       if (targetType != FileSystemEntityType.notFound) {
         if (critical) {
           if (targetType != FileSystemEntityType.file) {
@@ -202,7 +240,7 @@ class SettingsService extends ChangeNotifier {
             );
           }
           if (!listEquals(
-            await sourceFile.readAsBytes(),
+            restoredBytes ?? await sourceFile.readAsBytes(),
             await targetFile.readAsBytes(),
           )) {
             throw StateError(
@@ -214,27 +252,11 @@ class SettingsService extends ChangeNotifier {
       }
 
       try {
-        await sourceFile.copy(targetFile.path);
-        if (critical &&
-            !listEquals(
-              await sourceFile.readAsBytes(),
-              await targetFile.readAsBytes(),
-            )) {
-          await targetFile.delete();
-          throw StateError(
-            'Installed data migration verification failed: $name',
-          );
-        }
+        await _copyInstalledFile(sourceFile, targetFile,
+            bytes: restoredBytes ??
+                (critical ? await sourceFile.readAsBytes() : null));
       } catch (error, stackTrace) {
         if (critical) {
-          final partialType = await FileSystemEntity.type(
-            targetFile.path,
-            followLinks: false,
-          );
-          if (partialType == FileSystemEntityType.file ||
-              partialType == FileSystemEntityType.link) {
-            await targetFile.delete();
-          }
           Error.throwWithStackTrace(error, stackTrace);
         }
         // A single locked cache file should not block application startup.
@@ -250,6 +272,28 @@ class SettingsService extends ChangeNotifier {
         if (await temporaryMarker.exists()) await temporaryMarker.delete();
       } catch (_) {}
       Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  static Future<void> _copyInstalledFile(File source, File target,
+      {List<int>? bytes}) async {
+    // An interrupted copy must not leave a partial final file that a retry
+    // would mistake for conflicting user data.
+    final temporary = File(
+        '${target.path}.migration.$pid.${DateTime.now().microsecondsSinceEpoch}');
+    try {
+      await temporary.create(exclusive: true);
+      if (bytes == null) {
+        await source.copy(temporary.path);
+      } else {
+        await temporary.writeAsBytes(bytes, flush: true);
+        if (!listEquals(bytes, await temporary.readAsBytes())) {
+          throw StateError('Installed data migration verification failed');
+        }
+      }
+      await temporary.rename(target.path);
+    } finally {
+      if (await temporary.exists()) await temporary.delete();
     }
   }
 
@@ -399,6 +443,7 @@ class SettingsService extends ChangeNotifier {
     return _saveQueue.add(() async {
       final candidate = AppSettings.fromJson(_settings.toJson());
       update(candidate);
+      if (candidate == _settings) return;
       await _persistSettings(candidate);
       _settings = candidate;
       notifyListeners();
@@ -528,18 +573,49 @@ class SettingsService extends ChangeNotifier {
   }
 
   Future<void> updateLastSelectedNodeName(String nodeName) async {
-    await _updateSettings(
-      (settings) => settings.lastSelectedNodeName = nodeName,
-    );
+    await _updateSettings((settings) {
+      settings.lastSelectedNodeName =
+          RuntimeConfigNamePolicy.canonicalName(nodeName);
+      settings.lastSelectedNodeRenameId = '';
+    });
   }
 
   Future<void> renameLastSelectedNode(
     String originalName,
     String updatedName,
   ) async {
-    if (_settings.lastSelectedNodeName != originalName) return;
-    await _updateSettings(
-      (settings) => settings.lastSelectedNodeName = updatedName,
-    );
+    await _updateSettings((settings) {
+      if (RuntimeConfigNamePolicy.canonicalName(
+              settings.lastSelectedNodeName) !=
+          RuntimeConfigNamePolicy.canonicalName(originalName)) {
+        return;
+      }
+      settings.lastSelectedNodeName =
+          RuntimeConfigNamePolicy.canonicalName(updatedName);
+      settings.lastSelectedNodeRenameId = '';
+    });
   }
+
+  void _publishNodePreference(AppSettings value) {
+    _settings = value;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> withNodePreferenceRename(NodePreferenceRename change,
+          Future<void> Function(NodePreferenceWrite) edit) =>
+      _saveQueue.add(() => edit(NodePreferenceWrite(
+          current: _settings,
+          change: change,
+          write: _persistSettings,
+          publish: _publishNodePreference)));
+
+  @override
+  Future<void> recoverNodePreference(NodePreferenceRename change) =>
+      _saveQueue.add(() => NodePreferenceWrite.recover(
+          change: change,
+          current: _settings,
+          file: File(_settingsPath),
+          write: _persistSettings,
+          publish: _publishNodePreference));
 }

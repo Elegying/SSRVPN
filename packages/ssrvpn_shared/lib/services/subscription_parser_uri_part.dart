@@ -41,6 +41,7 @@ class _SubscriptionUriParser {
     final uri = Uri.tryParse(line);
     if (uri == null) return null;
     final scheme = uri.scheme.toLowerCase();
+    if (!ProxyNodeUsagePolicy.nodeUriSchemes.contains(scheme)) return null;
 
     if (scheme == 'ss') return _parseSsUri(uri);
     if (scheme == 'vmess') return _parseVmessUri(line);
@@ -433,7 +434,9 @@ class _SubscriptionUriParser {
   }
 
   static Map<String, dynamic>? _parseSocksUri(Uri uri) {
-    if (uri.host.isEmpty || !uri.hasPort || uri.port <= 0) return null;
+    if (uri.host.isEmpty || !uri.hasPort || uri.port <= 0 || uri.port > 65535) {
+      return null;
+    }
 
     final proxy = <String, dynamic>{
       'name': _proxyNameFromUri(uri),
@@ -453,7 +456,9 @@ class _SubscriptionUriParser {
   }
 
   static Map<String, dynamic>? _parseHttpUri(Uri uri) {
-    if (uri.host.isEmpty || !uri.hasPort || uri.port <= 0) return null;
+    if (uri.host.isEmpty || !uri.hasPort || uri.port <= 0 || uri.port > 65535) {
+      return null;
+    }
 
     final proxy = <String, dynamic>{
       'name': _proxyNameFromUri(uri),

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ssrvpn_android/models/app_settings.dart';
 import 'package:ssrvpn_android/services/settings_service.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart' show NodePreferenceRename;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +24,39 @@ void main() {
     if (await tempDirectory.exists()) {
       await tempDirectory.delete(recursive: true);
     }
+  });
+
+  test('staged preference recovers from disk and preserves a later selection',
+      () async {
+    final service = await SettingsService.createForTesting(
+      configPath: configPath,
+      readApiSecret: () async => 'synthetic-secret',
+      writeApiSecret: (_) async {},
+    );
+    addTearDown(service.dispose);
+    await service.setLastSelectedNodeName('Original');
+    const change = NodePreferenceRename('Original', 'EditedNode', 'edit-1');
+    await service.withNodePreferenceRename(change, (write) async {
+      await write.persist();
+      expect(service.settings.lastSelectedNodeName, 'Original');
+    });
+    expect(
+        jsonDecode(
+            await File(configPath).readAsString())['lastSelectedNodeName'],
+        'EditedNode');
+    await service.recoverNodePreference(change);
+    expect(
+        jsonDecode(
+            await File(configPath).readAsString())['lastSelectedNodeName'],
+        'Original');
+    await service.withNodePreferenceRename(change, (write) async {
+      await write.persist();
+      write.publish();
+    });
+    await service.setLastSelectedNodeName('O\tther');
+    await service.recoverNodePreference(change);
+    expect(service.settings.lastSelectedNodeName, 'Other');
+    expect(service.settings.lastSelectedNodeRenameId, isEmpty);
   });
 
   test('secure-storage read failures abort initialization without rotation',

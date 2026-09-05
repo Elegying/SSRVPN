@@ -48,7 +48,7 @@ void main() {
       );
       expect(
         AppFailure.fromMessage('network request timed out').code,
-        AppErrorCode.unknown,
+        AppErrorCode.networkTimeout,
       );
       expect(
         AppFailure.fromMessage('Windows Mihomo 核心启动配置校验响应超时；raw-secret').code,
@@ -90,6 +90,74 @@ void main() {
       expect(timeout.code, AppErrorCode.proxyRecoveryPending);
       expect(timeout.userMessage, contains('系统代理待恢复'));
       expect(timeout.userMessage, isNot(contains('secret.ps1')));
+    });
+
+    test('connection failures explain the cause and next action safely', () {
+      const cases = <String, (AppErrorCode, String, String)>{
+        'SocketException: Connection refused': (
+          AppErrorCode.networkUnavailable,
+          '目标服务拒绝连接',
+          '切换节点'
+        ),
+        'SocketException: Failed host lookup': (
+          AppErrorCode.networkUnavailable,
+          '服务器地址解析失败',
+          '刷新订阅'
+        ),
+        'SocketException: Network is unreachable': (
+          AppErrorCode.networkUnavailable,
+          '网络连接未建立',
+          '普通网页'
+        ),
+        'TimeoutException: HTTP request timed out': (
+          AppErrorCode.networkTimeout,
+          '等待服务器响应超时',
+          '确认网络可用'
+        ),
+        'HandshakeException: CERTIFICATE_VERIFY_FAILED': (
+          AppErrorCode.secureConnectionFailed,
+          '安全连接校验失败',
+          '日期和时间'
+        ),
+        'VPN_PERMISSION_DENIED': (
+          AppErrorCode.permissionRequired,
+          '尚未允许 VPN 连接',
+          '选择允许或确定'
+        ),
+        '用户取消了管理员授权': (AppErrorCode.permissionRequired, '已取消 TUN 授权', '系统窗口'),
+        'SYSTEM_PROXY_APPLY_FAILED: SYSTEM_PROXY_SETTLE_TIMEOUT': (
+          AppErrorCode.systemProxyApplyFailed,
+          '系统代理尚未确认生效',
+          '重新连接'
+        ),
+        'SYSTEM_PROXY_APPLY_FAILED: SYSTEM_PROXY_OWNERSHIP_LOST': (
+          AppErrorCode.systemProxyChanged,
+          '系统代理已被修改',
+          '关闭其他代理'
+        ),
+        'CORE_START_UNKNOWN: network request timed out': (
+          AppErrorCode.unknown,
+          '操作未完成',
+          '运行诊断'
+        ),
+        'Windows 系统命令响应超时': (AppErrorCode.unknown, '操作未完成', '运行诊断'),
+      };
+      for (final entry in cases.entries) {
+        final failure = AppFailure.fromMessage(
+          '${entry.key}; https://example.com/private?token=private-secret',
+        );
+        expect(failure.code, entry.value.$1, reason: entry.key);
+        expect(failure.title, entry.value.$2, reason: entry.key);
+        expect(failure.recommendedAction, contains(entry.value.$3),
+            reason: entry.key);
+        expect(failure.userMessage.split('\n'), hasLength(3));
+        expect(failure.userMessage, isNot(contains('private-secret')));
+        expect(failure.userMessage, isNot(contains('example.com')));
+      }
+      expect(
+        AppFailure.fromMessage('SocketException: Failed host lookup').message,
+        contains('域名解析'),
+      );
     });
 
     test('maps macOS system proxy apply failures without leaking details', () {
@@ -231,12 +299,12 @@ void main() {
         (
           message: '电脑性能不足或核心启动过慢，请重新连接',
           code: AppErrorCode.coreStartTimeout,
-          actionContains: '重试',
+          actionContains: '重新连接',
         ),
         (
           message: 'TUN 核心端口被其他程序占用，请关闭冲突程序后重试',
           code: AppErrorCode.portOccupied,
-          actionContains: '自动选择可用端口',
+          actionContains: '尝试选择可用端口',
         ),
         (
           message: '检测到上次异常退出的 TUN 会话，请重启 Mac 后重试',
@@ -387,7 +455,8 @@ void main() {
 
       expect(message, isNot(contains('top-secret')));
       expect(message, isNot(contains('secret.ps1')));
-      expect(message, contains('原始敏感细节不会显示'));
+      expect(message, contains('暂时无法确定具体原因'));
+      expect(message, contains('运行诊断'));
     });
 
     test('separates a trusted failure from the follow-up action', () {

@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ssrvpn_android/models/app_settings.dart';
+import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:ssrvpn_android/services/clash_service.dart';
 import 'package:ssrvpn_android/services/connection_orchestrator.dart';
 import 'package:ssrvpn_android/services/settings_service.dart';
@@ -179,8 +179,10 @@ void main() {
     releaseSecureWrite.complete();
     await blockingWrite;
     await modeWrite;
-    expect((await connecting).message, isNull);
+    expect((await connecting).message,
+        clashService.lastRuntimePortAdjustmentMessage);
     expect(clashService.generatedSettings?.proxyMode, ProxyMode.global);
+    expect(clashService.isRunning, isTrue);
     expect(clashService.startCalls, 1);
   });
 
@@ -299,8 +301,16 @@ void main() {
       connectionGeneration: generation,
     );
 
-    expect(result.message, contains('本地控制凭据不可用或与运行配置不一致'));
-    expect(result.message, isNot(contains('端口')));
+    expect(result.message, 'CORE_START_API_AUTH');
+    final feedback = resolveAndroidConnectionFeedback(
+      connected: clashService.isRunning,
+      result: result.message,
+      runtimeNotice: null,
+    );
+    expect(feedback.errorMessage, startsWith('本地控制服务认证失败\n'));
+    expect(feedback.errorMessage, contains('退出并重新打开 SSRVPN'));
+    expect(feedback.errorMessage, isNot(contains('端口')));
+    expect(feedback.connectionNotice, isNull);
     expect(clashService.startCalls, 1);
     expect(clashService.stopCalls, 0);
   });
@@ -408,8 +418,9 @@ void main() {
         connectionGeneration: generation,
       ))
           .message,
-      isNull,
+      clashService.lastRuntimePortAdjustmentMessage,
     );
+    expect(clashService.isRunning, isTrue);
     expect(clashService.generatedSettings?.apiSecret, 'test-secret');
     expect(clashService.startCalls, 1);
   });
@@ -452,7 +463,7 @@ void main() {
           onTimeout: () => const AndroidConnectionOutcome(message: 'blocked'),
         );
 
-    expect(result.message, isNull);
+    expect(result.message, clashService.lastRuntimePortAdjustmentMessage);
     expect(clashService.isRunning, isTrue);
     expect(clashService.verificationStarted.isCompleted, isTrue);
     expect(clashService.observationIsCurrent?.call(), isTrue);
@@ -480,7 +491,7 @@ void main() {
         runtimeNotice: null,
       ),
       (
-        errorMessage: 'VPN 网络保护服务异常，请重新连接',
+        errorMessage: AppFailure.fromMessage('CORE_START_TUN').userMessage,
         connectionNotice: null,
       ),
     );
@@ -491,7 +502,8 @@ void main() {
       'Mihomo: parse password secret-value at /data/user/0/private.yaml',
     );
 
-    expect(message, 'VPN 启动失败，请重试；若持续失败请打开诊断与运行日志');
+    expect(message, startsWith('操作未完成\n暂时无法确定具体原因。\n'));
+    expect(message, contains('运行诊断'));
     expect(message, isNot(contains('secret-value')));
     expect(message, isNot(contains('/data/user')));
   });
@@ -499,60 +511,48 @@ void main() {
   test('stable unknown native code keeps the generic safe UI copy', () {
     expect(
       userFriendlyAndroidConnectionError(androidUnknownCoreStartFailure),
-      'VPN 启动失败，请重试；若持续失败请打开诊断与运行日志',
+      startsWith('操作未完成\n暂时无法确定具体原因。\n'),
     );
   });
 
   test('stable native startup stages have actionable friendly messages', () {
-    expect(
-      userFriendlyAndroidConnectionError('Missing required arguments'),
-      '连接参数不完整，请重试',
-    );
-    expect(
-      userFriendlyAndroidConnectionError('VPN establish failed'),
-      '系统未能创建 VPN 接口，请检查 VPN 权限后重试',
-    );
-    expect(
-      userFriendlyAndroidConnectionError('Bridge.start timed out'),
-      'VPN 核心启动超时，请重新连接',
-    );
-    expect(
-      userFriendlyAndroidConnectionError('Health check timeout'),
-      'VPN 核心已启动，但本地控制服务未及时就绪，请重新连接',
-    );
+    const stages = <String, (String, String)>{
+      'Missing required arguments': ('配置不可用', '刷新订阅'),
+      'VPN establish failed': ('系统 VPN 接口未能就绪', '确认已允许 VPN'),
+      'Bridge.start timed out': ('核心启动超时', '重启应用'),
+      'Health check timeout': ('核心连接中断', '运行诊断'),
+      'CORE_START_PORT_CONFLICT': ('本地端口被占用', '关闭占用端口的程序'),
+      'CORE_START_API_AUTH': ('本地控制服务认证失败', '退出并重新打开 SSRVPN'),
+      'CORE_START_BUSY': ('上一项连接操作尚未结束', '等待几秒'),
+      'CORE_START_COMPONENT': ('核心文件不可用', '重新安装官方安装包'),
+      'VPN_PERMISSION_DENIED': ('尚未允许 VPN 连接', '选择允许或确定'),
+    };
+    for (final entry in stages.entries) {
+      final message = userFriendlyAndroidConnectionError(
+        '${entry.key}; token=private-secret',
+      );
+      expect(message, startsWith('${entry.value.$1}\n'), reason: entry.key);
+      expect(message, contains(entry.value.$2), reason: entry.key);
+      expect(message.split('\n'), hasLength(3), reason: entry.key);
+      expect(message, isNot(contains('private-secret')), reason: entry.key);
+    }
     expect(
       userFriendlyAndroidConnectionError(
         'PlatformException(STOP_INCOMPLETE, VPN resources are still releasing)',
       ),
-      'VPN 正在释放系统资源，请稍后重试',
+      'VPN 正在释放系统资源，请等待几秒后重试',
     );
     expect(
       userFriendlyAndroidConnectionError(
         'PlatformException(STOP_FAILED, native secret detail)',
       ),
-      'VPN 断开失败，请重试；若持续失败请打开诊断与运行日志',
+      'VPN 未能完成断开，请再次点击断开；仍失败请查看诊断中的核心状态',
     );
     expect(
       userFriendlyAndroidConnectionError(
         '无法保存连接恢复信息，VPN 已安全回滚',
       ),
-      '无法保存连接恢复信息，VPN 已安全回滚，请重试',
-    );
-    expect(
-      userFriendlyAndroidConnectionError('CORE_START_PORT_CONFLICT'),
-      '本地代理端口被占用，请关闭占用端口的应用后重试',
-    );
-    expect(
-      userFriendlyAndroidConnectionError('CORE_START_API_AUTH'),
-      '本地控制凭据不可用或与运行配置不一致，请重启应用后重试',
-    );
-    expect(
-      userFriendlyAndroidConnectionError('CORE_START_BUSY'),
-      'VPN 核心正在启动或清理，请稍后重试',
-    );
-    expect(
-      userFriendlyAndroidConnectionError('CORE_START_COMPONENT'),
-      'VPN 核心组件不可用，请重新安装官方版本',
+      '无法保存连接恢复信息，本次连接已回滚。请检查设备可用空间后重试',
     );
   });
 

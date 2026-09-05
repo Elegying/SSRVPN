@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:ssrvpn_shared/services/subscription_processing.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
+import 'package:ssrvpn_shared/services/subscription_yaml_merger.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -11,6 +12,37 @@ void main() {
 
   tearDown(() {
     SubscriptionProcessing.workerStartDelayForTesting = Duration.zero;
+  });
+
+  test('large historical naming state uses a worker and preserves identity',
+      () async {
+    final source =
+        _largeYaml(1200).replaceAll(RegExp(r'name: Node \d+'), 'name: Same');
+    final previous = SubscriptionYamlMerger.mergeYamlConfigs(
+      [source],
+      sourceNames: ['Primary'],
+      sourceIds: ['source'],
+    );
+    final current = _largeYaml(1)
+        .replaceFirst('name: Node 0', 'name: Same')
+        .replaceFirst('node-0.example.com', 'node-1199.example.com');
+    expect(current.length, lessThan(SubscriptionProcessing.isolateThreshold));
+    expect(
+        previous.length, greaterThan(SubscriptionProcessing.isolateThreshold));
+    final processing = SubscriptionProcessing.mergeAndParse(
+      [current],
+      ['Primary'],
+      SubscriptionRefreshControl(timeout: const Duration(seconds: 30)),
+      proxySourceKey: 'ssrvpn-subscription',
+      standaloneGroupName: 'Standalone',
+      sourceIds: ['source'],
+      previousYaml: previous,
+    );
+    expect(SubscriptionProcessing.activeWorkerCount, 1);
+    final result = await processing;
+    expect(result.parsed.nodes.single.name, 'Same (1200)');
+    expect(result.parsed.nodes.single.server, 'node-1199.example.com');
+    expect(SubscriptionProcessing.activeWorkerCount, 0);
   });
 
   test('small processing stays on the caller isolate with synchronous errors',

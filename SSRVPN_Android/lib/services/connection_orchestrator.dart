@@ -45,104 +45,54 @@ class AndroidConnectionOutcome {
 String userFriendlyAndroidConnectionError(Object? error) {
   final raw = error?.toString().trim() ?? '';
   final lower = raw.toLowerCase();
-
-  if (raw == '请先添加并刷新订阅' || raw.startsWith('订阅已更新')) {
-    return raw;
-  }
-  if (raw.contains('Missing required arguments') ||
-      raw.contains('连接参数不完整') ||
-      lower.contains('invalid_args')) {
-    return '连接参数不完整，请重试';
-  }
-  if (raw.contains('VPN establish failed') || raw.contains('创建 VPN 接口')) {
-    return '系统未能创建 VPN 接口，请检查 VPN 权限后重试';
-  }
-  if (lower.contains('core_start_port_conflict')) {
-    return '本地代理端口被占用，请关闭占用端口的应用后重试';
-  }
-  if (lower.contains('core_start_api_auth')) {
-    return '本地控制凭据不可用或与运行配置不一致，请重启应用后重试';
-  }
-  if (lower.contains('core_start_permission')) {
-    return 'VPN 核心缺少必要权限，请检查系统设置后重试';
-  }
-  if (lower.contains('core_start_tun')) {
-    return 'VPN 网络保护服务异常，请重新连接';
-  }
-  if (lower.contains('core_start_config')) {
-    return 'VPN 配置不可用，请刷新订阅后重试';
-  }
-  if (lower.contains('core_start_timeout')) {
-    return 'VPN 核心启动超时，请重新连接';
-  }
-  if (lower.contains('core_start_component')) {
-    return 'VPN 核心组件不可用，请重新安装官方版本';
-  }
-  if (lower.contains('core_start_busy')) {
-    return 'VPN 核心正在启动或清理，请稍后重试';
-  }
-  if (lower.contains('local api') ||
-      raw.contains('本地控制服务') ||
-      raw.contains('Health check timeout')) {
-    return 'VPN 核心已启动，但本地控制服务未及时就绪，请重新连接';
-  }
-  if (lower.contains('bridge.start') ||
-      lower.contains('core start timeout') ||
-      raw.contains('核心启动超时') ||
-      raw.contains('设备性能不足')) {
-    return 'VPN 核心启动超时，请重新连接';
-  }
-  if (lower.contains('core_timeout') || raw.contains('VPN 启动超时')) {
-    return 'VPN 启动超时，请重新连接；若持续失败请打开诊断与运行日志';
-  }
-  if (raw.contains('用户拒绝了 VPN 权限') || lower.contains('permission_denied')) {
-    return '未获得 VPN 权限，请允许后重试';
+  if (raw == '请先添加并刷新订阅') return raw;
+  if (raw.startsWith('订阅已更新')) return '订阅已更新，请重新连接以使用最新配置';
+  if (lower.contains('core_start_')) {
+    return AppFailure.fromMessage(error).userMessage;
   }
   if (lower.contains('stop_incomplete') || raw.contains('正在释放系统资源')) {
-    return 'VPN 正在释放系统资源，请稍后重试';
+    return 'VPN 正在释放系统资源，请等待几秒后重试';
   }
   if (lower.contains('stop_failed') || raw.contains('VPN 断开失败')) {
-    return 'VPN 断开失败，请重试；若持续失败请打开诊断与运行日志';
-  }
-  if (lower.contains('core_busy') ||
-      raw.contains('核心正在启动') ||
-      raw.contains('核心正在清理')) {
-    return 'VPN 核心正在启动或清理，请稍后重试';
-  }
-  if (raw.contains('VPN 网络保护服务启动失败') || raw.contains('VPN 网络保护服务异常')) {
-    return 'VPN 网络保护服务异常，请重新连接';
-  }
-  if (raw.contains('VPN 凭据不可用')) {
-    return 'VPN 凭据不可用，请打开应用重新连接';
-  }
-  if (raw.contains('VPN 配置不可用')) {
-    return 'VPN 配置不可用，请打开应用重新连接';
+    return 'VPN 未能完成断开，请再次点击断开；仍失败请查看诊断中的核心状态';
   }
   if (raw.contains('无法保存连接恢复信息')) {
-    return '无法保存连接恢复信息，VPN 已安全回滚，请重试';
-  }
-  if (raw.contains('Mihomo 原生组件不可用')) {
-    return 'VPN 原生组件不可用，请重新安装应用';
+    return '无法保存连接恢复信息，本次连接已回滚。请检查设备可用空间后重试';
   }
   if (raw.contains('连接已取消')) return '连接已取消';
   if (raw.contains('连接已中断')) return '连接已中断，请重新连接';
-  if (lower.contains('timeoutexception') || lower.contains('timeout')) {
-    return '连接超时，请检查网络后重试';
+
+  // Older native builds used localized text instead of stable stage codes.
+  // Normalize those aliases once, then reuse the shared safe failure copy.
+  const legacyStages = <String, String>{
+    'missing required arguments': 'CORE_START_CONFIG',
+    '连接参数不完整': 'CORE_START_CONFIG',
+    'invalid_args': 'CORE_START_CONFIG',
+    'vpn establish failed': 'CORE_START_TUN',
+    '创建 vpn 接口': 'CORE_START_TUN',
+    'vpn 网络保护服务': 'CORE_START_TUN',
+    'vpn 凭据不可用': 'CORE_START_API_AUTH',
+    'vpn 配置不可用': 'CORE_START_CONFIG',
+    '用户拒绝了 vpn 权限': 'VPN_PERMISSION_DENIED',
+    'permission_denied': 'VPN_PERMISSION_DENIED',
+    'health check timeout': 'CORE_API_UNAVAILABLE',
+    'local api': 'CORE_API_UNAVAILABLE',
+    '本地控制服务': 'CORE_API_UNAVAILABLE',
+    'bridge.start': 'CORE_START_TIMEOUT',
+    'core start timeout': 'CORE_START_TIMEOUT',
+    'core_timeout': 'CORE_START_TIMEOUT',
+    'vpn 启动超时': 'CORE_START_TIMEOUT',
+    'core_busy': 'CORE_START_BUSY',
+    '核心正在启动': 'CORE_START_BUSY',
+    '核心正在清理': 'CORE_START_BUSY',
+    'mihomo 原生组件不可用': 'CORE_START_COMPONENT',
+  };
+  for (final entry in legacyStages.entries) {
+    if (lower.contains(entry.key)) {
+      return AppFailure.fromMessage(entry.value).userMessage;
+    }
   }
-  if (lower.contains('handshakeexception') ||
-      lower.contains('certificate') ||
-      lower.contains('tls')) {
-    return '安全连接失败，请检查网络环境';
-  }
-  if (lower.contains('socketexception') ||
-      lower.contains('connection refused') ||
-      lower.contains('network')) {
-    return '网络连接失败，请检查网络设置';
-  }
-  if (lower.contains('httpexception')) {
-    return '服务器响应异常，请稍后重试';
-  }
-  return 'VPN 启动失败，请重试；若持续失败请打开诊断与运行日志';
+  return AppFailure.fromMessage(error).userMessage;
 }
 
 /// Clears only the still-current connection intent owned by a failed attempt.
@@ -268,13 +218,13 @@ class ConnectionOrchestrator {
           continue;
         }
         return AndroidConnectionOutcome(
-          message: userFriendlyAndroidConnectionError(reason),
+          message: reason,
           preferredNodeSwitchSucceeded: false,
         );
       }
       if (!started) {
         return const AndroidConnectionOutcome(
-          message: 'VPN 启动失败，请重试；若持续失败请打开诊断与运行日志',
+          message: androidUnknownCoreStartFailure,
           preferredNodeSwitchSucceeded: false,
         );
       }

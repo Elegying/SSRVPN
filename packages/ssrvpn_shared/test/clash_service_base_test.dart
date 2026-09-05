@@ -2026,7 +2026,8 @@ proxies:
       );
 
       expect(runtime.errorCode, AppErrorCode.systemProxyChanged);
-      expect(runtime.summary, contains('其他程序关闭或替换'));
+      expect(runtime.summary, contains('与 SSRVPN 本次连接不一致'));
+      expect(runtime.summary, contains('可能已被手动或其他程序修改'));
       expect(runtime.summary, contains('关闭其他代理或 VPN'));
       expect(runtime.summary, isNot(contains('未分类')));
     });
@@ -2070,6 +2071,36 @@ proxies:
         expect(dataPlane.errorCode, isNull);
       },
     );
+
+    for (final hang in [false, true]) {
+      test('incomplete data-plane ${hang ? "timeout" : "error"} is not passed',
+          () async {
+        final service = _IncompleteDataPlaneDiagnosticService(hang: hang);
+        addTearDown(service.dispose);
+        service.setRunning(true);
+        var report = await service.runDiagnostics();
+        var dataPlane =
+            report.checks.singleWhere((check) => check.id == 'data_plane');
+        expect(dataPlane.status, AppDiagnosticStatus.warning);
+        expect(dataPlane.summary, contains('检查未完成'));
+        expect(service.isRunning, isTrue);
+        expect(service.recentLogs, isNot(contains('private-snapshot-detail')));
+        service.fail = false;
+        report = await service.runDiagnostics();
+        dataPlane =
+            report.checks.singleWhere((check) => check.id == 'data_plane');
+        expect(dataPlane.status, AppDiagnosticStatus.passed);
+        expect(service.isRunning, isTrue);
+      });
+    }
+
+    test('disconnected diagnostics explain their verification scope', () async {
+      final service = _DiagnosticClashService(configRequired: false);
+      addTearDown(service.dispose);
+      final report = await service.runDiagnostics();
+      expect(report.userConclusion, '本地检查通过，连接尚未验证');
+      expect(service.healthCalls, 0);
+    });
 
     test(
       'uses a fresh platform data-plane warning in manual diagnostics',
@@ -2971,4 +3002,18 @@ mixin _ExplicitTestDiagnosticCapability on ClashServiceBase {
   @override
   Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async =>
       const AppRepairResult(success: false, message: 'test capability');
+}
+
+class _IncompleteDataPlaneDiagnosticService extends _DiagnosticClashService {
+  _IncompleteDataPlaneDiagnosticService({required this.hang});
+  final bool hang;
+  bool fail = true;
+  @override
+  Duration get diagnosticCheckTimeout => const Duration(milliseconds: 20);
+  @override
+  Future<String?> diagnosticDataPlaneWarning() async {
+    if (!fail) return null;
+    if (hang) return Completer<String?>().future;
+    throw StateError('private-snapshot-detail');
+  }
 }

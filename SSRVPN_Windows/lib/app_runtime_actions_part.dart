@@ -48,7 +48,7 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
           core.requestConnectionIntent(false);
           core.interruptPendingStart();
           final reason = core.lastStartError ?? '系统代理旧状态恢复失败';
-          StartupLogger.writeDesktopFailureReportSync(
+          recordDesktopConnectionFailure(
             'Tray connection failed: $reason',
           );
           await _presentTrayFailure(reason);
@@ -114,7 +114,7 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
             AppErrorCode.permissionRequired) {
           StartupLogger.warning('Tray connection refused: $reason');
         } else {
-          StartupLogger.writeDesktopFailureReportSync(
+          recordDesktopConnectionFailure(
             'Tray connection failed: $reason',
           );
         }
@@ -135,8 +135,7 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
             preferredNodeName: recoveryNodeName,
           ),
           isRevisionCurrent: () =>
-              subscriptionService.revision == subscriptionRevision &&
-              subscriptionService.rawYaml == rawYaml,
+              subscriptionService.revision == subscriptionRevision,
           preferredNodeName: preferredNodeName,
         );
       }
@@ -178,19 +177,12 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
         core.requestConnectionIntent(false);
         core.interruptPendingStart();
       }
-      StartupLogger.error('Tray connect toggle failed', error, stack);
-      final reason = error
-          .toString()
-          .replaceFirst('Bad state: ', '')
-          .replaceFirst('Exception: ', '');
-      await _presentTrayFailure(
-        reason.startsWith('订阅已更新') ? reason : '托盘连接失败，请重试或查看日志',
-      );
-      StartupLogger.writeDesktopFailureReportSync(
+      recordDesktopConnectionFailure(
         'Tray connection failed',
         error: error,
         stack: stack,
       );
+      await _presentTrayFailure(error);
     } finally {
       await _trayManager.refreshMenu();
     }

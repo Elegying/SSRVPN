@@ -1,10 +1,164 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 import 'package:ssrvpn_macos/screens/node_edit_screen.dart';
+import 'package:ssrvpn_macos/services/settings_service.dart';
+import 'package:ssrvpn_macos/services/subscription_service.dart';
 import 'package:ssrvpn_macos/theme/app_theme.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
+  testWidgets('saving a name with controls preserves the chosen endpoint',
+      (tester) async {
+    late Directory directory;
+    late _EditorFaultSubscription subscription;
+    late SettingsService settings;
+    await tester.runAsync(() async {
+      directory =
+          await Directory.systemTemp.createTemp('ssrvpn-canonical-edit-');
+      subscription = _EditorFaultSubscription();
+      await subscription.init(directory.path);
+      await subscription.setRawYaml('proxies:\n'
+          '  - {name: Decoy, type: socks5, server: decoy.invalid, port: 443}\n'
+          '  - {name: Original, type: socks5, server: chosen.invalid, port: 443}\n');
+      settings = await SettingsService.createForTesting(
+        settings: AppSettings(lastSelectedNodeName: 'Original'),
+        dataDir: directory.path,
+        settingsPath: '${directory.path}/settings.json',
+        readApiSecret: () async => 'synthetic-secret',
+        writeApiSecret: (_) async {},
+      );
+    });
+    addTearDown(() async {
+      subscription.dispose();
+      settings.dispose();
+      await directory.delete(recursive: true);
+    });
+    await tester.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider<SubscriptionService>.value(value: subscription),
+        ChangeNotifierProvider<SettingsService>.value(value: settings),
+      ],
+      child: MaterialApp(
+          theme: AppTheme.light,
+          home: Builder(
+              builder: (context) => Scaffold(
+                    body: TextButton(
+                        onPressed: () =>
+                            Navigator.of(context).push(MaterialPageRoute<void>(
+                              builder: (_) => NodeEditScreen(
+                                  node: subscription.allNodes.last),
+                            )),
+                        child: const Text('Open editor')),
+                  ))),
+    ));
+    await tester.tap(find.text('Open editor'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'Edited\tNode');
+    final save = tester
+        .widget<TextButton>(find.widgetWithText(TextButton, '保存'))
+        .onPressed! as Future<void> Function();
+    await tester.runAsync(save);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('Open editor'), findsOneWidget);
+    expect(subscription.allNodes.last.name, 'EditedNode');
+    expect(settings.settings.lastSelectedNodeName, 'EditedNode');
+    late Map<String, dynamic> persisted;
+    await tester.runAsync(() async {
+      persisted = jsonDecode(
+              await File('${directory.path}/settings.json').readAsString())
+          as Map<String, dynamic>;
+    });
+    expect(persisted['lastSelectedNodeName'], 'EditedNode');
+    expect(
+        HomeNodeController.resolveDefaultNodeFrom(
+                subscription.allNodes, settings.settings.lastSelectedNodeName)!
+            .server,
+        'chosen.invalid');
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  for (final failure in ['duplicate', 'preference', 'node', 'rollback']) {
+    testWidgets(
+        'node edit reports $failure failure and restores its save control',
+        (tester) async {
+      late Directory directory;
+      late _EditorFaultSubscription subscription;
+      late SettingsService settings;
+      var writes = 0;
+      final targetName = failure == 'duplicate' ? 'Second' : 'Edited';
+      await tester.runAsync(() async {
+        directory = await Directory.systemTemp.createTemp('ssrvpn-node-edit-');
+        subscription = _EditorFaultSubscription();
+        await subscription.init(directory.path);
+        await subscription.setRawYaml('proxies:\n'
+            '  - {name: Original, type: socks5, server: original.invalid, port: 443}\n'
+            '  - {name: Second, type: socks5, server: second.invalid, port: 443}\n');
+        settings = await SettingsService.createForTesting(
+            settings: AppSettings(lastSelectedNodeName: 'Original'),
+            dataDir: directory.path,
+            settingsPath: '${directory.path}/settings.json',
+            readApiSecret: () async => '',
+            writeApiSecret: (_) async {},
+            writeSettings: (value) async {
+              writes++;
+              if ((failure == 'preference' && writes == 1) ||
+                  (failure == 'rollback' && writes == 2)) {
+                throw const FileSystemException(
+                    'synthetic settings write failure');
+              }
+              await File('${directory.path}/settings.json').writeAsString(
+                  jsonEncode(value.toJson()..remove('apiSecret')),
+                  flush: true);
+            });
+        subscription.failNextCache = failure != 'duplicate';
+      });
+      addTearDown(() async {
+        subscription.dispose();
+        settings.dispose();
+        await directory.delete(recursive: true);
+      });
+      await tester.pumpWidget(MultiProvider(
+          providers: [
+            ChangeNotifierProvider<SubscriptionService>.value(
+                value: subscription),
+            ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ],
+          child: MaterialApp(
+              theme: AppTheme.light,
+              home: NodeEditScreen(node: subscription.allNodes.first))));
+      await tester.enterText(find.byType(TextFormField).first, targetName);
+      final submit = tester
+          .widget<TextButton>(find.widgetWithText(TextButton, '保存'))
+          .onPressed! as Future<void> Function();
+      await tester.runAsync(submit);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(subscription.allNodes.first.name, 'Original');
+      expect(
+          tester
+              .widget<TextButton>(find.widgetWithText(TextButton, '保存'))
+              .onPressed,
+          isNotNull);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      if (failure == 'rollback') {
+        expect(find.textContaining('首选节点恢复失败'), findsOneWidget);
+      } else {
+        expect(settings.settings.lastSelectedNodeName, 'Original');
+      }
+      expect(writes,
+          switch (failure) { 'duplicate' => 0, 'preference' => 1, _ => 2 });
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+  }
+
   testWidgets('renders current node values', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -79,4 +233,22 @@ ProxyNode _node() {
       'password': 'secret',
     },
   );
+}
+
+class _EditorFaultSubscription extends SubscriptionServiceBase
+    implements SubscriptionService {
+  bool failNextCache = false;
+
+  @override
+  Future<String?> fetchSubscription(String url,
+          {int maxRetries = 3, SubscriptionRefreshControl? control}) async =>
+      throw StateError('unexpected fetch');
+  @override
+  Future<void> cacheYaml(String yaml) async {
+    if (failNextCache) {
+      failNextCache = false;
+      throw const FileSystemException('synthetic node save failure');
+    }
+    await super.cacheYaml(yaml);
+  }
 }

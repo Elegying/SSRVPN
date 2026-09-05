@@ -36,11 +36,14 @@ internal object NativeConnectionSession {
     @Volatile
     private var stopping = false
 
+    private var manuallyStopped = false
+
     @Synchronized
     fun beginStarting(claimId: String?): Boolean {
         val pendingClaimId = pendingStartClaimId
         if (pendingClaimId != null && pendingClaimId != claimId) return false
         if (pendingClaimId == null && claimId != null) return false
+        manuallyStopped = false
         starting = true
         startingConfigPath = pendingStartConfigPath
         pendingStartClaimId = null
@@ -55,6 +58,7 @@ internal object NativeConnectionSession {
 
     @Synchronized
     fun publishRunning(configPath: String) {
+        manuallyStopped = false
         runningConfigPath = configPath
         recoveryConfigPath = null
         startingConfigPath = null
@@ -76,7 +80,10 @@ internal object NativeConnectionSession {
     }
 
     @Synchronized
-    fun beginStopping() {
+    fun beginStopping(userInitiated: Boolean = false) {
+        // onDestroy may join an already requested user stop. Preserve its
+        // cause until a new start is accepted, within the same generation lock.
+        manuallyStopped = manuallyStopped || userInitiated
         stopping = true
     }
 
@@ -191,6 +198,7 @@ internal object NativeConnectionSession {
         mapOf(
             "running" to running,
             "transitioning" to isTransitioning(),
+            "manuallyStopped" to (!running && manuallyStopped),
             "protectedConfigPath" to protectedConfigPath(running),
             "protectedConfigTrusted" to (protectedConfigPath(running) != null),
             "sessionGeneration" to sessionGeneration.takeIf { running }

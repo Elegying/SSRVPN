@@ -166,7 +166,7 @@ proxies:
       expect(service.allNodes, hasLength(3000));
     });
 
-    test('partial fetch returns details and preserves the last valid state',
+    test('partial fetch commits fresh sources while preserving failed sources',
         () async {
       await service.addSubscription(
         'Backup',
@@ -181,13 +181,13 @@ proxies:
       final result = await service.refreshAllSubscriptionsDetailed();
 
       expect(result.status, SubscriptionBatchRefreshStatus.partialSuccess);
-      expect(result.yaml, originalState.rawYaml);
+      expect(result.yaml, service.rawYaml);
       expect(result.successfulSubscriptionNames, ['Primary']);
       expect(result.failures, hasLength(1));
       expect(result.failures.single.subscriptionName, 'Backup');
       expect(result.failures.single.message, contains('temporary timeout'));
-      originalState.expectUnchanged(service);
-      expect(service.cachedYaml, originalState.rawYaml);
+      expect(service.allNodes.map((node) => node.name), ['New Primary']);
+      expect(service.cachedYaml, result.yaml);
     });
 
     test('legacy refresh API still throws on a partial fetch', () async {
@@ -212,53 +212,20 @@ proxies:
       );
     });
 
-    test(
-        'deleting one subscription rolls back when every remaining source fails',
-        () async {
+    test('deleting a subscription does not fetch uncached survivors', () async {
       final removed = service.subscriptions.single;
-      await service.addSubscription(
+      final survivor = await service.addSubscription(
         'Backup',
         'https://backup.example.com/sub',
       );
-      originalState = _ServiceSnapshot.capture(service);
       service.responses = {
-        'https://backup.example.com/sub': Exception('temporary timeout'),
+        survivor.url: Exception('offline'),
       };
-
-      await expectLater(
-        service.removeSubscription(removed.id),
-        throwsA(anything),
-      );
-
-      originalState.expectUnchanged(service);
-      expect(service.cachedYaml, originalState.rawYaml);
-    });
-
-    test(
-        'deleting one subscription rolls back when remaining refresh is partial',
-        () async {
-      final removed = service.subscriptions.single;
-      await service.addSubscription(
-        'Backup A',
-        'https://backup-a.example.com/sub',
-      );
-      await service.addSubscription(
-        'Backup B',
-        'https://backup-b.example.com/sub',
-      );
-      originalState = _ServiceSnapshot.capture(service);
-      service.responses = {
-        'https://backup-a.example.com/sub': _yamlFor('Fresh Backup'),
-        'https://backup-b.example.com/sub': Exception('temporary timeout'),
-      };
-
-      await expectLater(
-        service.removeSubscription(removed.id),
-        throwsA(isA<SubscriptionPartialRefreshException>()),
-      );
-
-      originalState.expectUnchanged(service);
-      expect(service.cachedYaml, originalState.rawYaml);
+      final fetchCalls = service.fetchCalls;
+      await service.removeSubscription(removed.id);
+      expect(service.subscriptions.single.id, survivor.id);
+      expect(service.allNodes, isEmpty);
+      expect(service.fetchCalls, fetchCalls);
     });
 
     test('concurrent refreshes commit in request order', () async {
@@ -296,7 +263,7 @@ proxies:
 
       firstResponse.complete(_yamlFor('First Node'));
       await first;
-      await service.addSubscription('Queue drain', 'ss://drain');
+      await service.addSubscription('Queue drain', 'https://drain.invalid/sub');
       expect(service.fetchCalls, 1);
     });
 
@@ -321,7 +288,7 @@ proxies:
 
       firstResponse.complete(_yamlFor('First Node'));
       await first;
-      await service.addSubscription('Queue drain', 'ss://drain');
+      await service.addSubscription('Queue drain', 'https://drain.invalid/sub');
       expect(service.fetchCalls, 1);
     });
 
@@ -355,7 +322,7 @@ proxies:
       expect(service.allNodes.map((node) => node.name), ['Refreshed Node']);
     });
 
-    test('remove waits for an in-flight refresh and then refreshes survivors',
+    test('remove waits for an in-flight refresh and keeps cached survivors',
         () async {
       final removed = await service.addSubscription(
         'Backup',
@@ -389,7 +356,7 @@ proxies:
       expect(service.subscriptions.map((sub) => sub.name), ['Primary']);
       expect(
         service.allNodes.map((node) => node.name),
-        ['Survivor After Removal'],
+        ['Primary During Refresh'],
       );
     });
 
@@ -399,7 +366,10 @@ proxies:
       final response = Completer<String?>();
       service
         ..fetchStarted = fetchStarted
-        ..queuedResponses = [response.future];
+        ..queuedResponses = [
+          response.future,
+          Future<String?>.value(_yamlFor('Updated Source Node')),
+        ];
 
       final refresh = service.refreshAllSubscriptions();
       await fetchStarted.future;
@@ -426,8 +396,9 @@ proxies:
       expect(service.subscriptions.single.name, 'Updated after refresh');
       expect(
         service.allNodes.map((node) => node.name),
-        ['Refreshed Before Update'],
+        ['Updated Source Node'],
       );
+      expect(service.fetchCalls, 2);
     });
 
     test('cancelling a batch preserves the last valid state', () async {
@@ -559,7 +530,8 @@ proxies:
           url: 'https://replacement.example.com/sub?token=new-secret',
         ),
       );
-      expect(service.retainedFetchedProfileNameCount, 0);
+      // The previous URL is purged; the newly fetched URL owns one entry.
+      expect(service.retainedFetchedProfileNameCount, 1);
 
       service.fetchedProfileName = 'Replacement Profile';
       await service.refreshAllSubscriptions();
@@ -585,6 +557,24 @@ proxies:
       );
 
       originalState.expectUnchanged(service);
+    });
+
+    test('unrunnable edits cannot hide behind another valid node', () async {
+      await service.setRawYaml('${_yamlFor('Old Node')}'
+          '  - {name: Other, type: socks5, server: other.invalid, port: 443}\n');
+      final before = service.rawYaml;
+      final config = {
+        'name': 'Edited Node',
+        'type': 'unsupported-type',
+        'server': 'edited.invalid',
+        'port': 443,
+      };
+      expect(() => service.validateNodeUpdate('Old Node', config),
+          throwsA(isA<FormatException>()));
+      await expectLater(service.updateNode('Old Node', config),
+          throwsA(isA<FormatException>()));
+      expect(service.rawYaml, before);
+      expect(service.allNodes.map((node) => node.name), ['Old Node', 'Other']);
     });
 
     test('edited node cannot claim an SSRVPN runtime group name', () async {

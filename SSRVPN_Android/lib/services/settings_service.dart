@@ -9,7 +9,14 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
-    show AppLogger, AsyncLazy, RecoveringSerialQueue;
+    show
+        AppLogger,
+        AsyncLazy,
+        RecoveringSerialQueue,
+        NodePreferenceStore,
+        NodePreferenceRename,
+        NodePreferenceWrite,
+        RuntimeConfigNamePolicy;
 import '../models/app_settings.dart';
 
 class AndroidApiSecretRecoveryRequired implements Exception {
@@ -25,7 +32,7 @@ class AndroidApiSecretRecoveryRequired implements Exception {
 ///
 /// apiSecret 使用 Android Keystore 支持的 AES-GCM 安全存储，
 /// 通过 flutter_secure_storage 封装。
-class SettingsService extends ChangeNotifier {
+class SettingsService extends ChangeNotifier implements NodePreferenceStore {
   static final _instance = AsyncLazy<SettingsService>();
   late AppSettings _settings;
   late String _configPath;
@@ -187,6 +194,9 @@ class SettingsService extends ChangeNotifier {
     final snapshot = AppSettings.fromJson(newSettings.toJson());
     return _saveQueue.add(() async {
       final candidate = snapshot.copyWith(apiSecret: _settings.apiSecret);
+      if (candidate.lastSelectedNodeName != _settings.lastSelectedNodeName) {
+        candidate.lastSelectedNodeRenameId = '';
+      }
       if (candidate == _settings) return;
       await _saveSettings(candidate);
       _settings = candidate;
@@ -205,15 +215,47 @@ class SettingsService extends ChangeNotifier {
       _updateSettings((settings) => settings.copyWith(enableTun: value));
 
   Future<void> setLastSelectedNodeName(String name) => _updateSettings(
-        (settings) => settings.copyWith(lastSelectedNodeName: name),
+        (settings) => settings.copyWith(
+            lastSelectedNodeName: RuntimeConfigNamePolicy.canonicalName(name),
+            lastSelectedNodeRenameId: ''),
       );
 
   /// 重命名上次选择的节点
   Future<void> renameLastSelectedNode(String oldName, String newName) =>
       _updateSettings((settings) {
-        if (settings.lastSelectedNodeName != oldName) return settings;
-        return settings.copyWith(lastSelectedNodeName: newName);
+        if (RuntimeConfigNamePolicy.canonicalName(
+                settings.lastSelectedNodeName) !=
+            RuntimeConfigNamePolicy.canonicalName(oldName)) {
+          return settings;
+        }
+        return settings.copyWith(
+            lastSelectedNodeName:
+                RuntimeConfigNamePolicy.canonicalName(newName),
+            lastSelectedNodeRenameId: '');
       });
+
+  void _publishNodePreference(AppSettings value) {
+    _settings = value;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> withNodePreferenceRename(NodePreferenceRename change,
+          Future<void> Function(NodePreferenceWrite) edit) =>
+      _saveQueue.add(() => edit(NodePreferenceWrite(
+          current: _settings,
+          change: change,
+          write: _saveSettings,
+          publish: _publishNodePreference)));
+
+  @override
+  Future<void> recoverNodePreference(NodePreferenceRename change) =>
+      _saveQueue.add(() => NodePreferenceWrite.recover(
+          change: change,
+          current: _settings,
+          file: File(_configPath),
+          write: _saveSettings,
+          publish: _publishNodePreference));
 
   Future<void> setForceProxySites(List<String> sites) {
     final snapshot = AppSettings.normalizeForceProxySites(

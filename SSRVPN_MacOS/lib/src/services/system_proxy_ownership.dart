@@ -89,3 +89,57 @@ Map<String, dynamic>? parseVerifiedMacProxyState(String output) {
 
   return {'enabled': enabled, 'server': server, 'port': port};
 }
+
+/// Reads only the current effective root, excluding per-interface overrides.
+Map<String, String> parseEffectiveMacProxy(String text) {
+  final values = <String, String>{};
+  final entryPattern = RegExp(r'^\s*([A-Za-z][A-Za-z0-9]*)\s*:\s*(.*?)\s*$');
+  var depth = 0;
+  var sawRoot = false;
+  for (final rawLine in text.split('\n')) {
+    final line = rawLine.trim();
+    if (line.isEmpty) continue;
+    if (!sawRoot && line == '<dictionary> {') {
+      sawRoot = true;
+      depth = 1;
+      continue;
+    }
+    if (depth == 0) throw const FormatException('无效的系统代理根字典');
+    if (line == '}') {
+      depth--;
+      continue;
+    }
+    if (RegExp(r':\s*<(dictionary|array)>\s*\{$').hasMatch(line)) {
+      depth++;
+      continue;
+    }
+    if (depth != 1) continue;
+    final match = entryPattern.firstMatch(line);
+    if (match == null) continue;
+    final key = match.group(1)!;
+    if (values.containsKey(key)) {
+      throw const FormatException('系统代理根字典包含重复字段');
+    }
+    values[key] = match.group(2)!;
+  }
+  if (!sawRoot || depth != 0) {
+    throw const FormatException('系统代理根字典不完整');
+  }
+  return values;
+}
+
+bool effectiveMacProxyEntryIsOwned(
+  Map<String, String> values, {
+  required String enableKey,
+  required String hostKey,
+  required String portKey,
+  required String ownedHost,
+  required int ownedPort,
+}) =>
+    isOwnedMacProxy(
+      enabled: values[enableKey] == '1',
+      server: values[hostKey] ?? '',
+      port: int.tryParse(values[portKey] ?? '') ?? 0,
+      ownedHost: ownedHost,
+      ownedPort: ownedPort,
+    );

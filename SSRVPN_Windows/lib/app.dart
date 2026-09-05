@@ -216,7 +216,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     return HomeNodeController.resolveDefaultNodeFrom(nodes, remembered)?.name;
   }
 
-  Future<void> _presentTrayFailure(String reason) => _presentRuntimeNotice(
+  Future<void> _presentTrayFailure(Object? reason) => _presentRuntimeNotice(
         RuntimeNotice.error(safeUserFacingFailureMessage(reason)),
       );
 

@@ -231,24 +231,15 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     final subscriptionService = context.read<SubscriptionService>();
     setState(() => _saving = true);
     final originalName = _editNode.name;
-    final updatedName = _nameController.text.trim();
     final settingsService = context.read<SettingsService>();
-    final renameRememberedNode = originalName != updatedName &&
-        settingsService.settings.lastSelectedNodeName == originalName;
     try {
-      if (renameRememberedNode) {
-        await settingsService.renameLastSelectedNode(originalName, updatedName);
-      }
-      await subscriptionService.updateNode(originalName, config);
+      await subscriptionService.updateNode(originalName, config,
+          preferences: settingsService);
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
-      if (renameRememberedNode) {
-        await settingsService.renameLastSelectedNode(updatedName, originalName);
-      }
-      if (mounted) {
-        setState(() => _saving = false);
-        _showError(_readableError(e));
-      }
+      if (mounted) _showError(_readableError(e));
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 

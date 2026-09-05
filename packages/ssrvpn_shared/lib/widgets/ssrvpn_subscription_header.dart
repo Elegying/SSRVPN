@@ -45,7 +45,7 @@ class _SubscriptionHeader extends StatelessWidget {
               ),
               SizedBox(height: 4),
               Text(
-                '支持订阅链接与 ssr:// 导入',
+                '支持订阅或节点链接导入',
                 style: TextStyle(
                   color: SsrvpnUiTokens.textSecondary,
                   fontSize: 13,

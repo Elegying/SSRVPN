@@ -44,10 +44,5 @@ void recordDesktopConnectionFailure(
     StartupLogger.warning(message);
     return;
   }
-  StartupLogger.writeDesktopFailureReportSync(
-    message,
-    error: error,
-    stack: stack,
-  );
-  CrashReporter.recordSync(message, error ?? message, stack);
+  StartupLogger.error(message, error ?? message, stack);
 }

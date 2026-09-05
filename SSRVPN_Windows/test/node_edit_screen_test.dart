@@ -73,7 +73,8 @@ void main() {
 
     expect(message, isNot(contains('top-secret')));
     expect(message, isNot(contains('private-token-cache')));
-    expect(message, contains('原始敏感细节不会显示'));
+    expect(message, contains('暂时无法确定具体原因'));
+    expect(message, contains('运行诊断'));
   });
 }
 

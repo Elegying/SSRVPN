@@ -100,8 +100,8 @@ class SystemProxyService {
         _lastError = stderr.isEmpty ? '无法读取 macOS 当前系统代理' : stderr;
         return SystemProxyOwnershipStatus.unavailable;
       }
-      final values = _parseEffectiveProxy(result.stdout.toString());
-      final owned = _effectiveProxyEntryIsOwned(
+      final values = parseEffectiveMacProxy(result.stdout.toString());
+      final owned = effectiveMacProxyEntryIsOwned(
             values,
             enableKey: 'HTTPEnable',
             hostKey: 'HTTPProxy',
@@ -109,7 +109,7 @@ class SystemProxyService {
             ownedHost: ownedHost,
             ownedPort: ownedPort,
           ) &&
-          _effectiveProxyEntryIsOwned(
+          effectiveMacProxyEntryIsOwned(
             values,
             enableKey: 'HTTPSEnable',
             hostKey: 'HTTPSProxy',
@@ -117,7 +117,7 @@ class SystemProxyService {
             ownedHost: ownedHost,
             ownedPort: ownedPort,
           ) &&
-          _effectiveProxyEntryIsOwned(
+          effectiveMacProxyEntryIsOwned(
             values,
             enableKey: 'SOCKSEnable',
             hostKey: 'SOCKSProxy',
@@ -283,6 +283,7 @@ class SystemProxyService {
       _ownershipChangedSinceLastAcquisition = false;
       _ownedProxyHost = host;
       _ownedProxyPort = port;
+      await _waitForEffectiveProxy(capturedServiceIdentities, host, port);
       return true;
     } catch (e) {
       final detail = e is StateError ? e.message : e.toString();
@@ -290,6 +291,48 @@ class SystemProxyService {
       await _clearSystemProxyOnce();
       _lastError = originalError;
       return false;
+    }
+  }
+
+  Future<void> _waitForEffectiveProxy(
+    Map<String, String> serviceIdentities,
+    String host,
+    int port,
+  ) async {
+    final watch = Stopwatch()..start();
+    while (true) {
+      final status = await currentSystemProxyOwnershipStatus();
+      if (status == SystemProxyOwnershipStatus.owned) return;
+      if (watch.elapsed >= const Duration(seconds: 2)) {
+        throw StateError(
+          'SYSTEM_PROXY_SETTLE_TIMEOUT: 系统代理已写入，但当前网络未能确认生效',
+        );
+      }
+      // SystemConfiguration can publish the three proxy types in stages.
+      // Wait only while the configured services still contain our endpoint;
+      // never rewrite a value or wait through an actual external takeover.
+      await _requireUnchangedNetworkServiceIdentities(serviceIdentities);
+      for (final service in serviceIdentities.keys) {
+        for (final command in const [
+          '-getwebproxy',
+          '-getsecurewebproxy',
+          '-getsocksfirewallproxy',
+        ]) {
+          final state = await _readProxyState(service, command);
+          if (!isOwnedMacProxy(
+            enabled: state['enabled'] == true,
+            server: state['server'] as String,
+            port: state['port'] as int,
+            ownedHost: host,
+            ownedPort: port,
+          )) {
+            throw StateError(
+              '$desktopSystemProxyOwnershipLostPrefix 系统代理在连接期间被关闭或修改',
+            );
+          }
+        }
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
     }
   }
 
@@ -912,32 +955,6 @@ class SystemProxyService {
       await _checkedRun([stateCommand, service, 'off']);
     }
   }
-
-  Map<String, String> _parseEffectiveProxy(String text) {
-    final values = <String, String>{};
-    final entryPattern = RegExp(r'^\s*([A-Za-z][A-Za-z0-9]*)\s*:\s*(.*?)\s*$');
-    for (final line in text.split('\n')) {
-      final match = entryPattern.firstMatch(line);
-      if (match != null) values[match.group(1)!] = match.group(2)!;
-    }
-    return values;
-  }
-
-  bool _effectiveProxyEntryIsOwned(
-    Map<String, String> values, {
-    required String enableKey,
-    required String hostKey,
-    required String portKey,
-    required String ownedHost,
-    required int ownedPort,
-  }) =>
-      isOwnedMacProxy(
-        enabled: values[enableKey] == '1',
-        server: values[hostKey] ?? '',
-        port: int.tryParse(values[portKey] ?? '') ?? 0,
-        ownedHost: ownedHost,
-        ownedPort: ownedPort,
-      );
 
   Future<ProcessResult> _runEffectiveProxyProbe() {
     final runner = _effectiveProxyRunner;

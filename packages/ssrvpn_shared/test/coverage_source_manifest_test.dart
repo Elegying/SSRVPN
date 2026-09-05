@@ -29,6 +29,7 @@ import 'package:ssrvpn_shared/services/subscription_processing.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_result.dart';
 import 'package:ssrvpn_shared/services/subscription_service_base.dart';
+import 'package:ssrvpn_shared/services/subscription_source_cache.dart';
 import 'package:ssrvpn_shared/services/subscription_text_decoder.dart';
 import 'package:ssrvpn_shared/services/subscription_yaml_merger.dart';
 import 'package:ssrvpn_shared/services/timed_process_runner.dart';

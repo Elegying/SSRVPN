@@ -14,7 +14,7 @@ class CrashReportPrompt extends StatefulWidget {
   const CrashReportPrompt({
     super.key,
     required this.child,
-    this.supportHint = '请到 GitHub Issues 新建崩溃报告并粘贴文本日志，不要公开 .dmp 或订阅链接。',
+    this.supportHint = '可到 GitHub Issues 提交问题并附上文本报告，不要公开 .dmp 或订阅链接。',
     this.supportUrl =
         'https://github.com/Elegying/SSRVPN/issues/new?template=bug_report.yml',
     this.pendingReportsLoader,
@@ -61,9 +61,10 @@ class _CrashReportPromptState extends State<CrashReportPrompt> {
           context: context,
           barrierDismissible: false,
           builder: (dialogContext) => AlertDialog(
-            title: const Text('上次崩溃了'),
+            title: const Text('发现运行异常记录'),
             content: Text(
-              '检测到 ${reports.length} 份崩溃报告。是否复制文本报告？复制前请确认内容不包含订阅凭据；不要公开发送 .dmp 文件。${widget.supportHint}',
+              '本机保存了 ${reports.length} 份异常记录，可能来自连接问题、界面异常或程序意外退出。'
+              '可复制报告帮助排查；复制前请确认内容不包含订阅凭据。${widget.supportHint}',
             ),
             actions: [
               TextButton(
@@ -118,11 +119,11 @@ class _CrashReportPromptState extends State<CrashReportPrompt> {
           break;
       }
     } catch (error) {
-      AppLogger.warning('CrashReport', '崩溃报告操作失败: $error');
+      AppLogger.warning('CrashReport', '异常报告操作失败: $error');
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         const SnackBar(
-          content: Text('崩溃报告操作失败，未确认报告已删除，请稍后重试'),
+          content: Text('异常报告操作失败，未确认报告已删除，请稍后重试'),
         ),
       );
     }

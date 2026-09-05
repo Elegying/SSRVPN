@@ -17,12 +17,14 @@ class SubscriptionBatchRefreshResult {
     required this.status,
     required this.yaml,
     this.successfulSubscriptionNames = const [],
+    this.successfulSubscriptionIds = const [],
     this.failures = const [],
   });
 
   final SubscriptionBatchRefreshStatus status;
   final String? yaml;
   final List<String> successfulSubscriptionNames;
+  final List<String> successfulSubscriptionIds;
   final List<SubscriptionRefreshFailure> failures;
 
   bool get isPartialSuccess =>
@@ -35,6 +37,6 @@ class SubscriptionPartialRefreshException implements Exception {
   final SubscriptionBatchRefreshResult outcome;
 
   @override
-  String toString() => '部分订阅刷新失败，已保留上次有效节点:\n'
+  String toString() => '部分订阅刷新失败；成功来源已更新，失败来源保留已有节点:\n'
       '${outcome.failures.map((failure) => failure.detail).join('\n')}';
 }

@@ -9,7 +9,6 @@ import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
@@ -799,19 +798,19 @@ class SsrvpnVpnService : VpnService() {
         }
         manualStopRequested.set(true)
         CoreRecoveryCoordinator.cancelPendingRecovery()
-        stopInternal(true, preserveForegroundUi, onComplete)
+        stopInternal(true, preserveForegroundUi, recordManualStop, onComplete)
     }
     internal fun stopForRecovery(onComplete: () -> Unit) =
         stopInternal(false, true) { onComplete() }
 
     private fun stopInternal(
         stopServiceWhenDone: Boolean, preserveForegroundUi: Boolean,
-        onComplete: ((Boolean) -> Unit)?
+        userInitiated: Boolean = false, onComplete: ((Boolean) -> Unit)?
     ) {
         val stopToken = serviceStopGate.beginOrJoinStop()
         notificationGeneration.invalidate()
         startGeneration.invalidate {
-            NativeConnectionSession.beginStopping()
+            NativeConnectionSession.beginStopping(userInitiated)
             isRunning = false
             if (manualStopRequested.get()) {
                 NativeConnectionSession.clearRecovery()
@@ -991,5 +990,6 @@ class SsrvpnVpnService : VpnService() {
         instance = null
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    // Inherit VpnService.onBind so Android can deliver revocation via its Binder.
+    override fun onRevoke() = stopAll(recordManualStop = true)
 }

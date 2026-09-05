@@ -26,6 +26,41 @@ void main() {
 
   tearDown(SubscriptionService.resetInstanceForTesting);
 
+  testWidgets('saving a source name preserves manually edited nodes',
+      (tester) async {
+    final fixture = (await tester
+        .runAsync(() => _SubscriptionFixture.create(withSubscription: true)))!;
+    addTearDown(fixture.dispose);
+    await tester.runAsync(() async {
+      await fixture.subscription
+          .addSubscription('Other', 'socks5://other.invalid:443#Other');
+      await fixture.subscription.updateNode('Keyboard Node', {
+        'name': 'Manual node',
+        'type': 'socks5',
+        'server': 'manual.invalid',
+        'port': 444,
+      });
+    });
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.ensureVisible(find.byTooltip('编辑订阅').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('编辑订阅').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const Key('ssrvpn-subscription-edit-name')),
+        'Renamed other');
+    await tester.tap(find.byKey(const Key('ssrvpn-subscription-edit-save')));
+    await tester.pump();
+    await _pumpUntilFound(tester, find.text('订阅已更新'));
+    await tester.pumpAndSettle();
+    expect(fixture.subscription.subscriptions.last.name, 'Renamed other');
+    expect(fixture.subscription.allNodes.first.name, 'Manual node');
+    expect(fixture.subscription.allNodes.first.server, 'manual.invalid');
+    expect(find.textContaining('正在刷新'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('subscription page has no about action', (tester) async {
     final fixture =
         (await tester.runAsync(() => _SubscriptionFixture.create()))!;

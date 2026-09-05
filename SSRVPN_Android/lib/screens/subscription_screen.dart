@@ -84,37 +84,28 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
   SubscriptionScreenController _subscriptionController(
     SubscriptionService subService,
   ) {
-    return SubscriptionScreenController(
-      subscriptionService: CallbackSubscriptionScreenService(
-        subscriptionsOf: () => subService.subscriptions,
-        allNodesOf: () => subService.allNodes,
-        allGroupsOf: () => subService.allGroups,
-        isSingleNodeLinkOf: subService.isSingleNodeLink,
-        defaultSubscriptionNameOf: subService.defaultSubscriptionName,
-        addSubscriptionWith: subService.addSubscription,
-        refreshAllSubscriptionsDetailedWith:
-            subService.refreshAllSubscriptionsDetailed,
-        removeSubscriptionWith: subService.removeSubscription,
-        updateSubscriptionWith: subService.updateSubscription,
-      ),
-    );
+    return SubscriptionScreenController.fromService(subService);
   }
 
   void _showAddResult(SubscriptionAddResult result) {
+    if (result.isSuccess && result.warning != null) {
+      _showSnack(result.warning!, AppTheme.warningColor);
+      return;
+    }
     switch (result.status) {
       case SubscriptionAddStatus.emptyInput:
-        _showSnack('请输入订阅链接或SSR链接', AppTheme.errorColor);
+        _showSnack('请输入订阅或节点链接', AppTheme.errorColor);
       case SubscriptionAddStatus.duplicate:
         _showSnack('该订阅已存在，无需重复添加', AppTheme.warningColor);
       case SubscriptionAddStatus.invalidUrl:
         _showSnack('请输入有效的URL地址', AppTheme.errorColor);
       case SubscriptionAddStatus.singleNodeImported:
         _showSnack(
-          'SSR链接已导入，当前共 ${result.nodeCount} 个节点',
+          '节点链接已导入，当前共 ${result.nodeCount} 个节点',
           AppTheme.successColor,
         );
       case SubscriptionAddStatus.singleNodeNoData:
-        _showSnack('SSR链接已添加，但未获取到数据', AppTheme.warningColor);
+        _showSnack('节点链接已添加，但未获取到数据', AppTheme.warningColor);
       case SubscriptionAddStatus.singleNodeImportFailed:
         _showSnack('导入失败，请检查链接是否有效', AppTheme.errorColor);
       case SubscriptionAddStatus.subscriptionAdded:
@@ -298,8 +289,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
       case SubscriptionEditStatus.unchanged:
         _showSnack('订阅信息没有变化', AppTheme.warningColor);
       case SubscriptionEditStatus.saved:
-        _showSnack('订阅已更新，正在刷新节点', AppTheme.successColor);
-        await _refreshAll();
+        _showSnack('订阅已更新', AppTheme.successColor);
       case SubscriptionEditStatus.failed:
         _showSnack('更新失败：${result.displayError}', AppTheme.errorColor);
     }

@@ -36,6 +36,16 @@ http.Response githubReleaseResponse(
 }
 
 void main() {
+  test(
+      'incomplete release feedback preserves version and keeps installation unavailable',
+      () {
+    const error = UpdateNotReady('3.1.0');
+    expect(UpdateChecker.checkFailureMessage(error), contains('v3.1.0'));
+    expect(UpdateChecker.checkFailureMessage(error), contains('校验信息暂不可用'));
+    expect(UpdateChecker.checkFailureMessage(Exception('secret')),
+        '检查更新失败，请检查网络后重试');
+  });
+
   test('compareVersions handles different lengths', () {
     expect(UpdateChecker.compareVersions('2.0.6', '2.0.5'), 1);
     expect(UpdateChecker.compareVersions('2.0', '2.0.0'), 0);
@@ -176,15 +186,20 @@ void main() {
 ''', 200);
     });
 
-    final update = await UpdateChecker.checkLatest(
+    final update = UpdateChecker.checkLatest(
       currentVersion: '3.0.0',
       assetExtension: '.exe',
       client: client,
     );
-    expect(update, isNull);
+    await expectLater(
+        update,
+        throwsA(isA<UpdateNotReady>()
+            .having((error) => error.version, 'version', '3.1.0')));
   });
 
-  test('checkLatest returns null when requested asset is missing', () async {
+  test(
+      'checkLatest distinguishes a missing platform installer from an up-to-date version',
+      () async {
     final client = MockClient((request) async {
       expect(request.url, UpdateChecker.githubLatestReleaseUrl);
       return http.Response('''
@@ -197,12 +212,15 @@ void main() {
 ''', 200);
     });
 
-    final update = await UpdateChecker.checkLatest(
+    final update = UpdateChecker.checkLatest(
       currentVersion: '3.0.0',
       assetExtension: '.dmg',
       client: client,
     );
-    expect(update, isNull);
+    await expectLater(
+        update,
+        throwsA(isA<UpdateNotReady>()
+            .having((error) => error.version, 'version', '3.1.0')));
   });
 
   for (final invalidUrl in [
@@ -223,12 +241,15 @@ void main() {
 ''', 200);
       });
 
-      final update = await UpdateChecker.checkLatest(
+      final update = UpdateChecker.checkLatest(
         currentVersion: '3.0.0',
         assetExtension: '.apk',
         client: client,
       );
-      expect(update, isNull);
+      await expectLater(
+          update,
+          throwsA(isA<UpdateNotReady>()
+              .having((error) => error.version, 'version', '3.1.0')));
     });
   }
 
@@ -240,12 +261,15 @@ void main() {
       return githubReleaseResponse(request, assetName: 'SSRVPN_Setup.exe');
     });
 
-    final update = await UpdateChecker.checkLatest(
+    final update = UpdateChecker.checkLatest(
       currentVersion: '3.0.0',
       assetExtension: '.exe',
       client: client,
     );
-    expect(update, isNull);
+    await expectLater(
+        update,
+        throwsA(isA<UpdateNotReady>()
+            .having((error) => error.version, 'version', '3.1.0')));
   });
 
   test('checkLatest rejects an off-repository checksum asset', () async {
@@ -263,12 +287,15 @@ void main() {
 ''', 200);
     });
 
-    final update = await UpdateChecker.checkLatest(
+    final update = UpdateChecker.checkLatest(
       currentVersion: '3.0.0',
       assetExtension: '.apk',
       client: client,
     );
-    expect(update, isNull);
+    await expectLater(
+        update,
+        throwsA(isA<UpdateNotReady>()
+            .having((error) => error.version, 'version', '3.1.0')));
     expect(requests, 1);
   });
 

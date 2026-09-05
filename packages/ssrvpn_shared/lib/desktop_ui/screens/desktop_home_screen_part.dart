@@ -1,8 +1,5 @@
 part of desktop_home_screen;
 
-bool _initialSubscriptionDialogInFlight = false;
-int _lastEmptySubscriptionPromptRevision = -1;
-
 /// 主屏幕 — 桌面优化
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,6 +9,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  bool _initialSubscriptionDialogInFlight = false;
+  int _lastEmptySubscriptionPromptRevision = -1;
   List<ProxyNode> _nodes = [];
   bool _isConnected = false;
   bool _isConnecting = false;
@@ -33,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _disconnectedPreferredNodeName;
   Timer? _publicIpTimer;
   int _lastRevision = -1;
+  int _lastDisplayRevision = -1;
   int _publicIpGeneration = 0;
   int _connectionStatusEpoch = 0;
   bool _disposed = false;
@@ -92,15 +92,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   bool _onSubscriptionChanged(SubscriptionService subService) {
-    final controller = HomeNodeController(
-      nodes: _nodes,
-      lastRevision: _lastRevision,
-    );
+    final controller = HomeNodeController(lastRevision: _lastRevision);
     final sync = controller.syncSubscriptionSnapshot(
       revision: subService.revision,
       allNodes: subService.allNodes,
     );
-    if (!sync.changed) return false;
+    if (!sync.changed) {
+      if (_lastDisplayRevision == subService.displayRevision) return false;
+      _lastDisplayRevision = subService.displayRevision;
+      _nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
+      return true;
+    }
+    _lastDisplayRevision = subService.displayRevision;
     _cancelLatencyBatch();
     if (_isConnecting) {
       (_clashService ?? context.read<ClashService>()).interruptPendingStart();
@@ -156,13 +159,13 @@ class _HomeScreenState extends State<HomeScreen> {
     String input,
     SubscriptionService subService,
   ) {
-    if (input.isEmpty) return '请粘贴你的SSR代码或订阅链接';
+    if (input.isEmpty) return '请粘贴订阅或节点链接';
     if (subService.isSingleNodeLink(input)) return null;
 
     try {
       SubscriptionUrlPolicy.parse(input);
     } on FormatException {
-      return '请输入有效的 SSR 代码或 HTTP/HTTPS 订阅链接';
+      return '请输入有效的节点链接或 HTTP/HTTPS 订阅链接';
     }
     return null;
   }
@@ -543,9 +546,7 @@ class _HomeScreenState extends State<HomeScreen> {
             runtimeSettings,
             preferredNodeName: preferredNodeName,
           ),
-          isRevisionCurrent: () =>
-              subService.revision == subscriptionRevision &&
-              subService.rawYaml == rawYaml,
+          isRevisionCurrent: () => subService.revision == subscriptionRevision,
           preferredNodeName: runtimeSelectedNode?.name ?? autoSelect?.name,
         );
         setState(() {

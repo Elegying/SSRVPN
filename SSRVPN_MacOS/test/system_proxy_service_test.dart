@@ -7,6 +7,135 @@ import 'package:ssrvpn_macos/services/system_proxy_service.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
+  test(
+      'effective ownership ignores scoped proxy overrides and rejects broken output',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('ssrvpn_proxy_root_');
+    addTearDown(() => directory.delete(recursive: true));
+    var output = _ownedEffectiveProxy;
+    final service = _testSystemProxyService(
+      networkSetupRunner: _successfulNetworkSetupRunner,
+      effectiveProxyRunner: () async => ProcessResult(1, 0, output, ''),
+    );
+    await service.initialize(directory.path);
+    expect(await service.setSystemProxy('127.0.0.1', 7890), isTrue);
+    output = _ownedEffectiveProxy.replaceFirst(RegExp(r'\}\s*$'), '''
+  __SCOPED__ : <dictionary> {
+    en9 : <dictionary> {
+      HTTPEnable : 0
+      HTTPPort : 8888
+      HTTPProxy : another.proxy
+      HTTPSEnable : 0
+      SOCKSEnable : 0
+    }
+  }
+}''');
+    expect(await service.currentSystemProxyOwnershipStatus(),
+        SystemProxyOwnershipStatus.owned);
+    output = output.replaceFirst('HTTPPort : 7890', 'HTTPPort : 8888');
+    expect(await service.currentSystemProxyOwnershipStatus(),
+        SystemProxyOwnershipStatus.externallyChanged);
+    output = _ownedEffectiveProxy.replaceFirst(
+        'HTTPEnable : 1', 'HTTPEnable : 0\n  HTTPEnable : 1');
+    expect(await service.currentSystemProxyOwnershipStatus(),
+        SystemProxyOwnershipStatus.unavailable);
+    output = _ownedEffectiveProxy.substring(0, _ownedEffectiveProxy.length - 1);
+    expect(await service.currentSystemProxyOwnershipStatus(),
+        SystemProxyOwnershipStatus.unavailable);
+  });
+
+  for (final externalTakeover in [false, true]) {
+    test(
+        'proxy startup settling preserves external takeover: $externalTakeover',
+        () async {
+      final directory =
+          await Directory.systemTemp.createTemp('ssrvpn_proxy_settle_');
+      addTearDown(() => directory.delete(recursive: true));
+      var probes = 0;
+      final mutations = <List<String>>[];
+      final service = _testSystemProxyService(
+        effectiveProxyRunner: () async => ProcessResult(
+          1,
+          0,
+          ++probes == 1
+              ? _ownedEffectiveProxy.replaceFirst(
+                  'SOCKSEnable : 1', 'SOCKSEnable : 0')
+              : _ownedEffectiveProxy,
+          '',
+        ),
+        networkSetupRunner: (arguments) async {
+          if (arguments.first.startsWith('-get')) {
+            final port = externalTakeover && probes > 0 ? 8888 : 7890;
+            return ProcessResult(
+                1, 0, 'Enabled: Yes\nServer: 127.0.0.1\nPort: $port\n', '');
+          }
+          mutations.add(List.of(arguments));
+          return ProcessResult(1, 0, '', '');
+        },
+      );
+      await service.initialize(directory.path);
+      expect(
+          await service.setSystemProxy('127.0.0.1', 7890), !externalTakeover);
+      expect(probes, externalTakeover ? 1 : 2);
+      expect(mutations, hasLength(3));
+      if (externalTakeover) {
+        expect(service.lastError, contains('SYSTEM_PROXY_OWNERSHIP_LOST'));
+      }
+    });
+  }
+
+  test('unsettled effective proxy times out and restores the owned settings',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('ssrvpn_proxy_settle_timeout_');
+    addTearDown(() => directory.delete(recursive: true));
+    final enabled = <String>{};
+    final mutations = <List<String>>[];
+    final service = _testSystemProxyService(
+      effectiveProxyRunner: () async => ProcessResult(
+        1,
+        0,
+        _ownedEffectiveProxy.replaceFirst('SOCKSEnable : 1', 'SOCKSEnable : 0'),
+        '',
+      ),
+      networkSetupRunner: (arguments) async {
+        final command = arguments.first;
+        if (command == '-listallnetworkservices') {
+          return ProcessResult(1, 0, 'Wi-Fi\n', '');
+        }
+        if (command.startsWith('-get')) {
+          final kind = command.substring(4);
+          return ProcessResult(
+              1,
+              0,
+              'Enabled: ${enabled.contains(kind) ? 'Yes' : 'No'}\n'
+                  'Server: 127.0.0.1\nPort: 7890\n',
+              '');
+        }
+        mutations.add(List.of(arguments));
+        if (command.endsWith('state')) {
+          enabled.remove(command.substring(4, command.length - 5));
+        } else {
+          enabled.add(command.substring(4));
+        }
+        return ProcessResult(1, 0, '', '');
+      },
+    );
+    await service.initialize(directory.path);
+    expect(
+      await service
+          .setSystemProxy('127.0.0.1', 7890)
+          .timeout(const Duration(seconds: 8)),
+      isFalse,
+    );
+    expect(service.lastError, contains('SYSTEM_PROXY_SETTLE_TIMEOUT'));
+    expect(service.recoveryPending, isFalse);
+    expect(enabled, isEmpty);
+    expect(
+        mutations.where((args) => !args.first.endsWith('state')), hasLength(3));
+  });
+
   test('proxy guardian is ready before the first proxy mutation', () async {
     final tempDirectory = await Directory.systemTemp.createTemp(
       'ssrvpn_macos_proxy_guardian_ready_',
@@ -1475,6 +1604,7 @@ Future<void> _expectUnsafeStatePathIsPreserved(
 
 SystemProxyService _testSystemProxyService({
   MacNetworkSetupRunner? networkSetupRunner,
+  MacEffectiveProxyRunner? effectiveProxyRunner,
   MacNetworkServiceIdentityRunner? networkServiceIdentityRunner,
   MacNetworkServiceIdentityRunner? enabledNetworkServiceIdentityRunner,
   MacProxyLifecycleBegin? beginProxyLifecycleTransaction,
@@ -1483,6 +1613,8 @@ SystemProxyService _testSystemProxyService({
 }) =>
     SystemProxyService(
       networkSetupRunner: networkSetupRunner,
+      effectiveProxyRunner: effectiveProxyRunner ??
+          () async => ProcessResult(1, 0, _ownedEffectiveProxy, ''),
       networkServiceIdentityRunner: networkServiceIdentityRunner ??
           () async => {'Wi-Fi': 'test-service-wifi'},
       enabledNetworkServiceIdentityRunner: enabledNetworkServiceIdentityRunner,
@@ -1492,6 +1624,18 @@ SystemProxyService _testSystemProxyService({
           endProxyLifecycleTransaction ?? (_) async => true,
       startProxyGuardian: startProxyGuardian ?? (_, __) async => true,
     );
+
+const _ownedEffectiveProxy = '''<dictionary> {
+  HTTPEnable : 1
+  HTTPPort : 7890
+  HTTPProxy : 127.0.0.1
+  HTTPSEnable : 1
+  HTTPSPort : 7890
+  HTTPSProxy : 127.0.0.1
+  SOCKSEnable : 1
+  SOCKSPort : 7890
+  SOCKSProxy : 127.0.0.1
+}''';
 
 Future<ProcessResult> _successfulNetworkSetupRunner(
   List<String> arguments,

@@ -21,6 +21,8 @@ part 'subscription_parser_yaml_part.dart';
 ///   hysteria://, hysteria2://, tuic://, snell://, socks5://, http://）
 class SubscriptionParser {
   static const proxySourceKey = 'ssrvpn-subscription';
+  static const proxySourceIdsKey = 'ssrvpn-subscription-ids';
+  static const proxyOriginalNameKey = 'ssrvpn-original-name';
   static const standaloneGroupName = '单独节点';
 
   /// 统一订阅解析入口：自动检测格式，返回 YAML 格式的 proxies 段
@@ -34,8 +36,7 @@ class SubscriptionParser {
     final body = decoded != content ? decoded : content;
 
     if (_looksLikeYaml(body)) {
-      final section = extractSection(body, 'proxies');
-      if (section.trim().isNotEmpty) return body;
+      return body;
     }
 
     final uriYaml = uriListToYaml(body);
@@ -106,7 +107,9 @@ String _jsonEncode(Object? value) => jsonEncode(value);
 bool _looksLikeYaml(String text) {
   try {
     final document = BoundedYaml.load(text);
-    return document is Map && document['proxies'] is List;
+    return document is Map &&
+        document['proxies'] is List &&
+        (document['proxies'] as List).isNotEmpty;
   } catch (_) {
     return false;
   }

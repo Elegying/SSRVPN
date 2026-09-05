@@ -69,7 +69,7 @@ class _ModePanel extends StatelessWidget {
                   Text(
                     modeDescription,
                     style: TextStyle(
-                      color: SsrvpnUiTokens.primaryBlue,
+                      color: SsrvpnUiTokens.textSecondary,
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
@@ -85,7 +85,7 @@ class _ModePanel extends StatelessWidget {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: SsrvpnUiTokens.primaryBlue,
+                            color: SsrvpnUiTokens.textSecondary,
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
                           ),

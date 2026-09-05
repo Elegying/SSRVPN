@@ -178,25 +178,16 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     }
 
     final originalName = _editNode.name;
-    final newName = result['name'] as String;
     final settingsService = context.read<SettingsService>();
     final subscriptionService = context.read<SubscriptionService>();
-    final renameRemembered = originalName != newName &&
-        settingsService.settings.lastSelectedNodeName == originalName;
 
     setState(() => _saving = true);
     try {
-      if (renameRemembered) {
-        await settingsService.renameLastSelectedNode(originalName, newName);
-      }
-      await subscriptionService.updateNode(originalName, result);
+      await subscriptionService.updateNode(originalName, result,
+          preferences: settingsService);
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      if (renameRemembered) {
-        await settingsService.renameLastSelectedNode(newName, originalName);
-      }
       if (mounted) {
-        setState(() => _saving = false);
         final msg = e.toString();
         final friendlyMsg = msg.contains('备注名已存在')
             ? '节点名称重复，请使用不同的名称'
@@ -206,11 +197,15 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             margin: EdgeInsets.fromLTRB(16, 0, 16, 88),
-            content: Text(friendlyMsg),
+            content: Text(msg.contains('首选节点恢复失败')
+                ? '$friendlyMsg；首选节点恢复失败，请恢复存储权限后重试'
+                : friendlyMsg),
             backgroundColor: AppTheme.errorColor,
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 

@@ -3,6 +3,28 @@ import 'dart:io';
 import '../models/proxy_node.dart';
 
 class ProxyNodeUsagePolicy {
+  /// Shared by URI parsing and redaction, including accepted protocol aliases.
+  static const nodeUriSchemes = {
+    'ss',
+    'ssr',
+    'vmess',
+    'vless',
+    'trojan',
+    'anytls',
+    'hysteria',
+    'hy',
+    'hysteria2',
+    'hy2',
+    'tuic',
+    'snell',
+    'socks',
+    'socks5',
+    'socks5h',
+    'socks5-tls',
+    'http',
+    'https',
+  };
+
   static const _supportedTypes = {
     'ss',
     'ssr',
