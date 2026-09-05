@@ -4,15 +4,18 @@
 
 当前应用版本：`v4.0.28`
 
-最新正式版本：[`v4.0.27`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.27)
+最新正式版本：[`v4.0.28`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.28)
 
 ## 当前结论
 
-`v4.0.28` 为当前发布候选，包含多轮审查后的连接、订阅事务与实机问题修复。
+`v4.0.28` 已正式发布，包含多轮审查后的连接、订阅事务与实机问题修复。
 失败提示明确区分原因与操作建议；Android 手动断开同步、macOS 有效代理确认、异常记录
-分类和长文本显示均增加回归。完整本地门禁、精确提交的线上 CI、正式签名包的实机验收和
-正式发布结果将分别补记；下文 `v4.0.27` 记录仅代表上一正式版，不能代替本候选的证据。
-macOS 本轮按维护者要求不执行断网测试。
+分类和长文本显示均有回归验证。受保护 PR #200、精确 `main` CI、三端正式构建、发布审批、
+七项公开资产和 OSS 通道终验均已完成；本地完整门禁各项通过，macOS 自动恢复测试已改为
+跟随实际代理端口，并验证端口冲突后恢复成功。
+
+本轮未新增正式安装包的完整三端人工实机验收；下文 `v4.0.27` 实机记录仅代表上一正式版。
+macOS 本轮按维护者要求不执行断网测试，自动化构建与 smoke 不替代这些人工证据。
 
 ## 上一正式版结论
 
@@ -29,7 +32,7 @@ macOS 本轮按维护者要求不执行断网测试。
 不再保留重复入口。诊断默认展示一句话结论、中文检查结果及按本地时间整理的运行记录，内部
 事件名、会话编号、路径和冗余核心信息移入默认收起的脱敏技术明细。
 
-修复与发布准备分别经受保护 PR #195、#198 合并。精确主分支 CI、Prepare Release、三端
+`v4.0.27` 修复与发布准备分别经受保护 PR #195、#198 合并。精确主分支 CI、Prepare Release、三端
 正式构建、人工 `release` 环境审批、公开七项资产、资产摘要、统一 provenance、三份 GitHub
 Attestation 与 OSS 公共更新通道均已独立复核。Windows 主客户端和外层启动器继续固定以管理
 员身份运行；TUN、系统代理、DNS、用户规则优先级、国内应用旁路和未知公网流量代理兜底没有
@@ -44,19 +47,19 @@ Attestation 与 OSS 公共更新通道均已独立复核。Windows 主客户端�
 
 | 项目 | 当前结果 |
 | --- | --- |
-| 当前代码版本 | `4.0.27+4027` 正式版，三端 pubspec、共享常量与 CHANGELOG 一致 |
-| 当前版本本地门禁 | `mise exec flutter@3.44.1 -- make verify` 全部通过；Release tooling 396 项、三端 Flutter/原生检查、配置校验、覆盖率与安装器守卫均成功，Windows 主机专属用例在 macOS 本地按设计跳过并由线上 Windows runner 补齐 |
-| 正式源码与标签 | 受保护 PR [#195](https://github.com/Elegying/SSRVPN/pull/195) 与 [#198](https://github.com/Elegying/SSRVPN/pull/198) 已 squash 合并；最终 `main` 提交 [`40a0083`](https://github.com/Elegying/SSRVPN/commit/40a0083cc96380488c40638a087a52eebab875e8)，注释标签 `v4.0.27` 精确解引用到同一提交 |
-| 精确正式 `main` CI | [`33774884684`](https://github.com/Elegying/SSRVPN/actions/runs/33774884684) 成功；Workspace、Android、macOS、Windows、安全、安装器 smoke 与原生门禁全部通过 |
-| 标签与正式构建 | [`Prepare Release 33782361025`](https://github.com/Elegying/SSRVPN/actions/runs/33782361025) 和 [`Release 33782400613`](https://github.com/Elegying/SSRVPN/actions/runs/33782400613) 均成功 |
-| Android 实机 | 同一正式提交的候选 APK 已在 Android 17 真机验证两次真实完全断网、飞行模式、Wi-Fi/蜂窝切换、VPN 保持、诚实诊断和无人工重连恢复；Google/Telegram 数据通道恢复，[#193](https://github.com/Elegying/SSRVPN/issues/193) 已关闭 |
-| 正式公开资产 | [`v4.0.27`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.27) 为不可变、非 draft、非 prerelease 的 latest，共七项资产；独立完整下载后 APK `c001c392…b2847`、DMG `ea59a57a…28044`、EXE `987231d6…450d1`，实际文件、sidecar、Release API digest、provenance 与 GitHub Attestations 一致 |
-| OSS 公共通道 | `latest.json` 已指向 `4.0.27`；三个版本化安装包完整下载后的 SHA-256 与 GitHub 一致，且文件逐字节相同 |
+| 当前代码版本 | `4.0.28+4028` 正式版，三端 pubspec、共享常量与 CHANGELOG 一致 |
+| 当前版本本地门禁 | 固定 Flutter 3.44.1 执行 `make verify`；修正 macOS 固定端口测试桩后，重跑完整桌面测试、原生测试、分析、格式和覆盖率，全部门禁逐项通过。Release tooling 396 项、shared 748 项、Android 287 项、macOS 314 项、Windows 291 项通过；7 项 Windows 主机专属用例由线上 runner 补齐 |
+| 正式源码与标签 | 受保护 PR [#200](https://github.com/Elegying/SSRVPN/pull/200) 经九项必需检查后 squash 合并；正式源码提交 [`ea0b200`](https://github.com/Elegying/SSRVPN/commit/ea0b200e11c5a360e0073df78e6c465a7517f544)，注释标签 `v4.0.28` 精确解引用到同一提交，合并文件树与已验证 PR 一致 |
+| 精确正式 `main` CI | [`33966155104`](https://github.com/Elegying/SSRVPN/actions/runs/33966155104) 成功；Workspace、Android、macOS、Windows、安全、安装器 smoke 与原生门禁全部通过 |
+| 标签与正式构建 | [`Prepare Release 33966225633`](https://github.com/Elegying/SSRVPN/actions/runs/33966225633) 和 [`Release 33967015011`](https://github.com/Elegying/SSRVPN/actions/runs/33967015011) 均成功；正式 Windows 安装器安装与卸载退出码均为 0，smoke 明确通过 |
+| 当前实机证据边界 | 本轮未新增正式安装包的完整三端人工验收；Android 17 断网与恢复证据仍属于 `v4.0.27`，macOS 本轮未执行断网测试 |
+| 正式公开资产 | [`v4.0.28`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.28) 为不可变、非 draft、非 prerelease 的 latest，共七项资产；独立完整下载后 APK `d1e83a84…10ff5e`、DMG `4aa08eb3…3c4368`、EXE `6837e952…c7e38`，实际文件、sidecar、Release API digest、provenance 与三份 GitHub Attestations 一致；证明绑定本仓库 `release.yml`、精确标签与源码提交 |
+| OSS 公共通道 | `latest.json` 已指向 `4.0.28`；三个版本化安装包均已独立完整下载，SHA-256 与 GitHub 实际文件及清单一致 |
 
 发布流程在三平台产物和 shared 测试全部成功后才获准进入 `release` 环境；
 Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最终发布按事务顺序完成。
 
-## 最近正式版本质量评分（v4.0.27）
+## 最近一次综合评分（v4.0.27，历史基线）
 
 | 维度 | 得分 | 主要依据 |
 | --- | ---: | --- |
@@ -70,6 +73,10 @@ Draft Release、不可变 OSS 目录、公共通道提升和 GitHub Release 最�
 
 ## 自动化验证摘要
 
+- v4.0.28：本地完整门禁逐项通过，行覆盖率 shared 86.85%、Android 69.03%、macOS 68.90%、
+  Windows 55.57%；macOS 系统代理关键文件 89.46%，Windows 生命周期关键文件 50.00%。
+  受保护 PR、精确 main CI、三端正式构建、发布与公开渠道独立终验均成功。以下 v4.0.27
+  数量与实机记录保留为历史证据。
 - v4.0.27 正式版：固定 Flutter 3.44.1 完整 `make verify`、受保护合并、精确主分支 CI、Prepare、
   三端正式构建和公开渠道终验全部通过。Android 离线/未验证/未知原生网络状态、恢复后复查，
   以及版本化规则的完整激活、失败回退和下次连接启用均有行为回归。
