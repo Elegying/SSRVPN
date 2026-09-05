@@ -154,10 +154,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   void _showAddResult(SubscriptionAddResult result) {
+    if (result.isSuccess && result.warning != null) {
+      _showSnack(result.warning!, AppTheme.warning);
+      return;
+    }
     switch (result.status) {
       case SubscriptionAddStatus.emptyInput:
         _showSnack(
-          '请输入订阅链接或SSR链接',
+          '请输入订阅或节点链接',
           AppTheme.error,
           behavior: SnackBarBehavior.floating,
         );
@@ -166,9 +170,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       case SubscriptionAddStatus.invalidUrl:
         _showSnack('请输入有效的URL地址', AppTheme.error);
       case SubscriptionAddStatus.singleNodeImported:
-        _showSnack('SSR链接已导入，当前共 ${result.nodeCount} 个节点', AppTheme.success);
+        _showSnack('节点链接已导入，当前共 ${result.nodeCount} 个节点', AppTheme.success);
       case SubscriptionAddStatus.singleNodeNoData:
-        _showSnack('SSR链接已添加，但未获取到数据', AppTheme.warning);
+        _showSnack('节点链接已添加，但未获取到数据', AppTheme.warning);
       case SubscriptionAddStatus.singleNodeImportFailed:
         _showSnack('导入失败: ${result.displayError}', AppTheme.error);
       case SubscriptionAddStatus.subscriptionAdded:

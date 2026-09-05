@@ -30,10 +30,14 @@ class SubscriptionYamlMerger {
   static String mergeYamlConfigs(
     List<String> yamls, {
     List<String>? sourceNames,
+    List<String>? sourceIds,
     String proxySourceKey = SubscriptionParser.proxySourceKey,
     String standaloneGroupName = SubscriptionParser.standaloneGroupName,
   }) {
     if (yamls.isEmpty) return '';
+    if (sourceIds != null && sourceIds.length != yamls.length) {
+      throw ArgumentError('Source IDs must match subscription inputs');
+    }
     _validateMergeEnvelope(
       yamls,
       sourceNames,
@@ -45,14 +49,11 @@ class SubscriptionYamlMerger {
       ...RuntimeConfigNamePolicy.reservedProxyNames,
     };
     final nextSuffixByBase = <String, int>{};
-    final fingerprintsByName = <String, Set<String>>{};
+    final fingerprintsByName = <String, Map<String, Map<String, dynamic>>>{};
+    final mergedProxies = <Map<String, dynamic>>[];
     final usedSourceNames = <String>{};
     final nextSourceSuffixByBase = <String, int>{};
-    final buffer = StringBuffer();
-    buffer.writeln('proxies:');
-    var outputBytes = 'proxies:\n'.length;
     var proxyCount = 0;
-    var hasAny = false;
 
     for (var yamlIndex = 0; yamlIndex < yamls.length; yamlIndex++) {
       final yaml = yamls[yamlIndex];
@@ -82,13 +83,27 @@ class SubscriptionYamlMerger {
         }
 
         proxy['name'] = originalName;
+        // Provenance belongs to this import, never to a provider-supplied ID.
+        proxy.remove(proxySourceKey);
+        proxy.remove(SubscriptionParser.proxySourceIdsKey);
+        proxy.remove(SubscriptionParser.proxyOriginalNameKey);
 
         final fingerprint = jsonEncode(_canonicalJsonValue(proxy));
         final fingerprints = fingerprintsByName.putIfAbsent(
           originalName,
-          () => <String>{},
+          () => <String, Map<String, dynamic>>{},
         );
-        if (!fingerprints.add(fingerprint)) continue;
+        final sourceId = sourceIds?[yamlIndex];
+        final duplicate = fingerprints[fingerprint];
+        if (duplicate != null) {
+          if (sourceId != null && sourceId.isNotEmpty) {
+            final owners =
+                duplicate[SubscriptionParser.proxySourceIdsKey] as List<String>;
+            if (!owners.contains(sourceId)) owners.add(sourceId);
+          }
+          continue;
+        }
+        fingerprints[fingerprint] = proxy;
 
         proxy['name'] = uniqueProxyName(
           originalName,
@@ -98,19 +113,41 @@ class SubscriptionYamlMerger {
         if (sourceName != null && sourceName.isNotEmpty) {
           proxy[proxySourceKey] = sourceName;
         }
-        final encodedProxy = jsonEncode(proxy);
-        outputBytes += 5 + utf8.encode(encodedProxy).length;
-        if (outputBytes > maxMergedOutputBytes) {
-          throw const _MergeLimitException(
-            '合并结果大小超过上限 (20MB)',
-          );
+        if (sourceId != null) {
+          proxy[SubscriptionParser.proxySourceIdsKey] = <String>[
+            if (sourceId.isNotEmpty) sourceId,
+          ];
+          proxy[SubscriptionParser.proxyOriginalNameKey] = originalName;
         }
-        buffer.writeln('  - $encodedProxy');
-        hasAny = true;
+        mergedProxies.add(proxy);
       }
     }
 
-    return hasAny ? buffer.toString() : '';
+    final buffer = StringBuffer('proxies:\n');
+    var outputBytes = 'proxies:\n'.length;
+    for (final proxy in mergedProxies) {
+      final encodedProxy = jsonEncode(proxy);
+      outputBytes += 5 + utf8.encode(encodedProxy).length;
+      if (outputBytes > maxMergedOutputBytes) {
+        throw const _MergeLimitException('合并结果大小超过上限 (20MB)');
+      }
+      buffer.writeln('  - $encodedProxy');
+    }
+    return mergedProxies.isEmpty ? '' : buffer.toString();
+  }
+
+  static List<String> uniqueSourceNames(List<String> names) {
+    final used = <String>{};
+    final suffixes = <String, int>{};
+    return [
+      for (final name in names)
+        _uniqueSourceName(
+          name,
+          used,
+          suffixes,
+          SubscriptionParser.standaloneGroupName,
+        ),
+    ];
   }
 
   static List<String> splitProxyItems(String proxiesText) {

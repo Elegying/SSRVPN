@@ -89,6 +89,13 @@ if "_cleanJsonMap" in subscription_source:
     raise SystemExit(f"{subscription_base}: node normalization leaked back into orchestration")
 if "_cleanSubscriptionHeaderName" in subscription_source:
     raise SystemExit(f"{subscription_base}: header parsing leaked back into orchestration")
+for name, limit in {
+    "subscription_service_persistence.dart": 180,
+    "subscription_source_cache.dart": 160,
+}.items():
+    path = subscription_base.with_name(name)
+    if not path.is_file() or len(path.read_text(encoding="utf-8").splitlines()) > limit:
+        raise SystemExit(f"{path}: subscription cache responsibility boundary regressed")
 
 macos_settings = Path("SSRVPN_MacOS/lib/services/settings_service.dart")
 macos_settings_source = macos_settings.read_text(encoding="utf-8")

@@ -850,6 +850,9 @@ void main() {
 
     await tester.longPress(find.text('Android subscription'));
     expect(edited, same(subscription));
+    edited = null;
+    await tester.tap(find.byTooltip('编辑订阅'));
+    expect(edited, same(subscription));
   });
 
   testWidgets('subscription cards expose desktop right-click editing',
@@ -888,6 +891,9 @@ void main() {
       buttons: kSecondaryMouseButton,
     );
     await tester.pump();
+    expect(edited, same(subscription));
+    edited = null;
+    await tester.tap(find.byTooltip('编辑订阅'));
     expect(edited, same(subscription));
   });
 

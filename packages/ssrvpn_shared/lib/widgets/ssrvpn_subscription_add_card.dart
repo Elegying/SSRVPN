@@ -57,7 +57,7 @@ class _SubscriptionAddCard extends StatelessWidget {
             scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
             onSubmitted: isBusy ? null : (_) => onAdd(),
             decoration: InputDecoration(
-              hintText: '粘贴订阅链接或 ssr:// 链接',
+              hintText: '粘贴订阅或节点链接',
               prefixIcon: const Icon(Icons.link_rounded),
               filled: true,
               fillColor: const Color(0xFF181B2A),

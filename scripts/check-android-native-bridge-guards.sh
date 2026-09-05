@@ -1269,7 +1269,12 @@ from pathlib import Path
 service = Path(sys.argv[1])
 support = Path(sys.argv[2])
 recovery = Path(sys.argv[3])
-line_count = len(service.read_text(encoding="utf-8").splitlines())
+service_source = service.read_text(encoding="utf-8")
+line_count = len(service_source.splitlines())
+if "override fun onBind" in service_source:
+    raise SystemExit(f"{service}: inherit the system VPN revocation Binder")
+if "override fun onRevoke() = stopAll(recordManualStop = true)" not in service_source:
+    raise SystemExit(f"{service}: revocation must cancel sticky and automatic recovery")
 # Typed startup-failure propagation adds a small fixed cost; keep the service
 # under a hard ceiling and move new policy into focused helpers.
 if line_count > 995:

@@ -1167,6 +1167,8 @@ proxies:
     cipher: aes-256-gcm
     password: "test123"
     ssrvpn-subscription: "Feed A"
+    ssrvpn-subscription-ids: ["source-a"]
+    ssrvpn-original-name: "Original"
     group: "Feed A"
 ''';
 
@@ -1175,6 +1177,8 @@ proxies:
       final proxy = (parsed['proxies'] as YamlList).single as YamlMap;
 
       expect(proxy.containsKey('ssrvpn-subscription'), isFalse);
+      expect(proxy.containsKey('ssrvpn-subscription-ids'), isFalse);
+      expect(proxy.containsKey('ssrvpn-original-name'), isFalse);
       expect(proxy.containsKey('group'), isFalse);
     });
 

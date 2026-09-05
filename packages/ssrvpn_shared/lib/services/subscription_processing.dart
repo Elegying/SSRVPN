@@ -40,10 +40,12 @@ class SubscriptionProcessing {
     SubscriptionRefreshControl control, {
     required String proxySourceKey,
     required String standaloneGroupName,
+    List<String>? sourceIds,
   }) {
     final input = _SubscriptionProcessingInput(
       yamls: List<String>.of(yamls),
       sourceNames: List<String>.of(sourceNames),
+      sourceIds: sourceIds == null ? null : List<String>.of(sourceIds),
       proxySourceKey: proxySourceKey,
       standaloneGroupName: standaloneGroupName,
       workerStartDelay: _workerStartDelayForTesting,
@@ -74,6 +76,7 @@ class _SubscriptionProcessingInput {
   const _SubscriptionProcessingInput({
     required this.yamls,
     required this.sourceNames,
+    required this.sourceIds,
     required this.proxySourceKey,
     required this.standaloneGroupName,
     required this.workerStartDelay,
@@ -81,6 +84,7 @@ class _SubscriptionProcessingInput {
 
   final List<String> yamls;
   final List<String> sourceNames;
+  final List<String>? sourceIds;
   final String proxySourceKey;
   final String standaloneGroupName;
   final Duration workerStartDelay;
@@ -92,6 +96,7 @@ MergedSubscriptionResult _processSubscription(
   final yaml = SubscriptionYamlMerger.mergeYamlConfigs(
     input.yamls,
     sourceNames: input.sourceNames,
+    sourceIds: input.sourceIds,
     proxySourceKey: input.proxySourceKey,
     standaloneGroupName: input.standaloneGroupName,
   );

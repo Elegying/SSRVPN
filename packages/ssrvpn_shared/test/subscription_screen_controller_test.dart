@@ -169,10 +169,10 @@ void main() {
       expect(result.nodeCount, 1);
     });
 
-    test('imports single node subscriptions through refresh', () async {
+    test('imports single node subscriptions without remote refresh', () async {
       final service = _FakeSubscriptionService(
         nodes: [node('MySS')],
-        refreshResult: 'proxies: []',
+        refreshError: StateError('remote refresh must not run'),
       );
       final controller = SubscriptionScreenController(
         subscriptionService: service,
@@ -185,6 +185,30 @@ void main() {
       expect(result.status, SubscriptionAddStatus.singleNodeImported);
       expect(result.nodeCount, 1);
       expect(result.clearInput, isTrue);
+    });
+
+    test('new remote source reports success while older sources fail',
+        () async {
+      final controller = SubscriptionScreenController(
+        subscriptionService: _FakeSubscriptionService(
+          nodes: [node('New source node')],
+          refreshOutcome: const SubscriptionBatchRefreshResult(
+            status: SubscriptionBatchRefreshStatus.partialSuccess,
+            yaml: 'merged nodes',
+            successfulSubscriptionIds: ['sub-1'],
+            successfulSubscriptionNames: ['example.com'],
+            failures: [
+              SubscriptionRefreshFailure(
+                  subscriptionName: 'Old', message: 'offline')
+            ],
+          ),
+        ),
+      );
+      final result =
+          await controller.addSubscription('https://example.com/sub');
+      expect(result.status, SubscriptionAddStatus.subscriptionAdded);
+      expect(result.warning, contains('新来源已生效'));
+      expect(result.error, isNull);
     });
 
     test('refresh result carries network help detail for socket errors',
@@ -324,7 +348,7 @@ void main() {
       expect(result.success, isFalse);
       expect(result.isPartialSuccess, isTrue);
       expect(result.failureDetails, ['Backup: temporary timeout']);
-      expect(result.message, contains('已保留上次有效节点'));
+      expect(result.message, contains('失败来源保留已有节点'));
       expect(result.message, contains('Backup'));
       expect(result.shouldShowNetworkHelp, isFalse);
     });

@@ -166,7 +166,7 @@ proxies:
       expect(service.allNodes, hasLength(3000));
     });
 
-    test('partial fetch returns details and preserves the last valid state',
+    test('partial fetch commits fresh sources while preserving failed sources',
         () async {
       await service.addSubscription(
         'Backup',
@@ -181,13 +181,13 @@ proxies:
       final result = await service.refreshAllSubscriptionsDetailed();
 
       expect(result.status, SubscriptionBatchRefreshStatus.partialSuccess);
-      expect(result.yaml, originalState.rawYaml);
+      expect(result.yaml, service.rawYaml);
       expect(result.successfulSubscriptionNames, ['Primary']);
       expect(result.failures, hasLength(1));
       expect(result.failures.single.subscriptionName, 'Backup');
       expect(result.failures.single.message, contains('temporary timeout'));
-      originalState.expectUnchanged(service);
-      expect(service.cachedYaml, originalState.rawYaml);
+      expect(service.allNodes.map((node) => node.name), ['New Primary']);
+      expect(service.cachedYaml, result.yaml);
     });
 
     test('legacy refresh API still throws on a partial fetch', () async {
@@ -212,53 +212,20 @@ proxies:
       );
     });
 
-    test(
-        'deleting one subscription rolls back when every remaining source fails',
-        () async {
+    test('deleting a subscription does not fetch uncached survivors', () async {
       final removed = service.subscriptions.single;
-      await service.addSubscription(
+      final survivor = await service.addSubscription(
         'Backup',
         'https://backup.example.com/sub',
       );
-      originalState = _ServiceSnapshot.capture(service);
       service.responses = {
-        'https://backup.example.com/sub': Exception('temporary timeout'),
+        survivor.url: Exception('offline'),
       };
-
-      await expectLater(
-        service.removeSubscription(removed.id),
-        throwsA(anything),
-      );
-
-      originalState.expectUnchanged(service);
-      expect(service.cachedYaml, originalState.rawYaml);
-    });
-
-    test(
-        'deleting one subscription rolls back when remaining refresh is partial',
-        () async {
-      final removed = service.subscriptions.single;
-      await service.addSubscription(
-        'Backup A',
-        'https://backup-a.example.com/sub',
-      );
-      await service.addSubscription(
-        'Backup B',
-        'https://backup-b.example.com/sub',
-      );
-      originalState = _ServiceSnapshot.capture(service);
-      service.responses = {
-        'https://backup-a.example.com/sub': _yamlFor('Fresh Backup'),
-        'https://backup-b.example.com/sub': Exception('temporary timeout'),
-      };
-
-      await expectLater(
-        service.removeSubscription(removed.id),
-        throwsA(isA<SubscriptionPartialRefreshException>()),
-      );
-
-      originalState.expectUnchanged(service);
-      expect(service.cachedYaml, originalState.rawYaml);
+      final fetchCalls = service.fetchCalls;
+      await service.removeSubscription(removed.id);
+      expect(service.subscriptions.single.id, survivor.id);
+      expect(service.allNodes, isEmpty);
+      expect(service.fetchCalls, fetchCalls);
     });
 
     test('concurrent refreshes commit in request order', () async {
@@ -355,7 +322,7 @@ proxies:
       expect(service.allNodes.map((node) => node.name), ['Refreshed Node']);
     });
 
-    test('remove waits for an in-flight refresh and then refreshes survivors',
+    test('remove waits for an in-flight refresh and keeps cached survivors',
         () async {
       final removed = await service.addSubscription(
         'Backup',
@@ -389,7 +356,7 @@ proxies:
       expect(service.subscriptions.map((sub) => sub.name), ['Primary']);
       expect(
         service.allNodes.map((node) => node.name),
-        ['Survivor After Removal'],
+        ['Primary During Refresh'],
       );
     });
 

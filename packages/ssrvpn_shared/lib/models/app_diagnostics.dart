@@ -619,6 +619,10 @@ class AppDiagnosticReport {
     if (logAttentionCount > 0) {
       return '当前检查正常，最近有 $logAttentionCount 条提醒';
     }
+    if (checks.any((check) =>
+        check.id == 'runtime' && check.status == AppDiagnosticStatus.skipped)) {
+      return '本地检查通过，连接尚未验证';
+    }
     return '运行正常，未发现异常';
   }
 

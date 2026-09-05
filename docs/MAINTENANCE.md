@@ -164,7 +164,9 @@ silently disconnect an active session.
 
 | Scope | Responsibility |
 | --- | --- |
-| `subscription_service_base.dart` | Refresh orchestration, source merge, persistence, and public subscription API |
+| `subscription_service_base.dart` | Serialized source mutations, refresh commit/rollback, and public subscription API |
+| `subscription_service_persistence.dart` | Existing JSON/YAML files, atomic writes and corrupt-cache backup |
+| `subscription_source_cache.dart` | Stable source ownership and bounded legacy-cache extraction, including shared deduplicated nodes |
 | `subscription_node_codec.dart` | Node URI decoding/encoding, JSON cleanup, and normalized node editing |
 | `update_service.dart` | Stable shared update facade, metadata validation, and public update API |
 | `update_service_download.dart` | Bounded download, cancellation, redirect, and temporary-file handling |

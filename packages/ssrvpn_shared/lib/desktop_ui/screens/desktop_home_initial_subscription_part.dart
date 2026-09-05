@@ -165,7 +165,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                               maxLines: 4,
                               enabled: !isSubmitting,
                               decoration: InputDecoration(
-                                hintText: 'ssr:// 或 https://...',
+                                hintText: '粘贴订阅或节点链接',
                                 prefixIcon: const Icon(Icons.link_rounded),
                                 errorText: inputError,
                                 filled: true,

@@ -114,12 +114,14 @@ class SubscriptionAddResult {
     required this.status,
     this.nodeCount = 0,
     this.error,
+    this.warning,
     this.clearInput = false,
   });
 
   final SubscriptionAddStatus status;
   final int nodeCount;
   final Object? error;
+  final String? warning;
   final bool clearInput;
 
   static const int maxDisplayErrorCharacters = 512;
@@ -338,7 +340,7 @@ class SubscriptionScreenController {
       }
 
       if (subscriptionService.isSingleNodeLink(url)) {
-        return _addSingleNodeSubscription(url);
+        return await _addSingleNodeSubscription(url);
       }
 
       if (!_isValidHttpSubscriptionUrl(url)) {
@@ -347,11 +349,12 @@ class SubscriptionScreenController {
         );
       }
 
-      await subscriptionService.addSubscription(
+      final added = await subscriptionService.addSubscription(
         subscriptionService.defaultSubscriptionName(url),
         url,
       );
       return _refreshAfterAdd(
+        subscriptionId: added.id,
         successStatus: SubscriptionAddStatus.subscriptionAdded,
         noDataStatus: SubscriptionAddStatus.subscriptionNoData,
         failureStatus: SubscriptionAddStatus.refreshFailed,
@@ -377,12 +380,10 @@ class SubscriptionScreenController {
         final failedNames = outcome.failures
             .map((failure) => failure.subscriptionName)
             .join('、');
-        final retained =
-            outcome.yaml?.isNotEmpty == true ? '已保留上次有效节点' : '当前没有可用的旧节点';
         return SubscriptionRefreshResult(
           message:
-              '部分成功: 已获取 ${outcome.successfulSubscriptionNames.length} 个订阅，'
-              '${outcome.failures.length} 个失败；$retained。失败项: $failedNames',
+              '部分成功: 已更新 ${outcome.successfulSubscriptionNames.length} 个订阅，'
+              '${outcome.failures.length} 个失败；失败来源保留已有节点。失败项: $failedNames',
           status: SubscriptionRefreshStatus.partialSuccess,
           failureDetails:
               outcome.failures.map((failure) => failure.detail).toList(),
@@ -453,18 +454,24 @@ class SubscriptionScreenController {
   }
 
   Future<SubscriptionAddResult> _addSingleNodeSubscription(String url) async {
+    // Local imports are committed by the service without fetching unrelated
+    // remote feeds. This also works when those feeds are offline or hanging.
     await subscriptionService.addSubscription(
       subscriptionService.defaultSubscriptionName(url),
       url,
     );
-    return _refreshAfterAdd(
-      successStatus: SubscriptionAddStatus.singleNodeImported,
-      noDataStatus: SubscriptionAddStatus.singleNodeNoData,
-      failureStatus: SubscriptionAddStatus.singleNodeImportFailed,
+    final nodeCount = _runnableNodeCount();
+    return SubscriptionAddResult(
+      status: nodeCount > 0
+          ? SubscriptionAddStatus.singleNodeImported
+          : SubscriptionAddStatus.singleNodeNoData,
+      nodeCount: nodeCount,
+      clearInput: true,
     );
   }
 
   Future<SubscriptionAddResult> _refreshAfterAdd({
+    required String subscriptionId,
     required SubscriptionAddStatus successStatus,
     required SubscriptionAddStatus noDataStatus,
     required SubscriptionAddStatus failureStatus,
@@ -472,7 +479,8 @@ class SubscriptionScreenController {
     try {
       final outcome =
           await subscriptionService.refreshAllSubscriptionsDetailed();
-      if (outcome.isPartialSuccess) {
+      if (outcome.isPartialSuccess &&
+          !outcome.successfulSubscriptionIds.contains(subscriptionId)) {
         return SubscriptionAddResult(
           status: failureStatus,
           error: SubscriptionPartialRefreshException(outcome),
@@ -484,6 +492,8 @@ class SubscriptionScreenController {
         return SubscriptionAddResult(
           status: successStatus,
           nodeCount: _runnableNodeCount(),
+          warning:
+              outcome.isPartialSuccess ? '新来源已生效；其他订阅刷新失败，已保留它们已有的节点' : null,
           clearInput: true,
         );
       }

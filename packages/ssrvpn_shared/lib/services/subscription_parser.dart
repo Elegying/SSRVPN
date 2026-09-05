@@ -21,6 +21,8 @@ part 'subscription_parser_yaml_part.dart';
 ///   hysteria://, hysteria2://, tuic://, snell://, socks5://, http://）
 class SubscriptionParser {
   static const proxySourceKey = 'ssrvpn-subscription';
+  static const proxySourceIdsKey = 'ssrvpn-subscription-ids';
+  static const proxyOriginalNameKey = 'ssrvpn-original-name';
   static const standaloneGroupName = '单独节点';
 
   /// 统一订阅解析入口：自动检测格式，返回 YAML 格式的 proxies 段

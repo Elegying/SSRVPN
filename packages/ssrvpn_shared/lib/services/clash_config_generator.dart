@@ -15,6 +15,8 @@ class ClashConfigGenerator {
   static const int isolateThreshold = 256 * 1024;
   static const _internalProxyKeys = {
     'ssrvpn-subscription',
+    'ssrvpn-subscription-ids',
+    'ssrvpn-original-name',
     'group',
     'latency',
     'isOnline',

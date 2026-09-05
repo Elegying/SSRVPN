@@ -9,7 +9,6 @@ import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
@@ -991,5 +990,6 @@ class SsrvpnVpnService : VpnService() {
         instance = null
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    // Inherit VpnService.onBind so Android can deliver revocation via its Binder.
+    override fun onRevoke() = stopAll(recordManualStop = true)
 }
