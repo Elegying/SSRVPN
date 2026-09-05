@@ -740,16 +740,17 @@ void main() {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_native_status_recovery_',
       );
-      final secondLaunch = Completer<void>();
+      final occupiedPort =
+          await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(occupiedPort.close);
+      final preferredSettings = AppSettings(proxyPort: occupiedPort.port);
+      final recoveryFinished = Completer<void>();
       var launchCalls = 0;
       var firstStatusCalls = 0;
       messenger.setMockMethodCallHandler(channel, (call) async {
         switch (call.method) {
           case 'launchOwnedCore':
             launchCalls++;
-            if (launchCalls == 2 && !secondLaunch.isCompleted) {
-              secondLaunch.complete();
-            }
             final pid = launchCalls == 1 ? 4242 : 4343;
             return {
               'pid': pid,
@@ -784,6 +785,7 @@ void main() {
         }
         return null;
       });
+      var proxyPort = preferredSettings.proxyPort;
       var proxyOwned = false;
       final proxyService = SystemProxyService(
         startProxyGuardian: (_, __) async => true,
@@ -795,7 +797,7 @@ void main() {
         effectiveProxyRunner: () async => ProcessResult(
           1,
           0,
-          proxyOwned ? _effectiveProxyOutput(7890) : '<dictionary> {\n}',
+          proxyOwned ? _effectiveProxyOutput(proxyPort) : '<dictionary> {\n}',
           '',
         ),
         networkSetupRunner: (arguments) async {
@@ -807,7 +809,7 @@ void main() {
               1,
               0,
               proxyOwned
-                  ? 'Enabled: Yes\nServer: 127.0.0.1\nPort: 7890\n'
+                  ? 'Enabled: Yes\nServer: 127.0.0.1\nPort: $proxyPort\n'
                   : 'Enabled: No\nServer: \nPort: 0\n',
               '',
             );
@@ -817,6 +819,7 @@ void main() {
             '-setsecurewebproxy',
             '-setsocksfirewallproxy',
           }.contains(arguments.first)) {
+            proxyPort = int.parse(arguments[3]);
             proxyOwned = true;
           } else if (arguments.first.endsWith('state')) {
             proxyOwned = arguments.last == 'on';
@@ -825,6 +828,9 @@ void main() {
         },
       );
       final service = _AlwaysHealthyClashService(proxyService: proxyService);
+      service.onProcessExit = () {
+        if (!recoveryFinished.isCompleted) recoveryFinished.complete();
+      };
       addTearDown(() async {
         service.requestConnectionIntent(false);
         try {
@@ -835,19 +841,19 @@ void main() {
         await _deleteTemporaryDirectoryWithRetry(tempDir);
       });
       await service.init(
-        AppSettings(),
+        preferredSettings,
         dataDir: tempDir.path,
         skipCoreProbes: true,
       );
       await service.writeConfig(
-        service.generateClashConfig(_subscriptionYaml, AppSettings()),
+        service.generateClashConfig(_subscriptionYaml, preferredSettings),
       );
       final generation = service.requestConnectionIntent(true);
       var recoveryConfigGenerations = 0;
 
       expect(await service.start(), isTrue);
       service.rememberDesktopConnectionRecoveryPlan(
-        preferredSettings: AppSettings(),
+        preferredSettings: preferredSettings,
         generateConfig: (runtimeSettings, preferredNodeName) async {
           recoveryConfigGenerations++;
           return service.generateClashConfigAsync(
@@ -858,11 +864,13 @@ void main() {
         },
         isRevisionCurrent: () => true,
       );
-      await secondLaunch.future.timeout(const Duration(seconds: 3));
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await recoveryFinished.future.timeout(const Duration(seconds: 3));
 
       expect(launchCalls, 2);
       expect(recoveryConfigGenerations, 1);
+      expect(service.runtimeProxyPort, isNot(occupiedPort.port));
+      expect(proxyPort, service.runtimeProxyPort);
+      expect(await proxyService.isCurrentSystemProxyOwned(), isTrue);
       expect(service.isRunning, isTrue);
       expect(
         service.lastUnexpectedExitRuntimeNotice?.level,
