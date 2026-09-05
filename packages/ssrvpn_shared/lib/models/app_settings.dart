@@ -25,6 +25,7 @@ class AppSettings {
   // ── 延迟测试 ──
   String latencyTestUrl;
   String? lastSelectedNodeName;
+  String lastSelectedNodeRenameId;
   int latencyTestTimeout; // 毫秒
 
   // ── 强制代理站点 ──
@@ -44,6 +45,7 @@ class AppSettings {
     String tunStack = 'gvisor',
     this.latencyTestUrl = AppConstants.defaultLatencyTestUrl,
     String? lastSelectedNodeName,
+    this.lastSelectedNodeRenameId = '',
     @Deprecated('Use lastSelectedNodeName instead.') String? lastSelectedNode,
     this.latencyTestTimeout = 5000,
     Iterable<Object?>? forceProxySites,
@@ -61,7 +63,10 @@ class AppSettings {
   @Deprecated('Use lastSelectedNodeName instead.')
   String? get lastSelectedNode => lastSelectedNodeName;
   @Deprecated('Use lastSelectedNodeName instead.')
-  set lastSelectedNode(String? value) => lastSelectedNodeName = value;
+  set lastSelectedNode(String? value) {
+    lastSelectedNodeName = value;
+    lastSelectedNodeRenameId = '';
+  }
 
   @Deprecated('Use enableTun instead.')
   bool get tunMode => enableTun;
@@ -88,6 +93,7 @@ class AppSettings {
     String? tunStack,
     String? latencyTestUrl,
     String? lastSelectedNodeName,
+    String? lastSelectedNodeRenameId,
     @Deprecated('Use lastSelectedNodeName instead.') String? lastSelectedNode,
     int? latencyTestTimeout,
     Iterable<Object?>? forceProxySites,
@@ -106,6 +112,10 @@ class AppSettings {
       latencyTestUrl: latencyTestUrl ?? this.latencyTestUrl,
       lastSelectedNodeName:
           lastSelectedNodeName ?? lastSelectedNode ?? this.lastSelectedNodeName,
+      lastSelectedNodeRenameId: lastSelectedNodeRenameId ??
+          (lastSelectedNodeName != null || lastSelectedNode != null
+              ? ''
+              : this.lastSelectedNodeRenameId),
       latencyTestTimeout: latencyTestTimeout ?? this.latencyTestTimeout,
       forceProxySites: forceProxySites ?? this.forceProxySites,
       forceDirectSites: forceDirectSites ?? this.forceDirectSites,
@@ -125,6 +135,7 @@ class AppSettings {
       'tunStack': tunStack,
       'latencyTestUrl': latencyTestUrl,
       'lastSelectedNodeName': lastSelectedNodeName,
+      'lastSelectedNodeRenameId': lastSelectedNodeRenameId,
       'latencyTestTimeout': latencyTestTimeout,
       'forceProxySites': forceProxySites,
       'forceDirectSites': forceDirectSites,
@@ -143,6 +154,8 @@ class AppSettings {
       latencyTestUrl: _parseLatencyTestUrl(json['latencyTestUrl']),
       lastSelectedNodeName: _optionalString(json['lastSelectedNodeName']) ??
           _optionalString(json['lastSelectedNode']),
+      lastSelectedNodeRenameId:
+          _optionalString(json['lastSelectedNodeRenameId']) ?? '',
       latencyTestTimeout: _parseTimeout(json['latencyTestTimeout'], 5000),
       forceProxySites: json['forceProxySites'] is Iterable
           ? (json['forceProxySites'] as Iterable).map(
@@ -172,6 +185,7 @@ class AppSettings {
         other.tunStack == tunStack &&
         other.latencyTestUrl == latencyTestUrl &&
         other.lastSelectedNodeName == lastSelectedNodeName &&
+        other.lastSelectedNodeRenameId == lastSelectedNodeRenameId &&
         other.latencyTestTimeout == latencyTestTimeout &&
         _listEquals(other.forceProxySites, forceProxySites) &&
         _listEquals(other.forceDirectSites, forceDirectSites);
@@ -189,6 +203,7 @@ class AppSettings {
       tunStack,
       latencyTestUrl,
       lastSelectedNodeName,
+      lastSelectedNodeRenameId,
       latencyTestTimeout,
       Object.hashAll(forceProxySites),
       Object.hashAll(forceDirectSites),

@@ -1,8 +1,11 @@
 import 'dart:collection';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import '../constants/app_constants.dart';
 import '../utils/bounded_yaml.dart';
+import '../utils/proxy_dependency_policy.dart';
 import '../utils/runtime_config_name_policy.dart';
 import 'subscription_parser.dart';
 
@@ -48,6 +51,9 @@ class SubscriptionYamlMerger {
 
     final fingerprintsByName = <String, Map<String, Map<String, dynamic>>>{};
     final mergedProxies = <Map<String, dynamic>>[];
+    final mergedByInput =
+        HashMap<Map<String, dynamic>, Map<String, dynamic>>.identity();
+    final dependencies = <(Map<String, dynamic>, Map<String, dynamic>)>[];
     final usedSourceNames = <String>{};
     final nextSourceSuffixByBase = <String, int>{};
     var proxyCount = 0;
@@ -62,6 +68,7 @@ class SubscriptionYamlMerger {
               standaloneGroupName,
             )
           : null;
+      final sourceProxies = <Map<String, dynamic>>[];
       for (final item in _proxyItemsFromYaml(yaml)) {
         proxyCount++;
         if (proxyCount > maxMergedProxyNodes) {
@@ -84,8 +91,26 @@ class SubscriptionYamlMerger {
         proxy.remove(proxySourceKey);
         proxy.remove(SubscriptionParser.proxySourceIdsKey);
         proxy.remove(SubscriptionParser.proxyOriginalNameKey);
-
-        final fingerprint = jsonEncode(_canonicalJsonValue(proxy));
+        sourceProxies.add(proxy);
+      }
+      final fingerprintsByProxy =
+          HashMap<Map<String, dynamic>, String>.identity();
+      for (final (proxy, target)
+          in ProxyDependencyPolicy.resolve(sourceProxies)) {
+        final reference = ProxyDependencyPolicy.reference(proxy);
+        if (reference != null) proxy['dialer-proxy'] = reference;
+        if (target != null) dependencies.add((proxy, target));
+        fingerprintsByProxy[proxy] = sha256
+            .convert(utf8.encode(jsonEncode({
+              'proxy': _canonicalJsonValue(proxy),
+              if (target != null) 'dependency': fingerprintsByProxy[target],
+            })))
+            .toString();
+      }
+      for (final proxy in sourceProxies) {
+        final originalName = proxy['name'] as String;
+        final fingerprint = fingerprintsByProxy[proxy] ??
+            jsonEncode(_canonicalJsonValue(proxy));
         final fingerprints = fingerprintsByName.putIfAbsent(
           originalName,
           () => <String, Map<String, dynamic>>{},
@@ -93,6 +118,7 @@ class SubscriptionYamlMerger {
         final sourceId = sourceIds?[yamlIndex];
         final duplicate = fingerprints[fingerprint];
         if (duplicate != null) {
+          mergedByInput[proxy] = duplicate;
           if (sourceId != null && sourceId.isNotEmpty) {
             final owners =
                 duplicate[SubscriptionParser.proxySourceIdsKey] as List<String>;
@@ -101,6 +127,7 @@ class SubscriptionYamlMerger {
           continue;
         }
         fingerprints[fingerprint] = proxy;
+        mergedByInput[proxy] = proxy;
 
         if (sourceName != null && sourceName.isNotEmpty) {
           proxy[proxySourceKey] = sourceName;
@@ -116,6 +143,9 @@ class SubscriptionYamlMerger {
     }
 
     _assignProxyNames(mergedProxies, previousYaml, proxySourceKey);
+    for (final (proxy, target) in dependencies) {
+      mergedByInput[proxy]!['dialer-proxy'] = mergedByInput[target]!['name'];
+    }
     final buffer = StringBuffer('proxies:\n');
     var outputBytes = 'proxies:\n'.length;
     for (final proxy in mergedProxies) {
@@ -159,6 +189,7 @@ class SubscriptionYamlMerger {
     if (previousYaml != null) {
       _validateMergeEnvelope([previousYaml], null, sourceKey, '');
       var count = 0;
+      final previousProxies = <Map<String, dynamic>>[];
       for (final item in _proxyItemsFromYaml(previousYaml)) {
         if (++count > maxMergedProxyNodes) {
           throw const _MergeLimitException('历史缓存节点数量超过上限');
@@ -166,6 +197,18 @@ class SubscriptionYamlMerger {
         _checkItemSize(item);
         final old = parseProxyItem(item);
         if (old == null) continue;
+        previousProxies.add(old);
+      }
+      final originalNames = {
+        for (final old in previousProxies)
+          RuntimeConfigNamePolicy.canonicalName(old['name']):
+              _originalProxyName(old),
+      };
+      for (final old in previousProxies) {
+        final reference = ProxyDependencyPolicy.reference(old);
+        if (reference != null) {
+          old['dialer-proxy'] = originalNames[reference] ?? reference;
+        }
         final name = RuntimeConfigNamePolicy.canonicalName(old['name']);
         if (name.isEmpty || used.contains(name)) continue;
         previousNames.add(name);

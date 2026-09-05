@@ -231,31 +231,13 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     final subscriptionService = context.read<SubscriptionService>();
     setState(() => _saving = true);
     final originalName = _editNode.name;
-    final updatedName = _nameController.text.trim();
     final settingsService = context.read<SettingsService>();
-    final renameRememberedNode = originalName != updatedName &&
-        settingsService.settings.lastSelectedNodeName == originalName;
-    var preferenceRenamed = false;
     try {
-      subscriptionService.validateNodeUpdate(originalName, config);
-      if (renameRememberedNode) {
-        await settingsService.renameLastSelectedNode(originalName, updatedName);
-        preferenceRenamed = true;
-      }
-      await subscriptionService.updateNode(originalName, config);
+      await subscriptionService.updateNode(originalName, config,
+          preferences: settingsService);
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
-      var message = _readableError(e);
-      if (preferenceRenamed) {
-        try {
-          await settingsService.renameLastSelectedNode(
-              updatedName, originalName);
-        } catch (rollbackError) {
-          AppLogger.warning('NodeEdit', '恢复首选节点失败: $rollbackError');
-          message = '$message 首选节点恢复失败，请返回首页重新选择节点。';
-        }
-      }
-      if (mounted) _showError(message);
+      if (mounted) _showError(_readableError(e));
     } finally {
       if (mounted) setState(() => _saving = false);
     }

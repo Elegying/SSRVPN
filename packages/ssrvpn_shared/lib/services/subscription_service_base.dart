@@ -11,12 +11,15 @@ import '../services/desktop_subscription_fetcher.dart';
 import '../services/clash_config_generator.dart';
 import '../services/subscription_header_name_parser.dart';
 import '../services/subscription_node_codec.dart';
+import 'subscription_node_editor.dart';
 import '../services/subscription_parser.dart';
 import '../services/subscription_processing.dart';
 import '../services/subscription_refresh_control.dart';
 import '../services/subscription_refresh_result.dart';
 import '../services/subscription_yaml_merger.dart';
 import '../services/subscription_source_cache.dart';
+import 'node_preference_transaction.dart';
+import 'subscription_undo_record.dart';
 import '../utils/app_logger.dart';
 import '../utils/bounded_yaml.dart';
 import '../utils/runtime_config_name_policy.dart';
@@ -89,8 +92,12 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
 
   // ── 订阅 CRUD ──
 
-  Future<T> _enqueueOperation<T>(Future<T> Function() operation) {
-    final result = _operationTail.then((_) => _runTransaction(operation));
+  Future<T> _enqueueOperation<T>(Future<T> Function() operation,
+      {NodePreferenceStore? preferences}) {
+    final result = _operationTail.then((_) {
+      if (preferences != null) _nodePreferences = preferences;
+      return _runTransaction(operation);
+    });
     _operationTail = result.then<void>((_) {}, onError: (_, __) {});
     return result;
   }
@@ -478,98 +485,54 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
   /// Preflight before a caller changes related preferences. The queued write
   /// repeats validation against its current state to cover intervening edits.
   void validateNodeUpdate(String originalName, Map<String, dynamic> config) {
-    _prepareNodeUpdate(rawYaml, originalName, config);
+    SubscriptionNodeEditor.prepare(rawYaml, originalName, config);
   }
 
   Future<void> updateNode(
     String originalName,
-    Map<String, dynamic> updatedConfig,
-  ) {
-    return _enqueueOperation(() => _updateNode(originalName, updatedConfig));
+    Map<String, dynamic> updatedConfig, {
+    NodePreferenceStore? preferences,
+  }) {
+    final snapshot = jsonValue(updatedConfig) as Map<String, dynamic>;
+    return _enqueueOperation(() => _updateNode(originalName, snapshot),
+        preferences: preferences);
   }
 
   Future<void> _updateNode(
     String originalName,
     Map<String, dynamic> updatedConfig,
   ) async {
-    final candidate = _prepareNodeUpdate(_rawYaml, originalName, updatedConfig);
-    await cacheYaml(candidate.yaml);
-    _acceptCache(candidate.yaml, candidate.parsed);
-    notifyListeners();
+    final candidate =
+        SubscriptionNodeEditor.prepare(_rawYaml, originalName, updatedConfig);
+    validateMergedYaml(candidate.yaml);
+    Future<void> save() async {
+      await cacheYaml(candidate.yaml);
+      _acceptCache(candidate.yaml, candidate.parsed);
+      notifyListeners();
+    }
+
+    final original = RuntimeConfigNamePolicy.canonicalName(originalName);
+    final updated =
+        RuntimeConfigNamePolicy.canonicalName(updatedConfig['name']);
+    final preferences = _nodePreferences;
+    if (preferences == null || original == updated) {
+      await save();
+      return;
+    }
+    if (_cacheDir == null) throw StateError('节点存储尚未初始化');
+    final change = NodePreferenceRename(original, updated, _uuid.v4());
+    await preferences.withNodePreferenceRename(change, (write) async {
+      _nodePreferenceRename = write.changesPreference ? change : null;
+      // The undo record must be durable before either store changes.
+      await _prepareDiskTransaction();
+      await write.persist();
+      await save();
+      _publishPreference = write.publish;
+      await _commitDiskTransaction();
+    });
   }
 
-  MergedSubscriptionResult _prepareNodeUpdate(String? rawYaml,
-      String originalName, Map<String, dynamic> updatedConfig) {
-    if (rawYaml == null || rawYaml.isEmpty) {
-      throw StateError('当前没有可编辑的订阅配置');
-    }
-
-    final parsed = jsonValue(BoundedYaml.load(rawYaml));
-    if (parsed is! Map<String, dynamic> || parsed['proxies'] is! List) {
-      throw const FormatException('订阅配置中没有有效的节点列表');
-    }
-
-    final proxies = parsed['proxies'] as List;
-    final canonicalOriginalName =
-        RuntimeConfigNamePolicy.canonicalName(originalName);
-    final index = proxies.indexWhere(
-      (proxy) =>
-          proxy is Map &&
-          RuntimeConfigNamePolicy.canonicalName(proxy['name']) ==
-              canonicalOriginalName,
-    );
-    if (index < 0) throw StateError('找不到要修改的节点');
-
-    final normalizedConfig = normalizeProxyConfig(updatedConfig);
-    final newName = RuntimeConfigNamePolicy.canonicalName(
-      normalizedConfig['name'],
-    );
-    normalizedConfig['name'] = newName;
-    if (RuntimeConfigNamePolicy.reservedProxyNames.contains(newName)) {
-      throw FormatException(
-        '节点名称“$newName”属于 Mihomo/SSRVPN 运行时保留名称，请使用其他名称',
-      );
-    }
-    final duplicate = proxies.asMap().entries.any(
-          (entry) =>
-              entry.key != index &&
-              entry.value is Map &&
-              RuntimeConfigNamePolicy.canonicalName(
-                    (entry.value as Map)['name'],
-                  ) ==
-                  newName,
-        );
-    if (duplicate) throw const FormatException('节点备注名已存在');
-
-    final original = proxies[index] as Map;
-    for (final key in [proxySourceKey, SubscriptionParser.proxySourceIdsKey]) {
-      normalizedConfig.remove(key);
-      if (original.containsKey(key)) normalizedConfig[key] = original[key];
-    }
-    normalizedConfig[SubscriptionParser.proxyOriginalNameKey] = newName;
-    proxies[index] = normalizedConfig;
-
-    final groups = parsed['proxy-groups'];
-    if (newName != canonicalOriginalName && groups is List) {
-      for (final group in groups) {
-        if (group is! Map || group['proxies'] is! List) continue;
-        final names = group['proxies'] as List;
-        for (var i = 0; i < names.length; i++) {
-          if (RuntimeConfigNamePolicy.canonicalName(names[i]) ==
-              canonicalOriginalName) {
-            names[i] = newName;
-          }
-        }
-      }
-    }
-
-    final yaml = encodeConfig(parsed);
-    final candidate = SubscriptionParser.parseYaml(yaml);
-    if (!candidate.nodes.any((node) => node.name == newName)) {
-      throw const FormatException('修改后的节点不可运行');
-    }
-    return MergedSubscriptionResult(yaml: yaml, parsed: candidate);
-  }
+  // ── YAML 合并 ──
 
   Future<void> setRawYaml(String yaml) {
     return _enqueueOperation(() => _setRawYaml(yaml));
@@ -577,13 +540,11 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
 
   Future<void> _setRawYaml(String yaml) async {
     final candidate = SubscriptionParser.parseYaml(yaml);
+    ClashConfigGenerator.buildProxiesText(yaml);
     await cacheYaml(yaml);
-
     _acceptCache(yaml, candidate);
     notifyListeners();
   }
-
-  // ── YAML 合并 ──
 
   /// 从 YAML 文本中提取指定顶层段的原始内容
   String extractSection(String yaml, String sectionName) {

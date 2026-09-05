@@ -11,12 +11,12 @@ typedef _SubscriptionSnapshot = ({
   Map<String, String> names,
 });
 
-/// One undo record covers the existing JSON/YAML pair. Deleting it commits the
-/// pair; a crash before that point restores both files before loading them.
+/// One undo record covers JSON/YAML and an optional preferred-node rename.
+/// Deleting it commits all stores; an earlier crash restores them at startup.
 extension _SubscriptionTransaction on _SubscriptionPersistence {
   File? get _transactionFile => _cacheDir == null
       ? null
-      : File('$_cacheDir/subscription_transaction.json');
+      : File('$_cacheDir/${SubscriptionUndoRecord.fileName}');
 
   Future<T> _runTransaction<T>(Future<T> Function() operation) async {
     await _recoverDiskTransaction();
@@ -34,14 +34,12 @@ extension _SubscriptionTransaction on _SubscriptionPersistence {
       runtimeText: _runtimeProxyText,
       names: Map<String, String>.of(_fetchedProfileNames),
     );
-    var committed = false;
     try {
       final result = await operation();
-      final journal = _transactionFile;
-      if (journal != null && await journal.exists()) await journal.delete();
-      committed = true;
+      await _commitDiskTransaction();
       return result;
     } catch (error, stack) {
+      if (_transactionCommitted) rethrow;
       _subscriptions = subscriptions;
       for (final entry in states.entries) {
         final saved = Subscription.fromJson(entry.value);
@@ -68,14 +66,33 @@ extension _SubscriptionTransaction on _SubscriptionPersistence {
         try {
           AppLogger.warning('SubscriptionService', '订阅恢复未完成，已保留恢复记录');
         } catch (_) {}
+        if (_nodePreferenceRename != null) {
+          Error.throwWithStackTrace(
+              StateError('首选节点恢复失败，请恢复存储权限后重试；订阅恢复记录已保留'), stack);
+        }
       }
       Error.throwWithStackTrace(error, stack);
     } finally {
       _transactionSnapshot = null;
+      _nodePreferenceRename = null;
+      _publishPreference = null;
+      final committed = _transactionCommitted;
+      _transactionCommitted = false;
       final notify = _notificationPending;
       _notificationPending = false;
       if (committed && notify) notifyListeners();
     }
+  }
+
+  Future<void> _commitDiskTransaction() async {
+    if (_transactionCommitted) return;
+    final journal = _transactionFile;
+    if (journal != null && await journal.exists()) await journal.delete();
+    _transactionCommitted = true;
+    // Publish both stores in one synchronous turn. No reader may combine a
+    // staged preference with the old subscription snapshot.
+    _transactionSnapshot = null;
+    _publishPreference?.call();
   }
 
   Future<void> _prepareDiskTransaction() async {
@@ -84,10 +101,7 @@ extension _SubscriptionTransaction on _SubscriptionPersistence {
       return;
     }
     final previous = <String, String?>{};
-    for (final name in const [
-      'subscriptions.json',
-      'subscription_cache.yaml'
-    ]) {
+    for (final name in SubscriptionUndoRecord.stateFiles) {
       final file = File('$_cacheDir/$name');
       if (await file.exists()) {
         if (await file.length() > BoundedYaml.maxInputBytes) {
@@ -99,33 +113,29 @@ extension _SubscriptionTransaction on _SubscriptionPersistence {
       }
     }
     await writeStringAtomically(
-        journal, jsonEncode({'version': 1, 'files': previous}));
+        journal,
+        jsonEncode({
+          'version': _nodePreferenceRename == null ? 1 : 2,
+          'files': previous,
+          if (_nodePreferenceRename != null)
+            'preference': _nodePreferenceRename!.toJson(),
+        }));
   }
 
   Future<void> _recoverDiskTransaction() async {
     final journal = _transactionFile;
-    if (journal == null || !await journal.exists()) return;
-    if (await journal.length() > BoundedYaml.maxInputBytes * 8) {
-      throw const FileSystemException('订阅恢复记录超过大小上限');
+    if (journal == null) return;
+    final record = await SubscriptionUndoRecord.read(journal);
+    if (record == null) return;
+    final preference = record.preference;
+    if (preference != null) {
+      final preferences = _nodePreferences;
+      if (preferences == null) throw StateError('首选节点恢复服务尚未初始化');
+      await preferences.recoverNodePreference(preference);
     }
-    final data = jsonDecode(await journal.readAsString());
-    if (data is! Map || data['version'] != 1 || data['files'] is! Map) {
-      throw const FormatException('订阅恢复记录无效');
-    }
-    final files = data['files'] as Map;
-    const names = ['subscriptions.json', 'subscription_cache.yaml'];
-    for (final name in names) {
-      final content = files[name];
-      if (!files.containsKey(name) ||
-          (content != null && content is! String) ||
-          (content is String &&
-              utf8.encode(content).length > BoundedYaml.maxInputBytes)) {
-        throw const FormatException('订阅恢复记录内容无效');
-      }
-    }
-    for (final name in names) {
+    for (final name in SubscriptionUndoRecord.stateFiles) {
       final file = File('$_cacheDir/$name');
-      final content = files[name] as String?;
+      final content = record.files[name];
       if (content == null) {
         if (await file.exists()) await file.delete();
       } else {

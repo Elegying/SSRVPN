@@ -22,6 +22,74 @@ void main() {
     }
   });
 
+  for (final initial in ['Original', 'Other']) {
+    test('queued rename checks committed selection, initial=$initial',
+        () async {
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      var writes = 0;
+      final service = await SettingsService.createForTesting(
+        settings: AppSettings(lastSelectedNodeName: initial),
+        dataDir: tempDirectory.path,
+        settingsPath: settingsPath,
+        readApiSecret: () async => '',
+        writeApiSecret: (_) async {},
+        writeSettings: (value) async {
+          if (writes++ == 0) {
+            entered.complete();
+            await release.future;
+          }
+          await File(settingsPath).writeAsString(
+              jsonEncode(value.toJson()..remove('apiSecret')),
+              flush: true);
+        },
+      );
+      addTearDown(service.dispose);
+      final first = service.updateLastSelectedNodeName(
+          initial == 'Original' ? 'Other' : 'Original');
+      await entered.future;
+      final rename = service.renameLastSelectedNode('Original', 'Edited\tNode');
+      release.complete();
+      await Future.wait([first, rename]);
+      final expected = initial == 'Original' ? 'Other' : 'EditedNode';
+      expect(service.settings.lastSelectedNodeName, expected);
+      expect(
+          jsonDecode(
+              await File(settingsPath).readAsString())['lastSelectedNodeName'],
+          expected);
+    });
+  }
+
+  test('transaction preference is staged and later selection survives recovery',
+      () async {
+    final service = await SettingsService.createForTesting(
+      settings: AppSettings(lastSelectedNodeName: 'Original'),
+      dataDir: tempDirectory.path,
+      settingsPath: settingsPath,
+      readApiSecret: () async => '',
+      writeApiSecret: (_) async {},
+    );
+    addTearDown(service.dispose);
+    const change = NodePreferenceRename('Original', 'Edited', 'edit-1');
+    await service.withNodePreferenceRename(change, (write) async {
+      await write.persist();
+      expect(service.settings.lastSelectedNodeName, 'Original');
+      expect(
+          jsonDecode(await File(settingsPath).readAsString())[
+              'lastSelectedNodeRenameId'],
+          change.id);
+      write.publish();
+    });
+    expect(service.settings.lastSelectedNodeName, 'Edited');
+    await service.updateLastSelectedNodeName('Other');
+    await service.recoverNodePreference(change);
+    expect(service.settings.lastSelectedNodeName, 'Other');
+    expect(service.settings.lastSelectedNodeRenameId, isEmpty);
+  });
+
   test('selected node preference is committed to memory and disk', () async {
     final service = await SettingsService.createForTesting(
       settings: AppSettings(),

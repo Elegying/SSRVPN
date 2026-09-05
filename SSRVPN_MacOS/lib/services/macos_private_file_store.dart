@@ -22,6 +22,38 @@ class _MacosPrivateFileStore {
   String get _dataDir => _dataDirectory();
   String get _apiSecretPath => '$_dataDir${Platform.pathSeparator}.api-secret';
 
+  Future<void> writeSettingsBytes(String path, List<int> bytes) async {
+    final file = File(path);
+    await file.parent.create(recursive: true);
+    final temp =
+        File('$path.tmp.$pid.${DateTime.now().microsecondsSinceEpoch}');
+    RandomAccessFile? handle;
+    try {
+      await temp.create(exclusive: true);
+      await ensurePrivateFile(temp.path);
+      handle = await temp.open(mode: FileMode.writeOnly);
+      await handle.writeFrom(bytes);
+      await handle.flush();
+      await handle.close();
+      handle = null;
+      await temp.rename(file.path);
+      syncDataDirectory();
+    } finally {
+      await handle?.close();
+      if (await temp.exists()) await temp.delete();
+    }
+  }
+
+  Future<void> restoreSettingsBytes(String path, List<int>? bytes) async {
+    final file = File(path);
+    if (bytes != null) {
+      await writeSettingsBytes(path, bytes);
+    } else if (await file.exists()) {
+      await file.delete();
+      syncDataDirectory();
+    }
+  }
+
   Future<String?> readApiSecret() async {
     final type =
         await FileSystemEntity.type(_apiSecretPath, followLinks: false);

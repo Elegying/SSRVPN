@@ -120,8 +120,9 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
               onTimeout: () => throw TimeoutException('核心服务初始化超时（90秒）'),
             );
         final appDataDir = _clashService!.configDir;
-        _subscriptionService =
-            await SubscriptionService.getInstance(appDataDir).timeout(
+        _subscriptionService = await SubscriptionService.getInstance(appDataDir,
+                preferences: _settingsService)
+            .timeout(
           const Duration(seconds: 30),
           onTimeout: () => throw TimeoutException('订阅服务初始化超时（30秒）'),
         );

@@ -159,6 +159,7 @@ class StartupOrchestrator {
     final core = clash.ClashService();
     final subscription = await SubscriptionService.getInstance(
       settings.dataDir,
+      preferences: settings,
     );
 
     if (flags.disableCoreAutostart) {

@@ -5,6 +5,7 @@ import 'dart:isolate';
 import '../models/app_settings.dart';
 import '../constants/app_constants.dart';
 import '../utils/bounded_yaml.dart';
+import '../utils/proxy_dependency_policy.dart';
 import '../utils/proxy_node_usage_policy.dart';
 import '../utils/runtime_config_name_policy.dart';
 
@@ -447,6 +448,8 @@ class ClashConfigGenerator {
     try {
       final proxies = _parseProxyList(rawYaml);
       if (proxies != null) {
+        ProxyDependencyPolicy.resolve(
+            proxies.whereType<Map<Object?, Object?>>());
         final buffer = StringBuffer();
         for (final proxy in proxies.whereType<Map<Object?, Object?>>()) {
           if (!ProxyNodeUsagePolicy.isRunnableProxyMap(proxy)) continue;
@@ -454,6 +457,8 @@ class ClashConfigGenerator {
           if (name.isEmpty) continue;
           final normalizedProxy = Map<Object?, Object?>.from(proxy)
             ..['name'] = name;
+          final reference = ProxyDependencyPolicy.reference(proxy);
+          if (reference != null) normalizedProxy['dialer-proxy'] = reference;
           buffer.writeln('  - ${jsonEncode(_plainYamlValue(normalizedProxy))}');
         }
         final text = buffer.toString().trimRight();

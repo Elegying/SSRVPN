@@ -33,6 +33,7 @@ const _trustedUserFacingFailureMessages = <String>{
   '订阅已更新，请重新连接以使用最新配置',
   '托盘连接失败，请重试或查看日志',
   '无法安全断开当前连接，已阻止打开更新安装包',
+  '首选节点恢复失败，请恢复存储权限后重试；订阅恢复记录已保留',
 };
 
 String safeUserFacingFailureMessage(Object? error) {

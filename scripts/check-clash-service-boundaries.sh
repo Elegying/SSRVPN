@@ -93,6 +93,9 @@ for name, limit in {
     "subscription_service_persistence.dart": 180,
     "subscription_source_cache.dart": 160,
     "subscription_service_transaction.dart": 180,
+    "subscription_node_editor.dart": 140,
+    "node_preference_transaction.dart": 160,
+    "subscription_undo_record.dart": 100,
 }.items():
     path = subscription_base.with_name(name)
     if not path.is_file() or len(path.read_text(encoding="utf-8").splitlines()) > limit:

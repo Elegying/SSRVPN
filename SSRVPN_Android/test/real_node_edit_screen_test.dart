@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -46,6 +47,76 @@ void main() {
       ),
     );
   }
+
+  testWidgets('saving a name with controls preserves the chosen endpoint',
+      (tester) async {
+    late Directory directory;
+    late _EditorFaultSubscription subscription;
+    late SettingsService settings;
+    await tester.runAsync(() async {
+      directory =
+          await Directory.systemTemp.createTemp('ssrvpn-canonical-edit-');
+      subscription = _EditorFaultSubscription();
+      await subscription.init(directory.path);
+      await subscription.setRawYaml('proxies:\n'
+          '  - {name: Decoy, type: socks5, server: decoy.invalid, port: 443}\n'
+          '  - {name: Original, type: socks5, server: chosen.invalid, port: 443}\n');
+      SharedPreferences.setMockInitialValues({});
+      settings = await SettingsService.createForTesting(
+        configPath: '${directory.path}/settings.json',
+        readApiSecret: () async => 'synthetic-secret',
+        writeApiSecret: (_) async {},
+      );
+      await settings.setLastSelectedNodeName('Original');
+    });
+    addTearDown(() async {
+      subscription.dispose();
+      settings.dispose();
+      await directory.delete(recursive: true);
+    });
+    await tester.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider<SubscriptionService>.value(value: subscription),
+        ChangeNotifierProvider<SettingsService>.value(value: settings),
+      ],
+      child: host(Builder(
+          builder: (context) => Scaffold(
+                body: TextButton(
+                    onPressed: () =>
+                        Navigator.of(context).push(MaterialPageRoute<void>(
+                          builder: (_) =>
+                              NodeEditScreen(node: subscription.allNodes.last),
+                        )),
+                    child: const Text('Open editor')),
+              ))),
+    ));
+    await tester.tap(find.text('Open editor'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'Edited\tNode');
+    final save = tester
+        .widget<TextButton>(find.widgetWithText(TextButton, '保存'))
+        .onPressed! as Future<void> Function();
+    await tester.runAsync(save);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('Open editor'), findsOneWidget);
+    expect(subscription.allNodes.last.name, 'EditedNode');
+    expect(settings.settings.lastSelectedNodeName, 'EditedNode');
+    late Map<String, dynamic> persisted;
+    await tester.runAsync(() async {
+      persisted = jsonDecode(
+              await File('${directory.path}/settings.json').readAsString())
+          as Map<String, dynamic>;
+    });
+    expect(persisted['lastSelectedNodeName'], 'EditedNode');
+    expect(
+        HomeNodeController.resolveDefaultNodeFrom(
+                subscription.allNodes, settings.settings.lastSelectedNodeName)!
+            .server,
+        'chosen.invalid');
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
 
   for (final failure in ['duplicate', 'preference', 'node', 'rollback']) {
     testWidgets(
@@ -114,9 +185,8 @@ void main() {
       expect(
           writes,
           switch (failure) {
-            'duplicate' || 'preference' => 0,
-            'rollback' => 1,
-            _ => 2
+            'duplicate' || 'preference' || 'rollback' => 0,
+            _ => 1
           });
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();

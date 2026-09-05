@@ -11,10 +11,11 @@ class SubscriptionService extends SubscriptionServiceBase {
 
   SubscriptionService._();
 
-  static Future<SubscriptionService> getInstance(String cacheDir) {
+  static Future<SubscriptionService> getInstance(String cacheDir,
+      {NodePreferenceStore? preferences}) {
     return _instance.get(() async {
       final service = SubscriptionService._();
-      await service.init(cacheDir);
+      await service.init(cacheDir, preferences: preferences);
       return service;
     });
   }

@@ -4,6 +4,35 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test(
+      'rename ownership survives serialization and clears on independent selection',
+      () {
+    final settings = AppSettings(
+        lastSelectedNodeName: 'Edited', lastSelectedNodeRenameId: 'edit-1');
+    expect(AppSettings.fromJson(settings.toJson()), settings);
+    expect(
+        settings.copyWith(proxyPort: 8890).lastSelectedNodeRenameId, 'edit-1');
+    expect(
+        settings
+            .copyWith(lastSelectedNodeName: 'Other')
+            .lastSelectedNodeRenameId,
+        isEmpty);
+    expect(
+        settings.copyWith(lastSelectedNode: 'Other').lastSelectedNodeRenameId,
+        isEmpty);
+    expect(
+        settings
+            .copyWith(
+                lastSelectedNodeName: 'Next',
+                lastSelectedNodeRenameId: 'edit-2')
+            .lastSelectedNodeRenameId,
+        'edit-2');
+    expect(
+        settings.copyWith(lastSelectedNodeRenameId: 'edit-2'), isNot(settings));
+    settings.lastSelectedNode = 'Other';
+    expect(settings.lastSelectedNodeRenameId, isEmpty);
+  });
+
   test('latency checks use HTTPS and migrate the historical HTTP default', () {
     expect(AppSettings().latencyTestUrl, AppConstants.defaultLatencyTestUrl);
     expect(

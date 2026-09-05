@@ -8,7 +8,14 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
-    show AppLogger, AsyncLazy, RecoveringSerialQueue;
+    show
+        AppLogger,
+        AsyncLazy,
+        RecoveringSerialQueue,
+        NodePreferenceStore,
+        NodePreferenceRename,
+        NodePreferenceWrite,
+        RuntimeConfigNamePolicy;
 import '../models/app_settings.dart';
 
 part 'macos_private_file_store.dart';
@@ -29,7 +36,7 @@ class _LegacyPreferencesSnapshot {
 ///
 /// macOS 使用 Application Support 下的 JSON 文件，与 Windows 客户端保持同一
 /// 数据结构，方便 UI 和启动流程复用。
-class SettingsService extends ChangeNotifier {
+class SettingsService extends ChangeNotifier implements NodePreferenceStore {
   static final _instance = AsyncLazy<SettingsService>();
   late AppSettings _settings;
   late String _settingsPath;
@@ -425,28 +432,8 @@ class SettingsService extends ChangeNotifier {
     await _writeSettingsBytes(utf8.encode(jsonEncode(persisted)));
   }
 
-  Future<void> _writeSettingsBytes(List<int> bytes) async {
-    final file = File(_settingsPath);
-    await file.parent.create(recursive: true);
-    final temp = File(
-      '$_settingsPath.tmp.$pid.${DateTime.now().microsecondsSinceEpoch}',
-    );
-    RandomAccessFile? handle;
-    try {
-      await temp.create(exclusive: true);
-      await _privateFileStore.ensurePrivateFile(temp.path);
-      handle = await temp.open(mode: FileMode.writeOnly);
-      await handle.writeFrom(bytes);
-      await handle.flush();
-      await handle.close();
-      handle = null;
-      await temp.rename(file.path);
-      _syncDataDirectory();
-    } finally {
-      await handle?.close();
-      if (await temp.exists()) await temp.delete();
-    }
-  }
+  Future<void> _writeSettingsBytes(List<int> bytes) =>
+      _privateFileStore.writeSettingsBytes(_settingsPath, bytes);
 
   Future<void> save() {
     return _saveQueue.add(() async {
@@ -460,6 +447,7 @@ class SettingsService extends ChangeNotifier {
     return _saveQueue.add(() async {
       final candidate = AppSettings.fromJson(_settings.toJson());
       update(candidate);
+      if (candidate == _settings) return;
       await _writeSettingsFile(candidate);
       _settings = candidate;
       notifyListeners();
@@ -475,15 +463,8 @@ class SettingsService extends ChangeNotifier {
   }) async {
     final failures = <String>[];
     try {
-      final file = File(_settingsPath);
-      if (previousSettingsBytes == null) {
-        if (await file.exists()) {
-          await file.delete();
-          _syncDataDirectory();
-        }
-      } else {
-        await _writeSettingsBytes(previousSettingsBytes);
-      }
+      await _privateFileStore.restoreSettingsBytes(
+          _settingsPath, previousSettingsBytes);
     } catch (error) {
       failures.add('settings: $error');
     }
@@ -648,9 +629,11 @@ class SettingsService extends ChangeNotifier {
   }
 
   Future<void> updateLastSelectedNodeName(String nodeName) async {
-    await _updateSettings(
-      (settings) => settings.lastSelectedNodeName = nodeName,
-    );
+    await _updateSettings((settings) {
+      settings.lastSelectedNodeName =
+          RuntimeConfigNamePolicy.canonicalName(nodeName);
+      settings.lastSelectedNodeRenameId = '';
+    });
   }
 
   Future<void> updateLastSelectedNode(String nodeName) =>
@@ -660,9 +643,38 @@ class SettingsService extends ChangeNotifier {
     String originalName,
     String updatedName,
   ) async {
-    if (_settings.lastSelectedNodeName != originalName) return;
-    await _updateSettings(
-      (settings) => settings.lastSelectedNodeName = updatedName,
-    );
+    await _updateSettings((settings) {
+      if (RuntimeConfigNamePolicy.canonicalName(
+              settings.lastSelectedNodeName) !=
+          RuntimeConfigNamePolicy.canonicalName(originalName)) {
+        return;
+      }
+      settings.lastSelectedNodeName =
+          RuntimeConfigNamePolicy.canonicalName(updatedName);
+      settings.lastSelectedNodeRenameId = '';
+    });
   }
+
+  void _publishNodePreference(AppSettings value) {
+    _settings = value;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> withNodePreferenceRename(NodePreferenceRename change,
+          Future<void> Function(NodePreferenceWrite) edit) =>
+      _saveQueue.add(() => edit(NodePreferenceWrite(
+          current: _settings,
+          change: change,
+          write: _writeSettingsFile,
+          publish: _publishNodePreference)));
+
+  @override
+  Future<void> recoverNodePreference(NodePreferenceRename change) =>
+      _saveQueue.add(() => NodePreferenceWrite.recover(
+          change: change,
+          current: _settings,
+          file: File(_settingsPath),
+          write: _writeSettingsFile,
+          publish: _publishNodePreference));
 }

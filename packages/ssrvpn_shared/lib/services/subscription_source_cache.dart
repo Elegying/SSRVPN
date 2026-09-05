@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import '../utils/bounded_yaml.dart';
+import '../utils/proxy_dependency_policy.dart';
+import '../utils/runtime_config_name_policy.dart';
 import 'subscription_parser.dart';
 import 'subscription_node_codec.dart';
 import 'subscription_yaml_merger.dart';
@@ -25,6 +27,14 @@ class SubscriptionSourceCache {
     var expandedNodes = 0;
     final localOwners = <String, List<String>>{};
     final localEndpoints = <String, List<String>>{};
+    final originalNames = {
+      for (final proxy
+          in (document['proxies'] as List).whereType<Map<Object?, Object?>>())
+        RuntimeConfigNamePolicy.canonicalName(proxy['name']):
+            RuntimeConfigNamePolicy.canonicalName(
+                proxy[SubscriptionParser.proxyOriginalNameKey] ??
+                    proxy['name']),
+    };
     for (final entry in localSources.entries) {
       final parsed = BoundedYaml.load(entry.value);
       if (parsed is! Map || parsed['proxies'] is! List) continue;
@@ -44,6 +54,10 @@ class SubscriptionSourceCache {
       final originalName =
           proxy.remove(SubscriptionParser.proxyOriginalNameKey);
       final source = proxy.remove(SubscriptionParser.proxySourceKey);
+      final reference = ProxyDependencyPolicy.reference(proxy);
+      if (reference != null) {
+        proxy['dialer-proxy'] = originalNames[reference] ?? reference;
+      }
       if (originalName is String && originalName.isNotEmpty) {
         proxy['name'] = originalName;
       }

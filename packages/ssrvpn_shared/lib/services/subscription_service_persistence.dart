@@ -10,6 +10,10 @@ mixin _SubscriptionPersistence on ChangeNotifier {
   _SubscriptionSnapshot? _transactionSnapshot;
   bool get _transactionActive => _transactionSnapshot != null;
   bool _notificationPending = false;
+  bool _transactionCommitted = false;
+  NodePreferenceStore? _nodePreferences;
+  NodePreferenceRename? _nodePreferenceRename;
+  void Function()? _publishPreference;
   final Map<String, String> _fetchedProfileNames = {};
   List<ProxyNode> _allNodes = [];
   List<ProxyGroup> _allGroups = [];
@@ -46,8 +50,9 @@ mixin _SubscriptionPersistence on ChangeNotifier {
   }
   // ── 持久化 ──
 
-  Future<void> init(String cacheDir) async {
+  Future<void> init(String cacheDir, {NodePreferenceStore? preferences}) async {
     _cacheDir = cacheDir;
+    _nodePreferences = preferences;
     await loadFromDisk();
   }
 
