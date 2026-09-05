@@ -155,7 +155,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.text('在输入框中粘贴 SSR 代码或订阅链接，点击「添加」'),
+      find.text('在输入框中粘贴节点链接或订阅链接，点击「添加」'),
       findsOneWidget,
     );
     final colors = Theme.of(tester.element(find.text('1'))).colorScheme;

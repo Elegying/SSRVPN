@@ -263,7 +263,7 @@ proxies:
 
       firstResponse.complete(_yamlFor('First Node'));
       await first;
-      await service.addSubscription('Queue drain', 'ss://drain');
+      await service.addSubscription('Queue drain', 'https://drain.invalid/sub');
       expect(service.fetchCalls, 1);
     });
 
@@ -288,7 +288,7 @@ proxies:
 
       firstResponse.complete(_yamlFor('First Node'));
       await first;
-      await service.addSubscription('Queue drain', 'ss://drain');
+      await service.addSubscription('Queue drain', 'https://drain.invalid/sub');
       expect(service.fetchCalls, 1);
     });
 
@@ -366,7 +366,10 @@ proxies:
       final response = Completer<String?>();
       service
         ..fetchStarted = fetchStarted
-        ..queuedResponses = [response.future];
+        ..queuedResponses = [
+          response.future,
+          Future<String?>.value(_yamlFor('Updated Source Node')),
+        ];
 
       final refresh = service.refreshAllSubscriptions();
       await fetchStarted.future;
@@ -393,8 +396,9 @@ proxies:
       expect(service.subscriptions.single.name, 'Updated after refresh');
       expect(
         service.allNodes.map((node) => node.name),
-        ['Refreshed Before Update'],
+        ['Updated Source Node'],
       );
+      expect(service.fetchCalls, 2);
     });
 
     test('cancelling a batch preserves the last valid state', () async {
@@ -526,7 +530,8 @@ proxies:
           url: 'https://replacement.example.com/sub?token=new-secret',
         ),
       );
-      expect(service.retainedFetchedProfileNameCount, 0);
+      // The previous URL is purged; the newly fetched URL owns one entry.
+      expect(service.retainedFetchedProfileNameCount, 1);
 
       service.fetchedProfileName = 'Replacement Profile';
       await service.refreshAllSubscriptions();

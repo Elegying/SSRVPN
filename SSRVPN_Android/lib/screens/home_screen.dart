@@ -33,7 +33,7 @@ class HomeScreen extends StatefulWidget {
 
 const _homeTutorialSteps = [
   _TutorialStepData('点击底部「订阅」标签，进入订阅管理页面'),
-  _TutorialStepData('在输入框中粘贴 SSR 代码或订阅链接，点击「添加」'),
+  _TutorialStepData('在输入框中粘贴节点链接或订阅链接，点击「添加」'),
   _TutorialStepData('添加成功后点击「全部刷新」，等待节点加载完成'),
   _TutorialStepData('返回主页，点击连接按钮即可使用'),
   _TutorialStepData('首次连接会弹出系统权限弹窗，选择「确定」允许即可'),
@@ -71,6 +71,7 @@ class HomeScreenState extends State<HomeScreen>
   Timer? _updateCheckTimer;
   bool _updateCheckInProgress = false;
   int _lastRevision = -1;
+  int _lastDisplayRevision = -1;
   int _publicIpGeneration = 0;
   // Invalidates mutations only when the service lifecycle/session changes.
   int _connectionStatusEpoch = 0;

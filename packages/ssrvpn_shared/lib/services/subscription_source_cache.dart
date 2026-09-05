@@ -72,6 +72,11 @@ class SubscriptionSourceCache {
             final matching = localEndpoints[jsonEncode(value)] ?? <String>[];
             if (matching.length == 1) owners = matching;
           }
+        } else if (ids.length > 1) {
+          // Old deduplication kept only the first display label, which cannot
+          // prove exclusive ownership. Retain this fragment until a full
+          // refresh establishes every source's snapshot.
+          owners = [];
         } else if (owners.length != 1) {
           owners = ids.length == 1 ? ids : <String>[];
         }

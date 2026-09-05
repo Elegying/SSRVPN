@@ -21,11 +21,6 @@ class SubscriptionService extends SubscriptionServiceBase {
   }
 
   @override
-  void notifyListeners() {
-    super.notifyListeners();
-  }
-
-  @override
   Future<String?> fetchSubscription(
     String url, {
     int maxRetries = 3,

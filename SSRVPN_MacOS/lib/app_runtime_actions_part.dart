@@ -144,8 +144,7 @@ mixin _MacosAppRuntimeActions on State<SSRVpnApp> {
             preferredNodeName: recoveryNodeName,
           ),
           isRevisionCurrent: () =>
-              subscriptionService.revision == subscriptionRevision &&
-              subscriptionService.rawYaml == rawYaml,
+              subscriptionService.revision == subscriptionRevision,
           preferredNodeName: preferredNodeName,
         );
       }

@@ -37,6 +37,78 @@ void main() {
 
   tearDown(SubscriptionService.resetInstanceForTesting);
 
+  testWidgets(
+      'renaming a source keeps the active connection and runtime config',
+      (tester) async {
+    final fixture = (await tester
+        .runAsync(() => _HomeFixture.create(withNodes: false, running: true)))!;
+    addTearDown(fixture.dispose);
+    final subscription = (await tester.runAsync(() async {
+      final sub = await fixture.subscription
+          .addSubscription('Before', 'https://source.invalid/sub');
+      await fixture.subscription.setRawYaml(_nodeYaml);
+      await fixture.subscription.updateSubscription(
+          Subscription(id: sub.id, name: sub.name, url: sub.url));
+      return fixture.subscription.subscriptions.single;
+    }))!;
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(find.text('已连接'), findsWidgets);
+    final configBefore = ClashConfigGenerator.generateConfig(
+        fixture.subscription.rawYaml!, fixture.settings.settings);
+    final revision = fixture.subscription.revision;
+    final displayRevision = fixture.subscription.displayRevision;
+    final startCalls = fixture.clash.startCalls;
+    final stopCalls = fixture.clash.stopCalls;
+    await tester.runAsync(() => fixture.subscription.updateSubscription(
+        Subscription(
+            id: subscription.id, name: 'After', url: subscription.url)));
+    expect(
+        ClashConfigGenerator.generateConfig(
+            fixture.subscription.rawYaml!, fixture.settings.settings),
+        configBefore);
+    expect(fixture.subscription.revision, revision);
+    expect(fixture.subscription.displayRevision, greaterThan(displayRevision));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(fixture.clash.startCalls, startCalls);
+    expect(fixture.clash.stopCalls, stopCalls);
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.subscription.allNodes.map((node) => node.group).toSet(),
+        {'After'});
+    expect(find.text('已连接'), findsWidgets);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets(
+      'initial local import succeeds while another source is unavailable',
+      (tester) async {
+    final fixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: false)))!;
+    addTearDown(fixture.dispose);
+    await tester.runAsync(() => fixture.subscription
+        .addSubscription('Unavailable', 'http://127.0.0.1:1/sub'));
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(Dialog), findsOneWidget);
+    await tester.enterText(
+        find.byType(TextField).last, 'socks5://rescue.invalid:443#Rescue');
+    final submit = tester
+        .widget<ElevatedButton>(find.widgetWithText(ElevatedButton, '确定'))
+        .onPressed! as Future<void> Function();
+    await tester.runAsync(submit);
+    await tester.pumpAndSettle();
+    expect(fixture.subscription.allNodes.single.name, 'Rescue');
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.textContaining('节点已更新，获取到 1 个节点'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('empty home validates the first subscription prompt',
       (tester) async {
     final fixture =
@@ -52,12 +124,12 @@ void main() {
 
     await tester.tap(find.text('确定'));
     await tester.pump();
-    expect(find.text('请粘贴你的SSR代码或订阅链接'), findsWidgets);
+    expect(find.text('请粘贴订阅或节点链接'), findsWidgets);
 
     await tester.enterText(find.byType(TextField).last, 'not a subscription');
     await tester.tap(find.text('确定'));
     await tester.pump();
-    expect(find.text('请输入有效的 SSR 代码或 HTTP/HTTPS 订阅链接'), findsOneWidget);
+    expect(find.text('请输入有效的节点链接或 HTTP/HTTPS 订阅链接'), findsOneWidget);
 
     await tester.tap(find.text('取消'));
     await tester.pump();
@@ -90,7 +162,7 @@ void main() {
         .onPressed!();
     await tester.pump();
 
-    expect(find.text('请输入有效的 SSR 代码或 HTTP/HTTPS 订阅链接'), findsOneWidget);
+    expect(find.text('请输入有效的节点链接或 HTTP/HTTPS 订阅链接'), findsOneWidget);
     expect(tester.takeException(), isNull);
     expect(
       find.descendant(

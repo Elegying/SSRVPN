@@ -84,20 +84,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
   SubscriptionScreenController _subscriptionController(
     SubscriptionService subService,
   ) {
-    return SubscriptionScreenController(
-      subscriptionService: CallbackSubscriptionScreenService(
-        subscriptionsOf: () => subService.subscriptions,
-        allNodesOf: () => subService.allNodes,
-        allGroupsOf: () => subService.allGroups,
-        isSingleNodeLinkOf: subService.isSingleNodeLink,
-        defaultSubscriptionNameOf: subService.defaultSubscriptionName,
-        addSubscriptionWith: subService.addSubscription,
-        refreshAllSubscriptionsDetailedWith:
-            subService.refreshAllSubscriptionsDetailed,
-        removeSubscriptionWith: subService.removeSubscription,
-        updateSubscriptionWith: subService.updateSubscription,
-      ),
-    );
+    return SubscriptionScreenController.fromService(subService);
   }
 
   void _showAddResult(SubscriptionAddResult result) {
@@ -302,8 +289,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
       case SubscriptionEditStatus.unchanged:
         _showSnack('订阅信息没有变化', AppTheme.warningColor);
       case SubscriptionEditStatus.saved:
-        _showSnack('订阅已更新，正在刷新节点', AppTheme.successColor);
-        await _refreshAll();
+        _showSnack('订阅已更新', AppTheme.successColor);
       case SubscriptionEditStatus.failed:
         _showSnack('更新失败：${result.displayError}', AppTheme.errorColor);
     }

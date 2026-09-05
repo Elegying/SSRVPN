@@ -116,9 +116,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
             runtimeSettings,
             preferredNodeName: preferredNodeName,
           ),
-          isRevisionCurrent: () =>
-              subService.revision == subscriptionRevision &&
-              subService.rawYaml == rawYaml,
+          isRevisionCurrent: () => subService.revision == subscriptionRevision,
           preferredNodeName: runtimeSelectedNode?.name ?? preferredNode?.name,
         );
       }

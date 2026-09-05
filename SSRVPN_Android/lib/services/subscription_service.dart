@@ -69,11 +69,6 @@ class SubscriptionService extends SubscriptionServiceBase {
   }
 
   @override
-  void notifyListeners() {
-    super.notifyListeners();
-  }
-
-  @override
   void validateMergedYaml(String? yaml) {
     if (yaml != null) {
       final byteCount = utf8.encode(yaml).length;

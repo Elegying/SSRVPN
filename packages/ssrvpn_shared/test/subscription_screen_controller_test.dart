@@ -604,6 +604,10 @@ void main() {
 }
 
 class _FakeSubscriptionService implements SubscriptionScreenServicePort {
+  @override
+  Future<SubscriptionBatchRefreshResult> refreshSubscription(String id) =>
+      refreshAllSubscriptionsDetailed();
+
   _FakeSubscriptionService({
     List<Subscription>? subscriptions,
     List<ProxyNode>? nodes,

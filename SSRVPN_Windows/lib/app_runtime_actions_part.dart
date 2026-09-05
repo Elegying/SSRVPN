@@ -135,8 +135,7 @@ extension _WindowsAppRuntimeActions on _SSRVpnAppState {
             preferredNodeName: recoveryNodeName,
           ),
           isRevisionCurrent: () =>
-              subscriptionService.revision == subscriptionRevision &&
-              subscriptionService.rawYaml == rawYaml,
+              subscriptionService.revision == subscriptionRevision,
           preferredNodeName: preferredNodeName,
         );
       }

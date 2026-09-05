@@ -5,10 +5,44 @@ mixin _SubscriptionPersistence on ChangeNotifier {
   String? _rawYaml;
   String? _cacheDir;
   int _revision = 0;
+  int _displayRevision = 0;
+  String _runtimeProxyText = '';
+  bool _transactionActive = false;
+  bool _notificationPending = false;
   final Map<String, String> _fetchedProfileNames = {};
   List<ProxyNode> _allNodes = [];
   List<ProxyGroup> _allGroups = [];
   void parseYaml();
+
+  @override
+  void notifyListeners() {
+    if (_transactionActive) {
+      _notificationPending = true;
+    } else {
+      super.notifyListeners();
+    }
+  }
+
+  void _acceptCache(String yaml, ParsedSubscription parsed) {
+    final runtimeText = ClashConfigGenerator.buildProxiesText(yaml);
+    if (runtimeText != _runtimeProxyText) {
+      _revision++;
+    } else {
+      final previous = {for (final node in _allNodes) node.name: node};
+      for (final node in parsed.nodes) {
+        final old = previous[node.name];
+        if (old == null) continue;
+        node.latency = old.latency;
+        node.lastLatencyTest = old.lastLatencyTest;
+        node.isOnline = old.isOnline;
+      }
+    }
+    if (yaml != _rawYaml) _displayRevision++;
+    _runtimeProxyText = runtimeText;
+    _rawYaml = yaml;
+    _allNodes = parsed.nodes;
+    _allGroups = parsed.groups;
+  }
   // ── 持久化 ──
 
   Future<void> init(String cacheDir) async {
@@ -19,6 +53,7 @@ mixin _SubscriptionPersistence on ChangeNotifier {
   Future<void> loadFromDisk() async {
     _fetchedProfileNames.clear();
     if (_cacheDir == null) return;
+    await _recoverDiskTransaction();
 
     final subsFile = File('$_cacheDir/subscriptions.json');
     if (await subsFile.exists()) {
@@ -68,6 +103,7 @@ mixin _SubscriptionPersistence on ChangeNotifier {
 
   Future<void> saveToDisk() async {
     if (_cacheDir == null) return;
+    await _prepareDiskTransaction();
     final file = File('$_cacheDir/subscriptions.json');
     final jsonStr = jsonEncode(_subscriptions.map((s) => s.toJson()).toList());
     await writeStringAtomically(file, jsonStr);
@@ -75,6 +111,7 @@ mixin _SubscriptionPersistence on ChangeNotifier {
 
   Future<void> cacheYaml(String yaml) async {
     if (_cacheDir == null) return;
+    await _prepareDiskTransaction();
     final file = File('$_cacheDir/subscription_cache.yaml');
     await writeStringAtomically(file, yaml);
   }
@@ -91,6 +128,7 @@ mixin _SubscriptionPersistence on ChangeNotifier {
 
   Future<void> clearCachedNodes() async {
     if (_cacheDir != null) {
+      await _prepareDiskTransaction();
       final cacheFile = File('$_cacheDir/subscription_cache.yaml');
       if (await cacheFile.exists()) await cacheFile.delete();
     }
@@ -98,6 +136,8 @@ mixin _SubscriptionPersistence on ChangeNotifier {
     _allNodes = [];
     _allGroups = [];
     _revision++;
+    _displayRevision++;
+    _runtimeProxyText = '';
   }
 
   Future<void> writeStringAtomically(File file, String content) async {

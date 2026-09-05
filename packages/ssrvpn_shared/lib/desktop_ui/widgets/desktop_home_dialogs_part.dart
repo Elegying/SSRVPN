@@ -65,7 +65,7 @@ void _showDesktopHomeTutorialDialog(BuildContext context) {
       children: [
         const _DesktopTutorialStep(
           step: '1',
-          text: '进入订阅页面，粘贴 SSR 代码或订阅链接',
+          text: '进入订阅页面，粘贴节点链接或订阅链接',
         ),
         const SizedBox(height: 12),
         const _DesktopTutorialStep(

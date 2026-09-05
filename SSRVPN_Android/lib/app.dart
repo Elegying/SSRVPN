@@ -10,6 +10,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         HomeNodeController,
         SsrvpnAppBackdrop,
         SsrvpnBottomNavigation,
+        SubscriptionScreenController,
         UpdateAvailabilityController,
         safeUserFacingFailureMessage,
         safeUserFacingFailureWithAction;
@@ -423,28 +424,21 @@ class _InitialSubscriptionPromptState
   Future<void> _addSubscriptionAndRefresh(String value) async {
     final subService = context.read<SubscriptionService>();
     try {
-      if (!subService.subscriptions.any((sub) => sub.url == value)) {
-        await subService.addSubscription(
-          subService.defaultSubscriptionName(value),
-          value,
-        );
-      }
-
-      final yaml = await subService.refreshAllSubscriptions();
+      final result = await SubscriptionScreenController.fromService(subService)
+          .addSubscription(value, retryExisting: true);
       if (!mounted) return;
-
-      final nodeCount =
-          HomeNodeController.runnableNodesFrom(subService.allNodes).length;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
           content: Text(
-            yaml != null && yaml.isNotEmpty
-                ? '订阅成功，获取到 $nodeCount 个节点'
-                : '订阅已添加，但未获取到节点',
+            result.isSuccess
+                ? result.warning ?? '节点已更新，共 ${result.nodeCount} 个节点'
+                : result.displayError.isNotEmpty
+                    ? result.displayError
+                    : '未获取到可用节点，请检查链接后重试',
           ),
           backgroundColor:
-              nodeCount > 0 ? AppTheme.successColor : AppTheme.warningColor,
+              result.isSuccess ? AppTheme.successColor : AppTheme.warningColor,
         ),
       );
     } catch (e) {
@@ -552,7 +546,7 @@ class _InitialSubscriptionDialogState
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  '请粘贴你的SSR代码或订阅链接',
+                  '请粘贴订阅或节点链接',
                   style: TextStyle(
                     fontSize: 14,
                     color: isDark
@@ -571,7 +565,7 @@ class _InitialSubscriptionDialogState
                   enableSuggestions: false,
                   decoration: GlassInputDecoration(
                     isDark: isDark,
-                    hintText: 'ssr:// 或 https://...',
+                    hintText: 'https://… 或 ss://、trojan:// 等节点链接',
                     prefixIcon: const Icon(Icons.link, size: 20),
                   ).copyWith(errorText: _errorText),
                 ),
@@ -591,7 +585,7 @@ class _InitialSubscriptionDialogState
                           final value = _controller.text.trim();
                           if (!widget.isValidInput(value)) {
                             setState(() {
-                              _errorText = '请输入有效的 SSR 代码或订阅链接';
+                              _errorText = '请输入有效的节点链接或 HTTP/HTTPS 订阅链接';
                             });
                             return;
                           }

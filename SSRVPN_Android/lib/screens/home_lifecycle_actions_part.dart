@@ -27,15 +27,18 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
   }
 
   bool _onSubscriptionChanged(SubscriptionService subService) {
-    final controller = HomeNodeController(
-      nodes: _nodes,
-      lastRevision: _lastRevision,
-    );
+    final controller = HomeNodeController(lastRevision: _lastRevision);
     final sync = controller.syncSubscriptionSnapshot(
       revision: subService.revision,
       allNodes: subService.allNodes,
     );
-    if (!sync.changed) return false;
+    if (!sync.changed) {
+      if (_lastDisplayRevision == subService.displayRevision) return false;
+      _lastDisplayRevision = subService.displayRevision;
+      _nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
+      return true;
+    }
+    _lastDisplayRevision = subService.displayRevision;
     _cancelSingleLatencyTest();
     _cancelLatencyBatch();
     _lastRevision = controller.lastRevision;

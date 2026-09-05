@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/controllers/subscription_screen_controller.dart';
+import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/models/subscription.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:ssrvpn_shared/services/subscription_service_base.dart';
@@ -207,7 +208,8 @@ proxies:
     expect(service.allNodes.single.name, 'B');
   });
 
-  test('legacy display labels migrate without any remote fetch', () async {
+  test('ambiguous legacy labels survive deletion until a complete refresh',
+      () async {
     final first =
         await service.addSubscription('Legacy A', 'https://a.invalid/sub');
     await service.addSubscription('Legacy B', 'https://b.invalid/sub');
@@ -219,9 +221,185 @@ proxies:
     await reload();
     await service.removeSubscription(first.id);
     expect(service.fetchCalls, 0);
-    expect(service.allNodes.single.name, 'B');
+    expect(service.allNodes.map((node) => node.name), ['A', 'B']);
+    expect(service.allNodes.map((node) => node.group).toSet(), {'历史缓存'});
     await reload();
+    expect(service.allNodes.map((node) => node.name), ['A', 'B']);
+    service.responses['https://b.invalid/sub'] = _yaml('B', 'b');
+    await service.refreshAllSubscriptions();
     expect(service.allNodes.single.name, 'B');
+    expect(service.allNodes.single.group, 'Legacy B');
+  });
+
+  test('legacy deduplication never treats the first label as exclusive owner',
+      () async {
+    final first = await addFeed('A', 'a', _yaml('Shared', 'shared'));
+    await addFeed('B', 'b', _yaml('Shared', 'shared'));
+    await service.refreshAllSubscriptions();
+    final legacy = jsonDecode(jsonEncode(BoundedYaml.load(service.rawYaml!)))
+        as Map<String, dynamic>;
+    for (final proxy in legacy['proxies'] as List) {
+      (proxy as Map).remove(SubscriptionParser.proxySourceIdsKey);
+      proxy.remove(SubscriptionParser.proxyOriginalNameKey);
+    }
+    await service.setRawYaml(SubscriptionNodeCodec.encodeConfig(legacy));
+    await reload();
+    await service.removeSubscription(first.id);
+    expect(service.fetchCalls, 0);
+    expect(service.allNodes.single.name, 'Shared');
+    expect(service.allNodes.single.group, '历史缓存');
+    await reload();
+    expect(service.allNodes.single.name, 'Shared');
+    service.responses['https://b.invalid/sub'] = _yaml('Shared', 'shared');
+    await service.refreshAllSubscriptions();
+    expect(service.allNodes.single.group, 'B');
+  });
+
+  test('rename updates display metadata without changing runtime or latency',
+      () async {
+    final source = await addFeed('Before', 'a', _yaml('A', 'a'));
+    await service.refreshAllSubscriptions();
+    final revision = service.revision;
+    final displayRevision = service.displayRevision;
+    final proxies = ClashConfigGenerator.buildProxiesText(service.rawYaml!);
+    final testedAt = DateTime(2026, 9, 5);
+    service.allNodes.single
+      ..latency = 81
+      ..lastLatencyTest = testedAt
+      ..isOnline = true;
+    final calls = service.fetchCalls;
+    final result = await SubscriptionScreenController.fromService(service)
+        .editSubscription(source, 'After', source.url);
+    expect(result.status, SubscriptionEditStatus.saved);
+    expect(service.fetchCalls, calls);
+    expect(service.revision, revision);
+    expect(service.displayRevision, greaterThan(displayRevision));
+    expect(ClashConfigGenerator.buildProxiesText(service.rawYaml!), proxies);
+    expect(service.allNodes.single.group, 'After');
+    expect(service.allNodes.single.latency, 81);
+    expect(service.allNodes.single.lastLatencyTest, testedAt);
+    expect(service.allNodes.single.isOnline, isTrue);
+  });
+
+  test('editing one source preserves manual edits in every other source',
+      () async {
+    await addFeed('A', 'a', _yaml('A', 'a'));
+    final second = await addFeed('B', 'b', _yaml('B', 'b'));
+    await service.refreshAllSubscriptions();
+    await service.updateNode('A', {
+      'name': 'Manual A',
+      'type': 'socks5',
+      'server': 'manual.invalid',
+      'port': 444,
+    });
+    final controller = SubscriptionScreenController.fromService(service);
+    service.requestedUrls.clear();
+    expect(
+        (await controller.editSubscription(second, 'Renamed B', second.url))
+            .status,
+        SubscriptionEditStatus.saved);
+    expect(service.requestedUrls, isEmpty);
+    expect(service.allNodes.first.name, 'Manual A');
+    final updated = service.subscriptions.last;
+    const newUrl = 'https://new-b.invalid/sub';
+    service.responses[newUrl] = _yaml('New B', 'new-b');
+    expect(
+        (await controller.editSubscription(updated, updated.name, newUrl))
+            .status,
+        SubscriptionEditStatus.saved);
+    expect(service.requestedUrls, [newUrl]);
+    expect(service.allNodes.map((node) => node.name), ['Manual A', 'New B']);
+    expect(service.allNodes.first.server, 'manual.invalid');
+    expect(service.subscriptions.last.lastUpdate, isNotNull);
+    await reload();
+    expect(service.allNodes.map((node) => node.name), ['Manual A', 'New B']);
+  });
+
+  test('failed URL edit retains the old link, nodes and disk state', () async {
+    final source = await addFeed('A', 'a', _yaml('Old A', 'a'));
+    await service.refreshAllSubscriptions();
+    final yaml = service.rawYaml;
+    final revision = service.revision;
+    final timestamp = source.lastUpdate;
+    service.responses['https://bad.invalid/sub'] = 'proxies: []';
+    final result = await SubscriptionScreenController.fromService(service)
+        .editSubscription(source, 'Bad', 'https://bad.invalid/sub');
+    expect(result.status, SubscriptionEditStatus.failed);
+    expect(service.subscriptions.single.url, source.url);
+    expect(service.subscriptions.single.name, source.name);
+    expect(service.subscriptions.single.lastUpdate, timestamp);
+    expect(service.rawYaml, yaml);
+    expect(service.revision, revision);
+    await reload();
+    expect(service.subscriptions.single.url, source.url);
+    expect(service.rawYaml, yaml);
+  });
+
+  test('new remote imports and retries fetch only the requested source',
+      () async {
+    final old = await addFeed('A', 'a', _yaml('A', 'a'));
+    await service.refreshAllSubscriptions();
+    service.responses[old.url] = Completer<String?>().future;
+    const newUrl = 'https://new.invalid/sub';
+    service.responses[newUrl] = _yaml('New', 'new');
+    service.requestedUrls.clear();
+    final controller = SubscriptionScreenController.fromService(service);
+    final imported = await controller
+        .addSubscription(newUrl)
+        .timeout(const Duration(seconds: 1));
+    expect(imported.isSuccess, isTrue);
+    expect(service.requestedUrls, [newUrl]);
+    expect(service.allNodes.map((node) => node.name), ['A', 'New']);
+    service.responses[newUrl] = const SocketException('offline');
+    expect(
+        (await controller.addSubscription(newUrl, retryExisting: true))
+            .isSuccess,
+        isFalse);
+    expect(service.allNodes.map((node) => node.name), ['A', 'New']);
+    service.responses[newUrl] = _yaml('Retried', 'new');
+    expect(
+        (await controller.addSubscription(newUrl, retryExisting: true))
+            .isSuccess,
+        isTrue);
+    expect(service.requestedUrls, [newUrl, newUrl, newUrl]);
+    expect(service.subscriptions, hasLength(2));
+    expect(service.allNodes.map((node) => node.name), ['A', 'Retried']);
+  });
+
+  for (final url in [
+    'socks5://bad.invalid:70000#Invalid',
+    'trojan://password@bad.invalid:70000#Invalid',
+    'socks5://bad.invalid:443#剩余流量',
+  ]) {
+    test('unrunnable import cannot hide behind existing nodes: $url', () async {
+      await service.addSubscription(
+          'Valid', 'socks5://valid.invalid:443#Valid');
+      final previousYaml = service.rawYaml;
+      final result = await SubscriptionScreenController.fromService(service)
+          .addSubscription(url);
+      expect(result.isSuccess, isFalse);
+      expect(service.subscriptions, hasLength(1));
+      expect(service.rawYaml, previousYaml);
+      await expectLater(
+          service.addSubscription('Invalid', url), throwsException);
+      await reload();
+      expect(service.subscriptions, hasLength(1));
+      expect(service.allNodes.single.name, 'Valid');
+    });
+  }
+
+  test('retrying a local import never fetches an unrelated remote source',
+      () async {
+    await addFeed('Unavailable', 'bad', _yaml('Old', 'old'));
+    const url = 'socks5://rescue.invalid:443#Rescue';
+    final controller = SubscriptionScreenController.fromService(service);
+    expect((await controller.addSubscription(url)).isSuccess, isTrue);
+    expect(
+        (await controller.addSubscription(url, retryExisting: true)).isSuccess,
+        isTrue);
+    expect(service.fetchCalls, 0);
+    expect(service.subscriptions, hasLength(2));
+    expect(service.allNodes.single.name, 'Rescue');
   });
 }
 
@@ -233,6 +411,7 @@ proxies:
 class _DiskService extends SubscriptionServiceBase {
   final responses = <String, Object>{};
   int fetchCalls = 0;
+  final requestedUrls = <String>[];
   bool failMetadata = false;
   @override
   Future<String?> fetchSubscription(
@@ -241,6 +420,7 @@ class _DiskService extends SubscriptionServiceBase {
     SubscriptionRefreshControl? control,
   }) async {
     fetchCalls++;
+    requestedUrls.add(url);
     final response = responses[url];
     if (response is Future<String?>) return response;
     if (response is String) return response;
@@ -262,6 +442,7 @@ SubscriptionScreenServicePort _port(SubscriptionServiceBase service) =>
       isSingleNodeLinkOf: service.isSingleNodeLink,
       defaultSubscriptionNameOf: service.defaultSubscriptionName,
       addSubscriptionWith: service.addSubscription,
+      refreshSubscriptionWith: service.refreshSubscription,
       refreshAllSubscriptionsDetailedWith:
           service.refreshAllSubscriptionsDetailed,
       removeSubscriptionWith: service.removeSubscription,

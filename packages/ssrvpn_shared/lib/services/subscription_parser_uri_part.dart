@@ -433,7 +433,9 @@ class _SubscriptionUriParser {
   }
 
   static Map<String, dynamic>? _parseSocksUri(Uri uri) {
-    if (uri.host.isEmpty || !uri.hasPort || uri.port <= 0) return null;
+    if (uri.host.isEmpty || !uri.hasPort || uri.port <= 0 || uri.port > 65535) {
+      return null;
+    }
 
     final proxy = <String, dynamic>{
       'name': _proxyNameFromUri(uri),
@@ -453,7 +455,9 @@ class _SubscriptionUriParser {
   }
 
   static Map<String, dynamic>? _parseHttpUri(Uri uri) {
-    if (uri.host.isEmpty || !uri.hasPort || uri.port <= 0) return null;
+    if (uri.host.isEmpty || !uri.hasPort || uri.port <= 0 || uri.port > 65535) {
+      return null;
+    }
 
     final proxy = <String, dynamic>{
       'name': _proxyNameFromUri(uri),

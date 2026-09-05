@@ -8,6 +8,7 @@ import '../models/subscription.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
 import '../services/desktop_subscription_fetcher.dart';
+import '../services/clash_config_generator.dart';
 import '../services/subscription_header_name_parser.dart';
 import '../services/subscription_node_codec.dart';
 import '../services/subscription_parser.dart';
@@ -19,10 +20,12 @@ import '../services/subscription_source_cache.dart';
 import '../utils/app_logger.dart';
 import '../utils/bounded_yaml.dart';
 import '../utils/runtime_config_name_policy.dart';
+import '../utils/subscription_url_policy.dart';
 
 export 'subscription_refresh_result.dart';
 
 part 'subscription_service_persistence.dart';
+part 'subscription_service_transaction.dart';
 
 /// 订阅管理服务基类
 ///
@@ -43,7 +46,12 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
 
   List<Subscription> get subscriptions => List.unmodifiable(_subscriptions);
   String? get rawYaml => _rawYaml;
+
+  /// Changes only when the proxy content used by the runtime changes.
   int get revision => _revision;
+
+  /// Also tracks source labels so UI metadata can update without reconnecting.
+  int get displayRevision => _displayRevision;
   List<ProxyNode> get allNodes => List.unmodifiable(_allNodes);
   List<ProxyGroup> get allGroups => List.unmodifiable(_allGroups);
   @visibleForTesting
@@ -77,7 +85,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
   // ── 订阅 CRUD ──
 
   Future<T> _enqueueOperation<T>(Future<T> Function() operation) {
-    final result = _operationTail.then((_) => operation());
+    final result = _operationTail.then((_) => _runTransaction(operation));
     _operationTail = result.then<void>((_) {}, onError: (_, __) {});
     return result;
   }
@@ -88,11 +96,13 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
 
   Future<Subscription> _addSubscription(String name, String url) async {
     final local = isSingleNodeLink(url);
+    if (!local) SubscriptionUrlPolicy.parse(url);
+    final localYaml = local ? _validatedLocalYaml(url) : null;
     final cachedSources =
         _rawYaml == null && !local ? null : _cachedSourceYamls();
     final sub = Subscription(id: _uuid.v4(), name: name, url: url);
     if (local) {
-      cachedSources![sub.id] = normalizeSubscriptionContent(url)!;
+      cachedSources![sub.id] = localYaml!;
       sub.lastUpdate = DateTime.now();
     }
     _subscriptions.add(sub);
@@ -164,7 +174,17 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       final previous = _subscriptions[index];
       _subscriptions[index] = updated;
       try {
-        await _commitSubscriptionMetadata(cachedSources);
+        if (updated.url != previous.url) {
+          final control =
+              SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout);
+          final sources = cachedSources ?? <String, String>{};
+          sources[updated.id] = await _fetchValidatedSource(updated, control);
+          final processed =
+              await _mergeSourceYamls(sources, control, refreshed: {updated});
+          await _commitSubscriptionCache(processed, [updated], control);
+        } else {
+          await _commitSubscriptionMetadata(cachedSources);
+        }
       } catch (error, stackTrace) {
         _subscriptions[index] = previous;
         Error.throwWithStackTrace(error, stackTrace);
@@ -211,10 +231,21 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       timeout: timeout,
       cancellation: cancellation,
     );
+    return _queueRefresh(control);
+  }
+
+  Future<SubscriptionBatchRefreshResult> refreshSubscription(String id) =>
+      _queueRefresh(
+          SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout),
+          onlyId: id);
+
+  Future<SubscriptionBatchRefreshResult> _queueRefresh(
+      SubscriptionRefreshControl control,
+      {String? onlyId}) {
     final admitted = Completer<void>();
     final queued = _enqueueOperation(() {
       if (!admitted.isCompleted) admitted.complete();
-      return _refreshAllSubscriptions(control);
+      return _refreshAllSubscriptions(control, onlyId: onlyId);
     });
     return _awaitRefreshQueueAdmission(queued, admitted.future, control);
   }
@@ -228,13 +259,14 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     // after earlier mutations release the serial queue. Once admitted, return
     // the refresh future directly so cancellation after the atomic cache write
     // cannot report failure while the transaction is finishing its commit.
-    await control.wait(admitted);
+    // Recovery may fail before admission; surface that failure immediately.
+    await control.wait(Future.any([admitted, queued.then<void>((_) {})]));
     return queued;
   }
 
   Future<SubscriptionBatchRefreshResult> _refreshAllSubscriptions(
-    SubscriptionRefreshControl control,
-  ) async {
+      SubscriptionRefreshControl control,
+      {String? onlyId}) async {
     control.throwIfStopped();
     if (_subscriptions.isEmpty) {
       _fetchedProfileNames.clear();
@@ -251,29 +283,11 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     final succeededSubs = <Subscription>[];
     final failures = <SubscriptionRefreshFailure>[];
 
-    for (final sub in _subscriptions.where((s) => s.enabled)) {
+    for (final sub in _subscriptions
+        .where((s) => s.enabled && (onlyId == null || s.id == onlyId))) {
       control.throwIfStopped();
       try {
-        final content = isSingleNodeLink(sub.url)
-            ? sub.url
-            : await control.wait(fetchSubscription(sub.url, control: control));
-        control.throwIfStopped();
-        final yaml = normalizeSubscriptionContent(content);
-        if (yaml == null || yaml.isEmpty) {
-          throw const FormatException('返回内容为空或无法识别');
-        }
-        // Validate each source before replacing its last usable fragment.
-        final validated = await SubscriptionProcessing.mergeAndParse(
-          [yaml],
-          [_sourceNameForFetchedSubscription(sub)],
-          control,
-          proxySourceKey: proxySourceKey,
-          standaloneGroupName: standaloneGroupName,
-        );
-        if (validated.parsed.nodes.isEmpty) {
-          throw const FormatException('订阅不包含可运行节点');
-        }
-        cachedSources[sub.id] = validated.yaml;
+        cachedSources[sub.id] = await _fetchValidatedSource(sub, control);
         succeededSubs.add(sub);
       } on SubscriptionRefreshCancelled {
         rethrow;
@@ -292,7 +306,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     }
     // Legacy nodes with ambiguous ownership survive partial refreshes. A full
     // refresh is the first point at which replacing that old data is safe.
-    if (failures.isEmpty) cachedSources.remove('');
+    if (failures.isEmpty && onlyId == null) cachedSources.remove('');
     final processed = await _mergeSourceYamls(
       cachedSources,
       control,
@@ -312,6 +326,38 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       successfulSubscriptionIds: succeededSubs.map((sub) => sub.id).toList(),
       failures: List.unmodifiable(failures),
     );
+  }
+
+  String _validatedLocalYaml(String url) {
+    final yaml = normalizeSubscriptionContent(url);
+    if (yaml == null || SubscriptionParser.parseYaml(yaml).nodes.isEmpty) {
+      throw const FormatException('节点链接不包含有效的可运行节点');
+    }
+    return yaml;
+  }
+
+  Future<String> _fetchValidatedSource(
+      Subscription sub, SubscriptionRefreshControl control) async {
+    if (!isSingleNodeLink(sub.url)) SubscriptionUrlPolicy.parse(sub.url);
+    final content = isSingleNodeLink(sub.url)
+        ? _validatedLocalYaml(sub.url)
+        : await control.wait(fetchSubscription(sub.url, control: control));
+    control.throwIfStopped();
+    final yaml = normalizeSubscriptionContent(content);
+    if (yaml == null || yaml.isEmpty) {
+      throw const FormatException('返回内容为空或无法识别');
+    }
+    final validated = await SubscriptionProcessing.mergeAndParse(
+      [yaml],
+      [_sourceNameForFetchedSubscription(sub)],
+      control,
+      proxySourceKey: proxySourceKey,
+      standaloneGroupName: standaloneGroupName,
+    );
+    if (validated.parsed.nodes.isEmpty) {
+      throw const FormatException('订阅不包含可运行节点');
+    }
+    return validated.yaml;
   }
 
   Map<String, String> _cachedSourceYamls() => SubscriptionSourceCache.extract(
@@ -392,10 +438,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       _applyFetchedSubscriptionName(sub);
       sub.lastUpdate = now;
     }
-    if (candidateYaml != _rawYaml) _revision++;
-    _rawYaml = candidateYaml;
-    _allNodes = candidate.nodes;
-    _allGroups = candidate.groups;
+    _acceptCache(candidateYaml, candidate);
     try {
       await saveToDisk();
     } catch (error, stackTrace) {
@@ -505,10 +548,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     }
     await cacheYaml(yaml);
 
-    _rawYaml = yaml;
-    _revision++;
-    _allNodes = candidate.nodes;
-    _allGroups = candidate.groups;
+    _acceptCache(yaml, candidate);
     notifyListeners();
   }
 
@@ -520,10 +560,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     final candidate = SubscriptionParser.parseYaml(yaml);
     await cacheYaml(yaml);
 
-    if (yaml != _rawYaml) _revision++;
-    _rawYaml = yaml;
-    _allNodes = candidate.nodes;
-    _allGroups = candidate.groups;
+    _acceptCache(yaml, candidate);
     notifyListeners();
   }
 
@@ -667,6 +704,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
 
     try {
       final parsed = SubscriptionParser.parseYaml(_rawYaml!);
+      _runtimeProxyText = ClashConfigGenerator.buildProxiesText(_rawYaml!);
       _allNodes = parsed.nodes;
       _allGroups = parsed.groups;
     } catch (e) {

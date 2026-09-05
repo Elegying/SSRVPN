@@ -56,22 +56,17 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                   });
 
                   try {
-                    final exists = subService.subscriptions.any(
-                      (sub) => sub.url == input,
-                    );
-                    if (!exists) {
-                      await subService.addSubscription(
-                        subService.defaultSubscriptionName(input),
-                        input,
-                      );
-                    }
-
-                    final yaml = await subService.refreshAllSubscriptions();
+                    final result =
+                        await SubscriptionScreenController.fromService(
+                                subService)
+                            .addSubscription(input, retryExisting: true);
                     final nodes = HomeNodeController.runnableNodesFrom(
                       subService.allNodes,
                     );
-                    if (yaml == null || yaml.trim().isEmpty || nodes.isEmpty) {
-                      throw Exception('未获取到可用节点');
+                    if (!result.isSuccess || nodes.isEmpty) {
+                      throw Exception(result.displayError.isNotEmpty
+                          ? result.displayError
+                          : '未获取到可用节点，请检查链接后重试');
                     }
 
                     if (!mounted || _disposed) return;
@@ -154,7 +149,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                             ),
                             const SizedBox(height: 18),
                             Text(
-                              '请粘贴你的SSR代码或订阅链接',
+                              '请粘贴订阅或节点链接',
                               style:
                                   TextStyle(fontSize: 13, color: subtitleColor),
                             ),

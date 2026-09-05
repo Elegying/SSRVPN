@@ -17,6 +17,7 @@ abstract class SubscriptionScreenServicePort {
   bool isSingleNodeLink(String input);
   String defaultSubscriptionName(String input);
   Future<Subscription> addSubscription(String name, String url);
+  Future<SubscriptionBatchRefreshResult> refreshSubscription(String id);
   Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed({
     SubscriptionRefreshCancellation? cancellation,
     Duration timeout = SubscriptionServiceBase.defaultBatchRefreshTimeout,
@@ -34,6 +35,7 @@ class CallbackSubscriptionScreenService
     required this.isSingleNodeLinkOf,
     required this.defaultSubscriptionNameOf,
     required this.addSubscriptionWith,
+    required this.refreshSubscriptionWith,
     required this.refreshAllSubscriptionsDetailedWith,
     required this.removeSubscriptionWith,
     required this.updateSubscriptionWith,
@@ -46,6 +48,8 @@ class CallbackSubscriptionScreenService
   final String Function(String input) defaultSubscriptionNameOf;
   final Future<Subscription> Function(String name, String url)
       addSubscriptionWith;
+  final Future<SubscriptionBatchRefreshResult> Function(String id)
+      refreshSubscriptionWith;
   final Future<SubscriptionBatchRefreshResult> Function({
     SubscriptionRefreshCancellation? cancellation,
     Duration timeout,
@@ -73,6 +77,10 @@ class CallbackSubscriptionScreenService
   Future<Subscription> addSubscription(String name, String url) {
     return addSubscriptionWith(name, url);
   }
+
+  @override
+  Future<SubscriptionBatchRefreshResult> refreshSubscription(String id) =>
+      refreshSubscriptionWith(id);
 
   @override
   Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed({
@@ -264,6 +272,23 @@ class SubscriptionEditResult {
 class SubscriptionScreenController {
   const SubscriptionScreenController({required this.subscriptionService});
 
+  factory SubscriptionScreenController.fromService(
+          SubscriptionServiceBase service) =>
+      SubscriptionScreenController(
+          subscriptionService: CallbackSubscriptionScreenService(
+        subscriptionsOf: () => service.subscriptions,
+        allNodesOf: () => service.allNodes,
+        allGroupsOf: () => service.allGroups,
+        isSingleNodeLinkOf: service.isSingleNodeLink,
+        defaultSubscriptionNameOf: service.defaultSubscriptionName,
+        addSubscriptionWith: service.addSubscription,
+        refreshSubscriptionWith: service.refreshSubscription,
+        refreshAllSubscriptionsDetailedWith:
+            service.refreshAllSubscriptionsDetailed,
+        removeSubscriptionWith: service.removeSubscription,
+        updateSubscriptionWith: service.updateSubscription,
+      ));
+
   final SubscriptionScreenServicePort subscriptionService;
 
   Future<SubscriptionEditResult> editSubscription(
@@ -324,7 +349,8 @@ class SubscriptionScreenController {
     }
   }
 
-  Future<SubscriptionAddResult> addSubscription(String input) async {
+  Future<SubscriptionAddResult> addSubscription(String input,
+      {bool retryExisting = false}) async {
     final url = input.trim();
     if (url.isEmpty) {
       return const SubscriptionAddResult(
@@ -333,7 +359,18 @@ class SubscriptionScreenController {
     }
 
     try {
-      if (subscriptionService.subscriptions.any((sub) => sub.url == url)) {
+      final existing = subscriptionService.subscriptions
+          .where((sub) => sub.url == url)
+          .firstOrNull;
+      if (existing != null) {
+        if (retryExisting) {
+          return await _refreshAfterAdd(
+            subscriptionId: existing.id,
+            successStatus: SubscriptionAddStatus.subscriptionAdded,
+            noDataStatus: SubscriptionAddStatus.subscriptionNoData,
+            failureStatus: SubscriptionAddStatus.refreshFailed,
+          );
+        }
         return const SubscriptionAddResult(
           status: SubscriptionAddStatus.duplicate,
         );
@@ -478,7 +515,7 @@ class SubscriptionScreenController {
   }) async {
     try {
       final outcome =
-          await subscriptionService.refreshAllSubscriptionsDetailed();
+          await subscriptionService.refreshSubscription(subscriptionId);
       if (outcome.isPartialSuccess &&
           !outcome.successfulSubscriptionIds.contains(subscriptionId)) {
         return SubscriptionAddResult(
