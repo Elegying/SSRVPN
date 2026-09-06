@@ -10,15 +10,19 @@ class AccountUsageController extends ChangeNotifier {
   AccountUsageController(
       {AccountUsageProviders? providers,
       Future<AccountUsage> Function(UsageIdentity)? fetch,
-      Duration Function()? elapsed})
+      Duration Function()? elapsed,
+      DateTime Function()? wallNow})
       : _providers = providers ?? AccountUsageProviders.configured,
         _fetch = fetch ?? const AccountUsageClient().fetch {
     final clock = Stopwatch()..start();
     _now = elapsed ?? (() => clock.elapsed);
+    _wallNow = wallNow ?? DateTime.now;
   }
   final AccountUsageProviders _providers;
   final Future<AccountUsage> Function(UsageIdentity) _fetch;
   late final Duration Function() _now;
+  late final DateTime Function() _wallNow;
+  ({Duration elapsed, DateTime wall})? _suspended;
   UsageIdentity? _identity;
   Object? _revision;
   AccountUsage? _value;
@@ -50,13 +54,43 @@ class AccountUsageController extends ChangeNotifier {
     if (_active != active) {
       _epoch++;
       _active = active;
-      // Some OS monotonic clocks pause in deep sleep. Never restore pre-suspend data.
-      if (!active) _clear();
+      if (!active) {
+        _suspended = (elapsed: _now(), wall: _wallNow());
+      } else {
+        _resume();
+        if (_failures == 0 && value == null) _retryAt = Duration.zero;
+      }
     }
     _poll?.cancel();
     if (value == null && _value != null) _clear();
     if (_active && _identity != null && !_busy) {
       _schedule(changed ? Duration.zero : _remainingRetry());
+    }
+  }
+
+  void _resume() {
+    final suspended = _suspended;
+    _suspended = null;
+    if (suspended == null || _value == null) return;
+    // Monotonic expiry remains authoritative. Some OS clocks pause in sleep;
+    // wall time may only shorten validity, never renew or extend cached data.
+    final wallElapsed = _wallNow().difference(suspended.wall);
+    final monotonicElapsed = _now() - suspended.elapsed;
+    if (wallElapsed.isNegative || monotonicElapsed.isNegative) {
+      _clear();
+      return;
+    }
+    if (wallElapsed > monotonicElapsed) {
+      final sleep = wallElapsed - monotonicElapsed;
+      _expires -= sleep;
+      if (_failures == 0) _retryAt -= sleep;
+    }
+    _expiry?.cancel();
+    final remaining = _expires - _now();
+    if (remaining <= Duration.zero) {
+      _clear();
+    } else {
+      _expiry = Timer(remaining, _clear);
     }
   }
 

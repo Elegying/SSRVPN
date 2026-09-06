@@ -9,6 +9,9 @@ class WindowStateStore {
   static const Size defaultSize = DesktopWindowStateStore.defaultSize;
   static const Size minimumSize = DesktopWindowStateStore.minimumSize;
 
+  static Rect initialBounds(Rect workArea) =>
+      DesktopWindowStateStore.initialBounds(workArea);
+
   static Future<void> clear() => _store().clear();
 
   static Future<Rect?> load() => _store().load();

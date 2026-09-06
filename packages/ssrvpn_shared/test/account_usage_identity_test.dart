@@ -213,7 +213,8 @@ void main() {
     expect(cardCount(), 3);
     await tester.pumpWidget(const SizedBox());
   });
-  testWidgets('background and resume never reveal pre-suspend data',
+  testWidgets(
+      'short background retains fresh account pair while resume refreshes',
       (tester) async {
     final pending = <Completer<AccountUsage>>[];
     final controller = AccountUsageController(
@@ -231,14 +232,19 @@ void main() {
     expect(cardCount(), 5);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
-    expect(controller.value,
-        isNull); // Paused apps do not schedule painted frames.
+    expect(controller.value, isNotNull);
+    expect(pending, hasLength(1));
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump(const Duration(milliseconds: 1));
-    expect(cardCount(), 3);
+    expect(cardCount(), 5);
+    expect(pending, hasLength(1));
     await tester.pump(const Duration(seconds: 10));
     expect(pending, hasLength(2));
-    pending.last.complete(AccountUsage.parse(usageJson(time: 1010)));
+    pending.last.completeError(const UsageQueryFailure());
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(cardCount(), 3);
+    await tester.pump(const Duration(seconds: 30));
+    pending.last.complete(AccountUsage.parse(usageJson(time: 1030)));
     await tester.pump(const Duration(milliseconds: 1));
     expect(cardCount(), 5);
     await tester.pumpWidget(const SizedBox());
