@@ -73,6 +73,8 @@ def build(target, output):
             raise SystemExit('Android SDK is required to rebuild libgojni.so.')
         environment['ANDROID_SDK_ROOT'] = sdk
         ndk = Path(sdk) / 'ndk/28.2.13676358'
+        environment['ANDROID_NDK_HOME'] = str(ndk)
+        environment['NDK_HOME'] = str(ndk)
         if not ndk.is_dir():
             manager = shutil.which('sdkmanager') or str(Path(sdk) / 'cmdline-tools/latest/bin/sdkmanager')
             subprocess.run([manager, 'ndk;28.2.13676358'], env=environment, check=True)

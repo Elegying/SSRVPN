@@ -37,6 +37,8 @@ test -n "$ANDROID_SDK_ROOT" || fail "ANDROID_SDK_ROOT or ANDROID_HOME is require
 ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_SDK_ROOT/ndk/$NDK_VERSION}"
 test -d "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" ||
   fail "Android NDK $NDK_VERSION is required at $ANDROID_NDK_HOME"
+test "$(sed -n 's/^Pkg.Revision *= *//p' "$ANDROID_NDK_HOME/source.properties" | tr -d '\r')" = "$NDK_VERSION" ||
+  fail "Android NDK revision must be exactly $NDK_VERSION"
 
 if test -z "${JAVA_HOME:-}"; then
   for candidate in \
