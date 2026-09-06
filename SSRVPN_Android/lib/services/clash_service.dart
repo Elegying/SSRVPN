@@ -54,9 +54,6 @@ class ClashService extends ClashServiceBase {
 
   String get corePath => _corePath;
 
-  @override
-  Future<VpnTrafficSample?> readTrafficSample() => _readNativeTrafficSample();
-
   bool get coreExists => File(_corePath).existsSync();
   bool get nativeConnectionTransitioning => _nativeConnectionTransitioning;
   int? get nativeSessionGeneration => _nativeSessionGeneration;
@@ -539,9 +536,9 @@ class ClashService extends ClashServiceBase {
 
     Object? stopError;
     try {
-      await _channel
-          .invokeMethod('stopCore')
-          .timeout(const Duration(seconds: 15));
+      await _channel.invokeMethod('stopCore', {
+        'recordManualStop': !_intentionalReloadInProgress || !connectionDesired,
+      }).timeout(const Duration(seconds: 15));
       log('核心已停止');
     } catch (e) {
       stopError = e;

@@ -41,8 +41,9 @@ does not independently grant redistribution rights.
 - Exact source: <https://github.com/MetaCubeX/mihomo/tree/v1.19.27>
 - Source archive: <https://github.com/MetaCubeX/mihomo/archive/refs/tags/v1.19.27.tar.gz>
 - Object-code record: `SSRVPN_Windows/assets/mihomo-source.txt`
-- SSRVPN modification notice: SSRVPN extracts and renames the official Windows
-  release executable; it does not modify the Mihomo source for this object.
+- SSRVPN modification notice: SSRVPN applies the proxy-only traffic extension
+  in `native/proxy_traffic` and builds the fixed upstream commit using
+  `scripts/build-desktop-core.sh` with the original Go 1.20.14 compatibility target.
 
 ## macOS: MetaCubeX/mihomo v1.19.29
 
@@ -52,9 +53,9 @@ does not independently grant redistribution rights.
 - Exact source: <https://github.com/MetaCubeX/mihomo/tree/v1.19.29>
 - Source archive: <https://github.com/MetaCubeX/mihomo/archive/refs/tags/v1.19.29.tar.gz>
 - Object-code record: `SSRVPN_MacOS/assets/AtlasCore-source.txt`
-- SSRVPN modification notice: SSRVPN renames and decompresses the official
-  Apple arm64 release executable at runtime; it does not modify the Mihomo
-  source for this object.
+- SSRVPN modification notice: SSRVPN applies the proxy-only traffic extension
+  in `native/proxy_traffic` and builds the fixed upstream commit using
+  `scripts/build-desktop-core.sh` with Go 1.26.5 and the Apple arm64 target.
 
 ## Android: zeyugao/mihomo commit 7031b756
 
@@ -66,9 +67,10 @@ does not independently grant redistribution rights.
 - SSRVPN bridge source: `SSRVPN_Android/native/bridge/bridge.go`
 - Reproducible build recipe: `scripts/build-android-core.sh`
 - Object-code record: `SSRVPN_Android/assets/libgojni-source.txt`
-- SSRVPN modification notice (2026-08-22): the Android library is a custom
+- SSRVPN modification notice (2026-09-06): the Android library is a custom
   arm64 shared-library build of the exact source commit with the committed
-  SSRVPN Go bridge and the build parameters recorded in the object-code record.
+  SSRVPN Go bridge, the proxy-only traffic extension in `native/proxy_traffic`,
+  and the build parameters recorded in the object-code record.
 
 ## GeoIP database: MetaCubeX/meta-rules-dat
 

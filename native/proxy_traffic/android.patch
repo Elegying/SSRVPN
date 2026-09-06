@@ -1,0 +1,295 @@
+diff --git a/adapter/outbound/base.go b/adapter/outbound/base.go
+index bbac4e80..66cc5a47 100644
+--- a/adapter/outbound/base.go
++++ b/adapter/outbound/base.go
+@@ -223,6 +223,7 @@ func (b *BasicOption) NewTunnel() C.Tunnel {
+ }
+ 
+ type conn struct {
++	proxy bool
+ 	N.ExtendedConn
+ 	chain       C.Chain
+ 	pdChain     C.Chain
+@@ -278,12 +279,13 @@ func NewConn(c net.Conn, a C.ProxyAdapter) C.Conn {
+ 	if _, ok := c.(syscall.Conn); !ok { // exclusion system conn like *net.TCPConn
+ 		c = N.NewDeadlineConn(c) // most conn from outbound can't handle readDeadline correctly
+ 	}
+-	cc := &conn{N.NewExtendedConn(c), nil, nil, a.Addr()}
++	cc := &conn{isProxyOutbound(a.Type()), N.NewExtendedConn(c), nil, nil, a.Addr()}
+ 	cc.AppendToChains(a)
+ 	return cc
+ }
+ 
+ type packetConn struct {
++	proxy bool
+ 	N.EnhancePacketConn
+ 	chain       C.Chain
+ 	pdChain     C.Chain
+@@ -344,7 +346,7 @@ func newPacketConn(pc net.PacketConn, a ProxyAdapter) C.PacketConn {
+ 	if _, ok := pc.(syscall.Conn); !ok { // exclusion system conn like *net.UDPConn
+ 		epc = N.NewDeadlineEnhancePacketConn(epc) // most conn from outbound can't handle readDeadline correctly
+ 	}
+-	cpc := &packetConn{epc, nil, nil, a.Name(), utils.NewUUIDV4().String(), a.Addr(), a.ResolveUDP}
++	cpc := &packetConn{isProxyOutbound(a.Type()), epc, nil, nil, a.Name(), utils.NewUUIDV4().String(), a.Addr(), a.ResolveUDP}
+ 	cpc.AppendToChains(a)
+ 	return cpc
+ }
+@@ -398,3 +400,17 @@ func NewAutoCloseProxyAdapter(adapter ProxyAdapter) ProxyAdapter {
+ 	runtime.SetFinalizer(proxy, (*autoCloseProxyAdapter).Close)
+ 	return proxy
+ }
++
++// Classification is captured at the actual outbound, independent of node names
++// and subsequent selector changes. Groups preserve the underlying connection.
++func isProxyOutbound(kind C.AdapterType) bool {
++	switch kind {
++	case C.Direct, C.Reject, C.RejectDrop, C.Compatible, C.Pass, C.PassRule, C.Dns:
++		return false
++	default:
++		return true
++	}
++}
++
++func (c *conn) IsProxy() bool       { return c.proxy }
++func (c *packetConn) IsProxy() bool { return c.proxy }
+diff --git a/constant/adapters.go b/constant/adapters.go
+index 37d8af66..42afbc1e 100644
+--- a/constant/adapters.go
++++ b/constant/adapters.go
+@@ -64,6 +64,8 @@ const (
+ var ErrNotSupport = errors.New("no support")
+ 
+ type Connection interface {
++	// IsProxy records the actual outbound type before groups append their names.
++	IsProxy() bool
+ 	Chains() Chain
+ 	ProviderChains() Chain
+ 	AppendToChains(adapter ProxyAdapter)
+diff --git a/hub/route/server.go b/hub/route/server.go
+index 7b8562ca..4fcee166 100644
+--- a/hub/route/server.go
++++ b/hub/route/server.go
+@@ -121,6 +121,7 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
+ 		r.Get("/", hello)
+ 		r.Get("/logs", getLogs)
+ 		r.Get("/traffic", traffic)
++		r.Get("/ssrvpn/traffic", ssrvpnTraffic)
+ 		r.Get("/memory", memory)
+ 		r.Get("/version", version)
+ 		r.Mount("/configs", configRouter())
+diff --git a/tunnel/statistic/tracker.go b/tunnel/statistic/tracker.go
+index 2fbb1cf9..f336d04e 100644
+--- a/tunnel/statistic/tracker.go
++++ b/tunnel/statistic/tracker.go
+@@ -34,7 +34,8 @@ type TrackerInfo struct {
+ }
+ 
+ type tcpTracker struct {
+-	C.Conn `json:"-"`
++	proxySession *proxyTrafficSession
++	C.Conn       `json:"-"`
+ 	*TrackerInfo
+ 	manager *Manager
+ 
+@@ -54,6 +55,9 @@ func (tt *tcpTracker) Read(b []byte) (int, error) {
+ 	download := int64(n)
+ 	if tt.pushToManager {
+ 		tt.manager.PushDownloaded(download)
++		if tt.proxySession != nil {
++			tt.proxySession.download.Add(download)
++		}
+ 	}
+ 	tt.DownloadTotal.Add(download)
+ 	return n, err
+@@ -64,6 +68,9 @@ func (tt *tcpTracker) ReadBuffer(buffer *buf.Buffer) (err error) {
+ 	download := int64(buffer.Len())
+ 	if tt.pushToManager {
+ 		tt.manager.PushDownloaded(download)
++		if tt.proxySession != nil {
++			tt.proxySession.download.Add(download)
++		}
+ 	}
+ 	tt.DownloadTotal.Add(download)
+ 	return
+@@ -73,6 +80,9 @@ func (tt *tcpTracker) UnwrapReader() (io.Reader, []N.CountFunc) {
+ 	return tt.Conn, []N.CountFunc{func(download int64) {
+ 		if tt.pushToManager {
+ 			tt.manager.PushDownloaded(download)
++			if tt.proxySession != nil {
++				tt.proxySession.download.Add(download)
++			}
+ 		}
+ 		tt.DownloadTotal.Add(download)
+ 	}}
+@@ -83,6 +93,9 @@ func (tt *tcpTracker) Write(b []byte) (int, error) {
+ 	upload := int64(n)
+ 	if tt.pushToManager {
+ 		tt.manager.PushUploaded(upload)
++		if tt.proxySession != nil {
++			tt.proxySession.upload.Add(upload)
++		}
+ 	}
+ 	tt.UploadTotal.Add(upload)
+ 	return n, err
+@@ -93,6 +106,9 @@ func (tt *tcpTracker) WriteBuffer(buffer *buf.Buffer) (err error) {
+ 	err = tt.Conn.WriteBuffer(buffer)
+ 	if tt.pushToManager {
+ 		tt.manager.PushUploaded(upload)
++		if tt.proxySession != nil {
++			tt.proxySession.upload.Add(upload)
++		}
+ 	}
+ 	tt.UploadTotal.Add(upload)
+ 	return
+@@ -102,6 +118,9 @@ func (tt *tcpTracker) UnwrapWriter() (io.Writer, []N.CountFunc) {
+ 	return tt.Conn, []N.CountFunc{func(upload int64) {
+ 		if tt.pushToManager {
+ 			tt.manager.PushUploaded(upload)
++			if tt.proxySession != nil {
++				tt.proxySession.upload.Add(upload)
++			}
+ 		}
+ 		tt.UploadTotal.Add(upload)
+ 	}}
+@@ -116,12 +135,13 @@ func (tt *tcpTracker) Upstream() any {
+ 	return tt.Conn
+ }
+ 
+-func NewTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *tcpTracker {
++func NewTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool, sessions ...*proxyTrafficSession) *tcpTracker {
+ 	metadata.RemoteDst = conn.RemoteDestination()
+ 
+ 	t := &tcpTracker{
+-		Conn:    conn,
+-		manager: manager,
++		proxySession: proxySessionFor(conn, pushToManager, sessions),
++		Conn:         conn,
++		manager:      manager,
+ 		TrackerInfo: &TrackerInfo{
+ 			UUID:          utils.NewUUIDV4(),
+ 			Start:         time.Now(),
+@@ -138,9 +158,15 @@ func NewTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.R
+ 	if pushToManager {
+ 		if uploadTotal > 0 {
+ 			manager.PushUploaded(uploadTotal)
++			if t.proxySession != nil {
++				t.proxySession.upload.Add(uploadTotal)
++			}
+ 		}
+ 		if downloadTotal > 0 {
+ 			manager.PushDownloaded(downloadTotal)
++			if t.proxySession != nil {
++				t.proxySession.download.Add(downloadTotal)
++			}
+ 		}
+ 	}
+ 
+@@ -154,6 +180,7 @@ func NewTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.R
+ }
+ 
+ type udpTracker struct {
++	proxySession *proxyTrafficSession
+ 	C.PacketConn `json:"-"`
+ 	*TrackerInfo
+ 	manager *Manager
+@@ -174,6 +201,9 @@ func (ut *udpTracker) ReadFrom(b []byte) (int, net.Addr, error) {
+ 	download := int64(n)
+ 	if ut.pushToManager {
+ 		ut.manager.PushDownloaded(download)
++		if ut.proxySession != nil {
++			ut.proxySession.download.Add(download)
++		}
+ 	}
+ 	ut.DownloadTotal.Add(download)
+ 	return n, addr, err
+@@ -184,6 +214,9 @@ func (ut *udpTracker) WaitReadFrom() (data []byte, put func(), addr net.Addr, er
+ 	download := int64(len(data))
+ 	if ut.pushToManager {
+ 		ut.manager.PushDownloaded(download)
++		if ut.proxySession != nil {
++			ut.proxySession.download.Add(download)
++		}
+ 	}
+ 	ut.DownloadTotal.Add(download)
+ 	return
+@@ -194,6 +227,9 @@ func (ut *udpTracker) WriteTo(b []byte, addr net.Addr) (int, error) {
+ 	upload := int64(n)
+ 	if ut.pushToManager {
+ 		ut.manager.PushUploaded(upload)
++		if ut.proxySession != nil {
++			ut.proxySession.upload.Add(upload)
++		}
+ 	}
+ 	ut.UploadTotal.Add(upload)
+ 	return n, err
+@@ -208,12 +244,13 @@ func (ut *udpTracker) Upstream() any {
+ 	return ut.PacketConn
+ }
+ 
+-func NewUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *udpTracker {
++func NewUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool, sessions ...*proxyTrafficSession) *udpTracker {
+ 	metadata.RemoteDst = conn.RemoteDestination()
+ 
+ 	ut := &udpTracker{
+-		PacketConn: conn,
+-		manager:    manager,
++		proxySession: proxySessionFor(conn, pushToManager, sessions),
++		PacketConn:   conn,
++		manager:      manager,
+ 		TrackerInfo: &TrackerInfo{
+ 			UUID:          utils.NewUUIDV4(),
+ 			Start:         time.Now(),
+@@ -230,9 +267,15 @@ func NewUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, ru
+ 	if pushToManager {
+ 		if uploadTotal > 0 {
+ 			manager.PushUploaded(uploadTotal)
++			if ut.proxySession != nil {
++				ut.proxySession.upload.Add(uploadTotal)
++			}
+ 		}
+ 		if downloadTotal > 0 {
+ 			manager.PushDownloaded(downloadTotal)
++			if ut.proxySession != nil {
++				ut.proxySession.download.Add(downloadTotal)
++			}
+ 		}
+ 	}
+ 
+diff --git a/tunnel/tunnel.go b/tunnel/tunnel.go
+index 470f7299..57d2d217 100644
+--- a/tunnel/tunnel.go
++++ b/tunnel/tunnel.go
+@@ -416,6 +416,7 @@ func processUDP(queue chan C.PacketAdapter) {
+ }
+ 
+ func handleUDPConn(packet C.PacketAdapter) {
++	proxySession := statistic.CaptureProxyTrafficSession()
+ 	if !isHandle(packet.Metadata().Type) {
+ 		packet.Drop()
+ 		return
+@@ -474,7 +475,7 @@ func handleUDPConn(packet C.PacketAdapter) {
+ 			}
+ 			logMetadata(metadata, rule, rawPc)
+ 
+-			pc := statistic.NewUDPTracker(rawPc, statistic.DefaultManager, metadata, rule, 0, 0, true)
++			pc := statistic.NewUDPTracker(rawPc, statistic.DefaultManager, metadata, rule, 0, 0, true, proxySession)
+ 
+ 			sender.AddMapping(originMetadata, dialMetadata)
+ 			oAddrPort := dialMetadata.AddrPort()
+@@ -498,6 +499,7 @@ func handleUDPConn(packet C.PacketAdapter) {
+ }
+ 
+ func handleTCPConn(connCtx C.ConnContext) {
++	proxySession := statistic.CaptureProxyTrafficSession()
+ 	if !isHandle(connCtx.Metadata().Type) {
+ 		_ = connCtx.Conn().Close()
+ 		return
+@@ -610,7 +612,7 @@ func handleTCPConn(connCtx C.ConnContext) {
+ 	}
+ 	logMetadata(metadata, rule, remoteConn)
+ 
+-	remoteConn = statistic.NewTCPTracker(remoteConn, statistic.DefaultManager, metadata, rule, int64(peekLen), 0, true)
++	remoteConn = statistic.NewTCPTracker(remoteConn, statistic.DefaultManager, metadata, rule, int64(peekLen), 0, true, proxySession)
+ 	defer func(remoteConn C.Conn) {
+ 		_ = remoteConn.Close()
+ 	}(remoteConn)

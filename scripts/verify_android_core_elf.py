@@ -25,6 +25,8 @@ JNI_EXPORTS = (
     b"Java_bridge_Bridge_start\0",
     b"Java_bridge_Bridge_stop\0",
     b"Java_bridge_Bridge_isRunning\0",
+    b"Java_bridge_Bridge_proxyTrafficUpload\0",
+    b"Java_bridge_Bridge_proxyTrafficDownload\0",
 )
 JNI_EXPORT_NAMES = frozenset(name[:-1].decode() for name in JNI_EXPORTS)
 

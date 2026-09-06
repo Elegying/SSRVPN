@@ -90,7 +90,7 @@ class CheckCoverageThresholdsTests(unittest.TestCase):
             path,
             total_threshold=30.0,
             critical_thresholds={
-                "lib/services/clash_service_lifecycle.dart": 50.0,
+                "lib/services/clash_service_lifecycle.dart": 51.0,
             },
         )
 

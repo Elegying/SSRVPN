@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+python3 scripts/core-traffic-source.py verify
+
 fail() {
   echo "core asset check failed: $*" >&2
   exit 1

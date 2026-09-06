@@ -464,6 +464,73 @@ class GeoIpWorkflowTest(unittest.TestCase):
                 ):
                     SYNC.sync(check=True)
 
+    def test_extended_desktop_cores_rebuild_and_verify_without_release_assets(self) -> None:
+        raw = b"test geo data"
+        gzipped = _stable_gzip(raw)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            geo_url = _write_bootstrap_fixture(root, raw=raw, gzipped=gzipped)
+            payloads = {geo_url: gzipped.hex()}
+            expected = {}
+            builds = {}
+            for platform, record_name, asset_name, prefix, suffix, field in (
+                ('MacOS', 'AtlasCore-source.txt', 'AtlasCore.gz', 'AtlasCore-', '.gz', 'Bundled gzip SHA256'),
+                ('Windows', 'mihomo-source.txt', 'mihomo.exe', 'mihomo-windows-', '.exe', 'Executable SHA256'),
+            ):
+                record = root / f'SSRVPN_{platform}/assets/{record_name}'
+                asset = root / f'SSRVPN_{platform}/assets/{asset_name}'
+                payload = f'extended {platform} core'.encode()
+                expected[asset] = payload
+                name = f'{prefix}{_sha256(payload)}{suffix}'
+                url = f'https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/{name}'
+                original = record.read_text()
+                original = '\n'.join(line for line in original.splitlines() if not line.startswith(field + ':'))
+                record.write_text(original + '\n' + '\n'.join([
+                    f'{field}: {_sha256(payload)}',
+                    'Traffic extension SHA256: test-extension',
+                    'Mirror repo: Elegying/SSRVPN',
+                    'Mirror release tag: core-assets-v1',
+                    f'Mirror asset name: {name}', f'Mirror URL: {url}', '',
+                ]))
+                builds[platform.lower()] = payload.hex()
+                asset.unlink()
+            (root / 'builds.json').write_text(json.dumps(builds))
+            (root / 'scripts/build-core-asset.py').write_text('''import json, pathlib, sys
+builds = json.loads(pathlib.Path('builds.json').read_text())
+pathlib.Path(sys.argv[2]).write_bytes(bytes.fromhex(builds[sys.argv[1]]))
+''')
+            (root / 'payloads.json').write_text(json.dumps(payloads))
+            fake_bin = root / 'fake-bin'
+            fake_bin.mkdir()
+            fake_curl = fake_bin / 'curl'
+            fake_curl.write_text('''#!/usr/bin/env python3
+import json, pathlib, sys
+payloads = json.loads(pathlib.Path('payloads.json').read_text())
+assert sys.argv[-1] in payloads, 'unapproved download: ' + sys.argv[-1]
+pathlib.Path(sys.argv[sys.argv.index('--output') + 1]).write_bytes(bytes.fromhex(payloads[sys.argv[-1]]))
+''')
+            fake_curl.chmod(0o755)
+            env = dict(os.environ, PATH=f"{fake_bin}:{os.environ['PATH']}")
+            result = subprocess.run(['bash', 'scripts/bootstrap-core-assets.sh'], cwd=root,
+                                    env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for asset, payload in expected.items():
+                self.assertEqual(asset.read_bytes(), payload)
+            windows = root / 'SSRVPN_Windows/assets/mihomo.exe'
+            windows.unlink()
+            builds['windows'] = b'corrupt rebuilt core'.hex()
+            (root / 'builds.json').write_text(json.dumps(builds))
+            result = subprocess.run(['bash', 'scripts/bootstrap-core-assets.sh'], cwd=root,
+                                    env=env, text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(windows.exists())
+            record = root / 'SSRVPN_Windows/assets/mihomo-source.txt'
+            record.write_text(record.read_text().replace('Mirror repo: Elegying/SSRVPN', 'Mirror repo: untrusted/repo'))
+            result = subprocess.run(['bash', 'scripts/bootstrap-core-assets.sh'], cwd=root,
+                                    env=env, text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('invalid core mirror repo', result.stderr)
+
     def test_clean_bootstrap_ignores_a_deleted_upstream_asset(self) -> None:
         raw = b"verified upstream GeoIP payload"
         gzipped = _stable_gzip(raw)

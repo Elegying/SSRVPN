@@ -25,6 +25,8 @@ GO_BIN="${GO_BIN:-$(command -v go || true)}"
 test -x "$GO_BIN" || fail "Go $GO_VERSION is required; set GO_BIN to its go executable"
 test "$($GO_BIN version | awk '{print $3}')" = "$GO_VERSION" ||
   fail "Go $GO_VERSION is required, got $($GO_BIN version)"
+GOROOT="$(cd "$(dirname "$GO_BIN")/.." && pwd)"
+export GOROOT
 GO_MODULE_CACHE="${GOMODCACHE:-$("$GO_BIN" env GOMODCACHE)}"
 GO_BUILD_CACHE="${GOCACHE:-$("$GO_BIN" env GOCACHE)}"
 test -n "$GO_MODULE_CACHE" || fail "Go module cache path is unavailable"
@@ -35,6 +37,8 @@ test -n "$ANDROID_SDK_ROOT" || fail "ANDROID_SDK_ROOT or ANDROID_HOME is require
 ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_SDK_ROOT/ndk/$NDK_VERSION}"
 test -d "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" ||
   fail "Android NDK $NDK_VERSION is required at $ANDROID_NDK_HOME"
+test "$(sed -n 's/^Pkg.Revision *= *//p' "$ANDROID_NDK_HOME/source.properties" | tr -d '\r')" = "$NDK_VERSION" ||
+  fail "Android NDK revision must be exactly $NDK_VERSION"
 
 if test -z "${JAVA_HOME:-}"; then
   for candidate in \
@@ -52,7 +56,12 @@ for command in git unzip python3; do
   command -v "$command" >/dev/null 2>&1 || fail "$command is required"
 done
 
-BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ssrvpn-android-core.XXXXXX")"
+# gomobile records its local module replacement path in Go build information.
+# A random checkout directory therefore changes the .so even with -trimpath.
+# Atomic creation also rejects concurrent builds and pre-existing symlinks.
+BUILD_ROOT="/tmp/ssrvpn-android-core-build-v1"
+mkdir -m 700 "$BUILD_ROOT" ||
+  fail "canonical build directory is busy: $BUILD_ROOT"
 cleanup() {
   local exit_code=$?
   trap - EXIT
@@ -74,11 +83,14 @@ test "$(git -C "$SOURCE_DIR" rev-parse HEAD)" = "$SOURCE_COMMIT" ||
 test "$(git -C "$SOURCE_DIR" rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE" ||
   fail "Mihomo source tree mismatch"
 
+python3 "$ROOT/scripts/core-traffic-source.py" apply android "$SOURCE_DIR"
+
 mkdir -p "$SOURCE_DIR/bridge"
 cp "$ROOT/SSRVPN_Android/native/bridge/bridge.go" "$SOURCE_DIR/bridge/bridge.go"
 cp "$ROOT/SSRVPN_Android/native/bridge/bridge_test.go" "$SOURCE_DIR/bridge/bridge_test.go"
 
 export GOTOOLCHAIN=local
+export GOMAXPROCS=2
 export GOPATH="$GOPATH_DIR"
 export GOBIN="$GOBIN_DIR"
 export GOMODCACHE="$GO_MODULE_CACHE"
@@ -94,10 +106,12 @@ export NDK_HOME="$ANDROID_NDK_HOME"
 
 cd "$SOURCE_DIR"
 "$GO_BIN" get -tool "golang.org/x/mobile/cmd/gobind@$MOBILE_VERSION"
-GOFLAGS=-trimpath "$GO_BIN" test -tags=with_gvisor,cmfa ./bridge
+"$GO_BIN" mod download all
+GOFLAGS=-trimpath "$GO_BIN" test -p 2 -tags=with_gvisor,cmfa ./bridge ./tunnel/statistic ./adapter/outbound ./hub/route
 GOFLAGS=-trimpath gomobile bind \
   -target=android/arm64 \
   -androidapi=24 \
+  -ldflags="-s -w -buildid=" \
   -tags=with_gvisor,cmfa \
   -o "$BUILD_ROOT/libgojni.aar" \
   ./bridge
