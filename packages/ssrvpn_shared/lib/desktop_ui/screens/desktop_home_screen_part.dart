@@ -627,13 +627,14 @@ class _HomeScreenState extends State<HomeScreen> {
         ? null
         : _exitCountryCodes[displayNode.name] ??
             countryCodeForProxyNode(displayNode);
-    final connectionAction = isConnectionTransition
+    final action = isConnectionTransition
         ? _DesktopConnectionAction.cancelPendingConnection
         : _isConnected
             ? _DesktopConnectionAction.disconnect
             : _DesktopConnectionAction.connect;
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
         bottomContent: SsrvpnHomeStatistics(
@@ -656,8 +657,7 @@ class _HomeScreenState extends State<HomeScreen> {
         publicIpv4: _publicIpInfo?.displayText,
         isRefreshingPublicIp: _isRefreshingPublicIp,
         publicIpError: _publicIpError,
-        onToggleConnection: () =>
-            unawaited(_handleConnectionAction(connectionAction)),
+        onToggleConnection: () => unawaited(_handleConnectionAction(action)),
         onOpenNodes: _openNodeSelection,
         onShowAbout: () => showSsrvpnAboutDialog(
           context,

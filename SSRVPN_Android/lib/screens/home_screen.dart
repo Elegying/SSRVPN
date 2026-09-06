@@ -197,6 +197,7 @@ class HomeScreenState extends State<HomeScreen>
         displayNode == null ? null : _latencyController.latencyFor(displayNode);
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
         bottomContent: SsrvpnHomeStatistics(

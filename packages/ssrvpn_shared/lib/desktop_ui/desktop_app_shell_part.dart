@@ -106,6 +106,7 @@ class _DesktopAppShell extends StatelessWidget {
         ),
     ];
     return Scaffold(
+      resizeToAvoidBottomInset: currentIndex != 0,
       backgroundColor: Colors.transparent,
       body: DefaultTextStyle.merge(
         style: const TextStyle(decoration: TextDecoration.none),

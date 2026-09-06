@@ -200,6 +200,32 @@ void main() {
     );
   });
 
+  testWidgets('Android home geometry survives modal keyboard insets',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    addTearDown(tester.view.resetViewInsets);
+    final fixture = (await tester.runAsync(
+      () => _AndroidHomeFixture.create(_RecordingAndroidClashService()),
+    ))!;
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(
+        tester, find.byKey(const Key('ssrvpn-current-node-card')));
+    final power = find.byKey(const Key('ssrvpn-power-button'));
+    final node = find.byKey(const Key('ssrvpn-current-node-card'));
+    final originalPower = tester.getRect(power),
+        originalNode = tester.getRect(node);
+    tester.view.viewInsets =
+        FakeViewPadding(bottom: 350 * tester.view.devicePixelRatio);
+    await tester.pump();
+    expect(tester.getRect(power), originalPower);
+    expect(tester.getRect(node), originalNode);
+    expect(tester.takeException(), isNull);
+    tester.view.resetViewInsets();
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('Android Home keeps an open selector live during auto latency',
       (tester) async {
     final clash = _DelayedAndroidClashService();

@@ -28,7 +28,9 @@ flutter build macos --debug --dart-define-from-file=../config/ssrvpn-usage-defin
 python3 scripts/prepare-usage-native-smoke.py
 ```
 
-最终门禁与构建结果在交付前补充，未完成项不能按通过计算。
+`make verify` 已完成：发布工具 396 项、共享 970 项、Android 288 项、macOS 314 项、Windows 291 项通过；Windows 在 macOS 上跳过 7 项平台特定测试。四个包静态分析无问题，Android 原生单元测试、macOS XCTest 及进程/崩溃报告守卫通过。共享覆盖率 87.48%，Android 69.09%，macOS 68.72%，Windows 55.85%，均达到仓库门槛。
+
+完整门禁后，完整 Android 应用首次导入弹窗的软键盘实测暴露了背景首页 4 像素挤压。已让三端首页背景保持完整尺寸，由弹窗自行处理键盘；订阅页面保留原键盘避让行为。新增 Android 实际 HomeScreen 的键盘回归通过，后续变更补跑四包静态检查（无问题）、Android 首页 24 项、macOS 首页 33 项、Windows 首页 17 项，均通过，并重新构建 Android/macOS 客户端。
 
 ## 布局检查
 
@@ -42,13 +44,15 @@ python3 scripts/prepare-usage-native-smoke.py
 
 这些检查限定于列出的受支持视口及连续区间，并非对无限小窗口的保证。更小视口若固定控件本身无法容纳，需要先明确产品布局取舍，不能用隐藏、裁切或恢复滚动冒充通过。
 
+最新原生窗口修复提交 `c7b2cde` 的 [GitHub CI](https://github.com/Elegying/SSRVPN/actions/runs/34007314915) 已全部完成：Windows build/policy、Android、macOS、macOS native、Workspace checks 均成功。随后的键盘背景布局修正已补充本地针对性回归；最终提交 CI 状态另行注明。
+
 ## 原生验证边界
 
 | 平台 | 本地可执行项 | 不代表已验证的项目 |
 | --- | --- | --- |
 | Android | 完整 APK 构建、平台测试、Android 原生单元测试；隔离 Android 36 模拟器 360×640 原生引擎和本地 HTTPS 八步状态验证 | 无 USB 实机验收；未使用生产账号；未完成生产 VPN/TUN 端到端联调 |
 | macOS | 完整应用构建、平台测试、原生单元测试；独立包名原生宿主和本地 HTTPS 八步状态验证 | 不启动或中断用户现用 VPN；未完成生产系统代理/TUN 与账号联调 |
-| Windows | 可在 macOS 执行的 Flutter 平台测试和静态守卫；原生构建应在 Windows CI/主机执行 | 本机没有 Windows 原生运行环境，不能以共享测试或 macOS 原生截图替代 Windows 验收 |
+| Windows | 可在 macOS 执行的 Flutter 平台测试和静态守卫；原生构建应在 Windows CI/主机执行 | Windows CI 已在提交 c7b2cde 完成原生构建与策略门禁；本机没有 Windows 原生交互环境，实际手动拖窗/系统代理/TUN 验收仍未完成，不能以共享测试或 macOS 原生截图替代 |
 
 隔离宿主显式控制查询资格，避免检查截图时失焦暂停模拟查询；实际前后台接线由共享组件生命周期测试覆盖，不冒充原生完整应用生命周期验收。隔离宿主使用合成认证和临时测试证书，入口不会加载任何平台 VPN 服务或生产设置。八步为普通节点三块且零请求、首次等待三块、有效零值五块、本机连接五块、本机断开仍五块、刷新错误三块、恢复大数字五块、普通节点再次三块。截图只保存关键状态，JSON 记录全部八步。宿主不是要分发的 SSRVPN 客户端。
 

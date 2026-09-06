@@ -304,6 +304,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
       builder: (context) {
         Responsive.init(context);
         return Scaffold(
+          resizeToAvoidBottomInset: _currentIndex != 0,
           backgroundColor: Colors.transparent,
           body: SsrvpnAppBackdrop(
             child: Column(
