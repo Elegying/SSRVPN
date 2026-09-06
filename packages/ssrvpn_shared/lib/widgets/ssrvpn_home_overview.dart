@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'ssrvpn_home_text.dart';
 
 import '../models/proxy_node.dart';
 import '../utils/node_country_policy.dart';
@@ -8,7 +9,7 @@ import 'ssrvpn_app_surface.dart';
 
 part 'ssrvpn_home_overview_header.dart';
 
-class SsrvpnHomeOverview extends StatelessWidget {
+class SsrvpnHomeOverview extends StatefulWidget {
   const SsrvpnHomeOverview({
     super.key,
     required this.isConnected,
@@ -48,160 +49,191 @@ class SsrvpnHomeOverview extends StatelessWidget {
   final VoidCallback onShowLogs;
   final VoidCallback onRefreshPublicIp;
 
+  @override
+  State<SsrvpnHomeOverview> createState() => _HomeOverviewState();
+}
+
+class _HomeOverviewState extends State<SsrvpnHomeOverview> {
+  // Preserve both samplers when responsive rows reparent the statistics subtree.
+  final _statisticsKey = GlobalKey();
   String get _statusText {
-    if (isConnecting) return isConnected ? '正在断开' : '正在连接';
-    if (errorMessage != null) return '连接异常';
-    if (isConnected && connectionNotice != null) return '网络待确认';
-    if (isConnected) return '已连接';
+    if (widget.isConnecting) return widget.isConnected ? '正在断开' : '正在连接';
+    if (widget.errorMessage != null) return '连接异常';
+    if (widget.isConnected && widget.connectionNotice != null) return '网络待确认';
+    if (widget.isConnected) return '已连接';
     return '未连接';
   }
 
   Color get _statusColor {
-    if (isConnecting) return SsrvpnUiTokens.warning;
-    if (errorMessage != null) return SsrvpnUiTokens.error;
-    if (isConnected && connectionNotice != null) return SsrvpnUiTokens.warning;
-    if (isConnected) return SsrvpnUiTokens.success;
+    if (widget.isConnecting) return SsrvpnUiTokens.warning;
+    if (widget.errorMessage != null) return SsrvpnUiTokens.error;
+    if (widget.isConnected && widget.connectionNotice != null) {
+      return SsrvpnUiTokens.warning;
+    }
+    if (widget.isConnected) return SsrvpnUiTokens.success;
     return SsrvpnUiTokens.textSecondary;
   }
 
   @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      bottom: false,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
+  Widget build(BuildContext context) => SafeArea(
+        bottom: false,
+        child: LayoutBuilder(builder: (context, constraints) {
           final compact =
               constraints.maxWidth < SsrvpnUiTokens.compactBreakpoint;
           final short = constraints.maxHeight < 610;
-          final horizontalPadding = compact ? 18.0 : 28.0;
-          final powerSize = short ? 138.0 : (compact ? 166.0 : 184.0);
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              horizontalPadding,
-              short ? 6 : 14,
-              horizontalPadding,
-              24,
-            ),
+          final wide =
+              constraints.maxWidth >= 560 && constraints.maxHeight < 450;
+          final padding = compact ? 18.0 : 20.0;
+          final powerSize = short ? 124.0 : (compact ? 154.0 : 170.0);
+          final detailsVisible = widget.isConnected ||
+              widget.errorMessage != null ||
+              widget.connectionNotice != null;
+          final minimal = constraints.maxHeight < (detailsVisible ? 490 : 430);
+          final gap = minimal ? 4.0 : 12.0;
+          final status =
+              _ConnectionStatusPill(label: _statusText, color: _statusColor);
+          final details = _ConnectionDetails(
+              errorMessage: widget.errorMessage,
+              connectionNotice: widget.connectionNotice,
+              publicIpv4: widget.publicIpv4,
+              publicIpError: widget.publicIpError,
+              isRefreshingPublicIp: widget.isRefreshingPublicIp,
+              onShowLogs: widget.onShowLogs,
+              onRefreshPublicIp: widget.onRefreshPublicIp);
+          final power = SsrvpnPowerButton(
+              size: powerSize,
+              isConnected: widget.isConnected,
+              isConnecting: widget.isConnecting,
+              hasConnectionError: widget.errorMessage != null,
+              onTap: widget.onToggleConnection);
+          Widget node() => ConstrainedBox(
+              constraints: BoxConstraints(
+                  maxWidth: compact ? 300 : SsrvpnUiTokens.currentNodeMaxWidth),
+              child: SsrvpnCurrentNodeCard(
+                  node: widget.selectedNode,
+                  latency: widget.selectedLatency,
+                  countryCode: widget.selectedCountryCode,
+                  compact: true,
+                  onTap: widget.onOpenNodes));
+          Widget statistics({bool fill = true}) {
+            if (widget.bottomContent == null) return const SizedBox();
+            final child = Align(
+                alignment: Alignment.bottomCenter,
+                child: KeyedSubtree(
+                    key: _statisticsKey, child: widget.bottomContent!));
+            return fill
+                ? Expanded(child: child)
+                : ConstrainedBox(
+                    constraints: BoxConstraints(
+                        maxHeight: (constraints.maxHeight - powerSize - 36)
+                            .clamp(0, double.infinity)),
+                    child: child);
+          }
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(padding, 4, padding, 4),
             child: Center(
-              child: ConstrainedBox(
-                key: const Key('ssrvpn-home-content'),
-                constraints: BoxConstraints(
-                  maxWidth: SsrvpnUiTokens.pageMaxWidth,
-                  minHeight: bottomContent == null
-                      ? 0
-                      : (constraints.maxHeight - (short ? 6 : 14) - 24)
-                          .clamp(0, double.infinity),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      children: [
-                        _HomeHeader(
-                          compact: compact,
-                          onShowAbout: onShowAbout,
-                          onShowTutorial: onShowTutorial,
-                        ),
-                        SizedBox(height: short ? 6 : 10),
-                        _ConnectionStatusPill(
-                          label: _statusText,
-                          color: _statusColor,
-                        ),
-                        SizedBox(height: short ? 20 : 42),
-                        SsrvpnPowerButton(
-                          size: powerSize,
-                          isConnected: isConnected,
-                          isConnecting: isConnecting,
-                          hasConnectionError: errorMessage != null,
-                          onTap: onToggleConnection,
-                        ),
-                        SizedBox(height: short ? 26 : 58),
-                        ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: compact
-                                ? 300
-                                : SsrvpnUiTokens.currentNodeMaxWidth,
-                          ),
-                          child: SsrvpnCurrentNodeCard(
-                            node: selectedNode,
-                            latency: selectedLatency,
-                            countryCode: selectedCountryCode,
-                            compact: compact,
-                            onTap: onOpenNodes,
-                          ),
-                        ),
-                        if (isConnected ||
-                            errorMessage != null ||
-                            connectionNotice != null) ...[
-                          const SizedBox(height: 14),
-                          _ConnectionDetails(
-                            errorMessage: errorMessage,
-                            connectionNotice: connectionNotice,
-                            publicIpv4: publicIpv4,
-                            publicIpError: publicIpError,
-                            isRefreshingPublicIp: isRefreshingPublicIp,
-                            onShowLogs: onShowLogs,
-                            onRefreshPublicIp: onRefreshPublicIp,
-                          ),
-                        ],
+                child: ConstrainedBox(
+                    key: const Key('ssrvpn-home-content'),
+                    constraints: BoxConstraints(
+                        maxWidth: wide ? 920 : SsrvpnUiTokens.pageMaxWidth),
+                    child: Column(children: [
+                      if (!wide) ...[
+                        SizedBox(
+                            height: 48,
+                            child: _HomeHeader(
+                                compact: compact,
+                                onShowAbout: widget.onShowAbout,
+                                onShowTutorial: widget.onShowTutorial)),
+                        SizedBox(height: gap),
                       ],
-                    ),
-                    if (bottomContent != null) bottomContent!,
-                  ],
-                ),
-              ),
-            ),
+                      if (wide)
+                        Expanded(
+                            child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                              Column(mainAxisSize: MainAxisSize.min, children: [
+                                status,
+                                const SizedBox(height: 8),
+                                power
+                              ]),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                  child: Column(children: [
+                                SizedBox(
+                                    height: 48,
+                                    child: _HomeHeader(
+                                        compact: compact,
+                                        onShowAbout: widget.onShowAbout,
+                                        onShowTutorial: widget.onShowTutorial)),
+                                SizedBox(height: gap),
+                                Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(child: node()),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                          child: ConstrainedBox(
+                                              constraints: const BoxConstraints(
+                                                  maxHeight: 100),
+                                              child: Column(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    if (detailsVisible)
+                                                      Flexible(child: details)
+                                                  ]))),
+                                    ]),
+                              ])),
+                            ])),
+                      if (wide)
+                        statistics(fill: false)
+                      else ...[
+                        if (minimal)
+                          Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      status,
+                                      const SizedBox(height: 8),
+                                      power
+                                    ]),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                    child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                      if (constraints.maxWidth >= 360) node(),
+                                      if (detailsVisible)
+                                        ConstrainedBox(
+                                            constraints: const BoxConstraints(
+                                                maxHeight: 100),
+                                            child: details),
+                                    ])),
+                              ])
+                        else ...[
+                          status,
+                          const SizedBox(height: 10),
+                          power,
+                          SizedBox(height: gap),
+                          node(),
+                          if (detailsVisible)
+                            ConstrainedBox(
+                                constraints:
+                                    const BoxConstraints(maxHeight: 60),
+                                child: details),
+                        ],
+                        if (minimal && constraints.maxWidth < 360) node(),
+                        SizedBox(height: gap),
+                        statistics(),
+                      ],
+                    ]))),
           );
-        },
-      ),
-    );
-  }
-}
-
-class _ConnectionStatusPill extends StatelessWidget {
-  const _ConnectionStatusPill({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      container: true,
-      liveRegion: true,
-      label: '连接状态：$label',
-      excludeSemantics: true,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: SsrvpnUiTokens.surface.withValues(alpha: 0.72),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: color.withValues(alpha: 0.18)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+        }),
+      );
 }
 
 class SsrvpnPowerButton extends StatelessWidget {
@@ -378,8 +410,9 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
+                      SsrvpnHomeText(
                         '当前节点',
+                        maxFontSize: 12,
                         style: TextStyle(
                           color: SsrvpnUiTokens.textSecondary,
                           fontSize: compact ? 12 : 13,
@@ -396,8 +429,9 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                           Expanded(
                             child: Tooltip(
                               message: displayName,
-                              child: Text(
+                              child: SsrvpnHomeText(
                                 visibleName,
+                                maxFontSize: compact ? 16 : 18,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -411,8 +445,9 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 3),
-                      Text(
+                      SsrvpnHomeText(
                         latencyText,
+                        maxFontSize: 12,
                         style: TextStyle(
                           color: latencyColor,
                           fontSize: 12,
@@ -462,12 +497,17 @@ class _ConnectionDetails extends StatelessWidget {
         onPressed: onShowLogs,
         icon: const Icon(Icons.error_outline_rounded, size: 18),
         label: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(errorMessage!),
-            const SizedBox(height: 8),
-            const Text(
+            Flexible(
+                child: SsrvpnHomeText(errorMessage!,
+                    maxLines: null, maxFontSize: 14)),
+            const SizedBox(height: 4),
+            const SsrvpnHomeText(
               '查看诊断与解决建议',
+              maxLines: null,
+              maxFontSize: 12,
               style: TextStyle(
                 color: SsrvpnUiTokens.textSecondary,
                 decoration: TextDecoration.underline,
@@ -482,10 +522,10 @@ class _ConnectionDetails extends StatelessWidget {
       return TextButton.icon(
         onPressed: onShowLogs,
         icon: const Icon(Icons.sync_rounded, size: 18),
-        label: Text(
+        label: SsrvpnHomeText(
           connectionNotice!,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
+          maxLines: null,
+          maxFontSize: 14,
         ),
         style: TextButton.styleFrom(foregroundColor: SsrvpnUiTokens.warning),
       );
@@ -504,7 +544,7 @@ class _ConnectionDetails extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           : const Icon(Icons.public_rounded, size: 17),
-      label: Text(label),
+      label: SsrvpnHomeText(label, maxLines: null, maxFontSize: 14),
       style: TextButton.styleFrom(
         foregroundColor: SsrvpnUiTokens.textSecondary,
       ),

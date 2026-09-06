@@ -19,6 +19,8 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         DesktopConnectionFailure,
         SsrvpnAppBackdrop,
         SsrvpnBottomNavigation,
+        SsrvpnHomeShell,
+        SsrvpnHomeNotice,
         UpdateAvailabilityController,
         desktopSubscriptionChangedMessage,
         safeUserFacingFailureMessage,

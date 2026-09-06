@@ -7,7 +7,8 @@ param(
   [switch]$NoMirrorFallback,
   [switch]$OfflinePub,
   [string]$PubHostedUrl,
-  [string]$FlutterStorageBaseUrl
+  [string]$FlutterStorageBaseUrl,
+  [string]$DartDefineFromFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -838,7 +839,11 @@ try {
       $env:CMAKE_BUILD_PARALLEL_LEVEL = '1'
       Invoke-FlutterPubGet -Flutter $flutter
       Repair-WindowsPluginLinks -Root $projectRoot
-      & $flutter build windows --release --no-pub --split-debug-info=build/symbols
+      $usageArgs = @()
+      if ($DartDefineFromFile) {
+        $usageArgs += "--dart-define-from-file=$DartDefineFromFile"
+      }
+      & $flutter build windows --release --no-pub --split-debug-info=build/symbols @usageArgs
       if ($LASTEXITCODE -ne 0) {
         throw "flutter build failed with exit code $LASTEXITCODE"
       }

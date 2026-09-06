@@ -610,8 +610,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsService>().settings;
-    final clashService = _clashService ?? context.read<ClashService>();
-    final isConnectionTransition = _isConnectionTransitionActive(clashService);
+    final core = _clashService ?? context.read<ClashService>();
+    final isConnectionTransition = _isConnectionTransitionActive(core);
     final displayNode = _isConnected
         ? HomeNodeController.resolveRuntimeSelectedNodeFrom(
             _nodes,
@@ -627,16 +627,22 @@ class _HomeScreenState extends State<HomeScreen> {
         ? null
         : _exitCountryCodes[displayNode.name] ??
             countryCodeForProxyNode(displayNode);
-    final connectionAction = isConnectionTransition
+    final action = isConnectionTransition
         ? _DesktopConnectionAction.cancelPendingConnection
         : _isConnected
             ? _DesktopConnectionAction.disconnect
             : _DesktopConnectionAction.connect;
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
-        bottomContent: SsrvpnHomeTrafficPanel(
+        bottomContent: SsrvpnHomeStatistics(
+          localProxyPort: () => core.isRunning && !core.settings.enableTun
+              ? core.runtimeProxyPort
+              : null,
+          node: displayNode,
+          revision: _nodes,
           active: widget.active,
           connected: _isConnected,
           readSample: context.read<ClashService>().readTrafficSample,
@@ -651,9 +657,7 @@ class _HomeScreenState extends State<HomeScreen> {
         publicIpv4: _publicIpInfo?.displayText,
         isRefreshingPublicIp: _isRefreshingPublicIp,
         publicIpError: _publicIpError,
-        onToggleConnection: () {
-          unawaited(_handleConnectionAction(connectionAction));
-        },
+        onToggleConnection: () => unawaited(_handleConnectionAction(action)),
         onOpenNodes: _openNodeSelection,
         onShowAbout: () => showSsrvpnAboutDialog(
           context,

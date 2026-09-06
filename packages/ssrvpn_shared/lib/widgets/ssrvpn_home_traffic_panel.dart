@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
+import '../models/account_usage.dart';
+import 'ssrvpn_home_text.dart';
 
 import 'package:flutter/material.dart';
 import 'ssrvpn_app_surface.dart';
@@ -11,8 +14,10 @@ class SsrvpnHomeTrafficPanel extends StatefulWidget {
     required this.active,
     required this.connected,
     required this.readSample,
+    this.accountUsage,
   });
 
+  final AccountUsage? accountUsage;
   final bool active;
   final bool connected;
   final Future<VpnTrafficSample?> Function() readSample;
@@ -101,104 +106,169 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      key: const Key('home-traffic-panel'),
-      padding: const EdgeInsets.only(top: 24),
-      child: Center(
-        heightFactor: 1,
-        child: ConstrainedBox(
-          constraints:
-              const BoxConstraints(maxWidth: SsrvpnUiTokens.pageMaxWidth),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _metric('上传速率', _uploadRate, const Color(0xFF64B5FF), '↑ ', true),
-              const SizedBox(width: 8),
-              _metric(
-                  '下载速率', _downloadRate, SsrvpnUiTokens.success, '↓ ', true),
-              const SizedBox(width: 8),
-              _metric('本次累计', _total, SsrvpnUiTokens.textPrimary, '', false),
-            ],
-          ),
-        ),
-      ),
-    );
+    final account = widget.accountUsage;
+    String traffic(num value, bool rate) =>
+        _unavailable ? '—' : formatVpnTraffic(value, rate: rate);
+    final metrics = <({
+      String label,
+      String number,
+      String unit,
+      Color color,
+      String semantics
+    })>[];
+    void local(String label, num bytes, Color color, String arrow, bool rate) {
+      final value = traffic(bytes, rate);
+      final parts = value.split(' ');
+      final digits = parts.first.length > 4 && parts.first.endsWith('.0')
+          ? parts.first.substring(0, parts.first.length - 2)
+          : parts.first;
+      metrics.add((
+        label: label,
+        number: '$arrow$digits',
+        unit: parts.length > 1 ? parts.last : ' ',
+        color: color,
+        semantics: '$label：${_unavailable ? '暂不可用' : value}'
+      ));
+    }
+
+    local('上传速率', _uploadRate, const Color(0xFF64B5FF), '↑', true);
+    local('下载速率', _downloadRate, SsrvpnUiTokens.success, '↓', true);
+    local('本次累计', _total, SsrvpnUiTokens.textPrimary, '', false);
+    if (account != null) {
+      final used = formatVpnTraffic(account.usedBytes).split(' ');
+      final count =
+          _devices(account.onlineDevices, compact: true).replaceFirst('约', '');
+      final limit =
+          _devices(account.deviceLimit, compact: true).replaceFirst('约', '');
+      metrics.add((
+        label: '已用流量',
+        number: used.first,
+        unit: used.last,
+        color: SsrvpnUiTokens.textPrimary,
+        semantics: '已用流量：${used.join(' ')}，账号全部受管节点合计'
+      ));
+      metrics.add((
+        label: '已连接设备',
+        number: '$count/$limit',
+        unit: account.onlineDevices >= 10000 || account.deviceLimit >= 10000
+            ? '约值 · 实例'
+            : '客户端实例',
+        color: SsrvpnUiTokens.textPrimary,
+        semantics:
+            '已连接设备：$count，上限 $limit。在线客户端实例 ${account.onlineDevices} 个，上限 ${account.deviceLimit} 个，非物理设备去重数'
+      ));
+    }
+    return LayoutBuilder(
+        key: const Key('home-traffic-panel'),
+        builder: (context, constraints) {
+          final width = math.min(
+              constraints.maxWidth, SsrvpnUiTokens.bottomNavigationMaxWidth);
+          final scale = MediaQuery.textScalerOf(context).scale(1);
+          final gap = constraints.maxHeight < 120 ? 4.0 : 8.0;
+          final minimumWidth = 62 + math.min(scale, 2) * 2;
+          var columns = width >= minimumWidth * 3 + gap * 2
+              ? 3
+              : (width >= minimumWidth * 2 + gap ? 2 : 1);
+          if (metrics.length == 5 &&
+              constraints.maxHeight < 120 &&
+              width >= 350 + gap * 4) {
+            columns = 5;
+          }
+          final rows = (metrics.length / columns).ceil();
+          final rowBudget = (constraints.maxHeight - gap * (rows - 1)) / rows;
+          final cardWidth =
+              (width - gap * (columns - 1)) / (columns == 5 ? 5.6 : columns);
+          final caption = math
+              .min(12 * scale,
+                  math.min((cardWidth - 14) / 5, (rowBudget - 13) / 3.74))
+              .clamp(10.0, 24.0);
+          final number = math
+              .min(math.min(18 * scale, caption * 1.4),
+                  (rowBudget - 13) / 1.1 - caption * 2)
+              .clamp(10.0, 34.0);
+          final children = <Widget>[];
+          for (var start = 0; start < metrics.length; start += columns) {
+            if (start != 0) children.add(SizedBox(height: gap));
+            final row = metrics.skip(start).take(columns).toList();
+            children.add(
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              for (var index = 0; index < row.length; index++) ...[
+                if (index != 0) SizedBox(width: gap),
+                Expanded(
+                    flex: columns == 5 && row[index].label == '已连接设备' ? 16 : 10,
+                    child: Semantics(
+                      label: row[index].semantics,
+                      excludeSemantics: true,
+                      child: Container(
+                          key:
+                              ValueKey('home-traffic-card-${row[index].label}'),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 4),
+                          decoration: BoxDecoration(
+                              color:
+                                  SsrvpnUiTokens.surface.withValues(alpha: .78),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                  color: Colors.white.withValues(alpha: .06))),
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SsrvpnHomeText(row[index].label,
+                                    maxFontSize: caption,
+                                    style: TextStyle(
+                                        letterSpacing: 0,
+                                        color: SsrvpnUiTokens.textSecondary,
+                                        fontSize: caption)),
+                                SsrvpnHomeText(row[index].number,
+                                    fitReference: row[index].label == '已连接设备'
+                                        ? '9999/9999'
+                                        : '↑9999',
+                                    key: ValueKey(
+                                        'home-traffic-number-${row[index].label}'),
+                                    maxFontSize: number,
+                                    style: TextStyle(
+                                        letterSpacing: 0,
+                                        color: row[index].color,
+                                        fontSize: number,
+                                        fontWeight: FontWeight.w600,
+                                        fontFeatures: const [
+                                          FontFeature.tabularFigures()
+                                        ])),
+                                SsrvpnHomeText(row[index].unit,
+                                    fitReference: row[index].label == '已连接设备'
+                                        ? '约值 · 实例'
+                                        : '999E',
+                                    key: ValueKey(
+                                        'home-traffic-unit-${row[index].label}'),
+                                    maxFontSize: caption,
+                                    style: TextStyle(
+                                        letterSpacing: 0,
+                                        color: row[index].color,
+                                        fontSize: caption)),
+                              ])),
+                    )),
+              ],
+            ]));
+          }
+          return Center(
+              heightFactor: 1,
+              child: SizedBox(
+                  width: width,
+                  child: Column(
+                      mainAxisSize: MainAxisSize.min, children: children)));
+        });
   }
 
-  Widget _metric(
-      String label, num bytes, Color color, String arrow, bool rate) {
-    final value = _unavailable ? '—' : formatVpnTraffic(bytes, rate: rate);
-    final parts = value.split(' ');
-    final scale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 1.5);
-    return Expanded(
-      child: Semantics(
-        label: '$label：${_unavailable ? '暂不可用' : value}',
-        excludeSemantics: true,
-        child: Container(
-          key: ValueKey('home-traffic-card-$label'),
-          height: 96 * scale,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-          decoration: BoxDecoration(
-            color: SsrvpnUiTokens.surface.withValues(alpha: 0.78),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                height: 18 * scale,
-                width: double.infinity,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(label,
-                      maxLines: 1,
-                      style: const TextStyle(
-                        color: SsrvpnUiTokens.textSecondary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      )),
-                ),
-              ),
-              const Spacer(),
-              // Constrain the fitted text's slot, so changing digits or units
-              // can never change the card height or move the rest of the page.
-              SizedBox(
-                height: 26 * scale,
-                width: double.infinity,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text('$arrow${parts.first}',
-                      key: ValueKey('home-traffic-number-$label'),
-                      maxLines: 1,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      )),
-                ),
-              ),
-              SizedBox(
-                height: 18 * scale,
-                width: double.infinity,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    parts.length > 1 ? parts.last : ' ',
-                    key: ValueKey('home-traffic-unit-$label'),
-                    maxLines: 1,
-                    style: TextStyle(color: color, fontSize: 12),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  String _devices(int count, {bool compact = false}) {
+    if (count < 10000) return '$count';
+    const units = ['K', 'M', 'G', 'T', 'P', 'E'];
+    var value = count / 1000;
+    var index = 0;
+    while (value >= 999.5 && index < units.length - 1) {
+      value /= 1000;
+      index++;
+    }
+    return '约${value.toStringAsFixed(compact || value >= 99.95 ? 0 : 1)}${units[index]}';
   }
 }

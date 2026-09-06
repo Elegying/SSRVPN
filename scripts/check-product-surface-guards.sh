@@ -232,7 +232,7 @@ home_about_guards = (
     (
         home_overview_path,
         home_overview,
-        ("onShowAbout", "ssrvpn-about-button", "Text('关于')"),
+        ("onShowAbout", "ssrvpn-about-button", "'关于'"),
     ),
     (android_home_path, android_home, ("onShowAbout", "showSsrvpnAboutDialog")),
     (desktop_home_path, desktop_home, ("onShowAbout", "showSsrvpnAboutDialog")),

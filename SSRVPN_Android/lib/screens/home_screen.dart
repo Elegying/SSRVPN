@@ -197,9 +197,12 @@ class HomeScreenState extends State<HomeScreen>
         displayNode == null ? null : _latencyController.latencyFor(displayNode);
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
-        bottomContent: SsrvpnHomeTrafficPanel(
+        bottomContent: SsrvpnHomeStatistics(
+          node: displayNode,
+          revision: _nodes,
           active: widget.active,
           connected: _isConnected,
           readSample: context.read<ClashService>().readTrafficSample,

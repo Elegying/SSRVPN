@@ -258,7 +258,7 @@ jobs:
       - name: Build APK
         run: |
           cd SSRVPN_Android
-          flutter build apk --release --target-platform=android-arm64 --split-debug-info=build/symbols
+          flutter build apk --release --target-platform=android-arm64 --split-debug-info=build/symbols --dart-define-from-file=../config/ssrvpn-usage-defines.json
           cp build/app/outputs/flutter-apk/app-release.apk SSRVPN.apk
 
       - name: Generate checksum
@@ -365,7 +365,7 @@ jobs:
         run: bash scripts/check-coverage-thresholds.sh SSRVPN_MacOS
 
       - name: Build & Package DMG
-        run: cd SSRVPN_MacOS && bash tool/package_macos.sh
+        run: cd SSRVPN_MacOS && bash tool/package_macos.sh --dart-define-from-file=../config/ssrvpn-usage-defines.json
 
       - name: Verify drag-install DMG
         run: |
@@ -486,7 +486,7 @@ jobs:
           cd SSRVPN_Windows
           # Windows PowerShell does not stop when a child process returns non-zero.
           # Keep every child exit check adjacent so later builds cannot mask a failure.
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File tool\package_windows.ps1 -DartDefineFromFile ..\config\ssrvpn-usage-defines.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ..\scripts\test_windows_native_proxy_recovery.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

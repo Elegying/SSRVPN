@@ -376,15 +376,16 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(
-      find.byKey(const Key('desktop-startup-banner-scroll')),
+      find.byKey(const Key('desktop-startup-banner-region')),
       findsOneWidget,
     );
     expect(
       find.byKey(const Key('ssrvpn-bottom-navigation')).hitTestable(),
       findsOneWidget,
     );
+    expect(find.byType(Scrollable), findsNothing);
     final bannerTextFinder = find.descendant(
-      of: find.byKey(const Key('desktop-startup-banner-scroll')),
+      of: find.byKey(const Key('desktop-startup-banner-region')),
       matching: find.byType(Text),
     );
     final bannerTexts = tester.widgetList<Text>(bannerTextFinder).toList();

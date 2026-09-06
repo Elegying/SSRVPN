@@ -39,6 +39,7 @@ class RunnerTests: XCTestCase {
     XCTAssertTrue(window.titlebarAppearsTransparent)
     XCTAssertTrue(window.styleMask.contains(.fullSizeContentView))
     XCTAssertEqual(window.backgroundColor, MainFlutterWindow.integratedBackgroundColor)
+    XCTAssertEqual(window.minSize, NSSize(width: 380, height: 560))
     if #available(macOS 11.0, *) {
       XCTAssertEqual(window.titlebarSeparatorStyle, .none)
     }

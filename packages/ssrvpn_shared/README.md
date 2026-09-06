@@ -70,6 +70,10 @@ final config = ClashConfigGenerator.generateConfig(
 final ssrYaml = SubscriptionParser.importSsrLink('ssr://...');
 ```
 
+## 可选账号统计
+
+首页账号用量与在线实例数通过独立控制器查询，三端共用；默认关闭，只接受明确配置的 HTTPS 提供方及节点归属。接口、构建注入、安全边界和测试方法见[客户端账号用量接口 v1](../../docs/CLIENT_USAGE_API_V1.md)。
+
 ## 本地验证
 
 项目固定 Flutter `3.44.1`。从仓库根目录执行：
