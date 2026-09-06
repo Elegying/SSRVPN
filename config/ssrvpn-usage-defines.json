@@ -1,0 +1,3 @@
+{
+  "SSRVPN_USAGE_PROVIDERS": "[{\"id\":\"ssrvpn-hy2panel\",\"origin\":\"https://panel.ssrvpn.vip:19998\",\"nodes\":[{\"id\":\"main-domain-19999\",\"server\":\"vpn.ssrvpn.vip\",\"port\":19999,\"protocol\":\"hysteria2\"},{\"id\":\"main-domain-443\",\"server\":\"vpn.ssrvpn.vip\",\"port\":443,\"protocol\":\"hysteria2\"},{\"id\":\"main-ip-19999\",\"server\":\"155.103.116.201\",\"port\":19999,\"protocol\":\"hysteria2\"},{\"id\":\"main-ip-443\",\"server\":\"155.103.116.201\",\"port\":443,\"protocol\":\"hysteria2\"},{\"id\":\"remote-ip-19999\",\"server\":\"154.9.234.210\",\"port\":19999,\"protocol\":\"hysteria2\"},{\"id\":\"remote-ip-443\",\"server\":\"154.9.234.210\",\"port\":443,\"protocol\":\"hysteria2\"}]}]"
+}

@@ -145,8 +145,8 @@ void main() {
     current = data(2000, 2048, 4096);
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
-    expect(find.text('↑ 1.0'), findsOneWidget);
-    expect(find.text('↓ 2.0'), findsOneWidget);
+    expect(find.text('↑1.0'), findsOneWidget);
+    expect(find.text('↓2.0'), findsOneWidget);
 
     await tester.pumpWidget(host(active: false));
     final beforeHidden = calls;
@@ -156,7 +156,7 @@ void main() {
     await tester.pumpWidget(host());
     await tester.pump();
     expect(find.text('30.0'), findsOneWidget);
-    expect(find.text('↑ 0'), findsOneWidget);
+    expect(find.text('↑0'), findsOneWidget);
 
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
@@ -192,12 +192,12 @@ void main() {
     await tester.pumpWidget(host());
     await tester.pump();
     expect(find.text('—'), findsOneWidget);
-    expect(find.text('↑ —'), findsOneWidget);
+    expect(find.text('↑—'), findsOneWidget);
     reader = () async => data(2000, 1024, 2048);
     await tester.pump(const Duration(seconds: 1));
     await tester.pump();
     expect(find.text('3.0'), findsOneWidget);
-    expect(find.text('↑ 0'), findsOneWidget);
+    expect(find.text('↑0'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -247,7 +247,11 @@ void main() {
         expect(find.text('下载速率'), findsOneWidget);
         expect(find.text('本次累计'), findsOneWidget);
         expect(find.text('2.4'), findsOneWidget);
-        await tester.ensureVisible(find.byKey(const Key('home-traffic-panel')));
+        expect(
+            find.descendant(
+                of: find.byType(SsrvpnHomeOverview),
+                matching: find.byType(Scrollable)),
+            findsNothing);
         await tester.pump();
         final panel =
             tester.getRect(find.byKey(const Key('home-traffic-panel')));

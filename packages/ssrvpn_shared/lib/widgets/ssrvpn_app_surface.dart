@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 export 'ssrvpn_about_dialog.dart' show showSsrvpnAboutDialog;
 export 'ssrvpn_info_dialog.dart' show showSsrvpnInfoDialog;
 import 'ssrvpn_version_update_footer.dart';
+import 'ssrvpn_home_text.dart';
 
 abstract final class SsrvpnUiTokens {
   static const background = Color(0xFF0A1020);
@@ -278,6 +279,7 @@ class SsrvpnBottomNavigation extends StatelessWidget {
               const SizedBox(height: 6),
               SsrvpnVersionUpdateFooter(
                 version: version,
+                fitHomeText: true,
                 availableVersion: availableVersion,
                 onUpdateTap: onUpdateTap,
                 versionColor: SsrvpnUiTokens.textTertiary,
@@ -332,8 +334,9 @@ class SsrvpnNavigationDestination extends StatelessWidget {
               children: [
                 Icon(selected ? selectedIcon : icon, color: color, size: 23),
                 const SizedBox(height: 2),
-                Text(
+                SsrvpnHomeText(
                   label,
+                  maxFontSize: 16,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: color,

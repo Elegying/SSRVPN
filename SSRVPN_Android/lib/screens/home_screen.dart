@@ -199,7 +199,9 @@ class HomeScreenState extends State<HomeScreen>
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SsrvpnHomeOverview(
-        bottomContent: SsrvpnHomeTrafficPanel(
+        bottomContent: SsrvpnHomeStatistics(
+          node: displayNode,
+          revision: _nodes,
           active: widget.active,
           connected: _isConnected,
           readSample: context.read<ClashService>().readTrafficSample,

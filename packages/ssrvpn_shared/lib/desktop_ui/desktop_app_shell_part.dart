@@ -84,21 +84,21 @@ class _DesktopAppShell extends StatelessWidget {
     };
     final statusBanners = <Widget>[
       if (safeMode)
-        const _StartupBanner(
+        const SsrvpnHomeNotice(
           icon: Icons.health_and_safety_outlined,
           color: AppTheme.warning,
           title: '安全模式已启用',
           message: '托盘、旧窗口位置和 Mihomo 自动初始化已跳过。',
         ),
       if (startupFailureMessages.isNotEmpty)
-        _StartupBanner(
+        SsrvpnHomeNotice(
           icon: Icons.error_outline,
           color: AppTheme.error,
           title: '部分启动步骤失败',
           message: startupFailureMessages.join('\n'),
         ),
       if (runtimeNotice != null)
-        _StartupBanner(
+        SsrvpnHomeNotice(
           icon: runtimeNoticeIcon,
           color: runtimeNoticeColor,
           title: runtimeNoticeTitle,
@@ -110,46 +110,21 @@ class _DesktopAppShell extends StatelessWidget {
       body: DefaultTextStyle.merge(
         style: const TextStyle(decoration: TextDecoration.none),
         child: SsrvpnAppBackdrop(
-          child: Column(
-            children: [
-              if (statusBanners.isNotEmpty)
-                _DesktopStartupBannerRegion(children: statusBanners),
-              Expanded(child: _PageStack(currentIndex: currentIndex)),
-              SsrvpnBottomNavigation(
-                currentIndex: currentIndex,
-                version: AppConstants.appVersion,
-                availableVersion: availableUpdate?.version,
-                onUpdateTap: availableUpdate == null
-                    ? null
-                    : () => unawaited(
-                          _openAvailableUpdate(context, availableUpdate),
-                        ),
-                onTap: onIndexChanged,
-              ),
-            ],
+          child: SsrvpnHomeShell(
+            notices: statusBanners,
+            body: _PageStack(currentIndex: currentIndex),
+            navigation: SsrvpnBottomNavigation(
+              currentIndex: currentIndex,
+              version: AppConstants.appVersion,
+              availableVersion: availableUpdate?.version,
+              onUpdateTap: availableUpdate == null
+                  ? null
+                  : () =>
+                      unawaited(_openAvailableUpdate(context, availableUpdate)),
+              onTap: onIndexChanged,
+            ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _DesktopStartupBannerRegion extends StatelessWidget {
-  const _DesktopStartupBannerRegion({required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * 0.35,
-      ),
-      child: ListView(
-        key: const Key('desktop-startup-banner-scroll'),
-        shrinkWrap: true,
-        padding: EdgeInsets.zero,
-        children: children,
       ),
     );
   }
@@ -168,71 +143,6 @@ class _PageStack extends StatelessWidget {
         HomeScreen(active: currentIndex == 0),
         const SubscriptionScreen(),
       ],
-    );
-  }
-}
-
-class _StartupBanner extends StatelessWidget {
-  const _StartupBanner({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.message,
-  });
-
-  final IconData icon;
-  final Color color;
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return SafeArea(
-      bottom: false,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(18, 10, 18, 10),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: (isDark ? 20 : 14) / 255),
-          border: Border(
-            bottom: BorderSide(color: color.withValues(alpha: 55 / 255)),
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: color, size: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    message,
-                    style: TextStyle(
-                      color: isDark
-                          ? AppTheme.textSecondary
-                          : AppTheme.lightTextSecondary,
-                      fontSize: 12,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
