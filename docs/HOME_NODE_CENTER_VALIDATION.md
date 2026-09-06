@@ -43,5 +43,30 @@ mise exec flutter@3.44.1 -- flutter test \
 本机连接、断开、刷新失败、恢复大流量、回普通节点。系统截图确认恢复后五卡完整。
 仅操作 `test.ssrvpn.usage_smoke`，未接触 USB 手机、正式 VPN 会话或真实凭据。
 
-完整 `make verify`、macOS 隔离原生宿主与远端三端构建结果在交付时另行记录。
+完整 `mise exec flutter@3.44.1 -- make verify` 通过：共享 1006 项（覆盖率 87.65%）、
+Android 289 项、macOS 316 项、Windows Flutter 293 项；本机 7 项 Windows API 测试
+按系统限制跳过。Android 原生单测、macOS XCTest、格式、静态检查、版本/职责边界、
+秘密扫描、发布工具和覆盖率门槛全部通过。
+
+隔离 macOS 宿主的初始 storyboard 覆盖了预设尺寸，首次实际只有 380×600，
+因此“高窗口中心”断言正确失败。宿主在窗口就绪后设置测试尺寸，系统最终可用视口
+380×762，八步检查全部通过；所有步骤节点卡中心均为 (190,381)，包括连接/断开、
+三卡/五卡、请求失败/恢复。该调整只在临时测试宿主中，产品启动规则未改变。
+macOS 窗口截图工具一次超时未计为通过；下图来自原生 Flutter 渲染及 Android 系统截图。
+
+| macOS 原生宿主 | Android 原生宿主后台恢复 |
+| --- | --- |
+| ![macOS 原生五卡](images/home-center-4032/native-macos-zero.png) | ![Android 后台恢复](images/home-center-4032/native-android-resumed.png) |
+
+产品代码经 [PR #209](https://github.com/Elegying/SSRVPN/pull/209) 和完整三端
+[PR CI](https://github.com/Elegying/SSRVPN/actions/runs/34020379011) 通过，
+合并源码为 `3f123e0d0c6cbff86d02529c94f5fc310c967f12`。
+Windows CI 实际安装、覆盖升级、卸载日志均独立确认成功。
 共享/宿主测试不等于三端正式客户端真机验收；本地没有 Windows 桌面运行环境。
+
+## 正式交付
+
+[v4.0.32](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.32) 于 `2026-09-06T08:52:59Z`
+正式公开。精确 main CI `34020954461` 与 Release `34021696215` 最终成功。
+首轮 Prepare 等待因低速上传作业取消而失败；发布阶段使用同一草稿和原产物重试完成。三端公开文件、固定/版本化下载及来源证明独立核验通过，详见
+[项目健康与发布状态](PROJECT_HEALTH.md)。
