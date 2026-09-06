@@ -79,7 +79,7 @@ flutter build macos --debug --dart-define-from-file=../config/ssrvpn-usage-defin
 flutter build windows --debug --dart-define-from-file=../config/ssrvpn-usage-defines.json
 ```
 
-普通通用构建不加此参数，保留默认关闭。配置文件没有账号密码，也不会修改订阅、代理配置或触发发布。
+官方 Release workflow 三端显式注入上述已确认配置；桌面打包脚本接受可选配置文件参数。普通通用构建不加此参数，保留默认关闭。配置文件没有账号密码，也不会修改订阅、代理配置或触发发布。
 
 ## 展示、身份和生命周期
 

@@ -37,7 +37,7 @@ if mount | grep -qF " on $STANDARD_VOLUME_MOUNT ("; then
 fi
 
 echo "Building $APP_NAME $VERSION_RAW for macOS $ARCH..."
-flutter build macos --release --split-debug-info=build/symbols
+flutter build macos --release --split-debug-info=build/symbols "$@"
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "Release app not found: $APP_PATH" >&2

@@ -7,6 +7,28 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FreeDesktopDistributionTest(unittest.TestCase):
+    def test_official_release_injects_usage_config_on_all_platforms(self) -> None:
+        release = (ROOT / ".github/workflows/release.yml").read_text()
+        self.assertIn(
+            "--dart-define-from-file=../config/ssrvpn-usage-defines.json",
+            release,
+        )
+        self.assertIn(
+            "bash tool/package_macos.sh "
+            "--dart-define-from-file=../config/ssrvpn-usage-defines.json",
+            release,
+        )
+        self.assertIn(
+            "-File tool\\package_windows.ps1 "
+            "-DartDefineFromFile ..\\config\\ssrvpn-usage-defines.json",
+            release,
+        )
+        mac = (ROOT / "SSRVPN_MacOS/tool/package_macos.sh").read_text()
+        windows = (ROOT / "SSRVPN_Windows/tool/package_windows.ps1").read_text()
+        self.assertIn('--split-debug-info=build/symbols "$@"', mac)
+        self.assertIn('"--dart-define-from-file=$DartDefineFromFile"', windows)
+        self.assertIn("--split-debug-info=build/symbols @usageArgs", windows)
+
     def test_macos_release_metadata_matches_the_documented_macos_11_floor(
         self,
     ) -> None:
