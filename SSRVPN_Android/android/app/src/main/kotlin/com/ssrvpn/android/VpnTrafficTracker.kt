@@ -5,22 +5,13 @@ internal data class VpnTrafficSnapshot(
     val downloadRate: Long,
     val sessionUpload: Long,
     val sessionDownload: Long
-) {
-    fun toMethodChannelMap(generation: Long, sampledAtMillis: Long) = mapOf(
-        "sessionGeneration" to generation,
-        "sampledAtMillis" to sampledAtMillis,
-        "upload" to sessionUpload,
-        "download" to sessionDownload
-    )
-}
+)
 
 internal class VpnTrafficTracker(
     private val readTransmittedBytes: () -> Long,
     private val readReceivedBytes: () -> Long,
     private val elapsedRealtime: () -> Long
 ) {
-    private var baselineTx = 0L
-    private var baselineRx = 0L
     private var lastTx = 0L
     private var lastRx = 0L
     private var lastSampleAt = 0L
@@ -29,11 +20,9 @@ internal class VpnTrafficTracker(
 
     @Synchronized
     fun reset() {
-        val tx = readTransmittedBytes().coerceAtLeast(0L)
-        val rx = readReceivedBytes().coerceAtLeast(0L)
-        baselineTx = tx
-        baselineRx = rx
-        resetSample(tx, rx)
+        // Bridge starts a fresh core session after service preparation.
+        // Do not subtract the previous core session's counters here.
+        resetSample(0L, 0L)
     }
 
     @Synchronized
@@ -59,15 +48,8 @@ internal class VpnTrafficTracker(
     fun snapshot() = VpnTrafficSnapshot(
         uploadRate = uploadRate,
         downloadRate = downloadRate,
-        sessionUpload = (lastTx - baselineTx).coerceAtLeast(0L),
-        sessionDownload = (lastRx - baselineRx).coerceAtLeast(0L)
-    )
-
-    // Fresh foreground totals must not change the notification sampling window.
-    @Synchronized
-    fun currentSessionSnapshot() = snapshot().copy(
-        sessionUpload = (readTransmittedBytes().coerceAtLeast(0L) - baselineTx).coerceAtLeast(0L),
-        sessionDownload = (readReceivedBytes().coerceAtLeast(0L) - baselineRx).coerceAtLeast(0L)
+        sessionUpload = lastTx,
+        sessionDownload = lastRx
     )
 
     private fun resetSample(tx: Long, rx: Long) {

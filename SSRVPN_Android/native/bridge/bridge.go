@@ -24,6 +24,7 @@ import (
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/tunnel"
+	"github.com/metacubex/mihomo/tunnel/statistic"
 )
 
 var (
@@ -270,6 +271,7 @@ func Start(configPath string, tunFd int64) (result string) {
 		log.Infoln("Bridge: protect hook installed (sync)")
 	}
 
+	statistic.BeginProxyTrafficSession()
 	hub.ApplyConfig(cfg)
 	running = true
 	log.Infoln("Bridge: started successfully, API on %s", cfg.Controller.ExternalController)
@@ -364,3 +366,8 @@ func init() {
 		},
 	}
 }
+
+// ProxyTrafficUpload and ProxyTrafficDownload expose the same application
+// forwarding counters used by /ssrvpn/traffic. They never include UID traffic.
+func ProxyTrafficUpload() int64   { return statistic.ReadProxyTraffic().Upload }
+func ProxyTrafficDownload() int64 { return statistic.ReadProxyTraffic().Download }

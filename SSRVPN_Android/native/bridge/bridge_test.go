@@ -10,9 +10,30 @@ import (
 
 	"github.com/metacubex/mihomo/listener"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/tunnel/statistic"
 )
 
 type fixedRawConn uintptr
+
+func TestRejectedStartDoesNotResetTrafficSession(t *testing.T) {
+	Stop()
+	statistic.BeginProxyTrafficSession()
+	before := statistic.ReadProxyTraffic().SessionGeneration
+	if result := Start(t.TempDir()+"/missing.yaml", 0); result == "" {
+		t.Fatal("missing config accepted")
+	}
+	if statistic.ReadProxyTraffic().SessionGeneration != before {
+		t.Fatal("failed start reset the traffic session")
+	}
+	running = true
+	defer func() { running = false }()
+	if result := Start("unused", 0); result != "already running" {
+		t.Fatalf("duplicate start: %s", result)
+	}
+	if statistic.ReadProxyTraffic().SessionGeneration != before {
+		t.Fatal("duplicate start reset the traffic session")
+	}
+}
 
 func (connection fixedRawConn) Control(control func(uintptr)) error {
 	control(uintptr(connection))

@@ -51,6 +51,20 @@ class CodeScanningAndAttestationWorkflowTest(unittest.TestCase):
         self.assertIn("Build macOS app", platform_job)
         self.assertIn("flutter build macos --debug", platform_job)
 
+    def test_required_native_job_scans_swift_after_untraced_xctest(self) -> None:
+        workflow = CI.read_text(encoding="utf-8")
+        job = workflow.split("  macos-native:\n", 1)[1].split("  flutter-app:\n", 1)[0]
+        self.assertIn("security-events: write", job)
+        self.assertIn("languages: swift", job)
+        self.assertIn("build-mode: manual", job)
+        self.assertIn("queries: security-extended", job)
+        self.assertIn("ARCHS=arm64 ONLY_ACTIVE_ARCH=YES", job)
+        self.assertIn("-disableAutomaticPackageResolution", job)
+        self.assertIn("-derivedDataPath", job)
+        self.assertLess(job.index("scripts/test-macos-native.sh"), job.index("Initialize Swift CodeQL"))
+        self.assertLess(job.index("-resolvePackageDependencies"), job.index("Initialize Swift CodeQL"))
+        self.assertLess(job.index("xcodebuild build"), job.index("Analyze Swift source"))
+
     def test_release_attests_exact_public_binaries_before_publication(self) -> None:
         workflow = RELEASE.read_text(encoding="utf-8")
 

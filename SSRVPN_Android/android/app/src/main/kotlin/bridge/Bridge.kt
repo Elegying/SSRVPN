@@ -11,4 +11,6 @@ object Bridge {
     @JvmStatic external fun start(configPath: String, tunFd: Long): String
     @JvmStatic external fun stop()
     @JvmStatic external fun isRunning(): Boolean
+    @JvmStatic external fun proxyTrafficUpload(): Long
+    @JvmStatic external fun proxyTrafficDownload(): Long
 }

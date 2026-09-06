@@ -1,0 +1,23 @@
+{
+  "macos": {
+    "repository": "https://github.com/MetaCubeX/mihomo.git",
+    "commit": "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
+    "tree": "2487680d2def055568f3b50fcc61f931d70f6fa6",
+    "go": "go1.26.5",
+    "version": "v1.19.29"
+  },
+  "windows": {
+    "repository": "https://github.com/MetaCubeX/mihomo.git",
+    "commit": "5184081ac327394d9e15fa5d5f9f4a61e723fd94",
+    "tree": "4ebc304d480b35389cd5432d6b283497ee976e43",
+    "go": "go1.20.14",
+    "version": "v1.19.27"
+  },
+  "android": {
+    "repository": "https://github.com/zeyugao/mihomo.git",
+    "commit": "7031b7569831677a8d89ad8a8a3347db116ba1a8",
+    "tree": "023ddee8f965c54a263a16df68580585aa12c0f8",
+    "go": "go1.25.11",
+    "version": "7031b7569831677a8d89ad8a8a3347db116ba1a8"
+  }
+}

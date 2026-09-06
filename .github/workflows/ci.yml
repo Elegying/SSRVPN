@@ -149,16 +149,25 @@ jobs:
 
   core-assets:
     name: Prepare verified core assets
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - run: bash scripts/bootstrap-core-assets.sh
 
+      - name: Preserve failed core rebuild diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: failed-core-rebuild
+          retention-days: 3
+          path: ${{ runner.temp }}/ssrvpn-core-diagnostics
+
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: core-assets
-          retention-days: 1
+          retention-days: 14
           path: |
             SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so
             SSRVPN_Android/assets/geoip.metadb.gz
@@ -172,6 +181,9 @@ jobs:
     if: needs.changes.outputs.platform_required == 'true'
     needs: [changes, core-assets, secret-scan]
     runs-on: macos-15
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -192,6 +204,39 @@ jobs:
       - name: Run macOS native unit tests
         timeout-minutes: 15
         run: bash scripts/test-macos-native.sh
+
+      # Resolve packages before tracing; XCTest remains independent of CodeQL.
+      - name: Resolve Swift packages before CodeQL
+        timeout-minutes: 10
+        working-directory: SSRVPN_MacOS
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -workspace macos/Runner.xcworkspace -scheme Runner \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/ssrvpn-swift-packages"
+
+      - name: Initialize Swift CodeQL
+        uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+        with:
+          languages: swift
+          build-mode: manual
+          queries: security-extended
+
+      - name: Build arm64 Swift source for CodeQL
+        timeout-minutes: 30
+        working-directory: SSRVPN_MacOS
+        run: |
+          xcodebuild build -quiet \
+            -workspace macos/Runner.xcworkspace -scheme Runner \
+            -configuration Debug -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/ssrvpn-swift-codeql" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/ssrvpn-swift-packages" \
+            -disableAutomaticPackageResolution \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO
+
+      - name: Analyze Swift source
+        uses: github/codeql-action/analyze@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
+        with:
+          category: /language:swift
 
   flutter-app:
     name: ${{ matrix.name }}
@@ -241,6 +286,10 @@ jobs:
 
       - if: needs.changes.outputs.platform_required == 'true'
         run: bash scripts/verify-core-assets.sh
+
+      - name: Verify macOS proxy-only traffic
+        if: needs.changes.outputs.platform_required == 'true' && matrix.directory == 'SSRVPN_MacOS'
+        run: python3 scripts/check-core-proxy-traffic.py SSRVPN_MacOS/assets/AtlasCore.gz
 
       - if: needs.changes.outputs.platform_required == 'true'
         run: flutter pub get --enforce-lockfile
@@ -330,6 +379,10 @@ jobs:
 
       - run: bash scripts/verify-core-assets.sh
       - run: flutter pub get --enforce-lockfile
+
+      - name: Verify Windows proxy-only traffic
+        shell: bash
+        run: python3 scripts/check-core-proxy-traffic.py SSRVPN_Windows/assets/mihomo.exe
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4

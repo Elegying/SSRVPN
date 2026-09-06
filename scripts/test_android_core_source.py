@@ -39,6 +39,10 @@ class AndroidCoreSourceTests(unittest.TestCase):
         self.assertIn('export GOCACHE="$GO_BUILD_CACHE"', self.build_recipe)
         self.assertNotIn('GOCACHE_DIR="$BUILD_ROOT/', self.build_recipe)
 
+    def test_release_link_removes_host_specific_debug_paths(self) -> None:
+        self.assertIn('-ldflags="-s -w -buildid="', self.build_recipe)
+        self.assertIn('BUILD_ROOT="/tmp/ssrvpn-android-core-build-v1"', self.build_recipe)
+
     def test_required_mobile_api_is_present(self) -> None:
         for declaration in (
             "func Init(homeDir, configFile string)",
@@ -165,7 +169,7 @@ class AndroidCoreSourceTests(unittest.TestCase):
     def test_build_runs_concurrent_protect_session_tests(self) -> None:
         self.assertIn('bridge/bridge_test.go', self.build_recipe)
         self.assertIn(
-            '"$GO_BIN" test -tags=with_gvisor,cmfa ./bridge', self.build_recipe
+            '"$GO_BIN" test -p 2 -tags=with_gvisor,cmfa ./bridge', self.build_recipe
         )
 
 

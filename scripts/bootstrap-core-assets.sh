@@ -38,6 +38,18 @@ asset_matches() {
   test -f "$path" && test "$(sha256_file "$path")" = "$expected"
 }
 
+# Locally extended cores use immutable, content-addressed mirror names. Keep
+# upstream archives as a supported source for records without an extension.
+core_mirror_url() {
+  local record="$1" name="$2"
+  local expected="https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/$name"
+  test "$(require_field "$record" 'Mirror repo')" = Elegying/SSRVPN || fail "invalid core mirror repo"
+  test "$(require_field "$record" 'Mirror release tag')" = core-assets-v1 || fail "invalid core mirror tag"
+  test "$(require_field "$record" 'Mirror asset name')" = "$name" || fail "core mirror name is not content-addressed"
+  test "$(require_field "$record" 'Mirror URL')" = "$expected" || fail "invalid core mirror URL"
+  printf '%s' "$expected"
+}
+
 download_verified() {
   local url="$1"
   local expected="$2"
@@ -239,9 +251,13 @@ cleanup() {
 trap cleanup EXIT
 
 if ! asset_matches "$android_asset" "$android_hash"; then
-  download_verified \
-    "$android_url" "$android_hash" "$temp_dir/libgojni.so" \
-    "Android core mirror asset" $((128 * 1024 * 1024))
+  if test -n "$(source_field "$android_source" 'Traffic extension SHA256')"; then
+    python3 scripts/build-core-asset.py android "$temp_dir/libgojni.so"
+  else
+    download_verified \
+      "$android_url" "$android_hash" "$temp_dir/libgojni.so" \
+      "Android core mirror asset" $((128 * 1024 * 1024))
+  fi
   install_verified \
     "$temp_dir/libgojni.so" "$android_asset" "$android_hash" \
     "Android libgojni.so"
@@ -271,13 +287,21 @@ fi
 
 macos_url="$(require_field "$macos_source" 'Official asset URL')"
 macos_gzip_hash="$(require_field "$macos_source" 'Official asset SHA256')"
+if test -n "$(source_field "$macos_source" 'Traffic extension SHA256')"; then
+  macos_gzip_hash="$(require_field "$macos_source" 'Bundled gzip SHA256')"
+  macos_url="$(core_mirror_url "$macos_source" "AtlasCore-${macos_gzip_hash}.gz")"
+fi
 macos_asset="SSRVPN_MacOS/assets/AtlasCore.gz"
 if asset_matches "$macos_asset" "$macos_gzip_hash"; then
   echo "ok macOS AtlasCore.gz"
 else
-  download_verified \
-    "$macos_url" "$macos_gzip_hash" "$temp_dir/AtlasCore.gz" \
-    "macOS Mihomo archive" $((256 * 1024 * 1024))
+  if test -n "$(source_field "$macos_source" 'Traffic extension SHA256')"; then
+    python3 scripts/build-core-asset.py macos "$temp_dir/AtlasCore.gz"
+  else
+    download_verified \
+      "$macos_url" "$macos_gzip_hash" "$temp_dir/AtlasCore.gz" \
+      "macOS Mihomo archive" $((256 * 1024 * 1024))
+  fi
   install_verified \
     "$temp_dir/AtlasCore.gz" "$macos_asset" "$macos_gzip_hash" \
     "macOS AtlasCore.gz"
@@ -287,17 +311,24 @@ windows_url="$(require_field "$windows_source" 'Official asset URL')"
 windows_zip_hash="$(require_field "$windows_source" 'Official asset SHA256')"
 windows_member="$(require_field "$windows_source" 'Executable member')"
 windows_hash="$(require_field "$windows_source" 'Executable SHA256')"
+if test -n "$(source_field "$windows_source" 'Traffic extension SHA256')"; then
+  windows_url="$(core_mirror_url "$windows_source" "mihomo-windows-${windows_hash}.exe")"
+fi
 windows_asset="SSRVPN_Windows/assets/mihomo.exe"
 if asset_matches "$windows_asset" "$windows_hash"; then
   echo "ok Windows mihomo.exe"
 else
-  download_verified \
-    "$windows_url" "$windows_zip_hash" "$temp_dir/mihomo-windows.zip" \
-    "Windows Mihomo archive" $((256 * 1024 * 1024))
-  extract_zip_member_bounded \
-    "$temp_dir/mihomo-windows.zip" "$windows_member" \
-    "$temp_dir/mihomo.exe" $((128 * 1024 * 1024)) \
-    "Windows Mihomo archive"
+  if test -n "$(source_field "$windows_source" 'Traffic extension SHA256')"; then
+    python3 scripts/build-core-asset.py windows "$temp_dir/mihomo.exe"
+  else
+    download_verified \
+      "$windows_url" "$windows_zip_hash" "$temp_dir/mihomo-windows.zip" \
+      "Windows Mihomo archive" $((256 * 1024 * 1024))
+    extract_zip_member_bounded \
+      "$temp_dir/mihomo-windows.zip" "$windows_member" \
+      "$temp_dir/mihomo.exe" $((128 * 1024 * 1024)) \
+      "Windows Mihomo archive"
+  fi
   install_verified \
     "$temp_dir/mihomo.exe" "$windows_asset" "$windows_hash" \
     "Windows mihomo.exe"
