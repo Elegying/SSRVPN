@@ -118,7 +118,7 @@ class SsrvpnVpnService : VpnService() {
             currentNodeName = it
         }
     }
-    internal val trafficTracker by lazy {
+    private val trafficTracker by lazy {
         VpnTrafficTracker(
             { TrafficStats.getUidTxBytes(applicationInfo.uid) },
             { TrafficStats.getUidRxBytes(applicationInfo.uid) },

@@ -24,7 +24,7 @@ class _TrafficService extends ClashServiceBase {
 
 void main() {
   test(
-      'authenticated totals include closed connections and reject invalid data',
+      'authenticated proxy totals survive closed connections and reject invalid data',
       () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final service = _TrafficService()
@@ -35,13 +35,19 @@ void main() {
     addTearDown(service.dispose);
     addTearDown(() => server.close(force: true));
     var invalid = false;
+    var legacyOnly = false;
+    var coreGeneration = 1;
     server.listen((request) async {
-      expect(request.uri.path, '/connections');
+      expect(request.uri.path, '/ssrvpn/traffic');
       expect(request.headers.value(HttpHeaders.authorizationHeader),
           'Bearer test-secret');
       request.response.write(jsonEncode({
-        'uploadTotal': invalid ? -1 : 1024,
-        'downloadTotal': 2048,
+        'sessionGeneration': coreGeneration,
+        'sampledAtMillis': 2000,
+        if (!legacyOnly) 'upload': invalid ? -1 : 1024,
+        if (!legacyOnly) 'download': 2048,
+        'uploadTotal': 99999999,
+        'downloadTotal': 99999999,
         'connections': <Object>[],
       }));
       await request.response.close();
@@ -50,11 +56,14 @@ void main() {
     expect(first.total, 3072);
     service.setRunning(false);
     expect(await service.readTrafficSample(), isNull);
+    coreGeneration++;
     service.setRunning(true);
     final next = (await service.readTrafficSample())!;
     expect(next.sessionGeneration, isNot(first.sessionGeneration));
     expect(next.ratesSince(first), (upload: 0.0, download: 0.0));
     invalid = true;
+    await expectLater(service.readTrafficSample(), throwsFormatException);
+    legacyOnly = true;
     await expectLater(service.readTrafficSample(), throwsFormatException);
   });
 
@@ -72,7 +81,8 @@ void main() {
     final request = await received.future;
     service.setRunning(false);
     service.setRunning(true);
-    request.response.write('{"uploadTotal":9999,"downloadTotal":9999}');
+    request.response.write(
+        '{"sessionGeneration":1,"sampledAtMillis":100,"upload":9999,"download":9999}');
     await request.response.close();
     expect(await pending, isNull);
   });

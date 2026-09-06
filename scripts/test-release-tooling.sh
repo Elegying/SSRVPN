@@ -8,6 +8,7 @@ python3 -m unittest \
   scripts/test_android_gradle_supply_chain.py \
   scripts/test_android_release_keystore.py \
   scripts/test_android_core_source.py \
+  scripts/test_core_traffic_source.py \
   scripts/test_verify_android_core_elf.py \
   scripts/test_authorize_existing_release_retry.py \
   scripts/test_check_coverage_thresholds.py \

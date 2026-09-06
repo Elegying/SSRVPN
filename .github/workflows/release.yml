@@ -342,6 +342,10 @@ jobs:
       - name: Verify core assets
         run: bash scripts/verify-core-assets.sh
 
+      - name: Verify macOS proxy-only traffic
+        shell: bash
+        run: python3 scripts/check-core-proxy-traffic.py SSRVPN_MacOS/assets/AtlasCore.gz
+
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -458,6 +462,10 @@ jobs:
 
       - name: Verify core assets
         run: bash scripts/verify-core-assets.sh
+
+      - name: Verify Windows proxy-only traffic
+        shell: bash
+        run: python3 scripts/check-core-proxy-traffic.py SSRVPN_Windows/assets/mihomo.exe
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:

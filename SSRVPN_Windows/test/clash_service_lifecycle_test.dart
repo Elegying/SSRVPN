@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -351,6 +352,99 @@ void main() {
     },
   );
 
+  test('concurrent stops wait for one proxy cleanup before disconnecting',
+      () async {
+    final proxy = _ControlledStopProxy();
+    final service = await _initializedStopService(proxy);
+    service.setRunning(true);
+    final started = Completer<void>();
+    final release = Completer<bool>();
+    proxy.clear = () {
+      started.complete();
+      return release.future;
+    };
+
+    final first = service.stop();
+    await started.future;
+    final second = service.stop();
+    expect(service.isRunning, isTrue);
+    expect(proxy.clearCalls, 1);
+    release.complete(true);
+    await Future.wait([first, second]);
+
+    expect(proxy.clearCalls, 1);
+    expect(service.isRunning, isFalse);
+  });
+
+  test('failed owned-endpoint cleanup preserves the connection until retry',
+      () async {
+    final proxy = _ControlledStopProxy();
+    final service = await _initializedStopService(proxy);
+    service
+      ..requestConnectionIntent(true)
+      ..setRunning(true);
+    proxy
+      ..recoveryPending = true
+      ..lastError = '恢复被拒绝'
+      ..clear = () async => false;
+
+    await expectLater(service.stop(), throwsStateError);
+    expect(service.isRunning, isTrue);
+    expect(service.hasPendingSystemProxyRecovery, isTrue);
+
+    proxy.clear = () async {
+      proxy.recoveryPending = false;
+      proxy.lastError = null;
+      return true;
+    };
+    await service.stop();
+    expect(service.isRunning, isFalse);
+    expect(service.hasPendingSystemProxyRecovery, isFalse);
+    expect(proxy.clearCalls, 2);
+  });
+
+  test('safe endpoint disconnects while journal failure remains visible',
+      () async {
+    final proxy = _ControlledStopProxy();
+    final service = await _initializedStopService(proxy);
+    service.setRunning(true);
+    proxy
+      ..recoveryPending = true
+      ..endpointSafeWithPendingRecovery = true
+      ..lastError = '恢复日志仍待清理'
+      ..clear = () async => false;
+
+    await service.stop();
+    expect(service.isRunning, isFalse);
+    expect(service.hasPendingSystemProxyRecovery, isTrue);
+    await service.flushLogs();
+    expect(await File(service.logPath).readAsString(), contains('恢复日志仍待清理'));
+
+    proxy.clear = () async {
+      proxy.recoveryPending = false;
+      proxy.endpointSafeWithPendingRecovery = false;
+      proxy.lastError = null;
+      return true;
+    };
+    await service.stop();
+    expect(service.hasPendingSystemProxyRecovery, isFalse);
+  });
+
+  test('unverified PID residue blocks restart and survives repeated stop',
+      () async {
+    final service = await _initializedStopService(_ControlledStopProxy());
+    final record =
+        File('${service.configDir}${Platform.pathSeparator}mihomo.pid');
+    await record.writeAsString('unknown owner');
+    service.setRunning(true);
+
+    await expectLater(service.stop(), throwsStateError);
+    expect(service.isRunning, isFalse);
+    expect(await record.readAsString(), 'unknown owner');
+    await expectLater(service.stop(), throwsStateError);
+    expect(await record.readAsString(), 'unknown owner');
+  });
+
   test('config validation reports a real non-zero validator result', () async {
     final temp = await Directory.systemTemp.createTemp(
       'ssrvpn_windows_config_validator_result_',
@@ -570,4 +664,39 @@ Future<String> _preparePackagedCore(Directory temp) async {
     }
   }
   throw StateError('Packaged core asset is unavailable to lifecycle tests');
+}
+
+// The lifecycle is exercised independently of registry script execution;
+// system_proxy_recovery_test covers the concrete Windows transaction engine.
+class _ControlledStopProxy implements SystemProxyService {
+  Future<bool> Function() clear = () async => true;
+  int clearCalls = 0;
+  @override
+  bool recoveryPending = false;
+  @override
+  bool endpointSafeWithPendingRecovery = false;
+  @override
+  String? lastError;
+  @override
+  Future<void> initialize(String dataDir) async {}
+  @override
+  Future<bool> clearSystemProxy() {
+    clearCalls++;
+    return clear();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+Future<ClashService> _initializedStopService(SystemProxyService proxy) async {
+  final temp = await Directory.systemTemp.createTemp('ssrvpn_stop_fault_');
+  final service = ClashService(systemProxyService: proxy);
+  addTearDown(() async {
+    await service.flushLogs();
+    service.dispose();
+    await temp.delete(recursive: true);
+  });
+  await service.init(AppSettings(), dataDir: temp.path, skipCoreProbes: true);
+  return service;
 }

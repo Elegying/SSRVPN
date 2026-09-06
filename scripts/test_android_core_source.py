@@ -165,7 +165,7 @@ class AndroidCoreSourceTests(unittest.TestCase):
     def test_build_runs_concurrent_protect_session_tests(self) -> None:
         self.assertIn('bridge/bridge_test.go', self.build_recipe)
         self.assertIn(
-            '"$GO_BIN" test -tags=with_gvisor,cmfa ./bridge', self.build_recipe
+            '"$GO_BIN" test -p 2 -tags=with_gvisor,cmfa ./bridge', self.build_recipe
         )
 
 

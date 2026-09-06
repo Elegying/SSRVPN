@@ -54,9 +54,6 @@ class ClashService extends ClashServiceBase {
 
   String get corePath => _corePath;
 
-  @override
-  Future<VpnTrafficSample?> readTrafficSample() => _readNativeTrafficSample();
-
   bool get coreExists => File(_corePath).existsSync();
   bool get nativeConnectionTransitioning => _nativeConnectionTransitioning;
   int? get nativeSessionGeneration => _nativeSessionGeneration;
