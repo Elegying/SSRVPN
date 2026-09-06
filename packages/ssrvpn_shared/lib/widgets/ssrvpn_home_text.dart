@@ -11,6 +11,7 @@ class SsrvpnHomeText extends StatelessWidget {
       this.textAlign,
       this.maxFontSize,
       this.fitReference,
+      this.lineHeight = 1.1,
       this.minFontSize = 10});
   final String data;
   final String? fitReference;
@@ -20,6 +21,7 @@ class SsrvpnHomeText extends StatelessWidget {
   final TextAlign? textAlign;
   final double? maxFontSize;
   final double minFontSize;
+  final double lineHeight;
   @override
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (context, constraints) {
@@ -31,11 +33,14 @@ class SsrvpnHomeText extends StatelessWidget {
           final painter = TextPainter(
               text: TextSpan(
                   text: fitReference ?? data,
-                  style: base.copyWith(fontSize: size, height: 1.1)),
+                  style: base.copyWith(fontSize: size, height: lineHeight)),
               textDirection: direction,
               maxLines: maxLines)
             ..layout(maxWidth: constraints.maxWidth);
-          final fits = !painter.didExceedMaxLines &&
+          final fits = painter
+                  .computeLineMetrics()
+                  .every((line) => line.width <= constraints.maxWidth + .01) &&
+              !painter.didExceedMaxLines &&
               painter.height <= constraints.maxHeight;
           painter.dispose();
           return fits;
@@ -54,10 +59,10 @@ class SsrvpnHomeText extends StatelessWidget {
           font = low;
         }
         return Text(data,
-            style: base.copyWith(fontSize: font, height: 1.1),
+            style: base.copyWith(fontSize: font, height: lineHeight),
             textScaler: TextScaler.noScaling,
-            strutStyle:
-                StrutStyle(fontSize: font, height: 1.1, forceStrutHeight: true),
+            strutStyle: StrutStyle(
+                fontSize: font, height: lineHeight, forceStrutHeight: true),
             maxLines: maxLines,
             overflow: overflow,
             textAlign: textAlign);

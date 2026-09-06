@@ -64,3 +64,15 @@ remaining upper space. Statistics remain anchored above navigation, and node
 to public-IP spacing is at least 12px. Three/five cards and connection changes
 do not move the node midpoint. Existing constrained-height and compact side-by-side
 layouts remain unchanged; no minimum-window increase or scrolling is introduced.
+
+## Account quota card
+
+The account card keeps its label, then a complete `125GB/250GB` amount/limit
+line, a `50%` line and the reminder `每月1日重置`. Each amount selects its own binary-progressing unit.
+The five-card panel uses three-plus-two rows except in very short landscape
+space (less than 100px). There, a wider quota card breaks at the slash and
+retains the percentage and reset reminder, with reduced local padding.
+Only the very short landscape connection circle uses 120px instead of 124px
+to make room; approved compact desktop and tall layouts keep their geometry. The narrowest
+portrait quota card uses 3px horizontal padding; card edges stay aligned.
+Local text fitting retains a 10px minimum and full accessibility counters.
