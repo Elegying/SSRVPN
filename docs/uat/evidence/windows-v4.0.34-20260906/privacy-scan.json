@@ -1,0 +1,11 @@
+{
+  "Time": "2026-09-07T00:39:32.0993880+08:00",
+  "Passed": true,
+  "Checks": {
+    "ActualUsernamePresent": false,
+    "OriginalSubscriptionUrlPresent": false,
+    "NodeHostnamePresent": false,
+    "NodeCredentialPresent": false,
+    "RealNodeNamePresent": false
+  }
+}

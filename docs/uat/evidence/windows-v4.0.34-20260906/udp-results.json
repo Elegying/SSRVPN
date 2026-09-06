@@ -1,0 +1,17 @@
+{
+  "Results": [
+    {
+      "Test": "udp-dns-explicit-1.1.1.1",
+      "ResponseBytes": 45,
+      "TransactionMatches": true,
+      "AnswerCount": 1,
+      "FakeIpAnswers": 1
+    },
+    {
+      "Test": "udp-stun-binding",
+      "ResponseBytes": 32,
+      "SuccessTypeCookieAndTransactionMatch": true
+    }
+  ],
+  "Time": "2026-09-06T23:54:36.3149207+08:00"
+}

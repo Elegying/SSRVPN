@@ -1,0 +1,13 @@
+{
+  "Time": "2026-09-06T23:40:44.6914837+08:00",
+  "Scenario": "Official same-version UI install",
+  "WizardCompleted": true,
+  "Version": "4.0.34.4034",
+  "Preserved": {
+    "subscription_cache.yaml": true,
+    "subscriptions.json": true,
+    ".api-secret.dpapi": true,
+    "settings.json": true
+  },
+  "ManualInstallerRetained": true
+}

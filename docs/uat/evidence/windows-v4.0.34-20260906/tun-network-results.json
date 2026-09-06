@@ -1,0 +1,154 @@
+[
+  {
+    "Time": "2026-09-06T23:52:14.8156347+08:00",
+    "Mode": "tun",
+    "Host": "www.baidu.com",
+    "CurlExitCode": 0,
+    "HttpTimingBytes": "200,0.161132,2443",
+    "Routes": [
+      {
+        "Host": "www.baidu.com",
+        "Network": "tcp",
+        "Inbound": "Tun",
+        "Rule": "RuleSet",
+        "RulePayload": "ssrvpn-china-domains",
+        "FinalPath": "DIRECT",
+        "SelectedTestNode": false
+      }
+    ]
+  },
+  {
+    "Time": "2026-09-06T23:52:15.0482829+08:00",
+    "Mode": "tun",
+    "Host": "www.bilibili.com",
+    "CurlExitCode": 0,
+    "HttpTimingBytes": "200,0.116513,1374",
+    "Routes": [
+      {
+        "Host": "www.bilibili.com",
+        "Network": "tcp",
+        "Inbound": "Tun",
+        "Rule": "RuleSet",
+        "RulePayload": "ssrvpn-geosite-cn",
+        "FinalPath": "DIRECT",
+        "SelectedTestNode": false
+      }
+    ]
+  },
+  {
+    "Time": "2026-09-06T23:52:15.1710916+08:00",
+    "Mode": "tun",
+    "Host": "www.aliyun.com",
+    "CurlExitCode": 0,
+    "HttpTimingBytes": "403,0.041119,311",
+    "Routes": []
+  },
+  {
+    "Time": "2026-09-06T23:52:15.7458719+08:00",
+    "Mode": "tun",
+    "Host": "www.google.com",
+    "CurlExitCode": 0,
+    "HttpTimingBytes": "200,0.419712,83416",
+    "Routes": [
+      {
+        "Host": "www.google.com",
+        "Network": "udp",
+        "Inbound": "Tun",
+        "Rule": "RuleSet",
+        "RulePayload": "ssrvpn-foreign-services",
+        "FinalPath": "PROXY",
+        "SelectedTestNode": true
+      },
+      {
+        "Host": "www.google.com",
+        "Network": "tcp",
+        "Inbound": "Tun",
+        "Rule": "RuleSet",
+        "RulePayload": "ssrvpn-foreign-services",
+        "FinalPath": "PROXY",
+        "SelectedTestNode": true
+      }
+    ]
+  },
+  {
+    "Time": "2026-09-06T23:52:22.8198771+08:00",
+    "Mode": "tun",
+    "Host": "www.youtube.com",
+    "CurlExitCode": 0,
+    "HttpTimingBytes": "200,6.979533,878710",
+    "Routes": [
+      {
+        "Host": "www.youtube.com",
+        "Network": "tcp",
+        "Inbound": "Tun",
+        "Rule": "RuleSet",
+        "RulePayload": "ssrvpn-foreign-services",
+        "FinalPath": "PROXY",
+        "SelectedTestNode": true
+      },
+      {
+        "Host": "www.youtube.com",
+        "Network": "udp",
+        "Inbound": "Tun",
+        "Rule": "RuleSet",
+        "RulePayload": "ssrvpn-foreign-services",
+        "FinalPath": "PROXY",
+        "SelectedTestNode": true
+      }
+    ]
+  },
+  {
+    "Time": "2026-09-06T23:52:27.3801112+08:00",
+    "Mode": "tun",
+    "Host": "github.com",
+    "CurlExitCode": 0,
+    "HttpTimingBytes": "200,4.454931,575973",
+    "Routes": [
+      {
+        "Host": "github.com",
+        "Network": "tcp",
+        "Inbound": "Tun",
+        "Rule": "RuleSet",
+        "RulePayload": "ssrvpn-foreign-services",
+        "FinalPath": "PROXY",
+        "SelectedTestNode": true
+      }
+    ]
+  },
+  {
+    "Time": "2026-09-06T23:52:27.9076753+08:00",
+    "Mode": "tun",
+    "Host": "openai.com",
+    "CurlExitCode": 0,
+    "HttpTimingBytes": "403,0.459000,9637",
+    "Routes": [
+      {
+        "Host": "openai.com",
+        "Network": "tcp",
+        "Inbound": "Tun",
+        "Rule": "DomainSuffix",
+        "RulePayload": "openai.com",
+        "FinalPath": "PROXY",
+        "SelectedTestNode": true
+      }
+    ]
+  },
+  {
+    "Time": "2026-09-06T23:52:29.0198591+08:00",
+    "Mode": "tun",
+    "Host": "telegram.org",
+    "CurlExitCode": 0,
+    "HttpTimingBytes": "200,1.003534,19919",
+    "Routes": [
+      {
+        "Host": "telegram.org",
+        "Network": "tcp",
+        "Inbound": "Tun",
+        "Rule": "RuleSet",
+        "RulePayload": "ssrvpn-foreign-services",
+        "FinalPath": "PROXY",
+        "SelectedTestNode": true
+      }
+    ]
+  }
+]

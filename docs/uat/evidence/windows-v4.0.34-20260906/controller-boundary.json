@@ -1,0 +1,22 @@
+{
+  "WrongCredentialConfigStatus": "401",
+  "Time": "2026-09-07T00:04:55.1038962+08:00",
+  "UnauthenticatedConfigStatus": "401",
+  "Listeners": [
+    {
+      "Port": 9090,
+      "LoopbackOnly": true,
+      "Address": "127.0.0.1"
+    },
+    {
+      "Port": 7891,
+      "LoopbackOnly": true,
+      "Address": "127.0.0.1"
+    },
+    {
+      "Port": 7890,
+      "LoopbackOnly": true,
+      "Address": "127.0.0.1"
+    }
+  ]
+}
