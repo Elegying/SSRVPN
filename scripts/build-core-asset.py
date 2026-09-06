@@ -87,6 +87,13 @@ def build(target, output):
                     break
         subprocess.run(['bash', str(ROOT / 'scripts/build-android-core.sh'), str(output)],
                        env=environment, check=True)
+        if environment.get('RUNNER_TEMP'):
+            diagnostics = Path(environment['RUNNER_TEMP']) / 'ssrvpn-core-diagnostics'
+            diagnostics.mkdir(exist_ok=True)
+            shutil.copyfile(output, diagnostics / 'android.so')
+            with (diagnostics / 'android-build-info.txt').open('w') as log:
+                subprocess.run([environment['GO_BIN'], 'version', '-m', str(output)],
+                               stdout=log, env=environment, check=True)
     else:
         with tempfile.TemporaryDirectory(prefix='ssrvpn-core-asset-') as folder:
             binary = Path(folder) / 'core'
