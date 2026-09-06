@@ -14,9 +14,9 @@ import '../models/vpn_traffic_sample.dart';
   final percentage = percent == null
       ? '—%'
       : percent > 0 && percent < .1
-          ? '<0.1%'
+          ? '${percent.toStringAsFixed(2)}%'
           : percent >= 10000
-              ? '${percent.toStringAsExponential(2)}%'
+              ? '${percent.toStringAsExponential(1).replaceFirst('e+', 'e')}%'
               : '${percent.toStringAsFixed(1).replaceFirst(RegExp(r'\.0$'), '')}%';
   return (
     amount: '$used/$limit',
