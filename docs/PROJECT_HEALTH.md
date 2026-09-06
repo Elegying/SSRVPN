@@ -4,14 +4,37 @@
 
 当前应用版本：`v4.0.30`
 
-最新正式版本：[`v4.0.29`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.29)
+最新正式版本：[`v4.0.30`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.30)
 
 ## 当前结论
 
-`v4.0.30` 为待发布候选：三端可信账号统计、首页自适应与原生最小窗口限制已完成，
-真实授权账号三轮 HTTPS 查询通过。正式构建同步注入可信提供方配置，延续优化压缩。
-本地共享与平台验证、布局截图和未验证边界见 [验收记录](ACCOUNT_USAGE_VALIDATION.md)。
-当前仍公开 `v4.0.29`；候选必须经受保护 PR、精确 main CI 与正式发布流程后才能标为已发布。
+`v4.0.30` 已正式发布：三端可信账号统计、首页无滚动自适应、设备数比例显示与原生
+380×560 逻辑像素最小窗口限制同步上线。正式构建已注入可信提供方配置，真实授权账号
+三轮 HTTPS 查询通过，原有本机采样口径保持不变。
+
+功能与发版准备经 [PR #204](https://github.com/Elegying/SSRVPN/pull/204) 合并；发版前主分支
+暴露的 Android 并发测试短等待竞态经 [PR #205](https://github.com/Elegying/SSRVPN/pull/205)
+改为实际写入完成信号，产品代码不变。Windows 既有 TUN 时限用例一次失败后，在新 runner
+以相同提交、相同生产时限复验通过，随后精确主分支和正式 Release 再次通过全部门禁。
+
+发布源码：`efe6f1046c977b883752b8b496455a0c56caf8d1`。
+[精确 main CI](https://github.com/Elegying/SSRVPN/actions/runs/34011501621)、
+[Prepare Release](https://github.com/Elegying/SSRVPN/actions/runs/34011511934)、
+[Release](https://github.com/Elegying/SSRVPN/actions/runs/34012175726) 全部成功。
+GitHub 正式 Release 于 2026-09-06 04:54:44 UTC 公开；七项资产、provenance、三份
+构建来源证明、OSS latest 指针与固定/版本化下载文件均已独立回读核验。
+
+| 正式产物 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| Android APK | 30,750,136 | `138572c926707e58882e11ba6631e29975cebd5b5a0c1bb2e9cf0e6ba6d17239` |
+| macOS DMG | 27,396,188 | `bab2f1c9ef4ad06ae8f89618c87b42c2314d2b17e638ded274e96dfaed24ef0d` |
+| Windows EXE | 31,144,068 | `73eed60d769a2ccabe2cfb241b6100a08d26fba25c635be6948ffbd9d17e626a` |
+
+Android 版本 4.0.30（4030）及原签名指纹通过核对；macOS DMG 校验、ad-hoc 签名和
+版本通过核对，两端 AOT 产物中确认存在可信统计配置。Windows 正式安装、升级、卸载
+日志通过核对。三端分离调试符号已下载归档。未把这些构建证据冒充 Windows 手动交互、
+三端生产系统代理/TUN 与账号联调或面板账本独立对账；完整布局与平台边界见
+[验收记录](ACCOUNT_USAGE_VALIDATION.md)。
 
 ## 上一正式版 v4.0.29
 
