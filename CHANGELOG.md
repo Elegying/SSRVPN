@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.35] - 2026-09-07
+
+### 连接与流量统计
+
+- 三端首页及 Android 常驻通知仅统计实际代理出口流量，排除国内直连、拒绝和内部代理链重复计数；后台及已关闭短连接的累计保留，重连后重新累计。
+- 修复 Android 已连接时切换智能/全局模式停止后不再重连的问题，保留用户手动断开和通知取消的优先级。
+
+### 诊断隐私与验证
+
+- 修复 Windows 诊断日志中双反斜杠、混合分隔符及截断路径遗漏用户名脱敏的问题；保留有用文件上下文，诊断复制执行写入和读回核验。
+- 补齐 Swift 安全扫描、Windows 停止行为回归与三端实机报告复核；固定核心源码、工具链及规范构建主机，维持严格摘要校验。
+
 ## [4.0.34] - 2026-09-06
 
 ### 账号流量提醒

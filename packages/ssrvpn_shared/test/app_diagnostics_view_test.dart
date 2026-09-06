@@ -208,7 +208,8 @@ void main() {
                   summary: r'C:\Users\李 四😀\AppData\Local\SSRVPN\config',
                 ),
               ],
-              recentLogs: '/Users/张 三😀/Library/Logs/SSRVPN/app.log',
+              recentLogs: '/Users/张 三😀/Library/Logs/SSRVPN/app.log\n'
+                  r'Load MMDB file: C:\\Users\\UAT_FIXTURE_USER\\AppData\\geoip.metadb',
             ),
             loadHistory: () async => const [],
             repair: (_) async => const AppRepairResult(
@@ -235,6 +236,8 @@ void main() {
     expect(clipboardText, isNotNull);
     expect(clipboardText, isNot(contains('李 四😀')));
     expect(clipboardText, isNot(contains('张 三😀')));
+    expect(clipboardText, isNot(contains('UAT_FIXTURE_USER')));
+    expect(clipboardText, contains(r'C:\\Users\\***\\AppData\\geoip.metadb'));
     expect(find.text('诊断报告已复制（敏感内容已脱敏）'), findsOneWidget);
     expect(
       tester

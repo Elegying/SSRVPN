@@ -375,6 +375,56 @@ void main() {
     );
   });
 
+  test('redacts escaped and mixed Windows home paths without losing context',
+      () {
+    const username = 'UAT_FIXTURE_李 四😀';
+    for (final prefix in [
+      r'C:\Users\',
+      r'C:\\Users\\',
+      r'c:\\uSeRs/',
+      'C:/Users/',
+      r'C:/Users\\',
+      r'C:\\/Users/\\',
+    ]) {
+      for (final separator in [r'\', r'\\', '/']) {
+        final suffix = '${separator}AppData${separator}Local/geoip.metadb';
+        final input = 'Load MMDB file: $prefix$username$suffix';
+        expect(LogRedactor.sanitizeForDisplay(input),
+            'Load MMDB file: $prefix***$suffix',
+            reason: input);
+      }
+      expect(LogRedactor.sanitizeForDisplay('$prefix$username'), '$prefix***');
+      expect(LogRedactor.sanitizeForDisplay('"$prefix$username" status=ready'),
+          '"$prefix***" status=ready');
+      expect(LogRedactor.sanitizeForDisplay('$prefix$username\nstatus=ready'),
+          '$prefix***\nstatus=ready');
+    }
+  });
+
+  test('keeps Unix home name redaction when names contain Windows separators',
+      () {
+    expect(LogRedactor.sanitizeForDisplay(r'/home/a"b\c/.config/app.log'),
+        '/home/***/.config/app.log');
+  });
+
+  test('redacts escaped Windows usernames cut by the input limit', () {
+    const path = r'C:\\Users\\UAT_FIXTURE_USER\\AppData\\Local\\geoip.metadb';
+    for (var visible = 1; visible <= 'UAT_FIXTURE_USER'.length + 2; visible++) {
+      final pathStart =
+          LogRedactor.maxInputCharacters - r'C:\\Users\\'.length - visible;
+      final input = '${'x' * (pathStart - 1)} $path';
+      final safe = LogRedactor.sanitizeForDisplay(input);
+      expect(safe, contains(r'C:\\Users\\***'));
+      final redactedAccount =
+          safe.substring(safe.indexOf(r'C:\\Users\\') + r'C:\\Users\\'.length);
+      expect(
+          redactedAccount,
+          isNot(contains('UAT_FIXTURE_USER'
+              .substring(0, visible.clamp(1, 'UAT_FIXTURE_USER'.length)))));
+      expect(safe, endsWith('... log entry truncated ...'));
+    }
+  });
+
   test('bounds hostile log lines before applying redaction regexes', () {
     final sanitized = LogRedactor.sanitize(
       '${'x' * (LogRedactor.maxInputCharacters * 2)} token=secret',
