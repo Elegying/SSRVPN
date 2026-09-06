@@ -13,7 +13,6 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import android.os.SystemClock
-import android.net.TrafficStats
 import android.util.Log
 import androidx.core.content.ContextCompat
 import java.util.concurrent.TimeUnit
@@ -120,8 +119,8 @@ class SsrvpnVpnService : VpnService() {
     }
     private val trafficTracker by lazy {
         VpnTrafficTracker(
-            { TrafficStats.getUidTxBytes(applicationInfo.uid) },
-            { TrafficStats.getUidRxBytes(applicationInfo.uid) },
+            { bridge.Bridge.proxyTrafficUpload() },
+            { bridge.Bridge.proxyTrafficDownload() },
             SystemClock::elapsedRealtime
         )
     }

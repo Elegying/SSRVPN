@@ -11,14 +11,14 @@ import org.junit.Test
 class VpnTrafficTrackerTest {
     @Test
     fun `traffic rates and session totals share one monotonic snapshot`() {
-        var tx = 100L
-        var rx = 200L
+        var tx = 0L
+        var rx = 0L
         var now = 1_000L
         val tracker = VpnTrafficTracker({ tx }, { rx }, { now })
 
         tracker.reset()
-        tx = 2_100L
-        rx = 4_200L
+        tx = 2_000L
+        rx = 4_000L
         now = 3_000L
         tracker.update { delta, elapsed -> delta * 1_000L / elapsed }
 
@@ -34,14 +34,35 @@ class VpnTrafficTrackerTest {
     }
 
     @Test
-    fun `snapshot cannot observe a partially updated traffic sample`() {
-        var tx = 100L
-        var rx = 200L
+    fun `new core session does not inherit the old baseline and hidden traffic survives`() {
+        var tx = 90_000L
+        var rx = 120_000L
         var now = 1_000L
         val tracker = VpnTrafficTracker({ tx }, { rx }, { now })
         tracker.reset()
-        tx = 2_100L
-        rx = 4_200L
+        assertEquals(VpnTrafficSnapshot(0, 0, 0, 0), tracker.snapshot())
+        tx = 200L
+        rx = 500L
+        now = 2_000L
+        tracker.update { delta, elapsed -> delta * 1_000L / elapsed }
+        assertEquals(VpnTrafficSnapshot(200, 500, 200, 500), tracker.snapshot())
+        // Screen-off pauses sampling, not the core's cumulative counters.
+        tx = 600L
+        rx = 900L
+        now = 6_000L
+        tracker.resetSample()
+        assertEquals(VpnTrafficSnapshot(0, 0, 600, 900), tracker.snapshot())
+    }
+
+    @Test
+    fun `snapshot cannot observe a partially updated traffic sample`() {
+        var tx = 0L
+        var rx = 0L
+        var now = 1_000L
+        val tracker = VpnTrafficTracker({ tx }, { rx }, { now })
+        tracker.reset()
+        tx = 2_000L
+        rx = 4_000L
         now = 3_000L
 
         val firstRateCalculated = CountDownLatch(1)

@@ -37,6 +37,10 @@ services = {
     ),
 }
 
+# The Windows lifecycle is a legacy orchestration hotspot. New responsibilities
+# must leave this file; behavior regressions are checked by critical coverage.
+services[Path("SSRVPN_Windows/lib/services/clash_service_lifecycle.dart")] = (1763, ())
+
 for path, (limit, parts) in services.items():
     source = path.read_text(encoding="utf-8")
     lines = len(source.splitlines())

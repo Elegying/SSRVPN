@@ -366,3 +366,8 @@ func init() {
 		},
 	}
 }
+
+// ProxyTrafficUpload and ProxyTrafficDownload expose the same application
+// forwarding counters used by /ssrvpn/traffic. They never include UID traffic.
+func ProxyTrafficUpload() int64   { return statistic.ReadProxyTraffic().Upload }
+func ProxyTrafficDownload() int64 { return statistic.ReadProxyTraffic().Download }
