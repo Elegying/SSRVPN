@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import '../models/account_usage.dart';
+import '../utils/account_usage_format.dart';
 import 'ssrvpn_home_text.dart';
 
 import 'package:flutter/material.dart';
@@ -135,17 +136,17 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
     local('下载速率', _downloadRate, SsrvpnUiTokens.success, '↓', true);
     local('本次累计', _total, SsrvpnUiTokens.textPrimary, '', false);
     if (account != null) {
-      final used = formatVpnTraffic(account.usedBytes).split(' ');
+      final usage = formatAccountUsage(account);
       final count =
           _devices(account.onlineDevices, compact: true).replaceFirst('约', '');
       final limit =
           _devices(account.deviceLimit, compact: true).replaceFirst('约', '');
       metrics.add((
         label: '已用流量',
-        number: used.first,
-        unit: used.last,
+        number: usage.amount,
+        unit: '${usage.percentage}\n每月1日重置',
         color: SsrvpnUiTokens.textPrimary,
-        semantics: '已用流量：${used.join(' ')}，账号全部受管节点合计'
+        semantics: '${usage.semantics}。每月1日重置'
       ));
       metrics.add((
         label: '已连接设备',
@@ -170,21 +171,23 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
               ? 3
               : (width >= minimumWidth * 2 + gap ? 2 : 1);
           if (metrics.length == 5 &&
-              constraints.maxHeight < 120 &&
+              constraints.maxHeight < 100 &&
               width >= 350 + gap * 4) {
             columns = 5;
           }
           final rows = (metrics.length / columns).ceil();
           final rowBudget = (constraints.maxHeight - gap * (rows - 1)) / rows;
           final cardWidth =
-              (width - gap * (columns - 1)) / (columns == 5 ? 5.6 : columns);
+              (width - gap * (columns - 1)) / (columns == 5 ? 6.6 : columns);
           final caption = math
-              .min(12 * scale,
-                  math.min((cardWidth - 14) / 5, (rowBudget - 13) / 3.74))
+              .min(
+                  12 * scale,
+                  math.min((cardWidth - 14) / 5,
+                      (rowBudget - 13) / (account == null ? 3.74 : 4.84)))
               .clamp(10.0, 24.0);
           final number = math
               .min(math.min(18 * scale, caption * 1.4),
-                  (rowBudget - 13) / 1.1 - caption * 2)
+                  (rowBudget - 13) / 1.1 - caption * (account == null ? 2 : 3))
               .clamp(10.0, 34.0);
           final children = <Widget>[];
           for (var start = 0; start < metrics.length; start += columns) {
@@ -195,15 +198,31 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
               for (var index = 0; index < row.length; index++) ...[
                 if (index != 0) SizedBox(width: gap),
                 Expanded(
-                    flex: columns == 5 && row[index].label == '已连接设备' ? 16 : 10,
+                    flex: columns == 5
+                        ? (row[index].label == '已用流量'
+                            ? 20
+                            : row[index].label == '已连接设备'
+                                ? 16
+                                : 10)
+                        : 10,
                     child: Semantics(
                       label: row[index].semantics,
                       excludeSemantics: true,
                       child: Container(
                           key:
                               ValueKey('home-traffic-card-${row[index].label}'),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 4),
+                          padding: EdgeInsets.symmetric(
+                              horizontal:
+                                  row[index].label == '已用流量' && width < 300
+                                      ? 3
+                                      : columns == 5
+                                          ? 5
+                                          : 6,
+                              vertical: columns == 5
+                                  ? 0
+                                  : constraints.maxHeight < 120
+                                      ? 2
+                                      : 4),
                           decoration: BoxDecoration(
                               color:
                                   SsrvpnUiTokens.surface.withValues(alpha: .78),
@@ -215,18 +234,42 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 SsrvpnHomeText(row[index].label,
+                                    lineHeight: row[index].label == '已用流量' &&
+                                            constraints.maxHeight < 120
+                                        ? 1
+                                        : 1.1,
                                     maxFontSize: caption,
                                     style: TextStyle(
                                         letterSpacing: 0,
                                         color: SsrvpnUiTokens.textSecondary,
                                         fontSize: caption)),
-                                SsrvpnHomeText(row[index].number,
+                                SsrvpnHomeText(
+                                    columns == 5 && row[index].label == '已用流量'
+                                        ? row[index]
+                                            .number
+                                            .replaceFirst('/', '/\n')
+                                        : row[index].number,
+                                    maxLines: columns == 5 &&
+                                            row[index].label == '已用流量'
+                                        ? 2
+                                        : 1,
                                     fitReference: row[index].label == '已连接设备'
                                         ? '9999/9999'
-                                        : '↑9999',
+                                        : row[index].label == '已用流量'
+                                            ? (columns == 5
+                                                ? '1023MB/\n1023MB'
+                                                : '1023MB/1023MB')
+                                            : '↑9999',
                                     key: ValueKey(
                                         'home-traffic-number-${row[index].label}'),
-                                    maxFontSize: number,
+                                    lineHeight: row[index].label == '已用流量' &&
+                                            constraints.maxHeight < 120
+                                        ? 1
+                                        : 1.1,
+                                    maxFontSize: columns == 5 &&
+                                            row[index].label == '已用流量'
+                                        ? 10
+                                        : number,
                                     style: TextStyle(
                                         letterSpacing: 0,
                                         color: row[index].color,
@@ -236,11 +279,19 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                                           FontFeature.tabularFigures()
                                         ])),
                                 SsrvpnHomeText(row[index].unit,
+                                    maxLines:
+                                        row[index].label == '已用流量' ? 2 : 1,
                                     fitReference: row[index].label == '已连接设备'
                                         ? '约值 · 实例'
-                                        : '999E',
+                                        : row[index].label == '已用流量'
+                                            ? '9.22e+20%\n每月1日重置'
+                                            : '999E',
                                     key: ValueKey(
                                         'home-traffic-unit-${row[index].label}'),
+                                    lineHeight: row[index].label == '已用流量' &&
+                                            constraints.maxHeight < 120
+                                        ? 1
+                                        : 1.1,
                                     maxFontSize: caption,
                                     style: TextStyle(
                                         letterSpacing: 0,

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.33] - 2026-09-06
+
+### 账号流量额度
+
+- 三端「已用流量」同步显示面板实际用量 / 实际额度及使用比例，例如 `125GB/250GB 50%`；两个流量值各自自动选择 B、KB、MB、GB、TB 等单位，不固定额度。
+- 已用流量数值下方增加「每月1日重置」提醒。
+- 超额继续显示实际用量及超过 100% 的比例；零额度保留有效数据并显示 `—%`。极大比例使用科学计数法，窄卡保留完整单位和可读字号。
+
 ## [4.0.32] - 2026-09-06
 
 ### 首页节点位置
