@@ -152,7 +152,7 @@ class MainActivity : FlutterActivity() {
                 result.success(true)
             }
             "startCoreWithVpn" -> handleStartCoreWithVpn(call, result)
-            "stopCore" -> handleStopCore(result)
+            "stopCore" -> handleStopCore(call, result)
             "updateVpnNotification" -> handleUpdateVpnNotification(call, result)
             "openUrl" -> handleOpenUrl(call, result)
             "installUpdate" -> handleInstallUpdate(call, result)
@@ -423,13 +423,14 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun handleStopCore(result: MethodChannel.Result) {
+    private fun handleStopCore(call: MethodCall, result: MethodChannel.Result) {
+        val recordManualStop = call.argument<Boolean>("recordManualStop") != false
         Log.d("MainActivity", "Stopping core...")
         try {
             cancelPendingActivityStart("连接已取消")
             val service = SsrvpnVpnService.instance
             if (service == null) {
-                if (!VpnServiceRestartStore.recordManualStop(this)) {
+                if (recordManualStop && !VpnServiceRestartStore.recordManualStop(this)) {
                     Log.e("MainActivity", "Unable to persist manual VPN disconnect")
                 }
                 stopService(Intent(this, SsrvpnVpnService::class.java))
@@ -437,7 +438,7 @@ class MainActivity : FlutterActivity() {
             } else {
                 service.stopAll(
                     preserveForegroundUi = true,
-                    recordManualStop = true
+                    recordManualStop = recordManualStop
                 ) { stoppedCleanly ->
                     runOnActiveUiThread("Unable to deliver VPN stop result") {
                         if (stoppedCleanly) {

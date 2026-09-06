@@ -536,9 +536,9 @@ class ClashService extends ClashServiceBase {
 
     Object? stopError;
     try {
-      await _channel
-          .invokeMethod('stopCore')
-          .timeout(const Duration(seconds: 15));
+      await _channel.invokeMethod('stopCore', {
+        'recordManualStop': !_intentionalReloadInProgress || !connectionDesired,
+      }).timeout(const Duration(seconds: 15));
       log('核心已停止');
     } catch (e) {
       stopError = e;

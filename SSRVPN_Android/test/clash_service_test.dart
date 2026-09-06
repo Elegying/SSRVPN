@@ -1140,12 +1140,16 @@ void main() {
       const channel = MethodChannel('com.ssrvpn/native');
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var manuallyStopped = false;
       messenger.setMockMethodCallHandler(channel, (call) async {
         switch (call.method) {
           case 'stopCore':
+            manuallyStopped =
+                (call.arguments as Map?)?['recordManualStop'] != false;
             return null;
           case 'getConnectionState':
             return <String, Object?>{
+              'manuallyStopped': manuallyStopped,
               'running': false,
               'transitioning': false,
               'protectedConfigPath': null,
@@ -1166,6 +1170,10 @@ void main() {
         await service.stop();
         expect(await service.refreshNativeConnectionState(), isTrue);
         expect(service.connectionDesired, isTrue);
+        // A real notification/tile stop must still cancel a pending reload.
+        manuallyStopped = true;
+        expect(await service.refreshNativeConnectionState(), isTrue);
+        expect(service.connectionDesired, isFalse);
       });
 
       service.setRunning(true);

@@ -4,10 +4,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLATFORM="${1:-}"
 OUTPUT="${2:-}"
-[[ "$PLATFORM" == macos || "$PLATFORM" == windows ]] && [[ -n "$OUTPUT" ]] || {
+if [[ "$PLATFORM" != macos && "$PLATFORM" != windows ]] || [[ -z "$OUTPUT" ]]; then
   echo "usage: scripts/build-desktop-core.sh macos|windows OUTPUT_BINARY" >&2
   exit 1
-}
+fi
 [[ "$OUTPUT" == /* ]] || OUTPUT="$ROOT/$OUTPUT"
 IFS=$'\t' read -r SOURCE_REPO SOURCE_COMMIT GO_VERSION VERSION < <(
   python3 - "$ROOT/native/proxy_traffic/sources.json" "$PLATFORM" <<'PY'
