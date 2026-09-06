@@ -1,0 +1,24 @@
+{
+  "rounds": 20,
+  "passed": 20,
+  "unique_gui_pids": [
+    19800
+  ],
+  "app_ready_ms": {
+    "median": 2170.5,
+    "p95_nearest_rank": 2196,
+    "max": 2202
+  },
+  "click_to_app_ready_ms": {
+    "median": 2276.0,
+    "p95_nearest_rank": 2304,
+    "max": 2372
+  },
+  "disconnect_cleanup_ms": {
+    "median": 1471.5,
+    "p95_nearest_rank": 1561,
+    "max": 1582
+  },
+  "round_5_private_bytes": 249470976,
+  "round_20_private_bytes": 250515456
+}

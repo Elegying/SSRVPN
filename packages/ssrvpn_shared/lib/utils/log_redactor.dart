@@ -120,11 +120,10 @@ class LogRedactor {
     caseSensitive: false,
     multiLine: true,
   );
-  static final _unixHomePattern = RegExp(
-    r'/(Users|home)/[^/\r\n]+(?=/|$)',
-  );
-  static final _windowsHomePattern = RegExp(
-    r'\b([A-Za-z]:\\Users\\)[^\\\r\n]+(?=\\|$)',
+  static final _homePattern = RegExp(
+    r'(\b[A-Za-z]:[\\/]+Users[\\/]+)'
+    r'[^\\/\r\n"]+(?=[\\/"\r\n]|$)'
+    r'|(/(?:Users|home)/)[^/\r\n]+(?=/|$)',
     caseSensitive: false,
   );
 
@@ -228,12 +227,8 @@ class LogRedactor {
       (match) => '${match[1]}${match[2]}: ***',
     );
     message = message.replaceAllMapped(
-      _unixHomePattern,
-      (match) => '/${match[1]}/***',
-    );
-    message = message.replaceAllMapped(
-      _windowsHomePattern,
-      (match) => '${match[1]}***',
+      _homePattern,
+      (match) => '${match[1] ?? match[2]}***',
     );
     message = message.replaceAllMapped(_ipv4Pattern, (match) {
       final address = match[2]!;

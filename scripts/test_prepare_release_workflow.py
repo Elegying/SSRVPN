@@ -531,6 +531,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
 
     def test_workflow_is_manual_serialized_and_least_privilege(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("runs-on: macos-15", workflow)
 
         self.assertIn("name: Prepare Release", workflow)
         self.assertIn("workflow_dispatch:", workflow)

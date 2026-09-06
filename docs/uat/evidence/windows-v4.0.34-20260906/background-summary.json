@@ -1,0 +1,23 @@
+{
+  "start": "2026-09-06T15:50:02.234000+00:00",
+  "end": "2026-09-07T00:20:27.112942+08:00",
+  "duration_seconds": 1824.878942,
+  "process_port_samples": 360,
+  "https_probes": 29,
+  "https_204": 29,
+  "same_gui_pid_all_samples": true,
+  "same_core_pid_all_samples": true,
+  "ports_present_all_samples": true,
+  "valid_utf8_node_identity_probes": 23,
+  "valid_utf8_node_identity_all_match": true,
+  "gui_private_bytes_first": 153157632,
+  "gui_private_bytes_last": 159838208,
+  "gui_private_bytes_max": 160919552,
+  "core_private_bytes_first": 66506752,
+  "core_private_bytes_last": 69218304,
+  "core_private_bytes_max": 80609280,
+  "gui_cpu_seconds": 6.0,
+  "gui_one_cpu_percent": 0.33,
+  "core_cpu_seconds": 20.922,
+  "core_one_cpu_percent": 1.151
+}

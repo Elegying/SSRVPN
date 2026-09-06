@@ -1,0 +1,45 @@
+{
+  "Providers": [
+    {
+      "Name": "ssrvpn-ai-services",
+      "RuleCount": 69,
+      "Behavior": "Domain"
+    },
+    {
+      "Name": "ssrvpn-china-domains",
+      "RuleCount": 2977,
+      "Behavior": "Domain"
+    },
+    {
+      "Name": "ssrvpn-company-asn",
+      "RuleCount": 1639,
+      "Behavior": "IPCIDR"
+    },
+    {
+      "Name": "ssrvpn-foreign-services",
+      "RuleCount": 1180,
+      "Behavior": "Domain"
+    },
+    {
+      "Name": "ssrvpn-geosite-cn",
+      "RuleCount": 112008,
+      "Behavior": "Domain"
+    },
+    {
+      "Name": "ssrvpn-geosite-gfw",
+      "RuleCount": 4325,
+      "Behavior": "Domain"
+    },
+    {
+      "Name": "ssrvpn-streaming-services",
+      "RuleCount": 301,
+      "Behavior": "Domain"
+    },
+    {
+      "Name": "ssrvpn-user-feedback-rules",
+      "RuleCount": 2,
+      "Behavior": "Domain"
+    }
+  ],
+  "CoreVersion": "v1.19.27"
+}

@@ -1,0 +1,10 @@
+{
+  "OriginalFilesRestored": {
+    ".api-secret.dpapi": true,
+    "subscriptions.json": true,
+    "settings.json": true,
+    "subscription_cache.yaml": true
+  },
+  "Time": "2026-09-07T00:35:25.0581117+08:00",
+  "FixtureSubscriptionRemoved": true
+}

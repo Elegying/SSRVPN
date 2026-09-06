@@ -1,0 +1,10 @@
+{
+  "Time": "2026-09-06T23:42:29.5867471+08:00",
+  "ProgramRemoved": true,
+  "Preserved": {
+    "subscription_cache.yaml": true,
+    ".api-secret.dpapi": true,
+    "subscriptions.json": true,
+    "settings.json": true
+  }
+}

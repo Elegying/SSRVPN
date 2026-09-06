@@ -1,0 +1,32 @@
+说明：这是验收工具人工二次脱敏后的实际剪贴板报告；[USER] 不是客户端的原始脱敏结果。
+SSRVPN 诊断报告
+生成时间（本地）：2026-09-06T23:15:01.004394
+结论：运行正常，未发现异常
+
+检查结果
+- 正常｜运行核心：核心文件可用
+- 正常｜运行配置：配置文件可用
+- 正常｜运行状态：本地核心 API、运行配置与必要监听响应正常
+- 正常｜节点与外部网络：当前没有检测到数据通道降级
+- 正常｜系统代理恢复：没有待恢复的 SSRVPN 系统代理状态
+
+最近运行记录（已整理、已脱敏）
+- 2026-09-06 23:14:45｜信息｜连接：[mihomo] time="2026-09-06T23:14:45.536684600+08:00" level=info msg="[TCP] [IP]:10142 --> [DESTINATION] match RuleSet(海外服务规则) using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:14:43｜信息｜连接：[mihomo] time="2026-09-06T23:14:43.156670900+08:00" level=info msg="[TCP] [IP]:10139 --> [DESTINATION] match Match using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:14:32｜信息｜连接：[mihomo] time="2026-09-06T23:14:32.823586500+08:00" level=info msg="[TCP] [IP]:7165 --> [DESTINATION] match Match using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:14:31｜信息｜连接：[mihomo] time="2026-09-06T23:14:31.247218900+08:00" level=info msg="[TCP] [IP]:7159 --> [DESTINATION] match RuleSet(ssrvpn-geosite-cn) using DIRECT"
+- 2026-09-06 23:14:31｜信息｜连接：[mihomo] time="2026-09-06T23:14:31.192401400+08:00" level=info msg="[TCP] mihomo --> [DESTINATION] match RuleSet(国内服务规则) using DIRECT"
+- 2026-09-06 23:14:31｜信息｜连接：[mihomo] time="2026-09-06T23:14:31.188606500+08:00" level=info msg="[TCP] mihomo --> [DESTINATION] match RuleSet(国内服务规则) using DIRECT"
+- 2026-09-06 23:14:22｜信息｜连接：[mihomo] time="2026-09-06T23:14:22.492250500+08:00" level=info msg="[TCP] [IP]:10611 --> [DESTINATION] match Match using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:14:12｜信息｜连接：[mihomo] time="2026-09-06T23:14:12.150764000+08:00" level=info msg="[TCP] [IP]:1531 --> [DESTINATION] match Match using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:14:10｜信息｜连接：[mihomo] time="2026-09-06T23:14:10.535518800+08:00" level=info msg="[TCP] [IP]:1530 --> [DESTINATION] match RuleSet(海外服务规则) using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:14:01｜信息｜连接：[mihomo] time="2026-09-06T23:14:01.825965600+08:00" level=info msg="[TCP] [IP]:7335 --> [DESTINATION] match Match using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:13:51｜信息｜连接：[mihomo] time="2026-09-06T23:13:51.496315900+08:00" level=info msg="[TCP] [IP]:2324 --> [DESTINATION] match Match using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:13:50｜信息｜连接：[mihomo] time="2026-09-06T23:13:50.920271300+08:00" level=info msg="[TCP] [IP]:2322 --> [DESTINATION] match Match using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:13:42｜信息｜连接：[mihomo] time="2026-09-06T23:13:42.870017900+08:00" level=info msg="[TCP] [IP]:2499 --> [DESTINATION] match Match using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:13:42｜信息｜连接：[mihomo] time="2026-09-06T23:13:42.690445100+08:00" level=info msg="[TCP] [IP]:2498 --> [DESTINATION] match RuleSet(海外服务规则) using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:13:42｜信息｜连接：[mihomo] time="2026-09-06T23:13:42.301352600+08:00" level=info msg="[TCP] [IP]:2495 --> [DESTINATION] match RuleSet(ssrvpn-geosite-gfw) using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:13:41｜信息｜连接：[mihomo] time="2026-09-06T23:13:41.165817500+08:00" level=info msg="[TCP] [IP]:2494 --> [DESTINATION] match Match using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:13:40｜信息｜连接：[mihomo] time="2026-09-06T23:13:40.646104500+08:00" level=info msg="[TCP] [IP]:2473 --> [DESTINATION] match Match using PROXY[[TEST_NODE]]"
+- 2026-09-06 23:13:40｜信息｜连接：[mihomo] time="2026-09-06T23:13:40.645591000+08:00" level=info msg="Load MMDB file: C:\\Users\\[USER]\\AppData\\Local\\Programs\\SSRVPN\\bin\\ssrvpn/ge
+- 时间未记录｜信息｜运行记录：... log entry truncated ...
