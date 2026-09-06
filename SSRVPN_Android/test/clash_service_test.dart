@@ -29,6 +29,17 @@ proxies:
 
 class _RealHttpOverrides extends HttpOverrides {}
 
+class _SnapshotWriteObservationService extends ClashService {
+  void Function(String)? onConfigWritten;
+
+  @override
+  Future<String> writeConfig(String config) async {
+    final path = await super.writeConfig(config);
+    onConfigWritten?.call(path);
+    return path;
+  }
+}
+
 class _ConnectionGenerationObservationService extends ClashService {
   bool Function()? observationStillCurrent;
 
@@ -2390,7 +2401,7 @@ void main() {
         }
         return null;
       });
-      final service = ClashService()
+      final service = _SnapshotWriteObservationService()
         ..setPaths(
           configDir: dir.path,
           configPath: '${dir.path}${Platform.pathSeparator}config.yaml',
@@ -2403,38 +2414,33 @@ void main() {
         preparedConfigPath: activeConfigPath,
       );
       await stateQueryEntered.future;
+      final replacementPrepared = Completer<String>();
+      service.onConfigWritten = replacementPrepared.complete;
       final replacementFuture = service.writePreferredNodeConfig(
         _testProxies,
         AppSettings(apiSecret: 'test-secret'),
         '新加坡节点',
       );
-      String? preparedReplacement;
-      for (var attempt = 0; attempt < 100; attempt++) {
-        final candidates = await dir
-            .list(followLinks: false)
-            .where(
-              (entity) =>
-                  entity is File &&
-                  entity.path.endsWith('.yaml') &&
-                  entity.path != activeConfigPath,
-            )
-            .map((entity) => entity.path)
-            .toList();
-        if (candidates.isNotEmpty) {
-          preparedReplacement = candidates.single;
-          break;
+      try {
+        // Wait for the actual atomic write; runner load must not decide ordering.
+        final preparedReplacement = await replacementPrepared.future;
+        releaseStateQuery.complete(connectionState());
+        expect(await start, isTrue);
+        final committedReplacement = await replacementFuture;
+
+        expect(committedReplacement, preparedReplacement);
+        expect(await File(committedReplacement).exists(), isTrue);
+        expect(syncCalls, 2);
+      } finally {
+        if (!releaseStateQuery.isCompleted) {
+          releaseStateQuery.complete(connectionState());
         }
-        await Future<void>.delayed(const Duration(milliseconds: 1));
+        try {
+          await Future.wait<Object?>([start, replacementFuture]);
+        } finally {
+          service.dispose();
+        }
       }
-      expect(preparedReplacement, isNotNull);
-
-      releaseStateQuery.complete(connectionState());
-      expect(await start, isTrue);
-      final committedReplacement = await replacementFuture;
-
-      expect(committedReplacement, preparedReplacement);
-      expect(await File(committedReplacement).exists(), isTrue);
-      expect(syncCalls, 2);
     },
   );
 
