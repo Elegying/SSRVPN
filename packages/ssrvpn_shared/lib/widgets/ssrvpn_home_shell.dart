@@ -10,6 +10,9 @@ class SsrvpnHomeShell extends StatelessWidget {
       this.notices = const []});
   final Widget body, navigation;
   final List<Widget> notices;
+  static double bodyTopOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_HomeBodyOffset>()?.top ?? 0;
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
       builder: (context, constraints) => Column(children: [
@@ -24,8 +27,13 @@ class SsrvpnHomeShell extends StatelessWidget {
                       for (final notice in notices) Flexible(child: notice)
                     ],
                   )),
-            Expanded(child: body),
-            navigation,
+            Expanded(
+                child: LayoutBuilder(
+                    builder: (context, remaining) => _HomeBodyOffset(
+                          top: constraints.maxHeight - remaining.maxHeight,
+                          child: Column(
+                              children: [Expanded(child: body), navigation]),
+                        ))),
           ]));
 }
 
@@ -60,4 +68,11 @@ class SsrvpnHomeNotice extends StatelessWidget {
                   style: TextStyle(color: color, fontSize: 12))),
         ]),
       );
+}
+
+class _HomeBodyOffset extends InheritedWidget {
+  const _HomeBodyOffset({required this.top, required super.child});
+  final double top;
+  @override
+  bool updateShouldNotify(_HomeBodyOffset oldWidget) => top != oldWidget.top;
 }

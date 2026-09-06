@@ -29,12 +29,15 @@ void main() {
     const Size(380, 532), // macOS minimum minus titlebar.
     const Size(380, 560),
     const Size(380, 720),
+    const Size(380, 820),
+    const Size(380, 900),
     const Size(390, 844),
     const Size(412, 892),
     const Size(800, 900)
   ]) {
     for (final scale in [1.0, 1.5, 2.0]) {
-      testWidgets('connected home shares free space $size scale $scale',
+      testWidgets(
+          'connected home anchors node at viewport center $size scale $scale',
           (tester) async {
         await tester.binding.setSurfaceSize(size);
         addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -110,17 +113,20 @@ void main() {
               .evaluate()
               .isNotEmpty) {
             final header = rect('home-overview-header');
-            final group = rect('home-node-details');
+            final centered = rect('ssrvpn-home-content').height >= 602;
+            if (centered) {
+              expect(node.center.dy, closeTo(size.height / 2, .1));
+              expect(node.center.dx, closeTo(size.width / 2, .1));
+            }
             spareGaps.addAll([
               status.top - header.bottom - 12,
               power.top - status.bottom - 10,
               node.top - power.bottom - 12,
-              firstCard.top - group.bottom - 12,
+              firstCard.top - ip.bottom - 12,
             ]);
-            // Measure actual rendered groups: extra height must not accumulate
-            // below the IP, and must adapt to the natural text/card heights.
-            for (final gap in spareGaps) {
-              expect(gap, greaterThan(0));
+            // Share upper spare height without moving the centered card.
+            for (final gap in spareGaps.take(3)) {
+              expect(gap, greaterThanOrEqualTo(-.1));
               expect(gap, closeTo(spareGaps.first, .1));
             }
           }

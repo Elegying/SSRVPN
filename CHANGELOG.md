@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.32] - 2026-09-06
+
+### 首页节点位置
+
+- Android、macOS、Windows 的高窗口纵向首页以扣除系统/标题栏安全区后的主页中点定位节点选择卡；连接状态、公网 IPv4 与三卡/五卡切换不再使节点卡上下漂移。
+- 保留已确认的小窗口紧凑并排布局及受限高度布局；统计卡仍固定在底栏上方，公网 IPv4 与节点卡至少间隔 12 逻辑像素。
+- 上方标题、连接状态和圆形连接按钮继续按剩余高度分配间距，无主页滚动，不改变默认窗口大小、账号统计或代理行为。
+
 ## [4.0.31] - 2026-09-06
 
 ### 首页间距

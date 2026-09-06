@@ -100,3 +100,23 @@ class _ConnectionStatusPill extends StatelessWidget {
     );
   }
 }
+
+extension _HomeStatus on _HomeOverviewState {
+  String get _statusText {
+    if (widget.isConnecting) return widget.isConnected ? '正在断开' : '正在连接';
+    if (widget.errorMessage != null) return '连接异常';
+    if (widget.isConnected && widget.connectionNotice != null) return '网络待确认';
+    if (widget.isConnected) return '已连接';
+    return '未连接';
+  }
+
+  Color get _statusColor {
+    if (widget.isConnecting) return SsrvpnUiTokens.warning;
+    if (widget.errorMessage != null) return SsrvpnUiTokens.error;
+    if (widget.isConnected && widget.connectionNotice != null) {
+      return SsrvpnUiTokens.warning;
+    }
+    if (widget.isConnected) return SsrvpnUiTokens.success;
+    return SsrvpnUiTokens.textSecondary;
+  }
+}
