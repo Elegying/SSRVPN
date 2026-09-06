@@ -4,11 +4,38 @@
 
 当前应用版本：`v4.0.34`
 
-最新正式版本：[`v4.0.33`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.33)
+最新正式版本：[`v4.0.34`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.34)
 
 ## 当前结论
 
-`v4.0.34` 正在验证：比例与重置提醒合为一行，小于 0.1% 的非零比例保留两位小数；正式版本仍为下述 v4.0.33，待完整门禁及发布核验后更新。
+`v4.0.34` 已正式发布：三端已用流量卡在用量/额度下方同一行显示
+「已用50% 每月1日重置」。非零不足0.1%的比例四舍五入到两位小数，不再使用小于号；
+流量额度与单位仍由面板数据确定。账号用量卡按实际宽度分配空间，保留10px最小字号。
+
+[PR #213](https://github.com/Elegying/SSRVPN/pull/213) 经完整门禁合并，正式源码
+`207c1516b2ff794abcf5f732bab00dc6d39c27ab`。[PR CI](https://github.com/Elegying/SSRVPN/actions/runs/34034096195)、
+[精确 main CI](https://github.com/Elegying/SSRVPN/actions/runs/34034873373)、
+[Prepare](https://github.com/Elegying/SSRVPN/actions/runs/34034904004)、
+[Release](https://github.com/Elegying/SSRVPN/actions/runs/34035766259) 均成功。
+正式公开时间 `2026-09-06T13:36:57Z`，Release ID `383595853`。
+
+| 正式产物 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| SSRVPN.apk | 30,752,932 | `ad63fcfbfc0de50b8e734a673c5121b0bf99366e437c6be2b4a11e1ed756b673` |
+| SSRVPN.dmg | 27,402,480 | `5469f094704e3aa0d19a08bdab596b5cebd22bcef052425303af5daf249ab783` |
+| SSRVPN_Setup.exe | 31,150,241 | `2ec84a5abcd036937e7c8c8cbe2b38dd8de2d1d1bce528f77c4c3a4ac74ba7c9` |
+
+GitHub/OSS latest、三端固定与版本化完整安装包、校验文件和版本清单摘要均独立核验一致。
+Android原签名、macOS镜像与代码签名、三份绑定精确源码的attestation、公开provenance
+及PR/main/Release三轮Windows安装、升级、卸载记录均通过核验。
+
+本地完整门禁通过：共享1061项、Android289项、macOS316项、Windows Flutter293项；
+本机7项Windows API测试按平台跳过，由Windows CI执行。最终真实字体布局261项通过，
+504组几何测量零裁切/重叠、81组间距测量、连续窗口缩放和3↔5切换通过，最小字号10px。
+Android隔离原生9步、macOS隔离原生8步通过，提醒同一行及实际后台恢复已验证。
+Windows本机交互UI及生产VPN实机验收未覆盖；未操作USB正式客户端或真实账号。
+
+### v4.0.33 发布记录
 
 `v4.0.33` 已正式发布：三端账号卡显示面板实际用量/额度及比例（例如
 `125GB/250GB 50%`），单位自动选择，新增「每月1日重置」提醒。零额度显示 `—%`，
