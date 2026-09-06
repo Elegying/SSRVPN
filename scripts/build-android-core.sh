@@ -111,6 +111,7 @@ GOFLAGS=-trimpath "$GO_BIN" test -p 2 -tags=with_gvisor,cmfa ./bridge ./tunnel/s
 GOFLAGS=-trimpath gomobile bind \
   -target=android/arm64 \
   -androidapi=24 \
+  -ldflags="-s -w -buildid=" \
   -tags=with_gvisor,cmfa \
   -o "$BUILD_ROOT/libgojni.aar" \
   ./bridge
