@@ -120,12 +120,7 @@ class StartupOrchestrator {
             'Saved window bounds are outside current displays: $savedBounds',
           );
         }
-        await windowManager.setSize(WindowStateStore.defaultSize);
-        try {
-          await windowManager.center();
-        } catch (error, stack) {
-          StartupLogger.error('windowManager.center failed', error, stack);
-        }
+        await _setDefaultWindowBounds();
       }
 
       await windowManager.show();
@@ -144,6 +139,26 @@ class StartupOrchestrator {
         );
       }
       Error.throwWithStackTrace(error, stack);
+    }
+  }
+
+  Future<void> _setDefaultWindowBounds() async {
+    try {
+      final display = await screenRetriever
+          .getPrimaryDisplay()
+          .timeout(const Duration(seconds: 2));
+      await windowManager
+          .setBounds(WindowStateStore.initialBounds(_displayBounds(display)));
+      return;
+    } catch (error, stack) {
+      StartupLogger.error('Default window display lookup failed', error, stack);
+    }
+    // Keep startup usable when the display plugin is unavailable.
+    await windowManager.setSize(WindowStateStore.defaultSize);
+    try {
+      await windowManager.center();
+    } catch (error, stack) {
+      StartupLogger.error('windowManager.center failed', error, stack);
     }
   }
 

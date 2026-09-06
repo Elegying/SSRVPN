@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.31] - 2026-09-06
+
+### 首页间距
+
+- Android、macOS、Windows 同步调整首页：统计卡片继续贴近底栏，标题、连接状态、连接按钮与节点选择模块按实际剩余高度均衡分配间距，减少公网 IPv4 下方集中的大块空白。
+- 节点卡与公网 IPv4 保持 12 逻辑像素间隔，修复桌面最小窗口中两者过于贴近。
+- 随窗口大小、系统字体和三卡/五卡内容自然适配；保留小视口紧凑布局、圆形连接按钮、原点击区域与首页无滚动行为。
+
+### 桌面启动与后台恢复
+
+- Windows、macOS 首次启动或重置窗口时，以 440×720 逻辑像素纵向窗口为基准居中，按显示器可用工作区缩小并保留屏幕边距；保留已保存的用户窗口尺寸及 380×560 最小限制。
+- 修复短暂切到后台便清空账号统计的问题：后台停止轮询，同账号未过期的成功结果继续保留，恢复前台重新检查有效期。过期、失败、身份变化仍立即一起隐藏两块，休眠与时钟变化不能延长缓存有效期。
+
 ## [4.0.30] - 2026-09-06
 
 ### 账号统计

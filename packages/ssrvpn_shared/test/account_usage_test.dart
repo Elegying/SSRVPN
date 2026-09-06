@@ -178,6 +178,70 @@ void main() {
     expect(controller.value?.onlineDevices, 0);
     controller.update(node: null, revision: null, active: false);
   });
+  for (final scenario in [
+    (name: 'brief background', wall: 5, monotonic: 5, visible: true),
+    (
+      name: 'sleep pauses monotonic clock',
+      wall: 25,
+      monotonic: 0,
+      visible: false
+    ),
+    (
+      name: 'wall clock moves backwards',
+      wall: -5,
+      monotonic: 0,
+      visible: false
+    ),
+    (name: 'monotonic expiry wins', wall: 1, monotonic: 25, visible: false),
+  ]) {
+    testWidgets('resume validity: ${scenario.name}', (tester) async {
+      var elapsed = Duration.zero;
+      var wall = DateTime.utc(2026, 9, 6);
+      var calls = 0;
+      final pending = <Completer<AccountUsage>>[];
+      final controller = AccountUsageController(
+          providers: usageProviders(),
+          elapsed: () => elapsed,
+          wallNow: () => wall,
+          fetch: (_) {
+            calls++;
+            final request = Completer<AccountUsage>();
+            pending.add(request);
+            return request.future;
+          });
+      addTearDown(controller.dispose);
+      final node = usageNode(), revision = Object();
+      controller.update(node: node, revision: revision, active: true);
+      await tester.pump(const Duration(milliseconds: 1));
+      pending.single.complete(AccountUsage.parse(usageJson()));
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(controller.value, isNotNull);
+      controller.update(node: node, revision: revision, active: false);
+      elapsed += Duration(seconds: scenario.monotonic);
+      wall = wall.add(Duration(seconds: scenario.wall));
+      expect(calls, 1);
+      controller.update(node: node, revision: revision, active: true);
+      expect(controller.value != null, scenario.visible);
+      await tester.pump(scenario.visible
+          ? const Duration(seconds: 10)
+          : const Duration(milliseconds: 1));
+      expect(calls, 2);
+      if (scenario.visible) {
+        // Resuming must not grant a new full TTL.
+        elapsed += const Duration(seconds: 15);
+        expect(controller.value, isNull);
+      }
+      controller.update(
+          node: usageNode(password: 'synthetic-rotated'),
+          revision: revision,
+          active: false);
+      pending.last
+          .complete(AccountUsage.parse(usageJson(time: 1025, used: 99)));
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(controller.value, isNull);
+    });
+  }
+
   testWidgets(
       'old requests cannot survive ordinary node, rotation, deletion or subscription refresh',
       (tester) async {

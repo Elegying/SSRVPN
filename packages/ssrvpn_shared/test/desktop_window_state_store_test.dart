@@ -40,6 +40,31 @@ void main() {
     );
   });
 
+  test('initial portrait bounds fit and center in logical work areas', () {
+    for (final area in [
+      const Rect.fromLTWH(0, 24, 1920, 1032),
+      const Rect.fromLTWH(-1280, 0, 1280, 680),
+      const Rect.fromLTWH(0, 0, 400, 600),
+      const Rect.fromLTWH(20, 28, 380, 560),
+    ]) {
+      final bounds = DesktopWindowStateStore.initialBounds(area);
+      expect(bounds.center, area.center);
+      expect(bounds.width, inInclusiveRange(380, 440));
+      expect(bounds.height, inInclusiveRange(560, 720));
+      expect(bounds.left, greaterThanOrEqualTo(area.left));
+      expect(bounds.top, greaterThanOrEqualTo(area.top));
+      expect(bounds.right, lessThanOrEqualTo(area.right));
+      expect(bounds.bottom, lessThanOrEqualTo(area.bottom));
+    }
+    expect(
+        DesktopWindowStateStore.initialBounds(
+                const Rect.fromLTWH(0, 24, 1920, 1032))
+            .size,
+        const Size(440, 720));
+    expect(() => DesktopWindowStateStore.initialBounds(Rect.zero),
+        throwsArgumentError);
+  });
+
   test('round-trips valid bounds through an atomic save', () async {
     const bounds = Rect.fromLTWH(24, 48, 1180, 760);
 

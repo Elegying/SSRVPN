@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 
@@ -21,6 +22,25 @@ class DesktopWindowStateStore {
 
   static const Size defaultSize = Size(440, 720);
   static const Size minimumSize = Size(380, 560);
+
+  /// First launch/reset uses the portrait reference, centered in the usable
+  /// display area. Shrink the window (not the UI) on smaller screens, leaving
+  /// 16 logical pixels around it where the existing minimum permits.
+  static Rect initialBounds(Rect workArea) {
+    if (!workArea.isFinite || workArea.isEmpty) {
+      throw ArgumentError.value(
+          workArea, 'workArea', 'must be finite and nonempty');
+    }
+    final scale = math.min(
+        1.0,
+        math.min((workArea.width - 32) / defaultSize.width,
+            (workArea.height - 32) / defaultSize.height));
+    return Rect.fromCenter(
+      center: workArea.center,
+      width: math.max(minimumSize.width, defaultSize.width * scale),
+      height: math.max(minimumSize.height, defaultSize.height * scale),
+    );
+  }
 
   static const _currentSchemaVersion = 4;
   static const _legacySchemaVersions = <int>{1, 2, 3};

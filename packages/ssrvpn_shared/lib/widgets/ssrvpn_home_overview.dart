@@ -117,12 +117,15 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                   onTap: widget.onOpenNodes));
           Widget statistics({bool fill = true}) {
             if (widget.bottomContent == null) return const SizedBox();
+            final balanced = !wide && !minimal;
             final child = Align(
+                heightFactor: balanced ? 1 : null,
                 alignment: Alignment.bottomCenter,
                 child: KeyedSubtree(
                     key: _statisticsKey, child: widget.bottomContent!));
             return fill
-                ? Expanded(child: child)
+                ? Flexible(
+                    fit: balanced ? FlexFit.loose : FlexFit.tight, child: child)
                 : ConstrainedBox(
                     constraints: BoxConstraints(
                         maxHeight: (constraints.maxHeight - powerSize - 36)
@@ -137,100 +140,141 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                     key: const Key('ssrvpn-home-content'),
                     constraints: BoxConstraints(
                         maxWidth: wide ? 920 : SsrvpnUiTokens.pageMaxWidth),
-                    child: Column(children: [
-                      if (!wide) ...[
-                        SizedBox(
-                            height: 48,
-                            child: _HomeHeader(
-                                compact: compact,
-                                onShowAbout: widget.onShowAbout,
-                                onShowTutorial: widget.onShowTutorial)),
-                        SizedBox(height: gap),
-                      ],
-                      if (wide)
-                        Expanded(
-                            child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                              Column(mainAxisSize: MainAxisSize.min, children: [
-                                status,
-                                const SizedBox(height: 8),
-                                power
-                              ]),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                  child: Column(children: [
-                                SizedBox(
-                                    height: 48,
-                                    child: _HomeHeader(
-                                        compact: compact,
-                                        onShowAbout: widget.onShowAbout,
-                                        onShowTutorial: widget.onShowTutorial)),
-                                SizedBox(height: gap),
-                                Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Expanded(child: node()),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                          child: ConstrainedBox(
-                                              constraints: const BoxConstraints(
-                                                  maxHeight: 100),
-                                              child: Column(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    if (detailsVisible)
-                                                      Flexible(child: details)
-                                                  ]))),
-                                    ]),
-                              ])),
-                            ])),
-                      if (wide)
-                        statistics(fill: false)
-                      else ...[
-                        if (minimal)
-                          Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      status,
-                                      const SizedBox(height: 8),
-                                      power
-                                    ]),
-                                const SizedBox(width: 12),
-                                Expanded(
+                    child: !wide && !minimal
+                        ? Column(
+                            // Let the statistics take their natural height, then
+                            // share the remaining space between the main groups.
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                                Padding(
+                                  padding: EdgeInsets.only(bottom: gap),
+                                  child: SizedBox(
+                                      key: const Key('home-overview-header'),
+                                      height: 48,
+                                      child: _HomeHeader(
+                                          compact: compact,
+                                          onShowAbout: widget.onShowAbout,
+                                          onShowTutorial:
+                                              widget.onShowTutorial)),
+                                ),
+                                Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: status),
+                                Padding(
+                                    padding: EdgeInsets.only(bottom: gap),
+                                    child: power),
+                                Padding(
+                                    padding: EdgeInsets.only(bottom: gap),
                                     child: Column(
+                                        key: const Key('home-node-details'),
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                      if (constraints.maxWidth >= 360) node(),
-                                      if (detailsVisible)
-                                        ConstrainedBox(
-                                            constraints: const BoxConstraints(
-                                                maxHeight: 100),
-                                            child: details),
-                                    ])),
+                                          node(),
+                                          if (detailsVisible) ...[
+                                            const SizedBox(height: 12),
+                                            ConstrainedBox(
+                                                constraints:
+                                                    const BoxConstraints(
+                                                        maxHeight: 60),
+                                                child: details),
+                                          ],
+                                        ])),
+                                statistics(),
                               ])
-                        else ...[
-                          status,
-                          const SizedBox(height: 10),
-                          power,
-                          SizedBox(height: gap),
-                          node(),
-                          if (detailsVisible)
-                            ConstrainedBox(
-                                constraints:
-                                    const BoxConstraints(maxHeight: 60),
-                                child: details),
-                        ],
-                        if (minimal && constraints.maxWidth < 360) node(),
-                        SizedBox(height: gap),
-                        statistics(),
-                      ],
-                    ]))),
+                        : Column(children: [
+                            if (!wide) ...[
+                              SizedBox(
+                                  height: 48,
+                                  child: _HomeHeader(
+                                      compact: compact,
+                                      onShowAbout: widget.onShowAbout,
+                                      onShowTutorial: widget.onShowTutorial)),
+                              SizedBox(height: gap),
+                            ],
+                            if (wide)
+                              Expanded(
+                                  child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                    Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          status,
+                                          const SizedBox(height: 8),
+                                          power
+                                        ]),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                        child: Column(children: [
+                                      SizedBox(
+                                          height: 48,
+                                          child: _HomeHeader(
+                                              compact: compact,
+                                              onShowAbout: widget.onShowAbout,
+                                              onShowTutorial:
+                                                  widget.onShowTutorial)),
+                                      SizedBox(height: gap),
+                                      Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(child: node()),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                                child: ConstrainedBox(
+                                                    constraints:
+                                                        const BoxConstraints(
+                                                            maxHeight: 100),
+                                                    child: Column(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          if (detailsVisible)
+                                                            Flexible(
+                                                                child: details)
+                                                        ]))),
+                                          ]),
+                                    ])),
+                                  ])),
+                            if (wide)
+                              statistics(fill: false)
+                            else ...[
+                              if (minimal)
+                                Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            status,
+                                            const SizedBox(height: 8),
+                                            power
+                                          ]),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                          child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                            if (constraints.maxWidth >= 360)
+                                              node(),
+                                            if (detailsVisible) ...[
+                                              if (constraints.maxWidth >= 360)
+                                                const SizedBox(height: 12),
+                                              ConstrainedBox(
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                          maxHeight: 100),
+                                                  child: details),
+                                            ],
+                                          ])),
+                                    ]),
+                              if (minimal && constraints.maxWidth < 360) node(),
+                              SizedBox(height: gap),
+                              statistics(),
+                            ],
+                          ]))),
           );
         }),
       );
@@ -536,6 +580,7 @@ class _ConnectionDetails extends StatelessWidget {
             ? '公网 IPv4  $publicIpv4'
             : publicIpError ?? '获取公网 IPv4';
     return TextButton.icon(
+      key: const Key('home-public-ip'),
       onPressed: isRefreshingPublicIp ? null : onRefreshPublicIp,
       icon: isRefreshingPublicIp
           ? const SizedBox(
