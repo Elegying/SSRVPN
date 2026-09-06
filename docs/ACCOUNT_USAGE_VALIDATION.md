@@ -44,15 +44,15 @@ python3 scripts/prepare-usage-native-smoke.py
 
 这些检查限定于列出的受支持视口及连续区间，并非对无限小窗口的保证。更小视口若固定控件本身无法容纳，需要先明确产品布局取舍，不能用隐藏、裁切或恢复滚动冒充通过。
 
-最新原生窗口修复提交 `c7b2cde` 的 [GitHub CI](https://github.com/Elegying/SSRVPN/actions/runs/34007314915) 已全部完成：Windows build/policy、Android、macOS、macOS native、Workspace checks 均成功。随后的键盘背景布局修正已补充本地针对性回归；最终提交 CI 状态另行注明。
+最新原生窗口修复提交 `c7b2cde` 的 [GitHub CI](https://github.com/Elegying/SSRVPN/actions/runs/34007314915) 已全部完成：Windows build/policy、Android、macOS、macOS native、Workspace checks 均成功。键盘修正后的最终代码提交 `cb18bbd` 的 [三端 CI](https://github.com/Elegying/SSRVPN/actions/runs/34007986449) 也已全部成功。
 
 ## 原生验证边界
 
 | 平台 | 本地可执行项 | 不代表已验证的项目 |
 | --- | --- | --- |
-| Android | 完整 APK 构建、平台测试、Android 原生单元测试；隔离 Android 36 模拟器 360×640 原生引擎和本地 HTTPS 八步状态验证 | 无 USB 实机验收；未使用生产账号；未完成生产 VPN/TUN 端到端联调 |
+| Android | 完整 APK 构建、平台测试、Android 原生单元测试；完整客户端首页及导入弹窗/键盘实测；隔离 Android 36 模拟器 360×640 原生引擎和本地 HTTPS 八步状态验证 | 无 USB 实机验收；未使用生产账号；未完成生产 VPN/TUN 端到端联调 |
 | macOS | 完整应用构建、平台测试、原生单元测试；独立包名原生宿主和本地 HTTPS 八步状态验证 | 不启动或中断用户现用 VPN；未完成生产系统代理/TUN 与账号联调 |
-| Windows | 可在 macOS 执行的 Flutter 平台测试和静态守卫；原生构建应在 Windows CI/主机执行 | Windows CI 已在提交 c7b2cde 完成原生构建与策略门禁；本机没有 Windows 原生交互环境，实际手动拖窗/系统代理/TUN 验收仍未完成，不能以共享测试或 macOS 原生截图替代 |
+| Windows | 可在 macOS 执行的 Flutter 平台测试和静态守卫；原生构建应在 Windows CI/主机执行 | Windows CI 已在最终代码提交 cb18bbd 完成原生构建、安装包与策略门禁；本机没有 Windows 原生交互环境，实际手动拖窗/系统代理/TUN 验收仍未完成，不能以共享测试或 macOS 原生截图替代 |
 
 隔离宿主显式控制查询资格，避免检查截图时失焦暂停模拟查询；实际前后台接线由共享组件生命周期测试覆盖，不冒充原生完整应用生命周期验收。隔离宿主使用合成认证和临时测试证书，入口不会加载任何平台 VPN 服务或生产设置。八步为普通节点三块且零请求、首次等待三块、有效零值五块、本机连接五块、本机断开仍五块、刷新错误三块、恢复大数字五块、普通节点再次三块。截图只保存关键状态，JSON 记录全部八步。宿主不是要分发的 SSRVPN 客户端。
 
@@ -63,3 +63,24 @@ python3 scripts/prepare-usage-native-smoke.py
 [配置文件](../config/ssrvpn-usage-defines.json) 与 [接口契约](CLIENT_USAGE_API_V1.md) 已就绪。真实地址为 `https://panel.ssrvpn.vip:19998/api/v1/user/usage`，可信节点为用户确认的域名/IP 与 19999/443 六个组合。
 
 本任务无凭据 HTTPS GET 得到 404，TLS 校验正常。已核对 Hysteria2-panel 开发源码与文档字段一致，但生产路由尚未部署，也没有可用隔离账号。仍缺这两项；本人成功查询、数值与真实面板账本一致、三端生产网络路径均未验证。未编造线上成功结果。
+
+## 安装包与复现材料
+
+交付的 `SSRVPN-account-usage-arm64-test.apk` 为 AOT/R8 优化测试构建，31,318,340 字节（约 29.9 MiB），包名 `com.ssrvpn.android.debug`、版本 `4.0.29-test`，使用 Android Debug 测试签名，不覆盖正式客户端包名。SHA-256：`59baca186ec12b7fd1995756fe1043dec4b224d3c3dbc63a4b75635a656d58a7`。
+
+优化沿用仓库已有 release AOT、R8 和资源压缩设置，仅通过临时 Gradle init 配置将测试包名、显示名和签名隔离。没有修改仓库的正式签名/发布配置。已核对优化前后核心及数据库资产字节相同，且 HTTPS 提供方配置存在于 AOT 产物；优化包已在独立模拟器升级安装成功。未连接 USB 实机，未声称实机或真实 VPN 会话验收通过。
+
+实际优化构建命令为 Android 目录的 `./gradlew --no-daemon --init-script <交付材料中的 optimized-test.init.gradle> assembleRelease -Ptarget-platform=android-arm64 -Ptarget=lib/main.dart -Pdart-defines=<配置键值逐项 Base64 后以逗号连接> -Pdart-obfuscation=false -Ptrack-widget-creation=false -Ptree-shake-icons=true`。使用的是明确给出的非敏感提供方配置，未包含账号认证密钥。完整可复现脚本、init 配置、构建日志随本地交付材料提供。
+
+布局截图包含 `488x640-five-scale1.0-errorfalse.png`、`380x520-five-scale2.0-errortrue.png`、`320x568-five-scale2.0-errortrue.png`、`640x320-five-scale2.0-errortrue.png`，以及对应三卡模式。`measurements.json` 记录 504 次测量，全部无问题；最小实际字号 10。原生宿主的 `valid-zero.png`、`recovered-large.png`、`ordinary-again.png` 与八步 `report.json` 单独分平台保存。完整 Android 应用的优化包首页、导入弹窗键盘截图另存；不把旧系统 ANR 或已修复的溢出截图当作通过证据。
+
+## 主要修改文件
+
+| 范围 | 文件 |
+| --- | --- |
+| 模型、信任与查询 | `packages/ssrvpn_shared/lib/models/account_usage.dart`、`lib/services/account_usage_provider.dart`、`lib/services/account_usage_client.dart` |
+| 生命周期与采样隔离 | `packages/ssrvpn_shared/lib/controllers/account_usage_controller.dart`、`lib/widgets/ssrvpn_home_statistics.dart` |
+| 整页与卡片布局 | `packages/ssrvpn_shared/lib/widgets/ssrvpn_home_overview.dart`、`ssrvpn_home_overview_header.dart`、`ssrvpn_home_shell.dart`、`ssrvpn_home_traffic_panel.dart`、`ssrvpn_home_text.dart`、`ssrvpn_app_surface.dart`、`ssrvpn_version_update_footer.dart` |
+| 三端接线 | `SSRVPN_Android/lib/app.dart`、`lib/screens/home_screen.dart`；共享 `lib/desktop_ui/desktop_app_shell_part.dart`、`screens/desktop_home_screen_part.dart`；两桌面平台 `lib/app.dart` |
+| 原生窗口下限 | `SSRVPN_MacOS/macos/Runner/MainFlutterWindow.swift`、`RunnerTests/RunnerTests.swift`；`SSRVPN_Windows/windows/runner/win32_window.cpp`、`flutter_window.cpp` |
+| 配置与验证 | `config/ssrvpn-usage-defines.json`；四个共享 `account_usage_*test.dart`；既有首页回归；`scripts/prepare-usage-native-smoke.py` 与共享包 `tool/account_usage_native_smoke.dart` |
