@@ -4,14 +4,40 @@
 
 当前应用版本：`v4.0.31`
 
-最新正式版本：[`v4.0.30`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.30)
+最新正式版本：[`v4.0.31`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.31)
 
 ## 当前结论
 
-`v4.0.31` 正在准备发布：复用共享首页布局，将实际富余高度分配到标题、状态、按钮与
-节点卡之间，统计卡片继续贴近底部导航；补齐最小窗口 IP 间隔、桌面默认尺寸的工作区适配，
-以及短暂后台恢复保留有效账号统计。三端版本同步为 `4.0.31+4031`。
-验证记录见 [首页间距验证](HOME_SPACING_VALIDATION.md)。
+`v4.0.31` 已正式发布：统计卡片仍贴近底栏，上方各组按剩余高度均衡分配间距；
+桌面最小窗口节点卡与公网 IPv4 保持 12 逻辑像素间隔。桌面默认 440×720 适配显示器
+可用工作区并居中，保留已保存尺寸与原最小限制。短暂后台保留同账号未过期统计，
+过期、失败、身份变化仍一起隐藏两块。详见 [首页与后台验证](HOME_SPACING_VALIDATION.md)。
+
+[PR #207](https://github.com/Elegying/SSRVPN/pull/207) 经九项必需检查合并，正式源码
+`6529f5c4f73732ba09767d3206bd0295dbb94061`。
+[PR CI](https://github.com/Elegying/SSRVPN/actions/runs/34014446266)、
+[精确 main CI](https://github.com/Elegying/SSRVPN/actions/runs/34015089738)、
+[Prepare Release](https://github.com/Elegying/SSRVPN/actions/runs/34015141809)、
+[Release](https://github.com/Elegying/SSRVPN/actions/runs/34015736615) 全部成功。
+于 2026-09-06 06:21:49 UTC 正式公开，Release ID `383485765`。
+
+| 正式产物 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| SSRVPN.apk | 30,751,080 | `07edee827642886ac333546e7b466dbe321dd8419afded695c6b066380fc50ad` |
+| SSRVPN.dmg | 27,397,912 | `c6928661472c9da0db3d3333935776297771397f035185f3acd4d64849c4bf21` |
+| SSRVPN_Setup.exe | 31,144,148 | `6f3d1650ab90106aff0990ed86e13b5b039684b354cb84637df937c1c9148c5e` |
+
+独立实际下载确认：GitHub latest、OSS latest 指针、三端固定及版本化文件、sidecar 和
+GitHub API digest 全部一致；七项公开资产与统一 provenance 校验通过。
+三份 GitHub Attestations 绑定 `release.yml`、`refs/tags/v4.0.31` 与精确源码。
+Android 版本 4.0.31/4031 与原正式签名一致；macOS 镜像、代码签名与 4.0.31/4031
+版本校验通过。PR、main、Release 的 Windows 安装、升级、卸载日志均独立确认成功。
+符号单独归档，原有完整功能与优化构建保持。
+
+本地四包静态检查通过，共享 996 项通过、覆盖率 87.55%；中文布局 196 项通过；
+Android 真实首页组件 24 项、macOS 首页/启动 35 项、Windows 首页/启动 19 项通过。
+隔离 Android 模拟器实际 Home 切后台两秒再恢复，已连接状态下五卡完整，九步生命周期
+与本地 HTTPS 状态检查通过。未覆盖 USB 正式客户端或用户 VPN 会话，未冒充三端实机验收。
 
 ### 上一正式版本
 
