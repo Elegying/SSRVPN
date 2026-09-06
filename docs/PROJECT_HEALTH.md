@@ -4,9 +4,35 @@
 
 当前应用版本：`v4.0.33`
 
-最新正式版本：[`v4.0.32`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.32)
+最新正式版本：[`v4.0.33`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.33)
 
 ## 当前结论
+
+`v4.0.33` 已正式发布：三端账号卡显示面板实际用量/额度及比例（例如
+`125GB/250GB 50%`），单位自动选择，新增「每月1日重置」提醒。零额度显示 `—%`，
+超额不截断；提醒不触发客户端清零。既有可信归属、统计有效期与本机三项采样保持原逻辑。
+详见 [额度与重置提醒验证](ACCOUNT_USAGE_QUOTA_VALIDATION.md)。
+
+[PR #211](https://github.com/Elegying/SSRVPN/pull/211) 经全部必需门禁合并，正式源码
+`e6c302f3000b372835ad4c043a48d8c64b3a611c`。[PR CI](https://github.com/Elegying/SSRVPN/actions/runs/34024813436)、
+[精确 main CI](https://github.com/Elegying/SSRVPN/actions/runs/34025766797)、
+[Prepare](https://github.com/Elegying/SSRVPN/actions/runs/34025778428)、
+[Release](https://github.com/Elegying/SSRVPN/actions/runs/34026493664) 均成功。
+正式公开时间 `2026-09-06T10:19:35Z`，Release ID `383541265`。
+
+| 正式产物 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| SSRVPN.apk | 30,753,424 | `5db9df8796ce0387d1c3c95d08c7e4dd9479e45325ab924822d88a5bee2c96de` |
+| SSRVPN.dmg | 27,399,144 | `5eb40c69a5bb6ca72edef6bfdaa71457d6e61a365ca9868999e001725a94a6cd` |
+| SSRVPN_Setup.exe | 31,149,617 | `e17660ca75cc17f667da2797a6db5da5bb18369a813994003e1dac385705197e` |
+
+GitHub/OSS latest、三端固定与版本化完整文件、sidecar/API digest 全部独立核验一致。
+Android原正式签名、macOS镜像/代码签名、三份绑定精确源码的attestation及Windows
+安装/升级/卸载日志通过核验。本地完整门禁通过，精确PR共享1070项、最终布局270项
+通过，最小字号10px；Android隔离原生9步和macOS隔离原生8步通过。Windows交互UI
+及三端生产VPN实机验收不在本次证据范围内，未操作USB正式客户端或真实账号。
+
+### v4.0.32 发布记录
 
 `v4.0.32` 已正式发布：保持已确认的紧凑并排布局；高窗口纵向布局将节点卡自身固定在
 扣除系统/标题栏安全区后的主页中心，三卡/五卡、连接/断开不使节点卡漂移。
