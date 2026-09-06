@@ -9,7 +9,8 @@
 ## 当前源码修复（未发版）
 
 [PR #215](https://github.com/Elegying/SSRVPN/pull/215) 修复三端仅代理流量统计、Android
-常驻通知计数和核心可复现构建，补齐 Swift 扫描路径与 Windows 生命周期行为门槛。
+常驻通知计数、Android 在线模式重载和核心可复现构建，补齐 Swift 扫描与 Windows
+生命周期行为门槛。
 本机 Mac 和 USB Android 实际节点验收见[本轮报告](uat/SSRVPN_审查修复与实机验收_20260906.md)。
 Windows 人工实机待用户提交报告；远端最终检查与合并状态见该报告。
 本轮不发版；以下正式 v4.0.34 记录继续描述现有公开安装包。
