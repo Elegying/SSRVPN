@@ -928,11 +928,15 @@ void main() {
 }
 
 Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  // Real filesystem publication can overlap platform builds on development hosts.
+  // Keep a bounded wait and fail here instead of cascading into later dialogs.
+  final deadline = DateTime.now().add(const Duration(seconds: 30));
   while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
     await tester.pump(const Duration(milliseconds: 20));
   }
+  expect(finder, findsOneWidget,
+      reason: 'dialog did not reach the expected state');
 }

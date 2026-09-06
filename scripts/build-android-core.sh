@@ -56,7 +56,12 @@ for command in git unzip python3; do
   command -v "$command" >/dev/null 2>&1 || fail "$command is required"
 done
 
-BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ssrvpn-android-core.XXXXXX")"
+# gomobile records its local module replacement path in Go build information.
+# A random checkout directory therefore changes the .so even with -trimpath.
+# Atomic creation also rejects concurrent builds and pre-existing symlinks.
+BUILD_ROOT="/tmp/ssrvpn-android-core-build-v1"
+mkdir -m 700 "$BUILD_ROOT" ||
+  fail "canonical build directory is busy: $BUILD_ROOT"
 cleanup() {
   local exit_code=$?
   trap - EXIT

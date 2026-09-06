@@ -51,7 +51,7 @@ make verify
 
 | 关键文件 | 最低行覆盖率 | 当前锁定证据 |
 | --- | ---: | ---: |
-| Windows `clash_service_lifecycle.dart` | 50.00% | `350/700`（50.00%） |
+| Windows `clash_service_lifecycle.dart` | 51.00% | `358/700`（51.14%） |
 | macOS `clash_service_lifecycle.dart` | 60.00% | `308/485`（63.51%） |
 | macOS `system_proxy_service.dart` | 80.00% | `220/258`（85.27%） |
 
