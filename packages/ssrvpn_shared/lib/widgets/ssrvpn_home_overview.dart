@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'ssrvpn_home_text.dart';
+import 'ssrvpn_home_shell.dart';
 
 import '../models/proxy_node.dart';
 import '../utils/node_country_policy.dart';
@@ -8,6 +9,7 @@ import 'country_flag_icon.dart';
 import 'ssrvpn_app_surface.dart';
 
 part 'ssrvpn_home_overview_header.dart';
+part 'ssrvpn_home_centered_layout.dart';
 
 class SsrvpnHomeOverview extends StatefulWidget {
   const SsrvpnHomeOverview({
@@ -56,195 +58,143 @@ class SsrvpnHomeOverview extends StatefulWidget {
 class _HomeOverviewState extends State<SsrvpnHomeOverview> {
   // Preserve both samplers when responsive rows reparent the statistics subtree.
   final _statisticsKey = GlobalKey();
-  String get _statusText {
-    if (widget.isConnecting) return widget.isConnected ? '正在断开' : '正在连接';
-    if (widget.errorMessage != null) return '连接异常';
-    if (widget.isConnected && widget.connectionNotice != null) return '网络待确认';
-    if (widget.isConnected) return '已连接';
-    return '未连接';
-  }
-
-  Color get _statusColor {
-    if (widget.isConnecting) return SsrvpnUiTokens.warning;
-    if (widget.errorMessage != null) return SsrvpnUiTokens.error;
-    if (widget.isConnected && widget.connectionNotice != null) {
-      return SsrvpnUiTokens.warning;
-    }
-    if (widget.isConnected) return SsrvpnUiTokens.success;
-    return SsrvpnUiTokens.textSecondary;
-  }
-
   @override
-  Widget build(BuildContext context) => SafeArea(
-        bottom: false,
-        child: LayoutBuilder(builder: (context, constraints) {
-          final compact =
-              constraints.maxWidth < SsrvpnUiTokens.compactBreakpoint;
-          final short = constraints.maxHeight < 610;
-          final wide =
-              constraints.maxWidth >= 560 && constraints.maxHeight < 450;
-          final padding = compact ? 18.0 : 20.0;
-          final powerSize = short ? 124.0 : (compact ? 154.0 : 170.0);
-          final detailsVisible = widget.isConnected ||
-              widget.errorMessage != null ||
-              widget.connectionNotice != null;
-          final minimal = constraints.maxHeight < (detailsVisible ? 490 : 430);
-          final gap = minimal ? 4.0 : 12.0;
-          final status =
-              _ConnectionStatusPill(label: _statusText, color: _statusColor);
-          final details = _ConnectionDetails(
-              errorMessage: widget.errorMessage,
-              connectionNotice: widget.connectionNotice,
-              publicIpv4: widget.publicIpv4,
-              publicIpError: widget.publicIpError,
-              isRefreshingPublicIp: widget.isRefreshingPublicIp,
-              onShowLogs: widget.onShowLogs,
-              onRefreshPublicIp: widget.onRefreshPublicIp);
-          final power = SsrvpnPowerButton(
-              size: powerSize,
-              isConnected: widget.isConnected,
-              isConnecting: widget.isConnecting,
-              hasConnectionError: widget.errorMessage != null,
-              onTap: widget.onToggleConnection);
-          Widget node() => ConstrainedBox(
-              constraints: BoxConstraints(
-                  maxWidth: compact ? 300 : SsrvpnUiTokens.currentNodeMaxWidth),
-              child: SsrvpnCurrentNodeCard(
-                  node: widget.selectedNode,
-                  latency: widget.selectedLatency,
-                  countryCode: widget.selectedCountryCode,
-                  compact: true,
-                  onTap: widget.onOpenNodes));
-          Widget statistics({bool fill = true}) {
-            if (widget.bottomContent == null) return const SizedBox();
-            final balanced = !wide && !minimal;
-            final child = Align(
-                heightFactor: balanced ? 1 : null,
-                alignment: Alignment.bottomCenter,
-                child: KeyedSubtree(
-                    key: _statisticsKey, child: widget.bottomContent!));
-            return fill
-                ? Flexible(
-                    fit: balanced ? FlexFit.loose : FlexFit.tight, child: child)
-                : ConstrainedBox(
-                    constraints: BoxConstraints(
-                        maxHeight: (constraints.maxHeight - powerSize - 36)
-                            .clamp(0, double.infinity)),
-                    child: child);
-          }
+  Widget build(BuildContext context) {
+    final viewport = MediaQuery.of(context);
+    // Include the navigation in the home midpoint, exclude system/window insets.
+    final centerY = (viewport.size.height - viewport.padding.vertical) / 2 -
+        4 -
+        SsrvpnHomeShell.bodyTopOf(context);
+    return SafeArea(
+      bottom: false,
+      child: LayoutBuilder(builder: (context, constraints) {
+        final compact = constraints.maxWidth < SsrvpnUiTokens.compactBreakpoint;
+        final short = constraints.maxHeight < 610;
+        final wide = constraints.maxWidth >= 560 && constraints.maxHeight < 450;
+        final padding = compact ? 18.0 : 20.0;
+        final powerSize = short ? 124.0 : (compact ? 154.0 : 170.0);
+        final detailsVisible = widget.isConnected ||
+            widget.errorMessage != null ||
+            widget.connectionNotice != null;
+        final minimal = constraints.maxHeight < (detailsVisible ? 490 : 430);
+        final gap = minimal ? 4.0 : 12.0;
+        final status =
+            _ConnectionStatusPill(label: _statusText, color: _statusColor);
+        final details = _ConnectionDetails(
+            errorMessage: widget.errorMessage,
+            connectionNotice: widget.connectionNotice,
+            publicIpv4: widget.publicIpv4,
+            publicIpError: widget.publicIpError,
+            isRefreshingPublicIp: widget.isRefreshingPublicIp,
+            onShowLogs: widget.onShowLogs,
+            onRefreshPublicIp: widget.onRefreshPublicIp);
+        final power = SsrvpnPowerButton(
+            size: powerSize,
+            isConnected: widget.isConnected,
+            isConnecting: widget.isConnecting,
+            hasConnectionError: widget.errorMessage != null,
+            onTap: widget.onToggleConnection);
+        Widget node() => ConstrainedBox(
+            constraints: BoxConstraints(
+                maxWidth: compact ? 300 : SsrvpnUiTokens.currentNodeMaxWidth),
+            child: SsrvpnCurrentNodeCard(
+                node: widget.selectedNode,
+                latency: widget.selectedLatency,
+                countryCode: widget.selectedCountryCode,
+                compact: true,
+                onTap: widget.onOpenNodes));
+        Widget statistics({bool fill = true}) {
+          if (widget.bottomContent == null) return const SizedBox();
+          final balanced = !wide && !minimal;
+          final child = Align(
+              heightFactor: balanced ? 1 : null,
+              alignment: Alignment.bottomCenter,
+              child: KeyedSubtree(
+                  key: _statisticsKey, child: widget.bottomContent!));
+          return fill
+              ? Flexible(
+                  fit: balanced ? FlexFit.loose : FlexFit.tight, child: child)
+              : ConstrainedBox(
+                  constraints: BoxConstraints(
+                      maxHeight: (constraints.maxHeight - powerSize - 36)
+                          .clamp(0, double.infinity)),
+                  child: child);
+        }
 
-          return Padding(
-            padding: EdgeInsets.fromLTRB(padding, 4, padding, 4),
-            child: Center(
-                child: ConstrainedBox(
-                    key: const Key('ssrvpn-home-content'),
-                    constraints: BoxConstraints(
-                        maxWidth: wide ? 920 : SsrvpnUiTokens.pageMaxWidth),
-                    child: !wide && !minimal
-                        ? Column(
-                            // Let the statistics take their natural height, then
-                            // share the remaining space between the main groups.
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                                Padding(
-                                  padding: EdgeInsets.only(bottom: gap),
-                                  child: SizedBox(
-                                      key: const Key('home-overview-header'),
-                                      height: 48,
-                                      child: _HomeHeader(
-                                          compact: compact,
-                                          onShowAbout: widget.onShowAbout,
-                                          onShowTutorial:
-                                              widget.onShowTutorial)),
-                                ),
-                                Padding(
-                                    padding: const EdgeInsets.only(bottom: 10),
-                                    child: status),
-                                Padding(
+        return Padding(
+          padding: EdgeInsets.fromLTRB(padding, 4, padding, 4),
+          child: Center(
+              child: ConstrainedBox(
+                  key: const Key('ssrvpn-home-content'),
+                  constraints: BoxConstraints(
+                      maxWidth: wide ? 920 : SsrvpnUiTokens.pageMaxWidth),
+                  child: !wide && !minimal && !short
+                      ? _centeredHome(
+                          centerY: centerY,
+                          powerSize: powerSize,
+                          compact: compact,
+                          status: status,
+                          node: node(),
+                          details: details,
+                          detailsVisible: detailsVisible)
+                      : !wide && !minimal
+                          ? Column(
+                              // Let the statistics take their natural height, then
+                              // share the remaining space between the main groups.
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                  Padding(
                                     padding: EdgeInsets.only(bottom: gap),
-                                    child: power),
-                                Padding(
-                                    padding: EdgeInsets.only(bottom: gap),
-                                    child: Column(
-                                        key: const Key('home-node-details'),
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          node(),
-                                          if (detailsVisible) ...[
-                                            const SizedBox(height: 12),
-                                            ConstrainedBox(
-                                                constraints:
-                                                    const BoxConstraints(
-                                                        maxHeight: 60),
-                                                child: details),
-                                          ],
-                                        ])),
-                                statistics(),
-                              ])
-                        : Column(children: [
-                            if (!wide) ...[
-                              SizedBox(
-                                  height: 48,
-                                  child: _HomeHeader(
-                                      compact: compact,
-                                      onShowAbout: widget.onShowAbout,
-                                      onShowTutorial: widget.onShowTutorial)),
-                              SizedBox(height: gap),
-                            ],
-                            if (wide)
-                              Expanded(
-                                  child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.center,
-                                      children: [
-                                    Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          status,
-                                          const SizedBox(height: 8),
-                                          power
-                                        ]),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                        child: Column(children: [
-                                      SizedBox(
-                                          height: 48,
-                                          child: _HomeHeader(
-                                              compact: compact,
-                                              onShowAbout: widget.onShowAbout,
-                                              onShowTutorial:
-                                                  widget.onShowTutorial)),
-                                      SizedBox(height: gap),
-                                      Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                    child: SizedBox(
+                                        key: const Key('home-overview-header'),
+                                        height: 48,
+                                        child: _HomeHeader(
+                                            compact: compact,
+                                            onShowAbout: widget.onShowAbout,
+                                            onShowTutorial:
+                                                widget.onShowTutorial)),
+                                  ),
+                                  Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 10),
+                                      child: status),
+                                  Padding(
+                                      padding: EdgeInsets.only(bottom: gap),
+                                      child: power),
+                                  Padding(
+                                      padding: EdgeInsets.only(bottom: gap),
+                                      child: Column(
+                                          key: const Key('home-node-details'),
+                                          mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Expanded(child: node()),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                                child: ConstrainedBox(
-                                                    constraints:
-                                                        const BoxConstraints(
-                                                            maxHeight: 100),
-                                                    child: Column(
-                                                        mainAxisSize:
-                                                            MainAxisSize.min,
-                                                        children: [
-                                                          if (detailsVisible)
-                                                            Flexible(
-                                                                child: details)
-                                                        ]))),
-                                          ]),
-                                    ])),
-                                  ])),
-                            if (wide)
-                              statistics(fill: false)
-                            else ...[
-                              if (minimal)
-                                Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
+                                            node(),
+                                            if (detailsVisible) ...[
+                                              const SizedBox(height: 12),
+                                              ConstrainedBox(
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                          maxHeight: 60),
+                                                  child: details),
+                                            ],
+                                          ])),
+                                  statistics(),
+                                ])
+                          : Column(children: [
+                              if (!wide) ...[
+                                SizedBox(
+                                    height: 48,
+                                    child: _HomeHeader(
+                                        compact: compact,
+                                        onShowAbout: widget.onShowAbout,
+                                        onShowTutorial: widget.onShowTutorial)),
+                                SizedBox(height: gap),
+                              ],
+                              if (wide)
+                                Expanded(
+                                    child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        children: [
                                       Column(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
@@ -254,30 +204,81 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
                                           ]),
                                       const SizedBox(width: 12),
                                       Expanded(
-                                          child: Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                            if (constraints.maxWidth >= 360)
-                                              node(),
-                                            if (detailsVisible) ...[
+                                          child: Column(children: [
+                                        SizedBox(
+                                            height: 48,
+                                            child: _HomeHeader(
+                                                compact: compact,
+                                                onShowAbout: widget.onShowAbout,
+                                                onShowTutorial:
+                                                    widget.onShowTutorial)),
+                                        SizedBox(height: gap),
+                                        Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Expanded(child: node()),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                  child: ConstrainedBox(
+                                                      constraints:
+                                                          const BoxConstraints(
+                                                              maxHeight: 100),
+                                                      child: Column(
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
+                                                          children: [
+                                                            if (detailsVisible)
+                                                              Flexible(
+                                                                  child:
+                                                                      details)
+                                                          ]))),
+                                            ]),
+                                      ])),
+                                    ])),
+                              if (wide)
+                                statistics(fill: false)
+                              else ...[
+                                if (minimal)
+                                  Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              status,
+                                              const SizedBox(height: 8),
+                                              power
+                                            ]),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                            child: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
                                               if (constraints.maxWidth >= 360)
-                                                const SizedBox(height: 12),
-                                              ConstrainedBox(
-                                                  constraints:
-                                                      const BoxConstraints(
-                                                          maxHeight: 100),
-                                                  child: details),
-                                            ],
-                                          ])),
-                                    ]),
-                              if (minimal && constraints.maxWidth < 360) node(),
-                              SizedBox(height: gap),
-                              statistics(),
-                            ],
-                          ]))),
-          );
-        }),
-      );
+                                                node(),
+                                              if (detailsVisible) ...[
+                                                if (constraints.maxWidth >= 360)
+                                                  const SizedBox(height: 12),
+                                                ConstrainedBox(
+                                                    constraints:
+                                                        const BoxConstraints(
+                                                            maxHeight: 100),
+                                                    child: details),
+                                              ],
+                                            ])),
+                                      ]),
+                                if (minimal && constraints.maxWidth < 360)
+                                  node(),
+                                SizedBox(height: gap),
+                                statistics(),
+                              ],
+                            ]))),
+        );
+      }),
+    );
+  }
 }
 
 class SsrvpnPowerButton extends StatelessWidget {

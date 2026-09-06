@@ -53,3 +53,14 @@ When changing a shared visual decision, update this guide and the relevant
 - First-run and tutorial flows are data-driven where practical.
 - Large UI files should move repeated widgets or static content into focused
   widgets/data constants before adding more logic.
+
+## Home node position
+
+In the tall vertical home layout (overview height at least 610 logical pixels
+after the top safe inset, before its 4px padding), the node card itself is
+centered in the full home viewport, including bottom navigation but excluding
+system/titlebar safe insets. Header, status and connection button share the
+remaining upper space. Statistics remain anchored above navigation, and node
+to public-IP spacing is at least 12px. Three/five cards and connection changes
+do not move the node midpoint. Existing constrained-height and compact side-by-side
+layouts remain unchanged; no minimum-window increase or scrolling is introduced.
