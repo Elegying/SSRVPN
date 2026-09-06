@@ -110,6 +110,7 @@ class _NativeSmokeState extends State<_NativeSmoke> {
   Future<void> check(String step, int count, {bool screenshot = false}) async {
     await WidgetsBinding.instance.endOfFrame;
     final cards = <RenderBox>[];
+    final controls = <String, RenderBox>{};
     void inspect(Element element) {
       final key = element.widget.key;
       if (element.widget is Scrollable) {
@@ -118,6 +119,17 @@ class _NativeSmokeState extends State<_NativeSmoke> {
       if (key is ValueKey<String> &&
           key.value.startsWith('home-traffic-card-')) {
         cards.add(element.renderObject! as RenderBox);
+      }
+      if (key is ValueKey<String> &&
+          const {
+            'ssrvpn-power-button',
+            'ssrvpn-current-node-card',
+            'ssrvpn-about-button',
+            'ssrvpn-tutorial-button',
+            'ssrvpn-bottom-navigation',
+            'home-connection-status'
+          }.contains(key.value)) {
+        controls[key.value] = element.renderObject! as RenderBox;
       }
       element.visitChildren(inspect);
     }
@@ -129,6 +141,25 @@ class _NativeSmokeState extends State<_NativeSmoke> {
     }
     final boundary =
         capture.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+    for (final entry in controls.entries) {
+      final rect = entry.value.localToGlobal(Offset.zero) & entry.value.size;
+      if (rect.left < 0 ||
+          rect.top < 0 ||
+          rect.right > boundary.size.width ||
+          rect.bottom > boundary.size.height) {
+        throw StateError('$step: control outside viewport ${entry.key} $rect');
+      }
+    }
+    final power = controls['ssrvpn-power-button']!;
+    final status = controls['home-connection-status']!;
+    if ((power.size.width - power.size.height).abs() > .1 ||
+        ((power.localToGlobal(Offset.zero).dx + power.size.width / 2) -
+                    (status.localToGlobal(Offset.zero).dx +
+                        status.size.width / 2))
+                .abs() >
+            .1) {
+      throw StateError('$step: connection group misaligned');
+    }
     final rects =
         cards.map((box) => box.localToGlobal(Offset.zero) & box.size).toList();
     for (var i = 0; i < rects.length; i++) {

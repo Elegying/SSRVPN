@@ -202,6 +202,17 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_GETMINMAXINFO: {
+      // Match DesktopWindowStateStore even before plugins or in safe mode.
+      auto* bounds = reinterpret_cast<MINMAXINFO*>(lparam);
+      const HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+      const double scale = FlutterDesktopGetDpiForMonitor(monitor) / 96.0;
+      const LONG width = Scale(380, scale);
+      const LONG height = Scale(560, scale);
+      if (bounds->ptMinTrackSize.x < width) bounds->ptMinTrackSize.x = width;
+      if (bounds->ptMinTrackSize.y < height) bounds->ptMinTrackSize.y = height;
+      return 0;
+    }
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();

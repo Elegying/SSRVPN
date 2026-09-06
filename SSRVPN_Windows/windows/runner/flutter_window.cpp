@@ -536,6 +536,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
         flutter_controller_->HandleTopLevelWindowProc(hwnd, message, wparam,
                                                       lparam);
     if (result) {
+      if (message == WM_GETMINMAXINFO) {
+        Win32Window::MessageHandler(hwnd, message, wparam, lparam);
+      }
       return *result;
     }
   }

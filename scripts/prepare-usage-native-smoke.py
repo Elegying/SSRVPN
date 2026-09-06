@@ -2,6 +2,7 @@
 """Create a disposable native host; never load SSRVPN settings or VPN services."""
 import base64
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -30,6 +31,25 @@ def main():
         if "com.apple.security.network.server" not in text:
             text = text.replace("<dict>", "<dict>\n<key>com.apple.security.network.server</key><true/>", 1)
         path.write_text(text)
+    policy = (repository / "packages/ssrvpn_shared/lib/utils/desktop_window_state_store.dart").read_text()
+    minimum = re.search(r"minimumSize = Size\((\d+), (\d+)\)", policy)
+    if minimum is None:
+        raise SystemExit("Cannot resolve the existing desktop minimum size")
+    width, height = minimum.groups()
+    mac = host / "macos/Runner/MainFlutterWindow.swift"
+    mac.write_text(mac.read_text().replace(
+        "    let flutterViewController", f"    minSize = NSSize(width: {width}, height: {height})\n    let flutterViewController", 1))
+    windows = host / "windows/runner/win32_window.cpp"
+    windows.write_text(windows.read_text().replace(
+        "    case WM_DESTROY:", f"""    case WM_GETMINMAXINFO: {{
+      auto* bounds = reinterpret_cast<MINMAXINFO*>(lparam);
+      const auto monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+      const double scale = FlutterDesktopGetDpiForMonitor(monitor) / 96.0;
+      bounds->ptMinTrackSize.x = Scale({width}, scale);
+      bounds->ptMinTrackSize.y = Scale({height}, scale);
+      return 0;
+    }}
+    case WM_DESTROY:""", 1))
     cert, key = host / "test-cert.pem", host / "test-key.pem"
     result = subprocess.run([
         "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
