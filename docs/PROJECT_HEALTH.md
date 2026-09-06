@@ -4,11 +4,44 @@
 
 当前应用版本：`v4.0.32`
 
-`v4.0.32` 正在验证首页纵向节点居中修复；正式发布状态以以下已完成版本为准。
-
-最新正式版本：[`v4.0.31`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.31)
+最新正式版本：[`v4.0.32`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.32)
 
 ## 当前结论
+
+`v4.0.32` 已正式发布：保持已确认的紧凑并排布局；高窗口纵向布局将节点卡自身固定在
+扣除系统/标题栏安全区后的主页中心，三卡/五卡、连接/断开不使节点卡漂移。
+统计区继续贴底，公网 IPv4 与节点卡至少间隔 12px，现有最小窗口及默认启动尺寸不变。
+详见 [首页节点居中验证](HOME_NODE_CENTER_VALIDATION.md)。
+
+[PR #209](https://github.com/Elegying/SSRVPN/pull/209) 经全部必需门禁合并，正式源码
+`3f123e0d0c6cbff86d02529c94f5fc310c967f12`。
+[PR CI](https://github.com/Elegying/SSRVPN/actions/runs/34020379011)、
+[精确 main CI](https://github.com/Elegying/SSRVPN/actions/runs/34020954461)、
+[Release](https://github.com/Elegying/SSRVPN/actions/runs/34021696215) 最终全部成功。
+[初始 Prepare](https://github.com/Elegying/SSRVPN/actions/runs/34020994062) 已创建正确标签并
+触发 Release；首轮 runner 到 OSS 上传仅约 30–36 KiB/s，首个文件上传至 84% 时取消
+该次发布作业以更换 runner，因此 Prepare 的等待结果为失败。随后仅重试发布作业，
+复用同一草稿 ID、标签、三端安装包和构建证明；没有重建覆盖资产或移动标签。
+正式公开时间 `2026-09-06T08:52:59Z`，Release ID `383515955`。
+
+| 正式产物 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| SSRVPN.apk | 30,751,132 | `6e77188ec12258c75f9ec0544508ae496ed0b01592028883d83f0abbe1e11057` |
+| SSRVPN.dmg | 27,399,892 | `e1e7ce4814003b78235681f7c8116febc7c747699357d33f515f8cd679ea3ffe` |
+| SSRVPN_Setup.exe | 31,149,886 | `82cc69d8bc87cde7f5bcd5e96c1bf4a2c782c2c5549f120606b14abf17812cb5` |
+
+独立完整下载核验：GitHub latest、OSS latest、三端固定/版本化文件、SHA256 sidecar
+与 GitHub API digest 全部一致。三份 attestation 绑定正式标签、工作流和精确源码；
+Android 原正式签名与 4.0.32/4032、macOS 镜像和代码签名/版本通过核验。
+PR、main、Release 的 Windows 安装、升级、卸载日志均独立确认成功，三端符号另行归档。
+
+完整本地 `make verify` 通过，共享 1006 项/87.65% 覆盖率、Android 289 项、macOS 316 项、
+Windows Flutter 293 项通过；本机 7 项 Windows API 测试按平台跳过，由 Windows CI 验证。
+中文布局 206 项通过；六张紧凑布局截图与 4.0.31 逐字节一致。隔离 Android 原生九步、
+macOS 原生八步通过；macOS 380×762 视口中卡中心始终为 (190,381)。未冒充三端正式
+客户端实机验收，未操作 USB 手机、生产 VPN 或真实账号。
+
+### v4.0.31 发布记录
 
 `v4.0.31` 已正式发布：统计卡片仍贴近底栏，上方各组按剩余高度均衡分配间距；
 桌面最小窗口节点卡与公网 IPv4 保持 12 逻辑像素间隔。桌面默认 440×720 适配显示器
