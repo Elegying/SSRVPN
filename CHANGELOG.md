@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.34] - 2026-09-06
+
+### 账号流量提醒
+
+- 三端「已用流量」在用量/额度下方同一行显示「已用50% 每月1日重置」。
+- 非零不足 0.1% 的比例按两位小数显示，例如 0.01%、0.05%，不再使用小于号；超额仍按实际数据计算。
+- 根据实际宽度为账号用量卡分配更多空间，保留小窗口可读字号与原三项统计。
+
 ## [4.0.33] - 2026-09-06
 
 ### 账号流量额度

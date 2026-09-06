@@ -22,9 +22,13 @@ void main() {
     (300 * gb, 250 * gb, '300GB/250GB', '120%'),
     (0, 0, '0B/0B', '—%'),
     (gb, 0, '1GB/0B', '—%'),
-    (1, gb, '1B/1GB', '<0.1%'),
+    (1, gb, '1B/1GB', '0.00%'),
+    (1, 10000, '1B/9.8KB', '0.01%'),
+    (5, 10000, '5B/9.8KB', '0.05%'),
+    (96, 100000, '96B/97.7KB', '0.10%'),
+    (1, 1000, '1B/1000B', '0.1%'),
     (1, 3, '1B/3B', '33.3%'),
-    (9223372036854775807, 1, '8EB/1B', '9.22e+20%'),
+    (9223372036854775807, 1, '8EB/1B', '9.2e20%'),
   ];
   test('quota, units and percentage use both original panel counters', () {
     for (final (used, limit, amount, percentage) in cases) {
@@ -39,7 +43,8 @@ void main() {
   for (final width in [284.0, 324.0, 354.0, 366.0, 380.0]) {
     for (final height in [54.0, 80.0, 99.0, 100.0, 120.0, 180.0]) {
       for (final scale in [1.0, 1.5, 2.0]) {
-        if (height < 100 && width < 366) continue;
+        // The full home uses the 380px panel at its shortest wide viewport.
+        if (height < 100 && width < 380) continue;
         testWidgets('quota remains readable $width $height scale $scale',
             (tester) async {
           await tester.binding.setSurfaceSize(const Size(500, 600));
@@ -64,7 +69,11 @@ void main() {
                                     readSample: () async => null,
                                     accountUsage: quota(used, limit))))))));
             await tester.pump();
-            expect(find.textContaining('每月1日重置'), findsOneWidget);
+            final reminder = find.text(
+                '已用${formatAccountUsage(quota(used, limit)).percentage} 每月1日重置');
+            expect(reminder, findsOneWidget);
+            expect((tester.widget<Text>(reminder)).maxLines, 1);
+            expect(find.textContaining('<'), findsNothing);
             final finder = find.byKey(const Key('home-traffic-card-已用流量'));
             final rect = tester.getRect(finder);
             initial ??= rect;
