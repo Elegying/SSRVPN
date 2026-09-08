@@ -1,6 +1,7 @@
 # SSRVPN 阿里云 OSS 发布运维
 
-SSRVPN 的正式发布仍由 Git tag 触发。GitHub Actions 先构建并校验三端产物，
+SSRVPN 的正常发布从 `Prepare Release` 手动入口开始；精确 main CI 与保护策略通过后，
+该流程创建不可变 Git tag 并调度 `Release`。GitHub Actions 先构建并校验三端产物，
 创建暂不公开的 GitHub Draft Release，再把同一批文件上传到阿里云 OSS 的
 不可变版本目录。不可变文件验证完成后，工作流先备份并推广网站固定下载文件与
 兼容运维指针 `latest.json`，再立即公开 GitHub Release。这样 GitHub 新版本不会先于
@@ -65,8 +66,9 @@ no-cache`。事务备份使用带 RAM 凭据的 OSS 源端读取，公开回读�
 
 1. 修改并同步三端版本号和 `CHANGELOG.md`。
 2. 运行 `make verify`，确认 `main` CI 全绿。
-3. 创建并推送 `vX.Y.Z` tag。
-4. 等待 GitHub Actions 的 `Release` workflow 全绿。
+3. 在 GitHub Actions 运行 `Prepare Release`，输入与应用版本一致的 `vX.Y.Z`。
+   编排会等待并复核精确 main CI，确认保护策略后创建 tag；不要另行手工推送 tag。
+4. 等待 `Prepare Release` 与其调度的 `Release` workflow 全绿。
 5. 运行 `scripts/check-release-assets.sh vX.Y.Z` 检查 GitHub 资产。
 6. 检查 OSS 指针和所有下载 URL：
 
@@ -82,6 +84,11 @@ no-cache`。事务备份使用带 RAM 凭据的 OSS 源端读取，公开回读�
 
 不需要手动进入 OSS 控制台上传版本文件。手工上传容易造成校验文件、清单和
 实际产物不一致；正常版本只允许工作流写入。
+
+核心源码仍由精确 main CI 在规范 macOS 主机重建一次。Prepare/Release 只复用同仓库、
+精确提交、24 小时内且全部必需门禁成功的该 CI 核心制品，重新验证制品身份、归档摘要及
+每个文件的固定 SHA-256。没有制品或已过期才回退规范源码重建；身份、API、摘要异常直接
+失败，不以重建掩盖异常。三端安装包仍由 Release 构建、签名并校验，公开通道事务不变。
 
 ## 发布前测试 OSS 权限
 

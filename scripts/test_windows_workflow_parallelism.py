@@ -24,7 +24,7 @@ class WindowsWorkflowParallelismTest(unittest.TestCase):
         aggregate = job(workflow, "windows")
 
         self.assertNotIn("          - name: Windows\n", platform)
-        self.assertIn("    needs: [changes, secret-scan]\n", policy)
+        self.assertIn("    needs: [changes, secret-scan, dependency-preflight]\n", policy)
         self.assertIn("    needs: [changes, core-assets, secret-scan]\n", build)
         for child in (policy, build):
             self.assertIn("    runs-on: windows-latest\n", child)

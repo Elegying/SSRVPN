@@ -194,19 +194,20 @@ fi
 
 require_tag_absent
 
-bash scripts/bootstrap-core-assets.sh
-bash scripts/verify-core-assets.sh
-
-unexpected="$(git diff --name-only -- .)"
-if [ -n "$unexpected" ]; then
-  printf 'Unexpected tracked files changed:\n%s\n' "$unexpected" >&2
-  exit 1
-fi
-untracked="$(git ls-files --others --exclude-standard)"
-if [ -n "$untracked" ]; then
-  printf 'Unexpected untracked files created:\n%s\n' "$untracked" >&2
-  exit 1
-fi
+require_clean_worktree() {
+  local unexpected untracked
+  unexpected="$(git diff --name-only -- .)"
+  if [ -n "$unexpected" ]; then
+    printf 'Unexpected tracked files changed:\n%s\n' "$unexpected" >&2
+    exit 1
+  fi
+  untracked="$(git ls-files --others --exclude-standard)"
+  if [ -n "$untracked" ]; then
+    printf 'Unexpected untracked files created:\n%s\n' "$untracked" >&2
+    exit 1
+  fi
+}
+require_clean_worktree
 
 main_ci_reused=false
 main_ci_waited=false
@@ -325,6 +326,9 @@ while true; do
       ;;
   esac
 done
+
+bash scripts/prepare-release-core-assets.sh "$main_ci_run_id"
+require_clean_worktree
 
 git fetch --no-tags origin main:refs/remotes/origin/main
 if [ "$(git rev-parse --verify 'origin/main^{commit}')" != "$main_sha" ]; then

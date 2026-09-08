@@ -174,7 +174,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
                 #!/usr/bin/env bash
                 set -euo pipefail
                 case "${1:-}" in
-                  scripts/check-version-sync.sh|scripts/bootstrap-core-assets.sh|scripts/verify-core-assets.sh)
+                  scripts/check-version-sync.sh|scripts/bootstrap-core-assets.sh|scripts/verify-core-assets.sh|scripts/prepare-release-core-assets.sh)
                     printf 'bash %s\n' "$*" >> "$FAKE_COMMAND_LOG"
                     exit 0
                     ;;
@@ -511,12 +511,12 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         bootstrap = next(
             index
             for index, line in enumerate(command_lines)
-            if "bootstrap-core-assets" in line
+            if "prepare-release-core-assets" in line
         )
         verify_assets = next(
             index
             for index, line in enumerate(command_lines)
-            if "verify-core-assets" in line
+            if "prepare-release-core-assets" in line
         )
         tag_push = next(
             index
@@ -570,8 +570,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
             )
         ]
         self.assertEqual(len(protection_calls), 2)
-        bootstrap = preparer.index("bash scripts/bootstrap-core-assets.sh")
-        verify = preparer.index("bash scripts/verify-core-assets.sh")
+        bootstrap = preparer.index("bash scripts/prepare-release-core-assets.sh")
         main_ci = preparer.index('dispatch_workflow "ci.yml" main')
         reusable_ci = preparer.index("find-reusable-main-ci.py")
         create_tag = preparer.index('git tag -a "$tag"')
@@ -579,8 +578,8 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
         release = preparer.index('dispatch_workflow "release.yml" "$tag"')
 
         self.assertLess(protection_calls[0], bootstrap)
-        self.assertLess(bootstrap, verify)
-        self.assertLess(verify, reusable_ci)
+        self.assertLess(main_ci, bootstrap)
+        self.assertLess(bootstrap, protection_calls[1])
         self.assertLess(reusable_ci, main_ci)
         self.assertLess(main_ci, protection_calls[1])
         self.assertLess(protection_calls[1], create_tag)
@@ -618,7 +617,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
 
         remote_tag_guard = preparer.index("refs/tags/$tag")
         release_guard = preparer.index('releases/tags/$tag')
-        bootstrap = preparer.index("bash scripts/bootstrap-core-assets.sh")
+        bootstrap = preparer.index("bash scripts/prepare-release-core-assets.sh")
         self.assertLess(remote_tag_guard, bootstrap)
         self.assertLess(release_guard, bootstrap)
 
@@ -627,7 +626,7 @@ class PrepareReleaseWorkflowTest(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("Bootstrap pinned core assets", workflow)
+        self.assertIn("Reuse verified CI cores or rebuild pinned assets", workflow)
         self.assertIn("Verify pinned GeoIP assets", workflow)
         self.assertNotIn("Require the latest GeoIP snapshot", workflow)
         self.assertNotIn("scripts/sync-geoip-metadb.py", workflow)

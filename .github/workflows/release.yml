@@ -154,8 +154,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Bootstrap pinned core assets
-        run: bash scripts/bootstrap-core-assets.sh
+      - name: Reuse verified CI cores or rebuild pinned assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/prepare-release-core-assets.sh
 
       - name: Verify pinned GeoIP assets
         run: bash scripts/verify-core-assets.sh

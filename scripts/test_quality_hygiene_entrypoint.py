@@ -79,7 +79,8 @@ class QualityHygieneEntrypointTest(unittest.TestCase):
                 self.assertIsNone(unguarded_pub_get.search(source))
 
         locked_get = "flutter pub get --enforce-lockfile"
-        self.assertEqual(4, ci.count(locked_get))
+        # The lightweight dependency preflight resolves the same committed lock.
+        self.assertEqual(5, ci.count(locked_get))
         self.assertEqual(4, release.count(locked_get))
         self.assertNotIn("dart pub get", release)
         self.assertIn(

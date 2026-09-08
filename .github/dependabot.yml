@@ -20,9 +20,21 @@ updates:
     schedule:
       interval: "weekly"
     groups:
+      # Flutter SDK pins these packages; review them with a Flutter upgrade.
+      flutter-sdk-bound:
+        patterns:
+          - "meta"
+          - "characters"
+          - "collection"
+          - "test"
       pub-minor-patch:
         patterns:
           - "*"
+        exclude-patterns:
+          - "meta"
+          - "characters"
+          - "collection"
+          - "test"
         update-types:
           - "minor"
           - "patch"
@@ -42,9 +54,21 @@ updates:
     schedule:
       interval: "weekly"
     groups:
+      # AGP, Gradle and Kotlin must migrate together with verification metadata.
+      android-toolchain:
+        patterns:
+          - "com.android.*"
+          - "org.jetbrains.kotlin.*"
+          - "org.gradle.*"
+          - "gradle"
       android-gradle-minor-patch:
         patterns:
           - "*"
+        exclude-patterns:
+          - "com.android.*"
+          - "org.jetbrains.kotlin.*"
+          - "org.gradle.*"
+          - "gradle"
         update-types:
           - "minor"
           - "patch"

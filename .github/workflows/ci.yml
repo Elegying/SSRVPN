@@ -97,6 +97,24 @@ jobs:
       - name: Analyze workflow code
         uses: github/codeql-action/analyze@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4
 
+  dependency-preflight:
+    name: Dependency and source preflight
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: bash scripts/check-version-sync.sh
+      - run: bash scripts/check-package-guides.sh
+      - run: bash scripts/check-doc-consistency.sh
+      - run: bash scripts/check-shared-barrel-imports.sh
+      - run: bash scripts/check-android-built-in-kotlin.sh
+
   shared:
     name: Workspace checks
     needs: [core-assets, secret-scan]
@@ -149,8 +167,15 @@ jobs:
 
   core-assets:
     name: Prepare verified core assets
+    needs: dependency-preflight
+    if: always()
     runs-on: macos-15
     steps:
+      # Keep a required check failed (not merely skipped) when preflight fails.
+      - name: Require successful dependency preflight
+        env:
+          PREFLIGHT_RESULT: ${{ needs.dependency-preflight.result }}
+        run: test "$PREFLIGHT_RESULT" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - run: bash scripts/bootstrap-core-assets.sh
@@ -343,7 +368,7 @@ jobs:
   windows-policy-tests:
     name: Windows policy tests
     if: needs.changes.outputs.platform_required == 'true'
-    needs: [changes, secret-scan]
+    needs: [changes, secret-scan, dependency-preflight]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
