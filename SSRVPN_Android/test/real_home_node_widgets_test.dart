@@ -48,6 +48,88 @@ void main() {
 
   tearDown(SubscriptionService.resetInstanceForTesting);
 
+  testWidgets('Home uses cached endpoint country in overview and selector',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _AndroidHomeFixture.create(_RecordingAndroidClashService()),
+    ))!;
+    addTearDown(fixture.dispose);
+    final original = fixture.subscription.allNodes.first;
+    fixture.clash.setPaths(
+      configDir: fixture.directory.path,
+      configPath: '${fixture.directory.path}/config.yaml',
+    );
+    await tester.runAsync(() => File(
+          '${fixture.directory.path}/${NodeCountryController.cacheFileName}',
+        ).writeAsString(jsonEncode({
+          'version': 1,
+          'countries': {NodeCountryController.endpointKey(original): 'SE'},
+        })));
+
+    await tester.pumpWidget(fixture.build());
+    final overview = find.byKey(const Key('ssrvpn-current-node-card'));
+    await _waitForCountryFlag(tester, overview, 'SE');
+    expect(find.text('东京节点'), findsOneWidget);
+
+    await tester.tap(overview);
+    await tester.pumpAndSettle();
+    final selectedRow = find.byKey(const ValueKey('ssrvpn-node-card-东京节点'));
+    await _waitForCountryFlag(tester, selectedRow, 'SE');
+    await _waitForCountryFlag(
+      tester,
+      find.byKey(const ValueKey('ssrvpn-node-card-新加坡节点')),
+      'SG',
+    );
+    expect(fixture.clash.isRunning, isFalse);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('Home drops cached country when a same-name endpoint changes',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _AndroidHomeFixture.create(_RecordingAndroidClashService()),
+    ))!;
+    addTearDown(fixture.dispose);
+    final original = fixture.subscription.allNodes.first;
+    fixture.clash.setPaths(
+      configDir: fixture.directory.path,
+      configPath: '${fixture.directory.path}/config.yaml',
+    );
+    await tester.runAsync(() => File(
+          '${fixture.directory.path}/${NodeCountryController.cacheFileName}',
+        ).writeAsString(jsonEncode({
+          'version': 1,
+          'countries': {NodeCountryController.endpointKey(original): 'SE'},
+        })));
+
+    await tester.pumpWidget(fixture.build());
+    final overview = find.byKey(const Key('ssrvpn-current-node-card'));
+    await _waitForCountryFlag(tester, overview, 'SE');
+    await tester.tap(overview);
+    await tester.pumpAndSettle();
+    final selectedRow = find.byKey(const ValueKey('ssrvpn-node-card-东京节点'));
+    await _waitForCountryFlag(tester, selectedRow, 'SE');
+
+    await tester.runAsync(() => fixture.subscription.setRawYaml(
+          _nodeYaml.replaceFirst('127.0.0.1', '127.0.0.3'),
+        ));
+    final replacement = fixture.subscription.allNodes.first;
+    expect(replacement.name, original.name);
+    expect(NodeCountryController.endpointKey(replacement),
+        isNot(NodeCountryController.endpointKey(original)));
+    await _waitForCountryFlag(tester, selectedRow, 'JP');
+    await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
+    await tester.pumpAndSettle();
+    await _waitForCountryFlag(tester, overview, 'JP');
+    expect(find.text('东京节点'), findsOneWidget);
+    expect(fixture.clash.isRunning, isFalse);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   Widget host(Widget child, {Size size = const Size(430, 900)}) {
     return MaterialApp(
       theme: AppTheme.darkTheme,
@@ -705,6 +787,71 @@ void main() {
     expect(clash.liveSwitchCalls, 0);
   });
 
+  testWidgets('failed online reload publishes its failure and clears busy UI',
+      (tester) async {
+    final clash = _FailedReloadAndroidClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('全局'));
+    await _waitForAsyncCondition(tester, () => clash.startCalls == 1);
+    clash.releaseStart.complete(false);
+    await _waitForAsyncCondition(tester, () => !clash.connectionDesired);
+    await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
+    await tester.pump(const Duration(milliseconds: 350));
+
+    final overview = tester.widget<SsrvpnHomeOverview>(
+      find.byType(SsrvpnHomeOverview),
+    );
+    expect(overview.isConnecting, isFalse);
+    expect(overview.isConnected, isFalse);
+    expect(overview.errorMessage, startsWith('尚未允许 VPN 连接\n'));
+    expect(clash.stopCalls, 1);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('cancelled online reload ignores its later startup failure',
+      (tester) async {
+    final clash = _FailedReloadAndroidClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('全局'));
+    await _waitForAsyncCondition(tester, () => clash.startCalls == 1);
+    await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+    await _waitForAsyncCondition(tester, () => !clash.connectionDesired);
+    clash.releaseStart.complete(false);
+    await tester.pump();
+    await tester.pump();
+
+    final overview = tester.widget<SsrvpnHomeOverview>(
+      find.byType(SsrvpnHomeOverview),
+    );
+    expect(overview.isConnecting, isFalse);
+    expect(overview.isConnected, isFalse);
+    expect(overview.errorMessage, isNull);
+    expect(clash.stopCalls, 2);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets(
       'failed offline snapshot invalidation keeps the old proxy mode visible',
       (tester) async {
@@ -1004,6 +1151,26 @@ Future<void> _waitForWidget(
   expect(finder, findsWidgets);
 }
 
+Future<void> _waitForCountryFlag(
+  WidgetTester tester,
+  Finder scope,
+  String country,
+) async {
+  final flag = find.descendant(
+    of: scope,
+    matching: find.byWidgetPredicate(
+      (widget) => widget is CountryFlagIcon && widget.countryCode == country,
+    ),
+  );
+  for (var attempt = 0; attempt < 100 && flag.evaluate().isEmpty; attempt++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump();
+  }
+  expect(flag, findsOneWidget);
+}
+
 class _AndroidHomeFixture {
   _AndroidHomeFixture({
     required this.directory,
@@ -1213,6 +1380,29 @@ class _SuccessfulInitialSwitchAndroidClashService
       intentCurrent: true,
       runtimeNodeName: nodeName,
     );
+  }
+}
+
+class _FailedReloadAndroidClashService
+    extends _FailedInitialSwitchAndroidClashService {
+  final releaseStart = Completer<bool>();
+  var startCalls = 0;
+  var stopCalls = 0;
+
+  @override
+  Future<void> stop() async {
+    stopCalls++;
+    setRunning(false);
+    // Deliver the stopped state before the failed start result. There need not
+    // be another native broadcast after the reload owner receives that result.
+    onStatusChanged?.call();
+  }
+
+  @override
+  Future<bool> start({String? nodeName, String? preparedConfigPath}) async {
+    startCalls++;
+    setLastStartError('用户拒绝了 VPN 权限');
+    return releaseStart.future;
   }
 }
 

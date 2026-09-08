@@ -1,151 +1,29 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
+part of 'node_country_lookup.dart';
 
-import 'package:flutter/services.dart';
-
-class IpGeoService {
-  IpGeoService._();
-
-  static final IpGeoService instance = IpGeoService._();
-
-  final Map<String, String> _countryCache = {};
-  final Map<String, String> _ipCache = {};
-  final Map<String, Future<String>> _pendingCountry = {};
-  Future<_MmdbCountryReader?>? _readerFuture;
-
-  String? cachedCountryForHost(String host) {
-    final key = _hostKey(host);
-    if (key.isEmpty) return null;
-    return _countryCache[key];
+_MmdbCountryReader _decodeCountryDatabase(Uint8List compressed) {
+  if (compressed.length > 8 * 1024 * 1024) {
+    throw const FormatException('Country database archive is too large');
   }
+  final output = _BoundedDatabaseBytes();
+  final decoder = gzip.decoder.startChunkedConversion(output);
+  decoder.add(compressed);
+  decoder.close();
+  return _MmdbCountryReader(output.bytes.takeBytes());
+}
 
-  Future<String> countryCodeForHost(String host) {
-    final key = _hostKey(host);
-    if (key.isEmpty) return Future.value('UN');
+class _BoundedDatabaseBytes implements Sink<List<int>> {
+  final bytes = BytesBuilder(copy: false);
 
-    final cached = _countryCache[key];
-    if (cached != null) return Future.value(cached);
-
-    return _pendingCountry.putIfAbsent(key, () async {
-      try {
-        final ip = await _resolveIp(key);
-        if (ip == null || _isPrivateAddress(ip)) return _remember(key, 'UN');
-
-        final reader = await _loadReader();
-        final country = reader?.countryCodeForIp(ip);
-        return _remember(key, _normalizeCountry(country));
-      } catch (_) {
-        return _remember(key, 'UN');
-      } finally {
-        _pendingCountry.remove(key);
-      }
-    });
-  }
-
-  String _remember(String host, String country) {
-    final normalized = _normalizeCountry(country);
-    _countryCache[host] = normalized;
-    return normalized;
-  }
-
-  Future<String?> _resolveIp(String host) async {
-    final cached = _ipCache[host];
-    if (cached != null) return cached;
-
-    final parsed = InternetAddress.tryParse(host);
-    if (parsed != null) {
-      _ipCache[host] = parsed.address;
-      return parsed.address;
+  @override
+  void add(List<int> chunk) {
+    if (bytes.length + chunk.length > 32 * 1024 * 1024) {
+      throw const FormatException('Country database is too large');
     }
-
-    final addresses = await InternetAddress.lookup(host)
-        .timeout(const Duration(milliseconds: 2600));
-    if (addresses.isEmpty) return null;
-
-    final preferred = addresses
-        .where((address) =>
-            address.type == InternetAddressType.IPv4 &&
-            !_isPrivateAddress(address.address))
-        .toList();
-    final selected = preferred.isNotEmpty ? preferred.first : addresses.first;
-    _ipCache[host] = selected.address;
-    return selected.address;
+    bytes.add(chunk);
   }
 
-  Future<_MmdbCountryReader?> _loadReader() {
-    return _readerFuture ??= _loadReaderFromAsset();
-  }
-
-  Future<_MmdbCountryReader?> _loadReaderFromAsset() async {
-    try {
-      final compressed = await rootBundle.load('assets/geoip.metadb.gz');
-      final bytes = gzip.decode(compressed.buffer.asUint8List());
-      return _MmdbCountryReader(Uint8List.fromList(bytes));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  String _hostKey(String value) {
-    var host = value.trim();
-    if (host.isEmpty) return '';
-
-    final parsedUri = Uri.tryParse(host);
-    if (parsedUri != null && parsedUri.hasScheme && parsedUri.host.isNotEmpty) {
-      host = parsedUri.host;
-    }
-
-    if (host.startsWith('[')) {
-      final end = host.indexOf(']');
-      if (end > 0) host = host.substring(1, end);
-    }
-
-    final slash = host.indexOf('/');
-    if (slash >= 0) host = host.substring(0, slash);
-
-    final ipv4Port =
-        RegExp(r'^(\d{1,3}(?:\.\d{1,3}){3}):\d+$').firstMatch(host);
-    if (ipv4Port != null) host = ipv4Port.group(1)!;
-
-    return host.trim().toLowerCase();
-  }
-
-  String _normalizeCountry(String? country) {
-    final value = country?.trim().toUpperCase() ?? '';
-    if (value.length != 2) return 'UN';
-    if (value == 'UK') return 'GB';
-    if (value == 'EL') return 'GR';
-    if (RegExp(r'^[A-Z]{2}$').hasMatch(value)) return value;
-    return 'UN';
-  }
-
-  bool _isPrivateAddress(String ip) {
-    final address = InternetAddress.tryParse(ip);
-    if (address == null) return false;
-    if (address.isLoopback || address.isLinkLocal || address.isMulticast) {
-      return true;
-    }
-
-    final bytes = address.rawAddress;
-    if (address.type == InternetAddressType.IPv4 && bytes.length == 4) {
-      final first = bytes[0];
-      final second = bytes[1];
-      return first == 0 ||
-          first == 10 ||
-          first == 127 ||
-          (first == 100 && second >= 64 && second <= 127) ||
-          (first == 169 && second == 254) ||
-          (first == 172 && second >= 16 && second <= 31) ||
-          (first == 192 && second == 168);
-    }
-
-    if (address.type == InternetAddressType.IPv6 && bytes.length == 16) {
-      return (bytes[0] & 0xfe) == 0xfc || bytes[0] == 0;
-    }
-
-    return false;
-  }
+  @override
+  void close() {}
 }
 
 class _MmdbCountryReader {
@@ -155,7 +33,7 @@ class _MmdbCountryReader {
       throw const FormatException('Missing MaxMind metadata.');
     }
 
-    final decoder = _MmdbDecoder(_bytes, baseOffset: 0);
+    final decoder = _MmdbDecoder(_bytes, baseOffset: metadataStart);
     final result = decoder.decode(metadataStart);
     final metadata = result.value;
     if (metadata is! Map) {
@@ -165,9 +43,24 @@ class _MmdbCountryReader {
     _nodeCount = _readInt(metadata['node_count']);
     _recordSize = _readInt(metadata['record_size']);
     _ipVersion = _readInt(metadata['ip_version']);
+    if (_nodeCount <= 0 ||
+        !const [24, 28, 32].contains(_recordSize) ||
+        !const [4, 6].contains(_ipVersion)) {
+      throw const FormatException('Invalid MaxMind tree metadata');
+    }
     _nodeByteSize = _recordSize ~/ 4;
     _searchTreeSize = _nodeCount * _nodeByteSize;
-    _dataDecoder = _MmdbDecoder(_bytes, baseOffset: _searchTreeSize);
+    if (_searchTreeSize + 16 >= metadataStart - _metadataMarker.length ||
+        _bytes
+            .sublist(_searchTreeSize, _searchTreeSize + 16)
+            .any((b) => b != 0)) {
+      throw const FormatException('Invalid MaxMind tree boundary');
+    }
+    // Data pointers are relative to the data section after the 16-byte
+    // separator: https://maxmind.github.io/MaxMind-DB/#pointer---1
+    _dataDecoder = _MmdbDecoder(_bytes,
+        baseOffset: _searchTreeSize + 16,
+        endOffset: metadataStart - _metadataMarker.length);
     _ipv4StartNode = _ipVersion == 6 ? _resolveIpv4StartNode() : 0;
   }
 
@@ -200,6 +93,9 @@ class _MmdbCountryReader {
   String? countryCodeForIp(String ip) {
     final address = InternetAddress.tryParse(ip);
     if (address == null) return null;
+    if (_ipVersion == 4 && address.type == InternetAddressType.IPv6) {
+      return null;
+    }
 
     var node = address.type == InternetAddressType.IPv4 && _ipVersion == 6
         ? _ipv4StartNode
@@ -207,22 +103,28 @@ class _MmdbCountryReader {
     final bitCount = address.type == InternetAddressType.IPv4 ? 32 : 128;
     final raw = address.rawAddress;
 
+    if (node > _nodeCount) return _countryAtPointer(node);
     for (var i = 0; i < bitCount; i++) {
       final bit = (raw[i >> 3] >> (7 - (i & 7))) & 1;
       node = _readNode(node, bit);
       if (node == _nodeCount) return null;
       if (node > _nodeCount) {
-        final offset = node - _nodeCount;
-        final decoded = _dataDecoder.decode(_searchTreeSize + offset).value;
-        return _extractCountryCode(decoded);
+        return _countryAtPointer(node);
       }
     }
 
     return null;
   }
 
+  String? _countryAtPointer(int node) {
+    final offset = node - _nodeCount + _searchTreeSize;
+    if (offset < _searchTreeSize + 16) return null;
+    return _extractCountryCode(_dataDecoder.decode(offset).value);
+  }
+
   int _metadataStart() {
-    for (var i = _bytes.length - _metadataMarker.length; i >= 0; i--) {
+    final minimum = _bytes.length > 128 * 1024 ? _bytes.length - 128 * 1024 : 0;
+    for (var i = _bytes.length - _metadataMarker.length; i >= minimum; i--) {
       var matches = true;
       for (var j = 0; j < _metadataMarker.length; j++) {
         if (_bytes[i + j] != _metadataMarker[j]) {
@@ -245,7 +147,9 @@ class _MmdbCountryReader {
 
   int _readNode(int nodeNumber, int index) {
     final offset = nodeNumber * _nodeByteSize;
-    if (offset < 0 || offset + _nodeByteSize > _bytes.length) return _nodeCount;
+    if (offset < 0 || offset + _nodeByteSize > _searchTreeSize) {
+      return _nodeCount;
+    }
 
     if (_recordSize == 24) {
       final left = _uint24(offset);
@@ -306,11 +210,6 @@ class _MmdbCountryReader {
         final nested = _extractCountryCode(value[key]);
         if (nested != null) return nested;
       }
-
-      for (final nested in value.values) {
-        final result = _extractCountryCode(nested);
-        if (result != null) return result;
-      }
     }
 
     if (value is List) {
@@ -324,38 +223,46 @@ class _MmdbCountryReader {
   }
 
   String? _validCountryCode(String? value) {
-    final code = value?.trim().toUpperCase() ?? '';
-    if (code.length != 2) return null;
-    if (!RegExp(r'^[A-Z]{2}$').hasMatch(code)) return null;
-    if (code == 'UK') return 'GB';
-    if (code == 'EL') return 'GR';
-    return code;
+    final code = normalizeNodeCountryCode(value ?? '');
+    return code == 'UN' ? null : code;
   }
 }
 
 class _MmdbDecoder {
-  const _MmdbDecoder(this._bytes, {required this.baseOffset});
+  const _MmdbDecoder(this._bytes, {required this.baseOffset, this.endOffset});
 
   final Uint8List _bytes;
   final int baseOffset;
+  final int? endOffset;
 
-  _MmdbValue decode(int offset) {
+  _MmdbValue decode(int offset) => _decode(offset, 0, _MmdbBudget());
+
+  _MmdbValue _decode(int offset, int depth, _MmdbBudget budget) {
+    if (depth > 32 || --budget.values < 0) {
+      throw const FormatException('MaxMind decode work limit');
+    }
     final header = _readHeader(offset);
     var cursor = header.offset;
 
     switch (header.type) {
       case 1:
         final pointerOffset = baseOffset + header.pointer;
-        final pointed = decode(pointerOffset);
+        if (_readHeader(pointerOffset).type == 1) {
+          throw const FormatException('MaxMind pointer to pointer');
+        }
+        final pointed = _decode(pointerOffset, depth + 1, budget);
         return _MmdbValue(pointed.value, cursor);
       case 2:
         final end = cursor + header.size;
+        _requirePayload(cursor, header.size, budget);
         return _MmdbValue(utf8.decode(_bytes.sublist(cursor, end)), end);
       case 3:
         final end = cursor + header.size;
+        _require(cursor, header.size);
         return _MmdbValue(null, end);
       case 4:
         final end = cursor + header.size;
+        _requirePayload(cursor, header.size, budget);
         return _MmdbValue(_bytes.sublist(cursor, end), end);
       case 5:
       case 6:
@@ -364,25 +271,38 @@ class _MmdbDecoder {
       case 10:
         var value = 0;
         final end = cursor + header.size;
+        if (header.size > 16) {
+          throw const FormatException('MaxMind integer size');
+        }
+        _require(cursor, header.size);
         while (cursor < end) {
           value = (value << 8) | _bytes[cursor];
           cursor++;
         }
         return _MmdbValue(value, cursor);
       case 7:
+        if (header.size * 2 > budget.values) {
+          throw const FormatException('MaxMind map size');
+        }
         final map = <String, Object?>{};
         for (var i = 0; i < header.size; i++) {
-          final key = decode(cursor);
+          final key = _decode(cursor, depth + 1, budget);
           cursor = key.offset;
-          final value = decode(cursor);
+          final value = _decode(cursor, depth + 1, budget);
           cursor = value.offset;
-          map[key.value.toString()] = value.value;
+          if (key.value is! String) {
+            throw const FormatException('MaxMind map key');
+          }
+          map[key.value as String] = value.value;
         }
         return _MmdbValue(map, cursor);
       case 11:
+        if (header.size > budget.values) {
+          throw const FormatException('MaxMind array size');
+        }
         final list = <Object?>[];
         for (var i = 0; i < header.size; i++) {
-          final item = decode(cursor);
+          final item = _decode(cursor, depth + 1, budget);
           cursor = item.offset;
           list.add(item.value);
         }
@@ -391,13 +311,29 @@ class _MmdbDecoder {
         return _MmdbValue(header.size != 0, cursor);
       case 15:
         final end = cursor + header.size;
+        _require(cursor, header.size);
         return _MmdbValue(null, end);
       default:
-        return _MmdbValue(null, cursor + header.size);
+        throw const FormatException('Unsupported MaxMind value');
     }
   }
 
+  void _require(int offset, int length) {
+    if (offset < baseOffset ||
+        length < 0 ||
+        offset + length > (endOffset ?? _bytes.length)) {
+      throw const FormatException('MaxMind value out of bounds');
+    }
+  }
+
+  void _requirePayload(int offset, int length, _MmdbBudget budget) {
+    _require(offset, length);
+    budget.bytes -= length;
+    if (budget.bytes < 0) throw const FormatException('MaxMind payload limit');
+  }
+
   _MmdbHeader _readHeader(int offset) {
+    _require(offset, 1);
     final control = _bytes[offset];
     var cursor = offset + 1;
     var type = control >> 5;
@@ -405,13 +341,15 @@ class _MmdbDecoder {
     var pointer = 0;
 
     if (type == 0) {
+      _require(cursor, 1);
       type = _bytes[cursor] + 7;
       cursor++;
     }
 
     if (type == 1) {
       final pointerSize = ((control >> 3) & 0x03) + 1;
-      pointer = control & (0xff >> (pointerSize + 3));
+      _require(cursor, pointerSize);
+      pointer = pointerSize == 4 ? 0 : control & 0x07;
       for (var i = 0; i < pointerSize; i++) {
         pointer = (pointer << 8) | _bytes[cursor];
         cursor++;
@@ -427,12 +365,15 @@ class _MmdbDecoder {
     }
 
     if (size == 29) {
+      _require(cursor, 1);
       size = 29 + _bytes[cursor];
       cursor++;
     } else if (size == 30) {
+      _require(cursor, 2);
       size = 285 + ((_bytes[cursor] << 8) | _bytes[cursor + 1]);
       cursor += 2;
     } else if (size == 31) {
+      _require(cursor, 3);
       size = 65821 +
           ((_bytes[cursor] << 16) |
               (_bytes[cursor + 1] << 8) |
@@ -447,6 +388,11 @@ class _MmdbDecoder {
       pointer: pointer,
     );
   }
+}
+
+class _MmdbBudget {
+  int values = 4096;
+  int bytes = 256 * 1024;
 }
 
 class _MmdbHeader {

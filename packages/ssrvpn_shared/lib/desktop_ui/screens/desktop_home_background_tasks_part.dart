@@ -59,6 +59,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
   }
 
   void _handleClashStatusChanged() {
+    _syncNodeCountries();
     final clashService = _clashService;
     if (clashService == null || !_canUpdateUi) return;
     final running = clashService.isRunning;
@@ -84,9 +85,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
         _latencyController.clear();
         _selectedNode = null;
         _resetPublicIpState();
-        _exitCountryResolveGeneration++;
       } else {
-        _scheduleExitCountryResolution();
         _schedulePublicIpRefresh();
         unawaited(_syncSelectedNodeFromRuntime(statusEpoch));
       }

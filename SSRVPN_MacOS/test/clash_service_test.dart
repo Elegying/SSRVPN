@@ -615,7 +615,7 @@ void main() {
       });
     }
 
-    test('native status watcher handles an immediate unexpected exit',
+    test('native status watcher waits one second and retains exit diagnostics',
         () async {
       const channel = MethodChannel('ssrvpn/core_process');
       final messenger =
@@ -627,6 +627,9 @@ void main() {
         if (await tempDir.exists()) await tempDir.delete(recursive: true);
       });
       var statusCalls = 0;
+      final pollClock = Stopwatch()..start();
+      Duration? startupStatusAt;
+      Duration? firstWatchAt;
       final nativeCalls = <String>[];
       messenger.setMockMethodCallHandler(channel, (call) async {
         nativeCalls.add(call.method);
@@ -638,6 +641,8 @@ void main() {
             };
           case 'ownedCoreStatus':
             statusCalls++;
+            if (statusCalls == 2) startupStatusAt = pollClock.elapsed;
+            if (statusCalls == 3) firstWatchAt = pollClock.elapsed;
             if (statusCalls <= 2) {
               return {
                 'isRunning': true,
@@ -720,6 +725,9 @@ void main() {
       await exited.future.timeout(const Duration(seconds: 3));
 
       expect(statusCalls, greaterThanOrEqualTo(3));
+      expect(firstWatchAt! - startupStatusAt!,
+          greaterThanOrEqualTo(const Duration(milliseconds: 900)));
+      expect(service.recentLogs, contains('native failed'));
       expect(nativeCalls, contains('removeOwnedCorePidRecord'));
       expect(service.isRunning, isFalse);
       expect(
@@ -985,6 +993,16 @@ void main() {
         service.generateClashConfig(_subscriptionYaml, AppSettings()),
       );
       expect(await service.start(), isTrue);
+      // Stopping while the watcher is asleep must not wait for its one-second
+      // cadence or issue a final status request before terminating the core.
+      final stoppedWhileSleeping = Stopwatch()..start();
+      await service.stop().timeout(const Duration(milliseconds: 800));
+      expect(stoppedWhileSleeping.elapsed,
+          lessThan(const Duration(milliseconds: 800)));
+      expect(statusCalls, 2);
+      expect(terminateCalls, 1);
+      statusCalls = 0;
+      expect(await service.start(), isTrue);
       await watcherPolled.future.timeout(const Duration(seconds: 3));
 
       final stopping = service.stop();
@@ -998,7 +1016,7 @@ void main() {
       await stopping;
 
       expect(removeCalls, 0);
-      expect(terminateCalls, 1);
+      expect(terminateCalls, 2);
       expect(service.isRunning, isFalse);
     });
 

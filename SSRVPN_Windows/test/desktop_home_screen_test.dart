@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show Tristate;
 
@@ -36,6 +37,92 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   tearDown(SubscriptionService.resetInstanceForTesting);
+
+  testWidgets('Home uses cached endpoint country in overview and selector',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    final original = fixture.subscription.allNodes.first;
+    fixture.clash.setPaths(
+      configDir: fixture.directory.path,
+      configPath: '${fixture.directory.path}/config.yaml',
+    );
+    await tester.runAsync(() => File(
+          '${fixture.directory.path}/${NodeCountryController.cacheFileName}',
+        ).writeAsString(jsonEncode({
+          'version': 1,
+          'countries': {NodeCountryController.endpointKey(original): 'SE'},
+        })));
+
+    await tester.pumpWidget(fixture.build());
+    final overview = find.byKey(const Key('ssrvpn-current-node-card'));
+    await _waitForCountryFlag(tester, overview, 'SE');
+    expect(find.text('东京节点'), findsOneWidget);
+
+    await tester.tap(overview);
+    await tester.pumpAndSettle();
+    final selectedRow = find.byKey(const ValueKey('ssrvpn-node-card-东京节点'));
+    await _waitForCountryFlag(tester, selectedRow, 'SE');
+    await _waitForCountryFlag(
+      tester,
+      find.byKey(const ValueKey('ssrvpn-node-card-新加坡节点')),
+      'SG',
+    );
+    expect(fixture.clash.isRunning, isFalse);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('Home drops cached country when a same-name endpoint changes',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    final original = fixture.subscription.allNodes.first;
+    fixture.clash.setPaths(
+      configDir: fixture.directory.path,
+      configPath: '${fixture.directory.path}/config.yaml',
+    );
+    await tester.runAsync(() => File(
+          '${fixture.directory.path}/${NodeCountryController.cacheFileName}',
+        ).writeAsString(jsonEncode({
+          'version': 1,
+          'countries': {NodeCountryController.endpointKey(original): 'SE'},
+        })));
+
+    await tester.pumpWidget(fixture.build());
+    final overview = find.byKey(const Key('ssrvpn-current-node-card'));
+    await _waitForCountryFlag(tester, overview, 'SE');
+    await tester.tap(overview);
+    await tester.pumpAndSettle();
+    final selectedRow = find.byKey(const ValueKey('ssrvpn-node-card-东京节点'));
+    await _waitForCountryFlag(tester, selectedRow, 'SE');
+
+    await tester.runAsync(() => fixture.subscription.setRawYaml(
+          _nodeYaml.replaceFirst('127.0.0.1', '127.0.0.3'),
+        ));
+    final replacement = fixture.subscription.allNodes.first;
+    expect(replacement.name, original.name);
+    expect(NodeCountryController.endpointKey(replacement),
+        isNot(NodeCountryController.endpointKey(original)));
+    await _waitForCountryFlag(tester, selectedRow, 'JP');
+    await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
+    await tester.pumpAndSettle();
+    await _waitForCountryFlag(tester, overview, 'JP');
+    expect(find.text('东京节点'), findsOneWidget);
+    expect(fixture.clash.isRunning, isFalse);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
 
   testWidgets(
       'renaming a source keeps the active connection and runtime config',
@@ -798,6 +885,26 @@ Future<void> _pumpUntil(
     await tester.pump();
   }
   expect(condition(), isTrue, reason: 'condition did not become true');
+}
+
+Future<void> _waitForCountryFlag(
+  WidgetTester tester,
+  Finder scope,
+  String country,
+) async {
+  final flag = find.descendant(
+    of: scope,
+    matching: find.byWidgetPredicate(
+      (widget) => widget is CountryFlagIcon && widget.countryCode == country,
+    ),
+  );
+  for (var attempt = 0; attempt < 100 && flag.evaluate().isEmpty; attempt++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump();
+  }
+  expect(flag, findsOneWidget);
 }
 
 class _HomeFixture {

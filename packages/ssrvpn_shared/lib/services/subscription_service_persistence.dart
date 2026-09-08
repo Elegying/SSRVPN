@@ -28,8 +28,8 @@ mixin _SubscriptionPersistence on ChangeNotifier {
     }
   }
 
-  void _acceptCache(String yaml, ParsedSubscription parsed) {
-    final runtimeText = ClashConfigGenerator.buildProxiesText(yaml);
+  void _acceptCache(
+      String yaml, ParsedSubscription parsed, String runtimeText) {
     if (runtimeText != _runtimeProxyText) {
       _revision++;
     } else {
@@ -56,7 +56,11 @@ mixin _SubscriptionPersistence on ChangeNotifier {
     await loadFromDisk();
   }
 
-  Future<void> loadFromDisk() async {
+  Future<void> loadFromDisk({SubscriptionRefreshControl? control}) async {
+    final processingControl = control ??
+        SubscriptionRefreshControl(
+          timeout: SubscriptionServiceBase.defaultBatchRefreshTimeout,
+        );
     _fetchedProfileNames.clear();
     if (_cacheDir == null) return;
     await _recoverDiskTransaction();
@@ -87,14 +91,24 @@ mixin _SubscriptionPersistence on ChangeNotifier {
           );
         }
         final content = await cacheFile.readAsString();
-        final parsed = BoundedYaml.load(content);
-        if (parsed != null && parsed is! Map) {
-          throw const FormatException(
-            'subscription_cache.yaml must be a YAML map',
-          );
-        }
+        final parsed = await SubscriptionProcessing.parseSnapshot(
+          content,
+          processingControl,
+          loadingCache: true,
+        );
+        processingControl.throwIfStopped();
         _rawYaml = content;
-        parseYaml();
+        _allNodes = parsed.parsed.nodes;
+        _allGroups = parsed.parsed.groups;
+        if (parsed.runtimeText != null) _runtimeProxyText = parsed.runtimeText!;
+        if (parsed.parseWarning != null) {
+          AppLogger.warning(
+              'SubscriptionService', 'YAML解析失败: ${parsed.parseWarning}');
+        }
+      } on SubscriptionRefreshCancelled {
+        rethrow;
+      } on SubscriptionRefreshDeadlineExceeded {
+        rethrow;
       } catch (e) {
         await backupBadFile(
           cacheFile,

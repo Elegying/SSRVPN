@@ -15,7 +15,9 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 
 private class StartCancelledException : Exception("VPN start cancelled")
@@ -80,7 +82,7 @@ class SsrvpnVpnService : VpnService() {
         private val serviceStartInProgress = AtomicBoolean(false)
         private val bridgeStartInProgress = AtomicBoolean(false)
         private val bridgeStopInProgress = AtomicBoolean(false)
-        private val bridgeRunningCheckInProgress = AtomicBoolean(false)
+        private val bridgeRunningProbe = BridgeRunningProbe()
         private val bridgeFdTerminationRequired = AtomicBoolean(false)
         private val processTerminationPending = AtomicBoolean(false)
         internal val startGeneration = StartGenerationGate()
@@ -746,38 +748,27 @@ class SsrvpnVpnService : VpnService() {
     }
 
     private fun isBridgeRunningWithTimeout(): Boolean? {
-        if (!bridgeRunningCheckInProgress.compareAndSet(false, true)) {
-            Log.w(TAG, "Bridge.isRunning already in progress; deferring verdict")
-            return null
-        }
-        var result: Boolean? = null
-        val bridgeThread = Thread({
-            try {
-                result = bridge.Bridge.isRunning()
-            } catch (_: LinkageError) {
-                Log.e(TAG, "event=bridge_running_probe_failed cause=linkage")
-            } catch (e: Exception) {
-                val category = NativeCoreStartFailureCategory.from(e).logValue
-                Log.e(TAG, "event=bridge_running_probe_failed cause=$category")
-            } finally {
-                bridgeRunningCheckInProgress.set(false)
+        return try {
+            bridgeRunningProbe.check(BRIDGE_IS_RUNNING_TIMEOUT_MS) {
+                bridge.Bridge.isRunning()
+            }.also { result ->
+                if (result == null) {
+                    Log.w(TAG, "Bridge.isRunning already in progress; deferring verdict")
+                }
             }
-        }, "SSRVPN-bridge-is-running").apply {
-            isDaemon = true
-            start()
-        }
-        try {
-            bridgeThread.join(BRIDGE_IS_RUNNING_TIMEOUT_MS)
-            if (bridgeThread.isAlive) {
-                Log.e(TAG, "Bridge.isRunning timed out after ${BRIDGE_IS_RUNNING_TIMEOUT_MS}ms; treating stop as unverified")
-                return null
-            }
+        } catch (_: TimeoutException) {
+            Log.e(TAG, "Bridge.isRunning timed out after ${BRIDGE_IS_RUNNING_TIMEOUT_MS}ms; treating stop as unverified")
+            null
         } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
             Log.e(TAG, "event=bridge_running_probe_interrupted")
-            return null
+            null
+        } catch (e: ExecutionException) {
+            val cause = e.cause ?: e
+            val category = if (cause is LinkageError) "linkage" else
+                NativeCoreStartFailureCategory.from(cause).logValue
+            Log.e(TAG, "event=bridge_running_probe_failed cause=$category")
+            null
         }
-        return result
     }
     internal fun runtimeDiagnosticsSnapshot(): NativeRuntimeDiagnostics =
         runtimeDiagnostics.snapshot(

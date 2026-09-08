@@ -248,6 +248,21 @@ abstract class ClashServiceBase
 
   Future<void> stop() => onStopRequired();
 
+  /// A disconnected UI does not prove that proxy, DNS or process cleanup
+  /// completed. Always await the platform's idempotent stop before installing.
+  Future<bool> prepareForUpdateInstall() {
+    final generation = requestConnectionIntent(false);
+    interruptPendingStart();
+    return runConnectionTransition(() async {
+      if (!isConnectionIntentCurrent(generation, connected: false)) {
+        return false;
+      }
+      await stop();
+      return !isRunning &&
+          isConnectionIntentCurrent(generation, connected: false);
+    });
+  }
+
   /// Desktop implementations override this to preserve the bounded recovery
   /// attempt counter. Non-desktop services retain the normal start behavior.
   @protected

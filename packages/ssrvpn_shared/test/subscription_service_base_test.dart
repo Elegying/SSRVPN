@@ -3,11 +3,41 @@ import 'dart:io';
 
 import 'package:ssrvpn_shared/services/subscription_service_base.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
+import 'package:ssrvpn_shared/services/subscription_processing.dart';
 import 'package:ssrvpn_shared/models/subscription.dart';
 import 'package:ssrvpn_shared/utils/bounded_yaml.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('large startup cache parsing yields while a processing worker is active',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('ssrvpn-large-load-');
+    addTearDown(() => directory.delete(recursive: true));
+    await File('${directory.path}/subscription_cache.yaml')
+        .writeAsString(_largeYaml(3000));
+    final service = _FakeSubscriptionService();
+    addTearDown(service.dispose);
+    SubscriptionProcessing.workerStartDelayForTesting =
+        const Duration(milliseconds: 50);
+    addTearDown(() =>
+        SubscriptionProcessing.workerStartDelayForTesting = Duration.zero);
+    var yieldedDuringProcessing = false;
+    final heartbeat = Timer.periodic(const Duration(milliseconds: 1), (_) {
+      if (SubscriptionProcessing.activeWorkerCount > 0) {
+        yieldedDuringProcessing = true;
+      }
+    });
+    addTearDown(heartbeat.cancel);
+
+    await service.init(directory.path);
+
+    expect(yieldedDuringProcessing, isTrue);
+    expect(service.allNodes, hasLength(3000));
+    expect(service.revision, 0);
+    expect(SubscriptionProcessing.activeWorkerCount, 0);
+  });
+
   test('rejects an oversized YAML cache before restoring it', () async {
     final directory = await Directory.systemTemp.createTemp(
       'ssrvpn-oversized-yaml-cache-',
@@ -25,6 +55,65 @@ void main() {
       directory.listSync().map((entry) => entry.path),
       anyElement(predicate<String>((path) => path.contains('.bad-'))),
     );
+  });
+
+  test('startup preserves semantic failures but quarantines broken YAML',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('ssrvpn-cache-policy-');
+    addTearDown(() => directory.delete(recursive: true));
+    final cache = File('${directory.path}/subscription_cache.yaml');
+    final invalidRuntime = '${_yamlFor('Node')}'
+        '    dialer-proxy: Missing\n${'# padding\n' * 30000}';
+    await cache.writeAsString(invalidRuntime);
+    final service = _FakeSubscriptionService();
+    addTearDown(service.dispose);
+    await service.init(directory.path);
+    expect(service.rawYaml, invalidRuntime);
+    expect(service.allNodes, isEmpty);
+    expect(await cache.readAsString(), invalidRuntime);
+    expect(directory.listSync().where((file) => file.path.contains('.bad-')),
+        isEmpty);
+
+    await cache
+        .writeAsString('proxies: [unterminated\n${'# padding\n' * 30000}');
+    await service.loadFromDisk();
+    expect(service.rawYaml, isNull);
+    expect(await cache.exists(), isFalse);
+    expect(directory.listSync().where((file) => file.path.contains('.bad-')),
+        isNotEmpty);
+  });
+
+  test('cancelled startup processing keeps the valid cache file intact',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('ssrvpn-cache-cancel-');
+    addTearDown(() => directory.delete(recursive: true));
+    final service = _FakeSubscriptionService();
+    addTearDown(service.dispose);
+    await service.init(directory.path);
+    final yaml = _largeYaml(3000);
+    final cache = File('${directory.path}/subscription_cache.yaml');
+    await cache.writeAsString(yaml);
+    SubscriptionProcessing.workerStartDelayForTesting =
+        const Duration(seconds: 5);
+    addTearDown(() =>
+        SubscriptionProcessing.workerStartDelayForTesting = Duration.zero);
+    final cancellation = SubscriptionRefreshCancellation();
+    final loading = service.loadFromDisk(
+        control: SubscriptionRefreshControl(
+            timeout: const Duration(seconds: 30), cancellation: cancellation));
+    final expectation =
+        expectLater(loading, throwsA(isA<SubscriptionRefreshCancelled>()));
+    await _waitForProcessingWorkers(active: true);
+    cancellation.cancel();
+    await expectation;
+    await _waitForProcessingWorkers(active: false);
+    expect(await cache.readAsString(), yaml);
+    expect(service.rawYaml, isNull);
+    expect(service.allNodes, isEmpty);
+    expect(directory.listSync().where((file) => file.path.contains('.bad-')),
+        isEmpty);
   });
 
   group('SubscriptionServiceBase.refreshAllSubscriptions', () {
@@ -164,6 +253,65 @@ proxies:
           greaterThan(SubscriptionServiceBase.processingIsolateThreshold));
       expect(service.cacheProbeResult, isTrue);
       expect(service.allNodes, hasLength(3000));
+    });
+
+    test('large cached source extraction yields before the next fetch',
+        () async {
+      await service.setRawYaml(_largeYaml(3000));
+      service.response = _yamlFor('New Node');
+      var heartbeat = false;
+      service.fetchProbe = () => heartbeat;
+      Timer.run(() => heartbeat = true);
+
+      await service.refreshAllSubscriptions();
+
+      expect(service.fetchProbeResult, isTrue);
+      expect(service.allNodes.single.name, 'New Node');
+    });
+
+    test('cancelling cache extraction preserves state without beginning fetch',
+        () async {
+      await service.setRawYaml(_largeYaml(3000));
+      final snapshot = _ServiceSnapshot.capture(service);
+      service.response = _yamlFor('New Node');
+      SubscriptionProcessing.workerStartDelayForTesting =
+          const Duration(seconds: 5);
+      addTearDown(() =>
+          SubscriptionProcessing.workerStartDelayForTesting = Duration.zero);
+      final cancellation = SubscriptionRefreshCancellation();
+      final refresh =
+          service.refreshAllSubscriptions(cancellation: cancellation);
+      final expectation =
+          expectLater(refresh, throwsA(isA<SubscriptionRefreshCancelled>()));
+      await _waitForProcessingWorkers(active: true);
+      cancellation.cancel();
+      await expectation;
+      await _waitForProcessingWorkers(active: false);
+      snapshot.expectUnchanged(service);
+      expect(service.fetchCalls, 0);
+      expect(service.cachedYaml, snapshot.rawYaml);
+    });
+
+    test(
+        'large processed cache rolls back revision and latency on metadata failure',
+        () async {
+      service.response = _largeYaml(3000);
+      await service.refreshAllSubscriptions();
+      service.allNodes.first.latency = 37;
+      final snapshot = _ServiceSnapshot.capture(service);
+      final displayRevision = service.displayRevision;
+      service.response = _largeYaml(3000).replaceAll('node-', 'changed-');
+      service.failMetadataWrites = true;
+      await expectLater(service.refreshAllSubscriptions(),
+          throwsA(isA<FileSystemException>()));
+      snapshot.expectUnchanged(service);
+      expect(service.displayRevision, displayRevision);
+      expect(service.allNodes.first.latency, 37);
+      service.failMetadataWrites = false;
+      service.response = snapshot.rawYaml;
+      await service.refreshAllSubscriptions();
+      expect(service.revision, snapshot.revision);
+      expect(service.allNodes.first.latency, 37);
     });
 
     test('partial fetch commits fresh sources while preserving failed sources',
@@ -694,6 +842,18 @@ String _largeYaml(int count) {
   return buffer.toString();
 }
 
+Future<void> _waitForProcessingWorkers({required bool active}) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 2));
+  bool matches() => active
+      ? SubscriptionProcessing.activeWorkerCount > 0
+      : SubscriptionProcessing.activeWorkerCount == 0 &&
+          SubscriptionProcessing.pendingWorkerCount == 0;
+  while (!matches() && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+  expect(matches(), isTrue, reason: 'worker lifecycle did not settle');
+}
+
 class _FakeSubscriptionService extends SubscriptionServiceBase {
   String? response;
   Map<String, Object?>? responses;
@@ -706,6 +866,8 @@ class _FakeSubscriptionService extends SubscriptionServiceBase {
   bool failCacheClears = false;
   bool Function()? cacheProbe;
   bool? cacheProbeResult;
+  bool Function()? fetchProbe;
+  bool? fetchProbeResult;
   Completer<void>? cacheWriteStarted;
   Completer<void>? cacheWriteRelease;
   Completer<void>? fetchStarted;
@@ -718,6 +880,7 @@ class _FakeSubscriptionService extends SubscriptionServiceBase {
     SubscriptionRefreshControl? control,
   }) async {
     fetchCalls++;
+    fetchProbeResult = fetchProbe?.call();
     final started = fetchStarted;
     if (started != null && !started.isCompleted) started.complete();
     final profileName = fetchedProfileName;

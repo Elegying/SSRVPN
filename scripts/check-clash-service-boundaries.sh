@@ -94,7 +94,8 @@ if "_cleanJsonMap" in subscription_source:
 if "_cleanSubscriptionHeaderName" in subscription_source:
     raise SystemExit(f"{subscription_base}: header parsing leaked back into orchestration")
 for name, limit in {
-    "subscription_service_persistence.dart": 180,
+    # Startup worker results and explicit cancellation preserve valid caches.
+    "subscription_service_persistence.dart": 184,
     "subscription_source_cache.dart": 160,
     "subscription_service_transaction.dart": 180,
     "subscription_node_editor.dart": 140,

@@ -12,7 +12,6 @@ import 'package:ssrvpn_macos/screens/subscription_screen.dart';
 import 'package:ssrvpn_macos/services/app_shutdown.dart';
 import 'package:ssrvpn_macos/services/clash_service.dart';
 import 'package:ssrvpn_macos/services/direct_fetcher.dart';
-import 'package:ssrvpn_macos/services/ip_geo_service.dart';
 import 'package:ssrvpn_macos/services/macos_tun_session.dart';
 import 'package:ssrvpn_macos/services/settings_service.dart';
 import 'package:ssrvpn_macos/services/subscription_service.dart';

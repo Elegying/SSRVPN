@@ -33,6 +33,7 @@ ANDROID_RUNTIME_GUARD="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrv
 NOTIFICATION_SUPPORT="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/VpnNotificationSupport.kt"
 NOTIFICATION_GATE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/NotificationGenerationGate.kt"
 CORE_LIVENESS_MONITOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreLivenessMonitor.kt"
+BRIDGE_RUNNING_PROBE="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/BridgeRunningProbe.kt"
 CORE_RECOVERY_COORDINATOR="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreRecoveryCoordinator.kt"
 CORE_RECOVERY_POLICY="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CoreRecoveryPolicy.kt"
 CORE_PORT_RELEASE_VERIFIER="$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/CorePortReleaseVerifier.kt"
@@ -595,7 +596,57 @@ require_text "stopDecision.terminationMessage(currentDataPorts)"
 require_text "return bridgeFdTerminationRequired.get() || stopDecision.terminateProcess"
 require_text "SSRVPN-bridge-start"
 require_text "SSRVPN-bridge-stop"
-require_text "SSRVPN-bridge-is-running"
+require_file_text "$BRIDGE_RUNNING_PROBE" "SSRVPN-bridge-is-running"
+python3 - "$SERVICE" "$BRIDGE_RUNNING_PROBE" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+service = Path(sys.argv[1]).read_text(encoding="utf-8")
+probe = re.sub(r"\s+", "", Path(sys.argv[2]).read_text(encoding="utf-8"))
+
+def require(condition, message):
+    if not condition:
+        raise SystemExit(f"Android bridge running probe guard failed: {message}")
+
+companion_start = service.index("companion object {")
+companion = service[companion_start:service.index("\n    }\n", companion_start)]
+require("private val bridgeRunningProbe = BridgeRunningProbe()" in companion and
+        service.count("BridgeRunningProbe()") == 1,
+        "probe must be owned once for the process lifetime")
+require("bridgeRunningProbe.check(BRIDGE_IS_RUNNING_TIMEOUT_MS)" in service,
+        "service must use the shared probe")
+running_start = service.index("private fun isBridgeRunningWithTimeout(): Boolean?")
+running = service[running_start:service.index("internal fun runtimeDiagnosticsSnapshot(", running_start)]
+require("return try {" in running and running.count("\n            null\n") == 3 and
+        all(f": {error})" in running for error in
+            ("TimeoutException", "InterruptedException", "ExecutionException")),
+        "timeout, interruption and native failure must remain explicitly unknown")
+require("catch (e: ExecutionException)" in running and
+        "val cause = e.cause ?: e" in running and "cause is LinkageError" in running,
+        "FutureTask JNI linkage errors must be unwrapped and contained")
+worker = "privatevalworker=ThreadPoolExecutor(1,1,0L,TimeUnit.MILLISECONDS,ArrayBlockingQueue(1))"
+require(worker in probe and probe.count("ThreadPoolExecutor(") == 1 and
+        len(re.findall(r"(?<!\w)Thread\(", probe)) == 1 and
+        probe.index(worker) < probe.index("funcheck("),
+        "exactly one reusable worker and bounded queue are required")
+require('Thread(task,"SSRVPN-bridge-is-running").apply{isDaemon=true}' in probe,
+        "probe worker must retain its diagnostic name and daemon lifecycle")
+require("privatevalinProgress=AtomicBoolean(false)" in probe and
+        "if(!inProgress.compareAndSet(false,true))returnnull" in probe and
+        probe.index("compareAndSet(false,true)") < probe.index("FutureTask<Boolean>"),
+        "one actual JNI call must hold the probe lease")
+require("valresult=FutureTask<Boolean>{try{readRunning()}finally{inProgress.set(false)}}" in probe,
+        "only completion of the actual JNI call may release a submitted probe")
+require("try{worker.execute(result)}catch(error:Throwable){inProgress.set(false)throwerror}" in probe,
+        "submission failure must release its unsubmitted lease and remain a failure")
+require("try{returnresult.get(timeoutMillis,TimeUnit.MILLISECONDS)}"
+        "catch(error:InterruptedException){Thread.currentThread().interrupt()throwerror}" in probe,
+        "wait timeout or interruption must not release an unfinished JNI call")
+require(probe.count("inProgress.set(false)") == 2 and
+        ".cancel(" not in probe and ".shutdown" not in probe,
+        "timeouts must not cancel, retire or replace a worker with live JNI work")
+PY
 require_text "private fun monitorCoreRunning("
 require_text "CoreRecoveryCoordinator.recoverFromUnexpectedCoreExit("
 require_file_text "$CORE_RECOVERY_COORDINATOR" "service.startService(restartIntent)"
@@ -724,9 +775,9 @@ if stop.index("isBridgeRunningWithTimeout()") < stop.index("bridge.Bridge.stop()
     )
 
 running_start = source.index("private fun isBridgeRunningWithTimeout(): Boolean?")
-running_end = source.index("\n    private fun ", running_start + 1)
+running_end = source.index("internal fun runtimeDiagnosticsSnapshot(", running_start)
 running_check = source[running_start:running_end]
-if "return null" not in running_check:
+if "return try {" not in running_check or running_check.count("\n            null\n") != 3:
     raise SystemExit(
         "Android Bridge probe no longer preserves an explicit unknown state"
     )
@@ -1307,7 +1358,15 @@ for start_marker, end_marker in boundaries:
     start = source.index(start_marker)
     end = source.index(end_marker, start)
     boundary = source[start:end]
-    if not any(
+    if start_marker == "private fun isBridgeRunningWithTimeout(":
+        # FutureTask contains JNI Throwable and delivers it via ExecutionException.
+        if not all(guard in boundary for guard in (
+            "catch (e: ExecutionException)",
+            "val cause = e.cause ?: e",
+            "cause is LinkageError",
+        )):
+            raise SystemExit("Android JNI probe lost its wrapped LinkageError boundary")
+    elif not any(
         guard in boundary
         for guard in ("catch (e: LinkageError)", "catch (_: LinkageError)")
     ):
