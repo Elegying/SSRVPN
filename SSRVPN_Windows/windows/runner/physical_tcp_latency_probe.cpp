@@ -115,7 +115,8 @@ std::vector<IN_ADDR> Resolve(const std::string& host, ULONG index, DWORD timeout
   std::vector<IN_ADDR> addresses;
   for (auto* record = state->result.pQueryRecords; record && addresses.size() < 32;
        record = record->pNext) {
-    if (record->wType == DNS_TYPE_A && UsableIpv4(record->Data.A.IpAddress)) {
+    if (record->wType == DNS_TYPE_A && record->Flags.S.Section == DnsSectionAnswer &&
+        UsableIpv4(record->Data.A.IpAddress)) {
       IN_ADDR address{};
       address.s_addr = record->Data.A.IpAddress;
       addresses.push_back(address);

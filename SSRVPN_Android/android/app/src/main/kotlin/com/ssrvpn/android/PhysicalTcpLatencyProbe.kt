@@ -71,6 +71,17 @@ internal object PhysicalTcpLatencyProbe {
                                 socket.set(connection)
                                 try {
                                     if (settled.get()) break
+                                    val vpn = SsrvpnVpnService.instance
+                                    if (vpn != null) {
+                                        if (!vpn.protect(connection)) break
+                                    } else if (manager.allNetworks.any {
+                                        manager.getNetworkCapabilities(it)?.hasTransport(
+                                            NetworkCapabilities.TRANSPORT_VPN
+                                        ) == true
+                                    }) {
+                                        // Another VPN owns the device; do not claim a direct probe.
+                                        break
+                                    }
                                     connection.connect(InetSocketAddress(address, port), remaining.toInt())
                                     val elapsed = SystemClock.elapsedRealtime() - start
                                     if (!settled.get() && elapsed < timeout && physical(manager, network)) {

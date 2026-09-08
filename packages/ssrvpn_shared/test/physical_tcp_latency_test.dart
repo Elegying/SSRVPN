@@ -36,7 +36,7 @@ void main() {
     expect(accepted, 0);
   });
   test('invalid native values and native errors fail closed', () async {
-    for (final value in <int?>[null, -1, 0, 5001]) {
+    for (final value in <Object?>[null, '1', true, 1.5, -1, 0, 5001]) {
       messenger.setMockMethodCallHandler(
           PhysicalTcpLatency.channel, (_) async => value);
       expect(await probe.testLatency('relay.example', 443), -1);

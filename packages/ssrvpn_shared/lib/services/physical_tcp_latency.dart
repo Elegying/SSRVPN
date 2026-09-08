@@ -22,12 +22,12 @@ mixin PhysicalTcpLatency {
       return -1;
     }
     try {
-      final result = await channel.invokeMethod<int>('probe', {
+      final result = await channel.invokeMethod<Object?>('probe', {
         'server': server,
         'port': port,
         'timeoutMs': timeoutMs,
       }).timeout(Duration(milliseconds: timeoutMs + 250));
-      return result != null && result > 0 && result <= timeoutMs ? result : -1;
+      return result is int && result > 0 && result <= timeoutMs ? result : -1;
     } on MissingPluginException {
       return -1;
     } on PlatformException {
