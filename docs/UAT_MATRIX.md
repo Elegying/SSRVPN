@@ -4,11 +4,32 @@
 VPN、代理、TUN、安装、无障碍及电量在目标系统上实际成立。没有对应设备证据的条目必须保持
 “未执行”，不得标记通过。
 
-## 当前发布候选 v4.0.36
+## 当前正式版本 v4.0.36：发布通过，完整新版实机未执行
 
-[本轮审查修复报告](uat/SSRVPN_v4.0.36_审查修复与发布报告_20260908.md) 记录自动化、代码审查与
-构建证据。本轮未重新操作 Mac 正式客户端或 USB Android 手机，没有执行 Mac 断网测试。
-新版 Windows 实机验收仍由维护者在 Windows 主机完成；历史证据不替代本轮实机矩阵。
+[本轮审查修复报告](uat/SSRVPN_v4.0.36_审查修复与发布报告_20260908.md) 记录完整证据。
+[PR #217](https://github.com/Elegying/SSRVPN/pull/217) 经受保护门禁 rebase 合并，正式源码与
+标签为 `b0611a1b6f54306175e32808c69fe82c7e137f68`。
+[最终 PR CI](https://github.com/Elegying/SSRVPN/actions/runs/34174275022)、
+[精确 main CI](https://github.com/Elegying/SSRVPN/actions/runs/34176505762)、
+[Prepare](https://github.com/Elegying/SSRVPN/actions/runs/34176565853) 和
+[Release](https://github.com/Elegying/SSRVPN/actions/runs/34178392455) 均成功。
+[正式 Release](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.36) 于
+`2026-09-08T02:12:09Z` 公开，Release ID `384403749`，不可变、非 draft、非 prerelease。
+
+| 平台产物 | 字节数 | 正式 SHA-256 | 本版证据状态 |
+| --- | ---: | --- | --- |
+| Android / SSRVPN.apk | 30,788,448 | `22d807a9e86eb9b3dffa555fe3877be2f2e06b295c9b77d920fcf0861eaaae07` | 版本与原签名核验通过；新版实机未执行 |
+| macOS / SSRVPN.dmg | 27,208,808 | `26834793ebf498e7df08d411a4bded4ef794afd14f7452a6d2bf545ae46e58e9` | 只读镜像、版本与 ad-hoc 签名核验通过；新版实机未执行 |
+| Windows / SSRVPN_Setup.exe | 31,166,934 | `e15daea8682cfa2d0a3158072497816250242674eb8e344596b85cf573ff11ea` | CI 安装/覆盖升级/卸载通过；新版交互实机未执行 |
+
+最终 PR 完整 Flutter 测试共享 1121、Android 293、macOS 318、Windows 306 项及发布工具
+425 项通过。GitHub 七项资产、OSS 固定和版本目录的完整安装包、校验文件与指针已独立
+核对，三份 attestation 绑定正式标签、工作流和精确源码；公开核验完成于 `2026-09-08T02:14:51Z`。
+
+本轮按维护者授权直接发布，没有重新操作 Mac 正式客户端或 USB Android 手机，
+没有执行 Mac 断网测试。Android 无 SIM、仅 Wi-Fi 的条件保持；新版 Windows 实机验收
+仍由维护者在 Windows 主机完成。包结构核验没有安装或启动客户端，macOS 的 ad-hoc 签名
+不等于 Apple 公证；自动化、发布通过和历史实机证据均不替代本轮未执行的人工矩阵。
 
 ## 已正式发布 v4.0.35
 
