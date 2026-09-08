@@ -515,8 +515,7 @@ abstract class ClashServiceBase
 
   /// Returns the node that Mihomo is actually routing through right now.
   ///
-  /// In global mode GLOBAL may point at PROXY, so the effective node is then
-  /// PROXY.now rather than GLOBAL.now itself.
+  /// In global mode GLOBAL may point at PROXY; then use PROXY.now.
   Future<String?> currentSelectedProxyName() async {
     final proxyNow = await _currentProxyGroupSelection('PROXY');
     if (_settings.proxyMode != ProxyMode.global) return _nonEmpty(proxyNow);
@@ -578,6 +577,7 @@ abstract class ClashServiceBase
     }
   }
 
+  @override
   Future<String?> _currentProxyGroupSelection(String groupName) async {
     try {
       final client = _apiClient;

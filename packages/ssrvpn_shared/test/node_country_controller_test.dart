@@ -37,8 +37,6 @@ Future<void> _until(bool Function() condition, {String? reason}) async {
 }
 
 class _Request {
-  _Request(this.host);
-  final String host;
   final result = Completer<NodeCountryResolution?>();
 }
 
@@ -54,8 +52,8 @@ class _Lookup extends NodeCountryLookup {
   bool closed = false;
 
   @override
-  Future<NodeCountryResolution?> lookup(String host) {
-    final request = _Request(host);
+  Future<NodeCountryResolution?> lookup() {
+    final request = _Request();
     requests.add(request);
     if (immediateReply) request.result.complete(_answer);
     return request.result.future;
@@ -88,6 +86,8 @@ class _Harness {
   final requests = <_Request>[];
   final lookups = <_Lookup>[];
   final ports = <int>[];
+  int selectedIndex = 0;
+  String? coreSelection;
   bool connected = false;
   bool busy = false;
   bool current = true;
@@ -128,6 +128,9 @@ class _Harness {
 
   void update() => controller.update(
         nodes: nodes,
+        selectedNode: nodes.isEmpty ? null : nodes[selectedIndex],
+        currentSelectedProxyName: () async =>
+            coreSelection ?? nodes[selectedIndex].name,
         connected: connected,
         busy: busy,
         session: session,
@@ -214,72 +217,98 @@ void main() {
     expect(harness.requests, hasLength(1));
   });
 
-  test('resolves at most two servers concurrently and drains remaining nodes',
+  test(
+      'only the connected node learns an exit; other relay ports stay independent',
       () async {
-    final harness = await _Harness.create([
-      for (var index = 0; index < 5; index++)
-        _node(server: 'relay$index.example.invalid'),
-    ]);
+    final nodes = [_node(name: '日本 A'), _node(name: '日本 B', port: 8443)];
+    final harness = await _Harness.create(nodes);
     harness.connect();
+    await _until(() => harness.requests.length == 1);
+    harness.requests.single.result.complete(_answer);
+    await _until(() => harness.controller.countryFor(nodes.first) == 'US');
+    expect(harness.controller.countryFor(nodes.last), 'JP');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(harness.requests, hasLength(1));
+    harness.selectedIndex = 1;
+    harness.update();
     await _until(() => harness.requests.length == 2);
-    await Future<void>.delayed(const Duration(milliseconds: 15));
-    expect(harness.requests, hasLength(2));
-    for (var index = 0; index < 5; index++) {
-      await _until(() => harness.requests.length > index);
-      expect(
-          harness.requests.where((entry) => !entry.result.isCompleted).length,
-          lessThanOrEqualTo(2));
-      harness.requests[index].result.complete(_answer);
-    }
-    await _until(() => harness.lookups.single.closed);
-    expect(harness.requests, hasLength(5));
-    expect(
-        harness.nodes.map(harness.controller.countryFor), everyElement('US'));
+    harness.requests.last.result.complete(
+        const NodeCountryResolution(ip: '1.1.1.1', countryCode: 'AU'));
+    await _until(() => harness.controller.countryFor(nodes.last) == 'AU');
+    expect(harness.controller.countryFor(nodes.first), 'US');
   });
 
-  test('same server across endpoints shares one in-flight lookup', () async {
-    final harness = await _Harness.create([_node(), _node(port: 8443)]);
+  test(
+      'selection changes cancel old exit observations even in the same session',
+      () async {
+    final nodes = [_node(name: '日本 A'), _node(name: '日本 B', port: 8443)];
+    final harness = await _Harness.create(nodes);
     harness.connect();
-    await _until(() => harness.requests.isNotEmpty);
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-    expect(harness.requests, hasLength(1));
+    await _until(() => harness.requests.length == 1);
+    harness.selectedIndex = 1;
+    harness.update();
+    expect(harness.lookups.first.closed, isTrue);
+    harness.requests.first.result.complete(_answer);
+    await _until(() => harness.requests.length == 2);
+    expect(harness.controller.countryFor(nodes.first), 'JP');
+    expect(harness.controller.countryFor(nodes.last), 'JP');
+  });
+
+  test('actual core selection must match before and after observing the exit',
+      () async {
+    final node = _node();
+    final harness = await _Harness.create([node]);
+    harness.coreSelection = 'different-runtime-node';
+    harness.connect();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(harness.requests, isEmpty);
+    harness.coreSelection = node.name;
+    harness.update();
+    await _until(() => harness.requests.length == 1);
+    harness.coreSelection = 'different-runtime-node';
     harness.requests.single.result.complete(_answer);
     await _until(() => harness.lookups.single.closed);
-    expect(
-        harness.nodes.map(harness.controller.countryFor), everyElement('US'));
+    expect(harness.controller.countryFor(node), 'JP');
   });
 
-  test('immediate lookup batches yield so events can cancel remaining work',
+  test('legacy server-country cache is ignored and replaced with observed exit',
       () async {
-    final harness = await _Harness.create(
-      [
-        for (var index = 0; index < 100; index++)
-          _node(server: 'relay$index.example.invalid'),
-      ],
-      immediateReply: true,
-    );
-    var eventQueued = false;
-    var cancelled = false;
-    harness.controller.addListener(() {
-      if (eventQueued || harness.requests.isEmpty) return;
-      eventQueued = true;
-      Timer.run(() {
-        harness.busy = true;
-        harness.update();
-        cancelled = true;
-      });
-    });
-
+    final dir = await Directory.systemTemp.createTemp('legacy-node-country-');
+    addTearDown(() => dir.delete(recursive: true));
+    final node = _node();
+    await File('${dir.path}/${NodeCountryController.cacheFileName}')
+        .writeAsString(jsonEncode({
+      'version': 1,
+      'countries': {NodeCountryController.endpointKey(node): 'CN'}
+    }));
+    final harness = await _Harness.create([node], directory: dir);
+    expect(harness.controller.countryFor(node), 'JP');
     harness.connect();
-    await _until(() => cancelled);
-    final started = harness.requests.length;
-    expect(started, greaterThan(0));
-    expect(started, lessThan(harness.nodes.length),
-        reason:
-            'An event must interrupt the batch before every lookup starts.');
-    expect(harness.lookups.single.closed, isTrue);
-    await Future<void>.delayed(const Duration(milliseconds: 15));
-    expect(harness.requests, hasLength(started));
+    await _until(() => harness.requests.length == 1);
+    harness.requests.single.result.complete(_answer);
+    await _until(() => harness.controller.countryFor(node) == 'US');
+    await harness.controller.flush();
+    final saved = jsonDecode(
+        await File('${dir.path}/${NodeCountryController.cacheFileName}')
+            .readAsString()) as Map;
+    expect(saved['version'], NodeCountryController.cacheVersion);
+  });
+
+  test('changing a dialer route invalidates the dependent exit cache',
+      () async {
+    final parent = _node(name: 'Transit');
+    final child = _node(name: '日本出口', server: 'exit.invalid')
+        .copyWith(extra: {..._node().extra, 'dialer-proxy': 'Transit'});
+    final harness = await _Harness.create([parent, child]);
+    harness.selectedIndex = 1;
+    harness.connect();
+    await _until(() => harness.requests.length == 1);
+    harness.requests.single.result.complete(_answer);
+    await _until(() => harness.controller.countryFor(child) == 'US');
+    harness.nodes = [parent.copyWith(port: 8443), child];
+    harness.update();
+    expect(harness.controller.countryFor(child), 'JP');
+    await _until(() => harness.requests.length == 2);
   });
 
   test('successful endpoint survives reconnect and a fresh controller restart',
@@ -326,7 +355,6 @@ void main() {
     harness.update();
     expect(harness.controller.countryFor(moved), 'HK');
     await _until(() => harness.requests.length == 2);
-    expect(harness.requests.last.host, moved.server);
     harness.requests.last.result.complete(
       const NodeCountryResolution(ip: '1.1.1.1', countryCode: 'DE'),
     );
@@ -432,7 +460,7 @@ void main() {
       '${harness.directory.path}/${NodeCountryController.cacheFileName}',
     ).readAsString();
     expect(jsonDecode(raw), {
-      'version': 1,
+      'version': NodeCountryController.cacheVersion,
       'countries': {NodeCountryController.endpointKey(node): 'US'},
     });
     for (final secret in [
@@ -445,7 +473,8 @@ void main() {
     }
   });
 
-  test('endpoint identity normalizes host but excludes names and credentials',
+  test(
+      'route identity normalizes host and excludes presentation but includes credentials',
       () {
     final node = _node(server: 'Relay.Example.Invalid.');
     expect(
@@ -454,10 +483,11 @@ void main() {
         name: 'changed',
         server: 'relay.example.invalid',
         type: ' HYSTERIA2 ',
-        extra: {'password': 'rotated-credential'},
       )),
     );
     for (final changed in [
+      node.copyWith(extra: {...node.extra, 'password': 'rotated-credential'}),
+      node.copyWith(extra: {...node.extra, 'sni': 'another-exit.example'}),
       node.copyWith(server: 'another.example.invalid'),
       node.copyWith(port: 8443),
       node.copyWith(type: 'ss'),

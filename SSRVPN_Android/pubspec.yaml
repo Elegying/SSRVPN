@@ -1,7 +1,7 @@
 name: ssrvpn_android
 description: SSRVPN - 安全稳定的VPN客户端
 publish_to: 'none'
-version: 4.0.36+4036
+version: 4.0.37+4037
 resolution: workspace
 
 environment:

@@ -13,6 +13,7 @@ mixin _ClashDataPlaneSupport {
 
   bool get isRunning;
   AppSettings get settings;
+  Future<String?> _currentProxyGroupSelection(String groupName);
   bool get _canPublishHealthCheckResult;
   void log(
     String message, {
@@ -260,6 +261,23 @@ mixin _ClashDataPlaneSupport {
       // Connectivity verification only needs the response status. Closing the
       // owning client in the caller remains the fallback if cancellation fails.
     }
+  }
+
+  /// Exit cache attribution must fail closed on an unreadable GLOBAL group,
+  /// instead of using the display-oriented selection method's PROXY fallback.
+  Future<String?> confirmedProxyExitNode() async {
+    final global = settings.proxyMode == ProxyMode.global;
+    var selected =
+        await _currentProxyGroupSelection(global ? 'GLOBAL' : 'PROXY');
+    if (global && selected == 'PROXY') {
+      selected = await _currentProxyGroupSelection('PROXY');
+    }
+    if (selected == null ||
+        selected.trim().isEmpty ||
+        RuntimeConfigNamePolicy.reservedProxyNames.contains(selected)) {
+      return null;
+    }
+    return selected;
   }
 
   Future<PublicIpInfo> fetchCurrentPublicIpInfo() async {

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import '../models/app_settings.dart';
+import 'public_ip_info_service.dart';
 import '../constants/app_constants.dart';
 import '../utils/bounded_yaml.dart';
 import '../utils/proxy_dependency_policy.dart';
@@ -346,6 +347,12 @@ class ClashConfigGenerator {
     // 用户强制直连、私网安全、已知海外服务、国内企业域名/ASN、GFW 代理、
     // CN 与 GeoIP 直连，最后未知流量安全回退到代理。
     final orderedRules = <String>{AppConstants.rejectIpv6Rule};
+    // Exit probes must traverse PROXY even when a user's direct rule matches
+    // the diagnostic service; otherwise a relay would get the device's flag.
+    orderedRules.addAll([
+      PublicIpInfoService.ipv4Endpoint,
+      PublicIpInfoService.fallbackEndpoint,
+    ].map((endpoint) => 'DOMAIN,${endpoint.host},PROXY'));
     orderedRules.addAll(buildForceProxyRules(settings));
     orderedRules.addAll(buildForceDirectRules(settings));
     orderedRules.addAll(AppConstants.defaultPrivateDirectRules);

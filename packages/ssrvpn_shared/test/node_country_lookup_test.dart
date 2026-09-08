@@ -9,67 +9,64 @@ import 'package:http/testing.dart';
 import 'package:ssrvpn_shared/services/node_country_lookup.dart';
 
 void main() {
-  test('resolves AliDNS object Question through a validated CNAME chain',
+  test('geolocates the observed proxy exit rather than a relay server',
       () async {
     final requests = <http.Request>[];
+    final reads = <String>[];
     final lookup = NodeCountryLookup(
       proxyPort: 7890,
-      countryReader: (_) => 'US',
+      countryReader: (ip) {
+        reads.add(ip);
+        return 'US';
+      },
       client: MockClient((request) async {
         requests.add(request);
-        return _answer(request, [
-          _record('unrelated.example.', 1, '9.9.9.9'),
-          _record('alias.example.', 1, '8.8.8.8'),
-          _record('node.example.', 5, 'alias.example.'),
-        ]);
+        return http.Response('{"ip":"8.8.8.8"}', 200);
       }),
     );
     addTearDown(lookup.close);
-
-    final result = await lookup.lookup('NODE.EXAMPLE.');
+    final result = await lookup.lookup();
     expect(result?.ip, '8.8.8.8');
     expect(result?.countryCode, 'US');
-    expect(requests, hasLength(1));
-    expect(requests.single.url.host, 'dns.alidns.com');
-    expect(requests.single.url.scheme, 'https');
+    expect(reads, ['8.8.8.8']);
+    expect(
+        requests.single.url.toString(), 'https://api4.ipify.org/?format=json');
     expect(requests.single.followRedirects, isFalse);
-    expect(requests.single.url.queryParameters,
-        {'name': 'node.example', 'type': 'A'});
+    expect(requests.single.headers['Cache-Control'], 'no-cache');
   });
 
-  test('accepts a single matching Question list for DNS JSON compatibility',
+  test('fallback accepts a public IPv6 exit and ignores provider country hints',
       () async {
+    final hosts = <String>[];
     final lookup = NodeCountryLookup(
       proxyPort: 7890,
-      countryReader: (_) => 'US',
+      countryReader: (ip) => ip == '2606:4700:4700::1111' ? 'AU' : null,
       client: MockClient((request) async {
-        final response =
-            _answer(request, [_record('node.example', 1, '8.8.8.8')]);
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-        body['Question'] = [body['Question']];
-        return http.Response(jsonEncode(body), 200);
+        hosts.add(request.url.host);
+        return request.url.host == 'api4.ipify.org'
+            ? http.Response('', 503)
+            : http.Response(
+                '{"ip":"2606:4700:4700::1111","country_code":"CN"}', 200);
       }),
     );
     addTearDown(lookup.close);
-    expect((await lookup.lookup('node.example'))?.ip, '8.8.8.8');
+    final result = await lookup.lookup();
+    expect(result?.countryCode, 'AU');
+    expect(hosts, ['api4.ipify.org', 'api.ip.sb']);
   });
 
-  test('rejects multiple questions and malformed or mismatched Question maps',
+  test(
+      'invalid, private, redirected and oversized responses never become exits',
       () async {
-    for (final question in [
-      null,
-      <Object>[],
-      [
-        {'name': 'node.example', 'type': 1},
-        {'name': 'other.example', 'type': 1},
-      ],
-      ['node.example'],
-      <String, Object>{},
-      {'name': 'other.example', 'type': 1},
-      {'name': 'node.example', 'type': 65535},
-      {'name': 'node.example', 'type': '1'},
-      {'name': 'node.example'},
-      {'type': 1},
+    for (final response in [
+      http.Response('{"ip":"198.18.0.1"}', 200),
+      http.Response('{"ip":"192.168.1.1"}', 200),
+      http.Response('{"ip":"node.example"}', 200),
+      http.Response('{"ip":42}', 200),
+      http.Response('{"country":"US"}', 200),
+      http.Response('["8.8.8.8"]', 200),
+      http.Response('', 302, headers: {'location': 'http://127.0.0.1/'}),
+      http.Response('x' * (NodeCountryLookup.maxResponseBytes + 1), 200),
     ]) {
       var reads = 0;
       final lookup = NodeCountryLookup(
@@ -78,106 +75,26 @@ void main() {
           reads++;
           return 'US';
         },
-        client: MockClient((_) async => http.Response(
-            jsonEncode({
-              'Status': 0,
-              'Question': question,
-              'Answer': [_record('node.example', 1, '8.8.8.8')],
-            }),
-            200)),
+        client: MockClient((_) async => response),
       );
-      expect(await lookup.lookup('node.example'), isNull,
-          reason: 'Question: $question');
+      expect(await lookup.lookup(), isNull);
       expect(reads, 0);
       lookup.close();
     }
   });
 
-  test('falls back to a public native IPv6 record without system DNS',
-      () async {
-    final lookup = NodeCountryLookup(
-      proxyPort: 7890,
-      countryReader: (_) => 'US',
-      client: MockClient((request) async => _answer(
-          request,
-          request.url.queryParameters['type'] == 'AAAA'
-              ? [_record('node.example', 28, '2606:4700:4700::1111')]
-              : [])),
-    );
-    addTearDown(lookup.close);
-    expect((await lookup.lookup('node.example'))?.ip, '2606:4700:4700::1111');
-  });
-
-  for (final answers in [
-    [_record('unrelated.example', 1, '8.8.8.8')],
-    [_record('node.example', 1, '198.18.0.1')],
-    [_record('node.example', 1, '192.168.1.1')],
-    [_record('node.example', 28, '8.8.8.8')],
-    [
-      _record('node.example', 5, 'alias.example'),
-      _record('alias.example', 5, 'node.example'),
-      _record('alias.example', 1, '8.8.8.8')
-    ],
-    [
-      _record('node.example', 5, 'alias.example'),
-      _record('node.example', 5, 'other.example'),
-      _record('alias.example', 1, '8.8.8.8')
-    ],
-    List.generate(33, (_) => _record('node.example', 1, '8.8.8.8')),
-  ]) {
-    test('rejects unrelated, unsafe or ambiguous DNS answers: $answers',
-        () async {
-      var readCountry = false;
-      final lookup = NodeCountryLookup(
-        proxyPort: 7890,
-        countryReader: (_) {
-          readCountry = true;
-          return 'US';
-        },
-        client: MockClient((request) async => _answer(request, answers)),
-      );
-      addTearDown(lookup.close);
-      expect(await lookup.lookup('node.example'), isNull);
-      expect(readCountry, isFalse);
-    });
-  }
-
-  test('rejects mismatched questions, redirects and oversized bodies',
-      () async {
-    for (final response in [
-      http.Response(
-          jsonEncode({
-            'Status': 0,
-            'Question': [
-              {'name': 'other.example', 'type': 1}
-            ],
-            'Answer': [_record('node.example', 1, '8.8.8.8')]
-          }),
-          200),
-      http.Response('', 302, headers: {'location': 'http://127.0.0.1/'}),
-      http.Response('x' * (NodeCountryLookup.maxResponseBytes + 1), 200),
-    ]) {
-      final lookup = NodeCountryLookup(
-          proxyPort: 7890,
-          countryReader: (_) => 'US',
-          client: MockClient((_) async => response));
-      expect(await lookup.lookup('node.example'), isNull);
-      lookup.close();
-    }
-  });
-
-  test('close aborts an in-flight request and disables further DNS calls',
+  test('close aborts an in-flight request and disables further exit requests',
       () async {
     final client = _PendingClient();
     final lookup = NodeCountryLookup(
         proxyPort: 7890, client: client, countryReader: (_) => 'US');
-    final result = lookup.lookup('node.example');
+    final result = lookup.lookup();
     await client.started.future;
     lookup.close();
     expect(await result.timeout(const Duration(milliseconds: 200)), isNull);
     expect(client.closed, isTrue);
     expect(client.aborted, isTrue);
-    expect(await lookup.lookup('other.example'), isNull);
+    expect(await lookup.lookup(), isNull);
     expect(client.calls, 1);
   });
 
@@ -195,9 +112,7 @@ void main() {
         countryReader: (_) => 'US',
         requestTimeout: const Duration(milliseconds: 30));
     addTearDown(lookup.close);
-    expect(
-        await lookup.lookup('node.example').timeout(const Duration(seconds: 1)),
-        isNull);
+    expect(await lookup.lookup().timeout(const Duration(seconds: 1)), isNull);
     expect(cancelled, 2);
   });
 
@@ -217,9 +132,9 @@ void main() {
     final lookup =
         NodeCountryLookup(proxyPort: proxy.port, countryReader: (_) => 'US');
     try {
-      final pending = lookup.lookup('node.example');
+      final pending = lookup.lookup();
       expect(await requestLine.future.timeout(const Duration(seconds: 2)),
-          'CONNECT dns.alidns.com:443 HTTP/1.1');
+          'CONNECT api4.ipify.org:443 HTTP/1.1');
       lookup.close();
       expect(await pending.timeout(const Duration(seconds: 1)), isNull);
     } finally {
@@ -232,27 +147,26 @@ void main() {
     }
   });
 
-  test('bundled fixed MMDB resolves known IPv4 and IPv6 without Geo HTTP',
+  test('bundled fixed MMDB maps observed IPv4/IPv6 exits without Geo HTTP',
       () async {
+    final exits = ['8.8.8.8', '114.114.114.114', '2001:4860:4860::8888'];
     var requests = 0;
     var loads = 0;
     final lookup = NodeCountryLookup(
-        proxyPort: 7890,
-        client: MockClient((_) async {
-          requests++;
-          return http.Response('', 500);
-        }),
-        assetLoader: () async {
-          loads++;
-          return File('../../SSRVPN_MacOS/assets/geoip.metadb.gz')
-              .readAsBytes();
-        });
+      proxyPort: 7890,
+      client: MockClient((_) async =>
+          http.Response(jsonEncode({'ip': exits[requests++]}), 200)),
+      assetLoader: () async {
+        loads++;
+        return File('../../SSRVPN_MacOS/assets/geoip.metadb.gz').readAsBytes();
+      },
+    );
     addTearDown(lookup.close);
-    expect((await lookup.lookup('8.8.8.8'))?.countryCode, 'US');
-    expect((await lookup.lookup('114.114.114.114'))?.countryCode, 'CN');
-    expect((await lookup.lookup('2001:4860:4860::8888'))?.countryCode, 'US');
+    expect((await lookup.lookup())?.countryCode, 'US');
+    expect((await lookup.lookup())?.countryCode, 'CN');
+    expect((await lookup.lookup())?.countryCode, 'US');
     expect(loads, 1);
-    expect(requests, 0);
+    expect(requests, 3);
   });
 
   test('MMDB data pointers start after the 16-byte separator', () async {
@@ -261,9 +175,10 @@ void main() {
     final lookup = NodeCountryLookup(
         proxyPort: 7890,
         assetLoader: () async => archive,
-        client: MockClient((_) async => throw StateError('No DNS expected')));
+        client:
+            MockClient((_) async => http.Response('{"ip":"8.8.8.8"}', 200)));
     addTearDown(lookup.close);
-    expect((await lookup.lookup('8.8.8.8'))?.countryCode, 'US');
+    expect((await lookup.lookup())?.countryCode, 'US');
   });
 
   for (final archive in [
@@ -278,9 +193,10 @@ void main() {
       final lookup = NodeCountryLookup(
           proxyPort: 7890,
           assetLoader: () async => archive,
-          client: MockClient((_) async => http.Response('', 500)));
+          client:
+              MockClient((_) async => http.Response('{"ip":"8.8.8.8"}', 200)));
       addTearDown(lookup.close);
-      expect(await lookup.lookup('8.8.8.8'), isNull);
+      expect(await lookup.lookup(), isNull);
     });
   }
 
@@ -317,21 +233,6 @@ void main() {
     expect(isPublicNodeCountryAddress('2606:4700::1111'), isTrue);
   });
 }
-
-Map<String, Object> _record(String name, int type, String data) =>
-    {'name': name, 'type': type, 'data': data};
-
-http.Response _answer(http.Request request, List<Object> answers) =>
-    http.Response(
-        jsonEncode({
-          'Status': 0,
-          'Question': {
-            'name': '${request.url.queryParameters['name']}.',
-            'type': request.url.queryParameters['type'] == 'A' ? 1 : 28,
-          },
-          'Answer': answers
-        }),
-        200);
 
 class _PendingClient extends http.BaseClient {
   final started = Completer<void>();

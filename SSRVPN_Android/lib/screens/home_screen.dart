@@ -116,6 +116,8 @@ class HomeScreenState extends State<HomeScreen>
         core.nativeSessionGeneration == nativeSession;
     _nodeCountries.update(
       nodes: _nodes,
+      selectedNode: _selectedNode,
+      currentSelectedProxyName: core.confirmedProxyExitNode,
       connected: _isConnected && core.isRunning && core.connectionDesired,
       busy: !ready(),
       session: (core, generation, nativeSession),
