@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.36] - 2026-09-08
+
+### 节点国旗
+
+- 补齐 emoji、国家代码和常见国家/城市名称识别；连接稳定 15 秒后，在后台解析节点真实 IP，并使用客户端已有 IP 数据库静默更新国旗。真实 IP 结果优先于名称提示。
+- 国别缓存按协议、服务器地址和端口持久保存，改名或重连可复用，同名节点换地址重新识别；查询最多并发两个，断开或测速时取消，不切换节点、不进入延迟测试流程。查询失败保留原显示。
+
+### 连接与后台处理
+
+- 修复 Android 重载失败后忙碌状态和错误提示未正确收口的问题；复用有界核心探测线程，避免反复创建线程及卡死调用堆积。
+- macOS 更新前等待连接停止与清理完成，失败时阻止打开安装包；后台守护检查采用可取消等待，停止不等待下一次轮询。
+- Windows IP 检测域名统一跟随当前代理节点，移除重复的地理选择组；三端大订阅缓存提取、启动解析及运行文本构建复用可取消后台 worker。
+
+### 工程维护
+
+- 保留 main CI 的规范核心重建，发布准备与 Release 严格校验后复用同一 main 提交的成功核心产物；仅产物缺失或过期时回退重建。
+- 增加依赖锁文件前置检查，分开处理 Flutter SDK 绑定依赖和 Android 构建工具链；同步正式发布记录与发布入口文档。
+- 保持私家车成功延迟展示策略、代理流量统计口径、现有核心与 GeoIP 快照不变。
+
 ## [4.0.35] - 2026-09-07
 
 ### 连接与流量统计
