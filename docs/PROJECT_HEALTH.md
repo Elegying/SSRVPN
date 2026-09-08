@@ -1,21 +1,37 @@
 # SSRVPN 项目健康与发布状态
 
-最近更新：2026-09-07
+最近更新：2026-09-08
 
-当前应用版本：`v4.0.35`
+当前应用版本：`v4.0.36`
 
-最新正式版本：[`v4.0.34`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.34)
+最新正式版本：[`v4.0.35`](https://github.com/Elegying/SSRVPN/releases/tag/v4.0.35)
 
-## 当前发布候选 v4.0.35
+## 当前发布候选 v4.0.36
 
-[PR #215](https://github.com/Elegying/SSRVPN/pull/215) 已通过全部必需检查并合并，修复三端代理统计、
-Android 在线模式重载，补齐 Swift 扫描。Windows 实机报告在
-[PR #216](https://github.com/Elegying/SSRVPN/pull/216) 归档，本轮继续修复其发现的诊断路径脱敏缺陷。
-维护者已于 2026-09-07 授权最终审查后发版；此前“只同步、不发版”的范围属于上一阶段。
-三端证据、修复验证与未覆盖边界见[三端复核报告](uat/SSRVPN_三端报告复核与发布审查_20260907.md)。
-以下正式 v4.0.34 记录继续描述现有公开安装包；候选不冒充已发布。
+本轮修复节点国旗、Android 重载失败收口、桌面更新前停止与 Windows 检测路由，优化大订阅
+后台处理、原生探测和受信核心产物复用。国旗在连接稳定 15 秒后解析节点真实 IP，使用内置
+数据库更新，并按连接端点持久缓存；测速与连接事务不等待国别查询。
+修复范围、验证及边界见[审查修复报告](uat/SSRVPN_v4.0.36_审查修复与发布报告_20260908.md)。
+维护者已授权审查通过后同步并发版，当前候选不冒充已发布或三端实机全部通过。
 
 ## 当前正式版本结论
+
+`v4.0.35` 已正式发布，精确源码 `1338d04174dca81384f03cee787773963b4a685f`。
+[main CI](https://github.com/Elegying/SSRVPN/actions/runs/34049962271)、
+[Prepare](https://github.com/Elegying/SSRVPN/actions/runs/34049981558) 与
+[Release](https://github.com/Elegying/SSRVPN/actions/runs/34051676450) 均成功。
+公开时间 `2026-09-06T18:49:08Z`；2026-09-08 再次核对 GitHub 正式状态及三端资产 API 摘要。
+三端代理累计口径、Android 在线模式重载与 Windows 诊断路径脱敏已交付。
+历史三端实机证据及未覆盖项目见[三端复核报告](uat/SSRVPN_三端报告复核与发布审查_20260907.md)，
+不把旧包实测改写为新包全部通过。
+
+| 正式产物 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| SSRVPN.apk | 30,758,508 | `3b73e035154d9c2a0838de1ee1f8ee11038ae0448abababca16d32fa13aa6be8` |
+| SSRVPN.dmg | 27,186,067 | `72a8caaefd36c0edd8e66c49543ea3727fd2a444e419656ced6272b32c8aaa07` |
+| SSRVPN_Setup.exe | 31,146,729 | `eb1faba53ced4fc1f44c34456a3fd778dca644f10f101bc4b86a436fe605590b` |
+
+### v4.0.34 发布记录
 
 `v4.0.34` 已正式发布：三端已用流量卡在用量/额度下方同一行显示
 「已用50% 每月1日重置」。非零不足0.1%的比例四舍五入到两位小数，不再使用小于号；
