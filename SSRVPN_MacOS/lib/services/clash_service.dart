@@ -22,7 +22,7 @@ part 'clash_service_lifecycle.dart';
 /// 继承 [ClashServiceBase] 复用公共 API、延迟测试、健康检查等逻辑，
 /// 仅保留 macOS 特有的进程管理、资源释放和系统代理集成。
 class ClashService extends ClashServiceBase
-    with _MacosClashConfig, _MacosCoreLifecycle {
+    with PhysicalTcpLatency, _MacosClashConfig, _MacosCoreLifecycle {
   ClashService({
     SystemProxyService? proxyService,
     @visibleForTesting MacosTunSession? tunSession,

@@ -22,7 +22,7 @@ class _AndroidStartCancelled implements Exception {}
 /// 继承 [ClashServiceBase] 共享 API/延迟/健康检查/状态/端口，
 /// 仅实现 Android 特有：MethodChannel 桥接、gomobile VPN 启停、
 /// MMDB 解压、TUN 配置、磁贴/通知集成。
-class ClashService extends ClashServiceBase {
+class ClashService extends ClashServiceBase with PhysicalTcpLatency {
   static const _channel = MethodChannel('com.ssrvpn/native');
 
   String _corePath = '';

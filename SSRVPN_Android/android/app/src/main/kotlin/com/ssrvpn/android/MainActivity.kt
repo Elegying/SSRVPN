@@ -68,6 +68,9 @@ class MainActivity : FlutterActivity() {
         methodChannel = channel
         registerVpnStateReceiver()
         channel.setMethodCallHandler(::handleNativeMethodCall)
+        PhysicalTcpLatencyProbe.register(this, flutterEngine.dartExecutor.binaryMessenger) { action ->
+            runOnActiveUiThread("Unable to deliver physical latency", action)
+        }
     }
 
     private fun runOnActiveUiThread(message: String, action: () -> Unit) {
