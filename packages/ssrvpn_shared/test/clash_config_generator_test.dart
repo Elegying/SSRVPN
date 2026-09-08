@@ -561,6 +561,23 @@ proxies:
       );
     });
 
+    test('exit observation domains cannot be diverted by user direct rules',
+        () {
+      const yaml =
+          'proxies: [{name: Relay, type: ss, server: relay.invalid, port: 443, cipher: aes-256-gcm, password: fixture}]';
+      final config = loadYaml(ClashConfigGenerator.generateConfig(yaml,
+              AppSettings(forceDirectSites: const ['ipify.org', 'ip.sb'])))
+          as YamlMap;
+      final rules = (config['rules'] as YamlList).cast<String>();
+      expect(rules.first, 'IP-CIDR6,::/0,REJECT,no-resolve');
+      expect(rules.indexOf('DOMAIN,api4.ipify.org,PROXY'), greaterThan(0));
+      expect(rules.indexOf('DOMAIN,api4.ipify.org,PROXY'),
+          lessThan(rules.indexOf('DOMAIN-SUFFIX,ipify.org,DIRECT')));
+      expect(rules.indexOf('DOMAIN,api.ip.sb,PROXY'), greaterThan(0));
+      expect(rules.indexOf('DOMAIN,api.ip.sb,PROXY'),
+          lessThan(rules.indexOf('DOMAIN-SUFFIX,ip.sb,DIRECT')));
+    });
+
     test('manual proxy then manual direct outrank every automatic rule', () {
       const yaml = '''
 proxies:

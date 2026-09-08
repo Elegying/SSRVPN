@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.37] - 2026-09-08
+
+### 中转线路国旗
+
+- 国旗改为当前节点最终代理出口 IP 所在国家，不再根据中转服务器入口 IP 或其 DNS 解析结果判断。
+- 连接稳定 15 秒后静默观察当前出口；请求前后核对核心实际选中节点，测速、切换或断开时取消，不主动切换线路或批量连接未使用节点。
+- 废弃旧入口国别缓存。成功出口国别按线路配置摘要持久缓存，地址、端口、账号、SNI 或链式代理配置变化后重新识别；改名和未变化线路重连复用缓存，未连接节点沿用已有缓存或名称提示。
+- 公网出口探测域名固定通过代理，避免直连规则把本机出口记到节点上；查询失败保留提示，不影响连接与测速。私家车延迟展示策略保持不变。
+
 ## [4.0.36] - 2026-09-08
 
 ### 节点国旗

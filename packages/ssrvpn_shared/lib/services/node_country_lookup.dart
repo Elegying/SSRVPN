@@ -10,6 +10,7 @@ import 'package:http/io_client.dart';
 import 'package:meta/meta.dart';
 
 import '../utils/node_country_policy.dart';
+import 'public_ip_info_service.dart';
 
 part 'node_country_mmdb.dart';
 
@@ -20,8 +21,8 @@ class NodeCountryResolution {
   final String countryCode;
 }
 
-/// Resolves the node server, never a selected proxy's exit address. DNS uses
-/// the current local proxy; the country lookup stays in the bundled database.
+/// Observes the current proxy's final public exit, including relay routes.
+/// Never geolocates a node server or resolves its hostname as an exit hint.
 class NodeCountryLookup {
   NodeCountryLookup({
     required int proxyPort,
@@ -38,7 +39,6 @@ class NodeCountryLookup {
   }
 
   static const maxResponseBytes = 64 * 1024;
-  static const maxAnswers = 32;
   static Future<_MmdbCountryReader>? _bundledReader;
   final http.Client _client;
   final Future<Uint8List> Function()? _assetLoader;
@@ -53,30 +53,17 @@ class NodeCountryLookup {
     ..connectionTimeout = const Duration(seconds: 3)
     ..findProxy = (_) => 'PROXY 127.0.0.1:$port');
 
-  Future<NodeCountryResolution?> lookup(String host) async {
+  Future<NodeCountryResolution?> lookup() async {
     if (_closed) return null;
     try {
-      final input = host.trim();
-      final literal = InternetAddress.tryParse(input);
-      final name = _dnsName(input);
-      if (literal == null && name == null) return null;
-      if (literal != null && !isPublicNodeCountryAddress(literal.address)) {
-        return null;
-      }
-      final addresses =
-          literal != null ? [literal.address] : await _resolve(name!, 1);
-      if (_closed) return null;
-      if (literal == null && addresses.isEmpty) {
-        addresses.addAll(await _resolve(name!, 28));
-      }
-      if (_closed || addresses.isEmpty) return null;
+      final ip = await _fetchExitIp(PublicIpInfoService.ipv4Endpoint) ??
+          await _fetchExitIp(PublicIpInfoService.fallbackEndpoint);
+      if (_closed || ip == null) return null;
       final reader = _countryReader ?? (await _loadReader()).countryCodeForIp;
       if (_closed) return null;
-      for (final ip in addresses) {
-        final country = normalizeNodeCountryCode(reader(ip) ?? '');
-        if (country != 'UN') {
-          return NodeCountryResolution(ip: ip, countryCode: country);
-        }
+      final country = normalizeNodeCountryCode(reader(ip) ?? '');
+      if (country != 'UN') {
+        return NodeCountryResolution(ip: ip, countryCode: country);
       }
     } catch (_) {
       // Background enrichment is optional; only successful results are cached.
@@ -116,8 +103,8 @@ class NodeCountryLookup {
     return Isolate.run(() => _decodeCountryDatabase(compressed));
   }
 
-  Future<List<String>> _resolve(String host, int type) async {
-    if (_closed) return [];
+  Future<String?> _fetchExitIp(Uri uri) async {
+    if (_closed) return null;
     final abort = Completer<void>();
     _activeRequests.add(abort);
     final aborted = abort.future.then<Never>(
@@ -128,14 +115,11 @@ class NodeCountryLookup {
     });
     StreamIterator<List<int>>? chunks;
     try {
-      final uri = Uri.https('dns.alidns.com', '/resolve', {
-        'name': host,
-        'type': type == 1 ? 'A' : 'AAAA',
-      });
       final request =
           http.AbortableRequest('GET', uri, abortTrigger: abort.future)
             ..followRedirects = false
-            ..headers['Accept'] = 'application/dns-json';
+            ..headers['Accept'] = 'application/json'
+            ..headers['Cache-Control'] = 'no-cache';
       final responseFuture = Future<http.StreamedResponse>.sync(
         () => _client.send(request),
       );
@@ -154,23 +138,26 @@ class NodeCountryLookup {
       }
       chunks = StreamIterator(response.stream);
       if (response case http.BaseResponseWithUrl(:final url)) {
-        if (url != uri) return [];
+        if (url != uri) return null;
       }
       if (response.statusCode != HttpStatus.ok ||
           (response.contentLength ?? 0) > maxResponseBytes) {
-        return [];
+        return null;
       }
       final body = BytesBuilder(copy: false);
       while (await Future.any([chunks.moveNext(), aborted])) {
         final chunk = chunks.current;
-        if (body.length + chunk.length > maxResponseBytes) return [];
+        if (body.length + chunk.length > maxResponseBytes) return null;
         body.add(chunk);
       }
-      if (_closed) return [];
-      return _dnsAddresses(
-          jsonDecode(utf8.decode(body.takeBytes())), host, type);
+      if (_closed) return null;
+      final json = jsonDecode(utf8.decode(body.takeBytes()));
+      final ip = json is Map && json['ip'] is String
+          ? (json['ip'] as String).trim()
+          : '';
+      return isPublicNodeCountryAddress(ip) ? ip : null;
     } catch (_) {
-      return [];
+      return null;
     } finally {
       timer.cancel();
       if (!abort.isCompleted) abort.complete();
@@ -196,70 +183,8 @@ class _NodeCountryRequestAborted implements Exception {
   const _NodeCountryRequestAborted();
 }
 
-String? _dnsName(String value) {
-  final name = value.toLowerCase().replaceFirst(RegExp(r'\.$'), '');
-  if (name.isEmpty || name.length > 253) return null;
-  return name.split('.').every((label) =>
-          label.length <= 63 &&
-          RegExp(r'^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$').hasMatch(label))
-      ? name
-      : null;
-}
-
-List<String> _dnsAddresses(Object? json, String host, int type) {
-  if (json is! Map || json['Status'] != 0 || json['TC'] == true) return [];
-  // AliDNS uses an object; other DNS JSON providers use a one-question array.
-  final question = switch (json['Question']) {
-    Map<Object?, Object?> value => value,
-    [Map<Object?, Object?> value] => value,
-    _ => null,
-  };
-  final answers = json['Answer'];
-  if (question == null ||
-      _dnsName(question['name']?.toString() ?? '') != host ||
-      question['type'] != type ||
-      answers is! List ||
-      answers.length > NodeCountryLookup.maxAnswers) {
-    return [];
-  }
-  final aliases = <String, String>{};
-  for (final answer in answers) {
-    if (answer is! Map) return [];
-    if (answer['type'] != 5) continue;
-    final name = _dnsName(answer['name']?.toString() ?? '');
-    final target = _dnsName(answer['data']?.toString() ?? '');
-    if (name == null ||
-        target == null ||
-        (aliases.containsKey(name) && aliases[name] != target)) {
-      return [];
-    }
-    aliases[name] = target;
-  }
-  final chain = <String>{host};
-  var owner = host;
-  while (aliases.containsKey(owner)) {
-    owner = aliases[owner]!;
-    if (!chain.add(owner) || chain.length > 9) return [];
-  }
-  final addresses = <String>{};
-  for (final answer in answers.cast<Map<Object?, Object?>>()) {
-    if (answer['type'] != type ||
-        !chain.contains(_dnsName(answer['name']?.toString() ?? ''))) {
-      continue;
-    }
-    final ip = InternetAddress.tryParse(answer['data']?.toString() ?? '');
-    if (ip != null &&
-        ip.type ==
-            (type == 1 ? InternetAddressType.IPv4 : InternetAddressType.IPv6) &&
-        isPublicNodeCountryAddress(ip.address)) {
-      addresses.add(ip.address);
-    }
-  }
-  return addresses.toList();
-}
-
 /// Restrict country enrichment to native public unicast addresses. In
-/// particular, never persist a Clash fake-IP as the node's server address.
+/// particular, never persist a Clash fake-IP as a proxy's public exit.
 bool isPublicNodeCountryAddress(String value) {
   if (value.contains('%')) return false;
   final ip = InternetAddress.tryParse(value);

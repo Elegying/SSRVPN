@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../models/proxy_node.dart';
 import '../services/node_country_lookup.dart';
 import '../utils/node_country_policy.dart';
+import '../utils/proxy_dependency_policy.dart';
 import '../utils/recovering_serial_queue.dart';
 
 /// Optional background enrichment, independent of connection and latency work.
@@ -20,6 +21,7 @@ class NodeCountryController extends ChangeNotifier {
   }) : _lookupFactory =
             lookupFactory ?? ((port) => NodeCountryLookup(proxyPort: port));
 
+  static const cacheVersion = 2;
   static const cacheFileName = 'node-countries.json';
   static const _maxEntries = 10000;
   static const _maxCacheBytes = 1024 * 1024;
@@ -33,6 +35,10 @@ class NodeCountryController extends ChangeNotifier {
   List<ProxyNode>? _nodes;
   String _directory = '';
   Object? _session;
+  ProxyNode? _selectedNode;
+  String? _selectedKey;
+  int? _resolvingEpoch;
+  Future<String?> Function()? _currentSelectedProxyName;
   int _port = 0;
   int _epoch = 0;
   int _directoryEpoch = 0;
@@ -50,8 +56,82 @@ class NodeCountryController extends ChangeNotifier {
         node.type.trim().toLowerCase(),
         node.server.trim().toLowerCase().replaceFirst(RegExp(r'\.$'), ''),
         node.port,
+        _routeOptions(node.extra),
       ])))
       .toString();
+
+  // Shared relay endpoints can route different credentials/SNI to different
+  // exits. Hash routing options, while excluding presentation/import metadata.
+  static Object? _routeOptions(Object? value, {bool root = true}) {
+    if (value is Map) {
+      const metadata = {
+        'name',
+        'type',
+        'server',
+        'port',
+        'group',
+        'latency',
+        'isOnline',
+        'lastLatencyTest',
+        'extra',
+        'subscriptionUrl',
+        'ssrvpn-subscription',
+        'ssrvpn-subscription-ids',
+        'ssrvpn-original-name',
+        'country',
+        'countryCode',
+        'country-code',
+        'region',
+        'regionCode',
+        'ipCountry',
+      };
+      final keys = value.keys
+          .cast<String>()
+          .where((key) => !root || !metadata.contains(key))
+          .toList()
+        ..sort();
+      return {
+        for (final key in keys) key: _routeOptions(value[key], root: false)
+      };
+    }
+    if (value is List) {
+      return value.map((entry) => _routeOptions(entry, root: false)).toList();
+    }
+    return value;
+  }
+
+  void _indexNodes(List<ProxyNode> nodes) {
+    _keys
+      ..clear()
+      ..addEntries(nodes.map((node) => MapEntry(node, endpointKey(node))));
+    if (!nodes.any((node) => node.extra['dialer-proxy'] != null)) return;
+    final proxies = {
+      for (final node in nodes)
+        {
+          ...node.extra,
+          'name': node.name,
+          'type': node.type,
+          'server': node.server,
+          'port': node.port,
+        }: node
+    };
+    try {
+      for (final (proxy, parent)
+          in ProxyDependencyPolicy.resolve(proxies.keys)) {
+        if (parent == null) continue;
+        final node = proxies[proxy]!;
+        _keys[node] = sha256
+            .convert(utf8.encode(jsonEncode([
+              _keys[node],
+              _keys[proxies[parent]],
+            ])))
+            .toString();
+      }
+    } on FormatException {
+      // Invalid dependency graphs cannot be loaded by the core either.
+      _keys.clear();
+    }
+  }
 
   String countryFor(ProxyNode node) =>
       _countries[_keys[node] ?? endpointKey(node)] ??
@@ -60,6 +140,8 @@ class NodeCountryController extends ChangeNotifier {
   /// Safe during widget builds: this never synchronously notifies listeners.
   void update({
     required List<ProxyNode> nodes,
+    required ProxyNode? selectedNode,
+    required Future<String?> Function() currentSelectedProxyName,
     required bool connected,
     required bool busy,
     required Object? session,
@@ -68,12 +150,30 @@ class NodeCountryController extends ChangeNotifier {
     required bool Function() isConnectionCurrent,
   }) {
     if (_disposed) return;
+    final selectedName = selectedNode?.name;
+    selectedNode = nodes.where((node) => node.name == selectedName).firstOrNull;
     final directoryChanged = cacheDirectory != _directory;
     final nodesChanged = !identical(nodes, _nodes);
-    final ready = connected && !busy && proxyPort > 0 && proxyPort <= 65535;
+    if (nodesChanged) {
+      _nodes = nodes;
+      _indexNodes(nodes);
+      _hints.clear();
+    }
+    final selectedKey = selectedNode == null
+        ? null
+        : (_keys[selectedNode] ?? endpointKey(selectedNode));
+    final selectedChanged = selectedNode?.name != _selectedNode?.name ||
+        selectedKey != _selectedKey;
+    final ready = connected &&
+        !busy &&
+        selectedNode != null &&
+        proxyPort > 0 &&
+        proxyPort <= 65535;
+    _currentSelectedProxyName = currentSelectedProxyName;
     _isConnectionCurrent = isConnectionCurrent;
     if (directoryChanged ||
         nodesChanged ||
+        selectedChanged ||
         ready != _ready ||
         session != _session ||
         proxyPort != _port) {
@@ -82,17 +182,12 @@ class NodeCountryController extends ChangeNotifier {
     if (session != _session || directoryChanged || (connected && !_connected)) {
       _attempted.clear();
     }
+    _selectedNode = selectedNode;
+    _selectedKey = selectedKey;
     _connected = connected;
     _session = session;
     _port = proxyPort;
     _ready = ready;
-    if (nodesChanged) {
-      _nodes = nodes;
-      _keys
-        ..clear()
-        ..addEntries(nodes.map((node) => MapEntry(node, endpointKey(node))));
-      _hints.clear();
-    }
     if (directoryChanged) {
       unawaited(flush());
       _directory = cacheDirectory;
@@ -113,9 +208,11 @@ class NodeCountryController extends ChangeNotifier {
       (_isConnectionCurrent?.call() ?? false);
 
   void _schedule() {
-    if (!_eligible || _timer != null || _lookup != null) return;
-    if (!_keys.values.any(
-        (key) => !_countries.containsKey(key) && !_attempted.contains(key))) {
+    if (!_eligible || _timer != null || _resolvingEpoch != null) return;
+    final node = _selectedNode;
+    if (node == null) return;
+    final key = _keys[node] ?? endpointKey(node);
+    if (_countries.containsKey(key) || _attempted.contains(key)) {
       return;
     }
     _timer = Timer(stableDelay, () {
@@ -125,64 +222,44 @@ class NodeCountryController extends ChangeNotifier {
   }
 
   Future<void> _resolve(int epoch) async {
-    final pending = _keys.entries
-        .where((entry) =>
-            !_countries.containsKey(entry.value) &&
-            !_attempted.contains(entry.value))
-        .toList(growable: false);
+    final node = _selectedNode;
+    if (node == null) return;
+    final key = _keys[node] ?? endpointKey(node);
+    final selectedName = _currentSelectedProxyName!;
+    _resolvingEpoch = epoch;
     NodeCountryLookup? lookup;
     bool current() => _eligible && epoch == _epoch;
     try {
+      // UI selection can lag tray/recovery changes. Confirm the actual core
+      // route on both sides of the request; never label other catalog nodes.
+      if (!current() || await selectedName() != node.name || !current()) return;
       lookup = _lookupFactory(_port);
       _lookup = lookup;
-      var index = 0;
-      final hosts = <String, Future<NodeCountryResolution?>>{};
-      Future<void> worker() async {
-        while (current() && index < pending.length) {
-          final entry = pending[index++];
-          if (_countries.containsKey(entry.value) ||
-              _attempted.contains(entry.value)) {
-            continue;
-          }
-          // Literal IPs and shared DNS answers can otherwise form a long
-          // microtask chain. Let UI events (including latency/cancel) run.
-          await Future<void>.delayed(Duration.zero);
-          if (!current()) return;
-          NodeCountryResolution? result;
-          try {
-            result = await hosts.putIfAbsent(
-              entry.key.server.trim().toLowerCase(),
-              () => lookup!.lookup(entry.key.server),
-            );
-          } catch (_) {
-            // A failed lookup is retried only in a later connection session.
-          }
-          if (!current()) return;
-          _attempted.add(entry.value);
-          final code = normalizeNodeCountryCode(result?.countryCode ?? '');
-          if (code == 'UN' ||
-              result == null ||
-              !isPublicNodeCountryAddress(result.ip)) {
-            continue;
-          }
-          _countries[entry.value] = code;
-          while (_countries.length > _maxEntries) {
-            _countries.remove(_countries.keys.first);
-          }
-          _saveTimer ??= Timer(const Duration(seconds: 1), () {
-            _saveTimer = null;
-            unawaited(flush());
-          });
-          notifyListeners();
-        }
+      final result = await lookup.lookup();
+      if (!current() || await selectedName() != node.name || !current()) return;
+      _attempted.add(key);
+      final code = normalizeNodeCountryCode(result?.countryCode ?? '');
+      if (result == null ||
+          code == 'UN' ||
+          !isPublicNodeCountryAddress(result.ip)) {
+        return;
       }
-
-      await Future.wait([worker(), worker()]);
+      _countries[key] = code;
+      while (_countries.length > _maxEntries) {
+        _countries.remove(_countries.keys.first);
+      }
+      _saveTimer ??= Timer(const Duration(seconds: 1), () {
+        _saveTimer = null;
+        unawaited(flush());
+      });
+      notifyListeners();
     } catch (_) {
+      if (current()) _attempted.add(key);
       // Country enrichment must never fail a connection or a latency test.
     } finally {
       lookup?.close();
       if (identical(_lookup, lookup)) _lookup = null;
+      if (_resolvingEpoch == epoch) _resolvingEpoch = null;
     }
   }
 
@@ -201,7 +278,9 @@ class NodeCountryController extends ChangeNotifier {
         }
         if (bytes.length > _maxCacheBytes) throw const FormatException();
         final json = jsonDecode(utf8.decode(bytes));
-        if (json is Map && json['version'] == 1 && json['countries'] is Map) {
+        if (json is Map &&
+            json['version'] == cacheVersion &&
+            json['countries'] is Map) {
           for (final entry
               in (json['countries'] as Map).entries.take(_maxEntries)) {
             if (entry.key is! String ||
@@ -229,7 +308,8 @@ class NodeCountryController extends ChangeNotifier {
     _saveTimer = null;
     if (_directory.isEmpty || !_loaded) return Future<void>.value();
     final file = File('$_directory/$cacheFileName');
-    final contents = jsonEncode({'version': 1, 'countries': _countries});
+    final contents =
+        jsonEncode({'version': cacheVersion, 'countries': _countries});
     return _writes.add(() async {
       final temporary = File('${file.path}.tmp');
       try {
@@ -247,6 +327,7 @@ class NodeCountryController extends ChangeNotifier {
 
   void _cancel() {
     _epoch++;
+    _resolvingEpoch = null;
     _timer?.cancel();
     _timer = null;
     _lookup?.close();

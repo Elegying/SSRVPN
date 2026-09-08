@@ -799,10 +799,24 @@ void main() {
           await directory.delete(recursive: true);
         });
         final nodes = [
-          ProxyNode(name: '日本节点', type: 'ss', server: 'node.invalid', port: 443)
+          ProxyNode(
+              name: 'Node A',
+              type: 'ss',
+              server: 'a.invalid',
+              port: 443,
+              extra: {'country': 'JP'}),
+          ProxyNode(
+              name: 'Node B',
+              type: 'ss',
+              server: 'b.invalid',
+              port: 443,
+              extra: {'country': 'JP'})
         ];
+        var selectedNode = nodes.first;
         void syncCountries() => countries.update(
               nodes: nodes,
+              selectedNode: selectedNode,
+              currentSelectedProxyName: service.confirmedProxyExitNode,
               connected: service.isRunning,
               busy: service.isProxySelectionInProgress,
               session: generation,
@@ -821,9 +835,11 @@ void main() {
             const NodeCountryResolution(ip: '8.8.8.8', countryCode: 'US'));
         await Future<void>.delayed(const Duration(milliseconds: 80));
         expect(lookups, hasLength(1));
-        expect(countries.countryFor(nodes.single), 'JP');
+        expect(countries.countryFor(nodes.first), 'JP');
         release.complete();
         expect(await switching, succeeds);
+        if (succeeds) selectedNode = nodes.last;
+        syncCountries();
         expect(service.isProxySelectionInProgress, isFalse);
         expect(service.captureAutomaticRestartIntent(), generation);
         await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -1124,6 +1140,29 @@ void main() {
         expect(service.recentLogs, contains('HTTP 503'));
       },
     );
+
+    test(
+        'exit attribution requires a confirmed routed node, never a GLOBAL fallback',
+        () async {
+      final api = await _ProxyApiServer.start(proxyNow: 'Node A');
+      addTearDown(api.close);
+      final service = _ApiClashService()
+        ..initHttpClient()
+        ..updateSettings(
+            AppSettings(apiPort: api.port, proxyMode: ProxyMode.global));
+      addTearDown(service.dispose);
+      expect(await service.confirmedProxyExitNode(), 'Node A');
+      api.globalNow = 'Node B';
+      expect(await service.confirmedProxyExitNode(), 'Node B');
+      for (final selection in ['', 'DIRECT', 'REJECT', 'PASS']) {
+        api.globalNow = selection;
+        expect(await service.confirmedProxyExitNode(), isNull);
+      }
+      service.updateSettings(AppSettings(apiPort: api.port));
+      expect(await service.confirmedProxyExitNode(), 'Node A');
+      api.proxyNow = 'DIRECT';
+      expect(await service.confirmedProxyExitNode(), isNull);
+    });
 
     test('resolves effective selected node through GLOBAL to PROXY', () async {
       final api = await _ProxyApiServer.start(
@@ -2458,7 +2497,7 @@ class _SwitchCountryLookup extends NodeCountryLookup {
   bool closed = false;
 
   @override
-  Future<NodeCountryResolution?> lookup(String host) => reply.future;
+  Future<NodeCountryResolution?> lookup() => reply.future;
 
   @override
   void close() {

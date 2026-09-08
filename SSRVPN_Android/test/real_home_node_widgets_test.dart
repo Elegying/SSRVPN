@@ -62,7 +62,7 @@ void main() {
     await tester.runAsync(() => File(
           '${fixture.directory.path}/${NodeCountryController.cacheFileName}',
         ).writeAsString(jsonEncode({
-          'version': 1,
+          'version': NodeCountryController.cacheVersion,
           'countries': {NodeCountryController.endpointKey(original): 'SE'},
         })));
 
@@ -100,7 +100,7 @@ void main() {
     await tester.runAsync(() => File(
           '${fixture.directory.path}/${NodeCountryController.cacheFileName}',
         ).writeAsString(jsonEncode({
-          'version': 1,
+          'version': NodeCountryController.cacheVersion,
           'countries': {NodeCountryController.endpointKey(original): 'SE'},
         })));
 
