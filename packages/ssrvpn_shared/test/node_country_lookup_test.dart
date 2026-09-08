@@ -9,7 +9,7 @@ import 'package:http/testing.dart';
 import 'package:ssrvpn_shared/services/node_country_lookup.dart';
 
 void main() {
-  test('resolves only matching A answers through a validated CNAME chain',
+  test('resolves AliDNS object Question through a validated CNAME chain',
       () async {
     final requests = <http.Request>[];
     final lookup = NodeCountryLookup(
@@ -35,6 +35,62 @@ void main() {
     expect(requests.single.followRedirects, isFalse);
     expect(requests.single.url.queryParameters,
         {'name': 'node.example', 'type': 'A'});
+  });
+
+  test('accepts a single matching Question list for DNS JSON compatibility',
+      () async {
+    final lookup = NodeCountryLookup(
+      proxyPort: 7890,
+      countryReader: (_) => 'US',
+      client: MockClient((request) async {
+        final response =
+            _answer(request, [_record('node.example', 1, '8.8.8.8')]);
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        body['Question'] = [body['Question']];
+        return http.Response(jsonEncode(body), 200);
+      }),
+    );
+    addTearDown(lookup.close);
+    expect((await lookup.lookup('node.example'))?.ip, '8.8.8.8');
+  });
+
+  test('rejects multiple questions and malformed or mismatched Question maps',
+      () async {
+    for (final question in [
+      null,
+      <Object>[],
+      [
+        {'name': 'node.example', 'type': 1},
+        {'name': 'other.example', 'type': 1},
+      ],
+      ['node.example'],
+      <String, Object>{},
+      {'name': 'other.example', 'type': 1},
+      {'name': 'node.example', 'type': 65535},
+      {'name': 'node.example', 'type': '1'},
+      {'name': 'node.example'},
+      {'type': 1},
+    ]) {
+      var reads = 0;
+      final lookup = NodeCountryLookup(
+        proxyPort: 7890,
+        countryReader: (_) {
+          reads++;
+          return 'US';
+        },
+        client: MockClient((_) async => http.Response(
+            jsonEncode({
+              'Status': 0,
+              'Question': question,
+              'Answer': [_record('node.example', 1, '8.8.8.8')],
+            }),
+            200)),
+      );
+      expect(await lookup.lookup('node.example'), isNull,
+          reason: 'Question: $question');
+      expect(reads, 0);
+      lookup.close();
+    }
   });
 
   test('falls back to a public native IPv6 record without system DNS',
@@ -269,12 +325,10 @@ http.Response _answer(http.Request request, List<Object> answers) =>
     http.Response(
         jsonEncode({
           'Status': 0,
-          'Question': [
-            {
-              'name': request.url.queryParameters['name'],
-              'type': request.url.queryParameters['type'] == 'A' ? 1 : 28,
-            }
-          ],
+          'Question': {
+            'name': '${request.url.queryParameters['name']}.',
+            'type': request.url.queryParameters['type'] == 'A' ? 1 : 28,
+          },
           'Answer': answers
         }),
         200);

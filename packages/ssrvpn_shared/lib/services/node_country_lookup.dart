@@ -208,13 +208,16 @@ String? _dnsName(String value) {
 
 List<String> _dnsAddresses(Object? json, String host, int type) {
   if (json is! Map || json['Status'] != 0 || json['TC'] == true) return [];
-  final questions = json['Question'];
+  // AliDNS uses an object; other DNS JSON providers use a one-question array.
+  final question = switch (json['Question']) {
+    Map<Object?, Object?> value => value,
+    [Map<Object?, Object?> value] => value,
+    _ => null,
+  };
   final answers = json['Answer'];
-  if (questions is! List ||
-      questions.length != 1 ||
-      questions.single is! Map ||
-      _dnsName(questions.single['name']?.toString() ?? '') != host ||
-      questions.single['type'] != type ||
+  if (question == null ||
+      _dnsName(question['name']?.toString() ?? '') != host ||
+      question['type'] != type ||
       answers is! List ||
       answers.length > NodeCountryLookup.maxAnswers) {
     return [];
