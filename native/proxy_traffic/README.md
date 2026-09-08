@@ -46,4 +46,8 @@ Android 使用固定临时源码路径以及 `-s -w -buildid=` 链接参数，�
 内容寻址镜像字段保留目标身份，不代表该地址已发布。Windows 开发者可从待验收
 提交对应的成功 CI 下载该制品到仓库根目录，然后执行 `make assets` 校验，避免
 在 Windows 主机上安装 Android/macOS 交叉编译工具链。普通源码同步不创建标签、不触发 Prepare Release、不更新 GitHub/OSS 安装包。
-显式授权发布时，Prepare Release 同样使用规范 macOS 主机重建和校验固定核心。
+显式授权发布时，Prepare Release 在精确 main CI 通过后，优先复用该次 CI 的 `core-assets`；
+Release 同样查找精确 main 的可信制品。两处均复核仓库、工作流、提交、事件、24 小时时效、
+全部九项必需门禁，以及制品 ID、归档 SHA-256、六个文件的固定摘要，再执行原核心验证。
+缺失或过期才回退规范 macOS 主机源码重建；API、身份或摘要异常直接失败。
+普通 CI 继续从源码重建，不使用此复用入口。发布制品复用不替代三端应用构建和签名。

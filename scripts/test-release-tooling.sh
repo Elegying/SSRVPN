@@ -33,6 +33,7 @@ python3 -m unittest \
   scripts/test_quality_hygiene_entrypoint.py \
   scripts/test_release_tooling_entrypoint.py \
   scripts/test_reuse_github_release_assets.py \
+  scripts/test_reuse_ci_core_assets.py \
   scripts/test_run_flutter_coverage.py \
   scripts/test_run_command_with_timeout.py \
   scripts/test_secret_scanning.py \

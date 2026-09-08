@@ -1042,7 +1042,7 @@ cp "$FAKE_MIRROR_FILE" "$output"
         self.assertNotIn("Require the latest GeoIP snapshot", release_workflow)
         self.assertNotIn("scripts/sync-geoip-metadb.py", release_workflow)
         self.assertLess(
-            release_workflow.index("bash scripts/bootstrap-core-assets.sh"),
+            release_workflow.index("bash scripts/prepare-release-core-assets.sh"),
             release_workflow.index("bash scripts/verify-core-assets.sh"),
         )
         self.assertLess(

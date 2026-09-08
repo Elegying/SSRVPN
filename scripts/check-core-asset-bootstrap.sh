@@ -36,9 +36,11 @@ if grep -R -n -E 'lfs:[[:space:]]*true' .github/workflows >/dev/null; then
   fail "a GitHub Actions workflow still downloads Git LFS objects"
 fi
 
+grep -Fq 'scripts/bootstrap-core-assets.sh' .github/workflows/ci.yml ||
+  fail "CI must rebuild verified core assets from source"
+grep -Fq 'scripts/prepare-release-core-assets.sh' .github/workflows/release.yml ||
+  fail "Release must verify reusable CI core assets or rebuild"
 for workflow in .github/workflows/ci.yml .github/workflows/release.yml; do
-  grep -Fq 'scripts/bootstrap-core-assets.sh' "$workflow" ||
-    fail "$workflow does not bootstrap verified core assets"
   grep -Fq 'scripts/check-core-asset-bootstrap.sh' "$workflow" ||
     fail "$workflow does not enforce the core asset bootstrap model"
 done
