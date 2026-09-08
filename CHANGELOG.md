@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.38] - 2026-09-08
+
+### 节点测速
+
+- 修复连接 VPN/TUN 后其他节点的 TCP 延迟异常偏低：三端测速的 DNS 解析与 TCP 连接绑定到同一物理网络，避免测到本机虚拟网络栈。
+- Android 显式保护测速 socket；macOS 从网络路径选择阶段排除隧道；Windows 使用指定接口的 DNS 查询及 TCP 接口、源地址双重绑定。
+- 无物理路径、绑定失败、假 IP、异常原生返回或超时均返回失败，不回退到未绑定 Socket。单节点与批量测速共用入口，保留私家车延迟展示策略及现有国旗出口缓存逻辑。
+
 ## [4.0.37] - 2026-09-08
 
 ### 中转线路国旗
