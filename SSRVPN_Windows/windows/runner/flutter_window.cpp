@@ -453,6 +453,8 @@ bool FlutterWindow::OnCreate() {
   startup_diagnostics::Log(L"Flutter engine create end");
 
   RegisterPluginsSafely(flutter_controller_->engine());
+  physical_latency_channel_ = std::make_unique<PhysicalTcpLatencyChannel>(
+      flutter_controller_->engine()->messenger(), GetHandle());
   tun_elevation_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(),
@@ -511,6 +513,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  physical_latency_channel_ = nullptr;
   platform_info_channel_ = nullptr;
   tun_elevation_channel_ = nullptr;
   if (flutter_controller_) {
@@ -524,6 +527,9 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (physical_latency_channel_ && physical_latency_channel_->HandleMessage(message, wparam)) {
+    return 0;
+  }
   // Proxy recovery must run before plugins get a chance to consume the
   // shutdown message and return early.
   if (message == WM_ENDSESSION && wparam != FALSE) {

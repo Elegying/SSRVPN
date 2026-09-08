@@ -8,6 +8,8 @@ project(runner LANGUAGES CXX)
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
+  "physical_tcp_latency_channel.cpp"
+  "physical_tcp_latency_probe.cpp"
   "main.cpp"
   "startup_diagnostics.cpp"
   "system_proxy_recovery.cpp"
@@ -48,6 +50,7 @@ target_link_libraries(${BINARY_NAME} PRIVATE "dbghelp.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "shell32.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "advapi32.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "wininet.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "ws2_32.lib" "iphlpapi.lib" "dnsapi.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
@@ -103,3 +106,14 @@ target_compile_definitions(ssrvpn_system_proxy_recovery_test PRIVATE
 )
 target_link_libraries(ssrvpn_system_proxy_recovery_test PRIVATE "advapi32.lib")
 target_link_libraries(ssrvpn_system_proxy_recovery_test PRIVATE "wininet.lib")
+
+add_executable(ssrvpn_physical_tcp_latency_test EXCLUDE_FROM_ALL
+  "physical_tcp_latency_probe.cpp"
+  "physical_tcp_latency_probe_test.cpp"
+)
+apply_standard_settings(ssrvpn_physical_tcp_latency_test)
+set_target_properties(ssrvpn_physical_tcp_latency_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/native-tests"
+)
+target_compile_definitions(ssrvpn_physical_tcp_latency_test PRIVATE "NOMINMAX")
+target_link_libraries(ssrvpn_physical_tcp_latency_test PRIVATE "ws2_32.lib" "iphlpapi.lib" "dnsapi.lib")

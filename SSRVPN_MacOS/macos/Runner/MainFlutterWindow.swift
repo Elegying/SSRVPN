@@ -45,6 +45,17 @@ class MainFlutterWindow: NSWindow {
     self.setFrame(windowFrame, display: true)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
+    let latencyChannel = FlutterMethodChannel(
+      name: "com.ssrvpn/physical_latency", binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    latencyChannel.setMethodCallHandler { call, result in
+      guard call.method == "probe" else { result(FlutterMethodNotImplemented); return }
+      let args = call.arguments as? [String: Any] ?? [:]
+      PhysicalTcpLatencyProbe.measure(
+        host: args["server"] as? String ?? "", port: args["port"] as? Int ?? 0,
+        timeoutMs: args["timeoutMs"] as? Int ?? 0
+      ) { result($0) }
+    }
     registerCoreProcessChannel(with: flutterViewController.engine.binaryMessenger)
     super.awakeFromNib()
   }

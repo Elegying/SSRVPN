@@ -1,5 +1,6 @@
 import Cocoa
 import Darwin
+import Network
 import FlutterMacOS
 import XCTest
 @testable import SSRVPN
@@ -24,6 +25,27 @@ private final class FakeWindowRevealTarget: WindowRevealTarget {
 }
 
 class RunnerTests: XCTestCase {
+  func testPhysicalLatencyRejectsSyntheticAndLocalStackAddresses() {
+    for value in ["198.18.0.1", "198.19.255.254", "127.0.0.1", "0.0.0.0", "169.254.1.2", "224.0.0.1"] {
+      XCTAssertFalse(PhysicalTcpLatencyProbe.usableAddress(IPv4Address(value)!), value)
+    }
+    for value in ["1.1.1.1", "192.168.1.1", "198.20.0.1"] {
+      XCTAssertTrue(PhysicalTcpLatencyProbe.usableAddress(IPv4Address(value)!), value)
+    }
+    XCTAssertFalse(PhysicalTcpLatencyProbe.validArguments(host: "bad host", port: 443, timeoutMs: 5000))
+    XCTAssertFalse(PhysicalTcpLatencyProbe.validArguments(host: "relay.example", port: 65536, timeoutMs: 5000))
+  }
+
+  func testPhysicalLatencyDeadlineCompletesExactlyOnce() {
+    let finished = expectation(description: "probe deadline")
+    finished.assertForOverFulfill = true
+    PhysicalTcpLatencyProbe.measure(host: "192.0.2.1", port: 443, timeoutMs: 1) { value in
+      XCTAssertEqual(value, -1)
+      finished.fulfill()
+    }
+    wait(for: [finished], timeout: 2)
+  }
+
 
   func testMainWindowUsesIntegratedTitlebarAppearance() {
     let window = MainFlutterWindow(
