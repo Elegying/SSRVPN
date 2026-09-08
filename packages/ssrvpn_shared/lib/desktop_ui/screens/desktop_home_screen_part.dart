@@ -71,6 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
     bool ready() =>
         core.isRunning &&
         core.connectionDesired &&
+        !core.isProxySelectionInProgress &&
         !_isConnecting &&
         !_isBatchTesting &&
         _testingNodeName == null &&

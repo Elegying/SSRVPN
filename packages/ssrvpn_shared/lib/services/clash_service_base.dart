@@ -69,6 +69,7 @@ abstract class ClashServiceBase
   DesktopConnectionRecoveryPlan? _desktopConnectionRecoveryPlan;
   String? _desktopRecoveryPreferredNodeName;
   Future<void> _proxySelectionTail = Future<void>.value();
+  int _pendingProxySelections = 0;
 
   AppSettings _settings = AppSettings();
   String _configDir = '';
@@ -131,6 +132,9 @@ abstract class ClashServiceBase
   @override
   AppSettings get settings => _settings;
   bool get connectionDesired => _connectionIntent.desired;
+
+  /// Includes queued selections so advisory work cannot resume between them.
+  bool get isProxySelectionInProgress => _pendingProxySelections > 0;
   @override
   String get configDir => _configDir;
   @override
@@ -441,11 +445,19 @@ abstract class ClashServiceBase
     String nodeName, {
     SwitchContextGuard? isSwitchContextCurrent,
   }) {
+    final publishBusy = _pendingProxySelections++ == 0;
     final operation = _proxySelectionTail.then(
-      (_) => _switchSelectedProxy(
-        nodeName,
-        isSwitchContextCurrent: isSwitchContextCurrent,
-      ),
+      (_) async {
+        try {
+          if (publishBusy) _notifyStatusChanged();
+          return await _switchSelectedProxy(
+            nodeName,
+            isSwitchContextCurrent: isSwitchContextCurrent,
+          );
+        } finally {
+          if (--_pendingProxySelections == 0) _notifyStatusChanged();
+        }
+      },
     );
     _proxySelectionTail = operation.then<void>((_) {}, onError: (_, __) {});
     return operation;

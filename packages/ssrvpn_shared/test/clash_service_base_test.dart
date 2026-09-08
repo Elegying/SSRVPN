@@ -5,12 +5,15 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:yaml/yaml.dart';
 import 'package:ssrvpn_shared/constants/app_constants.dart';
+import 'package:ssrvpn_shared/controllers/node_country_controller.dart';
 import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
+import 'package:ssrvpn_shared/services/node_country_lookup.dart';
 import 'package:ssrvpn_shared/services/smart_rule_bundle.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
@@ -751,6 +754,138 @@ void main() {
   });
 
   group('ClashServiceBase proxy selection', () {
+    for (final succeeds in [true, false]) {
+      test(
+          'country enrichment pauses through a switch and restarts its delay, success=$succeeds',
+          () async {
+        final entered = Completer<void>();
+        final release = Completer<void>();
+        final api = await _ProxyApiServer.start(
+          proxyNow: 'Node A',
+          putStatusCode:
+              succeeds ? HttpStatus.noContent : HttpStatus.serviceUnavailable,
+          beforePutResponse: (_) async {
+            if (!entered.isCompleted) entered.complete();
+            await release.future;
+          },
+        );
+        addTearDown(api.close);
+        addTearDown(() {
+          if (!release.isCompleted) release.complete();
+        });
+        final service = _ApiClashService()
+          ..initHttpClient()
+          ..updateSettings(AppSettings(apiPort: api.port));
+        addTearDown(service.dispose);
+        final generation = service.requestConnectionIntent(true);
+        service.setRunning(true);
+        final directory =
+            await Directory.systemTemp.createTemp('country-switch-');
+        final lookups = <_SwitchCountryLookup>[];
+        final countries = NodeCountryController(
+          stableDelay: const Duration(milliseconds: 60),
+          lookupFactory: (_) {
+            final lookup = _SwitchCountryLookup();
+            lookups.add(lookup);
+            return lookup;
+          },
+        );
+        addTearDown(() async {
+          countries.dispose();
+          for (final lookup in lookups) {
+            if (!lookup.reply.isCompleted) lookup.reply.complete();
+          }
+          await countries.flush();
+          await directory.delete(recursive: true);
+        });
+        final nodes = [
+          ProxyNode(name: '日本节点', type: 'ss', server: 'node.invalid', port: 443)
+        ];
+        void syncCountries() => countries.update(
+              nodes: nodes,
+              connected: service.isRunning,
+              busy: service.isProxySelectionInProgress,
+              session: generation,
+              proxyPort: 7890,
+              cacheDirectory: directory.path,
+              isConnectionCurrent: () => !service.isProxySelectionInProgress,
+            );
+        service.addStatusListener(syncCountries);
+        syncCountries();
+        await _waitForCountrySwitch(() => lookups.length == 1);
+        final switching = service.switchSelectedProxy('Node B');
+        await entered.future.timeout(const Duration(seconds: 3));
+        expect(service.isProxySelectionInProgress, isTrue);
+        expect(lookups.single.closed, isTrue);
+        lookups.single.reply.complete(
+            const NodeCountryResolution(ip: '8.8.8.8', countryCode: 'US'));
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+        expect(lookups, hasLength(1));
+        expect(countries.countryFor(nodes.single), 'JP');
+        release.complete();
+        expect(await switching, succeeds);
+        expect(service.isProxySelectionInProgress, isFalse);
+        expect(service.captureAutomaticRestartIntent(), generation);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(lookups, hasLength(1));
+        await _waitForCountrySwitch(() => lookups.length == 2);
+      });
+    }
+
+    test(
+        'proxy selection busy spans queued work and clears after a throwing guard',
+        () async {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      final firstEntered = Completer<void>();
+      final firstRelease = Completer<bool>();
+      final secondEntered = Completer<void>();
+      final secondRelease = Completer<bool>();
+      addTearDown(() {
+        if (!firstRelease.isCompleted) firstRelease.complete(false);
+        if (!secondRelease.isCompleted) {
+          secondRelease.completeError(StateError('fixture guard failure'));
+        }
+      });
+      final states = <bool>[];
+      service.addStatusListener(
+          () => states.add(service.isProxySelectionInProgress));
+      final first =
+          service.switchSelectedProxy('A', isSwitchContextCurrent: () {
+        firstEntered.complete();
+        return firstRelease.future;
+      });
+      final second =
+          service.switchSelectedProxy('B', isSwitchContextCurrent: () {
+        secondEntered.complete();
+        return secondRelease.future;
+      });
+      final failure = expectLater(second, throwsStateError);
+      await firstEntered.future;
+      expect(service.isProxySelectionInProgress, isTrue);
+      firstRelease.complete(false);
+      expect(await first, isFalse);
+      await secondEntered.future;
+      expect(service.isProxySelectionInProgress, isTrue);
+      expect(states, [true]);
+      secondRelease.completeError(StateError('fixture guard failure'));
+      await failure;
+      expect(service.isProxySelectionInProgress, isFalse);
+      expect(states, [true, false]);
+    });
+
+    test('proxy selection busy clears when a status observer throws', () async {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      service.addStatusListener(() {
+        if (service.isProxySelectionInProgress) {
+          throw StateError('fixture listener failure');
+        }
+      });
+      await expectLater(service.switchSelectedProxy('A'), throwsStateError);
+      expect(service.isProxySelectionInProgress, isFalse);
+    });
+
     test(
       'a stale switch is rejected before it mutates a reused API port',
       () async {
@@ -816,11 +951,11 @@ void main() {
       expect(switched, isTrue);
       expect(await service.currentSelectedProxyName(), 'Node B');
       expect(api.closeConnectionCalls, 1);
-      expect(statusNotifications, 1);
+      expect(statusNotifications, 3); // Busy, route changed, then idle.
     });
 
     test(
-      'a confirmed switch clears its route warning with one status event',
+      'a confirmed switch publishes busy, cleared route warning and idle',
       () async {
         final api = await _ProxyApiServer.start(proxyNow: 'Node A');
         addTearDown(api.close);
@@ -831,13 +966,16 @@ void main() {
           ..publishRunning()
           ..publishDataPlaneWarning('旧节点外部联网告警');
         addTearDown(service.dispose);
-        var statusNotifications = 0;
-        service.addStatusListener(() => statusNotifications += 1);
+        final states = <(bool, String?)>[];
+        service.addStatusListener(() => states.add((
+              service.isProxySelectionInProgress,
+              service.connectivityWarning,
+            )));
 
         expect(await service.switchSelectedProxy('Node B'), isTrue);
 
         expect(service.connectivityWarning, isNull);
-        expect(statusNotifications, 1);
+        expect(states, [(true, '旧节点外部联网告警'), (true, null), (false, null)]);
       },
     );
 
@@ -895,7 +1033,7 @@ void main() {
         expect(api.putTargets, ['PROXY:Node B']);
         expect(guardCalls, 2);
         expect(api.closeConnectionCalls, 0);
-        expect(statusNotifications, 0);
+        expect(statusNotifications, 2); // Busy/idle only; no stale route event.
         expect(
           service.isConnectionIntentCurrent(newGeneration, connected: true),
           isTrue,
@@ -943,7 +1081,7 @@ void main() {
         expect(await switching, isTrue);
         expect(api.closeConnectionCalls, 1);
         expect(service.connectivityWarning, '新会话告警');
-        expect(statusNotifications, notificationsAfterNewSession);
+        expect(statusNotifications, notificationsAfterNewSession + 1); // Idle.
       },
     );
 
@@ -2301,6 +2439,32 @@ proxies:
       expect(text, isNot(contains('top-secret')));
     });
   });
+}
+
+Future<void> _waitForCountrySwitch(bool Function() ready) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 3));
+  while (!ready() && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+  expect(ready(), isTrue);
+}
+
+class _SwitchCountryLookup extends NodeCountryLookup {
+  _SwitchCountryLookup()
+      : super(
+            proxyPort: 7890,
+            client: MockClient((_) => throw StateError('unexpected network')));
+  final reply = Completer<NodeCountryResolution?>();
+  bool closed = false;
+
+  @override
+  Future<NodeCountryResolution?> lookup(String host) => reply.future;
+
+  @override
+  void close() {
+    closed = true;
+    super.close();
+  }
 }
 
 class _ProxyApiServer {
