@@ -6,6 +6,16 @@ import Network
 enum PhysicalTcpLatencyProbe {
   private static let queue = DispatchQueue(label: "ssrvpn.physical-latency")
   private static var active = 0
+  // An interface can still have fake-IP answers cached by the TUN DNS
+  // hijacker. Require encrypted resolution without changing system DNS.
+  // Reuse the context so batch probes can share resolver/TLS cache state.
+  private static let dnsContext: NWParameters.PrivacyContext = {
+    let context = NWParameters.PrivacyContext(description: "ssrvpn.physical-latency")
+    context.requireEncryptedNameResolution(true, fallbackResolver: .https(
+      URL(string: "https://dns.alidns.com/dns-query")!,
+      serverAddresses: [.hostPort(host: "223.5.5.5", port: 443)]))
+    return context
+  }()
 
   static func validArguments(host: String, port: Int, timeoutMs: Int) -> Bool {
     !host.isEmpty && host.utf8.count <= 253 &&
@@ -61,6 +71,7 @@ enum PhysicalTcpLatencyProbe {
         parameters.requiredInterface = physical
         parameters.prohibitedInterfaceTypes = [.other, .loopback]
         parameters.preferNoProxies = true
+        parameters.setPrivacyContext(dnsContext)
         (parameters.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options)?.version = .v4
         let probe = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: UInt16(port))!, using: parameters)
         connection = probe
