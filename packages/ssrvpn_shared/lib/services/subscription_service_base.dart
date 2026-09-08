@@ -17,7 +17,6 @@ import '../services/subscription_processing.dart';
 import '../services/subscription_refresh_control.dart';
 import '../services/subscription_refresh_result.dart';
 import '../services/subscription_yaml_merger.dart';
-import '../services/subscription_source_cache.dart';
 import 'node_preference_transaction.dart';
 import 'subscription_undo_record.dart';
 import '../utils/app_logger.dart';
@@ -107,11 +106,13 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
   }
 
   Future<Subscription> _addSubscription(String name, String url) async {
+    final control =
+        SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout);
     final local = isSingleNodeLink(url);
     if (!local) SubscriptionUrlPolicy.parse(url);
     final localYaml = local ? _validatedLocalYaml(url) : null;
     final cachedSources =
-        _rawYaml == null && !local ? null : _cachedSourceYamls();
+        _rawYaml == null && !local ? null : await _cachedSourceYamls(control);
     final sub = Subscription(id: _uuid.v4(), name: name, url: url);
     if (local) {
       cachedSources![sub.id] = localYaml!;
@@ -119,7 +120,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     }
     _subscriptions.add(sub);
     try {
-      await _commitSubscriptionMetadata(cachedSources);
+      await _commitSubscriptionMetadata(cachedSources, control);
     } catch (error, stackTrace) {
       _subscriptions.remove(sub);
       Error.throwWithStackTrace(error, stackTrace);
@@ -138,7 +139,9 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     final index =
         _subscriptions.indexWhere((subscription) => subscription.id == id);
     if (index < 0) return;
-    final cachedSources = _cachedSourceYamls();
+    final control =
+        SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout);
+    final cachedSources = await _cachedSourceYamls(control);
     final removed = _subscriptions.removeAt(index);
 
     if (_subscriptions.isEmpty) {
@@ -163,9 +166,6 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     }
 
     try {
-      final control = SubscriptionRefreshControl(
-        timeout: defaultBatchRefreshTimeout,
-      );
       final processed = await _mergeSourceYamls(cachedSources, control);
       await _commitSubscriptionCache(processed, const [], control);
       _purgeInactiveFetchedProfileNames();
@@ -182,20 +182,21 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
   Future<void> _updateSubscription(Subscription updated) async {
     final index = _subscriptions.indexWhere((s) => s.id == updated.id);
     if (index >= 0) {
-      final cachedSources = _rawYaml == null ? null : _cachedSourceYamls();
+      final control =
+          SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout);
+      final cachedSources =
+          _rawYaml == null ? null : await _cachedSourceYamls(control);
       final previous = _subscriptions[index];
       _subscriptions[index] = updated;
       try {
         if (updated.url != previous.url) {
-          final control =
-              SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout);
           final sources = cachedSources ?? <String, String>{};
           sources[updated.id] = await _fetchValidatedSource(updated, control);
           final processed =
               await _mergeSourceYamls(sources, control, refreshed: {updated});
           await _commitSubscriptionCache(processed, [updated], control);
         } else {
-          await _commitSubscriptionMetadata(cachedSources);
+          await _commitSubscriptionMetadata(cachedSources, control);
         }
       } catch (error, stackTrace) {
         _subscriptions[index] = previous;
@@ -205,14 +206,13 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     }
   }
 
-  Future<void> _commitSubscriptionMetadata(Map<String, String>? sources) async {
+  Future<void> _commitSubscriptionMetadata(
+      Map<String, String>? sources, SubscriptionRefreshControl control) async {
     if (sources == null) {
       await saveToDisk();
       notifyListeners();
       return;
     }
-    final control =
-        SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout);
     final processed = await _mergeSourceYamls(sources, control);
     await _commitSubscriptionCache(processed, const [], control);
   }
@@ -291,7 +291,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       );
     }
 
-    final cachedSources = _cachedSourceYamls();
+    final cachedSources = await _cachedSourceYamls(control);
     final succeededSubs = <Subscription>[];
     final failures = <SubscriptionRefreshFailure>[];
 
@@ -374,12 +374,16 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     return yaml;
   }
 
-  Map<String, String> _cachedSourceYamls() => SubscriptionSourceCache.extract(
+  Future<Map<String, String>> _cachedSourceYamls(
+    SubscriptionRefreshControl control,
+  ) =>
+      SubscriptionProcessing.extractSources(
         _rawYaml,
         {
           for (final sub in _subscriptions)
             if (sub.enabled) sub.id: sourceNameForSubscription(sub)
         },
+        control,
         localSources: {
           for (final sub in _subscriptions)
             if (sub.enabled && isSingleNodeLink(sub.url))
@@ -419,7 +423,11 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       previousYaml: _rawYaml,
     );
     return result.yaml.isEmpty
-        ? MergedSubscriptionResult(yaml: 'proxies: []\n', parsed: result.parsed)
+        ? MergedSubscriptionResult(
+            yaml: 'proxies: []\n',
+            parsed: result.parsed,
+            runtimeText: result.runtimeText,
+          )
         : result;
   }
 
@@ -453,7 +461,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       _applyFetchedSubscriptionName(sub);
       sub.lastUpdate = now;
     }
-    _acceptCache(candidateYaml, candidate);
+    _acceptCache(candidateYaml, candidate, processed.runtimeText!);
     try {
       await saveToDisk();
     } catch (error, stackTrace) {
@@ -505,9 +513,13 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
     final candidate =
         SubscriptionNodeEditor.prepare(_rawYaml, originalName, updatedConfig);
     validateMergedYaml(candidate.yaml);
+    final runtimeText = await SubscriptionProcessing.buildRuntimeText(
+      candidate.yaml,
+      SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout),
+    );
     Future<void> save() async {
       await cacheYaml(candidate.yaml);
-      _acceptCache(candidate.yaml, candidate.parsed);
+      _acceptCache(candidate.yaml, candidate.parsed, runtimeText);
       notifyListeners();
     }
 
@@ -539,10 +551,12 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
   }
 
   Future<void> _setRawYaml(String yaml) async {
-    final candidate = SubscriptionParser.parseYaml(yaml);
-    ClashConfigGenerator.buildProxiesText(yaml);
+    final candidate = await SubscriptionProcessing.parseSnapshot(
+      yaml,
+      SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout),
+    );
     await cacheYaml(yaml);
-    _acceptCache(yaml, candidate);
+    _acceptCache(yaml, candidate.parsed, candidate.runtimeText!);
     notifyListeners();
   }
 

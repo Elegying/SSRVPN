@@ -49,6 +49,7 @@ class HomeScreenState extends State<HomeScreen>
   void _updateHomeState(VoidCallback update) {
     setState(update);
     _nodeSelectionRefresh.value++;
+    _syncNodeCountries();
   }
 
   List<ProxyNode> _nodes = [];
@@ -65,6 +66,7 @@ class HomeScreenState extends State<HomeScreen>
   bool _isRefreshingPublicIp = false;
   String? _publicIpError;
 
+  final NodeCountryController _nodeCountries = NodeCountryController();
   final HomeLatencyController _latencyController = HomeLatencyController();
   final ValueNotifier<int> _nodeSelectionRefresh = ValueNotifier<int>(0);
   Timer? _latencyBatchTimer;
@@ -91,9 +93,41 @@ class HomeScreenState extends State<HomeScreen>
   late final void Function(RuntimeNotice) _onClashRuntimeNotice =
       _handleClashRuntimeNotice;
 
+  void _handleNodeCountriesChanged() {
+    if (mounted && !_disposed) _updateHomeState(() {});
+  }
+
+  void _syncNodeCountries() {
+    final core = _registeredClashService;
+    if (_disposed || core == null) return;
+    final generation = core.captureAutomaticRestartIntent();
+    final port = core.runtimeProxyPort;
+    final nativeSession = core.nativeSessionGeneration;
+    bool ready() =>
+        core.isRunning &&
+        core.connectionDesired &&
+        !_isConnecting &&
+        !_isBatchTesting &&
+        _testingNodeName == null &&
+        !core.nativeConnectionTransitioning &&
+        core.captureAutomaticRestartIntent() == generation &&
+        core.runtimeProxyPort == port &&
+        core.nativeSessionGeneration == nativeSession;
+    _nodeCountries.update(
+      nodes: _nodes,
+      connected: _isConnected && core.isRunning && core.connectionDesired,
+      busy: !ready(),
+      session: (core, generation, nativeSession),
+      proxyPort: port,
+      cacheDirectory: core.configDir,
+      isConnectionCurrent: ready,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    _nodeCountries.addListener(_handleNodeCountriesChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _disposed) return;
       unawaited(_loadInitialData());
@@ -171,6 +205,7 @@ class HomeScreenState extends State<HomeScreen>
     _publicIpTimer?.cancel();
     _updateCheckTimer?.cancel();
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
+    _nodeCountries.dispose();
     _nodeSelectionRefresh.dispose();
     super.dispose();
   }
@@ -180,6 +215,7 @@ class HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    _syncNodeCountries();
     final settings = context.watch<SettingsService>().settings;
     final displayNode = _isConnected
         ? HomeNodeController.resolveRuntimeSelectedNodeFrom(
@@ -212,7 +248,7 @@ class HomeScreenState extends State<HomeScreen>
         selectedNode: displayNode,
         selectedLatency: selectedLatency,
         selectedCountryCode:
-            displayNode == null ? null : countryCodeForProxyNode(displayNode),
+            displayNode == null ? null : _nodeCountries.countryFor(displayNode),
         errorMessage: _errorMessage,
         connectionNotice: _connectionNotice,
         publicIpv4: _publicIpInfo?.displayText,
@@ -259,7 +295,7 @@ class HomeScreenState extends State<HomeScreen>
           testingNodeNameOf: () => _testingNodeName,
           isBatchTestingOf: () => _isBatchTesting,
           isConnectingOf: () => _isConnecting,
-          countryCodeOf: countryCodeForProxyNode,
+          countryCodeOf: _nodeCountries.countryFor,
           latencyOf: _latencyController.latencyFor,
           canSelectNode: (node) =>
               !_isConnected || _latencyController.canSelect(node),

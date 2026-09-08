@@ -152,6 +152,7 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
   }
 
   void _handleClashStatusChanged() {
+    _syncNodeCountries();
     final clashService = _registeredClashService;
     if (!mounted || _disposed || clashService == null) return;
     final running = clashService.isRunning;

@@ -25,9 +25,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isRefreshingPublicIp = false;
   String? _publicIpError;
 
+  final NodeCountryController _nodeCountries = NodeCountryController();
   final HomeLatencyController _latencyController = HomeLatencyController();
   final ValueNotifier<int> _nodeSelectionRefresh = ValueNotifier<int>(0);
-  final Map<String, String> _exitCountryCodes = {};
   Timer? _latencyBatchTimer;
   int? _latencyBatchGeneration;
   int _singleLatencyGeneration = 0;
@@ -38,9 +38,6 @@ class _HomeScreenState extends State<HomeScreen> {
   int _publicIpGeneration = 0;
   int _connectionStatusEpoch = 0;
   bool _disposed = false;
-  bool _isResolvingExitCountries = false;
-  bool _pendingExitCountryResolution = false;
-  int _exitCountryResolveGeneration = 0;
   ClashService? _clashService;
   late final VoidCallback _clashStatusListener = _handleClashStatusChanged;
   SubscriptionService? _subscriptionService;
@@ -59,11 +56,41 @@ class _HomeScreenState extends State<HomeScreen> {
   void setState(VoidCallback fn) {
     super.setState(fn);
     _nodeSelectionRefresh.value++;
+    _syncNodeCountries();
+  }
+
+  void _handleNodeCountriesChanged() {
+    if (_canUpdateUi) setState(() {});
+  }
+
+  void _syncNodeCountries() {
+    final core = _clashService;
+    if (_disposed || core == null) return;
+    final generation = core.captureAutomaticRestartIntent();
+    final port = core.runtimeProxyPort;
+    bool ready() =>
+        core.isRunning &&
+        core.connectionDesired &&
+        !_isConnecting &&
+        !_isBatchTesting &&
+        _testingNodeName == null &&
+        core.captureAutomaticRestartIntent() == generation &&
+        core.runtimeProxyPort == port;
+    _nodeCountries.update(
+      nodes: _nodes,
+      connected: _isConnected && core.isRunning && core.connectionDesired,
+      busy: !ready(),
+      session: (core, generation),
+      proxyPort: port,
+      cacheDirectory: core.configDir,
+      isConnectionCurrent: ready,
+    );
   }
 
   @override
   void initState() {
     super.initState();
+    _nodeCountries.addListener(_handleNodeCountriesChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_canUpdateUi) return;
       unawaited(_loadInitialData());
@@ -116,8 +143,6 @@ class _HomeScreenState extends State<HomeScreen> {
         !_nodes.any((node) => node.name == _disconnectedPreferredNodeName)) {
       _disconnectedPreferredNodeName = null;
     }
-    final nodeNames = _nodes.map((node) => node.name).toSet();
-    _exitCountryCodes.removeWhere((name, _) => !nodeNames.contains(name));
     if (sync.shouldPromptForImport) {
       _maybeShowInitialSubscriptionDialog(subService);
       return true;
@@ -141,6 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _updateCheckTimer?.cancel();
     _clashService?.removeStatusListener(_clashStatusListener);
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
+    _nodeCountries.dispose();
     _nodeSelectionRefresh.dispose();
     super.dispose();
   }
@@ -353,7 +379,6 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           _isConnected = false;
           _latencyController.clear();
-          _exitCountryResolveGeneration++;
           _resetPublicIpState();
         });
       } catch (error, stack) {
@@ -567,7 +592,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ? '已连接，但首选节点保存失败'
             : nodeWarning ?? connectionResult.runtimeNotice;
         _showRuntimePortAdjustmentNotice(notice);
-        _scheduleExitCountryResolution();
         _schedulePublicIpRefresh();
         unawaited(_runBatchLatencyTest());
         _checkUpdateDelayed();
@@ -609,6 +633,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _syncNodeCountries();
     final settings = context.watch<SettingsService>().settings;
     final core = _clashService ?? context.read<ClashService>();
     final isConnectionTransition = _isConnectionTransitionActive(core);
@@ -623,10 +648,8 @@ class _HomeScreenState extends State<HomeScreen> {
           );
     final selectedLatency =
         displayNode == null ? null : _latencyController.latencyFor(displayNode);
-    final selectedCountryCode = displayNode == null
-        ? null
-        : _exitCountryCodes[displayNode.name] ??
-            countryCodeForProxyNode(displayNode);
+    final selectedCountryCode =
+        displayNode == null ? null : _nodeCountries.countryFor(displayNode);
     final action = isConnectionTransition
         ? _DesktopConnectionAction.cancelPendingConnection
         : _isConnected
@@ -699,8 +722,7 @@ class _HomeScreenState extends State<HomeScreen> {
           isConnectingOf: () => _isConnectionTransitionActive(
             _clashService ?? context.read<ClashService>(),
           ),
-          countryCodeOf: (node) =>
-              _exitCountryCodes[node.name] ?? countryCodeForProxyNode(node),
+          countryCodeOf: _nodeCountries.countryFor,
           latencyOf: _latencyController.latencyFor,
           canSelectNode: (node) =>
               !_isConnected || _latencyController.canSelect(node),

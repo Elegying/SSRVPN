@@ -3,15 +3,25 @@ import 'dart:isolate';
 
 import 'package:meta/meta.dart';
 
+import '../utils/bounded_yaml.dart';
+import 'clash_config_generator.dart';
 import 'subscription_parser.dart';
 import 'subscription_refresh_control.dart';
+import 'subscription_source_cache.dart';
 import 'subscription_yaml_merger.dart';
 
 class MergedSubscriptionResult {
-  const MergedSubscriptionResult({required this.yaml, required this.parsed});
+  const MergedSubscriptionResult({
+    required this.yaml,
+    required this.parsed,
+    this.runtimeText,
+    this.parseWarning,
+  });
 
   final String yaml;
   final ParsedSubscription parsed;
+  final String? runtimeText;
+  final String? parseWarning;
 }
 
 class SubscriptionProcessing {
@@ -52,13 +62,44 @@ class SubscriptionProcessing {
       standaloneGroupName: standaloneGroupName,
       workerStartDelay: _workerStartDelayForTesting,
     );
-    final workload = input.yamls.fold<int>(
-      input.previousYaml?.length ?? 0,
-      (sum, yaml) => sum + yaml.length,
-    );
+    return _run(input, control);
+  }
 
-    if (workload < isolateThreshold) {
-      return Future.value(_processSubscription(input));
+  static Future<Map<String, String>> extractSources(
+    String? yaml,
+    Map<String, String> sourceNames,
+    SubscriptionRefreshControl control, {
+    Map<String, String> localSources = const {},
+  }) =>
+      _run(
+        _SourceCacheInput(yaml, Map.of(sourceNames), Map.of(localSources),
+            _workerStartDelayForTesting),
+        control,
+      );
+
+  static Future<MergedSubscriptionResult> parseSnapshot(
+    String yaml,
+    SubscriptionRefreshControl control, {
+    bool loadingCache = false,
+  }) =>
+      _run(
+        _SnapshotInput(yaml, loadingCache, _workerStartDelayForTesting),
+        control,
+      );
+
+  static Future<String> buildRuntimeText(
+    String yaml,
+    SubscriptionRefreshControl control,
+  ) =>
+      _run(_RuntimeTextInput(yaml, _workerStartDelayForTesting), control);
+
+  static Future<T> _run<T>(
+    _ProcessingInput<T> input,
+    SubscriptionRefreshControl control,
+  ) {
+    if (input.workload < isolateThreshold) {
+      control.throwIfStopped();
+      return Future.value(input.process());
     }
 
     // Avoid spawning work that an already stopped refresh can never commit.
@@ -66,15 +107,92 @@ class SubscriptionProcessing {
     try {
       control.throwIfStopped();
     } catch (error, stackTrace) {
-      return Future<MergedSubscriptionResult>.error(error, stackTrace);
+      return Future<T>.error(error, stackTrace);
     }
 
-    final worker = _SubscriptionProcessingWorker.start(input);
+    final worker = _SubscriptionProcessingWorker<T>._(input);
     return control.wait(worker.result, onAbort: worker.kill);
   }
 }
 
-class _SubscriptionProcessingInput {
+abstract class _ProcessingInput<T> {
+  const _ProcessingInput(this.workerStartDelay);
+  final Duration workerStartDelay;
+  int get workload;
+  T process();
+}
+
+class _SourceCacheInput extends _ProcessingInput<Map<String, String>> {
+  const _SourceCacheInput(
+      this.yaml, this.sourceNames, this.localSources, super.workerStartDelay);
+  final String? yaml;
+  final Map<String, String> sourceNames;
+  final Map<String, String> localSources;
+
+  @override
+  int get workload => localSources.values.fold(
+        yaml?.length ?? 0,
+        (sum, source) => sum + source.length,
+      );
+
+  @override
+  Map<String, String> process() => SubscriptionSourceCache.extract(
+        yaml,
+        sourceNames,
+        localSources: localSources,
+      );
+}
+
+class _SnapshotInput extends _ProcessingInput<MergedSubscriptionResult> {
+  const _SnapshotInput(this.yaml, this.loadingCache, super.workerStartDelay);
+  final String yaml;
+  final bool loadingCache;
+
+  @override
+  int get workload => yaml.length;
+
+  @override
+  MergedSubscriptionResult process() {
+    if (loadingCache) {
+      final document = BoundedYaml.load(yaml);
+      if (document != null && document is! Map) {
+        throw const FormatException(
+          'subscription_cache.yaml must be a YAML map',
+        );
+      }
+    }
+    try {
+      return MergedSubscriptionResult(
+        yaml: yaml,
+        parsed: SubscriptionParser.parseYaml(yaml),
+        runtimeText: ClashConfigGenerator.buildProxiesText(yaml),
+      );
+    } catch (error) {
+      if (!loadingCache) rethrow;
+      // Preserve the startup policy: structural corruption is quarantined,
+      // but semantically invalid runtime data remains available for repair.
+      return MergedSubscriptionResult(
+        yaml: yaml,
+        parsed: ParsedSubscription.empty(),
+        parseWarning: error.toString(),
+      );
+    }
+  }
+}
+
+class _RuntimeTextInput extends _ProcessingInput<String> {
+  const _RuntimeTextInput(this.yaml, super.workerStartDelay);
+  final String yaml;
+
+  @override
+  int get workload => yaml.length;
+
+  @override
+  String process() => ClashConfigGenerator.buildProxiesText(yaml);
+}
+
+class _SubscriptionProcessingInput
+    extends _ProcessingInput<MergedSubscriptionResult> {
   const _SubscriptionProcessingInput({
     required this.yamls,
     required this.sourceNames,
@@ -82,8 +200,8 @@ class _SubscriptionProcessingInput {
     required this.previousYaml,
     required this.proxySourceKey,
     required this.standaloneGroupName,
-    required this.workerStartDelay,
-  });
+    required Duration workerStartDelay,
+  }) : super(workerStartDelay);
 
   final List<String> yamls;
   final List<String> sourceNames;
@@ -91,7 +209,15 @@ class _SubscriptionProcessingInput {
   final String? previousYaml;
   final String proxySourceKey;
   final String standaloneGroupName;
-  final Duration workerStartDelay;
+
+  @override
+  int get workload => yamls.fold<int>(
+        previousYaml?.length ?? 0,
+        (sum, yaml) => sum + yaml.length,
+      );
+
+  @override
+  MergedSubscriptionResult process() => _processSubscription(this);
 }
 
 MergedSubscriptionResult _processSubscription(
@@ -108,10 +234,11 @@ MergedSubscriptionResult _processSubscription(
   return MergedSubscriptionResult(
     yaml: yaml,
     parsed: SubscriptionParser.parseYaml(yaml),
+    runtimeText: ClashConfigGenerator.buildProxiesText(yaml),
   );
 }
 
-class _SubscriptionProcessingWorker {
+class _SubscriptionProcessingWorker<T> {
   _SubscriptionProcessingWorker._(this._input) {
     SubscriptionProcessing._activeWorkerCount++;
     SubscriptionProcessing._pendingWorkerCount++;
@@ -119,22 +246,15 @@ class _SubscriptionProcessingWorker {
     unawaited(_spawn());
   }
 
-  static _SubscriptionProcessingWorker start(
-    _SubscriptionProcessingInput input,
-  ) {
-    return _SubscriptionProcessingWorker._(input);
-  }
-
-  final _SubscriptionProcessingInput _input;
+  final _ProcessingInput<T> _input;
   final ReceivePort _messages = ReceivePort();
-  final Completer<MergedSubscriptionResult> _result =
-      Completer<MergedSubscriptionResult>();
+  final Completer<T> _result = Completer<T>();
   Isolate? _isolate;
   bool _killRequested = false;
   bool _spawnResolved = false;
   bool _closed = false;
 
-  Future<MergedSubscriptionResult> get result => _result.future;
+  Future<T> get result => _result.future;
 
   Future<void> _spawn() async {
     try {
@@ -169,7 +289,7 @@ class _SubscriptionProcessingWorker {
   void _handleMessage(Object? message) {
     if (_closed) return;
     if (message is _SubscriptionProcessingWorkerSuccess) {
-      _completeValue(message.result);
+      _completeValue(message.result as T);
       return;
     }
     if (message is _SubscriptionProcessingWorkerFailure) {
@@ -201,7 +321,7 @@ class _SubscriptionProcessingWorker {
     }
   }
 
-  void _completeValue(MergedSubscriptionResult value) {
+  void _completeValue(T value) {
     if (_closed) return;
     _close();
     _result.complete(value);
@@ -233,14 +353,14 @@ class _SubscriptionProcessingWorkerRequest {
     required this.replyTo,
   });
 
-  final _SubscriptionProcessingInput input;
+  final _ProcessingInput<Object?> input;
   final SendPort replyTo;
 }
 
 class _SubscriptionProcessingWorkerSuccess {
   const _SubscriptionProcessingWorkerSuccess(this.result);
 
-  final MergedSubscriptionResult result;
+  final Object? result;
 }
 
 class _SubscriptionProcessingWorkerFailure {
@@ -265,7 +385,7 @@ void _subscriptionProcessingWorkerMain(
     if (request.input.workerStartDelay > Duration.zero) {
       await Future<void>.delayed(request.input.workerStartDelay);
     }
-    final result = _processSubscription(request.input);
+    final result = request.input.process();
     Isolate.exit(
       request.replyTo,
       _SubscriptionProcessingWorkerSuccess(result),

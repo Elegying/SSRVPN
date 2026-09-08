@@ -13,8 +13,8 @@ export 'models/app_diagnostics.dart';
 
 // 服务
 export 'controllers/home_node_controller.dart';
+export 'controllers/node_country_controller.dart';
 export 'controllers/home_latency_controller.dart';
-export 'controllers/home_exit_country_controller.dart';
 export 'controllers/update_availability_controller.dart';
 export 'controllers/subscription_screen_controller.dart';
 export 'services/subscription_parser.dart';

@@ -183,7 +183,12 @@ proxies:
       final blocked = rules.indexOf('DOMAIN-SUFFIX,blocked.example,PROXY');
       final youtube = rules.indexOf('DOMAIN-SUFFIX,youtube.com,PROXY');
       final builtIn = rules.indexOf('DOMAIN-SUFFIX,openai.com,PROXY');
-      final geoLookup = rules.indexOf('DOMAIN,api.country.is,SSRVPN-GEO');
+      final geoLookup = rules.indexOf('DOMAIN,api.country.is,PROXY');
+      for (final host in ['api.country.is', 'ipinfo.io', 'ifconfig.co']) {
+        expect(rules, contains('DOMAIN,$host,PROXY'));
+      }
+      final groups = (parsed['proxy-groups'] as YamlList).cast<YamlMap>();
+      expect(groups.any((group) => group['name'] == 'SSRVPN-GEO'), isFalse);
       final gfw = rules.indexOf('RULE-SET,ssrvpn-geosite-gfw,PROXY');
       final cn = rules.indexOf('RULE-SET,ssrvpn-geosite-cn,DIRECT');
       expect(blocked, isNonNegative);

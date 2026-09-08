@@ -120,6 +120,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   Future<void>? _stopOperation;
   Future<void>? _exitCleanupOperation;
   Future<void>? _nativeCoreStatusWatcher;
+  Completer<void>? _nativeCoreStatusWakeup;
   int _nativeCoreStatusWatchGeneration = 0;
   int _startGeneration = 0;
   String _corePath = '';
@@ -1322,6 +1323,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
   void _scheduleNativeCoreStatusWatch(MacosNativeCoreHandle handle) {
     final generation = ++_nativeCoreStatusWatchGeneration;
+    _wakeNativeCoreStatusWatch();
     final operation = _watchNativeCoreStatus(handle, generation);
     _nativeCoreStatusWatcher = operation;
     operation.whenComplete(() {
@@ -1333,8 +1335,14 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
   Future<void> _cancelNativeCoreStatusWatch() async {
     _nativeCoreStatusWatchGeneration++;
+    _wakeNativeCoreStatusWatch();
     final watcher = _nativeCoreStatusWatcher;
     if (watcher != null) await watcher;
+  }
+
+  void _wakeNativeCoreStatusWatch() {
+    final wakeup = _nativeCoreStatusWakeup;
+    if (wakeup != null && !wakeup.isCompleted) wakeup.complete();
   }
 
   Future<void> _watchNativeCoreStatus(
@@ -1346,7 +1354,16 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
         identical(_clashProcess, handle);
 
     while (isCurrent()) {
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      // Native output remains bounded to 64 KiB per stream between drains.
+      // The separate guardian and health monitor retain their own cadence.
+      final wakeup = Completer<void>();
+      _nativeCoreStatusWakeup = wakeup;
+      final timer = Timer(const Duration(seconds: 1), wakeup.complete);
+      await wakeup.future;
+      timer.cancel();
+      if (identical(_nativeCoreStatusWakeup, wakeup)) {
+        _nativeCoreStatusWakeup = null;
+      }
       if (!isCurrent()) return;
       MacosNativeCoreStatus status;
       try {

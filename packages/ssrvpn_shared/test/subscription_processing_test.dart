@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:ssrvpn_shared/services/subscription_processing.dart';
+import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:ssrvpn_shared/services/subscription_yaml_merger.dart';
 import 'package:test/test.dart';
@@ -42,6 +43,8 @@ void main() {
     final result = await processing;
     expect(result.parsed.nodes.single.name, 'Same (1200)');
     expect(result.parsed.nodes.single.server, 'node-1199.example.com');
+    expect(
+        result.runtimeText, ClashConfigGenerator.buildProxiesText(result.yaml));
     expect(SubscriptionProcessing.activeWorkerCount, 0);
   });
 
@@ -178,6 +181,31 @@ void main() {
       throwsA(isA<SubscriptionRefreshCancelled>()),
     );
   });
+
+  for (final task in ['sources', 'snapshot', 'runtime']) {
+    test('cancelling large $task processing leaves no worker behind', () async {
+      SubscriptionProcessing.workerStartDelayForTesting =
+          const Duration(seconds: 5);
+      final cancellation = SubscriptionRefreshCancellation();
+      final control = SubscriptionRefreshControl(
+        timeout: const Duration(seconds: 30),
+        cancellation: cancellation,
+      );
+      final yaml = _largeYaml(2000);
+      final Future<Object?> processing = switch (task) {
+        'sources' => SubscriptionProcessing.extractSources(
+            yaml, const {'source': 'Primary'}, control),
+        'snapshot' => SubscriptionProcessing.parseSnapshot(yaml, control,
+            loadingCache: true),
+        _ => SubscriptionProcessing.buildRuntimeText(yaml, control),
+      };
+      expect(SubscriptionProcessing.activeWorkerCount, 1);
+      cancellation.cancel();
+      await expectLater(
+          processing, throwsA(isA<SubscriptionRefreshCancelled>()));
+      await _waitForNoWorkers();
+    });
+  }
 }
 
 Future<void> _waitForNoWorkers() async {

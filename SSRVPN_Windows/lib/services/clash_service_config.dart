@@ -3,7 +3,7 @@ part of 'clash_service.dart';
 mixin _WindowsClashConfig on ClashServiceBase {
   // ── Config generation ──
 
-  /// 生成 Clash 配置（Windows 专用：含 SSRVPN-GEO 组和 Windows 专用规则）
+  /// 生成 Clash 配置（Windows 专用 TUN 配置）。
   String _windowsTunConfig(AppSettings settings) {
     final buffer = StringBuffer()
       ..writeln('tun:')
@@ -36,9 +36,8 @@ mixin _WindowsClashConfig on ClashServiceBase {
       platformHeader: '# ===== SSRVPN Windows =====',
       tunConfig: _windowsTunConfig(appSettings),
       latencyTestUrl: appSettings.latencyTestUrl,
-      extraSelectGroupNames: const [_geoProxyGroupName],
       extraRulesBeforeDirect: _geoLookupHosts.map(
-        (host) => 'DOMAIN,$host,$_geoProxyGroupName',
+        (host) => 'DOMAIN,$host,PROXY',
       ),
     );
   }
@@ -55,9 +54,8 @@ mixin _WindowsClashConfig on ClashServiceBase {
       platformHeader: '# ===== SSRVPN Windows =====',
       tunConfig: _windowsTunConfig(appSettings),
       latencyTestUrl: appSettings.latencyTestUrl,
-      extraSelectGroupNames: const [_geoProxyGroupName],
       extraRulesBeforeDirect: _geoLookupHosts.map(
-        (host) => 'DOMAIN,$host,$_geoProxyGroupName',
+        (host) => 'DOMAIN,$host,PROXY',
       ),
     );
   }

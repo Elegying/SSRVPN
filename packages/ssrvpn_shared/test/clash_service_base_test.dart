@@ -15,6 +15,63 @@ import 'package:ssrvpn_shared/services/smart_rule_bundle.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
 void main() {
+  group('update installation preparation', () {
+    test('retries cleanup even when the UI is already disconnected', () async {
+      final service = _UpdatePreparationClashService();
+      addTearDown(service.dispose);
+
+      expect(service.isRunning, isFalse);
+      expect(service.connectionDesired, isFalse);
+      expect(await service.prepareForUpdateInstall(), isTrue);
+      expect(service.stopCalls, 1);
+      expect(service.interruptCalls, 1);
+    });
+
+    test('propagates cleanup failure after the UI becomes disconnected',
+        () async {
+      final service = _UpdatePreparationClashService()..failCleanup = true;
+      addTearDown(service.dispose);
+      service.setRunning(true);
+      service.requestConnectionIntent(true);
+
+      await expectLater(service.prepareForUpdateInstall(), throwsStateError);
+      expect(service.isRunning, isFalse);
+      expect(service.connectionDesired, isFalse);
+      expect(service.stopCalls, 1);
+    });
+
+    test('does not approve installation after a newer connect intent',
+        () async {
+      final service = _UpdatePreparationClashService();
+      addTearDown(service.dispose);
+      final cleanup = Completer<void>();
+      service.cleanup = cleanup.future;
+      final preparation = service.prepareForUpdateInstall();
+      await service.stopStarted.future;
+      service.requestConnectionIntent(true);
+      cleanup.complete();
+
+      expect(await preparation, isFalse);
+      expect(service.connectionDesired, isTrue);
+    });
+
+    test('queued update preparation preserves a newer connection request',
+        () async {
+      final service = _UpdatePreparationClashService();
+      addTearDown(service.dispose);
+      final transition = Completer<void>();
+      final pending = service.runConnectionTransition(() => transition.future);
+      final preparation = service.prepareForUpdateInstall();
+      service.requestConnectionIntent(true);
+      transition.complete();
+      await pending;
+
+      expect(await preparation, isFalse);
+      expect(service.stopCalls, 0);
+      expect(service.connectionDesired, isTrue);
+    });
+  });
+
   group('ClashServiceBase runtime logs', () {
     test(
       'records one-line structured redacted entries with a stable session',
@@ -2517,6 +2574,26 @@ class _ControlledLatencyClashService extends _TestClashService {
   }) async {
     testCalls++;
     return 25;
+  }
+}
+
+class _UpdatePreparationClashService extends _TestClashService {
+  bool failCleanup = false;
+  int stopCalls = 0;
+  int interruptCalls = 0;
+  Future<void>? cleanup;
+  final stopStarted = Completer<void>();
+
+  @override
+  void interruptPendingStart() => interruptCalls++;
+
+  @override
+  Future<void> stop() async {
+    stopCalls++;
+    stopStarted.complete();
+    setRunning(false);
+    await cleanup;
+    if (failCleanup) throw StateError('platform cleanup incomplete');
   }
 }
 

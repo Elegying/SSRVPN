@@ -77,7 +77,6 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
       }
       final connected = clashService.isRunning;
       if (mounted && !_disposed) {
-        if (!connected) clashService.requestConnectionIntent(false);
         ProxyNode? connectedNode;
         var preferredNodePersisted = true;
         if (connected) {
@@ -104,6 +103,9 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           return;
         }
         if (!mounted || _disposed) return;
+        // Only retire our intent after the last stale-operation check. Doing
+        // this earlier invalidates our own failure result before it reaches UI.
+        if (!connected) clashService.requestConnectionIntent(false);
         final feedback = resolveAndroidConnectionFeedback(
           connected: connected,
           result: connected && !preferredNodePersisted

@@ -11,7 +11,6 @@ import 'package:ssrvpn_windows/screens/node_edit_screen.dart';
 import 'package:ssrvpn_windows/screens/subscription_screen.dart';
 import 'package:ssrvpn_windows/services/app_shutdown.dart';
 import 'package:ssrvpn_windows/services/clash_service.dart';
-import 'package:ssrvpn_windows/services/ip_geo_service.dart';
 import 'package:ssrvpn_windows/services/settings_service.dart';
 import 'package:ssrvpn_windows/services/subscription_service.dart';
 import 'package:ssrvpn_windows/services/system_proxy_service.dart';

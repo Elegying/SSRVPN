@@ -140,7 +140,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
           );
           final notice = nodeWarning ?? connectionResult.runtimeNotice;
           _showRuntimePortAdjustmentNotice(notice);
-          _scheduleExitCountryResolution();
           _schedulePublicIpRefresh();
         }
       }
@@ -266,7 +265,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       );
       return;
     }
-    _exitCountryResolveGeneration++;
     final ok = await core.switchSelectedProxy(
       node.name,
       isSwitchContextCurrent: () => cleanupAuthorized = owns(),
@@ -279,7 +277,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       nodePersisted = await _rememberSelectedNode(node);
       if (!owns()) return;
       setState(() => _selectedNode = node);
-      _scheduleExitCountryResolution();
       _schedulePublicIpRefresh();
     }
     if (!owns()) return;
@@ -393,46 +390,5 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     setState(() {
       _nodes = _latencyController.timeoutLast(_nodes);
     });
-  }
-
-  void _scheduleExitCountryResolution() {
-    if (!_isConnected || _nodes.isEmpty || !_canUpdateUi) return;
-    if (_isResolvingExitCountries) {
-      _pendingExitCountryResolution = true;
-      return;
-    }
-    unawaited(_resolveExitCountries());
-  }
-
-  Future<void> _resolveExitCountries() async {
-    if (_isResolvingExitCountries) return;
-    _isResolvingExitCountries = true;
-    _pendingExitCountryResolution = false;
-    final generation = ++_exitCountryResolveGeneration;
-
-    bool shouldContinue() {
-      return _canUpdateUi && generation == _exitCountryResolveGeneration;
-    }
-
-    try {
-      final resolved = HomeExitCountryController.resolveMissingCountries(
-        List<ProxyNode>.from(_nodes),
-        _exitCountryCodes,
-      );
-      if (resolved.isNotEmpty && shouldContinue()) {
-        setState(() {
-          _exitCountryCodes.addAll(resolved);
-        });
-      }
-    } catch (e) {
-      AppLogger.warning('ExitCountry', '查询失败: $e');
-    } finally {
-      _isResolvingExitCountries = false;
-
-      if (_pendingExitCountryResolution && _canUpdateUi) {
-        _pendingExitCountryResolution = false;
-        _scheduleExitCountryResolution();
-      }
-    }
   }
 }

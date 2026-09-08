@@ -4,9 +4,10 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/constants/app_constants.dart';
-import 'package:ssrvpn_shared/controllers/home_exit_country_controller.dart';
 import 'package:ssrvpn_shared/controllers/home_latency_controller.dart';
 import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
+import 'package:ssrvpn_shared/controllers/node_country_controller.dart';
+import 'package:ssrvpn_shared/services/node_country_lookup.dart';
 import 'package:ssrvpn_shared/controllers/subscription_screen_controller.dart';
 import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';

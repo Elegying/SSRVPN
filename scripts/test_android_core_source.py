@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -171,6 +174,76 @@ class AndroidCoreSourceTests(unittest.TestCase):
         self.assertIn(
             '"$GO_BIN" test -p 2 -tags=with_gvisor,cmfa ./bridge', self.build_recipe
         )
+
+
+class AndroidBridgeProbeGuardTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        native = ROOT / "SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android"
+        cls.service = (native / "SsrvpnVpnService.kt").read_text()
+        cls.probe = (native / "BridgeRunningProbe.kt").read_text()
+        guard = (ROOT / "scripts/check-android-native-bridge-guards.sh").read_text()
+        marker = 'python3 - "$SERVICE" "$BRIDGE_RUNNING_PROBE" <<\'PY\'\n'
+        cls.check = guard.split(marker, 1)[1].split("\nPY", 1)[0]
+
+    def check_guard(self, *, service=None, probe=None):
+        with tempfile.TemporaryDirectory() as directory:
+            service_file = Path(directory) / "SsrvpnVpnService.kt"
+            probe_file = Path(directory) / "BridgeRunningProbe.kt"
+            service_file.write_text(self.service if service is None else service)
+            probe_file.write_text(self.probe if probe is None else probe)
+            return subprocess.run(
+                [sys.executable, "-", str(service_file), str(probe_file)],
+                input=self.check, text=True, capture_output=True,
+            )
+
+    def test_guard_accepts_extracted_process_scoped_probe(self):
+        result = self.check_guard()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_guard_rejects_unbounded_or_non_daemon_workers(self):
+        for before, after in (
+            ("1, 1, 0L", "1, 2, 0L"),
+            ("ArrayBlockingQueue(1)", "LinkedBlockingQueue()"),
+            ("isDaemon = true", "isDaemon = false"),
+            ("SSRVPN-bridge-is-running", "untracked-probe"),
+            ("compareAndSet(false, true)", "get()"),
+        ):
+            with self.subTest(after=after):
+                result = self.check_guard(probe=self.probe.replace(before, after))
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_guard_rejects_early_release_cancellation_or_lost_interrupt(self):
+        for before, after in (
+            ("readRunning()", "inProgress.set(false)\n                readRunning()"),
+            ("return result.get", "result.cancel(true)\n            return result.get"),
+            ("Thread.currentThread().interrupt()", "inProgress.set(false)"),
+        ):
+            with self.subTest(after=after):
+                result = self.check_guard(probe=self.probe.replace(before, after))
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_guard_rejects_probe_recreation_in_service(self):
+        service = self.service.replace(
+            "bridgeRunningProbe.check(", "BridgeRunningProbe().check("
+        )
+        self.assertNotEqual(self.check_guard(service=service).returncode, 0)
+
+    def test_guard_rejects_false_health_or_unhandled_native_failures(self):
+        start = self.service.index("private fun isBridgeRunningWithTimeout(): Boolean?")
+        end = self.service.index("internal fun runtimeDiagnosticsSnapshot(", start)
+        running = self.service[start:end]
+        for before, after in (
+            ("\n            null\n", "\n            false\n"),
+            ("TimeoutException", "IllegalStateException"),
+            ("InterruptedException", "IllegalStateException"),
+            ("catch (e: ExecutionException)", "catch (e: IllegalStateException)"),
+            ("val cause = e.cause ?: e", "val cause = e"),
+            ("cause is LinkageError", "cause is IllegalStateException"),
+        ):
+            with self.subTest(after=after):
+                service = self.service[:start] + running.replace(before, after) + self.service[end:]
+                self.assertNotEqual(self.check_guard(service=service).returncode, 0)
 
 
 if __name__ == "__main__":

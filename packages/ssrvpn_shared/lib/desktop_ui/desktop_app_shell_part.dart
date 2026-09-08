@@ -34,17 +34,13 @@ class _DesktopAppShell extends StatelessWidget {
   Future<bool> _prepareForUpdateInstall(BuildContext context) async {
     if (!context.mounted) return false;
     final core = context.read<clash.ClashService>();
-    if (!core.isRunning && !core.connectionDesired) return true;
-
-    core.requestConnectionIntent(false);
-    core.interruptPendingStart();
+    var stopped = false;
     try {
-      await core.runConnectionTransition(core.stop);
+      stopped = await core.prepareForUpdateInstall();
     } catch (error, stack) {
       StartupLogger.error('更新前安全断开失败', error, stack);
     }
 
-    final stopped = !core.isRunning;
     if (!stopped && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
