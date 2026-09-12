@@ -248,8 +248,7 @@ class _ModeSection<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final height =
-        48.0 + (MediaQuery.textScalerOf(context).scale(14) - 14).clamp(0, 24);
+    final height = 27.0 + MediaQuery.textScalerOf(context).scale(14) * 1.5;
     return SizedBox(
         height: height,
         child: Stack(children: [
@@ -293,6 +292,7 @@ class _ModeSection<T> extends StatelessWidget {
                         Text(choice.label,
                             style: TextStyle(
                                 fontSize: 14,
+                                height: 1.5,
                                 fontWeight: choice.value == value
                                     ? FontWeight.w700
                                     : FontWeight.w600,
