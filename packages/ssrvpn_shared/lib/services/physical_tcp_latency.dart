@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import '../utils/node_display_policy.dart';
 
 /// Production probes must bind both DNS and TCP to a non-VPN network.
 /// A missing native implementation must never fall back to an unbound socket.
@@ -27,13 +28,15 @@ mixin PhysicalTcpLatency {
         'port': port,
         'timeoutMs': timeoutMs,
       }).timeout(Duration(milliseconds: timeoutMs + 250));
+      if (result is int && NodeDisplayPolicy.isProbeFailure(result))
+        return result;
       return result is int && result > 0 && result <= timeoutMs ? result : -1;
     } on MissingPluginException {
       return -1;
     } on PlatformException {
       return -1;
     } on TimeoutException {
-      return -1;
+      return NodeDisplayPolicy.probeTimedOut;
     }
   }
 }

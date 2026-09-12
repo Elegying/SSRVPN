@@ -75,4 +75,13 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $latencyTest = Join-Path $build 'native-tests\ssrvpn_physical_tcp_latency_test.exe'
 & $latencyTest
-exit $LASTEXITCODE
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $cmake --build $build --config Release --target ssrvpn_dns_http_response_test
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& (Join-Path $build 'native-tests\ssrvpn_dns_http_response_test.exe')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if ($env:GITHUB_ACTIONS -eq 'true') {
+  & $latencyTest --live
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+exit 0

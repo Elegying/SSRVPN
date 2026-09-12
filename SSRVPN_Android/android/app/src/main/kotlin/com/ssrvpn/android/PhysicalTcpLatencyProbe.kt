@@ -53,18 +53,20 @@ internal object PhysicalTcpLatencyProbe {
                 try { socket.getAndSet(null)?.close() } catch (_: Exception) { }
                 deliver { result.success(value) }
             }
-            val deadline = Runnable { finish(-1) }
+            val deadline = Runnable { finish(-10) }
             handler.postDelayed(deadline, timeout.toLong())
             try {
                 workers.execute {
-                    var value = -1
+                    var value = -12
                     try {
                         val network = chooseNetwork(manager)
                         if (network != null) {
                             // Network.getAllByName uses this network's resolver/cache;
                             // never resolve through the process-default VPN DNS.
+                            value = -11
                             val addresses = network.getAllByName(host).filter(::usableAddress)
-                            for (address in addresses) {
+                            if (addresses.isNotEmpty()) value = -13
+                            for ((index, address) in addresses.withIndex()) {
                                 val remaining = timeout - (SystemClock.elapsedRealtime() - start)
                                 if (settled.get() || remaining <= 0 || !physical(manager, network)) break
                                 val connection = network.socketFactory.createSocket()
@@ -73,7 +75,7 @@ internal object PhysicalTcpLatencyProbe {
                                     if (settled.get()) break
                                     val vpn = SsrvpnVpnService.instance
                                     if (vpn != null) {
-                                        if (!vpn.protect(connection)) break
+                                        if (!vpn.protect(connection)) { value = -12; break }
                                     } else if (manager.allNetworks.any {
                                         manager.getNetworkCapabilities(it)?.hasTransport(
                                             NetworkCapabilities.TRANSPORT_VPN
@@ -82,7 +84,8 @@ internal object PhysicalTcpLatencyProbe {
                                         // Another VPN owns the device; do not claim a direct probe.
                                         break
                                     }
-                                    connection.connect(InetSocketAddress(address, port), remaining.toInt())
+                                    val budget = (remaining / (addresses.size - index)).coerceAtLeast(1)
+                                    connection.connect(InetSocketAddress(address, port), budget.toInt())
                                     val elapsed = SystemClock.elapsedRealtime() - start
                                     if (!settled.get() && elapsed < timeout && physical(manager, network)) {
                                         value = elapsed.coerceAtLeast(1).toInt()
@@ -105,7 +108,7 @@ internal object PhysicalTcpLatencyProbe {
                 }
             } catch (_: java.util.concurrent.RejectedExecutionException) {
                 handler.removeCallbacks(deadline)
-                finish(-1)
+                finish(-14)
             }
         }
     }

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.39] - 2026-09-12
+
+### TUN 测速可靠性
+
+- 修复 Windows TUN 严格路由阻断普通 DNS 后整批域名节点测速失败：测速改用物理接口及源地址双重绑定的 HTTPS DNS，校验证书与主机名，使用数字地址引导及备用地址，不放宽防泄漏规则。
+- DNS 成功结果按物理接口、源地址和域名缓存，遵循 TTL 并限制容量与最长 60 秒有效期；失败不缓存，原始总超时不会因重试延长。
+- Windows、Android 的多 IPv4 地址探测分配剩余时间，避免首个不可达地址耗尽整次测速。
+- 区分解析失败、物理网络不可用、连接失败、测速繁忙与真正超时，首页和节点列表使用统一文案；保留私家车成功值展示与最终代理出口国旗缓存。
+- Windows CI 增加动态 WFP 阻断 DNS 53 端口后的真实加密解析及 TCP 探测回归，规则随测试进程退出自动清理；增加 HTTP 分段、分块和异常响应解析测试。
+
 ## [4.0.38] - 2026-09-08
 
 ### 节点测速
