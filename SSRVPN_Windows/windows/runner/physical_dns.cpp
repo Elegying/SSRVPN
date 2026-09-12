@@ -1,5 +1,6 @@
 #include "physical_dns.h"
 #include "dns_http_response.h"
+#include "dns_question.h"
 #include <ws2tcpip.h>
 #include <windows.h>
 #define SECURITY_WIN32
@@ -163,12 +164,20 @@ class TlsExchange {
 std::vector<IN_ADDR> QueryPhysicalDns(SOCKET socket, const std::string& host,
                                      const std::function<DWORD()>& remaining, DWORD& ttl) {
   ttl = 60;
-  // Windows' DNS codec creates/parses wire messages; TLS uses the system trust
+  // Windows' DNS codec parses wire messages; TLS uses the system trust
   // store and verifies the resolver hostname. Never call DnsQueryEx here.
-  std::array<unsigned char, 512> query{};
-  DWORD query_size = static_cast<DWORD>(query.size());
-  if (!DnsWriteQuestionToBuffer_UTF8(reinterpret_cast<PDNS_MESSAGE_BUFFER>(query.data()),
-      &query_size, host.c_str(), DNS_TYPE_A, 0, TRUE)) return {};
+  const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, host.c_str(), -1, nullptr, 0);
+  if (count <= 0) return {};
+  std::wstring wide(count, L'\0');
+  if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, host.c_str(), -1, wide.data(), count)) return {};
+  std::array<wchar_t, 256> ascii{};
+  const int normalized = IdnToAscii(0, wide.c_str(), -1, ascii.data(), static_cast<int>(ascii.size()));
+  if (normalized <= 1) return {};
+  std::string name;
+  for (int i = 0; i < normalized - 1; ++i) name.push_back(static_cast<char>(ascii[i]));
+  const auto query = BuildDnsQuestion(name);
+  if (query.empty()) return {};
+  const auto query_size = query.size();
   TlsExchange tls(socket, remaining);
   if (!tls.Handshake()) return {};
   const std::string request = "POST /dns-query HTTP/1.1\r\nHost: dns.alidns.com\r\n"

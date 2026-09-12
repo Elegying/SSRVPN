@@ -1,9 +1,15 @@
 #include "dns_http_response.h"
+#include "dns_question.h"
 #include <cassert>
 #include <iostream>
 
 int main() {
   using physical_tcp_latency::ParseDnsHttpResponse;
+  const auto question = physical_tcp_latency::BuildDnsQuestion("example.com.");
+  assert(question.size() == 29 && question[5] == 1 && question[12] == 7);
+  for (const auto& host : {std::string(""), std::string("bad..host"), std::string("bad/host"),
+                           std::string(64, 'a') + ".com"})
+    assert(physical_tcp_latency::BuildDnsQuestion(host).empty());
   std::vector<unsigned char> body;
   const std::string header = "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\n";
   const auto fixed = header + "Content-Length: 3\r\n\r\nabc";

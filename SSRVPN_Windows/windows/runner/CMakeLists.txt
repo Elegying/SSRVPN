@@ -51,7 +51,7 @@ target_link_libraries(${BINARY_NAME} PRIVATE "dbghelp.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "shell32.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "advapi32.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "wininet.lib")
-target_link_libraries(${BINARY_NAME} PRIVATE "ws2_32.lib" "iphlpapi.lib" "dnsapi.lib" "secur32.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "ws2_32.lib" "iphlpapi.lib" "dnsapi.lib" "secur32.lib" "normaliz.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
@@ -118,7 +118,7 @@ set_target_properties(ssrvpn_physical_tcp_latency_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/native-tests"
 )
 target_compile_definitions(ssrvpn_physical_tcp_latency_test PRIVATE "NOMINMAX")
-target_link_libraries(ssrvpn_physical_tcp_latency_test PRIVATE "ws2_32.lib" "iphlpapi.lib" "dnsapi.lib" "secur32.lib" "fwpuclnt.lib")
+target_link_libraries(ssrvpn_physical_tcp_latency_test PRIVATE "ws2_32.lib" "iphlpapi.lib" "dnsapi.lib" "secur32.lib" "normaliz.lib" "fwpuclnt.lib")
 
 add_executable(ssrvpn_dns_http_response_test EXCLUDE_FROM_ALL "dns_http_response_test.cpp")
 apply_standard_settings(ssrvpn_dns_http_response_test)
