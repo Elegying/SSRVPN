@@ -39,10 +39,8 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
 
   void _updateMotion() {
     final lifecycle = WidgetsBinding.instance.lifecycleState;
-    final active = !_reducedMotion &&
-        _visible &&
-        (lifecycle == AppLifecycleState.resumed ||
-            lifecycle == AppLifecycleState.inactive);
+    final active =
+        !_reducedMotion && _visible && lifecycle == AppLifecycleState.resumed;
     if (active && !_motion.isAnimating) {
       _motion.repeat();
     } else if (!active) {
