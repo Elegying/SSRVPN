@@ -22,12 +22,14 @@ void main() {
                   itemBuilder: (_, index) => SsrvpnLiquidSurface(
                       child: SizedBox(height: 80, child: Text('$index')))),
             ));
+    final previous = ModalRoute.of(context)!;
     Navigator.of(context).push(route);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 180));
     await tester.timedDrag(find.byType(ListView), const Offset(0, -160),
         const Duration(milliseconds: 80));
     await tester.pump();
+    expect(previous.secondaryAnimation!.value, 0);
     expect(route.allowSnapshotting, isFalse);
     expect(route.transitionDuration, const Duration(milliseconds: 320));
     expect(route.reverseTransitionDuration, const Duration(milliseconds: 260));
@@ -39,6 +41,8 @@ void main() {
         findsNothing);
     expect(tester.takeException(), isNull);
     Navigator.of(context).pop();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(previous.secondaryAnimation!.value, 0);
     await tester.pumpAndSettle();
   });
 }

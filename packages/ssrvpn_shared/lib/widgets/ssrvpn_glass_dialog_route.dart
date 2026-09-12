@@ -54,6 +54,11 @@ class SsrvpnGlassPageRoute<T> extends MaterialPageRoute<T> {
   SsrvpnGlassPageRoute({required super.builder, super.settings})
       : super(allowSnapshotting: false);
 
+  // The Android theme otherwise fades the previous Material route to its
+  // scaffold color while this route slides, exposing a black half-screen.
+  @override
+  bool canTransitionFrom(TransitionRoute<dynamic> previousRoute) => false;
+
   @override
   Duration get transitionDuration => const Duration(milliseconds: 320);
   @override
