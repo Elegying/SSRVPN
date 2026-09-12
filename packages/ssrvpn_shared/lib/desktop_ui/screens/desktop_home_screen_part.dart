@@ -208,6 +208,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
     final wasConnected = clashService.isRunning || _isConnected;
+    final runtimeNodeName = wasConnected ? _selectedNode?.name : null;
+    if (wasConnected &&
+        HomeNodeController.runnableNodesFrom(
+          context.read<SubscriptionService>().allNodes,
+        ).isEmpty) {
+      setState(() => _errorMessage = '订阅中没有可用节点，未更改网络设置，已保留当前连接');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('订阅中没有可用节点，未更改网络设置，已保留当前连接')),
+      );
+      return;
+    }
     int? automaticReconnectGeneration;
     var transactionCommitted = false;
     setState(() {
@@ -234,6 +245,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!_canUpdateUi) return;
       setState(() {
         _isConnected = false;
+        _disconnectedPreferredNodeName =
+            runtimeNodeName ?? _disconnectedPreferredNodeName;
         _selectedNode = null;
         _latencyController.clear();
         _resetPublicIpState();

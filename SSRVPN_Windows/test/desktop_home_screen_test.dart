@@ -38,6 +38,68 @@ void main() {
 
   tearDown(SubscriptionService.resetInstanceForTesting);
 
+  testWidgets('online mode change without nodes preserves mode and connection',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: false, running: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(fixture.build());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('全局'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(fixture.settings.settings.proxyMode, ProxyMode.rule);
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.clash.startCalls, 0);
+    expect(find.text('订阅中没有可用节点，未更改网络设置，已保留当前连接'), findsWidgets);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('global confirmation reconnects with the active node and mode',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    fixture.clash
+      ..runtimeSelectedNodeName = '新加坡节点'
+      ..switchResult = true;
+    await tester.pumpWidget(fixture.build());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('全局'));
+    await tester.pumpAndSettle();
+    expect(fixture.settings.settings.proxyMode, ProxyMode.rule);
+    expect(fixture.clash.startCalls, 0);
+    expect(fixture.clash.isRunning, isTrue);
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    for (var i = 0; i < 100 && fixture.clash.startCalls == 0; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(fixture.clash.startCalls, 1,
+        reason:
+            'mode=${fixture.settings.settings.proxyMode}, running=${fixture.clash.isRunning}, visible=${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).join(" | ")}');
+    await tester.pumpAndSettle();
+    expect(fixture.settings.settings.proxyMode, ProxyMode.global);
+    expect(fixture.clash.settings.proxyMode, ProxyMode.global);
+    expect(fixture.clash.lastPreferredNodeName, '新加坡节点');
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.clash.stopCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Home uses cached endpoint country in overview and selector',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 800));

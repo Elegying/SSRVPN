@@ -778,6 +778,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.bySemanticsLabel('全局'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确定'));
     await _waitForAsyncCondition(
       tester,
       () => fixture.settings.settings.proxyMode == ProxyMode.global,
@@ -785,6 +787,56 @@ void main() {
 
     expect(clash.idleSnapshotInvalidations, 1);
     expect(clash.liveSwitchCalls, 0);
+  });
+
+  testWidgets('online mode change without nodes preserves mode and connection',
+      (tester) async {
+    final clash = _RecordingAndroidClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+    await tester.runAsync(() => fixture.subscription.setRawYaml('proxies: []'));
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('全局'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(fixture.settings.settings.proxyMode, ProxyMode.rule);
+    expect(clash.settings.proxyMode, ProxyMode.rule);
+    expect(clash.isRunning, isTrue);
+    expect(find.text('订阅中没有可用节点，未更改代理模式，已保留当前连接'), findsOneWidget);
+  });
+
+  testWidgets(
+      'online mode change keeps the active node when preference differs',
+      (tester) async {
+    final clash = _FailedReloadAndroidClashService()
+      ..runtimeNodeName = '新加坡节点'
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('全局'));
+    await tester.pumpAndSettle();
+    expect(clash.stopCalls, 0);
+    expect(fixture.settings.settings.proxyMode, ProxyMode.rule);
+    await tester.tap(find.text('确定'));
+    await _waitForAsyncCondition(tester, () => clash.startCalls == 1);
+    expect(clash.generatedPreferredNodeName, '新加坡节点');
+    expect(clash.settings.proxyMode, ProxyMode.global);
+    clash.releaseStart.complete(false);
+    await _waitForAsyncCondition(tester, () => !clash.connectionDesired);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('failed online reload publishes its failure and clears busy UI',
@@ -801,6 +853,8 @@ void main() {
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
     await tester.tap(find.bySemanticsLabel('全局'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确定'));
     await _waitForAsyncCondition(tester, () => clash.startCalls == 1);
     clash.releaseStart.complete(false);
     await _waitForAsyncCondition(tester, () => !clash.connectionDesired);
@@ -832,6 +886,8 @@ void main() {
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
     await tester.tap(find.bySemanticsLabel('全局'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确定'));
     await _waitForAsyncCondition(tester, () => clash.startCalls == 1);
     await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
     await tester.pump(const Duration(milliseconds: 350));
@@ -870,6 +926,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.bySemanticsLabel('全局'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确定'));
     await _waitForWidget(tester, find.text('代理模式保存失败，请重试'));
 
     expect(fixture.settings.settings.proxyMode, ProxyMode.rule);
@@ -1360,7 +1418,7 @@ class _FailedInitialSwitchAndroidClashService
   }
 
   @override
-  Future<String?> currentSelectedProxyName() async => '东京节点';
+  Future<String?> currentSelectedProxyName() async => runtimeNodeName;
 
   @override
   Future<void> observeDataPlaneHealth() async {}

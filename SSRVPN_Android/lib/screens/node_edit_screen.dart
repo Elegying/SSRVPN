@@ -212,133 +212,146 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('编辑节点'),
-        actions: [
-          Padding(
-            padding: EdgeInsets.only(right: 8),
-            child: TextButton.icon(
-              onPressed: _saving ? null : _save,
-              icon: _saving
-                  ? SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(Icons.save_rounded, size: 18),
-              label: Text(
-                '保存',
-                style: TextStyle(
-                  color: AppTheme.primaryColor,
-                  fontWeight: FontWeight.w700,
+    return SsrvpnAppBackdrop(
+      child: SsrvpnModalGlassPanel(
+        key: const Key('ssrvpn-node-edit-glass'),
+        borderRadius: 0,
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
+            title: Text('编辑节点'),
+            actions: [
+              Padding(
+                padding: EdgeInsets.only(right: 8),
+                child: TextButton.icon(
+                  onPressed: _saving ? null : _save,
+                  icon: _saving
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(Icons.save_rounded, size: 18),
+                  label: Text(
+                    '保存',
+                    style: TextStyle(
+                      color: AppTheme.primaryColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ),
+            ],
+          ),
+          body: Form(
+            key: _formKey,
+            child: ListView(
+              padding: EdgeInsets.all(20),
+              children: [
+                Text(
+                  '修改仅保存在本地，刷新订阅后会被订阅内容覆盖。',
+                  style: TextStyle(
+                    color: isDark
+                        ? AppTheme.darkTextSecondary
+                        : AppTheme.lightTextSecondary,
+                  ),
+                ),
+                SizedBox(height: 20),
+                _field('name', '备注名', required: true),
+                _field('server', '服务器地址', required: true),
+                _field(
+                  'port',
+                  '端口',
+                  required: true,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                ),
+                Padding(
+                  padding: EdgeInsets.only(bottom: 14),
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _type,
+                    decoration: const InputDecoration(labelText: '节点类型'),
+                    items: ({..._types, _type}.toList()..sort())
+                        .map(
+                          (type) =>
+                              DropdownMenuItem(value: type, child: Text(type)),
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        setState(() => _type = value ?? _type),
+                  ),
+                ),
+                if (_hasField('password', {
+                  'ss',
+                  'ssr',
+                  'trojan',
+                  'anytls',
+                  'hysteria2',
+                  'tuic',
+                  'http',
+                  'socks5',
+                }))
+                  _field('password', '密码', secret: true),
+                if (_hasField('cipher', {'ss', 'ssr'}))
+                  _field('cipher', '加密方式'),
+                if (_hasField('protocol', {'ssr'})) _field('protocol', '协议'),
+                if (_hasField('protocol-param', {'ssr'}))
+                  _field('protocol-param', '协议参数'),
+                if (_hasField('obfs', {'ssr'})) _field('obfs', '混淆'),
+                if (_hasField('obfs-param', {'ssr'}))
+                  _field('obfs-param', '混淆参数'),
+                if (_hasField('uuid', {'vmess', 'vless', 'tuic'}))
+                  _field('uuid', 'UUID'),
+                if (_hasField('alterId', {'vmess'}))
+                  _field(
+                    'alterId',
+                    'Alter ID',
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  ),
+                if (_hasField('network', {'vmess', 'vless', 'trojan'}))
+                  _field('network', '传输协议'),
+                if (_hasField('flow', {'vless'})) _field('flow', 'Flow'),
+                if (_hasField('sni', {
+                  'vmess',
+                  'vless',
+                  'trojan',
+                  'anytls',
+                  'hysteria',
+                  'hysteria2',
+                  'tuic',
+                  'http',
+                  'socks5',
+                }))
+                  _field('sni', 'SNI'),
+                if (_hasField('servername', {}))
+                  _field('servername', 'Server Name'),
+                SizedBox(height: 4),
+                TextFormField(
+                  controller: _extraController,
+                  minLines: 5,
+                  maxLines: 12,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: Responsive.sp(12),
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: '其他参数（JSON）',
+                    alignLabelWithHint: true,
+                    helperText: 'TLS、插件、WebSocket 等未列出的参数可在这里修改',
+                  ),
+                ),
+                SizedBox(height: 24),
+                SizedBox(
+                  height: 48,
+                  child: ElevatedButton(onPressed: _save, child: Text('保存修改')),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: EdgeInsets.all(20),
-          children: [
-            Text(
-              '修改仅保存在本地，刷新订阅后会被订阅内容覆盖。',
-              style: TextStyle(
-                color: isDark
-                    ? AppTheme.darkTextSecondary
-                    : AppTheme.lightTextSecondary,
-              ),
-            ),
-            SizedBox(height: 20),
-            _field('name', '备注名', required: true),
-            _field('server', '服务器地址', required: true),
-            _field(
-              'port',
-              '端口',
-              required: true,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            ),
-            Padding(
-              padding: EdgeInsets.only(bottom: 14),
-              child: DropdownButtonFormField<String>(
-                initialValue: _type,
-                decoration: const InputDecoration(labelText: '节点类型'),
-                items: ({..._types, _type}.toList()..sort())
-                    .map(
-                      (type) =>
-                          DropdownMenuItem(value: type, child: Text(type)),
-                    )
-                    .toList(),
-                onChanged: (value) => setState(() => _type = value ?? _type),
-              ),
-            ),
-            if (_hasField('password', {
-              'ss',
-              'ssr',
-              'trojan',
-              'anytls',
-              'hysteria2',
-              'tuic',
-              'http',
-              'socks5',
-            }))
-              _field('password', '密码', secret: true),
-            if (_hasField('cipher', {'ss', 'ssr'})) _field('cipher', '加密方式'),
-            if (_hasField('protocol', {'ssr'})) _field('protocol', '协议'),
-            if (_hasField('protocol-param', {'ssr'}))
-              _field('protocol-param', '协议参数'),
-            if (_hasField('obfs', {'ssr'})) _field('obfs', '混淆'),
-            if (_hasField('obfs-param', {'ssr'})) _field('obfs-param', '混淆参数'),
-            if (_hasField('uuid', {'vmess', 'vless', 'tuic'}))
-              _field('uuid', 'UUID'),
-            if (_hasField('alterId', {'vmess'}))
-              _field(
-                'alterId',
-                'Alter ID',
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              ),
-            if (_hasField('network', {'vmess', 'vless', 'trojan'}))
-              _field('network', '传输协议'),
-            if (_hasField('flow', {'vless'})) _field('flow', 'Flow'),
-            if (_hasField('sni', {
-              'vmess',
-              'vless',
-              'trojan',
-              'anytls',
-              'hysteria',
-              'hysteria2',
-              'tuic',
-              'http',
-              'socks5',
-            }))
-              _field('sni', 'SNI'),
-            if (_hasField('servername', {}))
-              _field('servername', 'Server Name'),
-            SizedBox(height: 4),
-            TextFormField(
-              controller: _extraController,
-              minLines: 5,
-              maxLines: 12,
-              style: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: Responsive.sp(12),
-              ),
-              decoration: const InputDecoration(
-                labelText: '其他参数（JSON）',
-                alignLabelWithHint: true,
-                helperText: 'TLS、插件、WebSocket 等未列出的参数可在这里修改',
-              ),
-            ),
-            SizedBox(height: 24),
-            SizedBox(
-              height: 48,
-              child: ElevatedButton(onPressed: _save, child: Text('保存修改')),
-            ),
-          ],
         ),
       ),
     );

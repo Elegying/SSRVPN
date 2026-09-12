@@ -24,7 +24,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       }
       final preferredNode = HomeNodeController.resolveDefaultNodeFrom(
         nodes,
-        settingsService.settings.lastSelectedNodeName,
+        _selectedNode?.name ?? settingsService.settings.lastSelectedNodeName,
       );
       ProxyNode? runtimeSelectedNode;
       clashService.interruptPendingStart();

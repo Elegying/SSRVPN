@@ -9,6 +9,8 @@ Future<void> showSsrvpnInfoDialog(
   required IconData icon,
   required String title,
   required Widget content,
+  String buttonLabel = '知道了',
+  VoidCallback? onConfirm,
 }) {
   return showDialog<void>(
     context: context,
@@ -28,7 +30,7 @@ Future<void> showSsrvpnInfoDialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: 420, maxHeight: maxHeight),
-          child: _SsrvpnModalGlassPanel(
+          child: SsrvpnModalGlassPanel(
             key: panelKey,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
@@ -79,7 +81,10 @@ Future<void> showSsrvpnInfoDialog(
                   SizedBox(
                     width: double.infinity,
                     child: TextButton(
-                      onPressed: () => Navigator.pop(dialogContext),
+                      onPressed: () {
+                        onConfirm?.call();
+                        Navigator.pop(dialogContext);
+                      },
                       style: TextButton.styleFrom(
                         minimumSize: const Size(48, 48),
                         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -95,7 +100,7 @@ Future<void> showSsrvpnInfoDialog(
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      child: const Text('知道了'),
+                      child: Text(buttonLabel),
                     ),
                   ),
                 ],
@@ -108,14 +113,21 @@ Future<void> showSsrvpnInfoDialog(
   );
 }
 
-class _SsrvpnModalGlassPanel extends StatelessWidget {
-  const _SsrvpnModalGlassPanel({super.key, required this.child});
+class SsrvpnModalGlassPanel extends StatelessWidget {
+  const SsrvpnModalGlassPanel({
+    super.key,
+    required this.child,
+    this.padding = EdgeInsets.zero,
+    this.borderRadius = 16,
+  });
 
   final Widget child;
+  final EdgeInsetsGeometry padding;
+  final double borderRadius;
 
   @override
   Widget build(BuildContext context) {
-    const radius = 16.0;
+    final radius = borderRadius;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final primary = theme.colorScheme.primary;
@@ -161,7 +173,7 @@ class _SsrvpnModalGlassPanel extends StatelessWidget {
                 width: 0.7,
               ),
             ),
-            child: child,
+            child: Padding(padding: padding, child: child),
           ),
         ),
       ),
