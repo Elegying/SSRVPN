@@ -24,13 +24,13 @@ void main() {
             ));
     Navigator.of(context).push(route);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 80));
+    await tester.pump(const Duration(milliseconds: 180));
     await tester.timedDrag(find.byType(ListView), const Offset(0, -160),
         const Duration(milliseconds: 80));
     await tester.pump();
     expect(route.allowSnapshotting, isFalse);
-    expect(route.transitionDuration, const Duration(milliseconds: 220));
-    expect(route.reverseTransitionDuration, const Duration(milliseconds: 140));
+    expect(route.transitionDuration, const Duration(milliseconds: 320));
+    expect(route.reverseTransitionDuration, const Duration(milliseconds: 260));
     expect(find.byType(Scrollbar), findsNothing);
     expect(
         find.ancestor(

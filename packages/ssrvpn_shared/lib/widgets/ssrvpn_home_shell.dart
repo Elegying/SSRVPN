@@ -7,8 +7,10 @@ class SsrvpnHomeShell extends StatelessWidget {
       {super.key,
       required this.body,
       required this.navigation,
+      this.extendBehindNavigation = false,
       this.notices = const []});
   final Widget body, navigation;
+  final bool extendBehindNavigation;
   final List<Widget> notices;
   static double bodyTopOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_HomeBodyOffset>()?.top ?? 0;
@@ -31,8 +33,12 @@ class SsrvpnHomeShell extends StatelessWidget {
                 child: LayoutBuilder(
                     builder: (context, remaining) => _HomeBodyOffset(
                           top: constraints.maxHeight - remaining.maxHeight,
-                          child: Column(
-                              children: [Expanded(child: body), navigation]),
+                          child: Scaffold(
+                            backgroundColor: Colors.transparent,
+                            extendBody: extendBehindNavigation,
+                            body: body,
+                            bottomNavigationBar: navigation,
+                          ),
                         ))),
           ]));
 }

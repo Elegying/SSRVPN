@@ -55,31 +55,20 @@ class SsrvpnGlassPageRoute<T> extends MaterialPageRoute<T> {
       : super(allowSnapshotting: false);
 
   @override
-  Duration get transitionDuration => const Duration(milliseconds: 220);
+  Duration get transitionDuration => const Duration(milliseconds: 320);
   @override
-  Duration get reverseTransitionDuration => const Duration(milliseconds: 140);
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 260);
 
   @override
   Widget buildTransitions(BuildContext context, Animation<double> animation,
       Animation<double> secondaryAnimation, Widget child) {
     if (MediaQuery.disableAnimationsOf(context)) return child;
-    // Animate only the clip. Full-size layout and shader coordinates stay fixed;
-    // no ancestor opacity/saveLayer, scale or page snapshot is introduced.
-    return ClipRect(
-      clipper: _GlassPageRevealClipper(animation),
-      clipBehavior: Clip.hardEdge,
+    // Translate without scaling or fading the shader layer. The background and
+    // its glass move together; reversing the route continues from its position.
+    return SlideTransition(
+      position: Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero)
+          .animate(animation.drive(CurveTween(curve: Curves.easeInOutCubic))),
       child: child,
     );
   }
-}
-
-class _GlassPageRevealClipper extends CustomClipper<Rect> {
-  _GlassPageRevealClipper(this.animation) : super(reclip: animation);
-  final Animation<double> animation;
-  @override
-  Rect getClip(Size size) => Rect.fromLTWH(0, 0, size.width,
-      size.height * Curves.easeOutCubic.transform(animation.value));
-  @override
-  bool shouldReclip(_GlassPageRevealClipper oldClipper) =>
-      animation != oldClipper.animation;
 }
