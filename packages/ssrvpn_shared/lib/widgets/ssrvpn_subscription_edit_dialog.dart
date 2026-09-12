@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'ssrvpn_liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,7 +17,7 @@ Future<SsrvpnSubscriptionEditDraft?> showSsrvpnSubscriptionEditDialog(
   BuildContext context,
   Subscription subscription,
 ) {
-  return showDialog<SsrvpnSubscriptionEditDraft>(
+  return showSsrvpnGlassDialog<SsrvpnSubscriptionEditDraft>(
     context: context,
     builder: (dialogContext) =>
         _SubscriptionEditDialog(subscription: subscription),

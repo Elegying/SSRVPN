@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'ssrvpn_liquid_glass.dart';
 
 import 'package:flutter/material.dart';
@@ -18,7 +19,7 @@ Future<void> showSsrvpnInfoDialog(
   final panels = _openInfoPanels[navigator] ??= <Key>{};
   if (!panels.add(panelKey)) return;
   try {
-    await showDialog<void>(
+    await showSsrvpnGlassDialog<void>(
       context: context,
       builder: (dialogContext) {
         final mediaQuery = MediaQuery.of(dialogContext);

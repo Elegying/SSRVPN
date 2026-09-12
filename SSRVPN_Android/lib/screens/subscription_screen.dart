@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import '../utils/responsive.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -135,7 +136,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
   void _showNetworkErrorDialog(String detail) {
     if (!mounted) return;
-    showDialog<void>(
+    showSsrvpnGlassDialog<void>(
       context: context,
       builder: (_) => SubscriptionNetworkErrorDialog(detail: detail),
     );
@@ -143,7 +144,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
   Future<void> _deleteSubscription(String id) async {
     if (!mounted || _isBusy) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showSsrvpnGlassDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         elevation: 0,

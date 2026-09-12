@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
@@ -561,7 +562,7 @@ class UpdateService {
                 '该文件未由本次下载认领，安装后会保留。'
             : '安装包已下载到桌面并通过 SHA-256 校验，但安装后无法自动删除。'
                 '请手动安装；安装完成后请自行删除桌面安装包。';
-    await showDialog<void>(
+    await showSsrvpnGlassDialog<void>(
       context: context,
       builder: (dialogContext) => SsrvpnLiquidAlertDialog(
         scrollable: true,
@@ -594,7 +595,7 @@ class UpdateService {
   ) {
     return AppModalCoordinator.run<void>(() async {
       if (!context.mounted) return;
-      await showDialog<void>(
+      await showSsrvpnGlassDialog<void>(
         context: context,
         builder: (dialogContext) => SsrvpnLiquidAlertDialog(
           scrollable: true,

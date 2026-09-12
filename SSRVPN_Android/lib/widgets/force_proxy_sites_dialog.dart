@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_info_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -26,7 +27,7 @@ class ForceProxySitesDialog extends StatefulWidget {
     required List<String> savedSites,
     bool forceDirect = false,
   }) {
-    return showDialog<List<String>>(
+    return showSsrvpnGlassDialog<List<String>>(
       context: context,
       builder: (_) => ForceProxySitesDialog(
         savedSites: savedSites,

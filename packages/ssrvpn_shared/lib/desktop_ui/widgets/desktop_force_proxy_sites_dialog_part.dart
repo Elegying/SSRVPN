@@ -14,7 +14,7 @@ class _DesktopForceProxySitesDialog extends StatefulWidget {
     required List<String> savedSites,
     bool forceDirect = false,
   }) {
-    return showDialog<List<String>>(
+    return showSsrvpnGlassDialog<List<String>>(
       context: context,
       builder: (_) => _DesktopForceProxySitesDialog(
         savedSites: savedSites,

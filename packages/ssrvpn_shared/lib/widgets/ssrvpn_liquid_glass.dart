@@ -52,7 +52,7 @@ class SsrvpnLiquidSurface extends StatelessWidget {
       shape: circular
           ? const glass.LiquidOval()
           : glass.LiquidRoundedSuperellipse(borderRadius: radius),
-      quality: ssrvpnGlassQuality(context, scrollable: dense),
+      quality: ssrvpnGlassQuality(context),
       useOwnLayer: true,
       clipBehavior: Clip.antiAlias,
       settings: settings.copyWith(
@@ -84,21 +84,10 @@ Future<void> initializeSsrvpnLiquidGlass() async {
   }
 }
 
-/// Apply the adaptive ceiling consistently and keep texture-capture premium
-/// out of scrollable content, including controls nested in sliver headers.
-glass.GlassQuality ssrvpnGlassQuality(BuildContext context,
-    {bool scrollable = false}) {
-  final ceiling =
-      glass.GlassAdaptiveScopeData.maybeOf(context)?.effectiveQuality ??
-          glass.GlassQuality.premium;
-  if (ceiling == glass.GlassQuality.minimal) return ceiling;
-  if (scrollable ||
-      Scrollable.maybeOf(context) != null ||
-      ModalRoute.of(context) is PopupRoute) {
-    return glass.GlassQuality.standard;
-  }
-  return ceiling;
-}
+/// Start with full glass and only reduce quality from measured frame cost.
+glass.GlassQuality ssrvpnGlassQuality(BuildContext context) =>
+    glass.GlassAdaptiveScopeData.maybeOf(context)?.effectiveQuality ??
+    glass.GlassQuality.premium;
 
 int ssrvpnFrameBudget(double refreshRate) =>
     (1000 / (refreshRate.isFinite && refreshRate > 0 ? refreshRate : 60))
@@ -175,6 +164,7 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
     return glass.LiquidGlassWidgets.wrap(
       adaptiveQuality: true,
       adaptiveConfig: glass.GlassAdaptiveScopeConfig(
+        initialQuality: glass.GlassQuality.premium,
         targetFrameMs: budget,
         onQualityChanged: (_, quality) {
           if (SsrvpnFrameDiagnostics.enabled) {

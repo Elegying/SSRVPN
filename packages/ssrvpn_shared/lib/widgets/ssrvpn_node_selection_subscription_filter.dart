@@ -16,7 +16,7 @@ class _SubscriptionFilter extends StatelessWidget {
   final VoidCallback onSortPressed;
 
   Future<void> _openPicker(BuildContext context) async {
-    final selected = await showDialog<String>(
+    final selected = await showSsrvpnGlassDialog<String>(
       context: context,
       builder: (dialogContext) => Dialog(
         backgroundColor: Colors.transparent,

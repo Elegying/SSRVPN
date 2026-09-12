@@ -71,12 +71,19 @@ void main() {
           find.byWidgetPredicate((w) =>
               w is liquid.GlassContainer &&
               w.quality == liquid.GlassQuality.premium),
+          findsOneWidget);
+      final panel = find.byKey(const Key('rapid-panel'));
+      expect(find.ancestor(of: panel, matching: find.byType(FadeTransition)),
           findsNothing);
+      expect(find.byType(liquid.GlassMaterializeTransition), findsOneWidget);
       expect(tester.takeException(), isNull);
     }
     await tester.tap(find.text('知道了'));
+    await tester.pump(const Duration(milliseconds: 16));
+    final duringExit = open();
+    expect(find.byKey(const Key('rapid-panel')), findsOneWidget);
     await tester.pumpAndSettle();
-    await Future.wait([first, second]);
+    await Future.wait([first, second, duringExit]);
     final reopened = open();
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('rapid-panel')), findsOneWidget);

@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -415,7 +416,7 @@ class UpdateService {
       await AppModalCoordinator.run<void>(() async {
         if (!context.mounted) return;
         try {
-          progressDialogFuture = showDialog<void>(
+          progressDialogFuture = showSsrvpnGlassDialog<void>(
             context: context,
             barrierDismissible: false,
             builder: (dialogContext) => StatefulBuilder(
@@ -527,7 +528,7 @@ class UpdateService {
     BuildContext context,
     String message,
   ) {
-    return showDialog<void>(
+    return showSsrvpnGlassDialog<void>(
       context: context,
       builder: (dialogContext) => SsrvpnLiquidAlertDialog(
         scrollable: true,

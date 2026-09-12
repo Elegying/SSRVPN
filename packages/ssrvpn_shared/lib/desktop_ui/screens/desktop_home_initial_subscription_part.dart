@@ -12,7 +12,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
     try {
       await AppModalCoordinator.run<void>(() {
         if (!mounted || _disposed) return Future.value();
-        return showDialog<void>(
+        return showSsrvpnGlassDialog<void>(
           context: context,
           barrierDismissible: false,
           builder: (dialogContext) {

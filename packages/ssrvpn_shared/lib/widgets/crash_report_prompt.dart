@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
 import 'dart:async';
 import 'dart:io';
@@ -58,7 +59,7 @@ class _CrashReportPromptState extends State<CrashReportPrompt> {
 
       final action = await AppModalCoordinator.run<_CrashReportAction?>(() {
         if (!mounted) return Future.value();
-        return showDialog<_CrashReportAction>(
+        return showSsrvpnGlassDialog<_CrashReportAction>(
           context: context,
           barrierDismissible: false,
           builder: (dialogContext) => SsrvpnLiquidAlertDialog(

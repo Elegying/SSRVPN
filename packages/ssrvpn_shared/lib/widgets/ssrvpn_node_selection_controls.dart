@@ -264,7 +264,7 @@ class _ModeSection<T> extends StatelessWidget {
               borderRadius: 13,
               indicatorBorderRadius: 10,
               indicatorExpansion: EdgeInsets.zero,
-              quality: ssrvpnGlassQuality(context, scrollable: true),
+              quality: ssrvpnGlassQuality(context),
               useOwnLayer: true,
               settings: SsrvpnLiquidSurface.settings,
               backgroundColor: const Color(0x183A3C58),

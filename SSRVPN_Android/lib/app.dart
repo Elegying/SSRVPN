@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -195,7 +196,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
     if (_apiSecretRecoveryInProgress) return;
     final dialogContext = _navigatorKey.currentContext;
     if (dialogContext == null) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showSsrvpnGlassDialog<bool>(
       context: dialogContext,
       builder: buildAndroidApiSecretRecoveryDialog,
     );
@@ -396,7 +397,7 @@ class _InitialSubscriptionPromptState
     try {
       input = await AppModalCoordinator.run<String?>(() {
         if (!mounted) return Future.value();
-        return showDialog<String>(
+        return showSsrvpnGlassDialog<String>(
           context: context,
           barrierDismissible: false,
           builder: (_) => buildInitialSubscriptionDialog(

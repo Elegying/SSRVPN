@@ -1752,12 +1752,12 @@ void main() {
             of: segmented, matching: find.byType(liquid.GlassContainer)),
         findsNothing);
     expect(tester.widget<liquid.GlassSegmentedControl>(segmented).quality,
-        liquid.GlassQuality.standard);
+        liquid.GlassQuality.premium);
     expect(
         find.byWidgetPredicate((widget) =>
             widget is liquid.GlassContainer &&
             widget.quality == liquid.GlassQuality.premium),
-        findsNothing);
+        findsWidgets);
 
     final initialTop = tester.getTopLeft(find.text('代理模式')).dy;
     await tester.drag(

@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -63,7 +64,7 @@ class UpdateService {
             },
           );
 
-      await showDialog<void>(
+      await showSsrvpnGlassDialog<void>(
         context: context,
         barrierDismissible: false,
         builder: (dialogContext) => SsrvpnLiquidAlertDialog(

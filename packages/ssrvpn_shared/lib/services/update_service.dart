@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -236,7 +237,7 @@ class SharedUpdateService {
       await AppModalCoordinator.run<void>(() async {
         if (!context.mounted) return;
         try {
-          progressDialogFuture = showDialog<void>(
+          progressDialogFuture = showSsrvpnGlassDialog<void>(
             context: context,
             barrierDismissible: false,
             builder: (dialogContext) => StatefulBuilder(
@@ -301,7 +302,7 @@ class SharedUpdateService {
           final cancelled = cancelledByUser || error is VerifiedUpdateCancelled;
           await closeProgressDialog();
           if (!cancelled && context.mounted) {
-            await showDialog<void>(
+            await showSsrvpnGlassDialog<void>(
               context: context,
               builder: (dialogContext) => SsrvpnLiquidAlertDialog(
                 scrollable: true,
@@ -358,7 +359,7 @@ class SharedUpdateService {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     await AppModalCoordinator.run<void>(() {
       if (!context.mounted) return Future.value();
-      return showDialog<void>(
+      return showSsrvpnGlassDialog<void>(
         context: context,
         barrierDismissible: false,
         builder: (ctx) {

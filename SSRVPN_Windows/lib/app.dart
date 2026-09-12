@@ -2,6 +2,7 @@
 
 library desktop_app;
 
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -438,7 +439,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     String secretPath,
   ) async {
     if (_secretRecoveryInProgress) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showSsrvpnGlassDialog<bool>(
       context: context,
       builder: buildWindowsApiSecretRecoveryDialog,
     );
