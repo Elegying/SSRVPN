@@ -122,7 +122,6 @@ target_link_libraries(ssrvpn_physical_tcp_latency_test PRIVATE "ws2_32.lib" "iph
 
 add_executable(ssrvpn_dns_http_response_test EXCLUDE_FROM_ALL "dns_http_response_test.cpp")
 apply_standard_settings(ssrvpn_dns_http_response_test)
-target_compile_options(ssrvpn_dns_http_response_test PRIVATE "/UNDEBUG")
 set_target_properties(ssrvpn_dns_http_response_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/native-tests"
 )

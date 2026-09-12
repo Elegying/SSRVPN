@@ -1,5 +1,8 @@
 #include "dns_http_response.h"
 #include "dns_question.h"
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <cassert>
 #include <iostream>
 

@@ -11,10 +11,18 @@
 #include <array>
 #include <cstring>
 #include <memory>
+#include <cstdio>
 #include "physical_tcp_latency_probe.h"
 
 namespace physical_tcp_latency {
 namespace {
+void Trace(const char* stage, long code) {
+#ifdef SSRVPN_PHYSICAL_DNS_TEST
+  std::fprintf(stderr, "Physical DNS %s: 0x%lx\n", stage, static_cast<unsigned long>(code));
+#else
+  (void)stage; (void)code;
+#endif
+}
 // Bounded TLS/HTTP exchange on the SAME socket that the caller bound. WinHTTP
 // cannot guarantee that binding on all supported Windows versions.
 class TlsExchange {
@@ -64,7 +72,7 @@ class TlsExchange {
         if (!Receive()) return false;
         continue;
       }
-      if (status != SEC_E_OK && status != SEC_I_CONTINUE_NEEDED) return false;
+      if (status != SEC_E_OK && status != SEC_I_CONTINUE_NEEDED) { Trace("TLS", status); return false; }
       KeepExtra(input[1]);
       if (status == SEC_E_OK)
         return QueryContextAttributesW(&context_, SECPKG_ATTR_STREAM_SIZES,
@@ -190,7 +198,7 @@ std::vector<IN_ADDR> QueryPhysicalDns(SOCKET socket, const std::string& host,
   while (remaining()) {
     if (!tls.Read(response)) return {};
     const int state = ParseDnsHttpResponse(response, body);
-    if (state < 0) return {};
+    if (state < 0) { Trace("HTTP framing", state); return {}; }
     if (state > 0) break;
   }
   return ParsePhysicalDns(std::move(body), ttl);
@@ -208,7 +216,7 @@ std::vector<IN_ADDR> ParsePhysicalDns(std::vector<unsigned char> body, DWORD& tt
     PDNS_RECORD value;
     ~FreeRecords() { if (value) DnsRecordListFree(value, DnsFreeRecordList); }
   } cleanup{records};
-  if (status != ERROR_SUCCESS) return {};
+  if (status != ERROR_SUCCESS) { Trace("DNS decoding", status); return {}; }
   std::vector<IN_ADDR> addresses;
   for (auto* record = records; record && addresses.size() < 32; record = record->pNext) {
     if (record->Flags.S.Section == DnsSectionAnswer) ttl = std::min(ttl, record->dwTtl);
