@@ -14,13 +14,8 @@ void showAndroidDiagnosticsSheet(BuildContext context) {
     backgroundColor: Colors.transparent,
     builder: (ctx) => SizedBox(
       height: MediaQuery.of(ctx).size.height * 0.7,
-      child: Material(
-        color: const Color(0xFF0E1018),
-        shape: RoundedRectangleBorder(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-          side: BorderSide(color: AppTheme.darkBorder),
-        ),
-        clipBehavior: Clip.antiAlias,
+      child: SsrvpnModalGlassPanel(
+        key: const Key('ssrvpn-diagnostics-glass'),
         child: Column(
           children: [
             Container(
@@ -41,7 +36,7 @@ void showAndroidDiagnosticsSheet(BuildContext context) {
                       style: TextStyle(
                         fontSize: Responsive.sp(16),
                         fontWeight: FontWeight.w600,
-                        color: AppTheme.darkTextPrimary,
+                        color: Theme.of(ctx).colorScheme.onSurface,
                       ),
                     ),
                   ),
@@ -50,7 +45,7 @@ void showAndroidDiagnosticsSheet(BuildContext context) {
                     icon: Icon(
                       Icons.close,
                       size: 18,
-                      color: AppTheme.darkTextSecondary,
+                      color: Theme.of(ctx).colorScheme.onSurfaceVariant,
                     ),
                     onPressed: () => Navigator.pop(ctx),
                   ),

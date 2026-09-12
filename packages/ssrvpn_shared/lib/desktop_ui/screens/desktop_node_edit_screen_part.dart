@@ -265,160 +265,171 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final background =
-        isDark ? const Color(0xFF0B0D14) : const Color(0xFFF8FAFC);
-    return Scaffold(
-      backgroundColor: background,
-      appBar: AppBar(
-        title: const Text('编辑节点'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: TextButton.icon(
-              onPressed: _saving ? null : _save,
-              icon: _saving
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save_rounded, size: 18),
-              label: const Text('保存'),
-            ),
+    return SsrvpnAppBackdrop(
+      child: SsrvpnModalGlassPanel(
+        key: const Key('ssrvpn-node-edit-glass'),
+        borderRadius: 0,
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
+            title: const Text('编辑节点'),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: TextButton.icon(
+                  onPressed: _saving ? null : _save,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_rounded, size: 18),
+                  label: const Text('保存'),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-          children: [
-            _buildNotice(isDark),
-            const SizedBox(height: 20),
-            _buildSection(
-              title: '基本信息',
-              isDark: isDark,
+          body: Form(
+            key: _formKey,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
               children: [
-                _field(
-                  controller: _nameController,
-                  label: '节点备注名',
-                  validator: _required('节点备注名不能为空'),
-                ),
-                _field(
-                  controller: _serverController,
-                  label: '服务器地址',
-                  validator: _required('服务器地址不能为空'),
-                ),
-                _field(
-                  controller: _portController,
-                  label: '端口',
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  validator: (value) {
-                    final port = int.tryParse(value?.trim() ?? '');
-                    if (port == null || port < 1 || port > 65535) {
-                      return '端口必须在 1-65535 之间';
-                    }
-                    return null;
-                  },
-                ),
-                DropdownButtonFormField<String>(
-                  initialValue: _type,
-                  decoration: const InputDecoration(labelText: '节点类型'),
-                  items: [
-                    for (final type in _availableTypes)
-                      DropdownMenuItem(
-                        value: type,
-                        child: Text(type.toUpperCase()),
-                      ),
+                _buildNotice(isDark),
+                const SizedBox(height: 20),
+                _buildSection(
+                  title: '基本信息',
+                  isDark: isDark,
+                  children: [
+                    _field(
+                      controller: _nameController,
+                      label: '节点备注名',
+                      validator: _required('节点备注名不能为空'),
+                    ),
+                    _field(
+                      controller: _serverController,
+                      label: '服务器地址',
+                      validator: _required('服务器地址不能为空'),
+                    ),
+                    _field(
+                      controller: _portController,
+                      label: '端口',
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      validator: (value) {
+                        final port = int.tryParse(value?.trim() ?? '');
+                        if (port == null || port < 1 || port > 65535) {
+                          return '端口必须在 1-65535 之间';
+                        }
+                        return null;
+                      },
+                    ),
+                    DropdownButtonFormField<String>(
+                      initialValue: _type,
+                      decoration: const InputDecoration(labelText: '节点类型'),
+                      items: [
+                        for (final type in _availableTypes)
+                          DropdownMenuItem(
+                            value: type,
+                            child: Text(type.toUpperCase()),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) setState(() => _type = value);
+                      },
+                    ),
                   ],
-                  onChanged: (value) {
-                    if (value != null) setState(() => _type = value);
-                  },
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _buildSection(
-              title: '${_type.toUpperCase()} 参数',
-              isDark: isDark,
-              children: [
-                if (_usesPassword)
-                  _field(
-                    controller: _passwordController,
-                    label: '密码',
-                    obscureText: _obscurePassword,
-                    suffixIcon: IconButton(
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
+                const SizedBox(height: 16),
+                _buildSection(
+                  title: '${_type.toUpperCase()} 参数',
+                  isDark: isDark,
+                  children: [
+                    if (_usesPassword)
+                      _field(
+                        controller: _passwordController,
+                        label: '密码',
+                        obscureText: _obscurePassword,
+                        suffixIcon: IconButton(
+                          onPressed: () => setState(
+                              () => _obscurePassword = !_obscurePassword),
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                        ),
+                      ),
+                    if (_usesCipher)
+                      _field(controller: _cipherController, label: '加密方式'),
+                    if (_usesSsr) ...[
+                      _field(controller: _protocolController, label: 'SSR 协议'),
+                      _field(
+                          controller: _protocolParamController, label: '协议参数'),
+                      _field(controller: _obfsController, label: '混淆'),
+                      _field(controller: _obfsParamController, label: '混淆参数'),
+                    ],
+                    if (_usesUuid)
+                      _field(controller: _uuidController, label: 'UUID'),
+                    if (_usesAlterId)
+                      _field(
+                        controller: _alterIdController,
+                        label: 'Alter ID',
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly
+                        ],
+                      ),
+                    if (_usesTransport)
+                      _field(
+                        controller: _networkController,
+                        label: '传输协议',
+                        hint: '例如 tcp、ws、grpc',
+                      ),
+                    if (_usesSni)
+                      _field(controller: _sniController, label: 'SNI'),
+                    if (_usesFlow)
+                      _field(controller: _flowController, label: 'Flow'),
+                    if (!_usesPassword &&
+                        !_usesCipher &&
+                        !_usesSsr &&
+                        !_usesUuid &&
+                        !_usesTransport)
+                      const Text('该类型的参数可在下方 JSON 中编辑。'),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _buildSection(
+                  title: '其他参数（JSON）',
+                  isDark: isDark,
+                  children: [
+                    Text(
+                      '这里保留 TLS、WebSocket、plugin-opts 等高级参数。'
+                      '内容必须是 JSON 对象。',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 12),
+                    _field(
+                      controller: _advancedController,
+                      label: '高级参数',
+                      minLines: 8,
+                      maxLines: 18,
+                      keyboardType: TextInputType.multiline,
+                      textStyle: TextStyle(
+                        fontFamily: _desktopJsonEditorFontFamily,
+                        fontFamilyFallback: _desktopJsonEditorFontFallback,
+                        fontSize: 13,
+                        height: 1.4,
                       ),
                     ),
-                  ),
-                if (_usesCipher)
-                  _field(controller: _cipherController, label: '加密方式'),
-                if (_usesSsr) ...[
-                  _field(controller: _protocolController, label: 'SSR 协议'),
-                  _field(controller: _protocolParamController, label: '协议参数'),
-                  _field(controller: _obfsController, label: '混淆'),
-                  _field(controller: _obfsParamController, label: '混淆参数'),
-                ],
-                if (_usesUuid)
-                  _field(controller: _uuidController, label: 'UUID'),
-                if (_usesAlterId)
-                  _field(
-                    controller: _alterIdController,
-                    label: 'Alter ID',
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  ),
-                if (_usesTransport)
-                  _field(
-                    controller: _networkController,
-                    label: '传输协议',
-                    hint: '例如 tcp、ws、grpc',
-                  ),
-                if (_usesSni) _field(controller: _sniController, label: 'SNI'),
-                if (_usesFlow)
-                  _field(controller: _flowController, label: 'Flow'),
-                if (!_usesPassword &&
-                    !_usesCipher &&
-                    !_usesSsr &&
-                    !_usesUuid &&
-                    !_usesTransport)
-                  const Text('该类型的参数可在下方 JSON 中编辑。'),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _buildSection(
-              title: '其他参数（JSON）',
-              isDark: isDark,
-              children: [
-                Text(
-                  '这里保留 TLS、WebSocket、plugin-opts 等高级参数。'
-                  '内容必须是 JSON 对象。',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 12),
-                _field(
-                  controller: _advancedController,
-                  label: '高级参数',
-                  minLines: 8,
-                  maxLines: 18,
-                  keyboardType: TextInputType.multiline,
-                  textStyle: TextStyle(
-                    fontFamily: _desktopJsonEditorFontFamily,
-                    fontFamilyFallback: _desktopJsonEditorFontFallback,
-                    fontSize: 13,
-                    height: 1.4,
-                  ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );

@@ -72,7 +72,8 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
       backgroundColor: Colors.transparent,
       elevation: 0,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      child: SsrvpnFrostedPanel(
+      child: SsrvpnModalGlassPanel(
+        padding: const EdgeInsets.all(24),
         key: const Key('ssrvpn-subscription-edit-glass'),
         child: ConstrainedBox(
           constraints: BoxConstraints(

@@ -451,6 +451,16 @@ void main() {
       isTrue,
     );
     await tester.pumpAndSettle();
+    expect(proxyMode, ProxyMode.rule);
+    expect(find.byKey(const Key('ssrvpn-global-mode-glass')), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(proxyMode, ProxyMode.rule);
+    expect(find.byType(SsrvpnNodeSelectionPage), findsOneWidget);
+    await tester.tap(globalAction);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
     expect(proxyMode, ProxyMode.global);
     expect(find.text('所有流量都走代理'), findsOneWidget);
     expect(find.text('国内服务直接连接，海外及未知流量走代理'), findsNothing);

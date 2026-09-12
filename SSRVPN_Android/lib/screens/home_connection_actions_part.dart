@@ -49,7 +49,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
       }
       final preferredNode = _resolveDefaultNode(
         nodes,
-        settings.lastSelectedNodeName,
+        _selectedNode?.name ?? settings.lastSelectedNodeName,
       );
       clashService.updateSettings(settings);
       await clashService.stop();
@@ -367,6 +367,15 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     }
 
     final shouldReload = _isConnected || clashService.isRunning;
+    if (shouldReload &&
+        HomeNodeController.runnableNodesFrom(
+          context.read<SubscriptionService>().allNodes,
+        ).isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('订阅中没有可用节点，未更改代理模式，已保留当前连接')),
+      );
+      return;
+    }
     try {
       if (!shouldReload) {
         await clashService.invalidateIdleNativeConnectionSnapshot();

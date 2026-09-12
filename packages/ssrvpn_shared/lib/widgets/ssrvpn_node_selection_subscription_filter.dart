@@ -22,7 +22,8 @@ class _SubscriptionFilter extends StatelessWidget {
         backgroundColor: Colors.transparent,
         elevation: 0,
         insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 36),
-        child: SsrvpnFrostedPanel(
+        child: SsrvpnModalGlassPanel(
+          padding: const EdgeInsets.all(24),
           key: const Key('ssrvpn-subscription-picker-glass'),
           child: ConstrainedBox(
             constraints: BoxConstraints(
