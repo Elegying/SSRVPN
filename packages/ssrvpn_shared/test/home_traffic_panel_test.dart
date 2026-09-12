@@ -1,10 +1,41 @@
 import 'dart:async';
+import 'account_usage_test.dart' show usageJson;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
+  for (final width in [280.0, 380.0, 560.0]) {
+    testWidgets('account cards align to traffic columns at $width',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Center(
+        child: SizedBox(
+            width: width,
+            height: 180,
+            child: SsrvpnHomeTrafficPanel(
+              active: false,
+              connected: false,
+              readSample: () async => null,
+              accountUsage: AccountUsage.parse(usageJson()),
+            )),
+      ))));
+      await tester.pumpAndSettle();
+      Rect card(String label) =>
+          tester.getRect(find.byKey(ValueKey('home-traffic-card-$label')));
+      final upload = card('上传速率'), download = card('下载速率');
+      final total = card('本次累计'), used = card('已用流量');
+      final devices = card('已连接设备');
+      expect(used.left, closeTo(upload.left, .01));
+      expect(used.right, closeTo(download.right, .01));
+      expect(devices.left, closeTo(total.left, .01));
+      expect(devices.size.width, closeTo(total.size.width, .01));
+      expect(devices.size.height, closeTo(total.size.height, .01));
+      expect(tester.takeException(), isNull);
+    });
+  }
   TestWidgetsFlutterBinding.ensureInitialized();
   late Future<VpnTrafficSample?> Function() reader;
 
