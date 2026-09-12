@@ -50,7 +50,7 @@ struct PhysicalTcpLatencyChannel::State {
       }
       if (active_workers.fetch_add(1) >= 16) {
         active_workers.fetch_sub(1);
-        result->Success(Value(-1)); return;
+        result->Success(Value(physical_tcp_latency::kBusy)); return;
       }
       auto work = std::make_shared<Work>();
       try {
@@ -64,9 +64,9 @@ struct PhysicalTcpLatencyChannel::State {
         }).detach();
       } catch (...) {
         active_workers.fetch_sub(1);
-        result->Success(Value(-1)); return;
+        result->Success(Value(physical_tcp_latency::kBusy)); return;
       }
-      pending.push_back({work, std::move(result), GetTickCount64() + timeout});
+      pending.push_back({work, std::move(result), GetTickCount64() + timeout + 100});
     });
   }
 
@@ -78,7 +78,7 @@ struct PhysicalTcpLatencyChannel::State {
   void Poll() {
     for (auto it = pending.begin(); it != pending.end();) {
       int value = it->work->value.load();
-      if (value == -2 && GetTickCount64() >= it->deadline) value = -1;
+      if (value == -2 && GetTickCount64() >= it->deadline) value = physical_tcp_latency::kTimedOut;
       if (value == -2) { ++it; continue; }
       it->result->Success(Value(value));
       it = pending.erase(it);

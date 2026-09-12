@@ -32,8 +32,12 @@ enum PhysicalTcpLatencyProbe {
   static func measure(host: String, port: Int, timeoutMs: Int, completion: @escaping (Int) -> Void) {
     let start = DispatchTime.now().uptimeNanoseconds
     queue.async {
-      guard validArguments(host: host, port: port, timeoutMs: timeoutMs), active < 16 else {
+      guard validArguments(host: host, port: port, timeoutMs: timeoutMs) else {
         DispatchQueue.main.async { completion(-1) }
+        return
+      }
+      guard active < 16 else {
+        DispatchQueue.main.async { completion(-14) }
         return
       }
       active += 1
@@ -55,7 +59,7 @@ enum PhysicalTcpLatencyProbe {
         connection = nil
         DispatchQueue.main.async { completion(value) }
       }
-      let timeout = DispatchWorkItem { finish(-1) }
+      let timeout = DispatchWorkItem { finish(-10) }
       deadline = timeout
       queue.asyncAfter(deadline: DispatchTime(uptimeNanoseconds: start) + .milliseconds(timeoutMs), execute: timeout)
       monitor.pathUpdateHandler = { path in
@@ -63,7 +67,7 @@ enum PhysicalTcpLatencyProbe {
         guard path.status == .satisfied, let physical = path.availableInterfaces.first(where: {
           $0.type == .wifi || $0.type == .wiredEthernet
         }) else {
-          finish(-1)
+          finish(-12)
           return
         }
         started = true
@@ -87,8 +91,10 @@ enum PhysicalTcpLatencyProbe {
               return
             }
             let elapsed = Int((DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
-            finish(elapsed < timeoutMs ? max(1, elapsed) : -1)
-          case .failed, .cancelled:
+            finish(elapsed < timeoutMs ? max(1, elapsed) : -10)
+          case .failed(let error):
+            if case .dns = error { finish(-11) } else { finish(-13) }
+          case .cancelled:
             finish(-1)
           default:
             break

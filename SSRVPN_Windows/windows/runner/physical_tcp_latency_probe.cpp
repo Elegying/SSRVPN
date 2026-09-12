@@ -5,12 +5,13 @@
 #include <windows.h>
 #include <iphlpapi.h>
 #include <netioapi.h>
-#include <windns.h>
+#include "physical_dns.h"
 
 #include <algorithm>
 #include <cctype>
 #include <limits>
-#include <memory>
+#include <mutex>
+#include <unordered_map>
 #include <vector>
 
 namespace physical_tcp_latency {
@@ -60,69 +61,90 @@ Network ChooseNetwork() {
   return selected;
 }
 
-// The callback keeps this request alive after cancellation. No abandoned DNS
-// task can start a TCP connection or retain a Flutter result/window pointer.
-struct DnsRequest {
-  std::wstring host;
-  DNS_QUERY_REQUEST request{};
-  DNS_QUERY_RESULT result{};
-  DNS_QUERY_CANCEL cancel{};
-  HANDLE done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  ~DnsRequest() {
-    if (result.pQueryRecords) DnsRecordListFree(result.pQueryRecords, DnsFreeRecordList);
-    if (done) CloseHandle(done);
+SOCKET Connect(const Network& network, IN_ADDR address, int port, DWORD timeout) {
+  SOCKET socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (socket == INVALID_SOCKET) return INVALID_SOCKET;
+  const DWORD index = htonl(network.index);
+  sockaddr_in local{};
+  local.sin_family = AF_INET;
+  local.sin_addr = network.source;
+  u_long nonblocking = 1;
+  if (setsockopt(socket, IPPROTO_IP, IP_UNICAST_IF,
+      reinterpret_cast<const char*>(&index), sizeof(index)) != 0 ||
+      bind(socket, reinterpret_cast<sockaddr*>(&local), sizeof(local)) != 0 ||
+      ioctlsocket(socket, FIONBIO, &nonblocking) != 0) {
+    closesocket(socket);
+    return INVALID_SOCKET;
   }
-};
-
-void WINAPI DnsCompleted(void* opaque, DNS_QUERY_RESULT*) {
-  std::unique_ptr<std::shared_ptr<DnsRequest>> owner(
-      static_cast<std::shared_ptr<DnsRequest>*>(opaque));
-  SetEvent((*owner)->done);
+  sockaddr_in target{};
+  target.sin_family = AF_INET;
+  target.sin_addr = address;
+  target.sin_port = htons(static_cast<u_short>(port));
+  const int status = connect(socket, reinterpret_cast<sockaddr*>(&target), sizeof(target));
+  if (status != 0 && WSAGetLastError() != WSAEWOULDBLOCK) {
+    closesocket(socket);
+    return INVALID_SOCKET;
+  }
+  fd_set writable, failed;
+  FD_ZERO(&writable); FD_ZERO(&failed);
+  FD_SET(socket, &writable); FD_SET(socket, &failed);
+  timeval deadline{static_cast<long>(timeout / 1000), static_cast<long>((timeout % 1000) * 1000)};
+  int error = 0;
+  int size = sizeof(error);
+  if (!timeout || select(0, nullptr, &writable, &failed, &deadline) <= 0 ||
+      FD_ISSET(socket, &failed) ||
+      getsockopt(socket, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &size) != 0 ||
+      error || !IsPhysical(network.luid)) {
+    closesocket(socket);
+    return INVALID_SOCKET;
+  }
+  return socket;
 }
 
-std::vector<IN_ADDR> Resolve(const std::string& host, ULONG index, DWORD timeout) {
+std::vector<IN_ADDR> Resolve(const std::string& host, const Network& network,
+                           const std::function<DWORD()>& remaining) {
   IN_ADDR numeric{};
   if (InetPtonA(AF_INET, host.c_str(), &numeric) == 1) return {numeric};
-  auto state = std::make_shared<DnsRequest>();
-  if (!state->done) return {};
-  const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-      host.data(), static_cast<int>(host.size()), nullptr, 0);
-  if (count <= 0) return {};
-  state->host.resize(count);
-  if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, host.data(),
-      static_cast<int>(host.size()), state->host.data(), count)) return {};
-  state->request.Version = DNS_QUERY_REQUEST_VERSION1;
-  state->request.QueryName = state->host.c_str();
-  state->request.QueryType = DNS_TYPE_A;
-  state->request.QueryOptions = DNS_QUERY_BYPASS_CACHE | DNS_QUERY_NO_HOSTS_FILE |
-      DNS_QUERY_NO_MULTICAST | DNS_QUERY_TREAT_AS_FQDN;
-  state->request.InterfaceIndex = index;
-  state->request.pQueryCompletionCallback = DnsCompleted;
-  auto* callback_owner = new std::shared_ptr<DnsRequest>(state);
-  state->request.pQueryContext = callback_owner;
-  state->result.Version = DNS_QUERY_RESULTS_VERSION1;
-  const DNS_STATUS status = DnsQueryEx(&state->request, &state->result, &state->cancel);
-  if (status == DNS_REQUEST_PENDING) {
-    if (WaitForSingleObject(state->done, timeout) != WAIT_OBJECT_0) {
-      DnsCancelQuery(&state->cancel);
-      return {};
-    }
-  } else {
-    delete callback_owner;
-    if (status != ERROR_SUCCESS) return {};
+  struct Cached { std::vector<IN_ADDR> addresses; ULONGLONG expires; };
+  static std::mutex cache_mutex;
+  static std::unordered_map<std::string, Cached> cache;
+  const auto key = std::to_string(network.luid.Value) + ":" +
+      std::to_string(network.source.s_addr) + ":" + host;
+  {
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    const auto found = cache.find(key);
+    if (found != cache.end() && found->second.expires > GetTickCount64())
+      return found->second.addresses;
   }
-  if (state->result.QueryStatus != ERROR_SUCCESS) return {};
-  std::vector<IN_ADDR> addresses;
-  for (auto* record = state->result.pQueryRecords; record && addresses.size() < 32;
-       record = record->pNext) {
-    if (record->wType == DNS_TYPE_A && record->Flags.S.Section == DnsSectionAnswer &&
-        UsableIpv4(record->Data.A.IpAddress)) {
-      IN_ADDR address{};
-      address.s_addr = record->Data.A.IpAddress;
-      addresses.push_back(address);
+  // Numeric bootstrap avoids both TUN fake-IP and the strict-route port-53
+  // firewall. Each attempt has a bounded share of the ORIGINAL total deadline.
+  const char* resolvers[] = {"223.5.5.5", "223.6.6.6"};
+  for (size_t i = 0; i < 2; ++i) {
+    const char* resolver = resolvers[i];
+    const DWORD budget = remaining();
+    if (!budget) break;
+    const ULONGLONG end = GetTickCount64() + (i == 0 ? budget / 2 : budget);
+    const std::function<DWORD()> attempt = [&]() -> DWORD {
+      const auto now = GetTickCount64();
+      return now < end ? std::min(remaining(), static_cast<DWORD>(end - now)) : 0;
+    };
+    IN_ADDR address{};
+    InetPtonA(AF_INET, resolver, &address);
+    const SOCKET socket = Connect(network, address, 443, attempt());
+    if (socket == INVALID_SOCKET) continue;
+    struct Close { SOCKET value; ~Close() { closesocket(value); } } close{socket};
+    DWORD ttl = 0;
+    auto addresses = QueryPhysicalDns(socket, host, attempt, ttl);
+    if (!addresses.empty() && IsPhysical(network.luid)) {
+      if (ttl && remaining()) {
+        std::lock_guard<std::mutex> lock(cache_mutex);
+        if (cache.size() >= 128) cache.erase(cache.begin());
+        cache[key] = {addresses, GetTickCount64() + static_cast<ULONGLONG>(ttl) * 1000};
+      }
+      return addresses;
     }
   }
-  return addresses;
+  return {};
 }
 }  // namespace
 
@@ -143,6 +165,8 @@ bool UsableIpv4(uint32_t address) {
 
 int Probe(const std::string& host, int port, int timeout_ms) {
   if (!ValidArguments(host, port, timeout_ms)) return -1;
+  IN_ADDR numeric{};
+  if (InetPtonA(AF_INET, host.c_str(), &numeric) == 1 && !UsableIpv4(numeric.s_addr)) return -1;
   const ULONGLONG start = GetTickCount64();
   auto remaining = [&]() -> DWORD {
     const ULONGLONG elapsed = GetTickCount64() - start;
@@ -153,41 +177,22 @@ int Probe(const std::string& host, int port, int timeout_ms) {
   if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return -1;
   struct Cleanup { ~Cleanup() { WSACleanup(); } } cleanup;
   const auto network = ChooseNetwork();
-  if (!network.index || !remaining()) return -1;
-  for (const auto address : Resolve(host, network.index, remaining())) {
-    if (!remaining() || !UsableIpv4(address.s_addr) || !IsPhysical(network.luid)) break;
-    SOCKET socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (!network.index) return kNoNetwork;
+  if (!remaining()) return kTimedOut;
+  const auto addresses = Resolve(host, network, remaining);
+  if (addresses.empty()) return kDnsFailed;
+  for (size_t i = 0; i < addresses.size(); ++i) {
+    if (!remaining()) return kTimedOut;
+    if (!IsPhysical(network.luid)) return kNoNetwork;
+    if (!UsableIpv4(addresses[i].s_addr)) continue;
+    // An unreachable first A record must not consume the entire multi-IP probe.
+    const DWORD budget = std::max<DWORD>(1, remaining() / static_cast<DWORD>(addresses.size() - i));
+    const SOCKET socket = Connect(network, addresses[i], port, budget);
     if (socket == INVALID_SOCKET) continue;
-    struct CloseSocket { SOCKET value; ~CloseSocket() { closesocket(value); } } close{socket};
-    const DWORD interface_index = htonl(network.index);
-    sockaddr_in local{};
-    local.sin_family = AF_INET;
-    local.sin_addr = network.source;
-    // Bind interface AND source; never retry without either constraint.
-    if (setsockopt(socket, IPPROTO_IP, IP_UNICAST_IF,
-        reinterpret_cast<const char*>(&interface_index), sizeof(interface_index)) != 0 ||
-        bind(socket, reinterpret_cast<sockaddr*>(&local), sizeof(local)) != 0) continue;
-    u_long nonblocking = 1;
-    if (ioctlsocket(socket, FIONBIO, &nonblocking) != 0) continue;
-    sockaddr_in target{};
-    target.sin_family = AF_INET;
-    target.sin_port = htons(static_cast<u_short>(port));
-    target.sin_addr = address;
-    const int connected = connect(socket, reinterpret_cast<sockaddr*>(&target), sizeof(target));
-    if (connected != 0 && WSAGetLastError() != WSAEWOULDBLOCK) continue;
-    fd_set writable, failed;
-    FD_ZERO(&writable); FD_ZERO(&failed);
-    FD_SET(socket, &writable); FD_SET(socket, &failed);
-    const DWORD wait = remaining();
-    timeval deadline{static_cast<long>(wait / 1000), static_cast<long>((wait % 1000) * 1000)};
-    if (!wait || select(0, nullptr, &writable, &failed, &deadline) <= 0 ||
-        FD_ISSET(socket, &failed)) continue;
-    int error = 0;
-    int size = sizeof(error);
-    if (getsockopt(socket, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &size) != 0 ||
-        error || !remaining() || !IsPhysical(network.luid)) continue;
+    closesocket(socket);
+    if (!remaining()) return kTimedOut;
     return std::max(1, static_cast<int>(GetTickCount64() - start));
   }
-  return -1;
+  return remaining() ? kConnectFailed : kTimedOut;
 }
 }  // namespace physical_tcp_latency

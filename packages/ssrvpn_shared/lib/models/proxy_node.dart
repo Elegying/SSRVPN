@@ -1,3 +1,5 @@
+import '../utils/node_display_policy.dart';
+
 class ProxyNode {
   ProxyNode({
     required this.name,
@@ -86,11 +88,7 @@ class ProxyNode {
     return 2;
   }
 
-  String get latencyText {
-    final value = latency;
-    if (value == null || value <= 0) return '超时';
-    return '${value}ms';
-  }
+  String get latencyText => NodeDisplayPolicy.latencyText(latency);
 
   bool get isTimedOut {
     final value = latency;

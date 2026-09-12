@@ -39,11 +39,7 @@ class _NodeSelectionCard extends StatelessWidget {
     return SsrvpnUiTokens.error;
   }
 
-  String get _latencyText {
-    if (latency == null) return '--';
-    if (latency! <= 0 || latency! >= 65535) return '超时';
-    return '${latency}ms';
-  }
+  String get _latencyText => NodeDisplayPolicy.latencyText(latency);
 
   @override
   Widget build(BuildContext context) {

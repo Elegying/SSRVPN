@@ -396,11 +396,7 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
     final resolvedCode =
         countryCode ?? (node == null ? 'UN' : countryCodeForProxyNode(node!));
     final latencyTimedOut = NodeDisplayPolicy.isTimeoutLatency(latency);
-    final latencyText = latency == null
-        ? '--'
-        : latencyTimedOut
-            ? '超时'
-            : '${latency}ms';
+    final latencyText = NodeDisplayPolicy.latencyText(latency);
     final Color latencyColor;
     if (latency == null) {
       latencyColor = SsrvpnUiTokens.textSecondary;

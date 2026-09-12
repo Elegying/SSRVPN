@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/services/physical_tcp_latency.dart';
+import 'package:ssrvpn_shared/utils/node_display_policy.dart';
 
 class _Probe with PhysicalTcpLatency {}
 
@@ -46,6 +47,24 @@ void main() {
     });
     expect(await probe.testLatency('relay.example', 443), -1);
   });
+  test('native failure stages reach the UI without becoming timeouts',
+      () async {
+    for (final item in <int, String>{
+      -10: '超时',
+      -11: '解析失败',
+      -12: '网络不可用',
+      -13: '连接失败',
+      -14: '测速繁忙',
+    }.entries) {
+      messenger.setMockMethodCallHandler(
+          PhysicalTcpLatency.channel, (_) async => item.key);
+      final value = await probe.testLatency('relay.example', 443);
+      expect(value, item.key);
+      expect(NodeDisplayPolicy.latencyText(value), item.value);
+    }
+    expect(NodeDisplayPolicy.latencyText(-1), '测速失败');
+    expect(NodeDisplayPolicy.latencyText(null), '--');
+  });
   test('invalid requests never reach native channel', () async {
     messenger.setMockMethodCallHandler(PhysicalTcpLatency.channel, (_) async {
       fail('invalid probe dispatched');
@@ -61,7 +80,7 @@ void main() {
         PhysicalTcpLatency.channel, (_) => reply.future);
     final pending = probe.testLatency('relay.example', 443, timeoutMs: 50);
     await tester.pump(const Duration(milliseconds: 301));
-    expect(await pending, -1);
+    expect(await pending, NodeDisplayPolicy.probeTimedOut);
     reply.complete(1);
     await tester.pump();
   });

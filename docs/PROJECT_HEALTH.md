@@ -1,12 +1,21 @@
 # SSRVPN 项目健康与发布状态
 
-最近更新：2026-09-08
+最近更新：2026-09-12
 
-当前应用版本：`v4.0.38`
+当前应用版本：`v4.0.39`
 
 最新正式版本：[GitHub Releases 当前正式版](https://github.com/Elegying/SSRVPN/releases/latest)
 
-## 当前代码版本 v4.0.38
+## 当前代码版本 v4.0.39
+
+修复 Windows 物理网卡 DNS 查询与 TUN 严格路由防泄漏规则冲突；加密 DNS 与 TCP
+共用接口/源地址约束，证书校验开启，失败不回退到未绑定连接。DNS 缓存遵循 TTL，
+Windows/Android 多地址尝试共用总时限。三端保留可区分的失败状态。
+新增 Windows 动态 WFP DNS 阻断回归；CI 结果不等同于用户 Windows 活动 TUN 实机验收。
+正式发布状态以顶部 Releases 链接为准。
+
+## v4.0.38 测速隔离修复
+
 
 本次修复连接 VPN/TUN 后节点延迟异常偏低：生产测速的 DNS 与 TCP 使用同一物理网络，
 不经过本机虚拟网络栈。三端原生实现采用接口约束，失败不回退到未绑定 Socket，保留
