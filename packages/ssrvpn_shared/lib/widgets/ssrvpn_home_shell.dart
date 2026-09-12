@@ -36,7 +36,14 @@ class SsrvpnHomeShell extends StatelessWidget {
                           child: Scaffold(
                             backgroundColor: Colors.transparent,
                             extendBody: extendBehindNavigation,
-                            body: body,
+                            body: Builder(
+                              builder: (bodyContext) => MediaQuery(
+                                data: extendBehindNavigation
+                                    ? MediaQuery.of(bodyContext)
+                                    : MediaQuery.of(context),
+                                child: body,
+                              ),
+                            ),
                             bottomNavigationBar: navigation,
                           ),
                         ))),

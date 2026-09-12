@@ -228,7 +228,11 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                           key:
                               ValueKey('home-traffic-card-${row[index].label}'),
                           padding: EdgeInsets.symmetric(
-                              horizontal: columns == 5 ? 2 : 10,
+                              horizontal: columns == 5
+                                  ? 2
+                                  : width < 340
+                                      ? 5
+                                      : 10,
                               vertical: verticalPadding),
                           child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
