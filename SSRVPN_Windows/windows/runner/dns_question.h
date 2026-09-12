@@ -7,7 +7,7 @@ namespace physical_tcp_latency {
 // One RFC 1035 IN/A question; DoH uses transaction ID zero (RFC 8484).
 inline std::vector<unsigned char> BuildDnsQuestion(std::string host) {
   if (!host.empty() && host.back() == '.') host.pop_back();
-  if (host.empty() || host.size() > 253) return {};
+  if (host.empty() || host.back() == '.' || host.size() > 253) return {};
   std::vector<unsigned char> bytes{0,0,1,0,0,1,0,0,0,0,0,0};
   for (size_t start = 0; start < host.size();) {
     auto end = host.find('.', start);

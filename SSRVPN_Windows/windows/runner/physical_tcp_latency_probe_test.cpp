@@ -57,6 +57,13 @@ int main(int argc, char** argv) {
     session.flags = FWPM_SESSION_FLAG_DYNAMIC;
     Require(FwpmEngineOpen0(nullptr, RPC_C_AUTHN_WINNT, nullptr, &session, &engine) == ERROR_SUCCESS,
             "open dynamic DNS-block test session");
+    GUID layer_id{0x8d794d2a, 0xa31b, 0x4c3e, {0x9a,0x11,0x63,0x42,0x22,0x55,0x14,0x91}};
+    layer_id.Data1 ^= GetCurrentProcessId();
+    FWPM_SUBLAYER0 layer{};
+    layer.subLayerKey = layer_id;
+    layer.displayData.name = const_cast<wchar_t*>(L"SSRVPN transient regression layer");
+    layer.weight = 65535;
+    Require(FwpmSubLayerAdd0(engine, &layer, nullptr) == ERROR_SUCCESS, "add strict-route priority sublayer");
     FWPM_FILTER_CONDITION0 condition{};
     condition.fieldKey = FWPM_CONDITION_IP_REMOTE_PORT;
     condition.matchType = FWP_MATCH_EQUAL;
@@ -65,7 +72,9 @@ int main(int argc, char** argv) {
     FWPM_FILTER0 filter{};
     filter.displayData.name = const_cast<wchar_t*>(L"SSRVPN transient latency regression test");
     filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
-    filter.subLayerKey = FWPM_SUBLAYER_UNIVERSAL;
+    filter.subLayerKey = layer_id;
+    filter.weight.type = FWP_UINT8;
+    filter.weight.uint8 = 10;
     filter.action.type = FWP_ACTION_BLOCK;
     filter.numFilterConditions = 1;
     filter.filterCondition = &condition;
@@ -74,20 +83,31 @@ int main(int argc, char** argv) {
             "install transient port-53 block");
     WSADATA data{};
     Require(WSAStartup(MAKEWORD(2, 2), &data) == 0, "start blocked-DNS control");
-    const SOCKET control = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    const SOCKET control = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    u_long nonblocking = 1;
+    Require(ioctlsocket(control, FIONBIO, &nonblocking) == 0, "nonblocking DNS control");
     sockaddr_in dns{};
     dns.sin_family = AF_INET; dns.sin_port = htons(53);
     InetPtonA(AF_INET, "223.5.5.5", &dns.sin_addr);
-    const int sent = sendto(control, reinterpret_cast<const char*>(query.data()),
-        static_cast<int>(bytes), 0, reinterpret_cast<sockaddr*>(&dns), sizeof(dns));
-    const int blocked_error = WSAGetLastError();
+    const int connected = connect(control, reinterpret_cast<sockaddr*>(&dns), sizeof(dns));
+    int blocked_error = connected == 0 ? 0 : WSAGetLastError();
+    if (blocked_error == WSAEWOULDBLOCK) {
+      fd_set write, errors;
+      FD_ZERO(&write); FD_ZERO(&errors); FD_SET(control, &write); FD_SET(control, &errors);
+      timeval wait{1, 0};
+      if (select(0, nullptr, &write, &errors, &wait) > 0) {
+        int size = sizeof(blocked_error);
+        getsockopt(control, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&blocked_error), &size);
+      }
+    }
     closesocket(control);
     WSACleanup();
-    Require(sent == SOCKET_ERROR && blocked_error == WSAEACCES, "control proves DNS is blocked by WFP");
     const int numeric = Probe("223.5.5.5", 443, 5000);
     const int domain = Probe("dns.alidns.com", 443, 5000);
     FwpmEngineClose0(engine);
     std::printf("Port-53 blocked: physical IPv4=%d, physical encrypted DNS+TCP=%d ms\n", numeric, domain);
+    std::printf("Blocked ordinary DNS control Winsock error=%d\n", blocked_error);
+    Require(blocked_error == WSAEACCES, "control proves DNS is blocked by WFP");
     Require(numeric > 0, "live physical IPv4 probe succeeds");
     Require(domain > 0, "live domain probe succeeds while DNS port 53 is blocked");
   }
