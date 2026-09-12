@@ -183,7 +183,8 @@ class AdaptiveGlass extends StatelessWidget {
     // glass. Returning the child unwrapped made it pop back into view at the
     // exact moment the surface finished disappearing.
     // --------------------------------------------------------------------------
-    if (baseSettings.visibility <= 0.0) {
+    if (baseSettings.visibility <= 0.0 &&
+        GlassMaterializeScope.maybeOf(context) == null) {
       return Opacity(opacity: 0.0, child: content);
     }
 
@@ -354,7 +355,7 @@ class AdaptiveGlass extends StatelessWidget {
         return _wrapWithDecorations(
           context,
           baseSettings,
-          _fadeLightweight(baseSettings, container),
+          _fadeLightweight(context, baseSettings, container),
         );
       }
 
@@ -372,7 +373,7 @@ class AdaptiveGlass extends StatelessWidget {
       return _wrapWithDecorations(
         context,
         baseSettings,
-        _fadeLightweight(baseSettings, lightweightWidget),
+        _fadeLightweight(context, baseSettings, lightweightWidget),
       );
     }
 
@@ -481,7 +482,9 @@ class AdaptiveGlass extends StatelessWidget {
 
     // Resolve the shadow from settings (per-widget or inherited).
     final shadows = baseSettings.effectiveShadow;
-    if (shadows.isEmpty) return glass;
+    if (shadows.isEmpty && GlassMaterializeScope.maybeOf(context) == null) {
+      return glass;
+    }
 
     // Extract border radius from the shape for the shadow decoration.
     final borderRadius = _borderRadiusFromShape(shape);
@@ -550,13 +553,16 @@ class AdaptiveGlass extends StatelessWidget {
   /// way it is not on the premium path: this is an ordinary painted shader,
   /// not a backdrop pass.
   ///
-  /// Only while it bites. An [Opacity] left in the tree at full visibility is
+  /// A materialize scope must retain the wrapper at rest to preserve forms.
+  /// Outside transitions, an [Opacity] left at full visibility is
   /// a no-op as a blend, but not as a render object: [LightweightLiquidGlass]
   /// captures its backdrop through a [RenderRepaintBoundary], and an extra
   /// object in that subtree changes what gets captured. That cost is what
   /// reverted the earlier always-on form.
-  static Widget _fadeLightweight(LiquidGlassSettings settings, Widget glass) =>
-      settings.visibility >= 1.0
+  static Widget _fadeLightweight(
+          BuildContext context, LiquidGlassSettings settings, Widget glass) =>
+      settings.visibility >= 1.0 &&
+              GlassMaterializeScope.maybeOf(context) == null
           ? glass
           : Opacity(
               opacity: settings.visibility.clamp(0.0, 1.0),
@@ -565,7 +571,7 @@ class AdaptiveGlass extends StatelessWidget {
 
   Widget _wrapWithBacker(LiquidGlassSettings baseSettings, Widget glass) {
     final backerColor = baseSettings.effectiveBackerColor;
-    if (backerColor == null || backerColor.a == 0) return glass;
+    if (backerColor == null) return glass;
 
     return Stack(
       fit: StackFit.passthrough,

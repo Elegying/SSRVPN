@@ -16,3 +16,7 @@ Capture draw bounds now use the caller's explicit expansion instead of an
 unconditional 20x15px margin. The final shader emits transparent pixels outside
 the geometry texture rather than extending edge texels into that margin. This
 prevents card-edge streaks during horizontal navigation.
+
+Materialize scope keeps its content wrappers mounted at rest and disables only
+the zero-sigma filter. Removing wrappers at progress 1 remounted stateful forms
+and diagnostics, resetting pending edits and repeating initial requests.

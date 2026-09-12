@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:ssrvpn_shared/widgets/ssrvpn_info_dialog.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as liquid;
 import 'package:ssrvpn_shared/widgets/ssrvpn_app_surface.dart';

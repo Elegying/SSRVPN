@@ -41,7 +41,7 @@ class GlassMaterializeScope extends InheritedWidget {
 
   /// How materialized the glass is: 0.0 = fully dematerialized, 1.0 = at
   /// rest. At 1.0 the scope is inert — [resolveSettings] returns its input
-  /// unchanged and [wrapContent] adds nothing.
+  /// unchanged and [wrapContent] keeps identity wrappers.
   final double glassProgress;
 
   /// Opacity applied to glass children, on top of the visibility fade the
@@ -72,8 +72,8 @@ class GlassMaterializeScope extends InheritedWidget {
 
   /// Applies the nearest scope's content channel around [child].
   ///
-  /// Returns [child] untouched when no scope is present or the content
-  /// channel is itself at rest. It deliberately does *not* test
+  /// Returns [child] untouched only when no scope is present. Identity wrappers
+  /// stay mounted at rest to preserve state when a transition reverses. It deliberately does *not* test
   /// [glassProgress]: the two channels are staggered, so the glass reaches
   /// 1.0 while the content is still sharpening. Gating this on the glass
   /// dropped the blur in a single frame at that crossing — the icon snapped
@@ -84,13 +84,13 @@ class GlassMaterializeScope extends InheritedWidget {
   /// shape for the whole of a transition.
   static Widget wrapContent(BuildContext context, Widget child) {
     final scope = maybeOf(context);
-    if (scope == null ||
-        (scope.contentOpacity >= 1.0 && scope.contentSigma <= 0.0)) {
-      return child;
-    }
+    // Preserve the element tree at rest and during reverse: removing these
+    // wrappers remounts forms/diagnostics, resetting edits and rerunning work.
+    if (scope == null) return child;
     return Opacity(
       opacity: scope.contentOpacity.clamp(0.0, 1.0),
       child: ImageFiltered(
+        enabled: scope.contentSigma > 0,
         imageFilter: ui.ImageFilter.blur(
           sigmaX: scope.contentSigma,
           sigmaY: scope.contentSigma,
