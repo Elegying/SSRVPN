@@ -256,35 +256,52 @@ class _ModeSection<T> extends StatelessWidget {
           ExcludeFocus(
               child: ExcludeSemantics(
                   child: IgnorePointer(
-            child: liquid.GlassSegmentedControl(
-              selectedIndex:
-                  choices.indexWhere((choice) => choice.value == value),
-              onSegmentSelected: (_) {},
-              height: height,
-              borderRadius: 13,
-              indicatorBorderRadius: 10,
-              indicatorExpansion: EdgeInsets.zero,
-              quality: ssrvpnGlassQuality(context),
-              useOwnLayer: true,
-              settings: SsrvpnLiquidSurface.settings,
-              backgroundColor: const Color(0x183A3C58),
-              indicatorSettings: SsrvpnLiquidSurface.settings.copyWith(
-                  blur: 3, thickness: 36, glassColor: const Color(0x208A80FF)),
-              indicatorColor: SsrvpnUiTokens.primary.withValues(alpha: .12),
-              selectedTextStyle: const TextStyle(
-                  color: SsrvpnUiTokens.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700),
-              unselectedTextStyle: const TextStyle(
-                  color: SsrvpnUiTokens.textSecondary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600),
-              segments: [
+            child: Stack(fit: StackFit.expand, children: [
+              const SsrvpnLiquidSurface(
+                  radius: 13,
+                  dense: true,
+                  tint: Color(0x183A3C58),
+                  child: SizedBox.expand()),
+              AnimatedAlign(
+                alignment: value == choices.first.value
+                    ? Alignment.centerLeft
+                    : Alignment.centerRight,
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                child: FractionallySizedBox(
+                    widthFactor: 1 / choices.length,
+                    heightFactor: 1,
+                    child: const SsrvpnLiquidSurface(
+                        radius: 10,
+                        dense: true,
+                        tint: Color(0x208A80FF),
+                        child: SizedBox.expand())),
+              ),
+              Row(children: [
                 for (final choice in choices)
-                  liquid.GlassSegment(
-                      label: choice.label, icon: Icon(choice.icon, size: 17))
-              ],
-            ),
+                  Expanded(
+                      child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                        Icon(choice.icon,
+                            size: 17,
+                            color: choice.value == value
+                                ? SsrvpnUiTokens.textPrimary
+                                : SsrvpnUiTokens.textSecondary),
+                        Text(choice.label,
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: choice.value == value
+                                    ? FontWeight.w700
+                                    : FontWeight.w600,
+                                color: choice.value == value
+                                    ? SsrvpnUiTokens.textPrimary
+                                    : SsrvpnUiTokens.textSecondary)),
+                      ])),
+              ]),
+            ]),
           ))),
           // Keep our controlled confirmation, keyboard focus and single semantics
           // node per option. The glass layer only follows the accepted mode value.

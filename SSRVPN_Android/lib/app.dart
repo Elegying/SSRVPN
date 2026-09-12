@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_scroll_behavior.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -225,8 +226,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
   Widget build(BuildContext context) {
     if (_initError) {
       return MaterialApp(
-        scrollBehavior:
-            const MaterialScrollBehavior().copyWith(scrollbars: false),
+        scrollBehavior: const SsrvpnScrollBehavior(),
         navigatorKey: _navigatorKey,
         debugShowCheckedModeBanner: false,
         localizationsDelegates: androidLocalizationsDelegates,
@@ -244,8 +244,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
 
     if (!_appInitialized) {
       return MaterialApp(
-        scrollBehavior:
-            const MaterialScrollBehavior().copyWith(scrollbars: false),
+        scrollBehavior: const SsrvpnScrollBehavior(),
         debugShowCheckedModeBanner: false,
         localizationsDelegates: androidLocalizationsDelegates,
         supportedLocales: androidSupportedLocales,
@@ -291,8 +290,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         ),
       ],
       child: MaterialApp(
-        scrollBehavior:
-            const MaterialScrollBehavior().copyWith(scrollbars: false),
+        scrollBehavior: const SsrvpnScrollBehavior(),
         navigatorKey: _navigatorKey,
         debugShowCheckedModeBanner: false,
         title: 'SSRVPN',

@@ -236,7 +236,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
 
   Future<void> _editNode(ProxyNode node) async {
     final success = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => NodeEditScreen(node: node)),
+      SsrvpnGlassPageRoute(builder: (_) => NodeEditScreen(node: node)),
     );
     if (success == true && mounted) {
       _latencyController.remove(node.name);

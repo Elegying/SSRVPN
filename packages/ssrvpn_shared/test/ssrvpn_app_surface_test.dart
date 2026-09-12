@@ -1746,13 +1746,12 @@ void main() {
     );
     await tester.pump();
 
-    final segmented = find.byType(liquid.GlassSegmentedControl);
-    expect(
-        find.ancestor(
-            of: segmented, matching: find.byType(liquid.GlassContainer)),
-        findsNothing);
-    expect(tester.widget<liquid.GlassSegmentedControl>(segmented).quality,
-        liquid.GlassQuality.premium);
+    // The control uses sibling captured surfaces, never nested live shaders.
+    final modePanel = find.byKey(const Key('ssrvpn-proxy-mode-panel'));
+    expect(find.descendant(of: modePanel, matching: find.text('智能')),
+        findsOneWidget);
+    expect(find.descendant(of: modePanel, matching: find.text('全局')),
+        findsOneWidget);
     expect(
         find.byWidgetPredicate((widget) =>
             widget is liquid.GlassContainer &&

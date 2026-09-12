@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:ui' as ui;
+import 'ssrvpn_glass_capture.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
@@ -48,17 +50,23 @@ class SsrvpnLiquidSurface extends StatelessWidget {
                   Border.all(color: Theme.of(context).colorScheme.onSurface)),
           child: content);
     }
-    return glass.GlassContainer(
+    final quality = ssrvpnGlassQuality(context);
+    final captured = SsrvpnGlassFrame.of(context);
+    final useCapture = quality == glass.GlassQuality.premium &&
+        ui.ImageFilter.isShaderFilterSupported &&
+        SsrvpnGlassFrame.hasScope(context);
+    final surfaceSettings = settings.copyWith(
+        blur: dense ? 5 : 7,
+        glassColor: tint?.withValues(alpha: .18) ??
+            (dark ? const Color(0x30303C60) : const Color(0x88FFFFFF)));
+    final surface = glass.GlassContainer(
       shape: circular
           ? const glass.LiquidOval()
           : glass.LiquidRoundedSuperellipse(borderRadius: radius),
-      quality: ssrvpnGlassQuality(context),
-      useOwnLayer: true,
+      quality: quality,
+      useOwnLayer: !useCapture,
       clipBehavior: Clip.antiAlias,
-      settings: settings.copyWith(
-          blur: dense ? 5 : 7,
-          glassColor: tint?.withValues(alpha: .18) ??
-              (dark ? const Color(0x30303C60) : const Color(0x88FFFFFF))),
+      settings: surfaceSettings,
       child: DecoratedBox(
         decoration: BoxDecoration(
           shape: circular ? BoxShape.circle : BoxShape.rectangle,
@@ -69,6 +77,22 @@ class SsrvpnLiquidSurface extends StatelessWidget {
         child: content,
       ),
     );
+    if (!useCapture) return surface;
+    // No live-shader fallback on the first frame: wait for the background's
+    // first completed paint while preserving layout and readable content.
+    if (captured == null) {
+      return DecoratedBox(
+          decoration: BoxDecoration(
+              color: surfaceSettings.glassColor,
+              shape: circular ? BoxShape.circle : BoxShape.rectangle,
+              borderRadius: circular ? null : BorderRadius.circular(radius)),
+          child: surface.child);
+    }
+    return glass.LiquidGlassLayer(
+        settings: surfaceSettings,
+        captureImage: captured.image,
+        captureOriginInScreenSpace: captured.origin,
+        child: surface);
   }
 }
 
@@ -162,7 +186,8 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
         _nativeRefreshRate ?? View.maybeOf(context)?.display.refreshRate ?? 60;
     final budget = ssrvpnFrameBudget(_diagnostics.refreshRate);
     return glass.LiquidGlassWidgets.wrap(
-      adaptiveQuality: true,
+      adaptiveQuality:
+          !const bool.fromEnvironment('SSRVPN_GLASS_FIXED_PREMIUM'),
       adaptiveConfig: glass.GlassAdaptiveScopeConfig(
         initialQuality: glass.GlassQuality.premium,
         targetFrameMs: budget,

@@ -47,3 +47,39 @@ class _GlassDialogRoute<T> extends DialogRoute<T> {
     );
   }
 }
+
+/// Page navigation must not wrap live glass in the platform's default opacity
+/// or snapshot transition either, especially when scrolling during entry.
+class SsrvpnGlassPageRoute<T> extends MaterialPageRoute<T> {
+  SsrvpnGlassPageRoute({required super.builder, super.settings})
+      : super(allowSnapshotting: false);
+
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 220);
+  @override
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 140);
+
+  @override
+  Widget buildTransitions(BuildContext context, Animation<double> animation,
+      Animation<double> secondaryAnimation, Widget child) {
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    // Animate only the clip. Full-size layout and shader coordinates stay fixed;
+    // no ancestor opacity/saveLayer, scale or page snapshot is introduced.
+    return ClipRect(
+      clipper: _GlassPageRevealClipper(animation),
+      clipBehavior: Clip.hardEdge,
+      child: child,
+    );
+  }
+}
+
+class _GlassPageRevealClipper extends CustomClipper<Rect> {
+  _GlassPageRevealClipper(this.animation) : super(reclip: animation);
+  final Animation<double> animation;
+  @override
+  Rect getClip(Size size) => Rect.fromLTWH(0, 0, size.width,
+      size.height * Curves.easeOutCubic.transform(animation.value));
+  @override
+  bool shouldReclip(_GlassPageRevealClipper oldClipper) =>
+      animation != oldClipper.animation;
+}

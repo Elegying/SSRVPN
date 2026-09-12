@@ -2,6 +2,7 @@
 
 library desktop_app;
 
+import 'package:ssrvpn_shared/widgets/ssrvpn_scroll_behavior.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:async';
 import 'dart:io';
@@ -498,8 +499,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         ),
       ],
       child: MaterialApp(
-        scrollBehavior:
-            const MaterialScrollBehavior().copyWith(scrollbars: false),
+        scrollBehavior: const SsrvpnScrollBehavior(),
         debugShowCheckedModeBanner: false,
         title: 'SSRVPN',
         theme: AppTheme.light,
@@ -528,8 +528,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
           _confirmWindowsSecretRecovery(buttonContext, secretPath),
     );
     return MaterialApp(
-      scrollBehavior:
-          const MaterialScrollBehavior().copyWith(scrollbars: false),
+      scrollBehavior: const SsrvpnScrollBehavior(),
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
       home: _withWindowsFrame(status, startupShell),

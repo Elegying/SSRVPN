@@ -1,5 +1,6 @@
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as liquid;
 import 'ssrvpn_liquid_glass.dart';
+import 'ssrvpn_glass_capture.dart';
 import 'dart:ui' show ImageFilter;
 import 'ssrvpn_drifting_background.dart';
 
@@ -90,7 +91,8 @@ class SsrvpnAppBackdrop extends StatelessWidget {
   Widget build(BuildContext context) {
     if (useLegacy) return _SsrvpnLegacyBackdrop(child: child);
     return liquid.LiquidGlassScope(
-      child: Stack(fit: StackFit.expand, children: [
+      child: SsrvpnGlassCapture(
+          child: Stack(fit: StackFit.expand, children: [
         Positioned.fill(
             child: IgnorePointer(
                 child: liquid.GlassBackgroundSource(
@@ -113,7 +115,7 @@ class SsrvpnAppBackdrop extends StatelessWidget {
           ]),
         ))),
         child,
-      ]),
+      ])),
     );
   }
 }

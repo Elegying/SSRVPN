@@ -318,7 +318,8 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     if (selected != 'edit' || !mounted) return;
     await Navigator.of(
       context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => NodeEditScreen(node: node)));
+    ).push<bool>(
+        SsrvpnGlassPageRoute(builder: (_) => NodeEditScreen(node: node)));
   }
 
   Future<ProxyNode?> _resolveRuntimeSelectedNode(

@@ -192,7 +192,7 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
               ? 0.0
               : constraints.maxHeight < 120
                   ? 2.0
-                  : 4.0;
+                  : 6.0;
           final cardHeight = math.min(rowBudget,
               (caption * 2 + number) * 1.1 + verticalPadding * 2 + 3);
           final children = <Widget>[];
@@ -228,11 +228,7 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                           key:
                               ValueKey('home-traffic-card-${row[index].label}'),
                           padding: EdgeInsets.symmetric(
-                              horizontal: columns == 5
-                                  ? 1
-                                  : row[index].label == '已用流量' && width < 350
-                                      ? 3
-                                      : 6,
+                              horizontal: columns == 5 ? 2 : 10,
                               vertical: verticalPadding),
                           child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,

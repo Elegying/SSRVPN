@@ -90,7 +90,9 @@ does not independently grant redistribution rights.
 - Source: <https://github.com/sdegenaar/liquid_glass_widgets>
 - License: MIT; renderer and spring utility notices are retained in
   `licenses/liquid-glass-widgets-MIT.txt`.
-- SSRVPN uses the published package without modifying its implementation.
+- SSRVPN vendors the 1.4.4 runtime in `packages/liquid_glass_widgets` with a
+  capture-coordinate repair. Source and patch details are included in
+  `packages/liquid_glass_widgets/SSRVPN_PATCHES.md`.
 
 ## Obtaining source
 
