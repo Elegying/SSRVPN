@@ -53,6 +53,11 @@ void main() {
     final initial = position();
     await tester.pump(const Duration(seconds: 6));
     expect(position(), isNot(initial));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    final inactive = position();
+    await tester.pump(const Duration(seconds: 6));
+    expect(position(), inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
     final paused = position();

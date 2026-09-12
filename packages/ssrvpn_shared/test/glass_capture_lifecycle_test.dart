@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_capture.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_drifting_background.dart';
 
 void main() {
   testWidgets(
@@ -19,10 +20,11 @@ void main() {
       captureSupported: true,
       child: Stack(fit: StackFit.expand, children: [
         SsrvpnGlassBackgroundSource(
-            child: ValueListenableBuilder<Color>(
+            child: SsrvpnDriftingBackground(
+                child: ValueListenableBuilder<Color>(
           valueListenable: wallpaper,
           builder: (_, color, __) => ColoredBox(color: color),
-        )),
+        ))),
         Builder(
             builder: (context) => ValueListenableBuilder<SsrvpnGlassFrame?>(
                   valueListenable: SsrvpnGlassFrame.listenableOf(context)!,
@@ -38,7 +40,9 @@ void main() {
       ]),
     ));
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pumpWidget(MaterialApp(home: page));
+    await tester.pumpWidget(MaterialApp(
+        home: MediaQuery(
+            data: const MediaQueryData(disableAnimations: true), child: page)));
     await tester.pump();
     expect(frame, isNotNull);
     final first = frame!.image;

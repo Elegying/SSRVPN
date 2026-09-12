@@ -39,10 +39,8 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
 
   void _updateMotion() {
     final lifecycle = WidgetsBinding.instance.lifecycleState;
-    final active = !_reducedMotion &&
-        _visible &&
-        (lifecycle == AppLifecycleState.resumed ||
-            lifecycle == AppLifecycleState.inactive);
+    final active =
+        !_reducedMotion && _visible && lifecycle == AppLifecycleState.resumed;
     if (active && !_motion.isAnimating) {
       _motion.repeat();
     } else if (!active) {
@@ -61,7 +59,10 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
   Widget build(BuildContext context) => ClipRect(
         child: AnimatedBuilder(
           animation: _motion,
-          child: ExcludeSemantics(child: RepaintBoundary(child: widget.child)),
+          // The capture source already isolates the wallpaper from foreground
+          // paints. A nested boundary hides late image/placeholder repaints
+          // from that source while motion is paused, leaving its texture stale.
+          child: ExcludeSemantics(child: widget.child),
           builder: (context, child) {
             // A full cosine cycle matches position and velocity at both seams.
             final t = (1 - math.cos(_motion.value * 2 * math.pi)) / 2;
