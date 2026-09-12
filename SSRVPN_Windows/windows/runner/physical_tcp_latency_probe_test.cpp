@@ -1,4 +1,7 @@
 #include "physical_tcp_latency_probe.h"
+#include "physical_dns.h"
+#include <windns.h>
+#include <array>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <cstdio>
@@ -30,6 +33,22 @@ int main(int argc, char** argv) {
   Require(!ValidArguments("relay.example", 443, 0), "invalid deadline");
   Require(Probe("127.0.0.1", 443, 50) == -1, "never measure loopback stack");
   Require(Probe("198.18.0.1", 443, 50) == -1, "never measure fake-IP stack");
+  std::array<unsigned char, 512> query{};
+  DWORD bytes = static_cast<DWORD>(query.size());
+  Require(DnsWriteQuestionToBuffer_UTF8(reinterpret_cast<PDNS_MESSAGE_BUFFER>(query.data()),
+      &bytes, "example.com", DNS_TYPE_A, 0, TRUE) != FALSE, "build DNS wire question");
+  Require(query[4] == 0 && query[5] == 1, "query counts use network byte order");
+  std::vector<unsigned char> reply(query.begin(), query.begin() + bytes);
+  reply[2] = 0x81; reply[3] = 0x80; reply[7] = 1;
+  const unsigned char answer[] = {0xc0,0x0c,0,1,0,1,0,0,0,30,0,4,1,1,1,1};
+  reply.insert(reply.end(), std::begin(answer), std::end(answer));
+  DWORD ttl = 0;
+  Require(ParsePhysicalDns(reply, ttl).size() == 1 && ttl == 30,
+          "parse wire DNS with host-order header conversion and TTL");
+  reply[reply.size()-4] = 198; reply[reply.size()-3] = 18;
+  Require(ParsePhysicalDns(reply, ttl).empty(), "reject fake-IP in encrypted DNS answer");
+  reply[2] |= 2;
+  Require(ParsePhysicalDns(reply, ttl).empty(), "reject truncated DNS response");
   if (argc == 2 && std::strcmp(argv[1], "--live") == 0) {
     // Dynamic WFP session: replicate strict-route's DNS block; it is removed
     // even if this test crashes. No routes, adapters or persistent rules change.
@@ -53,6 +72,18 @@ int main(int argc, char** argv) {
     UINT64 id = 0;
     Require(FwpmFilterAdd0(engine, &filter, nullptr, &id) == ERROR_SUCCESS,
             "install transient port-53 block");
+    WSADATA data{};
+    Require(WSAStartup(MAKEWORD(2, 2), &data) == 0, "start blocked-DNS control");
+    const SOCKET control = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    sockaddr_in dns{};
+    dns.sin_family = AF_INET; dns.sin_port = htons(53);
+    InetPtonA(AF_INET, "223.5.5.5", &dns.sin_addr);
+    const int sent = sendto(control, reinterpret_cast<const char*>(query.data()),
+        static_cast<int>(bytes), 0, reinterpret_cast<sockaddr*>(&dns), sizeof(dns));
+    const int blocked_error = WSAGetLastError();
+    closesocket(control);
+    WSACleanup();
+    Require(sent == SOCKET_ERROR && blocked_error == WSAEACCES, "control proves DNS is blocked by WFP");
     const int numeric = Probe("223.5.5.5", 443, 5000);
     const int domain = Probe("dns.alidns.com", 443, 5000);
     FwpmEngineClose0(engine);

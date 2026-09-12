@@ -32,7 +32,7 @@ class TlsExchange {
     options.dwVersion = SCHANNEL_CRED_VERSION;
     options.grbitEnabledProtocols = SP_PROT_TLS1_2_CLIENT;
     options.dwFlags = SCH_CRED_AUTO_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS |
-                      SCH_USE_STRONG_CRYPTO;
+                      SCH_USE_STRONG_CRYPTO | SCH_CRED_CACHE_ONLY_URL_RETRIEVAL;
     TimeStamp expiry{};
     if (AcquireCredentialsHandleW(nullptr, const_cast<wchar_t*>(UNISP_NAME_W),
         SECPKG_CRED_OUTBOUND, nullptr, &options, nullptr, nullptr, &credential_,
@@ -184,6 +184,11 @@ std::vector<IN_ADDR> QueryPhysicalDns(SOCKET socket, const std::string& host,
     if (state < 0) return {};
     if (state > 0) break;
   }
+  return ParsePhysicalDns(std::move(body), ttl);
+}
+
+std::vector<IN_ADDR> ParsePhysicalDns(std::vector<unsigned char> body, DWORD& ttl) {
+  ttl = 60;
   if (body.size() < 12 || body.size() > 65535 || body[0] != 0 || body[1] != 0 ||
       (body[2] & 0xFA) != 0x80 || (body[3] & 0x0F) != 0) return {};
   PDNS_RECORD records = nullptr;

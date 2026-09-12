@@ -8,6 +8,7 @@
 namespace physical_tcp_latency {
 // The caller owns and has already bound this nonblocking socket to a physical
 // interface. TLS authenticates dns.alidns.com; no system resolver/proxy is used.
+std::vector<IN_ADDR> ParsePhysicalDns(std::vector<unsigned char> body, DWORD& ttl);
 std::vector<IN_ADDR> QueryPhysicalDns(SOCKET socket, const std::string& host,
                                      const std::function<DWORD()>& remaining, DWORD& ttl);
 }

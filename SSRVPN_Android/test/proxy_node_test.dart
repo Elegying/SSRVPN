@@ -89,7 +89,7 @@ void main() {
       );
       expect(
         ProxyNode(name: 'a', type: 'ss', server: 's', port: 1).latencyText,
-        '超时',
+        '--',
       );
     });
 

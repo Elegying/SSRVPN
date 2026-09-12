@@ -28,8 +28,9 @@ mixin PhysicalTcpLatency {
         'port': port,
         'timeoutMs': timeoutMs,
       }).timeout(Duration(milliseconds: timeoutMs + 250));
-      if (result is int && NodeDisplayPolicy.isProbeFailure(result))
+      if (result is int && NodeDisplayPolicy.isProbeFailure(result)) {
         return result;
+      }
       return result is int && result > 0 && result <= timeoutMs ? result : -1;
     } on MissingPluginException {
       return -1;
