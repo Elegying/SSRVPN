@@ -51,7 +51,8 @@ void main() {
         find.byKey(const Key('ssrvpn-subscription-edit-name')),
         'Renamed other');
     await tester.tap(find.byKey(const Key('ssrvpn-subscription-edit-save')));
-    await tester.pump();
+    // Persistence starts after the dialog's reverse transition is removed.
+    await tester.pumpAndSettle();
     await _pumpUntilFound(tester, find.text('订阅已更新'));
     await tester.pumpAndSettle();
     expect(fixture.subscription.subscriptions.last.name, 'Renamed other');

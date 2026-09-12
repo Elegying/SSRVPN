@@ -299,29 +299,27 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     TapDownDetails details,
   ) async {
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    final selected = await showMenu<String>(
+    final overlayRect = Offset.zero & overlay.size;
+    final selected = await showSsrvpnLiquidMenu<String>(
       context: context,
       position: RelativeRect.fromRect(
-        details.globalPosition & const Size(1, 1),
-        Offset.zero & overlay.size,
-      ),
-      items: const [
-        PopupMenuItem<String>(
+          details.globalPosition & const Size(1, 1), overlayRect),
+      items: [
+        SsrvpnLiquidMenuItem<String>(
           value: 'edit',
-          child: Row(
-            children: [
-              Icon(Icons.edit_outlined, size: 18),
-              SizedBox(width: 10),
-              Text('编辑'),
-            ],
-          ),
+          child: const Row(children: [
+            Icon(Icons.edit_outlined, size: 18),
+            SizedBox(width: 10),
+            Text('编辑'),
+          ]),
         ),
       ],
     );
     if (selected != 'edit' || !mounted) return;
     await Navigator.of(
       context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => NodeEditScreen(node: node)));
+    ).push<bool>(
+        SsrvpnGlassPageRoute(builder: (_) => NodeEditScreen(node: node)));
   }
 
   Future<ProxyNode?> _resolveRuntimeSelectedNode(

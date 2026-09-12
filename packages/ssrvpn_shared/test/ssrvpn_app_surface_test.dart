@@ -1,3 +1,5 @@
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as liquid;
+import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_glass.dart';
 import 'dart:ui' show SemanticsAction, Tristate;
 
 import 'package:flutter/gestures.dart' show kSecondaryMouseButton;
@@ -74,23 +76,20 @@ void main() {
       ),
     );
 
-    expect(find.text('主页'), findsOneWidget);
-    expect(find.text('订阅'), findsOneWidget);
+    expect(find.text('主页').hitTestable(), findsWidgets);
+    expect(find.text('订阅').hitTestable(), findsWidgets);
     expect(find.text('版本号：3.4.8'), findsOneWidget);
     expect(find.text('发现新版本'), findsNothing);
     expect(find.text('立即更新'), findsNothing);
-    expect(find.byType(SsrvpnNavigationDestination), findsNWidgets(2));
     final navigation = find.byKey(const Key('ssrvpn-bottom-navigation'));
-    final destinationRow = tester.widget<Row>(
-      find.descendant(of: navigation, matching: find.byType(Row)).first,
-    );
-    expect(destinationRow.children, hasLength(2));
+    expect(tester.widget<liquid.GlassTabBar>(navigation).tabs, hasLength(2));
     expect(
       find.descendant(of: navigation, matching: find.text('关于')),
       findsNothing,
     );
 
-    await tester.tap(find.text('订阅'));
+    await tester.tap(find.text('订阅').hitTestable().first);
+    await tester.pump();
     expect(selected, 1);
   });
 
@@ -972,8 +971,8 @@ void main() {
     final glass = find.byKey(const Key('ssrvpn-subscription-edit-glass'));
     expect(glass, findsOneWidget);
     expect(
-      find.descendant(of: glass, matching: find.byType(BackdropFilter)),
-      findsOneWidget,
+      find.descendant(of: glass, matching: find.byType(SsrvpnLiquidSurface)),
+      findsNWidgets(3), // Dialog shell and its two glass input surfaces.
     );
 
     await tester.enterText(
@@ -1021,7 +1020,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.descendant(of: glass, matching: find.byType(BackdropFilter)),
+      find.descendant(of: glass, matching: find.byType(SsrvpnLiquidSurface)),
       findsOneWidget,
     );
     final dismiss = find.widgetWithText(TextButton, '知道了');
@@ -1366,8 +1365,8 @@ void main() {
     );
     await tester.pump();
     expect(tester.takeException(), isNull);
-    expect(find.text('主页').hitTestable(), findsOneWidget);
-    expect(find.text('订阅').hitTestable(), findsOneWidget);
+    expect(find.text('主页').hitTestable(), findsWidgets);
+    expect(find.text('订阅').hitTestable(), findsWidgets);
 
     await tester.pumpWidget(
       host(
@@ -1747,6 +1746,18 @@ void main() {
     );
     await tester.pump();
 
+    // The control uses sibling captured surfaces, never nested live shaders.
+    final modePanel = find.byKey(const Key('ssrvpn-proxy-mode-panel'));
+    expect(find.descendant(of: modePanel, matching: find.text('智能')),
+        findsOneWidget);
+    expect(find.descendant(of: modePanel, matching: find.text('全局')),
+        findsOneWidget);
+    expect(
+        find.byWidgetPredicate((widget) =>
+            widget is liquid.GlassContainer &&
+            widget.quality == liquid.GlassQuality.premium),
+        findsWidgets);
+
     final initialTop = tester.getTopLeft(find.text('代理模式')).dy;
     await tester.drag(
       find.byKey(const Key('ssrvpn-node-list')),
@@ -1754,7 +1765,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(tester.getTopLeft(find.text('代理模式')).dy, lessThan(initialTop));
+    // A fully scrolled-off sliver may now be recycled.
+    if (find.text('代理模式').evaluate().isNotEmpty) {
+      expect(tester.getTopLeft(find.text('代理模式')).dy, lessThan(initialTop));
+    }
+    expect(find.text('代理模式').hitTestable(), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

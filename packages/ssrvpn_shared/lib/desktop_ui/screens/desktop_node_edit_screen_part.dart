@@ -327,20 +327,22 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                         return null;
                       },
                     ),
-                    DropdownButtonFormField<String>(
-                      initialValue: _type,
-                      decoration: const InputDecoration(labelText: '节点类型'),
-                      items: [
-                        for (final type in _availableTypes)
-                          DropdownMenuItem(
-                            value: type,
-                            child: Text(type.toUpperCase()),
-                          ),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) setState(() => _type = value);
-                      },
-                    ),
+                    SsrvpnLiquidField(
+                        label: '节点类型',
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _type,
+                          decoration: const InputDecoration(),
+                          items: [
+                            for (final type in _availableTypes)
+                              DropdownMenuItem(
+                                value: type,
+                                child: Text(type.toUpperCase()),
+                              ),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) setState(() => _type = value);
+                          },
+                        )),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -464,15 +466,8 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     required bool isDark,
     required List<Widget> children,
   }) {
-    return Container(
+    return SsrvpnLiquidSurface(
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: isDark ? AppTheme.surface : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark ? AppTheme.border : AppTheme.lightBorder,
-        ),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -503,22 +498,23 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     int? maxLines = 1,
     TextStyle? textStyle,
   }) {
-    return TextFormField(
-      controller: controller,
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        suffixIcon: suffixIcon,
-        alignLabelWithHint: (maxLines ?? 1) > 1,
-      ),
-      validator: validator,
-      keyboardType: keyboardType,
-      inputFormatters: inputFormatters,
-      obscureText: obscureText,
-      minLines: obscureText ? 1 : minLines,
-      maxLines: obscureText ? 1 : maxLines,
-      style: textStyle,
-    );
+    return SsrvpnLiquidField(
+        label: label,
+        child: TextFormField(
+          controller: controller,
+          decoration: InputDecoration(
+            hintText: hint,
+            suffixIcon: suffixIcon,
+            alignLabelWithHint: (maxLines ?? 1) > 1,
+          ),
+          validator: validator,
+          keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
+          obscureText: obscureText,
+          minLines: obscureText ? 1 : minLines,
+          maxLines: obscureText ? 1 : maxLines,
+          style: textStyle,
+        ));
   }
 
   String? Function(String?) _required(String message) {

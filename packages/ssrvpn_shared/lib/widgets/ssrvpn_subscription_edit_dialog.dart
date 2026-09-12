@@ -1,3 +1,5 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
+import 'ssrvpn_liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -15,7 +17,7 @@ Future<SsrvpnSubscriptionEditDraft?> showSsrvpnSubscriptionEditDialog(
   BuildContext context,
   Subscription subscription,
 ) {
-  return showDialog<SsrvpnSubscriptionEditDraft>(
+  return showSsrvpnGlassDialog<SsrvpnSubscriptionEditDraft>(
     context: context,
     builder: (dialogContext) =>
         _SubscriptionEditDialog(subscription: subscription),
@@ -105,45 +107,47 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
                   child: SingleChildScrollView(
                     child: Column(
                       children: [
-                        TextFormField(
-                          key: const Key('ssrvpn-subscription-edit-name'),
-                          controller: _nameController,
-                          autofocus: true,
-                          textInputAction: TextInputAction.next,
-                          inputFormatters: [
-                            LengthLimitingTextInputFormatter(128),
-                          ],
-                          decoration: const InputDecoration(
-                            labelText: '订阅名称',
-                            hintText: '输入便于识别的名称',
-                            prefixIcon: Icon(Icons.badge_outlined),
-                          ),
-                          validator: (value) =>
-                              value == null || value.trim().isEmpty
-                                  ? '订阅名称不能为空'
-                                  : null,
-                        ),
+                        SsrvpnLiquidField(
+                            label: '订阅名称',
+                            child: TextFormField(
+                              key: const Key('ssrvpn-subscription-edit-name'),
+                              controller: _nameController,
+                              autofocus: true,
+                              textInputAction: TextInputAction.next,
+                              inputFormatters: [
+                                LengthLimitingTextInputFormatter(128),
+                              ],
+                              decoration: const InputDecoration(
+                                hintText: '输入便于识别的名称',
+                                prefixIcon: Icon(Icons.badge_outlined),
+                              ),
+                              validator: (value) =>
+                                  value == null || value.trim().isEmpty
+                                      ? '订阅名称不能为空'
+                                      : null,
+                            )),
                         const SizedBox(height: 14),
-                        TextFormField(
-                          key: const Key('ssrvpn-subscription-edit-url'),
-                          controller: _urlController,
-                          keyboardType: TextInputType.url,
-                          textInputAction: TextInputAction.done,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          maxLines: 3,
-                          minLines: 1,
-                          decoration: const InputDecoration(
-                            labelText: '订阅链接',
-                            hintText: '建议使用 HTTPS；也支持 HTTP 或节点链接',
-                            prefixIcon: Icon(Icons.link_rounded),
-                          ),
-                          validator: (value) =>
-                              value == null || value.trim().isEmpty
-                                  ? '订阅链接不能为空'
-                                  : null,
-                          onFieldSubmitted: (_) => _save(),
-                        ),
+                        SsrvpnLiquidField(
+                            label: '订阅链接',
+                            child: TextFormField(
+                              key: const Key('ssrvpn-subscription-edit-url'),
+                              controller: _urlController,
+                              keyboardType: TextInputType.url,
+                              textInputAction: TextInputAction.done,
+                              autocorrect: false,
+                              enableSuggestions: false,
+                              maxLines: 3,
+                              minLines: 1,
+                              decoration: const InputDecoration(
+                                hintText: '建议使用 HTTPS；也支持 HTTP 或节点链接',
+                                prefixIcon: Icon(Icons.link_rounded),
+                              ),
+                              validator: (value) =>
+                                  value == null || value.trim().isEmpty
+                                      ? '订阅链接不能为空'
+                                      : null,
+                              onFieldSubmitted: (_) => _save(),
+                            )),
                       ],
                     ),
                   ),

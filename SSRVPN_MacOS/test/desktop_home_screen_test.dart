@@ -440,7 +440,7 @@ void main() {
     final glass = find.byKey(const Key('ssrvpn-tutorial-glass'));
     expect(glass, findsOneWidget);
     expect(
-      find.descendant(of: glass, matching: find.byType(BackdropFilter)),
+      find.descendant(of: glass, matching: find.byType(SsrvpnLiquidSurface)),
       findsOneWidget,
     );
     expect(

@@ -474,8 +474,10 @@ void main() {
       // Checkpoint assertions keep the asynchronous dialog flow deterministic.
       expect(UpdateService.isUpdateUiBusy, isFalse);
 
-      final task = tester.runAsync(
-        () => UpdateService.downloadAndInstallUpdate(
+      var completed = false;
+      late Future<void> task;
+      await tester.runAsync(() async {
+        task = UpdateService.downloadAndInstallUpdate(
           capturedContext!,
           AppUpdateInfo(
             version: '9.9.9',
@@ -498,13 +500,19 @@ void main() {
             installedPaths.add(apkFile.path);
             return <String, Object?>{'status': 'started'};
           },
-        ),
-      );
+        );
+        task.then((_) => completed = true);
+      });
 
-      await tester.pump();
-      expect(find.text('正在更新'), findsOneWidget);
-      await task.timeout(const Duration(seconds: 5));
-      await tester.pump();
+      // File IO uses the real clock; route removal uses the widget-test clock.
+      for (var i = 0; i < 100 && !completed; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(find.textContaining('更新失败'), findsNothing);
+      expect(completed, isTrue);
+      await tester.runAsync(() => task.timeout(const Duration(seconds: 5)));
 
       expect(installedPaths, hasLength(1));
       expect(installedPaths.single, endsWith('SSRVPN-9.9.9.apk'));
@@ -576,7 +584,10 @@ void main() {
       expect(find.textContaining('/private/update/path'), findsNothing);
       expect(find.textContaining('当前版本仍可使用'), findsOneWidget);
       expect(
-        tester.widget<AlertDialog>(find.byType(AlertDialog)).scrollable,
+        tester
+            .widget<SsrvpnLiquidAlertDialog>(
+                find.byType(SsrvpnLiquidAlertDialog))
+            .scrollable,
         isTrue,
       );
       final dismiss = find.widgetWithText(TextButton, '知道了');

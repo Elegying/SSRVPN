@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_typography.dart';
 import 'package:flutter/material.dart';
 
 /// SSRVPN Premium Theme — Android 版本
@@ -60,6 +61,8 @@ class AppTheme {
 
   /// 暗色主题
   static ThemeData get darkTheme => ThemeData(
+        fontFamily: SsrvpnTypography.family,
+        fontFamilyFallback: SsrvpnTypography.fallback,
         brightness: Brightness.dark,
         useMaterial3: true,
         primaryColor: primaryColor,
@@ -209,6 +212,8 @@ class AppTheme {
 
   /// 亮色主题
   static ThemeData get lightTheme => ThemeData(
+        fontFamily: SsrvpnTypography.family,
+        fontFamilyFallback: SsrvpnTypography.fallback,
         brightness: Brightness.light,
         useMaterial3: true,
         primaryColor: primaryColor,

@@ -52,19 +52,14 @@ class _NodeSelectionCard extends StatelessWidget {
       padding: EdgeInsets.only(bottom: compact ? 7 : 10),
       child: Material(
         key: ValueKey('ssrvpn-node-card-${node.name}'),
-        color: selected
-            ? SsrvpnUiTokens.surfaceStrong
-            : SsrvpnUiTokens.surface.withValues(alpha: 0.88),
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(radius),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(radius),
-            border: Border.all(
-              color: selected
-                  ? SsrvpnUiTokens.primary.withValues(alpha: 0.58)
-                  : SsrvpnUiTokens.border,
-            ),
-          ),
+        child: SsrvpnLiquidSurface(
+          radius: radius,
+          dense: true,
+          tint: selected ? SsrvpnUiTokens.primary : null,
+          borderColor:
+              selected ? SsrvpnUiTokens.primary.withValues(alpha: .8) : null,
           child: Row(
             children: [
               Expanded(

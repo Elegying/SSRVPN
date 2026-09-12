@@ -128,7 +128,7 @@ Widget buildWindowsStartupScaffold({
 }
 
 Widget buildWindowsApiSecretRecoveryDialog(BuildContext context) {
-  return AlertDialog(
+  return SsrvpnLiquidAlertDialog(
     scrollable: true,
     title: const Text('保留旧密文并重建密钥？'),
     content: const Text(

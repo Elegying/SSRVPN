@@ -9,3 +9,8 @@ workspace:
   - SSRVPN_Android
   - SSRVPN_MacOS
   - SSRVPN_Windows
+
+# Pin the upstream renderer with the documented capture-coordinate repair.
+dependency_overrides:
+  liquid_glass_widgets:
+    path: packages/liquid_glass_widgets

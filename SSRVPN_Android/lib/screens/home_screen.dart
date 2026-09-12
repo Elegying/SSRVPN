@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -272,7 +273,7 @@ class HomeScreenState extends State<HomeScreen>
 
   Future<void> _openNodeSelection() async {
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      SsrvpnGlassPageRoute(
         builder: (routeContext) => SsrvpnNodeSelectionPage(
           ownerStateListenable: Listenable.merge([
             _nodeSelectionRefresh,

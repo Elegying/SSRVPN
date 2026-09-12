@@ -109,6 +109,7 @@ class _DesktopAppShell extends StatelessWidget {
         child: SsrvpnAppBackdrop(
           child: SsrvpnHomeShell(
             notices: statusBanners,
+            extendBehindNavigation: currentIndex == 1,
             body: _PageStack(currentIndex: currentIndex),
             navigation: SsrvpnBottomNavigation(
               currentIndex: currentIndex,

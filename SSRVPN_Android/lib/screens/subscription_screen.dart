@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import '../utils/responsive.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -5,7 +6,6 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/clash_service.dart';
 import '../services/subscription_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/glass_container.dart';
 import '../widgets/android_diagnostics_sheet.dart';
 import '../widgets/subscription_network_error_dialog.dart';
 
@@ -136,7 +136,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
   void _showNetworkErrorDialog(String detail) {
     if (!mounted) return;
-    showDialog<void>(
+    showSsrvpnGlassDialog<void>(
       context: context,
       builder: (_) => SubscriptionNetworkErrorDialog(detail: detail),
     );
@@ -144,14 +144,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
   Future<void> _deleteSubscription(String id) async {
     if (!mounted || _isBusy) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showSsrvpnGlassDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        elevation: 0,
         backgroundColor: Colors.transparent,
         contentPadding: EdgeInsets.zero,
-        content: GlassContainer(
+        content: SsrvpnModalGlassPanel(
+          padding: const EdgeInsets.all(24),
           borderRadius: 20,
-          padding: EdgeInsets.all(24),
           child: ConstrainedBox(
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(ctx).size.width * 0.82,

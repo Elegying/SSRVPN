@@ -2,6 +2,8 @@
 
 library desktop_app;
 
+import 'package:ssrvpn_shared/widgets/ssrvpn_scroll_behavior.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -11,6 +13,7 @@ import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
 import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show
+        SsrvpnLiquidAlertDialog,
         AppConstants,
         AppErrorCode,
         AppFailure,
@@ -437,7 +440,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
     String secretPath,
   ) async {
     if (_secretRecoveryInProgress) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showSsrvpnGlassDialog<bool>(
       context: context,
       builder: buildWindowsApiSecretRecoveryDialog,
     );
@@ -496,6 +499,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         ),
       ],
       child: MaterialApp(
+        scrollBehavior: const SsrvpnScrollBehavior(),
         debugShowCheckedModeBanner: false,
         title: 'SSRVPN',
         theme: AppTheme.light,
@@ -524,6 +528,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
           _confirmWindowsSecretRecovery(buttonContext, secretPath),
     );
     return MaterialApp(
+      scrollBehavior: const SsrvpnScrollBehavior(),
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
       home: _withWindowsFrame(status, startupShell),

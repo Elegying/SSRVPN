@@ -1,3 +1,4 @@
+import 'ssrvpn_liquid_glass.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../models/account_usage.dart';
@@ -187,47 +188,52 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
               .min(math.min(18 * scale, caption * 1.4),
                   (rowBudget - 13) / 1.1 - caption * 2)
               .clamp(10.0, 34.0);
+          final verticalPadding = columns == 5
+              ? 0.0
+              : constraints.maxHeight < 120
+                  ? 2.0
+                  : 6.0;
+          final cardHeight = math.min(rowBudget,
+              (caption * 2 + number) * 1.1 + verticalPadding * 2 + 3);
           final children = <Widget>[];
           for (var start = 0; start < metrics.length; start += columns) {
             if (start != 0) children.add(SizedBox(height: gap));
             final row = metrics.skip(start).take(columns).toList();
+            final accountRow =
+                columns == 3 && row.length == 2 && row.first.label == '已用流量';
+            final rowUnitWidth = (width - gap * (row.length - 1)) /
+                (columns == 5 ? 82 : row.length);
             children.add(
                 Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               for (var index = 0; index < row.length; index++) ...[
                 if (index != 0) SizedBox(width: gap),
-                Expanded(
-                    flex: columns == 5
-                        ? (row[index].label == '已用流量'
-                            ? 38
-                            : row[index].label == '已连接设备'
-                                ? 14
-                                : 10)
-                        : row.length == 2 && row.first.label == '已用流量'
-                            ? (index == 0 ? 31 : 19)
-                            : 10,
+                SizedBox(
+                    height: cardHeight,
+                    width: accountRow
+                        ? (index == 0 ? cardWidth * 2 + gap : cardWidth)
+                        : rowUnitWidth *
+                            (columns == 5
+                                ? (row[index].label == '已用流量'
+                                    ? 38
+                                    : row[index].label == '已连接设备'
+                                        ? 14
+                                        : 10)
+                                : 1),
                     child: Semantics(
                       label: row[index].semantics,
                       excludeSemantics: true,
-                      child: Container(
+                      child: SsrvpnLiquidSurface(
+                          radius: 14,
+                          dense: false,
                           key:
                               ValueKey('home-traffic-card-${row[index].label}'),
                           padding: EdgeInsets.symmetric(
                               horizontal: columns == 5
-                                  ? 1
-                                  : row[index].label == '已用流量' && width < 350
-                                      ? 3
-                                      : 6,
-                              vertical: columns == 5
-                                  ? 0
-                                  : constraints.maxHeight < 120
-                                      ? 2
-                                      : 4),
-                          decoration: BoxDecoration(
-                              color:
-                                  SsrvpnUiTokens.surface.withValues(alpha: .78),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                  color: Colors.white.withValues(alpha: .06))),
+                                  ? 2
+                                  : width < 340
+                                      ? 5
+                                      : 10,
+                              vertical: verticalPadding),
                           child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,

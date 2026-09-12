@@ -57,6 +57,12 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.ssrvpn/display")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "refreshRate") {
+                    result.success(window.decorView.display?.refreshRate?.toDouble() ?: 60.0)
+                } else result.notImplemented()
+            }
 
         // 冷启动时（磁贴拉起）onNewIntent 不会触发。只接受本进程磁贴签发的
         // 一次性请求，并在读取后立即从 Intent 中移除，避免重建时重放。
@@ -717,8 +723,16 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private val displayRefreshRate by lazy { DisplayRefreshRateController(this) }
+
+    override fun onPause() {
+        displayRefreshRate.stop()
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        displayRefreshRate.start()
         AndroidRuntimeGuard.run("MainActivity", "Pending update install failed") {
             continuePendingUpdateInstallIfAllowed()
         }

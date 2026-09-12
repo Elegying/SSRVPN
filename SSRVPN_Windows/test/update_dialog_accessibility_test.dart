@@ -69,9 +69,10 @@ void main() {
     expect(tester.takeException(), isNull);
     final completionDialog = find.ancestor(
       of: completionTitle,
-      matching: find.byType(AlertDialog),
+      matching: find.byType(SsrvpnLiquidAlertDialog),
     );
-    expect(tester.widget<AlertDialog>(completionDialog).scrollable, isTrue);
+    expect(tester.widget<SsrvpnLiquidAlertDialog>(completionDialog).scrollable,
+        isTrue);
     final dismiss = find.widgetWithText(TextButton, '知道了');
     await tester.ensureVisible(dismiss);
     expect(dismiss.hitTestable(), findsOneWidget);

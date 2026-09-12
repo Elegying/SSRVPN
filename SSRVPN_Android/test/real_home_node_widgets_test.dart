@@ -226,7 +226,7 @@ void main() {
     final glass = find.byKey(const Key('ssrvpn-tutorial-glass'));
     expect(glass, findsOneWidget);
     expect(
-      find.descendant(of: glass, matching: find.byType(BackdropFilter)),
+      find.descendant(of: glass, matching: find.byType(SsrvpnLiquidSurface)),
       findsOneWidget,
     );
     expect(
@@ -780,6 +780,7 @@ void main() {
     await tester.tap(find.bySemanticsLabel('全局'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
     await _waitForAsyncCondition(
       tester,
       () => fixture.settings.settings.proxyMode == ProxyMode.global,
@@ -831,6 +832,7 @@ void main() {
     expect(clash.stopCalls, 0);
     expect(fixture.settings.settings.proxyMode, ProxyMode.rule);
     await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
     await _waitForAsyncCondition(tester, () => clash.startCalls == 1);
     expect(clash.generatedPreferredNodeName, '新加坡节点');
     expect(clash.settings.proxyMode, ProxyMode.global);
@@ -855,6 +857,7 @@ void main() {
     await tester.tap(find.bySemanticsLabel('全局'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
     await _waitForAsyncCondition(tester, () => clash.startCalls == 1);
     clash.releaseStart.complete(false);
     await _waitForAsyncCondition(tester, () => !clash.connectionDesired);
@@ -888,6 +891,7 @@ void main() {
     await tester.tap(find.bySemanticsLabel('全局'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
     await _waitForAsyncCondition(tester, () => clash.startCalls == 1);
     await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
     await tester.pump(const Duration(milliseconds: 350));
@@ -928,6 +932,7 @@ void main() {
     await tester.tap(find.bySemanticsLabel('全局'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
     await _waitForWidget(tester, find.text('代理模式保存失败，请重试'));
 
     expect(fixture.settings.settings.proxyMode, ProxyMode.rule);
@@ -960,6 +965,7 @@ void main() {
 
     await tester.enterText(find.byType(TextField).first, 'youtube.com');
     await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
     await _waitForAsyncCondition(
       tester,
       () => fixture.settings.settings.forceProxySites.first == 'youtube.com',
@@ -986,6 +992,7 @@ void main() {
     await tester.tap(find.text('强制代理网站'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
     await _waitForWidget(tester, find.text('强制代理网站已保存'));
 
     expect(clash.idleSnapshotInvalidations, 0);

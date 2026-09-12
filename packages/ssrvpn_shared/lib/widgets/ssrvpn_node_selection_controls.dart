@@ -35,80 +35,84 @@ class _ModePanel extends StatelessWidget {
     );
     return RepaintBoundary(
       key: const Key('ssrvpn-proxy-mode-panel'),
-      child: SsrvpnSurfaceCard(
-        padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
-        radius: 14,
-        color: const Color(0xEE2B2D48),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final tunControl = enableTun == null || onEnableTunChanged == null
-                ? null
-                : _TunHeaderControl(
-                    value: enableTun!,
-                    label: tunLabel ?? 'TUN',
-                    enabled: !busy,
-                    onChanged: onEnableTunChanged!,
-                  );
-            final compactHeader = constraints.maxWidth < 340 ||
-                MediaQuery.textScalerOf(context).scale(13) > 18;
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (compactHeader) ...[
-                  Wrap(
-                    alignment: WrapAlignment.spaceBetween,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 12,
-                    runSpacing: 8,
-                    children: [
-                      const _ModePanelTitle(),
-                      if (tunControl != null) tunControl,
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    modeDescription,
-                    style: TextStyle(
-                      color: SsrvpnUiTokens.textSecondary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
+      child: Stack(children: [
+        const Positioned.fill(
+          child: SsrvpnLiquidSurface(
+              radius: 14, dense: true, child: SizedBox.expand()),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final tunControl = enableTun == null || onEnableTunChanged == null
+                  ? null
+                  : _TunHeaderControl(
+                      value: enableTun!,
+                      label: tunLabel ?? 'TUN',
+                      enabled: !busy,
+                      onChanged: onEnableTunChanged!,
+                    );
+              final compactHeader = constraints.maxWidth < 340 ||
+                  MediaQuery.textScalerOf(context).scale(13) > 18;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (compactHeader) ...[
+                    Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 12,
+                      runSpacing: 8,
+                      children: [
+                        const _ModePanelTitle(),
+                        if (tunControl != null) tunControl,
+                      ],
                     ),
-                  ),
-                ] else
-                  Row(
-                    children: [
-                      const _ModePanelTitle(),
-                      const SizedBox(width: 18),
-                      Expanded(
-                        child: Text(
-                          modeDescription,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: SsrvpnUiTokens.textSecondary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
+                    const SizedBox(height: 6),
+                    Text(
+                      modeDescription,
+                      style: TextStyle(
+                        color: SsrvpnUiTokens.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ] else
+                    Row(
+                      children: [
+                        const _ModePanelTitle(),
+                        const SizedBox(width: 18),
+                        Expanded(
+                          child: Text(
+                            modeDescription,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: SsrvpnUiTokens.textSecondary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
-                      ),
-                      if (tunControl != null) ...[
-                        const SizedBox(width: 10),
-                        tunControl,
+                        if (tunControl != null) ...[
+                          const SizedBox(width: 10),
+                          tunControl,
+                        ],
                       ],
-                    ],
+                    ),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: constraints.maxWidth >= 340 ? 30 : 0,
+                    ),
+                    child: proxyChoices,
                   ),
-                const SizedBox(height: 12),
-                Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: constraints.maxWidth >= 340 ? 30 : 0,
-                  ),
-                  child: proxyChoices,
-                ),
-              ],
-            );
-          },
+                ],
+              );
+            },
+          ),
         ),
-      ),
+      ]),
     );
   }
 }
@@ -228,155 +232,123 @@ class _ModeChoice<T> {
 }
 
 class _ModeSection<T> extends StatelessWidget {
-  const _ModeSection({
-    required this.title,
-    required this.description,
-    required this.value,
-    required this.choices,
-    required this.enabled,
-    required this.onChanged,
-    this.showHeading = true,
-  });
-
-  final String title;
-  final String description;
+  const _ModeSection(
+      {required this.title,
+      required this.description,
+      required this.value,
+      required this.choices,
+      required this.enabled,
+      required this.onChanged,
+      this.showHeading = true});
+  final String title, description;
   final T value;
   final List<_ModeChoice<T>> choices;
-  final bool enabled;
+  final bool enabled, showHeading;
   final ValueChanged<T> onChanged;
-  final bool showHeading;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (showHeading) ...[
-          Row(
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: SsrvpnUiTokens.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
+    final height = 27.0 + MediaQuery.textScalerOf(context).scale(14) * 1.5;
+    return SizedBox(
+        height: height,
+        child: Stack(children: [
+          ExcludeFocus(
+              child: ExcludeSemantics(
+                  child: IgnorePointer(
+            child: Stack(fit: StackFit.expand, children: [
+              const SsrvpnLiquidSurface(
+                  radius: 13,
+                  dense: true,
+                  tint: Color(0x183A3C58),
+                  child: SizedBox.expand()),
+              AnimatedAlign(
+                alignment: value == choices.first.value
+                    ? Alignment.centerLeft
+                    : Alignment.centerRight,
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                child: FractionallySizedBox(
+                    widthFactor: 1 / choices.length,
+                    heightFactor: 1,
+                    child: const SsrvpnLiquidSurface(
+                        radius: 10,
+                        dense: true,
+                        tint: Color(0x208A80FF),
+                        child: SizedBox.expand())),
               ),
-              const Spacer(),
-              Flexible(
-                child: Text(
-                  description,
-                  textAlign: TextAlign.end,
-                  style: const TextStyle(
-                    color: SsrvpnUiTokens.textSecondary,
-                    fontSize: 11,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-        ],
-        Container(
-          padding: const EdgeInsets.all(5),
-          decoration: BoxDecoration(
-            color: const Color(0xFF3A3C58),
-            borderRadius: BorderRadius.circular(13),
-          ),
-          child: Row(
-            children: choices.map((choice) {
-              final selected = choice.value == value;
-              final VoidCallback? activate = enabled
-                  ? () {
-                      if (!selected) onChanged(choice.value);
-                    }
-                  : null;
-              return Expanded(
-                child: Semantics(
-                  container: true,
-                  label: choice.label,
-                  button: true,
+              Row(children: [
+                for (final choice in choices)
+                  Expanded(
+                      child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                        Icon(choice.icon,
+                            size: 17,
+                            color: choice.value == value
+                                ? SsrvpnUiTokens.textPrimary
+                                : SsrvpnUiTokens.textSecondary),
+                        Text(choice.label,
+                            style: TextStyle(
+                                fontSize: 14,
+                                height: 1.5,
+                                fontWeight: choice.value == value
+                                    ? FontWeight.w700
+                                    : FontWeight.w600,
+                                color: choice.value == value
+                                    ? SsrvpnUiTokens.textPrimary
+                                    : SsrvpnUiTokens.textSecondary)),
+                      ])),
+              ]),
+            ]),
+          ))),
+          // Keep our controlled confirmation, keyboard focus and single semantics
+          // node per option. The glass layer only follows the accepted mode value.
+          Positioned.fill(
+              child: Row(children: [
+            for (final choice in choices)
+              Expanded(
+                  child: Semantics(
+                container: true,
+                label: choice.label,
+                button: true,
+                enabled: enabled,
+                selected: choice.value == value,
+                inMutuallyExclusiveGroup: true,
+                onTap: enabled
+                    ? () {
+                        if (choice.value != value) onChanged(choice.value);
+                      }
+                    : null,
+                child: _KeyboardActivate(
                   enabled: enabled,
-                  selected: selected,
-                  inMutuallyExclusiveGroup: true,
-                  onTap: activate,
-                  child: _KeyboardActivate(
-                    enabled: enabled,
-                    onActivate: activate ?? () {},
-                    debugLabel: 'mode:${choice.label}',
-                    focusRadius: 9,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 160),
-                      curve: Curves.easeOut,
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? SsrvpnUiTokens.primary.withValues(alpha: 0.24)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(9),
-                        border: selected
-                            ? Border.all(
-                                color: SsrvpnUiTokens.primary.withValues(
-                                  alpha: 0.75,
-                                ),
-                              )
+                  debugLabel: 'mode:${choice.label}',
+                  focusRadius: 10,
+                  onActivate: () {
+                    if (enabled && choice.value != value) {
+                      onChanged(choice.value);
+                    }
+                  },
+                  child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        canRequestFocus: false,
+                        excludeFromSemantics: true,
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: enabled
+                            ? () {
+                                if (choice.value != value) {
+                                  onChanged(choice.value);
+                                }
+                              }
                             : null,
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        borderRadius: BorderRadius.circular(9),
-                        child: InkWell(
-                          canRequestFocus: false,
-                          excludeFromSemantics: true,
-                          borderRadius: BorderRadius.circular(9),
-                          onTap: activate,
-                          child: ExcludeSemantics(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 11,
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    choice.icon,
-                                    size: 17,
-                                    color: selected
-                                        ? SsrvpnUiTokens.primary
-                                        : SsrvpnUiTokens.textSecondary,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Flexible(
-                                    child: Text(
-                                      choice.label,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: selected
-                                            ? SsrvpnUiTokens.primary
-                                            : SsrvpnUiTokens.textSecondary,
-                                        fontWeight: selected
-                                            ? FontWeight.w700
-                                            : FontWeight.w600,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                        child: const SizedBox.expand(),
+                      )),
                 ),
-              );
-            }).toList(),
-          ),
-        ),
-      ],
-    );
+              )),
+          ])),
+        ]));
   }
 }
 

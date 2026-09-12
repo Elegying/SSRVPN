@@ -1,3 +1,5 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -235,7 +237,7 @@ class SharedUpdateService {
       await AppModalCoordinator.run<void>(() async {
         if (!context.mounted) return;
         try {
-          progressDialogFuture = showDialog<void>(
+          progressDialogFuture = showSsrvpnGlassDialog<void>(
             context: context,
             barrierDismissible: false,
             builder: (dialogContext) => StatefulBuilder(
@@ -246,7 +248,7 @@ class SharedUpdateService {
                     : (receivedBytes / totalBytes!).clamp(0.0, 1.0);
                 return PopScope(
                   canPop: false,
-                  child: AlertDialog(
+                  child: SsrvpnLiquidAlertDialog(
                     scrollable: true,
                     title: const Text('正在下载更新'),
                     content: Column(
@@ -300,9 +302,9 @@ class SharedUpdateService {
           final cancelled = cancelledByUser || error is VerifiedUpdateCancelled;
           await closeProgressDialog();
           if (!cancelled && context.mounted) {
-            await showDialog<void>(
+            await showSsrvpnGlassDialog<void>(
               context: context,
-              builder: (dialogContext) => AlertDialog(
+              builder: (dialogContext) => SsrvpnLiquidAlertDialog(
                 scrollable: true,
                 title: const Text('更新失败'),
                 content: Text(safeUserFacingFailureMessage(error)),
@@ -357,7 +359,7 @@ class SharedUpdateService {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     await AppModalCoordinator.run<void>(() {
       if (!context.mounted) return Future.value();
-      return showDialog<void>(
+      return showSsrvpnGlassDialog<void>(
         context: context,
         barrierDismissible: false,
         builder: (ctx) {
@@ -368,7 +370,7 @@ class SharedUpdateService {
           );
           final maxHeight = math.max(1.0, viewport.height - 32);
 
-          return Dialog(
+          return SsrvpnLiquidDialog(
             backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),

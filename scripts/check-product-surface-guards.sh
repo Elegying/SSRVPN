@@ -143,7 +143,7 @@ bottom_navigation = source_section(
     "class SsrvpnNavigationDestination",
 )
 destination_count = len(
-    re.findall(r"\bchild:\s*SsrvpnNavigationDestination\(", bottom_navigation)
+    re.findall(r"\bliquid\.GlassTab\(", bottom_navigation)
 )
 if destination_count != 2:
     raise SystemExit(
@@ -152,9 +152,9 @@ if destination_count != 2:
 for token in (
     "key: const Key('ssrvpn-bottom-navigation')",
     "label: '主页'",
-    "onTap: () => onTap(0)",
+    "selectedIndex: currentIndex",
     "label: '订阅'",
-    "onTap: () => onTap(1)",
+    "onTabSelected: onTap",
     "SsrvpnVersionUpdateFooter(",
 ):
     if token not in app_surface:

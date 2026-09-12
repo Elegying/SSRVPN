@@ -104,7 +104,7 @@ Widget buildAndroidInitializationFailureScaffold({
 }
 
 Widget buildAndroidApiSecretRecoveryDialog(BuildContext context) {
-  return AlertDialog(
+  return SsrvpnLiquidAlertDialog(
     scrollable: true,
     title: const Text('重建本机 API 密钥？'),
     content: const Text(

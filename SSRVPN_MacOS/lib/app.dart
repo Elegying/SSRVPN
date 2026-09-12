@@ -2,6 +2,7 @@
 
 library desktop_app;
 
+import 'package:ssrvpn_shared/widgets/ssrvpn_scroll_behavior.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -276,6 +277,7 @@ class _SSRVpnAppState extends State<SSRVpnApp>
         ),
       ],
       child: MaterialApp(
+        scrollBehavior: const SsrvpnScrollBehavior(),
         debugShowCheckedModeBanner: false,
         title: 'SSRVPN',
         theme: AppTheme.light,
@@ -301,6 +303,7 @@ class _SSRVpnAppState extends State<SSRVpnApp>
     final failures = status.failures;
     final startupFailed = status.completed && !status.servicesReady;
     return MaterialApp(
+      scrollBehavior: const SsrvpnScrollBehavior(),
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
       builder: _buildMacosIntegratedWindow,

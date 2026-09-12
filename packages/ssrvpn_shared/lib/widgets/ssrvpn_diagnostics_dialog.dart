@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'package:flutter/material.dart';
 
 import 'app_diagnostics_view.dart';
@@ -10,7 +11,7 @@ Future<void> showSsrvpnDiagnosticsDialog(
   required RepairAppDiagnostic repair,
   ValueChanged<String>? onMessage,
 }) {
-  return showDialog<void>(
+  return showSsrvpnGlassDialog<void>(
     context: context,
     builder: (dialogContext) => Dialog(
       backgroundColor: Colors.transparent,

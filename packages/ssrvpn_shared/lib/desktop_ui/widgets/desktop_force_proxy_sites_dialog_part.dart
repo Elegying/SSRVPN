@@ -14,7 +14,7 @@ class _DesktopForceProxySitesDialog extends StatefulWidget {
     required List<String> savedSites,
     bool forceDirect = false,
   }) {
-    return showDialog<List<String>>(
+    return showSsrvpnGlassDialog<List<String>>(
       context: context,
       builder: (_) => _DesktopForceProxySitesDialog(
         savedSites: savedSites,
@@ -82,7 +82,7 @@ class _DesktopForceProxySitesDialogState
     final subtitleColor =
         isDark ? AppTheme.textSecondary : AppTheme.lightTextSecondary;
 
-    return Dialog(
+    return SsrvpnLiquidDialog(
       backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(

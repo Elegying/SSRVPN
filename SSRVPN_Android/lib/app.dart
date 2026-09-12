@@ -1,9 +1,13 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_scroll_behavior.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show
+        SsrvpnLiquidAlertDialog,
+        SsrvpnModalGlassPanel,
         AppConstants,
         AppLogger,
         AppModalCoordinator,
@@ -193,7 +197,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
     if (_apiSecretRecoveryInProgress) return;
     final dialogContext = _navigatorKey.currentContext;
     if (dialogContext == null) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showSsrvpnGlassDialog<bool>(
       context: dialogContext,
       builder: buildAndroidApiSecretRecoveryDialog,
     );
@@ -222,6 +226,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
   Widget build(BuildContext context) {
     if (_initError) {
       return MaterialApp(
+        scrollBehavior: const SsrvpnScrollBehavior(),
         navigatorKey: _navigatorKey,
         debugShowCheckedModeBanner: false,
         localizationsDelegates: androidLocalizationsDelegates,
@@ -239,6 +244,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
 
     if (!_appInitialized) {
       return MaterialApp(
+        scrollBehavior: const SsrvpnScrollBehavior(),
         debugShowCheckedModeBanner: false,
         localizationsDelegates: androidLocalizationsDelegates,
         supportedLocales: androidSupportedLocales,
@@ -284,6 +290,7 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         ),
       ],
       child: MaterialApp(
+        scrollBehavior: const SsrvpnScrollBehavior(),
         navigatorKey: _navigatorKey,
         debugShowCheckedModeBanner: false,
         title: 'SSRVPN',
@@ -394,7 +401,7 @@ class _InitialSubscriptionPromptState
     try {
       input = await AppModalCoordinator.run<String?>(() {
         if (!mounted) return Future.value();
-        return showDialog<String>(
+        return showSsrvpnGlassDialog<String>(
           context: context,
           barrierDismissible: false,
           builder: (_) => buildInitialSubscriptionDialog(
@@ -500,9 +507,8 @@ class _InitialSubscriptionDialogState
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
       ),
-      child: GlassContainer(
+      child: SsrvpnModalGlassPanel(
         borderRadius: 16,
-        enablePress: false,
         child: ConstrainedBox(
           constraints: BoxConstraints(
             maxWidth: MediaQuery.of(context).size.width * 0.88,

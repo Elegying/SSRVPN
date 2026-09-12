@@ -339,8 +339,10 @@ void Win32Window::UpdateTheme(HWND const window) {
       enable_dark_mode ? RGB(11, 13, 20) : RGB(248, 250, 252);
   const COLORREF text_color =
       enable_dark_mode ? RGB(249, 250, 251) : RGB(15, 23, 42);
-  const COLORREF border_color =
-      enable_dark_mode ? RGB(31, 41, 55) : RGB(226, 232, 240);
+  // DWMWA_COLOR_NONE: the custom dark UI must not acquire a light system
+  // outline. Keep the native frame for resizing, shadows and rounded corners.
+  // Use the numeric value for compatibility with older Windows SDKs.
+  const COLORREF border_color = 0xFFFFFFFE;
 
   DwmSetWindowAttribute(window, DWMWA_CAPTION_COLOR, &caption_color,
                         sizeof(caption_color));

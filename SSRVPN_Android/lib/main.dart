@@ -53,7 +53,8 @@ void main() async {
       SystemUiMode.edgeToEdge,
     );
 
-    runApp(SSRVpnApp(startupFlags: flags));
+    await initializeSsrvpnLiquidGlass();
+    runApp(wrapSsrvpnLiquidGlass(SSRVpnApp(startupFlags: flags)));
   }, (error, stack) {
     StartupLogger.error('Uncaught startup zone error', error, stack);
     CrashReporter.recordSync('Uncaught startup zone error', error, stack);

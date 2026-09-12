@@ -195,7 +195,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   void _showNetworkErrorDialog(String detail) {
     if (!mounted) return;
-    showDialog(
+    showSsrvpnGlassDialog(
       context: context,
       builder: (_) => SsrvpnSubscriptionErrorDialog(detail: detail),
     );
@@ -224,16 +224,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     if (_hasBlockingOperation) return;
     setState(() => _isDeleting = true);
     try {
-      final confirmed = await showDialog<bool>(
+      final confirmed = await showSsrvpnGlassDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => SsrvpnLiquidAlertDialog(
           backgroundColor: Colors.transparent,
           contentPadding: EdgeInsets.zero,
           content: ConstrainedBox(
             constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.88),
-            child: GlassContainer(
-              borderRadius: 20,
+            child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,

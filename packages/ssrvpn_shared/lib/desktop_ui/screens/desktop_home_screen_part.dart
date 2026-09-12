@@ -711,7 +711,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _openNodeSelection() async {
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      SsrvpnGlassPageRoute(
         builder: (routeContext) => SsrvpnNodeSelectionPage(
           ownerStateListenable: Listenable.merge([
             _nodeSelectionRefresh,
@@ -761,7 +761,8 @@ class _HomeScreenState extends State<HomeScreen> {
           onLongPressNode: (node) {
             unawaited(
               Navigator.of(context).push<bool>(
-                MaterialPageRoute(builder: (_) => NodeEditScreen(node: node)),
+                SsrvpnGlassPageRoute(
+                    builder: (_) => NodeEditScreen(node: node)),
               ),
             );
           },

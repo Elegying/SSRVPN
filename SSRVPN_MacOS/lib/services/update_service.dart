@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -63,10 +64,10 @@ class UpdateService {
             },
           );
 
-      await showDialog<void>(
+      await showSsrvpnGlassDialog<void>(
         context: context,
         barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
+        builder: (dialogContext) => SsrvpnLiquidAlertDialog(
           backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
           title: const Text('发现新版本'),
           content: ConstrainedBox(

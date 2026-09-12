@@ -1,3 +1,4 @@
+import 'ssrvpn_liquid_glass.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -163,7 +164,7 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
               horizontalPadding,
               18,
               horizontalPadding,
-              30,
+              30 + MediaQuery.paddingOf(context).bottom,
             ),
             child: Center(
               child: ConstrainedBox(

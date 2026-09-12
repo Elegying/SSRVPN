@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_android/app.dart';
@@ -59,7 +60,9 @@ void main() {
     expect(
         find.byKey(const Key('confirm-api-secret-recovery')), findsOneWidget);
     expect(
-      tester.widget<AlertDialog>(find.byType(AlertDialog)).scrollable,
+      tester
+          .widget<SsrvpnLiquidAlertDialog>(find.byType(SsrvpnLiquidAlertDialog))
+          .scrollable,
       isTrue,
     );
     expect(tester.takeException(), isNull);
