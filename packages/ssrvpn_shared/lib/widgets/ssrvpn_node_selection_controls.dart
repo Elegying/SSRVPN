@@ -379,3 +379,16 @@ class _ModeSection<T> extends StatelessWidget {
     );
   }
 }
+
+extension _NodeSelectionModeActions on _SsrvpnNodeSelectionPageState {
+  Future<void> _changeProxyMode(ProxyMode mode) => _runAction(() async {
+        if (mode == widget.proxyModeOf()) return;
+        if (mode == ProxyMode.global) {
+          final confirmed = await showSsrvpnGlobalModeDialog(context);
+          if (!confirmed || !mounted || widget.isConnectingOf()) return;
+        }
+        if (mode != widget.proxyModeOf()) {
+          await widget.onProxyModeChanged(mode);
+        }
+      });
+}
