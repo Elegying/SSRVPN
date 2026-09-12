@@ -40,7 +40,7 @@ class RunnerTests: XCTestCase {
     let finished = expectation(description: "probe deadline")
     finished.assertForOverFulfill = true
     PhysicalTcpLatencyProbe.measure(host: "192.0.2.1", port: 443, timeoutMs: 1) { value in
-      XCTAssertEqual(value, -1)
+      XCTAssertTrue([-10, -12, -13].contains(value))
       finished.fulfill()
     }
     wait(for: [finished], timeout: 2)

@@ -1,5 +1,6 @@
 #include "physical_tcp_latency_probe.h"
 #include "physical_dns.h"
+#include "dns_question.h"
 #include <windns.h>
 #include <array>
 #include <winsock2.h>
@@ -33,10 +34,9 @@ int main(int argc, char** argv) {
   Require(!ValidArguments("relay.example", 443, 0), "invalid deadline");
   Require(Probe("127.0.0.1", 443, 50) == -1, "never measure loopback stack");
   Require(Probe("198.18.0.1", 443, 50) == -1, "never measure fake-IP stack");
-  std::array<unsigned char, 512> query{};
-  DWORD bytes = static_cast<DWORD>(query.size());
-  Require(DnsWriteQuestionToBuffer_UTF8(reinterpret_cast<PDNS_MESSAGE_BUFFER>(query.data()),
-      &bytes, "example.com", DNS_TYPE_A, 0, TRUE) != FALSE, "build DNS wire question");
+  const auto query = BuildDnsQuestion("example.com");
+  const auto bytes = query.size();
+  Require(bytes == 29, "build DNS wire question");
   Require(query[4] == 0 && query[5] == 1, "query counts use network byte order");
   std::vector<unsigned char> reply(query.begin(), query.begin() + bytes);
   reply[2] = 0x81; reply[3] = 0x80; reply[7] = 1;

@@ -3,7 +3,11 @@ package com.ssrvpn.android
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.DnsResolver
+import android.net.InetAddresses
 import android.net.NetworkCapabilities
+import android.os.Build
+import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -13,6 +17,8 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
 import java.util.concurrent.SynchronousQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -48,8 +54,10 @@ internal object PhysicalTcpLatencyProbe {
             val start = SystemClock.elapsedRealtime()
             val settled = AtomicBoolean(false)
             val socket = AtomicReference<Socket?>(null)
+            val dnsCancellation = CancellationSignal()
             fun finish(value: Int) {
                 if (!settled.compareAndSet(false, true)) return
+                dnsCancellation.cancel()
                 try { socket.getAndSet(null)?.close() } catch (_: Exception) { }
                 deliver { result.success(value) }
             }
@@ -61,14 +69,16 @@ internal object PhysicalTcpLatencyProbe {
                     try {
                         val network = chooseNetwork(manager)
                         if (network != null) {
-                            // Network.getAllByName uses this network's resolver/cache;
+                            // Resolution uses this network's resolver/cache;
                             // never resolve through the process-default VPN DNS.
                             value = -11
-                            val addresses = network.getAllByName(host).filter(::usableAddress)
+                            val addresses = resolve(network, host,
+                                timeout - (SystemClock.elapsedRealtime() - start), dnsCancellation)
                             if (addresses.isNotEmpty()) value = -13
                             for ((index, address) in addresses.withIndex()) {
                                 val remaining = timeout - (SystemClock.elapsedRealtime() - start)
-                                if (settled.get() || remaining <= 0 || !physical(manager, network)) break
+                                if (settled.get() || remaining <= 0) break
+                                if (!physical(manager, network)) { value = -12; break }
                                 val connection = network.socketFactory.createSocket()
                                 socket.set(connection)
                                 try {
@@ -82,6 +92,7 @@ internal object PhysicalTcpLatencyProbe {
                                         ) == true
                                     }) {
                                         // Another VPN owns the device; do not claim a direct probe.
+                                        value = -12
                                         break
                                     }
                                     val budget = (remaining / (addresses.size - index)).coerceAtLeast(1)
@@ -110,6 +121,38 @@ internal object PhysicalTcpLatencyProbe {
                 handler.removeCallbacks(deadline)
                 finish(-14)
             }
+        }
+    }
+
+    private fun resolve(network: Network, host: String, timeout: Long,
+                        cancellation: CancellationSignal): List<InetAddress> {
+        if (timeout <= 0 || cancellation.isCanceled) return emptyList()
+        // Android 10+ supports cancelling network-scoped DNS. A timed-out lookup
+        // must not occupy every worker and make subsequent batches all fail.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return network.getAllByName(host).filter(::usableAddress)
+        }
+        if (InetAddresses.isNumericAddress(host)) {
+            return listOf(InetAddresses.parseNumericAddress(host)).filter(::usableAddress)
+        }
+        val done = CountDownLatch(1)
+        val addresses = AtomicReference<List<InetAddress>>(emptyList())
+        DnsResolver.getInstance().query(network, host, DnsResolver.TYPE_A,
+            DnsResolver.FLAG_EMPTY, Executor { it.run() }, cancellation,
+            object : DnsResolver.Callback<List<InetAddress>> {
+                override fun onAnswer(answer: List<InetAddress>, rcode: Int) {
+                    if (rcode == 0 && !cancellation.isCanceled) {
+                        addresses.set(answer.filter(::usableAddress))
+                    }
+                    done.countDown()
+                }
+                override fun onError(error: DnsResolver.DnsException) { done.countDown() }
+            })
+        try {
+            done.await(timeout, TimeUnit.MILLISECONDS)
+            return addresses.get()
+        } finally {
+            cancellation.cancel()
         }
     }
 
