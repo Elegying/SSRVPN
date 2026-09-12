@@ -498,6 +498,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         ),
       ],
       child: MaterialApp(
+        scrollBehavior:
+            const MaterialScrollBehavior().copyWith(scrollbars: false),
         debugShowCheckedModeBanner: false,
         title: 'SSRVPN',
         theme: AppTheme.light,
@@ -526,6 +528,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
           _confirmWindowsSecretRecovery(buttonContext, secretPath),
     );
     return MaterialApp(
+      scrollBehavior:
+          const MaterialScrollBehavior().copyWith(scrollbars: false),
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
       home: _withWindowsFrame(status, startupShell),

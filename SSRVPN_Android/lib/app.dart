@@ -225,6 +225,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
   Widget build(BuildContext context) {
     if (_initError) {
       return MaterialApp(
+        scrollBehavior:
+            const MaterialScrollBehavior().copyWith(scrollbars: false),
         navigatorKey: _navigatorKey,
         debugShowCheckedModeBanner: false,
         localizationsDelegates: androidLocalizationsDelegates,
@@ -242,6 +244,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
 
     if (!_appInitialized) {
       return MaterialApp(
+        scrollBehavior:
+            const MaterialScrollBehavior().copyWith(scrollbars: false),
         debugShowCheckedModeBanner: false,
         localizationsDelegates: androidLocalizationsDelegates,
         supportedLocales: androidSupportedLocales,
@@ -287,6 +291,8 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         ),
       ],
       child: MaterialApp(
+        scrollBehavior:
+            const MaterialScrollBehavior().copyWith(scrollbars: false),
         navigatorKey: _navigatorKey,
         debugShowCheckedModeBanner: false,
         title: 'SSRVPN',
