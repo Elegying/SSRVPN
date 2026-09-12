@@ -106,12 +106,19 @@ std::vector<IN_ADDR> Resolve(const std::string& host, const Network& network,
   IN_ADDR numeric{};
   if (InetPtonA(AF_INET, host.c_str(), &numeric) == 1) return {numeric};
   struct Cached { std::vector<IN_ADDR> addresses; ULONGLONG expires; };
-  static std::mutex cache_mutex;
-  static std::unordered_map<std::string, Cached> cache;
+  struct CacheStore {
+    std::mutex mutex;
+    std::unordered_map<std::string, Cached> entries;
+  };
+  // Detached probes can still run during CRT static destruction. Keep this
+  // bounded (128 entries) cache alive until OS process teardown, just like the
+  // worker-owned sockets; never destroy its mutex underneath a running probe.
+  static auto& store = *new CacheStore;
+  auto& cache = store.entries;
   const auto key = std::to_string(network.luid.Value) + ":" +
       std::to_string(network.source.s_addr) + ":" + host;
   {
-    std::lock_guard<std::mutex> lock(cache_mutex);
+    std::lock_guard<std::mutex> lock(store.mutex);
     const auto found = cache.find(key);
     if (found != cache.end() && found->second.expires > GetTickCount64())
       return found->second.addresses;
@@ -137,7 +144,7 @@ std::vector<IN_ADDR> Resolve(const std::string& host, const Network& network,
     auto addresses = QueryPhysicalDns(socket, host, attempt, ttl);
     if (!addresses.empty() && IsPhysical(network.luid)) {
       if (ttl && remaining()) {
-        std::lock_guard<std::mutex> lock(cache_mutex);
+        std::lock_guard<std::mutex> lock(store.mutex);
         if (cache.size() >= 128) cache.erase(cache.begin());
         cache[key] = {addresses, GetTickCount64() + static_cast<ULONGLONG>(ttl) * 1000};
       }
