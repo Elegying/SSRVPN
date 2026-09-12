@@ -226,14 +226,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     try {
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => SsrvpnLiquidAlertDialog(
           backgroundColor: Colors.transparent,
           contentPadding: EdgeInsets.zero,
           content: ConstrainedBox(
             constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.88),
-            child: GlassContainer(
-              borderRadius: 20,
+            child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,

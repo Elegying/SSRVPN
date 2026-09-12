@@ -30,10 +30,9 @@ class SsrvpnSubscriptionErrorDialog extends StatelessWidget {
           maxWidth: SsrvpnUiTokens.pageMaxWidth,
           maxHeight: maxHeight,
         ),
-        child: SsrvpnSurfaceCard(
+        child: SsrvpnModalGlassPanel(
           padding: EdgeInsets.zero,
-          radius: 16,
-          color: SsrvpnUiTokens.backgroundRaised,
+          borderRadius: 16,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
             child: Column(

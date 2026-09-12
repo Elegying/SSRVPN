@@ -260,7 +260,7 @@ void main() {
               expect(panel, first);
             }
             await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
-            await tester.tap(find.text('订阅'));
+            await tester.tap(find.text('订阅').hitTestable().first);
             expect(toggles, greaterThan(0));
             expect(navigation, greaterThan(0));
             await tester.pumpAndSettle();
@@ -443,7 +443,7 @@ void main() {
               reason: '$size scale=$scale five=$visible');
         }
         await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
-        await tester.tap(find.text('订阅'));
+        await tester.tap(find.text('订阅').hitTestable().first);
         await tester.tap(find.byKey(const Key('ssrvpn-update-now-button')));
       }
       expect(toggles, 84);

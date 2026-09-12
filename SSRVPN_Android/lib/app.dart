@@ -4,6 +4,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show
+        SsrvpnLiquidAlertDialog,
+        SsrvpnModalGlassPanel,
         AppConstants,
         AppLogger,
         AppModalCoordinator,
@@ -500,9 +502,8 @@ class _InitialSubscriptionDialogState
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
       ),
-      child: GlassContainer(
+      child: SsrvpnModalGlassPanel(
         borderRadius: 16,
-        enablePress: false,
         child: ConstrainedBox(
           constraints: BoxConstraints(
             maxWidth: MediaQuery.of(context).size.width * 0.88,

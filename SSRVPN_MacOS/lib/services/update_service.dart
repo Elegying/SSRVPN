@@ -66,7 +66,7 @@ class UpdateService {
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
+        builder: (dialogContext) => SsrvpnLiquidAlertDialog(
           backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
           title: const Text('发现新版本'),
           content: ConstrainedBox(

@@ -1,3 +1,4 @@
+import 'ssrvpn_liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'ssrvpn_home_text.dart';
 import 'ssrvpn_home_shell.dart';
@@ -339,13 +340,10 @@ class SsrvpnPowerButton extends StatelessWidget {
                 ),
               ],
             ),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: isConnected
-                    ? activeColor.withValues(alpha: 0.2)
-                    : const Color(0xFF202B4B),
-                shape: BoxShape.circle,
-              ),
+            child: SsrvpnLiquidSurface(
+              circular: true,
+              tint: activeColor,
+              borderColor: activeColor.withValues(alpha: .35),
               child: Center(
                 child: isConnecting
                     ? SizedBox(

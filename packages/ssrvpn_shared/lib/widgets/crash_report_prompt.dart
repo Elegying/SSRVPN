@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -60,7 +61,7 @@ class _CrashReportPromptState extends State<CrashReportPrompt> {
         return showDialog<_CrashReportAction>(
           context: context,
           barrierDismissible: false,
-          builder: (dialogContext) => AlertDialog(
+          builder: (dialogContext) => SsrvpnLiquidAlertDialog(
             title: const Text('发现运行异常记录'),
             content: Text(
               '本机保存了 ${reports.length} 份异常记录，可能来自连接问题、界面异常或程序意外退出。'

@@ -1,3 +1,4 @@
+import 'ssrvpn_liquid_glass.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../models/account_usage.dart';
@@ -208,7 +209,9 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                     child: Semantics(
                       label: row[index].semantics,
                       excludeSemantics: true,
-                      child: Container(
+                      child: SsrvpnLiquidSurface(
+                          radius: 14,
+                          dense: false,
                           key:
                               ValueKey('home-traffic-card-${row[index].label}'),
                           padding: EdgeInsets.symmetric(
@@ -222,12 +225,6 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
                                   : constraints.maxHeight < 120
                                       ? 2
                                       : 4),
-                          decoration: BoxDecoration(
-                              color:
-                                  SsrvpnUiTokens.surface.withValues(alpha: .78),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                  color: Colors.white.withValues(alpha: .06))),
                           child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,

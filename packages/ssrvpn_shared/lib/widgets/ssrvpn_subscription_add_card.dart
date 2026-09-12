@@ -45,7 +45,8 @@ class _SubscriptionAddCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 18),
-          TextField(
+          SsrvpnLiquidField(
+              child: TextField(
             key: const Key('ssrvpn-subscription-input'),
             controller: urlController,
             focusNode: inputFocusNode,
@@ -60,7 +61,7 @@ class _SubscriptionAddCard extends StatelessWidget {
               hintText: '粘贴订阅或节点链接',
               prefixIcon: const Icon(Icons.link_rounded),
               filled: true,
-              fillColor: const Color(0xFF181B2A),
+              fillColor: Colors.transparent,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
                 vertical: 17,
@@ -74,46 +75,50 @@ class _SubscriptionAddCard extends StatelessWidget {
                 borderSide: const BorderSide(color: SsrvpnUiTokens.border),
               ),
             ),
-          ),
+          )),
           const SizedBox(height: 16),
           ConstrainedBox(
             key: addActionKey,
             constraints: const BoxConstraints(minHeight: 52),
             child: SizedBox(
               width: double.infinity,
-              child: FilledButton(
-                key: const Key('ssrvpn-subscription-add'),
-                onPressed: isBusy ? null : onAdd,
-                style: FilledButton.styleFrom(
-                  backgroundColor: SsrvpnUiTokens.primaryBlue,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor:
-                      SsrvpnUiTokens.primaryBlue.withValues(alpha: 0.42),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                ),
-                child: isAdding
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text(
-                        '添加',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                        ),
+              child: SsrvpnLiquidSurface(
+                  radius: 16,
+                  dense: true,
+                  child: FilledButton(
+                    key: const Key('ssrvpn-subscription-add'),
+                    onPressed: isBusy ? null : onAdd,
+                    style: FilledButton.styleFrom(
+                      backgroundColor:
+                          SsrvpnUiTokens.primaryBlue.withValues(alpha: .58),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor:
+                          SsrvpnUiTokens.primaryBlue.withValues(alpha: 0.42),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
                       ),
-              ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                    ),
+                    child: isAdding
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            '添加',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                  )),
             ),
           ),
         ],

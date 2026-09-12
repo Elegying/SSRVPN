@@ -5,7 +5,6 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import '../services/clash_service.dart';
 import '../services/subscription_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/glass_container.dart';
 import '../widgets/android_diagnostics_sheet.dart';
 import '../widgets/subscription_network_error_dialog.dart';
 
@@ -147,11 +146,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        elevation: 0,
         backgroundColor: Colors.transparent,
         contentPadding: EdgeInsets.zero,
-        content: GlassContainer(
+        content: SsrvpnModalGlassPanel(
+          padding: const EdgeInsets.all(24),
           borderRadius: 20,
-          padding: EdgeInsets.all(24),
           child: ConstrainedBox(
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(ctx).size.width * 0.82,

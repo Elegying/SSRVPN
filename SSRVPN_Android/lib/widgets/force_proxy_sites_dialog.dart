@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_info_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/app_settings.dart';
@@ -94,10 +95,8 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
       backgroundColor: Colors.transparent,
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: GlassContainer(
+      child: SsrvpnModalGlassPanel(
         borderRadius: 16,
-        enableShadow: true,
-        enablePress: false,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
           child: SingleChildScrollView(

@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -246,7 +247,7 @@ class SharedUpdateService {
                     : (receivedBytes / totalBytes!).clamp(0.0, 1.0);
                 return PopScope(
                   canPop: false,
-                  child: AlertDialog(
+                  child: SsrvpnLiquidAlertDialog(
                     scrollable: true,
                     title: const Text('正在下载更新'),
                     content: Column(
@@ -302,7 +303,7 @@ class SharedUpdateService {
           if (!cancelled && context.mounted) {
             await showDialog<void>(
               context: context,
-              builder: (dialogContext) => AlertDialog(
+              builder: (dialogContext) => SsrvpnLiquidAlertDialog(
                 scrollable: true,
                 title: const Text('更新失败'),
                 content: Text(safeUserFacingFailureMessage(error)),
@@ -368,7 +369,7 @@ class SharedUpdateService {
           );
           final maxHeight = math.max(1.0, viewport.height - 32);
 
-          return Dialog(
+          return SsrvpnLiquidDialog(
             backgroundColor: isDark ? const Color(0xFF1A1D26) : Colors.white,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),

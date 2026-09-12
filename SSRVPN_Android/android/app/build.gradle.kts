@@ -76,6 +76,12 @@ android {
         }
 
         release {
+            // Opt-in local acceptance build; installed production data stays separate.
+            if (providers.gradleProperty("ssrvpnPreview").orNull == "true") {
+                applicationIdSuffix = ".preview"
+                versionNameSuffix = "-preview"
+                manifestPlaceholders["appLabel"] = "SSRVPN 预览"
+            }
             if (!hasReleaseKeystore && isGitHubActions && isReleaseBuildRequested) {
                 error(
                     "Android release signing is missing. Configure the GitHub " +

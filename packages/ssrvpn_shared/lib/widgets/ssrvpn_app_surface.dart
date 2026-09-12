@@ -1,4 +1,7 @@
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as liquid;
+import 'ssrvpn_liquid_glass.dart';
 import 'dart:ui' show ImageFilter;
+import 'ssrvpn_drifting_background.dart';
 
 import 'package:flutter/material.dart';
 
@@ -75,8 +78,48 @@ class SsrvpnFrostedPanel extends StatelessWidget {
   }
 }
 
+/// Shared background. Build with SSRVPN_LEGACY_BACKGROUND=true to roll back.
 class SsrvpnAppBackdrop extends StatelessWidget {
-  const SsrvpnAppBackdrop({super.key, required this.child});
+  const SsrvpnAppBackdrop(
+      {super.key,
+      required this.child,
+      this.useLegacy = const bool.fromEnvironment('SSRVPN_LEGACY_BACKGROUND')});
+  final Widget child;
+  final bool useLegacy;
+  @override
+  Widget build(BuildContext context) {
+    if (useLegacy) return _SsrvpnLegacyBackdrop(child: child);
+    return liquid.LiquidGlassScope(
+      child: Stack(fit: StackFit.expand, children: [
+        Positioned.fill(
+            child: IgnorePointer(
+                child: liquid.GlassBackgroundSource(
+          child: Stack(fit: StackFit.expand, children: [
+            SsrvpnDriftingBackground(
+                child: Image.asset(
+              const bool.fromEnvironment('SSRVPN_ORIGINAL_NETWORK_BACKGROUND')
+                  ? 'assets/backgrounds/network-glass.jpg'
+                  : 'assets/backgrounds/network-glass-ai.png',
+              package: 'ssrvpn_shared',
+              fit: BoxFit.cover,
+              alignment: Alignment.center,
+              filterQuality: FilterQuality.medium,
+              errorBuilder: (_, __, ___) =>
+                  const _SsrvpnLegacyBackdrop(child: SizedBox()),
+            )),
+            ColoredBox(
+                color: Colors.black.withValues(
+                    alpha: MediaQuery.highContrastOf(context) ? .65 : .28)),
+          ]),
+        ))),
+        child,
+      ]),
+    );
+  }
+}
+
+class _SsrvpnLegacyBackdrop extends StatelessWidget {
+  const _SsrvpnLegacyBackdrop({required this.child});
 
   final Widget child;
 
@@ -178,20 +221,12 @@ class SsrvpnSurfaceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color ?? SsrvpnUiTokens.surface.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: borderColor),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x38000000),
-            blurRadius: 28,
-            offset: Offset(0, 14),
-          ),
-        ],
-      ),
-      child: Padding(padding: padding, child: child),
+    return SsrvpnLiquidSurface(
+      radius: radius,
+      padding: padding,
+      tint: color,
+      borderColor: borderColor == SsrvpnUiTokens.border ? null : borderColor,
+      child: child,
     );
   }
 }
@@ -226,56 +261,37 @@ class SsrvpnBottomNavigation extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
+              liquid.GlassTabBar.bottom(
                 key: const Key('ssrvpn-bottom-navigation'),
-                constraints: const BoxConstraints(minHeight: 72),
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: const Color(0xF024263A),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: SsrvpnUiTokens.border),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x66000000),
-                      blurRadius: 30,
-                      spreadRadius: 1,
-                      offset: Offset(0, 16),
-                    ),
-                    BoxShadow(
-                      color: Color(0x242F5BFF),
-                      blurRadius: 20,
-                      spreadRadius: 1,
-                      offset: Offset(0, 5),
-                    ),
-                    BoxShadow(
-                      color: Color(0x33000000),
-                      blurRadius: 6,
-                      offset: Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: SsrvpnNavigationDestination(
-                        icon: Icons.home_outlined,
-                        selectedIcon: Icons.home_rounded,
-                        label: '主页',
-                        selected: currentIndex == 0,
-                        onTap: () => onTap(0),
-                      ),
-                    ),
-                    Expanded(
-                      child: SsrvpnNavigationDestination(
-                        icon: Icons.rss_feed_outlined,
-                        selectedIcon: Icons.rss_feed_rounded,
-                        label: '订阅',
-                        selected: currentIndex == 1,
-                        onTap: () => onTap(1),
-                      ),
-                    ),
-                  ],
-                ),
+                selectedIndex: currentIndex,
+                onTabSelected: onTap,
+                horizontalPadding: 0,
+                verticalPadding: 0,
+                barHeight: 72,
+                barBorderRadius: 28,
+                quality: ssrvpnGlassQuality(context),
+                backgroundQuality: ssrvpnGlassQuality(context),
+                settings: SsrvpnLiquidSurface.settings,
+                indicatorColor: SsrvpnUiTokens.primary.withValues(alpha: .25),
+                indicatorExpansion: EdgeInsets.zero,
+                magnification: 1.04,
+                pressScale: 1.02,
+                selectedIconColor: SsrvpnUiTokens.textPrimary,
+                selectedLabelColor: SsrvpnUiTokens.textPrimary,
+                unselectedIconColor: SsrvpnUiTokens.textSecondary,
+                unselectedLabelColor: SsrvpnUiTokens.textSecondary,
+                labelFontSize: 12,
+                iconSize: 23,
+                tabs: const [
+                  liquid.GlassTab(
+                      icon: Icon(Icons.home_outlined),
+                      activeIcon: Icon(Icons.home_rounded),
+                      label: '主页'),
+                  liquid.GlassTab(
+                      icon: Icon(Icons.rss_feed_outlined),
+                      activeIcon: Icon(Icons.rss_feed_rounded),
+                      label: '订阅'),
+                ],
               ),
               const SizedBox(height: 6),
               SsrvpnVersionUpdateFooter(

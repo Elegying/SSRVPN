@@ -563,7 +563,7 @@ class UpdateService {
                 '请手动安装；安装完成后请自行删除桌面安装包。';
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => SsrvpnLiquidAlertDialog(
         scrollable: true,
         title: const Text('下载完成'),
         content: Column(
@@ -596,7 +596,7 @@ class UpdateService {
       if (!context.mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
+        builder: (dialogContext) => SsrvpnLiquidAlertDialog(
           scrollable: true,
           title: const Text('更新失败'),
           content: Text(desktopResolutionFailureMessage(error)),

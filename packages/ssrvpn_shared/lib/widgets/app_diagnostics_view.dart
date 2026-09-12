@@ -1,3 +1,4 @@
+import 'ssrvpn_liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -347,9 +348,10 @@ class _ReadableLogTile extends StatelessWidget {
     return Semantics(
       label:
           '${entry.timeLabel}，${entry.levelLabel}，${entry.category}，${entry.message}',
-      child: Card(
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-        child: Padding(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        child: SsrvpnLiquidSurface(
+          dense: true,
           padding: const EdgeInsets.all(12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -434,9 +436,10 @@ class _DiagnosticCheckTile extends StatelessWidget {
 
     return Semantics(
       label: '${check.title}，$statusLabel，${check.summary}',
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 8),
-        child: Padding(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: SsrvpnLiquidSurface(
+          dense: true,
           padding: const EdgeInsets.all(12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,

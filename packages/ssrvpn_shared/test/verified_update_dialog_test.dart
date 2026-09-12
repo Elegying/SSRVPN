@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -199,9 +200,10 @@ void main() {
     expect(tester.takeException(), isNull);
     final errorDialog = find.ancestor(
       of: find.text('更新失败'),
-      matching: find.byType(AlertDialog),
+      matching: find.byType(SsrvpnLiquidAlertDialog),
     );
-    expect(tester.widget<AlertDialog>(errorDialog).scrollable, isTrue);
+    expect(
+        tester.widget<SsrvpnLiquidAlertDialog>(errorDialog).scrollable, isTrue);
     final dismiss = find.widgetWithText(TextButton, '知道了');
     await tester.ensureVisible(dismiss);
     expect(dismiss.hitTestable(), findsOneWidget);

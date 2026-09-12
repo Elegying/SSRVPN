@@ -116,17 +116,19 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
   }) {
     return Padding(
       padding: EdgeInsets.only(bottom: 14),
-      child: TextFormField(
-        controller: _controllers[key],
-        obscureText: secret,
-        keyboardType: keyboardType,
-        inputFormatters: inputFormatters,
-        decoration: InputDecoration(labelText: label),
-        validator: required
-            ? (value) =>
-                value == null || value.trim().isEmpty ? '请输入$label' : null
-            : null,
-      ),
+      child: SsrvpnLiquidField(
+          label: label,
+          child: TextFormField(
+            controller: _controllers[key],
+            obscureText: secret,
+            keyboardType: keyboardType,
+            inputFormatters: inputFormatters,
+            decoration: const InputDecoration(),
+            validator: required
+                ? (value) =>
+                    value == null || value.trim().isEmpty ? '请输入$label' : null
+                : null,
+          )),
     );
   }
 
@@ -271,18 +273,20 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                 ),
                 Padding(
                   padding: EdgeInsets.only(bottom: 14),
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _type,
-                    decoration: const InputDecoration(labelText: '节点类型'),
-                    items: ({..._types, _type}.toList()..sort())
-                        .map(
-                          (type) =>
-                              DropdownMenuItem(value: type, child: Text(type)),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => _type = value ?? _type),
-                  ),
+                  child: SsrvpnLiquidField(
+                      label: '节点类型',
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _type,
+                        decoration: const InputDecoration(),
+                        items: ({..._types, _type}.toList()..sort())
+                            .map(
+                              (type) => DropdownMenuItem(
+                                  value: type, child: Text(type)),
+                            )
+                            .toList(),
+                        onChanged: (value) =>
+                            setState(() => _type = value ?? _type),
+                      )),
                 ),
                 if (_hasField('password', {
                   'ss',
@@ -330,24 +334,34 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                 if (_hasField('servername', {}))
                   _field('servername', 'Server Name'),
                 SizedBox(height: 4),
-                TextFormField(
-                  controller: _extraController,
-                  minLines: 5,
-                  maxLines: 12,
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: Responsive.sp(12),
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: '其他参数（JSON）',
-                    alignLabelWithHint: true,
+                SsrvpnLiquidField(
+                    label: '其他参数（JSON）',
                     helperText: 'TLS、插件、WebSocket 等未列出的参数可在这里修改',
-                  ),
-                ),
+                    child: TextFormField(
+                      key: const Key('ssrvpn-node-extra'),
+                      controller: _extraController,
+                      minLines: 5,
+                      maxLines: 12,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: Responsive.sp(12),
+                      ),
+                      decoration: const InputDecoration(
+                        alignLabelWithHint: true,
+                      ),
+                    )),
                 SizedBox(height: 24),
                 SizedBox(
                   height: 48,
-                  child: ElevatedButton(onPressed: _save, child: Text('保存修改')),
+                  child: SsrvpnLiquidSurface(
+                      radius: 14,
+                      dense: true,
+                      child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor:
+                                  AppTheme.primaryColor.withValues(alpha: .58)),
+                          onPressed: _save,
+                          child: Text('保存修改'))),
                 ),
               ],
             ),

@@ -82,7 +82,8 @@ void main(List<String> args) {
       await WindowStateStore.clear();
     }
 
-    runApp(SSRVpnApp(startupFlags: flags));
+    await initializeSsrvpnLiquidGlass();
+    runApp(wrapSsrvpnLiquidGlass(SSRVpnApp(startupFlags: flags)));
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(StartupOrchestrator(flags).start());

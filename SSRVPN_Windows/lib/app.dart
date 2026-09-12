@@ -11,6 +11,7 @@ import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
 import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart'
     show
+        SsrvpnLiquidAlertDialog,
         AppConstants,
         AppErrorCode,
         AppFailure,

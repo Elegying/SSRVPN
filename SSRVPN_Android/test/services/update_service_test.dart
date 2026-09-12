@@ -576,7 +576,10 @@ void main() {
       expect(find.textContaining('/private/update/path'), findsNothing);
       expect(find.textContaining('当前版本仍可使用'), findsOneWidget);
       expect(
-        tester.widget<AlertDialog>(find.byType(AlertDialog)).scrollable,
+        tester
+            .widget<SsrvpnLiquidAlertDialog>(
+                find.byType(SsrvpnLiquidAlertDialog))
+            .scrollable,
         isTrue,
       );
       final dismiss = find.widgetWithText(TextButton, '知道了');

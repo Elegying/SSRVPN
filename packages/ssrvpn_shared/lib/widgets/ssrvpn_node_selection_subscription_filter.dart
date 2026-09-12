@@ -86,12 +86,9 @@ class _SubscriptionFilter extends StatelessWidget {
     final label = value == _allSubscriptions ? '全部订阅' : value;
     return Container(
       key: ValueKey('ssrvpn-subscription-filter-$value'),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: SsrvpnUiTokens.surface.withValues(alpha: 0.9),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: SsrvpnUiTokens.border),
-        ),
+      child: SsrvpnLiquidSurface(
+        radius: 18,
+        dense: true,
         child: Row(
           children: [
             Expanded(

@@ -84,6 +84,14 @@ does not independently grant redistribution rights.
   the verified upstream database bytes; it does not change the decompressed
   database content.
 
+## Liquid Glass Widgets
+
+- Component: `liquid_glass_widgets` 1.4.4, used by all three Flutter clients
+- Source: <https://github.com/sdegenaar/liquid_glass_widgets>
+- License: MIT; renderer and spring utility notices are retained in
+  `licenses/liquid-glass-widgets-MIT.txt`.
+- SSRVPN uses the published package without modifying its implementation.
+
 ## Obtaining source
 
 The exact upstream source links and SSRVPN paths above are the corresponding

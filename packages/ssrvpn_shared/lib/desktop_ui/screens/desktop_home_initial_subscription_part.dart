@@ -97,7 +97,7 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                   }
                 }
 
-                return Dialog(
+                return SsrvpnLiquidDialog(
                   backgroundColor:
                       isDark ? const Color(0xFF1A1D26) : Colors.white,
                   shape: RoundedRectangleBorder(

@@ -216,8 +216,11 @@ void main() {
     expect(find.text('8388'), findsOneWidget);
     expect(find.text('密码'), findsOneWidget);
     expect(find.text('加密方式'), findsOneWidget);
-    expect(find.text('协议'), findsOneWidget);
-    expect(find.text('协议参数'), findsOneWidget);
+    for (final label in ['协议', '协议参数']) {
+      await tester.scrollUntilVisible(find.text(label), 100,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text(label), findsOneWidget);
+    }
 
     await tester.scrollUntilVisible(
       find.text('混淆'),
@@ -242,13 +245,16 @@ void main() {
 
     await tester.tap(find.byType(DropdownButtonFormField<String>));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('vless').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('vless').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('UUID'), findsOneWidget);
-    expect(find.text('传输协议'), findsOneWidget);
-    expect(find.text('Flow'), findsOneWidget);
-    expect(find.text('SNI'), findsOneWidget);
+    for (final label in ['UUID', '传输协议', 'Flow', 'SNI']) {
+      await tester.scrollUntilVisible(find.text(label), 100,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text(label), findsOneWidget);
+    }
     expect(find.text('加密方式'), findsNothing);
   });
 
@@ -281,10 +287,7 @@ void main() {
       200,
       scrollable: find.byType(Scrollable).first,
     );
-    final extrasField = find.ancestor(
-      of: find.text('其他参数（JSON）'),
-      matching: find.byType(TextFormField),
-    );
+    final extrasField = find.byKey(const Key('ssrvpn-node-extra'));
     expect(extrasField, findsOneWidget);
     await tester.enterText(extrasField, '["not", "an", "object"]');
     final field = tester.widget<TextFormField>(extrasField);

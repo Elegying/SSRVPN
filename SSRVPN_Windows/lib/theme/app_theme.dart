@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_typography.dart';
 import 'package:flutter/material.dart';
 
 /// SSRVPN Theme — Linear / Vercel 级质感
@@ -37,11 +38,12 @@ class AppTheme {
   static const lightTextHint = Color(0xFF8A94A6);
 
   static ThemeData get dark => ThemeData(
+        fontFamily: SsrvpnTypography.family,
+        fontFamilyFallback: SsrvpnTypography.fallback,
         brightness: Brightness.dark,
         useMaterial3: true,
         primaryColor: primary,
         scaffoldBackgroundColor: bg,
-        fontFamily: 'Segoe UI',
         colorScheme: const ColorScheme.dark(
           primary: primary,
           secondary: Color(0xFF06B6D4),
@@ -168,11 +170,12 @@ class AppTheme {
       );
 
   static ThemeData get light => ThemeData(
+        fontFamily: SsrvpnTypography.family,
+        fontFamilyFallback: SsrvpnTypography.fallback,
         brightness: Brightness.light,
         useMaterial3: true,
         primaryColor: primary,
         scaffoldBackgroundColor: lightBg,
-        fontFamily: 'Segoe UI',
         colorScheme: const ColorScheme.light(
           primary: primary,
           secondary: Color(0xFF06B6D4),

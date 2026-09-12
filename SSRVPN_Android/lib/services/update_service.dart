@@ -426,7 +426,7 @@ class UpdateService {
                     : (receivedBytes / totalBytes!).clamp(0.0, 1.0);
                 return PopScope(
                   canPop: false,
-                  child: AlertDialog(
+                  child: SsrvpnLiquidAlertDialog(
                     scrollable: true,
                     title: const Text('正在更新'),
                     content: Column(
@@ -529,7 +529,7 @@ class UpdateService {
   ) {
     return showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => SsrvpnLiquidAlertDialog(
         scrollable: true,
         title: const Text('更新提示'),
         content: Text(message),
