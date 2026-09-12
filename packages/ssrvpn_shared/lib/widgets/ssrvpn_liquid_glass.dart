@@ -51,10 +51,10 @@ class SsrvpnLiquidSurface extends StatelessWidget {
           child: content);
     }
     final quality = ssrvpnGlassQuality(context);
-    final captured = SsrvpnGlassFrame.of(context);
+    final frames = SsrvpnGlassFrame.listenableOf(context);
     final useCapture = quality == glass.GlassQuality.premium &&
         ui.ImageFilter.isShaderFilterSupported &&
-        SsrvpnGlassFrame.hasScope(context);
+        frames != null;
     final surfaceSettings = settings.copyWith(
         blur: dense ? 5 : 7,
         glassColor: tint?.withValues(alpha: .18) ??
@@ -78,21 +78,20 @@ class SsrvpnLiquidSurface extends StatelessWidget {
       ),
     );
     if (!useCapture) return surface;
-    // No live-shader fallback on the first frame: wait for the background's
-    // first completed paint while preserving layout and readable content.
-    if (captured == null) {
-      return DecoratedBox(
-          decoration: BoxDecoration(
-              color: surfaceSettings.glassColor,
-              shape: circular ? BoxShape.circle : BoxShape.rectangle,
-              borderRadius: circular ? null : BorderRadius.circular(radius)),
-          child: surface.child);
-    }
-    return glass.LiquidGlassLayer(
-        settings: surfaceSettings,
-        captureImage: captured.image,
-        captureOriginInScreenSpace: captured.origin,
-        child: surface);
+    // Rebuild only the sampling layer. Geometry, layout, forms and text are
+    // retained when the wallpaper changes; optical settings remain identical.
+    return ValueListenableBuilder<SsrvpnGlassFrame?>(
+      valueListenable: frames,
+      child: surface,
+      builder: (context, captured, child) {
+        return glass.LiquidGlassLayer(
+            settings: surfaceSettings,
+            captureOnly: true,
+            captureImage: captured?.image,
+            captureOriginInScreenSpace: captured?.origin ?? Offset.zero,
+            child: child!);
+      },
+    );
   }
 }
 
@@ -132,15 +131,19 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
   final _diagnostics = SsrvpnFrameDiagnostics();
   Timer? _refreshPoll;
   double? _nativeRefreshRate;
+  bool _readingRefreshRate = false;
   static const _display = MethodChannel('com.ssrvpn/display');
 
   Future<void> _readRefreshRate() async {
-    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+    if (_readingRefreshRate ||
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
       return;
     }
+    _readingRefreshRate = true;
     try {
       final rate = await _display.invokeMethod<double>('refreshRate');
       if (mounted &&
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
           rate != null &&
           rate.isFinite &&
           rate > 0 &&
@@ -152,6 +155,8 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
       // Optional hint; rendering must remain available.
     } on MissingPluginException {
       // Desktop and old native hosts use Flutter display information.
+    } finally {
+      _readingRefreshRate = false;
     }
   }
 
@@ -160,7 +165,19 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _diagnostics.start();
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    _updateRefreshPolling();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) =>
+      _updateRefreshPolling();
+
+  void _updateRefreshPolling() {
+    _refreshPoll?.cancel();
+    _refreshPoll = null;
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
       _readRefreshRate();
       _refreshPoll =
           Timer.periodic(const Duration(seconds: 2), (_) => _readRefreshRate());

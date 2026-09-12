@@ -20,3 +20,15 @@ prevents card-edge streaks during horizontal navigation.
 Materialize scope keeps its content wrappers mounted at rest and disables only
 the zero-sigma filter. Removing wrappers at progress 1 remounted stateful forms
 and diagnostics, resetting pending edits and repeating initial requests.
+
+5.0.0 performance review:
+- MultiShaderBuilder compares asset-key contents instead of list identities,
+  retains shader instances across equal-key rebuilds, disposes owned instances,
+  and rejects stale asynchronous loads after a key change/disposal.
+- LiquidGlassLayer accepts opt-in captureOnly to retain the first-frame child
+  subtree without touching a live backdrop before a capture is ready.
+- SSRVPN capture is driven by actual wallpaper paints. Route translation updates
+  sampling origins without reallocating unchanged full-resolution textures.
+  Static/covered/reduced-motion wallpapers no longer run a capture ticker.
+- Shared surface rebuilds are limited to the sampling layer; the glass geometry
+  and content subtree are reused. Optical shader/settings are unchanged.

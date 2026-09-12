@@ -3,6 +3,7 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 
 /// A callback used by [MultiShaderBuilder].
 typedef MultiShaderBuilderCallback = Widget Function(
@@ -160,14 +161,31 @@ class _MultiShaderBuilderState extends State<MultiShaderBuilder> {
   @override
   void didUpdateWidget(covariant MultiShaderBuilder oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.assetKeys != widget.assetKeys) {
+    if (!listEquals(oldWidget.assetKeys, widget.assetKeys)) {
       _loadShaders(widget.assetKeys);
     }
   }
 
-  void _loadShaders(List<String> assetKeys) {
-    _programs.clear();
+  int _loadGeneration = 0;
+
+  void _disposeShaders() {
+    for (final shader in _shaders.values) {
+      shader.dispose();
+    }
     _shaders.clear();
+  }
+
+  @override
+  void dispose() {
+    _loadGeneration++;
+    _disposeShaders();
+    super.dispose();
+  }
+
+  void _loadShaders(List<String> assetKeys) {
+    final generation = ++_loadGeneration;
+    _programs.clear();
+    _disposeShaders();
 
     // Check which shaders are already cached
     final uncachedKeys = <String>[];
@@ -189,7 +207,7 @@ class _MultiShaderBuilderState extends State<MultiShaderBuilder> {
     for (final assetKey in uncachedKeys) {
       ui.FragmentProgram.fromAsset(assetKey).then(
         (ui.FragmentProgram program) {
-          if (!mounted) {
+          if (!mounted || generation != _loadGeneration) {
             return;
           }
           setState(() {

@@ -95,7 +95,7 @@ class SsrvpnAppBackdrop extends StatelessWidget {
           child: Stack(fit: StackFit.expand, children: [
         Positioned.fill(
             child: IgnorePointer(
-                child: liquid.GlassBackgroundSource(
+                child: SsrvpnGlassBackgroundSource(
           child: Stack(fit: StackFit.expand, children: [
             SsrvpnDriftingBackground(
                 child: Image.asset(

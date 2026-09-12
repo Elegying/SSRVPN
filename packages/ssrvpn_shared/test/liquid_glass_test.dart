@@ -19,9 +19,13 @@ void main() {
       'Android refresh changes update glass budget without rebuilding routes',
       (tester) async {
     var rate = 60.0;
+    var reads = 0;
     const channel = MethodChannel('com.ssrvpn/display');
-    tester.binding.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (_) async => rate);
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (_) async {
+      reads++;
+      return rate;
+    });
     addTearDown(() => tester.binding.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null));
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
@@ -44,6 +48,13 @@ void main() {
             .targetFrameMs,
         8);
     expect(find.text('主界面'), findsOneWidget);
+    final activeReads = reads;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump(const Duration(seconds: 10));
+    expect(reads, activeReads);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(reads, activeReads + 1);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -79,6 +90,7 @@ void main() {
     }
     await tester.tap(find.text('知道了'));
     await tester.pump(const Duration(milliseconds: 16));
+    expect(find.text('知道了').hitTestable(), findsNothing);
     final duringExit = open();
     expect(find.byKey(const Key('rapid-panel')), findsOneWidget);
     await tester.pumpAndSettle();

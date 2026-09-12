@@ -37,13 +37,18 @@ class _GlassDialogRoute<T> extends DialogRoute<T> {
   @override
   Widget buildTransitions(BuildContext context, Animation<double> animation,
       Animation<double> secondaryAnimation, Widget child) {
-    if (MediaQuery.disableAnimationsOf(context)) return child;
-    return glass.GlassMaterializeTransition(
-      animation: animation,
-      // Keep sampling geometry stationary throughout opening and closing.
-      scaleFrom: 1,
-      contentSigma: 0,
-      child: child,
+    final reducedMotion = MediaQuery.disableAnimationsOf(context);
+    return IgnorePointer(
+      ignoring: animation.status == AnimationStatus.reverse,
+      child: reducedMotion
+          ? child
+          : glass.GlassMaterializeTransition(
+              animation: animation,
+              // Keep sampling geometry stationary throughout opening and closing.
+              scaleFrom: 1,
+              contentSigma: 0,
+              child: child,
+            ),
     );
   }
 }

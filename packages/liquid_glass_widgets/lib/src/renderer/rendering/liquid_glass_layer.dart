@@ -148,6 +148,7 @@ class LiquidGlassLayer extends StatefulWidget {
     this.shadows = const <BoxShadow>[],
     this.clipExpansion = EdgeInsets.zero,
     this.captureImage,
+    this.captureOnly = false,
     this.captureOriginInScreenSpace = Offset.zero,
     super.key,
   });
@@ -187,6 +188,10 @@ class LiquidGlassLayer extends StatefulWidget {
   ///
   /// Defaults to null — falls through to the BackdropFilterLayer path.
   final ui.Image? captureImage;
+
+  /// Keep content mounted while waiting for a captured background.
+  /// When true, never fall back to a live backdrop shader on the first frame.
+  final bool captureOnly;
 
   /// The global (screen-space) logical-pixel origin of the [RepaintBoundary]
   /// that produced [captureImage]. Used to compute `uCaptureOffset` inside
@@ -248,6 +253,7 @@ class _LiquidGlassLayerState extends State<LiquidGlassLayer>
                 link: _link,
                 clipExpansion: widget.clipExpansion,
                 captureImage: widget.captureImage,
+                captureOnly: widget.captureOnly,
                 captureOriginInScreenSpace: widget.captureOriginInScreenSpace,
                 selfScaled: LiquidGlassSelfScaleScope.of(context),
                 child: child!,
@@ -271,6 +277,7 @@ class _RawShapes extends SingleChildRenderObjectWidget {
     required this.link,
     this.clipExpansion = EdgeInsets.zero,
     this.captureImage,
+    this.captureOnly = false,
     this.captureOriginInScreenSpace = Offset.zero,
     this.selfScaled = false,
   });
@@ -282,6 +289,10 @@ class _RawShapes extends SingleChildRenderObjectWidget {
   final GeometryRenderLink link;
   final EdgeInsets clipExpansion;
   final ui.Image? captureImage;
+
+  /// Keep content mounted while waiting for a captured background.
+  /// When true, never fall back to a live backdrop shader on the first frame.
+  final bool captureOnly;
   final Offset captureOriginInScreenSpace;
 
   /// See [LiquidGlassSelfScaleScope].
@@ -298,6 +309,7 @@ class _RawShapes extends SingleChildRenderObjectWidget {
       link: link,
       clipExpansion: clipExpansion,
       captureImage: captureImage,
+      captureOnly: captureOnly,
       captureOriginInScreenSpace: captureOriginInScreenSpace,
       selfScaled: selfScaled,
     );
@@ -315,6 +327,7 @@ class _RawShapes extends SingleChildRenderObjectWidget {
       ..shadows = shadows
       ..backdropKey = backdropKey
       ..clipExpansion = clipExpansion
+      ..captureOnly = captureOnly
       ..captureImage = captureImage
       ..captureOriginInScreenSpace = captureOriginInScreenSpace
       ..selfScaled = selfScaled;
@@ -334,8 +347,17 @@ class RenderLiquidGlassLayer extends LiquidGlassRenderObject
     super.captureOriginInScreenSpace,
     EdgeInsets clipExpansion = EdgeInsets.zero,
     bool selfScaled = false,
-  })  : _clipExpansion = clipExpansion,
+    bool captureOnly = false,
+  })  : _captureOnly = captureOnly,
+        _clipExpansion = clipExpansion,
         _selfScaled = selfScaled;
+
+  bool _captureOnly;
+  set captureOnly(bool value) {
+    if (_captureOnly == value) return;
+    _captureOnly = value;
+    markNeedsPaint();
+  }
 
   // ── Cached blur filter ──────────────────────────────────────────────────
   // The BackdropFilterLayer's blur filter is rebuilt only when blurSigma
@@ -455,6 +477,11 @@ class RenderLiquidGlassLayer extends LiquidGlassRenderObject
     Rect boundingBox,
   ) {
     if (!attached) return;
+    if (_captureOnly && captureImage == null) {
+      paintShapeContents(context, offset, shapes, insideGlass: true);
+      paintShapeContents(context, offset, shapes, insideGlass: false);
+      return;
+    }
 
     // ── Pass 0: SDF Shadows ──────────────────────────────────────────────────
     if (shadows.isNotEmpty && geometryImage != null) {

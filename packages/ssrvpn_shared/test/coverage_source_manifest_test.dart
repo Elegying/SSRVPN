@@ -3,6 +3,7 @@
 // ignore_for_file: unused_import
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_typography.dart';
 import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/controllers/home_latency_controller.dart';
 import 'package:ssrvpn_shared/controllers/home_node_controller.dart';
