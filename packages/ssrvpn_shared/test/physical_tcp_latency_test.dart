@@ -55,6 +55,7 @@ void main() {
       -12: '网络不可用',
       -13: '连接失败',
       -14: '测速繁忙',
+      -15: '其他VPN占用',
     }.entries) {
       messenger.setMockMethodCallHandler(
           PhysicalTcpLatency.channel, (_) async => item.key);
@@ -64,6 +65,45 @@ void main() {
     }
     expect(NodeDisplayPolicy.latencyText(-1), '测速失败');
     expect(NodeDisplayPolicy.latencyText(null), '--');
+  });
+  test('overlapping batches share a bounded native probe queue', () async {
+    var active = 0;
+    var peak = 0;
+    messenger.setMockMethodCallHandler(PhysicalTcpLatency.channel, (_) async {
+      active++;
+      if (active > peak) peak = active;
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      active--;
+      return 25;
+    });
+    final probes =
+        List.generate(30, (i) => _Probe().testLatency('node$i.example', 443));
+    expect(await Future.wait(probes), everyElement(25));
+    expect(peak, 8);
+    expect(active, 0);
+  });
+  testWidgets('queue expiry is busy, releases its place and never probes',
+      (tester) async {
+    final replies = <Completer<int>>[];
+    messenger.setMockMethodCallHandler(PhysicalTcpLatency.channel, (_) {
+      final reply = Completer<int>();
+      replies.add(reply);
+      return reply.future;
+    });
+    final running =
+        List.generate(8, (_) => probe.testLatency('relay.example', 443));
+    await tester.pump();
+    final queued = probe.testLatency('relay.example', 443, timeoutMs: 10);
+    await tester.pump(const Duration(milliseconds: 11));
+    expect(await queued, NodeDisplayPolicy.probeBusy);
+    expect(replies.length, 8);
+    for (final reply in replies) {
+      reply.complete(1);
+    }
+    expect(await Future.wait(running), everyElement(1));
+    messenger.setMockMethodCallHandler(
+        PhysicalTcpLatency.channel, (_) async => 2);
+    expect(await probe.testLatency('relay.example', 443), 2);
   });
   test('invalid requests never reach native channel', () async {
     messenger.setMockMethodCallHandler(PhysicalTcpLatency.channel, (_) async {

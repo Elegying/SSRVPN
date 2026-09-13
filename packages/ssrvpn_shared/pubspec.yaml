@@ -28,5 +28,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/backgrounds/
+    - assets/backgrounds/network-glass-deep.png
     - assets/rules/latest/

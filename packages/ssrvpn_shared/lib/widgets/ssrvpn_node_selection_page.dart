@@ -175,10 +175,12 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   }
 
   List<ProxyNode> _latencySortedNodes(List<ProxyNode> nodes) {
-    final indexed = nodes.indexed.toList(growable: false);
+    final indexed = nodes.indexed
+        .map((entry) => (entry.$1, entry.$2, widget.latencyOf(entry.$2)))
+        .toList(growable: false);
     indexed.sort((left, right) {
-      final leftLatency = widget.latencyOf(left.$2);
-      final rightLatency = widget.latencyOf(right.$2);
+      final leftLatency = left.$3;
+      final rightLatency = right.$3;
       final leftMeasured = leftLatency != null &&
           leftLatency > 0 &&
           leftLatency < NodeDisplayPolicy.timeoutLatencyMs;

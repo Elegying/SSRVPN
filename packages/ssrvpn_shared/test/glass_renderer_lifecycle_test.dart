@@ -1,5 +1,7 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/src/renderer/rendering/liquid_glass_layer.dart';
+import 'package:liquid_glass_widgets/src/renderer/rendering/liquid_glass_render_object.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
 import 'package:liquid_glass_widgets/src/renderer/internal/multi_shader_builder.dart';
@@ -10,6 +12,25 @@ const _shaderB =
     'packages/liquid_glass_widgets/shaders/interactive_indicator.frag';
 
 void main() {
+  testWidgets('unchanged layout calls retain the local glass matte',
+      (tester) async {
+    final program =
+        await tester.runAsync(() => ui.FragmentProgram.fromAsset(_shaderA));
+    final shader = program!.fragmentShader();
+    final layer = _LayoutProbe(shader);
+    layer.layout(const BoxConstraints.tightFor(width: 100, height: 50));
+    expect(layer.geometryDirty, isTrue);
+    layer.clearDirty();
+    for (var i = 0; i < 120; i++) {
+      layer.layout(const BoxConstraints.tightFor(width: 100, height: 50));
+    }
+    expect(layer.geometryDirty, isFalse);
+    layer.layout(const BoxConstraints.tightFor(width: 120, height: 50));
+    expect(layer.geometryDirty, isTrue);
+    layer.dispose();
+    shader.dispose();
+  });
+
   testWidgets(
       'equal shader keys reuse instances across 120 rebuilds and release on removal',
       (tester) async {
@@ -88,4 +109,16 @@ class _StatefulFieldState extends State<_StatefulField> {
 
   @override
   Widget build(BuildContext context) => const Material(child: TextField());
+}
+
+class _LayoutProbe extends RenderLiquidGlassLayer {
+  _LayoutProbe(ui.FragmentShader shader)
+      : super(
+            renderShader: shader,
+            devicePixelRatio: 1,
+            settings: const glass.LiquidGlassSettings(),
+            shadows: [],
+            link: GeometryRenderLink());
+  bool get geometryDirty => needsGeometryUpdate;
+  void clearDirty() => needsGeometryUpdate = false;
 }

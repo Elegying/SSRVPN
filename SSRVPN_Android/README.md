@@ -9,6 +9,15 @@ SSRVPN Android 版是基于 Flutter、Kotlin 和 Mihomo 的系统 VPN 客户端�
 
 [下载正式版](https://github.com/Elegying/SSRVPN/releases/latest) · [用户指南](USER_GUIDE.md) · [获取帮助](../SUPPORT.md) · [返回主项目](../README.md)
 
+## 界面预览
+
+以下为 5.0.0 Android 实机截图，展示已连接主页与节点选择界面；公网 IPv4 已遮挡。可下载版本以 GitHub Release 为准。
+
+<p align="center">
+  <img src="../docs/assets/ssrvpn-product-preview.jpg" alt="SSRVPN Android 已连接主页与流量统计" width="360">
+  <img src="../docs/assets/ssrvpn-node-preview.jpg" alt="SSRVPN Android 节点选择与智能分流" width="360">
+</p>
+
 ## 支持范围
 
 - Android 7.0 或更高版本，正式安装包仅支持 **arm64-v8a** 设备。
@@ -16,10 +25,11 @@ SSRVPN Android 版是基于 Flutter、Kotlin 和 Mihomo 的系统 VPN 客户端�
 
 ## 功能特性
 
-- 深色/浅色主题和简化的“主页 + 订阅”两页流程。
+- 液态玻璃连接按钮、卡片、导航与弹窗，当前使用统一深色主题和简化的“主页 + 订阅”两页流程。
+- 主页集中展示连接状态、当前节点、公网 IPv4 与代理流量统计。
 - 支持 Mihomo/Clash YAML、Base64 订阅、常见节点 URI 和受控客户端标识兼容协商。
 - Android `VpnService`、前台通知和快捷设置磁贴。
-- 单节点/批量延迟测试、规则/全局模式和强制代理网站管理。
+- 单节点/批量延迟测试、智能/全局模式，以及强制代理和强制直连网站管理。
 - 连接成功后从正式 GitHub Release 检查和下载更新。
 
 ## 构建说明
@@ -38,10 +48,13 @@ SSRVPN Android 版是基于 Flutter、Kotlin 和 Mihomo 的系统 VPN 客户端�
 flutter pub get
 
 # 2. 构建 Debug 版本
-flutter build apk --debug
+flutter build apk --debug --dart-define-from-file=../config/ssrvpn-usage-defines.json
 
 # 3. 构建本地 Release 验证包（正式发布由 GitHub Actions 签名）
-flutter build apk --release
+flutter build apk --release --dart-define-from-file=../config/ssrvpn-usage-defines.json
+
+# 独立验收版（保留正式版数据）
+ORG_GRADLE_PROJECT_ssrvpnPreview=true flutter build apk --release --target-platform android-arm64 --dart-define-from-file=../config/ssrvpn-usage-defines.json --dart-define=SSRVPN_FRAME_DIAGNOSTICS=true
 
 # 4. 构建产物位于
 # build/app/outputs/flutter-apk/app-release.apk
@@ -61,6 +74,8 @@ scripts/create-android-release-keystore.sh
 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、
 `ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 四个 secrets；workflow 会临时
 生成 `android/key.properties`。
+
+账户用量和已连接设备数依赖 `ssrvpn-usage-defines.json` 中的可信查询配置；遗漏构建参数时默认禁用查询，两张账户卡片不会出现。
 
 本地如果需要手动签名，可创建 `android/key.properties`（已 gitignore）：
 

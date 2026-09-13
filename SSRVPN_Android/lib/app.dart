@@ -14,6 +14,8 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         HomeNodeController,
         SsrvpnAppBackdrop,
         SsrvpnBottomNavigation,
+        SsrvpnHomeShell,
+        SsrvpnPageActivity,
         SubscriptionScreenController,
         UpdateAvailabilityController,
         safeUserFacingFailureMessage,
@@ -310,48 +312,67 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
     return Builder(
       builder: (context) {
         Responsive.init(context);
+        final home = HomeScreen(key: _homeKey, active: _currentIndex == 0);
         return Scaffold(
           resizeToAvoidBottomInset: _currentIndex != 0,
           backgroundColor: Colors.transparent,
           body: SsrvpnAppBackdrop(
-            child: Column(
-              children: [
-                Expanded(
-                  child: PageView(
-                    controller: _pageController,
-                    onPageChanged: (i) {
-                      setState(() => _currentIndex = i);
-                      if (i == 0) _homeKey.currentState?.refreshNodes();
-                    },
-                    children: <Widget>[
-                      HomeScreen(key: _homeKey, active: _currentIndex == 0),
-                      const SubscriptionScreen(),
-                    ],
+            child: SsrvpnHomeShell(
+              extendBehindNavigation: true,
+              body: PageView(
+                controller: _pageController,
+                onPageChanged: (i) {
+                  if (i == _currentIndex) return;
+                  setState(() => _currentIndex = i);
+                  if (i == 0) _homeKey.currentState?.refreshNodes();
+                },
+                children: <Widget>[
+                  SsrvpnPageActivity(
+                    active: _currentIndex == 0,
+                    child: Builder(builder: (pageContext) {
+                      final media = MediaQuery.of(pageContext);
+                      return Padding(
+                        padding: EdgeInsets.only(bottom: media.padding.bottom),
+                        child: MediaQuery(
+                          data: media.copyWith(
+                              padding: MediaQuery.paddingOf(context)),
+                          child: home,
+                        ),
+                      );
+                    }),
                   ),
-                ),
-                Consumer<UpdateAvailabilityController>(
-                  builder: (context, availability, _) {
-                    final update = availability.availableUpdate;
-                    return SsrvpnBottomNavigation(
-                      currentIndex: _currentIndex,
-                      version: AppConstants.appVersion,
-                      availableVersion: update?.version,
-                      onUpdateTap: update == null
-                          ? null
-                          : () => unawaited(_openAvailableUpdate(context)),
-                      onTap: (i) {
-                        if (i == 0) _homeKey.currentState?.refreshNodes();
-                        setState(() => _currentIndex = i);
+                  SsrvpnPageActivity(
+                    active: _currentIndex == 1,
+                    child: const SubscriptionScreen(),
+                  ),
+                ],
+              ),
+              navigation: Consumer<UpdateAvailabilityController>(
+                builder: (context, availability, _) {
+                  final update = availability.availableUpdate;
+                  return SsrvpnBottomNavigation(
+                    currentIndex: _currentIndex,
+                    version: AppConstants.appVersion,
+                    availableVersion: update?.version,
+                    onUpdateTap: update == null
+                        ? null
+                        : () => unawaited(_openAvailableUpdate(context)),
+                    onTap: (i) {
+                      if (i == 0) _homeKey.currentState?.refreshNodes();
+                      setState(() => _currentIndex = i);
+                      if (MediaQuery.disableAnimationsOf(context)) {
+                        _pageController.jumpToPage(i);
+                      } else {
                         _pageController.animateToPage(
                           i,
                           duration: const Duration(milliseconds: 300),
                           curve: Curves.easeOutCubic,
                         );
-                      },
-                    );
-                  },
-                ),
-              ],
+                      }
+                    },
+                  );
+                },
+              ),
             ),
           ),
         );

@@ -928,9 +928,9 @@ void main() {
 }
 
 Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
-  // Real filesystem publication can overlap platform builds on development hosts.
-  // Keep a bounded wait and fail here instead of cascading into later dialogs.
-  final deadline = DateTime.now().add(const Duration(seconds: 30));
+  // Real filesystem publication reached 26s even in an isolated local run.
+  // Allow contention headroom while retaining a bounded wait and all assertions.
+  final deadline = DateTime.now().add(const Duration(seconds: 60));
   while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 10)),

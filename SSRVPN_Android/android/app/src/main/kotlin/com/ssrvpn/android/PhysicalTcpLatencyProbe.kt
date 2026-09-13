@@ -67,6 +67,15 @@ internal object PhysicalTcpLatencyProbe {
                 workers.execute {
                     var value = -12
                     try {
+                        val foreignVpn = SsrvpnVpnService.instance == null && manager.allNetworks.any {
+                            manager.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+                        }
+                        if (foreignVpn) {
+                            // Resolve only after proving this app may perform a physical probe.
+                            // Another VPN can block DNS before the old socket-time check ran.
+                            finish(-15)
+                            return@execute
+                        }
                         val network = chooseNetwork(manager)
                         if (network != null) {
                             // Resolution uses this network's resolver/cache;
@@ -92,7 +101,7 @@ internal object PhysicalTcpLatencyProbe {
                                         ) == true
                                     }) {
                                         // Another VPN owns the device; do not claim a direct probe.
-                                        value = -12
+                                        value = -15
                                         break
                                     }
                                     val budget = (remaining / (addresses.size - index)).coerceAtLeast(1)

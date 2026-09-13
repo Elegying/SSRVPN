@@ -1,12 +1,39 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as liquid;
+import 'package:liquid_glass_widgets/utils/glass_quality_adapter.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_app_surface.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_glass.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
 
 void main() {
+  testWidgets('low capability selects one stable minimal tier', (tester) async {
+    const channel = MethodChannel('com.ssrvpn/display');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (call) async => call.method == 'lowPerformance' ? true : 120.0);
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(wrapSsrvpnLiquidGlass(MaterialApp(
+        home: Column(children: [
+      const SsrvpnLiquidSurface(child: Text('低档')),
+      SsrvpnBottomNavigation(currentIndex: 0, version: '5.0.0', onTap: (_) {}),
+    ]))));
+    await tester.pump();
+    final scope = tester.widget<liquid.GlassAdaptiveScope>(
+        find.byType(liquid.GlassAdaptiveScope));
+    expect(scope.minQuality, liquid.GlassQuality.minimal);
+    expect(scope.maxQuality, liquid.GlassQuality.minimal);
+    expect(scope.initialQuality, liquid.GlassQuality.minimal);
+    expect(find.byType(BackdropFilter), findsNothing);
+    expect(find.byType(liquid.GlassContainer), findsNothing);
+    expect(find.byType(liquid.GlassTabBar), findsNothing);
+    expect(find.text('主页'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   test('frame budgets follow display cadence and reject invalid rates', () {
     expect(ssrvpnFrameBudget(60), 16);
     expect(ssrvpnFrameBudget(90), 11);
@@ -22,7 +49,8 @@ void main() {
     var reads = 0;
     const channel = MethodChannel('com.ssrvpn/display');
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
-        (_) async {
+        (call) async {
+      if (call.method == 'lowPerformance') return false;
       reads++;
       return rate;
     });
@@ -32,6 +60,31 @@ void main() {
     await tester.pumpWidget(
         wrapSsrvpnLiquidGlass(const MaterialApp(home: Text('主界面'))));
     await tester.pump();
+    final scope = tester.widget<liquid.GlassAdaptiveScope>(
+        find.byType(liquid.GlassAdaptiveScope));
+    expect(scope.minQuality, liquid.GlassQuality.premium);
+    expect(scope.maxQuality, liquid.GlassQuality.premium);
+    final changes = <liquid.GlassQuality>[];
+    final adapter = GlassQualityAdapter(
+      minQuality: scope.minQuality,
+      maxQuality: scope.maxQuality,
+      targetFrameMs: scope.targetFrameMs,
+      allowStepUp: scope.allowStepUp,
+      onQualityChanged: (_, quality) => changes.add(quality),
+    );
+    adapter.simulateFrameTimings(List.generate(
+        2000,
+        (i) => ui.FrameTiming(
+              vsyncStart: i * 60000,
+              buildStart: i * 60000,
+              buildFinish: i * 60000 + 1000,
+              rasterStart: i * 60000 + 1000,
+              rasterFinish: i * 60000 + 51000,
+              rasterFinishWallTime: i * 60000 + 51000,
+            )));
+    expect(adapter.currentQuality, liquid.GlassQuality.premium);
+    expect(changes, isEmpty);
+    adapter.stop();
     expect(
         tester
             .widget<liquid.GlassAdaptiveScope>(
@@ -115,19 +168,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('new backdrop and explicit legacy fallback preserve their child',
-      (tester) async {
-    for (final legacy in [false, true]) {
-      await tester.pumpWidget(MaterialApp(
-          home: SsrvpnAppBackdrop(
-        useLegacy: legacy,
-        child: const Text('SSRVPN'),
-      )));
-      await tester.pumpAndSettle();
-      expect(find.byType(Image), legacy ? findsNothing : findsOneWidget);
-      expect(find.text('SSRVPN'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    }
+  testWidgets('accepted backdrop preserves its child', (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: SsrvpnAppBackdrop(child: Text('SSRVPN')),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byType(Image), findsOneWidget);
+    expect(find.text('SSRVPN'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

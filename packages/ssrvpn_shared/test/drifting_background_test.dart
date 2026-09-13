@@ -1,8 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_drifting_background.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 
 void main() {
+  testWidgets(
+      'page transition freezes wallpaper without disabling page animation',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+        MaterialApp(navigatorKey: navigator, home: const SizedBox()));
+    final route = SsrvpnGlassPageRoute<void>(
+        builder: (_) => const SsrvpnDriftingBackground(
+            child: ColoredBox(color: Colors.blue)));
+    navigator.currentState!.push(route);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+    Offset position() => tester
+        .widget<FractionalTranslation>(find.descendant(
+            of: find.byType(SsrvpnDriftingBackground),
+            matching: find.byType(FractionalTranslation)))
+        .translation;
+    final initial = position();
+    await tester.pump(const Duration(milliseconds: 160));
+    expect(route.animation!.value, inExclusiveRange(0, 1));
+    expect(position(), initial);
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(const Duration(seconds: 2));
+    expect(position(), isNot(initial));
+    navigator.currentState!.pop();
+    await tester.pump();
+    final reverse = position();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(position(), reverse);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('popup pauses obscured wallpaper and resumes at the same phase',
       (tester) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
@@ -81,11 +115,11 @@ void main() {
             of: find.byType(SsrvpnDriftingBackground),
             matching: find.byType(FractionalTranslation)))
         .translation;
-    await tester.pump(const Duration(milliseconds: 15990));
+    await tester.pump(const Duration(milliseconds: 8990));
     final beforeTurn = position();
     await tester.pump(const Duration(milliseconds: 20));
     expect((position() - beforeTurn).distance, lessThan(.000001));
-    await tester.pump(const Duration(milliseconds: 15980));
+    await tester.pump(const Duration(milliseconds: 8980));
     final beforeSeam = position();
     await tester.pump(const Duration(milliseconds: 20));
     expect((position() - beforeSeam).distance, lessThan(.000001));
@@ -95,6 +129,33 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
     expect((position() - beforePause).distance, lessThan(.000001));
+    await tester.pumpWidget(const SizedBox());
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
+  });
+  testWidgets(
+      'stronger wallpaper motion stays covered through the 18 second cycle',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(const MaterialApp(
+        home: SsrvpnDriftingBackground(
+      child: ColoredBox(key: Key('wallpaper'), color: Colors.blue),
+    )));
+    final initial = tester.getRect(find.byKey(const Key('wallpaper')));
+    await tester.pump(const Duration(seconds: 4));
+    final moved = tester.getRect(find.byKey(const Key('wallpaper')));
+    expect((moved.left - initial.left).abs(), greaterThan(10));
+    for (final seconds in [0, 5, 4, 5]) {
+      await tester.pump(Duration(seconds: seconds));
+      final rect = tester.getRect(find.byKey(const Key('wallpaper')));
+      expect(rect.left, lessThanOrEqualTo(0));
+      expect(rect.top, lessThanOrEqualTo(0));
+      expect(rect.right, greaterThanOrEqualTo(390));
+      expect(rect.bottom, greaterThanOrEqualTo(844));
+    }
+    final seam = tester.getRect(find.byKey(const Key('wallpaper')));
+    expect(seam.left, closeTo(initial.left, .01));
     await tester.pumpWidget(const SizedBox());
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
   });

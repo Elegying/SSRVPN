@@ -45,6 +45,25 @@ class MainFlutterWindow: NSWindow {
     self.setFrame(windowFrame, display: true)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
+    let displayChannel = FlutterMethodChannel(
+      name: "com.ssrvpn/display", binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    displayChannel.setMethodCallHandler { [weak self] call, result in
+      if call.method == "lowPerformance" {
+        let process = ProcessInfo.processInfo
+        result(process.physicalMemory <= 4 * 1024 * 1024 * 1024 || process.processorCount <= 2)
+      } else if call.method == "refreshRate" {
+        guard let screen = self?.screen,
+          let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+          let mode = CGDisplayCopyDisplayMode(number.uint32Value) else {
+          result(nil); return
+        }
+        let rate = mode.refreshRate
+        if rate > 0 { result(rate) }
+        else if #available(macOS 12.0, *) { result(Double(screen.maximumFramesPerSecond)) }
+        else { result(nil) }
+      } else { result(FlutterMethodNotImplemented) }
+    }
     let latencyChannel = FlutterMethodChannel(
       name: "com.ssrvpn/physical_latency", binaryMessenger: flutterViewController.engine.binaryMessenger
     )

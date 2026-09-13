@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'ssrvpn_frame_diagnostics.dart';
+import 'ssrvpn_frame_pacing.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
 
 /// Shared, bounded-cost material for the three clients.
@@ -51,6 +52,22 @@ class SsrvpnLiquidSurface extends StatelessWidget {
           child: content);
     }
     final quality = ssrvpnGlassQuality(context);
+    if (quality == glass.GlassQuality.minimal) {
+      // Old mobile GPUs can spend >80 ms on a stack of native backdrop blurs.
+      // The low tier keeps translucent color and edge definition, with no
+      // offscreen filter, custom shader, or per-card capture.
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          color: tint?.withValues(alpha: .18) ??
+              (dark ? const Color(0x50303C60) : const Color(0xB8FFFFFF)),
+          shape: circular ? BoxShape.circle : BoxShape.rectangle,
+          borderRadius: circular ? null : BorderRadius.circular(radius),
+          border: Border.all(
+              color: borderColor ?? Colors.white.withValues(alpha: .18)),
+        ),
+        child: content,
+      );
+    }
     final frames = SsrvpnGlassFrame.listenableOf(context);
     final useCapture = quality == glass.GlassQuality.premium &&
         ui.ImageFilter.isShaderFilterSupported &&
@@ -107,10 +124,13 @@ Future<void> initializeSsrvpnLiquidGlass() async {
   }
 }
 
-/// Start with full glass and only reduce quality from measured frame cost.
+/// Keep the device tier stable; frame spikes never switch optical materials.
 glass.GlassQuality ssrvpnGlassQuality(BuildContext context) =>
     glass.GlassAdaptiveScopeData.maybeOf(context)?.effectiveQuality ??
     glass.GlassQuality.premium;
+
+bool ssrvpnUsesLowEffects(BuildContext context) =>
+    ssrvpnGlassQuality(context) == glass.GlassQuality.minimal;
 
 int ssrvpnFrameBudget(double refreshRate) =>
     (1000 / (refreshRate.isFinite && refreshRate > 0 ? refreshRate : 60))
@@ -132,6 +152,9 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
   Timer? _refreshPoll;
   double? _nativeRefreshRate;
   bool _readingRefreshRate = false;
+  bool _lowPerformance = false;
+  bool _capabilityRead = false;
+  SsrvpnFramePacing? _pacing;
   static const _display = MethodChannel('com.ssrvpn/display');
 
   Future<void> _readRefreshRate() async {
@@ -141,6 +164,29 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
     }
     _readingRefreshRate = true;
     try {
+      if (!_capabilityRead) {
+        var low = false;
+        try {
+          low = await _display.invokeMethod<bool>('lowPerformance') ?? false;
+        } on MissingPluginException {
+          // Older native hosts may still support refreshRate independently.
+        } on PlatformException {
+          // Unknown hardware retains the normal tier.
+        }
+        if (mounted) {
+          setState(() => _lowPerformance = low);
+          if (low) {
+            _pacing =
+                SsrvpnFramePacing(WidgetsBinding.instance.platformDispatcher)
+                  ..install();
+          }
+        }
+        _capabilityRead = true;
+        if (SsrvpnFrameDiagnostics.enabled) {
+          debugPrint('SSRVPN_DEVICE lowPerformance=$low '
+              'frameCap=${_pacing?.isInstalled == true ? 60 : "system"}');
+        }
+      }
       final rate = await _display.invokeMethod<double>('refreshRate');
       if (mounted &&
           WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
@@ -176,7 +222,6 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
     _refreshPoll?.cancel();
     _refreshPoll = null;
     if (!kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.android &&
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
       _readRefreshRate();
       _refreshPoll =
@@ -194,6 +239,7 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
     WidgetsBinding.instance.removeObserver(this);
     _refreshPoll?.cancel();
     _diagnostics.stop();
+    _pacing?.dispose();
     super.dispose();
   }
 
@@ -201,12 +247,18 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
   Widget build(BuildContext context) {
     _diagnostics.refreshRate =
         _nativeRefreshRate ?? View.maybeOf(context)?.display.refreshRate ?? 60;
-    final budget = ssrvpnFrameBudget(_diagnostics.refreshRate);
+    _diagnostics.targetFps = _lowPerformance ? 60 : null;
+    final budget =
+        ssrvpnFrameBudget(_lowPerformance ? 60 : _diagnostics.refreshRate);
+    final quality = _lowPerformance
+        ? glass.GlassQuality.minimal
+        : glass.GlassQuality.premium;
     return glass.LiquidGlassWidgets.wrap(
-      adaptiveQuality:
-          !const bool.fromEnvironment('SSRVPN_GLASS_FIXED_PREMIUM'),
+      adaptiveQuality: true,
       adaptiveConfig: glass.GlassAdaptiveScopeConfig(
-        initialQuality: glass.GlassQuality.premium,
+        minQuality: quality,
+        maxQuality: quality,
+        initialQuality: quality,
         targetFrameMs: budget,
         onQualityChanged: (_, quality) {
           if (SsrvpnFrameDiagnostics.enabled) {

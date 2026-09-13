@@ -36,6 +36,8 @@ class FlutterWindow : public Win32Window {
       tun_elevation_channel_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       platform_info_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      display_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

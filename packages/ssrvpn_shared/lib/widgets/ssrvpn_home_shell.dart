@@ -50,6 +50,20 @@ class SsrvpnHomeShell extends StatelessWidget {
           ]));
 }
 
+/// Keep tab state while stopping invisible tickers and keyboard focus.
+class SsrvpnPageActivity extends StatelessWidget {
+  const SsrvpnPageActivity(
+      {super.key, required this.active, required this.child});
+  final bool active;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => ExcludeFocus(
+        excluding: !active,
+        child: TickerMode(enabled: active, child: child),
+      );
+}
+
 class SsrvpnHomeNotice extends StatelessWidget {
   const SsrvpnHomeNotice(
       {super.key,

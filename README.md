@@ -4,7 +4,7 @@
 
 **简单、开源、跨平台的 Mihomo VPN / 代理客户端**
 
-Android、macOS、Windows 三端一致的连接体验：导入订阅，选择节点，一键连接。
+Android、macOS、Windows 三端统一的液态玻璃界面：导入订阅，选择节点，一键连接。
 
 **SSRVPN is an open-source, cross-platform Mihomo (Clash Meta) VPN and proxy client for Android, macOS and Windows.**
 
@@ -16,10 +16,10 @@ Android、macOS、Windows 三端一致的连接体验：导入订阅，选择节
 
 [立即下载](#下载) · [使用指南](docs/USER_GUIDE.zh-CN.md) · [故障排查](docs/TROUBLESHOOTING.zh-CN.md) · [获取帮助](SUPPORT.md) · [参与开发](CONTRIBUTING.md) · [使用边界](ACCEPTABLE_USE.md)
 
-下图为界面示意，版本号以 GitHub Release 和应用“关于”页为准。
+以下为 SSRVPN 5.0.0 的 Android 实机截图：已连接主页与节点选择界面，公网 IPv4 已遮挡。可下载版本以 GitHub Release 为准。
 
-<img src="docs/assets/ssrvpn-product-preview.png" alt="SSRVPN 已连接主页" width="400">
-<img src="docs/assets/ssrvpn-node-preview.png" alt="SSRVPN 节点选择与代理模式界面" width="400">
+<img src="docs/assets/ssrvpn-product-preview.jpg" alt="SSRVPN 5.0.0 Android 液态玻璃主页：连接状态、当前节点与流量统计" width="400">
+<img src="docs/assets/ssrvpn-node-preview.jpg" alt="SSRVPN 5.0.0 Android 节点选择：智能与全局模式、网站分流和节点延迟" width="400">
 
 </div>
 
@@ -31,9 +31,12 @@ SSRVPN 是面向 Android、macOS 和 Windows 的开源 Mihomo 客户端。它把
 
 ## 为什么选择 SSRVPN
 
+- **液态玻璃界面**：连接按钮、节点列表、流量卡片与底部导航采用统一玻璃视觉，背景支持连续微动效与减少动态效果设置。
 - **三端一致**：Android、macOS、Windows 使用统一的订阅、节点和路由逻辑，换设备也无需重新学习。
 - **开箱即用**：导入订阅或节点链接，完成刷新与测速后即可选择节点并连接。
 - **订阅兼容**：服务商拒绝默认客户端标识时，可按受控顺序兼容 Clash Verge、v2rayN 和 Shadowrocket；认证失败、地址失效或限流不会盲目重试。
+- **分流可控**：支持智能与全局模式；智能模式下国内服务直接连接，海外及未知流量走代理，也可单独管理强制代理与强制直连网站。
+- **状态直观**：主页集中显示连接状态、当前节点及延迟、公网 IPv4，以及代理上传速率、下载速率和本次累计流量。
 - **连接方式完整**：Android 使用系统 VPN；macOS 和 Windows 支持系统代理与 TUN。
 - **更新可验证**：正式安装包同时提供 SHA-256 校验文件和发布来源记录。
 - **诊断默认脱敏**：内置带错误编号和操作建议的限长诊断报告；公开分享前仍应人工检查。

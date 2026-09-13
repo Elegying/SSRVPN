@@ -1,7 +1,7 @@
 name: ssrvpn_macos
 description: SSRVPN - 安全稳定的VPN客户端
 publish_to: 'none'
-version: 5.0.0+5000
+version: 5.0.1+5001
 resolution: workspace
 
 environment:
@@ -54,4 +54,8 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/
+    - assets/AtlasCore.gz
+    - assets/AtlasCore-source.txt
+    - assets/geoip.metadb.gz
+    - assets/macos_tun_runner.sh
+    - assets/tray_icon.png

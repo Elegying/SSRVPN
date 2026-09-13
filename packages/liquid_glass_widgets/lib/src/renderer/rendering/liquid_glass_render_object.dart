@@ -36,6 +36,23 @@ abstract class LiquidGlassRenderObject extends RenderProxyBox {
 
   final FragmentShader renderShader;
 
+  // Ancestor scrolling changes screen coordinates, not the local SDF. Retain
+  // the combined matte until a shape, local transform, or optical geometry changes.
+  final _matteInputs = <(RenderLiquidGlassGeometry, GeometryCache, Matrix4)>[];
+
+  bool _sameMatteInputs(
+      List<(RenderLiquidGlassGeometry, GeometryCache, Matrix4)> inputs) {
+    if (inputs.length != _matteInputs.length) return false;
+    for (var i = 0; i < inputs.length; i++) {
+      final before = _matteInputs[i];
+      final after = inputs[i];
+      if (!identical(before.$1, after.$1) ||
+          !identical(before.$2, after.$2) ||
+          !MatrixUtils.matrixEquals(before.$3, after.$3)) return false;
+    }
+    return true;
+  }
+
   /// Cached light direction vector — updated only when [settings.lightAngle]
   /// changes. Avoids recomputing cos/sin on every setting change.
   Offset _cachedLightDir;
@@ -157,9 +174,11 @@ abstract class LiquidGlassRenderObject extends RenderProxyBox {
   }
 
   @override
-  void layout(Constraints constraints, {bool parentUsesSize = false}) {
+  void performLayout() {
+    // RenderObject.layout may be called on every scroll with unchanged
+    // constraints. Only a real layout invalidates the local geometry matte.
     needsGeometryUpdate = true;
-    super.layout(constraints, parentUsesSize: parentUsesSize);
+    super.performLayout();
   }
 
   ui.Rect _paintBounds = ui.Rect.zero;
@@ -234,13 +253,22 @@ abstract class LiquidGlassRenderObject extends RenderProxyBox {
     }
 
     if (needsGeometryUpdate || _geometryImage == null || link._dirty) {
+      final rebuildMatte = needsGeometryUpdate ||
+          _geometryImage == null ||
+          !_sameMatteInputs(_shapesWithGeometry);
       link.updateAllGeometries();
       link._dirty = false;
       needsGeometryUpdate = false;
 
-      // Synchronous rasterization (toImageSync) eliminates 1-frame jitter
-      // during size animations (like modal sheet expansion).
-      _updateGeometrySync(_shapesWithGeometry, boundingBox);
+      // Keep synchronous updates for actual shape/size changes, but a page or
+      // list translating as a whole must not rasterize identical SDFs again.
+      if (rebuildMatte) {
+        _updateGeometrySync(_shapesWithGeometry, boundingBox);
+        _matteInputs
+          ..clear()
+          ..addAll(_shapesWithGeometry
+              .map((entry) => (entry.$1, entry.$2, Matrix4.copy(entry.$3))));
+      }
 
       // The image is now current — no latency. On the very first frame there
       // is no previous image — fall through to the early-return below via the
@@ -580,6 +608,7 @@ abstract class LiquidGlassRenderObject extends RenderProxyBox {
   @override
   @mustCallSuper
   void dispose() {
+    _matteInputs.clear();
     _clearGeometryImage();
     // Break reference chains to prevent stale GPU resource retention during
     // isolate shutdown. The render shader holds a DlRuntimeEffectColorSource
@@ -683,7 +712,7 @@ class GeometryRenderLink {
   }
 
   void unregisterGeometry(RenderLiquidGlassGeometry renderObject) {
-    _shapeGeometries.remove(renderObject);
+    if (_shapeGeometries.remove(renderObject)) _dirty = true;
   }
 
   void dispose() {
