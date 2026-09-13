@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +17,33 @@ spec.loader.exec_module(module)
 build_spec = importlib.util.spec_from_file_location('core_asset', ROOT / 'scripts/build-core-asset.py')
 builder = importlib.util.module_from_spec(build_spec)
 build_spec.loader.exec_module(builder)
+
+probe_spec = importlib.util.spec_from_file_location('core_probe', ROOT / 'scripts/check-core-proxy-traffic.py')
+probe = importlib.util.module_from_spec(probe_spec)
+probe_spec.loader.exec_module(probe)
+
+
+class CoreTrafficReadinessTests(unittest.TestCase):
+    def test_api_ready_does_not_skip_waiting_for_proxy_listener(self):
+        process = MagicMock()
+        process.poll.return_value = None
+        with patch.object(probe, 'request', return_value=(200, b'')) as request, \
+                patch.object(probe.socket, 'create_connection', side_effect=[ConnectionRefusedError(), MagicMock()]) as connect, \
+                patch.object(probe.time, 'sleep'):
+            probe.wait_for_core(process, io.StringIO(''), 1234, 5678)
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(connect.call_count, 2)
+        connect.assert_called_with(('127.0.0.1', 5678), timeout=.2)
+
+    def test_dead_process_and_timeout_keep_diagnostics(self):
+        for exited in (None, 1):
+            with self.subTest(exited=exited):
+                process = MagicMock()
+                process.poll.return_value = exited
+                with patch.object(probe, 'request', side_effect=ConnectionRefusedError()), \
+                        patch.object(probe.time, 'sleep'), \
+                        self.assertRaisesRegex(AssertionError, 'startup failure'):
+                    probe.wait_for_core(process, io.StringIO('startup failure'), 1234, 5678)
 
 
 class CoreTrafficSourceTests(unittest.TestCase):

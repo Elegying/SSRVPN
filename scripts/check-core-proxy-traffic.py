@@ -83,6 +83,25 @@ def request(port, path, authenticated=True):
         connection.close()
 
 
+def wait_for_core(process, log, api, mixed):
+    for _ in range(100):
+        try:
+            status, _ = request(api, '/ssrvpn/traffic')
+            if status == 200:
+                # The controller can listen before the proxy port is ready.
+                with socket.create_connection(('127.0.0.1', mixed), timeout=.2):
+                    return
+        except OSError:
+            pass
+        if process.poll() is not None:
+            log.seek(0)
+            raise AssertionError(log.read())
+        time.sleep(.1)
+    else:
+        log.seek(0)
+        raise AssertionError('core API or proxy listener did not start: ' + log.read())
+
+
 def run(core):
     with ExitStack() as stack:
         folder = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='ssrvpn-traffic-check-')))
@@ -124,19 +143,7 @@ rules:
                 process.kill()
                 process.wait()
         stack.callback(stop)
-        for _ in range(100):
-            try:
-                status, _ = request(api, '/ssrvpn/traffic')
-                if status == 200:
-                    break
-            except OSError:
-                pass
-            if process.poll() is not None:
-                log.seek(0)
-                raise AssertionError(log.read())
-            time.sleep(.1)
-        else:
-            raise AssertionError('core API did not start')
+        wait_for_core(process, log, api, mixed)
         assert request(api, '/ssrvpn/traffic', False)[0] == 401
 
         def sample():
