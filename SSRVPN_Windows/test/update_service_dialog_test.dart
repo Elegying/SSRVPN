@@ -931,13 +931,14 @@ void main() {
 }
 
 Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
-  // Start real filesystem work in runAsync; pump only the resulting UI here.
+  // These tests assert download states, not intermediate glass animation frames.
+  // Advance past the 320ms dialog transition in one frame while real IO runs.
   final deadline = DateTime.now().add(const Duration(seconds: 30));
   while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
-    await tester.pump(const Duration(milliseconds: 20));
+    await tester.pump(const Duration(milliseconds: 400));
   }
   expect(finder, findsOneWidget,
       reason: 'dialog did not reach the expected state');
