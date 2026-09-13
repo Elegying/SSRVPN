@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import textwrap
 from pathlib import Path
 import unittest
 
@@ -62,6 +65,45 @@ class CiDocsScopeTest(unittest.TestCase):
             matrix.count("needs.changes.outputs.platform_required == 'true'"),
             14,
         )
+
+    def test_docs_skip_heavy_workspace_steps_and_keep_privacy_checks(self) -> None:
+        workflow = CI.read_text()
+        shared = job(workflow, "shared", "core-assets")
+        for step in shared.split("      - ")[1:]:
+            if "actions/checkout@" in step:
+                continue
+            if "Validate documentation-only change" in step:
+                self.assertIn("platform_required == 'false'", step)
+                self.assertIn("scripts.test_third_party_licenses", step)
+                self.assertIn("check-doc-consistency.sh", step)
+            else:
+                self.assertIn("platform_required == 'true'", step)
+        core = job(workflow, "core-assets", "macos-native")
+        self.assertIn("&& 'macos-15' || 'ubuntu-latest'", core)
+        self.assertIn('case "$SCOPE" in', core)
+        self.assertIn('*) exit 1 ;;', core)
+        for step in core.split("      - ")[1:]:
+            if "bootstrap-core-assets.sh" in step or "uses:" in step:
+                self.assertIn("platform_required == 'true'", step)
+
+    def test_core_gate_rejects_failed_preflight_and_invalid_scope(self) -> None:
+        core = job(CI.read_text(), "core-assets", "macos-native")
+        guard = core.split("        run: |\n", 1)[1].split("\n      - ", 1)[0]
+        preflight = core.split("        run: ", 1)[1].splitlines()[0]
+        script = "set -e\n" + preflight + "\n" + textwrap.dedent(guard)
+        for scope, result, succeeds in (
+            ("false", "success", True), ("true", "success", True),
+            ("", "success", False), ("unknown", "success", False),
+            ("false", "failure", False), ("false", "skipped", False),
+            ("true", "cancelled", False),
+        ):
+            with self.subTest(scope=scope, result=result):
+                completed = subprocess.run(
+                    ["bash", "-c", script],
+                    env=dict(os.environ, SCOPE=scope, PREFLIGHT_RESULT=result),
+                    capture_output=True,
+                )
+                self.assertEqual(completed.returncode == 0, succeeds)
 
     def test_native_and_windows_heavy_jobs_are_scope_gated(self) -> None:
         workflow = CI.read_text(encoding="utf-8")

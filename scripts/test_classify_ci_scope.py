@@ -51,7 +51,7 @@ class ClassifyCiScopeTest(unittest.TestCase):
         self.assertFalse(classifier.platform_required(["README.md"]))
         self.assertFalse(
             classifier.platform_required(
-                ["CHANGELOG.md", "docs/GEOIP_SOURCE.txt", "docs/images/ui.png"]
+                ["CHANGELOG.md", "docs/images/ui.png"]
             )
         )
 
@@ -60,6 +60,9 @@ class ClassifyCiScopeTest(unittest.TestCase):
 
         for paths in (
             ["README.md", "lib/main.dart"],
+            ["docs/GEOIP_SOURCE.txt"],
+            ["docs/config.json"],
+            ["docs/example.py"],
             ["packages/example/README.md"],
             [".github/workflows/ci.yml"],
             ["scripts/prepare-release.sh"],

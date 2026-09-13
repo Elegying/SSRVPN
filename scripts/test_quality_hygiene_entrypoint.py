@@ -27,9 +27,14 @@ class QualityHygieneEntrypointTest(unittest.TestCase):
                 "scripts/check-quality-hygiene.sh"
             ),
         )
+        shared = ci.split("  shared:\n", 1)[1].split("  core-assets:\n", 1)[0]
         self.assertLess(
-            ci.index("- run: flutter pub get --enforce-lockfile"),
-            ci.index("- run: bash scripts/check-quality-hygiene.sh"),
+            shared.index("run: flutter pub get --enforce-lockfile"),
+            shared.index("run: bash scripts/check-quality-hygiene.sh"),
+        )
+        self.assertIn(
+            "if: needs.changes.outputs.platform_required == 'true'\n"
+            "        run: bash scripts/check-quality-hygiene.sh", shared,
         )
 
     def test_gate_checks_every_tracked_dart_and_shell_file(self) -> None:

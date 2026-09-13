@@ -46,13 +46,13 @@ class DependencySecurityTest(unittest.TestCase):
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
         preflight = ci.split("  dependency-preflight:\n", 1)[1].split("  shared:\n", 1)[0]
         self.assertIn("runs-on: ubuntu-latest", preflight)
-        self.assertIn("needs: secret-scan", preflight)
+        self.assertIn("needs: [changes, secret-scan]", preflight)
         self.assertNotIn("core-assets", preflight)
         for command in ("flutter pub get --enforce-lockfile", "check-version-sync.sh",
                         "check-android-built-in-kotlin.sh", "check-doc-consistency.sh"):
             self.assertIn(command, preflight)
         core = ci.split("  core-assets:\n", 1)[1].split("  macos-native:\n", 1)[0]
-        self.assertIn("needs: dependency-preflight", core)
+        self.assertIn("needs: [changes, dependency-preflight]", core)
         self.assertIn("if: always()", core)
         self.assertIn('run: test "$PREFLIGHT_RESULT" = success', core)
         self.assertLess(core.index('run: test "$PREFLIGHT_RESULT" = success'),
