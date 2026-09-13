@@ -156,64 +156,68 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
               constraints.maxWidth < SsrvpnUiTokens.compactBreakpoint
                   ? 18.0
                   : 28.0;
-          return SingleChildScrollView(
+          final sidePadding =
+              ((constraints.maxWidth - SsrvpnUiTokens.pageMaxWidth) / 2)
+                  .clamp(horizontalPadding, double.infinity);
+          return CustomScrollView(
             key: const Key('ssrvpn-subscription-scroll'),
             controller: _scrollController,
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            padding: EdgeInsets.fromLTRB(
-              horizontalPadding,
-              18,
-              horizontalPadding,
-              30 + MediaQuery.paddingOf(context).bottom,
-            ),
-            child: Center(
-              child: ConstrainedBox(
-                key: const Key('ssrvpn-subscription-content'),
-                constraints: const BoxConstraints(
-                  maxWidth: SsrvpnUiTokens.pageMaxWidth,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _SubscriptionHeader(onShowLogs: widget.onShowLogs),
-                    if (widget.connectionStatus != null) ...[
-                      const SizedBox(height: 20),
-                      _SubscriptionConnectionCard(
-                        status: widget.connectionStatus!,
-                        currentNodeName: widget.currentNodeName,
+            slivers: [
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(sidePadding, 18, sidePadding,
+                    30 + MediaQuery.paddingOf(context).bottom),
+                sliver: SliverMainAxisGroup(slivers: [
+                  SliverToBoxAdapter(
+                      child: Column(
+                    key: const Key('ssrvpn-subscription-content'),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _SubscriptionHeader(onShowLogs: widget.onShowLogs),
+                      if (widget.connectionStatus != null) ...[
+                        const SizedBox(height: 20),
+                        _SubscriptionConnectionCard(
+                          status: widget.connectionStatus!,
+                          currentNodeName: widget.currentNodeName,
+                        ),
+                      ],
+                      const SizedBox(height: 26),
+                      _SubscriptionAddCard(
+                        urlController: widget.urlController,
+                        inputFocusNode: _inputFocusNode,
+                        addActionKey: _addActionKey,
+                        isAdding: widget.isAdding,
+                        isBusy: widget.isBusy,
+                        onAdd: widget.onAdd,
                       ),
-                    ],
-                    const SizedBox(height: 26),
-                    _SubscriptionAddCard(
-                      urlController: widget.urlController,
-                      inputFocusNode: _inputFocusNode,
-                      addActionKey: _addActionKey,
-                      isAdding: widget.isAdding,
-                      isBusy: widget.isBusy,
-                      onAdd: widget.onAdd,
-                    ),
-                    const SizedBox(height: 30),
-                    _SubscriptionListHeader(
-                      count: widget.subscriptions.length,
-                      isRefreshing: widget.isRefreshing,
-                      isBusy: widget.isBusy,
-                      onRefresh: widget.onRefresh,
-                      onCancelRefresh: widget.onCancelRefresh,
-                    ),
-                    if (_visibleRefreshMessage != null) ...[
-                      const SizedBox(height: 10),
-                      _RefreshMessage(
-                        message: _visibleRefreshMessage!,
-                        color: _visibleRefreshMessageColor ??
-                            SsrvpnUiTokens.primary,
+                      const SizedBox(height: 30),
+                      _SubscriptionListHeader(
+                        count: widget.subscriptions.length,
+                        isRefreshing: widget.isRefreshing,
+                        isBusy: widget.isBusy,
+                        onRefresh: widget.onRefresh,
+                        onCancelRefresh: widget.onCancelRefresh,
                       ),
+                      if (_visibleRefreshMessage != null) ...[
+                        const SizedBox(height: 10),
+                        _RefreshMessage(
+                          message: _visibleRefreshMessage!,
+                          color: _visibleRefreshMessageColor ??
+                              SsrvpnUiTokens.primary,
+                        ),
+                      ],
+                      const SizedBox(height: 14),
                     ],
-                    const SizedBox(height: 14),
-                    if (widget.subscriptions.isEmpty)
-                      const _SubscriptionEmptyState()
-                    else
-                      ...widget.subscriptions.map(
-                        (subscription) => _SubscriptionCard(
+                  )),
+                  if (widget.subscriptions.isEmpty)
+                    const SliverToBoxAdapter(child: _SubscriptionEmptyState())
+                  else
+                    SliverList.builder(
+                      itemCount: widget.subscriptions.length,
+                      itemBuilder: (context, index) {
+                        final subscription = widget.subscriptions[index];
+                        return _SubscriptionCard(
+                          key: ValueKey(subscription.id),
                           subscription: subscription,
                           onDelete: widget.isBusy
                               ? null
@@ -221,12 +225,12 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                           onEdit: widget.isBusy || widget.onEdit == null
                               ? null
                               : () => widget.onEdit!(subscription),
-                        ),
-                      ),
-                  ],
-                ),
+                        );
+                      },
+                    ),
+                ]),
               ),
-            ),
+            ],
           );
         },
       ),
@@ -332,6 +336,7 @@ class _RefreshMessage extends StatelessWidget {
 
 class _SubscriptionCard extends StatelessWidget {
   const _SubscriptionCard({
+    super.key,
     required this.subscription,
     required this.onDelete,
     required this.onEdit,

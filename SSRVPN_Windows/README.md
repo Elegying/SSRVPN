@@ -23,7 +23,7 @@ Windows 对外只发布每用户安装器 `SSRVPN_Setup.exe`；不再构建或�
 ```powershell
 flutter pub get
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
-  -File .\tool\package_windows.ps1
+  -File .\tool\package_windows.ps1 -DartDefineFromFile ..\config\ssrvpn-usage-defines.json
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
   -File .\tool\build_installer.ps1
 ```

@@ -61,6 +61,8 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 if (call.method == "refreshRate") {
                     result.success(window.decorView.display?.refreshRate?.toDouble() ?: 60.0)
+                } else if (call.method == "lowPerformance") {
+                    result.success(displayRefreshRate.lowPerformance)
                 } else result.notImplemented()
             }
 

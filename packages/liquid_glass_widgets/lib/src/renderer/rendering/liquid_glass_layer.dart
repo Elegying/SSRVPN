@@ -540,7 +540,14 @@ class RenderLiquidGlassLayer extends LiquidGlassRenderObject
     // Use Flutter's native ImageFilter.blur for smooth, multi-pass Gaussian
     // quality (the inline 9-tap shader approximation was pixelated with text).
     // Clip tightly to the actual pill shape path — no expansion needed here.
-    if (settings.effectiveBlur > 0) {
+    final capturedForegroundOnly = _captureOnly &&
+        captureImage != null &&
+        shapes.every((entry) =>
+            entry.$2.shapes.every((shape) => !shape.glassContainsChild));
+    // An opaque captured-background shader replaces this live backdrop read.
+    // Foreground-only cards have no inside-glass content to blur: doing both
+    // otherwise adds one redundant compositor blur per visible list row.
+    if (settings.effectiveBlur > 0 && !capturedForegroundOnly) {
       final blurSigma = settings.effectiveBlur;
       // Reuse cached blur filter when sigma hasn't changed.
       if (_cachedBlur == null || _cachedBlurSigma != blurSigma) {

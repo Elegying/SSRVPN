@@ -13,9 +13,10 @@ class SsrvpnDriftingBackground extends StatefulWidget {
 class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _motion =
-      AnimationController(vsync: this, duration: const Duration(seconds: 32));
+      AnimationController(vsync: this, duration: const Duration(seconds: 18));
   bool _reducedMotion = true;
   bool _visible = true;
+  ModalRoute<dynamic>? _route;
 
   @override
   void initState() {
@@ -27,6 +28,12 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _reducedMotion = MediaQuery.disableAnimationsOf(context);
+    final route = ModalRoute.of(context);
+    if (_route != route) {
+      _listenToRoute(false);
+      _route = route;
+      _listenToRoute(true);
+    }
     // A translucent popup leaves the underlying route mounted. Pause its
     // decorative motion so every obscured glass card does not rasterize again.
     _visible = TickerMode.valuesOf(context).enabled &&
@@ -37,10 +44,27 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) => _updateMotion();
 
+  void _listenToRoute(bool add) {
+    for (final animation in [_route?.animation, _route?.secondaryAnimation]) {
+      if (add) {
+        animation?.addStatusListener(_routeStatusChanged);
+      } else {
+        animation?.removeStatusListener(_routeStatusChanged);
+      }
+    }
+  }
+
+  void _routeStatusChanged(AnimationStatus _) => _updateMotion();
+
   void _updateMotion() {
     final lifecycle = WidgetsBinding.instance.lifecycleState;
-    final active =
-        !_reducedMotion && _visible && lifecycle == AppLifecycleState.resumed;
+    final active = !_reducedMotion &&
+        _visible &&
+        lifecycle == AppLifecycleState.resumed &&
+        (_route?.animation == null ||
+            _route!.animation!.status == AnimationStatus.completed) &&
+        (_route?.secondaryAnimation == null ||
+            _route!.secondaryAnimation!.status == AnimationStatus.dismissed);
     if (active && !_motion.isAnimating) {
       _motion.repeat();
     } else if (!active) {
@@ -51,6 +75,7 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _listenToRoute(false);
     _motion.dispose();
     super.dispose();
   }
@@ -67,9 +92,9 @@ class _SsrvpnDriftingBackgroundState extends State<SsrvpnDriftingBackground>
             // A full cosine cycle matches position and velocity at both seams.
             final t = (1 - math.cos(_motion.value * 2 * math.pi)) / 2;
             return Transform.scale(
-              scale: 1.10,
+              scale: 1.16,
               child: FractionalTranslation(
-                translation: Offset((t - .5) * .07, (.5 - t) * .05),
+                translation: Offset((t - .5) * .11, (.5 - t) * .08),
                 child: child,
               ),
             );

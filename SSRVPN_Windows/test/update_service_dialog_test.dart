@@ -739,7 +739,7 @@ void main() {
 
     expect(find.text('下载到桌面'), findsOneWidget);
     expect(find.text('立即更新'), findsNothing);
-    await tester.tap(find.text('下载到桌面'));
+    await tester.runAsync(() => tester.tap(find.text('下载到桌面')));
     await tester.pump();
     final progressDescription = find.text(
       '下载并通过 SHA-256 校验后保存到桌面，不会自动启动；'
@@ -854,7 +854,7 @@ void main() {
         },
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('下载到桌面'));
+      await tester.runAsync(() => tester.tap(find.text('下载到桌面')));
       await tester.pump();
 
       const retainedMessage = '桌面已有通过 SHA-256 校验的同版本安装包。请手动安装；'
@@ -891,25 +891,28 @@ void main() {
         ),
       );
 
-      final download = UpdateService.downloadUpdateToDesktop(
-        context,
-        AppUpdateInfo(
-          version: '9.9.9',
-          downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
-          changelog: '',
-          sha256: sha256.convert(bytes).toString(),
-        ),
-        desktopDirectory: desktop,
-        client: MockClient(
-          (_) async => http.Response.bytes(bytes, HttpStatus.ok),
-        ),
-        filePublisher: (source, destination) async {
-          await source.copy(destination.path);
-          await Directory(
-            '${destination.path}${UpdateService.verifiedUpdateMarkerSuffix}',
-          ).create();
-        },
-      );
+      late Future<void> download;
+      await tester.runAsync(() async {
+        download = UpdateService.downloadUpdateToDesktop(
+          context,
+          AppUpdateInfo(
+            version: '9.9.9',
+            downloadUrl: 'https://example.com/SSRVPN_Setup.exe',
+            changelog: '',
+            sha256: sha256.convert(bytes).toString(),
+          ),
+          desktopDirectory: desktop,
+          client: MockClient(
+            (_) async => http.Response.bytes(bytes, HttpStatus.ok),
+          ),
+          filePublisher: (source, destination) async {
+            await source.copy(destination.path);
+            await Directory(
+              '${destination.path}${UpdateService.verifiedUpdateMarkerSuffix}',
+            ).create();
+          },
+        );
+      });
 
       await _pumpUntilFound(tester, find.text('下载完成'));
 
@@ -920,7 +923,7 @@ void main() {
       expect(find.text('下载完成'), findsOneWidget);
       await tester.tap(find.text('知道了').last);
       await tester.pumpAndSettle();
-      await download;
+      await tester.runAsync(() => download);
 
       expect(showedExpectedMessage, isTrue);
     },
@@ -928,14 +931,14 @@ void main() {
 }
 
 Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
-  // Real filesystem publication can overlap platform builds on development hosts.
-  // Keep a bounded wait and fail here instead of cascading into later dialogs.
+  // These tests assert download states, not intermediate glass animation frames.
+  // Advance past the 320ms dialog transition in one frame while real IO runs.
   final deadline = DateTime.now().add(const Duration(seconds: 30));
   while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
-    await tester.pump(const Duration(milliseconds: 20));
+    await tester.pump(const Duration(milliseconds: 400));
   }
   expect(finder, findsOneWidget,
       reason: 'dialog did not reach the expected state');

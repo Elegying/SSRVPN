@@ -30,7 +30,9 @@ class _NodeSelectionCard extends StatelessWidget {
   final VoidCallback? onLongPress;
 
   Color get _latencyColor {
-    if (latency == null) return SsrvpnUiTokens.textSecondary;
+    if (latency == null || NodeDisplayPolicy.isLocalProbeBlocked(latency)) {
+      return SsrvpnUiTokens.textSecondary;
+    }
     if (latency! <= 0 || latency! >= 65535) {
       return SsrvpnUiTokens.error;
     }

@@ -19,6 +19,7 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart'
         SsrvpnAppBackdrop,
         SsrvpnBottomNavigation,
         SsrvpnHomeShell,
+        SsrvpnPageActivity,
         SsrvpnHomeNotice,
         SsrvpnDesktopTitlebarInset,
         UpdateAvailabilityController,

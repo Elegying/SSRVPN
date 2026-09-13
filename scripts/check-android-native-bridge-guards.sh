@@ -1441,3 +1441,15 @@ if "stopSelf()" in stop:
 PY
 
 echo "Android native bridge guard check passed."
+
+# A foreign VPN must be classified before its policy can block network DNS.
+python3 - "$ROOT/SSRVPN_Android/android/app/src/main/kotlin/com/ssrvpn/android/PhysicalTcpLatencyProbe.kt" <<'PY_GUARD'
+import sys
+from pathlib import Path
+probe = Path(sys.argv[1]).read_text()
+foreign = probe.index('if (foreignVpn)')
+resolve = probe.index('val addresses = resolve(')
+assert foreign < resolve, 'Foreign VPN detection must precede physical DNS'
+assert 'finish(-15)' in probe[foreign:resolve], 'Foreign VPN needs a distinct local failure code'
+assert 'SsrvpnVpnService.instance == null' in probe[:foreign]
+PY_GUARD

@@ -1,7 +1,7 @@
 name: ssrvpn_android
 description: SSRVPN - 安全稳定的VPN客户端
 publish_to: 'none'
-version: 5.0.0+5000
+version: 5.0.1+5001
 resolution: workspace
 
 environment:
@@ -48,7 +48,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  shaders:
-    - shaders/liquid_lens.frag
   assets:
-    - assets/
+    - assets/geoip.metadb.gz
+    - assets/libgojni-source.txt

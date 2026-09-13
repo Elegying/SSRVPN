@@ -311,20 +311,25 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: SsrvpnSubscriptionView(
-        subscriptions: subService.subscriptions,
-        urlController: _urlController,
-        isAdding: _isAdding,
-        isRefreshing: _isRefreshing,
-        isBusy: _isBusy,
-        refreshMessage: refreshResult?.message,
-        refreshMessageColor: refreshColor,
-        onAdd: _addSubscription,
-        onRefresh: _refreshAll,
-        onCancelRefresh: _cancelRefresh,
-        onDelete: _deleteSubscription,
-        onEdit: _editSubscription,
-        onShowLogs: () => showAndroidDiagnosticsSheet(context),
+      body: SsrvpnSubscriptionRuntime(
+        core: context.read<ClashService>(),
+        builder: (context, status, nodeName) => SsrvpnSubscriptionView(
+          connectionStatus: status,
+          currentNodeName: nodeName,
+          subscriptions: subService.subscriptions,
+          urlController: _urlController,
+          isAdding: _isAdding,
+          isRefreshing: _isRefreshing,
+          isBusy: _isBusy,
+          refreshMessage: refreshResult?.message,
+          refreshMessageColor: refreshColor,
+          onAdd: _addSubscription,
+          onRefresh: _refreshAll,
+          onCancelRefresh: _cancelRefresh,
+          onDelete: _deleteSubscription,
+          onEdit: _editSubscription,
+          onShowLogs: () => showAndroidDiagnosticsSheet(context),
+        ),
       ),
     );
   }

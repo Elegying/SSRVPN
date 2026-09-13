@@ -5,9 +5,13 @@ class NodeDisplayPolicy {
   static const noPhysicalNetwork = -12;
   static const connectFailed = -13;
   static const probeBusy = -14;
+  static const otherVpnActive = -15;
+
+  static bool isLocalProbeBlocked(int? value) =>
+      value == probeBusy || value == otherVpnActive;
 
   static bool isProbeFailure(int value) =>
-      value <= probeTimedOut && value >= probeBusy;
+      value <= probeTimedOut && value >= otherVpnActive;
 
   static String latencyText(int? value) {
     if (value == null) return '--';
@@ -17,6 +21,7 @@ class NodeDisplayPolicy {
       noPhysicalNetwork => '网络不可用',
       connectFailed => '连接失败',
       probeBusy => '测速繁忙',
+      otherVpnActive => '其他VPN占用',
       <= 0 => '测速失败',
       >= timeoutLatencyMs => '超时',
       _ => '${value}ms',
@@ -26,7 +31,9 @@ class NodeDisplayPolicy {
   static const timeoutLatencyMs = 65535;
 
   static bool isTimeoutLatency(int? latency) =>
-      latency != null && (latency <= 0 || latency >= timeoutLatencyMs);
+      latency != null &&
+      !isLocalProbeBlocked(latency) &&
+      (latency <= 0 || latency >= timeoutLatencyMs);
 
   static bool isSelectableLatency(int? latency) => !isTimeoutLatency(latency);
 

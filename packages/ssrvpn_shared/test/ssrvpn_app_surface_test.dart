@@ -1270,7 +1270,14 @@ void main() {
       ),
       const Size(320, 568),
     );
+    await tester.scrollUntilVisible(find.byTooltip(longSubscriptionName), 200,
+        scrollable: find
+            .descendant(
+                of: find.byKey(const Key('ssrvpn-subscription-scroll')),
+                matching: find.byType(Scrollable))
+            .first);
     expect(find.byTooltip(longSubscriptionName), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('desktop node labels keep their suffix and expose the full name',

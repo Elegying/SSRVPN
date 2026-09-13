@@ -291,6 +291,7 @@ part_limits = {
         "packages/ssrvpn_shared/lib/widgets/ssrvpn_subscription_error_dialog.dart"
     ): 200,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_home_overview.dart"): 600,
+    Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_power_button.dart"): 120,
     Path(
         "packages/ssrvpn_shared/lib/widgets/ssrvpn_home_overview_header.dart"
     ): 200,

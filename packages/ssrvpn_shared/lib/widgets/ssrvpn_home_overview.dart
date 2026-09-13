@@ -2,6 +2,7 @@ import 'ssrvpn_liquid_glass.dart';
 import 'package:flutter/material.dart';
 import 'ssrvpn_home_text.dart';
 import 'ssrvpn_home_shell.dart';
+import 'ssrvpn_connection_halo.dart';
 
 import '../models/proxy_node.dart';
 import '../utils/node_country_policy.dart';
@@ -10,6 +11,7 @@ import 'country_flag_icon.dart';
 import 'ssrvpn_app_surface.dart';
 
 part 'ssrvpn_home_overview_header.dart';
+part 'ssrvpn_power_button.dart';
 part 'ssrvpn_home_centered_layout.dart';
 
 class SsrvpnHomeOverview extends StatefulWidget {
@@ -283,93 +285,6 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
   }
 }
 
-class SsrvpnPowerButton extends StatelessWidget {
-  const SsrvpnPowerButton({
-    super.key,
-    required this.size,
-    required this.isConnected,
-    required this.isConnecting,
-    required this.onTap,
-    this.hasConnectionError = false,
-  });
-
-  final double size;
-  final bool isConnected;
-  final bool isConnecting;
-  final bool hasConnectionError;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final activeColor = hasConnectionError
-        ? SsrvpnUiTokens.error
-        : isConnected
-            ? SsrvpnUiTokens.success
-            : SsrvpnUiTokens.primary;
-    final semanticLabel = isConnecting
-        ? '取消当前连接操作'
-        : isConnected
-            ? '断开连接'
-            : '连接';
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: Material(
-        key: const Key('ssrvpn-power-button'),
-        color: Colors.transparent,
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: Container(
-            width: size,
-            height: size,
-            padding: EdgeInsets.all(size * 0.075),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: activeColor.withValues(alpha: isConnected ? 0.62 : 0.28),
-                width: 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color:
-                      activeColor.withValues(alpha: isConnected ? 0.28 : 0.12),
-                  blurRadius: 38,
-                  spreadRadius: 3,
-                ),
-              ],
-            ),
-            child: SsrvpnLiquidSurface(
-              circular: true,
-              tint: activeColor,
-              borderColor: activeColor.withValues(alpha: .35),
-              child: Center(
-                child: isConnecting
-                    ? SizedBox(
-                        width: size * 0.3,
-                        height: size * 0.3,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 3,
-                          color: activeColor,
-                        ),
-                      )
-                    : Icon(
-                        Icons.power_settings_new_rounded,
-                        size: size * 0.36,
-                        color: isConnected
-                            ? activeColor
-                            : SsrvpnUiTokens.textSecondary,
-                      ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class SsrvpnCurrentNodeCard extends StatelessWidget {
   const SsrvpnCurrentNodeCard({
     super.key,
@@ -396,7 +311,7 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
     final latencyTimedOut = NodeDisplayPolicy.isTimeoutLatency(latency);
     final latencyText = NodeDisplayPolicy.latencyText(latency);
     final Color latencyColor;
-    if (latency == null) {
+    if (latency == null || NodeDisplayPolicy.isLocalProbeBlocked(latency)) {
       latencyColor = SsrvpnUiTokens.textSecondary;
     } else if (latencyTimedOut || latency! >= 350) {
       latencyColor = SsrvpnUiTokens.error;
@@ -431,13 +346,16 @@ class SsrvpnCurrentNodeCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: SsrvpnUiTokens.primary,
                     borderRadius: BorderRadius.circular(compact ? 15 : 17),
-                    boxShadow: [
-                      BoxShadow(
-                        color: SsrvpnUiTokens.primary.withValues(alpha: 0.28),
-                        blurRadius: 18,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
+                    boxShadow: ssrvpnUsesLowEffects(context)
+                        ? const []
+                        : [
+                            BoxShadow(
+                              color: SsrvpnUiTokens.primary
+                                  .withValues(alpha: 0.28),
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
                   ),
                   child: Icon(
                     Icons.auto_awesome_rounded,

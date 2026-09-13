@@ -498,6 +498,39 @@ bool FlutterWindow::OnCreate() {
         result->Success(flutter::EncodableValue(
             EncodeWindowsVersionInfo(info)));
       });
+  display_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "com.ssrvpn/display",
+          &flutter::StandardMethodCodec::GetInstance());
+  display_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+        if (call.method_name() == "lowPerformance") {
+          MEMORYSTATUSEX memory = {};
+          memory.dwLength = sizeof(memory);
+          SYSTEM_INFO system = {};
+          GetSystemInfo(&system);
+          const bool low_memory = GlobalMemoryStatusEx(&memory) &&
+              memory.ullTotalPhys <= 4ULL * 1024 * 1024 * 1024;
+          result->Success(flutter::EncodableValue(
+              low_memory || system.dwNumberOfProcessors <= 2));
+        } else if (call.method_name() == "refreshRate") {
+          MONITORINFOEXW monitor = {};
+          monitor.cbSize = sizeof(monitor);
+          DEVMODEW mode = {};
+          mode.dmSize = sizeof(mode);
+          if (GetMonitorInfoW(MonitorFromWindow(GetHandle(), MONITOR_DEFAULTTONEAREST),
+                              reinterpret_cast<MONITORINFO*>(&monitor)) &&
+              EnumDisplaySettingsW(monitor.szDevice, ENUM_CURRENT_SETTINGS, &mode) &&
+              mode.dmDisplayFrequency > 1) {
+            result->Success(flutter::EncodableValue(static_cast<double>(mode.dmDisplayFrequency)));
+          } else {
+            result->Success();
+          }
+        } else {
+          result->NotImplemented();
+        }
+      });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -513,6 +546,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  display_channel_.reset();
   physical_latency_channel_ = nullptr;
   platform_info_channel_ = nullptr;
   tun_elevation_channel_ = nullptr;

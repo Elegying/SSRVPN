@@ -36,8 +36,16 @@ flutter test
 ## 构建可拖拽安装 DMG
 
 ```bash
-bash tool/package_macos.sh
+bash tool/package_macos.sh --dart-define-from-file=../config/ssrvpn-usage-defines.json
 ```
+
+本地验收应用也必须带上同一账户查询配置：
+
+```bash
+flutter build macos --release --dart-define-from-file=../config/ssrvpn-usage-defines.json --dart-define=SSRVPN_FRAME_DIAGNOSTICS=true
+```
+
+遗漏该配置会禁用账户用量与设备数查询。
 
 脚本会生成：
 

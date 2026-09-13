@@ -138,8 +138,14 @@ class _PageStack extends StatelessWidget {
     return IndexedStack(
       index: currentIndex,
       children: [
-        HomeScreen(active: currentIndex == 0),
-        const SubscriptionScreen(),
+        SsrvpnPageActivity(
+          active: currentIndex == 0,
+          child: HomeScreen(active: currentIndex == 0),
+        ),
+        SsrvpnPageActivity(
+          active: currentIndex == 1,
+          child: const SubscriptionScreen(),
+        ),
       ],
     );
   }

@@ -1,6 +1,6 @@
 #!/bin/bash
 # SSRVPN Android 构建脚本
-set -e
+set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "=== 清理旧构建 ==="
@@ -16,7 +16,7 @@ echo "=== 运行测试 ==="
 flutter test
 
 echo "=== 构建 Release APK ==="
-flutter build apk --release --target-platform=android-arm64 --split-debug-info=build/symbols
+flutter build apk --release --target-platform=android-arm64 --split-debug-info=build/symbols --dart-define-from-file=../config/ssrvpn-usage-defines.json "$@"
 
 echo "=== 复制 APK 到项目根目录 ==="
 cp build/app/outputs/flutter-apk/app-release.apk ./SSRVPN.apk

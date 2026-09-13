@@ -76,6 +76,7 @@ class _ConnectionStatusPill extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
           child: Row(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
                 width: 8,
@@ -84,10 +85,19 @@ class _ConnectionStatusPill extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Flexible(
-                  child: SsrvpnHomeText(
+                  // Let the actual CJK fallback font define its line box.
+                  // A forced Latin strut can misalign Chinese glyphs on Windows.
+                  child: Text(
                 label,
-                maxFontSize: 12,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                textScaler: TextScaler.noScaling,
+                textHeightBehavior: const TextHeightBehavior(
+                    leadingDistribution: TextLeadingDistribution.even),
                 style: TextStyle(
+                  height: 1.2,
+                  leadingDistribution: TextLeadingDistribution.even,
                   color: color,
                   fontSize: 12,
                   fontWeight: FontWeight.w600,

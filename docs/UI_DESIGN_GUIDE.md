@@ -6,25 +6,51 @@ should stay aligned unless a platform convention requires otherwise.
 
 ## Source Of Truth
 
-- Android tokens: `SSRVPN_Android/lib/theme/app_theme.dart`
-- Desktop tokens: `SSRVPN_MacOS/lib/theme/app_theme.dart` and `SSRVPN_Windows/lib/theme/app_theme.dart`
-- Detailed desktop reference: `SSRVPN_Windows/DESIGN.md`
+- Shared product surfaces: `packages/ssrvpn_shared/lib/widgets/ssrvpn_app_surface.dart`
+  (`SsrvpnUiTokens`), `ssrvpn_liquid_glass.dart`, and `ssrvpn_typography.dart`.
+- Platform `AppTheme` files retain base Material styles and compatibility names;
+  they do not override every shared glass surface.
+- Detailed desktop reference: `SSRVPN_Windows/DESIGN.md`.
 
-When changing a shared visual decision, update this guide and the relevant
-`AppTheme` files in the same PR.
+## Current Shared Dark Surface Tokens
 
-## Color Tokens
+All three app entrypoints currently select the dark theme. Light Material styles
+remain in code for compatibility; they are not a user-selectable theme.
 
-| Role | Dark | Light |
-| --- | --- | --- |
-| Background | `#040405` / `#08080A` | `#F5F5F5` |
-| Card | `#0D0D10` | `#FFFFFF` |
-| Border | `#1C1C21` | `#E5E5E5` |
-| Primary | `#8B5CF6` | `#8B5CF6` |
-| Accent | `#06B6D4` | `#06B6D4` |
-| Success | `#22C55E` | `#22C55E` |
-| Warning | `#F59E0B` | `#F59E0B` |
-| Error | `#EF4444` | `#EF4444` |
+| Role | Value |
+| --- | --- |
+| Background | `#0A1020` |
+| Surface | `#242641` |
+| Strong surface | `#2C2E4B` |
+| Border | `#33FFFFFF` |
+| Primary | `#8A84FF` |
+| Accent | `#20C8B4` |
+| Success | `#29C978` |
+| Warning | `#F3B83F` |
+| Error | `#E35D6A` |
+
+## Stable Glass and Wallpaper
+
+The current working-tree update selects a stable device tier at startup:
+normal hardware uses premium; conservatively identified low-end hardware uses
+minimal glass and shared 60 FPS pacing.
+Runtime frame spikes must not silently change its thickness, blur or capture
+pipeline. Platform shader capability and accessibility fallbacks still apply.
+Diagnostic quality rollback switches have been retired; the selected device tier
+stays fixed while accessibility and renderer capability fallbacks remain.
+
+The accepted wallpaper is `network-glass-deep.png`. Retired wallpaper assets
+and build-time rollback switches were removed after user acceptance. Asset
+loading errors retain a lightweight procedural background for readability.
+The wallpaper traverses a continuous 18-second cosine cycle, with 1.16 overscan
+and fractional horizontal/vertical travel of .11/.08. Pause it while inactive,
+obscured, during route transitions, or when reduced motion is requested; do not
+reduce normal-tier capture resolution. Resume wallpaper drift after transitions.
+
+Android keeps its PageView height constant during horizontal transitions. Home
+content reserves navigation space locally; subscriptions scroll behind the bar
+and reserve the same inset at the list tail. Status labels use natural CJK font
+metrics with evenly distributed leading, not a forced Latin strut height.
 
 ## Typography
 
