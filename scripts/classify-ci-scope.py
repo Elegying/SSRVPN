@@ -21,7 +21,10 @@ def platform_required(paths: Iterable[str]) -> bool:
     return any(
         not (
             ("/" not in path and path.endswith(".md"))
-            or (path.startswith("docs/") and len(path) > len("docs/"))
+            or (
+                path.startswith("docs/")
+                and path.endswith((".md", ".png", ".jpg", ".jpeg", ".webp"))
+            )
         )
         for path in changed
     )

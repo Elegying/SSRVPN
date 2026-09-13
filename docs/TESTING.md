@@ -168,3 +168,11 @@ cd packages/ssrvpn_shared && dart run tool/benchmark_critical_paths.dart
 | 安装/升级 | 干净环境首次安装、全新覆盖、PowerShell 5.1、普通桌面会话启动与 UAC 授权/取消、异常退出/重启后的系统代理、卸载 |
 
 网络相关测试不得依赖开放公网稳定性；需要真实下载或发布验证时，应单独标注为集成/发布冒烟并记录时间与来源。
+
+### 纯文档 CI 与 PR 缓存回收
+
+仅修改根目录 Markdown、`docs/` 下的 Markdown 或 PNG/JPG/JPEG/WebP 图片时，CI 保留全文历史密钥扫描、依赖审查、Actions CodeQL、版本与指南检查，以及文档链接、第三方许可和隐私请求说明测试；不安装 Flutter、不准备核心资产，也不运行客户端构建和共享 Flutter 测试。受保护检查名称保持不变。
+
+`docs/GEOIP_SOURCE.txt`、脚本、配置、工作流、平台或共享代码变更，以及混合改动、无法识别的提交范围和手动触发，均执行完整 CI。文档快速路径不能作为正式发布所需原生验证的替代。
+
+PR 关闭或合并后，`Cleanup closed PR caches` 只删除该 PR 的 `refs/pull/<编号>/merge` 缓存，分页列出后按 ID 删除。工作流不检出或执行 PR 代码，不删除主分支或开发分支缓存、Actions 产物和 Release。若关闭时仍有构建在运行，之后新写入的缓存由 GitHub 常规淘汰处理。

@@ -1,0 +1,38 @@
+name: Cleanup closed PR caches
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  actions: write
+
+concurrency:
+  group: cleanup-pr-cache-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # No checkout: never execute code or restore caches from the PR.
+      - name: Delete only this PR's merge-ref caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 1
+          export PR_REF="refs/pull/$PR_NUMBER/merge"
+          # Collect every page before deletion so pagination cannot skip entries.
+          cache_ids="$(gh api --method GET --paginate "repos/$GH_REPO/actions/caches" \
+            -f ref="$PR_REF" -f per_page=100 \
+            --jq '.actions_caches[] | select(.ref == env.PR_REF) | .id')"
+          while IFS= read -r cache_id; do
+            [[ -n "$cache_id" ]] || continue
+            [[ "$cache_id" =~ ^[0-9]+$ ]] || exit 1
+            gh api --method DELETE "repos/$GH_REPO/actions/caches/$cache_id"
+          done <<< "$cache_ids"
