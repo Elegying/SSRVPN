@@ -364,6 +364,10 @@ jobs:
       - if: needs.changes.outputs.platform_required == 'true'
         run: flutter pub get --enforce-lockfile
 
+      - name: Verify production routing on real core
+        if: needs.changes.outputs.platform_required == 'true' && matrix.directory == 'SSRVPN_MacOS'
+        run: python3 scripts/check-routing-core.py
+
       - name: Initialize CodeQL
         if: needs.changes.outputs.platform_required == 'true' && matrix.directory != 'SSRVPN_MacOS'
         uses: github/codeql-action/init@988661ebb5e81487b3fb31b2185d2856c0a10679 # v4

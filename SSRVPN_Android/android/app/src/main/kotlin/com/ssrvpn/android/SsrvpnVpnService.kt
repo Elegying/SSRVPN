@@ -15,6 +15,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
+import java.io.File
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -473,7 +474,13 @@ class SsrvpnVpnService : VpnService() {
             builder.setMtu(1500)
             // Keep Android's documented default non-blocking TUN contract.
             builder.setBlocking(false)
-            val bypassedDomesticApps = VpnAppExclusionInstaller.install(builder, bypassDomesticApps)
+            val browsers = VpnPackageLookup.browserPackages(this)
+            val bypassedDomesticApps = VpnAppExclusionInstaller.install(
+                builder,
+                bypassDomesticApps && browsers != null,
+                VpnAppExclusionInstaller.packagesFromConfig(File(configPath)),
+                browsers.orEmpty()
+            )
             Log.i(TAG, "Bypassing ${bypassedDomesticApps.size} installed domestic apps")
 
             runtimeDiagnostics.beginTunLease()
@@ -506,6 +513,7 @@ class SsrvpnVpnService : VpnService() {
                 )
             }
             Log.d(TAG, "Protect monitor started")
+            VpnPackageLookup.start(this)
 
             ensureStartCurrent(startToken)
             val descriptor = checkNotNull(vpnFd)
@@ -935,6 +943,7 @@ class SsrvpnVpnService : VpnService() {
     }
 
     private fun stopBridgeWithTimeout(): Boolean {
+        bridge.Bridge.stopPackageLookup()
         if (!bridgeStopInProgress.compareAndSet(false, true)) {
             Log.w(TAG, "Bridge.stop already in progress; skipping duplicate stop")
             return false

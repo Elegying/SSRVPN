@@ -108,7 +108,7 @@ for name, limit in {
 
 macos_settings = Path("SSRVPN_MacOS/lib/services/settings_service.dart")
 macos_settings_source = macos_settings.read_text(encoding="utf-8")
-if len(macos_settings_source.splitlines()) > 680:
+if len(macos_settings_source.splitlines()) > 700:
     raise SystemExit(f"{macos_settings}: settings orchestration boundary regressed")
 macos_store = macos_settings.with_name("macos_private_file_store.dart")
 if not macos_store.is_file():

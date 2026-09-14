@@ -62,7 +62,8 @@ proxies:
       );
 
       final parsed = loadYaml(config) as YamlMap;
-      expect(parsed['mode'], 'global');
+      expect(parsed['mode'], 'rule');
+      expect((parsed['rules'] as YamlList).last, 'MATCH,GLOBAL');
       expect(parsed['secret'], "secret'quoted");
       expect(
           parsed['proxy-groups'][2]['url'], 'https://example.com/generate_204');
@@ -194,7 +195,8 @@ proxies:
       expect(blocked, isNonNegative);
       expect(blocked, lessThan(youtube));
       expect(youtube, lessThan(builtIn));
-      expect(builtIn, lessThan(geoLookup));
+      expect(youtube, lessThan(geoLookup));
+      expect(geoLookup, lessThan(builtIn));
       expect(geoLookup, lessThan(gfw));
       expect(gfw, lessThan(cn));
       expect(

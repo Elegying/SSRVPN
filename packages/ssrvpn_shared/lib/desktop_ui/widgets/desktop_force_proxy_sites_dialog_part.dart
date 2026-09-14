@@ -36,9 +36,10 @@ class _DesktopForceProxySitesDialogState
   @override
   void initState() {
     super.initState();
+    final savedSites = AppSettings.normalizeForceProxySites(widget.savedSites);
     _controllers = List.generate(
       AppSettings.forceProxySiteLimit,
-      (index) => TextEditingController(text: widget.savedSites[index]),
+      (index) => TextEditingController(text: savedSites[index]),
     );
   }
 
@@ -68,8 +69,12 @@ class _DesktopForceProxySitesDialogState
     if (RegExp(r'[\s,，;；]').hasMatch(value.trim())) {
       return '一个输入框只能填写一个网址';
     }
-    if (AppSettings.extractForceProxyHost(value) == null) {
+    final host = AppSettings.extractForceProxyHost(value);
+    if (host == null) {
       return '请输入有效的网址或域名';
+    }
+    if (host.contains(':')) {
+      return '当前仅支持域名或 IPv4 地址';
     }
     return null;
   }
@@ -132,7 +137,7 @@ class _DesktopForceProxySitesDialogState
                 const SizedBox(height: 16),
                 Text(
                   widget.forceDirect
-                      ? '仅在确认网站无需节点时使用。手动直连高于所有自动规则，但低于手动强制代理：'
+                      ? '仅在确认网站无需节点时使用。同一网站以后保存的方向为准；父域与子域冲突时代理优先：'
                       : '默认规则已涵盖绝大部分网站，如出现个别网站无法访问的情况，再使用此功能，粘贴需要强制代理的网址：',
                   style: TextStyle(
                     fontSize: 13,

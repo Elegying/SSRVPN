@@ -152,6 +152,7 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
   Timer? _refreshPoll;
   double? _nativeRefreshRate;
   bool _readingRefreshRate = false;
+  bool _refreshRateSupported = true;
   bool _lowPerformance = false;
   bool _capabilityRead = false;
   SsrvpnFramePacing? _pacing;
@@ -187,6 +188,7 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
               'frameCap=${_pacing?.isInstalled == true ? 60 : "system"}');
         }
       }
+      if (!_refreshRateSupported) return;
       final rate = await _display.invokeMethod<double>('refreshRate');
       if (mounted &&
           WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
@@ -200,7 +202,11 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
     } on PlatformException {
       // Optional hint; rendering must remain available.
     } on MissingPluginException {
-      // Desktop and old native hosts use Flutter display information.
+      // An absent native method cannot appear later in this engine session.
+      // Use Flutter's display information without repeatedly invoking it.
+      _refreshRateSupported = false;
+      _refreshPoll?.cancel();
+      _refreshPoll = null;
     } finally {
       _readingRefreshRate = false;
     }
@@ -210,7 +216,6 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _diagnostics.start();
     _updateRefreshPolling();
   }
 
@@ -219,13 +224,20 @@ class _AdaptiveGlassHostState extends State<_AdaptiveGlassHost>
       _updateRefreshPolling();
 
   void _updateRefreshPolling() {
+    // Do not combine pre-background frames with a later foreground session.
+    _diagnostics.stop();
+    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+      _diagnostics.start();
+    }
     _refreshPoll?.cancel();
     _refreshPoll = null;
     if (!kIsWeb &&
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
       _readRefreshRate();
-      _refreshPoll =
-          Timer.periodic(const Duration(seconds: 2), (_) => _readRefreshRate());
+      if (_refreshRateSupported) {
+        _refreshPoll = Timer.periodic(
+            const Duration(seconds: 2), (_) => _readRefreshRate());
+      }
     }
   }
 

@@ -10,11 +10,12 @@ internal enum class NativeCoreStartFailureCategory(
     PORT_CONFLICT("port_conflict", "CORE_START_PORT_CONFLICT", 1),
     API_AUTH("api_auth", "CORE_START_API_AUTH", 2),
     TUN("tun", "CORE_START_TUN", 3),
-    CONFIG("config", "CORE_START_CONFIG", 4),
-    TIMEOUT("timeout", "CORE_START_TIMEOUT", 5),
-    COMPONENT("component", "CORE_START_COMPONENT", 6),
-    BUSY("busy", "CORE_START_BUSY", 7),
-    UNKNOWN("unknown", "CORE_START_UNKNOWN", 8);
+    RULES("rules", "CORE_START_RULES", 4),
+    CONFIG("config", "CORE_START_CONFIG", 5),
+    TIMEOUT("timeout", "CORE_START_TIMEOUT", 6),
+    COMPONENT("component", "CORE_START_COMPONENT", 7),
+    BUSY("busy", "CORE_START_BUSY", 8),
+    UNKNOWN("unknown", "CORE_START_UNKNOWN", 9);
 
     val methodChannelFailureState: Map<String, Any?>
         get() = mapOf(FAILURE_CODE_KEY to methodChannelCode)
@@ -45,6 +46,9 @@ internal enum class NativeCoreStartFailureCategory(
                 value.contains("tun") ||
                     value.contains("protect monitor") ||
                     value.contains("socket protect") -> TUN
+                value.contains("rule provider") || value.contains("rule-provider") ||
+                    value.contains("rule set") || value.contains("rule-set") ||
+                    value.contains("rules[") || value.contains("ssrvpn-direct-apps") -> RULES
                 value.contains("config") || value.contains("yaml") -> CONFIG
                 value.contains("timeout") || value.contains("timed out") -> TIMEOUT
                 value.contains("linkageerror") ||

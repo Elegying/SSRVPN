@@ -5,6 +5,25 @@ import org.junit.Test
 
 class MihomoApiWaiterTest {
     @Test
+    fun `missing rules wait for loading then retain a distinct failure category`() {
+        val waiter = MihomoApiWaiter { _, _, _ -> MihomoApiReadiness.RULES_PENDING }
+        val result = waiter.waitUntilReady(9090, "secret",
+            System.nanoTime() + 5_000_000L, 1L, {})
+        assertEquals(MihomoApiReadiness.RULES_PENDING, result)
+        assertEquals(NativeCoreStartFailureCategory.RULES, result.startupFailure().category)
+    }
+
+    @Test
+    fun `rule loading can settle without a fallback`() {
+        var probes = 0
+        val waiter = MihomoApiWaiter { _, _, _ ->
+            if (++probes == 1) MihomoApiReadiness.RULES_PENDING else MihomoApiReadiness.READY
+        }
+        assertEquals(MihomoApiReadiness.READY, waiter.waitUntilReady(9090, "secret",
+            System.nanoTime() + 1_000_000_000L, 1L, {}))
+    }
+
+    @Test
     fun `readiness polling stops at the first ready probe`() {
         var probes = 0
         var generationChecks = 0

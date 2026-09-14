@@ -16,14 +16,17 @@ class _FakeHttpClientAdapter implements HttpClientAdapter {
   _FakeHttpClientAdapter(this.response);
 
   final AdapterResponse response;
+  final requests = <Uri>[];
 
   @override
   Future<AdapterResponse> get(
     Uri uri, {
     Duration? timeout,
     String? userAgent,
-  }) async =>
-      response;
+  }) async {
+    requests.add(uri);
+    return response;
+  }
 }
 
 class _UserAgentHttpClientAdapter implements HttpClientAdapter {
@@ -438,6 +441,20 @@ void main() {
           .timeout(const Duration(seconds: 1)),
       throwsA(isA<SubscriptionRefreshDeadlineExceeded>()),
     );
+  });
+
+  test('public subscription redirect never requests a loopback service',
+      () async {
+    final adapter = _FakeHttpClientAdapter(AdapterResponse(
+      statusCode: HttpStatus.found,
+      headers: const {'location': 'https://127.0.0.1/private'},
+      bodyBytes: const [],
+    ));
+    SubscriptionService.overrideHttpClient(adapter);
+    await expectLater(
+        service.fetchSubscription('https://example.com/feed', maxRetries: 1),
+        throwsA(isA<SubscriptionAddressException>()));
+    expect(adapter.requests.map((uri) => uri.host), ['example.com']);
   });
 
   test('redirect logs never expose subscription path credentials', () async {

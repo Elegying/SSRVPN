@@ -130,7 +130,17 @@ extension AndroidSnapshotCleanup on ClashService {
 
   Future<void> discardPreparedConfig(String path) async {
     final absolutePath = File(path).absolute.path;
-    _preparedConfigPaths.remove(absolutePath);
+    try {
+      await _discardPreparedConfigIfIdle(absolutePath);
+    } on FileSystemException {
+      // Cleanup must not replace the result of a connect/cancel operation.
+      log('临时连接配置清理失败，保留文件并延后清理');
+    } finally {
+      _preparedConfigPaths.remove(absolutePath);
+    }
+  }
+
+  Future<void> _discardPreparedConfigIfIdle(String absolutePath) async {
     if (absolutePath == _runningConfigPath ||
         absolutePath == _nativeSnapshotConfigPath) {
       return;
@@ -141,7 +151,8 @@ extension AndroidSnapshotCleanup on ClashService {
     if (file.parent.path != Directory(configDir).absolute.path) return;
     final nativeState = await _queryNativeConnectionState();
     if (nativeState == null) {
-      if (isRunning || _nativeConnectionTransitioning) return;
+      log('原生 VPN 状态不明确，保留临时连接配置');
+      return;
     } else if (nativeState.running ||
         nativeState.transitioning ||
         nativeState.protectedConfigPath != null) {
@@ -150,6 +161,12 @@ extension AndroidSnapshotCleanup on ClashService {
     }
     if (await FileSystemEntity.type(absolutePath, followLinks: false) ==
         FileSystemEntityType.file) {
+      if (isRunning ||
+          _nativeConnectionTransitioning ||
+          absolutePath == _runningConfigPath ||
+          absolutePath == _nativeSnapshotConfigPath) {
+        return;
+      }
       await file.delete();
     }
   }

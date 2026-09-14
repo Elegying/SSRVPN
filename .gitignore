@@ -50,3 +50,10 @@ crashes/
 Thumbs.db
 .idea/
 .vscode/
+
+# Generated independent rule-channel publication snapshots.
+rule-channel/latest/
+rule-channel/snapshots/
+
+# Local preview packages, device captures and acceptance logs.
+/artifacts/

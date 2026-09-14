@@ -312,10 +312,9 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
       rawYaml,
       settings,
       preferredNodeName: preferredNodeName,
-      platformHeader: '# ===== SSRVPN Android =====',
+      platformHeader: _androidPlatformHeader,
       tunConfig: _androidTunConfig(settings),
       latencyTestUrl: settings.latencyTestUrl,
-      extraRulesBeforeDirect: _androidForcedProxyAppRules,
     );
   }
 
@@ -328,10 +327,9 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
       rawYaml,
       settings,
       preferredNodeName: preferredNodeName,
-      platformHeader: '# ===== SSRVPN Android =====',
+      platformHeader: _androidPlatformHeader,
       tunConfig: _androidTunConfig(settings),
       latencyTestUrl: settings.latencyTestUrl,
-      extraRulesBeforeDirect: _androidForcedProxyAppRules,
     );
   }
 
@@ -383,10 +381,14 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
     if (current != null) return current;
 
     final startToken = ++_startGeneration;
-    final operation = _startInternal(
-      nodeName: nodeName,
-      startConfigPath: preparedConfigPath ?? configPath,
-      startToken: startToken,
+    final operation = startWithSmartRuleRecovery(
+      () => _startInternal(
+          nodeName: nodeName,
+          startConfigPath: preparedConfigPath ?? configPath,
+          startToken: startToken),
+      _stopInternal,
+      () => startToken == _startGeneration,
+      preparedConfigPath ?? configPath,
     );
     _startOperation = operation;
     operation.then<void>(
@@ -434,7 +436,7 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
         'apiPort': settings.apiPort,
         'apiSecret': runtimeApiSecret,
         'nodeName': nodeName,
-        'bypassDomesticApps': settings.proxyMode == ProxyMode.rule,
+        'bypassDomesticApps': true,
       });
       _ensureStartCurrent(startToken);
 
@@ -597,7 +599,7 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
           'socksPort': settings.socksPort,
           'apiSecret': runtimeApiSecret,
           'selectedNodeName': nodeName,
-          'bypassDomesticApps': settings.proxyMode == ProxyMode.rule,
+          'bypassDomesticApps': true,
           'expectedSessionGeneration': effectiveSessionGeneration,
         });
         if (generation == null || generation.isEmpty) {

@@ -1,10 +1,16 @@
 part of 'clash_service_base.dart';
 
 mixin _ClashRuleProviderSupport {
+  bool _ruleProviderRefreshScheduled = false;
+  bool _ruleProviderRefreshInProgress = false;
+  int get _healthMonitorEpoch;
+  String? _ruleDownloadVersion;
+  @protected
+  String get ruleSigningPublicKey => SmartRuleSignature.publicKey;
   bool get isRunning;
   String get configDir;
   AppSettings get settings;
-  void useSmartRuleVersionForFutureConfigs(String version);
+  void stageSmartRuleVersionForNextConnection(String version);
   void log(
     String message, {
     RuntimeLogLevel level = RuntimeLogLevel.info,
@@ -13,20 +19,40 @@ mixin _ClashRuleProviderSupport {
 
   @protected
   Future<void> refreshRuleProvidersOnce() async {
-    if (!isRunning || configDir.isEmpty) return;
+    if (!isRunning || configDir.isEmpty || _ruleProviderRefreshInProgress) {
+      return;
+    }
+    final session = _healthMonitorEpoch;
+    bool isCurrent() => isRunning && session == _healthMonitorEpoch;
+    _ruleProviderRefreshInProgress = true;
 
-    final expectedFileNames =
-        AppConstants.smartRuleProviderFiles.values.toSet();
+    final expectedFileNames = {
+      ...AppConstants.smartRuleProviderFiles.values,
+      if (Platform.isAndroid) ...SmartRuleBundle.androidFiles,
+    };
     try {
       final versionText = await fetchSmartRuleChannelFile(
         AppConstants.smartRuleVersionDescriptorFile,
         maxBytes: SmartRuleBundle.maxVersionDescriptorBytes,
       );
+      if (!isCurrent()) return;
+      if (!await SmartRuleSignature.verify(versionText,
+          trustedPublicKey: ruleSigningPublicKey)) {
+        throw const FormatException('规则发布签名无效');
+      }
+      if (!isCurrent()) return;
       final remote = SmartRuleBundle.parseVersionDescriptor(versionText);
+      final recovery = SmartRuleRecovery(configDir);
+      if (await recovery.rejects(remote.version)) {
+        log('跳过本机已拒绝的规则快照 ${remote.version}', event: 'rule_provider_refresh');
+        return;
+      }
+      _ruleDownloadVersion = remote.version;
       final installedManifest = await SmartRuleBundle.readInstalledManifest(
         configDir,
         expectedFileNames: expectedFileNames,
       );
+      if (!isCurrent()) return;
       final installedVersion = installedManifest?.version;
       if (!remote.isNewerThan(installedVersion)) {
         log(
@@ -38,10 +64,16 @@ mixin _ClashRuleProviderSupport {
         return;
       }
 
+      if (!await recovery.hasConfirmedVersion) {
+        log('尚未持久化可用规则版本，本次保留现有规则', event: 'rule_provider_refresh');
+        return;
+      }
+      if (!isCurrent()) return;
       final manifestText = await fetchSmartRuleChannelFile(
         AppConstants.smartRuleManifestFile,
         maxBytes: SmartRuleBundle.maxManifestBytes,
       );
+      if (!isCurrent()) return;
       if (!remote.acceptsManifest(manifestText)) {
         throw const FormatException('智能规则清单摘要与版本文件不匹配');
       }
@@ -49,28 +81,52 @@ mixin _ClashRuleProviderSupport {
         manifestText,
         expectedFileNames: expectedFileNames,
       );
+      if (manifest.componentVersions.length != 3) {
+        throw const FormatException('规则组件版本缺失');
+      }
+      for (final entry in manifest.componentVersions.entries) {
+        final old = installedManifest?.componentVersions[entry.key];
+        if (old != null &&
+            entry.value != old &&
+            !SmartRuleVersionDescriptor(
+                    version: entry.value, manifestSha256: '')
+                .isNewerThan(old)) {
+          throw const FormatException('拒绝规则组件降级');
+        }
+      }
       if (manifest.version != remote.version) {
         throw const FormatException('智能规则清单与线上版本号不匹配');
       }
 
-      final changedProviders = AppConstants.smartRuleProviderFiles.entries
-          .where((entry) => !manifest.files[entry.value]!.hasSameContentAs(
-                installedManifest?.files[entry.value],
+      final changedProviders = manifest.files.entries
+          .where((entry) => !entry.value.hasSameContentAs(
+                installedManifest?.files[entry.key],
               ))
           .toList(growable: false);
+      for (final entry in changedProviders) {
+        final component = entry.key == 'direct_apps.yaml'
+            ? 'directApps'
+            : entry.key == 'proxy_apps.yaml'
+                ? 'proxyApps'
+                : 'rules';
+        final old = installedManifest?.componentVersions[component];
+        if (old != null &&
+            !SmartRuleVersionDescriptor(
+                    version: manifest.componentVersions[component]!,
+                    manifestSha256: '')
+                .isNewerThan(old)) {
+          throw const FormatException('内容变化但组件版本未提升');
+        }
+      }
       final providerContents = <String, String>{};
       for (final entry in changedProviders) {
-        if (!isRunning) return;
-        providerContents[entry.value] = await fetchSmartRuleChannelFile(
-          entry.value,
+        if (!isCurrent()) return;
+        providerContents[entry.key] = await fetchSmartRuleChannelFile(
+          entry.key,
           maxBytes: SmartRuleBundle.maxProviderBytes,
         );
       }
-      if (!SmartRuleBundle.providerContentsMatch(manifest, providerContents)) {
-        throw const FormatException('智能规则文件与清单不匹配');
-      }
-
-      if (!isRunning) return;
+      if (!isCurrent()) return;
       final installed = await SmartRuleBundle.installVerifiedProviderFiles(
         configDir,
         manifest,
@@ -78,12 +134,13 @@ mixin _ClashRuleProviderSupport {
       );
       if (!installed) {
         log(
-          '智能规则本地文件未能安全落盘，保留旧版本记录并在下次连接重试',
+          '智能规则校验或落盘失败，继续使用现有本地规则，下次启动再检查',
           level: RuntimeLogLevel.warning,
           event: 'rule_provider_refresh',
         );
         return;
       }
+      if (!isCurrent()) return;
       final activated = await SmartRuleBundle.activateInstalledManifest(
         configDir,
         manifestText,
@@ -91,13 +148,14 @@ mixin _ClashRuleProviderSupport {
       );
       if (!activated) {
         log(
-          '智能规则文件校验未通过，保留旧版本记录并在下次连接重试',
+          '智能规则文件校验未通过，保留旧版本记录并在下次启动检查',
           level: RuntimeLogLevel.warning,
           event: 'rule_provider_refresh',
         );
         return;
       }
-      useSmartRuleVersionForFutureConfigs(remote.version);
+      if (!isCurrent()) return;
+      stageSmartRuleVersionForNextConnection(remote.version);
       log(
         '智能规则 ${remote.version} 已完整下载并校验'
         '（更新 ${changedProviders.length} 个文件），下次连接整体启用；'
@@ -111,6 +169,9 @@ mixin _ClashRuleProviderSupport {
         level: RuntimeLogLevel.warning,
         event: 'rule_provider_refresh',
       );
+    } finally {
+      _ruleDownloadVersion = null;
+      _ruleProviderRefreshInProgress = false;
     }
   }
 
@@ -129,6 +190,7 @@ mixin _ClashRuleProviderSupport {
     final allowedFiles = {
       ...allowedMetadataFiles,
       ...AppConstants.smartRuleProviderFiles.values,
+      if (Platform.isAndroid) ...SmartRuleBundle.androidFiles,
     };
     if (!allowedFiles.contains(fileName) || maxBytes <= 0) {
       throw ArgumentError.value(fileName, 'fileName', '规则元数据文件无效');
@@ -140,7 +202,10 @@ mixin _ClashRuleProviderSupport {
     try {
       final request = http.Request(
         'GET',
-        Uri.parse('${AppConstants.smartRuleChannelBaseUrl}/$fileName'),
+        fileName == AppConstants.smartRuleVersionDescriptorFile
+            ? Uri.parse('${AppConstants.smartRuleChannelBaseUrl}/$fileName')
+            : Uri.parse('${AppConstants.smartRuleChannelBaseUrl}/')
+                .resolve('../snapshots/$_ruleDownloadVersion/$fileName'),
       )
         ..headers[HttpHeaders.acceptHeader] =
             allowedMetadataFiles.contains(fileName)
@@ -148,6 +213,7 @@ mixin _ClashRuleProviderSupport {
                 : 'application/yaml, text/yaml, text/plain'
         ..headers[HttpHeaders.cacheControlHeader] = 'no-cache'
         ..headers[HttpHeaders.userAgentHeader] = AppConstants.appUserAgent;
+      request.followRedirects = false;
       final response =
           await proxyClient.send(request).timeout(const Duration(seconds: 8));
       if (response.statusCode != HttpStatus.ok) {

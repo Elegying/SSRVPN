@@ -559,17 +559,21 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
   }
 
   Future<void> updateForceProxySites(List<String> sites) async {
-    await _updateSettings(
-      (settings) => settings.forceProxySites =
-          AppSettings.normalizeForceProxySites(sites),
-    );
+    final values = List<String>.of(sites);
+    await _updateSettings((settings) {
+      final updated = settings.copyWith(forceProxySites: values);
+      settings.forceProxySites = updated.forceProxySites;
+      settings.forceDirectSites = updated.forceDirectSites;
+    });
   }
 
   Future<void> updateForceDirectSites(List<String> sites) async {
-    await _updateSettings(
-      (settings) => settings.forceDirectSites =
-          AppSettings.normalizeForceDirectSites(sites),
-    );
+    final values = List<String>.of(sites);
+    await _updateSettings((settings) {
+      final updated = settings.copyWith(forceDirectSites: values);
+      settings.forceProxySites = updated.forceProxySites;
+      settings.forceDirectSites = updated.forceDirectSites;
+    });
   }
 
   Future<void> updateLastSelectedNodeName(String nodeName) async {

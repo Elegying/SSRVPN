@@ -217,9 +217,10 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
         return;
       }
       context.read<UpdateAvailabilityController>().publish(update);
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('发现新版本 v${update.version}，请点击底部版本号更新')),
-      );
+      // The persistent footer already announces the update and provides its action.
+      // Remove queued notices immediately so they cannot cover that action.
+      ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
+      ScaffoldMessenger.maybeOf(context)?.removeCurrentSnackBar();
     } catch (error) {
       AppLogger.warning('Update', '手动检查更新异常: $error');
       if (_canUpdateUi) {

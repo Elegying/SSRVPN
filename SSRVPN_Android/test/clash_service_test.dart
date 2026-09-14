@@ -1328,6 +1328,9 @@ void main() {
         if (call.method == 'syncSettings') {
           throw PlatformException(code: 'NATIVE_SYNC_FAILED');
         }
+        if (call.method == 'getConnectionState') {
+          return {'running': false, 'transitioning': false};
+        }
         return null;
       });
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
@@ -1365,6 +1368,9 @@ void main() {
           if (call.method == 'syncSettings') {
             syncCalls += 1;
             return 'unexpected-generation';
+          }
+          if (call.method == 'getConnectionState') {
+            return {'running': false, 'transitioning': false};
           }
           return null;
         });
@@ -2044,7 +2050,7 @@ void main() {
     expect(syncArguments?['bypassDomesticApps'], isTrue);
   });
 
-  test('global mode keeps domestic apps inside Android VPN', () async {
+  test('global mode also bypasses domestic apps before manual rules', () async {
     SharedPreferences.setMockInitialValues({});
     const channel = MethodChannel('com.ssrvpn/native');
     final messenger =
@@ -2090,8 +2096,8 @@ void main() {
       await service.start(nodeName: 'A', preparedConfigPath: config.path),
       isTrue,
     );
-    expect(startArguments?['bypassDomesticApps'], isFalse);
-    expect(syncArguments?['bypassDomesticApps'], isFalse);
+    expect(startArguments?['bypassDomesticApps'], isTrue);
+    expect(syncArguments?['bypassDomesticApps'], isTrue);
   });
 
   test(
@@ -2660,12 +2666,85 @@ void main() {
           configPath: '${dir.path}${Platform.pathSeparator}config.yaml',
         );
       final unused = await service.writeConfig('unused');
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+          channel,
+          (call) async => call.method == 'getConnectionState'
+              ? {
+                  'running': false,
+                  'transitioning': false,
+                  'sessionGeneration': null
+                }
+              : null);
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
       await service.discardPreparedConfig(unused);
 
       expect(await File(unused).exists(), isFalse);
     },
   );
+
+  test('temporary config deletion failure does not replace connection outcome',
+      () async {
+    const channel = MethodChannel('com.ssrvpn/native');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final dir =
+        await Directory.systemTemp.createTemp('ssrvpn_discard_io_failure_');
+    final service = ClashService()
+      ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml');
+    final prepared = await service.writeConfig('retained config');
+    messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => call.method == 'getConnectionState'
+            ? {
+                'running': false,
+                'transitioning': false,
+                'sessionGeneration': null
+              }
+            : null);
+    try {
+      expect((await Process.run('chmod', ['500', dir.path])).exitCode, 0);
+      await service.discardPreparedConfig(prepared);
+      expect(await File(prepared).exists(), isTrue);
+      expect(service.recentLogs, contains('临时连接配置清理失败'));
+    } finally {
+      await Process.run('chmod', ['700', dir.path]);
+      service.dispose();
+      messenger.setMockMethodCallHandler(channel, null);
+      await dir.delete(recursive: true);
+    }
+  }, skip: Platform.isWindows);
+
+  for (final unavailable in [true, false]) {
+    test(
+        'discard preserves config when native state is unavailable: $unavailable',
+        () async {
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final dir =
+          await Directory.systemTemp.createTemp('ssrvpn_uncertain_discard_');
+      addTearDown(() async {
+        messenger.setMockMethodCallHandler(channel, null);
+        await dir.delete(recursive: true);
+      });
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml');
+      addTearDown(service.dispose);
+      final prepared = await service.writeConfig('must survive');
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getConnectionState' && unavailable) {
+          throw PlatformException(code: 'NATIVE_UNAVAILABLE');
+        }
+        return null;
+      });
+      await service.discardPreparedConfig(prepared);
+      expect(await File(prepared).readAsString(), 'must survive');
+    });
+  }
 
   test(
     'discard preserves a config claimed by the native running session',

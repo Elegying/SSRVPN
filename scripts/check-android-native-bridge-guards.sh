@@ -1054,11 +1054,11 @@ require_file_text "$CLASH_DART" "scheduleUserConnectivityObservation({bool rerun
 require_file_text "$CLASH_DART" "scheduleDataPlaneObservation(rerunIfActive: rerunIfActive)"
 require_file_text "$CLASH_NATIVE_BRIDGE" "scheduleUserConnectivityObservation(rerunIfActive: true)"
 require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "bypassDomesticApps: Boolean"
-require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "DomesticAppBypassPolicy.applyInstalled"
+require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "val bypassedDomesticApps = if (bypassDomesticApps)"
 require_file_text "$VPN_APP_EXCLUSION_INSTALLER" "adbPackages.forEach"
 require_file_text "$MANIFEST" "domestic-app-bypass:start"
 require_file_text "$MANIFEST" "domestic-app-bypass:end"
-require_file_text "$CLASH_DART" "'bypassDomesticApps': settings.proxyMode == ProxyMode.rule"
+require_file_text "$CLASH_DART" "'bypassDomesticApps': true"
 require_text "snapshot?.bypassDomesticApps == true"
 if grep -Fq "vpnPackageName" "$VPN_APP_EXCLUSION_INSTALLER" ||
   grep -Fq "VpnAppExclusionInstaller.install(builder, packageName)" "$SERVICE"; then

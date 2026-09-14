@@ -22,6 +22,7 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
   GlobalKey? _key;
   ModalRoute<dynamic>? _route;
   bool _queued = false;
+  bool _releaseQueued = false;
   bool _enabled = false;
   int _capturedRevision = -1;
   double? _capturedDpr;
@@ -50,7 +51,33 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
       _route = route;
       _listenToRoute(true);
     }
-    _scheduleCapture();
+    if (_enabled) {
+      _scheduleCapture();
+    } else {
+      _releaseUnusedCapture();
+    }
+  }
+
+  void _releaseUnusedCapture() {
+    if (_releaseQueued || _capture.value == null) return;
+    _releaseQueued = true;
+    // Dependencies may change during build. Publish only after the tree has
+    // switched materials, and retain the image until consumers paint without it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _releaseQueued = false;
+      if (!mounted || _enabled) return;
+      final previous = _capture.value;
+      _capture.value = null;
+      if (previous != null) _retire(previous.image);
+    });
+  }
+
+  void _retire(ui.Image image) {
+    _retired.add(image);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_retired.remove(image)) return;
+      image.dispose();
+    });
   }
 
   void _listenToRoute(bool add) {
@@ -69,7 +96,16 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
   }
 
   void _scheduleCapture() {
-    if (_queued || !mounted) return;
+    // Minimal/high-contrast surfaces do not consume a texture. Avoid queuing
+    // a no-op callback on every wallpaper paint; re-enabling or resuming calls
+    // this method again and captures the latest background revision.
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (_queued ||
+        !mounted ||
+        !_enabled ||
+        (lifecycle != null && lifecycle != AppLifecycleState.resumed)) {
+      return;
+    }
     _queued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _queued = false;
@@ -102,14 +138,9 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
       _capturedDpr = dpr;
       _capture.value = SsrvpnGlassFrame(image, origin);
       if (previous != null && !identical(previous.image, image)) {
-        _retired.add(previous.image);
-        // The notifier schedules the consuming frame; retire only after paint.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || !_retired.remove(previous.image)) return;
-          previous.image.dispose();
-        });
+        _retire(previous.image);
       }
-    });
+    }, debugLabel: 'SSRVPN glass capture');
   }
 
   @override

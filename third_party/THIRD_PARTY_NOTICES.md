@@ -105,3 +105,16 @@ the release can be repaired or withdrawn.
 
 These notices describe the project's distribution materials and are not legal
 advice.
+
+## Signed routing data and verification
+
+- Public domain/IP data: Loyalsoldier/clash-rules, GPL-3.0,
+  <https://github.com/Loyalsoldier/clash-rules>.
+- Supplemental baseline data: MetaCubeX/meta-rules-dat, GPL-3.0,
+  <https://github.com/MetaCubeX/meta-rules-dat>.
+- The bundled `assets/rules/latest/manifest.json` records the exact public
+  source revision, per-file hashes and component versions. SSRVPN selects,
+  validates, normalizes and signs data; it does not import upstream policies.
+- Ed25519 verification: Dart `cryptography` 2.9.0, Apache-2.0,
+  <https://pub.dev/packages/cryptography>. Its license is included by Flutter's
+  package license collection.

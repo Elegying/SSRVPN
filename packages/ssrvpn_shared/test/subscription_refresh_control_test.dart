@@ -4,6 +4,33 @@ import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:test/test.dart';
 
 void main() {
+  for (final cancelled in [true, false]) {
+    test('already ${cancelled ? 'cancelled' : 'expired'} wait aborts resources',
+        () async {
+      final cancellation = SubscriptionRefreshCancellation();
+      if (cancelled) cancellation.cancel();
+      final control = SubscriptionRefreshControl(
+        timeout: cancelled ? const Duration(seconds: 1) : Duration.zero,
+        cancellation: cancellation,
+      );
+      final operation = Completer<void>();
+      var abortCount = 0;
+      await expectLater(
+        control.wait(operation.future, onAbort: () {
+          abortCount++;
+          operation.completeError(StateError('socket closed'));
+          throw StateError('cleanup failed');
+        }),
+        throwsA(cancelled
+            ? isA<SubscriptionRefreshCancelled>()
+            : isA<SubscriptionRefreshDeadlineExceeded>()),
+      );
+      cancellation.cancel();
+      await Future<void>.delayed(Duration.zero);
+      expect(abortCount, 1);
+    });
+  }
+
   test('cancellation aborts the active operation and reports cancellation',
       () async {
     final cancellation = SubscriptionRefreshCancellation();

@@ -265,7 +265,22 @@ mixin _ClashDataPlaneSupport {
 
   /// Exit cache attribution must fail closed on an unreadable GLOBAL group,
   /// instead of using the display-oriented selection method's PROXY fallback.
+  bool get _exitObservationHasManualDirectOverride {
+    bool matches(String site, String host) {
+      final domain = AppSettings.extractForceProxyHost(site);
+      return domain != null && (host == domain || host.endsWith('.$domain'));
+    }
+
+    return [
+      PublicIpInfoService.ipv4Endpoint,
+      PublicIpInfoService.fallbackEndpoint
+    ].any((endpoint) =>
+        !settings.forceProxySites.any((site) => matches(site, endpoint.host)) &&
+        settings.forceDirectSites.any((site) => matches(site, endpoint.host)));
+  }
+
   Future<String?> confirmedProxyExitNode() async {
+    if (_exitObservationHasManualDirectOverride) return null;
     final global = settings.proxyMode == ProxyMode.global;
     var selected =
         await _currentProxyGroupSelection(global ? 'GLOBAL' : 'PROXY');
@@ -281,6 +296,9 @@ mixin _ClashDataPlaneSupport {
   }
 
   Future<PublicIpInfo> fetchCurrentPublicIpInfo() async {
+    if (_exitObservationHasManualDirectOverride) {
+      throw const PublicIpInfoException('手动直连规则覆盖出口查询，暂停节点出口归属');
+    }
     final client = IOClient(
       HttpClient()
         ..connectionTimeout = const Duration(seconds: 5)

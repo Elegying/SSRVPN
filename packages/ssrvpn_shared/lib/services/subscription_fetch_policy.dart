@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../constants/app_constants.dart';
+import '../utils/subscription_url_policy.dart';
 import 'subscription_parser.dart';
 
 class SubscriptionClientIdentity {
@@ -183,6 +184,17 @@ class SubscriptionFetchPolicy {
       );
     }
     return normalized;
+  }
+
+  static Uri resolveRedirect(Uri source, String location) {
+    final target = SubscriptionUrlPolicy.resolveRedirect(source, location);
+    final address = InternetAddress.tryParse(target.host);
+    if (address != null &&
+        !_isPublicDomainAddress(address) &&
+        (source.host != target.host || source.port != target.port)) {
+      throw SubscriptionAddressException('拒绝订阅重定向访问其他本机或内网地址');
+    }
+    return target;
   }
 
   static List<InternetAddress> validateResolvedAddresses(

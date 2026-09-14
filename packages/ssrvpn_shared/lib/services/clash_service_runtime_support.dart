@@ -20,6 +20,7 @@ mixin _ClashRuntimeSupport {
   static const Duration _localMixedProxyProbeTimeout = Duration(seconds: 1);
 
   void updateSettings(AppSettings settings);
+  Future<void> applyPendingSmartRules();
   AppSettings get settings;
   @protected
   String get runtimeApiSecret =>
@@ -63,6 +64,7 @@ mixin _ClashRuntimeSupport {
 
   /// Resolves transient port conflicts without changing saved preferences.
   Future<AppSettings> prepareForStart(AppSettings preferred) async {
+    await applyPendingSmartRules();
     final reserved = <int>{};
     final proxyPort = await findAvailableTcpUdpPort(
       preferred.proxyPort,

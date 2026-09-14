@@ -12,6 +12,30 @@ class _PolicyResponse {
 }
 
 void main() {
+  test('redirects cannot turn public subscriptions into private requests', () {
+    final source = Uri.parse('https://example.com/feed');
+    for (final target in [
+      'https://127.0.0.1/admin',
+      'https://192.168.1.1/admin',
+      'https://[::1]/admin',
+      'https://[::ffff:127.0.0.1]/admin',
+      'https://169.254.169.254/'
+    ]) {
+      expect(() => SubscriptionFetchPolicy.resolveRedirect(source, target),
+          throwsA(isA<SubscriptionAddressException>()));
+    }
+    expect(
+        SubscriptionFetchPolicy.resolveRedirect(source, 'https://1.1.1.1/feed')
+            .host,
+        '1.1.1.1');
+    final local = Uri.parse('http://127.0.0.1:8080/feed');
+    expect(SubscriptionFetchPolicy.resolveRedirect(local, '/next').port, 8080);
+    expect(
+        () => SubscriptionFetchPolicy.resolveRedirect(
+            local, 'http://127.0.0.1:9090/'),
+        throwsA(isA<SubscriptionAddressException>()));
+  });
+
   group('SubscriptionFetchPolicy', () {
     test('uses four ordered client identities with the real app UA first', () {
       expect(

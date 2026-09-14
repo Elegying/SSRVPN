@@ -6,6 +6,9 @@ object Bridge {
     }
 
     @JvmStatic external fun init(homeDir: String, configFile: String)
+    @JvmStatic external fun initPackageLookup(): Long
+    @JvmStatic external fun stopPackageLookup()
+    @JvmStatic external fun setPackageLookupResult(id: Long, name: String)
     @JvmStatic external fun initProtect(): Long
     @JvmStatic external fun setProtectResult(ok: Boolean)
     @JvmStatic external fun start(configPath: String, tunFd: Long): String

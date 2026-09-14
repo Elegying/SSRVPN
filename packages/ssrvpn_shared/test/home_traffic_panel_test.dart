@@ -63,6 +63,42 @@ void main() {
         )),
       ));
 
+  testWidgets('unchanged traffic retains cards but advances the rate baseline',
+      (tester) async {
+    var current = sample(1000, 0, 0);
+    var unavailable = false;
+    reader = () async {
+      if (unavailable) throw StateError('offline');
+      return current;
+    };
+    await tester.pumpWidget(host());
+    await tester.pump();
+    final card = find.byKey(const ValueKey('home-traffic-card-上传速率'));
+    final first = tester.widget(card);
+    for (var time = 2000; time <= 4000; time += 1000) {
+      current = sample(time, 0, 0);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(identical(tester.widget(card), first), isTrue);
+    }
+    current = sample(5000, 1024, 0);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.bySemanticsLabel('上传速率：1.0 KB/s'), findsOneWidget);
+    unavailable = true;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    final failed = tester.widget(card);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(identical(tester.widget(card), failed), isTrue);
+    unavailable = false;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.bySemanticsLabel('上传速率：0 B/s'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   test('rates use elapsed time and never mix sessions or regressing counters',
       () {
     final first = sample(1000, 1024, 2048);

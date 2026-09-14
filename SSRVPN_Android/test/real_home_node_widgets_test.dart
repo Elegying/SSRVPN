@@ -946,6 +946,30 @@ void main() {
     expect(clash.idleSnapshotInvalidations, 1);
   });
 
+  testWidgets(
+      'failed rule reload cannot report success merely because old core remains running',
+      (tester) async {
+    final clash = _StopFailureRoutingService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('强制代理网站'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'example.com');
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    await _waitForWidget(tester, find.text('强制代理网站已保存，当前连接重载失败，请重新连接'));
+    expect(clash.isRunning, isTrue);
+    expect(find.text('强制代理网站已实时生效'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('offline force-proxy change invalidates the native tile snapshot',
       (tester) async {
     final clash = _RecordingAndroidClashService();
@@ -1600,4 +1624,9 @@ class _UnderlyingNetworkAndroidClashService
     _notice = value;
     onStatusChanged?.call();
   }
+}
+
+class _StopFailureRoutingService extends _RecordingAndroidClashService {
+  @override
+  Future<void> stop() async => throw StateError('injected stop failure');
 }

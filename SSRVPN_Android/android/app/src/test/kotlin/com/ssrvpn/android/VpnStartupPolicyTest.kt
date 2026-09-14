@@ -61,6 +61,9 @@ class VpnStartupPolicyTest {
             "failed to create tun device" to "tun",
             "protect monitor is unavailable" to "tun",
             "invalid config password=secret" to "config",
+            "rule provider failed: invalid config" to "rules",
+            "rule provider failed: permission denied" to "permission",
+            "rule provider failed: address already in use" to "port_conflict",
             "operation timed out for /data/user/0/private" to "timeout",
             "panic at /data/user/0/private token=secret" to "unknown"
         )
@@ -72,6 +75,22 @@ class VpnStartupPolicyTest {
             assertFalse(category.contains("secret"))
             assertTrue(category.length <= 16)
         }
+    }
+
+    @Test
+    fun `nested rule failures override generic config without hiding permissions`() {
+        assertEquals(
+            NativeCoreStartFailureCategory.RULES,
+            NativeCoreStartFailureCategory.from(
+                IllegalStateException("invalid config", IllegalArgumentException("rule provider failed"))
+            )
+        )
+        assertEquals(
+            NativeCoreStartFailureCategory.PERMISSION,
+            NativeCoreStartFailureCategory.from(
+                IllegalStateException("rule provider failed", SecurityException("denied"))
+            )
+        )
     }
 
     @Test

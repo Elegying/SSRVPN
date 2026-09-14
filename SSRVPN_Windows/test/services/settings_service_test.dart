@@ -22,6 +22,24 @@ void main() {
     }
   });
 
+  test('manual direction changes persist canonical conflict removal', () async {
+    final service = await SettingsService.createForTesting(
+      settings: AppSettings(forceProxySites: ['https://EXAMPLE.com/path']),
+      dataDir: tempDirectory.path,
+      settingsPath: settingsPath,
+      readApiSecret: () async => '',
+      writeApiSecret: (_) async {},
+    );
+    addTearDown(service.dispose);
+    await service.updateForceDirectSites(['example.com']);
+    expect(
+        service.settings.forceProxySites.every((site) => site.isEmpty), isTrue);
+    final saved = jsonDecode(await File(settingsPath).readAsString());
+    expect(
+        (saved['forceProxySites'] as List).every((site) => site == ''), isTrue);
+    expect(saved['forceDirectSites'][0], 'example.com');
+  });
+
   for (final initial in ['Original', 'Other']) {
     test('queued rename checks committed selection, initial=$initial',
         () async {

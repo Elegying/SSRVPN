@@ -1,13 +1,13 @@
 part of 'home_screen.dart';
 
 extension _AndroidHomeConnectionActions on HomeScreenState {
-  Future<void> _reloadConfig() async {
+  Future<bool> _reloadConfig() async {
     final subService = context.read<SubscriptionService>();
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
     final connectionGeneration = clashService.captureAutomaticRestartIntent();
-    if (connectionGeneration == null) return;
-    await clashService.runIntentionalReloadTransition(
+    if (connectionGeneration == null) return false;
+    return clashService.runIntentionalReloadTransition(
       () => _reloadConfigTransition(
         subService,
         clashService,
@@ -17,7 +17,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     );
   }
 
-  Future<void> _reloadConfigTransition(
+  Future<bool> _reloadConfigTransition(
     SubscriptionService subService,
     ClashService clashService,
     SettingsService settingsService,
@@ -27,7 +27,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
       connectionGeneration,
       connected: true,
     )) {
-      return;
+      return false;
     }
     final settings = settingsService.settings;
     final orch = ConnectionOrchestrator(
@@ -45,7 +45,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           _isConnecting = false;
           _errorMessage = '订阅中没有可用节点，已保留当前连接';
         });
-        return;
+        return false;
       }
       final preferredNode = _resolveDefaultNode(
         nodes,
@@ -57,7 +57,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         connectionGeneration,
         connected: true,
       )) {
-        return;
+        return false;
       }
       if (mounted && !_disposed) {
         _updateHomeState(() {
@@ -73,7 +73,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         connectionGeneration,
         connected: true,
       )) {
-        return;
+        return false;
       }
       final connected = clashService.isRunning;
       if (mounted && !_disposed) {
@@ -100,9 +100,9 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           connectionGeneration,
           connected: true,
         )) {
-          return;
+          return false;
         }
-        if (!mounted || _disposed) return;
+        if (!mounted || _disposed) return false;
         // Only retire our intent after the last stale-operation check. Doing
         // this earlier invalidates our own failure result before it reaches UI.
         if (!connected) clashService.requestConnectionIntent(false);
@@ -124,6 +124,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           if (!connected) _resetPublicIpState();
         });
         if (connected) _schedulePublicIpRefresh();
+        return connected;
       }
     } catch (e) {
       if (mounted && !_disposed) {
@@ -131,7 +132,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
           connectionGeneration,
           connected: true,
         );
-        if (cancelled) return;
+        if (cancelled) return false;
         final stillRunning = clashService.isRunning;
         if (!stillRunning) clashService.requestConnectionIntent(false);
         _updateHomeState(() {
@@ -144,6 +145,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         });
       }
     }
+    return false;
   }
 
   Future<void> _handleConnectToggle() async {
@@ -463,9 +465,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
 
     var reloadSucceeded = false;
     if (shouldReload) {
-      await _reloadConfig();
-      reloadSucceeded =
-          mounted && !_disposed && _isConnected && clashService.isRunning;
+      reloadSucceeded = await _reloadConfig();
     }
     if (!mounted || _disposed) return;
 

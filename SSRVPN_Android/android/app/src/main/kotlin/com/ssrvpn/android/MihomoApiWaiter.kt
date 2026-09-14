@@ -13,11 +13,14 @@ internal class MihomoApiWaiter(
         pollIntervalMillis: Long,
         ensureCurrent: () -> Unit
     ): MihomoApiReadiness {
+        var lastPending = MihomoApiReadiness.PENDING
         while (System.nanoTime() < deadlineNanos) {
             ensureCurrent()
             val readiness = probe(apiPort, apiSecret, deadlineNanos)
             ensureCurrent()
-            if (readiness != MihomoApiReadiness.PENDING) return readiness
+            if (readiness != MihomoApiReadiness.PENDING &&
+                readiness != MihomoApiReadiness.RULES_PENDING) return readiness
+            lastPending = readiness
 
             val remainingNanos = (deadlineNanos - System.nanoTime()).coerceAtLeast(0L)
             if (remainingNanos == 0L) break
@@ -28,7 +31,7 @@ internal class MihomoApiWaiter(
                 )
             )
         }
-        return MihomoApiReadiness.TIMEOUT
+        return if (lastPending == MihomoApiReadiness.RULES_PENDING) lastPending else MihomoApiReadiness.TIMEOUT
     }
 }
 
@@ -49,6 +52,10 @@ internal fun MihomoApiReadiness.startupFailure(): MihomoApiStartupFailure = when
     MihomoApiReadiness.TUN_DISABLED -> MihomoApiStartupFailure(
         message = "VPN 核心未能启用 TUN 网络接口，请重新连接",
         category = NativeCoreStartFailureCategory.TUN
+    )
+    MihomoApiReadiness.RULES_PENDING -> MihomoApiStartupFailure(
+        message = "分流规则尚未就绪",
+        category = NativeCoreStartFailureCategory.RULES
     )
     MihomoApiReadiness.PENDING,
     MihomoApiReadiness.TIMEOUT -> MihomoApiStartupFailure(

@@ -674,7 +674,14 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
     final startToken = ++_startGeneration;
     _startCancellation = Completer<void>();
-    final operation = _startInternal(startToken);
+    final operation = startWithSmartRuleRecovery(
+      () => _startInternal(startToken),
+      () async {
+        if (!await _stopInternal()) throw StateError('规则回退前核心未完全停止');
+      },
+      () => startToken == _startGeneration,
+      configPath,
+    );
     _startOperation = operation;
     operation.then<void>(
       (_) => _clearStartOperation(operation),

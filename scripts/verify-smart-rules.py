@@ -4,6 +4,10 @@
 from __future__ import annotations
 
 import hashlib
+import sys
+import base64
+import subprocess
+import tempfile
 import ipaddress
 import json
 import re
@@ -19,6 +23,10 @@ EXPECTED_FILES = {
     "china_domains.yaml": "domain",
     "company_asn.yaml": "ipcidr",
     "user_feedback_rules.yaml": "domain",
+    "cn.yaml": "domain",
+    "gfw.yaml": "domain",
+    "direct_apps.yaml": "packages",
+    "proxy_apps.yaml": "packages",
 }
 EXPECTED_DIRECTORY_FILES = set(EXPECTED_FILES) | {"manifest.json", "version.json"}
 DOMAIN_VALUE = re.compile(r"^(?:\+\.)?[a-z0-9_*?][a-z0-9._*?+-]*$")
@@ -57,34 +65,9 @@ REQUIRED_DOMAIN_MARKERS = {
 
 
 def load_payload(path: Path, behavior: str) -> list[str]:
-    values: list[str] = []
-    saw_payload = False
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        stripped = raw_line.strip()
-        if stripped == "payload:":
-            saw_payload = True
-            continue
-        if not saw_payload or not stripped.startswith("-"):
-            continue
-        value = json.loads(stripped[1:].strip())
-        if not isinstance(value, str) or not value:
-            raise SystemExit(f"{path}: payload entries must be non-empty strings")
-        if behavior == "domain":
-            if value != value.lower() or not DOMAIN_VALUE.fullmatch(value):
-                raise SystemExit(f"{path}: invalid domain entry {value!r}")
-        elif behavior == "ipcidr":
-            try:
-                ipaddress.ip_network(value, strict=True)
-            except ValueError as error:
-                raise SystemExit(f"{path}: invalid CIDR entry {value!r}") from error
-        else:
-            raise SystemExit(f"{path}: unsupported behavior {behavior!r}")
-        values.append(value)
-    if not saw_payload or not values:
-        raise SystemExit(f"{path}: missing non-empty payload")
-    if len(values) != len(set(values)):
-        raise SystemExit(f"{path}: duplicate payload entries")
-    return values
+    sys.path.insert(0, str(ROOT / 'rule-channel'))
+    from publish import read_payload
+    return read_payload(path.read_text(encoding='utf-8'), behavior)
 
 
 def main() -> int:
@@ -116,6 +99,19 @@ def main() -> int:
         raise SystemExit("smart-rule version descriptor does not match manifest")
     if descriptor.get("manifestSha256") != hashlib.sha256(manifest_content).hexdigest():
         raise SystemExit("smart-rule version descriptor manifest SHA256 mismatch")
+    versions = manifest.get('componentVersions', {})
+    if set(versions) != {'rules', 'directApps', 'proxyApps'} or any(
+        not isinstance(v, str) or not re.fullmatch(r'\d+\.\d+\.\d+', v) for v in versions.values()
+    ):
+        raise SystemExit('invalid independent component versions')
+    with tempfile.TemporaryDirectory() as temporary:
+        message = Path(temporary) / 'message'
+        signature = Path(temporary) / 'signature'
+        message.write_text(f'SSRVPN rules v1\n{version}\n{descriptor["manifestSha256"]}\n')
+        signature.write_bytes(base64.b64decode(descriptor['signature'], validate=True))
+        subprocess.run(['openssl', 'pkeyutl', '-verify', '-rawin', '-pubin', '-inkey',
+                        str(ROOT / 'rule-channel/public-key.pem'), '-in', str(message),
+                        '-sigfile', str(signature)], check=True, stdout=subprocess.DEVNULL)
     upstream = manifest.get("upstream")
     if not isinstance(upstream, dict) or not re.fullmatch(
         r"[0-9a-f]{40}", str(upstream.get("commit", ""))
@@ -135,8 +131,8 @@ def main() -> int:
             raise SystemExit(f"{name}: manifest behavior mismatch")
         path = RULE_DIR / name
         content = path.read_bytes()
-        if len(content) > 2 * 1024 * 1024:
-            raise SystemExit(f"{name}: exceeds the 2 MiB provider limit")
+        if len(content) > 4 * 1024 * 1024:
+            raise SystemExit(f"{name}: exceeds the 4 MiB provider limit")
         digest = hashlib.sha256(content).hexdigest()
         if entry.get("sha256") != digest:
             raise SystemExit(f"{name}: SHA256 does not match manifest")

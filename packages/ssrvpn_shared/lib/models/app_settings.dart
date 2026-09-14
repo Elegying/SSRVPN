@@ -99,6 +99,27 @@ class AppSettings {
     Iterable<Object?>? forceProxySites,
     Iterable<Object?>? forceDirectSites,
   }) {
+    final proxySites =
+        normalizeForceProxySites(forceProxySites ?? this.forceProxySites)
+            .toList();
+    final directSites =
+        normalizeForceDirectSites(forceDirectSites ?? this.forceDirectSites)
+            .toList();
+    if (forceDirectSites != null && forceProxySites == null) {
+      final hosts = directSites
+          .map(ForceProxySitePolicy.canonicalHostKey)
+          .whereType<String>()
+          .toSet();
+      proxySites.removeWhere((site) =>
+          hosts.contains(ForceProxySitePolicy.canonicalHostKey(site)));
+    } else if (forceProxySites != null) {
+      final hosts = proxySites
+          .map(ForceProxySitePolicy.canonicalHostKey)
+          .whereType<String>()
+          .toSet();
+      directSites.removeWhere((site) =>
+          hosts.contains(ForceProxySitePolicy.canonicalHostKey(site)));
+    }
     return AppSettings(
       proxyPort: proxyPort ?? this.proxyPort,
       socksPort: socksPort ?? this.socksPort,
@@ -117,8 +138,8 @@ class AppSettings {
               ? ''
               : this.lastSelectedNodeRenameId),
       latencyTestTimeout: latencyTestTimeout ?? this.latencyTestTimeout,
-      forceProxySites: forceProxySites ?? this.forceProxySites,
-      forceDirectSites: forceDirectSites ?? this.forceDirectSites,
+      forceProxySites: proxySites,
+      forceDirectSites: directSites,
     );
   }
 

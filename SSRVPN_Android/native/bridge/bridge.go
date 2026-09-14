@@ -4,6 +4,7 @@ package bridge
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/component/dialer"
+	"github.com/metacubex/mihomo/component/process"
 	"github.com/metacubex/mihomo/config"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub"
@@ -371,3 +373,105 @@ func init() {
 // forwarding counters used by /ssrvpn/traffic. They never include UID traffic.
 func ProxyTrafficUpload() int64   { return statistic.ReadProxyTraffic().Upload }
 func ProxyTrafficDownload() int64 { return statistic.ReadProxyTraffic().Download }
+
+// Package lookup uses a bounded, nonblocking pipe instead of a JNI callback.
+// Failed, ambiguous and timed-out lookups fall through to destination rules.
+var packageLookupMu sync.Mutex
+var packageLookupWriter *os.File
+var packageLookupFD int
+var packageLookupSequence atomic.Int64
+var packageLookupPending sync.Map
+var packageLookupSlots = make(chan struct{}, 8)
+
+func InitPackageLookup() int64 {
+	packageLookupMu.Lock()
+	defer packageLookupMu.Unlock()
+	if packageLookupWriter != nil {
+		_ = packageLookupWriter.Close()
+		packageLookupWriter = nil
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return -1
+	}
+	fd, err := syscall.Dup(int(reader.Fd()))
+	_ = reader.Close()
+	if err != nil {
+		_ = writer.Close()
+		return -1
+	}
+	packageLookupFD = int(writer.Fd())
+	if err = syscall.SetNonblock(packageLookupFD, true); err != nil {
+		_ = syscall.Close(fd)
+		_ = writer.Close()
+		return -1
+	}
+	packageLookupWriter = writer
+	return int64(fd)
+}
+
+func StopPackageLookup() {
+	packageLookupMu.Lock()
+	defer packageLookupMu.Unlock()
+	if packageLookupWriter != nil {
+		_ = packageLookupWriter.Close()
+		packageLookupWriter = nil
+	}
+}
+
+func SetPackageLookupResult(id int64, name string) {
+	if response, ok := packageLookupPending.Load(id); ok {
+		select {
+		case response.(chan string) <- name:
+		default:
+		}
+	}
+}
+
+func lookupPackage(metadata *C.Metadata) (string, error) {
+	select {
+	case packageLookupSlots <- struct{}{}:
+	default:
+		return "", process.ErrNotFound
+	}
+	defer func() { <-packageLookupSlots }()
+	destination := netip.AddrPortFrom(metadata.DstIP, metadata.DstPort)
+	if metadata.RawDstAddr != nil {
+		if original, err := netip.ParseAddrPort(metadata.RawDstAddr.String()); err == nil {
+			destination = original
+		}
+	}
+	if !destination.IsValid() || !metadata.SrcIP.IsValid() {
+		return "", process.ErrNotFound
+	}
+	id := packageLookupSequence.Add(1)
+	response := make(chan string, 1)
+	packageLookupPending.Store(id, response)
+	defer packageLookupPending.Delete(id)
+	request, err := json.Marshal([]any{id, metadata.NetWork.String(), metadata.SrcIP.String(), metadata.SrcPort, destination.Addr().String(), destination.Port()})
+	if err != nil || len(request) > 512 {
+		return "", process.ErrNotFound
+	}
+	packageLookupMu.Lock()
+	if packageLookupWriter == nil {
+		packageLookupMu.Unlock()
+		return "", process.ErrNotFound
+	}
+	_, err = syscall.Write(packageLookupFD, append(request, '\n'))
+	packageLookupMu.Unlock()
+	if err != nil {
+		return "", process.ErrNotFound
+	}
+	timer := time.NewTimer(150 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case name := <-response:
+		if name != "" {
+			return name, nil
+		}
+	case <-timer.C:
+	}
+	return "", process.ErrNotFound
+}
+
+func init() { process.DefaultPackageNameResolver = lookupPackage }

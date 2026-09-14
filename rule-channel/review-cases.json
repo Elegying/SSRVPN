@@ -1,0 +1,5 @@
+{
+  "direct": ["baidu.com", "qq.com", "taobao.com", "jd.com", "bilibili.com", "alipay.com"],
+  "proxy": ["google.com", "youtube.com", "facebook.com", "github.com", "openai.com", "netflix.com", "telegram.org"],
+  "unknown": ["unclassified.ssrvpn.invalid"]
+}

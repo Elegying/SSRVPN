@@ -1,7 +1,3 @@
-# SSRVPN smart-routing rule snapshot
-# upstream: MetaCubeX/meta-rules-dat@200e6a86736cfab29aae7b07dc266e59f13bc13d
-# kind: domain
-# sources: SSRVPN reviewed user feedback
 payload:
   - "+.services.googleapis.cn"
   - "+.xn--ngstr-lra8j.com"

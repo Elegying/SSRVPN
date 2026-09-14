@@ -754,9 +754,14 @@ try {
 
     final startToken = ++_startGeneration;
     _startCancellation = Completer<void>();
-    final operation = _startInternal(
-      startToken,
-      preserveSystemProxyRecovery: preserveSystemProxyRecovery,
+    final operation = startWithSmartRuleRecovery(
+      () => _startInternal(startToken,
+          preserveSystemProxyRecovery: preserveSystemProxyRecovery),
+      () async {
+        if (!await _stopInternal()) throw StateError('规则回退前核心未完全停止');
+      },
+      () => startToken == _startGeneration,
+      configPath,
     );
     _startOperation = operation;
     operation.then<void>(
@@ -1090,22 +1095,6 @@ try {
         log('❌ Windows 启动事务在 ${stage.name} 阶段失败');
       },
     );
-  }
-
-  Future<void> _cleanupFailedStart() async {
-    final startError = lastStartError?.trim();
-    try {
-      if (await _stopInternal()) return;
-    } catch (error) {
-      _lastStopError = '启动失败后无法确认 Mihomo 已停止: $error';
-    }
-    final cleanupError = _lastStopError ?? '启动失败后无法确认 Mihomo 已安全停止';
-    if (startError == null || startError.isEmpty) {
-      setLastStartError(cleanupError);
-    } else if (!startError.contains(cleanupError)) {
-      setLastStartError('$startError；$cleanupError');
-    }
-    log('❌ 启动失败后的清理未完成: $cleanupError');
   }
 
   // ── Stop ──

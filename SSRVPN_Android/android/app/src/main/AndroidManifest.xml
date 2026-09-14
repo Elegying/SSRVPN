@@ -87,6 +87,16 @@
             android:value="2" />
     </application>
     <queries>
+        <!-- Package lookup for current and future user-facing app lists. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
         <!-- domestic-app-bypass:start -->
         <!-- Android 11+ visibility for DomesticAppBypassPolicy.packageNames. -->
         <package android:name="air.tv.douyu.android" />

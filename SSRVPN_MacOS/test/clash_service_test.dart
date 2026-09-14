@@ -269,7 +269,7 @@ void main() {
         AppSettings(proxyMode: ProxyMode.global),
       );
 
-      expect(config, contains('mode: global'));
+      expect(config, contains('MATCH,GLOBAL'));
       expect(config, isNot(contains('mode: Global')));
     });
 

@@ -80,6 +80,11 @@ class SubscriptionRefreshControl {
       unawaited(
         operation.then<void>((_) {}, onError: (Object _, StackTrace __) {}),
       );
+      // The caller has already started this Future before handing it to wait.
+      // Release its resources even when cancellation won before registration.
+      try {
+        onAbort?.call();
+      } catch (_) {}
       rethrow;
     }
     final result = Completer<T>();

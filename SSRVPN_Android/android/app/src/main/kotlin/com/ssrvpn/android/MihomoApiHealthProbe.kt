@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit
 internal enum class MihomoApiReadiness(val logValue: String) {
     READY("ready"),
     PENDING("pending"),
+    RULES_PENDING("rules_pending"),
     PORT_CONFLICT("port_conflict"),
     AUTH_REJECTED("auth_rejected"),
     TUN_DISABLED("tun_disabled"),
@@ -62,9 +63,28 @@ internal object MihomoApiHealthProbe {
             return MihomoApiReadiness.PENDING
         }
         return when (configJson.directNestedBoolean("tun", "enable")) {
-            true -> MihomoApiReadiness.READY
+            true -> rulesReadiness(port, apiSecret, deadlineNanos)
             false -> MihomoApiReadiness.TUN_DISABLED
             else -> MihomoApiReadiness.PENDING
+        }
+    }
+
+    private fun rulesReadiness(port: Int, apiSecret: String, deadlineNanos: Long): MihomoApiReadiness {
+        val response = requestJson(port, "/providers/rules", apiSecret, deadlineNanos, 64 * 1024)
+        if (response.status == HttpJsonStatus.AUTH_REJECTED) return MihomoApiReadiness.AUTH_REJECTED
+        if (response.status == HttpJsonStatus.TIMEOUT) return MihomoApiReadiness.TIMEOUT
+        if (response.status != HttpJsonStatus.SUCCESS) return MihomoApiReadiness.PENDING
+        return if (ruleProvidersReady(response.body.orEmpty().trim())) MihomoApiReadiness.READY else MihomoApiReadiness.RULES_PENDING
+    }
+
+    internal fun ruleProvidersReady(body: String): Boolean {
+        val providers = body.directObjectField(0, body.length, "providers") ?: return false
+        val names = listOf("ssrvpn-ai-services", "ssrvpn-foreign-services", "ssrvpn-streaming-services",
+            "ssrvpn-china-domains", "ssrvpn-company-asn", "ssrvpn-user-feedback-rules", "ssrvpn-geosite-gfw", "ssrvpn-geosite-cn")
+        return names.all { name ->
+            val provider = body.directObjectField(providers.start, providers.endExclusive, name) ?: return@all false
+            val count = body.directObjectField(provider.start, provider.endExclusive, "ruleCount") ?: return@all false
+            (body.substring(count.start, count.endExclusive).toIntOrNull() ?: 0) > 0
         }
     }
 

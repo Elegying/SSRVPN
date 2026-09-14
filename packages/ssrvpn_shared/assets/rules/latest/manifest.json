@@ -1,66 +1,75 @@
 {
   "schemaVersion": 1,
-  "version": "1.1.0",
+  "version": "2.0.1",
+  "componentVersions": {
+    "rules": "2.0.0",
+    "directApps": "1.0.1",
+    "proxyApps": "1.0.1"
+  },
   "upstream": {
-    "repository": "MetaCubeX/meta-rules-dat",
-    "commit": "200e6a86736cfab29aae7b07dc266e59f13bc13d"
+    "repository": "Loyalsoldier/clash-rules",
+    "commit": "bfa77fb0987d2ab0d56b5b01b3fa36515a57326c"
   },
   "files": [
     {
       "name": "ai_services.yaml",
       "behavior": "domain",
       "count": 69,
-      "sha256": "7c402e74cc68378df416828210ef69e9cab0687bdf797a48c70d5016ea0fde1e"
-    },
-    {
-      "name": "foreign_services.yaml",
-      "behavior": "domain",
-      "count": 1180,
-      "sha256": "600ced83a3403a9bd12b313aba78b2c104372d8c0baab8c731298c326abfaf64"
-    },
-    {
-      "name": "streaming_services.yaml",
-      "behavior": "domain",
-      "count": 301,
-      "sha256": "6f4fc76f59e4017867b15f28a3885766455da631d500190c2c0879023c8c5bcb"
+      "sha256": "a49ba17cde801dc056f6e9600b5f736b2aecfce46d61183ccaa4fce58b096be0"
     },
     {
       "name": "china_domains.yaml",
       "behavior": "domain",
       "count": 2977,
-      "sha256": "5a69f8551c774526495b4c2ec0826de30d08158a077f88c3b930ab157548f13a"
+      "sha256": "3b15e558feaaa49a25ac03101e526a943728676a68f14eb9ef691d067320ba7f"
+    },
+    {
+      "name": "cn.yaml",
+      "behavior": "domain",
+      "count": 111160,
+      "sha256": "5ff6ec43b09fa35c17ed98b5fa4c26cd2dbb7dab33ccb4c579986c8e6e8531d8"
+    },
+    {
+      "name": "company_asn.yaml",
+      "behavior": "ipcidr",
+      "count": 9647,
+      "sha256": "7d7b50815f42f9a6274e2df67288dadee6af55722ef13cb9d2562e67108b63ce"
+    },
+    {
+      "name": "direct_apps.yaml",
+      "behavior": "packages",
+      "count": 205,
+      "sha256": "0aaef071f0df7830677670b87bcbf0c249630cc1689cafe8e07f7a0e073216b2"
+    },
+    {
+      "name": "foreign_services.yaml",
+      "behavior": "domain",
+      "count": 27088,
+      "sha256": "ba5ba1a9854bcd9141afcd83250fcbce9338c40cdb85824cc5b0bf867c0364d3"
+    },
+    {
+      "name": "gfw.yaml",
+      "behavior": "domain",
+      "count": 4384,
+      "sha256": "a2bb7f78d3fdfdc08bc876d7494b13ff20d144d61c5b4642b51bd3ba12873b11"
+    },
+    {
+      "name": "proxy_apps.yaml",
+      "behavior": "packages",
+      "count": 39,
+      "sha256": "e3d64c7915234cf0715ac229605bd18a8d83171a3b50701b6b6bcea2886d6ad9"
+    },
+    {
+      "name": "streaming_services.yaml",
+      "behavior": "domain",
+      "count": 301,
+      "sha256": "951e9df895bc583d6cdd89767f3064c01f279df949103286bf801a274f7b47c7"
     },
     {
       "name": "user_feedback_rules.yaml",
       "behavior": "domain",
       "count": 2,
-      "sha256": "343901530efdacc5eb5b2162abe53b904d23db9d99d651c198225d4805975f18"
-    },
-    {
-      "name": "company_asn.yaml",
-      "behavior": "ipcidr",
-      "count": 1639,
-      "sha256": "f07cfdfe073bca08f7e6ee0162e65fc198f54cc1ab43365fe5319fbb3bcfe5c3"
+      "sha256": "c7211a8e5b29abe0b7dd1a36ee56e55c548763d0a962837b5cfaa181cfb1713b"
     }
-  ],
-  "companyAsns": {
-    "Alibaba": [
-      45102,
-      37963,
-      24429
-    ],
-    "Tencent": [
-      132203,
-      45090
-    ],
-    "Baidu": [
-      55967,
-      38365
-    ],
-    "ByteDance": [
-      138699,
-      396986
-    ]
-  },
-  "rollback": "Republish the last known-good content under a higher rule version; clients reject downgrades and retain valid local providers on failure."
+  ]
 }

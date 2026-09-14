@@ -24,10 +24,7 @@ void main() {
                   onPressed: () async {
                     result = await ForceProxySitesDialog.show(
                       context,
-                      savedSites: List.filled(
-                        AppSettings.forceProxySiteLimit,
-                        '',
-                      ),
+                      savedSites: const [],
                     );
                   },
                   child: const Text('打开设置'),
@@ -56,6 +53,11 @@ void main() {
     await tester.tap(find.widgetWithText(ElevatedButton, '确定'));
     await tester.pump();
     expect(find.text('第 1 个输入框：请输入有效的网址或域名'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, '2001:db8::1');
+    await tester.tap(find.widgetWithText(ElevatedButton, '确定'));
+    await tester.pump();
+    expect(find.text('第 1 个输入框：当前仅支持域名或 IPv4 地址'), findsOneWidget);
 
     await tester.enterText(
       find.byType(TextField).first,
