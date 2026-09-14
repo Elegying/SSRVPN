@@ -22,6 +22,7 @@ run_step "Flutter toolchain version" scripts/check-flutter-version.sh
 run_step "Shared barrel imports" scripts/check-shared-barrel-imports.sh
 run_step "Version sync" scripts/check-version-sync.sh
 run_step "Bundled smart-routing rules" python3 scripts/verify-smart-rules.py
+run_step "Rule publication review tests" python3 -m unittest discover -s rule-channel -p test_publish.py
 run_step "Package guides" scripts/check-package-guides.sh
 run_step "Documentation consistency" scripts/check-doc-consistency.sh
 run_step "Workspace pub get" flutter pub get --enforce-lockfile
@@ -29,6 +30,9 @@ run_step "Source formatting and shell lint" scripts/check-quality-hygiene.sh
 run_step "Core asset bootstrap model" scripts/check-core-asset-bootstrap.sh
 run_step "Core asset bootstrap" scripts/bootstrap-core-assets.sh
 run_step "Core binary assets" scripts/verify-core-assets.sh
+if [[ "$(uname -s)" == Darwin ]]; then
+  run_step "Production routing on real core" python3 scripts/check-routing-core.py
+fi
 run_step "Android native bridge guards" scripts/check-android-native-bridge-guards.sh
 run_step "Android built-in Kotlin guard" scripts/check-android-built-in-kotlin.sh
 run_step "Two-page product surface guards" scripts/check-product-surface-guards.sh

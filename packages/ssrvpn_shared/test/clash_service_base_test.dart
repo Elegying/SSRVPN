@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cryptography/cryptography.dart' as signatures;
 import 'dart:convert';
 import 'dart:io';
 
@@ -190,6 +191,42 @@ void main() {
   });
 
   group('ClashServiceBase health log safety', () {
+    test('rule readiness distinguishes missing rules from unavailable API',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final service = _ApiClashService();
+      service.initHttpClient();
+      service.updateSettings(AppSettings(apiPort: server.port));
+      service.useSmartRuleVersionForFutureConfigs('1.0.0');
+      addTearDown(service.dispose);
+      addTearDown(server.close);
+      var status = HttpStatus.serviceUnavailable;
+      var complete = false;
+      server.listen((request) async {
+        if (request.uri.path == '/providers/rules') {
+          request.response.statusCode = status;
+          request.response.write(jsonEncode({
+            'providers': {
+              if (complete)
+                for (final name in AppConstants.smartRuleProviderFiles.keys)
+                  name: {'ruleCount': 1}
+            }
+          }));
+        } else {
+          request.response.write('{}');
+        }
+        await request.response.close();
+      });
+      expect(await service.healthCheck(), isFalse);
+      expect(service.lastHealthCheckError, contains('规则状态接口暂时不可用'));
+      status = HttpStatus.ok;
+      expect(await service.healthCheck(), isFalse);
+      expect(service.lastHealthCheckError, contains('分流规则尚未就绪'));
+      complete = true;
+      expect(await service.healthCheck(), isTrue);
+      expect(service.lastHealthCheckError, isNull);
+    });
+
     test(
       'non-success local API response records a stable health code',
       () async {
@@ -1500,7 +1537,8 @@ proxies:
 
       final service = _ApiClashService()
         ..ruleChannelFiles = {
-          AppConstants.smartRuleVersionDescriptorFile: _ruleVersionDescriptor(
+          AppConstants.smartRuleVersionDescriptorFile:
+              await _ruleVersionDescriptor(
             '1.1.0',
             manifest,
           ),
@@ -1519,6 +1557,44 @@ proxies:
       expect(service.ruleChannelRequests, ['version.json']);
       expect(service.recentLogs, contains('无需下载'));
     });
+
+    for (final endSession in ['reconnect', 'dispose', 'loss']) {
+      test('rule download cannot cross a $endSession boundary', () async {
+        final tempDir = await Directory.systemTemp.createTemp('rule_session_');
+        addTearDown(() => tempDir.delete(recursive: true));
+        final reached = Completer<void>();
+        final release = Completer<void>();
+        final service = _ApiClashService()
+          ..ruleChannelFiles = {'version.json': '{}'}
+          ..beforeRuleChannelResponse = (_) async {
+            reached.complete();
+            await release.future;
+          };
+        if (endSession != 'dispose') addTearDown(service.dispose);
+        service.setPaths(
+            configDir: tempDir.path, configPath: '${tempDir.path}/config.yaml');
+        service.setRunning(true);
+        final pending = service.runRuleProviderRefresh();
+        await reached.future;
+        // A duplicate call must not start a second request or overwrite its version.
+        await service.runRuleProviderRefresh();
+        expect(service.ruleChannelRequests, ['version.json']);
+        if (endSession == 'dispose') {
+          service.dispose();
+        } else if (endSession == 'loss') {
+          service.simulateTerminalConnectionLoss();
+          service.setRunning(true);
+        } else {
+          service.setRunning(false);
+          service.setRunning(true);
+        }
+        release.complete();
+        await pending;
+        expect(service.ruleChannelRequests, ['version.json']);
+        expect(tempDir.listSync(), isEmpty);
+        expect(service.recentLogs, isNot(contains('后台检查失败')));
+      });
+    }
 
     test(
       'new version is staged atomically and used only by future configs',
@@ -1558,7 +1634,8 @@ proxies:
         );
         final service = _ApiClashService()
           ..ruleChannelFiles = {
-            AppConstants.smartRuleVersionDescriptorFile: _ruleVersionDescriptor(
+            AppConstants.smartRuleVersionDescriptorFile:
+                await _ruleVersionDescriptor(
               '1.1.0',
               newManifest,
             ),
@@ -1605,6 +1682,14 @@ proxies:
               as YamlMap)['path'],
           './providers/bundles/1.0.0/ai_services.yaml',
         );
+        final sameConnectionConfig =
+            loadYaml(service.buildConfig(yaml, service.settings)) as YamlMap;
+        expect(
+            ((sameConnectionConfig['rule-providers']
+                    as YamlMap)[AppConstants.aiServicesRuleProviderName]
+                as YamlMap)['path'],
+            './providers/bundles/1.0.0/ai_services.yaml');
+        await service.prepareForStart(service.settings);
         final nextConfig =
             loadYaml(service.buildConfig(yaml, service.settings)) as YamlMap;
         expect(
@@ -1650,7 +1735,8 @@ proxies:
         );
         final service = _ApiClashService()
           ..ruleChannelFiles = {
-            AppConstants.smartRuleVersionDescriptorFile: _ruleVersionDescriptor(
+            AppConstants.smartRuleVersionDescriptorFile:
+                await _ruleVersionDescriptor(
               '1.1.0',
               newManifest,
             ),
@@ -1727,7 +1813,8 @@ proxies:
 
         final service = _ApiClashService()
           ..ruleChannelFiles = {
-            AppConstants.smartRuleVersionDescriptorFile: _ruleVersionDescriptor(
+            AppConstants.smartRuleVersionDescriptorFile:
+                await _ruleVersionDescriptor(
               '1.1.0',
               newManifest,
             ),
@@ -1795,6 +1882,18 @@ proxies:
       },
     );
 
+    test('manual direct diagnostics cannot be attributed to a proxy node',
+        () async {
+      final service = _ApiClashService();
+      addTearDown(service.dispose);
+      service.updateSettings(AppSettings(forceDirectSites: ['ipify.org']));
+      expect(await service.confirmedProxyExitNode(), isNull);
+      await expectLater(
+          service.fetchCurrentPublicIpInfo(),
+          throwsA(isA<Exception>().having((error) => error.toString(), 'reason',
+              contains('手动直连规则覆盖出口查询'))));
+    });
+
     test('production refresh delay is two minutes', () {
       expect(
         AppConstants.ruleProviderStartupRefreshDelay,
@@ -1812,6 +1911,41 @@ proxies:
       await Future<void>.delayed(const Duration(milliseconds: 40));
       expect(service.refreshCalls, 1);
 
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(service.refreshCalls, 1);
+    });
+
+    test('reconnect never schedules another check in the same launch',
+        () async {
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      service.setRunning(true);
+      service.startStatusMonitor();
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      service.stopStatusMonitor();
+      service.setRunning(false);
+      service.setRunning(true);
+      service.startStatusMonitor();
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(service.refreshCalls, 1);
+    });
+
+    test('reconnect restores a check cancelled before its delay elapsed',
+        () async {
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      service.setRunning(true);
+      service.startStatusMonitor();
+      service.stopStatusMonitor();
+      service.setRunning(false);
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(service.refreshCalls, 0);
+      service.setRunning(true);
+      service.startStatusMonitor();
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(service.refreshCalls, 1);
+      service.stopStatusMonitor();
+      service.startStatusMonitor();
       await Future<void>.delayed(const Duration(milliseconds: 40));
       expect(service.refreshCalls, 1);
     });
@@ -2637,6 +2771,10 @@ Future<String> _writeRuleFixture(
     final content = contents[fileName]!;
     final bytes = utf8.encode(content);
     if (writeFiles) {
+      await Directory('${providerDir.path}/bundles/$version')
+          .create(recursive: true);
+      await File('${providerDir.path}/bundles/$version/$fileName')
+          .writeAsBytes(bytes);
       await File(
         '${providerDir.path}/$fileName',
       ).writeAsBytes(bytes, flush: true);
@@ -2648,7 +2786,22 @@ Future<String> _writeRuleFixture(
       'sha256': sha256.convert(bytes).toString(),
     });
   }
-  return jsonEncode({'schemaVersion': 1, 'version': version, 'files': entries});
+  final manifest = jsonEncode({
+    'schemaVersion': 1,
+    'version': version,
+    'componentVersions': {
+      'rules': version,
+      'directApps': version,
+      'proxyApps': version
+    },
+    'files': entries
+  });
+  if (writeFiles) {
+    // This fixture represents the already-running baseline before an update.
+    await File('${providerDir.path}/rule-recovery.json')
+        .writeAsString(jsonEncode({'confirmed': jsonDecode(manifest)}));
+  }
+  return manifest;
 }
 
 Map<String, String> _ruleProviderFixtureContents({
@@ -2667,16 +2820,35 @@ Map<String, String> _ruleProviderFixtureContents({
   return contents;
 }
 
-String _ruleVersionDescriptor(String version, String manifest) => jsonEncode({
-      'schemaVersion': 1,
-      'version': version,
-      'manifestSha256': sha256.convert(utf8.encode(manifest)).toString(),
-    });
+const _testPublicKey = '11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=';
+
+Future<String> _ruleVersionDescriptor(String version, String manifest) async {
+  final seed =
+      '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60';
+  final keyPair = await signatures.Ed25519().newKeyPairFromSeed([
+    for (var i = 0; i < seed.length; i += 2)
+      int.parse(seed.substring(i, i + 2), radix: 16),
+  ]);
+  final hash = sha256.convert(utf8.encode(manifest)).toString();
+  final signature = await signatures.Ed25519().sign(
+      utf8.encode('SSRVPN rules v1\n$version\n$hash\n'),
+      keyPair: keyPair);
+  return jsonEncode({
+    'schemaVersion': 1,
+    'version': version,
+    'manifestSha256': hash,
+    'signature': base64Encode(signature.bytes)
+  });
+}
 
 class _ApiClashService extends ClashServiceBase
     with _ExplicitTestDiagnosticCapability {
+  @override
+  String get ruleSigningPublicKey => _testPublicKey;
+
   Map<String, String>? ruleChannelFiles;
   Object? ruleChannelFailure;
+  Future<void> Function(String)? beforeRuleChannelResponse;
   final List<String> ruleChannelRequests = [];
 
   void publishRunning() => setRunning(true);
@@ -2692,6 +2864,7 @@ class _ApiClashService extends ClashServiceBase
     required int maxBytes,
   }) async {
     ruleChannelRequests.add(fileName);
+    await beforeRuleChannelResponse?.call(fileName);
     final failure = ruleChannelFailure;
     if (failure != null) throw failure;
     final files = ruleChannelFiles;
@@ -2722,6 +2895,7 @@ class _ApiClashService extends ClashServiceBase
 
   @override
   Future<AppSettings> prepareForStart(AppSettings preferred) async {
+    await applyPendingSmartRules();
     updateSettings(preferred);
     return preferred;
   }

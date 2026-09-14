@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受（2026-09-02），2026-09-03 按 Android 国内应用可用性和低流量规则更新修订；取代
+部分被 [ADR-017](017-independent-routing-channel.md) 取代（应用分流、更新通道和优先级）；历史决策已接受（2026-09-02），2026-09-03 按 Android 国内应用可用性和低流量规则更新修订；取代
 [ADR-015](015-gfw-proxy-default-direct-routing.md)。
 
 ## 现状核查

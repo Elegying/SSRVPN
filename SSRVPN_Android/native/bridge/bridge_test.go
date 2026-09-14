@@ -1,13 +1,17 @@
 package bridge
 
 import (
+	"bufio"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"io"
+	"net/netip"
 	"os"
 	"testing"
 	"time"
 
+	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/listener"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/tunnel/statistic"
@@ -358,5 +362,46 @@ func TestInitProtectTransfersDuplicateReaderAcrossStop(t *testing.T) {
 	var trailing [1]byte
 	if count, err := transferRead.Read(trailing[:]); count != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("transferred reader after Stop = (%d, %v), want (0, EOF)", count, err)
+	}
+}
+
+func TestPackageLookupRoundTripAndUnavailableFallback(t *testing.T) {
+	StopPackageLookup()
+	metadata := &C.Metadata{NetWork: C.TCP, SrcIP: netip.MustParseAddr("172.19.0.1"), SrcPort: 12345, DstIP: netip.MustParseAddr("1.1.1.1"), DstPort: 443}
+	if name, err := lookupPackage(metadata); err == nil || name != "" {
+		t.Fatal("missing monitor must fall back")
+	}
+	fd := InitPackageLookup()
+	if fd < 0 {
+		t.Fatal("pipe setup")
+	}
+	defer StopPackageLookup()
+	reader := os.NewFile(uintptr(fd), "package-reader")
+	defer reader.Close()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		line, err := bufio.NewReader(reader).ReadBytes('\n')
+		if err != nil {
+			return
+		}
+		var request []json.RawMessage
+		if json.Unmarshal(line, &request) != nil || len(request) != 6 {
+			return
+		}
+		var id int64
+		_ = json.Unmarshal(request[0], &id)
+		SetPackageLookupResult(id, "com.tencent.mm")
+	}()
+	if name, err := lookupPackage(metadata); err != nil || name != "com.tencent.mm" {
+		t.Fatalf("lookup: %s %v", name, err)
+	}
+	<-done
+	start := time.Now()
+	if name, err := lookupPackage(metadata); err == nil || name != "" {
+		t.Fatal("timeout must fall back")
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("lookup stalled routing")
 	}
 }

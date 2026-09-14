@@ -119,7 +119,8 @@ class ClashConfigGenerator {
     result.writeln('mixed-port: ${settings.proxyPort}');
     result.writeln('socks-port: ${settings.socksPort}');
     result.writeln('allow-lan: false');
-    result.writeln('mode: ${settings.proxyMode.name}');
+    // Both modes retain manual exceptions; global changes only the final policy.
+    result.writeln('mode: rule');
     result.writeln('log-level: info');
     result.writeln("external-controller: '127.0.0.1:${settings.apiPort}'");
     result.writeln('# SSRVPN IPv4-only runtime');
@@ -223,7 +224,8 @@ class ClashConfigGenerator {
           AppConstants.trustedProxyNameservers;
       nameserverPolicies['rule-set:${AppConstants.geositeCnRuleProviderName}'] =
           AppConstants.domesticDohNameservers;
-      nameserverPolicies['+.cn'] = AppConstants.domesticDohNameservers;
+      nameserverPolicies.putIfAbsent(
+          '+.cn', () => AppConstants.domesticDohNameservers);
       result.writeln('  nameserver-policy:');
       for (final policy in nameserverPolicies.entries) {
         result.writeln("    '${policy.key}':");
@@ -302,82 +304,74 @@ class ClashConfigGenerator {
       }
     }
 
-    // 已验证的应用规则使用完整版本目录，运行中的核心不会被后台下载逐文件热切换。
-    // 本地基线准备失败时仍保留原有 HTTP Provider，优先保证用户可以连接。
+    // Only immutable local data is used. If installation failed, embedded
+    // conservative providers preserve connectivity without unsigned downloads.
     result.writeln();
     result.writeln('rule-providers:');
     for (final entry in AppConstants.smartRuleProviderFiles.entries) {
-      final behavior = entry.key == AppConstants.companyAsnRuleProviderName
-          ? 'ipcidr'
-          : 'domain';
-      if (smartRuleProviderPathPrefix == null) {
-        _writeRuleProvider(
-          result,
-          name: entry.key,
-          behavior: behavior,
-          format: 'yaml',
-          path: './providers/${entry.value}',
-          url: '${AppConstants.smartRuleChannelBaseUrl}/${entry.value}',
-        );
+      final ip = entry.key == AppConstants.companyAsnRuleProviderName;
+      final behavior = ip ? 'ipcidr' : 'domain';
+      if (smartRuleProviderPathPrefix != null) {
+        _writeLocalRuleProvider(result,
+            name: entry.key,
+            behavior: behavior,
+            format: 'yaml',
+            path: '$smartRuleProviderPathPrefix/${entry.value}');
       } else {
-        _writeLocalRuleProvider(
-          result,
-          name: entry.key,
-          behavior: behavior,
-          format: 'yaml',
-          path: '$smartRuleProviderPathPrefix/${entry.value}',
-        );
+        final direct = entry.key == AppConstants.chinaDomainsRuleProviderName ||
+            entry.key == AppConstants.geositeCnRuleProviderName;
+        final payload = ip
+            ? ['127.0.0.1/32']
+            : direct
+                ? ['+.cn']
+                : ['+.google.com', '+.openai.com'];
+        result.writeln('  ${entry.key}:');
+        result.writeln('    type: inline');
+        result.writeln('    behavior: $behavior');
+        result.writeln('    payload: ${jsonEncode(payload)}');
       }
     }
-    _writeRuleProvider(
-      result,
-      name: AppConstants.geositeGfwRuleProviderName,
-      behavior: 'domain',
-      path: AppConstants.geositeGfwRuleProviderPath,
-      url: AppConstants.geositeGfwRuleProviderUrl,
-    );
-    _writeRuleProvider(
-      result,
-      name: AppConstants.geositeCnRuleProviderName,
-      behavior: 'domain',
-      path: AppConstants.geositeCnRuleProviderPath,
-      url: AppConstants.geositeCnRuleProviderUrl,
-    );
-    // 规则。按首次出现顺序去重：IPv6 泄漏保护、用户强制代理、
-    // 用户强制直连、私网安全、已知海外服务、国内企业域名/ASN、GFW 代理、
-    // CN 与 GeoIP 直连，最后未知流量安全回退到代理。
+    // 按首次出现顺序去重：IPv6 边界、应用规则、用户规则、私网、
+    // 自动代理/GFW、国内域名/IP，最后未知流量代理。
     final orderedRules = <String>{AppConstants.rejectIpv6Rule};
-    // Exit probes must traverse PROXY even when a user's direct rule matches
-    // the diagnostic service; otherwise a relay would get the device's flag.
-    orderedRules.addAll([
-      PublicIpInfoService.ipv4Endpoint,
-      PublicIpInfoService.fallbackEndpoint,
-    ].map((endpoint) => 'DOMAIN,${endpoint.host},PROXY'));
+    final extraRules = extraRulesBeforeDirect
+        .map((rule) => rule.trim())
+        .where((rule) => rule.isNotEmpty)
+        .toList(growable: false);
+    orderedRules
+        .addAll(extraRules.where((rule) => rule.startsWith('PROCESS-NAME,')));
     orderedRules.addAll(buildForceProxyRules(settings));
     orderedRules.addAll(buildForceDirectRules(settings));
-    orderedRules.addAll(AppConstants.defaultPrivateDirectRules);
-    orderedRules.addAll(
-      AppConstants.defaultProxyDomainSuffixes.map(
-        (domain) => 'DOMAIN-SUFFIX,$domain,PROXY',
-      ),
-    );
-    orderedRules.addAll(
-      AppConstants.defaultProxyIpv4Cidrs.map(
-        (cidr) => 'IP-CIDR,$cidr,PROXY,no-resolve',
-      ),
-    );
-    orderedRules.addAll(
-      extraRulesBeforeDirect
-          .map((rule) => rule.trim())
-          .where((rule) => rule.isNotEmpty),
-    );
-    orderedRules.addAll(AppConstants.defaultRuleProviderProxyRules);
-    orderedRules.addAll(AppConstants.defaultDomesticServiceDirectRules);
-    orderedRules.addAll(AppConstants.defaultGfwProxyRules);
-    orderedRules.addAll(AppConstants.defaultRuleProviderDirectRules);
-    orderedRules.addAll(AppConstants.defaultDirectRules);
-    orderedRules.add(AppConstants.defaultGeoIpDirectRule);
-    orderedRules.add(AppConstants.defaultMatchRule);
+    if (settings.proxyMode == ProxyMode.global) {
+      orderedRules.add('MATCH,GLOBAL');
+    } else {
+      orderedRules.addAll(
+        extraRules.where((rule) => !rule.startsWith('PROCESS-NAME,')),
+      );
+      // Automatic policies can never precede explicit user routing choices.
+      orderedRules.addAll([
+        PublicIpInfoService.ipv4Endpoint,
+        PublicIpInfoService.fallbackEndpoint,
+      ].map((endpoint) => 'DOMAIN,${endpoint.host},PROXY'));
+      orderedRules.addAll(AppConstants.defaultPrivateDirectRules);
+      orderedRules.addAll(
+        AppConstants.defaultProxyDomainSuffixes.map(
+          (domain) => 'DOMAIN-SUFFIX,$domain,PROXY',
+        ),
+      );
+      orderedRules.addAll(
+        AppConstants.defaultProxyIpv4Cidrs.map(
+          (cidr) => 'IP-CIDR,$cidr,PROXY,no-resolve',
+        ),
+      );
+      orderedRules.addAll(AppConstants.defaultRuleProviderProxyRules);
+      orderedRules.addAll(AppConstants.defaultGfwProxyRules);
+      orderedRules.addAll(AppConstants.defaultDomesticServiceDirectRules);
+      orderedRules.addAll(AppConstants.defaultRuleProviderDirectRules);
+      orderedRules.addAll(AppConstants.defaultDirectRules);
+      orderedRules.add(AppConstants.defaultGeoIpDirectRule);
+      orderedRules.add(AppConstants.defaultMatchRule);
+    }
 
     result.writeln();
     result.writeln('rules:');
@@ -596,24 +590,6 @@ class ClashConfigGenerator {
     }
 
     return rules;
-  }
-
-  static void _writeRuleProvider(
-    StringBuffer result, {
-    required String name,
-    required String behavior,
-    required String path,
-    required String url,
-    String format = 'mrs',
-  }) {
-    result.writeln('  $name:');
-    result.writeln('    type: http');
-    result.writeln('    behavior: $behavior');
-    result.writeln('    format: $format');
-    result.writeln('    path: ${_quote(path)}');
-    result.writeln('    url: ${_quote(url)}');
-    result.writeln('    proxy: ${AppConstants.ruleProviderDownloadProxy}');
-    result.writeln('    size-limit: ${AppConstants.ruleProviderSizeLimit}');
   }
 
   static void _writeLocalRuleProvider(

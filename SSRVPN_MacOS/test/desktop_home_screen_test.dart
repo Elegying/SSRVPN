@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_macos/app.dart' as desktop_app;
@@ -53,6 +54,55 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   tearDown(SubscriptionService.resetInstanceForTesting);
+
+  testWidgets(
+      'manual update discovery removes notices covering the update action',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    final updates = UpdateAvailabilityController();
+    addTearDown(updates.dispose);
+    await tester.pumpWidget(
+        ChangeNotifierProvider.value(value: updates, child: fixture.build()));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('ssrvpn-about-button')));
+    await tester.pumpAndSettle();
+    final button = tester.widget<OutlinedButton>(
+        find.byKey(const Key('ssrvpn-check-update-button')));
+    const base =
+        'https://github.com/Elegying/SSRVPN/releases/download/v99.0.0/';
+    final checksum = List.filled(64, 'a').join();
+    final client =
+        MockClient((request) async => request.url.path.endsWith('.sha256')
+            ? http.Response('$checksum  SSRVPN.dmg', 200)
+            : http.Response(
+                jsonEncode({
+                  'tag_name': 'v99.0.0',
+                  'body': 'UI test',
+                  'assets': [
+                    {
+                      'name': 'SSRVPN.dmg',
+                      'browser_download_url': '${base}SSRVPN.dmg'
+                    },
+                    {
+                      'name': 'SSRVPN.dmg.sha256',
+                      'browser_download_url': '${base}SSRVPN.dmg.sha256'
+                    },
+                  ]
+                }),
+                200));
+    await tester.runAsync(() async {
+      http.runWithClient(() => button.onPressed!(), () => client);
+      for (var i = 0; i < 100 && updates.availableUpdate == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pumpAndSettle();
+    expect(updates.availableUpdate?.version, '99.0.0');
+    expect(find.byType(SnackBar), findsNothing);
+  });
 
   testWidgets('online mode change without nodes preserves mode and connection',
       (tester) async {
@@ -1339,6 +1389,92 @@ void main() {
     expect(find.text('网络设置已更新，正在重新连接'), findsNothing);
   });
 
+  testWidgets('queued subscription revisions only reload the latest snapshot',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    final release = Completer<void>();
+    final blocker = fixture.clash.runConnectionTransition(() => release.future);
+    await tester.pump();
+    for (final port in [8390, 8391]) {
+      await tester.runAsync(() => fixture.subscription
+          .setRawYaml(_nodeYaml.replaceFirst('port: 8388', 'port: $port')));
+      await tester.pump();
+    }
+    release.complete();
+    await tester.runAsync(() => blocker);
+    await tester
+        .runAsync(() => fixture.clash.runConnectionTransition(() async {}));
+    await tester.pump();
+    expect(
+        fixture.clash.transitionEvents.where((e) => e == 'stop'), hasLength(1));
+    expect(fixture.clash.startCalls, 1);
+    expect(fixture.clash.writtenConfig, contains('8391'));
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.clash.connectionDesired, isTrue);
+  });
+
+  testWidgets('a failed subscription reload displays a connection error',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    fixture.clash
+      ..startResult = false
+      ..setLastStartError('CORE_START_CONFIG');
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.runAsync(() => fixture.subscription
+        .setRawYaml(_nodeYaml.replaceFirst('port: 8388', 'port: 8390')));
+    await tester.pump();
+    final message = AppFailure.fromMessage('CORE_START_CONFIG').userMessage;
+    await _pumpUntil(tester, () => find.text(message).evaluate().isNotEmpty);
+    expect(fixture.clash.isRunning, isFalse);
+    expect(fixture.clash.connectionDesired, isFalse);
+    expect(fixture.clash.startCalls, 1);
+    expect(find.text(message), findsOneWidget);
+  });
+
+  testWidgets('a superseded queued reload leaves the newer connection running',
+      (tester) async {
+    final fixture = (await tester.runAsync(
+      () => _HomeFixture.create(withNodes: true, running: true),
+    ))!;
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+
+    final release = Completer<void>();
+    final blocker = fixture.clash.runConnectionTransition(() => release.future);
+    await tester.pump();
+    await tester.runAsync(() => fixture.subscription
+        .setRawYaml(_nodeYaml.replaceFirst('port: 8388', 'port: 8390')));
+    await tester.pump();
+    await _pumpUntil(
+        tester, () => fixture.clash.transitionEvents.contains('interrupt'));
+    fixture.clash
+      ..requestConnectionIntent(false)
+      ..requestConnectionIntent(true);
+    release.complete();
+    await tester.runAsync(() => blocker);
+    await tester
+        .runAsync(() => fixture.clash.runConnectionTransition(() async {}));
+    await tester.pump();
+
+    expect(fixture.clash.transitionEvents, isNot(contains('stop')));
+    expect(fixture.clash.startCalls, 0);
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.clash.connectionDesired, isTrue);
+  });
+
   testWidgets('tray connection transition waits for a network setting commit',
       (tester) async {
     final writeStarted = Completer<void>();
@@ -1688,6 +1824,7 @@ class _FakeClashService extends ClashService {
   int singleLatencyRuns = 0;
   int directConnectivityVerificationCalls = 0;
   int startCalls = 0;
+  bool startResult = true;
   bool stallNextStart = false;
   final Completer<void> stalledStartEntered = Completer<void>();
   final List<String> transitionEvents = <String>[];
@@ -1765,8 +1902,8 @@ class _FakeClashService extends ClashService {
       return false;
     }
     transitionEvents.add('start');
-    _running = true;
-    return true;
+    _running = startResult;
+    return startResult;
   }
 
   @override

@@ -9,6 +9,33 @@ import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_glass.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
 
 void main() {
+  testWidgets('missing refresh method stops polling across lifecycle changes',
+      (tester) async {
+    const channel = MethodChannel('com.ssrvpn/display');
+    var reads = 0;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (call) async {
+      if (call.method == 'lowPerformance') return false;
+      reads++;
+      throw MissingPluginException();
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(
+        wrapSsrvpnLiquidGlass(const MaterialApp(home: Text('主界面'))));
+    await tester.pump();
+    expect(reads, 1);
+    await tester.pump(const Duration(seconds: 30));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump(const Duration(seconds: 30));
+    expect(reads, 1);
+    expect(find.text('主界面'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('low capability selects one stable minimal tier', (tester) async {
     const channel = MethodChannel('com.ssrvpn/display');
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,

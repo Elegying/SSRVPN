@@ -316,10 +316,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final shouldReload = _isConnected && !_isConnecting;
     var reloadSucceeded = false;
     if (shouldReload) {
-      await _reloadConfig();
-      reloadSucceeded = _canUpdateUi &&
-          _isConnected &&
-          context.read<ClashService>().isRunning;
+      reloadSucceeded = await _reloadConfig();
     }
     if (!_canUpdateUi) return;
 

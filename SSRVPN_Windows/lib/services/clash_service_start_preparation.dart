@@ -1,6 +1,22 @@
 part of 'clash_service.dart';
 
 extension _WindowsStartPreparationSupport on _WindowsCoreLifecycle {
+  Future<void> _cleanupFailedStart() async {
+    final startError = lastStartError?.trim();
+    try {
+      if (await _stopInternal()) return;
+    } catch (error) {
+      _lastStopError = '启动失败后无法确认 Mihomo 已停止: $error';
+    }
+    final cleanupError = _lastStopError ?? '启动失败后无法确认 Mihomo 已安全停止';
+    if (startError == null || startError.isEmpty) {
+      setLastStartError(cleanupError);
+    } else if (!startError.contains(cleanupError)) {
+      setLastStartError('$startError；$cleanupError');
+    }
+    log('❌ 启动失败后的清理未完成: $cleanupError');
+  }
+
   Future<_WindowsExistingRuntimePreparation> _prepareExistingWindowsRuntime(
     int startToken,
   ) async {

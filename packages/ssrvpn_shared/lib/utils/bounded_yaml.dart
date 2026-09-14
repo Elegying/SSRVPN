@@ -18,12 +18,14 @@ abstract final class BoundedYaml {
   static const int maxAliasReferences = 256;
   static const int maxCollectionItems = 100000;
 
-  static dynamic load(String source) {
-    validate(source);
+  static dynamic load(String source,
+      {int collectionLimit = maxCollectionItems}) {
+    validate(source, collectionLimit: collectionLimit);
     return loadYaml(source);
   }
 
-  static void validate(String source) {
+  static void validate(String source,
+      {int collectionLimit = maxCollectionItems}) {
     _validateUtf8Length(source);
 
     final indentationStack = <int>[];
@@ -37,7 +39,7 @@ abstract final class BoundedYaml {
 
     void addCollectionItems([int count = 1]) {
       collectionItems += count;
-      if (collectionItems > maxCollectionItems) {
+      if (collectionItems > collectionLimit) {
         throw const YamlResourceLimitException(
           'YAML 集合元素过多（最多 100000 个）',
         );

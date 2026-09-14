@@ -358,7 +358,7 @@ class DirectFetcher {
         }
 
         if (SubscriptionUrlPolicy.isRedirectStatus(resp.statusCode)) {
-          current = SubscriptionUrlPolicy.resolveRedirect(
+          current = SubscriptionFetchPolicy.resolveRedirect(
             current,
             resp.headers['location'] ?? '',
           );

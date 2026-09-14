@@ -22,6 +22,22 @@ void main() {
       );
     });
 
+    test('encoded URL paths do not invalidate a normal host', () {
+      expect(
+          ForceProxySitePolicy.extractHost(
+              'https://example.com/%E4%B8%AD?q=a%20b'),
+          'example.com');
+      expect(ForceProxySitePolicy.extractHost('example.com/path?q=%2F'),
+          'example.com');
+      expect(ForceProxySitePolicy.extractHost('https://%65xample.com/path'),
+          isNull);
+      expect(ForceProxySitePolicy.extractHost('https://[fe80::1%25en0]/path'),
+          isNull);
+      expect(
+          ForceProxySitePolicy.extractHost(List.filled(5, 'a' * 63).join('.')),
+          isNull);
+    });
+
     test('rejects ambiguous or unsupported hosts', () {
       expect(ForceProxySitePolicy.extractHost(''), isNull);
       expect(ForceProxySitePolicy.extractHost('one.com two.com'), isNull);

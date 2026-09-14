@@ -392,6 +392,34 @@ void main() {
     );
   });
 
+  testWidgets(
+      'failed rule reload preserves old connection without claiming new rules applied',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture =
+        (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+    addTearDown(fixture.dispose);
+    fixture.clash.publishRunning(true);
+    fixture.clash.requestConnectionIntent(true);
+    fixture.clash.failStop = true;
+    await tester.pumpWidget(fixture.build());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('强制代理网站'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'example.com');
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pumpAndSettle();
+    expect(find.text('强制代理网站已保存，当前连接重载失败，请重新连接'), findsOneWidget);
+    expect(fixture.clash.isRunning, isTrue);
+    expect(find.text('强制代理网站已实时生效'), findsNothing);
+  });
+
   testWidgets('home supports its primary desktop connection journey',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 800));
@@ -1113,8 +1141,11 @@ class _FakeClashService extends ClashService {
     return true;
   }
 
+  bool failStop = false;
+
   @override
   Future<void> stop() async {
+    if (failStop) throw StateError('injected stop failure');
     stopCalls++;
     _running = false;
   }

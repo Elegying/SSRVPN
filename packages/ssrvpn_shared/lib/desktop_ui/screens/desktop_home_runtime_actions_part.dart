@@ -1,15 +1,21 @@
 part of desktop_home_screen;
 
 extension _DesktopHomeRuntimeActions on _HomeScreenState {
-  Future<void> _reloadConfig() async {
+  Future<bool> _reloadConfig() async {
     final subService = context.read<SubscriptionService>();
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
     final rawYaml = subService.rawYaml;
-    if (rawYaml == null || rawYaml.isEmpty) return;
+    if (rawYaml == null || rawYaml.isEmpty) return false;
     final subscriptionRevision = subService.revision;
     final connectionGeneration = clashService.captureAutomaticRestartIntent();
-    if (connectionGeneration == null) return;
+    if (connectionGeneration == null) return false;
+    bool isConnectionCurrent() =>
+        subService.revision == subscriptionRevision &&
+        clashService.isConnectionIntentCurrent(
+          connectionGeneration,
+          connected: true,
+        );
 
     setState(() => _isConnecting = true);
     try {
@@ -20,7 +26,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
           _isConnecting = false;
           _errorMessage = '订阅中没有可用节点，已保留当前连接';
         });
-        return;
+        return false;
       }
       final preferredNode = HomeNodeController.resolveDefaultNodeFrom(
         nodes,
@@ -30,6 +36,13 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       clashService.interruptPendingStart();
       final connectionResult = await clashService.runConnectionTransition(
         () async {
+          // A queued reload may be obsolete before it gets the transition lock.
+          // Check before stopping, so it cannot disconnect a newer connection.
+          if (!isConnectionCurrent()) {
+            return const DesktopConnectionResult.failed(
+              DesktopConnectionFailure.cancelled,
+            );
+          }
           await clashService.stop();
           return const DesktopConnectionCoordinator().connect(
             preferredSettings: settingsService.settings,
@@ -80,7 +93,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         },
       );
       if (connectionResult.failure == DesktopConnectionFailure.cancelled) {
-        return;
+        return false;
       }
       if (connectionResult.failure ==
           DesktopConnectionFailure.subscriptionChanged) {
@@ -90,22 +103,13 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       }
       var success = connectionResult.connected &&
           clashService.isRunning &&
-          subService.revision == subscriptionRevision &&
-          clashService.isConnectionIntentCurrent(
-            connectionGeneration,
-            connected: true,
-          );
+          isConnectionCurrent();
       if (success &&
           preferredNode != null &&
           connectionResult.preferredNodeSwitchSucceeded == true &&
           runtimeSelectedNode?.name == preferredNode.name) {
         await _rememberSelectedNode(preferredNode);
-        success = clashService.isRunning &&
-            subService.revision == subscriptionRevision &&
-            clashService.isConnectionIntentCurrent(
-              connectionGeneration,
-              connected: true,
-            );
+        success = clashService.isRunning && isConnectionCurrent();
       }
       if (success) {
         clashService.rememberDesktopConnectionRecoveryPlan(
@@ -128,7 +132,11 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         setState(() {
           _isConnected = success;
           _isConnecting = false;
-          _errorMessage = null;
+          _errorMessage = success
+              ? null
+              : AppFailure.fromMessage(
+                  connectionResult.failureReason ?? '连接重载失败，请重新连接',
+                ).userMessage;
           _nodes = nodes;
           _selectedNode = success ? runtimeSelectedNode : null;
           if (!success) _resetPublicIpState();
@@ -143,14 +151,14 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
           _schedulePublicIpRefresh();
         }
       }
-      if (!success) return;
+      return success;
     } catch (e) {
       AppLogger.warning('Connection', '重载配置失败: $e');
       final isCurrent = clashService.isConnectionIntentCurrent(
         connectionGeneration,
         connected: true,
       );
-      if (!isCurrent && clashService.connectionDesired) return;
+      if (!isCurrent && clashService.connectionDesired) return false;
       final stillRunning = clashService.isRunning;
       if (!stillRunning && isCurrent) {
         clashService.requestConnectionIntent(false);
@@ -167,6 +175,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         });
       }
     }
+    return false;
   }
 
   Future<void> _handleTestLatency(

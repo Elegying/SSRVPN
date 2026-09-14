@@ -7,6 +7,7 @@ mixin _ClashHealthSupport {
   int? _activeHealthCheckEpoch;
 
   http.Client? get apiClient;
+  bool get hasLocalSmartRules;
   AppSettings get settings;
   String _apiUrl(String path);
   Map<String, String> apiHeaders({bool json = false});
@@ -31,6 +32,40 @@ mixin _ClashHealthSupport {
           .get(Uri.parse(_apiUrl('/version')), headers: apiHeaders())
           .timeout(const Duration(seconds: 2));
       if (response.statusCode == 200) {
+        if (hasLocalSmartRules) {
+          final request =
+              http.Request('GET', Uri.parse(_apiUrl('/providers/rules')))
+                ..headers.addAll(apiHeaders())
+                ..followRedirects = false;
+          final ready = await (() async {
+            final reply = await client.send(request);
+            if (reply.statusCode != 200) {
+              await reply.stream.listen((_) {}).cancel();
+              return null;
+            }
+            final bytes = BytesBuilder(copy: false);
+            await for (final chunk in reply.stream) {
+              if (bytes.length + chunk.length > 64 * 1024) return false;
+              bytes.add(chunk);
+            }
+            final data = jsonDecode(utf8.decode(bytes.takeBytes()));
+            final providers = data is Map ? data['providers'] : null;
+            return providers is Map &&
+                AppConstants.smartRuleProviderFiles.keys.every((name) {
+                  final entry = providers[name];
+                  return entry is Map &&
+                      entry['ruleCount'] is int &&
+                      (entry['ruleCount'] as int) > 0;
+                });
+          })()
+              .timeout(const Duration(seconds: 2));
+          if (ready != true) {
+            setLastHealthCheckError(ready == false
+                ? 'CORE_API_UNAVAILABLE: 分流规则尚未就绪'
+                : 'CORE_API_UNAVAILABLE: 规则状态接口暂时不可用');
+            return false;
+          }
+        }
         setLastHealthCheckError(null);
         return true;
       }
@@ -266,13 +301,17 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
     _invalidateHealthMonitorSession();
     _statusTimer?.cancel();
     _statusTimer = null;
+    if (_ruleProviderRefreshTimer?.isActive ?? false) {
+      // A cancelled delay has not consumed this launch's one check yet.
+      _ruleProviderRefreshScheduled = false;
+    }
     _ruleProviderRefreshTimer?.cancel();
     _ruleProviderRefreshTimer = null;
   }
 
   void _scheduleRuleProviderRefreshOnce() {
-    _ruleProviderRefreshTimer?.cancel();
-    if (!_isRunning) return;
+    if (!_isRunning || _ruleProviderRefreshScheduled) return;
+    _ruleProviderRefreshScheduled = true;
     _ruleProviderRefreshTimer = Timer(ruleProviderStartupRefreshDelay, () {
       _ruleProviderRefreshTimer = null;
       unawaited(refreshRuleProvidersOnce());

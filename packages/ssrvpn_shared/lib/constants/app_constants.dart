@@ -17,7 +17,7 @@ class AppConstants {
   // ── 缓冲区大小 ──
   static const int maxLogBufferSize = 10000;
   static const int maxSubscriptionBytes = 20 * 1024 * 1024; // 20MB
-  static const int maxYamlBytes = 2 * 1024 * 1024; // 2MB
+  static const int maxYamlBytes = 4 * 1024 * 1024; // 4MB
 
   // ── 延迟测试 ──
   static const int defaultLatencyTestTimeout = 5000; // 毫秒
@@ -100,7 +100,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '5.0.1';
+  static const String appVersion = '5.0.2';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 
@@ -133,12 +133,11 @@ class AppConstants {
   // ── 代理规则 ──
   static const Duration ruleProviderStartupRefreshDelay = Duration(minutes: 2);
   static const String ruleProviderDownloadProxy = 'PROXY';
-  static const int ruleProviderSizeLimit = 2 * 1024 * 1024;
+  static const int ruleProviderSizeLimit = 4 * 1024 * 1024;
   static const String smartRuleVersionDescriptorFile = 'version.json';
   static const String smartRuleManifestFile = 'manifest.json';
   static const String smartRuleChannelBaseUrl =
-      'https://raw.githubusercontent.com/Elegying/SSRVPN/main/'
-      'packages/ssrvpn_shared/assets/rules/latest';
+      'https://raw.githubusercontent.com/Elegying/SSRVPN-Rules/main/latest';
   static const String userFeedbackRuleProviderName =
       'ssrvpn-user-feedback-rules';
   static const String aiServicesRuleProviderName = 'ssrvpn-ai-services';
@@ -157,6 +156,8 @@ class AppConstants {
     streamingServicesRuleProviderName: 'streaming_services.yaml',
     chinaDomainsRuleProviderName: 'china_domains.yaml',
     companyAsnRuleProviderName: 'company_asn.yaml',
+    geositeGfwRuleProviderName: 'gfw.yaml',
+    geositeCnRuleProviderName: 'cn.yaml',
   };
   static const String geositeGfwRuleProviderPath =
       './providers/ssrvpn-geosite-gfw.mrs';

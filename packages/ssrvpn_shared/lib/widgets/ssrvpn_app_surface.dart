@@ -90,27 +90,32 @@ class SsrvpnAppBackdrop extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) {
+    final shade = Colors.black
+        .withValues(alpha: MediaQuery.highContrastOf(context) ? .65 : .28);
     return liquid.LiquidGlassScope(
       child: SsrvpnGlassCapture(
           child: Stack(fit: StackFit.expand, children: [
         Positioned.fill(
             child: IgnorePointer(
                 child: SsrvpnGlassBackgroundSource(
-          child: Stack(fit: StackFit.expand, children: [
-            SsrvpnDriftingBackground(
-                child: Image.asset(
-              'assets/backgrounds/network-glass-deep.png',
-              package: 'ssrvpn_shared',
-              fit: BoxFit.cover,
-              alignment: Alignment.center,
-              filterQuality: FilterQuality.medium,
-              errorBuilder: (_, __, ___) =>
-                  const _SsrvpnAssetErrorBackdrop(child: SizedBox()),
-            )),
-            ColoredBox(
-                color: Colors.black.withValues(
-                    alpha: MediaQuery.highContrastOf(context) ? .65 : .28)),
-          ]),
+          child: SsrvpnDriftingBackground(
+              child: Image.asset(
+            'assets/backgrounds/network-glass-deep.png',
+            package: 'ssrvpn_shared',
+            fit: BoxFit.cover,
+            alignment: Alignment.center,
+            filterQuality: FilterQuality.medium,
+            // Fold the black overlay into the image draw instead of blending
+            // another full-screen rectangle on every wallpaper frame.
+            color: shade,
+            colorBlendMode: BlendMode.srcATop,
+            frameBuilder: (_, child, frame, synchronous) =>
+                frame != null || synchronous
+                    ? child
+                    : ColoredBox(color: shade, child: child),
+            errorBuilder: (_, __, ___) =>
+                _SsrvpnAssetErrorBackdrop(child: ColoredBox(color: shade)),
+          )),
         ))),
         child,
       ])),

@@ -108,6 +108,13 @@ proxies:
       expect(section, isEmpty);
     });
 
+    test('encoded website paths produce only host routing rules', () {
+      expect(
+          ClashConfigGenerator.buildForceProxyRulesFromSites(
+              ['https://example.com/%E4%B8%AD?q=a%20b']),
+          ['DOMAIN-SUFFIX,example.com,PROXY']);
+    });
+
     test('buildForceProxyRules builds rules from settings', () {
       final settings = AppSettings(
         forceProxySites: [
@@ -561,7 +568,7 @@ proxies:
       );
     });
 
-    test('exit observation domains cannot be diverted by user direct rules',
+    test('manual direct rules also outrank automatic exit observation rules',
         () {
       const yaml =
           'proxies: [{name: Relay, type: ss, server: relay.invalid, port: 443, cipher: aes-256-gcm, password: fixture}]';
@@ -572,10 +579,10 @@ proxies:
       expect(rules.first, 'IP-CIDR6,::/0,REJECT,no-resolve');
       expect(rules.indexOf('DOMAIN,api4.ipify.org,PROXY'), greaterThan(0));
       expect(rules.indexOf('DOMAIN,api4.ipify.org,PROXY'),
-          lessThan(rules.indexOf('DOMAIN-SUFFIX,ipify.org,DIRECT')));
+          greaterThan(rules.indexOf('DOMAIN-SUFFIX,ipify.org,DIRECT')));
       expect(rules.indexOf('DOMAIN,api.ip.sb,PROXY'), greaterThan(0));
       expect(rules.indexOf('DOMAIN,api.ip.sb,PROXY'),
-          lessThan(rules.indexOf('DOMAIN-SUFFIX,ip.sb,DIRECT')));
+          greaterThan(rules.indexOf('DOMAIN-SUFFIX,ip.sb,DIRECT')));
     });
 
     test('manual proxy then manual direct outrank every automatic rule', () {
@@ -826,61 +833,23 @@ proxies:
       final rules = (parsed['rules'] as YamlList).cast<String>();
 
       expect(parsed['etag-support'], isTrue);
-      for (final provider in [gfwProvider, cnProvider]) {
-        expect(provider['type'], 'http');
-        expect(provider['behavior'], 'domain');
-        expect(provider['format'], 'mrs');
-        expect(provider.containsKey('interval'), isFalse);
-        expect(provider['proxy'], 'PROXY');
-        expect(provider['size-limit'], 2 * 1024 * 1024);
-      }
       for (final provider in [
+        gfwProvider,
+        cnProvider,
         feedbackProvider,
         aiProvider,
         foreignProvider,
         streamingProvider,
         chinaProvider,
-        asnProvider,
+        asnProvider
       ]) {
-        expect(provider['type'], 'http');
-        expect(provider['format'], 'yaml');
+        expect(provider['type'], 'inline');
+        expect(provider.containsKey('url'), isFalse);
         expect(provider.containsKey('interval'), isFalse);
-        expect(provider['proxy'], 'PROXY');
-        expect(provider['size-limit'], 2 * 1024 * 1024);
+        expect(provider['payload'], isNotEmpty);
       }
-      expect(feedbackProvider['behavior'], 'domain');
-      expect(aiProvider['behavior'], 'domain');
-      expect(foreignProvider['behavior'], 'domain');
-      expect(streamingProvider['behavior'], 'domain');
-      expect(chinaProvider['behavior'], 'domain');
       expect(asnProvider['behavior'], 'ipcidr');
-      expect(
-        gfwProvider['url'],
-        'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
-        '200e6a86736cfab29aae7b07dc266e59f13bc13d/'
-        'geo/geosite/gfw.mrs',
-      );
-      expect(
-        cnProvider['url'],
-        'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/'
-        '200e6a86736cfab29aae7b07dc266e59f13bc13d/'
-        'geo/geosite/cn.mrs',
-      );
-      expect(gfwProvider['path'], './providers/ssrvpn-geosite-gfw.mrs');
-      expect(cnProvider['path'], './providers/ssrvpn-geosite-cn.mrs');
-      for (final provider in [gfwProvider, cnProvider]) {
-        final url = provider['url'] as String;
-        expect(
-          url,
-          isNot(matches(RegExp(r'/(?:main|master|latest|release)(?:/|$)'))),
-        );
-      }
-      expect(aiProvider['path'], './providers/ai_services.yaml');
-      expect(
-        aiProvider['url'],
-        'https://raw.githubusercontent.com/Elegying/SSRVPN/main/'
-        'packages/ssrvpn_shared/assets/rules/latest/ai_services.yaml',
-      );
+      expect(cnProvider['behavior'], 'domain');
       expect(providers, isNot(contains('ssrvpn-geoip-cn')));
       final openAiProxyIndex = rules.indexOf('DOMAIN-SUFFIX,openai.com,PROXY');
       final aiProxyIndex = rules.indexOf('RULE-SET,ssrvpn-ai-services,PROXY');
@@ -913,7 +882,8 @@ proxies:
       expect(foreignProxyIndex, lessThan(chinaDirectIndex));
       expect(streamingProxyIndex, lessThan(chinaDirectIndex));
       expect(chinaDirectIndex, lessThan(asnDirectIndex));
-      expect(asnDirectIndex, lessThan(gfwProxyIndex));
+      expect(gfwProxyIndex, lessThan(chinaDirectIndex));
+      expect(gfwProxyIndex, lessThan(asnDirectIndex));
       expect(gfwProxyIndex, lessThan(domainDirectIndex));
       expect(domainDirectIndex, lessThan(geoIpDirectIndex));
       expect(geoIpDirectIndex, lessThan(matchIndex));
@@ -987,7 +957,7 @@ proxies:
       }
       expect(
         (providers[AppConstants.geositeGfwRuleProviderName] as YamlMap)['type'],
-        'http',
+        'file',
       );
     });
 
@@ -1011,7 +981,8 @@ proxies:
       final groups = (parsed['proxy-groups'] as YamlList).cast<YamlMap>();
       final global = groups.firstWhere((group) => group['name'] == 'GLOBAL');
 
-      expect(parsed['mode'], 'global');
+      expect(parsed['mode'], 'rule');
+      expect((parsed['rules'] as YamlList).last, 'MATCH,GLOBAL');
       expect((global['proxies'] as YamlList).cast<String>(), [
         'PROXY',
         'Test Node',

@@ -11,6 +11,13 @@ import org.junit.Test
 
 class MihomoApiHealthProbeTest {
     @Test
+    fun `API readiness requires every rule provider to finish loading`() {
+        assertTrue(MihomoApiHealthProbe.ruleProvidersReady(ruleProvidersJson()))
+        assertEquals(false, MihomoApiHealthProbe.ruleProvidersReady(ruleProvidersJson().replace("\"ruleCount\":1", "\"ruleCount\":0")))
+        assertEquals(false, MihomoApiHealthProbe.ruleProvidersReady("{\"providers\":{}}"))
+    }
+
+    @Test
     fun `a non-Mihomo service on the API port is a port conflict`() {
         ScriptedHttpServer(
             responses = listOf(httpResponse("not mihomo"))
@@ -48,7 +55,8 @@ class MihomoApiHealthProbeTest {
         ScriptedHttpServer(
             responses = listOf(
                 httpResponse("{\"meta\":true,\"version\":\"v1.19.27\"}"),
-                httpResponse("{\"tun\":{\"enable\":true,\"device\":\"SSRVPN\"}}")
+                httpResponse("{\"tun\":{\"enable\":true,\"device\":\"SSRVPN\"}}"),
+                httpResponse(ruleProvidersJson())
             )
         ).use { server ->
             assertEquals(
@@ -68,7 +76,8 @@ class MihomoApiHealthProbeTest {
         ScriptedHttpServer(
             responses = listOf(
                 httpResponse("{\"meta\":true,\"version\":\"v1.19.27\"}"),
-                httpResponse("{\"tun\":{\"device\":\"\",\"stack\":\"gvisor\",\"enable\":true}}")
+                httpResponse("{\"tun\":{\"device\":\"\",\"stack\":\"gvisor\",\"enable\":true}}"),
+                httpResponse(ruleProvidersJson())
             )
         ).use { server ->
             assertEquals(
@@ -83,7 +92,8 @@ class MihomoApiHealthProbeTest {
         ScriptedHttpServer(
             responses = listOf(
                 httpResponse("{\"meta\":true,\"version\":\"版本一\"}"),
-                httpResponse("{\"tun\":{\"device\":\"节点设备\",\"enable\":true}}")
+                httpResponse("{\"tun\":{\"device\":\"节点设备\",\"enable\":true}}"),
+                httpResponse(ruleProvidersJson())
             )
         ).use { server ->
             assertEquals(
@@ -131,7 +141,8 @@ class MihomoApiHealthProbeTest {
         ScriptedHttpServer(
             responses = listOf(
                 httpResponse("{\"meta\":true,\"version\":\"v1.19.27\"}"),
-                httpResponse("{\"tun\":{\"enable\":true}}")
+                httpResponse("{\"tun\":{\"enable\":true}}"),
+                httpResponse(ruleProvidersJson())
             )
         ).use { server ->
             assertEquals(
@@ -357,6 +368,12 @@ class MihomoApiHealthProbeTest {
     }
 
     companion object {
+        private fun ruleProvidersJson(): String {
+            val names = listOf("ssrvpn-ai-services", "ssrvpn-foreign-services", "ssrvpn-streaming-services",
+                "ssrvpn-china-domains", "ssrvpn-company-asn", "ssrvpn-user-feedback-rules", "ssrvpn-geosite-gfw", "ssrvpn-geosite-cn")
+            return "{\"providers\":{" + names.joinToString(",") { "\"$it\":{\"ruleCount\":1}" } + "}}"
+        }
+
         private fun deadlineAfter(timeoutMillis: Long): Long =
             System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
 

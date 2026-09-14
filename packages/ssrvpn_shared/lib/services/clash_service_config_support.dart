@@ -2,7 +2,72 @@ part of 'clash_service_base.dart';
 
 mixin _ClashConfigSupport {
   String get configDir;
+  bool get isRunning;
+  String? get lastStartError;
+
+  Future<bool> startWithSmartRuleRecovery(
+    Future<bool> Function() start,
+    Future<void> Function() stopFailedStart,
+    bool Function() isCurrent,
+    String path,
+  ) =>
+      SmartRuleRecovery(configDir).run(
+        configPath: path,
+        start: start,
+        stopFailedStart: stopFailedStart,
+        isCurrent: isCurrent,
+        isRunning: () => isRunning,
+        failureReason: () => lastStartError,
+        selectVersion: (version) async {
+          stageSmartRuleVersionForNextConnection(version);
+          await applyPendingSmartRules();
+          if (_smartRuleProviderPathPrefix !=
+              SmartRuleBundle.providerPathPrefix(version)) {
+            throw const FormatException('恢复规则未能应用');
+          }
+        },
+        log: (message) => log(message, event: 'rule_recovery'),
+      );
   String? _smartRuleProviderPathPrefix;
+  String? _pendingSmartRuleVersion;
+  List<String> _androidAppRules = const [];
+  List<String> get androidDirectAppPackages => _androidAppRules
+      .where((rule) => rule.endsWith(',DIRECT'))
+      .map((rule) => rule.split(',')[1])
+      .toList(growable: false);
+  bool get hasLocalSmartRules => _smartRuleProviderPathPrefix != null;
+
+  Future<List<String>> _readAndroidAppRules(String version) async =>
+      Platform.isAndroid
+          ? SmartRuleBundle.androidRules(configDir, version)
+          : const [];
+
+  void stageSmartRuleVersionForNextConnection(String version) {
+    _pendingSmartRuleVersion = version;
+  }
+
+  Future<void> applyPendingSmartRules() async {
+    try {
+      final restored =
+          await SmartRuleRecovery(configDir).repairRejectedSelection();
+      final version = restored ?? _pendingSmartRuleVersion;
+      if (version == null) return;
+      final manifest = await SmartRuleBundle.readInstalledManifest(configDir,
+          expectedFileNames: {
+            ...AppConstants.smartRuleProviderFiles.values,
+            if (Platform.isAndroid) ...SmartRuleBundle.androidFiles
+          });
+      if (manifest?.version != version) throw const FormatException('待启用规则不完整');
+      final appRules = await _readAndroidAppRules(version);
+      // Commit the application list and provider paths together, without an await.
+      _androidAppRules = appRules;
+      useSmartRuleVersionForFutureConfigs(version);
+      _pendingSmartRuleVersion = null;
+    } catch (error) {
+      log('待启用规则校验失败，继续使用当前规则',
+          level: RuntimeLogLevel.warning, event: 'rule_provider_baseline');
+    }
+  }
 
   void log(
     String message, {
@@ -12,11 +77,21 @@ mixin _ClashConfigSupport {
 
   /// Restores only missing or invalid remotely refreshable rule providers.
   /// Packaging problems stay advisory so core startup can use an existing
-  /// cache or fetch the provider later.
+  /// cache or embedded conservative providers.
   @protected
   Future<void> ensureBundledSmartRules() async {
     try {
+      final restored =
+          await SmartRuleRecovery(configDir).repairRejectedSelection();
+      if (restored != null) {
+        _androidAppRules = await _readAndroidAppRules(restored);
+        useSmartRuleVersionForFutureConfigs(restored);
+        return;
+      }
       final baseline = await SmartRuleBundle.ensureInstalled(configDir);
+      final appRules = await _readAndroidAppRules(
+          baseline.activeVersion ?? baseline.version);
+      _androidAppRules = appRules;
       _smartRuleProviderPathPrefix = baseline.providerPathPrefix;
       log(
         baseline.activeVersion == null
@@ -26,8 +101,10 @@ mixin _ClashConfigSupport {
                 '安装 ${baseline.installedFiles}，复用 ${baseline.reusedFiles}',
       );
     } catch (error) {
+      _smartRuleProviderPathPrefix = null;
+      _androidAppRules = const [];
       log(
-        '智能规则基线准备失败，保留现有缓存并继续启动: '
+        '智能规则基线准备失败，保留磁盘缓存并使用保守内置规则启动: '
         'cause=${_safeRuntimeLogErrorCode(error)}',
         level: RuntimeLogLevel.warning,
         event: 'rule_provider_baseline',
@@ -65,7 +142,7 @@ mixin _ClashConfigSupport {
       latencyTestUrl: latencyTestUrl,
       includeFallbackGroup: includeFallbackGroup,
       extraSelectGroupNames: extraGroups,
-      extraRulesBeforeDirect: extraRules,
+      extraRulesBeforeDirect: [..._androidAppRules, ...extraRules],
       smartRuleProviderPathPrefix: _smartRuleProviderPathPrefix,
     );
   }
@@ -94,7 +171,7 @@ mixin _ClashConfigSupport {
       latencyTestUrl: latencyTestUrl,
       includeFallbackGroup: includeFallbackGroup,
       extraSelectGroupNames: extraSelectGroupNames,
-      extraRulesBeforeDirect: extraRulesBeforeDirect,
+      extraRulesBeforeDirect: [..._androidAppRules, ...extraRulesBeforeDirect],
       smartRuleProviderPathPrefix: _smartRuleProviderPathPrefix,
     );
   }

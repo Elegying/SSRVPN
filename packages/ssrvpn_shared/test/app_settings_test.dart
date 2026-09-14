@@ -4,6 +4,31 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('equivalent manual hosts resolve conflicts across URL and IP spellings',
+      () {
+    final original = AppSettings(forceProxySites: [
+      'https://EXAMPLE.com/path',
+      '*.other.example',
+      '[2001:db8::1]:443',
+    ]);
+    final direct = original.copyWith(forceDirectSites: [
+      'example.com.',
+      'other.example',
+      '2001:db8:0:0::1',
+    ]);
+    expect(direct.forceProxySites.every((site) => site.isEmpty), isTrue);
+    expect(original.forceProxySites.first, 'https://EXAMPLE.com/path');
+  });
+  test('last saved manual direction removes the identical opposite entry', () {
+    final original = AppSettings(forceProxySites: ['example.com']);
+    final direct = original.copyWith(forceDirectSites: ['example.com']);
+    expect(direct.forceProxySites.every((site) => site.isEmpty), isTrue);
+    expect(original.forceProxySites.first, 'example.com');
+    final proxy = direct.copyWith(forceProxySites: ['example.com']);
+    expect(proxy.forceDirectSites.every((site) => site.isEmpty), isTrue);
+    expect(direct.forceDirectSites.first, 'example.com');
+  });
+
   test(
       'rename ownership survives serialization and clears on independent selection',
       () {

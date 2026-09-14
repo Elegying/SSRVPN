@@ -32,3 +32,9 @@ and diagnostics, resetting pending edits and repeating initial requests.
   Static/covered/reduced-motion wallpapers no longer run a capture ticker.
 - Shared surface rebuilds are limited to the sampling layer; the glass geometry
   and content subtree are reused. Optical shader/settings are unchanged.
+
+2026-09-14 rendering review:
+- Reuse the lightweight backdrop filter layer across repaints and release it
+  when no longer used or when the render object is disposed.
+- A fixed minQuality/maxQuality skips the adaptive frame statistics callback.
+  Dynamic quality configurations retain their existing monitoring behavior.

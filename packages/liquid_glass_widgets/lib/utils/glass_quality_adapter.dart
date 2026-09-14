@@ -348,6 +348,14 @@ class GlassQualityAdapter {
   void start() {
     if (_running) return;
 
+    // A fixed optical tier has nothing to adapt. Avoid collecting and sorting
+    // frame timings for the lifetime of an app that deliberately locks quality.
+    if (minQuality == maxQuality) {
+      _applyQuality(minQuality);
+      _phase = AdaptivePhase.runtime;
+      return;
+    }
+
     // Phase 1 — static probe
     _phase = AdaptivePhase.probe;
     if (!skipStaticProbeForTesting) {

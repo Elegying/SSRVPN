@@ -793,6 +793,14 @@ class _RenderLightweightGlass extends RenderProxyBox
     return _cachedBlurFilter!;
   }
 
+  final _blurLayer = LayerHandle<BackdropFilterLayer>();
+
+  @override
+  void dispose() {
+    _blurLayer.layer = null;
+    super.dispose();
+  }
+
   // Only force compositing when we actually push a BackdropFilterLayer
   // (shader available AND blur > 0 AND not skipped by ancestor blur).
   // In the fallback path (null shader or zero blur), we just draw a tinted
@@ -807,6 +815,7 @@ class _RenderLightweightGlass extends RenderProxyBox
     if (child == null) return;
 
     if (_shader == null) {
+      _blurLayer.layer = null;
       final paint = Paint()
         ..color = _settings.effectiveGlassColor.withValues(alpha: 0.15);
       context.canvas.drawRect(offset & size, paint);
@@ -830,14 +839,17 @@ class _RenderLightweightGlass extends RenderProxyBox
         _settings.effectiveSaturation,
       );
 
+      final blurLayer = _blurLayer.layer ??= BackdropFilterLayer();
+      blurLayer.filter = filter;
       context.pushLayer(
-        BackdropFilterLayer(filter: filter),
+        blurLayer,
         (context, offset) {
           _paintGlassContent(context, offset);
         },
         offset,
       );
     } else {
+      _blurLayer.layer = null;
       _paintGlassContent(context, offset);
     }
   }

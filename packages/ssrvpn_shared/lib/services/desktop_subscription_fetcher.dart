@@ -312,7 +312,7 @@ class DesktopSubscriptionFetcher {
       if (!SubscriptionUrlPolicy.isRedirectStatus(response.statusCode)) {
         return response;
       }
-      current = SubscriptionUrlPolicy.resolveRedirect(
+      current = SubscriptionFetchPolicy.resolveRedirect(
         current,
         response.headers['location'] ?? '',
       );

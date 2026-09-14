@@ -3,6 +3,11 @@ import 'package:yaml/yaml.dart';
 import 'package:ssrvpn_android/models/app_settings.dart';
 import 'package:ssrvpn_android/services/clash_service.dart';
 
+class _DynamicDomesticAppsService extends ClashService {
+  @override
+  List<String> get androidDirectAppPackages => const ['com.example.updated'];
+}
+
 const _testProxies = '''
 proxies:
   - name: 日本节点
@@ -38,7 +43,7 @@ void main() {
       expect(config, contains('mode: rule'));
     });
 
-    test('全局模式 (global) 生成 mode: global', () {
+    test('全局模式保留手动规则并以 GLOBAL 兜底', () {
       final config = clashService.generateClashConfig(
         _testProxies,
         AppSettings(proxyMode: ProxyMode.global),
@@ -48,7 +53,8 @@ void main() {
       final groups = (parsed['proxy-groups'] as YamlList).cast<YamlMap>();
       final global = groups.firstWhere((group) => group['name'] == 'GLOBAL');
 
-      expect(parsed['mode'], 'global');
+      expect(parsed['mode'], 'rule');
+      expect((parsed['rules'] as YamlList).last, 'MATCH,GLOBAL');
       expect((global['proxies'] as YamlList).first, 'PROXY');
     });
   });
@@ -166,35 +172,31 @@ void main() {
       expect(rules, isNot(contains('MATCH,DIRECT')));
     });
 
-    test('国外应用包名在 Android 智能模式中强制走代理', () {
+    test('名单未准备时不使用旧硬编码应用策略，保留目标规则回退', () {
       final parsed = loadYaml(
         clashService.generateClashConfig(_testProxies, AppSettings()),
       ) as YamlMap;
       final rules = (parsed['rules'] as YamlList).cast<String>();
-      final telegramIp = rules.indexOf(
-        'IP-CIDR,91.108.56.0/22,PROXY,no-resolve',
-      );
-      final telegramApp = rules.indexOf(
-        'PROCESS-NAME,org.telegram.messenger,PROXY',
-      );
-      final gfw = rules.indexOf('RULE-SET,ssrvpn-geosite-gfw,PROXY');
-
-      expect(telegramIp, isNonNegative);
-      expect(telegramApp, greaterThan(telegramIp));
-      expect(telegramApp, lessThan(gfw));
-      expect(
-        rules,
-        containsAll(const [
-          'PROCESS-NAME,com.whatsapp,PROXY',
-          'PROCESS-NAME,com.instagram.android,PROXY',
-          'PROCESS-NAME,com.twitter.android,PROXY',
-          'PROCESS-NAME,com.google.android.youtube,PROXY',
-          'PROCESS-NAME,com.openai.chatgpt,PROXY',
-          'PROCESS-NAME,com.anthropic.claude,PROXY',
-          'PROCESS-NAME,com.netflix.mediaclient,PROXY',
-        ]),
-      );
+      expect(rules.any((rule) => rule.startsWith('PROCESS-NAME,')), isFalse);
+      expect(rules, contains('RULE-SET,ssrvpn-geosite-gfw,PROXY'));
       expect(rules.last, 'MATCH,PROXY');
+      expect(clashService.generateClashConfig(_testProxies, AppSettings()),
+          contains('# ssrvpn-direct-apps: \n'));
+    });
+
+    test(
+        'updated exclusion list travels with sync and async connection configs',
+        () async {
+      final service = _DynamicDomesticAppsService();
+      addTearDown(service.dispose);
+      for (final config in [
+        service.generateClashConfig(_testProxies, AppSettings()),
+        await service.generateClashConfigAsync(_testProxies, AppSettings()),
+      ]) {
+        expect(config.split('\n').take(4),
+            contains('# ssrvpn-direct-apps: com.example.updated'));
+        expect(loadYaml(config), isA<YamlMap>());
+      }
     });
   });
 }

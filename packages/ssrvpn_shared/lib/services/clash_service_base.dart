@@ -26,6 +26,8 @@ import 'app_diagnostic_history_store.dart';
 import 'desktop_connection_coordinator.dart';
 import 'public_ip_info_service.dart';
 import 'smart_rule_bundle.dart';
+import 'smart_rule_signature.dart';
+import 'smart_rule_recovery.dart';
 
 part 'clash_service_config_support.dart';
 part 'clash_service_diagnostics.dart';
@@ -84,11 +86,8 @@ abstract class ClashServiceBase
   void Function(RuntimeNotice notice)? onRuntimeNotice;
   final Set<void Function()> _statusListeners = {};
 
-  // ── 定时器 ──
   Timer? _statusTimer;
   Timer? _ruleProviderRefreshTimer;
-
-  // ── Protected API ──
 
   /// Subclasses can use this to make direct HTTP calls to the Clash API.
   @protected

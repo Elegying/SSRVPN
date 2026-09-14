@@ -80,19 +80,26 @@ class _SsrvpnHomeTrafficPanelState extends State<SsrvpnHomeTrafficPanel>
       final sample = await widget.readSample();
       if (!mounted || epoch != _epoch) return;
       final rates = sample?.ratesSince(_previous);
-      setState(() {
-        _previous = sample;
-        _uploadRate = rates?.upload ?? 0;
-        _downloadRate = rates?.download ?? 0;
-        _total = sample?.total ?? 0;
-        _unavailable = false;
-      });
+      final upload = rates?.upload ?? 0;
+      final download = rates?.download ?? 0;
+      final total = sample?.total ?? 0;
+      // Keep the sampling baseline current even when no visible value changes.
+      _previous = sample;
+      if (_unavailable ||
+          _uploadRate != upload ||
+          _downloadRate != download ||
+          _total != total) {
+        setState(() {
+          _uploadRate = upload;
+          _downloadRate = download;
+          _total = total;
+          _unavailable = false;
+        });
+      }
     } catch (_) {
       if (!mounted || epoch != _epoch) return;
-      setState(() {
-        _previous = null;
-        _unavailable = true;
-      });
+      _previous = null;
+      if (!_unavailable) setState(() => _unavailable = true);
     }
     if (!mounted || epoch != _epoch) return;
     _timer = Timer(const Duration(seconds: 1), () => _refresh(epoch));
