@@ -2,6 +2,8 @@
 
 library desktop_app;
 
+import 'package:ssrvpn_shared/widgets/ssrvpn_appearance.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_settings_page.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_scroll_behavior.dart';
 import 'dart:async';
 
@@ -284,7 +286,13 @@ class _SSRVpnAppState extends State<SSRVpnApp>
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
         themeMode: ThemeMode.dark,
-        builder: _buildMacosIntegratedWindow,
+        builder: (context, child) {
+          final settings = context.watch<SettingsService>().settings;
+          return SsrvpnAppearanceScope(
+            settings: settings,
+            child: _buildMacosIntegratedWindow(context, child),
+          );
+        },
         home: CrashReportPrompt(
           child: _DesktopAppShell(
             safeMode: widget.startupFlags.safeMode,

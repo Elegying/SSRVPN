@@ -114,7 +114,7 @@ for token in (
     "version: AppConstants.appVersion",
 ):
     if token not in android_app:
-        raise SystemExit(f"{android_app_path}: Android two-page shell is missing {token}")
+        raise SystemExit(f"{android_app_path}: Android three-page shell is missing {token}")
 if "NavItem(" in android_app:
     raise SystemExit(f"{android_app_path}: legacy Android navigation is still active")
 
@@ -130,7 +130,7 @@ for token in (
     "version: AppConstants.appVersion",
 ):
     if token not in desktop_shell:
-        raise SystemExit(f"{desktop_shell_path}: desktop two-page shell is missing {token}")
+        raise SystemExit(f"{desktop_shell_path}: desktop three-page shell is missing {token}")
 if "NavItem(" in desktop_shell:
     raise SystemExit(f"{desktop_shell_path}: legacy desktop navigation is still active")
 
@@ -145,15 +145,16 @@ bottom_navigation = source_section(
 destination_count = len(
     re.findall(r"\bliquid\.GlassTab\(", bottom_navigation)
 )
-if destination_count != 2:
+if destination_count != 3:
     raise SystemExit(
-        f"{app_surface_path}: bottom navigation must contain exactly two destinations"
+        f"{app_surface_path}: bottom navigation must contain exactly three destinations"
     )
 for token in (
     "key: const Key('ssrvpn-bottom-navigation')",
     "label: '主页'",
     "selectedIndex: currentIndex",
     "label: '订阅'",
+    "label: '设置'",
     "onTabSelected: onTap",
     "SsrvpnVersionUpdateFooter(",
 ):
@@ -438,5 +439,5 @@ if "_checkUpdateDelayed" in desktop_init:
         f"{desktop_home_path}: desktop startup must not check updates before connection"
     )
 
-print("Shared two-page product surface guards passed.")
+print("Shared three-page product surface guards passed.")
 PY

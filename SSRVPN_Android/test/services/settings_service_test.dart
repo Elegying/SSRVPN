@@ -26,6 +26,32 @@ void main() {
     }
   });
 
+  test('appearance and port queue preserve each other and reload from disk',
+      () async {
+    Future<SettingsService> load() => SettingsService.createForTesting(
+        configPath: configPath,
+        readApiSecret: () async => 'synthetic-secret',
+        writeApiSecret: (_) async {});
+    final service = await load();
+    addTearDown(service.dispose);
+    final before = service.settings;
+    await Future.wait([
+      service.updateAppearance(
+          glassEffectLevel: GlassEffectLevel.medium,
+          backgroundStyle: BackgroundStyle.custom,
+          customBackgroundPath: '/synthetic/background.png'),
+      service.updateProxyPort(8123),
+    ]);
+    final reloaded = await load();
+    addTearDown(reloaded.dispose);
+    expect(reloaded.settings.proxyPort, 8123);
+    expect(reloaded.settings.glassEffectLevel, GlassEffectLevel.medium);
+    expect(reloaded.settings.backgroundStyle, BackgroundStyle.custom);
+    expect(reloaded.settings.customBackgroundPath, '/synthetic/background.png');
+    expect(before.proxyPort, 7890);
+    final saved = jsonDecode(await File(configPath).readAsString());
+    expect(saved['apiSecret'], isNull);
+  });
   test('staged preference recovers from disk and preserves a later selection',
       () async {
     final service = await SettingsService.createForTesting(

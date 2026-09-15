@@ -1,3 +1,4 @@
+import 'ssrvpn_liquid_glass.dart' show ssrvpnGlassQuality;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -42,9 +43,7 @@ class _SsrvpnGlassCaptureState extends State<SsrvpnGlassCapture>
         (widget.captureSupported ?? ui.ImageFilter.isShaderFilterSupported) &&
             TickerMode.valuesOf(context).enabled &&
             !MediaQuery.highContrastOf(context) &&
-            (glass.GlassAdaptiveScopeData.maybeOf(context)?.effectiveQuality ??
-                    glass.GlassQuality.premium) ==
-                glass.GlassQuality.premium;
+            ssrvpnGlassQuality(context) == glass.GlassQuality.premium;
     final route = ModalRoute.of(context);
     if (_route != route) {
       _listenToRoute(false);

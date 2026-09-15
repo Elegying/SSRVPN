@@ -51,7 +51,6 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         nodes,
         _selectedNode?.name ?? settings.lastSelectedNodeName,
       );
-      clashService.updateSettings(settings);
       await clashService.stop();
       if (!clashService.isConnectionIntentCurrent(
         connectionGeneration,
@@ -396,7 +395,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
       return;
     }
     if (!mounted || _disposed) return;
-    clashService.updateSettings(settingsService.settings);
+    clashService.updateLiveSettings(settingsService.settings);
 
     if (shouldReload) {
       await _reloadConfig();
@@ -461,7 +460,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     } else {
       await settingsService.updateForceProxySites(normalizedSites);
     }
-    clashService.updateSettings(settingsService.settings);
+    clashService.updateLiveSettings(settingsService.settings);
 
     var reloadSucceeded = false;
     if (shouldReload) {

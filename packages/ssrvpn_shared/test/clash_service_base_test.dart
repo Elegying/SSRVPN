@@ -354,6 +354,54 @@ void main() {
   });
 
   group('ClashServiceBase runtime ports', () {
+    test('live rule edits retain listener identity until the next start',
+        () async {
+      final service = _PlannedPortClashService({32000});
+      addTearDown(service.dispose);
+      final preferred = AppSettings(
+          proxyPort: 32000,
+          socksPort: 32100,
+          apiPort: 32200,
+          apiSecret: 'current-test-secret');
+      final runtime = await service.prepareForStart(preferred);
+      service.setRunning(true);
+      final changed = preferred.copyWith(
+          proxyPort: 33000,
+          apiPort: 33100,
+          apiSecret: 'pending-test-secret',
+          proxyMode: ProxyMode.global,
+          forceDirectSites: ['example.com']);
+      service.updateLiveSettings(changed);
+      expect(service.runtimeProxyPort, runtime.proxyPort);
+      expect(service.runtimeApiPort, runtime.apiPort);
+      expect(service.settings.apiSecret, 'current-test-secret');
+      expect(service.settings.proxyMode, ProxyMode.global);
+      expect(service.settings.forceDirectSites, contains('example.com'));
+      expect(changed.proxyPort, 33000);
+      expect(preferred.proxyPort, 32000);
+      service.setRunning(false);
+      final restarted = await service.prepareForStart(changed);
+      expect(restarted.proxyPort, 33000);
+      expect(service.runtimeApiPort, 33100);
+      expect(service.settings.apiSecret, 'pending-test-secret');
+    });
+
+    test(
+        'a freed custom port is retried on reconnect without rewriting preference',
+        () async {
+      final service = _PlannedPortClashService({65535});
+      addTearDown(service.dispose);
+      final preferred = AppSettings(proxyPort: 65535);
+      final adjusted = await service.prepareForStart(preferred);
+      expect(adjusted.proxyPort, isNot(65535));
+      expect(preferred.proxyPort, 65535);
+      expect({adjusted.proxyPort, adjusted.socksPort, adjusted.apiPort},
+          hasLength(3));
+      service.blockedPorts.clear();
+      expect((await service.prepareForStart(preferred)).proxyPort, 65535);
+      expect(service.lastRuntimePortAdjustmentMessage, isNull);
+    });
+
     test(
       'reports temporary port adjustments and clears stale notices',
       () async {

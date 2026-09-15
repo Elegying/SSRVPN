@@ -62,6 +62,14 @@ mixin _ClashRuntimeSupport {
     await temp.rename(file.path);
   }
 
+  /// Routing edits must keep talking to the current listener until restart.
+  void updateLiveSettings(AppSettings preferred) =>
+      updateSettings(preferred.copyWith(
+          proxyPort: settings.proxyPort,
+          socksPort: settings.socksPort,
+          apiPort: settings.apiPort,
+          apiSecret: settings.apiSecret));
+
   /// Resolves transient port conflicts without changing saved preferences.
   Future<AppSettings> prepareForStart(AppSettings preferred) async {
     await applyPendingSmartRules();
