@@ -4,7 +4,8 @@ part of desktop_glass_container;
 class GlassContainer extends StatefulWidget {
   final Widget child;
   final double borderRadius;
-  final double? blur; // Compatibility only; the shared quality tier controls blur.
+  // Compatibility only; the shared quality tier controls blur.
+  final double? blur;
   final EdgeInsetsGeometry? padding;
   final EdgeInsetsGeometry? margin;
   final double? width;
