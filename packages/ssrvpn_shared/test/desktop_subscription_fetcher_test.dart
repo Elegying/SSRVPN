@@ -9,6 +9,63 @@ import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('batch deadline closes a stalled compatibility retry socket', () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final accepted = <Socket>[];
+    final retryClosed = Completer<void>();
+    var requestIndex = 0;
+    server.listen((socket) {
+      accepted.add(socket);
+      var responded = false;
+      var isRetry = false;
+      socket.listen((_) async {
+        if (responded) return;
+        responded = true;
+        isRetry = requestIndex++ > 0;
+        if (!isRetry) {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          socket.write(
+              'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+          await socket.flush();
+          await socket.close();
+        }
+      }, onDone: () {
+        if (isRetry && !retryClosed.isCompleted) retryClosed.complete();
+      });
+    });
+    final sockets = [
+      await Socket.connect(server.address, server.port),
+      await Socket.connect(server.address, server.port),
+    ];
+    addTearDown(() async {
+      for (final socket in [...sockets, ...accepted]) {
+        socket.destroy();
+      }
+      await server.close();
+    });
+    var index = 0;
+    final control =
+        SubscriptionRefreshControl(timeout: const Duration(milliseconds: 600));
+    await expectLater(
+        IOOverrides.runZoned(
+          () => DesktopSubscriptionFetcher.fetch(
+            'http://compatibility.test:${server.port}/subscription',
+            allowDirectFetch: true,
+            maxRetries: 1,
+            directAddressLookup: (_) async => [InternetAddress('1.1.1.1')],
+            control: control,
+          ),
+          socketConnect: (host, port,
+                  {sourceAddress, sourcePort = 0, timeout}) async =>
+              sockets[index++],
+        ),
+        throwsA(isA<SubscriptionRefreshDeadlineExceeded>()));
+    expect(requestIndex, 2);
+    await retryClosed.future.timeout(const Duration(milliseconds: 150));
+    expect(control.cancellation.isCancelled, isFalse,
+        reason: 'deadline cleanup must not become a user cancellation');
+  });
+
   test('direct fetch negotiates all four client identities in order', () async {
     final userAgents = <String>[];
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

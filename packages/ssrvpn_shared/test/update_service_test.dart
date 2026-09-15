@@ -5,6 +5,7 @@ import 'dart:isolate';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:http/testing.dart';
 import 'package:ssrvpn_shared/services/update_checker.dart';
 import 'package:ssrvpn_shared/services/update_service.dart';
@@ -22,6 +23,97 @@ void main() {
     SharedUpdateService.recoveryStepForTesting = null;
     SharedUpdateService.publicationStepForTesting = null;
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
+  });
+
+  for (final cancel in [false, true]) {
+    test(
+        'real HTTP socket closes after ${cancel ? "cancel" : "timeout"} before headers',
+        () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final started = Completer<void>();
+      final closed = Completer<void>();
+      final sockets = <Socket>[];
+      server.listen((socket) {
+        sockets.add(socket);
+        socket.listen((_) {
+          if (!started.isCompleted) started.complete();
+        }, onDone: () {
+          if (!closed.isCompleted) closed.complete();
+        });
+      });
+      final io = IOClient();
+      addTearDown(() async {
+        io.close();
+        for (final socket in sockets) {
+          socket.destroy();
+        }
+        await server.close();
+      });
+      // Use actual dart:io transport on loopback while preserving the request's
+      // abort signal. Do not rely only on a fake client completing a Future.
+      final client = _TrackingStreamClient((request) {
+        final target = Uri.parse('http://127.0.0.1:${server.port}/update');
+        final forwarded = request is http.AbortableRequest
+            ? http.AbortableRequest('GET', target,
+                abortTrigger: request.abortTrigger)
+            : http.Request('GET', target);
+        return io.send(forwarded);
+      });
+      final cancellation = VerifiedUpdateCancellation();
+      final task = SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+            version: '9.9.9',
+            changelog: '',
+            downloadUrl: 'https://example.com/update',
+            sha256: '0' * 64),
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup.exe',
+        client: client,
+        cancellation: cancellation,
+        timeout: Duration(milliseconds: cancel ? 2000 : 300),
+      );
+      final failed = expectLater(task, throwsA(isA<Exception>()));
+      await started.future.timeout(const Duration(seconds: 2));
+      if (cancel) cancellation.cancel();
+      await failed;
+      await closed.future.timeout(const Duration(seconds: 1));
+      expect(client.closed, isFalse);
+    });
+  }
+
+  test('fallback starts only after the stalled update request is aborted',
+      () async {
+    final bytes = utf8.encode('verified-candidate');
+    var pending = 0;
+    final client = _TrackingStreamClient((request) async {
+      if (request.url.host == 'primary.example') {
+        pending++;
+        if (request is http.AbortableRequest) {
+          unawaited(request.abortTrigger!.then((_) {
+            pending--;
+          }));
+        }
+        return Completer<http.StreamedResponse>().future;
+      }
+      expect(pending, 0,
+          reason:
+              'the timed-out request must release its connection before fallback');
+      return http.StreamedResponse(Stream.value(bytes), 200);
+    });
+    final file = await SharedUpdateService.downloadVerifiedUpdate(
+      AppUpdateInfo(
+          version: '9.9.9',
+          changelog: '',
+          downloadUrl: 'https://primary.example/update',
+          fallbackDownloadUrl: 'https://backup.example/update',
+          sha256: sha256.convert(bytes).toString()),
+      outputDirectory: tempDir,
+      fileName: 'SSRVPN_Setup.exe',
+      client: client,
+      timeout: const Duration(milliseconds: 200),
+    );
+    expect(await file.readAsBytes(), bytes);
+    expect(client.closed, isFalse);
   });
 
   test('verified desktop download enforces SHA256 before returning a file',

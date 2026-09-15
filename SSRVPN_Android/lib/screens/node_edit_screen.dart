@@ -83,6 +83,10 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
       ))
         key: TextEditingController(text: config[key]?.toString() ?? ''),
     };
+    if (_usesServerNameForSni) {
+      _controllers['sni']!.text =
+          (config['servername'] ?? config['sni'])?.toString() ?? '';
+    }
     final extras = <String, dynamic>{
       for (final entry in config.entries)
         if (!_commonKeys.contains(entry.key) &&
@@ -105,6 +109,8 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
 
   bool _hasField(String key, Set<String> types) =>
       types.contains(_type) || _editNode.extra.containsKey(key);
+
+  bool get _usesServerNameForSni => {'vmess', 'vless'}.contains(_type);
 
   Widget _field(
     String key,
@@ -173,21 +179,30 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     };
     for (final key in _commonKeys) {
       if ({'name', 'type', 'server', 'port'}.contains(key)) continue;
-      final value = _controllers[key]!.text.trim();
+      if (_usesServerNameForSni && key == 'servername') continue;
+      // Credentials are opaque: renaming a node must not change its password.
+      final text = _controllers[key]!.text;
+      final value = key == 'password' ? text : text.trim();
       if (value.isNotEmpty) {
-        result[key] = key == 'alterId' ? int.tryParse(value) ?? value : value;
+        final targetKey =
+            key == 'sni' && _usesServerNameForSni ? 'servername' : key;
+        result[targetKey] =
+            key == 'alterId' ? int.tryParse(value) ?? value : value;
       }
     }
 
     final originalName = _editNode.name;
     final settingsService = context.read<SettingsService>();
     final subscriptionService = context.read<SubscriptionService>();
+    final editRoute = ModalRoute.of(context);
 
     setState(() => _saving = true);
     try {
       await subscriptionService.updateNode(originalName, result,
           preferences: settingsService);
-      if (mounted) Navigator.pop(context, true);
+      // A popped page stays mounted during its exit animation. Its late save
+      // must not dismiss the node list or another route opened in the meantime.
+      if (mounted && editRoute?.isCurrent == true) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
         final msg = e.toString();
@@ -331,7 +346,7 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
                   'socks5',
                 }))
                   _field('sni', 'SNI'),
-                if (_hasField('servername', {}))
+                if (!_usesServerNameForSni && _hasField('servername', {}))
                   _field('servername', 'Server Name'),
                 SizedBox(height: 4),
                 SsrvpnLiquidField(

@@ -40,3 +40,14 @@ class SubscriptionPartialRefreshException implements Exception {
   String toString() => '部分订阅刷新失败；成功来源已更新，失败来源保留已有节点:\n'
       '${outcome.failures.map((failure) => failure.detail).join('\n')}';
 }
+
+class SubscriptionBatchRefreshException implements Exception {
+  SubscriptionBatchRefreshException(List<SubscriptionRefreshFailure> failures)
+      : failures = List.unmodifiable(failures);
+
+  final List<SubscriptionRefreshFailure> failures;
+
+  @override
+  String toString() => '所有订阅刷新失败:\n'
+      '${failures.map((failure) => failure.detail).join('\n')}';
+}

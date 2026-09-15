@@ -19,6 +19,7 @@ class _DesktopAppShell extends StatelessWidget {
     BuildContext context,
     AppUpdateInfo update,
   ) {
+    final core = context.read<clash.ClashService>();
     return UpdateService.showUpdateDialog(
       context,
       latestVersion: update.version,
@@ -28,6 +29,7 @@ class _DesktopAppShell extends StatelessWidget {
       sha256: update.sha256,
       fallbackDownloadUrl: update.fallbackDownloadUrl,
       prepareForInstall: () => _prepareForUpdateInstall(context),
+      localProxyPort: () => core.isRunning ? core.runtimeProxyPort : null,
     );
   }
 
@@ -155,14 +157,17 @@ class _PageStack extends StatelessWidget {
 
 Widget _buildSettingsPage(BuildContext context) {
   final service = context.watch<SettingsService>();
+  final core = context.read<clash.ClashService>();
   return SsrvpnSettingsPage(
     settings: service.settings,
-    core: context.read<clash.ClashService>(),
+    core: core,
     dataDirectory: service.appearanceDirectory,
     onAppearanceChanged: service.updateAppearance,
     onPortChanged: service.updateProxyPort,
-    checkForUpdate: () =>
-        UpdateService.checkForUpdate(UpdateService.appVersion),
+    checkForUpdate: () => UpdateService.checkForUpdate(
+      UpdateService.appVersion,
+      localProxyPort: () => core.isRunning ? core.runtimeProxyPort : null,
+    ),
     onUpdateFound: (update) {
       context.read<UpdateAvailabilityController>().publish(update);
       ScaffoldMessenger.of(context).removeCurrentSnackBar();

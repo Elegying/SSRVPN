@@ -322,6 +322,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
           isRefreshing: _isRefreshing,
           isBusy: _isBusy,
           refreshMessage: refreshResult?.message,
+          refreshFailureDetails: refreshResult?.failureDetails ?? const [],
           refreshMessageColor: refreshColor,
           onAdd: _addSubscription,
           onRefresh: _refreshAll,

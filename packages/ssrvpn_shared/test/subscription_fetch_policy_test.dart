@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:ssrvpn_shared/constants/app_constants.dart';
 import 'package:ssrvpn_shared/services/subscription_fetch_policy.dart';
+import 'package:ssrvpn_shared/services/subscription_processing.dart';
+import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:test/test.dart';
 
 class _PolicyResponse {
@@ -12,6 +15,78 @@ class _PolicyResponse {
 }
 
 void main() {
+  test('cancel after a refusal prevents the next compatibility request',
+      () async {
+    final cancellation = SubscriptionRefreshCancellation();
+    var requests = 0;
+    await expectLater(
+      SubscriptionFetchPolicy.negotiateClientIdentity<_PolicyResponse>(
+        control: SubscriptionRefreshControl(
+            timeout: const Duration(seconds: 10), cancellation: cancellation),
+        request: (_, __) async {
+          requests++;
+          cancellation.cancel();
+          return const _PolicyResponse(403, '');
+        },
+        statusCodeOf: (response) => response.statusCode,
+        readBody: (response, _, __) async => response.body,
+      ),
+      throwsA(isA<SubscriptionRefreshCancelled>()),
+    );
+    expect(requests, 1);
+  });
+
+  test('cancelling recognition does not trigger compatibility requests',
+      () async {
+    SubscriptionProcessing.workerStartDelayForTesting =
+        const Duration(seconds: 5);
+    addTearDown(() =>
+        SubscriptionProcessing.workerStartDelayForTesting = Duration.zero);
+    final cancellation = SubscriptionRefreshCancellation();
+    var requests = 0;
+    final largeBody = '$_validYaml\n# ${'x' * (300 * 1024)}\n';
+    final operation =
+        SubscriptionFetchPolicy.negotiateClientIdentity<_PolicyResponse>(
+      control: SubscriptionRefreshControl(
+          timeout: const Duration(seconds: 10), cancellation: cancellation),
+      request: (_, __) async {
+        requests++;
+        return _PolicyResponse(200, largeBody);
+      },
+      statusCodeOf: (response) => response.statusCode,
+      readBody: (response, _, __) async => response.body,
+    );
+    final stopped =
+        expectLater(operation, throwsA(isA<SubscriptionRefreshCancelled>()));
+    await Future<void>.delayed(Duration.zero);
+    expect(SubscriptionProcessing.activeWorkerCount, 1);
+    cancellation.cancel();
+    await stopped;
+    expect(requests, 1);
+    final deadline = DateTime.now().add(const Duration(seconds: 2));
+    while (SubscriptionProcessing.activeWorkerCount > 0 &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(SubscriptionProcessing.activeWorkerCount, 0);
+  });
+
+  test('large response recognition lets the UI event queue run', () async {
+    final body =
+        'proxies:\n${List.generate(3000, (i) => '  - {name: Node $i, type: ss, server: node-$i.example.com, port: 443, cipher: aes-256-gcm, password: fixture-$i}\n').join()}';
+    var heartbeat = false;
+    Timer.run(() => heartbeat = true);
+    final result =
+        await SubscriptionFetchPolicy.negotiateClientIdentity<_PolicyResponse>(
+      request: (_, __) async => _PolicyResponse(200, body),
+      statusCodeOf: (response) => response.statusCode,
+      readBody: (response, _, __) async => response.body,
+    );
+    expect(SubscriptionFetchPolicy.requireRecognizedBody(result), body);
+    expect(heartbeat, isTrue,
+        reason: 'format recognition must not block the UI before merge starts');
+  });
+
   test('redirects cannot turn public subscriptions into private requests', () {
     final source = Uri.parse('https://example.com/feed');
     for (final target in [

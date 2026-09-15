@@ -60,6 +60,91 @@ void main() {
     await service.init(directory.path);
   }
 
+  for (final local in [false, true]) {
+    for (final retryExisting in [false, true]) {
+      test(
+          'concurrent imports keep one persisted source, local=$local retry=$retryExisting',
+          () async {
+        final url = local
+            ? 'socks5://shared.invalid:443#Shared'
+            : 'https://shared.invalid/sub';
+        service.responses[url] = _yaml('Shared', 'shared');
+        final first = SubscriptionScreenController.fromService(service);
+        final second = SubscriptionScreenController.fromService(service);
+        final results = await Future.wait([
+          first.addSubscription(url),
+          second.addSubscription(url, retryExisting: retryExisting),
+        ]);
+
+        expect(service.subscriptions, hasLength(1));
+        expect(results.first.isSuccess, isTrue);
+        if (retryExisting) {
+          expect(results.last.isSuccess, isTrue);
+        } else {
+          expect(results.last.status, SubscriptionAddStatus.duplicate);
+        }
+        expect(service.allNodes.single.name, 'Shared');
+        await reload();
+        expect(service.subscriptions.single.url, url);
+        expect(service.allNodes.single.name, 'Shared');
+      });
+    }
+  }
+
+  test('queued edits cannot persist the same URL for two sources', () async {
+    final a = await addFeed('A', 'a', _yaml('Old A', 'a'));
+    final b = await addFeed('B', 'b', _yaml('Old B', 'b'));
+    await service.refreshAllSubscriptionsDetailed();
+    const newUrl = 'https://new.invalid/sub';
+    service.responses[newUrl] = _yaml('New', 'new');
+    final first = SubscriptionScreenController.fromService(service);
+    final second = SubscriptionScreenController.fromService(service);
+    final results = await Future.wait([
+      first.editSubscription(a, 'Updated A', newUrl),
+      second.editSubscription(b, 'Updated B', newUrl),
+    ]);
+
+    expect(results.map((result) => result.status), [
+      SubscriptionEditStatus.saved,
+      SubscriptionEditStatus.duplicateUrl,
+    ]);
+    expect(service.subscriptions.map((sub) => sub.url), [newUrl, b.url]);
+    expect(service.allNodes.map((node) => node.name), ['New', 'Old B']);
+    await reload();
+    expect(service.subscriptions.map((sub) => sub.url), [newUrl, b.url]);
+    expect(service.allNodes.map((node) => node.name), ['New', 'Old B']);
+  });
+
+  test('a queued rename preserves the just refreshed timestamp on disk',
+      () async {
+    final original = await addFeed('Original', 'a', _yaml('Old', 'a'));
+    final oldTime = DateTime.utc(2025, 1, 2);
+    original.lastUpdate = oldTime;
+    await service.saveToDisk();
+    final fetchStarted = Completer<void>();
+    final response = Completer<String?>();
+    service.fetchStarted = fetchStarted;
+    service.responses[original.url] = response.future;
+    final refresh = service.refreshAllSubscriptionsDetailed();
+    await fetchStarted.future;
+    final staleOriginal = service.subscriptions.single;
+    final edit = SubscriptionScreenController.fromService(service)
+        .editSubscription(staleOriginal, 'Renamed', staleOriginal.url);
+    response.complete(_yaml('Fresh', 'fresh'));
+    await refresh;
+    expect((await edit).status, SubscriptionEditStatus.saved);
+
+    final refreshedTime = service.subscriptions.single.lastUpdate!;
+    expect(refreshedTime.isAfter(oldTime), isTrue);
+    expect(service.fetchCalls, 1);
+    expect(service.allNodes.single.name, 'Fresh');
+    expect(service.allNodes.single.group, 'Renamed');
+    await reload();
+    expect(service.subscriptions.single.lastUpdate, refreshedTime);
+    expect(service.subscriptions.single.name, 'Renamed');
+    expect(service.allNodes.single.name, 'Fresh');
+  });
+
   test(
       'partial refresh preserves selected identity when another source collides',
       () async {
@@ -507,6 +592,7 @@ class _DiskService extends SubscriptionServiceBase {
   int fetchCalls = 0;
   final requestedUrls = <String>[];
   bool failMetadata = false;
+  Completer<void>? fetchStarted;
   @override
   Future<String?> fetchSubscription(
     String url, {
@@ -515,6 +601,8 @@ class _DiskService extends SubscriptionServiceBase {
   }) async {
     fetchCalls++;
     requestedUrls.add(url);
+    final started = fetchStarted;
+    if (started != null && !started.isCompleted) started.complete();
     final response = responses[url];
     if (response is Future<String?>) return response;
     if (response is String) return response;

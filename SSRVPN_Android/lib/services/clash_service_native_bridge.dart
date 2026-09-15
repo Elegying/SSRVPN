@@ -76,6 +76,13 @@ class AndroidProxySwitchResult {
   final String? runtimeNodeName;
 }
 
+typedef _NativeRuntimeIdentity = ({
+  int apiPort,
+  int proxyPort,
+  int socksPort,
+  String apiSecret,
+});
+
 typedef _NativeConnectionState = ({
   bool running,
   bool transitioning,
@@ -84,6 +91,7 @@ typedef _NativeConnectionState = ({
   int? sessionGeneration,
   bool? underlyingNetworkAvailable,
   bool? underlyingNetworkValidated,
+  _NativeRuntimeIdentity? runtimeIdentity,
 });
 
 extension AndroidNativeBridge on ClashService {
@@ -425,6 +433,21 @@ extension AndroidNativeBridge on ClashService {
     final underlyingNetworkChanged =
         _underlyingNetworkAvailable != state.underlyingNetworkAvailable ||
             _underlyingNetworkValidated != state.underlyingNetworkValidated;
+    final runtimeIdentity = state.runtimeIdentity;
+    if (state.running && runtimeIdentity != null) {
+      updateSettings(settings.copyWith(
+        apiPort: runtimeIdentity.apiPort,
+        proxyPort: runtimeIdentity.proxyPort,
+        socksPort: runtimeIdentity.socksPort,
+        apiSecret: runtimeIdentity.apiSecret,
+      ));
+      _nativeRuntimeIdentityGeneration = state.sessionGeneration;
+      _nativeRuntimeIdentityPath = state.protectedConfigPath;
+    }
+    if (!state.running) {
+      _nativeRuntimeIdentityGeneration = null;
+      _nativeRuntimeIdentityPath = null;
+    }
     _nativeSessionProtocolAvailable = true;
     _nativeConnectionTransitioning = state.transitioning;
     _runningConfigPath = state.protectedConfigPath;
@@ -532,11 +555,19 @@ extension AndroidNativeBridge on ClashService {
   }
 
   Future<_NativeConnectionState?> _queryNativeConnectionState() async {
+    final startGeneration = _startGeneration;
+    final stateEpoch = _nativeStateEpoch;
     try {
       final value = await ClashService._channel
           .invokeMethod<Object?>('getConnectionState')
           .timeout(const Duration(seconds: 3));
-      return _parseNativeConnectionState(value);
+      final state = await _parseNativeConnectionState(value);
+      // Reading a restored session's config adds an asynchronous boundary.
+      // A newer start/stop or state snapshot owns the controller from now on.
+      return startGeneration == _startGeneration &&
+              stateEpoch == _nativeStateEpoch
+          ? state
+          : null;
     } catch (e) {
       log('查询原生 VPN 会话状态失败: cause=${_safeLogErrorCode(e)}');
       return null;
@@ -791,6 +822,7 @@ extension AndroidNativeBridge on ClashService {
         sessionGeneration: sessionGeneration,
         underlyingNetworkAvailable: underlyingNetworkAvailable,
         underlyingNetworkValidated: underlyingNetworkValidated,
+        runtimeIdentity: null,
       );
     }
     final file = File(rawPath).absolute;
@@ -811,6 +843,7 @@ extension AndroidNativeBridge on ClashService {
         sessionGeneration: sessionGeneration,
         underlyingNetworkAvailable: underlyingNetworkAvailable,
         underlyingNetworkValidated: underlyingNetworkValidated,
+        runtimeIdentity: null,
       );
     }
     return (
@@ -821,7 +854,54 @@ extension AndroidNativeBridge on ClashService {
       sessionGeneration: sessionGeneration,
       underlyingNetworkAvailable: underlyingNetworkAvailable,
       underlyingNetworkValidated: underlyingNetworkValidated,
+      runtimeIdentity: running &&
+              (sessionGeneration != _nativeRuntimeIdentityGeneration ||
+                  file.path != _nativeRuntimeIdentityPath)
+          ? await _readNativeRuntimeIdentity(file)
+          : null,
     );
+  }
+
+  Future<_NativeRuntimeIdentity?> _readNativeRuntimeIdentity(File file) async {
+    try {
+      // The path comes from the authoritative native session, never from the
+      // newer quick-start snapshot that may already target another rule/node.
+      final path = file.path;
+      return await Isolate.run(() async {
+        final configFile = File(path);
+        if (await configFile.length() > BoundedYaml.maxInputBytes) {
+          throw const FormatException();
+        }
+        final config = BoundedYaml.load(await configFile.readAsString());
+        if (config is! Map) throw const FormatException();
+        final controller = config['external-controller'];
+        final proxyPort = config['mixed-port'];
+        final socksPort = config['socks-port'];
+        final secret = config['secret'];
+        final match = controller is String
+            ? RegExp(r'^127\.0\.0\.1:([0-9]{1,5})$').firstMatch(controller)
+            : null;
+        final apiPort = match == null ? null : int.tryParse(match.group(1)!);
+        bool validPort(Object? port) =>
+            port is int && port >= 1 && port <= 65535;
+        if (!validPort(apiPort) ||
+            !validPort(proxyPort) ||
+            !validPort(socksPort) ||
+            secret is! String ||
+            secret.isEmpty) {
+          throw const FormatException();
+        }
+        return (
+          apiPort: apiPort!,
+          proxyPort: proxyPort as int,
+          socksPort: socksPort as int,
+          apiSecret: secret,
+        );
+      });
+    } catch (_) {
+      log('运行配置端口信息暂时无法同步，保留已有控制设置');
+      return null;
+    }
   }
 
   Future<bool> consumePendingAutoConnect() async {

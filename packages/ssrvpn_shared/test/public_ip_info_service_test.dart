@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:ssrvpn_shared/services/public_ip_info_service.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
@@ -95,6 +96,71 @@ void main() {
         PublicIpInfoService.ipv4Endpoint,
         PublicIpInfoService.geoEndpointForIp('203.0.113.42'),
       ]);
+    });
+
+    test('fallback starts after the timed-out public IP attempt is aborted',
+        () async {
+      var pending = 0;
+      final client = _RoutingStreamClient((request) async {
+        if (request.url == PublicIpInfoService.ipv4Endpoint) {
+          pending++;
+          if (request is http.AbortableRequest) {
+            unawaited(request.abortTrigger!.then((_) => pending--));
+          }
+          return Completer<http.StreamedResponse>().future;
+        }
+        expect(pending, 0,
+            reason:
+                'The old attempt must release its connection before fallback');
+        return _jsonResponse('{"ip":"8.8.8.8","country_code":"US"}');
+      });
+      final info = await PublicIpInfoService(client: client)
+          .fetch(timeout: const Duration(milliseconds: 100));
+      expect(info.ip, '8.8.8.8');
+      expect(client.closed, isFalse);
+    });
+
+    test(
+        'public IP header timeout closes the real socket without closing the borrowed client',
+        () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final started = Completer<void>();
+      final closed = Completer<void>();
+      final sockets = <Socket>[];
+      server.listen((socket) {
+        sockets.add(socket);
+        socket.listen((_) {
+          if (!started.isCompleted) started.complete();
+        }, onDone: () {
+          if (!closed.isCompleted) closed.complete();
+        });
+      });
+      final io = IOClient();
+      addTearDown(() async {
+        io.close();
+        for (final socket in sockets) {
+          socket.destroy();
+        }
+        await server.close();
+      });
+      final client = _RoutingStreamClient((request) async {
+        if (request.url != PublicIpInfoService.ipv4Endpoint) {
+          return _jsonResponse('{"ip":"8.8.8.8","country_code":"US"}');
+        }
+        // Keep real IO cancellation; redirect only this synthetic test's target.
+        final target = Uri.parse('http://127.0.0.1:${server.port}/ip');
+        final forwarded = request is http.AbortableRequest
+            ? http.AbortableRequest('GET', target,
+                abortTrigger: request.abortTrigger)
+            : http.Request('GET', target);
+        return io.send(forwarded);
+      });
+      final pending = PublicIpInfoService(client: client)
+          .fetch(timeout: const Duration(milliseconds: 300));
+      await started.future.timeout(const Duration(seconds: 2));
+      expect((await pending).ip, '8.8.8.8');
+      await closed.future.timeout(const Duration(seconds: 1));
+      expect(client.closed, isFalse);
     });
 
     test('keeps a discovered IPv4 address when geolocation is unavailable',
@@ -250,6 +316,10 @@ class _RoutingStreamClient extends http.BaseClient {
   _RoutingStreamClient(this._send);
 
   final Future<http.StreamedResponse> Function(http.BaseRequest request) _send;
+  bool closed = false;
+
+  @override
+  void close() => closed = true;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) =>

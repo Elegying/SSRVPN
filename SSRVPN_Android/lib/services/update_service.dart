@@ -134,9 +134,11 @@ class UpdateService {
         cancellation?.throwIfCancelled();
         final uri = downloadUris[attempt];
         final attemptClock = Stopwatch()..start();
+        final abort = Completer<void>();
         try {
-          final request = http.Request('GET', uri)
-            ..headers['User-Agent'] = AppConstants.appUserAgent;
+          final request =
+              http.AbortableRequest('GET', uri, abortTrigger: abort.future)
+                ..headers['User-Agent'] = AppConstants.appUserAgent;
           final response = await _sendResponse(
             httpClient,
             request,
@@ -206,6 +208,11 @@ class UpdateService {
           if (await apkFile.exists()) await apkFile.delete();
           cancellation?.throwIfCancelled();
           if (attempt == downloadUris.length - 1) rethrow;
+        } finally {
+          // A timeout ends this attempt, including an unanswered HTTP request.
+          // Keep caller-owned clients usable for the fallback or a later retry.
+          if (!abort.isCompleted) abort.complete();
+          await abort.future;
         }
       }
       throw StateError('没有可用的 APK 下载地址');
