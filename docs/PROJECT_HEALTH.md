@@ -40,7 +40,9 @@ macOS TUN DNS 事务 25 项、真实内核分流、Android 原生 188 项、四�
 
 已实际运行 `make verify`。其间修正源码守卫兼容问题；原生阶段因失效的本机 `JAVA_HOME`
 停止后，使用现有 JDK 21、保持 Java/Kotlin 目标 17，按同一脚本入口补齐剩余阶段。
-桌面更新 UI 的旧网络替身改为复用真实本地 CONNECT/TLS 设施，随后重跑完整 macOS 工作区。
+桌面更新 UI 的旧网络替身改为真实本地 CONNECT/TLS，随后重跑完整 macOS 工作区。
+远端 macOS 对测试证书的校验差异另通过临时 CA 签发独立服务器证书处理，生产 TLS 策略不变；
+相关本地 48 项回归通过，远端结果须以本次 PR 最终提交为准。
 这些记录不将中断的命令描述为一次全绿。最终日志保存在忽略目录
 `artifacts/releases/v5.0.6/validation/`。
 

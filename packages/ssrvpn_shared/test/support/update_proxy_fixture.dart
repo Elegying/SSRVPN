@@ -28,39 +28,83 @@ class UpdateProxyFixture extends HttpOverrides {
         await Directory.systemTemp.createTemp('ssrvpn-update-tls-');
     final cert = '${directory.path}/cert.pem';
     final key = '${directory.path}/key.pem';
-    final result = await Process.run('openssl', [
-      'req',
-      '-x509',
-      '-newkey',
-      'rsa:2048',
-      '-nodes',
-      '-keyout',
-      key,
-      '-out',
-      cert,
-      '-days',
-      '1',
-      '-subj',
-      '/CN=api.github.com',
-      '-addext',
-      'subjectAltName=DNS:api.github.com,DNS:github.com,DNS:release-assets.githubusercontent.com',
-      '-addext',
-      'basicConstraints=critical,CA:TRUE',
-      '-addext',
-      'keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign',
-      '-addext',
-      'extendedKeyUsage=serverAuth',
-    ]);
-    if (result.exitCode != 0) {
-      await directory.delete(recursive: true);
-      throw StateError('Could not generate the temporary update TLS fixture');
+    final ca = '${directory.path}/ca.pem';
+    final caKey = '${directory.path}/ca-key.pem';
+    final request = '${directory.path}/server.csr';
+    final extensions = '${directory.path}/server.ext';
+    // Keep issuer and server roles separate so macOS system trust evaluates
+    // the same certificate chain shape as a normal HTTPS endpoint.
+    await File(extensions).writeAsString(
+      'basicConstraints=critical,CA:FALSE\n'
+      'keyUsage=critical,digitalSignature,keyEncipherment\n'
+      'extendedKeyUsage=serverAuth\n'
+      'subjectAltName=DNS:api.github.com,DNS:github.com,'
+      'DNS:release-assets.githubusercontent.com\n',
+    );
+    final commands = [
+      [
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        caKey,
+        '-out',
+        ca,
+        '-days',
+        '1',
+        '-subj',
+        '/CN=SSRVPN Temporary Test CA',
+        '-addext',
+        'basicConstraints=critical,CA:TRUE',
+        '-addext',
+        'keyUsage=critical,keyCertSign,cRLSign',
+      ],
+      [
+        'req',
+        '-new',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        key,
+        '-out',
+        request,
+        '-subj',
+        '/CN=api.github.com',
+      ],
+      [
+        'x509',
+        '-req',
+        '-in',
+        request,
+        '-CA',
+        ca,
+        '-CAkey',
+        caKey,
+        '-CAcreateserial',
+        '-out',
+        cert,
+        '-days',
+        '1',
+        '-extfile',
+        extensions,
+      ],
+    ];
+    for (final arguments in commands) {
+      final result = await Process.run('openssl', arguments);
+      if (result.exitCode != 0) {
+        await directory.delete(recursive: true);
+        throw StateError('Could not generate the temporary update TLS fixture');
+      }
     }
     final serverContext = SecurityContext()
       ..useCertificateChain(cert)
       ..usePrivateKey(key);
     final fixture = UpdateProxyFixture._(
       directory,
-      SecurityContext(withTrustedRoots: true)..setTrustedCertificates(cert),
+      SecurityContext(withTrustedRoots: true)..setTrustedCertificates(ca),
     );
     fixture._origin = await HttpServer.bindSecure(
         InternetAddress.loopbackIPv4, 0, serverContext);
