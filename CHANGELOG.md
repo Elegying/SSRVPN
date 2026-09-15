@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.4] - 2026-09-15
+
+### macOS TUN 修复
+
+- 修复 TUN 启动遗漏版本化规则目录，导致“分流规则尚未就绪”并连接失败的问题。
+- 按本次配置复制实际引用的规则并校验内容，保留完整相对路径，兼容旧版 MRS 与内联规则。
+- 规则文件缺失或不可读时提前报告具体路径；规则加载失败不再误报为无法访问核心。
+- 增加真实 Mihomo 规则目录迁移回归及授权前失败、文件变化和旧格式兼容检查。
+
 ## [5.0.3] - 2026-09-15
 
 ### 设置与外观

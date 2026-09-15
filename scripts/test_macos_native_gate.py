@@ -787,14 +787,15 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         self.assertIn("for _ in {1..120}", runner)
         self.assertIn("/bin/sleep 0.25", runner)
 
-    def test_tun_runtime_preserves_both_domain_provider_caches(self) -> None:
+    def test_tun_runtime_preserves_staged_provider_paths(self) -> None:
         runner = self.read("SSRVPN_MacOS/assets/macos_tun_runner.sh")
         self.assertIn(
-            "for provider_name in ssrvpn-geosite-gfw.mrs ssrvpn-geosite-cn.mrs",
+            '/bin/cp -R "$script_dir/providers/." "$runtime_dir/providers/"',
             runner,
         )
-        self.assertIn('provider_source="$data_dir/providers/$provider_name"', runner)
-        self.assertIn('/bin/cp -p "$provider_source"', runner)
+        launcher = self.read("SSRVPN_MacOS/lib/services/macos_tun_session.dart")
+        self.assertIn('buildTunRuleStagingScript(configBytes, dataDir)', launcher)
+        self.assertLess(launcher.index('ruleStaging ='), launcher.index('await _writeRequestAtomically(activeRequest'))
 
     def test_proxy_recovery_is_single_flight_and_unsafe_state_fails_closed(self) -> None:
         source = self.read(

@@ -752,14 +752,11 @@ if [[ -f "$data_dir/geoip.metadb" && ! -L "$data_dir/geoip.metadb" ]]; then
   /bin/chmod 600 "$runtime_dir/geoip.metadb"
 fi
 /bin/mkdir -m 700 "$runtime_dir/providers" "$runtime_dir/tmp"
-for provider_name in ssrvpn-geosite-gfw.mrs ssrvpn-geosite-cn.mrs; do
-  provider_source="$data_dir/providers/$provider_name"
-  if [[ -f $provider_source && ! -L $provider_source && \
-        $(/usr/bin/stat -f '%u' "$provider_source") == "$user_id" ]]; then
-    /bin/cp -p "$provider_source" "$runtime_dir/providers/$provider_name"
-    /bin/chmod 600 "$runtime_dir/providers/$provider_name"
-  fi
-done
+# The launcher staged and hashed exactly the providers in this configuration.
+# Preserve versioned paths instead of copying only the legacy MRS cache names.
+if [[ -d "$script_dir/providers" ]]; then
+  /bin/cp -R "$script_dir/providers/." "$runtime_dir/providers/"
+fi
 
 TMPDIR="$runtime_dir/tmp" "$runtime_core" -t -d "$runtime_dir" \
   -f "$runtime_config" > "$runtime_dir/config-test.log" 2>&1 &

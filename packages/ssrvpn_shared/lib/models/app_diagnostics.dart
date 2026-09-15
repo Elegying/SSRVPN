@@ -74,6 +74,14 @@ class AppFailure {
 
   static AppFailure fromMessage(Object? error) {
     final text = error?.toString().trim().toLowerCase() ?? '';
+    if (text.contains('分流规则尚未就绪') || text.contains('tun_rule_files:')) {
+      return const AppFailure(
+        code: AppErrorCode.configInvalid,
+        title: '分流规则未就绪',
+        message: '本次连接所需的分流规则文件未能完整加载。',
+        recommendedAction: '请重新连接；若仍然失败，请导出运行日志以定位缺失的规则文件。',
+      );
+    }
     if (text.contains('vpn_permission_denied') ||
         text.contains('用户拒绝了 vpn 权限')) {
       return const AppFailure(
