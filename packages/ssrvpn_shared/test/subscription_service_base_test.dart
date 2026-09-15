@@ -9,6 +9,90 @@ import 'package:ssrvpn_shared/utils/bounded_yaml.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('failed atomic subscription write removes only its temporary file',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('ssrvpn-failed-cache-write-');
+    addTearDown(() => directory.delete(recursive: true));
+    final occupied = Directory('${directory.path}/subscription_cache.yaml');
+    await occupied.create();
+    final retained = File('${occupied.path}/keep');
+    await retained.writeAsString('existing data');
+    final service = _FakeSubscriptionService();
+    addTearDown(service.dispose);
+    await expectLater(
+        service.writeStringAtomically(File(occupied.path), _yamlFor('Node')),
+        throwsA(isA<FileSystemException>()));
+    expect(await retained.readAsString(), 'existing data');
+    expect(directory.listSync().where((entry) => entry.path.contains('.tmp.')),
+        isEmpty);
+  });
+
+  for (final name in ['subscriptions.json', 'subscription_cache.yaml']) {
+    test('temporary read failure preserves $name and the last loaded nodes',
+        () async {
+      final directory =
+          await Directory.systemTemp.createTemp('ssrvpn-unreadable-cache-');
+      addTearDown(() => directory.delete(recursive: true));
+      await File('${directory.path}/subscriptions.json').writeAsString(
+          '[{"id":"saved","name":"Saved","url":"https://feed.example/sub"}]');
+      final yaml = _yamlFor('Saved Node');
+      await File('${directory.path}/subscription_cache.yaml')
+          .writeAsString(yaml);
+      final service = _FakeSubscriptionService();
+      addTearDown(service.dispose);
+      await service.init(directory.path);
+      final file = File('${directory.path}/$name');
+      expect((await Process.run('/bin/chmod', ['000', file.path])).exitCode, 0);
+      addTearDown(() async {
+        if (await file.exists()) {
+          await Process.run('/bin/chmod', ['600', file.path]);
+        }
+      });
+      try {
+        await file.readAsString();
+        markTestSkipped('This user can bypass file permissions');
+        return;
+      } on FileSystemException {
+        // Exercise a real transient read error without changing user data.
+      }
+
+      await expectLater(
+          service.loadFromDisk(), throwsA(isA<FileSystemException>()));
+      expect(await file.exists(), isTrue);
+      expect(service.subscriptions.single.id, 'saved');
+      expect(service.allNodes.single.name, 'Saved Node');
+      expect(service.rawYaml, yaml);
+      expect(
+          directory.listSync().where((entry) => entry.path.contains('.bad-')),
+          isEmpty);
+      expect((await Process.run('/bin/chmod', ['600', file.path])).exitCode, 0);
+      await service.loadFromDisk();
+      expect(service.subscriptions.single.id, 'saved');
+      expect(service.allNodes.single.name, 'Saved Node');
+    }, skip: Platform.isWindows);
+  }
+
+  for (final name in ['subscriptions.json', 'subscription_cache.yaml']) {
+    test('invalid UTF-8 in $name is still quarantined as damaged data',
+        () async {
+      final directory =
+          await Directory.systemTemp.createTemp('ssrvpn-invalid-utf8-');
+      addTearDown(() => directory.delete(recursive: true));
+      final file = File('${directory.path}/$name');
+      await file.writeAsBytes([0xff, 0xfe, 0xff]);
+      final service = _FakeSubscriptionService();
+      addTearDown(service.dispose);
+      await service.init(directory.path);
+      expect(await file.exists(), isFalse);
+      expect(
+          directory.listSync().where((entry) => entry.path.contains('.bad-')),
+          isNotEmpty);
+      expect(service.allNodes, isEmpty);
+      expect(service.subscriptions, isEmpty);
+    });
+  }
+
   test('large startup cache parsing yields while a processing worker is active',
       () async {
     final directory =

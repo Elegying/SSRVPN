@@ -25,18 +25,26 @@ mixin _ClashHealthSupport {
 
   /// Verifies that the local core control API is reachable and responsive.
   Future<bool> healthCheck() async {
+    final abort = Completer<void>();
     try {
       final client = apiClient;
       if (client == null) return false;
+      final versionRequest = http.AbortableRequest(
+          'GET', Uri.parse(_apiUrl('/version')),
+          abortTrigger: abort.future)
+        ..headers.addAll(apiHeaders())
+        ..followRedirects = false;
       final response = await client
-          .get(Uri.parse(_apiUrl('/version')), headers: apiHeaders())
+          .send(versionRequest)
+          .then(http.Response.fromStream)
           .timeout(const Duration(seconds: 2));
       if (response.statusCode == 200) {
         if (hasLocalSmartRules) {
-          final request =
-              http.Request('GET', Uri.parse(_apiUrl('/providers/rules')))
-                ..headers.addAll(apiHeaders())
-                ..followRedirects = false;
+          final request = http.AbortableRequest(
+              'GET', Uri.parse(_apiUrl('/providers/rules')),
+              abortTrigger: abort.future)
+            ..headers.addAll(apiHeaders())
+            ..followRedirects = false;
           final ready = await (() async {
             final reply = await client.send(request);
             if (reply.statusCode != 200) {
@@ -78,6 +86,10 @@ mixin _ClashHealthSupport {
         'CORE_API_UNAVAILABLE: 本地控制服务暂时无法访问（端口 ${settings.apiPort}）',
       );
       return false;
+    } finally {
+      // Future.timeout only stops waiting. Release the underlying request too,
+      // so a stalled core cannot accumulate requests on each health check.
+      abort.complete();
     }
   }
 

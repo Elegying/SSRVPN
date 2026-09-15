@@ -13,7 +13,7 @@ mixin _ClashDataPlaneSupport {
 
   bool get isRunning;
   AppSettings get settings;
-  Future<String?> _currentProxyGroupSelection(String groupName);
+  Future<String?> currentSelectedProxyName();
   bool get _canPublishHealthCheckResult;
   void log(
     String message, {
@@ -281,18 +281,7 @@ mixin _ClashDataPlaneSupport {
 
   Future<String?> confirmedProxyExitNode() async {
     if (_exitObservationHasManualDirectOverride) return null;
-    final global = settings.proxyMode == ProxyMode.global;
-    var selected =
-        await _currentProxyGroupSelection(global ? 'GLOBAL' : 'PROXY');
-    if (global && selected == 'PROXY') {
-      selected = await _currentProxyGroupSelection('PROXY');
-    }
-    if (selected == null ||
-        selected.trim().isEmpty ||
-        RuntimeConfigNamePolicy.reservedProxyNames.contains(selected)) {
-      return null;
-    }
-    return selected;
+    return currentSelectedProxyName();
   }
 
   Future<PublicIpInfo> fetchCurrentPublicIpInfo() async {

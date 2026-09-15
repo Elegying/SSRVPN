@@ -128,6 +128,47 @@ proxies:
     expect(await recovery.hasConfirmedVersion, isTrue);
   }
 
+  for (final detail in ['分流规则文件缺失或不可用', '分流规则文件为空']) {
+    test('TUN staging $detail restores the confirmed bundle once', () async {
+      await confirmOld();
+      await install('2.0.0');
+      final missing = File('${root.path}/providers/bundles/2.0.0/gfw.yaml');
+      if (detail.contains('为空')) {
+        await missing.writeAsString('');
+      } else {
+        await missing.delete();
+      }
+      error = 'TUN_RULE_FILES: $detail：providers/bundles/2.0.0/gfw.yaml';
+      var starts = 0;
+      expect(
+          await run(() async {
+            starts++;
+            running = starts == 2;
+            return running;
+          }),
+          isTrue);
+      expect(starts, 2);
+      expect(stops, 1);
+      expect(selected, ['1.0.0']);
+      expect(
+          SmartRuleRecovery.configVersion(
+              await File(configPath).readAsString()),
+          '1.0.0');
+      expect(await recovery.rejects('2.0.0'), isTrue);
+    });
+  }
+
+  test('unclassified TUN read failures do not retire a rule version', () {
+    expect(
+        SmartRuleRecovery.isRuleLoadFailure(
+            'TUN_RULE_FILES: 无法读取分流规则文件：providers/bundles/2.0.0/gfw.yaml'),
+        isFalse);
+    expect(
+        SmartRuleRecovery.isRuleLoadFailure(
+            'TUN_RULE_FILES: 分流规则文件缺失或不可用：permission denied'),
+        isFalse);
+  });
+
   test(
       'failed candidate retries once with identical manual/node settings and old Android lists',
       () async {

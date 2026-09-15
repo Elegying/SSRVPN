@@ -136,6 +136,8 @@ class SmartRuleRecovery {
     }
     return text.contains('core_start_rules:') ||
         text.contains('分流规则尚未就绪') ||
+        (text.contains('tun_rule_files:') &&
+            (text.contains('分流规则文件缺失或不可用：') || text.contains('分流规则文件为空：'))) ||
         RegExp(r'(rule provider|rule-provider|rule set|rule-set|rules\[)[^\n]*(failed|error|invalid|not found)')
             .hasMatch(text) ||
         RegExp(r'(failed|error|invalid)[^\n]*(rule provider|rule-provider|rule set|rule-set|rules\[)')

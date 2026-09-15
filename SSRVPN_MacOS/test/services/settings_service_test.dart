@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -22,6 +23,54 @@ void main() {
     if (await tempDirectory.exists()) {
       await tempDirectory.delete(recursive: true);
     }
+  });
+
+  test('invalid UTF-8 settings still recover using the stored secret',
+      () async {
+    await File(settingsPath).writeAsBytes([0xff, 0xfe, 0xff]);
+    final service = await SettingsService.createForTesting(
+      dataDir: tempDirectory.path,
+      settingsPath: settingsPath,
+      readApiSecret: () async => 'synthetic-secret',
+      writeApiSecret: (_) async => fail('must preserve existing secret'),
+    );
+    addTearDown(service.dispose);
+    expect(service.settings.apiSecret, 'synthetic-secret');
+    expect(service.settings.proxyPort, AppSettings().proxyPort);
+    expect(jsonDecode(await File(settingsPath).readAsString()),
+        isA<Map<String, dynamic>>());
+  });
+
+  test('temporary settings read failure preserves the file for retry',
+      () async {
+    final file = File(settingsPath);
+    final original =
+        jsonEncode(AppSettings(proxyPort: 8123).toJson()..remove('apiSecret'));
+    await file.writeAsString(original);
+    Future<SettingsService> load() => SettingsService.createForTesting(
+          dataDir: tempDirectory.path,
+          settingsPath: settingsPath,
+          readApiSecret: () async => 'synthetic-secret',
+          writeApiSecret: (_) async => fail('must preserve existing secret'),
+        );
+    await IOOverrides.runZoned(() async {
+      await expectLater(
+          load(),
+          throwsA(isA<FileSystemException>().having((error) => error.message,
+              'read failure', 'simulated temporary read error')));
+    },
+        fseGetType: (path, followLinks) => Zone.root
+            .run(() => FileSystemEntity.type(path, followLinks: followLinks)),
+        createFile: (path) => path == settingsPath
+            ? _UnreadableSettingsFile(file)
+            : Zone.root.run(() => File(path)));
+    expect(await file.readAsString(), original);
+    expect(
+        await tempDirectory.list().any((entry) => entry.path.contains('.bad-')),
+        isFalse);
+    final recovered = await load();
+    addTearDown(recovered.dispose);
+    expect(recovered.settings.proxyPort, 8123);
   });
 
   test('appearance and port queue preserve each other and reload from disk',
@@ -756,4 +805,29 @@ void main() {
 
     expect(await stale.exists(), isFalse);
   });
+}
+
+// Inject an I/O error after macOS normalizes file permissions to 0600.
+class _UnreadableSettingsFile implements File {
+  _UnreadableSettingsFile(this.file);
+  final File file;
+  @override
+  String get path => file.path;
+  @override
+  Directory get parent => file.parent;
+  @override
+  Future<bool> exists() => file.exists();
+  @override
+  Future<FileStat> stat() => file.stat();
+  @override
+  Future<FileSystemEntity> delete({bool recursive = false}) =>
+      file.delete(recursive: recursive);
+  @override
+  Future<String> readAsString({Encoding encoding = utf8}) async =>
+      throw FileSystemException('simulated temporary read error', path);
+  @override
+  Future<Uint8List> readAsBytes() async =>
+      throw FileSystemException('simulated temporary read error', path);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

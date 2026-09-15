@@ -515,16 +515,20 @@ abstract class ClashServiceBase
   /// Returns the node that Mihomo is actually routing through right now.
   ///
   /// In global mode GLOBAL may point at PROXY; then use PROXY.now.
+  @override
   Future<String?> currentSelectedProxyName() async {
-    final proxyNow = await _currentProxyGroupSelection('PROXY');
-    if (_settings.proxyMode != ProxyMode.global) return _nonEmpty(proxyNow);
-
-    final globalNow = await _currentProxyGroupSelection('GLOBAL');
-    if (globalNow == null || globalNow.isEmpty || globalNow == 'PROXY') {
-      return _nonEmpty(proxyNow);
+    final global = _settings.proxyMode == ProxyMode.global;
+    var selected =
+        await _currentProxyGroupSelection(global ? 'GLOBAL' : 'PROXY');
+    if (global && selected == 'PROXY') {
+      selected = await _currentProxyGroupSelection('PROXY');
     }
-    if (globalNow == 'DIRECT' || globalNow == 'REJECT') return null;
-    return globalNow;
+    if (selected == null ||
+        selected.trim().isEmpty ||
+        RuntimeConfigNamePolicy.reservedProxyNames.contains(selected)) {
+      return null;
+    }
+    return selected;
   }
 
   Future<bool> _switchAndConfirmProxyGroup(
@@ -576,7 +580,6 @@ abstract class ClashServiceBase
     }
   }
 
-  @override
   Future<String?> _currentProxyGroupSelection(String groupName) async {
     try {
       final client = _apiClient;
@@ -621,11 +624,6 @@ abstract class ClashServiceBase
       event: 'proxy_switch',
     );
     return false;
-  }
-
-  String? _nonEmpty(String? value) {
-    final trimmed = value?.trim();
-    return trimmed == null || trimmed.isEmpty ? null : trimmed;
   }
 
   Future<void> _closeConnections() async {

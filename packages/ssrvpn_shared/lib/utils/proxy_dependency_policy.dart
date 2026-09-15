@@ -24,7 +24,9 @@ class ProxyDependencyPolicy {
   /// than recursing keeps long, bounded subscriptions off the call stack.
   static List<(T, T?)> resolve<T extends Map<Object?, Object?>>(
       Iterable<T> proxies) {
-    final runnable = proxies.where(ProxyNodeUsagePolicy.isRunnableProxyMap);
+    final runnable = proxies
+        .where(ProxyNodeUsagePolicy.isRunnableProxyMap)
+        .toList(growable: false);
     final byName = <String, List<T>>{};
     for (final proxy in runnable) {
       final name = RuntimeConfigNamePolicy.canonicalName(proxy['name']);
@@ -50,6 +52,7 @@ class ProxyDependencyPolicy {
     final result = <(T, T?)>[];
     final done = HashSet<T>.identity();
     for (final root in runnable) {
+      if (done.contains(root)) continue;
       final path = <T>[];
       final visiting = HashSet<T>.identity();
       T? current = root;

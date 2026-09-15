@@ -23,6 +23,56 @@ class _TrafficService extends ClashServiceBase {
 }
 
 void main() {
+  for (final bodyStarted in [false, true]) {
+    test('timed out traffic request releases the socket (body=$bodyStarted)',
+        () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final sockets = <Socket>[];
+      final disconnected = Completer<void>();
+      final service = _TrafficService()
+        ..initHttpClient()
+        ..updateSettings(AppSettings(apiPort: server.port))
+        ..setRunning(true);
+      addTearDown(service.dispose);
+      addTearDown(() async {
+        for (final socket in sockets) {
+          socket.destroy();
+        }
+        await server.close();
+      });
+      server.listen((socket) {
+        sockets.add(socket);
+        final first = sockets.length == 1;
+        var responded = false;
+        void closed() {
+          if (first && !disconnected.isCompleted) disconnected.complete();
+          socket.destroy();
+        }
+
+        socket.listen((_) {
+          if (responded) return;
+          responded = true;
+          if (first) {
+            if (bodyStarted) {
+              socket.write('HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n'
+                  '\r\n1\r\n{\r\n');
+            }
+            return;
+          }
+          const body =
+              '{"sessionGeneration":1,"sampledAtMillis":100,"upload":1,"download":2}';
+          socket.write('HTTP/1.1 200 OK\r\nContent-Length: ${body.length}\r\n'
+              'Connection: close\r\n\r\n$body');
+          unawaited(socket.close());
+        }, onDone: closed, onError: (Object _) => closed());
+      });
+      await expectLater(
+          service.readTrafficSample(), throwsA(isA<TimeoutException>()));
+      await disconnected.future.timeout(const Duration(seconds: 1));
+      expect((await service.readTrafficSample())?.total, 3);
+    });
+  }
+
   test(
       'authenticated proxy totals survive closed connections and reject invalid data',
       () async {

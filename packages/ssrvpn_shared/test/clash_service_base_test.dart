@@ -191,6 +191,28 @@ void main() {
   });
 
   group('ClashServiceBase health log safety', () {
+    for (final stalledPath in ['/version', '/providers/rules']) {
+      test('health timeout aborts the pending $stalledPath request', () async {
+        final client = _HangingHealthClient(stalledPath);
+        final service = _HealthProbeClashService(client);
+        service.useSmartRuleVersionForFutureConfigs('1.0.0');
+        addTearDown(service.dispose);
+        addTearDown(client.close);
+
+        expect(await service.healthCheck(), isFalse);
+        await Future<void>.delayed(Duration.zero);
+        expect(client.aborted, isTrue,
+            reason: 'A timed out health check must release its HTTP request');
+        if (stalledPath == '/providers/rules') {
+          expect(client.bodyCancelled, isTrue);
+        }
+        client.stalled = false;
+        expect(await service.healthCheck(), isTrue,
+            reason: 'Cancelling one probe must keep the shared client usable');
+        expect(service.lastHealthCheckError, isNull);
+      });
+    }
+
     test('rule readiness distinguishes missing rules from unavailable API',
         () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -1247,6 +1269,44 @@ void main() {
       expect(await service.confirmedProxyExitNode(), 'Node A');
       api.proxyNow = 'DIRECT';
       expect(await service.confirmedProxyExitNode(), isNull);
+    });
+
+    test('unknown global selection never falls back to the PROXY node',
+        () async {
+      final api =
+          await _ProxyApiServer.start(proxyNow: 'Node A', globalNow: 'Node B');
+      addTearDown(api.close);
+      final service = _ApiClashService()
+        ..initHttpClient()
+        ..updateSettings(
+            AppSettings(apiPort: api.port, proxyMode: ProxyMode.global));
+      addTearDown(service.dispose);
+      api.globalReadStatusCode = HttpStatus.serviceUnavailable;
+      expect(await service.currentSelectedProxyName(), isNull);
+      api.globalReadStatusCode = HttpStatus.ok;
+      for (final value in ['', ' ', 'DIRECT', 'REJECT', 'PASS']) {
+        api.globalNow = value;
+        expect(await service.currentSelectedProxyName(), isNull);
+      }
+      api.globalNow = 'Node B';
+      expect(await service.currentSelectedProxyName(), 'Node B');
+      api.globalNow = 'PROXY';
+      expect(await service.currentSelectedProxyName(), 'Node A');
+    });
+
+    test('built-in rule policies are not reported as selected nodes', () async {
+      final api = await _ProxyApiServer.start(proxyNow: 'DIRECT');
+      addTearDown(api.close);
+      final service = _ApiClashService()
+        ..initHttpClient()
+        ..updateSettings(AppSettings(apiPort: api.port));
+      addTearDown(service.dispose);
+      for (final policy in RuntimeConfigNamePolicy.reservedProxyNames) {
+        api.proxyNow = policy;
+        expect(await service.currentSelectedProxyName(), isNull);
+      }
+      api.proxyNow = 'Node A';
+      expect(await service.currentSelectedProxyName(), 'Node A');
     });
 
     test('resolves effective selected node through GLOBAL to PROXY', () async {
@@ -2706,6 +2766,7 @@ class _ProxyApiServer {
   final HttpServer _server;
   String proxyNow;
   String globalNow;
+  int globalReadStatusCode = HttpStatus.ok;
   final bool updateProxyOnPut;
   final Map<String, Duration> putDelayByTarget;
   final Future<void> Function(String target)? beforePutResponse;
@@ -2751,7 +2812,8 @@ class _ProxyApiServer {
       final groupName = segments.last;
       final now = groupName == 'GLOBAL' ? globalNow : proxyNow;
       request.response
-        ..statusCode = HttpStatus.ok
+        ..statusCode =
+            groupName == 'GLOBAL' ? globalReadStatusCode : HttpStatus.ok
         ..headers.contentType = ContentType.json
         ..write(jsonEncode({'now': now}));
       await request.response.close();
@@ -3517,5 +3579,57 @@ class _IncompleteDataPlaneDiagnosticService extends _DiagnosticClashService {
     if (!fail) return null;
     if (hang) return Completer<String?>().future;
     throw StateError('private-snapshot-detail');
+  }
+}
+
+class _HealthProbeClashService extends _ApiClashService {
+  _HealthProbeClashService(this.client);
+  final http.Client client;
+  @override
+  http.Client get apiClient => client;
+}
+
+class _HangingHealthClient extends http.BaseClient {
+  _HangingHealthClient(this.stalledPath);
+  final String stalledPath;
+  bool stalled = true;
+  bool aborted = false;
+  bool bodyCancelled = false;
+  StreamController<List<int>>? body;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    if (!stalled || request.url.path != stalledPath) {
+      final response = {
+        'providers': {
+          for (final name in AppConstants.smartRuleProviderFiles.keys)
+            name: {'ruleCount': 1},
+        },
+      };
+      return http.StreamedResponse(
+          Stream.value(utf8.encode(jsonEncode(response))), 200);
+    }
+    final headers = Completer<http.StreamedResponse>();
+    if (stalledPath == '/providers/rules') {
+      body = StreamController<List<int>>(onCancel: () => bodyCancelled = true);
+      headers.complete(http.StreamedResponse(body!.stream, 200));
+    }
+    if (request is http.AbortableRequest) {
+      unawaited(request.abortTrigger!.then((_) {
+        aborted = true;
+        if (body != null) {
+          body!.addError(http.RequestAbortedException(request.url));
+          unawaited(body!.close());
+        } else {
+          headers.completeError(http.RequestAbortedException(request.url));
+        }
+      }));
+    }
+    return headers.future;
+  }
+
+  @override
+  void close() {
+    unawaited(body?.close());
   }
 }

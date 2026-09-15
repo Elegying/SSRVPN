@@ -75,6 +75,103 @@ void main() {
     core.dispose();
   });
 
+  for (final outcome in ['cancel', 'save failure', 'success']) {
+    testWidgets('background replacement $outcome preserves the correct files',
+        (tester) async {
+      late Directory dir;
+      late File source;
+      late File old;
+      await tester.runAsync(() async {
+        dir = await Directory.systemTemp.createTemp('background-flow-');
+        source = File('${dir.path}/source.png');
+        final recorder = ui.PictureRecorder();
+        Canvas(recorder).drawColor(Colors.blue, BlendMode.src);
+        final picture = recorder.endRecording();
+        final image = await picture.toImage(16, 16);
+        final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+        image.dispose();
+        picture.dispose();
+        await source.writeAsBytes(bytes!.buffer.asUint8List());
+        final oldFolder = await Directory('${dir.path}/backgrounds/image-old')
+            .create(recursive: true);
+        old = await source.copy('${oldFolder.path}/background.png');
+      });
+      addTearDown(() => dir.delete(recursive: true));
+      var settings = AppSettings(
+          glassEffectLevel: GlassEffectLevel.none,
+          backgroundStyle: BackgroundStyle.custom,
+          customBackgroundPath: old.path);
+      final core = _Core();
+      addTearDown(core.dispose);
+      var saves = 0;
+      await tester.pumpWidget(MaterialApp(
+          theme: ThemeData.dark(),
+          home: StatefulBuilder(
+              builder: (context, update) => SsrvpnAppearanceScope(
+                  settings: settings,
+                  child: Scaffold(
+                      body: SsrvpnSettingsPage(
+                    settings: settings,
+                    core: core,
+                    dataDirectory: dir.path,
+                    pickBackgroundImage: () async => XFile(source.path),
+                    onAppearanceChanged: (
+                        {glassEffectLevel,
+                        backgroundStyle,
+                        customBackgroundPath}) async {
+                      saves++;
+                      if (outcome == 'save failure') {
+                        throw const FileSystemException('disk full');
+                      }
+                      update(() => settings = settings.copyWith(
+                          backgroundStyle: backgroundStyle,
+                          customBackgroundPath: customBackgroundPath));
+                    },
+                    onPortChanged: (_) async {},
+                    checkForUpdate: () async => null,
+                    onUpdateFound: (_) {},
+                  ))))));
+      await tester.ensureVisible(find.text('更换背景图'));
+      await tester.runAsync(() => tester.tap(find.text('更换背景图')));
+      for (var i = 0; i < 100 && find.text('使用这张背景').evaluate().isEmpty; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(find.text('使用这张背景'), findsOneWidget,
+          reason: tester
+              .widgetList<Text>(find.byType(Text))
+              .map((text) => text.data)
+              .join(' | '));
+      await tester.pump(const Duration(milliseconds: 400));
+      final preview = tester
+          .widget<SsrvpnCustomBackground>(find.byType(SsrvpnCustomBackground));
+      final imported = File(preview.path);
+      expect(await tester.runAsync(imported.exists), isTrue);
+      await tester.runAsync(
+          () => tester.tap(find.text(outcome == 'cancel' ? '取消' : '使用这张背景')));
+      for (var i = 0; i < 100; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump(const Duration(milliseconds: 20));
+        if (find.byType(LinearProgressIndicator).evaluate().isEmpty) break;
+      }
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(saves, outcome == 'cancel' ? 0 : 1);
+      await tester.runAsync(() async {
+        expect(await source.exists(), isTrue);
+        expect(await old.exists(), outcome != 'success');
+        expect(await imported.exists(), outcome == 'success');
+        expect(await Directory('${dir.path}/backgrounds').list().length, 1);
+      });
+      expect(settings.customBackgroundPath,
+          outcome == 'success' ? imported.path : old.path);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
   test('appearance survives serialization and unknown choices retain defaults',
       () {
     final original = AppSettings(

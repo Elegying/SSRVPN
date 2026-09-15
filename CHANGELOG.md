@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.5] - 2026-09-15
+
+### 稳定性修复
+
+- macOS TUN 明确报告规则文件缺失或为空时，纳入既有的一次旧规则恢复流程。
+- 健康检查和流量统计超时后取消底层 HTTP 请求，避免异常核心持续积累未完成请求。
+- 三端设置和订阅文件暂时无法读取时保留原文件，避免被误判为损坏而重置用户数据；真正损坏的内容仍可恢复。
+- 订阅原子写入失败后清理本次临时文件，保留原有数据。
+- 全局模式下无法确认实际节点时不再猜测 PROXY 组节点，统一当前节点和出口归属判断。
+
+### 性能与回归
+
+- 减少共享节点依赖解析的重复校验和临时集合分配，保持节点顺序、引用关系和错误处理不变。
+- 补充设置读取故障、背景替换取消/保存失败、请求超时资源释放等回归测试。
+
 ## [5.0.4] - 2026-09-15
 
 ### macOS TUN 修复

@@ -22,6 +22,50 @@ void main() {
     }
   });
 
+  test('temporary settings read failure preserves the file for retry',
+      () async {
+    final file = File(settingsPath);
+    final original =
+        jsonEncode(AppSettings(proxyPort: 8123).toJson()..remove('apiSecret'));
+    await file.writeAsString(original);
+    Future<SettingsService> load() => SettingsService.createForTesting(
+          dataDir: tempDirectory.path,
+          settingsPath: settingsPath,
+          readApiSecret: () async => 'synthetic-secret',
+          writeApiSecret: (_) async => fail('must preserve existing secret'),
+        );
+    final chmod = await Process.run('chmod', ['000', file.path]);
+    expect(chmod.exitCode, 0);
+    try {
+      await expectLater(load(), throwsA(isA<FileSystemException>()));
+    } finally {
+      await Process.run('chmod', ['600', file.path]);
+    }
+    expect(await file.readAsString(), original);
+    expect(
+        await tempDirectory.list().any((entry) => entry.path.contains('.bad-')),
+        isFalse);
+    final recovered = await load();
+    addTearDown(recovered.dispose);
+    expect(recovered.settings.proxyPort, 8123);
+  }, skip: Platform.isWindows || Platform.environment['USER'] == 'root');
+
+  test('invalid UTF-8 settings still recover using the stored secret',
+      () async {
+    await File(settingsPath).writeAsBytes([0xff, 0xfe, 0xff]);
+    final service = await SettingsService.createForTesting(
+      dataDir: tempDirectory.path,
+      settingsPath: settingsPath,
+      readApiSecret: () async => 'synthetic-secret',
+      writeApiSecret: (_) async => fail('must preserve existing secret'),
+    );
+    addTearDown(service.dispose);
+    expect(service.settings.apiSecret, 'synthetic-secret');
+    expect(service.settings.proxyPort, AppSettings().proxyPort);
+    expect(jsonDecode(await File(settingsPath).readAsString()),
+        isA<Map<String, dynamic>>());
+  });
+
   test('appearance and port queue preserve each other and reload from disk',
       () async {
     Future<SettingsService> load() => SettingsService.createForTesting(
