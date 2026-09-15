@@ -68,7 +68,7 @@ mixin _SubscriptionPersistence on ChangeNotifier {
     final subsFile = File('$_cacheDir/subscriptions.json');
     if (await subsFile.exists()) {
       try {
-        final content = await subsFile.readAsString();
+        final content = utf8.decode(await subsFile.readAsBytes());
         final decoded = jsonDecode(content);
         if (decoded is! List) {
           throw const FormatException('subscriptions.json must be a list');
@@ -76,6 +76,9 @@ mixin _SubscriptionPersistence on ChangeNotifier {
         _subscriptions = decoded
             .map((e) => Subscription.fromJson(e as Map<String, dynamic>))
             .toList();
+      } on FileSystemException {
+        // Storage access failure is not evidence of corrupt subscription data.
+        rethrow;
       } catch (e) {
         await backupBadFile(subsFile, 'subscriptions.json parse failed: $e');
         _subscriptions = [];
@@ -90,7 +93,7 @@ mixin _SubscriptionPersistence on ChangeNotifier {
             'subscription_cache.yaml exceeds the 20 MB limit',
           );
         }
-        final content = await cacheFile.readAsString();
+        final content = utf8.decode(await cacheFile.readAsBytes());
         final parsed = await SubscriptionProcessing.parseSnapshot(
           content,
           processingControl,
@@ -105,6 +108,8 @@ mixin _SubscriptionPersistence on ChangeNotifier {
           AppLogger.warning(
               'SubscriptionService', 'YAML解析失败: ${parsed.parseWarning}');
         }
+      } on FileSystemException {
+        rethrow;
       } on SubscriptionRefreshCancelled {
         rethrow;
       } on SubscriptionRefreshDeadlineExceeded {
@@ -165,8 +170,12 @@ mixin _SubscriptionPersistence on ChangeNotifier {
     final temp = File(
       '${file.path}.tmp.${DateTime.now().microsecondsSinceEpoch}',
     );
-    await temp.writeAsString(content, flush: true);
-    await temp.rename(file.path);
+    try {
+      await temp.writeAsString(content, flush: true);
+      await temp.rename(file.path);
+    } finally {
+      if (await temp.exists()) await temp.delete();
+    }
   }
 
   Future<void> backupBadFile(File file, String reason) async {

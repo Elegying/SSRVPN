@@ -320,7 +320,7 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
     String? recoverableLegacySecret;
     if (await file.exists()) {
       try {
-        final content = await file.readAsString();
+        final content = utf8.decode(await file.readAsBytes());
         final decoded = jsonDecode(content);
         if (decoded is! Map<String, dynamic>) {
           throw const FormatException('settings.json must be a JSON object');
@@ -331,6 +331,9 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
           recoverableLegacySecret = rawSecret;
         }
         _settings = AppSettings.fromJson(decoded);
+      } on FileSystemException {
+        // A transient read error must not replace valid user settings.
+        rethrow;
       } catch (e) {
         badSettingsReason =
             'settings.json could not be parsed (${e.runtimeType})';

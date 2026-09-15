@@ -213,7 +213,7 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
     if (hadSettingsFile) {
       await _privateFileStore.ensurePrivateFile(file.path);
       try {
-        final content = await file.readAsString();
+        final content = utf8.decode(await file.readAsBytes());
         final decoded = jsonDecode(content);
         if (decoded is! Map<String, dynamic>) {
           throw const FormatException('settings.json must be a JSON object');
@@ -222,6 +222,9 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
         jsonSecret = _extractApiSecret(decoded);
         _settings = AppSettings.fromJson(decoded);
         modernSettingsValid = true;
+      } on FileSystemException {
+        // A transient read error must not retire valid user settings.
+        rethrow;
       } catch (e) {
         if (jsonSecret.isNotEmpty) {
           final storedSecret = await _readApiSecret();

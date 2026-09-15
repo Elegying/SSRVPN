@@ -94,8 +94,8 @@ if "_cleanJsonMap" in subscription_source:
 if "_cleanSubscriptionHeaderName" in subscription_source:
     raise SystemExit(f"{subscription_base}: header parsing leaked back into orchestration")
 for name, limit in {
-    # Startup worker results and explicit cancellation preserve valid caches.
-    "subscription_service_persistence.dart": 184,
+    # Preserve caches on I/O failure and clean up failed atomic writes.
+    "subscription_service_persistence.dart": 196,
     "subscription_source_cache.dart": 160,
     "subscription_service_transaction.dart": 180,
     "subscription_node_editor.dart": 140,
@@ -108,7 +108,8 @@ for name, limit in {
 
 macos_settings = Path("SSRVPN_MacOS/lib/services/settings_service.dart")
 macos_settings_source = macos_settings.read_text(encoding="utf-8")
-if len(macos_settings_source.splitlines()) > 700:
+# Keep transient settings I/O errors distinct from corrupt content recovery.
+if len(macos_settings_source.splitlines()) > 703:
     raise SystemExit(f"{macos_settings}: settings orchestration boundary regressed")
 macos_store = macos_settings.with_name("macos_private_file_store.dart")
 if not macos_store.is_file():

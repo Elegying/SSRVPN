@@ -336,9 +336,14 @@ class SettingsService extends ChangeNotifier implements NodePreferenceStore {
     var settingsFileInvalid = false;
     if (await file.exists()) {
       try {
-        final content = await Isolate.run(() => file.readAsString());
+        final content = await Isolate.run(
+          () async => utf8.decode(await file.readAsBytes()),
+        );
         final json = jsonDecode(content) as Map<String, dynamic>;
         _settings = AppSettings.fromJson(json);
+      } on FileSystemException {
+        // A transient read error must not replace valid user settings.
+        rethrow;
       } catch (_) {
         // JSON 解析异常可能包含原始内容，避免把旧版明文密钥写入日志。
         AppLogger.warning('Settings', '加载失败');
