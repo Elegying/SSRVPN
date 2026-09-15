@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart' as crypto;
 
 import 'macos_tun_request_store.dart';
+import 'macos_tun_rule_staging.dart';
 
 typedef TunRouteProbe = Future<ProcessResult> Function(
   String executable,
@@ -67,7 +68,7 @@ class MacosTunSession {
 
   static const _osascriptPath = '/usr/bin/osascript';
   static const _runnerSha256 =
-      'ecf7917a6b965df7b6efcc74bba13de84b01f521c717a109510cd21632469a0f';
+      'bc04857146e21852b8fb1ffaee886f0a69a54514a762a897fad58466f14755aa';
   static const _coreArchiveSha256 =
       '9a1e4cb6ca6c3ac9d94e1e09ecb353453185945488abdf4bd16bd27e821e986b';
   static const _coreManifestSha256 =
@@ -110,6 +111,7 @@ check_hash "$stage/macos_tun_runner.sh" "$expected_runner"
 check_hash "$stage/AtlasCore.gz" "$expected_core"
 check_hash "$stage/AtlasCore-source.txt" "$expected_manifest"
 check_hash "$stage/config.yaml" "$expected_config"
+# Stage referenced rule files here.
 /bin/bash "$stage/macos_tun_runner.sh" --app-pid "$app_pid" \
   --staged-config "$stage/config.yaml" --request-token "$request_token"
 ''';
@@ -253,14 +255,18 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
       requestNonce = _newRequestNonce();
       _requestNonce = requestNonce;
       final activeRequest = _requestValue('active', requestNonce);
-      final configSha256 = crypto.sha256.convert(
-        await File(configPath).readAsBytes(),
+      final configBytes = await File(configPath).readAsBytes();
+      final configSha256 = crypto.sha256.convert(configBytes);
+      final ruleStaging = await buildTunRuleStagingScript(configBytes, dataDir);
+      final launcherScript = _privilegedLauncherScript.replaceFirst(
+        '# Stage referenced rule files here.',
+        ruleStaging,
       );
       _ensureStartCurrent(startEpoch);
       await _writeRequestAtomically(activeRequest, requestNonce);
       _ensureStartCurrent(startEpoch);
       final command = '/bin/bash -c '
-          '${_shellQuote(_privilegedLauncherScript)} ssrvpn-tun-launch '
+          '${_shellQuote(launcherScript)} ssrvpn-tun-launch '
           '${_shellQuote(runnerPath)} '
           '${_shellQuote(coreArchivePath)} '
           '${_shellQuote(coreManifestPath)} '
@@ -353,6 +359,12 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
       }
       if (requestNonce == null || _requestNonce == requestNonce) {
         lastError = 'TUN 连接已取消';
+      }
+      return false;
+    } on FormatException catch (error) {
+      await _removeCurrentGenerationRequest(requestNonce);
+      if (requestNonce == null || _requestNonce == requestNonce) {
+        lastError = error.message;
       }
       return false;
     } catch (_) {

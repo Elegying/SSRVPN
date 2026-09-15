@@ -2,6 +2,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
+  test('rule readiness failures are not described as unreachable core API', () {
+    for (final message in [
+      'CORE_API_UNAVAILABLE: 分流规则尚未就绪',
+      'TUN_RULE_FILES: 分流规则文件缺失或不可用：providers/bundles/2.0.1/gfw.yaml',
+    ]) {
+      final failure = AppFailure.fromMessage(message);
+      expect(failure.code, AppErrorCode.configInvalid);
+      expect(failure.title, '分流规则未就绪');
+      expect(failure.message, isNot(contains('无法访问')));
+    }
+  });
   group('AppFailure.fromMessage', () {
     test('maps common failures to stable actionable codes', () {
       expect(

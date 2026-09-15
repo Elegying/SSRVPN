@@ -5,6 +5,36 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_macos/services/macos_tun_session.dart';
 
 void main() {
+  test('missing versioned rules fail before requesting administrator access',
+      () async {
+    final dataDir =
+        await Directory.systemTemp.createTemp('ssrvpn_tun_missing_');
+    addTearDown(() => dataDir.delete(recursive: true));
+    final runner = _writeTunAssets(dataDir);
+    File('${dataDir.path}/config.yaml').writeAsStringSync('''
+rule-providers:
+  ssrvpn-gfw:
+    type: file
+    path: ./providers/bundles/2.0.1/gfw.yaml
+''');
+    var authorizationCalls = 0;
+    final session = MacosTunSession(
+      dataDir: dataDir.path,
+      resolvedExecutable: '/Applications/SSRVPN.app/Contents/MacOS/SSRVPN',
+      runnerPath: runner.path,
+      statusPath: '${dataDir.path}/status',
+      appPid: 123,
+      routeProbe: (_, __) async => ProcessResult(1, 0, 'interface: en0\n', ''),
+      authorizationLauncher: (_, __) async {
+        authorizationCalls++;
+        throw StateError('authorization must not run with missing rules');
+      },
+    );
+    expect(await session.start(), isFalse);
+    expect(authorizationCalls, 0);
+    expect(session.lastError, contains('providers/bundles/2.0.1/gfw.yaml'));
+    expect(await File(session.requestPath).exists(), isFalse);
+  });
   test('system authorization starts one TUN session and stop removes request',
       () async {
     final dataDir = await Directory.systemTemp.createTemp('ssrvpn_tun_test_');
@@ -54,7 +84,7 @@ void main() {
     expect(
       arguments!.last,
       contains(
-        'ecf7917a6b965df7b6efcc74bba13de84b01f521c717a109510cd21632469a0f',
+        'bc04857146e21852b8fb1ffaee886f0a69a54514a762a897fad58466f14755aa',
       ),
     );
     expect(arguments!.last, isNot(contains('/usr/bin/nohup')));
@@ -610,7 +640,7 @@ void main() {
     expect(
       arguments!.last,
       contains(
-        'ecf7917a6b965df7b6efcc74bba13de84b01f521c717a109510cd21632469a0f',
+        'bc04857146e21852b8fb1ffaee886f0a69a54514a762a897fad58466f14755aa',
       ),
     );
     expect(await request.exists(), isFalse);
