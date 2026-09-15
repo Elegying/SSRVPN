@@ -13,6 +13,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/app_diagnostics.dart';
 import 'update_checker.dart';
+import 'update_http_client.dart';
 import '../utils/app_modal_coordinator.dart';
 
 part 'update_service_download.dart';
@@ -113,10 +114,12 @@ class SharedUpdateService {
   static Future<AppUpdateInfo?> checkForUpdate({
     required String currentVersion,
     required String assetExtension,
+    int? Function()? localProxyPort,
   }) async {
     final update = await UpdateChecker.checkLatest(
       currentVersion: currentVersion,
       assetExtension: assetExtension,
+      localProxyPort: localProxyPort,
     );
     return update;
   }
@@ -153,6 +156,7 @@ class SharedUpdateService {
     required String fileName,
     int maxBytes = maxDesktopUpdateBytes,
     http.Client? client,
+    int? Function()? localProxyPort,
     Duration timeout = const Duration(minutes: 2),
     void Function(int receivedBytes, int? totalBytes)? onProgress,
     VerifiedUpdateCancellation? cancellation,
@@ -164,6 +168,7 @@ class SharedUpdateService {
       fileName: fileName,
       maxBytes: maxBytes,
       client: client,
+      localProxyPort: localProxyPort,
       timeout: timeout,
       onProgress: onProgress,
       cancellation: cancellation,
@@ -179,6 +184,7 @@ class SharedUpdateService {
     VerifiedUpdatePreparer? beforeOpen,
     Directory? outputDirectory,
     http.Client? client,
+    int? Function()? localProxyPort,
   }) {
     return downloadVerifiedUpdateWithProgress(
       context,
@@ -192,6 +198,7 @@ class SharedUpdateService {
       },
       outputDirectory: outputDirectory,
       client: client,
+      localProxyPort: localProxyPort,
       progressDescription: '下载完成并通过 SHA256 校验后才会打开安装包。',
     );
   }
@@ -204,6 +211,7 @@ class SharedUpdateService {
     required String progressDescription,
     Directory? outputDirectory,
     http.Client? client,
+    int? Function()? localProxyPort,
     VerifiedUpdateFilePublisher? filePublisher,
   }) async {
     if (!context.mounted || _verifiedDownloadInProgress) return;
@@ -284,6 +292,7 @@ class SharedUpdateService {
                 Directory('${Directory.systemTemp.path}/ssrvpn_update'),
             fileName: fileName,
             client: client,
+            localProxyPort: localProxyPort,
             cancellation: cancellation,
             filePublisher: filePublisher,
             onProgress: (received, total) {

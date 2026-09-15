@@ -232,10 +232,14 @@ class _NodeEditScreenState extends State<NodeEditScreen> {
     setState(() => _saving = true);
     final originalName = _editNode.name;
     final settingsService = context.read<SettingsService>();
+    final editRoute = ModalRoute.of(context);
     try {
       await subscriptionService.updateNode(originalName, config,
           preferences: settingsService);
-      if (mounted) Navigator.of(context).pop(true);
+      // The outgoing page can still be mounted after the user pressed Back.
+      if (mounted && editRoute?.isCurrent == true) {
+        Navigator.of(context).pop(true);
+      }
     } catch (e) {
       if (mounted) _showError(_readableError(e));
     } finally {

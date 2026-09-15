@@ -341,6 +341,10 @@ class SubscriptionScreenController {
       return const SubscriptionEditResult(
         status: SubscriptionEditStatus.saved,
       );
+    } on DuplicateSubscriptionUrlException {
+      return const SubscriptionEditResult(
+        status: SubscriptionEditStatus.duplicateUrl,
+      );
     } catch (error) {
       return SubscriptionEditResult(
         status: SubscriptionEditStatus.failed,
@@ -396,6 +400,21 @@ class SubscriptionScreenController {
         noDataStatus: SubscriptionAddStatus.subscriptionNoData,
         failureStatus: SubscriptionAddStatus.refreshFailed,
       );
+    } on DuplicateSubscriptionUrlException {
+      final existing = subscriptionService.subscriptions
+          .where((sub) => sub.url == url)
+          .firstOrNull;
+      if (retryExisting && existing != null) {
+        return _refreshAfterAdd(
+          subscriptionId: existing.id,
+          successStatus: SubscriptionAddStatus.subscriptionAdded,
+          noDataStatus: SubscriptionAddStatus.subscriptionNoData,
+          failureStatus: SubscriptionAddStatus.refreshFailed,
+        );
+      }
+      return const SubscriptionAddResult(
+        status: SubscriptionAddStatus.duplicate,
+      );
     } catch (e) {
       return SubscriptionAddResult(
         status: SubscriptionAddStatus.failed,
@@ -438,6 +457,13 @@ class SubscriptionScreenController {
       return SubscriptionRefreshResult(
         message: '刷新失败: 没有可用的订阅',
         status: SubscriptionRefreshStatus.failure,
+      );
+    } on SubscriptionBatchRefreshException catch (error) {
+      return SubscriptionRefreshResult(
+        message: '刷新失败：所有订阅均未更新，已有节点已保留',
+        status: SubscriptionRefreshStatus.failure,
+        failureDetails:
+            error.failures.map((failure) => failure.detail).toList(),
       );
     } on SubscriptionRefreshCancelled {
       return SubscriptionRefreshResult(

@@ -41,6 +41,9 @@ Explorer 中的可见性、UAC 取消和交互安装结果仍待 Windows 11 人�
 
 ### 可维护性
 
+- 核实并固定支持 macOS 11 部署目标的 CI Xcode 版本；当前仅固定 `macos-15` runner 和
+  Flutter，本机 Xcode 27 已拒绝部署目标 11。正式验证必须保留原始最低系统要求，并检查
+  最终产物；临时目标 12 的本机测试不能替代此门禁。
 - 继续提高 Windows `clash_service_lifecycle.dart` 的行为覆盖率；当前渐进门槛为 51%，新增启动、提交、回滚或停止分支时同步提高证据和门槛。
 - 已完成共享更新 façade、macOS 原生核心/应用支持和 Windows 代理模型的第一轮低风险职责拆分；后续继续遵守 [ADR-010](decisions/010-risk-controlled-maintainability-boundaries.md)，只处理有新增行为证据的切片。
 - Android VPN Service 与 Windows 安装回滚继续作为受规模护栏保护的热点；只有目标平台故障注入能先证明取消、所有权和恢复不变量时，才进行下一轮跨对象拆分。
@@ -52,6 +55,9 @@ Explorer 中的可见性、UAC 取消和交互安装结果仍待 Windows 11 人�
 
 ### 可观测性与性能
 
+- 为智能规则历史快照增加有界保留策略。目前 `providers/bundles/<version>` 不主动回收，
+  长期持续更新会累积磁盘占用。清理必须同时保护当前运行、已确认可回退、待启用以及
+  Android 原生会话/磁贴引用；先补跨会话恢复测试，再删除无引用快照。
 - 在低端 Android 与目标桌面机重复现有订阅解析、合并、配置生成基线，再补充启动、连接
   和取消的非敏感阶段耗时。
 - macOS 本轮约 `13.6s/14.0s` 的 TUN 端到端观察包含人工输入管理员密码等待时间，不作为

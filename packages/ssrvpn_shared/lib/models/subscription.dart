@@ -40,3 +40,10 @@ class Subscription {
     return DateTime.tryParse(value.toString());
   }
 }
+
+class DuplicateSubscriptionUrlException implements Exception {
+  const DuplicateSubscriptionUrlException();
+
+  @override
+  String toString() => '该订阅链接已存在';
+}

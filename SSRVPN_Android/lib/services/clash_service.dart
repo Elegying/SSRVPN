@@ -41,6 +41,8 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
   int _nativeStateEpoch = 0;
   Timer? _nativeStateReconciliationTimer;
   int? _nativeSessionGeneration;
+  int? _nativeRuntimeIdentityGeneration;
+  String? _nativeRuntimeIdentityPath;
   bool _nativeSessionProtocolAvailable = false;
   bool _nativeConnectionTransitioning = false;
   bool? _underlyingNetworkAvailable;
@@ -341,29 +343,14 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
     String nodeName, {
     bool Function()? shouldContinue,
     int? expectedSessionGeneration,
-  }) async {
-    updateSettings(settings);
-    final config = await generateClashConfigAsync(
-      rawYaml,
-      settings,
-      preferredNodeName: nodeName,
-    );
-    final path = await writeConfig(config);
-    if (shouldContinue?.call() == false) {
-      await discardPreparedConfig(path);
-      throw StateError('节点切换已取消');
-    }
-    if (!await _saveConfigForTile(
-      nodeName,
-      path,
-      shouldContinue: shouldContinue,
-      expectedSessionGeneration: expectedSessionGeneration,
-    )) {
-      await discardPreparedConfig(path);
-      throw StateError('无法提交原生快速启动配置');
-    }
-    return path;
-  }
+  }) =>
+      _writePreferredNodeConfig(
+        rawYaml,
+        settings,
+        nodeName,
+        shouldContinue: shouldContinue,
+        expectedSessionGeneration: expectedSessionGeneration,
+      );
 
   // ── 进程控制 ──
 
@@ -441,6 +428,7 @@ class ClashService extends ClashServiceBase with PhysicalTcpLatency {
       _ensureStartCurrent(startToken);
 
       final returnedState = await _parseNativeConnectionState(result);
+      _ensureStartCurrent(startToken);
       if (!_acceptNativeStartState(result, returnedState)) {
         return _rollbackMalformedNativeStartState();
       }

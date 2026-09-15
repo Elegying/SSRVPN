@@ -31,9 +31,9 @@ git ls-files '*.dart' '*.kt' |
 
 echo
 run_timed "shared home controller tests" \
-  bash -lc 'cd packages/ssrvpn_shared && dart test test/home_node_controller_test.dart >/dev/null'
+  bash -c 'cd packages/ssrvpn_shared && dart test test/home_node_controller_test.dart >/dev/null'
 run_timed "shared subscription parser tests" \
-  bash -lc 'cd packages/ssrvpn_shared && dart test test/subscription_parser_test.dart >/dev/null'
+  bash -c 'cd packages/ssrvpn_shared && dart test test/subscription_parser_test.dart >/dev/null'
 
 echo
 if command -v adb >/dev/null 2>&1; then

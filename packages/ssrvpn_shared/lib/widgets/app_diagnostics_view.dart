@@ -44,7 +44,7 @@ class AppDiagnosticsView extends StatefulWidget {
 class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
   AppDiagnosticReport? _report;
   List<AppDiagnosticHistoryEntry> _history = const [];
-  bool _loading = true;
+  bool _loading = false;
   bool _failed = false;
   AppRepairAction? _repairing;
   String? _copyStatus;
@@ -56,6 +56,7 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
   }
 
   Future<void> _load() async {
+    if (_loading || _repairing != null) return;
     setState(() {
       _loading = true;
       _failed = false;
@@ -86,7 +87,7 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
   }
 
   Future<void> _repair(AppRepairAction action) async {
-    if (_repairing != null) return;
+    if (_loading || _repairing != null) return;
     setState(() => _repairing = action);
     AppRepairResult result;
     try {
@@ -186,9 +187,11 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
       Semantics(
         button: true,
         label: '重新运行诊断',
+        enabled: !_loading && _repairing == null,
+        onTap: _loading || _repairing != null ? null : _load,
         child: ExcludeSemantics(
           child: TextButton.icon(
-            onPressed: _loading ? null : _load,
+            onPressed: _loading || _repairing != null ? null : _load,
             icon: _loading
                 ? const SizedBox.square(
                     dimension: 18,
@@ -248,6 +251,7 @@ class _AppDiagnosticsViewState extends State<AppDiagnosticsView> {
                 _DiagnosticCheckTile(
                   check: check,
                   repairing: _repairing == check.repairAction,
+                  repairEnabled: !_loading && _repairing == null,
                   onRepair: check.repairAction == null
                       ? null
                       : () => _repair(check.repairAction!),
@@ -400,11 +404,13 @@ class _DiagnosticCheckTile extends StatelessWidget {
   const _DiagnosticCheckTile({
     required this.check,
     required this.repairing,
+    required this.repairEnabled,
     required this.onRepair,
   });
 
   final AppDiagnosticCheck check;
   final bool repairing;
+  final bool repairEnabled;
   final VoidCallback? onRepair;
 
   @override
@@ -466,7 +472,7 @@ class _DiagnosticCheckTile extends StatelessWidget {
                     if (onRepair != null) ...[
                       const SizedBox(height: 8),
                       FilledButton.tonalIcon(
-                        onPressed: repairing ? null : onRepair,
+                        onPressed: repairEnabled ? onRepair : null,
                         icon: repairing
                             ? const SizedBox.square(
                                 dimension: 14,

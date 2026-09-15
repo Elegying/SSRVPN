@@ -314,6 +314,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           isRefreshing: _isRefreshing,
           isBusy: _hasBlockingOperation,
           refreshMessage: refreshResult?.message,
+          refreshFailureDetails: refreshResult?.failureDetails ?? const [],
           refreshMessageColor: refreshColor,
           connectionStatus: status,
           currentNodeName: nodeName,

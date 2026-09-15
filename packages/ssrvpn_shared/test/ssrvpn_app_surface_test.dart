@@ -1491,6 +1491,49 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('subscription failure details stay available and redact secrets',
+      (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(host(SsrvpnSubscriptionView(
+      subscriptions: const [],
+      urlController: controller,
+      isAdding: false,
+      isRefreshing: false,
+      isBusy: false,
+      refreshMessage: '部分成功',
+      refreshMessageColor: SsrvpnUiTokens.warning,
+      refreshFailureDetails: const [
+        '来源 A: DNS 安全检查拒绝 https://example.test/private-path?token=private-token',
+        '来源 B: TLS 证书验证失败 password=node-secret',
+      ],
+      onAdd: () {},
+      onRefresh: () {},
+      onCancelRefresh: () {},
+      onDelete: (_) {},
+    )));
+    await tester.pump(const Duration(seconds: 11));
+    expect(find.text('部分成功'), findsNothing);
+    final button = find.byKey(const Key('subscription-refresh-details'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.text('订阅刷新详情'), findsOneWidget);
+    final text = tester
+        .widgetList<Text>(find.byType(Text))
+        .map((e) => e.data ?? '')
+        .join('\n');
+    expect(text, contains('DNS 安全检查拒绝'));
+    expect(text, contains('TLS 证书验证失败'));
+    for (final secret in ['private-path', 'private-token', 'node-secret']) {
+      expect(text, isNot(contains(secret)));
+    }
+    await tester
+        .tap(find.byKey(const Key('ssrvpn-subscription-error-confirm')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('latest subscription refresh result dismisses after ten seconds',
       (tester) async {
     final controller = TextEditingController();

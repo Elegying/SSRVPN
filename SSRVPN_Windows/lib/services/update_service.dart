@@ -23,11 +23,13 @@ class UpdateService {
   static const String _verifiedUpdateOwnerStreamName = 'ssrvpn-update-owner';
 
   static Future<AppUpdateInfo?> checkForUpdate(
-    String currentVersion,
-  ) {
+    String currentVersion, {
+    int? Function()? localProxyPort,
+  }) {
     return SharedUpdateService.checkForUpdate(
       currentVersion: currentVersion,
       assetExtension: '.exe',
+      localProxyPort: localProxyPort,
     );
   }
 
@@ -41,6 +43,7 @@ class UpdateService {
     String? fallbackDownloadUrl,
     Directory? desktopDirectory,
     http.Client? client,
+    int? Function()? localProxyPort,
     VerifiedUpdateFilePublisher? filePublisher,
     // Kept in the shared desktop API; Windows only downloads the installer.
     VerifiedUpdatePreparer? prepareForInstall,
@@ -71,6 +74,7 @@ class UpdateService {
         SharedUpdateService.preferDownloadUrl(update, url),
         desktopDirectory: desktopDirectory,
         client: client,
+        localProxyPort: localProxyPort,
         filePublisher: filePublisher,
       ),
     );
@@ -81,6 +85,7 @@ class UpdateService {
     AppUpdateInfo update, {
     Directory? desktopDirectory,
     http.Client? client,
+    int? Function()? localProxyPort,
     VerifiedUpdateFilePublisher? filePublisher,
   }) async {
     late final Directory desktop;
@@ -107,6 +112,7 @@ class UpdateService {
       outputDirectory: desktop,
       fileName: installerFileName,
       client: client,
+      localProxyPort: localProxyPort,
       filePublisher: installerPublisher == null
           ? null
           : trackVerifiedInstallerPublication(

@@ -29,6 +29,24 @@ class _FakeHttpClientAdapter implements HttpClientAdapter {
   }
 }
 
+class _RedirectHttpClientAdapter implements HttpClientAdapter {
+  _RedirectHttpClientAdapter(this.location, {required this.compatibility});
+  final String? location;
+  final bool compatibility;
+  final requests = <Uri>[];
+
+  @override
+  Future<AdapterResponse> get(Uri uri,
+      {Duration? timeout, String? userAgent}) async {
+    requests.add(uri);
+    return AdapterResponse(
+      statusCode: compatibility && requests.length == 1 ? 403 : 302,
+      headers: {if (location != null) 'location': location!},
+      bodyBytes: const [],
+    );
+  }
+}
+
 class _UserAgentHttpClientAdapter implements HttpClientAdapter {
   _UserAgentHttpClientAdapter({
     required this.successPrefix,
@@ -291,7 +309,7 @@ void main() {
 
     final result = await service
         .fetchSubscription(
-          'http://keepalive.test:$port/feed',
+          'http://127.0.0.1:$port/feed',
           maxRetries: 1,
         )
         .timeout(const Duration(seconds: 1));
@@ -323,7 +341,7 @@ void main() {
 
     final result = await service
         .fetchSubscription(
-          'http://keepalive.test:$port/feed',
+          'http://127.0.0.1:$port/feed',
           maxRetries: 1,
         )
         .timeout(const Duration(seconds: 1));
@@ -351,13 +369,13 @@ void main() {
     await expectLater(
       service
           .fetchSubscription(
-            'http://framing.test:$port/feed',
+            'http://127.0.0.1:$port/feed',
             maxRetries: 1,
           )
           .timeout(const Duration(seconds: 1)),
       throwsA(
-        predicate<Object>(
-            (error) => error.toString().contains('Content-Length')),
+        predicate<Object>((error) =>
+            error is HttpException && error.toString().contains('HTTP')),
       ),
     );
   });
@@ -379,7 +397,7 @@ void main() {
     await expectLater(
       service
           .fetchSubscription(
-            'http://framing.test:$port/feed',
+            'http://127.0.0.1:$port/feed',
             maxRetries: 1,
           )
           .timeout(const Duration(seconds: 1)),
@@ -407,7 +425,7 @@ void main() {
     await expectLater(
       service
           .fetchSubscription(
-            'http://framing.test:$port/feed',
+            'http://127.0.0.1:$port/feed',
             maxRetries: 1,
           )
           .timeout(const Duration(seconds: 1)),
@@ -442,6 +460,38 @@ void main() {
       throwsA(isA<SubscriptionRefreshDeadlineExceeded>()),
     );
   });
+
+  for (final compatibility in [false, true]) {
+    for (final location in <String?>[
+      null,
+      'http://redirect.example/private-path?token=synthetic-private',
+      'ftp://redirect.example/private-path?token=synthetic-private',
+    ]) {
+      test(
+          'redirect failures retain their cause (compatibility=$compatibility, location=${location?.split(':').first ?? 'missing'})',
+          () async {
+        final adapter =
+            _RedirectHttpClientAdapter(location, compatibility: compatibility);
+        SubscriptionService.overrideHttpClient(adapter);
+        await expectLater(
+          service.fetchSubscription('https://feed.example/subscription',
+              maxRetries: 1),
+          throwsA(isA<SubscriptionContentException>().having(
+            (error) => error.toString(),
+            'safe redirect reason',
+            allOf(
+                contains('重定向'),
+                isNot(contains('压缩')),
+                isNot(contains('synthetic-private')),
+                isNot(contains('private-path'))),
+          )),
+        );
+        expect(adapter.requests.length, compatibility ? 2 : 1);
+        expect(adapter.requests.every((uri) => uri.host == 'feed.example'),
+            isTrue);
+      });
+    }
+  }
 
   test('public subscription redirect never requests a loopback service',
       () async {
@@ -613,9 +663,16 @@ proxies:
     });
     SubscriptionService.overrideAddressLookup(
       (_) async => [
-        InternetAddress.loopbackIPv4,
-        InternetAddress.loopbackIPv6,
+        InternetAddress('8.8.8.8'),
+        InternetAddress('2606:4700:4700::1111'),
       ],
+      socketConnect: (address, port, timeout) => Socket.connect(
+        address.type == InternetAddressType.IPv4
+            ? InternetAddress.loopbackIPv4
+            : InternetAddress.loopbackIPv6,
+        port,
+        timeout: timeout,
+      ),
       // Keep the first address fast enough for the test while leaving ample
       // scheduler headroom for the local IPv6 server under a loaded CI host.
       readInactivityTimeout: const Duration(milliseconds: 500),

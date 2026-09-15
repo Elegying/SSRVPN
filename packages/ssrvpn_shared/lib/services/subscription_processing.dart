@@ -87,6 +87,12 @@ class SubscriptionProcessing {
         control,
       );
 
+  static Future<String?> normalize(
+    String content,
+    SubscriptionRefreshControl control,
+  ) =>
+      _run(_NormalizationInput(content, _workerStartDelayForTesting), control);
+
   static Future<String> buildRuntimeText(
     String yaml,
     SubscriptionRefreshControl control,
@@ -120,6 +126,17 @@ abstract class _ProcessingInput<T> {
   final Duration workerStartDelay;
   int get workload;
   T process();
+}
+
+class _NormalizationInput extends _ProcessingInput<String?> {
+  const _NormalizationInput(this.content, super.workerStartDelay);
+  final String content;
+
+  @override
+  int get workload => content.length;
+
+  @override
+  String? process() => SubscriptionParser.parseSubscriptionContent(content);
 }
 
 class _SourceCacheInput extends _ProcessingInput<Map<String, String>> {

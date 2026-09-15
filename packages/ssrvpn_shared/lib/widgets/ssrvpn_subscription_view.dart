@@ -7,6 +7,7 @@ import '../models/subscription.dart';
 import '../utils/log_redactor.dart';
 import '../utils/node_country_policy.dart';
 import 'ssrvpn_app_surface.dart';
+import 'ssrvpn_subscription_error_dialog.dart';
 
 part 'ssrvpn_subscription_header.dart';
 part 'ssrvpn_subscription_connection_card.dart';
@@ -36,6 +37,7 @@ class SsrvpnSubscriptionView extends StatefulWidget {
     required this.onDelete,
     this.onEdit,
     this.onShowLogs,
+    this.refreshFailureDetails = const [],
   });
 
   final List<Subscription> subscriptions;
@@ -44,6 +46,7 @@ class SsrvpnSubscriptionView extends StatefulWidget {
   final bool isRefreshing;
   final bool isBusy;
   final String? refreshMessage;
+  final List<String> refreshFailureDetails;
   final Color? refreshMessageColor;
   final SsrvpnSubscriptionConnectionStatus? connectionStatus;
   final String? currentNodeName;
@@ -206,6 +209,24 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                               SsrvpnUiTokens.primary,
                         ),
                       ],
+                      if (widget.refreshFailureDetails.isNotEmpty)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            key: const Key('subscription-refresh-details'),
+                            onPressed: () => showDialog<void>(
+                              context: context,
+                              builder: (_) => SsrvpnSubscriptionErrorDialog(
+                                title: '订阅刷新详情',
+                                guidance: '成功的订阅已更新，失败的订阅保留已有节点。',
+                                detail:
+                                    widget.refreshFailureDetails.join('\n\n'),
+                              ),
+                            ),
+                            icon: const Icon(Icons.info_outline_rounded),
+                            label: const Text('查看失败原因'),
+                          ),
+                        ),
                       const SizedBox(height: 14),
                     ],
                   )),
