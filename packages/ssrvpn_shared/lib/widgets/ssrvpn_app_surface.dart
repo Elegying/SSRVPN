@@ -1,7 +1,8 @@
+import '../models/app_settings.dart';
+import 'ssrvpn_appearance.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as liquid;
 import 'ssrvpn_liquid_glass.dart';
 import 'ssrvpn_glass_capture.dart';
-import 'dart:ui' show ImageFilter;
 import 'ssrvpn_drifting_background.dart';
 
 import 'package:flutter/material.dart';
@@ -53,34 +54,8 @@ class SsrvpnFrostedPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        enabled: !ssrvpnUsesLowEffects(context),
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: (isDark ? SsrvpnUiTokens.surface : Colors.white)
-                .withValues(alpha: isDark ? 0.72 : 0.78),
-            borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: isDark ? 0.18 : 0.48),
-            ),
-            boxShadow: ssrvpnUsesLowEffects(context)
-                ? const []
-                : const [
-                    BoxShadow(
-                      color: Color(0x52000000),
-                      blurRadius: 32,
-                      offset: Offset(0, 18),
-                    ),
-                  ],
-          ),
-          child: Padding(padding: padding, child: child),
-        ),
-      ),
-    );
+    return SsrvpnLiquidSurface(
+        radius: borderRadius, padding: padding, child: child);
   }
 }
 
@@ -90,6 +65,9 @@ class SsrvpnAppBackdrop extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) {
+    final appearance = SsrvpnAppearance.maybeOf(context);
+    final background = appearance?.background ?? BackgroundStyle.flowing;
+    final color = ssrvpnBackgroundColor(background);
     final shade = Colors.black
         .withValues(alpha: MediaQuery.highContrastOf(context) ? .65 : .28);
     return liquid.LiquidGlassScope(
@@ -98,24 +76,28 @@ class SsrvpnAppBackdrop extends StatelessWidget {
         Positioned.fill(
             child: IgnorePointer(
                 child: SsrvpnGlassBackgroundSource(
-          child: SsrvpnDriftingBackground(
-              child: Image.asset(
-            'assets/backgrounds/network-glass-deep.png',
-            package: 'ssrvpn_shared',
-            fit: BoxFit.cover,
-            alignment: Alignment.center,
-            filterQuality: FilterQuality.medium,
-            // Fold the black overlay into the image draw instead of blending
-            // another full-screen rectangle on every wallpaper frame.
-            color: shade,
-            colorBlendMode: BlendMode.srcATop,
-            frameBuilder: (_, child, frame, synchronous) =>
-                frame != null || synchronous
-                    ? child
-                    : ColoredBox(color: shade, child: child),
-            errorBuilder: (_, __, ___) =>
-                _SsrvpnAssetErrorBackdrop(child: ColoredBox(color: shade)),
-          )),
+          child: color != null
+              ? ColoredBox(color: color)
+              : background == BackgroundStyle.custom
+                  ? SsrvpnCustomBackground(path: appearance?.imagePath ?? '')
+                  : SsrvpnDriftingBackground(
+                      child: Image.asset(
+                      'assets/backgrounds/network-glass-deep.png',
+                      package: 'ssrvpn_shared',
+                      fit: BoxFit.cover,
+                      alignment: Alignment.center,
+                      filterQuality: FilterQuality.medium,
+                      // Fold the black overlay into the image draw instead of blending
+                      // another full-screen rectangle on every wallpaper frame.
+                      color: shade,
+                      colorBlendMode: BlendMode.srcATop,
+                      frameBuilder: (_, child, frame, synchronous) =>
+                          frame != null || synchronous
+                              ? child
+                              : ColoredBox(color: shade, child: child),
+                      errorBuilder: (_, __, ___) => _SsrvpnAssetErrorBackdrop(
+                          child: ColoredBox(color: shade)),
+                    )),
         ))),
         child,
       ])),
@@ -280,7 +262,7 @@ class SsrvpnBottomNavigation extends StatelessWidget {
                   barBorderRadius: 28,
                   quality: ssrvpnGlassQuality(context),
                   backgroundQuality: ssrvpnGlassQuality(context),
-                  settings: SsrvpnLiquidSurface.settings,
+                  settings: SsrvpnLiquidSurface.settingsFor(context),
                   indicatorColor: SsrvpnUiTokens.primary.withValues(alpha: .25),
                   indicatorExpansion: EdgeInsets.zero,
                   magnification: 1.04,
@@ -300,6 +282,10 @@ class SsrvpnBottomNavigation extends StatelessWidget {
                         icon: Icon(Icons.rss_feed_outlined),
                         activeIcon: Icon(Icons.rss_feed_rounded),
                         label: '订阅'),
+                    liquid.GlassTab(
+                        icon: Icon(Icons.settings_outlined),
+                        activeIcon: Icon(Icons.settings_rounded),
+                        label: '设置'),
                   ],
                 ),
               const SizedBox(height: 6),

@@ -1,3 +1,6 @@
+import 'services/background_image_picker.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_appearance.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_settings_page.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_scroll_behavior.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:async';
@@ -301,6 +304,13 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.dark,
+        builder: (context, child) {
+          final settings = context.watch<SettingsService>().settings;
+          return SsrvpnAppearanceScope(
+            settings: settings,
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
         home: CrashReportPrompt(
           child: _InitialSubscriptionPrompt(child: _buildMainScreen()),
         ),
@@ -345,6 +355,9 @@ class _SSRVpnAppState extends State<SSRVpnApp> {
                     active: _currentIndex == 1,
                     child: const SubscriptionScreen(),
                   ),
+                  SsrvpnPageActivity(
+                      active: _currentIndex == 2,
+                      child: _buildSettingsPage(context)),
                 ],
               ),
               navigation: Consumer<UpdateAvailabilityController>(
@@ -642,4 +655,22 @@ class _InitialSubscriptionDialogState
       ),
     );
   }
+}
+
+Widget _buildSettingsPage(BuildContext context) {
+  final service = context.watch<SettingsService>();
+  return SsrvpnSettingsPage(
+    settings: service.settings,
+    core: context.read<clash.ClashService>(),
+    dataDirectory: service.appearanceDirectory,
+    pickBackgroundImage: pickAndroidBackgroundImage,
+    onAppearanceChanged: service.updateAppearance,
+    onPortChanged: service.updateProxyPort,
+    checkForUpdate: () =>
+        UpdateService.checkForUpdate(UpdateService.appVersion),
+    onUpdateFound: (update) {
+      context.read<UpdateAvailabilityController>().publish(update);
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
+    },
+  );
 }

@@ -9,9 +9,10 @@ class _PlainNavigation extends StatelessWidget {
   Widget build(BuildContext context) => DecoratedBox(
         key: const Key('ssrvpn-bottom-navigation'),
         decoration: BoxDecoration(
-          color: MediaQuery.highContrastOf(context)
-              ? Theme.of(context).colorScheme.surface
-              : SsrvpnUiTokens.surface.withValues(alpha: .4),
+          color:
+              MediaQuery.highContrastOf(context) || ssrvpnGlassDisabled(context)
+                  ? Theme.of(context).colorScheme.surface
+                  : SsrvpnUiTokens.surface.withValues(alpha: .4),
           borderRadius: BorderRadius.circular(28),
           border: Border.all(
               color: MediaQuery.highContrastOf(context)
@@ -40,6 +41,13 @@ class _PlainNavigation extends StatelessWidget {
                 selected: currentIndex == 1,
                 onTap: () => onTap(1),
               )),
+              Expanded(
+                  child: SsrvpnNavigationDestination(
+                      icon: Icons.settings_outlined,
+                      selectedIcon: Icons.settings_rounded,
+                      label: '设置',
+                      selected: currentIndex == 2,
+                      onTap: () => onTap(2))),
             ]),
           ),
         ),

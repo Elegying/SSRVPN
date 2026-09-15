@@ -1,3 +1,5 @@
+import '../models/app_settings.dart';
+import 'ssrvpn_appearance.dart';
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'ssrvpn_glass_capture.dart';
@@ -36,12 +38,19 @@ class SsrvpnLiquidSurface extends StatelessWidget {
     saturation: 1.25,
   );
 
+  /// Standard uses a 2D renderer and does not normalize premium parameters.
+  /// Match the library's premium-to-lightweight calibration explicitly.
+  static glass.LiquidGlassSettings settingsFor(BuildContext context) =>
+      ssrvpnGlassQuality(context) == glass.GlassQuality.standard
+          ? settings.copyWith(thickness: 12, lightIntensity: .51)
+          : settings;
+
   @override
   Widget build(BuildContext context) {
     final highContrast = MediaQuery.highContrastOf(context);
     final dark = Theme.of(context).brightness == Brightness.dark;
     final content = Padding(padding: padding, child: child);
-    if (highContrast) {
+    if (highContrast || ssrvpnGlassDisabled(context)) {
       return DecoratedBox(
           decoration: BoxDecoration(
               color: dark ? const Color(0xFF111827) : Colors.white,
@@ -72,7 +81,7 @@ class SsrvpnLiquidSurface extends StatelessWidget {
     final useCapture = quality == glass.GlassQuality.premium &&
         ui.ImageFilter.isShaderFilterSupported &&
         frames != null;
-    final surfaceSettings = settings.copyWith(
+    final surfaceSettings = settingsFor(context).copyWith(
         blur: dense ? 5 : 7,
         glassColor: tint?.withValues(alpha: .18) ??
             (dark ? const Color(0x30303C60) : const Color(0x88FFFFFF)));
@@ -125,9 +134,19 @@ Future<void> initializeSsrvpnLiquidGlass() async {
 }
 
 /// Keep the device tier stable; frame spikes never switch optical materials.
+bool ssrvpnGlassDisabled(BuildContext context) =>
+    SsrvpnAppearance.maybeOf(context)?.level == GlassEffectLevel.none;
+
 glass.GlassQuality ssrvpnGlassQuality(BuildContext context) =>
-    glass.GlassAdaptiveScopeData.maybeOf(context)?.effectiveQuality ??
-    glass.GlassQuality.premium;
+    switch (SsrvpnAppearance.maybeOf(context)?.level) {
+      GlassEffectLevel.none ||
+      GlassEffectLevel.low =>
+        glass.GlassQuality.minimal,
+      GlassEffectLevel.medium => glass.GlassQuality.standard,
+      GlassEffectLevel.high => glass.GlassQuality.premium,
+      null => glass.GlassAdaptiveScopeData.maybeOf(context)?.effectiveQuality ??
+          glass.GlassQuality.premium,
+    };
 
 bool ssrvpnUsesLowEffects(BuildContext context) =>
     ssrvpnGlassQuality(context) == glass.GlassQuality.minimal;

@@ -1,13 +1,31 @@
 import '../utils/force_proxy_site_policy.dart';
 import '../constants/app_constants.dart';
 
+enum GlassEffectLevel { none, low, medium, high }
+
+enum BackgroundStyle {
+  flowing,
+  blue,
+  gray,
+  forest,
+  orange,
+  yellow,
+  custom,
+  deepBlue,
+  black
+}
+
 /// 应用设置数据模型 — 跨平台共享
 ///
 /// 所有平台共用此类。通过 re-export 暴露给各平台子项目。
-/// 这里只保留连接和运行时状态；用户可配置的软件设置不再持久化。
+/// 连接与外观设置按平台持久化；旧版本缺少外观字段时保持原显示策略。
 class AppSettings {
   static const int forceProxySiteLimit = ForceProxySitePolicy.defaultLimit;
   static const int forceDirectSiteLimit = ForceProxySitePolicy.defaultLimit;
+
+  GlassEffectLevel? glassEffectLevel;
+  BackgroundStyle backgroundStyle;
+  String customBackgroundPath;
 
   // ── 端口 ──
   int proxyPort; // mixed-port, 默认7890
@@ -33,6 +51,9 @@ class AppSettings {
   List<String> forceDirectSites;
 
   AppSettings({
+    this.glassEffectLevel,
+    this.backgroundStyle = BackgroundStyle.flowing,
+    this.customBackgroundPath = '',
     this.proxyPort = 7890,
     this.socksPort = 7891,
     this.apiPort = 9090,
@@ -81,6 +102,9 @@ class AppSettings {
   // ── copyWith ──
 
   AppSettings copyWith({
+    GlassEffectLevel? glassEffectLevel,
+    BackgroundStyle? backgroundStyle,
+    String? customBackgroundPath,
     int? proxyPort,
     int? socksPort,
     int? apiPort,
@@ -121,6 +145,9 @@ class AppSettings {
           hosts.contains(ForceProxySitePolicy.canonicalHostKey(site)));
     }
     return AppSettings(
+      glassEffectLevel: glassEffectLevel ?? this.glassEffectLevel,
+      backgroundStyle: backgroundStyle ?? this.backgroundStyle,
+      customBackgroundPath: customBackgroundPath ?? this.customBackgroundPath,
       proxyPort: proxyPort ?? this.proxyPort,
       socksPort: socksPort ?? this.socksPort,
       apiPort: apiPort ?? this.apiPort,
@@ -147,6 +174,9 @@ class AppSettings {
 
   Map<String, dynamic> toJson() {
     return {
+      'glassEffectLevel': glassEffectLevel?.name,
+      'backgroundStyle': backgroundStyle.name,
+      'customBackgroundPath': customBackgroundPath,
       'proxyPort': proxyPort,
       'socksPort': socksPort,
       'apiPort': apiPort,
@@ -165,6 +195,16 @@ class AppSettings {
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     return AppSettings(
+      glassEffectLevel: GlassEffectLevel.values
+          .where((v) => v.name == json['glassEffectLevel'])
+          .firstOrNull,
+      backgroundStyle: BackgroundStyle.values
+              .where((v) => v.name == json['backgroundStyle'])
+              .firstOrNull ??
+          BackgroundStyle.flowing,
+      customBackgroundPath: json['customBackgroundPath'] is String
+          ? json['customBackgroundPath'] as String
+          : '',
       proxyPort: _parsePort(json['proxyPort'], 7890),
       socksPort: _parsePort(json['socksPort'], 7891),
       apiPort: _parsePort(json['apiPort'], 9090),
@@ -197,6 +237,9 @@ class AppSettings {
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     return other is AppSettings &&
+        other.glassEffectLevel == glassEffectLevel &&
+        other.backgroundStyle == backgroundStyle &&
+        other.customBackgroundPath == customBackgroundPath &&
         other.proxyPort == proxyPort &&
         other.socksPort == socksPort &&
         other.apiPort == apiPort &&
@@ -215,6 +258,9 @@ class AppSettings {
   @override
   int get hashCode {
     return Object.hash(
+      glassEffectLevel,
+      backgroundStyle,
+      customBackgroundPath,
       proxyPort,
       socksPort,
       apiPort,

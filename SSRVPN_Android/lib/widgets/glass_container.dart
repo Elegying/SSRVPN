@@ -1,16 +1,16 @@
-import 'dart:ui';
+import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_glass.dart';
 import 'package:flutter/material.dart';
 
 /// 液态玻璃效果容器 — 精简版，无背景动画，无鼠标光晕
 class GlassContainer extends StatefulWidget {
   final Widget child;
   final double borderRadius;
-  final double? blur; // null = 自适应
+  final double? blur; // 兼容旧调用；实际材质统一由特效档位决定。
   final EdgeInsetsGeometry? padding;
   final EdgeInsetsGeometry? margin;
   final double? width;
   final double? height;
-  final bool enableShadow;
+  final bool enableShadow; // 兼容旧调用；阴影统一由共享材质管理。
   final bool enablePress;
 
   const GlassContainer({
@@ -55,52 +55,24 @@ class _GlassContainerState extends State<GlassContainer>
     super.dispose();
   }
 
-  double _adaptiveBlur(BuildContext context) {
-    if (widget.blur != null) return widget.blur!;
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-    final size = MediaQuery.of(context).size;
-    final pixels = size.width * size.height * dpr * dpr;
-    if (pixels > 2000000) return 20;
-    if (pixels > 1000000) return 10;
-    return 0;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final blurSigma = _adaptiveBlur(context);
-
     Widget child = Container(
       width: widget.width,
       height: widget.height,
       margin: widget.margin,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(widget.borderRadius),
-        boxShadow: widget.enableShadow
-            ? [
-                BoxShadow(
-                  color:
-                      Colors.black.withValues(alpha: (isDark ? 60 : 30) / 255),
-                  blurRadius: 30,
-                  offset: const Offset(0, 10),
-                  spreadRadius: -6,
-                ),
-              ]
-            : null,
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(widget.borderRadius),
-        child: blurSigma > 0
-            ? BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
-                child: _buildGlass(isDark),
-              )
-            : _buildGlass(isDark),
-      ),
+      child: SsrvpnLiquidSurface(
+          radius: widget.borderRadius,
+          padding: widget.padding ?? EdgeInsets.zero,
+          child: widget.child),
     );
 
     // 只在需要按压效果时包裹动画和手势
-    if (widget.enablePress && _pressCtrl != null && _scaleAnim != null) {
+    if (widget.enablePress &&
+        !ssrvpnUsesLowEffects(context) &&
+        !MediaQuery.disableAnimationsOf(context) &&
+        _pressCtrl != null &&
+        _scaleAnim != null) {
       child = AnimatedBuilder(
         animation: _pressCtrl!,
         builder: (context, animChild) {
@@ -120,36 +92,6 @@ class _GlassContainerState extends State<GlassContainer>
     }
 
     return RepaintBoundary(child: child);
-  }
-
-  Widget _buildGlass(bool isDark) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(widget.borderRadius),
-        // 简单渐变，无动画
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: isDark
-              ? [
-                  Colors.white.withValues(alpha: 12 / 255),
-                  Colors.white.withValues(alpha: 6 / 255),
-                ]
-              : [
-                  Colors.white.withValues(alpha: 40 / 255),
-                  Colors.white.withValues(alpha: 20 / 255),
-                ],
-        ),
-        border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 18 / 255)
-              : Colors.white.withValues(alpha: 35 / 255),
-          width: 0.5,
-        ),
-      ),
-      padding: widget.padding,
-      child: widget.child,
-    );
   }
 }
 

@@ -29,7 +29,11 @@ class SsrvpnPowerButton extends StatelessWidget {
             ? '断开连接'
             : '连接';
     return SsrvpnConnectionHalo(
-      enabled: isConnected && !isConnecting && !hasConnectionError,
+      enabled: isConnected &&
+          !isConnecting &&
+          !hasConnectionError &&
+          !ssrvpnUsesLowEffects(context) &&
+          !MediaQuery.highContrastOf(context),
       size: size,
       color: activeColor,
       child: Semantics(

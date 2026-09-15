@@ -109,7 +109,7 @@ class _DesktopAppShell extends StatelessWidget {
         child: SsrvpnAppBackdrop(
           child: SsrvpnHomeShell(
             notices: statusBanners,
-            extendBehindNavigation: currentIndex == 1,
+            extendBehindNavigation: currentIndex != 0,
             body: _PageStack(currentIndex: currentIndex),
             navigation: SsrvpnBottomNavigation(
               currentIndex: currentIndex,
@@ -146,7 +146,26 @@ class _PageStack extends StatelessWidget {
           active: currentIndex == 1,
           child: const SubscriptionScreen(),
         ),
+        SsrvpnPageActivity(
+            active: currentIndex == 2, child: _buildSettingsPage(context)),
       ],
     );
   }
+}
+
+Widget _buildSettingsPage(BuildContext context) {
+  final service = context.watch<SettingsService>();
+  return SsrvpnSettingsPage(
+    settings: service.settings,
+    core: context.read<clash.ClashService>(),
+    dataDirectory: service.appearanceDirectory,
+    onAppearanceChanged: service.updateAppearance,
+    onPortChanged: service.updateProxyPort,
+    checkForUpdate: () =>
+        UpdateService.checkForUpdate(UpdateService.appVersion),
+    onUpdateFound: (update) {
+      context.read<UpdateAvailabilityController>().publish(update);
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
+    },
+  );
 }

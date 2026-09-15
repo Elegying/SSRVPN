@@ -4,6 +4,7 @@ part of desktop_glass_container;
 class GlassContainer extends StatefulWidget {
   final Widget child;
   final double borderRadius;
+  // Compatibility only; the shared quality tier controls blur.
   final double? blur;
   final EdgeInsetsGeometry? padding;
   final EdgeInsetsGeometry? margin;
@@ -54,86 +55,25 @@ class _GlassContainerState extends State<GlassContainer>
     super.dispose();
   }
 
-  double _blur(BuildContext c) {
-    if (widget.blur != null) return widget.blur!;
-    final dpr = MediaQuery.of(c).devicePixelRatio;
-    final pixels =
-        MediaQuery.of(c).size.width * MediaQuery.of(c).size.height * dpr * dpr;
-    return pixels > 2000000
-        ? 24
-        : pixels > 1000000
-            ? 12
-            : 0;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final sigma = _blur(context);
-
     Widget card = Container(
       width: widget.width,
       height: widget.height,
       margin: widget.margin,
-      padding: widget.padding,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(widget.borderRadius),
-        color: widget.bgColor ??
-            (isDark
-                ? const Color(0xFF101827).withValues(alpha: 0.74)
-                : Colors.white.withValues(alpha: 0.62)),
-        gradient: widget.bgColor == null && isDark
-            ? LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  const Color(0xFF22304A).withValues(alpha: 0.72),
-                  const Color(0xFF101827).withValues(alpha: 0.78),
-                  const Color(0xFF07101C).withValues(alpha: 0.82),
-                  AppTheme.primary.withValues(alpha: 0.08),
-                ],
-                stops: const [0.0, 0.4, 0.78, 1.0],
-              )
-            : LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.white.withValues(alpha: 0.8),
-                  Colors.white.withValues(alpha: 0.42),
-                  AppTheme.primary.withValues(alpha: 0.08),
-                ],
-              ),
-        border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.12)
-              : Colors.white.withValues(alpha: 0.72),
-          width: 0.7,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.32 : 0.08),
-            blurRadius: 30,
-            spreadRadius: -12,
-            offset: const Offset(0, 18),
-          ),
-        ],
-      ),
-      child: widget.child,
+      child: SsrvpnLiquidSurface(
+          radius: widget.borderRadius,
+          padding: widget.padding ?? EdgeInsets.zero,
+          tint: widget.bgColor,
+          child: widget.child),
     );
-
-    if (sigma > 0) {
-      card = ClipRRect(
-        borderRadius: BorderRadius.circular(widget.borderRadius),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-          child: card,
-        ),
-      );
-    }
 
     final ctrl = _pressCtrl;
     final anim = _scaleAnim;
-    if (ctrl != null && anim != null) {
+    if (!ssrvpnUsesLowEffects(context) &&
+        !MediaQuery.disableAnimationsOf(context) &&
+        ctrl != null &&
+        anim != null) {
       card = GestureDetector(
         onTapDown: (_) => ctrl.forward(),
         onTapUp: (_) => ctrl.reverse(),

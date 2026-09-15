@@ -311,7 +311,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       await settingsService.updateForceProxySites(sites);
     }
-    clashService.updateSettings(settingsService.settings);
+    clashService.updateLiveSettings(settingsService.settings);
 
     final shouldReload = _isConnected && !_isConnecting;
     var reloadSucceeded = false;

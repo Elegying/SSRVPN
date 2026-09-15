@@ -63,7 +63,7 @@ void main() {
     return (lighter + 0.05) / (darker + 0.05);
   }
 
-  testWidgets('bottom navigation exposes only home and subscriptions',
+  testWidgets('bottom navigation exposes home subscriptions and settings',
       (tester) async {
     var selected = -1;
     await tester.pumpWidget(
@@ -82,7 +82,7 @@ void main() {
     expect(find.text('发现新版本'), findsNothing);
     expect(find.text('立即更新'), findsNothing);
     final navigation = find.byKey(const Key('ssrvpn-bottom-navigation'));
-    expect(tester.widget<liquid.GlassTabBar>(navigation).tabs, hasLength(2));
+    expect(tester.widget<liquid.GlassTabBar>(navigation).tabs, hasLength(3));
     expect(
       find.descendant(of: navigation, matching: find.text('关于')),
       findsNothing,
@@ -91,6 +91,9 @@ void main() {
     await tester.tap(find.text('订阅').hitTestable().first);
     await tester.pump();
     expect(selected, 1);
+    await tester.tap(find.text('设置').hitTestable().first);
+    await tester.pump();
+    expect(selected, 2);
   });
 
   testWidgets('bottom navigation exposes a passive update action',

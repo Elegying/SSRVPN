@@ -2,6 +2,8 @@
 
 library desktop_app;
 
+import 'package:ssrvpn_shared/widgets/ssrvpn_appearance.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_settings_page.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_scroll_behavior.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'dart:async';
@@ -506,6 +508,13 @@ class _SSRVpnAppState extends State<SSRVpnApp> with WindowListener {
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
         themeMode: ThemeMode.dark,
+        builder: (context, child) {
+          final settings = context.watch<SettingsService>().settings;
+          return SsrvpnAppearanceScope(
+            settings: settings,
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
         home: _withWindowsFrame(status, desktopShell),
       ),
     );
