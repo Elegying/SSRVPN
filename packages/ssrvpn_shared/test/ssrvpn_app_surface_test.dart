@@ -63,6 +63,44 @@ void main() {
     return (lighter + 0.05) / (darker + 0.05);
   }
 
+  for (final size in [
+    const Size(390, 844),
+    const Size(380, 580),
+    const Size(640, 380),
+    const Size(360, 420)
+  ]) {
+    testWidgets('connection steps update and clear at $size', (tester) async {
+      Widget overview(String message, {bool connecting = true}) => host(
+            SsrvpnHomeOverview(
+              isConnected: !connecting,
+              isConnecting: connecting,
+              connectionProgress: message,
+              selectedNode: null,
+              selectedLatency: null,
+              selectedCountryCode: null,
+              onToggleConnection: () {},
+              onOpenNodes: () {},
+              onShowAbout: () {},
+              onShowTutorial: () {},
+              onShowLogs: () {},
+              onRefreshPublicIp: () {},
+            ),
+            size: size,
+            textScaleFactor: 1.5,
+          );
+      await tester.pumpWidget(overview('正在准备节点和分流规则…'));
+      expect(find.text('正在准备节点和分流规则…'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(overview('正在请求系统授权，请留意授权弹窗…'));
+      expect(find.text('正在准备节点和分流规则…'), findsNothing);
+      expect(find.text('正在请求系统授权，请留意授权弹窗…'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(overview('过期步骤', connecting: false));
+      expect(find.byKey(const Key('connection-progress')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('bottom navigation exposes home subscriptions and settings',
       (tester) async {
     var selected = -1;

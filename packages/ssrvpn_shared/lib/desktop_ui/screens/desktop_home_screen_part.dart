@@ -39,6 +39,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _connectionStatusEpoch = 0;
   bool _disposed = false;
   ClashService? _clashService;
+  late final VoidCallback _connectionProgressListener =
+      _handleConnectionProgress;
   late final VoidCallback _clashStatusListener = _handleClashStatusChanged;
   SubscriptionService? _subscriptionService;
   Timer? _updateCheckTimer;
@@ -47,10 +49,6 @@ class _HomeScreenState extends State<HomeScreen> {
   int _updateCheckAttempts = 0;
 
   bool get _canUpdateUi => mounted && !_disposed;
-
-  bool _isConnectionTransitionActive(ClashService clashService) =>
-      _isConnecting ||
-      (!clashService.isRunning && clashService.connectionDesired);
 
   @override
   void setState(VoidCallback fn) {
@@ -168,6 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _publicIpTimer?.cancel();
     _updateCheckTimer?.cancel();
     _clashService?.removeStatusListener(_clashStatusListener);
+    _detachConnectionProgress();
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
     _nodeCountries.dispose();
     _nodeSelectionRefresh.dispose();
@@ -418,6 +417,7 @@ class _HomeScreenState extends State<HomeScreen> {
           );
       try {
         if (clashService.hasPendingSystemProxyRecovery) {
+          clashService.createConnectionProgressReporter()('正在恢复上次的网络设置…');
           final recovered = await clashService.recoverPendingSystemProxy();
           if (!_canUpdateUi) return;
           if (!clashService.isConnectionIntentCurrent(
@@ -493,6 +493,7 @@ class _HomeScreenState extends State<HomeScreen> {
               clashService.interruptPendingStart();
             },
             readStartFailureReason: () => clashService.lastStartError,
+            onProgress: clashService.createConnectionProgressReporter(),
             readRuntimeNotice: () =>
                 clashService.lastRuntimePortAdjustmentMessage,
             switchPreferredNode: (isConnectionContextCurrent) async {
@@ -676,6 +677,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         isConnected: _isConnected,
         isConnecting: isConnectionTransition,
+        connectionProgress: _connectionProgressText(core),
         selectedNode: displayNode,
         selectedLatency: selectedLatency,
         selectedCountryCode: selectedCountryCode,

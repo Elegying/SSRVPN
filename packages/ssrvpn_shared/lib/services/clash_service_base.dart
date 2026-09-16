@@ -29,6 +29,7 @@ import 'smart_rule_bundle.dart';
 import 'smart_rule_signature.dart';
 import 'smart_rule_recovery.dart';
 
+part 'clash_service_connection_progress.dart';
 part 'clash_service_config_support.dart';
 part 'clash_service_diagnostics.dart';
 part 'clash_service_runtime_support.dart';
@@ -86,6 +87,9 @@ abstract class ClashServiceBase
   void Function(RuntimeNotice notice)? onRuntimeNotice;
   final Set<void Function()> _statusListeners = {};
 
+  String? _connectionProgress;
+  final Set<void Function()> _connectionProgressListeners = {};
+
   Timer? _statusTimer;
   Timer? _ruleProviderRefreshTimer;
 
@@ -142,6 +146,7 @@ abstract class ClashServiceBase
   String get configPath => _configPath;
 
   int requestConnectionIntent(bool connected) {
+    _connectionProgress = null;
     if (!connected) clearDesktopConnectionRecoveryPlan();
     return _connectionIntent.request(connected);
   }
@@ -731,5 +736,6 @@ abstract class ClashServiceBase
     _apiClient?.close();
     onRuntimeNotice = null;
     _statusListeners.clear();
+    _connectionProgressListeners.clear();
   }
 }

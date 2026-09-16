@@ -20,6 +20,31 @@ import 'package:ssrvpn_shared/services/smart_rule_bundle.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
 void main() {
+  test('progress rejects cancelled and replaced connection attempts', () {
+    final service = _TestClashService();
+    addTearDown(service.dispose);
+    var notifications = 0;
+    void listener() => notifications++;
+    service.addConnectionProgressListener(listener);
+    service.requestConnectionIntent(true);
+    final old = service.createConnectionProgressReporter();
+    old('启动');
+    old('启动');
+    expect(notifications, 1);
+    service.requestConnectionIntent(false);
+    old('迟到');
+    expect(service.connectionProgress, isNull);
+    service.requestConnectionIntent(true);
+    final current = service.createConnectionProgressReporter();
+    current('准备');
+    old('迟到');
+    expect(service.connectionProgress, '准备');
+    expect(notifications, 2);
+    service.removeConnectionProgressListener(listener);
+    current('启动');
+    expect(notifications, 2);
+  });
+
   group('update installation preparation', () {
     test('retries cleanup even when the UI is already disconnected', () async {
       final service = _UpdatePreparationClashService();

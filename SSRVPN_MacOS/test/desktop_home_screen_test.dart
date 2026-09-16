@@ -1685,6 +1685,16 @@ void main() {
 
     expect(fixture.clash.stalledStartEntered.isCompleted, isTrue);
     expect(fixture.clash.transitionEvents, ['start-enter']);
+    expect(find.text('正在启动连接服务…'), findsOneWidget);
+    final reportProgress = fixture.clash.createConnectionProgressReporter();
+    reportProgress('正在请求系统授权，请留意授权弹窗…');
+    await tester.pump();
+    expect(find.text('正在请求系统授权，请留意授权弹窗…'), findsOneWidget);
+    final progressRect =
+        tester.getRect(find.byKey(const Key('connection-progress')));
+    final buttonRect =
+        tester.getRect(find.byKey(const Key('ssrvpn-power-button')));
+    expect(progressRect.top, greaterThanOrEqualTo(buttonRect.bottom));
 
     await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
     await tester.pump();
@@ -1696,6 +1706,9 @@ void main() {
       fixture.clash.transitionEvents,
       ['start-enter', 'interrupt', 'start-cancelled', 'stop'],
     );
+    reportProgress('迟到的连接步骤');
+    await tester.pump();
+    expect(find.byKey(const Key('connection-progress')), findsNothing);
     expect(find.text('未连接'), findsOneWidget);
   });
 

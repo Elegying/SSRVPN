@@ -791,6 +791,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
     try {
       final startupWatch = Stopwatch()..start();
+      final reportProgress = createConnectionProgressReporter();
+      reportProgress('正在检查连接设置…');
       log('启动 Mihomo 核心...');
       log('核心路径: $_corePath');
       log('配置目录: $configDir');
@@ -832,6 +834,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       await _verifyCoreForExecution();
       _ensureStartCurrent(startToken);
 
+      reportProgress('正在启动连接服务…');
       final processStartWatch = Stopwatch()..start();
       final startedProcess = parseMacosNativeCoreLaunch(
         await _coreProcessChannel.invokeMethod<Object?>(
@@ -849,6 +852,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       int? startupExitCode;
       final startupOutput = <String>[];
 
+      reportProgress('正在等待连接服务和分流规则就绪…');
       var healthy = false;
       final deadline = DateTime.now().add(const Duration(seconds: 15));
       while (DateTime.now().isBefore(deadline) && startupExitCode == null) {
@@ -927,6 +931,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     return MacosStartTransaction().run(
       configureSystemProxy: () async {
         _ensureStartCurrent(startToken);
+        createConnectionProgressReporter()('正在设置系统代理…');
         final proxySet = await _proxyService.setSystemProxy(
           '127.0.0.1',
           settings.proxyPort,
@@ -1247,6 +1252,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
     _beginTunDataPathSession();
 
+    final reportProgress = createConnectionProgressReporter();
+    reportProgress('正在请求系统授权，请留意授权弹窗…');
     log('正在请求 macOS 管理员授权以启动本次 TUN 连接...');
     if (!await tunSession.start()) {
       _ensureStartCurrent(startToken);
@@ -1264,6 +1271,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
     try {
       _ensureStartCurrent(startToken);
+      reportProgress('正在启用 VPN，等待分流规则就绪…');
       final deadline = DateTime.now().add(const Duration(seconds: 45));
       while (DateTime.now().isBefore(deadline)) {
         _ensureStartCurrent(startToken);

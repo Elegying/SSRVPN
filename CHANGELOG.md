@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 使用体验
+
+- macOS 与 Windows 在连接按钮下方实时显示连接步骤，包括准备规则、启动服务、系统授权和等待服务就绪；取消或完成连接后自动收起，旧连接的迟到提示不会覆盖新连接。
+
 ### 可靠性修复
 
 - 连接正常但存在端口避让等提醒时，首页显示“已连接（有提醒）”，避免把所有提醒误标为网络待确认。

@@ -7,6 +7,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     final clashService = context.read<ClashService>();
     if (!identical(_clashService, clashService)) {
       _clashService?.removeStatusListener(_clashStatusListener);
+      _attachConnectionProgress(clashService);
       _clashService = clashService;
       clashService.addStatusListener(_clashStatusListener);
     }

@@ -66,6 +66,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
               clashService.interruptPendingStart();
             },
             readStartFailureReason: () => clashService.lastStartError,
+            onProgress: clashService.createConnectionProgressReporter(),
             readRuntimeNotice: () =>
                 clashService.lastRuntimePortAdjustmentMessage,
             switchPreferredNode: (isConnectionContextCurrent) async {

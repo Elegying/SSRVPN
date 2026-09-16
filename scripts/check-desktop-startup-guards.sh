@@ -457,7 +457,8 @@ coordinator = Path(
 if not coordinator.is_file():
     raise SystemExit(f"{coordinator}: shared desktop connection coordinator is missing")
 coordinator_lines = len(coordinator.read_text(encoding="utf-8").splitlines())
-if coordinator_lines > 180:
+# Eight lines add optional real-phase reporting; startup policy stays here.
+if coordinator_lines > 188:
     raise SystemExit(
         f"{coordinator}: shared desktop connection coordinator grew to "
         f"{coordinator_lines} lines"
