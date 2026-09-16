@@ -753,7 +753,7 @@ void main() {
     await _waitForWidget(tester, find.text('已连接'));
 
     clash.publishNotice('无可用网络，VPN 正在等待恢复');
-    await _waitForWidget(tester, find.text('网络待确认'));
+    await _waitForWidget(tester, find.text('已连接（有提醒）'));
     expect(find.text('无可用网络，VPN 正在等待恢复'), findsOneWidget);
     expect(clash.isRunning, isTrue);
 

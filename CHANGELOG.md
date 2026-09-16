@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 可靠性修复
 
+- 连接正常但存在端口避让等提醒时，首页显示“已连接（有提醒）”，避免把所有提醒误标为网络待确认。
+
 - 三端导入 Trojan 分享链接时保留 WebSocket/gRPC、Host、路径、ALPN 和 TLS 指纹参数，避免被当作普通 TCP 节点连接。
 - 桌面两次连通性验证覆盖不同服务提供方，避免仅 Google 方向受限时始终无法尝试独立备用地址而误报网络异常。
 - 外部网络验证失败日志保留脱敏错误类别、HTTP 状态和验证路径，验证失败继续只作提示，不停止连接。

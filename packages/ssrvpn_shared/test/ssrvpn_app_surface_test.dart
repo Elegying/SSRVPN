@@ -204,7 +204,8 @@ void main() {
     expect(openedNodes, isTrue);
   });
 
-  testWidgets('connected data-plane warning is advisory, not an error',
+  testWidgets(
+      'resolved port conflict keeps connected status and advisory details',
       (tester) async {
     await tester.pumpWidget(
       host(
@@ -214,7 +215,7 @@ void main() {
           selectedNode: null,
           selectedLatency: null,
           selectedCountryCode: null,
-          connectionNotice: 'TUN 保持连接，正在热切换节点',
+          connectionNotice: '端口被占用，已临时调整：API 9090→9091',
           onToggleConnection: () {},
           onOpenNodes: () {},
           onShowAbout: () {},
@@ -225,8 +226,8 @@ void main() {
       ),
     );
 
-    expect(find.text('网络待确认'), findsOneWidget);
-    expect(find.text('TUN 保持连接，正在热切换节点'), findsOneWidget);
+    expect(find.text('已连接（有提醒）'), findsOneWidget);
+    expect(find.text('端口被占用，已临时调整：API 9090→9091'), findsOneWidget);
     expect(find.text('连接异常'), findsNothing);
     expect(find.byIcon(Icons.sync_rounded), findsOneWidget);
     expect(find.byIcon(Icons.error_outline_rounded), findsNothing);
