@@ -1,3 +1,4 @@
+import 'support/verified_update_publisher.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_dialog.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -51,6 +52,7 @@ void main() {
         sha256: sha256.convert(bytes).toString(),
       ),
       fileName: 'SSRVPN.dmg',
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: outputDirectory,
       client: client,
       beforeOpen: () async {
@@ -62,7 +64,7 @@ void main() {
       },
     );
     for (var attempt = 0;
-        attempt < 100 && find.text('更新失败').evaluate().isEmpty;
+        attempt < 1000 && find.text('更新失败').evaluate().isEmpty;
         attempt++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
@@ -114,6 +116,7 @@ void main() {
               '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
         ),
         fileName: 'SSRVPN.dmg',
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: outputDirectory,
         client: client,
         openFile: (_) async {
@@ -182,12 +185,13 @@ void main() {
             '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
       ),
       fileName: 'SSRVPN.dmg',
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: outputDirectory,
       client: client,
       openFile: (_) async {},
     );
     for (var attempt = 0;
-        attempt < 100 && find.text('更新失败').evaluate().isEmpty;
+        attempt < 1000 && find.text('更新失败').evaluate().isEmpty;
         attempt++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),

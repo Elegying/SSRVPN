@@ -201,3 +201,10 @@ cd packages/ssrvpn_shared && dart run tool/benchmark_critical_paths.dart
 `docs/GEOIP_SOURCE.txt`、脚本、配置、工作流、平台或共享代码变更，以及混合改动、无法识别的提交范围和手动触发，均执行完整 CI。文档快速路径不能作为正式发布所需原生验证的替代。
 
 PR 关闭或合并后，`Cleanup closed PR caches` 只删除该 PR 的 `refs/pull/<编号>/merge` 缓存，分页列出后按 ID 删除。工作流不检出或执行 PR 代码，不删除主分支或开发分支缓存、Actions 产物和 Release。若关闭时仍有构建在运行，之后新写入的缓存由 GitHub 常规淘汰处理。
+
+### Windows 共享测试补充
+
+Windows 构建作业同时运行 `packages/ssrvpn_shared` 的完整测试，不能只用 Linux/macOS
+的共享测试结果替代 Windows 路径与文件行为。共享更新测试通过现有 `filePublisher`
+参数注入 Windows 测试发布器，以 .NET `File.Move` 执行不可覆盖的文件移动；生产 Windows
+仍使用既有原生发布器，未注入时的拒绝逻辑保留。其他主机继续测试原 POSIX 发布路径。

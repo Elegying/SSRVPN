@@ -472,6 +472,10 @@ jobs:
           build-mode: manual
           queries: security-extended
 
+      - name: Shared tests on Windows
+        run: flutter test --reporter expanded
+        working-directory: packages/ssrvpn_shared
+
       - run: flutter analyze
         working-directory: SSRVPN_Windows
 

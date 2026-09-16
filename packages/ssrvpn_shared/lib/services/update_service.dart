@@ -185,6 +185,7 @@ class SharedUpdateService {
     Directory? outputDirectory,
     http.Client? client,
     int? Function()? localProxyPort,
+    VerifiedUpdateFilePublisher? filePublisher,
   }) {
     return downloadVerifiedUpdateWithProgress(
       context,
@@ -199,6 +200,7 @@ class SharedUpdateService {
       outputDirectory: outputDirectory,
       client: client,
       localProxyPort: localProxyPort,
+      filePublisher: filePublisher,
       progressDescription: '下载完成并通过 SHA256 校验后才会打开安装包。',
     );
   }
