@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import '../constants/app_constants.dart';
+import 'update_http_client.dart';
 
 class AppUpdateInfo {
   const AppUpdateInfo({
@@ -62,10 +63,12 @@ class UpdateChecker {
     required String currentVersion,
     required String assetExtension,
     http.Client? client,
+    int? Function()? localProxyPort,
     Duration timeout = const Duration(seconds: 10),
   }) async {
     final ownsClient = client == null;
-    final httpClient = client ?? http.Client();
+    final httpClient =
+        client ?? createUpdateHttpClient(localProxyPort: localProxyPort);
     try {
       return await _checkGitHub(
         currentVersion: currentVersion,

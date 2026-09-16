@@ -1,0 +1,76 @@
+2026-09-16T04:11:23.2871170Z ##[group]❌ /Users/runner/work/SSRVPN/SSRVPN/SSRVPN_MacOS/test/update_proxy_transport_test.dart: metadata checksum and redirected download use live runtime proxy ports (failed)
+2026-09-16T04:11:23.2878060Z Bad state: Temporary update TLS chain rejected: ---
+2026-09-16T04:11:23.2878980Z No extended validation result found
+2026-09-16T04:11:23.2880200Z Certificate Transparency (CT) status: not verified
+2026-09-16T04:11:23.2889440Z Unable to find at least 2 signed certificate timestamps (SCTs) from approved logs
+2026-09-16T04:11:23.2890970Z  Cert Verify Result: Unknown critical cert extension
+2026-09-16T04:11:23.2891850Z
+2026-09-16T04:11:23.2907500Z ../packages/ssrvpn_shared/test/support/update_proxy_fixture.dart 122:9  UpdateProxyFixture.create
+2026-09-16T04:11:23.2910260Z LateInitializationError: Local 'fixture' has not been initialized.
+2026-09-16T04:11:23.2915330Z dart:_internal                                                   LateError._throwLocalNotInitialized
+2026-09-16T04:11:23.2916620Z ../packages/ssrvpn_shared/test/update_proxy_transport_test.dart  main.<fn>
+2026-09-16T04:11:23.2917720Z ##[endgroup]
+2026-09-16T04:11:23.4855360Z ##[group]❌ /Users/runner/work/SSRVPN/SSRVPN/SSRVPN_MacOS/test/update_proxy_transport_test.dart: disconnected checks keep the existing environment proxy policy (failed)
+2026-09-16T04:11:23.4858450Z Bad state: Temporary update TLS chain rejected: ---
+2026-09-16T04:11:23.4859840Z No extended validation result found
+2026-09-16T04:11:23.4862850Z Certificate Transparency (CT) status: not verified
+2026-09-16T04:11:23.4865830Z Unable to find at least 2 signed certificate timestamps (SCTs) from approved logs
+2026-09-16T04:11:23.4866880Z  Cert Verify Result: Unknown critical cert extension
+2026-09-16T04:11:23.4867370Z
+2026-09-16T04:11:23.4867720Z ../packages/ssrvpn_shared/test/support/update_proxy_fixture.dart 122:9  UpdateProxyFixture.create
+2026-09-16T04:11:23.4868290Z LateInitializationError: Local 'fixture' has not been initialized.
+2026-09-16T04:11:23.4868810Z dart:_internal                                                   LateError._throwLocalNotInitialized
+2026-09-16T04:11:23.4869360Z ../packages/ssrvpn_shared/test/update_proxy_transport_test.dart  main.<fn>
+2026-09-16T04:11:23.4870090Z ##[endgroup]
+2026-09-16T04:11:23.7470450Z ##[group]❌ /Users/runner/work/SSRVPN/SSRVPN/SSRVPN_MacOS/test/update_proxy_transport_test.dart: a proxy tunnel still rejects an HTTPS hostname mismatch (failed)
+2026-09-16T04:11:23.7487380Z Bad state: Temporary update TLS chain rejected: ---
+2026-09-16T04:11:23.7489920Z No extended validation result found
+2026-09-16T04:11:23.7490610Z Certificate Transparency (CT) status: not verified
+2026-09-16T04:11:23.7491200Z Unable to find at least 2 signed certificate timestamps (SCTs) from approved logs
+2026-09-16T04:11:23.7491740Z  Cert Verify Result: Unknown critical cert extension
+2026-09-16T04:11:23.7491990Z
+2026-09-16T04:11:23.7492340Z ../packages/ssrvpn_shared/test/support/update_proxy_fixture.dart 122:9  UpdateProxyFixture.create
+2026-09-16T04:11:23.7493080Z LateInitializationError: Local 'fixture' has not been initialized.
+2026-09-16T04:11:23.7493630Z dart:_internal                                                   LateError._throwLocalNotInitialized
+2026-09-16T04:11:23.7494200Z ../packages/ssrvpn_shared/test/update_proxy_transport_test.dart  main.<fn>
+2026-09-16T04:11:23.7494920Z ##[endgroup]
+2026-09-16T04:11:24.0258840Z ##[group]❌ /Users/runner/work/SSRVPN/SSRVPN/SSRVPN_MacOS/test/update_proxy_transport_test.dart: cancelling a proxied download closes its socket and leaves no partial file (failed)
+2026-09-16T04:11:24.0372450Z Bad state: Temporary update TLS chain rejected: ---
+2026-09-16T04:11:24.0474680Z No extended validation result found
+2026-09-16T04:11:24.0577340Z Certificate Transparency (CT) status: not verified
+2026-09-16T04:11:24.0678080Z Unable to find at least 2 signed certificate timestamps (SCTs) from approved logs
+2026-09-16T04:11:24.0780930Z  Cert Verify Result: Unknown critical cert extension
+2026-09-16T04:11:24.0879790Z
+2026-09-16T04:11:24.0882220Z ../packages/ssrvpn_shared/test/support/update_proxy_fixture.dart 122:9  UpdateProxyFixture.create
+2026-09-16T04:11:24.0884030Z LateInitializationError: Local 'fixture' has not been initialized.
+2026-09-16T04:11:24.0884810Z dart:_internal                                                   LateError._throwLocalNotInitialized
+2026-09-16T04:11:24.0885810Z ../packages/ssrvpn_shared/test/update_proxy_transport_test.dart  main.<fn>
+2026-09-16T04:11:24.0887160Z ##[endgroup]
+2026-09-16T04:13:34.8076930Z ##[group]❌ /Users/runner/work/SSRVPN/SSRVPN/SSRVPN_MacOS/test/desktop_home_screen_test.dart: manual update discovery removes notices covering the update action (failed)
+2026-09-16T04:13:34.8078180Z ══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+2026-09-16T04:13:34.8078760Z The following StateError was thrown while running async test code:
+2026-09-16T04:13:34.8079220Z Bad state: Temporary update TLS chain rejected: ---
+2026-09-16T04:13:34.8087130Z No extended validation result found
+2026-09-16T04:13:34.8100120Z Certificate Transparency (CT) status: not verified
+2026-09-16T04:13:34.8102010Z Unable to find at least 2 signed certificate timestamps (SCTs) from approved logs
+2026-09-16T04:13:34.8103140Z  Cert Verify Result: Unknown critical cert extension
+2026-09-16T04:13:34.8103730Z
+2026-09-16T04:13:34.8104110Z When the exception was thrown, this was the stack:
+2026-09-16T04:13:34.8105700Z #0      UpdateProxyFixture.create (file:///Users/runner/work/SSRVPN/SSRVPN/packages/ssrvpn_shared/test/support/update_proxy_fixture.dart:122:9)
+2026-09-16T04:13:34.8107270Z <asynchronous suspension>
+2026-09-16T04:13:55.8805940Z ##[error]339 tests passed, 5 failed.
+2026-09-16T04:13:55.9493020Z ##[error]Process completed with exit code 1.
+2026-09-16T04:11:10.0869177Z ##[group]❌ D:/a/SSRVPN/SSRVPN/SSRVPN_Windows/test/update_proxy_transport_test.dart: metadata checksum and redirected download use live runtime proxy ports (failed)
+2026-09-16T04:11:10.0875377Z Unsupported operation: Windows verified update publication requires a native publisher
+2026-09-16T04:11:10.0884907Z package:ssrvpn_shared/services/update_service_publication.dart 132:5  _publishFileNoReplace
+2026-09-16T04:11:10.0886065Z package:ssrvpn_shared/services/update_service_publication.dart 63:27  _publishVerifiedFileLocked
+2026-09-16T04:11:10.0886820Z ##[endgroup]
+2026-09-16T04:11:10.3418059Z ✅ D:/a/SSRVPN/SSRVPN/SSRVPN_Windows/test/update_dialog_accessibility_test.dart: long Windows update destination remains dismissible on compact screens
+2026-09-16T04:11:10.4732027Z ✅ D:/a/SSRVPN/SSRVPN/SSRVPN_Windows/test/update_proxy_transport_test.dart: disconnected checks keep the existing environment proxy policy
+2026-09-16T04:11:10.8870572Z ✅ D:/a/SSRVPN/SSRVPN/SSRVPN_Windows/test/update_proxy_transport_test.dart: a proxy tunnel still rejects an HTTPS hostname mismatch
+2026-09-16T04:11:11.3933282Z ✅ D:/a/SSRVPN/SSRVPN/SSRVPN_Windows/test/update_proxy_transport_test.dart: cancelling a proxied download closes its socket and leaves no partial file
+2026-09-16T04:11:12.6654594Z ✅ D:/a/SSRVPN/SSRVPN/SSRVPN_Windows/test/update_service_dialog_test.dart: desktop resolution failure copy hides raw internal details
+2026-09-16T04:11:13.1336295Z ✅ D:/a/SSRVPN/SSRVPN/SSRVPN_Windows/test/update_service_dialog_test.dart: verified Windows update marker binds the versioned installer digest
+2026-09-16T04:11:13.1537343Z ✅ D:/a/SSRVPN/SSRVPN/SSRVPN_Windows/test/update_service_dialog_test.dart: prerelease installer is retained without an automatic cleanup marker
+2026-09-16T04:11:34.6708579Z ##[error]316 tests passed, 1 failed, 1 skipped.
+2026-09-16T04:11:34.9553436Z ##[error]Process completed with exit code 1.

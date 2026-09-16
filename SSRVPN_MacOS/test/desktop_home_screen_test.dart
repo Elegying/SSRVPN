@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/runtime_notice.dart';
 import 'package:ssrvpn_macos/app.dart' as desktop_app;
@@ -21,6 +20,8 @@ import 'package:ssrvpn_macos/startup/startup_flags.dart';
 import 'package:ssrvpn_macos/startup/startup_status.dart';
 import 'package:ssrvpn_macos/theme/app_theme.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+
+import '../../packages/ssrvpn_shared/test/support/update_proxy_fixture.dart';
 
 const _nodeYaml = '''
 proxies:
@@ -58,10 +59,17 @@ void main() {
   testWidgets(
       'manual update discovery removes notices covering the update action',
       (tester) async {
+    final network = (await tester.runAsync(UpdateProxyFixture.create))!;
+    addTearDown(network.dispose);
     final fixture = (await tester.runAsync(
-      () => _HomeFixture.create(withNodes: true),
+      () => _HomeFixture.create(withNodes: true, running: true),
     ))!;
     addTearDown(fixture.dispose);
+    fixture.clash.updateSettings(
+        AppSettings.fromJson(fixture.settings.settings.toJson())
+          ..proxyPort = network.firstProxyPort);
+    expect(fixture.clash.runtimeProxyPort,
+        isNot(fixture.settings.settings.proxyPort));
     final updates = UpdateAvailabilityController();
     addTearDown(updates.dispose);
     await tester.pumpWidget(
@@ -74,34 +82,39 @@ void main() {
     const base =
         'https://github.com/Elegying/SSRVPN/releases/download/v99.0.0/';
     final checksum = List.filled(64, 'a').join();
-    final client =
-        MockClient((request) async => request.url.path.endsWith('.sha256')
-            ? http.Response('$checksum  SSRVPN.dmg', 200)
-            : http.Response(
-                jsonEncode({
-                  'tag_name': 'v99.0.0',
-                  'body': 'UI test',
-                  'assets': [
-                    {
-                      'name': 'SSRVPN.dmg',
-                      'browser_download_url': '${base}SSRVPN.dmg'
-                    },
-                    {
-                      'name': 'SSRVPN.dmg.sha256',
-                      'browser_download_url': '${base}SSRVPN.dmg.sha256'
-                    },
-                  ]
-                }),
-                200));
+    network.respond = (request) {
+      request.response.write(request.uri.path.endsWith('.sha256')
+          ? '$checksum  SSRVPN.dmg'
+          : jsonEncode({
+              'tag_name': 'v99.0.0',
+              'body': 'UI test',
+              'assets': [
+                {
+                  'name': 'SSRVPN.dmg',
+                  'browser_download_url': '${base}SSRVPN.dmg'
+                },
+                {
+                  'name': 'SSRVPN.dmg.sha256',
+                  'browser_download_url': '${base}SSRVPN.dmg.sha256'
+                },
+              ]
+            }));
+      unawaited(request.response.close());
+    };
     await tester.runAsync(() async {
-      http.runWithClient(() => button.onPressed!(), () => client);
-      for (var i = 0; i < 100 && updates.availableUpdate == null; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
+      await HttpOverrides.runWithHttpOverrides(() async {
+        button.onPressed!();
+        for (var i = 0; i < 100 && updates.availableUpdate == null; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      }, network);
     });
     await tester.pumpAndSettle();
     expect(updates.availableUpdate?.version, '99.0.0');
+    expect(network.ports, [network.firstProxyPort, network.firstProxyPort]);
+    expect(network.hosts, ['api.github.com', 'github.com']);
     expect(find.byType(SnackBar), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('online mode change without nodes preserves mode and connection',
@@ -848,6 +861,133 @@ void main() {
     );
   });
 
+  for (final operation in ['connect', 'reload', 'manual routing reload']) {
+    final reload = operation != 'connect';
+    final manualRouting = operation == 'manual routing reload';
+    testWidgets(
+      'late node preference completion from $operation preserves a newer connection',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 800));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final writeStarted = Completer<void>();
+        final releaseWrite = Completer<void>();
+        final base = (await tester.runAsync(
+          () => _HomeFixture.create(withNodes: true, running: reload),
+        ))!;
+        base.settings.dispose();
+        final settings = await SettingsService.createForTesting(
+          settings: AppSettings(),
+          dataDir: base.directory.path,
+          settingsPath: '${base.directory.path}/settings.json',
+          writeSettings: (candidate) {
+            if (candidate.lastSelectedNodeName != null &&
+                !writeStarted.isCompleted) {
+              writeStarted.complete();
+              return releaseWrite.future;
+            }
+            return SynchronousFuture<void>(null);
+          },
+          readApiSecret: () async => '',
+          writeApiSecret: (_) async {},
+        );
+        final fixture = _HomeFixture(
+          directory: base.directory,
+          subscription: base.subscription,
+          settings: settings,
+          clash: base.clash,
+        );
+        addTearDown(fixture.dispose);
+        addTearDown(() {
+          if (!releaseWrite.isCompleted) releaseWrite.complete();
+          fixture.clash.interruptPendingStart();
+        });
+        fixture.clash
+          ..switchResult = true
+          ..runtimeSelectedNodeName = '东京节点';
+        await tester.pumpWidget(fixture.build());
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 150));
+        if (manualRouting) {
+          await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('强制代理网站'));
+          await tester.pump();
+          await tester.enterText(find.byType(TextField).first, 'example.com');
+          await tester.tap(find.text('确定'));
+        } else if (reload) {
+          await tester.runAsync(() => fixture.subscription.setRawYaml(
+                _nodeYaml.replaceFirst('port: 8388', 'port: 8390'),
+              ));
+        } else {
+          await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+        }
+        await tester.pump();
+        await _pumpUntil(tester, () => writeStarted.isCompleted);
+        expect(fixture.clash.startCalls, 1);
+        expect(fixture.clash.isRunning, isTrue);
+        if (manualRouting) {
+          await tester.pump(const Duration(milliseconds: 400));
+          await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
+          await tester.pump(const Duration(milliseconds: 400));
+        }
+
+        await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+        await tester.pump();
+        await _pumpUntil(tester, () => !fixture.clash.isRunning);
+        await tester.pump(const Duration(milliseconds: 150));
+        if (reload) {
+          fixture.clash.stallNextStart = true;
+        } else {
+          // A live connection remains valid when selecting the preferred node
+          // is declined, and this path does not wait for another preference save.
+          fixture.clash.switchResult = false;
+        }
+        await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+        await tester.pump();
+        await _pumpUntil(
+            tester,
+            () => reload
+                ? fixture.clash.stalledStartEntered.isCompleted
+                : fixture.clash.startCalls == 2 &&
+                    find.text('已连接').evaluate().isNotEmpty);
+        final currentIntent = fixture.clash.captureAutomaticRestartIntent();
+        expect(currentIntent, isNotNull);
+        if (manualRouting) {
+          // Clear the earlier cancellation notice so the next result is visible.
+          ScaffoldMessenger.of(tester.element(find.byType(HomeScreen)))
+              .removeCurrentSnackBar();
+          await tester.pump();
+        }
+
+        releaseWrite.complete();
+        await tester.pump();
+        await _pumpUntil(
+            tester, () => settings.settings.lastSelectedNodeName == '东京节点');
+        await tester.pump(const Duration(milliseconds: 150));
+        expect(
+            fixture.clash
+                .isConnectionIntentCurrent(currentIntent!, connected: true),
+            isTrue);
+        expect(
+            fixture.clash.transitionEvents, isNot(contains('start-cancelled')));
+        expect(find.text(reload ? '正在连接' : '已连接'), findsWidgets);
+        if (manualRouting) {
+          expect(settings.settings.forceProxySites, contains('example.com'));
+          expect(find.textContaining('当前连接重载失败'), findsNothing);
+          expect(find.text('强制代理网站已保存'), findsOneWidget);
+        }
+
+        await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
+        await tester.pump();
+        await _pumpUntil(
+            tester,
+            () => reload
+                ? fixture.clash.transitionEvents.contains('start-cancelled')
+                : !fixture.clash.isRunning);
+      },
+    );
+  }
+
   testWidgets(
       'successful live switch stays selected and warns when persistence fails',
       (tester) async {
@@ -1545,6 +1685,16 @@ void main() {
 
     expect(fixture.clash.stalledStartEntered.isCompleted, isTrue);
     expect(fixture.clash.transitionEvents, ['start-enter']);
+    expect(find.text('正在启动连接服务…'), findsOneWidget);
+    final reportProgress = fixture.clash.createConnectionProgressReporter();
+    reportProgress('正在请求系统授权，请留意授权弹窗…');
+    await tester.pump();
+    expect(find.text('正在请求系统授权，请留意授权弹窗…'), findsOneWidget);
+    final progressRect =
+        tester.getRect(find.byKey(const Key('connection-progress')));
+    final buttonRect =
+        tester.getRect(find.byKey(const Key('ssrvpn-power-button')));
+    expect(progressRect.top, greaterThanOrEqualTo(buttonRect.bottom));
 
     await tester.tap(find.byKey(const Key('ssrvpn-power-button')));
     await tester.pump();
@@ -1556,6 +1706,9 @@ void main() {
       fixture.clash.transitionEvents,
       ['start-enter', 'interrupt', 'start-cancelled', 'stop'],
     );
+    reportProgress('迟到的连接步骤');
+    await tester.pump();
+    expect(find.byKey(const Key('connection-progress')), findsNothing);
     expect(find.text('未连接'), findsOneWidget);
   });
 

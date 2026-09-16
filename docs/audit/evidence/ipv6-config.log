@@ -1,0 +1,6 @@
+=== RUN   TestAuditIPv4OnlyRetainsRequiredTunIPv6Capture
+    repro_ipv6_config_test.go:15: production parser discarded the configured TUN IPv6 address; an emitted inet6-address alone cannot prove IPv6 capture
+--- FAIL: TestAuditIPv4OnlyRetainsRequiredTunIPv6Capture (0.00s)
+FAIL
+FAIL	github.com/metacubex/mihomo/config	1.443s
+FAIL

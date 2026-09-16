@@ -68,50 +68,58 @@ class PublicIpInfoService {
   }
 
   Future<http.Response> _get(Uri uri, Duration timeout) async {
-    final request = http.Request('GET', uri)
-      ..headers.addAll(const {
-        'Accept': 'application/json,text/plain,text/html',
-        'User-Agent': AppConstants.appUserAgent,
-      });
-    final stopwatch = Stopwatch()..start();
-    final responseFuture = _client.send(request);
-    late final http.StreamedResponse response;
+    final abort = Completer<void>();
     try {
-      response = await responseFuture.timeout(timeout);
-    } on TimeoutException {
-      unawaited(
-        responseFuture.then<void>(
-          (lateResponse) => _cancelResponseStream(lateResponse.stream),
-          onError: (Object _, StackTrace __) {},
-        ),
+      final request =
+          http.AbortableRequest('GET', uri, abortTrigger: abort.future)
+            ..headers.addAll(const {
+              'Accept': 'application/json,text/plain,text/html',
+              'User-Agent': AppConstants.appUserAgent,
+            });
+      final stopwatch = Stopwatch()..start();
+      final responseFuture = _client.send(request);
+      late final http.StreamedResponse response;
+      try {
+        response = await responseFuture.timeout(timeout);
+      } on TimeoutException {
+        unawaited(
+          responseFuture.then<void>(
+            (lateResponse) => _cancelResponseStream(lateResponse.stream),
+            onError: (Object _, StackTrace __) {},
+          ),
+        );
+        rethrow;
+      }
+
+      if ((response.contentLength ?? 0) > maxResponseBytes) {
+        await _cancelResponseStream(response.stream);
+        throw const PublicIpInfoException('公网 IP 响应超过 64 KiB 限制');
+      }
+
+      final remainingMicroseconds =
+          timeout.inMicroseconds - stopwatch.elapsedMicroseconds;
+      if (remainingMicroseconds <= 0) {
+        await _cancelResponseStream(response.stream);
+        throw TimeoutException('公网 IP 请求超时', timeout);
+      }
+      final bytes = await _readBoundedResponse(
+        response.stream,
+        timeout: Duration(microseconds: remainingMicroseconds),
       );
-      rethrow;
+      return http.Response.bytes(
+        bytes,
+        response.statusCode,
+        request: response.request ?? request,
+        headers: response.headers,
+        isRedirect: response.isRedirect,
+        persistentConnection: response.persistentConnection,
+        reasonPhrase: response.reasonPhrase,
+      );
+    } finally {
+      // Stop this attempt before fallback; the caller owns the shared client.
+      if (!abort.isCompleted) abort.complete();
+      await abort.future;
     }
-
-    if ((response.contentLength ?? 0) > maxResponseBytes) {
-      await _cancelResponseStream(response.stream);
-      throw const PublicIpInfoException('公网 IP 响应超过 64 KiB 限制');
-    }
-
-    final remainingMicroseconds =
-        timeout.inMicroseconds - stopwatch.elapsedMicroseconds;
-    if (remainingMicroseconds <= 0) {
-      await _cancelResponseStream(response.stream);
-      throw TimeoutException('公网 IP 请求超时', timeout);
-    }
-    final bytes = await _readBoundedResponse(
-      response.stream,
-      timeout: Duration(microseconds: remainingMicroseconds),
-    );
-    return http.Response.bytes(
-      bytes,
-      response.statusCode,
-      request: response.request ?? request,
-      headers: response.headers,
-      isRedirect: response.isRedirect,
-      persistentConnection: response.persistentConnection,
-      reasonPhrase: response.reasonPhrase,
-    );
   }
 
   static Future<Uint8List> _readBoundedResponse(

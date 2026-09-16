@@ -225,7 +225,8 @@ void main() {
         service.connectivityWarning,
         allOf(contains('暂时无法确认'), contains('当前连接仍保留')),
       );
-      final ownershipCheck = (await service.platformDiagnosticChecks()).single;
+      final ownershipCheck = (await service.platformDiagnosticChecks())
+          .singleWhere((check) => check.id == 'system_proxy');
       expect(ownershipCheck.status, AppDiagnosticStatus.warning);
       expect(ownershipCheck.summary, contains('所有权检查暂时不可用'));
       expect(

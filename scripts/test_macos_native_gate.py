@@ -159,16 +159,16 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
 
         self.assertEqual(result.returncode, 0, result.stdout)
 
-    def test_guardian_preserves_the_standard_flutter_app_entrypoint(self) -> None:
+    def test_guardian_dispatches_before_appkit_and_preserves_gui_entrypoint(self) -> None:
         app_delegate = self.read("SSRVPN_MacOS/macos/Runner/AppDelegate.swift")
         project = self.read(
             "SSRVPN_MacOS/macos/Runner.xcodeproj/project.pbxproj"
         )
         privilege_gate = self.read("scripts/check-macos-core-privileges.sh")
 
-        self.assertIn("@main\nclass AppDelegate: FlutterAppDelegate", app_delegate)
+        self.assertIn("@main\nenum SSRVPNApplication", app_delegate)
         self.assertIn(
-            "override func applicationWillFinishLaunching", app_delegate
+            "static func main()", app_delegate
         )
         self.assertIn("ProxyGuardianCommand.isRequested()", app_delegate)
         self.assertIn("ProxyGuardianCommand.run()", app_delegate)
@@ -178,7 +178,7 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
             'Path("SSRVPN_MacOS/macos/Runner/main.swift").exists()',
             privilege_gate,
         )
-        self.assertIn("applicationWillFinishLaunching", privilege_gate)
+        self.assertIn("NSApplicationMain", privilege_gate)
         self.assertFalse(
             (ROOT / "SSRVPN_MacOS/macos/Runner/main.swift").exists()
         )
@@ -700,13 +700,13 @@ exit "${FAKE_XCODEBUILD_EXIT_CODE:-0}"
         self.assertIn("@main", app_delegate)
 
         launch = app_delegate.index(
-            "override func applicationWillFinishLaunching"
+            "static func main()"
         )
         guardian_mode = app_delegate.index(
             "ProxyGuardianCommand.isRequested()", launch
         )
         flutter_launch = app_delegate.index(
-            "super.applicationWillFinishLaunching", guardian_mode
+            "NSApplicationMain", guardian_mode
         )
         self.assertLess(guardian_mode, flutter_launch)
         for token in (

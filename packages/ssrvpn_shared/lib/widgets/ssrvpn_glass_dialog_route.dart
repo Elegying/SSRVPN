@@ -1,6 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
 
+/// Dismiss only the popup that owns this callback. Accessibility actions can
+/// arrive after dismissal, or while another route covers this one. A second
+/// Navigator.pop would otherwise remove the page below the popup.
+bool dismissSsrvpnDialog<T>(BuildContext context, [T? result]) {
+  if (!context.mounted) return false;
+  final route = ModalRoute.of(context);
+  if (route is! PopupRoute || !route.isCurrent || !route.isActive) return false;
+  Navigator.of(context).pop<T>(result);
+  return true;
+}
+
 /// Fade the glass material itself, never an offscreen layer containing a
 /// backdrop filter. Material's default FadeTransition can desynchronize the
 /// sampled background from its content during rapid dialog transitions.

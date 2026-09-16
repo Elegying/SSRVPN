@@ -293,3 +293,42 @@ index 470f729..57d2d21 100644
  	defer func(remoteConn C.Conn) {
  		_ = remoteConn.Close()
  	}(remoteConn)
+--- a/component/resolver/relay.go
++++ b/component/resolver/relay.go
+@@ -94,7 +94,17 @@
+ 		r.Truncate(maxSize)
+ 	}
+ 	r.Compress = true
+-	return r.PackBuffer(target)
++	data, err := r.PackBuffer(target)
++	if err != nil {
++		return nil, err
++	}
++	// PackBuffer sizes its scratch space by the *uncompressed* message length and may
++	// have allocated a new slice even though the compressed result fits into target.
++	// Callers (e.g. the tun dns hijack) assume the result is backed by target, so copy it back.
++	if len(data) > 0 && len(data) <= len(target) && &data[0] != &target[0] {
++		data = target[:copy(target, data)]
++	}
++	return data, nil
+ }
+ 
+ // RelayDnsPacket will truncate udp message up to SafeDnsPacketSize
+--- a/config/config.go
++++ b/config/config.go
+@@ -1648,7 +1648,14 @@
+ }
+ 
+ func parseIPV6(rawCfg *RawConfig) {
+-	if !rawCfg.IPv6 || !verifyIP6() {
++	if !rawCfg.IPv6 {
++		// SSRVPN remains IPv4-only. Preserve the explicitly configured TUN
++		// IPv6 capture address so its first REJECT rule also covers IPv6.
++		// Physical IPv6 availability may change after this config is loaded.
++		rawCfg.DNS.FakeIPRange6 = ""
++		return
++	}
++	if !verifyIP6() {
+ 		rawCfg.DNS.FakeIPRange6 = ""
+ 		rawCfg.Tun.Inet6Address = nil
+ 	}

@@ -1,4 +1,4 @@
-# 仅代理流量统计扩展
+# SSRVPN 核心扩展
 
 三端保持 `sources.json` 锁定的上游提交、Go 版本、架构及协议构建标签。
 2026-09-06 的扩展增加首页及 Android 常驻通知的代理统计，不改变分流规则，也不改变 Mihomo
@@ -28,7 +28,10 @@ TCP、UDP、缓冲区及快速拷贝沿用核心原有字节计数路径；计�
 
 `scripts/core-traffic-source.py digest` 对固定来源记录、三份补丁及运行时代码计算
 摘要；三端资产来源记录必须匹配此摘要，二进制本身另以 SHA-256 固定。
-测试文件不影响运行时摘要。新核心镜像采用内容寻址文件名，不覆盖旧核心资产。
+测试文件不影响运行时摘要。更新 macOS 核心和来源清单后，还需同步
+`SSRVPN_MacOS/lib/services/macos_tun_session.dart` 中的归档与清单摘要，
+并运行 `scripts/check-macos-core-privileges.sh`；不得绕过身份校验。
+新核心镜像采用内容寻址文件名，不覆盖旧核心资产。
 完整对应源码由锁定上游源码、此目录以及 Android 的 `native/bridge` 共同组成。
 
 ## 不发版的源码同步
@@ -51,3 +54,17 @@ Release 同样查找精确 main 的可信制品。两处均复核仓库、工作
 全部九项必需门禁，以及制品 ID、归档 SHA-256、六个文件的固定摘要，再执行原核心验证。
 缺失或过期才回退规范 macOS 主机源码重建；API、身份或摘要异常直接失败。
 普通 CI 继续从源码重建，不使用此复用入口。发布制品复用不替代三端应用构建和签名。
+
+## 2026-09-16 可靠性修复
+
+三端补丁回移 Mihomo [PR #3037](https://github.com/MetaCubeX/mihomo/pull/3037)
+（`fb002210ffe56b7c393ef021533d30d41d55de39`）的 DNS PackBuffer 修复，
+压缩响应适合调用者缓冲区时把重分配的数据拷回，避免 TUN 发出旧数据。
+`dns_buffer_test.go` 使用 120 条合成 A 记录调用真实 RelayDnsPacket 验证。
+
+Windows 补丁另保留 IPv4-only 配置显式指定的 TUN IPv6 捕获地址，
+仅用于把 IPv6 流量交给客户端首条 REJECT 规则；顶层 IPv6 出站及 AAAA DNS
+策略仍关闭，不修改系统 IPv6 设置。`ipv6_capture_test.go` 验证真实配置解析器，
+Windows 双栈环境的路由和防火墙行为仍须真机验收。
+
+以上测试已加入对应核心构建脚本，不升级上游提交或 Go 工具链。

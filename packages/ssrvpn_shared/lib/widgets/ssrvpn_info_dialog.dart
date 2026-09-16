@@ -93,8 +93,8 @@ Future<void> showSsrvpnInfoDialog(
                       width: double.infinity,
                       child: TextButton(
                         onPressed: () {
+                          if (!dismissSsrvpnDialog<void>(dialogContext)) return;
                           onConfirm?.call();
-                          Navigator.pop(dialogContext);
                         },
                         style: TextButton.styleFrom(
                           minimumSize: const Size(48, 48),

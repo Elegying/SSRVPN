@@ -253,6 +253,7 @@ class SmartRuleBundle {
   static Future<SmartRuleBundleInstallResult> ensureInstalled(
     String configDir, {
     AssetBundle? assetBundle,
+    Future<bool> Function(String version)? acceptsBundledVersion,
   }) async {
     final bundle = assetBundle ?? rootBundle;
     final manifestText = await bundle.loadString('$assetPrefix/manifest.json');
@@ -268,8 +269,11 @@ class SmartRuleBundle {
       configDir,
       expectedFileNames: expectedFileNames,
     );
+    final bundledVersionAllowed =
+        await acceptsBundledVersion?.call(manifest.version) ?? true;
     if (existing != null &&
-        _compareVersions(existing.version, manifest.version) >= 0) {
+        (_compareVersions(existing.version, manifest.version) >= 0 ||
+            !bundledVersionAllowed)) {
       final existingDirectory = await Isolate.run(
         () => _matchingProviderDirectory(configDir, existing),
       );
@@ -306,6 +310,9 @@ class SmartRuleBundle {
       }
     }
 
+    if (!bundledVersionAllowed) {
+      throw const FormatException('内置规则版本已被本机拒绝，且没有完整可用的旧规则');
+    }
     final providersDir = _bundleDirectory(configDir, manifest.version);
     await providersDir.create(recursive: true);
     var installed = 0;

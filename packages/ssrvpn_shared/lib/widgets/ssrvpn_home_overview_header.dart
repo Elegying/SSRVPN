@@ -115,7 +115,9 @@ extension _HomeStatus on _HomeOverviewState {
   String get _statusText {
     if (widget.isConnecting) return widget.isConnected ? '正在断开' : '正在连接';
     if (widget.errorMessage != null) return '连接异常';
-    if (widget.isConnected && widget.connectionNotice != null) return '网络待确认';
+    if (widget.isConnected && widget.connectionNotice != null) {
+      return '已连接（有提醒）';
+    }
     if (widget.isConnected) return '已连接';
     return '未连接';
   }

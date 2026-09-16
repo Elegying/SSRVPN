@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,6 +12,7 @@ import 'package:ssrvpn_android/services/subscription_service.dart';
 import 'package:ssrvpn_android/theme/app_theme.dart';
 import 'package:ssrvpn_android/utils/responsive.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 
 void main() {
   ProxyNode node({
@@ -47,6 +49,66 @@ void main() {
       ),
     );
   }
+
+  testWidgets(
+      'late node save cannot pop the page behind an editor that is closing',
+      (tester) async {
+    late Directory directory;
+    late SettingsService settings;
+    await tester.runAsync(() async {
+      directory = await Directory.systemTemp.createTemp('editor-navigation-');
+      SharedPreferences.setMockInitialValues({});
+      settings = await SettingsService.createForTesting(
+          configPath: '${directory.path}/settings.json',
+          readApiSecret: () async => 'synthetic-secret',
+          writeApiSecret: (_) async {});
+    });
+    addTearDown(() async {
+      settings.dispose();
+      await directory.delete(recursive: true);
+    });
+    final subscription = _PendingEditorSubscription();
+    addTearDown(subscription.dispose);
+    late NavigatorState navigator;
+    await tester.pumpWidget(MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SubscriptionService>.value(
+              value: subscription),
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+        ],
+        child: host(Builder(builder: (context) {
+          navigator = Navigator.of(context);
+          return const Scaffold(body: Text('Root page'));
+        }))));
+    unawaited(navigator.push<void>(MaterialPageRoute(
+        builder: (_) => const Scaffold(body: Text('Node list page')))));
+    await tester.pumpAndSettle();
+    unawaited(navigator.push<bool>(SsrvpnGlassPageRoute(
+        builder: (_) => NodeEditScreen(node: node(type: 'socks5')))));
+    await tester.pumpAndSettle();
+    final save = tester
+        .widget<TextButton>(find.widgetWithText(TextButton, '保存'))
+        .onPressed! as Future<void> Function();
+    final saving = save();
+    await tester.pump();
+    expect(subscription.submittedName, isNotNull);
+    navigator.pop();
+    await tester.pump();
+    expect(find.byType(NodeEditScreen, skipOffstage: false), findsOneWidget,
+        reason:
+            'The outgoing editor is still mounted during its reverse transition');
+    subscription.completion.complete();
+    await saving;
+    await tester.pumpAndSettle();
+    expect(subscription.saved, isTrue);
+    expect(find.text('Node list page'), findsOneWidget,
+        reason:
+            'Completing an already-requested save must not pop a second route');
+    expect(find.text('Root page'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
 
   testWidgets('saving a name with controls preserves the chosen endpoint',
       (tester) async {
@@ -117,6 +179,139 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });
+
+  for (final editPassword in [false, true]) {
+    testWidgets(
+        'renaming a node preserves every password character (edited: $editPassword)',
+        (tester) async {
+      const password = '  synthetic password  ';
+      final expectedPassword =
+          editPassword ? '\u00a0synthetic changed\u00a0' : password;
+      late Directory directory;
+      late _EditorFaultSubscription subscription;
+      late SettingsService settings;
+      await tester.runAsync(() async {
+        directory =
+            await Directory.systemTemp.createTemp('ssrvpn-password-edit-');
+        subscription = _EditorFaultSubscription();
+        await subscription.init(directory.path);
+        await subscription.setRawYaml('proxies:\n  - ${jsonEncode({
+              'name': 'Original',
+              'type': 'anytls',
+              'server': 'synthetic.invalid',
+              'port': 443,
+              'password': password,
+            })}\n');
+        SharedPreferences.setMockInitialValues({});
+        settings = await SettingsService.createForTesting(
+          configPath: '${directory.path}/settings.json',
+          readApiSecret: () async => 'synthetic-secret',
+          writeApiSecret: (_) async {},
+        );
+      });
+      addTearDown(() async {
+        subscription.dispose();
+        settings.dispose();
+        await directory.delete(recursive: true);
+      });
+      await tester.pumpWidget(MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SubscriptionService>.value(
+              value: subscription),
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+        ],
+        child: host(NodeEditScreen(node: subscription.allNodes.single)),
+      ));
+      await tester.enterText(find.byType(TextFormField).first, 'Renamed');
+      if (editPassword) {
+        await tester.enterText(
+            find.byWidgetPredicate((widget) =>
+                widget is TextFormField && widget.controller?.text == password),
+            expectedPassword);
+      }
+      final save = tester
+          .widget<TextButton>(find.widgetWithText(TextButton, '保存'))
+          .onPressed! as Future<void> Function();
+      await tester.runAsync(save);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(subscription.allNodes.single.name, 'Renamed');
+      expect(subscription.allNodes.single.extra['password'], expectedPassword);
+      await tester.runAsync(() async {
+        final reloaded = _EditorFaultSubscription();
+        try {
+          await reloaded.init(directory.path);
+          expect(reloaded.allNodes.single.name, 'Renamed');
+          expect(reloaded.allNodes.single.extra['password'], expectedPassword);
+        } finally {
+          reloaded.dispose();
+        }
+      });
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+  }
+
+  for (final type in ['vmess', 'vless']) {
+    testWidgets(
+        '$type SNI edits use the core servername field without a conflicting alias',
+        (tester) async {
+      late Directory directory;
+      late _EditorFaultSubscription subscription;
+      late SettingsService settings;
+      await tester.runAsync(() async {
+        directory = await Directory.systemTemp.createTemp('ssrvpn-sni-edit-');
+        subscription = _EditorFaultSubscription();
+        await subscription.init(directory.path);
+        await subscription.setRawYaml('proxies:\n  - ${jsonEncode({
+              'name': 'Original',
+              'type': type,
+              'server': 'synthetic.invalid',
+              'port': 443,
+              'uuid': '11111111-1111-4111-8111-111111111111',
+              'tls': true,
+              'servername': 'original.synthetic.invalid',
+              'sni': 'ignored.synthetic.invalid',
+            })}\n');
+        SharedPreferences.setMockInitialValues({});
+        settings = await SettingsService.createForTesting(
+          configPath: '${directory.path}/settings.json',
+          readApiSecret: () async => 'synthetic-secret',
+          writeApiSecret: (_) async {},
+        );
+      });
+      addTearDown(() async {
+        subscription.dispose();
+        settings.dispose();
+        await directory.delete(recursive: true);
+      });
+      await tester.pumpWidget(MultiProvider(providers: [
+        ChangeNotifierProvider<SubscriptionService>.value(value: subscription),
+        ChangeNotifierProvider<SettingsService>.value(value: settings),
+      ], child: host(NodeEditScreen(node: subscription.allNodes.single))));
+      await tester.scrollUntilVisible(find.text('SNI'), 120,
+          scrollable: find.byType(Scrollable).first);
+      final sni = find.descendant(
+          of: find.ancestor(
+              of: find.text('SNI'), matching: find.byType(SsrvpnLiquidField)),
+          matching: find.byType(TextFormField));
+      expect(tester.widget<TextFormField>(sni).controller!.text,
+          'original.synthetic.invalid');
+      await tester.enterText(sni, '  edited.synthetic.invalid  ');
+      final save = tester
+          .widget<TextButton>(find.widgetWithText(TextButton, '保存'))
+          .onPressed! as Future<void> Function();
+      await tester.runAsync(save);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      final config = subscription.allNodes.single.extra;
+      expect(config['servername'], 'edited.synthetic.invalid');
+      expect(config.containsKey('sni'), isFalse);
+      expect(config['tls'], isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+  }
 
   for (final failure in ['duplicate', 'preference', 'node', 'rollback']) {
     testWidgets(
@@ -314,5 +509,19 @@ class _EditorFaultSubscription extends SubscriptionServiceBase
       throw const FileSystemException('synthetic node save failure');
     }
     await super.cacheYaml(yaml);
+  }
+}
+
+class _PendingEditorSubscription extends _EditorFaultSubscription {
+  final completion = Completer<void>();
+  String? submittedName;
+  bool saved = false;
+  @override
+  Future<void> updateNode(
+      String originalName, Map<String, dynamic> updatedConfig,
+      {NodePreferenceStore? preferences}) async {
+    submittedName = updatedConfig['name'] as String;
+    await completion.future;
+    saved = true;
   }
 }

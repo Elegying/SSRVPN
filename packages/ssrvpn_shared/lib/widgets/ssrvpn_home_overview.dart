@@ -30,6 +30,7 @@ class SsrvpnHomeOverview extends StatefulWidget {
     required this.onRefreshPublicIp,
     this.errorMessage,
     this.connectionNotice,
+    this.connectionProgress,
     this.publicIpv4,
     this.publicIpError,
     this.isRefreshingPublicIp = false,
@@ -43,6 +44,7 @@ class SsrvpnHomeOverview extends StatefulWidget {
   final String? selectedCountryCode;
   final String? errorMessage;
   final String? connectionNotice;
+  final String? connectionProgress;
   final String? publicIpv4;
   final String? publicIpError;
   final bool isRefreshingPublicIp;
@@ -59,6 +61,24 @@ class SsrvpnHomeOverview extends StatefulWidget {
 }
 
 class _HomeOverviewState extends State<SsrvpnHomeOverview> {
+  String? get _connectionProgress =>
+      widget.isConnecting ? widget.connectionProgress : null;
+
+  Widget _buildConnectionProgress() => Semantics(
+        liveRegion: true,
+        child: SsrvpnHomeText(
+          _connectionProgress ?? '',
+          key: const Key('connection-progress'),
+          maxFontSize: 14,
+          lineHeight: 1.4,
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+              color: SsrvpnUiTokens.textSecondary, fontSize: 12, height: 1.4),
+        ),
+      );
+
   // Preserve both samplers when responsive rows reparent the statistics subtree.
   final _statisticsKey = GlobalKey();
   @override
@@ -92,12 +112,21 @@ class _HomeOverviewState extends State<SsrvpnHomeOverview> {
             isRefreshingPublicIp: widget.isRefreshingPublicIp,
             onShowLogs: widget.onShowLogs,
             onRefreshPublicIp: widget.onRefreshPublicIp);
-        final power = SsrvpnPowerButton(
+        final powerButton = SsrvpnPowerButton(
             size: powerSize,
             isConnected: widget.isConnected,
             isConnecting: widget.isConnecting,
             hasConnectionError: widget.errorMessage != null,
             onTap: widget.onToggleConnection);
+        final power = _connectionProgress == null
+            ? powerButton
+            : SizedBox(
+                width: minimal ? powerSize : powerSize + 48,
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  powerButton,
+                  const SizedBox(height: 8),
+                  _buildConnectionProgress(),
+                ]));
         Widget node() => ConstrainedBox(
             constraints: BoxConstraints(
                 maxWidth: compact ? 300 : SsrvpnUiTokens.currentNodeMaxWidth),

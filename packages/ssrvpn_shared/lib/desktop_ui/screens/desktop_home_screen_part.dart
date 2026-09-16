@@ -39,6 +39,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _connectionStatusEpoch = 0;
   bool _disposed = false;
   ClashService? _clashService;
+  late final VoidCallback _connectionProgressListener =
+      _handleConnectionProgress;
   late final VoidCallback _clashStatusListener = _handleClashStatusChanged;
   SubscriptionService? _subscriptionService;
   Timer? _updateCheckTimer;
@@ -47,10 +49,6 @@ class _HomeScreenState extends State<HomeScreen> {
   int _updateCheckAttempts = 0;
 
   bool get _canUpdateUi => mounted && !_disposed;
-
-  bool _isConnectionTransitionActive(ClashService clashService) =>
-      _isConnecting ||
-      (!clashService.isRunning && clashService.connectionDesired);
 
   @override
   void setState(VoidCallback fn) {
@@ -168,6 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _publicIpTimer?.cancel();
     _updateCheckTimer?.cancel();
     _clashService?.removeStatusListener(_clashStatusListener);
+    _detachConnectionProgress();
     _subscriptionService?.removeListener(_handleSubscriptionServiceChanged);
     _nodeCountries.dispose();
     _nodeSelectionRefresh.dispose();
@@ -314,7 +313,7 @@ class _HomeScreenState extends State<HomeScreen> {
     clashService.updateLiveSettings(settingsService.settings);
 
     final shouldReload = _isConnected && !_isConnecting;
-    var reloadSucceeded = false;
+    bool? reloadSucceeded;
     if (shouldReload) {
       reloadSucceeded = await _reloadConfig();
     }
@@ -323,14 +322,13 @@ class _HomeScreenState extends State<HomeScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          shouldReload
+          reloadSucceeded != null
               ? reloadSucceeded
                   ? '${forceDirect ? '强制直连' : '强制代理'}网站已实时生效'
                   : '${forceDirect ? '强制直连' : '强制代理'}网站已保存，当前连接重载失败，请重新连接'
               : '${forceDirect ? '强制直连' : '强制代理'}网站已保存',
         ),
-        backgroundColor:
-            shouldReload && !reloadSucceeded ? AppTheme.warning : null,
+        backgroundColor: reloadSucceeded == false ? AppTheme.warning : null,
         duration: const Duration(seconds: 2),
       ),
     );
@@ -413,9 +411,13 @@ class _HomeScreenState extends State<HomeScreen> {
         _errorMessage = null;
       });
       final connectionGeneration = clashService.requestConnectionIntent(true);
-      final requestedGeneration = connectionGeneration;
+      bool isIntentCurrent() => clashService.isConnectionIntentCurrent(
+            connectionGeneration,
+            connected: true,
+          );
       try {
         if (clashService.hasPendingSystemProxyRecovery) {
+          clashService.createConnectionProgressReporter()('正在恢复上次的网络设置…');
           final recovered = await clashService.recoverPendingSystemProxy();
           if (!_canUpdateUi) return;
           if (!clashService.isConnectionIntentCurrent(
@@ -484,16 +486,14 @@ class _HomeScreenState extends State<HomeScreen> {
             stop: clashService.stop,
             isRevisionCurrent: () =>
                 subService.revision == subscriptionRevision,
-            isIntentCurrent: () => clashService.isConnectionIntentCurrent(
-              connectionGeneration,
-              connected: true,
-            ),
+            isIntentCurrent: isIntentCurrent,
             shouldRollbackStaleIntent: () => !clashService.connectionDesired,
             cancelIntent: () {
               clashService.requestConnectionIntent(false);
               clashService.interruptPendingStart();
             },
             readStartFailureReason: () => clashService.lastStartError,
+            onProgress: clashService.createConnectionProgressReporter(),
             readRuntimeNotice: () =>
                 clashService.lastRuntimePortAdjustmentMessage,
             switchPreferredNode: (isConnectionContextCurrent) async {
@@ -556,26 +556,21 @@ class _HomeScreenState extends State<HomeScreen> {
             runtimeSelectedNode?.name == autoSelect.name &&
             clashService.isRunning &&
             subService.revision == subscriptionRevision &&
-            clashService.isConnectionIntentCurrent(
-              connectionGeneration,
-              connected: true,
-            )) {
+            isIntentCurrent()) {
           nodePersistenceFailed = !await _rememberSelectedNode(autoSelect);
         }
-        if (!_canUpdateUi) return;
-        if (!clashService.isRunning ||
-            !clashService.isConnectionIntentCurrent(
-              connectionGeneration,
-              connected: true,
-            )) {
-          if (_canUpdateUi) {
-            setState(() {
-              _isConnected = false;
-              _isConnecting = false;
-              _selectedNode = null;
-              _resetPublicIpState();
-            });
-          }
+        // Saving the node preference is advisory and may outlive this attempt.
+        // Only its current connection may publish the completion state.
+        if (!_canUpdateUi || !isIntentCurrent()) {
+          return;
+        }
+        if (!clashService.isRunning) {
+          setState(() {
+            _isConnected = false;
+            _isConnecting = false;
+            _selectedNode = null;
+            _resetPublicIpState();
+          });
           return;
         }
         clashService.rememberDesktopConnectionRecoveryPlan(
@@ -609,10 +604,7 @@ class _HomeScreenState extends State<HomeScreen> {
         unawaited(_runBatchLatencyTest());
         _checkUpdateDelayed();
       } catch (e, stack) {
-        final isCurrent = clashService.isConnectionIntentCurrent(
-          requestedGeneration,
-          connected: true,
-        );
+        final isCurrent = isIntentCurrent();
         if (!isCurrent && clashService.connectionDesired) return;
         if (isCurrent) {
           clashService.requestConnectionIntent(false);
@@ -685,6 +677,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         isConnected: _isConnected,
         isConnecting: isConnectionTransition,
+        connectionProgress: _connectionProgressText(core),
         selectedNode: displayNode,
         selectedLatency: selectedLatency,
         selectedCountryCode: selectedCountryCode,

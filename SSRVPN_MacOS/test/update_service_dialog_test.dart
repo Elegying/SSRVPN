@@ -39,6 +39,45 @@ void main() {
     await dialog;
   });
 
+  testWidgets('late update dismiss cannot pop the home page or a newer dialog',
+      (tester) async {
+    late BuildContext homeContext;
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) {
+      homeContext = context;
+      return const Scaffold(body: Text('home'));
+    })));
+    final update = UpdateService.showUpdateDialog(
+      homeContext,
+      latestVersion: '9.9.9',
+      currentVersion: '1.0.0',
+      downloadUrl: 'https://example.com/SSRVPN.dmg',
+      changelog: '',
+      sha256: '0' * 64,
+    );
+    await tester.pumpAndSettle();
+    final dismiss = tester
+        .widget<TextButton>(find.widgetWithText(TextButton, '稍后再说'))
+        .onPressed!;
+    dismiss();
+    dismiss(); // A queued accessibility action before the next frame.
+    await tester.pumpAndSettle();
+    await update;
+    expect(find.text('home'), findsOneWidget);
+    final newer = showDialog<void>(
+      context: homeContext,
+      builder: (_) => const AlertDialog(title: Text('newer')),
+    );
+    await tester.pumpAndSettle();
+    dismiss(); // A stale callback must not close a different current route.
+    await tester.pumpAndSettle();
+    expect(find.text('newer'), findsOneWidget);
+    Navigator.of(homeContext).pop();
+    await tester.pumpAndSettle();
+    await newer;
+    expect(find.text('home'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('macOS update prompt waits for the active global modal',
       (tester) async {
     late BuildContext context;

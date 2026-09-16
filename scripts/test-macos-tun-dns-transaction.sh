@@ -63,6 +63,7 @@ MOCK_NETWORK_SERVICE_LIST=Wi-Fi
 MOCK_NETWORK_SERVICE_LIST_FAILURE=false
 MOCK_ACTIVE_NETWORK_DEVICE=en0
 MOCK_SCUTIL_CALLS=0
+MOCK_SCUTIL_FAILURE=false
 MOCK_CHILD_PID=31337
 MOCK_CHILD_ALIVE=false
 MOCK_CHILD_KILL_CALLS=0
@@ -77,7 +78,7 @@ MOCK_STATUS_HISTORY=
 }
 
 /usr/sbin/scutil() {
-  [[ ${1:-} == --nwi ]] || return 1
+  [[ ${1:-} == --nwi && $MOCK_SCUTIL_FAILURE == false ]] || return 1
   MOCK_SCUTIL_CALLS=$((MOCK_SCUTIL_CALLS + 1))
   printf '%s\n' \
     'Network information' \
@@ -255,6 +256,7 @@ setup_case() {
   MOCK_NETWORK_SERVICE_LIST_FAILURE=false
   MOCK_ACTIVE_NETWORK_DEVICE=en0
   MOCK_SCUTIL_CALLS=0
+  MOCK_SCUTIL_FAILURE=false
   runtime_health_failure_count=0
   runtime_health_failure_status=
   runtime_health_failure_limit=3
@@ -710,15 +712,55 @@ test_runtime_health_debounces_transient_dns_probe_failures() {
     echo 'assertion failed: a successful probe must reset the failure streak' >&2
     return 1
   }
-  MOCK_DNS_GET_FAILURE=true
+  MOCK_DNS_CURRENT=8.8.8.8
   check_runtime_tun_dns_health || return 1
   check_runtime_tun_dns_health || return 1
   if check_runtime_tun_dns_health; then
-    echo 'assertion failed: three consecutive DNS probe failures must stop the runner' >&2
+    echo 'assertion failed: three confirmed DNS ownership changes must stop the runner' >&2
     return 1
   fi
   assert_equal error:dns "$(tr -d '[:space:]' < "$status_path")" \
     'terminal DNS failure must remain observable to the app' || return 1
+}
+
+test_runtime_unknown_network_observations_preserve_the_session() {
+  local condition sample
+  for condition in missing-interface scutil-failure dns-query-failure service-query-failure; do
+    setup_case "runtime-unknown-$condition"
+    write_journal automatic
+    MOCK_DNS_CURRENT=$tun_dns_server
+    printf 'running\n' > "$status_path"
+    load_persisted_tun_dns || return 1
+    # Unknown observations must also break a prior confirmed failure streak.
+    MOCK_DNS_CURRENT=8.8.8.8
+    check_runtime_tun_dns_health || return 1
+    check_runtime_tun_dns_health || return 1
+    MOCK_DNS_CURRENT=$tun_dns_server
+    case "$condition" in
+      missing-interface) MOCK_ACTIVE_NETWORK_DEVICE= ;;
+      scutil-failure) MOCK_SCUTIL_FAILURE=true ;;
+      dns-query-failure) MOCK_DNS_GET_FAILURE=true ;;
+      service-query-failure) MOCK_NETWORK_SERVICE_LIST_FAILURE=true ;;
+    esac
+    for sample in {1..10}; do
+      check_runtime_tun_dns_health || {
+        echo "assertion failed: $condition must not stop a live TUN session (sample $sample)" >&2
+        return 1
+      }
+    done
+    assert_equal running "$(tr -d '[:space:]' < "$status_path")" \
+      'unknown observations must not publish a terminal status' || return 1
+    [[ -f $dns_state_path ]] || return 1
+    assert_equal 0 "$MOCK_DNS_SET_CALLS" \
+      'unknown observations must preserve DNS and its recovery journal' || return 1
+    MOCK_ACTIVE_NETWORK_DEVICE=en0
+    MOCK_SCUTIL_FAILURE=false
+    MOCK_DNS_GET_FAILURE=false
+    MOCK_NETWORK_SERVICE_LIST_FAILURE=false
+    check_runtime_tun_dns_health || return 1
+    assert_equal 0 "$runtime_health_failure_count" \
+      'returning physical network must resume without restarting' || return 1
+  done
 }
 
 test_runtime_dns_ownership_fails_when_active_physical_device_changes() {
@@ -870,6 +912,7 @@ for entry in \
   'recovery-only live lock preservation:test_recovery_only_lock_rejection_preserves_recovery_owner' \
   'runtime DNS ownership:test_runtime_dns_ownership_checks_service_and_value' \
   'runtime health debounce:test_runtime_health_debounces_transient_dns_probe_failures' \
+  'runtime unknown observations:test_runtime_unknown_network_observations_preserve_the_session' \
   'runtime physical network change:test_runtime_dns_ownership_fails_when_active_physical_device_changes' \
   'recovery-only ownership validation:test_recovery_only_entrypoint_validates_marker_and_journal' \
   'malformed journal fail-closed:test_malformed_journal_fails_closed' \

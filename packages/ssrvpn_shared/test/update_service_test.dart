@@ -1,3 +1,4 @@
+import 'support/verified_update_publisher.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -5,6 +6,7 @@ import 'dart:isolate';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:http/testing.dart';
 import 'package:ssrvpn_shared/services/update_checker.dart';
 import 'package:ssrvpn_shared/services/update_service.dart';
@@ -24,6 +26,99 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
+  for (final cancel in [false, true]) {
+    test(
+        'real HTTP socket closes after ${cancel ? "cancel" : "timeout"} before headers',
+        () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final started = Completer<void>();
+      final closed = Completer<void>();
+      final sockets = <Socket>[];
+      server.listen((socket) {
+        sockets.add(socket);
+        socket.listen((_) {
+          if (!started.isCompleted) started.complete();
+        }, onDone: () {
+          if (!closed.isCompleted) closed.complete();
+        });
+      });
+      final io = IOClient();
+      addTearDown(() async {
+        io.close();
+        for (final socket in sockets) {
+          socket.destroy();
+        }
+        await server.close();
+      });
+      // Use actual dart:io transport on loopback while preserving the request's
+      // abort signal. Do not rely only on a fake client completing a Future.
+      final client = _TrackingStreamClient((request) {
+        final target = Uri.parse('http://127.0.0.1:${server.port}/update');
+        final forwarded = request is http.AbortableRequest
+            ? http.AbortableRequest('GET', target,
+                abortTrigger: request.abortTrigger)
+            : http.Request('GET', target);
+        return io.send(forwarded);
+      });
+      final cancellation = VerifiedUpdateCancellation();
+      final task = SharedUpdateService.downloadVerifiedUpdate(
+        AppUpdateInfo(
+            version: '9.9.9',
+            changelog: '',
+            downloadUrl: 'https://example.com/update',
+            sha256: '0' * 64),
+        filePublisher: testVerifiedUpdatePublisher,
+        outputDirectory: tempDir,
+        fileName: 'SSRVPN_Setup.exe',
+        client: client,
+        cancellation: cancellation,
+        timeout: Duration(milliseconds: cancel ? 2000 : 300),
+      );
+      final failed = expectLater(task, throwsA(isA<Exception>()));
+      await started.future.timeout(const Duration(seconds: 2));
+      if (cancel) cancellation.cancel();
+      await failed;
+      await closed.future.timeout(const Duration(seconds: 1));
+      expect(client.closed, isFalse);
+    });
+  }
+
+  test('fallback starts only after the stalled update request is aborted',
+      () async {
+    final bytes = utf8.encode('verified-candidate');
+    var pending = 0;
+    final client = _TrackingStreamClient((request) async {
+      if (request.url.host == 'primary.example') {
+        pending++;
+        if (request is http.AbortableRequest) {
+          unawaited(request.abortTrigger!.then((_) {
+            pending--;
+          }));
+        }
+        return Completer<http.StreamedResponse>().future;
+      }
+      expect(pending, 0,
+          reason:
+              'the timed-out request must release its connection before fallback');
+      return http.StreamedResponse(Stream.value(bytes), 200);
+    });
+    final file = await SharedUpdateService.downloadVerifiedUpdate(
+      AppUpdateInfo(
+          version: '9.9.9',
+          changelog: '',
+          downloadUrl: 'https://primary.example/update',
+          fallbackDownloadUrl: 'https://backup.example/update',
+          sha256: sha256.convert(bytes).toString()),
+      filePublisher: testVerifiedUpdatePublisher,
+      outputDirectory: tempDir,
+      fileName: 'SSRVPN_Setup.exe',
+      client: client,
+      timeout: const Duration(milliseconds: 200),
+    );
+    expect(await file.readAsBytes(), bytes);
+    expect(client.closed, isFalse);
+  });
+
   test('verified desktop download enforces SHA256 before returning a file',
       () async {
     final bytes = utf8.encode('verified-installer');
@@ -34,6 +129,7 @@ void main() {
         changelog: '',
         sha256: sha256.convert(bytes).toString(),
       ),
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN_Setup.exe',
       client: MockClient(
@@ -53,6 +149,7 @@ void main() {
           changelog: '',
           sha256: '0' * 64,
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN.dmg',
         client: MockClient(
@@ -81,6 +178,7 @@ void main() {
           changelog: '',
           sha256: '0' * 64,
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup.exe',
         client: MockClient(
@@ -95,8 +193,8 @@ void main() {
 
     expect(await existing.readAsBytes(), previousBytes);
     expect(
-      tempDir.listSync().map((entry) => entry.path),
-      [existing.path],
+      tempDir.listSync().map((entry) => entry.uri),
+      [existing.uri],
     );
   });
 
@@ -116,6 +214,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(replacementBytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup.exe',
         client: MockClient((_) async {
@@ -129,8 +228,8 @@ void main() {
     expect(requests, 0);
     expect(await existing.readAsBytes(), previousBytes);
     expect(
-      tempDir.listSync().map((entry) => entry.path),
-      [existing.path],
+      tempDir.listSync().map((entry) => entry.uri),
+      [existing.uri],
     );
   });
 
@@ -148,6 +247,7 @@ void main() {
         changelog: '',
         sha256: sha256.convert(bytes).toString(),
       ),
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN_Setup_v9.9.9.exe',
       client: MockClient((_) async {
@@ -183,6 +283,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(downloadedBytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
         client: MockClient(
@@ -195,8 +296,8 @@ void main() {
     expect(injected, isTrue);
     expect(await destination.readAsBytes(), racedBytes);
     expect(
-      tempDir.listSync().map((entry) => entry.path),
-      [destination.path],
+      tempDir.listSync().map((entry) => entry.uri),
+      [destination.uri],
     );
   });
 
@@ -224,6 +325,7 @@ void main() {
     );
     final first = SharedUpdateService.downloadVerifiedUpdate(
       update,
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN_Setup_v9.9.9.exe',
       client: MockClient(
@@ -235,6 +337,7 @@ void main() {
     final cancellation = VerifiedUpdateCancellation();
     final second = SharedUpdateService.downloadVerifiedUpdate(
       update,
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN_Setup_v9.9.9.exe',
       cancellation: cancellation,
@@ -267,6 +370,7 @@ void main() {
         changelog: '',
         sha256: sha256.convert(bytes).toString(),
       ),
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN_Setup.exe',
       client: MockClient((request) async {
@@ -298,6 +402,7 @@ void main() {
 
     await SharedUpdateService.downloadVerifiedUpdate(
       update,
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN_Setup.exe',
       client: MockClient((request) async {
@@ -329,6 +434,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(bytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup.exe',
         client: MockClient((request) async {
@@ -361,6 +467,7 @@ void main() {
           sha256:
               '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup.exe',
         client: MockClient(
@@ -371,7 +478,7 @@ void main() {
     );
 
     expect(await existing.readAsBytes(), previousBytes);
-    expect(tempDir.listSync().map((entry) => entry.path), [existing.path]);
+    expect(tempDir.listSync().map((entry) => entry.uri), [existing.uri]);
   });
 
   test('a mismatched recovery candidate is preserved and not restored',
@@ -391,6 +498,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(expectedBytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
         client: MockClient(
@@ -402,7 +510,7 @@ void main() {
 
     expect(await destination.exists(), isFalse);
     expect(await backup.readAsString(), 'unverified-installer');
-    expect(tempDir.listSync().map((entry) => entry.path), [backup.path]);
+    expect(tempDir.listSync().map((entry) => entry.uri), [backup.uri]);
   });
 
   test('an interrupted replacement with the expected digest is restored',
@@ -422,6 +530,7 @@ void main() {
         changelog: '',
         sha256: sha256.convert(expectedBytes).toString(),
       ),
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN_Setup_v9.9.9.exe',
       client: MockClient((_) async {
@@ -435,8 +544,8 @@ void main() {
     expect(await destination.readAsBytes(), expectedBytes);
     expect(await backup.readAsBytes(), expectedBytes);
     expect(
-      tempDir.listSync().map((entry) => entry.path).toSet(),
-      {destination.path, backup.path},
+      tempDir.listSync().map((entry) => entry.uri).toSet(),
+      {destination.uri, backup.uri},
     );
   });
 
@@ -459,6 +568,7 @@ void main() {
     final results = await Future.wait([
       SharedUpdateService.downloadVerifiedUpdate(
         update,
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
         client: MockClient((_) async {
@@ -468,7 +578,8 @@ void main() {
       ),
       SharedUpdateService.downloadVerifiedUpdate(
         update,
-        outputDirectory: tempDir,
+        filePublisher: testVerifiedUpdatePublisher,
+        outputDirectory: Directory(tempDir.path.replaceAll('\\', '/')),
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
         client: MockClient((_) async {
           requests++;
@@ -477,7 +588,7 @@ void main() {
       ),
     ]);
 
-    expect(results.map((file) => file.path), everyElement(destination.path));
+    expect(results.map((file) => file.uri), everyElement(destination.uri));
     expect(requests, 0);
     expect(await destination.readAsBytes(), expectedBytes);
     expect(await backup.readAsBytes(), expectedBytes);
@@ -583,6 +694,7 @@ void main() {
         changelog: '',
         sha256: sha256.convert(expectedBytes).toString(),
       ),
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN_Setup_v9.9.9.exe',
       client: MockClient((_) async {
@@ -626,6 +738,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(expectedBytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
         client: MockClient(
@@ -666,6 +779,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(expectedBytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
         maxBytes: expectedBytes.length,
@@ -710,6 +824,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(expectedBytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
         cancellation: cancellation,
@@ -745,6 +860,7 @@ void main() {
           sha256:
               '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
         client: MockClient(
@@ -780,6 +896,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(expectedBytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
         cancellation: cancellation,
@@ -792,7 +909,7 @@ void main() {
 
     expect(await destination.exists(), isFalse);
     expect(await backup.exists(), isTrue);
-    expect(tempDir.listSync().map((entry) => entry.path), [backup.path]);
+    expect(tempDir.listSync().map((entry) => entry.uri), [backup.uri]);
   });
 
   test('cancellation after recovery commit still acknowledges publication',
@@ -817,6 +934,7 @@ void main() {
         changelog: '',
         sha256: sha256.convert(expectedBytes).toString(),
       ),
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN_Setup_v9.9.9.exe',
       cancellation: cancellation,
@@ -851,6 +969,7 @@ void main() {
         changelog: '',
         sha256: sha256.convert(expectedBytes).toString(),
       ),
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN_Setup_v9.9.9.exe',
       client: MockClient((_) async {
@@ -887,6 +1006,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(expectedBytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
         client: MockClient((_) async => throw StateError('unexpected request')),
@@ -896,7 +1016,7 @@ void main() {
 
     expect(await destination.exists(), isFalse);
     expect(await backup.readAsBytes(), expectedBytes);
-    expect(tempDir.listSync().map((entry) => entry.path), [backup.path]);
+    expect(tempDir.listSync().map((entry) => entry.uri), [backup.uri]);
   });
 
   test('unreadable recovery source does not block the verified download',
@@ -920,6 +1040,7 @@ void main() {
         changelog: '',
         sha256: sha256.convert(expectedBytes).toString(),
       ),
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN_Setup_v9.9.9.exe',
       client: MockClient(
@@ -930,8 +1051,8 @@ void main() {
     expect(await published.readAsBytes(), expectedBytes);
     expect(await backup.readAsBytes(), expectedBytes);
     expect(
-      tempDir.listSync().map((entry) => entry.path).toSet(),
-      {destination.path, backup.path},
+      tempDir.listSync().map((entry) => entry.uri).toSet(),
+      {destination.uri, backup.uri},
     );
   });
 
@@ -953,6 +1074,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(backupBytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
         client: MockClient(
@@ -965,8 +1087,8 @@ void main() {
     expect(await destination.readAsBytes(), destinationBytes);
     expect(await backup.readAsBytes(), backupBytes);
     expect(
-      tempDir.listSync().map((entry) => entry.path).toSet(),
-      {destination.path, backup.path},
+      tempDir.listSync().map((entry) => entry.uri).toSet(),
+      {destination.uri, backup.uri},
     );
   });
 
@@ -982,6 +1104,7 @@ void main() {
         sha256:
             '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
       ),
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN.dmg',
       client: _StreamClient((_) => response.future),
@@ -1016,6 +1139,7 @@ void main() {
         sha256:
             '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
       ),
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: tempDir,
       fileName: 'SSRVPN.dmg',
       client: client,
@@ -1045,6 +1169,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(bytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN.dmg',
         client: MockClient(
@@ -1079,6 +1204,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(bytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN.dmg',
         client: MockClient(
@@ -1160,6 +1286,7 @@ void main() {
           changelog: '',
           sha256: sha256.convert(bytes).toString(),
         ),
+        filePublisher: testVerifiedUpdatePublisher,
         outputDirectory: tempDir,
         fileName: 'SSRVPN.dmg',
         client: client,
@@ -1214,6 +1341,7 @@ Future<void> _runIsolateUpdate(List<Object?> arguments) async {
         changelog: '',
         sha256: sha256.convert(bytes).toString(),
       ),
+      filePublisher: testVerifiedUpdatePublisher,
       outputDirectory: Directory(directoryPath),
       fileName: destinationName,
       client: MockClient((_) async {

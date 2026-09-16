@@ -19,7 +19,7 @@ make verify
 
 - 全部受版本控制 Dart 源码格式、Shell 脚本 ShellCheck、共享包导入、版本同步、安装包内指南和当前文档一致性。
 - Mihomo/GeoIP 资源的可复现引导与 SHA256。
-- Android native bridge、AGP 9 应用模块内置 Kotlin、两页产品表面、桌面启动、Clash/订阅/私有存储职责、macOS 特权和 Windows launcher 的静态边界。
+- Android native bridge、AGP 9 应用模块内置 Kotlin、三页产品表面、桌面启动、Clash/订阅/私有存储职责、macOS 特权和 Windows launcher 的静态边界。
 - 全部受版本控制 PowerShell 脚本的 ASCII 源码约束、显式 UTF-8 文件读取、Windows PowerShell 5.1 真实解析与已知参数集兼容性，以及 CI/Release 子进程退出码的逐次传播。
 - 明显密钥模式扫描、固定 commit 的 Gitleaks 全历史扫描、免费桌面分发策略守卫和发布工具单元测试；
   `.gitleaks.toml` 仅对测试目录中的合成 VPN URI 做单规则允许，默认凭据规则不跳过测试目录。
@@ -66,7 +66,7 @@ ABA、代理事务令牌延迟 Cmd+Q、严格快照 schema、保留键冲突、�
 
 覆盖率执行由 `scripts/run-flutter-coverage.sh` 统一配置。每个平台的 manifest 测试会加载所有可
 独立导入的生产库；门禁再把平台库通过真实 `part` 指令拥有的片段加入同一清单。macOS/Windows
-的 12 个 `packages/ssrvpn_shared/lib/desktop_ui` 片段因此分别计入消费平台的分母，普通 shared
+的 13 个 `packages/ssrvpn_shared/lib/desktop_ui` 片段因此分别计入消费平台的分母，普通 shared
 依赖不会抬高平台分子或分母。生产源码缺失于 LCOV、伪造或越界 `SF`、路径穿越/别名、非法
 UTF-8、注释或字符串伪装的 `part` 指令都会使门禁失败。只有明确的生成代码、纯声明文件和由
 另一目标实际拥有的片段可以按可审计分类排除。
@@ -169,6 +169,31 @@ cd packages/ssrvpn_shared && dart run tool/benchmark_critical_paths.dart
 
 网络相关测试不得依赖开放公网稳定性；需要真实下载或发布验证时，应单独标注为集成/发布冒烟并记录时间与来源。
 
+### 组合流程回归
+
+单组件通过不能替代组合场景。订阅、规则、连接与更新变更至少检查其触达的下列交叉点：
+
+- 自身 VPN/Fake-IP 与订阅解析、经过校验的连接地址、TLS 主机名、重定向和失败详情。
+- 桌面系统代理与应用更新：版本元数据、校验文件及重定向后的安装包均使用当前核心的实际
+  端口，不能假设 Dart 自动读取系统代理；连接状态变化后仍按当前状态选择网络路径。
+- 首次失败后的兼容身份或备用地址：沿用总时限，旧请求真正中止，用户取消不继续下一请求。
+- 规则回滚记录与以后客户端升级：新版内置规则可离线进入候选，已拒绝版本不重新启用，
+  成功启动后才确认，失败仍能回退。
+- 端口避让与节点切换、Flutter 重建、原生会话接管：当前运行端口/API 身份与用户保存偏好
+  分开处理，迟到旧会话不能覆盖新会话，临时读失败仍可恢复。
+- 节点编辑与协议字段：修改备注不得改变密码，SNI 必须写入该协议实际使用的字段。
+- 保存与页面退场：保存完成时原页面可能仍然 mounted，只有仍为当前页的原路由可以关闭；
+  已提交的保存继续完成，不能误关闭前一页或后来打开的页面。
+- 连接完成与偏好保存：故意延迟磁盘写入，在等待期间取消并新建连接；旧操作不能覆盖
+  新连接状态、清除新连接意图，或把被替代的操作误报成当前连接失败。
+- 多入口订阅操作：并发导入和改链接在串行写入阶段仍检查重复；排队中的改名保留已完成
+  刷新的最新时间与节点，刷新/编辑/删除失败均保留最后成功的数据。
+- 诊断刷新与修复互斥，读屏标签同时具备可执行动作，失败后保留可重试入口。
+
+本地同时执行多个工作区的全量测试和构建会造成资源争用；资源有限时按工作区顺序运行，
+并用 `scripts/run-flutter-coverage.sh <target> --concurrency=2` 控制测试并发。中断或调度
+拥塞的结果不作为通过证据；失败应在受控环境复核，不放宽断言来掩盖产品问题。
+
 ### 纯文档 CI 与 PR 缓存回收
 
 仅修改根目录 Markdown、`docs/` 下的 Markdown 或 PNG/JPG/JPEG/WebP 图片时，CI 保留全文历史密钥扫描、依赖审查、Actions CodeQL、版本与指南检查，以及文档链接、第三方许可和隐私请求说明测试；不安装 Flutter、不准备核心资产，也不运行客户端构建和共享 Flutter 测试。受保护检查名称保持不变。
@@ -176,3 +201,10 @@ cd packages/ssrvpn_shared && dart run tool/benchmark_critical_paths.dart
 `docs/GEOIP_SOURCE.txt`、脚本、配置、工作流、平台或共享代码变更，以及混合改动、无法识别的提交范围和手动触发，均执行完整 CI。文档快速路径不能作为正式发布所需原生验证的替代。
 
 PR 关闭或合并后，`Cleanup closed PR caches` 只删除该 PR 的 `refs/pull/<编号>/merge` 缓存，分页列出后按 ID 删除。工作流不检出或执行 PR 代码，不删除主分支或开发分支缓存、Actions 产物和 Release。若关闭时仍有构建在运行，之后新写入的缓存由 GitHub 常规淘汰处理。
+
+### Windows 共享测试补充
+
+Windows 构建作业同时运行 `packages/ssrvpn_shared` 的完整测试，不能只用 Linux/macOS
+的共享测试结果替代 Windows 路径与文件行为。共享更新测试通过现有 `filePublisher`
+参数注入 Windows 测试发布器，以 .NET `File.Move` 执行不可覆盖的文件移动；生产 Windows
+仍使用既有原生发布器，未注入时的拒绝逻辑保留。其他主机继续测试原 POSIX 发布路径。

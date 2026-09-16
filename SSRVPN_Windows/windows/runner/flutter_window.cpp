@@ -2,6 +2,7 @@
 
 #include <flutter/plugin_registry.h>
 #include <flutter/standard_method_codec.h>
+#include <file_selector_windows/file_selector_windows.h>
 #include <screen_retriever_windows/screen_retriever_windows_plugin_c_api.h>
 #include <sddl.h>
 #include <shellapi.h>
@@ -406,6 +407,11 @@ void RegisterPluginsSafely(flutter::PluginRegistry* registry) {
     startup_diagnostics::Log(L"plugin registration end");
     return;
   }
+
+  startup_diagnostics::Log(L"register file_selector start");
+  FileSelectorWindowsRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("FileSelectorWindows"));
+  startup_diagnostics::Log(L"register file_selector end");
 
   startup_diagnostics::Log(L"register screen_retriever start");
   RegisterScreenRetriever(registry);

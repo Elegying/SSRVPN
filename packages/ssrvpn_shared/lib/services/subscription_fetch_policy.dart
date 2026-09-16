@@ -3,6 +3,8 @@ import 'dart:io';
 import '../constants/app_constants.dart';
 import '../utils/subscription_url_policy.dart';
 import 'subscription_parser.dart';
+import 'subscription_processing.dart';
+import 'subscription_refresh_control.dart';
 
 class SubscriptionClientIdentity {
   const SubscriptionClientIdentity({
@@ -23,6 +25,7 @@ class SubscriptionIdentityNegotiationResult<T> {
     required this.identity,
     required this.attemptCount,
     required this.statusCode,
+    required this.normalizedBody,
   });
 
   final T response;
@@ -30,6 +33,7 @@ class SubscriptionIdentityNegotiationResult<T> {
   final SubscriptionClientIdentity identity;
   final int attemptCount;
   final int statusCode;
+  final String? normalizedBody;
 
   bool get usedCompatibilityIdentity => attemptCount > 1;
 }
@@ -105,9 +109,13 @@ class SubscriptionFetchPolicy {
       SubscriptionClientIdentity identity,
       bool isCompatibilityAttempt,
     ) readBody,
+    SubscriptionRefreshControl? control,
   }) async {
+    final processingControl = control ??
+        SubscriptionRefreshControl(timeout: const Duration(minutes: 2));
     assert(clientIdentities.length == maxClientIdentityAttempts);
     for (var index = 0; index < clientIdentities.length; index++) {
+      processingControl.throwIfStopped();
       final identity = clientIdentities[index];
       final isCompatibilityAttempt = index > 0;
       final response = await request(identity, isCompatibilityAttempt);
@@ -115,19 +123,33 @@ class SubscriptionFetchPolicy {
       final body = statusCode == HttpStatus.ok
           ? await readBody(response, identity, isCompatibilityAttempt)
           : '';
+      String? normalizedBody;
+      if (statusCode == HttpStatus.ok) {
+        try {
+          normalizedBody =
+              await SubscriptionProcessing.normalize(body, processingControl);
+        } on SubscriptionRefreshCancelled {
+          rethrow;
+        } on SubscriptionRefreshDeadlineExceeded {
+          rethrow;
+        } catch (_) {
+          // Preserve compatibility negotiation for unrecognized responses.
+        }
+      }
       final result = SubscriptionIdentityNegotiationResult<T>(
         response: response,
         body: body,
         identity: identity,
         attemptCount: index + 1,
         statusCode: statusCode,
+        normalizedBody: normalizedBody,
       );
       final hasAnotherIdentity = index + 1 < clientIdentities.length;
       if (!hasAnotherIdentity ||
-          !shouldRetryWithCompatibility(
-            statusCode: statusCode,
-            body: body,
-          )) {
+          !(statusCode == 403 ||
+              statusCode == 406 ||
+              statusCode == 415 ||
+              (statusCode == 200 && normalizedBody == null))) {
         return result;
       }
     }
@@ -152,7 +174,16 @@ class SubscriptionFetchPolicy {
       throw statusError;
     }
     try {
-      return normalizeRecognizedBody(result.body);
+      if (result.body.trim().isEmpty) {
+        throw const SubscriptionContentException('订阅内容为空');
+      }
+      final normalized = result.normalizedBody;
+      if (normalized == null) {
+        throw const SubscriptionContentException(
+          '订阅内容无法识别，服务器可能返回了网页或 JSON 拒绝信息',
+        );
+      }
+      return normalized;
     } on SubscriptionContentException {
       if (result.usedCompatibilityIdentity) {
         throw SubscriptionCompatibilityException(
@@ -428,4 +459,11 @@ class SubscriptionRequestBudgetExceeded implements Exception {
 
   @override
   String toString() => '订阅请求超过 $maxAttempts 次总尝试上限';
+}
+
+class SubscriptionDnsException implements Exception {
+  const SubscriptionDnsException(this.message);
+  final String message;
+  @override
+  String toString() => message;
 }

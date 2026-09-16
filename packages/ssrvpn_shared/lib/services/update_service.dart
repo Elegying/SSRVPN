@@ -13,6 +13,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/app_diagnostics.dart';
 import 'update_checker.dart';
+import 'update_http_client.dart';
 import '../utils/app_modal_coordinator.dart';
 
 part 'update_service_download.dart';
@@ -113,10 +114,12 @@ class SharedUpdateService {
   static Future<AppUpdateInfo?> checkForUpdate({
     required String currentVersion,
     required String assetExtension,
+    int? Function()? localProxyPort,
   }) async {
     final update = await UpdateChecker.checkLatest(
       currentVersion: currentVersion,
       assetExtension: assetExtension,
+      localProxyPort: localProxyPort,
     );
     return update;
   }
@@ -153,6 +156,7 @@ class SharedUpdateService {
     required String fileName,
     int maxBytes = maxDesktopUpdateBytes,
     http.Client? client,
+    int? Function()? localProxyPort,
     Duration timeout = const Duration(minutes: 2),
     void Function(int receivedBytes, int? totalBytes)? onProgress,
     VerifiedUpdateCancellation? cancellation,
@@ -164,6 +168,7 @@ class SharedUpdateService {
       fileName: fileName,
       maxBytes: maxBytes,
       client: client,
+      localProxyPort: localProxyPort,
       timeout: timeout,
       onProgress: onProgress,
       cancellation: cancellation,
@@ -179,6 +184,8 @@ class SharedUpdateService {
     VerifiedUpdatePreparer? beforeOpen,
     Directory? outputDirectory,
     http.Client? client,
+    int? Function()? localProxyPort,
+    VerifiedUpdateFilePublisher? filePublisher,
   }) {
     return downloadVerifiedUpdateWithProgress(
       context,
@@ -192,6 +199,8 @@ class SharedUpdateService {
       },
       outputDirectory: outputDirectory,
       client: client,
+      localProxyPort: localProxyPort,
+      filePublisher: filePublisher,
       progressDescription: '下载完成并通过 SHA256 校验后才会打开安装包。',
     );
   }
@@ -204,6 +213,7 @@ class SharedUpdateService {
     required String progressDescription,
     Directory? outputDirectory,
     http.Client? client,
+    int? Function()? localProxyPort,
     VerifiedUpdateFilePublisher? filePublisher,
   }) async {
     if (!context.mounted || _verifiedDownloadInProgress) return;
@@ -284,6 +294,7 @@ class SharedUpdateService {
                 Directory('${Directory.systemTemp.path}/ssrvpn_update'),
             fileName: fileName,
             client: client,
+            localProxyPort: localProxyPort,
             cancellation: cancellation,
             filePublisher: filePublisher,
             onProgress: (received, total) {
@@ -310,7 +321,7 @@ class SharedUpdateService {
                 content: Text(safeUserFacingFailureMessage(error)),
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.pop(dialogContext),
+                    onPressed: () => dismissSsrvpnDialog<void>(dialogContext),
                     child: const Text('知道了'),
                   ),
                 ],
@@ -448,7 +459,7 @@ class SharedUpdateService {
                       children: [
                         Expanded(
                           child: TextButton(
-                            onPressed: () => Navigator.pop(ctx),
+                            onPressed: () => dismissSsrvpnDialog<void>(ctx),
                             style: TextButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
@@ -469,7 +480,7 @@ class SharedUpdateService {
                         Expanded(
                           child: ElevatedButton(
                             onPressed: () {
-                              Navigator.pop(ctx);
+                              if (!dismissSsrvpnDialog<void>(ctx)) return;
                               openDownload(downloadUrl);
                             },
                             style: ElevatedButton.styleFrom(
@@ -496,7 +507,7 @@ class SharedUpdateService {
                       const SizedBox(height: 6),
                       TextButton(
                         onPressed: () {
-                          Navigator.pop(ctx);
+                          if (!dismissSsrvpnDialog<void>(ctx)) return;
                           openDownload(fallbackDownloadUrl);
                         },
                         child: const Text('使用备用下载地址'),

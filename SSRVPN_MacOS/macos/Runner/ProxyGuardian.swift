@@ -309,7 +309,7 @@ extension AppDelegate {
   func startProxyGuardian(
     statePath: String,
     nonce: String,
-    readyTimeout: TimeInterval = 2
+    readyTimeout: TimeInterval = 5
   ) -> Bool {
     guard
       (statePath as NSString).isAbsolutePath,
@@ -343,6 +343,7 @@ extension AppDelegate {
     do {
       try process.run()
     } catch {
+      NSLog("[AppDelegate] Proxy guardian launch failed")
       return false
     }
 
@@ -354,9 +355,13 @@ extension AppDelegate {
       ) {
         return process.isRunning
       }
-      if !process.isRunning { return false }
+      if !process.isRunning {
+        NSLog("[AppDelegate] Proxy guardian exited before readiness: %d", process.terminationStatus)
+        return false
+      }
       Thread.sleep(forTimeInterval: 0.05)
     }
+    NSLog("[AppDelegate] Proxy guardian readiness timed out")
     if process.isRunning { process.terminate() }
     return false
   }

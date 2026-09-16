@@ -70,18 +70,18 @@ class _CrashReportPromptState extends State<CrashReportPrompt> {
             ),
             actions: [
               TextButton(
-                onPressed: () =>
-                    Navigator.pop(dialogContext, _CrashReportAction.later),
+                onPressed: () => dismissSsrvpnDialog<_CrashReportAction>(
+                    dialogContext, _CrashReportAction.later),
                 child: const Text('稍后'),
               ),
               TextButton(
-                onPressed: () =>
-                    Navigator.pop(dialogContext, _CrashReportAction.delete),
+                onPressed: () => dismissSsrvpnDialog<_CrashReportAction>(
+                    dialogContext, _CrashReportAction.delete),
                 child: const Text('删除'),
               ),
               FilledButton(
-                onPressed: () =>
-                    Navigator.pop(dialogContext, _CrashReportAction.copy),
+                onPressed: () => dismissSsrvpnDialog<_CrashReportAction>(
+                    dialogContext, _CrashReportAction.copy),
                 child: const Text('复制报告'),
               ),
             ],

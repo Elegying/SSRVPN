@@ -1,0 +1,6 @@
+=== RUN   TestAuditParentProxyPolicyMustWinChildDirectDNS
+    repro_dns_policy_test.go:24: traffic rule gives parent PROXY priority, but DNS selected child DIRECT resolver: udp://127.0.0.1:10002
+--- FAIL: TestAuditParentProxyPolicyMustWinChildDirectDNS (0.00s)
+FAIL
+FAIL	github.com/metacubex/mihomo/dns	0.711s
+FAIL

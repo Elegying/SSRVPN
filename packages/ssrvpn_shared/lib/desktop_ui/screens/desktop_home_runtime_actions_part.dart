@@ -1,7 +1,8 @@
 part of desktop_home_screen;
 
 extension _DesktopHomeRuntimeActions on _HomeScreenState {
-  Future<bool> _reloadConfig() async {
+  // Null means a newer user action superseded this reload.
+  Future<bool?> _reloadConfig() async {
     final subService = context.read<SubscriptionService>();
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
@@ -9,13 +10,13 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     if (rawYaml == null || rawYaml.isEmpty) return false;
     final subscriptionRevision = subService.revision;
     final connectionGeneration = clashService.captureAutomaticRestartIntent();
-    if (connectionGeneration == null) return false;
-    bool isConnectionCurrent() =>
-        subService.revision == subscriptionRevision &&
-        clashService.isConnectionIntentCurrent(
+    if (connectionGeneration == null) return null;
+    bool isIntentCurrent() => clashService.isConnectionIntentCurrent(
           connectionGeneration,
           connected: true,
         );
+    bool isConnectionCurrent() =>
+        subService.revision == subscriptionRevision && isIntentCurrent();
 
     setState(() => _isConnecting = true);
     try {
@@ -58,16 +59,14 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
             stop: clashService.stop,
             isRevisionCurrent: () =>
                 subService.revision == subscriptionRevision,
-            isIntentCurrent: () => clashService.isConnectionIntentCurrent(
-              connectionGeneration,
-              connected: true,
-            ),
+            isIntentCurrent: isIntentCurrent,
             shouldRollbackStaleIntent: () => !clashService.connectionDesired,
             cancelIntent: () {
               clashService.requestConnectionIntent(false);
               clashService.interruptPendingStart();
             },
             readStartFailureReason: () => clashService.lastStartError,
+            onProgress: clashService.createConnectionProgressReporter(),
             readRuntimeNotice: () =>
                 clashService.lastRuntimePortAdjustmentMessage,
             switchPreferredNode: (isConnectionContextCurrent) async {
@@ -93,7 +92,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         },
       );
       if (connectionResult.failure == DesktopConnectionFailure.cancelled) {
-        return false;
+        return null;
       }
       if (connectionResult.failure ==
           DesktopConnectionFailure.subscriptionChanged) {
@@ -110,6 +109,11 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
           runtimeSelectedNode?.name == preferredNode.name) {
         await _rememberSelectedNode(preferredNode);
         success = clashService.isRunning && isConnectionCurrent();
+        // Preference persistence happens after the serialized core transition.
+        // A newer user connection may already own the service when it finishes.
+        if (!isIntentCurrent()) {
+          return null;
+        }
       }
       if (success) {
         clashService.rememberDesktopConnectionRecoveryPlan(
@@ -154,11 +158,8 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       return success;
     } catch (e) {
       AppLogger.warning('Connection', '重载配置失败: $e');
-      final isCurrent = clashService.isConnectionIntentCurrent(
-        connectionGeneration,
-        connected: true,
-      );
-      if (!isCurrent && clashService.connectionDesired) return false;
+      final isCurrent = isIntentCurrent();
+      if (!isCurrent && clashService.connectionDesired) return null;
       final stillRunning = clashService.isRunning;
       if (!stillRunning && isCurrent) {
         clashService.requestConnectionIntent(false);

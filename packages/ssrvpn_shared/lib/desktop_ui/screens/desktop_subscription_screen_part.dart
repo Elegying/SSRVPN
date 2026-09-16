@@ -197,14 +197,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     children: [
                       Expanded(
                         child: TextButton(
-                          onPressed: () => Navigator.pop(ctx, false),
+                          onPressed: () =>
+                              dismissSsrvpnDialog<bool>(ctx, false),
                           child: const Text('取消'),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: () => Navigator.pop(ctx, true),
+                          onPressed: () => dismissSsrvpnDialog<bool>(ctx, true),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.error,
                           ),
@@ -314,6 +315,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           isRefreshing: _isRefreshing,
           isBusy: _hasBlockingOperation,
           refreshMessage: refreshResult?.message,
+          refreshFailureDetails: refreshResult?.failureDetails ?? const [],
           refreshMessageColor: refreshColor,
           connectionStatus: status,
           currentNodeName: nodeName,

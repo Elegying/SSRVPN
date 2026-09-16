@@ -7,6 +7,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     final clashService = context.read<ClashService>();
     if (!identical(_clashService, clashService)) {
       _clashService?.removeStatusListener(_clashStatusListener);
+      _attachConnectionProgress(clashService);
       _clashService = clashService;
       clashService.addStatusListener(_clashStatusListener);
     }
@@ -179,8 +180,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     _updateCheckAttempts++;
     var shouldRetry = false;
     try {
-      const currentVersion = UpdateService.appVersion;
-      final update = await UpdateService.checkForUpdate(currentVersion);
+      final update = await _fetchAvailableUpdate();
       if (update != null && _canUpdateUi && _isConnected) {
         context.read<UpdateAvailabilityController>().publish(update);
       }
@@ -207,8 +207,7 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     _updateCheckTimer?.cancel();
     _updateCheckInProgress = true;
     try {
-      const currentVersion = UpdateService.appVersion;
-      final update = await UpdateService.checkForUpdate(currentVersion);
+      final update = await _fetchAvailableUpdate();
       if (!_canUpdateUi) return;
       if (update == null) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -231,5 +230,13 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
     } finally {
       _updateCheckInProgress = false;
     }
+  }
+
+  Future<AppUpdateInfo?> _fetchAvailableUpdate() {
+    final core = context.read<ClashService>();
+    return UpdateService.checkForUpdate(
+      UpdateService.appVersion,
+      localProxyPort: () => core.isRunning ? core.runtimeProxyPort : null,
+    );
   }
 }

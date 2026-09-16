@@ -26,6 +26,10 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
   void Function(String message)? onLog;
 
   bool get isRunning;
+  bool get connectionDesired;
+  int get desiredApiPort;
+  int get runtimeApiPort;
+  String _apiUrl(String path);
   String? get lastStartError;
   String? get lastHealthCheckError;
   String? get lastRuntimePortAdjustmentMessage;
@@ -203,6 +207,47 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
         ),
       );
     }
+
+    final diagnosticEndpoint = Uri.parse(_apiUrl('/version'));
+    final actualPort = runtimeApiPort;
+    final desiredPort = desiredApiPort;
+    bool? listening;
+    if (isRunning) {
+      listening = await _runDiagnosticCheck('api_listener', () async {
+        Socket? socket;
+        try {
+          socket = await Socket.connect(
+              InternetAddress.loopbackIPv4, actualPort,
+              timeout: const Duration(seconds: 1));
+          return true;
+        } on SocketException {
+          return false;
+        } finally {
+          socket?.destroy();
+        }
+      });
+    }
+    final endpointChanged = actualPort != runtimeApiPort;
+    final mismatch = diagnosticEndpoint.port != actualPort;
+    checks.add(AppDiagnosticCheck(
+      id: 'controller_endpoint',
+      title: '本地控制端口',
+      status: endpointChanged
+          ? AppDiagnosticStatus.skipped
+          : mismatch
+              ? AppDiagnosticStatus.failed
+              : listening == false
+                  ? AppDiagnosticStatus.warning
+                  : AppDiagnosticStatus.passed,
+      summary: endpointChanged
+          ? '诊断期间连接已变化，请重新检查'
+          : '预期端口 $desiredPort；实际端口 $actualPort；'
+              '健康检查端口 ${diagnosticEndpoint.port}；'
+              '监听：${listening == null ? '未确认' : listening ? '是' : '否'}。'
+              '${mismatch ? '运行端口与健康检查端口不一致。' : ''}'
+              '${actualPort != desiredPort ? '本地控制端口发生自动调整，这是正常的冲突保护机制。' : ''}'
+              '会话：${isRunning ? '运行中' : connectionDesired ? '等待连接' : '已断开'}。',
+    ));
 
     // A completed check may legitimately have no warning. Keep that separate
     // from the null returned when the check itself fails or times out.

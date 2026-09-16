@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
@@ -47,7 +48,7 @@ void showAndroidDiagnosticsSheet(BuildContext context) {
                       size: 18,
                       color: Theme.of(ctx).colorScheme.onSurfaceVariant,
                     ),
-                    onPressed: () => Navigator.pop(ctx),
+                    onPressed: () => dismissSsrvpnDialog<void>(ctx),
                   ),
                 ],
               ),

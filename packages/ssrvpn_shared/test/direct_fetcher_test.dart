@@ -7,6 +7,56 @@ import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test(
+      'Basic Auth survives relative redirects without leaking to another origin',
+      () async {
+    final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final other = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() async {
+      await origin.close(force: true);
+      await other.close(force: true);
+    });
+    final observed = <String?>[];
+    origin.listen((request) async {
+      observed.add(request.headers.value(HttpHeaders.authorizationHeader));
+      request.response.statusCode = HttpStatus.found;
+      request.response.headers.set(
+          HttpHeaders.locationHeader,
+          request.uri.path == '/start'
+              ? '/next'
+              : 'http://other.invalid:${other.port}/final');
+      await request.response.close();
+    });
+    other.listen((request) async {
+      observed.add(request.headers.value(HttpHeaders.authorizationHeader));
+      request.response.write('synthetic');
+      await request.response.close();
+    });
+    final sockets = [
+      await Socket.connect(origin.address, origin.port),
+      await Socket.connect(origin.address, origin.port),
+      await Socket.connect(other.address, other.port),
+    ];
+    addTearDown(() {
+      for (final socket in sockets) {
+        socket.destroy();
+      }
+    });
+    var socketIndex = 0;
+    final response = await IOOverrides.runZoned(
+      () => DirectFetcher.fetchResponse(
+          'http://audit-user:p%3Aa@origin.invalid:${origin.port}/start',
+          addressLookup: (_) async => [InternetAddress('8.8.8.8')],
+          bindPhysicalSource: false),
+      socketConnect: (host, port,
+              {sourceAddress, sourcePort = 0, timeout}) async =>
+          sockets[socketIndex++],
+    );
+    expect(response.body, 'synthetic');
+    final auth = 'Basic ${base64Encode(utf8.encode('audit-user:p:a'))}';
+    expect(observed, [auth, auth, null]);
+  });
+
   test('isFakeIp detects Clash fake-ip range', () {
     expect(DirectFetcher.isFakeIp(InternetAddress('198.18.0.1')), isTrue);
     expect(DirectFetcher.isFakeIp(InternetAddress('198.19.255.255')), isTrue);

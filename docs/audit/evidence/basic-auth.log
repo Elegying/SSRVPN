@@ -1,0 +1,38 @@
+00:00 +0: loading <workspace>/docs/audit/repro_android_basic_auth_test.dart
+00:00 +0: subscription sends Basic Auth with empty password
+[Subscription][INFO] DNS 安全解析完成，将按已校验地址连接（不重新解析域名）
+[Subscription][INFO] 将尝试 1 个 IP 地址...
+[Subscription][INFO] IP [public-ip-redacted] 请求已发送 (21ms)
+[Subscription][INFO] IP [public-ip-redacted] 收到 203 bytes (86ms)
+[Subscription][INFO] IP [public-ip-redacted] HTTP 401 (总耗时 154ms)
+00:00 +0 -1: subscription sends Basic Auth with empty password [E]
+  Expected: 'Basic YXVkaXQtdXNlcjo='
+    Actual: <null>
+     Which: not an <Instance of 'String'>
+  Accepted URL credentials must reach the same-origin server; failure type: SubscriptionHttpStatusException
+
+  package:matcher                                        expect
+  package:flutter_test/src/widget_tester.dart 473:18     expect
+  ../docs/audit/repro_android_basic_auth_test.dart 47:7  main.<fn>
+
+00:00 +0 -1: subscription sends Basic Auth with nonempty password
+[Subscription][INFO] DNS 安全解析完成，将按已校验地址连接（不重新解析域名）
+[Subscription][INFO] 将尝试 1 个 IP 地址...
+[Subscription][INFO] IP [public-ip-redacted] 请求已发送 (6ms)
+[Subscription][INFO] IP [public-ip-redacted] 收到 203 bytes (15ms)
+[Subscription][INFO] IP [public-ip-redacted] HTTP 401 (总耗时 19ms)
+00:00 +0 -2: subscription sends Basic Auth with nonempty password [E]
+  Expected: 'Basic YXVkaXQtdXNlcjpzeW50aGV0aWMtcGFzc3dvcmQ='
+    Actual: <null>
+     Which: not an <Instance of 'String'>
+  Accepted URL credentials must reach the same-origin server; failure type: SubscriptionHttpStatusException
+
+  package:matcher                                        expect
+  package:flutter_test/src/widget_tester.dart 473:18     expect
+  ../docs/audit/repro_android_basic_auth_test.dart 47:7  main.<fn>
+
+00:00 +0 -2: Some tests failed.
+
+Failing tests:
+  <workspace>/docs/audit/repro_android_basic_auth_test.dart: subscription sends Basic Auth with empty password
+  <workspace>/docs/audit/repro_android_basic_auth_test.dart: subscription sends Basic Auth with nonempty password

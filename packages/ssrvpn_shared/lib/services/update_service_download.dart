@@ -6,6 +6,7 @@ Future<File> _downloadVerifiedUpdate(
   required String fileName,
   int maxBytes = SharedUpdateService.maxDesktopUpdateBytes,
   http.Client? client,
+  int? Function()? localProxyPort,
   Duration timeout = const Duration(minutes: 2),
   void Function(int receivedBytes, int? totalBytes)? onProgress,
   VerifiedUpdateCancellation? cancellation,
@@ -53,15 +54,18 @@ Future<File> _downloadVerifiedUpdate(
   final temporary = File('${destination.path}.part.$publicationId');
   cancellation?.throwIfCancelled();
   final ownsClient = client == null;
-  final httpClient = client ?? http.Client();
+  final httpClient =
+      client ?? createUpdateHttpClient(localProxyPort: localProxyPort);
   try {
     if (ownsClient) cancellation?._attach(httpClient.close);
     var verifiedDownloadReady = false;
     for (var attempt = 0; attempt < uris.length; attempt++) {
       cancellation?.throwIfCancelled();
       final attemptClock = Stopwatch()..start();
+      final abort = Completer<void>();
       try {
-        final request = http.Request('GET', uris[attempt])
+        final request = http.AbortableRequest('GET', uris[attempt],
+            abortTrigger: abort.future)
           ..headers['User-Agent'] = 'SSRVPN/${update.version}';
         final response = await _sendResponse(
           httpClient,
@@ -127,6 +131,10 @@ Future<File> _downloadVerifiedUpdate(
         if (await temporary.exists()) await temporary.delete();
         cancellation?.throwIfCancelled();
         if (attempt == uris.length - 1) rethrow;
+      } finally {
+        // Abort just this attempt; never close a client owned by the caller.
+        if (!abort.isCompleted) abort.complete();
+        await abort.future;
       }
     }
     if (!verifiedDownloadReady) {

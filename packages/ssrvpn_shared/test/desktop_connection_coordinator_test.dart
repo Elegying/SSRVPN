@@ -42,6 +42,21 @@ void main() {
   });
 
   group('DesktopConnectionCoordinator', () {
+    test('reports phases and stops after invalidation', () async {
+      final success = _CoordinatorHarness();
+      await success.connect();
+      expect(success.progress, [
+        '正在检查连接端口…',
+        '正在准备节点和分流规则…',
+        '正在保存本次连接设置…',
+        '正在启动连接服务…',
+        '正在应用所选节点…',
+      ]);
+      final cancelled = _CoordinatorHarness()..changeRevisionOnPrepare = true;
+      await cancelled.connect();
+      expect(cancelled.progress, ['正在检查连接端口…']);
+    });
+
     test('rejects a revision change during prepare before generating config',
         () async {
       final harness = _CoordinatorHarness()..changeRevisionOnPrepare = true;
@@ -517,6 +532,7 @@ void main() {
 }
 
 class _CoordinatorHarness {
+  final progress = <String>[];
   static const _capturedRevision = 7;
   static const _capturedIntent = 11;
 
@@ -591,6 +607,7 @@ class _CoordinatorHarness {
         desired = false;
       },
       readStartFailureReason: () => 'start failed safely',
+      onProgress: progress.add,
       readRuntimeNotice: () => 'runtime port adjusted',
     );
   }

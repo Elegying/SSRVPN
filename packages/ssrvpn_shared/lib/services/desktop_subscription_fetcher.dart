@@ -38,6 +38,8 @@ class DesktopSubscriptionFetcher {
     final requestBudget = SubscriptionRequestBudget();
 
     if (_shouldTryDirectFetch(uri, allowDirectFetch: allowDirectFetch)) {
+      final directCancellation = SubscriptionRefreshCancellation();
+      final detach = control?.cancellation.attach(directCancellation.cancel);
       try {
         final directRequestTimeout =
             control != null && control.remaining < requestTimeout
@@ -47,11 +49,13 @@ class DesktopSubscriptionFetcher {
           url,
           requestTimeout: directRequestTimeout,
           addressLookup: directAddressLookup,
-          cancellation: control?.cancellation,
+          cancellation: directCancellation,
+          control: control,
           requestBudget: requestBudget,
         );
-        final response =
-            control == null ? await operation : await control.wait(operation);
+        final response = control == null
+            ? await operation
+            : await control.wait(operation, onAbort: directCancellation.cancel);
         control?.throwIfStopped();
         return DesktopSubscriptionFetchResult(
           body: response.body,
@@ -74,6 +78,9 @@ class DesktopSubscriptionFetcher {
         AppLogger.info('Subscription', '直连通道收到可重试响应，降级到常规 HTTP: $e');
       } catch (e) {
         AppLogger.info('Subscription', '直连通道失败，降级到常规 HTTP: $e');
+      } finally {
+        detach?.call();
+        directCancellation.cancel();
       }
     }
 
@@ -189,10 +196,12 @@ class DesktopSubscriptionFetcher {
     required Duration requestTimeout,
     Future<List<InternetAddress>> Function(String host)? addressLookup,
     SubscriptionRefreshCancellation? cancellation,
+    SubscriptionRefreshControl? control,
     required SubscriptionRequestBudget requestBudget,
   }) async {
     final negotiated = await SubscriptionFetchPolicy.negotiateClientIdentity<
         DirectFetchResponse>(
+      control: control,
       request: (identity, isCompatibilityAttempt) async {
         requestBudget.consume();
         try {
@@ -241,6 +250,7 @@ class DesktopSubscriptionFetcher {
   }) async {
     final negotiated = await SubscriptionFetchPolicy.negotiateClientIdentity<
         _DesktopHttpResponse>(
+      control: control,
       request: (identity, isCompatibilityAttempt) async {
         requestBudget.consume();
         try {
@@ -382,6 +392,10 @@ class DesktopSubscriptionFetcher {
         ..followRedirects = false
         ..headers.set('User-Agent', userAgent)
         ..headers.set('Accept', 'text/yaml, application/x-yaml, */*');
+      final authorization = SubscriptionUrlPolicy.basicAuthorization(uri);
+      if (authorization != null) {
+        request.headers.set(HttpHeaders.authorizationHeader, authorization);
+      }
 
       final response = await waitFor(request.close().timeout(remaining()));
       control?.throwIfStopped();

@@ -182,7 +182,7 @@ void main() {
     );
   });
 
-  for (final task in ['sources', 'snapshot', 'runtime']) {
+  for (final task in ['sources', 'snapshot', 'runtime', 'normalize']) {
     test('cancelling large $task processing leaves no worker behind', () async {
       SubscriptionProcessing.workerStartDelayForTesting =
           const Duration(seconds: 5);
@@ -197,6 +197,7 @@ void main() {
             yaml, const {'source': 'Primary'}, control),
         'snapshot' => SubscriptionProcessing.parseSnapshot(yaml, control,
             loadingCache: true),
+        'normalize' => SubscriptionProcessing.normalize(yaml, control),
         _ => SubscriptionProcessing.buildRuntimeText(yaml, control),
       };
       expect(SubscriptionProcessing.activeWorkerCount, 1);

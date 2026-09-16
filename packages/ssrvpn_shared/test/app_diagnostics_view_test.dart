@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' show SemanticsAction;
 
 import 'package:flutter/material.dart';
@@ -15,6 +16,95 @@ void main() {
       ),
       isTrue,
     );
+  });
+
+  testWidgets(
+      'diagnostic refresh can be activated by accessibility and is disabled while loading',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    var runs = 0;
+    final refreshed = Completer<AppDiagnosticReport>();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: AppDiagnosticsView(
+      runDiagnostics: () async {
+        runs++;
+        if (runs == 2) return refreshed.future;
+        return AppDiagnosticReport(
+            generatedAt: DateTime.utc(2026, 9, 16), checks: const []);
+      },
+      loadHistory: () async => const [],
+      repair: (_) async =>
+          const AppRepairResult(success: false, message: 'unused'),
+    ))));
+    await tester.pumpAndSettle();
+    final action = tester.getSemantics(find.bySemanticsLabel('重新运行诊断'));
+    expect(action.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+    action.owner!.performAction(action.id, SemanticsAction.tap);
+    await tester.pump();
+    expect(
+        tester
+            .getSemantics(find.bySemanticsLabel('重新运行诊断'))
+            .getSemanticsData()
+            .hasAction(SemanticsAction.tap),
+        isFalse);
+    refreshed.complete(AppDiagnosticReport(
+        generatedAt: DateTime.utc(2026, 9, 16), checks: const []));
+    await tester.pumpAndSettle();
+    expect(runs, 2);
+    semantics.dispose();
+  });
+
+  testWidgets('diagnostic refresh and proxy repair cannot overlap',
+      (tester) async {
+    var runs = 0;
+    var repairs = 0;
+    final refresh = Completer<AppDiagnosticReport>();
+    final repair = Completer<AppRepairResult>();
+    AppDiagnosticReport report() => AppDiagnosticReport(
+          generatedAt: DateTime.utc(2026, 9, 16),
+          checks: const [
+            AppDiagnosticCheck(
+                id: 'proxy',
+                title: '系统代理恢复',
+                status: AppDiagnosticStatus.warning,
+                summary: '待恢复',
+                repairAction: AppRepairAction.retryOwnedProxyRecovery)
+          ],
+        );
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: AppDiagnosticsView(
+      runDiagnostics: () async {
+        runs++;
+        return runs == 2 ? refresh.future : report();
+      },
+      loadHistory: () async => const [],
+      repair: (_) async {
+        repairs++;
+        return repair.future;
+      },
+    ))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('重新检查'));
+    await tester.pump();
+    await tester.tap(find.text('修复系统代理'));
+    await tester.pump();
+    expect(repairs, 0,
+        reason:
+            'Do not repair from an older report while a fresh diagnostic is pending');
+    refresh.complete(report());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('修复系统代理'));
+    await tester.pump();
+    expect(repairs, 1);
+    await tester.tap(find.text('重新检查'));
+    await tester.pump();
+    expect(runs, 2,
+        reason: 'Do not start a competing diagnostic during repair');
+    repair.complete(const AppRepairResult(success: true, message: '已恢复'));
+    await tester.pumpAndSettle();
+    expect(runs, 3);
   });
 
   testWidgets('shows stable codes and runs only the offered repair',

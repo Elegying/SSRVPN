@@ -49,11 +49,14 @@ void main() {
     expect(await service.diagnosticCoreAvailable(), isFalse);
 
     final checks = await service.platformDiagnosticChecks();
-    expect(checks, hasLength(1));
-    expect(checks.single.id, 'system_proxy');
-    expect(checks.single.status, AppDiagnosticStatus.passed);
-    expect(checks.single.errorCode, isNull);
-    expect(checks.single.repairAction, isNull);
+    expect(checks, hasLength(2));
+    final proxy = checks.singleWhere((check) => check.id == 'system_proxy');
+    expect(proxy.status, AppDiagnosticStatus.passed);
+    expect(proxy.errorCode, isNull);
+    expect(proxy.repairAction, isNull);
+    final session = checks.singleWhere((check) => check.id == 'core_session');
+    expect(session.status, AppDiagnosticStatus.skipped);
+    expect(session.summary, contains('未获取'));
   });
 
   test('idle proxy recovery repair is idempotently successful', () async {

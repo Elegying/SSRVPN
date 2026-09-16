@@ -56,10 +56,10 @@ class BackgroundImageStore {
   static Future<void> removeOwned(String path, String dataDirectory) async {
     if (path.isEmpty) return;
     final file = File(path);
-    final root = Directory('$dataDirectory/backgrounds').absolute.path;
-    if (file.parent.parent.absolute.path != root ||
-        !file.parent.path
-            .split(Platform.pathSeparator)
+    final root = Directory('$dataDirectory/backgrounds').absolute.uri;
+    if (file.parent.parent.absolute.uri != root ||
+        !file.parent.uri.pathSegments
+            .where((segment) => segment.isNotEmpty)
             .last
             .startsWith('image-') ||
         file.uri.pathSegments.last != 'background.png') {

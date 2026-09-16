@@ -1,3 +1,5 @@
+import hashlib
+import re
 import unittest
 from pathlib import Path
 
@@ -41,6 +43,56 @@ class DependencySecurityTest(unittest.TestCase):
             for package in packages:
                 self.assertIn(f'- "{package}"', isolated)
                 self.assertIn(f'- "{package}"', general.split("exclude-patterns:", 1)[1])
+
+    def test_local_flutter_action_preserves_fixed_upstream_source(self) -> None:
+        action_dir = ROOT / ".github/actions/setup-flutter"
+        expected_blobs = {
+            "setup.sh": "b3c0b7b688265169934775222e08146e08f69e79",
+            "LICENSE": "c5366451ddd20de8ce61661e117410459a4ae913",
+            "action.yaml": "644170e5eb88b15006d7f4fc748c6532b62d30c0",
+        }
+        for filename, expected in expected_blobs.items():
+            content = (action_dir / filename).read_bytes()
+            if filename == "action.yaml":
+                content, count = re.subn(
+                    rb"uses: actions/cache@[0-9a-f]{40}(?=\s)",
+                    b"uses: actions/cache@v5",
+                    content,
+                )
+                self.assertEqual(count, 2)
+            header = f"blob {len(content)}\0".encode()
+            self.assertEqual(hashlib.sha1(header + content).hexdigest(), expected)
+
+    def test_local_flutter_action_recursively_pins_external_actions(self) -> None:
+        visited = set()
+
+        def check_action(directory: Path) -> None:
+            if directory in visited:
+                return
+            visited.add(directory)
+            manifest = directory / "action.yaml"
+            if not manifest.exists():
+                manifest = directory / "action.yml"
+            references = re.findall(
+                r"^\s*(?:-\s*)?uses:\s*([^\s#]+)",
+                manifest.read_text(),
+                flags=re.MULTILINE,
+            )
+            for reference in references:
+                if reference.startswith("./"):
+                    check_action(ROOT / reference)
+                else:
+                    self.assertRegex(reference, r"^[^@]+@[0-9a-f]{40}$")
+
+        check_action(ROOT / ".github/actions/setup-flutter")
+
+    def test_all_flutter_workflow_steps_use_the_local_pinned_action(self) -> None:
+        for workflow, expected_count in (("ci.yml", 5), ("release.yml", 4)):
+            source = (ROOT / ".github/workflows" / workflow).read_text()
+            self.assertEqual(
+                source.count("uses: ./.github/actions/setup-flutter"), expected_count
+            )
+            self.assertNotIn("uses: subosito/flutter-action@", source)
 
     def test_dependency_and_text_guards_gate_expensive_core_jobs(self) -> None:
         ci = (ROOT / ".github/workflows/ci.yml").read_text()

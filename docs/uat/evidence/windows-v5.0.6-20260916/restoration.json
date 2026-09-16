@@ -1,0 +1,12 @@
+{
+  "Time": "2026-09-16T19:12:57.3811120+08:00",
+  "SettingsByteIdentical": true,
+  "OriginalSubscriptionsPreserved": true,
+  "SubscriptionCount": 2,
+  "ProxyEnable": 0,
+  "ProxyServer": "127.0.0.1:7890",
+  "CoreAndUiProcessCount": 0,
+  "TestPortListenerCount": 0,
+  "TunAdapterCount": 0,
+  "InstalledAppMatchesFixedPayload": true
+}

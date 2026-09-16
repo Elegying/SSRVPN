@@ -1287,6 +1287,267 @@ void main() {
       expect(proxies.first, '新加坡节点');
     });
 
+    for (final running in [true, false]) {
+      test(
+        'preferred snapshot ${running ? 'retains live' : 'uses saved'} endpoint identity',
+        () async {
+          SharedPreferences.setMockInitialValues({});
+          const channel = MethodChannel('com.ssrvpn/native');
+          final messenger =
+              TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+          Map<Object?, Object?>? committed;
+          messenger.setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'syncSettings') {
+              committed = Map<Object?, Object?>.from(call.arguments as Map);
+              return 'port-snapshot';
+            }
+            return null;
+          });
+          final dir =
+              await Directory.systemTemp.createTemp('ssrvpn_live_ports_');
+          final preferred = AppSettings(
+            proxyPort: 7890,
+            socksPort: 7891,
+            apiPort: 9090,
+            apiSecret: 'saved-test-secret',
+          );
+          final runtime = preferred.copyWith(
+            proxyPort: 17990,
+            socksPort: 17991,
+            apiPort: 19090,
+            apiSecret: 'active-test-secret',
+          );
+          final service = ClashService()
+            ..setPaths(
+                configDir: dir.path, configPath: '${dir.path}/config.yaml')
+            ..updateSettings(runtime)
+            ..setRunning(running);
+          addTearDown(() async {
+            messenger.setMockMethodCallHandler(channel, null);
+            service.dispose();
+            await dir.delete(recursive: true);
+          });
+
+          final path = await service.writePreferredNodeConfig(
+            _testProxies,
+            preferred,
+            '新加坡节点',
+          );
+          final expected = running ? runtime : preferred;
+          final config = loadYaml(await File(path).readAsString()) as YamlMap;
+          expect(service.settings.apiPort, expected.apiPort);
+          expect(service.settings.proxyPort, expected.proxyPort);
+          expect(service.settings.socksPort, expected.socksPort);
+          expect(service.settings.apiSecret, expected.apiSecret);
+          expect(
+              config['external-controller'], '127.0.0.1:${expected.apiPort}');
+          expect(config['mixed-port'], expected.proxyPort);
+          expect(config['socks-port'], expected.socksPort);
+          expect(config['secret'], expected.apiSecret);
+          expect(committed!['apiPort'], expected.apiPort);
+          expect(committed!['proxyPort'], expected.proxyPort);
+          expect(committed!['socksPort'], expected.socksPort);
+          expect(committed!['apiSecret'], expected.apiSecret);
+        },
+      );
+    }
+
+    test('reattached native VPN restores its active endpoint identity',
+        () async {
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final dir =
+          await Directory.systemTemp.createTemp('ssrvpn_reattach_ports_');
+      final preferred = AppSettings(apiSecret: 'saved-test-secret');
+      final runtime = preferred.copyWith(
+        proxyPort: 17990,
+        socksPort: 17991,
+        apiPort: 19090,
+        apiSecret: 'active-test-secret',
+      );
+      final path = '${dir.path}/config-active.yaml';
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml')
+        ..updateSettings(preferred);
+      await File(path).writeAsString(
+        service.generateClashConfig(_testProxies, runtime),
+      );
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getConnectionState') {
+          return {
+            'running': true,
+            'transitioning': false,
+            'protectedConfigPath': path,
+            'protectedConfigTrusted': true,
+            'sessionGeneration': 7,
+          };
+        }
+        return null;
+      });
+      addTearDown(() async {
+        messenger.setMockMethodCallHandler(channel, null);
+        service.dispose();
+        await dir.delete(recursive: true);
+      });
+
+      expect(await service.refreshNativeConnectionState(), isTrue);
+      expect(service.isRunning, isTrue);
+      expect(service.settings.apiPort, runtime.apiPort);
+      expect(service.settings.proxyPort, runtime.proxyPort);
+      expect(service.settings.socksPort, runtime.socksPort);
+      expect(
+          service.apiHeaders()['Authorization'], 'Bearer active-test-secret');
+      expect(preferred.apiPort, 9090);
+    });
+
+    test('late native snapshot cannot replace a newer active endpoint',
+        () async {
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final dir = await Directory.systemTemp.createTemp('ssrvpn_late_ports_');
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml')
+        ..updateSettings(AppSettings(apiSecret: 'saved-test-secret'));
+      final oldPath = '${dir.path}/config-old.yaml';
+      final newPath = '${dir.path}/config-new.yaml';
+      for (final entry in {oldPath: 19090, newPath: 29090}.entries) {
+        await File(entry.key).writeAsString(service.generateClashConfig(
+          _testProxies,
+          AppSettings(apiPort: entry.value, apiSecret: 'test-${entry.value}'),
+        ));
+      }
+      Map<String, Object> snapshot(String path, int generation) => {
+            'running': true,
+            'transitioning': false,
+            'protectedConfigPath': path,
+            'protectedConfigTrusted': true,
+            'sessionGeneration': generation,
+          };
+      final oldReply = Completer<Map<String, Object>>();
+      final oldRequested = Completer<void>();
+      var requests = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method != 'getConnectionState') return null;
+        if (++requests == 1) {
+          oldRequested.complete();
+          return oldReply.future;
+        }
+        return snapshot(newPath, 8);
+      });
+      addTearDown(() async {
+        messenger.setMockMethodCallHandler(channel, null);
+        service.dispose();
+        await dir.delete(recursive: true);
+      });
+
+      final oldSync = service.refreshNativeConnectionState();
+      await oldRequested.future;
+      expect(await service.refreshNativeConnectionState(), isTrue);
+      expect(service.settings.apiPort, 29090);
+      oldReply.complete(snapshot(oldPath, 7));
+      expect(await oldSync, isFalse);
+      expect(service.settings.apiPort, 29090);
+      expect(service.apiHeaders()['Authorization'], 'Bearer test-29090');
+      expect(service.nativeSessionGeneration, 8);
+    });
+
+    test('invalid active endpoint cannot replace the current controller',
+        () async {
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final dir =
+          await Directory.systemTemp.createTemp('ssrvpn_invalid_ports_');
+      final path = '${dir.path}/config-invalid.yaml';
+      await File(path).writeAsString('''
+external-controller: '192.168.1.1:19090'
+mixed-port: 17990
+socks-port: 17991
+secret: rejected-test-secret
+''');
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml')
+        ..updateSettings(AppSettings(apiSecret: 'retained-test-secret'));
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getConnectionState') {
+          return {
+            'running': true,
+            'transitioning': false,
+            'protectedConfigPath': path,
+            'protectedConfigTrusted': true,
+            'sessionGeneration': 7,
+          };
+        }
+        return null;
+      });
+      addTearDown(() async {
+        messenger.setMockMethodCallHandler(channel, null);
+        service.dispose();
+        await dir.delete(recursive: true);
+      });
+
+      expect(await service.refreshNativeConnectionState(), isTrue);
+      expect(service.settings.apiPort, 9090);
+      expect(service.settings.proxyPort, 7890);
+      expect(
+          service.apiHeaders()['Authorization'], 'Bearer retained-test-secret');
+      expect(service.isRunning, isTrue);
+      expect(service.recentLogs, isNot(contains('rejected-test-secret')));
+    });
+
+    test('native endpoint restore retries only until the session is resolved',
+        () async {
+      const channel = MethodChannel('com.ssrvpn/native');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final dir = await Directory.systemTemp.createTemp('ssrvpn_retry_ports_');
+      final path = '${dir.path}/config-active.yaml';
+      final service = ClashService()
+        ..setPaths(configDir: dir.path, configPath: '${dir.path}/config.yaml')
+        ..updateSettings(AppSettings(apiSecret: 'saved-test-secret'));
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getConnectionState') {
+          return {
+            'running': true,
+            'transitioning': false,
+            'protectedConfigPath': path,
+            'protectedConfigTrusted': true,
+            'sessionGeneration': 7,
+          };
+        }
+        return null;
+      });
+      addTearDown(() async {
+        messenger.setMockMethodCallHandler(channel, null);
+        service.dispose();
+        await dir.delete(recursive: true);
+      });
+
+      expect(await service.refreshNativeConnectionState(), isTrue);
+      expect(service.settings.apiPort, 9090);
+      await File(path).writeAsString(service.generateClashConfig(
+        _testProxies,
+        AppSettings(apiPort: 19090, apiSecret: 'restored-test-secret'),
+      ));
+      expect(await service.refreshNativeConnectionState(), isTrue);
+      expect(service.settings.apiPort, 19090);
+      expect(
+          service.apiHeaders()['Authorization'], 'Bearer restored-test-secret');
+
+      // A later broadcast for this already adopted native session must not
+      // reparse the file and accidentally adopt unrelated disk changes.
+      await File(path).writeAsString(service.generateClashConfig(
+        _testProxies,
+        AppSettings(apiPort: 29090, apiSecret: 'unrelated-test-secret'),
+      ));
+      expect(await service.refreshNativeConnectionState(), isTrue);
+      expect(service.settings.apiPort, 19090);
+      expect(
+          service.apiHeaders()['Authorization'], 'Bearer restored-test-secret');
+    });
+
     test('attached native session keeps an unknown running config', () async {
       SharedPreferences.setMockInitialValues({});
       const channel = MethodChannel('com.ssrvpn/native');

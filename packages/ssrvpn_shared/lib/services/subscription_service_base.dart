@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import 'package:yaml/yaml.dart' show YamlException;
+import '../utils/log_redactor.dart';
 import '../models/subscription.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
@@ -106,6 +108,11 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
   }
 
   Future<Subscription> _addSubscription(String name, String url) async {
+    // Different UI entry points can pass their preflight checks together.
+    // Recheck only after this mutation owns the serial transaction queue.
+    if (_subscriptions.any((subscription) => subscription.url == url)) {
+      throw const DuplicateSubscriptionUrlException();
+    }
     final control =
         SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout);
     final local = isSingleNodeLink(url);
@@ -182,11 +189,22 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
   Future<void> _updateSubscription(Subscription updated) async {
     final index = _subscriptions.indexWhere((s) => s.id == updated.id);
     if (index >= 0) {
+      final previous = _subscriptions[index];
+      if (updated.url != previous.url &&
+          _subscriptions.any((subscription) =>
+              subscription.id != updated.id &&
+              subscription.url == updated.url)) {
+        throw const DuplicateSubscriptionUrlException();
+      }
       final control =
           SubscriptionRefreshControl(timeout: defaultBatchRefreshTimeout);
       final cachedSources =
           _rawYaml == null ? null : await _cachedSourceYamls(control);
-      final previous = _subscriptions[index];
+      if (updated.url == previous.url) {
+        // A refresh ahead of this edit may have committed a newer timestamp.
+        // Metadata edits must preserve the service's latest refresh result.
+        updated.lastUpdate = previous.lastUpdate;
+      }
       _subscriptions[index] = updated;
       try {
         if (updated.url != previous.url) {
@@ -308,13 +326,15 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       } catch (error) {
         failures.add(SubscriptionRefreshFailure(
           subscriptionName: sub.name,
-          message: error.toString().replaceFirst('Exception: ', ''),
+          message: error is FormatException || error is YamlException
+              ? '订阅内容解析失败或没有可用节点，请联系订阅提供方'
+              : LogRedactor.sanitizeForDisplay(error)
+                  .replaceFirst('Exception: ', ''),
         ));
       }
     }
     if (succeededSubs.isEmpty) {
-      throw Exception('所有订阅刷新失败:\n'
-          '${failures.map((failure) => failure.detail).join('\n')}');
+      throw SubscriptionBatchRefreshException(failures);
     }
     // Legacy nodes with ambiguous ownership survive partial refreshes. A full
     // refresh is the first point at which replacing that old data is safe.
@@ -355,7 +375,9 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
         ? _validatedLocalYaml(sub.url)
         : await control.wait(fetchSubscription(sub.url, control: control));
     control.throwIfStopped();
-    final yaml = normalizeSubscriptionContent(content);
+    final yaml = content == null
+        ? null
+        : await SubscriptionProcessing.normalize(content, control);
     if (yaml == null || yaml.isEmpty) {
       throw const FormatException('返回内容为空或无法识别');
     }

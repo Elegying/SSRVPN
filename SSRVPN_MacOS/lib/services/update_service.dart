@@ -13,11 +13,13 @@ class UpdateService {
   static const String _openPath = '/usr/bin/open';
 
   static Future<AppUpdateInfo?> checkForUpdate(
-    String currentVersion,
-  ) {
+    String currentVersion, {
+    int? Function()? localProxyPort,
+  }) {
     return SharedUpdateService.checkForUpdate(
       currentVersion: currentVersion,
       assetExtension: '.dmg',
+      localProxyPort: localProxyPort,
     );
   }
 
@@ -41,6 +43,7 @@ class UpdateService {
     required String? sha256,
     String? fallbackDownloadUrl,
     VerifiedUpdatePreparer? prepareForInstall,
+    int? Function()? localProxyPort,
   }) async {
     final update = AppUpdateInfo(
       version: latestVersion,
@@ -58,6 +61,7 @@ class UpdateService {
             context,
             SharedUpdateService.preferDownloadUrl(update, url),
             fileName: _dmgFileName(latestVersion),
+            localProxyPort: localProxyPort,
             beforeOpen: prepareForInstall,
             openFile: (file) async {
               await Process.start(_openPath, [file.path]);
@@ -107,21 +111,21 @@ class UpdateService {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
+              onPressed: () => dismissSsrvpnDialog<void>(dialogContext),
               child: const Text('稍后再说'),
             ),
             if (fallbackDownloadUrl != null &&
                 fallbackDownloadUrl.trim().isNotEmpty)
               TextButton(
                 onPressed: () {
-                  Navigator.pop(dialogContext);
+                  if (!dismissSsrvpnDialog<void>(dialogContext)) return;
                   unawaited(downloadAndOpen(fallbackDownloadUrl));
                 },
                 child: const Text('使用备用下载地址'),
               ),
             ElevatedButton(
               onPressed: () {
-                Navigator.pop(dialogContext);
+                if (!dismissSsrvpnDialog<void>(dialogContext)) return;
                 unawaited(downloadAndOpen(downloadUrl));
               },
               style: ElevatedButton.styleFrom(

@@ -29,6 +29,7 @@ import 'smart_rule_bundle.dart';
 import 'smart_rule_signature.dart';
 import 'smart_rule_recovery.dart';
 
+part 'clash_service_connection_progress.dart';
 part 'clash_service_config_support.dart';
 part 'clash_service_diagnostics.dart';
 part 'clash_service_runtime_support.dart';
@@ -86,6 +87,9 @@ abstract class ClashServiceBase
   void Function(RuntimeNotice notice)? onRuntimeNotice;
   final Set<void Function()> _statusListeners = {};
 
+  String? _connectionProgress;
+  final Set<void Function()> _connectionProgressListeners = {};
+
   Timer? _statusTimer;
   Timer? _ruleProviderRefreshTimer;
 
@@ -127,9 +131,11 @@ abstract class ClashServiceBase
 
   int get runtimeProxyPort => _settings.proxyPort;
   int get runtimeSocksPort => _settings.socksPort;
+  @override
   int get runtimeApiPort => _settings.apiPort;
   @override
   AppSettings get settings => _settings;
+  @override
   bool get connectionDesired => _connectionIntent.desired;
 
   /// Includes queued selections so advisory work cannot resume between them.
@@ -140,10 +146,12 @@ abstract class ClashServiceBase
   String get configPath => _configPath;
 
   int requestConnectionIntent(bool connected) {
+    _connectionProgress = null;
     if (!connected) clearDesktopConnectionRecoveryPlan();
     return _connectionIntent.request(connected);
   }
 
+  @override
   int? captureAutomaticRestartIntent() =>
       _connectionIntent.captureAutomaticRestart();
 
@@ -290,7 +298,9 @@ abstract class ClashServiceBase
 
   @override
   void updateSettings(AppSettings settings) {
-    _settings = settings;
+    _desiredApiPort ??= settings.apiPort;
+    // Preferences and runtime identity must not share a mutable instance.
+    _settings = settings.copyWith();
   }
 
   @override
@@ -304,11 +314,10 @@ abstract class ClashServiceBase
   }
 
   // ── Clash API ──
-
   @override
   String _apiUrl(String path) {
     final cleanPath = path.startsWith('/') ? path.substring(1) : path;
-    return 'http://127.0.0.1:${_settings.apiPort}/$cleanPath';
+    return 'http://127.0.0.1:$runtimeApiPort/$cleanPath';
   }
 
   @override
@@ -323,14 +332,8 @@ abstract class ClashServiceBase
   /// 获取代理节点列表
   Future<List<ProxyGroup>> getProxies() async {
     try {
-      final client = _apiClient;
-      if (client == null) return [];
-      final response = await client
-          .get(Uri.parse(_apiUrl('/proxies')), headers: apiHeaders())
-          .timeout(const Duration(seconds: 5));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = await _readControllerObject('/proxies');
+      if (data != null) {
         final proxies = data['proxies'] as Map<String, dynamic>? ?? {};
 
         final groups = <ProxyGroup>[];
@@ -421,21 +424,8 @@ abstract class ClashServiceBase
 
   /// 获取当前配置
   @override
-  Future<Map<String, dynamic>?> getConfigs() async {
-    try {
-      final client = _apiClient;
-      if (client == null) return null;
-      final response = await client
-          .get(Uri.parse(_apiUrl('/configs')), headers: apiHeaders())
-          .timeout(const Duration(seconds: 5));
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
-      }
-    } catch (e) {
-      this.log('获取配置失败: cause=${_safeRuntimeLogErrorCode(e)}');
-    }
-    return null;
-  }
+  Future<Map<String, dynamic>?> getConfigs() =>
+      _readControllerObject('/configs');
 
   /// 切换选中的代理节点（同时处理 PROXY 和 GLOBAL 组）
   /// The optional guard is checked before each mutation and after asynchronous
@@ -444,6 +434,10 @@ abstract class ClashServiceBase
     String nodeName, {
     SwitchContextGuard? isSwitchContextCurrent,
   }) {
+    final generation = _trafficSessionGeneration;
+    Future<bool> isCurrent() async =>
+        generation == _trafficSessionGeneration &&
+        await _isSwitchContextCurrent(isSwitchContextCurrent);
     final publishBusy = _pendingProxySelections++ == 0;
     final operation = _proxySelectionTail.then(
       (_) async {
@@ -451,7 +445,7 @@ abstract class ClashServiceBase
           if (publishBusy) _notifyStatusChanged();
           return await _switchSelectedProxy(
             nodeName,
-            isSwitchContextCurrent: isSwitchContextCurrent,
+            isSwitchContextCurrent: isCurrent,
           );
         } finally {
           if (--_pendingProxySelections == 0) _notifyStatusChanged();
@@ -517,9 +511,11 @@ abstract class ClashServiceBase
   /// In global mode GLOBAL may point at PROXY; then use PROXY.now.
   @override
   Future<String?> currentSelectedProxyName() async {
+    final generation = _trafficSessionGeneration;
     final global = _settings.proxyMode == ProxyMode.global;
     var selected =
         await _currentProxyGroupSelection(global ? 'GLOBAL' : 'PROXY');
+    if (generation != _trafficSessionGeneration) return null;
     if (global && selected == 'PROXY') {
       selected = await _currentProxyGroupSelection('PROXY');
     }
@@ -535,8 +531,9 @@ abstract class ClashServiceBase
     String groupName,
     String nodeName,
   ) async {
+    final generation = _trafficSessionGeneration;
     final accepted = await _switchProxyGroup(groupName, nodeName);
-    if (!accepted) return false;
+    if (!accepted || generation != _trafficSessionGeneration) return false;
     return _waitForProxyGroupSelection(groupName, nodeName);
   }
 
@@ -581,29 +578,11 @@ abstract class ClashServiceBase
   }
 
   Future<String?> _currentProxyGroupSelection(String groupName) async {
-    try {
-      final client = _apiClient;
-      if (client == null) return null;
-      final response = await client
-          .get(
-            Uri.parse(_apiUrl('/proxies/${Uri.encodeComponent(groupName)}')),
-            headers: apiHeaders(),
-          )
-          .timeout(const Duration(seconds: 3));
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        return null;
-      }
-      final decoded = jsonDecode(response.body);
-      if (decoded is Map<String, dynamic>) {
-        return decoded['now']?.toString();
-      }
-    } catch (e) {
-      this.log(
-        '读取代理组状态失败 $groupName: '
-        'cause=${_safeRuntimeLogErrorCode(e)}',
-      );
-    }
-    return null;
+    final data = await _readControllerObject(
+      '/proxies/${Uri.encodeComponent(groupName)}',
+      timeout: const Duration(seconds: 3),
+    );
+    return data?['now']?.toString();
   }
 
   Future<bool> _waitForProxyGroupSelection(
@@ -611,9 +590,12 @@ abstract class ClashServiceBase
     String expectedNodeName,
   ) async {
     String? lastSeen;
+    final generation = _trafficSessionGeneration;
     final deadline = DateTime.now().add(const Duration(milliseconds: 500));
     while (DateTime.now().isBefore(deadline)) {
+      if (generation != _trafficSessionGeneration) return false;
       lastSeen = await _currentProxyGroupSelection(groupName);
+      if (generation != _trafficSessionGeneration) return false;
       if (lastSeen == expectedNodeName) return true;
       await Future<void>.delayed(const Duration(milliseconds: 40));
     }
@@ -692,6 +674,7 @@ abstract class ClashServiceBase
 
   void setRunning(bool running) {
     if (_isRunning != running) {
+      _consecutiveHealthCheckFailures = 0;
       _trafficSessionGeneration++;
       _invalidateHealthMonitorSession();
       _resetDataPlaneObservationSession();
@@ -753,5 +736,6 @@ abstract class ClashServiceBase
     _apiClient?.close();
     onRuntimeNotice = null;
     _statusListeners.clear();
+    _connectionProgressListeners.clear();
   }
 }

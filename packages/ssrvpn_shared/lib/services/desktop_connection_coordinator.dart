@@ -90,6 +90,7 @@ class DesktopConnectionCoordinator {
     required String? Function() readStartFailureReason,
     DesktopPreferredNodeSwitch? switchPreferredNode,
     String? Function()? readRuntimeNotice,
+    void Function(String)? onProgress,
   }) async {
     var startedByTransaction = false;
     var rollbackAttempted = false;
@@ -128,19 +129,23 @@ class DesktopConnectionCoordinator {
         var rejected = await rejectStaleState();
         if (rejected != null) return rejected;
 
+        onProgress?.call('正在检查连接端口…');
         final runtimeSettings = await prepareForStart(preferredSettings);
         rejected = await rejectStaleState();
         if (rejected != null) return rejected;
         runtimeNotice = readRuntimeNotice?.call();
 
+        onProgress?.call('正在准备节点和分流规则…');
         final config = await generateConfig(runtimeSettings);
         rejected = await rejectStaleState();
         if (rejected != null) return rejected;
 
+        onProgress?.call('正在保存本次连接设置…');
         await writeConfig(config);
         rejected = await rejectStaleState();
         if (rejected != null) return rejected;
 
+        onProgress?.call('正在启动连接服务…');
         final started = await start();
         startedByTransaction = started;
         rejected = await rejectStaleState();
@@ -160,6 +165,9 @@ class DesktopConnectionCoordinator {
         }
 
         bool isCurrent() => isRevisionCurrent() && isIntentCurrent();
+        if (switchPreferredNode != null) {
+          onProgress?.call('正在应用所选节点…');
+        }
         final switchSucceeded = switchPreferredNode == null
             ? null
             : await switchPreferredNode(isCurrent);

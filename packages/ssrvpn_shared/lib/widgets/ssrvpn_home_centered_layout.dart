@@ -1,6 +1,6 @@
 part of 'ssrvpn_home_overview.dart';
 
-enum _HomePart { header, status, power, node, details, statistics }
+enum _HomePart { header, status, power, progress, node, details, statistics }
 
 /// The card itself anchors the vertical layout; account cards never move it.
 class _CenteredHomeLayout extends MultiChildLayoutDelegate {
@@ -30,16 +30,31 @@ class _CenteredHomeLayout extends MultiChildLayoutDelegate {
 
     final header = measure(_HomePart.header, height: 48);
     final status = measure(_HomePart.status);
+    final progress = hasChild(_HomePart.progress)
+        ? measure(_HomePart.progress, height: 60)
+        : Size.zero;
+    final progressSpace = progress.height == 0 ? 0 : progress.height + 8;
     final diameter =
-        (nodeTop - header.height - status.height - 34).clamp(48.0, powerSize);
+        (nodeTop - header.height - status.height - progressSpace - 34)
+            .clamp(48.0, powerSize);
     final power = layoutChild(
         _HomePart.power, BoxConstraints.tight(Size.square(diameter)));
-    final spare =
-        (nodeTop - header.height - status.height - power.height - 34) / 3;
+    final spare = (nodeTop -
+            header.height -
+            status.height -
+            power.height -
+            progressSpace -
+            34) /
+        3;
     place(_HomePart.header, header, 0);
     final statusTop = header.height + 12 + spare;
     place(_HomePart.status, status, statusTop);
     place(_HomePart.power, power, statusTop + status.height + 10 + spare);
+
+    if (hasChild(_HomePart.progress)) {
+      place(_HomePart.progress, progress,
+          statusTop + status.height + 10 + spare + power.height + 8);
+    }
 
     var lowerTop = nodeTop + node.height + 12;
     if (hasChild(_HomePart.details)) {
@@ -97,6 +112,9 @@ extension _CenteredHomeContent on _HomeOverviewState {
                         isConnecting: widget.isConnecting,
                         hasConnectionError: widget.errorMessage != null,
                         onTap: widget.onToggleConnection))),
+            if (_connectionProgress != null)
+              LayoutId(
+                  id: _HomePart.progress, child: _buildConnectionProgress()),
             LayoutId(id: _HomePart.node, child: node),
             if (detailsVisible) LayoutId(id: _HomePart.details, child: details),
             if (widget.bottomContent != null)

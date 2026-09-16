@@ -1,0 +1,14 @@
+Three-platform proxy traffic source contracts verified.
+ok Android libgojni.so
+ok Android core build info: go1.25.11 android/arm64 c-shared with_gvisor,cmfa
+ok Android core ELF: AArch64, JNI ABI present, LOAD alignments 16384, 16384, 16384, 16384
+ok Android geoip.metadb.gz
+ok Android geoip.metadb decompressed
+ok macOS AtlasCore.gz
+ok macOS AtlasCore decompressed
+ok macOS geoip.metadb.gz
+ok macOS geoip.metadb decompressed
+ok Windows mihomo.exe
+ok Windows geoip.metadb.gz
+ok Windows geoip.metadb decompressed
+Core asset verification passed.

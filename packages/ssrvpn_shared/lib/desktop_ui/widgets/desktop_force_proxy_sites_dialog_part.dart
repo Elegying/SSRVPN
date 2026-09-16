@@ -61,7 +61,7 @@ class _DesktopForceProxySitesDialogState
         return;
       }
     }
-    Navigator.of(context).pop(values);
+    dismissSsrvpnDialog<List<String>>(context, values);
   }
 
   String? _validateSite(String value) {
@@ -184,7 +184,8 @@ class _DesktopForceProxySitesDialogState
                   children: [
                     Expanded(
                       child: TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: () =>
+                            dismissSsrvpnDialog<List<String>>(context),
                         child: const Text('取消'),
                       ),
                     ),

@@ -420,9 +420,9 @@ configure_tun_dns() {
 tun_dns_service_ownership_healthy() {
   local mapped_service current
   load_persisted_tun_dns || return 1
-  mapped_service=$(network_service_for_device "$dns_device") || return 1
+  mapped_service=$(network_service_for_device "$dns_device") || return 2
   [[ $mapped_service == "$dns_service" ]] || return 1
-  current=$(read_dns_servers "$dns_service") || return 1
+  current=$(read_dns_servers "$dns_service") || return 2
   [[ $current == "$tun_dns_server" ]]
 }
 
@@ -433,15 +433,28 @@ tun_dns_ownership_healthy() {
 }
 
 check_runtime_tun_dns_health() {
-  local failure_status=
-  if ! active_physical_network_unchanged; then
-    failure_status=error:network-change
-  elif ! tun_dns_service_ownership_healthy; then
-    failure_status=error:dns
-  else
+  local failure_status='' current_device ownership_result=0
+  # An idle/waking/offline Mac can temporarily expose no physical path. This
+  # is not proof of a network switch. The loop independently checks the core
+  # process and request owner; keep its listeners and DNS journal intact.
+  if ! current_device=$(active_physical_network_device); then
     runtime_health_failure_count=0
     runtime_health_failure_status=
     return 0
+  fi
+  if [[ $current_device != "$dns_device" ]]; then
+    failure_status=error:network-change
+  else
+    tun_dns_service_ownership_healthy || ownership_result=$?
+    if ((ownership_result == 1)); then
+      failure_status=error:dns
+    else
+      # A failed system query (2) is unknown, whereas an observed changed DNS
+      # value, remapped service or invalid journal (1) is a confirmed failure.
+      runtime_health_failure_count=0
+      runtime_health_failure_status=
+      return 0
+    fi
   fi
 
   if [[ $failure_status == "$runtime_health_failure_status" ]]; then

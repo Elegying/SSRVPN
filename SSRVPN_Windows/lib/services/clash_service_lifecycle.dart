@@ -259,11 +259,20 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   bool get diagnosticConfigRequired => true;
 
   @override
-  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async =>
-      _buildWindowsPlatformDiagnosticChecks(
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async {
+    return [
+      await _buildWindowsCoreSessionDiagnostic(
+        process: _coreProcess,
+        starting: _startOperation != null,
+        stopping: _stopOperation != null,
+        tun: _coreUsesTun,
+      ),
+      ..._buildWindowsPlatformDiagnosticChecks(
         recoveryPending: _proxyService.recoveryPending,
         ownershipWarning: connectivityOwnershipWarning,
-      );
+      ),
+    ];
+  }
 
   @override
   Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async {
@@ -312,7 +321,6 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   @override
   Future<bool> recoverAfterHealthCheckFailure(int connectionGeneration) async {
     if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
-      await stop();
       return false;
     }
     final healthy = await healthCheck();
@@ -808,7 +816,7 @@ try {
       }
 
       final startupWatch = Stopwatch()..start();
-      log('🚀 启动 Mihomo...');
+      final reportProgress = createConnectionProgressReporter();
       final preparation = await _prepareWindowsLaunch(startToken);
       if (preparation == null) return false;
       final environment = preparation.environment;
@@ -826,6 +834,7 @@ try {
         await _cleanupFailedStart();
         return false;
       }
+      reportProgress('正在启动连接服务…');
       final startedProcess = await Process.start(
         _corePath,
         ['-d', configDir, '-f', configPath],
@@ -959,6 +968,7 @@ try {
       });
 
       // 慢速磁盘或首次启动可能超过 2 秒，轮询等待 API 就绪。
+      reportProgress('正在等待连接服务和分流规则就绪…');
       var healthy = false;
       var tunIdentityPersisted = !startedWithTun;
       final deadline = DateTime.now().add(const Duration(seconds: 15));
@@ -1030,6 +1040,7 @@ try {
       configurePlatformNetworking: () async {
         _ensureStartCurrent(startToken);
         if (settings.enableTun || preserveSystemProxyRecovery) return true;
+        createConnectionProgressReporter()('正在设置系统代理…');
         final proxyWatch = Stopwatch()..start();
         final proxySet = await _proxyService.setSystemProxy(
           '127.0.0.1',

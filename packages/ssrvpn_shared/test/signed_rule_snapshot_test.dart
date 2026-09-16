@@ -34,6 +34,7 @@ void main() {
         AppSettings(
             proxyMode: mode,
             proxyPort: ports['mixed'] as int,
+            socksPort: ports['socks'] as int,
             apiPort: ports['api'] as int,
             apiSecret: 'loopback-traffic-test',
             forceProxySites: ['https://manual-proxy.example/%E4%B8%AD?q=a%20b'],

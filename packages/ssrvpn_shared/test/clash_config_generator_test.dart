@@ -585,6 +585,51 @@ proxies:
           greaterThan(rules.indexOf('DOMAIN-SUFFIX,ip.sb,DIRECT')));
     });
 
+    test('manual parent proxy DNS outranks direct children at label boundaries',
+        () {
+      const yaml =
+          'proxies: [{name: Test, type: trojan, server: node.invalid, port: 443, password: synthetic}]';
+      final parsed = loadYaml(ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(forceProxySites: [
+            'example.com',
+            'api.direct.test'
+          ], forceDirectSites: [
+            'api.example.com',
+            'deep.api.example.com',
+            'notexample.com',
+            'direct.test'
+          ]))) as YamlMap;
+      final policy = parsed['dns']['nameserver-policy'] as YamlMap;
+      expect(policy.containsKey('+.api.example.com'), isFalse);
+      expect(policy.containsKey('+.deep.api.example.com'), isFalse);
+      expect((policy['+.example.com'] as YamlList).cast<String>(),
+          everyElement(contains('#PROXY')));
+      expect((policy['+.api.direct.test'] as YamlList).cast<String>(),
+          everyElement(contains('#PROXY')));
+      for (final domain in ['notexample.com', 'direct.test']) {
+        expect((policy['+.$domain'] as YamlList).cast<String>(),
+            containsAll(AppConstants.domesticDohNameservers));
+      }
+    });
+
+    test('built-in DNS child cannot override a manual direct parent', () {
+      const yaml =
+          'proxies: [{name: Test, type: trojan, server: node.invalid, port: 443, password: synthetic}]';
+      final parsed = loadYaml(ClashConfigGenerator.generateConfig(
+          yaml,
+          AppSettings(
+              forceDirectSites: ['GOOGLEAPIS.CN.'],
+              forceProxySites: ['api.services.googleapis.cn']))) as YamlMap;
+      final policy = parsed['dns']['nameserver-policy'] as YamlMap;
+      expect(policy.containsKey('+.services.googleapis.cn'), isFalse);
+      expect((policy['+.googleapis.cn'] as YamlList).cast<String>(),
+          containsAll(AppConstants.domesticDohNameservers));
+      expect(
+          (policy['+.api.services.googleapis.cn'] as YamlList).cast<String>(),
+          everyElement(contains('#PROXY')));
+    });
+
     test('manual proxy then manual direct outrank every automatic rule', () {
       const yaml = '''
 proxies:

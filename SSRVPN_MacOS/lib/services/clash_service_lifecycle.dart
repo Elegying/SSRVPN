@@ -193,7 +193,35 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async {
     final ownershipUnavailable =
         connectivityOwnershipWarning?.trim().isNotEmpty ?? false;
+    final process = _clashProcess;
+    final tunSession = _tunSession;
+    MacosNativeCoreStatus? nativeStatus;
+    if (process != null) {
+      try {
+        nativeStatus = await _readNativeCoreStatus(process);
+        _recordNativeCoreDiagnostics(nativeStatus);
+      } catch (_) {
+        // Keep the rest of the read-only report when the process just exited.
+      }
+    }
+    final tunState = settings.enableTun && tunSession != null
+        ? await tunSession.startupState()
+        : null;
     return [
+      AppDiagnosticCheck(
+        id: 'core_session',
+        title: '核心进程与会话',
+        status: nativeStatus == null
+            ? AppDiagnosticStatus.skipped
+            : nativeStatus.isRunning
+                ? AppDiagnosticStatus.passed
+                : AppDiagnosticStatus.warning,
+        summary: 'PID：${process?.pid ?? '未获取（TUN 由授权守护管理）'}；'
+            '进程：${nativeStatus == null ? '未独立确认' : nativeStatus.isRunning ? '存活' : '已退出'}；'
+            '启动：${_startOperation != null ? '进行中' : '无'}；'
+            '停止：${_stopOperation != null ? '进行中' : '无'}；'
+            'TUN：${tunState?.name ?? '未启用'}。',
+      ),
       AppDiagnosticCheck(
         id: 'system_proxy',
         title: '系统代理恢复',
@@ -307,6 +335,18 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   @override
   Future<bool> healthCheck() async {
     if (!await checkMihomoApiHealth()) {
+      // The privileged runner can stop the core before this API probe. Keep
+      // its categorized reason instead of reporting only a refused port.
+      final session = _tunSession;
+      if (settings.enableTun &&
+          isRunning &&
+          session != null &&
+          await session.startupState() == MacosTunStartupState.failed) {
+        setLastHealthCheckError(
+          'TUN_SERVICE_LOST: ${session.lastError ?? 'TUN 授权会话已退出'}',
+        );
+        return false;
+      }
       final detail = lastHealthCheckError ?? 'Mihomo API 不可用';
       setLastHealthCheckError(
         detail.startsWith('CORE_API_UNAVAILABLE:')
@@ -490,7 +530,6 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     int connectionGeneration,
   ) async {
     if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
-      await stop();
       return false;
     }
     final healthy = await healthCheck();
@@ -752,6 +791,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
     try {
       final startupWatch = Stopwatch()..start();
+      final reportProgress = createConnectionProgressReporter();
+      reportProgress('正在检查连接设置…');
       log('启动 Mihomo 核心...');
       log('核心路径: $_corePath');
       log('配置目录: $configDir');
@@ -793,6 +834,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       await _verifyCoreForExecution();
       _ensureStartCurrent(startToken);
 
+      reportProgress('正在启动连接服务…');
       final processStartWatch = Stopwatch()..start();
       final startedProcess = parseMacosNativeCoreLaunch(
         await _coreProcessChannel.invokeMethod<Object?>(
@@ -810,6 +852,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
       int? startupExitCode;
       final startupOutput = <String>[];
 
+      reportProgress('正在等待连接服务和分流规则就绪…');
       var healthy = false;
       final deadline = DateTime.now().add(const Duration(seconds: 15));
       while (DateTime.now().isBefore(deadline) && startupExitCode == null) {
@@ -888,6 +931,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     return MacosStartTransaction().run(
       configureSystemProxy: () async {
         _ensureStartCurrent(startToken);
+        createConnectionProgressReporter()('正在设置系统代理…');
         final proxySet = await _proxyService.setSystemProxy(
           '127.0.0.1',
           settings.proxyPort,
@@ -1208,6 +1252,8 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
     _beginTunDataPathSession();
 
+    final reportProgress = createConnectionProgressReporter();
+    reportProgress('正在请求系统授权，请留意授权弹窗…');
     log('正在请求 macOS 管理员授权以启动本次 TUN 连接...');
     if (!await tunSession.start()) {
       _ensureStartCurrent(startToken);
@@ -1225,6 +1271,7 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
 
     try {
       _ensureStartCurrent(startToken);
+      reportProgress('正在启用 VPN，等待分流规则就绪…');
       final deadline = DateTime.now().add(const Duration(seconds: 45));
       while (DateTime.now().isBefore(deadline)) {
         _ensureStartCurrent(startToken);

@@ -118,3 +118,13 @@ advice.
 - Ed25519 verification: Dart `cryptography` 2.9.0, Apache-2.0,
   <https://pub.dev/packages/cryptography>. Its license is included by Flutter's
   package license collection.
+
+### SSRVPN reliability backports (2026-09-16)
+
+The platform patches in `native/proxy_traffic` additionally include the DNS
+PackBuffer correction from MetaCubeX/mihomo PR #3037, commit
+`fb002210ffe56b7c393ef021533d30d41d55de39` (GPL-3.0), on all three targets.
+The Windows patch also preserves explicit TUN IPv6 capture addresses while
+IPv6 outbound resolution remains disabled. See `native/proxy_traffic/README.md`
+for the scope and reproducible regression tests. Upstream versions and pinned
+source commits remain unchanged; object hashes identify the rebuilt cores.

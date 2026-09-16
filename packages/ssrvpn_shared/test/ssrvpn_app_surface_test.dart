@@ -63,6 +63,44 @@ void main() {
     return (lighter + 0.05) / (darker + 0.05);
   }
 
+  for (final size in [
+    const Size(390, 844),
+    const Size(380, 580),
+    const Size(640, 380),
+    const Size(360, 420)
+  ]) {
+    testWidgets('connection steps update and clear at $size', (tester) async {
+      Widget overview(String message, {bool connecting = true}) => host(
+            SsrvpnHomeOverview(
+              isConnected: !connecting,
+              isConnecting: connecting,
+              connectionProgress: message,
+              selectedNode: null,
+              selectedLatency: null,
+              selectedCountryCode: null,
+              onToggleConnection: () {},
+              onOpenNodes: () {},
+              onShowAbout: () {},
+              onShowTutorial: () {},
+              onShowLogs: () {},
+              onRefreshPublicIp: () {},
+            ),
+            size: size,
+            textScaleFactor: 1.5,
+          );
+      await tester.pumpWidget(overview('正在准备节点和分流规则…'));
+      expect(find.text('正在准备节点和分流规则…'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(overview('正在请求系统授权，请留意授权弹窗…'));
+      expect(find.text('正在准备节点和分流规则…'), findsNothing);
+      expect(find.text('正在请求系统授权，请留意授权弹窗…'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(overview('过期步骤', connecting: false));
+      expect(find.byKey(const Key('connection-progress')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('bottom navigation exposes home subscriptions and settings',
       (tester) async {
     var selected = -1;
@@ -204,7 +242,8 @@ void main() {
     expect(openedNodes, isTrue);
   });
 
-  testWidgets('connected data-plane warning is advisory, not an error',
+  testWidgets(
+      'resolved port conflict keeps connected status and advisory details',
       (tester) async {
     await tester.pumpWidget(
       host(
@@ -214,7 +253,7 @@ void main() {
           selectedNode: null,
           selectedLatency: null,
           selectedCountryCode: null,
-          connectionNotice: 'TUN 保持连接，正在热切换节点',
+          connectionNotice: '端口被占用，已临时调整：API 9090→9091',
           onToggleConnection: () {},
           onOpenNodes: () {},
           onShowAbout: () {},
@@ -225,8 +264,8 @@ void main() {
       ),
     );
 
-    expect(find.text('网络待确认'), findsOneWidget);
-    expect(find.text('TUN 保持连接，正在热切换节点'), findsOneWidget);
+    expect(find.text('已连接（有提醒）'), findsOneWidget);
+    expect(find.text('端口被占用，已临时调整：API 9090→9091'), findsOneWidget);
     expect(find.text('连接异常'), findsNothing);
     expect(find.byIcon(Icons.sync_rounded), findsOneWidget);
     expect(find.byIcon(Icons.error_outline_rounded), findsNothing);
@@ -1489,6 +1528,49 @@ void main() {
     );
     expect(refreshResult.flagsCollection.isLiveRegion, isTrue);
     semantics.dispose();
+  });
+
+  testWidgets('subscription failure details stay available and redact secrets',
+      (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(host(SsrvpnSubscriptionView(
+      subscriptions: const [],
+      urlController: controller,
+      isAdding: false,
+      isRefreshing: false,
+      isBusy: false,
+      refreshMessage: '部分成功',
+      refreshMessageColor: SsrvpnUiTokens.warning,
+      refreshFailureDetails: const [
+        '来源 A: DNS 安全检查拒绝 https://example.test/private-path?token=private-token',
+        '来源 B: TLS 证书验证失败 password=node-secret',
+      ],
+      onAdd: () {},
+      onRefresh: () {},
+      onCancelRefresh: () {},
+      onDelete: (_) {},
+    )));
+    await tester.pump(const Duration(seconds: 11));
+    expect(find.text('部分成功'), findsNothing);
+    final button = find.byKey(const Key('subscription-refresh-details'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.text('订阅刷新详情'), findsOneWidget);
+    final text = tester
+        .widgetList<Text>(find.byType(Text))
+        .map((e) => e.data ?? '')
+        .join('\n');
+    expect(text, contains('DNS 安全检查拒绝'));
+    expect(text, contains('TLS 证书验证失败'));
+    for (final secret in ['private-path', 'private-token', 'node-secret']) {
+      expect(text, isNot(contains(secret)));
+    }
+    await tester
+        .tap(find.byKey(const Key('ssrvpn-subscription-error-confirm')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('latest subscription refresh result dismisses after ten seconds',

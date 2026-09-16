@@ -60,7 +60,8 @@ Future<void> showSsrvpnDiagnosticsDialog(
                               .colorScheme
                               .onSurfaceVariant,
                         ),
-                        onPressed: () => Navigator.pop(dialogContext),
+                        onPressed: () =>
+                            dismissSsrvpnDialog<void>(dialogContext),
                       ),
                     ],
                   ),

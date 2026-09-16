@@ -80,15 +80,20 @@ mixin _ClashConfigSupport {
   /// cache or embedded conservative providers.
   @protected
   Future<void> ensureBundledSmartRules() async {
+    String? restoredVersion;
     try {
-      final restored =
-          await SmartRuleRecovery(configDir).repairRejectedSelection();
+      final recovery = SmartRuleRecovery(configDir);
+      final restored = await recovery.repairRejectedSelection();
       if (restored != null) {
         _androidAppRules = await _readAndroidAppRules(restored);
         useSmartRuleVersionForFutureConfigs(restored);
-        return;
+        restoredVersion = restored;
       }
-      final baseline = await SmartRuleBundle.ensureInstalled(configDir);
+      // A past rollback must not prevent a later app upgrade from supplying a
+      // fixed baseline offline. Never reinstall a version already rejected here.
+      final baseline = await SmartRuleBundle.ensureInstalled(configDir,
+          acceptsBundledVersion: (version) async =>
+              !await recovery.rejects(version));
       final appRules = await _readAndroidAppRules(
           baseline.activeVersion ?? baseline.version);
       _androidAppRules = appRules;
@@ -101,11 +106,15 @@ mixin _ClashConfigSupport {
                 '安装 ${baseline.installedFiles}，复用 ${baseline.reusedFiles}',
       );
     } catch (error) {
-      _smartRuleProviderPathPrefix = null;
-      _androidAppRules = const [];
+      if (restoredVersion == null) {
+        _smartRuleProviderPathPrefix = null;
+        _androidAppRules = const [];
+      }
       log(
-        '智能规则基线准备失败，保留磁盘缓存并使用保守内置规则启动: '
-        'cause=${_safeRuntimeLogErrorCode(error)}',
+        restoredVersion != null
+            ? '新版内置规则准备失败，继续使用已确认规则 $restoredVersion'
+            : '智能规则基线准备失败，保留磁盘缓存并使用保守内置规则启动: '
+                'cause=${_safeRuntimeLogErrorCode(error)}',
         level: RuntimeLogLevel.warning,
         event: 'rule_provider_baseline',
       );

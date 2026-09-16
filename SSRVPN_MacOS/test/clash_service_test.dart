@@ -1162,6 +1162,25 @@ void main() {
       expect(tunSession.stopCalls, 1);
     });
 
+    test('failed TUN runner cause survives an unavailable control API',
+        () async {
+      final tunSession = _SequencedMacosTunSession(
+        '/unused',
+        const [MacosTunStartupState.failed],
+        failureMessage: '检测到物理网络已切换，TUN 已安全停止，请重新连接',
+      );
+      final service = _SequencedTunHealthClashService(
+        tunSession: tunSession,
+        healthResults: const [false],
+      );
+      addTearDown(service.dispose);
+      service.updateSettings(AppSettings(enableTun: true));
+      service.setRunning(true);
+      expect(await service.healthCheck(), isFalse);
+      expect(service.lastHealthCheckError,
+          'TUN_SERVICE_LOST: 检测到物理网络已切换，TUN 已安全停止，请重新连接');
+    });
+
     test('system proxy health fails when the effective proxy loses ownership',
         () async {
       final tempDir = await Directory.systemTemp.createTemp(
@@ -1320,7 +1339,8 @@ void main() {
         service.connectivityWarning,
         allOf(contains('暂时无法确认'), contains('当前连接仍保留')),
       );
-      final ownershipCheck = (await service.platformDiagnosticChecks()).single;
+      final ownershipCheck = (await service.platformDiagnosticChecks())
+          .singleWhere((check) => check.id == 'system_proxy');
       expect(ownershipCheck.status, AppDiagnosticStatus.warning);
       expect(ownershipCheck.summary, contains('所有权检查暂时不可用'));
       expect(
@@ -1409,6 +1429,34 @@ void main() {
       expect(service.lastStartError, contains('DNS'));
       expect(service.healthChecks, 2);
       expect(tunSession.stopCalls, 1);
+    });
+
+    test('slow TUN API readiness does not start runtime recovery', () async {
+      final directory =
+          await Directory.systemTemp.createTemp('ssrvpn-slow-api-');
+      final session = _FakeMacosTunSession(directory.path);
+      final service = _SequencedTunHealthClashService(
+        tunSession: session,
+        healthResults: [for (var i = 0; i < 8; i++) false, true, true],
+      );
+      addTearDown(() async {
+        await service.stop();
+        service.dispose();
+        await service.flushLogs();
+        await directory.delete(recursive: true);
+      });
+      final settings = AppSettings(enableTun: true);
+      await service.init(settings,
+          dataDir: directory.path, skipCoreProbes: true);
+      await service.writeConfig(
+          service.generateClashConfig(_subscriptionYaml, settings));
+      service.requestConnectionIntent(true);
+      expect(await service.start(), isTrue);
+      expect(service.healthChecks, greaterThanOrEqualTo(10));
+      expect(service.isRunning, isTrue);
+      expect(session.stopCalls, 0);
+      expect(service.recentLogs, isNot(contains('运行状态检查失败')));
+      expect(service.recentLogs, isNot(contains('进入串行恢复')));
     });
 
     test('TUN performs a final composite health check before committing',

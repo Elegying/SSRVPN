@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -9,8 +10,62 @@ import 'package:ssrvpn_macos/services/settings_service.dart';
 import 'package:ssrvpn_macos/services/subscription_service.dart';
 import 'package:ssrvpn_macos/theme/app_theme.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 
 void main() {
+  testWidgets(
+      'late node save cannot pop the page behind an editor that is closing',
+      (tester) async {
+    final settings = await SettingsService.createForTesting(
+        settings: AppSettings(),
+        dataDir: '/tmp',
+        settingsPath: '/tmp/unused-editor-settings');
+    addTearDown(settings.dispose);
+    final subscription = _PendingEditorSubscription();
+    addTearDown(subscription.dispose);
+    late NavigatorState navigator;
+    await tester.pumpWidget(MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SubscriptionService>.value(
+              value: subscription),
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+        ],
+        child: MaterialApp(
+            theme: AppTheme.light,
+            home: Builder(builder: (context) {
+              navigator = Navigator.of(context);
+              return const Scaffold(body: Text('Root page'));
+            }))));
+    unawaited(navigator.push<void>(MaterialPageRoute(
+        builder: (_) => const Scaffold(body: Text('Node list page')))));
+    await tester.pumpAndSettle();
+    unawaited(navigator.push<bool>(
+        SsrvpnGlassPageRoute(builder: (_) => NodeEditScreen(node: _node()))));
+    await tester.pumpAndSettle();
+    final save = tester
+        .widget<TextButton>(find.widgetWithText(TextButton, '保存'))
+        .onPressed! as Future<void> Function();
+    final saving = save();
+    await tester.pump();
+    expect(subscription.submittedName, isNotNull);
+    navigator.pop();
+    await tester.pump();
+    expect(find.byType(NodeEditScreen, skipOffstage: false), findsOneWidget,
+        reason:
+            'The outgoing editor is still mounted during its reverse transition');
+    subscription.completion.complete();
+    await saving;
+    await tester.pumpAndSettle();
+    expect(subscription.saved, isTrue);
+    expect(find.text('Node list page'), findsOneWidget,
+        reason:
+            'Completing an already-requested save must not pop a second route');
+    expect(find.text('Root page'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   testWidgets('saving a name with controls preserves the chosen endpoint',
       (tester) async {
     late Directory directory;
@@ -250,5 +305,19 @@ class _EditorFaultSubscription extends SubscriptionServiceBase
       throw const FileSystemException('synthetic node save failure');
     }
     await super.cacheYaml(yaml);
+  }
+}
+
+class _PendingEditorSubscription extends _EditorFaultSubscription {
+  final completion = Completer<void>();
+  String? submittedName;
+  bool saved = false;
+  @override
+  Future<void> updateNode(
+      String originalName, Map<String, dynamic> updatedConfig,
+      {NodePreferenceStore? preferences}) async {
+    submittedName = updatedConfig['name'] as String;
+    await completion.future;
+    saved = true;
   }
 }

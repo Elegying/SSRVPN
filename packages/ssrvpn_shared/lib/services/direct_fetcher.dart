@@ -10,6 +10,7 @@ import '../services/subscription_refresh_control.dart';
 import '../services/subscription_fetch_policy.dart';
 import '../services/subscription_text_decoder.dart';
 import '../utils/subscription_url_policy.dart';
+import '../utils/app_logger.dart';
 
 /// 订阅“真·直连”下载器（桌面优先）
 ///
@@ -73,6 +74,71 @@ class DirectFetcher {
       }
     }
     return result;
+  }
+
+  /// Resolve once and return validated addresses for a pinned socket connection.
+  /// Fake-IP is only a signal to use DoH, never an allowed connection target.
+  /// On Android this does not bind/protect sockets or change the VPN route.
+  static Future<List<InternetAddress>> resolveSystemAddresses(
+    Uri uri, {
+    SubscriptionRefreshControl? control,
+    Future<List<InternetAddress>> Function(String host)? systemLookup,
+    Future<List<InternetAddress>> Function(String host)? dohLookup,
+  }) async {
+    control?.throwIfStopped();
+    Future<T> wait<T>(Future<T> operation) =>
+        control == null ? operation : control.wait(operation);
+    final literal = InternetAddress.tryParse(uri.host);
+    List<InternetAddress> addresses;
+    try {
+      addresses = literal != null
+          ? [literal]
+          : await wait((systemLookup ?? InternetAddress.lookup)(uri.host)
+              .timeout(const Duration(seconds: 10)));
+    } on SocketException {
+      throw const SubscriptionDnsException('DNS 解析失败，请检查网络后重试');
+    } on TimeoutException {
+      throw const SubscriptionDnsException('DNS 解析超时，请检查网络后重试');
+    }
+    if (addresses.isEmpty) {
+      throw const SubscriptionDnsException('DNS 未返回地址，请检查订阅域名');
+    }
+    if (literal == null && addresses.any(isFakeIp)) {
+      AppLogger.info('Subscription', '检测到 Fake-IP，使用安全 DoH 解析真实地址');
+      // A mixed private/Fake-IP answer must not turn into an SSRF bypass.
+      final ordinary =
+          addresses.where((address) => !isFakeIp(address)).toList();
+      if (ordinary.isNotEmpty) {
+        SubscriptionFetchPolicy.validateResolvedAddresses(uri, ordinary);
+      }
+      final scope = _DirectFetchCancellationScope(control?.cancellation);
+      try {
+        final operation = dohLookup != null
+            ? dohLookup(uri.host)
+            : _resolveViaDoH(uri.host, null, scope).then((values) => values
+                .map(InternetAddress.tryParse)
+                .whereType<InternetAddress>()
+                .toList());
+        // One bounded A/AAAA lookup, no fallback to the same system Fake-IP.
+        addresses = await wait(operation.timeout(const Duration(seconds: 10)));
+      } on SubscriptionRefreshCancelled {
+        rethrow;
+      } on SubscriptionRefreshDeadlineExceeded {
+        rethrow;
+      } catch (_) {
+        throw const SubscriptionDnsException(
+          '检测到 VPN 虚拟地址，但备用 DNS 解析失败，请稍后重试或更换网络',
+        );
+      } finally {
+        scope.dispose();
+      }
+      if (addresses.isEmpty) {
+        throw const SubscriptionDnsException(
+          '检测到 VPN 虚拟地址，但备用 DNS 未返回真实地址，请稍后重试',
+        );
+      }
+    }
+    return SubscriptionFetchPolicy.validateResolvedAddresses(uri, addresses);
   }
 
   /// 系统 DNS 是否已被 fake-ip 污染(用于决定是否提前走直连通道)
@@ -188,7 +254,9 @@ class DirectFetcher {
           accept: 'application/dns-json',
         ),
       );
+      if (body.statusCode != HttpStatus.ok) return const [];
       final json = jsonDecode(body.body) as Map<String, dynamic>;
+      if (json['Status'] != 0) return const [];
       final answers = json['Answer'] as List? ?? [];
       return answers
           .where((a) => a is Map && a['type'] == answerType)
@@ -346,6 +414,7 @@ class DirectFetcher {
             _httpGetOverSocket(
               stream,
               host: hostHeader,
+              authorization: SubscriptionUrlPolicy.basicAuthorization(current),
               path: pathAndQuery,
               accept: headers['Accept'] ?? '*/*',
               userAgent: headers['User-Agent'],
@@ -414,6 +483,7 @@ class DirectFetcher {
     required String host,
     required String path,
     String accept = '*/*',
+    String? authorization,
     String? userAgent,
     int maxBodyBytes = AppConstants.maxSubscriptionBytes,
     Duration requestTimeout = _requestTimeout,
@@ -424,6 +494,7 @@ class DirectFetcher {
       ..write('User-Agent: ${userAgent ?? AppConstants.appUserAgent}\r\n')
       ..write('Accept: $accept\r\n')
       ..write('Accept-Encoding: identity\r\n')
+      ..write(authorization == null ? '' : 'Authorization: $authorization\r\n')
       ..write('Connection: close\r\n')
       ..write('\r\n');
     socket.add(utf8.encode(request.toString()));

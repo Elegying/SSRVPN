@@ -62,6 +62,7 @@ extension _WindowsStartPreparationSupport on _WindowsCoreLifecycle {
   Future<_WindowsLaunchPreparation?> _prepareWindowsLaunch(
     int startToken,
   ) async {
+    createConnectionProgressReporter()('正在检查连接设置…');
     if (!File(_corePath).existsSync()) {
       log('❌ 核心文件不存在: $_corePath');
       log('请下载 mihomo-windows-amd64 并重命名为 mihomo.exe 放到应用目录');
@@ -81,6 +82,7 @@ extension _WindowsStartPreparationSupport on _WindowsCoreLifecycle {
     await Directory(tmpDir).create(recursive: true);
     _ensureStartCurrent(startToken);
     final environment = {'TMPDIR': tmpDir, 'TMP': tmpDir, 'TEMP': tmpDir};
+    createConnectionProgressReporter()('正在检查连接设置…');
     if (!await validateConfig(environment)) {
       setLastStartError(lastStartError ?? 'Mihomo 配置校验失败，请打开运行日志查看具体配置错误');
       return null;
@@ -153,6 +155,7 @@ extension _WindowsStartPreparationSupport on _WindowsCoreLifecycle {
     if (isAdministrator != true) {
       WindowsTunElevationRequestResult? elevationRequest;
       if (isAdministrator == false) {
+        createConnectionProgressReporter()('正在请求系统授权，请留意授权弹窗…');
         elevationRequest = await _awaitStartOperation(
           _tunElevationService.requestRelaunch(),
           startToken,

@@ -14,11 +14,37 @@ import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/models/app_settings.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/services/clash_service_base.dart';
+import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/services/node_country_lookup.dart';
 import 'package:ssrvpn_shared/services/smart_rule_bundle.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
 void main() {
+  test('progress rejects cancelled and replaced connection attempts', () {
+    final service = _TestClashService();
+    addTearDown(service.dispose);
+    var notifications = 0;
+    void listener() => notifications++;
+    service.addConnectionProgressListener(listener);
+    service.requestConnectionIntent(true);
+    final old = service.createConnectionProgressReporter();
+    old('启动');
+    old('启动');
+    expect(notifications, 1);
+    service.requestConnectionIntent(false);
+    old('迟到');
+    expect(service.connectionProgress, isNull);
+    service.requestConnectionIntent(true);
+    final current = service.createConnectionProgressReporter();
+    current('准备');
+    old('迟到');
+    expect(service.connectionProgress, '准备');
+    expect(notifications, 2);
+    service.removeConnectionProgressListener(listener);
+    current('启动');
+    expect(notifications, 2);
+  });
+
   group('update installation preparation', () {
     test('retries cleanup even when the UI is already disconnected', () async {
       final service = _UpdatePreparationClashService();
@@ -376,6 +402,131 @@ void main() {
   });
 
   group('ClashServiceBase runtime ports', () {
+    test('runtime identity is isolated from mutable saved preferences', () {
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      final preferred = AppSettings(apiPort: 9090, apiSecret: 'original');
+      service.updateSettings(preferred);
+      preferred.apiPort = 9091;
+      preferred.apiSecret = 'changed';
+      expect(service.runtimeApiPort, 9090);
+      expect(service.settings.apiSecret, 'original');
+      service.updateSettings(preferred);
+      expect(service.runtimeApiPort, 9091);
+      expect(service.desiredApiPort, 9090);
+    });
+
+    for (final blocked in [
+      <int>{},
+      {9090},
+      {9090, 9091}
+    ]) {
+      test('controller selection skips $blocked before generating config',
+          () async {
+        final service = _PlannedPortClashService(blocked);
+        addTearDown(service.dispose);
+        final preferred = AppSettings(apiPort: 9090);
+        final runtime = await service.prepareForStart(preferred);
+        expect(runtime.apiPort, 9090 + blocked.length);
+        expect(service.runtimeApiPort, runtime.apiPort);
+        expect(service.desiredApiPort, 9090);
+        expect(preferred.apiPort, 9090);
+        final config = ClashConfigGenerator.generateConfig(
+            'proxies: [{name: Test, type: trojan, server: example.com, port: 443, password: synthetic}]',
+            runtime);
+        expect(config,
+            contains("external-controller: '127.0.0.1:${runtime.apiPort}'"));
+      });
+    }
+
+    test('every API family uses the selected listener after a collision',
+        () async {
+      final occupied = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => occupied.close(force: true));
+      var wrongRequests = 0;
+      occupied.listen((request) {
+        wrongRequests++;
+        request.response.statusCode = 503;
+        unawaited(request.response.close());
+      });
+      final service = _TestClashService();
+      addTearDown(service.dispose);
+      final runtime =
+          await service.prepareForStart(AppSettings(apiPort: occupied.port));
+      expect(runtime.apiPort, isNot(occupied.port));
+      final server =
+          await HttpServer.bind(InternetAddress.loopbackIPv4, runtime.apiPort);
+      addTearDown(() => server.close(force: true));
+      final paths = <String>[];
+      server.listen((request) {
+        paths.add(request.uri.path);
+        request.response.write(jsonEncode(switch (request.uri.path) {
+          '/providers/rules' => {
+              'providers': {
+                for (final name in AppConstants.smartRuleProviderFiles.keys)
+                  name: {'ruleCount': 1}
+              }
+            },
+          '/proxies' => {'proxies': <String, Object>{}},
+          '/proxies/PROXY' => {'now': 'Node A'},
+          '/proxies/GLOBAL' => {'now': 'Node A'},
+          '/connections' => {'connections': <Object>[]},
+          '/ssrvpn/traffic' => {
+              'sessionGeneration': 1,
+              'sampledAtMillis': 1,
+              'upload': 0,
+              'download': 0
+            },
+          _ => <String, Object>{},
+        }));
+        unawaited(request.response.close());
+      });
+      service.initHttpClient();
+      service.useSmartRuleVersionForFutureConfigs('1.0.0');
+      service.setRunning(true);
+      expect(await service.healthCheck(), isTrue);
+      await service.getConfigs();
+      await service.getProxies();
+      expect(await service.currentSelectedProxyName(), 'Node A');
+      service.updateLiveSettings(runtime.copyWith(proxyMode: ProxyMode.global));
+      expect(await service.currentSelectedProxyName(), 'Node A');
+      await service.switchProxy('PROXY', 'Node A');
+      await service.readTrafficSample();
+      expect(
+          paths,
+          containsAll([
+            '/version',
+            '/providers/rules',
+            '/configs',
+            '/proxies',
+            '/proxies/PROXY',
+            '/proxies/GLOBAL',
+            '/connections',
+            '/ssrvpn/traffic'
+          ]));
+      final report = await service.runDiagnostics();
+      final endpoint = report.checks
+          .singleWhere((check) => check.id == 'controller_endpoint');
+      expect(endpoint.status, AppDiagnosticStatus.passed);
+      expect(endpoint.summary, contains('预期端口 ${occupied.port}'));
+      expect(endpoint.summary, contains('实际端口 ${runtime.apiPort}'));
+      expect(endpoint.summary, contains('监听：是'));
+      expect(endpoint.summary, contains('正常的冲突保护机制'));
+      expect(wrongRequests, 0);
+      // The unrelated listener is still alive after all requests and cleanup.
+      service.dispose();
+      final client = HttpClient()..findProxy = (_) => 'DIRECT';
+      try {
+        final request = await client
+            .getUrl(Uri.parse('http://127.0.0.1:${occupied.port}/'));
+        final response = await request.close();
+        expect(response.statusCode, 503);
+        await response.drain<void>();
+      } finally {
+        client.close(force: true);
+      }
+    });
+
     test('live rule edits retain listener identity until the next start',
         () async {
       final service = _PlannedPortClashService({32000});
@@ -731,9 +882,32 @@ void main() {
       expect(warning, isNull);
       expect(requestedUris, [
         Uri.parse('https://www.youtube.com/generate_204'),
-        Uri.parse('https://www.gstatic.com/generate_204'),
+        Uri.parse('https://cp.cloudflare.com/generate_204'),
       ]);
     });
+
+    for (final tun in [false, true]) {
+      test('two-attempt probe survives Google-only blocking (TUN=$tun)',
+          () async {
+        final service = _TestClashService()
+          ..updateSettings(AppSettings(enableTun: tun))
+          ..setRunning(true);
+        addTearDown(service.dispose);
+        final requestedHosts = <String>[];
+        final warning = await service.verifyUserConnectivity(
+          maxAttempts: 2,
+          retryDelay: Duration.zero,
+          request: (uri) async {
+            requestedHosts.add(uri.host);
+            if (uri.host == 'cp.cloudflare.com') return http.Response('', 204);
+            throw const SocketException('Synthetic Google route unavailable');
+          },
+        );
+        expect(warning, isNull);
+        expect(requestedHosts, contains('cp.cloudflare.com'));
+        expect(service.isRunning, isTrue);
+      });
+    }
 
     test('system-proxy verification keeps using the local mixed port', () {
       final service = _TestClashService()
@@ -762,8 +936,8 @@ void main() {
         expect(warning, isNull);
         expect(requestedUris, [
           Uri.parse('https://www.gstatic.com/generate_204'),
-          Uri.parse('https://www.youtube.com/generate_204'),
           Uri.parse('https://cp.cloudflare.com/generate_204'),
+          Uri.parse('https://www.youtube.com/generate_204'),
         ]);
       },
     );
@@ -805,6 +979,25 @@ void main() {
       expect(warning, contains('多个外部网络验证端点'));
       expect(warning, contains('HTTP 502'));
       expect(warning, contains('不代表节点失效'));
+      expect(service.recentLogs, contains('HTTP 502'));
+    });
+
+    test('failed connectivity probes retain safe causes without raw secrets',
+        () async {
+      final service = _TestClashService()..setRunning(true);
+      addTearDown(service.dispose);
+      await service.verifyUserConnectivity(
+        maxAttempts: 1,
+        retryDelay: Duration.zero,
+        request: (_) async => throw TimeoutException(
+          'https://private.example/feed?token=do-not-log',
+        ),
+      );
+      expect(service.recentLogs, contains('cause='));
+      expect(service.recentLogs, contains('1/1'));
+      expect(service.recentLogs, isNot(contains('private.example')));
+      expect(service.recentLogs, isNot(contains('do-not-log')));
+      expect(service.isRunning, isTrue);
     });
 
     test(
@@ -2202,6 +2395,79 @@ proxies:
     },
   );
 
+  test('late proxy group reply cannot read or describe a replacement session',
+      () async {
+    final oldServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final newServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => oldServer.close(force: true));
+    addTearDown(() => newServer.close(force: true));
+    final oldRequest = Completer<HttpRequest>();
+    oldServer.listen(oldRequest.complete);
+    var replacementRequests = 0;
+    newServer.listen((request) {
+      replacementRequests++;
+      request.response.write('{"now":"New Node"}');
+      unawaited(request.response.close());
+    });
+    final service = _TestClashService();
+    addTearDown(service.dispose);
+    service.initHttpClient();
+    service.updateSettings(
+        AppSettings(apiPort: oldServer.port, proxyMode: ProxyMode.global));
+    service.setRunning(true);
+    final pending = service.currentSelectedProxyName();
+    final request = await oldRequest.future;
+    service.setRunning(false);
+    service.updateSettings(
+        AppSettings(apiPort: newServer.port, proxyMode: ProxyMode.global));
+    service.setRunning(true);
+    request.response.write('{"now":"PROXY"}');
+    await request.response.close();
+    expect(await pending, isNull);
+    expect(replacementRequests, 0);
+    expect(await service.currentSelectedProxyName(), 'New Node');
+  });
+
+  test(
+      'unhealthy runtime without a connect intent is cleaned up without restart',
+      () async {
+    final service = _QueuedHealthRecoveryClashService();
+    addTearDown(service.dispose);
+    service.setRunning(true);
+    service.startStatusMonitor();
+    await service.recoveryQueued.future.timeout(const Duration(seconds: 1));
+    await service.runConnectionTransition(() async {});
+    expect(service.stopCalls, 1);
+    expect(service.isRunning, isFalse);
+    expect(service.connectionDesired, isFalse);
+  });
+
+  test('queued old recovery cannot stop a replacement connection', () async {
+    final service = _QueuedHealthRecoveryClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+    final releaseTransition = Completer<void>();
+    final replacement = service.runConnectionTransition(() async {
+      await releaseTransition.future;
+      service.stopStatusMonitor();
+      service.setRunning(false);
+      service.requestConnectionIntent(true);
+      service.updateSettings(AppSettings(apiPort: 9091));
+      service.setRunning(true);
+    });
+    service.startStatusMonitor();
+    await service.recoveryQueued.future.timeout(const Duration(seconds: 1));
+    releaseTransition.complete();
+    await replacement;
+    await service.runConnectionTransition(() async {});
+    await Future<void>.delayed(Duration.zero);
+    expect(service.isRunning, isTrue);
+    expect(service.runtimeApiPort, 9091);
+    expect(service.stopCalls, 0);
+    expect(service.recentLogs, isNot(contains('自动恢复失败')));
+  });
+
   test('status monitor keeps advisory data-plane failures connected', () async {
     final service = _AdvisoryDataPlaneClashService();
     addTearDown(service.dispose);
@@ -2240,6 +2506,25 @@ proxies:
       expect(service.isRunning, isTrue);
     },
   );
+
+  test(
+      'new connection intent suppresses a pending old health result before stop',
+      () async {
+    final service = _SessionHealthClashService();
+    addTearDown(service.dispose);
+    service.requestConnectionIntent(true);
+    service.setRunning(true);
+    service.startStatusMonitor();
+    await service.firstHealthStarted.future;
+    service.requestConnectionIntent(true);
+    service.firstHealth.complete(false);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(service.periodicHealthResults, isEmpty);
+    expect(service.lastHealthCheckError, isNull);
+    expect(service.recentLogs, isNot(contains('运行状态检查失败')));
+    expect(service.healthCalls, 1);
+    service.stopStatusMonitor();
+  });
 
   test('a stale health check cannot block or fail a newer session', () async {
     final service = _SessionHealthClashService();
@@ -3631,5 +3916,35 @@ class _HangingHealthClient extends http.BaseClient {
   @override
   void close() {
     unawaited(body?.close());
+  }
+}
+
+class _QueuedHealthRecoveryClashService extends ClashServiceBase
+    with _ExplicitTestDiagnosticCapability {
+  final recoveryQueued = Completer<void>();
+  int stopCalls = 0;
+
+  @override
+  Duration get statusMonitorInterval => const Duration(milliseconds: 1);
+  @override
+  int get maxConsecutiveHealthCheckFailures => 1;
+  @override
+  Future<bool> healthCheck() async => false;
+  @override
+  void log(
+    String message, {
+    RuntimeLogLevel level = RuntimeLogLevel.info,
+    String event = 'runtime',
+  }) {
+    super.log(message, level: level, event: event);
+    if (event == 'health_recovery' && !recoveryQueued.isCompleted) {
+      recoveryQueued.complete();
+    }
+  }
+
+  @override
+  Future<void> onStopRequired() async {
+    stopCalls++;
+    setRunning(false);
   }
 }

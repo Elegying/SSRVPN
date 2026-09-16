@@ -30,6 +30,11 @@ class SubscriptionService extends SubscriptionServiceBase {
   static Future<List<InternetAddress>> Function(String host)?
       _addressLookupOverride;
   static Duration? _readInactivityTimeoutOverride;
+  static Future<List<InternetAddress>> Function(String host)?
+      _dohLookupOverride;
+  static Future<Socket> Function(
+          InternetAddress address, int port, Duration timeout)?
+      _socketConnectOverride;
 
   SubscriptionService._();
 
@@ -53,14 +58,22 @@ class SubscriptionService extends SubscriptionServiceBase {
     _httpClientOverride = null;
     _addressLookupOverride = null;
     _readInactivityTimeoutOverride = null;
+    _dohLookupOverride = null;
+    _socketConnectOverride = null;
   }
 
   @visibleForTesting
   static void overrideAddressLookup(
     Future<List<InternetAddress>> Function(String host) lookup, {
     Duration? readInactivityTimeout,
+    Future<List<InternetAddress>> Function(String host)? dohLookup,
+    Future<Socket> Function(
+            InternetAddress address, int port, Duration timeout)?
+        socketConnect,
   }) {
     _addressLookupOverride = lookup;
+    _dohLookupOverride = dohLookup;
+    _socketConnectOverride = socketConnect;
     _readInactivityTimeoutOverride = readInactivityTimeout;
   }
 
@@ -89,13 +102,31 @@ class SubscriptionService extends SubscriptionServiceBase {
     int maxRetries = 3,
     SubscriptionRefreshControl? control,
   }) async {
+    control?.throwIfStopped();
+    final requestControl = SubscriptionRefreshControl(
+      timeout:
+          control != null && control.remaining < const Duration(seconds: 45)
+              ? control.remaining
+              : const Duration(seconds: 45),
+      cancellation: control?.cancellation,
+    );
+    try {
+      return await _fetchWithinBudget(url, maxRetries, requestControl);
+    } on SubscriptionRefreshDeadlineExceeded {
+      control?.throwIfStopped();
+      throw TimeoutException('订阅连接或读取超时，请稍后重试或更换网络');
+    }
+  }
+
+  Future<String?> _fetchWithinBudget(
+      String url, int maxRetries, SubscriptionRefreshControl control) async {
     Exception? lastException;
     final uri = SubscriptionUrlPolicy.parse(url);
     final requestBudget = SubscriptionRequestBudget();
-    control?.throwIfStopped();
+    control.throwIfStopped();
 
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
-      control?.throwIfStopped();
+      control.throwIfStopped();
       final stopwatch = Stopwatch()..start();
       try {
         final result = await _fetchWithMultiIpFallback(
@@ -105,14 +136,26 @@ class SubscriptionService extends SubscriptionServiceBase {
           control,
           requestBudget,
         );
-        control?.throwIfStopped();
+        control.throwIfStopped();
         if (result != null) return result;
       } on SubscriptionRefreshCancelled {
         rethrow;
       } on SubscriptionRefreshDeadlineExceeded {
         rethrow;
       } on SubscriptionAddressException {
+        throw const SubscriptionAddressException(
+          'DNS 安全检查拒绝：订阅解析到非公网或不安全地址，请检查域名或联系订阅提供方',
+        );
+      } on SubscriptionDnsException {
         rethrow;
+      } on HandshakeException {
+        throw const HandshakeException(
+          'TLS 证书或握手验证失败，请检查设备时间或联系订阅提供方',
+        );
+      } on FormatException {
+        throw const SubscriptionContentException(
+          '订阅内容解析失败：编码无效或压缩内容损坏，请联系订阅提供方',
+        );
       } on SubscriptionContentException {
         rethrow;
       } on SubscriptionCompatibilityException {
@@ -122,33 +165,24 @@ class SubscriptionService extends SubscriptionServiceBase {
       } on SubscriptionHttpStatusException catch (e) {
         if (!e.isRetryable) rethrow;
         lastException = e;
-      } on SocketException catch (e) {
-        _log(
-            'Socket异常 (尝试$attempt/$maxRetries): ${e.message} (${stopwatch.elapsedMilliseconds}ms)');
-        lastException = Exception('网络连接失败: ${e.message}');
-      } on TimeoutException catch (e) {
-        _log(
-            '超时 (尝试$attempt/$maxRetries): ${e.duration} (${stopwatch.elapsedMilliseconds}ms)');
-        lastException = Exception(
-          '连接超时: ${e.duration ?? Duration(seconds: attempt * 30)}',
-        );
-      } on HttpException catch (e) {
-        _log(
-            'HTTP错误 (尝试$attempt/$maxRetries): ${e.message} (${stopwatch.elapsedMilliseconds}ms)');
-        lastException = Exception('HTTP错误: ${e.message}');
-      } catch (e) {
-        _log(
-            '未知异常 (尝试$attempt/$maxRetries): $e (${stopwatch.elapsedMilliseconds}ms)');
-        lastException = Exception('获取订阅失败: $e');
+      } on SocketException {
+        _log('网络连接失败 (尝试$attempt/$maxRetries)');
+        lastException = const SocketException('网络连接失败，请检查网络或更换节点后重试');
+      } on TimeoutException {
+        _log('连接或读取超时 (尝试$attempt/$maxRetries)');
+        lastException = TimeoutException('连接或读取超时，请稍后重试或更换网络');
+      } on HttpException {
+        _log('HTTP 响应异常 (尝试$attempt/$maxRetries)');
+        lastException =
+            const HttpException('HTTP 响应不完整、格式异常或超过 20 MB，请联系订阅提供方');
+      } catch (_) {
+        _log('订阅请求失败 (尝试$attempt/$maxRetries)');
+        lastException = Exception('获取订阅失败，请稍后重试或联系订阅提供方');
       }
 
       if (attempt < maxRetries) {
         final delay = Duration(seconds: attempt * 2);
-        if (control == null) {
-          await Future<void>.delayed(delay);
-        } else {
-          await control.delay(delay);
-        }
+        await control.delay(delay);
       }
     }
 
@@ -164,6 +198,7 @@ class SubscriptionService extends SubscriptionServiceBase {
   ) async {
     final negotiated =
         await SubscriptionFetchPolicy.negotiateClientIdentity<_RawHttpResponse>(
+      control: control,
       request: (identity, isCompatibilityAttempt) async {
         requestBudget.consume();
         try {
@@ -180,12 +215,22 @@ class SubscriptionService extends SubscriptionServiceBase {
           rethrow;
         } on SubscriptionAddressException {
           rethrow;
+        } on SubscriptionContentException {
+          rethrow;
         } on SubscriptionRequestBudgetExceeded {
+          rethrow;
+        } on SubscriptionDnsException {
+          rethrow;
+        } on HandshakeException {
+          rethrow;
+        } on SocketException {
+          rethrow;
+        } on TimeoutException {
           rethrow;
         } catch (error) {
           if (isCompatibilityAttempt) {
             throw SubscriptionCompatibilityException(
-              '${identity.label} 兼容请求失败: $error',
+              '${identity.label} 兼容请求失败，请检查网络或联系订阅提供方',
             );
           }
           rethrow;
@@ -195,10 +240,14 @@ class SubscriptionService extends SubscriptionServiceBase {
       readBody: (response, identity, isCompatibilityAttempt) async {
         try {
           return await _decodeResponseBody(response, control);
+        } on SubscriptionRefreshCancelled {
+          rethrow;
+        } on SubscriptionRefreshDeadlineExceeded {
+          rethrow;
         } catch (error) {
           if (isCompatibilityAttempt) {
             throw SubscriptionCompatibilityException(
-              '${identity.label} 兼容响应解码失败: $error',
+              '${identity.label} 兼容响应内容解析失败，请联系订阅提供方',
             );
           }
           rethrow;
@@ -233,10 +282,16 @@ class SubscriptionService extends SubscriptionServiceBase {
       control?.throwIfStopped();
 
       if (SubscriptionUrlPolicy.isRedirectStatus(resp.statusCode)) {
-        current = SubscriptionFetchPolicy.resolveRedirect(
-          current,
-          resp.headers['location'] ?? '',
-        );
+        try {
+          current = SubscriptionFetchPolicy.resolveRedirect(
+            current,
+            resp.headers['location'] ?? '',
+          );
+        } on FormatException {
+          throw const SubscriptionContentException(
+            '订阅重定向地址无效或不安全，请联系订阅提供方',
+          );
+        }
         _log(
           '重定向 (${resp.statusCode}) -> '
           '${LogRedactor.subscriptionUrlForDisplay(current)}',
@@ -254,14 +309,14 @@ class SubscriptionService extends SubscriptionServiceBase {
   ) async {
     var bodyBytes = response.bodyBytes;
     if (bodyBytes.length > SubscriptionServiceBase.maxSubscriptionBytes) {
-      throw Exception('订阅内容超过 20 MB 限制');
+      throw const SubscriptionContentException('订阅内容超过 20 MB 限制');
     }
     final contentEncoding =
         (response.headers['content-encoding'] ?? '').trim().toLowerCase();
     if (contentEncoding == 'gzip') {
       bodyBytes = await _decodeGzipLimited(bodyBytes, control);
     } else if (contentEncoding.isNotEmpty && contentEncoding != 'identity') {
-      throw Exception('不支持的 Content-Encoding: $contentEncoding');
+      throw const SubscriptionContentException('订阅响应编码不支持，请联系订阅提供方');
     }
     return decodeSubscriptionUtf8(bodyBytes);
   }
@@ -292,35 +347,13 @@ class SubscriptionService extends SubscriptionServiceBase {
       );
     }
 
-    List<InternetAddress> addresses;
-    try {
-      addresses = await _waitForControl(
-        (_addressLookupOverride?.call(uri.host) ??
-                InternetAddress.lookup(uri.host))
-            .timeout(const Duration(seconds: 10)),
-        control,
-      );
-      control?.throwIfStopped();
-      if (_addressLookupOverride == null) {
-        addresses = SubscriptionFetchPolicy.validateResolvedAddresses(
-          uri,
-          addresses,
-        );
-      }
-      _log(
-          'DNS 解析成功: ${uri.host} -> ${addresses.map((a) => a.address).join(", ")} (${stopwatch.elapsedMilliseconds}ms)');
-    } on SocketException catch (e) {
-      _log(
-          'DNS 解析失败: ${uri.host} -> ${e.message} (${stopwatch.elapsedMilliseconds}ms)');
-      throw SocketException('DNS解析失败: ${e.message}');
-    } on TimeoutException {
-      _log('DNS 解析超时: ${uri.host} (10s)');
-      throw TimeoutException('DNS解析超时', const Duration(seconds: 10));
-    }
-
-    if (addresses.isEmpty) {
-      throw const SocketException('DNS解析返回空结果');
-    }
+    final addresses = await DirectFetcher.resolveSystemAddresses(
+      uri,
+      control: control,
+      systemLookup: _addressLookupOverride,
+      dohLookup: _dohLookupOverride,
+    );
+    _log('DNS 安全解析完成，将按已校验地址连接（不重新解析域名）');
 
     final isSecure = uri.scheme == 'https';
     final port = uri.port;
@@ -328,7 +361,7 @@ class SubscriptionService extends SubscriptionServiceBase {
     final hostHeader = uri.hasPort ? '$formattedHost:$port' : formattedHost;
     final pathWithQuery = (uri.path.isEmpty ? '/' : uri.path) +
         (uri.hasQuery ? '?${uri.query}' : '');
-    SocketException? lastSocketError;
+    Exception? lastSocketError;
     TimeoutException? lastTimeoutError;
 
     final ipsToTry = DirectFetcher.balancedAddresses(addresses);
@@ -341,11 +374,11 @@ class SubscriptionService extends SubscriptionServiceBase {
       Socket? socket;
       Socket? pendingSocket;
       try {
-        final connecting = Socket.connect(
-          addr,
-          port,
-          timeout: Duration(seconds: attempt == 1 ? 15 : 20),
-        ).then((connected) {
+        final connectTimeout = Duration(seconds: attempt == 1 ? 15 : 20);
+        final connecting =
+            (_socketConnectOverride?.call(addr, port, connectTimeout) ??
+                    Socket.connect(addr, port, timeout: connectTimeout))
+                .then((connected) {
           pendingSocket = connected;
           try {
             control?.throwIfStopped();
@@ -385,6 +418,7 @@ class SubscriptionService extends SubscriptionServiceBase {
           return await _sendHttpRequest(
             secureSocket,
             hostHeader,
+            SubscriptionUrlPolicy.basicAuthorization(uri),
             pathWithQuery,
             stopwatch,
             ipStopwatch,
@@ -397,6 +431,7 @@ class SubscriptionService extends SubscriptionServiceBase {
           return await _sendHttpRequest(
             connectedSocket,
             hostHeader,
+            SubscriptionUrlPolicy.basicAuthorization(uri),
             pathWithQuery,
             stopwatch,
             ipStopwatch,
@@ -414,24 +449,20 @@ class SubscriptionService extends SubscriptionServiceBase {
         rethrow;
       } on SocketException catch (e) {
         lastSocketError = e;
-        _log(
-            'IP ${addr.address} 失败: ${e.message} (${ipStopwatch.elapsedMilliseconds}ms)');
+        _log('IP 连接失败 (${ipStopwatch.elapsedMilliseconds}ms)');
         continue;
       } on HandshakeException catch (e) {
-        _log(
-            'IP ${addr.address} TLS握手失败: ${e.message} (${ipStopwatch.elapsedMilliseconds}ms)');
-        lastSocketError = SocketException('TLS握手失败: ${e.message}');
+        _log('IP 连接 TLS 握手失败 (${ipStopwatch.elapsedMilliseconds}ms)');
+        lastSocketError = e;
         continue;
       } on TimeoutException catch (e) {
         socket?.destroy();
         lastTimeoutError = e;
-        _log(
-            'IP ${addr.address} 超时: ${e.message ?? "请求超时"} (${ipStopwatch.elapsedMilliseconds}ms)');
+        _log('IP 请求超时 (${ipStopwatch.elapsedMilliseconds}ms)');
         continue;
       } catch (e) {
-        _log(
-            'IP ${addr.address} 异常: $e (${ipStopwatch.elapsedMilliseconds}ms)');
-        lastSocketError = SocketException('连接异常: $e');
+        _log('IP 请求失败 (${ipStopwatch.elapsedMilliseconds}ms)');
+        lastSocketError = const HttpException('HTTP 响应格式或大小异常');
         continue;
       }
     }
@@ -444,6 +475,7 @@ class SubscriptionService extends SubscriptionServiceBase {
   Future<_RawHttpResponse> _sendHttpRequest(
     Socket socket,
     String host,
+    String? authorization,
     String pathWithQuery,
     Stopwatch totalStopwatch,
     Stopwatch ipStopwatch,
@@ -456,6 +488,7 @@ class SubscriptionService extends SubscriptionServiceBase {
       control?.throwIfStopped();
       final request = 'GET $pathWithQuery HTTP/1.1\r\n'
           'Host: $host\r\n'
+          '${authorization == null ? '' : 'Authorization: $authorization\r\n'}'
           'User-Agent: $userAgent\r\n'
           'Accept: text/yaml, application/x-yaml, */*\r\n'
           'Accept-Encoding: identity\r\n'
@@ -531,7 +564,7 @@ class SubscriptionService extends SubscriptionServiceBase {
       control?.throwIfStopped();
       total += chunk.length;
       if (total > SubscriptionServiceBase.maxSubscriptionBytes) {
-        throw Exception('订阅内容超过 20 MB 限制');
+        throw const SubscriptionContentException('订阅内容超过 20 MB 限制');
       }
       output.add(chunk);
     }

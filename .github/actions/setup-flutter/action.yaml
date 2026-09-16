@@ -1,0 +1,146 @@
+name: Set up Flutter
+description: Setup your runner with Flutter environment
+author: Alif Rachmawadi
+branding:
+  icon: maximize
+  color: blue
+
+inputs:
+  channel:
+    description: The Flutter build release channel
+    required: false
+    default: stable
+  flutter-version:
+    description: The Flutter version to make available on the path
+    required: false
+    default: ""
+  flutter-version-file:
+    description: The pubspec.yaml or FVM config file with exact Flutter version defined
+    required: false
+    default: ""
+  architecture:
+    description: The architecture of Flutter SDK executable (x64 or arm64)
+    required: false
+    default: "${{ runner.arch }}"
+  cache:
+    description: Cache the Flutter SDK
+    required: false
+    default: "false"
+  cache-key:
+    description: Identifier for the Flutter SDK cache
+    required: false
+    default: ""
+  cache-path:
+    description: Flutter SDK cache path
+    required: false
+    default: ""
+  pub-cache:
+    description: Cache the Dart pub dependencies
+    required: false
+    default: ""
+  pub-cache-key:
+    description: Identifier for the Dart .pub-cache cache
+    required: false
+    default: ""
+  pub-cache-path:
+    description: Flutter pub cache path
+    required: false
+    default: default
+  dry-run:
+    description: If true, get outputs but do not install Flutter
+    required: false
+    default: "false"
+  git-source:
+    description: Git clone source
+    required: false
+    default: "https://github.com/flutter/flutter.git"
+
+outputs:
+  CHANNEL:
+    value: "${{ steps.flutter-action.outputs.CHANNEL }}"
+    description: The selected Flutter release channel
+  VERSION:
+    value: "${{ steps.flutter-action.outputs.VERSION }}"
+    description: The selected Flutter version
+  ARCHITECTURE:
+    value: "${{ steps.flutter-action.outputs.ARCHITECTURE }}"
+    description: The selected Flutter CPU architecture
+  CACHE-KEY:
+    value: "${{ steps.flutter-action.outputs.CACHE-KEY }}"
+    description: Key used to cache the Flutter SDK
+  CACHE-PATH:
+    value: "${{ steps.flutter-action.outputs.CACHE-PATH }}"
+    description: Path to Flutter SDK
+  PUB-CACHE-KEY:
+    value: "${{ steps.flutter-action.outputs.PUB-CACHE-KEY }}"
+    description: Key used to cache the pub dependencies
+  PUB-CACHE-PATH:
+    value: "${{ steps.flutter-action.outputs.PUB-CACHE-PATH }}"
+    description: Path to pub cache
+  GIT_SOURCE:
+    value: "${{ steps.flutter-action.outputs.GIT_SOURCE }}"
+    description: Git source of Flutter SDK repository to clone
+  CACHE-HIT:
+    value: "${{ steps.cache-flutter.outputs.cache-hit }}"
+    description: "`true` if the flutter cache was a hit"
+  PUB-CACHE-HIT:
+    value: "${{ steps.cache-pub.outputs.cache-hit }}"
+    description: "`true` if the pub cache was a hit"
+
+runs:
+  using: composite
+  steps:
+    # This is a cross-platform composite action that needs yq in order to parse
+    # the pubspec.yaml file.
+    # It's not preinstalled on Windows runners.
+    # See https://github.com/actions/runner-images/issues/7443#issuecomment-1514597691
+    - name: Make yq tool available on Windows runners
+      if: runner.os == 'Windows' && inputs.flutter-version-file != '' && !endsWith(inputs.flutter-version-file, '.fvmrc') && !endsWith(inputs.flutter-version-file, 'fvm_config.json')
+      run: choco install yq
+      shell: bash
+
+    - name: Make setup script executable
+      run: chmod +x "$GITHUB_ACTION_PATH/setup.sh"
+      shell: bash
+
+    - name: Set action inputs
+      id: flutter-action
+      shell: bash
+      run: |
+        $GITHUB_ACTION_PATH/setup.sh -p \
+          -n '${{ inputs.flutter-version }}' \
+          -f '${{ inputs.flutter-version-file }}' \
+          -a '${{ inputs.architecture }}' \
+          -k '${{ inputs.cache-key }}' \
+          -c '${{ inputs.cache-path }}' \
+          -l '${{ inputs.pub-cache-key }}' \
+          -d '${{ inputs.pub-cache-path }}' \
+          -g '${{ inputs.git-source }}' \
+          ${{ inputs.channel }}
+
+    - name: Cache Flutter
+      id: cache-flutter
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+      if: ${{ inputs.cache == 'true' }}
+      with:
+        path: ${{ steps.flutter-action.outputs.CACHE-PATH }}
+        key: ${{ steps.flutter-action.outputs.CACHE-KEY }}
+
+    - name: Cache pub dependencies
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+      id: cache-pub
+      if: ${{ (inputs.pub-cache == '' && inputs.cache == 'true') || inputs.pub-cache == 'true' }}
+      with:
+        path: ${{ steps.flutter-action.outputs.PUB-CACHE-PATH }}
+        key: ${{ steps.flutter-action.outputs.PUB-CACHE-KEY }}-${{ hashFiles('**/pubspec.lock') }}
+
+    - name: Run setup script
+      shell: bash
+      if: ${{ inputs.dry-run != 'true' && inputs.dry-run != true }}
+      run: |
+        $GITHUB_ACTION_PATH/setup.sh \
+          -n '${{ steps.flutter-action.outputs.VERSION }}' \
+          -a '${{ steps.flutter-action.outputs.ARCHITECTURE }}' \
+          -c '${{ steps.flutter-action.outputs.CACHE-PATH }}' \
+          -d '${{ steps.flutter-action.outputs.PUB-CACHE-PATH }}' \
+          ${{ steps.flutter-action.outputs.CHANNEL }}
