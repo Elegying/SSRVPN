@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.6] - 2026-09-16
+
 ### 使用体验
 
 - Windows 更新恢复按规范文件名识别已校验备份，并统一不同路径分隔符下的发布锁，避免漏掉可恢复文件而重新下载。
@@ -32,8 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修正父子域 DNS 与流量规则优先级不一致；手动代理优先于手动直连，手动直连父域也不再被内置代理子域覆盖。
 - 三端固定核心回移 DNS 压缩响应缓冲区修复，避免 TUN 发出旧响应数据。
 - Windows IPv4-only 核心保留显式配置的 TUN IPv6 捕获地址，继续通过首条规则拒绝 IPv6，不开启 IPv6 出站。
-
-## [5.0.6] - 2026-09-16
 
 ### 订阅与连接稳定性
 
