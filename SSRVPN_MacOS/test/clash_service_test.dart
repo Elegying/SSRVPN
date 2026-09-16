@@ -1442,6 +1442,7 @@ void main() {
       addTearDown(() async {
         await service.stop();
         service.dispose();
+        await service.flushLogs();
         await directory.delete(recursive: true);
       });
       final settings = AppSettings(enableTun: true);
