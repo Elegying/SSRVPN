@@ -40,6 +40,7 @@ python3 -m unittest \
   scripts/test_secret_scanning.py \
   scripts/test_third_party_licenses.py \
   scripts/test_verify_android_core_buildinfo.py \
+  scripts/test_verify_smart_rules.py \
   scripts/test_validate_existing_release_retry.py \
   scripts/test_verify_main_branch_protection.py \
   scripts/test_verify_release_transition.py \

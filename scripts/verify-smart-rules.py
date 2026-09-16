@@ -107,7 +107,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as temporary:
         message = Path(temporary) / 'message'
         signature = Path(temporary) / 'signature'
-        message.write_text(f'SSRVPN rules v1\n{version}\n{descriptor["manifestSha256"]}\n')
+        # Signed bytes are canonical UTF-8/LF, including on Windows.
+        message.write_bytes(
+            f'SSRVPN rules v1\n{version}\n{descriptor["manifestSha256"]}\n'.encode('utf-8')
+        )
         signature.write_bytes(base64.b64decode(descriptor['signature'], validate=True))
         subprocess.run(['openssl', 'pkeyutl', '-verify', '-rawin', '-pubin', '-inkey',
                         str(ROOT / 'rule-channel/public-key.pem'), '-in', str(message),

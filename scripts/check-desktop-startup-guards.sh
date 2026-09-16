@@ -676,6 +676,19 @@ for delegated_type in (
         )
 print("Windows system proxy model boundary guard passed.")
 
+# Windows deliberately uses manual registration to support safe-mode/tray flags.
+# A packaged DLL alone does not make the shared background picker available.
+windows_runner = Path("SSRVPN_Windows/windows/runner/flutter_window.cpp")
+runner_source = windows_runner.read_text(encoding="utf-8")
+for registration in (
+    '#include <file_selector_windows/file_selector_windows.h>',
+    'FileSelectorWindowsRegisterWithRegistrar(',
+    'GetRegistrarForPlugin("FileSelectorWindows")',
+):
+    if registration not in runner_source:
+        raise SystemExit(f"{windows_runner}: background picker plugin is not registered")
+print("Windows background picker registration guard passed.")
+
 # The Windows lifecycle part also carries the PowerShell 5.1-compatible,
 # handle-based process identity verifier. Keep a small audited headroom without
 # forcing security-sensitive native code into an opaque generated asset.

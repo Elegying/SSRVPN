@@ -200,7 +200,7 @@ def build(key, upstream_commit=None, *, core):
             staged = Path(temporary) / 'complete'
             staged.mkdir()
             for name, text in contents.items():
-                (staged / name).write_text(text)
+                (staged / name).write_text(text, encoding='utf-8', newline='\n')
             staged.rename(snapshot)
     sync_latest(snapshot)
     print(f'Prepared signed snapshot {version}: {len(changed)} changed files.')
