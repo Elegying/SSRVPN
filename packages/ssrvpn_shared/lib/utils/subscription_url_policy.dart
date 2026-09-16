@@ -1,5 +1,19 @@
+import 'dart:convert';
+
 class SubscriptionUrlPolicy {
   const SubscriptionUrlPolicy._();
+
+  /// Build credentials only for the current redirect hop, never a previous URL.
+  static String? basicAuthorization(Uri uri) {
+    if (uri.userInfo.isEmpty) return null;
+    final separator = uri.userInfo.indexOf(':');
+    final username = Uri.decodeComponent(
+        separator < 0 ? uri.userInfo : uri.userInfo.substring(0, separator));
+    final password = separator < 0
+        ? ''
+        : Uri.decodeComponent(uri.userInfo.substring(separator + 1));
+    return 'Basic ${base64Encode(utf8.encode('$username:$password'))}';
+  }
 
   static Uri parse(String value) {
     final uri = Uri.tryParse(value.trim());

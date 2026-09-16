@@ -32,9 +32,16 @@ class UpdateProxyFixture extends HttpOverrides {
     final caKey = '${directory.path}/ca-key.pem';
     final request = '${directory.path}/server.csr';
     final extensions = '${directory.path}/server.ext';
+    final configuration = '${directory.path}/openssl.cnf';
+    await File(configuration).writeAsString(
+      '[req]\nprompt = no\ndistinguished_name = dn\n'
+      '[dn]\nCN = SSRVPN Test\n',
+    );
     // Keep issuer and server roles separate so macOS system trust evaluates
     // the same certificate chain shape as a normal HTTPS endpoint.
     await File(extensions).writeAsString(
+      'subjectKeyIdentifier=hash\n'
+      'authorityKeyIdentifier=keyid,issuer\n'
       'basicConstraints=critical,CA:FALSE\n'
       'keyUsage=critical,digitalSignature,keyEncipherment\n'
       'extendedKeyUsage=serverAuth\n'
@@ -44,6 +51,8 @@ class UpdateProxyFixture extends HttpOverrides {
     final commands = [
       [
         'req',
+        '-config',
+        configuration,
         '-x509',
         '-newkey',
         'rsa:2048',
@@ -56,7 +65,9 @@ class UpdateProxyFixture extends HttpOverrides {
         '-days',
         '1',
         '-subj',
-        '/CN=SSRVPN Temporary Test CA',
+        '/CN=SSRVPN ${directory.uri.pathSegments.where((s) => s.isNotEmpty).last}',
+        '-addext',
+        'subjectKeyIdentifier=hash',
         '-addext',
         'basicConstraints=critical,CA:TRUE',
         '-addext',
@@ -64,6 +75,8 @@ class UpdateProxyFixture extends HttpOverrides {
       ],
       [
         'req',
+        '-config',
+        configuration,
         '-new',
         '-newkey',
         'rsa:2048',
@@ -116,6 +129,8 @@ class UpdateProxyFixture extends HttpOverrides {
         'api.github.com',
         '-L',
         '-N',
+        '-v',
+        '-t',
       ]);
       if (verification.exitCode != 0) {
         await directory.delete(recursive: true);

@@ -414,6 +414,7 @@ class DirectFetcher {
             _httpGetOverSocket(
               stream,
               host: hostHeader,
+              authorization: SubscriptionUrlPolicy.basicAuthorization(current),
               path: pathAndQuery,
               accept: headers['Accept'] ?? '*/*',
               userAgent: headers['User-Agent'],
@@ -482,6 +483,7 @@ class DirectFetcher {
     required String host,
     required String path,
     String accept = '*/*',
+    String? authorization,
     String? userAgent,
     int maxBodyBytes = AppConstants.maxSubscriptionBytes,
     Duration requestTimeout = _requestTimeout,
@@ -492,6 +494,7 @@ class DirectFetcher {
       ..write('User-Agent: ${userAgent ?? AppConstants.appUserAgent}\r\n')
       ..write('Accept: $accept\r\n')
       ..write('Accept-Encoding: identity\r\n')
+      ..write(authorization == null ? '' : 'Authorization: $authorization\r\n')
       ..write('Connection: close\r\n')
       ..write('\r\n');
     socket.add(utf8.encode(request.toString()));

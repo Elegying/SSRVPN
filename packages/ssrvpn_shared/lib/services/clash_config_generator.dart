@@ -196,12 +196,23 @@ class ClashConfigGenerator {
         nameserverPolicies['+.$domain'] = AppConstants.trustedProxyNameservers;
       }
       for (final domain in forceDirectDomainSuffixes) {
+        // DNS chooses the most specific suffix, while manual proxy rules run
+        // before direct rules. Do not let a direct child override its proxy parent.
+        if (forceProxyDomainSuffixes
+            .any((proxy) => domain == proxy || domain.endsWith('.$proxy'))) {
+          continue;
+        }
         nameserverPolicies.putIfAbsent(
           '+.$domain',
           () => AppConstants.domesticDohNameservers,
         );
       }
       for (final domain in AppConstants.defaultProxyDomainSuffixes) {
+        // A built-in child must not outrank the user's direct parent either.
+        if (forceDirectDomainSuffixes
+            .any((direct) => domain == direct || domain.endsWith('.$direct'))) {
+          continue;
+        }
         nameserverPolicies.putIfAbsent(
           '+.$domain',
           () => AppConstants.trustedProxyNameservers,

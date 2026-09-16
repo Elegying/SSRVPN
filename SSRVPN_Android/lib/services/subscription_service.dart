@@ -418,6 +418,7 @@ class SubscriptionService extends SubscriptionServiceBase {
           return await _sendHttpRequest(
             secureSocket,
             hostHeader,
+            SubscriptionUrlPolicy.basicAuthorization(uri),
             pathWithQuery,
             stopwatch,
             ipStopwatch,
@@ -430,6 +431,7 @@ class SubscriptionService extends SubscriptionServiceBase {
           return await _sendHttpRequest(
             connectedSocket,
             hostHeader,
+            SubscriptionUrlPolicy.basicAuthorization(uri),
             pathWithQuery,
             stopwatch,
             ipStopwatch,
@@ -473,6 +475,7 @@ class SubscriptionService extends SubscriptionServiceBase {
   Future<_RawHttpResponse> _sendHttpRequest(
     Socket socket,
     String host,
+    String? authorization,
     String pathWithQuery,
     Stopwatch totalStopwatch,
     Stopwatch ipStopwatch,
@@ -485,6 +488,7 @@ class SubscriptionService extends SubscriptionServiceBase {
       control?.throwIfStopped();
       final request = 'GET $pathWithQuery HTTP/1.1\r\n'
           'Host: $host\r\n'
+          '${authorization == null ? '' : 'Authorization: $authorization\r\n'}'
           'User-Agent: $userAgent\r\n'
           'Accept: text/yaml, application/x-yaml, */*\r\n'
           'Accept-Encoding: identity\r\n'

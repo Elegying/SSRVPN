@@ -392,6 +392,10 @@ class DesktopSubscriptionFetcher {
         ..followRedirects = false
         ..headers.set('User-Agent', userAgent)
         ..headers.set('Accept', 'text/yaml, application/x-yaml, */*');
+      final authorization = SubscriptionUrlPolicy.basicAuthorization(uri);
+      if (authorization != null) {
+        request.headers.set(HttpHeaders.authorizationHeader, authorization);
+      }
 
       final response = await waitFor(request.close().timeout(remaining()));
       control?.throwIfStopped();

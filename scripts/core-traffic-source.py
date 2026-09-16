@@ -13,6 +13,7 @@ BUNDLE = ROOT / 'native/proxy_traffic'
 RUNTIME_FILES = ('sources.json', 'proxy_traffic.go', 'route.go',
                  'android.patch', 'macos.patch', 'windows.patch')
 COPIES = {
+    'dns_buffer_test.go': 'component/resolver/ssrvpn_dns_buffer_test.go',
     'proxy_traffic.go': 'tunnel/statistic/ssrvpn_proxy_traffic.go',
     'proxy_traffic_test.go': 'tunnel/statistic/ssrvpn_proxy_traffic_test.go',
     'route.go': 'hub/route/ssrvpn_proxy_traffic.go',
@@ -34,13 +35,16 @@ def apply(platform, directory):
         actual = subprocess.check_output(['git', 'rev-parse', ref], cwd=directory, text=True).strip()
         if actual != expected:
             raise SystemExit(f'{platform} core source identity mismatch: {ref}')
+    copies = dict(COPIES)
+    if platform == 'windows':
+        copies['ipv6_capture_test.go'] = 'config/ssrvpn_ipv6_capture_test.go'
     patch = BUNDLE / (platform + '.patch')
     subprocess.run(['git', 'apply', '--check', str(patch)], cwd=directory, check=True)
     # Check every destination before modifying the checkout.
-    if any((directory / target).exists() for target in COPIES.values()):
+    if any((directory / target).exists() for target in copies.values()):
         raise SystemExit('core traffic extension is already present')
     subprocess.run(['git', 'apply', str(patch)], cwd=directory, check=True)
-    for name, target in COPIES.items():
+    for name, target in copies.items():
         shutil.copyfile(BUNDLE / name, directory / target)
     if platform in ('android', 'windows'):
         # These pinned upstream versions use the unexported UDP constructor.

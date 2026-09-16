@@ -14,11 +14,12 @@ const _assetUrl =
 final _assetBytes = utf8.encode('synthetic verified desktop update');
 final _digest = sha256.convert(_assetBytes).toString();
 
-void main() {
+void main({VerifiedUpdateFilePublisher? filePublisher}) {
   late UpdateProxyFixture fixture;
 
   setUp(() async {
     fixture = await UpdateProxyFixture.create();
+    addTearDown(fixture.dispose);
     fixture.respond = (request) {
       final response = request.response;
       if (request.uri.path.endsWith('/latest')) {
@@ -45,7 +46,6 @@ void main() {
       unawaited(response.close());
     };
   });
-  tearDown(() async => fixture.dispose());
 
   test('metadata checksum and redirected download use live runtime proxy ports',
       () async {
@@ -74,6 +74,7 @@ void main() {
           update!,
           outputDirectory: directory,
           fileName: 'SSRVPN.dmg',
+          filePublisher: filePublisher,
           localProxyPort: () => activePort,
         );
         expect(await file.readAsBytes(), _assetBytes);
@@ -158,6 +159,7 @@ void main() {
               sha256: _digest),
           outputDirectory: directory,
           fileName: 'SSRVPN.dmg',
+          filePublisher: filePublisher,
           localProxyPort: () => fixture.firstProxyPort,
           cancellation: cancellation,
         );

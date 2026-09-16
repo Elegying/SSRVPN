@@ -1,0 +1,29 @@
+2026-09-16 authorized local repair; no commit, push, tag or public release.
+
+Fixed upstream cores rebuilt with their original pinned toolchains:
+- macOS: traffic suites + real DNS buffer regression passed; build succeeded.
+- Windows: traffic suites + real DNS buffer/IPv4-only parser regressions passed; cross-build succeeded.
+- Android: bridge/traffic suites + real DNS buffer regression passed; c-shared build succeeded.
+- scripts/verify-core-assets.sh: passed; Android JNI ABI and 16 KB ELF alignment passed.
+- Actual Dart-generated parent proxy DNS policy: passed against pinned Mihomo DNS matcher.
+
+make verify: exit 0, All verification commands completed.
+- Shared: 1311 passed, 1 skipped (before the final built-in child policy refinement).
+- Android: 339 passed.
+- macOS: 344 passed.
+- Windows on macOS: 311 passed, 7 skipped.
+- Release tooling: 436 passed.
+- macOS TUN DNS transaction: 26/26.
+- Android native Gradle: success; unit test task UP-TO-DATE, cached XML 188 tests, 0 failures/errors.
+- macOS native and post-test gate: success using Xcode 27 with temporary macOS 12 deployment target.
+
+After final DNS policy refinement:
+- Shared full suite: 1312 passed, 1 skipped; coverage 89.13% (10118/11352).
+- Shared/Android/macOS/Windows analyzer: no issues.
+- Dart formatting, ShellCheck, documentation checks and git diff --check: passed.
+
+Limits:
+- No new client installed, no real user subscription used, no system network settings changed.
+- No Windows OS/dual-stack routing verification.
+- No macOS 11 acceptance and no rerun of remote macOS 15/Windows CI.
+- New content-addressed core mirror URLs are expected identities, not published assets.
