@@ -23,6 +23,22 @@ GitHub Actions 与 Dart workspace 更新；合并前仍必须经过完整门禁�
   升级或替换并通过 macOS/Windows 托盘重建、退出和资源管理器恢复测试后，才迁移该主版本。
 - analyzer、test 等由 Flutter SDK 约束的传递依赖跟随受支持的 stable 工具链，不强行覆盖。
 
+## 2026-09-16 依赖 PR 复核
+
+- #241：Flutter 3.44.1 的 `flutter` / `flutter_test` 固定 `meta 1.18.0`，
+  `meta ^1.19.0` 无法解析；SDK 绑定包继续随 Flutter 迁移，不增加 overrides。
+- #242：保留 YAML 3.1.4 的升级；使用项目固定 Flutter 重新解析锁文件，撤销机器人
+  同时带入的 7 项 SDK 绑定依赖变动。相对当前基线，lockfile 仅改变 YAML 版本及摘要。
+- #243：AGP 9.4 最低需要 Gradle 9.6，而该 PR 仍保留 Gradle 9.1；
+  也没有同步项目内置 Kotlin 约定、依赖校验元数据及迁移验证，当前不接受单独升级。
+  版本要求见 [Android 官方兼容表](https://developer.android.com/build/releases/agp-9-4-0-release-notes)。
+- #244：实际下载官方 Maven 的 Core 1.19.0 AAR，其 `aar-metadata.properties`
+  声明 `minCompileSdk=37`、`minAndroidGradlePluginVersion=9.1.0`；当前 SDK 36 / AGP 9.0.1
+  不满足。该 PR 还混入 Gradle 9.7.1，应与 Android 工具链一并迁移。
+
+这些限制不表示新版依赖自身存在缺陷。保留当前已验证工具链，后续迁移需重新检查插件、
+原生测试、APK 构建和覆盖安装；不通过跳过门禁或取消依赖校验接纳升级。
+
 ## 维护命令
 
 ```bash
