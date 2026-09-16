@@ -1,0 +1,74 @@
+[
+  {
+    "Process": "mihomo",
+    "PID": 13996,
+    "Seconds": 5.03,
+    "CpuOneCorePercent": 0.0,
+    "CpuMachinePercent": 0.0,
+    "WorkingSetMiB": 50.79,
+    "PrivateMiB": 43.03
+  },
+  {
+    "Process": "ssrvpn_windows_app",
+    "PID": 15072,
+    "Seconds": 5.03,
+    "CpuOneCorePercent": 1.24,
+    "CpuMachinePercent": 0.08,
+    "WorkingSetMiB": 334.28,
+    "PrivateMiB": 263.61
+  },
+  {
+    "Process": "mihomo",
+    "PID": 13996,
+    "Seconds": 5.01,
+    "CpuOneCorePercent": 0.0,
+    "CpuMachinePercent": 0.0,
+    "WorkingSetMiB": 50.79,
+    "PrivateMiB": 43.03
+  },
+  {
+    "Process": "ssrvpn_windows_app",
+    "PID": 15072,
+    "Seconds": 5.01,
+    "CpuOneCorePercent": 0.94,
+    "CpuMachinePercent": 0.06,
+    "WorkingSetMiB": 334.71,
+    "PrivateMiB": 263.74
+  },
+  {
+    "Process": "mihomo",
+    "PID": 13996,
+    "Seconds": 5.01,
+    "CpuOneCorePercent": 0.0,
+    "CpuMachinePercent": 0.0,
+    "WorkingSetMiB": 50.79,
+    "PrivateMiB": 43.03
+  },
+  {
+    "Process": "ssrvpn_windows_app",
+    "PID": 15072,
+    "Seconds": 5.01,
+    "CpuOneCorePercent": 0.0,
+    "CpuMachinePercent": 0.0,
+    "WorkingSetMiB": 334.96,
+    "PrivateMiB": 264.24
+  },
+  {
+    "Process": "mihomo",
+    "PID": 13996,
+    "Seconds": 5.01,
+    "CpuOneCorePercent": 0.0,
+    "CpuMachinePercent": 0.0,
+    "WorkingSetMiB": 50.79,
+    "PrivateMiB": 43.03
+  },
+  {
+    "Process": "ssrvpn_windows_app",
+    "PID": 15072,
+    "Seconds": 5.01,
+    "CpuOneCorePercent": 0.0,
+    "CpuMachinePercent": 0.0,
+    "WorkingSetMiB": 335.25,
+    "PrivateMiB": 264.75
+  }
+]
