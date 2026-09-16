@@ -235,14 +235,16 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
             recovered = await runConnectionTransition(() async {
               try {
                 if (recoveryMonitorEpoch != _healthMonitorEpoch ||
-                    recoveryGeneration == null ||
-                    !isConnectionIntentCurrent(
-                      recoveryGeneration,
-                      connected: true,
-                    )) {
+                    recoveryGeneration != captureAutomaticRestartIntent()) {
                   recoverySuperseded = true;
                   // This queued recovery owns no replacement session. The
                   // newer transition alone decides what needs stopping.
+                  return false;
+                }
+                if (recoveryGeneration == null) {
+                  // A still-owned unhealthy runtime without a connect intent
+                  // is cleaned up, but must never be automatically restarted.
+                  await onStopRequired();
                   return false;
                 }
                 notifyRuntimeNotice(

@@ -293,6 +293,7 @@ abstract class ClashServiceBase
 
   @override
   void updateSettings(AppSettings settings) {
+    _desiredApiPort ??= settings.apiPort;
     // Preferences and runtime identity must not share a mutable instance.
     _settings = settings.copyWith();
   }

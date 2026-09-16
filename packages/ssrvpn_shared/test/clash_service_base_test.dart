@@ -386,6 +386,9 @@ void main() {
       preferred.apiSecret = 'changed';
       expect(service.runtimeApiPort, 9090);
       expect(service.settings.apiSecret, 'original');
+      service.updateSettings(preferred);
+      expect(service.runtimeApiPort, 9091);
+      expect(service.desiredApiPort, 9090);
     });
 
     for (final blocked in [
@@ -2356,6 +2359,20 @@ proxies:
     expect(await pending, isNull);
     expect(replacementRequests, 0);
     expect(await service.currentSelectedProxyName(), 'New Node');
+  });
+
+  test(
+      'unhealthy runtime without a connect intent is cleaned up without restart',
+      () async {
+    final service = _QueuedHealthRecoveryClashService();
+    addTearDown(service.dispose);
+    service.setRunning(true);
+    service.startStatusMonitor();
+    await service.recoveryQueued.future.timeout(const Duration(seconds: 1));
+    await service.runConnectionTransition(() async {});
+    expect(service.stopCalls, 1);
+    expect(service.isRunning, isFalse);
+    expect(service.connectionDesired, isFalse);
   });
 
   test('queued old recovery cannot stop a replacement connection', () async {
