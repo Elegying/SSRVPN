@@ -1,0 +1,1 @@
+{"parentProxyIndex":1,"childDirectIndex":2,"parentDns":["https://1.1.1.1/dns-query#PROXY","https://8.8.8.8/dns-query#PROXY"],"childDns":["https://dns.alidns.com/dns-query","https://doh.pub/dns-query"]}

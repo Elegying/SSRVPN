@@ -1,0 +1,6 @@
+=== RUN   TestAuditDNSPackedBytesRemainInCallerBuffer
+    repro_dns_buffer_test.go:45: real RelayDnsPacket returned 1974 valid bytes in a different buffer; TUN caller would send stale bytes, first=a5a5 expected=1357
+--- FAIL: TestAuditDNSPackedBytesRemainInCallerBuffer (0.00s)
+FAIL
+FAIL	github.com/metacubex/mihomo/component/resolver	1.010s
+FAIL

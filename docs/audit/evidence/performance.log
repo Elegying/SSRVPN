@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "mode": "smoke",
+  "fixture": {
+    "nodes_per_source": 240,
+    "source_count": 4,
+    "merged_nodes": 960,
+    "merged_bytes": 140587,
+    "generated_config_bytes": 169203
+  },
+  "results": {
+    "parse_yaml": {
+      "iterations": 2,
+      "min_us": 188701,
+      "median_us": 439280,
+      "max_us": 439280
+    },
+    "merge_yaml": {
+      "iterations": 2,
+      "min_us": 2799173,
+      "median_us": 4134192,
+      "max_us": 4134192
+    },
+    "generate_config": {
+      "iterations": 2,
+      "min_us": 2716679,
+      "median_us": 2908025,
+      "max_us": 2908025
+    }
+  },
+  "notes": [
+    "Durations are observational and are not pass/fail thresholds.",
+    "Compare results only on comparable hardware and Flutter versions."
+  ]
+}
