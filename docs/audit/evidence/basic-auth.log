@@ -10,11 +10,11 @@
     Actual: <null>
      Which: not an <Instance of 'String'>
   Accepted URL credentials must reach the same-origin server; failure type: SubscriptionHttpStatusException
-  
+
   package:matcher                                        expect
   package:flutter_test/src/widget_tester.dart 473:18     expect
   ../docs/audit/repro_android_basic_auth_test.dart 47:7  main.<fn>
-  
+
 00:00 +0 -1: subscription sends Basic Auth with nonempty password
 [Subscription][INFO] DNS 安全解析完成，将按已校验地址连接（不重新解析域名）
 [Subscription][INFO] 将尝试 1 个 IP 地址...
@@ -26,11 +26,11 @@
     Actual: <null>
      Which: not an <Instance of 'String'>
   Accepted URL credentials must reach the same-origin server; failure type: SubscriptionHttpStatusException
-  
+
   package:matcher                                        expect
   package:flutter_test/src/widget_tester.dart 473:18     expect
   ../docs/audit/repro_android_basic_auth_test.dart 47:7  main.<fn>
-  
+
 00:00 +0 -2: Some tests failed.
 
 Failing tests:

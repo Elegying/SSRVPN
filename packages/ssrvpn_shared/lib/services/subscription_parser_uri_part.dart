@@ -90,6 +90,17 @@ class _SubscriptionUriParser {
         'udp': true,
       };
       _putIfNotEmpty(proxy, 'sni', query['sni'] ?? query['peer']);
+      _putIfNotEmpty(proxy, 'client-fingerprint', query['fp']);
+      _putAlpn(proxy, query['alpn']);
+      final network = _normalizeNetwork(query['type']);
+      if (network != null) proxy['network'] = network;
+      _applyTransportOptions(
+        proxy,
+        network,
+        path: query['path'],
+        host: query['host'],
+        grpcServiceName: query['serviceName'],
+      );
       if (_isTruthy(query['allowInsecure']) || _isTruthy(query['insecure'])) {
         proxy['skip-cert-verify'] = true;
       }

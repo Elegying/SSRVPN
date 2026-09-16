@@ -31,6 +31,16 @@ private enum ApplicationTerminationLeaseState: Equatable {
 }
 
 @main
+enum SSRVPNApplication {
+  static func main() {
+    // Publish guardian readiness before loading AppKit, Flutter or the UI lease.
+    if ProxyGuardianCommand.isRequested() {
+      Darwin.exit(ProxyGuardianCommand.run())
+    }
+    _ = NSApplicationMain(CommandLine.argc, CommandLine.unsafeArgv)
+  }
+}
+
 class AppDelegate: FlutterAppDelegate {
   private let instanceLease = AppInstanceLease()
   private let coreProcessOperationQueue = DispatchQueue(
@@ -47,13 +57,6 @@ class AppDelegate: FlutterAppDelegate {
   var schedulePendingApplicationTerminationTimeout: (@escaping () -> Void) -> Void = {
     callback in
     DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: callback)
-  }
-
-  override func applicationWillFinishLaunching(_ notification: Notification) {
-    if ProxyGuardianCommand.isRequested() {
-      Darwin.exit(ProxyGuardianCommand.run())
-    }
-    super.applicationWillFinishLaunching(notification)
   }
 
   private static var activationNotificationName: Notification.Name {

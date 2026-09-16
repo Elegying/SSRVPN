@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:test/test.dart';
+import 'package:ssrvpn_shared/models/app_settings.dart';
+import 'package:ssrvpn_shared/services/clash_config_generator.dart';
 import 'package:ssrvpn_shared/services/subscription_parser.dart';
 import 'package:ssrvpn_shared/utils/bounded_yaml.dart';
 import 'package:ssrvpn_shared/utils/log_redactor.dart';
@@ -331,6 +333,43 @@ proxies:
         final proxy = SubscriptionParser.proxyFromUri(uri);
         expect(proxy, isNotNull);
         expect(proxy!['skip-cert-verify'], isTrue);
+      });
+
+      test(
+          'retains Trojan WebSocket and TLS options through subscription import',
+          () {
+        const link = 'trojan://synthetic-password@edge.example.com:443'
+            '?type=ws&path=%2Fgateway%3Fed%3D2048&host=cdn.example.com'
+            '&sni=tls.example.com&fp=chrome&alpn=h2%2Chttp%2F1.1#Trojan-WS';
+        final yaml = SubscriptionParser.uriListToYaml(link)!;
+        final node = SubscriptionParser.parseYaml(yaml).nodes.single;
+        expect(node.extra['network'], 'ws');
+        expect(node.extra['ws-opts'], {
+          'path': '/gateway?ed=2048',
+          'headers': {'Host': 'cdn.example.com'},
+        });
+        expect(node.extra['sni'], 'tls.example.com');
+        expect(node.extra['client-fingerprint'], 'chrome');
+        expect(node.extra['alpn'], ['h2', 'http/1.1']);
+        expect(node.extra['skip-cert-verify'], isNot(true));
+        final runtime = SubscriptionParser.parseYaml(
+          ClashConfigGenerator.generateConfig(yaml, AppSettings()),
+        ).nodes.single;
+        expect(runtime.extra['network'], 'ws');
+        expect(runtime.extra['ws-opts'], node.extra['ws-opts']);
+        expect(runtime.extra['sni'], node.extra['sni']);
+        expect(runtime.extra['alpn'], node.extra['alpn']);
+      });
+
+      test('retains Trojan gRPC service and peer SNI', () {
+        final proxy = SubscriptionParser.proxyFromUri(
+          'trojan://synthetic-password@edge.example.com:443'
+          '?type=grpc&serviceName=service%2Fname&peer=tls.example.com#Trojan-gRPC',
+        )!;
+        expect(proxy['network'], 'grpc');
+        expect(proxy['grpc-opts'], {'grpc-service-name': 'service/name'});
+        expect(proxy['sni'], 'tls.example.com');
+        expect(proxy['skip-cert-verify'], isNot(true));
       });
 
       test('parses anytls link', () {

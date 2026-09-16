@@ -310,12 +310,12 @@ proxy_guardian = Path(
 xcode_project = Path(
     "SSRVPN_MacOS/macos/Runner.xcodeproj/project.pbxproj"
 ).read_text(encoding="utf-8")
-if "@main\nclass AppDelegate: FlutterAppDelegate" not in app_delegate:
-    raise SystemExit("AppDelegate.swift: standard Flutter application entrypoint is required")
-launch = app_delegate.index("override func applicationWillFinishLaunching")
+if "@main\nenum SSRVPNApplication" not in app_delegate:
+    raise SystemExit("AppDelegate.swift: explicit pre-AppKit guardian entrypoint is required")
+launch = app_delegate.index("static func main()")
 guardian = app_delegate.index("ProxyGuardianCommand.isRequested()", launch)
 flutter_launch = app_delegate.index(
-    "super.applicationWillFinishLaunching", guardian
+    "NSApplicationMain", guardian
 )
 if not launch < guardian < flutter_launch:
     raise SystemExit("AppDelegate.swift: guardian dispatch must precede Flutter startup")

@@ -2689,6 +2689,26 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(try String(contentsOf: pidURL, encoding: .utf8), "5252\n")
   }
 
+  func testRealProxyGuardianStartsWithoutLaunchingAnotherFlutterWindow() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ssrvpn-guardian-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let state = directory.appendingPathComponent("system_proxy.json")
+    let nonce = String(repeating: "b", count: 32)
+    // Keep this owner alive until the temporary snapshot is removed, so the
+    // real child never enters system-proxy restoration or core termination.
+    try JSONSerialization.data(withJSONObject: [
+      "_guardianNonce": nonce, "_ownerPid": Int(getpid()),
+    ]).write(to: state)
+    let delegate = AppDelegate()
+    XCTAssertTrue(delegate.startProxyGuardian(statePath: state.path, nonce: nonce))
+    XCTAssertFalse(FileManager.default.fileExists(
+      atPath: directory.appendingPathComponent(".system_proxy.guardian.\(nonce).ready").path
+    ))
+    try FileManager.default.removeItem(at: state)
+  }
+
   func testProxyGuardianRestoresProxyBeforeTerminatingCoreAfterOwnerExit() {
     var ownerChecks = 0
     var stateExists = true

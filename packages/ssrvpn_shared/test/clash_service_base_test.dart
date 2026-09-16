@@ -931,6 +931,25 @@ void main() {
       expect(warning, contains('多个外部网络验证端点'));
       expect(warning, contains('HTTP 502'));
       expect(warning, contains('不代表节点失效'));
+      expect(service.recentLogs, contains('HTTP 502'));
+    });
+
+    test('failed connectivity probes retain safe causes without raw secrets',
+        () async {
+      final service = _TestClashService()..setRunning(true);
+      addTearDown(service.dispose);
+      await service.verifyUserConnectivity(
+        maxAttempts: 1,
+        retryDelay: Duration.zero,
+        request: (_) async => throw TimeoutException(
+          'https://private.example/feed?token=do-not-log',
+        ),
+      );
+      expect(service.recentLogs, contains('cause='));
+      expect(service.recentLogs, contains('1/1'));
+      expect(service.recentLogs, isNot(contains('private.example')));
+      expect(service.recentLogs, isNot(contains('do-not-log')));
+      expect(service.isRunning, isTrue);
     });
 
     test(

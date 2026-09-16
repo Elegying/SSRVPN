@@ -201,8 +201,20 @@ mixin _ClashDataPlaneSupport {
             return null;
           }
           lastStatusCode = statusCode;
-        } catch (_) {
+          log(
+            '外部网络验证 $attempt/$attempts 未通过：HTTP $statusCode；'
+            '路径=${settings.enableTun ? 'TUN' : '本地代理'}，保留当前连接',
+            event: 'data_plane_probe',
+          );
+        } catch (error) {
+          if (shouldContinue?.call() == false) return null;
           lastStatusCode = null;
+          log(
+            '外部网络验证 $attempt/$attempts 未通过：'
+            'cause=${_safeRuntimeLogErrorCode(error)}；'
+            '路径=${settings.enableTun ? 'TUN' : '本地代理'}，保留当前连接',
+            event: 'data_plane_probe',
+          );
         }
         if (attempt < attempts && retryDelay > Duration.zero) {
           await Future<void>.delayed(retryDelay);

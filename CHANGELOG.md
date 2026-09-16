@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 可靠性修复
 
+- 三端导入 Trojan 分享链接时保留 WebSocket/gRPC、Host、路径、ALPN 和 TLS 指纹参数，避免被当作普通 TCP 节点连接。
+- 外部网络验证失败日志保留脱敏错误类别、HTTP 状态和验证路径，验证失败继续只作提示，不停止连接。
+- macOS 系统代理守护进程在 AppKit/Flutter 启动前进入无界面模式，减少冷启动负担；就绪等待保留有限超时及失败回滚。
 - 三端订阅请求正确携带 URL 中的 Basic Auth（含空密码），跨来源重定向不继承原地址凭据。
 - 修正父子域 DNS 与流量规则优先级不一致；手动代理优先于手动直连，手动直连父域也不再被内置代理子域覆盖。
 - 三端固定核心回移 DNS 压缩响应缓冲区修复，避免 TUN 发出旧响应数据。
