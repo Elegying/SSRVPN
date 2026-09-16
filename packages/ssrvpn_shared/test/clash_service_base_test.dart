@@ -857,9 +857,32 @@ void main() {
       expect(warning, isNull);
       expect(requestedUris, [
         Uri.parse('https://www.youtube.com/generate_204'),
-        Uri.parse('https://www.gstatic.com/generate_204'),
+        Uri.parse('https://cp.cloudflare.com/generate_204'),
       ]);
     });
+
+    for (final tun in [false, true]) {
+      test('two-attempt probe survives Google-only blocking (TUN=$tun)',
+          () async {
+        final service = _TestClashService()
+          ..updateSettings(AppSettings(enableTun: tun))
+          ..setRunning(true);
+        addTearDown(service.dispose);
+        final requestedHosts = <String>[];
+        final warning = await service.verifyUserConnectivity(
+          maxAttempts: 2,
+          retryDelay: Duration.zero,
+          request: (uri) async {
+            requestedHosts.add(uri.host);
+            if (uri.host == 'cp.cloudflare.com') return http.Response('', 204);
+            throw const SocketException('Synthetic Google route unavailable');
+          },
+        );
+        expect(warning, isNull);
+        expect(requestedHosts, contains('cp.cloudflare.com'));
+        expect(service.isRunning, isTrue);
+      });
+    }
 
     test('system-proxy verification keeps using the local mixed port', () {
       final service = _TestClashService()
@@ -888,8 +911,8 @@ void main() {
         expect(warning, isNull);
         expect(requestedUris, [
           Uri.parse('https://www.gstatic.com/generate_204'),
-          Uri.parse('https://www.youtube.com/generate_204'),
           Uri.parse('https://cp.cloudflare.com/generate_204'),
+          Uri.parse('https://www.youtube.com/generate_204'),
         ]);
       },
     );

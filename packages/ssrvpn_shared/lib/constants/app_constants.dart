@@ -29,13 +29,15 @@ class AppConstants {
       'https://cp.cloudflare.com/generate_204';
   static const List<String> systemProxyConnectivityTestUrls = [
     defaultLatencyTestUrl,
-    tunConnectivityTestUrl,
     fallbackConnectivityTestUrl,
+    tunConnectivityTestUrl,
   ];
+  // Desktop probes are bounded to two attempts. Keep different operators in
+  // the first two slots so a Google-only outage also reaches the fallback.
   static const List<String> tunConnectivityTestUrls = [
     tunConnectivityTestUrl,
-    defaultLatencyTestUrl,
     fallbackConnectivityTestUrl,
+    defaultLatencyTestUrl,
   ];
   static const int latencyTestInterval = 300; // 秒
 
