@@ -68,7 +68,7 @@ class MacosTunSession {
 
   static const _osascriptPath = '/usr/bin/osascript';
   static const _runnerSha256 =
-      'bc04857146e21852b8fb1ffaee886f0a69a54514a762a897fad58466f14755aa';
+      'f80c2953b61250ac2540ccac0536e3d72dbe556d02e4ac2159e8d505552a0b40';
   static const _coreArchiveSha256 =
       '9a1e4cb6ca6c3ac9d94e1e09ecb353453185945488abdf4bd16bd27e821e986b';
   static const _coreManifestSha256 =
@@ -690,11 +690,19 @@ actual=$(/usr/bin/shasum -a 256 "$stage/macos_tun_runner.sh" | \
   /// fixed vocabulary is accepted so privileged logs, node names and secrets
   /// can never be reflected into the application UI.
   Future<MacosTunStartupState> startupState() async {
+    final state = await _readRunnerStatus();
     final authorizationExitCode = _authorizationExitCode;
-    if (_requested && !_stopRequested && authorizationExitCode != null) {
+    if (state != MacosTunStartupState.failed &&
+        _requested &&
+        !_stopRequested &&
+        authorizationExitCode != null) {
       lastError = 'TUN 授权会话已退出（退出码 $authorizationExitCode），核心服务不再受本次会话管理';
       return MacosTunStartupState.failed;
     }
+    return state;
+  }
+
+  Future<MacosTunStartupState> _readRunnerStatus() async {
     try {
       if (await FileSystemEntity.type(statusPath, followLinks: false) !=
           FileSystemEntityType.file) {

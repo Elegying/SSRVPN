@@ -1,11 +1,13 @@
 part of 'clash_service_base.dart';
 
 final Object _healthMonitorEpochZoneKey = Object();
+final Object _healthIntentZoneKey = Object();
 
 mixin _ClashHealthSupport {
   int _healthMonitorEpoch = 0;
   int? _activeHealthCheckEpoch;
 
+  int? captureAutomaticRestartIntent();
   http.Client? get apiClient;
   bool get hasLocalSmartRules;
   AppSettings get settings;
@@ -20,20 +22,23 @@ mixin _ClashHealthSupport {
 
   bool get _canPublishHealthCheckResult {
     final monitorEpoch = Zone.current[_healthMonitorEpochZoneKey] as int?;
-    return monitorEpoch == null || monitorEpoch == _healthMonitorEpoch;
+    final intent = Zone.current[_healthIntentZoneKey] as int?;
+    return (monitorEpoch == null || monitorEpoch == _healthMonitorEpoch) &&
+        (intent == null || intent == (captureAutomaticRestartIntent() ?? -1));
   }
 
   /// Verifies that the local core control API is reachable and responsive.
   Future<bool> healthCheck() async {
     final abort = Completer<void>();
+    final endpoint = Uri.parse(_apiUrl('/version'));
+    final headers = apiHeaders();
     try {
       final client = apiClient;
       if (client == null) return false;
-      final versionRequest = http.AbortableRequest(
-          'GET', Uri.parse(_apiUrl('/version')),
-          abortTrigger: abort.future)
-        ..headers.addAll(apiHeaders())
-        ..followRedirects = false;
+      final versionRequest =
+          http.AbortableRequest('GET', endpoint, abortTrigger: abort.future)
+            ..headers.addAll(headers)
+            ..followRedirects = false;
       final response = await client
           .send(versionRequest)
           .then(http.Response.fromStream)
@@ -41,9 +46,9 @@ mixin _ClashHealthSupport {
       if (response.statusCode == 200) {
         if (hasLocalSmartRules) {
           final request = http.AbortableRequest(
-              'GET', Uri.parse(_apiUrl('/providers/rules')),
+              'GET', endpoint.replace(path: '/providers/rules'),
               abortTrigger: abort.future)
-            ..headers.addAll(apiHeaders())
+            ..headers.addAll(headers)
             ..followRedirects = false;
           final ready = await (() async {
             final reply = await client.send(request);
@@ -78,12 +83,12 @@ mixin _ClashHealthSupport {
         return true;
       }
       setLastHealthCheckError(
-        'CORE_API_UNAVAILABLE: API 返回 HTTP ${response.statusCode}，端口 ${settings.apiPort}',
+        'CORE_API_UNAVAILABLE: API 返回 HTTP ${response.statusCode}，端口 ${endpoint.port}',
       );
       return false;
     } catch (error) {
       setLastHealthCheckError(
-        'CORE_API_UNAVAILABLE: 本地控制服务暂时无法访问（端口 ${settings.apiPort}）',
+        'CORE_API_UNAVAILABLE: 本地控制服务暂时无法访问（端口 ${endpoint.port}）',
       );
       return false;
     } finally {
@@ -142,17 +147,23 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
       return;
     }
     final monitorEpoch = _healthMonitorEpoch;
+    final monitorIntent = captureAutomaticRestartIntent();
     _statusTimer = Timer.periodic(statusMonitorInterval, (_) async {
       if (!_isRunning ||
           monitorEpoch != _healthMonitorEpoch ||
+          monitorIntent != captureAutomaticRestartIntent() ||
           _activeHealthCheckEpoch == monitorEpoch) {
         return;
       }
+      final checkIntent = captureAutomaticRestartIntent();
       _activeHealthCheckEpoch = monitorEpoch;
       var sourceSettled = false;
       final source = runZoned<Future<bool>>(
         () => Future<bool>.sync(healthCheck),
-        zoneValues: {_healthMonitorEpochZoneKey: monitorEpoch},
+        zoneValues: {
+          _healthMonitorEpochZoneKey: monitorEpoch,
+          _healthIntentZoneKey: checkIntent ?? -1,
+        },
       );
       unawaited(
         source.then<void>(
@@ -172,9 +183,16 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
       );
       final healthy = await boundedHealthCheck(
         source,
-        () => monitorEpoch == _healthMonitorEpoch && _isRunning,
+        () =>
+            monitorEpoch == _healthMonitorEpoch &&
+            _isRunning &&
+            checkIntent == captureAutomaticRestartIntent(),
       );
-      if (monitorEpoch != _healthMonitorEpoch || !_isRunning) return;
+      if (monitorEpoch != _healthMonitorEpoch ||
+          !_isRunning ||
+          checkIntent != captureAutomaticRestartIntent()) {
+        return;
+      }
       if (!sourceSettled) {
         // An unknown interval is not a stable healthy interval. Platforms may
         // use this hook to restart a recovery-budget cooldown without treating
@@ -195,7 +213,8 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
         _consecutiveHealthCheckFailures++;
         this.log(
           '运行状态检查失败 ($_consecutiveHealthCheckFailures/'
-          '$maxConsecutiveHealthCheckFailures): $_lastHealthCheckError',
+          '$maxConsecutiveHealthCheckFailures): $_lastHealthCheckError '
+          '[connection=${monitorIntent ?? 0}, API=$runtimeApiPort]',
           level: RuntimeLogLevel.warning,
           event: 'health_check',
         );
@@ -203,6 +222,7 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
             maxConsecutiveHealthCheckFailures) {
           final recoveryGeneration = captureAutomaticRestartIntent();
           stopStatusMonitor();
+          final recoveryMonitorEpoch = _healthMonitorEpoch;
           _notifyStatusChanged();
           this.log(
             '运行状态持续异常，进入串行恢复',
@@ -210,15 +230,19 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
             event: 'health_recovery',
           );
           var recovered = false;
+          var recoverySuperseded = false;
           try {
             recovered = await runConnectionTransition(() async {
               try {
-                if (recoveryGeneration == null ||
+                if (recoveryMonitorEpoch != _healthMonitorEpoch ||
+                    recoveryGeneration == null ||
                     !isConnectionIntentCurrent(
                       recoveryGeneration,
                       connected: true,
                     )) {
-                  await onStopRequired();
+                  recoverySuperseded = true;
+                  // This queued recovery owns no replacement session. The
+                  // newer transition alone decides what needs stopping.
                   return false;
                 }
                 notifyRuntimeNotice(
@@ -254,12 +278,15 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
             );
           }
 
-          var intentCurrent = recoveryGeneration != null &&
+          final intentCurrent = recoveryGeneration != null &&
               isConnectionIntentCurrent(
                 recoveryGeneration,
                 connected: true,
               );
-          if (recovered && intentCurrent && _isRunning) {
+          // A newer queued transition may already have started by the time
+          // this continuation runs. Do not publish old failure/status into it.
+          if (recoverySuperseded || !intentCurrent) return;
+          if (recovered && _isRunning) {
             _consecutiveHealthCheckFailures = 0;
             this.log(
               '连接运行状态已自动恢复',
@@ -272,11 +299,6 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
             return;
           }
 
-          intentCurrent = recoveryGeneration != null &&
-              isConnectionIntentCurrent(
-                recoveryGeneration,
-                connected: true,
-              );
           if (_isRunning) {
             this.log(
               '自动恢复失败，平台仍报告核心或服务正在运行',
@@ -284,26 +306,17 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
               event: 'health_recovery',
             );
             notifyRuntimeNotice(
-              RuntimeNotice.error(
-                intentCurrent
-                    ? '自动恢复失败，后台核心仍在运行且清理未完成，请点击断开重试'
-                    : '断开尚未完成，后台核心仍在运行，请再次点击断开',
+              const RuntimeNotice.error(
+                '自动恢复失败，后台核心仍在运行且清理未完成，请点击断开重试',
               ),
             );
             _notifyStatusChanged();
             return;
           }
-          if (intentCurrent) {
-            markConnectionLost();
-            notifyRuntimeNotice(
-              const RuntimeNotice.error(
-                '连接已断开：自动恢复失败，请重新连接',
-              ),
-            );
-          } else {
-            setRunning(false);
-            _notifyStatusChanged();
-          }
+          markConnectionLost();
+          notifyRuntimeNotice(
+            const RuntimeNotice.error('连接已断开：自动恢复失败，请重新连接'),
+          );
         }
       }
     });

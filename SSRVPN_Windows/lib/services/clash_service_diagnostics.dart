@@ -60,3 +60,30 @@ String? _describeWindowsExitCode(int exitCode) {
       return null;
   }
 }
+
+Future<AppDiagnosticCheck> _buildWindowsCoreSessionDiagnostic({
+  required Process? process,
+  required bool starting,
+  required bool stopping,
+  required bool tun,
+}) async {
+  final exited = process == null
+      ? null
+      : await process.exitCode
+          .then((_) => true)
+          .timeout(const Duration(milliseconds: 100), onTimeout: () => false);
+  return AppDiagnosticCheck(
+    id: 'core_session',
+    title: '核心进程与会话',
+    status: exited == null
+        ? AppDiagnosticStatus.skipped
+        : exited
+            ? AppDiagnosticStatus.warning
+            : AppDiagnosticStatus.passed,
+    summary: 'PID：${process?.pid ?? '未获取'}；'
+        '进程：${exited == null ? '未独立确认' : exited ? '已退出' : '存活'}；'
+        '启动：${starting ? '进行中' : '无'}；'
+        '停止：${stopping ? '进行中' : '无'}；'
+        'TUN：${tun ? '已启用' : '未启用'}。',
+  );
+}

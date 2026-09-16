@@ -84,7 +84,7 @@ rule-providers:
     expect(
       arguments!.last,
       contains(
-        'bc04857146e21852b8fb1ffaee886f0a69a54514a762a897fad58466f14755aa',
+        'f80c2953b61250ac2540ccac0536e3d72dbe556d02e4ac2159e8d505552a0b40',
       ),
     );
     expect(arguments!.last, isNot(contains('/usr/bin/nohup')));
@@ -640,7 +640,7 @@ rule-providers:
     expect(
       arguments!.last,
       contains(
-        'bc04857146e21852b8fb1ffaee886f0a69a54514a762a897fad58466f14755aa',
+        'f80c2953b61250ac2540ccac0536e3d72dbe556d02e4ac2159e8d505552a0b40',
       ),
     );
     expect(await request.exists(), isFalse);
@@ -1276,6 +1276,11 @@ rule-providers:
     expect(await session.startupState(), MacosTunStartupState.failed);
     expect(session.lastError, contains('授权会话已退出'));
     expect(session.lastError, contains('17'));
+
+    // A terminal runner reason is more useful than its generic exit status.
+    await status.writeAsString('error:network-change\n', flush: true);
+    expect(await session.startupState(), MacosTunStartupState.failed);
+    expect(session.lastError, contains('物理网络已切换'));
   });
 
   test('TUN startup status reports a categorized DNS failure', () async {

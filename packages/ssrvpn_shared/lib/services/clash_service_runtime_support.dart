@@ -16,6 +16,11 @@ String _safeRuntimeLogErrorCode(Object error) {
 
 /// Atomic runtime files and collision-free ephemeral port selection.
 mixin _ClashRuntimeSupport {
+  int? _desiredApiPort;
+
+  /// Saved preference for this launch, distinct from the selected listener.
+  int get desiredApiPort => _desiredApiPort ?? settings.apiPort;
+
   static const int _maxEphemeralPortAttempts = 32;
   static const Duration _localMixedProxyProbeTimeout = Duration(seconds: 1);
 
@@ -73,6 +78,7 @@ mixin _ClashRuntimeSupport {
   /// Resolves transient port conflicts without changing saved preferences.
   Future<AppSettings> prepareForStart(AppSettings preferred) async {
     await applyPendingSmartRules();
+    _desiredApiPort = preferred.apiPort;
     final reserved = <int>{};
     final proxyPort = await findAvailableTcpUdpPort(
       preferred.proxyPort,
@@ -100,6 +106,7 @@ mixin _ClashRuntimeSupport {
       apiPort: apiPort,
     );
     updateSettings(runtime);
+    log('控制 API 端口已确定：预期 ${preferred.apiPort}，实际 127.0.0.1:$apiPort');
 
     final adjustments = <String>[
       if (proxyPort != preferred.proxyPort)
@@ -309,5 +316,45 @@ mixin _ClashRuntimeSupport {
         code == 99 ||
         code == 10047 ||
         code == 10049;
+  }
+}
+
+/// Reads are bound to one runtime. A late reply must not describe its replacement.
+extension _ControllerReads on ClashServiceBase {
+  Future<Map<String, dynamic>?> _readControllerObject(
+    String path, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final generation = _trafficSessionGeneration;
+    final intent = captureAutomaticRestartIntent();
+    final client = _apiClient;
+    if (client == null) return null;
+    final endpoint = Uri.parse(_apiUrl(path));
+    final abort = Completer<void>();
+    bool current() =>
+        generation == _trafficSessionGeneration &&
+        intent == captureAutomaticRestartIntent() &&
+        endpoint.port == runtimeApiPort;
+    try {
+      final request =
+          http.AbortableRequest('GET', endpoint, abortTrigger: abort.future)
+            ..headers.addAll(apiHeaders())
+            ..followRedirects = false;
+      final response = await client
+          .send(request)
+          .then(http.Response.fromStream)
+          .timeout(timeout);
+      if (!current() || response.statusCode != 200) return null;
+      final value = jsonDecode(response.body);
+      return value is Map<String, dynamic> ? value : null;
+    } catch (error) {
+      if (current()) {
+        this.log('读取核心状态失败（API ${endpoint.port}）: '
+            'cause=${_safeRuntimeLogErrorCode(error)}');
+      }
+      return null;
+    } finally {
+      abort.complete();
+    }
   }
 }

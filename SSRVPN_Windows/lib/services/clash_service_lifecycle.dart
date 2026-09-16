@@ -259,11 +259,20 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   bool get diagnosticConfigRequired => true;
 
   @override
-  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async =>
-      _buildWindowsPlatformDiagnosticChecks(
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async {
+    return [
+      await _buildWindowsCoreSessionDiagnostic(
+        process: _coreProcess,
+        starting: _startOperation != null,
+        stopping: _stopOperation != null,
+        tun: _coreUsesTun,
+      ),
+      ..._buildWindowsPlatformDiagnosticChecks(
         recoveryPending: _proxyService.recoveryPending,
         ownershipWarning: connectivityOwnershipWarning,
-      );
+      ),
+    ];
+  }
 
   @override
   Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async {
@@ -312,7 +321,6 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   @override
   Future<bool> recoverAfterHealthCheckFailure(int connectionGeneration) async {
     if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
-      await stop();
       return false;
     }
     final healthy = await healthCheck();

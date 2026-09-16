@@ -52,6 +52,7 @@ class UpdateProxyFixture extends HttpOverrides {
         caKey,
         '-out',
         ca,
+        '-sha256',
         '-days',
         '1',
         '-subj',
@@ -86,6 +87,7 @@ class UpdateProxyFixture extends HttpOverrides {
         '-CAcreateserial',
         '-out',
         cert,
+        '-sha256',
         '-days',
         '1',
         '-extfile',
@@ -99,12 +101,34 @@ class UpdateProxyFixture extends HttpOverrides {
         throw StateError('Could not generate the temporary update TLS fixture');
       }
     }
+    if (Platform.isMacOS) {
+      // Verify only this synthetic chain, without modifying the keychain or
+      // consulting public roots. Keep a useful native error if a runner differs.
+      final verification = await Process.run('/usr/bin/security', [
+        'verify-cert',
+        '-c',
+        cert,
+        '-r',
+        ca,
+        '-p',
+        'ssl',
+        '-n',
+        'api.github.com',
+        '-L',
+        '-N',
+      ]);
+      if (verification.exitCode != 0) {
+        await directory.delete(recursive: true);
+        throw StateError('Temporary update TLS chain rejected: '
+            '${verification.stdout} ${verification.stderr}');
+      }
+    }
     final serverContext = SecurityContext()
       ..useCertificateChain(cert)
       ..usePrivateKey(key);
     final fixture = UpdateProxyFixture._(
       directory,
-      SecurityContext(withTrustedRoots: true)..setTrustedCertificates(ca),
+      SecurityContext(withTrustedRoots: false)..setTrustedCertificates(ca),
     );
     fixture._origin = await HttpServer.bindSecure(
         InternetAddress.loopbackIPv4, 0, serverContext);

@@ -193,7 +193,35 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async {
     final ownershipUnavailable =
         connectivityOwnershipWarning?.trim().isNotEmpty ?? false;
+    final process = _clashProcess;
+    final tunSession = _tunSession;
+    MacosNativeCoreStatus? nativeStatus;
+    if (process != null) {
+      try {
+        nativeStatus = await _readNativeCoreStatus(process);
+        _recordNativeCoreDiagnostics(nativeStatus);
+      } catch (_) {
+        // Keep the rest of the read-only report when the process just exited.
+      }
+    }
+    final tunState = settings.enableTun && tunSession != null
+        ? await tunSession.startupState()
+        : null;
     return [
+      AppDiagnosticCheck(
+        id: 'core_session',
+        title: '核心进程与会话',
+        status: nativeStatus == null
+            ? AppDiagnosticStatus.skipped
+            : nativeStatus.isRunning
+                ? AppDiagnosticStatus.passed
+                : AppDiagnosticStatus.warning,
+        summary: 'PID：${process?.pid ?? '未获取（TUN 由授权守护管理）'}；'
+            '进程：${nativeStatus == null ? '未独立确认' : nativeStatus.isRunning ? '存活' : '已退出'}；'
+            '启动：${_startOperation != null ? '进行中' : '无'}；'
+            '停止：${_stopOperation != null ? '进行中' : '无'}；'
+            'TUN：${tunState?.name ?? '未启用'}。',
+      ),
       AppDiagnosticCheck(
         id: 'system_proxy',
         title: '系统代理恢复',
@@ -307,6 +335,18 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
   @override
   Future<bool> healthCheck() async {
     if (!await checkMihomoApiHealth()) {
+      // The privileged runner can stop the core before this API probe. Keep
+      // its categorized reason instead of reporting only a refused port.
+      final session = _tunSession;
+      if (settings.enableTun &&
+          isRunning &&
+          session != null &&
+          await session.startupState() == MacosTunStartupState.failed) {
+        setLastHealthCheckError(
+          'TUN_SERVICE_LOST: ${session.lastError ?? 'TUN 授权会话已退出'}',
+        );
+        return false;
+      }
       final detail = lastHealthCheckError ?? 'Mihomo API 不可用';
       setLastHealthCheckError(
         detail.startsWith('CORE_API_UNAVAILABLE:')
@@ -490,7 +530,6 @@ mixin _MacosCoreLifecycle on ClashServiceBase {
     int connectionGeneration,
   ) async {
     if (!isConnectionIntentCurrent(connectionGeneration, connected: true)) {
-      await stop();
       return false;
     }
     final healthy = await healthCheck();
