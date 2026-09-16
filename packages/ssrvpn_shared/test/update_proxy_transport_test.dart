@@ -1,3 +1,4 @@
+import 'support/verified_update_publisher.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -15,6 +16,7 @@ final _assetBytes = utf8.encode('synthetic verified desktop update');
 final _digest = sha256.convert(_assetBytes).toString();
 
 void main({VerifiedUpdateFilePublisher? filePublisher}) {
+  filePublisher ??= testVerifiedUpdatePublisher;
   late UpdateProxyFixture fixture;
 
   setUp(() async {

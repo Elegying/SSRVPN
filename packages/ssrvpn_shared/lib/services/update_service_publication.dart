@@ -180,7 +180,7 @@ Future<bool> _recoverInterruptedPublicationLocked(
         )
       : false;
 
-  final prefix = '${destination.path}.previous.';
+  final prefix = '${destination.uri.pathSegments.last}.previous.';
   final backups = <({File file, DateTime modified, int length})>[];
   final entries = StreamIterator<FileSystemEntity>(
     destination.parent.list(followLinks: false),
@@ -199,8 +199,12 @@ Future<bool> _recoverInterruptedPublicationLocked(
       cancellation?.throwIfCancelled();
 
       final entity = entries.current;
-      if (entity is! File || !entity.path.startsWith(prefix)) continue;
-      final suffix = entity.path.substring(prefix.length);
+      if (entity is! File) continue;
+      // The listing uses host separators; the caller may use forward slashes.
+      // Entries already come from the destination parent, so compare names.
+      final name = entity.uri.pathSegments.last;
+      if (!name.startsWith(prefix)) continue;
+      final suffix = name.substring(prefix.length);
       if (!RegExp(r'^\d+_\d+_\d+$').hasMatch(suffix)) continue;
       if (await _awaitWithCancellation(
             FileSystemEntity.type(entity.path, followLinks: false),
@@ -401,10 +405,10 @@ Future<_VerifiedUpdatePublicationLease> _acquirePublicationLock(
     destination.parent.resolveSymbolicLinks(),
     cancellation,
   );
-  final destinationSuffix = destination.absolute.path.substring(
-    destination.absolute.parent.path.length,
-  );
-  final canonicalPath = '$canonicalParent$destinationSuffix';
+  final canonicalPath = Directory(canonicalParent)
+      .uri
+      .resolveUri(Uri(path: destination.uri.pathSegments.last))
+      .toFilePath();
   final normalizedPath =
       Platform.isWindows ? canonicalPath.toLowerCase() : canonicalPath;
   final lockKey = sha256.convert(utf8.encode(normalizedPath)).toString();

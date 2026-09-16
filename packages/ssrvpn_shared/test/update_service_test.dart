@@ -193,8 +193,8 @@ void main() {
 
     expect(await existing.readAsBytes(), previousBytes);
     expect(
-      tempDir.listSync().map((entry) => entry.path),
-      [existing.path],
+      tempDir.listSync().map((entry) => entry.uri),
+      [existing.uri],
     );
   });
 
@@ -228,8 +228,8 @@ void main() {
     expect(requests, 0);
     expect(await existing.readAsBytes(), previousBytes);
     expect(
-      tempDir.listSync().map((entry) => entry.path),
-      [existing.path],
+      tempDir.listSync().map((entry) => entry.uri),
+      [existing.uri],
     );
   });
 
@@ -296,8 +296,8 @@ void main() {
     expect(injected, isTrue);
     expect(await destination.readAsBytes(), racedBytes);
     expect(
-      tempDir.listSync().map((entry) => entry.path),
-      [destination.path],
+      tempDir.listSync().map((entry) => entry.uri),
+      [destination.uri],
     );
   });
 
@@ -478,7 +478,7 @@ void main() {
     );
 
     expect(await existing.readAsBytes(), previousBytes);
-    expect(tempDir.listSync().map((entry) => entry.path), [existing.path]);
+    expect(tempDir.listSync().map((entry) => entry.uri), [existing.uri]);
   });
 
   test('a mismatched recovery candidate is preserved and not restored',
@@ -510,7 +510,7 @@ void main() {
 
     expect(await destination.exists(), isFalse);
     expect(await backup.readAsString(), 'unverified-installer');
-    expect(tempDir.listSync().map((entry) => entry.path), [backup.path]);
+    expect(tempDir.listSync().map((entry) => entry.uri), [backup.uri]);
   });
 
   test('an interrupted replacement with the expected digest is restored',
@@ -544,8 +544,8 @@ void main() {
     expect(await destination.readAsBytes(), expectedBytes);
     expect(await backup.readAsBytes(), expectedBytes);
     expect(
-      tempDir.listSync().map((entry) => entry.path).toSet(),
-      {destination.path, backup.path},
+      tempDir.listSync().map((entry) => entry.uri).toSet(),
+      {destination.uri, backup.uri},
     );
   });
 
@@ -579,7 +579,7 @@ void main() {
       SharedUpdateService.downloadVerifiedUpdate(
         update,
         filePublisher: testVerifiedUpdatePublisher,
-        outputDirectory: tempDir,
+        outputDirectory: Directory(tempDir.path.replaceAll('\\', '/')),
         fileName: 'SSRVPN_Setup_v9.9.9.exe',
         client: MockClient((_) async {
           requests++;
@@ -588,7 +588,7 @@ void main() {
       ),
     ]);
 
-    expect(results.map((file) => file.path), everyElement(destination.path));
+    expect(results.map((file) => file.uri), everyElement(destination.uri));
     expect(requests, 0);
     expect(await destination.readAsBytes(), expectedBytes);
     expect(await backup.readAsBytes(), expectedBytes);
@@ -909,7 +909,7 @@ void main() {
 
     expect(await destination.exists(), isFalse);
     expect(await backup.exists(), isTrue);
-    expect(tempDir.listSync().map((entry) => entry.path), [backup.path]);
+    expect(tempDir.listSync().map((entry) => entry.uri), [backup.uri]);
   });
 
   test('cancellation after recovery commit still acknowledges publication',
@@ -1016,7 +1016,7 @@ void main() {
 
     expect(await destination.exists(), isFalse);
     expect(await backup.readAsBytes(), expectedBytes);
-    expect(tempDir.listSync().map((entry) => entry.path), [backup.path]);
+    expect(tempDir.listSync().map((entry) => entry.uri), [backup.uri]);
   });
 
   test('unreadable recovery source does not block the verified download',
@@ -1051,8 +1051,8 @@ void main() {
     expect(await published.readAsBytes(), expectedBytes);
     expect(await backup.readAsBytes(), expectedBytes);
     expect(
-      tempDir.listSync().map((entry) => entry.path).toSet(),
-      {destination.path, backup.path},
+      tempDir.listSync().map((entry) => entry.uri).toSet(),
+      {destination.uri, backup.uri},
     );
   });
 
@@ -1087,8 +1087,8 @@ void main() {
     expect(await destination.readAsBytes(), destinationBytes);
     expect(await backup.readAsBytes(), backupBytes);
     expect(
-      tempDir.listSync().map((entry) => entry.path).toSet(),
-      {destination.path, backup.path},
+      tempDir.listSync().map((entry) => entry.uri).toSet(),
+      {destination.uri, backup.uri},
     );
   });
 

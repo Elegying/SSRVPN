@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 使用体验
 
+- Windows 更新恢复按规范文件名识别已校验备份，并统一不同路径分隔符下的发布锁，避免漏掉可恢复文件而重新下载。
+
 - Windows 补齐文件选择器注册，修复自定义背景无法打开选择窗口；统一背景归属路径比较，确保替换和取消后清理本应用的临时图片。
 - 规则工具固定使用 UTF-8/LF，修复 Windows 换行转换导致的本地验签和规则发布摘要不一致。
 
