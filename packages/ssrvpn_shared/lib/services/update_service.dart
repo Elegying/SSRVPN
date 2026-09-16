@@ -319,7 +319,7 @@ class SharedUpdateService {
                 content: Text(safeUserFacingFailureMessage(error)),
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.pop(dialogContext),
+                    onPressed: () => dismissSsrvpnDialog<void>(dialogContext),
                     child: const Text('知道了'),
                   ),
                 ],
@@ -457,7 +457,7 @@ class SharedUpdateService {
                       children: [
                         Expanded(
                           child: TextButton(
-                            onPressed: () => Navigator.pop(ctx),
+                            onPressed: () => dismissSsrvpnDialog<void>(ctx),
                             style: TextButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
@@ -478,7 +478,7 @@ class SharedUpdateService {
                         Expanded(
                           child: ElevatedButton(
                             onPressed: () {
-                              Navigator.pop(ctx);
+                              if (!dismissSsrvpnDialog<void>(ctx)) return;
                               openDownload(downloadUrl);
                             },
                             style: ElevatedButton.styleFrom(
@@ -505,7 +505,7 @@ class SharedUpdateService {
                       const SizedBox(height: 6),
                       TextButton(
                         onPressed: () {
-                          Navigator.pop(ctx);
+                          if (!dismissSsrvpnDialog<void>(ctx)) return;
                           openDownload(fallbackDownloadUrl);
                         },
                         child: const Text('使用备用下载地址'),

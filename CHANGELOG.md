@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 可靠性修复
 
+- 修复更新、诊断和信息弹窗的迟到或重复关闭回调可能移除主页面、造成窗口黑屏的问题；已失效的更新操作也不再重复触发下载。
+
 - 连接正常但存在端口避让等提醒时，首页显示“已连接（有提醒）”，避免把所有提醒误标为网络待确认。
 
 - 三端导入 Trojan 分享链接时保留 WebSocket/gRPC、Host、路径、ALPN 和 TLS 指纹参数，避免被当作普通 TCP 节点连接。

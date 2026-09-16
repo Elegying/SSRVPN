@@ -111,21 +111,21 @@ class UpdateService {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
+              onPressed: () => dismissSsrvpnDialog<void>(dialogContext),
               child: const Text('稍后再说'),
             ),
             if (fallbackDownloadUrl != null &&
                 fallbackDownloadUrl.trim().isNotEmpty)
               TextButton(
                 onPressed: () {
-                  Navigator.pop(dialogContext);
+                  if (!dismissSsrvpnDialog<void>(dialogContext)) return;
                   unawaited(downloadAndOpen(fallbackDownloadUrl));
                 },
                 child: const Text('使用备用下载地址'),
               ),
             ElevatedButton(
               onPressed: () {
-                Navigator.pop(dialogContext);
+                if (!dismissSsrvpnDialog<void>(dialogContext)) return;
                 unawaited(downloadAndOpen(downloadUrl));
               },
               style: ElevatedButton.styleFrom(

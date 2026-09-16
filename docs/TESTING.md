@@ -66,7 +66,7 @@ ABA、代理事务令牌延迟 Cmd+Q、严格快照 schema、保留键冲突、�
 
 覆盖率执行由 `scripts/run-flutter-coverage.sh` 统一配置。每个平台的 manifest 测试会加载所有可
 独立导入的生产库；门禁再把平台库通过真实 `part` 指令拥有的片段加入同一清单。macOS/Windows
-的 12 个 `packages/ssrvpn_shared/lib/desktop_ui` 片段因此分别计入消费平台的分母，普通 shared
+的 13 个 `packages/ssrvpn_shared/lib/desktop_ui` 片段因此分别计入消费平台的分母，普通 shared
 依赖不会抬高平台分子或分母。生产源码缺失于 LCOV、伪造或越界 `SF`、路径穿越/别名、非法
 UTF-8、注释或字符串伪装的 `part` 指令都会使门禁失败。只有明确的生成代码、纯声明文件和由
 另一目标实际拥有的片段可以按可审计分类排除。
