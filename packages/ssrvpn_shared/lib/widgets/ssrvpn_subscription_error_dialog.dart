@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'package:flutter/material.dart';
 
 import '../utils/log_redactor.dart';
@@ -108,7 +109,7 @@ class SsrvpnSubscriptionErrorDialog extends StatelessWidget {
                   width: double.infinity,
                   child: TextButton(
                     key: const Key('ssrvpn-subscription-error-confirm'),
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: () => dismissSsrvpnDialog<void>(context),
                     style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       foregroundColor: SsrvpnUiTokens.primary,

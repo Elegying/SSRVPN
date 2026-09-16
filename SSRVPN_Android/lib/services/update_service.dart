@@ -543,7 +543,7 @@ class UpdateService {
         content: Text(message),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
+            onPressed: () => dismissSsrvpnDialog<void>(dialogContext),
             child: const Text('知道了'),
           ),
         ],

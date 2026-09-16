@@ -188,8 +188,8 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                                   child: TextButton(
                                     onPressed: isSubmitting
                                         ? null
-                                        : () =>
-                                            Navigator.of(dialogContext).pop(),
+                                        : () => dismissSsrvpnDialog<void>(
+                                            dialogContext),
                                     child: const Text('取消'),
                                   ),
                                 ),

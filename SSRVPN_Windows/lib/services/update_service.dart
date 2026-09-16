@@ -587,7 +587,7 @@ class UpdateService {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
+            onPressed: () => dismissSsrvpnDialog<void>(dialogContext),
             child: const Text('知道了'),
           ),
         ],
@@ -609,7 +609,7 @@ class UpdateService {
           content: Text(desktopResolutionFailureMessage(error)),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
+              onPressed: () => dismissSsrvpnDialog<void>(dialogContext),
               child: const Text('知道了'),
             ),
           ],

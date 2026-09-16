@@ -144,10 +144,12 @@ class _SsrvpnSettingsPageState extends State<SsrvpnSettingsPage> {
                       child: SsrvpnCustomBackground(path: imported!.path)),
                   actions: [
                     TextButton(
-                        onPressed: () => Navigator.pop(context, false),
+                        onPressed: () =>
+                            dismissSsrvpnDialog<bool>(context, false),
                         child: const Text('取消')),
                     FilledButton(
-                        onPressed: () => Navigator.pop(context, true),
+                        onPressed: () =>
+                            dismissSsrvpnDialog<bool>(context, true),
                         child: const Text('使用这张背景'))
                   ]));
       if (accepted != true || !mounted) return;

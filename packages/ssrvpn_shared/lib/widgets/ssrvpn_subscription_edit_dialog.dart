@@ -55,7 +55,7 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
 
   void _save() {
     if (_formKey.currentState?.validate() != true) return;
-    Navigator.pop(
+    dismissSsrvpnDialog<SsrvpnSubscriptionEditDraft>(
       context,
       SsrvpnSubscriptionEditDraft(
         name: _nameController.text.trim(),
@@ -157,7 +157,9 @@ class _SubscriptionEditDialogState extends State<_SubscriptionEditDialog> {
                   children: [
                     Expanded(
                       child: TextButton(
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: () =>
+                            dismissSsrvpnDialog<SsrvpnSubscriptionEditDraft>(
+                                context),
                         child: const Text('取消'),
                       ),
                     ),

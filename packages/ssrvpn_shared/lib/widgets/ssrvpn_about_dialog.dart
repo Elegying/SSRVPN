@@ -1,3 +1,4 @@
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
@@ -38,7 +39,7 @@ Future<void> showSsrvpnAboutDialog(
                 child: OutlinedButton.icon(
                   key: const Key('ssrvpn-check-update-button'),
                   onPressed: () {
-                    Navigator.pop(dialogContext);
+                    if (!dismissSsrvpnDialog<void>(dialogContext)) return;
                     onCheckForUpdate();
                   },
                   icon: const Icon(Icons.system_update_alt_rounded),

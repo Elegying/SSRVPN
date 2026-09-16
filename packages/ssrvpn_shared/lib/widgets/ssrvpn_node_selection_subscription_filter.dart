@@ -163,7 +163,7 @@ class _SubscriptionPickerItem extends StatelessWidget {
           size: 20,
         ),
         title: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-        onTap: () => Navigator.pop(context, value),
+        onTap: () => dismissSsrvpnDialog<String>(context, value),
       ),
     );
   }

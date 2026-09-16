@@ -1,3 +1,5 @@
+import 'package:ssrvpn_shared/models/subscription.dart';
+import 'package:ssrvpn_shared/widgets/ssrvpn_subscription_edit_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/models/app_diagnostics.dart';
@@ -6,6 +8,31 @@ import 'package:ssrvpn_shared/services/update_service.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
 
 void main() {
+  testWidgets('repeated subscription edit cancel preserves the underlying page',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+        home: Builder(
+            builder: (context) => Scaffold(
+                body: TextButton(
+                    onPressed: () => showSsrvpnSubscriptionEditDialog(
+                        context,
+                        Subscription(
+                            id: 'test',
+                            name: 'test',
+                            url: 'https://example.com/sub')),
+                    child: const Text('home'))))));
+    await tester.tap(find.text('home'));
+    await tester.pumpAndSettle();
+    final cancel = tester
+        .widget<TextButton>(find.widgetWithText(TextButton, '取消'))
+        .onPressed!;
+    cancel();
+    cancel();
+    await tester.pumpAndSettle();
+    expect(find.text('home'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
       'stale shared update actions neither pop home nor start downloads',
       (tester) async {

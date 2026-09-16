@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 使用体验
 
+- 订阅编辑、删除确认、背景预览和规则编辑等弹窗复用当前路由关闭保护，防止重复或迟到的取消动作误关主页。
+
 - macOS 与 Windows 在连接按钮下方实时显示连接步骤，包括准备规则、启动服务、系统授权和等待服务就绪；取消或完成连接后自动收起，旧连接的迟到提示不会覆盖新连接。
 
 ### 可靠性修复
