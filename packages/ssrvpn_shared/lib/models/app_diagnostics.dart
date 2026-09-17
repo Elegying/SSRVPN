@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart';
+
+import '../constants/app_constants.dart';
 import '../utils/log_redactor.dart';
 import '../services/subscription_failure_diagnosis.dart';
 
@@ -881,8 +884,16 @@ class AppDiagnosticReport {
   String toText({int maxLength = 8192}) {
     if (maxLength <= 0) throw ArgumentError.value(maxLength, 'maxLength');
     final localTime = generatedAt.toLocal().toIso8601String();
+    final platform = switch (defaultTargetPlatform) {
+      TargetPlatform.android => 'Android',
+      TargetPlatform.macOS => 'macOS',
+      TargetPlatform.windows => 'Windows',
+      _ => defaultTargetPlatform.name,
+    };
     final buffer = StringBuffer()
       ..writeln('SSRVPN 诊断报告')
+      ..writeln('客户端版本：${AppConstants.appVersion}')
+      ..writeln('客户端平台：$platform')
       ..writeln('生成时间（本地）：$localTime')
       ..writeln('结论：$userConclusion')
       ..writeln()
