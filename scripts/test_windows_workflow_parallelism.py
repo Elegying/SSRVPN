@@ -42,10 +42,16 @@ class WindowsWorkflowParallelismTest(unittest.TestCase):
                 self.assertNotIn(independent_test, build)
 
         self.assert_windows_build_gates(build)
+        tests = job(workflow, "windows-tests", "windows-build")
+        self.assertIn("Shared tests on Windows", tests)
+        self.assertIn("scripts/run-flutter-coverage.sh SSRVPN_Windows", tests)
+        self.assertIn("scripts/check-coverage-thresholds.sh SSRVPN_Windows", tests)
+        self.assertIn("coverage-SSRVPN_Windows", tests)
+        self.assertNotIn("windows-build", tests.split("    steps:")[0])
         self.assertIn("    name: Windows\n", aggregate)
         self.assertIn("    if: always()\n", aggregate)
         self.assertIn(
-            "    needs: [changes, windows-policy-tests, windows-build]\n",
+            "    needs: [changes, windows-policy-tests, windows-tests, windows-build]\n",
             aggregate,
         )
         self.assertIn("POLICY_RESULT: ${{ needs.windows-policy-tests.result }}", aggregate)
@@ -98,8 +104,6 @@ class WindowsWorkflowParallelismTest(unittest.TestCase):
 
     def assert_windows_build_gates(self, build: str, release: bool = False) -> None:
         required = (
-            "scripts/run-flutter-coverage.sh SSRVPN_Windows",
-            "scripts/check-coverage-thresholds.sh SSRVPN_Windows",
             "test_windows_native_proxy_recovery.ps1",
             "tool\\package_windows.ps1",
             "tool\\build_installer.ps1",
@@ -111,13 +115,14 @@ class WindowsWorkflowParallelismTest(unittest.TestCase):
             with self.subTest(expected=expected, release=release):
                 self.assertIn(expected, build)
         if release:
+            self.assertIn("scripts/run-flutter-coverage.sh SSRVPN_Windows", build)
+            self.assertIn("scripts/check-coverage-thresholds.sh SSRVPN_Windows", build)
             self.assertIn("actions/attest@", build)
             self.assertIn("name: windows\n", build)
         else:
             self.assertIn("languages: c-cpp", build)
             self.assertIn("build-mode: manual", build)
             self.assertIn("name: windows-installer-pr\n", build)
-            self.assertIn("coverage-SSRVPN_Windows", build)
 
 
 if __name__ == "__main__":

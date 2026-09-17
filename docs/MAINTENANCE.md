@@ -69,13 +69,22 @@ This guide keeps local development, GitHub automation, and releases aligned.
 - Pin every third-party action to a full commit SHA. Dependency Review on pull requests
   blocks new moderate-or-higher known vulnerabilities; Dependabot, vulnerability alerts,
   and the Dependency Graph remain the recurring maintenance layer.
-- Keep the protected `Windows` check as the fail-closed aggregate of the parallel
-  policy and installer jobs. The 2026-08-21 baseline was CI p50 15:56 over ten
-  successful runs and Release p50 13:30 over nine releases. After this split,
-  measure the next ten comparable successful runs: target CI p50 at or below
-  14:45 and Release p50 at or below 12:15. Revert the split if it saves less
-  than 60 seconds or Windows runner queueing makes the median worse; never remove
-  coverage, CodeQL, native recovery, or installer smoke to meet the budget.
+- Keep the protected `Windows` check as the fail-closed aggregate of policy,
+  Flutter tests/coverage, and native build/installer jobs. macOS Release tests
+  and packaging run independently; publishing requires both to succeed. Never
+  remove coverage, CodeQL, recovery tests, or installer smoke to meet a time budget.
+- CI caches only the six pinned core/GeoIP assets. The exact cache key includes
+  the runner OS/architecture, source records, extension files, toolchain records,
+  and build/verification scripts; there is no prefix fallback. Bootstrap runs
+  even on a hit, validates the restored bytes and source contracts, and rebuilds
+  missing/mismatched assets. Keep keys current when adding build inputs. PR
+  caches remain scoped to their PR refs; main populates its own verified cache.
+- Measure the next ten comparable successful CI/Release runs before claiming a
+  stable speed improvement. Record cold/warm core-cache state, queue time, elapsed
+  time, and total runner minutes separately: parallel jobs reduce waiting but add
+  setup overhead. Revisit a split if queueing or overhead outweighs its benefit.
+  Baseline v5.0.10: final-main CI 33m35s, Release 20m40s; Windows build job 22m16s,
+  core preparation 10m13s, macOS Release job 13m23s.
 - Protected CI, Release, and `make verify` use `pub get --enforce-lockfile`.
   For an intentional Dart dependency change, run ordinary `flutter pub get`,
   review and commit the root `pubspec.lock`, then rerun the enforced gate. For

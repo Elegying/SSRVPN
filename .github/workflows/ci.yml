@@ -221,6 +221,21 @@ jobs:
       - if: needs.changes.outputs.platform_required == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # Cache only content-addressed binaries, never credentials or build state.
+      # bootstrap always validates the restored bytes and rebuilds missing/mismatched assets.
+      - name: Cache verified core assets
+        if: needs.changes.outputs.platform_required == 'true'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          key: verified-cores-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/proxy_traffic/**', 'SSRVPN_Android/assets/libgojni-source.txt', 'SSRVPN_MacOS/assets/AtlasCore-source.txt', 'SSRVPN_Windows/assets/mihomo-source.txt', 'docs/GEOIP_SOURCE.txt', 'scripts/build-core-asset.py', 'scripts/build-android-core.sh', 'scripts/build-desktop-core.sh', 'scripts/core-traffic-source.py', 'scripts/bootstrap-core-assets.sh', 'scripts/verify-core-assets.sh', 'scripts/verify_android_core_*.py') }}
+          path: |
+            SSRVPN_Android/android/app/src/main/jniLibs/arm64-v8a/libgojni.so
+            SSRVPN_Android/assets/geoip.metadb.gz
+            SSRVPN_MacOS/assets/AtlasCore.gz
+            SSRVPN_MacOS/assets/geoip.metadb.gz
+            SSRVPN_Windows/assets/mihomo.exe
+            SSRVPN_Windows/assets/geoip.metadb.gz
+
       - if: needs.changes.outputs.platform_required == 'true'
         run: bash scripts/bootstrap-core-assets.sh
 
@@ -436,6 +451,44 @@ jobs:
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts\test_windows_policy.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+  windows-tests:
+    name: Windows Flutter tests
+    if: needs.changes.outputs.platform_required == 'true'
+    needs: [changes, core-assets, secret-scan]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: core-assets
+          path: .
+
+      - uses: ./.github/actions/setup-flutter
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: bash scripts/verify-core-assets.sh
+      - run: flutter pub get --enforce-lockfile
+
+      - name: Shared tests on Windows
+        run: flutter test --reporter expanded
+        working-directory: packages/ssrvpn_shared
+
+      - run: flutter analyze
+        working-directory: SSRVPN_Windows
+
+      - run: bash scripts/run-flutter-coverage.sh SSRVPN_Windows
+      - run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: coverage-SSRVPN_Windows
+          path: SSRVPN_Windows/coverage/lcov.info
+
   windows-build:
     name: Windows build
     if: needs.changes.outputs.platform_required == 'true'
@@ -471,16 +524,6 @@ jobs:
           languages: c-cpp
           build-mode: manual
           queries: security-extended
-
-      - name: Shared tests on Windows
-        run: flutter test --reporter expanded
-        working-directory: packages/ssrvpn_shared
-
-      - run: flutter analyze
-        working-directory: SSRVPN_Windows
-
-      - run: bash scripts/run-flutter-coverage.sh SSRVPN_Windows
-      - run: bash scripts/check-coverage-thresholds.sh SSRVPN_Windows
 
       - name: Build Windows installer
         shell: powershell
@@ -521,28 +564,24 @@ jobs:
             SSRVPN_Windows/SSRVPN_Setup.exe
             SSRVPN_Windows/SSRVPN_Setup.exe.sha256
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always()
-        with:
-          name: coverage-SSRVPN_Windows
-          path: SSRVPN_Windows/coverage/lcov.info
-
   windows:
     name: Windows
     if: always()
-    needs: [changes, windows-policy-tests, windows-build]
+    needs: [changes, windows-policy-tests, windows-tests, windows-build]
     runs-on: ubuntu-latest
     steps:
       - name: Require every Windows gate
         env:
           SCOPE: ${{ needs.changes.outputs.platform_required }}
           POLICY_RESULT: ${{ needs.windows-policy-tests.result }}
+          TEST_RESULT: ${{ needs.windows-tests.result }}
           BUILD_RESULT: ${{ needs.windows-build.result }}
         run: |
           if [ "$SCOPE" = true ]; then
             if [ "$POLICY_RESULT" != success ] ||
+               [ "$TEST_RESULT" != success ] ||
                [ "$BUILD_RESULT" != success ]; then
-              echo "Windows gates failed: policy=$POLICY_RESULT build=$BUILD_RESULT" >&2
+              echo "Windows gates failed: policy=$POLICY_RESULT tests=$TEST_RESULT build=$BUILD_RESULT" >&2
               exit 1
             fi
             exit 0
@@ -550,8 +589,9 @@ jobs:
 
           if [ "$SCOPE" = false ]; then
             if [ "$POLICY_RESULT" != skipped ] ||
+               [ "$TEST_RESULT" != skipped ] ||
                [ "$BUILD_RESULT" != skipped ]; then
-              echo "Unexpected docs-only Windows state: policy=$POLICY_RESULT build=$BUILD_RESULT" >&2
+              echo "Unexpected docs-only Windows state: policy=$POLICY_RESULT tests=$TEST_RESULT build=$BUILD_RESULT" >&2
               exit 1
             fi
             exit 0

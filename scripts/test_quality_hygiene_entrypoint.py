@@ -84,9 +84,10 @@ class QualityHygieneEntrypointTest(unittest.TestCase):
                 self.assertIsNone(unguarded_pub_get.search(source))
 
         locked_get = "flutter pub get --enforce-lockfile"
-        # The lightweight dependency preflight resolves the same committed lock.
-        self.assertEqual(5, ci.count(locked_get))
-        self.assertEqual(4, release.count(locked_get))
+        # Each isolated Flutter job, including preflight, resolves the committed lock.
+        for workflow in (ci, release):
+            self.assertEqual(workflow.count("uses: ./.github/actions/setup-flutter"),
+                             workflow.count(locked_get))
         self.assertNotIn("dart pub get", release)
         self.assertIn(
             "$arguments = @('pub', 'get', '--enforce-lockfile')",
