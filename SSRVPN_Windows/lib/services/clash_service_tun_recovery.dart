@@ -1,5 +1,10 @@
 part of 'clash_service.dart';
 
+const _tunTeardownTimeoutError = '核心已停止，但未能确认旧 Windows TUN 网卡和路由已清理；'
+    '请保持 SSRVPN 打开，稍后再次连接或查看 TUN 网络恢复诊断';
+const _tunResidualProbeError = '无法确认旧 Windows TUN 网卡和路由已清理；'
+    '为避免死路由，已在启动本地代理服务前安全中止';
+
 extension _WindowsTunRecovery on _WindowsCoreLifecycle {
   Future<WindowsTunRuntimeStatus> _probeTunRuntime() async {
     try {
@@ -47,11 +52,8 @@ extension _WindowsTunRecovery on _WindowsCoreLifecycle {
 
   Future<bool> _waitForTunTeardown() async {
     final cleared = await waitForWindowsTunTeardown(
-      probe: () async {
-        final result = await _probeTunResidual(_tunTeardownGate.interfaces);
-        _tunTeardownGate.observe(result);
-        return result;
-      },
+      probe: () => _probeTunResidual(_tunTeardownGate.interfaces),
+      onObservation: _tunTeardownGate.observe,
     );
     if (cleared &&
         _tunTeardownGate.accept((
@@ -61,6 +63,8 @@ extension _WindowsTunRecovery on _WindowsCoreLifecycle {
       await _clearTunTeardownMarker();
       return true;
     }
+    log(_tunTeardownGate.diagnosticSummary,
+        level: RuntimeLogLevel.warning, event: 'tun_recovery');
     return false;
   }
 

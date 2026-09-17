@@ -1,10 +1,19 @@
 # SSRVPN 项目健康与发布状态
 
-最近更新：2026-09-16
+最近更新：2026-09-17
 
-当前应用版本：`v5.0.7`
+当前应用版本：`v5.0.8`
 
 最新正式版本：[GitHub Releases 当前正式版](https://github.com/Elegying/SSRVPN/releases/latest)
+
+## v5.0.8 发布候选
+
+源码版本为 `5.0.8+5008`，包含 Windows TUN 启动等待、恢复查询过期结果处理、
+规则未就绪误判修正和日志诊断改进。问题证据与验证边界见
+[Windows TUN 恢复排查](diagnostics/windows-tun-recovery-diagnostics-20260917.md)及
+[节点与规则就绪排查](diagnostics/ss-node-and-windows-rule-readiness-20260917.md)。
+节点服务器连接超时的实际原因尚未定位，本次更新不宣称修复 SS 节点兼容性。
+公开发布状态以上方 GitHub Releases 为准；本机测试不能替代用户 Windows 真机验收。
 
 ## v5.0.7 发布候选
 

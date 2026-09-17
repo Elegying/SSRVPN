@@ -49,7 +49,10 @@ void main() {
     expect(await service.diagnosticCoreAvailable(), isFalse);
 
     final checks = await service.platformDiagnosticChecks();
-    expect(checks, hasLength(2));
+    expect(checks, hasLength(3));
+    final tun = checks.singleWhere((check) => check.id == 'tun_recovery');
+    expect(tun.status, AppDiagnosticStatus.passed);
+    expect(tun.summary, contains('没有待确认'));
     final proxy = checks.singleWhere((check) => check.id == 'system_proxy');
     expect(proxy.status, AppDiagnosticStatus.passed);
     expect(proxy.errorCode, isNull);

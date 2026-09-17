@@ -3,9 +3,19 @@ part of 'clash_service.dart';
 List<AppDiagnosticCheck> _buildWindowsPlatformDiagnosticChecks({
   required bool recoveryPending,
   required String? ownershipWarning,
+  required WindowsTunTeardownGate tunRecovery,
 }) {
   final ownershipUnavailable = ownershipWarning?.trim().isNotEmpty ?? false;
   return [
+    AppDiagnosticCheck(
+      id: 'tun_recovery',
+      title: 'TUN 网络恢复',
+      status: tunRecovery.pending
+          ? AppDiagnosticStatus.warning
+          : AppDiagnosticStatus.passed,
+      summary: tunRecovery.diagnosticSummary,
+      errorCode: tunRecovery.pending ? AppErrorCode.tunRecoveryPending : null,
+    ),
     AppDiagnosticCheck(
       id: 'system_proxy',
       title: '系统代理恢复',

@@ -169,6 +169,26 @@ proxies:
         isFalse);
   });
 
+  test('slow readiness does not reject or replace an intact rule bundle',
+      () async {
+    await confirmOld();
+    await install('2.0.0');
+    error = 'CORE_API_UNAVAILABLE: 分流规则尚未就绪';
+    var starts = 0;
+    expect(
+        await run(() async {
+          starts++;
+          return false;
+        }),
+        isFalse);
+    expect(starts, 1);
+    expect(selected, isEmpty);
+    expect(await recovery.rejects('2.0.0'), isFalse);
+    expect(
+        SmartRuleRecovery.configVersion(await File(configPath).readAsString()),
+        '2.0.0');
+  });
+
   test(
       'failed candidate retries once with identical manual/node settings and old Android lists',
       () async {

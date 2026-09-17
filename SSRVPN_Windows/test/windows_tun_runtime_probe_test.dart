@@ -21,6 +21,47 @@ void main() {
   ]) =>
       (status: status, interfaces: interfaces);
 
+  test('diagnostics distinguish unknown checks from confirmed residuals', () {
+    final gate = WindowsTunTeardownGate()..markPending(const [identity7]);
+    expect(gate.diagnosticSummary, contains('恢复记录'));
+    gate.observe(residual(WindowsTunResidualStatus.probeFailed));
+    expect(gate.diagnosticSummary, contains('尚不能确定'));
+    expect(gate.pending, isTrue);
+    gate.observe(residual(WindowsTunResidualStatus.present));
+    expect(gate.diagnosticSummary, contains('仍有网络地址或路由'));
+    gate.observe(residual(WindowsTunResidualStatus.gone));
+    expect(gate.diagnosticSummary, contains('连续确认'));
+    expect(gate.pending, isTrue);
+    expect(gate.accept(residual(WindowsTunResidualStatus.gone)), isTrue);
+    expect(gate.diagnosticSummary, contains('没有待确认'));
+    gate.markPending();
+    expect(gate.diagnosticSummary, contains('记录不完整'));
+  });
+
+  test('timed-out probe cannot publish into a later recovery session',
+      () async {
+    final late = Completer<WindowsTunResidualProbeResult>();
+    final observations = <WindowsTunResidualStatus>[];
+    final gate = WindowsTunTeardownGate()..markPending(const [identity7]);
+    expect(
+        await waitForWindowsTunTeardown(
+          probe: () => late.future,
+          timeout: const Duration(milliseconds: 200),
+          onObservation: (result) {
+            observations.add(result.status);
+            gate.observe(result);
+          },
+        ),
+        isFalse);
+    expect(observations, [WindowsTunResidualStatus.probeFailed]);
+    gate.accept(residual(WindowsTunResidualStatus.gone));
+    late.complete(
+        residual(WindowsTunResidualStatus.present, const {identity7}));
+    await Future<void>.delayed(Duration.zero);
+    expect(observations, [WindowsTunResidualStatus.probeFailed]);
+    expect(gate.pending, isFalse);
+  });
+
   test('network interface baseline retries one transient empty probe',
       () async {
     var calls = 0;

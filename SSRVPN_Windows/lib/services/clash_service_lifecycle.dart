@@ -15,11 +15,6 @@ enum _VerifiedCoreTermination {
   wrongInstallation,
 }
 
-const _tunTeardownTimeoutError = '核心已停止，但 Windows TUN 网卡未在超时前移除；'
-    '为避免路由冲突，已阻止再次连接，请保持 SSRVPN 打开并重试断开';
-const _tunResidualProbeError = '无法确认旧 Windows TUN 网卡和路由已清理；'
-    '为避免死路由，已在启动本地代理服务前安全中止';
-
 Future<bool> terminateCoreProcess(
   Process process, {
   Duration gracefulTimeout = const Duration(seconds: 3),
@@ -270,6 +265,7 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
       ..._buildWindowsPlatformDiagnosticChecks(
         recoveryPending: _proxyService.recoveryPending,
         ownershipWarning: connectivityOwnershipWarning,
+        tunRecovery: _tunTeardownGate,
       ),
     ];
   }
@@ -967,22 +963,23 @@ try {
         });
       });
 
-      // 慢速磁盘或首次启动可能超过 2 秒，轮询等待 API 就绪。
+      // 网卡创建重试后仍需加载规则；保留完整就绪检查和取消检查。
       reportProgress('正在等待连接服务和分流规则就绪…');
-      var healthy = false;
       var tunIdentityPersisted = !startedWithTun;
-      final deadline = DateTime.now().add(const Duration(seconds: 15));
-      while (DateTime.now().isBefore(deadline) && startupExitCode == null) {
-        _ensureStartCurrent(startToken);
-        if (!tunIdentityPersisted) {
-          tunIdentityPersisted = await _persistTunInterfaceIdentities();
+      final healthy = await waitForWindowsCoreReady(
+        timeout: Duration(seconds: startedWithTun ? 45 : 15),
+        ensureCurrent: () => _ensureStartCurrent(startToken),
+        hasExited: () => startupExitCode != null,
+        probe: () async {
+          if (!tunIdentityPersisted) {
+            tunIdentityPersisted = await _persistTunInterfaceIdentities();
+            _ensureStartCurrent(startToken);
+          }
+          final ready = await healthCheck();
           _ensureStartCurrent(startToken);
-        }
-        healthy = await healthCheck();
-        _ensureStartCurrent(startToken);
-        if (healthy) break;
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-      }
+          return ready;
+        },
+      );
 
       if (healthy) {
         return _completeHealthyStart(
