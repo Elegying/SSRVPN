@@ -143,8 +143,15 @@ Future<bool> waitForWindowsTunTeardown({
     if (remaining <= Duration.zero) return false;
 
     WindowsTunResidualProbeResult result;
+    var probeDeadlineExpired = false;
     try {
-      result = await probe().timeout(remaining);
+      result = await probe().timeout(remaining, onTimeout: () {
+        probeDeadlineExpired = true;
+        return (
+          status: WindowsTunResidualStatus.probeFailed,
+          interfaces: const <WindowsTunInterfaceIdentity>{},
+        );
+      });
     } catch (_) {
       result = (
         status: WindowsTunResidualStatus.probeFailed,
@@ -154,6 +161,9 @@ Future<bool> waitForWindowsTunTeardown({
     // Publish only the bounded result. A timed-out probe may finish during a
     // later connection and must not mutate that connection's recovery gate.
     onObservation?.call(result);
+    // Windows timers can fire just before the monotonic budget reaches zero.
+    // The deadline has already expired; do not start another network query.
+    if (probeDeadlineExpired) return false;
     if (result.status == WindowsTunResidualStatus.gone) {
       consecutiveGone++;
       if (consecutiveGone >= 2) return true;
