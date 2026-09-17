@@ -1,6 +1,7 @@
 """Exercise fail-closed contracts for the three-platform traffic extension."""
 
 import importlib.util
+import errno
 import hashlib
 import io
 import json
@@ -24,6 +25,37 @@ probe_spec.loader.exec_module(probe)
 
 
 class CoreTrafficReadinessTests(unittest.TestCase):
+    def test_mixed_port_skips_udp_reservation_and_releases_probes(self):
+        sockets = [MagicMock() for _ in range(4)]
+        for item in sockets:
+            item.__enter__.return_value = item
+        sockets[0].getsockname.return_value = ('127.0.0.1', 61472)
+        sockets[1].bind.side_effect = OSError(10013, 'reserved UDP port')
+        sockets[2].getsockname.return_value = ('127.0.0.1', 61473)
+        with patch.object(probe.socket, 'socket', side_effect=sockets):
+            self.assertEqual(probe.free_port(), 61473)
+        sockets[1].bind.assert_called_once_with(('127.0.0.1', 61472))
+        sockets[3].bind.assert_called_once_with(('127.0.0.1', 61473))
+        for item in sockets:
+            item.__exit__.assert_called_once()
+
+    def test_mixed_port_failure_is_bounded_and_preserves_other_errors(self):
+        for code in (errno.EACCES, errno.EADDRINUSE, errno.EMFILE):
+            with self.subTest(code=code):
+                sock = MagicMock()
+                sock.__enter__.return_value = sock
+                sock.bind.side_effect = OSError(code, 'fixture bind failure')
+                with patch.object(probe.socket, 'socket', return_value=sock):
+                    if code == errno.EMFILE:
+                        with self.assertRaises(OSError) as error:
+                            probe.free_port()
+                        self.assertEqual(error.exception.errno, code)
+                        self.assertEqual(sock.bind.call_count, 1)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, '32 attempts'):
+                            probe.free_port()
+                        self.assertEqual(sock.bind.call_count, 32)
+
     def test_api_ready_does_not_skip_waiting_for_proxy_listener(self):
         process = MagicMock()
         process.poll.return_value = None

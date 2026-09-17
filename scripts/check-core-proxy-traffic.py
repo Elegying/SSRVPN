@@ -2,6 +2,7 @@
 """Exercise real DIRECT/proxy short connections without changing system networking."""
 
 import argparse
+import errno
 from contextlib import ExitStack
 import http.client
 import gzip
@@ -67,9 +68,19 @@ def serve(stack, server):
 
 
 def free_port():
-    with socket.socket() as probe:
-        probe.bind(('127.0.0.1', 0))
-        return probe.getsockname()[1]
+    # A mixed listener needs both protocols. Windows can reserve a UDP port
+    # even when the same TCP port is available. Keep both probes open together.
+    for _ in range(32):
+        try:
+            with socket.socket() as tcp, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+                tcp.bind(('127.0.0.1', 0))
+                port = tcp.getsockname()[1]
+                udp.bind(('127.0.0.1', port))
+                return port
+        except OSError as error:
+            if error.errno not in (errno.EACCES, errno.EADDRINUSE, 10013, 10048):
+                raise
+    raise RuntimeError('no loopback port available for both TCP and UDP after 32 attempts')
 
 
 def request(port, path, authenticated=True):
