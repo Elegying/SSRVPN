@@ -342,6 +342,10 @@ node_selection_path = Path(
     "packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_page.dart"
 )
 node_selection = read_source(node_selection_path)
+latency_part = "ssrvpn_node_selection_latency.dart"
+if f"part '{latency_part}';" not in node_selection:
+    raise SystemExit(f"{node_selection_path}: latency support part is not wired")
+node_selection += read_source(node_selection_path.with_name(latency_part))
 for token in ("widget.canSelectNode", "widget.onSelectNode(node)"):
     if token not in node_selection:
         raise SystemExit(f"{node_selection_path}: node selection is missing {token}")

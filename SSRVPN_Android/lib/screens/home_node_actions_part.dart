@@ -105,6 +105,12 @@ extension _AndroidHomeNodeActions on HomeScreenState {
       }
       return;
     }
+    if (_retainedRuntimeNodes != null &&
+        !HomeNodeController.connectionUnchanged(
+            _retainedRuntimeNodes!, _nodes, node.name)) {
+      await _reloadConfig(preferredNodeName: node.name);
+      return;
+    }
     if (!_latencyController.canSelect(node)) return;
     final clashService = context.read<ClashService>();
     final generation = clashService.requestConnectionIntent(true);
@@ -294,16 +300,13 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     }
   }
 
-  Future<void> _autoTestAllNodes() => _runBatchLatencyTest();
-
-  Future<void> _handleTestAllLatency() => _runBatchLatencyTest();
-
-  Future<void> _runBatchLatencyTest() async {
+  Future<void> _runBatchLatencyTest([List<ProxyNode>? requestedNodes]) async {
     if (_nodes.isEmpty) return;
     final clashService = context.read<ClashService>();
     final timeout = context.read<SettingsService>().settings.latencyTestTimeout;
     final subscriptionService = context.read<SubscriptionService>();
-    final nodesUnderTest = List<ProxyNode>.from(_nodes);
+    final nodesUnderTest = List<ProxyNode>.from(requestedNodes ?? _nodes);
+    if (nodesUnderTest.isEmpty) return;
     final subscriptionRevision = subscriptionService.revision;
     _cancelSingleLatencyTest();
     _cancelLatencyBatch();
@@ -333,7 +336,7 @@ extension _AndroidHomeNodeActions on HomeScreenState {
     } catch (error) {
       AppLogger.warning('Latency', '批量延迟测试失败: $error');
     }
-    _latencyBatchTimer?.cancel();
+    if (_latencyBatchGeneration == generation) _latencyBatchTimer?.cancel();
     if (!isCurrent()) {
       if (_latencyBatchGeneration == generation) _cancelLatencyBatch();
       return;

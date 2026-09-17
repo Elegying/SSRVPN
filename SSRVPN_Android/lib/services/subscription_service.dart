@@ -231,6 +231,7 @@ class SubscriptionService extends SubscriptionServiceBase {
           if (isCompatibilityAttempt) {
             throw SubscriptionCompatibilityException(
               '${identity.label} 兼容请求失败，请检查网络或联系订阅提供方',
+              cause: error,
             );
           }
           rethrow;
@@ -248,6 +249,7 @@ class SubscriptionService extends SubscriptionServiceBase {
           if (isCompatibilityAttempt) {
             throw SubscriptionCompatibilityException(
               '${identity.label} 兼容响应内容解析失败，请联系订阅提供方',
+              cause: error,
             );
           }
           rethrow;

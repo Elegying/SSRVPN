@@ -74,7 +74,7 @@ void main() {
     expect(message, isNot(contains('top-secret')));
     expect(message, isNot(contains('private-token-cache')));
     expect(message, contains('暂时无法确定具体原因'));
-    expect(message, contains('运行诊断'));
+    expect(message, contains('诊断报告'));
   });
 }
 

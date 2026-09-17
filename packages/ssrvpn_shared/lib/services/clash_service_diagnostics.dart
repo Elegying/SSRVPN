@@ -200,9 +200,8 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
           title: '运行状态',
           status:
               healthy ? AppDiagnosticStatus.passed : AppDiagnosticStatus.failed,
-          summary: healthy
-              ? '本地核心 API、运行配置与必要监听响应正常'
-              : '${healthFailure!.message} ${healthFailure.recommendedAction}',
+          summary:
+              healthy ? '本地核心 API、运行配置与必要监听响应正常' : healthFailure!.userMessage,
           errorCode: healthFailure?.code,
         ),
       );
@@ -298,7 +297,7 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
           id: 'last_start',
           title: '最近一次启动',
           status: AppDiagnosticStatus.warning,
-          summary: '${failure.message} ${failure.recommendedAction}',
+          summary: failure.userMessage,
           errorCode: failure.code,
         ),
       );

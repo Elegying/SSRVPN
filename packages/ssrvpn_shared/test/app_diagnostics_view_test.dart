@@ -161,7 +161,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('PROXY_RECOVERY_PENDING'), findsOneWidget);
+    expect(find.textContaining('PROXY_RECOVERY_PENDING'), findsNothing);
+    await tester.tap(find.text('技术详情').first);
+    await tester.pumpAndSettle();
+    expect(find.text('错误编号：PROXY_RECOVERY_PENDING'), findsOneWidget);
     expect(find.text('修复系统代理'), findsOneWidget);
     expect(find.bySemanticsLabel('重新运行诊断'), findsOneWidget);
 

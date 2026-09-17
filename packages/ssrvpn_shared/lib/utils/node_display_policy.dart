@@ -28,6 +28,16 @@ class NodeDisplayPolicy {
     };
   }
 
+  static String failureExplanation(int value) => switch (value) {
+        dnsFailed => '暂时找不到节点服务器，请检查网络后重试。',
+        noPhysicalNetwork => '没有找到可用的本机网络，请连接网络后重试。',
+        probeBusy => '测速任务较多，本次尚未测量，请稍后重试。',
+        otherVpnActive => '其他 VPN 正在使用网络，本次未能完成测速。',
+        connectFailed => '本次未能连上节点服务器，请稍后重试。',
+        probeTimedOut || >= timeoutLatencyMs => '测速等待时间过长，暂时无法判断节点是否可用。',
+        _ => '本次未测得延迟，暂时无法判断节点是否可用。',
+      };
+
   static const timeoutLatencyMs = 65535;
 
   static bool isTimeoutLatency(int? latency) =>

@@ -37,6 +37,8 @@ class SsrvpnSubscriptionView extends StatefulWidget {
     required this.onDelete,
     this.onEdit,
     this.onShowLogs,
+    this.onRefreshSubscription,
+    this.refreshingSubscriptionId,
     this.refreshFailureDetails = const [],
   });
 
@@ -51,6 +53,8 @@ class SsrvpnSubscriptionView extends StatefulWidget {
   final SsrvpnSubscriptionConnectionStatus? connectionStatus;
   final String? currentNodeName;
   final VoidCallback onAdd;
+  final ValueChanged<String>? onRefreshSubscription;
+  final String? refreshingSubscriptionId;
   final VoidCallback onRefresh;
   final VoidCallback onCancelRefresh;
   final ValueChanged<String> onDelete;
@@ -240,6 +244,15 @@ class _SsrvpnSubscriptionViewState extends State<SsrvpnSubscriptionView> {
                         return _SubscriptionCard(
                           key: ValueKey(subscription.id),
                           subscription: subscription,
+                          isRefreshing: widget.isRefreshing &&
+                              widget.refreshingSubscriptionId ==
+                                  subscription.id,
+                          onRefresh: widget.isBusy ||
+                                  !subscription.enabled ||
+                                  widget.onRefreshSubscription == null
+                              ? null
+                              : () => widget
+                                  .onRefreshSubscription!(subscription.id),
                           onDelete: widget.isBusy
                               ? null
                               : () => widget.onDelete(subscription.id),
@@ -359,11 +372,15 @@ class _SubscriptionCard extends StatelessWidget {
   const _SubscriptionCard({
     super.key,
     required this.subscription,
+    required this.onRefresh,
+    required this.isRefreshing,
     required this.onDelete,
     required this.onEdit,
   });
 
   final Subscription subscription;
+  final VoidCallback? onRefresh;
+  final bool isRefreshing;
   final VoidCallback? onDelete;
   final VoidCallback? onEdit;
 
@@ -504,6 +521,17 @@ class _SubscriptionCard extends StatelessWidget {
                           fontSize: 12,
                         ),
                       ),
+                    ),
+                    TextButton.icon(
+                      onPressed: onRefresh,
+                      icon: isRefreshing
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh_rounded, size: 18),
+                      label: Text(isRefreshing ? '刷新中…' : '刷新'),
                     ),
                   ],
                 ),

@@ -3,6 +3,14 @@ import 'package:test/test.dart';
 
 void main() {
   group('NodeDisplayPolicy', () {
+    test('probe evidence explains local restrictions without blaming nodes',
+        () {
+      expect(NodeDisplayPolicy.failureExplanation(-14), contains('尚未测量'));
+      expect(NodeDisplayPolicy.failureExplanation(-12), contains('本机网络'));
+      expect(NodeDisplayPolicy.failureExplanation(-11), contains('找不到节点服务器'));
+      expect(NodeDisplayPolicy.failureExplanation(-10), contains('暂时无法判断'));
+      expect(NodeDisplayPolicy.failureExplanation(-1), isNot(contains('节点失效')));
+    });
     test('another VPN is a local probe restriction, not a failed node', () {
       expect(NodeDisplayPolicy.latencyText(-15), '其他VPN占用');
       expect(NodeDisplayPolicy.isProbeFailure(-15), isTrue);

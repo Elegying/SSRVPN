@@ -17,6 +17,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isConnected = false;
   bool _isConnecting = false;
   bool _isBatchTesting = false;
+  List<ProxyNode>? _retainedRuntimeNodes;
   String? _errorMessage;
   String? _connectivityWarning;
   String? _testingNodeName;
@@ -133,6 +134,15 @@ class _HomeScreenState extends State<HomeScreen> {
       _nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
       return true;
     }
+    final observedRevision = subService.revision;
+    final runtimeNodes = _retainedRuntimeNodes ?? _nodes;
+    final keepConnection = _isConnected &&
+        !_isConnecting &&
+        HomeNodeController.connectionUnchanged(
+            runtimeNodes, controller.nodes, _selectedNode?.name);
+    if (keepConnection) {
+      _retainedRuntimeNodes ??= List<ProxyNode>.from(_nodes);
+    }
     _lastDisplayRevision = subService.displayRevision;
     _cancelLatencyBatch();
     if (_isConnecting) {
@@ -144,16 +154,27 @@ class _HomeScreenState extends State<HomeScreen> {
         !_nodes.any((node) => node.name == _disconnectedPreferredNodeName)) {
       _disconnectedPreferredNodeName = null;
     }
+    if (keepConnection && subService.rawYaml != null) {
+      final core = _clashService ?? context.read<ClashService>();
+      final yaml = subService.rawYaml!;
+      final revision = subService.revision;
+      core.rememberDesktopConnectionRecoveryPlan(
+        preferredSettings: context.read<SettingsService>().settings,
+        generateConfig: (settings, preferredNodeName) =>
+            core.generateClashConfigAsync(yaml, settings,
+                preferredNodeName: preferredNodeName),
+        isRevisionCurrent: () => subService.revision == revision,
+        preferredNodeName: _selectedNode?.name,
+      );
+    }
     if (sync.shouldPromptForImport) {
       _maybeShowInitialSubscriptionDialog(subService);
       return true;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_canUpdateUi) return;
-      if (!sync.isFirstSync && _isConnected) {
+      if (!_canUpdateUi || subService.revision != observedRevision) return;
+      if (!sync.isFirstSync && _isConnected && !keepConnection) {
         unawaited(_reloadConfig());
-      } else {
-        unawaited(_runBatchLatencyTest());
       }
     });
     return true;
@@ -585,6 +606,7 @@ class _HomeScreenState extends State<HomeScreen> {
           preferredNodeName: runtimeSelectedNode?.name ?? autoSelect?.name,
         );
         setState(() {
+          _retainedRuntimeNodes = null;
           _isConnected = true;
           _isConnecting = false;
           _errorMessage = null;
@@ -601,7 +623,6 @@ class _HomeScreenState extends State<HomeScreen> {
             : nodeWarning ?? connectionResult.runtimeNotice;
         _showRuntimePortAdjustmentNotice(notice);
         _schedulePublicIpRefresh();
-        unawaited(_runBatchLatencyTest());
         _checkUpdateDelayed();
       } catch (e, stack) {
         final isCurrent = isIntentCurrent();
@@ -735,6 +756,11 @@ class _HomeScreenState extends State<HomeScreen> {
           onClose: () => Navigator.of(routeContext).pop(),
           onRefresh: _loadInitialData,
           onTestAll: _runBatchLatencyTest,
+          onTestNodes: _runBatchLatencyTest,
+          onCancelTest: () {
+            _flushPendingLatencies(_latencyBatchGeneration ?? -1);
+            setState(_cancelLatencyBatch);
+          },
           onTestLatency: (node) =>
               _handleTestLatency(node.name, node.server, node.port),
           onSelectNode: _handleSelectNode,

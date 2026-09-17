@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as liquid;
 import 'package:ssrvpn_shared/widgets/ssrvpn_liquid_glass.dart';
 import 'dart:ui' show SemanticsAction, Tristate;
@@ -341,6 +342,89 @@ void main() {
     );
     final unknown = tester.widget<Text>(find.text('--'));
     expect(unknown.style?.color, SsrvpnUiTokens.textSecondary);
+  });
+
+  testWidgets('scoped latency can be stopped without blocking node selection',
+      (tester) async {
+    final nodes = [
+      ProxyNode(
+          name: 'A1',
+          type: 'ss',
+          server: 'a.example',
+          port: 443,
+          group: '订阅 A'),
+      ProxyNode(
+          name: 'B1',
+          type: 'ss',
+          server: 'b.example',
+          port: 443,
+          group: '订阅 B'),
+    ];
+    var pending = Completer<void>();
+    var selected = '';
+    var stopped = 0;
+    var measured = <String>[];
+    await tester.pumpWidget(host(SsrvpnNodeSelectionPage(
+      nodesOf: () => nodes,
+      selectedNodeNameOf: () => selected,
+      proxyModeOf: () => ProxyMode.rule,
+      testingNodeNameOf: () => null,
+      isBatchTestingOf: () => false,
+      isConnectingOf: () => false,
+      countryCodeOf: (_) => 'UN',
+      latencyOf: (_) => null,
+      onClose: () {},
+      onRefresh: () async {},
+      onTestAll: () async => fail('must use scoped request'),
+      onTestNodes: (scope) async {
+        measured = scope.map((n) => n.name).toList();
+        await pending.future;
+      },
+      onCancelTest: () {
+        stopped++;
+      },
+      onTestLatency: (_) async {},
+      onSelectNode: (node) async {
+        selected = node.name;
+      },
+      onProxyModeChanged: (_) async {},
+    )));
+    await tester.pumpAndSettle();
+    expect(measured, isEmpty,
+        reason: 'opening the list must not start a probe');
+    await tester.tap(find.text('全部订阅'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('订阅 A').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('测试当前分组延迟'));
+    await tester.pump();
+    expect(measured, ['A1']);
+    await tester.tap(find.byKey(const ValueKey('ssrvpn-node-select-A1')));
+    await tester.pump();
+    expect(selected, 'A1');
+    await tester.tap(find.text('停止测速'));
+    await tester.pump();
+    expect(stopped, 1);
+    expect(find.text('正在结束当前检测…'), findsOneWidget);
+    pending.complete();
+    await tester.pumpAndSettle();
+    pending = Completer<void>();
+    await tester.tap(find.text('订阅 A'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全部订阅').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('选择测速节点'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Checkbox).first);
+    await tester.pump();
+    await tester.tap(find.byType(Checkbox).last);
+    await tester.pump();
+    await tester.tap(find.byTooltip('测试所选节点延迟'));
+    await tester.pump();
+    expect(measured, ['A1', 'B1']);
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('node selection keeps rule choices and the TUN header switch',
@@ -1476,6 +1560,41 @@ void main() {
       find.byKey(const Key('ssrvpn-subscription-add')).hitTestable(),
       findsOneWidget,
     );
+  });
+
+  testWidgets(
+      'individual subscription refresh selects only its card and blocks repeats',
+      (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    String? selected;
+    Widget view({bool busy = false}) => host(SsrvpnSubscriptionView(
+          subscriptions: [
+            Subscription(id: 'a', name: 'A', url: 'https://example.com/a')
+          ],
+          urlController: controller,
+          isAdding: false,
+          isRefreshing: busy,
+          isBusy: busy,
+          refreshingSubscriptionId: busy ? 'a' : null,
+          refreshMessage: null,
+          refreshMessageColor: null,
+          onAdd: () {},
+          onRefresh: () {},
+          onCancelRefresh: () {},
+          onDelete: (_) {},
+          onRefreshSubscription: (id) => selected = id,
+        ));
+    await tester.pumpWidget(view());
+    await tester.ensureVisible(find.text('刷新'));
+    await tester.tap(find.text('刷新'));
+    expect(selected, 'a');
+    await tester.pumpWidget(view(busy: true));
+    expect(find.text('刷新中…'), findsOneWidget);
+    final button = tester.widget<TextButton>(find.ancestor(
+        of: find.text('刷新中…'), matching: find.byType(TextButton)));
+    expect(button.onPressed, isNull);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('connection and subscription results are live regions',

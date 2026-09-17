@@ -38,6 +38,32 @@ void main() {
 
   tearDown(SubscriptionService.resetInstanceForTesting);
 
+  testWidgets('unrelated subscription changes keep the active node connected',
+      (tester) async {
+    final fixture = (await tester
+        .runAsync(() => _HomeFixture.create(withNodes: true, running: true)))!;
+    addTearDown(fixture.dispose);
+    fixture.clash.runtimeSelectedNodeName = '东京节点';
+    await tester.pumpWidget(fixture.build());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    final starts = fixture.clash.startCalls;
+    await tester.runAsync(() => fixture.subscription
+        .setRawYaml(_nodeYaml.replaceFirst('新加坡节点', '新加坡新节点')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(fixture.clash.isRunning, isTrue);
+    expect(fixture.clash.startCalls, starts);
+    expect(find.text('已连接'), findsWidgets);
+    await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('ssrvpn-node-select-新加坡新节点')));
+    await tester.pump();
+    await _pumpUntil(tester, () => fixture.clash.startCalls > starts);
+    expect(fixture.clash.startCalls, starts + 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('online mode change without nodes preserves mode and connection',
       (tester) async {
     final fixture = (await tester.runAsync(
@@ -435,7 +461,8 @@ void main() {
     expect(find.text('东京节点'), findsOneWidget);
     expect(find.text('新加坡节点'), findsNothing);
     expect(find.text('未连接'), findsOneWidget);
-    expect(fixture.clash.batchLatencyRuns, greaterThanOrEqualTo(1));
+    expect(fixture.clash.batchLatencyRuns, 0,
+        reason: 'startup must not probe every subscription');
 
     await tester.tap(find.byTooltip('使用教程'));
     await tester.pump();
@@ -485,9 +512,9 @@ void main() {
     expect(fixture.clash.lastSwitchAttempt, '新加坡节点');
     await tester.pump(const Duration(seconds: 1));
 
-    await tester.tap(find.byTooltip('测试全部节点延迟'));
+    await tester.tap(find.byTooltip('测试当前分组延迟'));
     await tester.pump();
-    expect(fixture.clash.batchLatencyRuns, greaterThanOrEqualTo(2));
+    expect(fixture.clash.batchLatencyRuns, 1);
 
     await tester.tap(find.byKey(const Key('ssrvpn-node-close')));
     await tester.pump();

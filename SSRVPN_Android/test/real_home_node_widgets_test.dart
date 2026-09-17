@@ -48,6 +48,27 @@ void main() {
 
   tearDown(SubscriptionService.resetInstanceForTesting);
 
+  testWidgets(
+      'subscription change to another node does not restart Android VPN',
+      (tester) async {
+    final clash = _FailedReloadAndroidClashService()
+      ..setRunning(true)
+      ..requestConnectionIntent(true);
+    final fixture =
+        (await tester.runAsync(() => _AndroidHomeFixture.create(clash)))!;
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(fixture.build());
+    await _waitForWidget(tester, find.text('已连接'));
+    await tester.runAsync(() => fixture.subscription
+        .setRawYaml(_nodeYaml.replaceFirst('新加坡节点', '新加坡新节点')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(clash.stopCalls, 0);
+    expect(clash.startCalls, 0);
+    expect(clash.isRunning, isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('Home uses cached endpoint country in overview and selector',
       (tester) async {
     final fixture = (await tester.runAsync(
@@ -308,7 +329,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('Android Home keeps an open selector live during auto latency',
+  testWidgets('Android Home only probes on request and keeps selector live',
       (tester) async {
     final clash = _DelayedAndroidClashService();
     final fixture =
@@ -318,11 +339,13 @@ void main() {
 
     await tester.pumpWidget(fixture.build());
     await tester.pump();
-    await _pumpUntil(tester, () => clash.latencyStarted.isCompleted);
-    expect(clash.lastTimeoutMs, 8700);
-
+    expect(clash.latencyStarted.isCompleted, isFalse);
     await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
     await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('测试当前分组延迟'));
+    await tester.pump();
+    await _pumpUntil(tester, () => clash.latencyStarted.isCompleted);
+    expect(clash.lastTimeoutMs, 8700);
     expect(find.text('--'), findsNWidgets(2));
     expect(
       tester
@@ -869,7 +892,7 @@ void main() {
     );
     expect(overview.isConnecting, isFalse);
     expect(overview.isConnected, isFalse);
-    expect(overview.errorMessage, startsWith('尚未允许 VPN 连接\n'));
+    expect(overview.errorMessage, startsWith('尚未获得系统连接许可'));
     expect(clash.stopCalls, 1);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());

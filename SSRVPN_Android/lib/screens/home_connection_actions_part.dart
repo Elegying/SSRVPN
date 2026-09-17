@@ -1,7 +1,7 @@
 part of 'home_screen.dart';
 
 extension _AndroidHomeConnectionActions on HomeScreenState {
-  Future<bool> _reloadConfig() async {
+  Future<bool> _reloadConfig({String? preferredNodeName}) async {
     final subService = context.read<SubscriptionService>();
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
@@ -13,6 +13,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         clashService,
         settingsService,
         connectionGeneration,
+        preferredNodeName,
       ),
     );
   }
@@ -22,6 +23,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
     ClashService clashService,
     SettingsService settingsService,
     int connectionGeneration,
+    String? preferredNodeName,
   ) async {
     if (!clashService.isConnectionIntentCurrent(
       connectionGeneration,
@@ -49,7 +51,9 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
       }
       final preferredNode = _resolveDefaultNode(
         nodes,
-        _selectedNode?.name ?? settings.lastSelectedNodeName,
+        preferredNodeName ??
+            _selectedNode?.name ??
+            settings.lastSelectedNodeName,
       );
       await clashService.stop();
       if (!clashService.isConnectionIntentCurrent(
@@ -79,6 +83,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
         ProxyNode? connectedNode;
         var preferredNodePersisted = true;
         if (connected) {
+          _retainedRuntimeNodes = null;
           connectedNode = outcome.preferredNodeSwitchSucceeded
               ? preferredNode
               : HomeNodeController.resolveRuntimeSelectedNodeFrom(
@@ -309,6 +314,7 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
             runtimeNotice: clashService.underlyingNetworkNotice,
           );
           _updateHomeState(() {
+            _retainedRuntimeNodes = null;
             _isConnected = true;
             _connectionNotice = feedback.connectionNotice;
             _isConnecting = false;
@@ -317,7 +323,6 @@ extension _AndroidHomeConnectionActions on HomeScreenState {
             _selectedNode = connectedNode;
           });
           _schedulePublicIpRefresh();
-          unawaited(_autoTestAllNodes());
           _checkUpdateDelayed();
         } else {
           final feedback = resolveAndroidConnectionFeedback(

@@ -296,6 +296,7 @@ part_limits = {
         "packages/ssrvpn_shared/lib/widgets/ssrvpn_home_overview_header.dart"
     ): 200,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_page.dart"): 360,
+    Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_latency.dart"): 160,
     Path("packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_controls.dart"): 400,
     Path(
         "packages/ssrvpn_shared/lib/widgets/ssrvpn_node_selection_support_controls.dart"

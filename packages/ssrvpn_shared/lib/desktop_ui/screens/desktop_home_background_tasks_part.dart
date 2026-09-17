@@ -36,14 +36,6 @@ extension _DesktopHomeBackgroundTasks on _HomeScreenState {
           _selectedNode = runtimeSelectedNode;
         }
       });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!_canUpdateUi ||
-            !identical(_subscriptionService, subService) ||
-            subService.revision != revision) {
-          return;
-        }
-        unawaited(_runBatchLatencyTest());
-      });
     }
     if (statusIsCurrent && wasRunning) {
       setState(() {

@@ -3,6 +3,51 @@ import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test(
+      'connection comparison ignores display data but includes credentials and dependencies',
+      () {
+    final a = ProxyNode(
+        name: 'A',
+        type: 'trojan',
+        server: 'a.example',
+        port: 443,
+        extra: {'password': 'old', 'dialer-proxy': 'B'});
+    final b = ProxyNode(
+        name: 'B',
+        type: 'trojan',
+        server: 'b.example',
+        port: 443,
+        extra: {'password': 'b'});
+    expect(
+        HomeNodeController.connectionUnchanged(
+            [a, b], [b, a.copyWith(group: 'renamed', latency: 90)], 'A'),
+        isTrue);
+    expect(
+        HomeNodeController.connectionUnchanged([
+          a,
+          b
+        ], [
+          a.copyWith(extra: {'dialer-proxy': 'B', 'password': 'old'}),
+          b
+        ], 'A'),
+        isTrue);
+    expect(
+        HomeNodeController.connectionUnchanged([
+          a,
+          b
+        ], [
+          a.copyWith(extra: {'password': 'new'}),
+          b
+        ], 'A'),
+        isFalse);
+    expect(
+        HomeNodeController.connectionUnchanged(
+            [a, b], [a, b.copyWith(port: 8443)], 'A'),
+        isFalse);
+    expect(HomeNodeController.connectionUnchanged([a, b], [b], 'A'), isFalse);
+    expect(HomeNodeController.connectionUnchanged([a, b], [a], 'A'), isFalse);
+  });
+
   ProxyNode node(
     String name, {
     String type = 'ss',
