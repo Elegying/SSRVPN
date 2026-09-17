@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
@@ -496,6 +497,27 @@ void main() {
   });
 
   group('AppDiagnosticReport', () {
+    for (final platform in {
+      TargetPlatform.android: 'Android',
+      TargetPlatform.macOS: 'macOS',
+      TargetPlatform.windows: 'Windows',
+    }.entries) {
+      test('report header identifies ${platform.value} and current version',
+          () {
+        debugDefaultTargetPlatformOverride = platform.key;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final report = AppDiagnosticReport(
+          generatedAt: DateTime.utc(2026, 9, 17),
+          checks: const [],
+        );
+        expect(report.toText().split('\n').take(3).toList(), [
+          'SSRVPN 诊断报告',
+          '客户端版本：${AppConstants.appVersion}',
+          '客户端平台：${platform.value}',
+        ]);
+      });
+    }
+
     test('core node dial timeout is readable and retains redacted evidence',
         () {
       const core = '[mihomo] time="2026-09-17T14:00:23+08:00" '

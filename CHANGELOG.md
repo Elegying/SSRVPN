@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 诊断反馈
 
+- 诊断报告开头直接显示客户端版本和 Android / macOS / Windows 平台，复制与保存的报告均保留这些信息。
+
 - Windows 诊断新增独立的 TUN 网络恢复状态，区分残留、查询失败、记录不完整和待连续确认。
 - 调整规则加载与网络恢复文案，避免把“尚未确认”表述为配置损坏或网络必然未恢复。
 - 明确的节点服务器连接超时显示通俗中文原因，内核警告按提醒展示，保留脱敏技术详情。
