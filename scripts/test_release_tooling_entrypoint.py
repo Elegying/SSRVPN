@@ -128,7 +128,7 @@ python3 -m unittest \\
         publish_header = publish[: publish.index("    steps:\n")]
         self.assertIn(
             "    needs: [validate-source, shared-test, build-android, "
-            "build-macos, windows-policy-tests, build-windows]\n",
+            "macos-tests, build-macos, windows-policy-tests, build-windows]\n",
             publish_header,
         )
 
@@ -185,6 +185,21 @@ python3 -m unittest \\
                 "cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}",
                 workflow,
             )
+
+    def test_macos_release_tests_parallelize_but_remain_required(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        tests = workflow.split("  macos-tests:\n", 1)[1].split("  build-macos:\n", 1)[0]
+        for command in ("flutter analyze", "run-flutter-coverage.sh SSRVPN_MacOS",
+                        "test-macos-native.sh", "check-coverage-thresholds.sh SSRVPN_MacOS"):
+            self.assertIn(command, tests)
+        self.assertIn("needs: [validate-source, prepare-geoip]", tests)
+        build = workflow.split("  build-macos:\n", 1)[1].split("  windows-policy-tests:\n", 1)[0]
+        self.assertNotIn("macos-tests", build.split("    steps:")[0])
+        self.assertIn("check-core-proxy-traffic.py", build)
+        self.assertIn("Smoke release artifact", build)
+        publish = workflow.split("  publish:\n", 1)[1].split("    steps:", 1)[0]
+        self.assertIn("macos-tests", publish)
+        self.assertNotIn("if: always()", publish)
 
 
 if __name__ == "__main__":

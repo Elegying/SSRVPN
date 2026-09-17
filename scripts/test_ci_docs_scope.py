@@ -1,4 +1,5 @@
 import json
+import itertools
 import os
 import subprocess
 import textwrap
@@ -120,13 +121,39 @@ class CiDocsScopeTest(unittest.TestCase):
         workflow = CI.read_text(encoding="utf-8")
         aggregate = job(workflow, "windows")
 
-        self.assertIn("    needs: [changes, windows-policy-tests, windows-build]\n", aggregate)
+        self.assertIn("    needs: [changes, windows-policy-tests, windows-tests, windows-build]\n", aggregate)
         self.assertIn("SCOPE: ${{ needs.changes.outputs.platform_required }}", aggregate)
         self.assertIn('if [ "$SCOPE" = true ]; then', aggregate)
         self.assertIn('if [ "$SCOPE" = false ]; then', aggregate)
         self.assertIn('"$POLICY_RESULT" != skipped', aggregate)
         self.assertIn('"$BUILD_RESULT" != skipped', aggregate)
         self.assertIn("Invalid CI scope classification", aggregate)
+
+    def test_windows_gate_executes_fail_closed_for_all_child_results(self) -> None:
+        aggregate = job(CI.read_text(), "windows")
+        script = textwrap.dedent(aggregate.split("        run: |\n", 1)[1])
+        for scope in ("true", "false", "invalid"):
+            for results in itertools.product(("success", "failure", "skipped", "cancelled"), repeat=3):
+                expected = (scope == "true" and results == ("success",) * 3) or (
+                    scope == "false" and results == ("skipped",) * 3)
+                env = dict(os.environ, SCOPE=scope, POLICY_RESULT=results[0],
+                           TEST_RESULT=results[1], BUILD_RESULT=results[2])
+                result = subprocess.run(["bash", "-c", script], env=env, capture_output=True)
+                self.assertEqual(result.returncode == 0, expected, (scope, results))
+
+    def test_core_cache_never_bypasses_bootstrap_verification(self) -> None:
+        core = job(CI.read_text(), "core-assets", "macos-native")
+        cache = core.split("      - name: Cache verified core assets", 1)[1].split("\n      - ", 1)[0]
+        self.assertNotIn("restore-keys", cache)
+        for dependency in ("native/proxy_traffic/**", "libgojni-source.txt", "AtlasCore-source.txt",
+                           "mihomo-source.txt", "GEOIP_SOURCE.txt", "build-core-asset.py",
+                           "build-android-core.sh", "build-desktop-core.sh", "core-traffic-source.py",
+                           "bootstrap-core-assets.sh", "verify-core-assets.sh", "verify_android_core_*.py"):
+            self.assertIn(dependency, cache)
+        bootstrap = core.split("run: bash scripts/bootstrap-core-assets.sh", 1)[0].rsplit("      - ", 1)[1]
+        self.assertNotIn("cache-hit", bootstrap)
+        source = (ROOT / "scripts/bootstrap-core-assets.sh").read_text()
+        self.assertTrue(source.rstrip().endswith("bash scripts/verify-core-assets.sh"))
 
 
 if __name__ == "__main__":
