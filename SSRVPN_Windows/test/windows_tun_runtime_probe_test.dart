@@ -125,18 +125,22 @@ void main() {
   test('TUN teardown fails closed when its probe times out', () async {
     final pending = Completer<WindowsTunResidualProbeResult>();
     var calls = 0;
+    final observations = <WindowsTunResidualProbeResult>[];
 
     final stopped = await waitForWindowsTunTeardown(
       probe: () {
         calls++;
         return pending.future;
       },
-      timeout: const Duration(milliseconds: 20),
+      timeout: const Duration(milliseconds: 200),
       pollInterval: const Duration(milliseconds: 1),
+      onObservation: observations.add,
     );
 
     expect(stopped, isFalse);
     expect(calls, 1);
+    expect(observations.map((result) => result.status),
+        [WindowsTunResidualStatus.probeFailed]);
   });
 
   test('production teardown budget tolerates a full transient probe timeout',

@@ -130,7 +130,9 @@ void main() {
     await tester.runAsync(() async {
       await HttpOverrides.runWithHttpOverrides(() async {
         button.onPressed!();
-        for (var i = 0; i < 100 && updates.availableUpdate == null; i++) {
+        // Real loopback I/O can take more than one second under coverage.
+        // This checks the completed UI state, not network performance.
+        for (var i = 0; i < 1000 && updates.availableUpdate == null; i++) {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
       }, network);
