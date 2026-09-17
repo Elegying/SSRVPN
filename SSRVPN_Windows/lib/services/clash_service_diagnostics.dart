@@ -1,20 +1,26 @@
 part of 'clash_service.dart';
 
-List<AppDiagnosticCheck> _buildWindowsPlatformDiagnosticChecks({
+@visibleForTesting
+List<AppDiagnosticCheck> buildWindowsPlatformDiagnosticChecks({
+  required bool activeTunSession,
   required bool recoveryPending,
   required String? ownershipWarning,
   required WindowsTunTeardownGate tunRecovery,
 }) {
   final ownershipUnavailable = ownershipWarning?.trim().isNotEmpty ?? false;
+  final protectedSession = activeTunSession && tunRecovery.ownershipKnown;
+  final restorationPending = tunRecovery.pending && !protectedSession;
   return [
     AppDiagnosticCheck(
       id: 'tun_recovery',
       title: 'TUN 网络恢复',
-      status: tunRecovery.pending
+      status: restorationPending
           ? AppDiagnosticStatus.warning
           : AppDiagnosticStatus.passed,
-      summary: tunRecovery.diagnosticSummary,
-      errorCode: tunRecovery.pending ? AppErrorCode.tunRecoveryPending : null,
+      summary: tunRecovery.pending && protectedSession
+          ? '当前 TUN 连接已启用恢复保护，断开后会自动检查网络清理情况'
+          : tunRecovery.diagnosticSummary,
+      errorCode: restorationPending ? AppErrorCode.tunRecoveryPending : null,
     ),
     AppDiagnosticCheck(
       id: 'system_proxy',
@@ -96,4 +102,32 @@ Future<AppDiagnosticCheck> _buildWindowsCoreSessionDiagnostic({
         '停止：${stopping ? '进行中' : '无'}；'
         'TUN：${tun ? '已启用' : '未启用'}。',
   );
+}
+
+extension _WindowsPlatformDiagnostics on _WindowsCoreLifecycle {
+  Future<List<AppDiagnosticCheck>> _windowsPlatformDiagnosticChecks({
+    required String? ownershipWarning,
+  }) async {
+    final process = _coreProcess;
+    final session = await _buildWindowsCoreSessionDiagnostic(
+      process: process,
+      starting: _startOperation != null,
+      stopping: _stopOperation != null,
+      tun: _coreUsesTun,
+    );
+    return [
+      session,
+      ...buildWindowsPlatformDiagnosticChecks(
+        activeTunSession: session.status == AppDiagnosticStatus.passed &&
+            identical(process, _coreProcess) &&
+            isRunning &&
+            _coreUsesTun &&
+            _startOperation == null &&
+            _stopOperation == null,
+        recoveryPending: _proxyService.recoveryPending,
+        ownershipWarning: ownershipWarning,
+        tunRecovery: _tunTeardownGate,
+      ),
+    ];
+  }
 }

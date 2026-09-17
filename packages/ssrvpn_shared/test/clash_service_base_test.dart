@@ -20,6 +20,42 @@ import 'package:ssrvpn_shared/services/smart_rule_bundle.dart';
 import 'package:ssrvpn_shared/utils/runtime_config_name_policy.dart';
 
 void main() {
+  test('IPv6 diagnostics use only recent evidence and tolerate old cores',
+      () async {
+    var payload = <String, dynamic>{};
+    final service = _HealthProbeClashService(MockClient((request) async {
+      expect(request.url.path, '/ssrvpn/traffic');
+      expect(request.followRedirects, isFalse);
+      return http.Response(jsonEncode(payload), 200);
+    }))
+      ..setRunning(true);
+    addTearDown(service.dispose);
+    for (final age in [0, 60000, 60001, -1]) {
+      payload = {'ipv6TargetFailures': 1, 'ipv6LastFailureAgoMillis': age};
+      expect(await service.diagnosticRecentIPv6Failure(),
+          age >= 0 && age <= 60000);
+    }
+    payload = {};
+    expect(await service.diagnosticRecentIPv6Failure(), isFalse);
+    payload = {'ipv6TargetFailures': 0, 'ipv6LastFailureAgoMillis': 0};
+    expect(await service.diagnosticRecentIPv6Failure(), isFalse);
+    service.setRunning(false);
+    expect(await service.diagnosticRecentIPv6Failure(), isFalse);
+  });
+
+  test('IPv6 diagnostics ignore a response from a replaced session', () async {
+    final response = Completer<http.Response>();
+    final service = _HealthProbeClashService(MockClient((_) => response.future))
+      ..setRunning(true);
+    addTearDown(service.dispose);
+    final pending = service.diagnosticRecentIPv6Failure();
+    service.setRunning(false);
+    service.setRunning(true);
+    response.complete(http.Response(
+        '{"ipv6TargetFailures":1,"ipv6LastFailureAgoMillis":0}', 200));
+    expect(await pending, isFalse);
+  });
+
   test('progress rejects cancelled and replaced connection attempts', () {
     final service = _TestClashService();
     addTearDown(service.dispose);

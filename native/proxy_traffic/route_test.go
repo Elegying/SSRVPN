@@ -30,12 +30,12 @@ func TestProxyTrafficRequiresControllerAuthentication(t *testing.T) {
 		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 			t.Fatal(err)
 		}
-		for _, key := range []string{"sessionGeneration", "sampledAtMillis", "upload", "download"} {
+		for _, key := range []string{"sessionGeneration", "sampledAtMillis", "upload", "download", "ipv6TargetFailures", "ipv6LastFailureAgoMillis"} {
 			if value, ok := payload[key]; !ok || value < 0 {
 				t.Fatalf("invalid field %s: %v", key, payload)
 			}
 		}
-		if len(payload) != 4 {
+		if len(payload) != 6 {
 			t.Fatalf("unexpected connection metadata: %v", payload)
 		}
 	}

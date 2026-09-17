@@ -19,3 +19,12 @@ func TestSSRVPNIPv4OnlyRetainsRequiredTunIPv6Capture(t *testing.T) {
 		t.Fatal("production parser discarded the configured TUN IPv6 address; an emitted inet6-address alone cannot prove IPv6 capture")
 	}
 }
+
+func TestSSRVPNDualStackRetainsExplicitTunIPv6(t *testing.T) {
+	raw := &RawConfig{IPv6: true}
+	raw.Tun.Inet6Address = []netip.Prefix{netip.MustParsePrefix("fdfe:dcba:9876::1/126")}
+	parseIPV6(raw)
+	if !raw.IPv6 || len(raw.Tun.Inet6Address) != 1 {
+		t.Fatal("explicit IPv6 capture must not depend on local uplink family")
+	}
+}

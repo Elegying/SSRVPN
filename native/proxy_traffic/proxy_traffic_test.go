@@ -137,3 +137,17 @@ func TestProxyTrafficConcurrentWrites(t *testing.T) {
 		t.Fatalf("lost bytes: %d", got)
 	}
 }
+
+func TestSSRVPNIPv6FailureObservationIsSessionScoped(t *testing.T) {
+	BeginProxyTrafficSession()
+	retired := CaptureProxyTrafficSession()
+	retired.RecordIPv6TargetFailure()
+	if ReadProxyTraffic().IPv6TargetFailures != 1 {
+		t.Fatal("failure not recorded")
+	}
+	BeginProxyTrafficSession()
+	retired.RecordIPv6TargetFailure()
+	if ReadProxyTraffic().IPv6TargetFailures != 0 {
+		t.Fatal("late failure leaked into new session")
+	}
+}

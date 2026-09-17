@@ -10,9 +10,11 @@ import (
 // Each tracker holds its session so late closes/writes from a retired Android
 // session cannot add bytes to the next connection. No per-connection history is kept.
 type proxyTrafficSession struct {
-	generation int64
-	upload     atomic.Int64
-	download   atomic.Int64
+	generation      int64
+	ipv6Failures    atomic.Int64
+	ipv6LastFailure atomic.Int64
+	upload          atomic.Int64
+	download        atomic.Int64
 }
 
 var proxyTrafficClock = time.Now()
@@ -40,19 +42,31 @@ func proxySessionFor(conn C.Connection, counted bool, sessions []*proxyTrafficSe
 	return activeProxyTraffic.Load()
 }
 
+// The session is captured before dialing, so late failures from a stopped
+// Android session cannot contaminate the next connection's diagnosis.
+func (s *proxyTrafficSession) RecordIPv6TargetFailure() {
+	s.ipv6Failures.Add(1)
+	s.ipv6LastFailure.Store(time.Since(proxyTrafficClock).Milliseconds())
+}
+
 type ProxyTrafficSnapshot struct {
-	SessionGeneration int64 `json:"sessionGeneration"`
-	SampledAtMillis   int64 `json:"sampledAtMillis"`
-	Upload            int64 `json:"upload"`
-	Download          int64 `json:"download"`
+	IPv6TargetFailures       int64 `json:"ipv6TargetFailures"`
+	IPv6LastFailureAgoMillis int64 `json:"ipv6LastFailureAgoMillis"`
+	SessionGeneration        int64 `json:"sessionGeneration"`
+	SampledAtMillis          int64 `json:"sampledAtMillis"`
+	Upload                   int64 `json:"upload"`
+	Download                 int64 `json:"download"`
 }
 
 func ReadProxyTraffic() ProxyTrafficSnapshot {
 	session := activeProxyTraffic.Load()
+	lastFailure := session.ipv6LastFailure.Load()
 	return ProxyTrafficSnapshot{
-		SessionGeneration: session.generation,
-		SampledAtMillis:   time.Since(proxyTrafficClock).Milliseconds(),
-		Upload:            session.upload.Load(),
-		Download:          session.download.Load(),
+		IPv6TargetFailures:       session.ipv6Failures.Load(),
+		IPv6LastFailureAgoMillis: time.Since(proxyTrafficClock).Milliseconds() - lastFailure,
+		SessionGeneration:        session.generation,
+		SampledAtMillis:          time.Since(proxyTrafficClock).Milliseconds(),
+		Upload:                   session.upload.Load(),
+		Download:                 session.download.Load(),
 	}
 }

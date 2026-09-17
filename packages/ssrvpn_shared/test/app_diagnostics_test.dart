@@ -518,6 +518,18 @@ void main() {
       });
     }
 
+    test('IPv6 observation is readable without asserting node capability', () {
+      final entry = readableDiagnosticLogs(
+        '[2026-09-17T06:00:23Z] [INFO] [runtime] '
+        '[mihomo] time="2026-09-17T14:00:23+08:00" level=warning '
+        'msg="[SSRVPN_IPV6_TARGET_FAILED] IPv6 target connection failed through the selected route"',
+      ).single;
+      expect(entry.message, contains('这次未能访问 IPv6 目标'));
+      expect(entry.message, contains('可能'));
+      expect(entry.message, contains('其他连接保持不变'));
+      expect(entry.level, AppDiagnosticLogLevel.warning);
+    });
+
     test('core node dial timeout is readable and retains redacted evidence',
         () {
       const core = '[mihomo] time="2026-09-17T14:00:23+08:00" '

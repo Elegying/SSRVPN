@@ -711,6 +711,12 @@ List<AppDiagnosticLogEntry> readableDiagnosticLogs(
 // Match owned event categories and explicit observations, never guess a cause
 // from arbitrary core output. Raw evidence remains available in the report.
 String? _plainRuntimeSummary(String? event, String text) {
+  if (event == 'runtime' &&
+      RegExp(r'^\[mihomo\] time="[^"]+" level=warning msg="\[SSRVPN_IPV6_TARGET_FAILED\] ')
+          .hasMatch(text)) {
+    return '这次未能访问 IPv6 目标，当前网络或节点可能无法到达该地址；可换节点重试，其他连接保持不变。';
+  }
+
   // This exact core error identifies a failed TCP connection to the proxy
   // server. A generic website timeout does not establish the same cause.
   if (event == 'runtime' &&

@@ -217,6 +217,17 @@ class SsrvpnGlassFrame {
   static ValueListenable<SsrvpnGlassFrame?>? listenableOf(
           BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_CapturedGlass>()?.frames;
+
+  /// Popup routes are siblings of the page, so they cannot inherit its wallpaper
+  /// capture. Share the source without capturing the foreground cards again.
+  static Widget share({
+    required ValueListenable<SsrvpnGlassFrame?>? frames,
+    required Widget child,
+  }) =>
+      frames == null
+          ? child
+          : _CapturedGlass(
+              frames: frames, onBackgroundPaint: () {}, child: child);
 }
 
 class _CapturedGlass extends InheritedWidget {
@@ -224,7 +235,7 @@ class _CapturedGlass extends InheritedWidget {
       {required this.frames,
       required this.onBackgroundPaint,
       required super.child});
-  final ValueNotifier<SsrvpnGlassFrame?> frames;
+  final ValueListenable<SsrvpnGlassFrame?> frames;
   final VoidCallback onBackgroundPaint;
   @override
   bool updateShouldNotify(_CapturedGlass oldWidget) =>

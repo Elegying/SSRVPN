@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
+import 'ssrvpn_glass_capture.dart';
 
 /// Dismiss only the popup that owns this callback. Accessibility actions can
 /// arrive after dismissal, or while another route covers this one. A second
@@ -21,9 +22,13 @@ Future<T?> showSsrvpnGlassDialog<T>({
   bool barrierDismissible = true,
 }) async {
   final navigator = Navigator.of(context, rootNavigator: true);
+  final frames = SsrvpnGlassFrame.listenableOf(context);
   final route = _GlassDialogRoute<T>(
     context: context,
-    builder: builder,
+    builder: (dialogContext) => SsrvpnGlassFrame.share(
+      frames: frames,
+      child: Builder(builder: builder),
+    ),
     themes: InheritedTheme.capture(from: context, to: navigator.context),
     barrierDismissible: barrierDismissible,
     barrierColor: DialogTheme.of(context).barrierColor ?? Colors.black54,

@@ -2,19 +2,19 @@ Mihomo version: v1.19.29
 Official asset: mihomo-darwin-arm64-v1.19.29.gz
 Official asset URL: https://github.com/MetaCubeX/mihomo/releases/download/v1.19.29/mihomo-darwin-arm64-v1.19.29.gz
 Official asset SHA256: 4dc25df9e899f14161911302a8ee5fc9e202ed9c976fc405bf82c50ff27466ca
-Bundled gzip SHA256: 274120bc51aa3afb13662d0105b252472133f3764eb85f3b3e8046cee6a1edd9
-Executable SHA256: 3bb10fc3e5687131a97358d21a083fab6e884dd12573b9716589a18a9d41baf1
+Bundled gzip SHA256: afe3bdec05c62fd79adb4c3b36271e1200f427d0af2dfa60489fe64dadf5b1cd
+Executable SHA256: 7d95f1a82fd1a69dfa3b0417850c2f5465877766b8b62694a056142919fa8f00
 Version output: Mihomo Meta v1.19.29-ssrvpn.1 darwin arm64 with go1.26.5 2026-09-06
 Use tags: with_gvisor
 Source repository: https://github.com/MetaCubeX/mihomo.git
 Source commit: e26714a181ac0e2fa803453c0a8e9a9ce94e31cb
 Source tree: 2487680d2def055568f3b50fcc61f931d70f6fa6
 Go version: go1.26.5
-Traffic extension SHA256: 8b813d2479840161797631a3ac6c92c1ff79062794a4ec824804926e19aac259
+Traffic extension SHA256: 95c9472f4f4909c4726bb8453882330464f02645e44d4201bc5d5754720b35a9
 Build recipe: scripts/build-desktop-core.sh
 Build tags: with_gvisor
 Target: darwin/arm64
 Mirror repo: Elegying/SSRVPN
 Mirror release tag: core-assets-v1
-Mirror asset name: AtlasCore-274120bc51aa3afb13662d0105b252472133f3764eb85f3b3e8046cee6a1edd9.gz
-Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/AtlasCore-274120bc51aa3afb13662d0105b252472133f3764eb85f3b3e8046cee6a1edd9.gz
+Mirror asset name: AtlasCore-afe3bdec05c62fd79adb4c3b36271e1200f427d0af2dfa60489fe64dadf5b1cd.gz
+Mirror URL: https://github.com/Elegying/SSRVPN/releases/download/core-assets-v1/AtlasCore-afe3bdec05c62fd79adb4c3b36271e1200f427d0af2dfa60489fe64dadf5b1cd.gz

@@ -32,6 +32,8 @@ run_step "Core asset bootstrap" scripts/bootstrap-core-assets.sh
 run_step "Core binary assets" scripts/verify-core-assets.sh
 if [[ "$(uname -s)" == Darwin ]]; then
   run_step "Production routing on real core" python3 scripts/check-routing-core.py
+  run_step "Dual-stack forwarding on real core" python3 scripts/check-core-dual-stack.py
+  run_step "Dual-stack encrypted protocol paths" python3 scripts/check-core-dual-stack-protocols.py
 fi
 run_step "Android native bridge guards" scripts/check-android-native-bridge-guards.sh
 run_step "Android built-in Kotlin guard" scripts/check-android-built-in-kotlin.sh

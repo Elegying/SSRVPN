@@ -6,6 +6,8 @@ mixin _MacosClashConfig on ClashServiceBase {
           ..writeln('tun:')
           ..writeln('  enable: true')
           ..writeln('  stack: ${settings.tunStack}')
+          ..writeln('  inet6-address:')
+          ..writeln('    - ${AppConstants.tunInet6Address}')
           ..writeln('  auto-route: true')
           ..writeln('  strict-route: false')
           ..writeln('  auto-detect-interface: true')

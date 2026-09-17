@@ -68,3 +68,11 @@ Windows 补丁另保留 IPv4-only 配置显式指定的 TUN IPv6 捕获地址，
 Windows 双栈环境的路由和防火墙行为仍须真机验收。
 
 以上测试已加入对应核心构建脚本，不升级上游提交或 Go 工具链。
+
+## 2026-09-17 双栈候选
+
+见 [ADR-018](../../docs/decisions/018-dual-stack-routing.md)。当前生成配置已取代上文
+历史 IPv4-only 策略。三端保留显式 IPv6 捕获地址，目标按同一规则分流；
+`target_address.go` 在代理出口选择完成后优先目标 IPv4，并保留 IPv6 及远端解析。
+`/ssrvpn/traffic` 另外返回 `ipv6TargetFailures` 和 `ipv6LastFailureAgoMillis`，
+不包含目标、域名或凭据。该观察不是节点能力认证。

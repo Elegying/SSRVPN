@@ -115,7 +115,10 @@ class SsrvpnLiquidSurface extends StatelessWidget {
             captureOnly: true,
             captureImage: captured?.image,
             captureOriginInScreenSpace: captured?.origin ?? Offset.zero,
-            child: child!);
+            // A new sampling layer also needs its own geometry group. Otherwise
+            // nested cards register with an outer dialog's group and are painted
+            // above the intervening scroll viewport, bypassing its clipping.
+            child: glass.LiquidGlassBlendGroup(blend: 0, child: child!));
       },
     );
   }

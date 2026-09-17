@@ -52,6 +52,51 @@ index 01e0079..75db324 100644
 +
 +func (c *conn) IsProxy() bool       { return c.proxy }
 +func (c *packetConn) IsProxy() bool { return c.proxy }
+diff --git a/component/resolver/relay.go b/component/resolver/relay.go
+index ca7b32b..7d42023 100644
+--- a/component/resolver/relay.go
++++ b/component/resolver/relay.go
+@@ -94,7 +94,17 @@ func relayDnsPacket(ctx context.Context, payload []byte, target []byte, maxSize
+ 		r.Truncate(maxSize)
+ 	}
+ 	r.Compress = true
+-	return r.PackBuffer(target)
++	data, err := r.PackBuffer(target)
++	if err != nil {
++		return nil, err
++	}
++	// PackBuffer sizes its scratch space by the *uncompressed* message length and may
++	// have allocated a new slice even though the compressed result fits into target.
++	// Callers (e.g. the tun dns hijack) assume the result is backed by target, so copy it back.
++	if len(data) > 0 && len(data) <= len(target) && &data[0] != &target[0] {
++		data = target[:copy(target, data)]
++	}
++	return data, nil
+ }
+ 
+ // RelayDnsPacket will truncate udp message up to SafeDnsPacketSize
+diff --git a/config/config.go b/config/config.go
+index 8959dda..8b7aac6 100644
+--- a/config/config.go
++++ b/config/config.go
+@@ -1662,7 +1662,16 @@ func parseAuthentication(rawRecords []string) []auth.AuthUser {
+ }
+ 
+ func parseIPV6(rawCfg *RawConfig) {
+-	if !rawCfg.IPv6 || !verifyIP6() {
++	if !rawCfg.IPv6 {
++		rawCfg.DNS.FakeIPRange6 = ""
++		return
++	}
++	// An explicit capture address is independent of physical IPv6 availability.
++	// IPv6 targets can be carried over an IPv4 connection to a proxy server.
++	if len(rawCfg.Tun.Inet6Address) > 0 {
++		return
++	}
++	if !verifyIP6() {
+ 		rawCfg.DNS.FakeIPRange6 = ""
+ 		rawCfg.Tun.Inet6Address = nil
+ 	}
 diff --git a/constant/adapters.go b/constant/adapters.go
 index ddcdbea..010097b 100644
 --- a/constant/adapters.go
@@ -256,7 +301,7 @@ index 2fbb1cf..f336d04 100644
  	}
  
 diff --git a/tunnel/tunnel.go b/tunnel/tunnel.go
-index 86dbc14..280dd5f 100644
+index 86dbc14..9d3a2e9 100644
 --- a/tunnel/tunnel.go
 +++ b/tunnel/tunnel.go
 @@ -418,6 +418,7 @@ func processUDP(queue chan C.PacketAdapter) {
@@ -267,7 +312,22 @@ index 86dbc14..280dd5f 100644
  	if !isHandle(packet.Metadata().Type) {
  		packet.Drop()
  		return
-@@ -476,7 +477,7 @@ func handleUDPConn(packet C.PacketAdapter) {
+@@ -466,17 +467,22 @@ func handleUDPConn(packet C.PacketAdapter) {
+ 			dialMetadata := metadata.Pure()
+ 			ctx, cancel := context.WithTimeout(context.Background(), C.DefaultUDPTimeout)
+ 			defer cancel()
++			candidates := ssrvpnProxyTargetCandidates(ctx, metadata, proxy)
++			attempt := 0
+ 			rawPc, err := retry(ctx, func(ctx context.Context) (C.PacketConn, error) {
++				dialMetadata = ssrvpnTargetAt(candidates, attempt).Pure()
++				attempt++
+ 				return proxy.ListenPacketContext(ctx, dialMetadata)
+ 			}, func(err error) {
+ 				logMetadataErr(metadata, rule, proxy, err)
+ 			})
+ 			if err != nil {
++				ssrvpnLogIPv6TargetFailure(candidates, attempt, proxySession.RecordIPv6TargetFailure)
+ 				return nil, nil, err
  			}
  			logMetadata(metadata, rule, rawPc)
  
@@ -276,7 +336,7 @@ index 86dbc14..280dd5f 100644
  
  			sender.AddMapping(originMetadata, dialMetadata)
  			oAddrPort := dialMetadata.AddrPort()
-@@ -500,6 +501,7 @@ func handleUDPConn(packet C.PacketAdapter) {
+@@ -500,6 +506,7 @@ func handleUDPConn(packet C.PacketAdapter) {
  }
  
  func handleTCPConn(connCtx C.ConnContext) {
@@ -284,7 +344,24 @@ index 86dbc14..280dd5f 100644
  	if !isHandle(connCtx.Metadata().Type) {
  		_ = connCtx.Conn().Close()
  		return
-@@ -612,7 +614,7 @@ func handleTCPConn(connCtx C.ConnContext) {
+@@ -573,7 +580,11 @@ func handleTCPConn(connCtx C.ConnContext) {
+ 
+ 	ctx, cancel := context.WithTimeout(context.Background(), C.DefaultTCPTimeout)
+ 	defer cancel()
++	candidates := ssrvpnProxyTargetCandidates(ctx, dialMetadata, proxy)
++	attempt := 0
+ 	remoteConn, err := retry(ctx, func(ctx context.Context) (remoteConn C.Conn, err error) {
++		dialMetadata = ssrvpnTargetAt(candidates, attempt)
++		attempt++
+ 		remoteConn, err = proxy.DialContext(ctx, dialMetadata)
+ 		if err != nil {
+ 			return
+@@ -608,11 +619,12 @@ func handleTCPConn(connCtx C.ConnContext) {
+ 		logMetadataErr(metadata, rule, proxy, err)
+ 	})
+ 	if err != nil {
++		ssrvpnLogIPv6TargetFailure(candidates, attempt, proxySession.RecordIPv6TargetFailure)
+ 		return
  	}
  	logMetadata(metadata, rule, remoteConn)
  
@@ -293,24 +370,3 @@ index 86dbc14..280dd5f 100644
  	defer func(remoteConn C.Conn) {
  		_ = remoteConn.Close()
  	}(remoteConn)
---- a/component/resolver/relay.go
-+++ b/component/resolver/relay.go
-@@ -94,7 +94,17 @@
- 		r.Truncate(maxSize)
- 	}
- 	r.Compress = true
--	return r.PackBuffer(target)
-+	data, err := r.PackBuffer(target)
-+	if err != nil {
-+		return nil, err
-+	}
-+	// PackBuffer sizes its scratch space by the *uncompressed* message length and may
-+	// have allocated a new slice even though the compressed result fits into target.
-+	// Callers (e.g. the tun dns hijack) assume the result is backed by target, so copy it back.
-+	if len(data) > 0 && len(data) <= len(target) && &data[0] != &target[0] {
-+		data = target[:copy(target, data)]
-+	}
-+	return data, nil
- }
- 
- // RelayDnsPacket will truncate udp message up to SafeDnsPacketSize
