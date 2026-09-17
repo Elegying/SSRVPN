@@ -55,7 +55,7 @@ const _tunRouteDestinations = <String>[
 
 // A fresh Windows PowerShell process may need several seconds to load the
 // NetTCPIP/NetAdapter modules on otherwise healthy machines. Keep individual
-// probes below half of the 15-second teardown budget so two consecutive clean
+// probes below half of the 30-second teardown budget so two consecutive clean
 // observations still fit, while avoiding a permanent fail-closed loop caused
 // solely by the previous 3-second cold-start ceiling.
 const _windowsNetworkCmdletTimeout = Duration(seconds: 6);
@@ -66,6 +66,20 @@ class WindowsTunTeardownGate {
   final _baselineInterfaces = <WindowsTunInterfaceIdentity>{};
   bool _pending = false;
   bool _ownershipKnown = true;
+  WindowsTunResidualStatus? _lastObservation;
+
+  String get diagnosticSummary {
+    if (!_pending) return '没有待确认的 SSRVPN TUN 恢复记录';
+    if (!_ownershipKnown) return '上次连接的网卡记录不完整，暂时无法确认网络已恢复；请复制诊断报告';
+    return switch (_lastObservation) {
+      WindowsTunResidualStatus.present =>
+        '上次连接的网卡仍有网络地址或路由，请稍后再次连接；持续失败可重启电脑后重试',
+      WindowsTunResidualStatus.probeFailed =>
+        '暂时无法读取 Windows 网络状态，尚不能确定是否有残留；请稍后再次连接或复制诊断报告',
+      WindowsTunResidualStatus.gone => '最近一次检查未发现残留，仍需再次连接完成连续确认',
+      null => '存在上次连接的恢复记录，请再次连接以检查是否已恢复',
+    };
+  }
 
   bool get pending => _pending;
   bool get ownershipKnown => _ownershipKnown;
@@ -82,6 +96,7 @@ class WindowsTunTeardownGate {
         const <WindowsTunInterfaceIdentity>[],
   ]) {
     _pending = true;
+    _lastObservation = null;
     final captured = interfaces.toSet();
     final baseline = baselineInterfaces.toSet();
     _interfaces.addAll(captured);
@@ -90,6 +105,7 @@ class WindowsTunTeardownGate {
   }
 
   void observe(WindowsTunResidualProbeResult result) {
+    _lastObservation = result.status;
     if (result.interfaces.isNotEmpty) {
       _interfaces.addAll(result.interfaces);
       _ownershipKnown = true;
@@ -115,6 +131,7 @@ Future<bool> waitForWindowsTunTeardown({
   Duration timeout = windowsTunTeardownTimeout,
   Duration pollInterval = const Duration(milliseconds: 100),
   Future<void> Function(Duration duration)? wait,
+  void Function(WindowsTunResidualProbeResult result)? onObservation,
 }) async {
   if (timeout <= Duration.zero) return false;
   final elapsed = Stopwatch()..start();
@@ -134,6 +151,9 @@ Future<bool> waitForWindowsTunTeardown({
         interfaces: const <WindowsTunInterfaceIdentity>{},
       );
     }
+    // Publish only the bounded result. A timed-out probe may finish during a
+    // later connection and must not mutate that connection's recovery gate.
+    onObservation?.call(result);
     if (result.status == WindowsTunResidualStatus.gone) {
       consecutiveGone++;
       if (consecutiveGone >= 2) return true;

@@ -101,7 +101,8 @@ class AppFailure {
         AppErrorCode.systemProxyChanged => '系统连接设置已被修改，请确认是否正在使用其他代理软件。',
         AppErrorCode.systemProxyOwnershipUnavailable =>
           '暂时无法读取系统连接设置，请运行诊断确认状态。',
-        AppErrorCode.tunRecoveryPending => '上次连接的网络设置尚未恢复，请保持断开并再次尝试连接。',
+        AppErrorCode.tunRecoveryPending =>
+          '尚未确认上次连接的网络设置已恢复，请稍后再次连接；持续失败请查看诊断。',
         AppErrorCode.permissionRequired => recommendedAction,
         AppErrorCode.subscriptionPartial => '部分订阅未能更新，原有可用数据已保留，请查看失败详情。',
         AppErrorCode.subscriptionChanged => '订阅已发生变化，请重新连接以使用最新节点。',
@@ -109,7 +110,16 @@ class AppFailure {
 
   static AppFailure fromMessage(Object? error) {
     final text = error?.toString().trim().toLowerCase() ?? '';
-    if (text.contains('分流规则尚未就绪') || text.contains('tun_rule_files:')) {
+    if (text.contains('分流规则尚未就绪')) {
+      return const AppFailure(
+        code: AppErrorCode.coreStartTimeout,
+        title: '分流规则仍未就绪',
+        summary: '等待连接时，分流规则仍未准备好，请稍后重新连接。',
+        message: '核心已响应，但检查时分流规则尚未全部就绪，暂不能判断规则文件损坏。',
+        recommendedAction: '请稍后重新连接；若持续出现，请复制诊断报告以检查加载过程。',
+      );
+    }
+    if (text.contains('tun_rule_files:')) {
       return const AppFailure(
         code: AppErrorCode.configInvalid,
         title: '分流规则未就绪',
@@ -662,10 +672,19 @@ List<AppDiagnosticLogEntry> readableDiagnosticLogs(
     final message = _plainRuntimeSummary(match?.group(3), rawMessage) ??
         _readableDiagnosticMessage(rawMessage);
     if (message == null || message.isEmpty) continue;
+    final coreLevel = match?.group(3) == 'runtime'
+        ? RegExp(r'^\[mihomo\] time="[^"]+" level=(warning|error|fatal) msg=')
+            .firstMatch(rawMessage)
+            ?.group(1)
+        : null;
     final level = switch (match?.group(2)?.toUpperCase()) {
       'WARNING' || 'WARN' => AppDiagnosticLogLevel.warning,
       'ERROR' || 'SEVERE' => AppDiagnosticLogLevel.error,
-      _ => AppDiagnosticLogLevel.information,
+      _ => switch (coreLevel) {
+          'error' || 'fatal' => AppDiagnosticLogLevel.error,
+          'warning' => AppDiagnosticLogLevel.warning,
+          _ => AppDiagnosticLogLevel.information,
+        },
     };
     final category = _readableDiagnosticCategory(match?.group(3));
     // Different evidence can share a plain-language summary. Only collapse
@@ -689,6 +708,16 @@ List<AppDiagnosticLogEntry> readableDiagnosticLogs(
 // Match owned event categories and explicit observations, never guess a cause
 // from arbitrary core output. Raw evidence remains available in the report.
 String? _plainRuntimeSummary(String? event, String text) {
+  // This exact core error identifies a failed TCP connection to the proxy
+  // server. A generic website timeout does not establish the same cause.
+  if (event == 'runtime' &&
+      RegExp(r'^\[mihomo\] time="[^"]+" level=(warning|error) msg="\[TCP\] dial ')
+          .hasMatch(text) &&
+      !text.contains('msg="[TCP] dial DIRECT ') &&
+      text.contains(' connect error: ') &&
+      RegExp(r'dial tcp [^"\r\n]+: i/o timeout').hasMatch(text)) {
+    return '这次未能连上节点服务器，请稍后重试或换个节点。';
+  }
   if (event == 'runtime' &&
       RegExp(r'\b(?:CORE_START_[A-Z_]+|CORE_API_UNAVAILABLE|TUN_RULE_FILES|VPN_PERMISSION_DENIED)\b')
           .hasMatch(text)) {
@@ -736,6 +765,7 @@ String _readableDiagnosticCategory(String? event) => switch (event) {
       'system_proxy_health' => '系统代理',
       'proxy_switch' => '节点切换',
       'connection_cleanup' => '断开连接',
+      'tun_recovery' => '网络恢复',
       'subscription_refresh' => '订阅更新',
       'runtime' => '连接',
       _ => '运行记录',

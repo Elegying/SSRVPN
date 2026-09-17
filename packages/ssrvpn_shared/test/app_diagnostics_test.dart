@@ -3,15 +3,15 @@ import 'package:ssrvpn_shared/ssrvpn_shared.dart';
 
 void main() {
   test('rule readiness failures are not described as unreachable core API', () {
-    for (final message in [
-      'CORE_API_UNAVAILABLE: 分流规则尚未就绪',
+    final waiting = AppFailure.fromMessage('CORE_API_UNAVAILABLE: 分流规则尚未就绪');
+    expect(waiting.code, AppErrorCode.coreStartTimeout);
+    expect(waiting.userMessage, contains('仍未准备好'));
+    expect(waiting.userMessage, isNot(contains('损坏')));
+    final missing = AppFailure.fromMessage(
       'TUN_RULE_FILES: 分流规则文件缺失或不可用：providers/bundles/2.0.1/gfw.yaml',
-    ]) {
-      final failure = AppFailure.fromMessage(message);
-      expect(failure.code, AppErrorCode.configInvalid);
-      expect(failure.title, '分流规则未就绪');
-      expect(failure.message, isNot(contains('无法访问')));
-    }
+    );
+    expect(missing.code, AppErrorCode.configInvalid);
+    expect(missing.message, isNot(contains('无法访问')));
   });
   group('AppFailure.fromMessage', () {
     test('maps common failures to stable actionable codes', () {
@@ -496,6 +496,38 @@ void main() {
   });
 
   group('AppDiagnosticReport', () {
+    test('core node dial timeout is readable and retains redacted evidence',
+        () {
+      const core = '[mihomo] time="2026-09-17T14:00:23+08:00" '
+          'level=warning msg="[TCP] dial PROXY (match Domain/example.com) '
+          '127.0.0.1:32801 --> example.com:443 error: '
+          'node.example.com:2377 connect error: '
+          'dial tcp 8.8.4.4:2377: i/o timeout"';
+      final entry = readableDiagnosticLogs(
+        '[2026-09-17T06:00:23Z] [INFO] [runtime] $core',
+      ).single;
+      expect(entry.message, '这次未能连上节点服务器，请稍后重试或换个节点。');
+      expect(entry.level, AppDiagnosticLogLevel.warning);
+      expect(entry.technicalDetail, contains('connect error:'));
+      expect(entry.technicalDetail, isNot(contains('8.8.4.4')));
+    });
+
+    test('target timeout and node name alone do not imply node dial failure',
+        () {
+      for (final text in [
+        '[mihomo] time="2026-09-17T14:00:23+08:00" level=warning '
+            'msg="[TCP] dial DIRECT 127.0.0.1 --> example.com:443 error: '
+            'example.com:443 connect error: dial tcp 203.0.113.1:443: i/o timeout"',
+        '[mihomo] time="2026-09-17T14:00:23+08:00" level=info '
+            'msg="[TCP] example.com:443 using PROXY[i/o timeout]"',
+      ]) {
+        final entry = readableDiagnosticLogs(
+          '[2026-09-17T06:00:23Z] [INFO] [runtime] $text',
+        ).single;
+        expect(entry.message, isNot(contains('这次未能连上节点服务器')));
+      }
+    });
+
     test('turns runtime metadata into a short local-time activity list', () {
       final entries = readableDiagnosticLogs(
         '[2026-09-03T08:38:01.753693Z] [WARNING] '

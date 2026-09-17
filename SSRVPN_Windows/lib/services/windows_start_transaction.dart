@@ -5,6 +5,34 @@ enum WindowsStartTransactionStage {
   rollback,
 }
 
+/// Wintun creation can retry before rule providers begin loading. Give the
+/// complete startup a bounded polling budget without relaxing readiness.
+Future<bool> waitForWindowsCoreReady({
+  required Future<bool> Function() probe,
+  required void Function() ensureCurrent,
+  required bool Function() hasExited,
+  Duration timeout = const Duration(seconds: 45),
+  Duration Function()? elapsed,
+  Future<void> Function(Duration)? wait,
+}) async {
+  final watch = Stopwatch()..start();
+  final readElapsed = elapsed ?? () => watch.elapsed;
+  final waitFor = wait ?? Future<void>.delayed;
+  while (readElapsed() < timeout) {
+    ensureCurrent();
+    if (hasExited()) return false;
+    final ready = await probe();
+    ensureCurrent();
+    if (hasExited()) return false;
+    if (ready) return true;
+    final remaining = timeout - readElapsed();
+    if (remaining <= Duration.zero) return false;
+    const interval = Duration(milliseconds: 250);
+    await waitFor(remaining < interval ? remaining : interval);
+  }
+  return false;
+}
+
 /// Coordinates the post-spawn portion of a Windows core start.
 ///
 /// Each failure path runs the same rollback exactly once. Keeping this small

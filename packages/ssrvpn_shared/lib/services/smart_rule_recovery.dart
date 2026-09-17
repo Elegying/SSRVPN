@@ -127,6 +127,7 @@ class SmartRuleRecovery {
 
   /// Only rule-loading diagnostics qualify; transport, permissions and generic
   /// startup failures must never reject a rule snapshot.
+  /// An incomplete readiness response alone cannot prove a bundle is invalid.
   static bool isRuleLoadFailure(String? message) {
     final text = message?.toLowerCase() ?? '';
     if (RegExp(
@@ -135,7 +136,6 @@ class SmartRuleRecovery {
       return false;
     }
     return text.contains('core_start_rules:') ||
-        text.contains('分流规则尚未就绪') ||
         (text.contains('tun_rule_files:') &&
             (text.contains('分流规则文件缺失或不可用：') || text.contains('分流规则文件为空：'))) ||
         RegExp(r'(rule provider|rule-provider|rule set|rule-set|rules\[)[^\n]*(failed|error|invalid|not found)')
