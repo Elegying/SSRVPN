@@ -6,6 +6,7 @@ import 'package:ssrvpn_shared/models/proxy_group.dart';
 import 'package:ssrvpn_shared/models/proxy_node.dart';
 import 'package:ssrvpn_shared/models/subscription.dart';
 import 'package:ssrvpn_shared/services/subscription_parser.dart';
+import 'package:ssrvpn_shared/services/subscription_fetch_policy.dart';
 import 'package:ssrvpn_shared/services/subscription_refresh_control.dart';
 import 'package:ssrvpn_shared/services/subscription_service_base.dart';
 import 'package:test/test.dart';
@@ -25,6 +26,19 @@ void main() {
       );
 
   group('SubscriptionScreenController', () {
+    test('single refresh forwards target and cancellation and reports scope',
+        () async {
+      final service = _FakeSubscriptionService(refreshResult: 'proxies: []');
+      final cancellation = SubscriptionRefreshCancellation();
+      final result =
+          await SubscriptionScreenController(subscriptionService: service)
+              .refreshAll(onlyId: 'selected', cancellation: cancellation);
+      expect(service.receivedOnlyId, 'selected');
+      expect(service.receivedCancellation, same(cancellation));
+      expect(result.status, SubscriptionRefreshStatus.success);
+      expect(result.message, contains('其他订阅保持不变'));
+    });
+
     test('rejects empty, duplicate, and invalid subscription input', () async {
       final duplicate = Subscription(
         id: 'existing',
@@ -222,9 +236,34 @@ void main() {
       final result = await controller.refreshAll();
 
       expect(result.success, isFalse);
-      expect(result.message, '刷新失败: 网络连接异常');
-      expect(result.networkErrorDetail, 'offline');
+      expect(result.message, contains('暂时联系不上订阅服务器'));
+      expect(result.networkErrorDetail, contains('暂时联系不上订阅服务器'));
       expect(result.shouldShowNetworkHelp, isTrue);
+      expect(result.diagnosticDetails.single, contains('[SUB_NETWORK]'));
+    });
+
+    test('outer failures retain typed codes without guessing from message text',
+        () async {
+      final cases = <Object, (String, bool)>{
+        const SubscriptionDnsException('private-token'): ('SUB_DNS', true),
+        const HandshakeException('private-token'): ('SUB_TLS', true),
+        const SubscriptionHttpStatusException(403): ('SUB_HTTP_403', false),
+        const FileSystemException('private-token'): ('SUB_STORAGE', false),
+        TimeoutException('private-token'): ('SUB_TIMEOUT', true),
+        StateError('DNS Socket timeout private-token'): ('SUB_UNKNOWN', false),
+      };
+      for (final entry in cases.entries) {
+        final result = await SubscriptionScreenController(
+          subscriptionService:
+              _FakeSubscriptionService(refreshError: entry.key),
+        ).refreshAll();
+        expect(
+            result.diagnosticDetails.single, contains('[${entry.value.$1}]'));
+        expect(result.shouldShowNetworkHelp, entry.value.$2);
+        expect(result.message, isNot(contains('private-token')));
+        expect(
+            result.diagnosticDetails.single, isNot(contains('private-token')));
+      }
     });
 
     test('refresh result redacts and bounds every display detail', () {
@@ -286,9 +325,9 @@ void main() {
 
       final result = await controller.refreshAll();
 
-      expect(result.shouldShowNetworkHelp, isTrue);
-      expect(result.message, contains('***'));
-      expect(result.networkErrorDetail, contains('***'));
+      expect(result.shouldShowNetworkHelp, isFalse);
+      expect(result.message, contains('暂时无法确定原因'));
+      expect(result.networkErrorDetail, isNull);
       expect(result.message, isNot(contains('password')));
       expect(result.message, isNot(contains('private-path-token')));
       expect(result.message, isNot(contains('top-secret')));
@@ -420,9 +459,15 @@ void main() {
       final result = await controller.refreshAll();
 
       expect(result.status, SubscriptionRefreshStatus.failure);
-      expect(result.message, contains('总时限'));
-      expect(result.message, contains('失效订阅'));
+      expect(result.message, contains('等待时间过长'));
+      expect(result.message, contains('稍后重试'));
+      expect(result.message, isNot(contains('失效')));
       expect(result.shouldShowNetworkHelp, isFalse);
+      expect(result.diagnosticDetails.single, contains('[SUB_DEADLINE]'));
+      final addResult =
+          await controller.addSubscription('https://example.com/sub');
+      expect(addResult.status, SubscriptionAddStatus.refreshFailed);
+      expect(result.message, '刷新失败: ${addResult.displayError}');
     });
 
     test('delete stops clash when no nodes remain', () async {
@@ -633,6 +678,7 @@ class _FakeSubscriptionService implements SubscriptionScreenServicePort {
   final Completer<void>? allowRemoval;
   final addedUrls = <String>[];
   final updatedSubscriptions = <Subscription>[];
+  String? receivedOnlyId;
   SubscriptionRefreshCancellation? receivedCancellation;
   Duration? receivedTimeout;
 
@@ -699,9 +745,11 @@ class _FakeSubscriptionService implements SubscriptionScreenServicePort {
 
   @override
   Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed({
+    String? onlyId,
     SubscriptionRefreshCancellation? cancellation,
     Duration timeout = SubscriptionServiceBase.defaultBatchRefreshTimeout,
   }) async {
+    receivedOnlyId = onlyId;
     receivedCancellation = cancellation;
     receivedTimeout = timeout;
     if (refreshError != null) throw refreshError!;

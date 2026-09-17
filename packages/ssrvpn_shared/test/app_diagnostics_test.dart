@@ -161,7 +161,7 @@ void main() {
         expect(failure.title, entry.value.$2, reason: entry.key);
         expect(failure.recommendedAction, contains(entry.value.$3),
             reason: entry.key);
-        expect(failure.userMessage.split('\n'), hasLength(3));
+        expect(failure.userMessage.split('\n'), hasLength(1));
         expect(failure.userMessage, isNot(contains('private-secret')));
         expect(failure.userMessage, isNot(contains('example.com')));
       }
@@ -221,13 +221,13 @@ void main() {
         'Mihomo service is not initialized: token=internal-secret',
       );
       expect(core.code, AppErrorCode.coreUnavailable);
-      expect(core.userMessage, contains('本地运行核心'));
+      expect(core.userMessage, contains('连接服务'));
       expect(core.userMessage, isNot(contains('Mihomo')));
       expect(core.userMessage, isNot(contains('internal-secret')));
 
       final dataPlane = AppFailure.fromMessage('TUN 数据通道验证失败');
       expect(dataPlane.code, AppErrorCode.dataPlaneDegraded);
-      expect(dataPlane.userMessage, contains('当前连接仍保留'));
+      expect(dataPlane.userMessage, contains('检查实际使用情况'));
       expect(dataPlane.userMessage, isNot(contains('自动切换')));
     });
 
@@ -411,7 +411,7 @@ void main() {
 
       expect(failure.code, AppErrorCode.subscriptionFailed);
       expect(failure.userMessage, contains('订阅刷新失败'));
-      expect(failure.userMessage, contains('检查订阅地址和网络'));
+      expect(failure.userMessage, contains('确认链接'));
     });
 
     test('maps node edit validation failures to safe field guidance', () {
@@ -438,7 +438,7 @@ void main() {
 
       expect(failure.code, AppErrorCode.updateFailed);
       expect(failure.userMessage, contains('更新失败'));
-      expect(failure.userMessage, contains('稍后重试或从官网下载'));
+      expect(failure.userMessage, contains('稍后重试'));
     });
   });
 
@@ -467,7 +467,7 @@ void main() {
       expect(message, isNot(contains('top-secret')));
       expect(message, isNot(contains('secret.ps1')));
       expect(message, contains('暂时无法确定具体原因'));
-      expect(message, contains('运行诊断'));
+      expect(message, contains('诊断报告'));
     });
 
     test('separates a trusted failure from the follow-up action', () {
@@ -489,7 +489,7 @@ void main() {
       );
 
       expect(message, contains('订阅刷新失败'));
-      expect(message, contains('检查订阅地址和网络'));
+      expect(message, contains('确认链接'));
       expect(message, isNot(contains('top-secret')));
       expect(message, isNot(contains('/private/subscription')));
     });

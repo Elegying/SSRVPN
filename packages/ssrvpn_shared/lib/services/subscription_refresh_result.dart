@@ -4,12 +4,16 @@ class SubscriptionRefreshFailure {
   const SubscriptionRefreshFailure({
     required this.subscriptionName,
     required this.message,
+    this.diagnosticCode,
   });
 
   final String subscriptionName;
   final String message;
+  final String? diagnosticCode;
 
   String get detail => '$subscriptionName: $message';
+  String get technicalDetail =>
+      diagnosticCode == null ? detail : '$detail [$diagnosticCode]';
 }
 
 class SubscriptionBatchRefreshResult {

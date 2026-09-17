@@ -26,6 +26,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
   bool _isRefreshing = false;
   bool _isDeleting = false;
   bool _isEditing = false;
+  String? _refreshingSubscriptionId;
   SubscriptionRefreshResult? _refreshResult;
   SubscriptionRefreshCancellation? _refreshCancellation;
 
@@ -52,24 +53,38 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
     setState(() => _isAdding = false);
   }
 
-  Future<void> _refreshAll() async {
+  Future<void> _refreshAll({String? onlyId}) async {
     if (_isBusy) return;
     final cancellation = SubscriptionRefreshCancellation();
     _refreshCancellation = cancellation;
     setState(() {
       _isRefreshing = true;
+      _refreshingSubscriptionId = onlyId;
       _refreshResult = null;
     });
 
     final controller = _subscriptionController(
       context.read<SubscriptionService>(),
     );
-    final result = await controller.refreshAll(cancellation: cancellation);
+    final core = context.read<ClashService>();
+    final result =
+        await controller.refreshAll(onlyId: onlyId, cancellation: cancellation);
+    core.log(result.message,
+        level: result.status == SubscriptionRefreshStatus.failure ||
+                result.isPartialSuccess
+            ? RuntimeLogLevel.warning
+            : RuntimeLogLevel.info,
+        event: 'subscription_refresh');
+    for (final detail in result.diagnosticDetails) {
+      core.log(detail,
+          level: RuntimeLogLevel.warning, event: 'subscription_refresh');
+    }
     if (!mounted || !identical(_refreshCancellation, cancellation)) return;
 
     setState(() {
       _refreshResult = result;
       _isRefreshing = false;
+      _refreshingSubscriptionId = null;
       _refreshCancellation = null;
     });
     if (result.shouldShowNetworkHelp) {
@@ -326,6 +341,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
           refreshMessageColor: refreshColor,
           onAdd: _addSubscription,
           onRefresh: _refreshAll,
+          onRefreshSubscription: (id) => _refreshAll(onlyId: id),
+          refreshingSubscriptionId: _refreshingSubscriptionId,
           onCancelRefresh: _cancelRefresh,
           onDelete: _deleteSubscription,
           onEdit: _editSubscription,

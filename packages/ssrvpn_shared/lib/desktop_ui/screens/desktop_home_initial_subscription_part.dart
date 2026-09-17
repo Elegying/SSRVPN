@@ -78,7 +78,6 @@ extension _DesktopHomeInitialSubscriptionActions on _HomeScreenState {
                         settingsService.settings.lastSelectedNodeName,
                       );
                     });
-                    unawaited(_runBatchLatencyTest());
 
                     if (navigator.canPop()) navigator.pop();
                     messenger.showSnackBar(

@@ -1,5 +1,4 @@
-import 'dart:async';
-import 'dart:io';
+import '../services/subscription_failure_diagnosis.dart';
 
 import '../models/proxy_group.dart';
 import '../models/proxy_node.dart';
@@ -19,6 +18,7 @@ abstract class SubscriptionScreenServicePort {
   Future<Subscription> addSubscription(String name, String url);
   Future<SubscriptionBatchRefreshResult> refreshSubscription(String id);
   Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed({
+    String? onlyId,
     SubscriptionRefreshCancellation? cancellation,
     Duration timeout = SubscriptionServiceBase.defaultBatchRefreshTimeout,
   });
@@ -51,6 +51,7 @@ class CallbackSubscriptionScreenService
   final Future<SubscriptionBatchRefreshResult> Function(String id)
       refreshSubscriptionWith;
   final Future<SubscriptionBatchRefreshResult> Function({
+    String? onlyId,
     SubscriptionRefreshCancellation? cancellation,
     Duration timeout,
   }) refreshAllSubscriptionsDetailedWith;
@@ -84,10 +85,12 @@ class CallbackSubscriptionScreenService
 
   @override
   Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed({
+    String? onlyId,
     SubscriptionRefreshCancellation? cancellation,
     Duration timeout = SubscriptionServiceBase.defaultBatchRefreshTimeout,
   }) {
     return refreshAllSubscriptionsDetailedWith(
+      onlyId: onlyId,
       cancellation: cancellation,
       timeout: timeout,
     );
@@ -135,7 +138,16 @@ class SubscriptionAddResult {
   static const int maxDisplayErrorCharacters = 512;
 
   String get displayError => _sanitizeRefreshDisplayText(
-        error,
+        status == SubscriptionAddStatus.refreshFailed
+            ? error is SubscriptionBatchRefreshException
+                ? (error as SubscriptionBatchRefreshException)
+                    .failures
+                    .map((failure) => failure.detail)
+                    .join('\n')
+                : SubscriptionFailureDiagnosis.fromError(
+                        error ?? StateError('missing'))
+                    .summary
+            : error,
         maxCharacters: maxDisplayErrorCharacters,
       ).replaceFirst('Exception: ', '');
 
@@ -152,6 +164,7 @@ class SubscriptionRefreshResult {
     required this.status,
     String? networkErrorDetail,
     List<String> failureDetails = const [],
+    List<String> diagnosticDetails = const [],
   })  : message = _sanitizeRefreshDisplayText(
           message,
           maxCharacters: maxMessageCharacters,
@@ -162,7 +175,8 @@ class SubscriptionRefreshResult {
                 networkErrorDetail,
                 maxCharacters: maxNetworkErrorDetailCharacters,
               ),
-        failureDetails = _sanitizeRefreshFailureDetails(failureDetails);
+        failureDetails = _sanitizeRefreshFailureDetails(failureDetails),
+        diagnosticDetails = _sanitizeRefreshFailureDetails(diagnosticDetails);
 
   static const int maxMessageCharacters = 1024;
   static const int maxNetworkErrorDetailCharacters = 1024;
@@ -174,6 +188,7 @@ class SubscriptionRefreshResult {
   final SubscriptionRefreshStatus status;
   final String? networkErrorDetail;
   final List<String> failureDetails;
+  final List<String> diagnosticDetails;
 
   bool get success => status == SubscriptionRefreshStatus.success;
   bool get isPartialSuccess =>
@@ -424,11 +439,13 @@ class SubscriptionScreenController {
   }
 
   Future<SubscriptionRefreshResult> refreshAll({
+    String? onlyId,
     SubscriptionRefreshCancellation? cancellation,
     Duration timeout = SubscriptionServiceBase.defaultBatchRefreshTimeout,
   }) async {
     try {
       final outcome = await subscriptionService.refreshAllSubscriptionsDetailed(
+        onlyId: onlyId,
         cancellation: cancellation,
         timeout: timeout,
       );
@@ -443,6 +460,9 @@ class SubscriptionScreenController {
           status: SubscriptionRefreshStatus.partialSuccess,
           failureDetails:
               outcome.failures.map((failure) => failure.detail).toList(),
+          diagnosticDetails: outcome.failures
+              .map((failure) => failure.technicalDetail)
+              .toList(),
         );
       }
       final yaml = outcome.yaml;
@@ -450,7 +470,9 @@ class SubscriptionScreenController {
         final nodeCount = _runnableNodeCount();
         final groupCount = subscriptionService.allGroups.length;
         return SubscriptionRefreshResult(
-          message: '成功: 获取到 $nodeCount 个节点, $groupCount 个分组',
+          message: onlyId == null
+              ? '成功: 获取到 $nodeCount 个节点, $groupCount 个分组'
+              : '订阅已更新，其他订阅保持不变',
           status: SubscriptionRefreshStatus.success,
         );
       }
@@ -460,40 +482,29 @@ class SubscriptionScreenController {
       );
     } on SubscriptionBatchRefreshException catch (error) {
       return SubscriptionRefreshResult(
-        message: '刷新失败：所有订阅均未更新，已有节点已保留',
+        message: onlyId == null ? '刷新失败：所有订阅均未更新，已有节点已保留' : '该订阅刷新失败，已有节点已保留',
         status: SubscriptionRefreshStatus.failure,
         failureDetails:
             error.failures.map((failure) => failure.detail).toList(),
+        diagnosticDetails:
+            error.failures.map((failure) => failure.technicalDetail).toList(),
       );
     } on SubscriptionRefreshCancelled {
       return SubscriptionRefreshResult(
         message: '刷新已取消',
         status: SubscriptionRefreshStatus.cancelled,
       );
-    } on SubscriptionRefreshDeadlineExceeded catch (e) {
+    } catch (error) {
+      final diagnosis = SubscriptionFailureDiagnosis.fromError(error);
+      final showNetworkHelp = switch (diagnosis.code) {
+        'SUB_DNS' || 'SUB_TLS' || 'SUB_TIMEOUT' || 'SUB_NETWORK' => true,
+        _ => false,
+      };
       return SubscriptionRefreshResult(
-        message: '刷新失败: 已超过 ${e.timeout.inSeconds} 秒总时限，'
-            '请重试或删除长期失效订阅',
+        message: '刷新失败: ${diagnosis.summary}',
         status: SubscriptionRefreshStatus.failure,
-      );
-    } on SocketException catch (e) {
-      return SubscriptionRefreshResult(
-        message: '刷新失败: 网络连接异常',
-        status: SubscriptionRefreshStatus.failure,
-        networkErrorDetail: e.message,
-      );
-    } on TimeoutException {
-      return SubscriptionRefreshResult(
-        message: '刷新失败: 连接超时',
-        status: SubscriptionRefreshStatus.failure,
-        networkErrorDetail: '连接超时，请检查网络',
-      );
-    } catch (e) {
-      final message = e.toString().replaceFirst('Exception: ', '');
-      return SubscriptionRefreshResult(
-        message: '刷新失败: $message',
-        status: SubscriptionRefreshStatus.failure,
-        networkErrorDetail: _isNetworkErrorMessage(message) ? message : null,
+        networkErrorDetail: showNetworkHelp ? diagnosis.summary : null,
+        diagnosticDetails: ['${diagnosis.summary} [${diagnosis.code}]'],
       );
     }
   }
@@ -620,13 +631,5 @@ class SubscriptionScreenController {
     } on FormatException {
       return false;
     }
-  }
-
-  bool _isNetworkErrorMessage(String message) {
-    return message.contains('网络') ||
-        message.contains('连接') ||
-        message.contains('Socket') ||
-        message.contains('超时') ||
-        message.contains('DNS');
   }
 }

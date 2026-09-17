@@ -12,6 +12,7 @@ import 'ssrvpn_app_surface.dart';
 import 'ssrvpn_global_mode_dialog.dart';
 
 part 'ssrvpn_node_selection_controls.dart';
+part 'ssrvpn_node_selection_latency.dart';
 part 'ssrvpn_node_selection_keyboard.dart';
 part 'ssrvpn_node_selection_support_controls.dart';
 part 'ssrvpn_node_selection_subscription_filter.dart';
@@ -38,6 +39,8 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
     required this.onClose,
     required this.onRefresh,
     required this.onTestAll,
+    this.onTestNodes,
+    this.onCancelTest,
     required this.onTestLatency,
     required this.onSelectNode,
     required this.onProxyModeChanged,
@@ -66,6 +69,8 @@ class SsrvpnNodeSelectionPage extends StatefulWidget {
   final VoidCallback onClose;
   final Future<void> Function() onRefresh;
   final Future<void> Function() onTestAll;
+  final Future<void> Function(List<ProxyNode> nodes)? onTestNodes;
+  final VoidCallback? onCancelTest;
   final SsrvpnNodeAction onTestLatency;
   final SsrvpnNodeAction onSelectNode;
   final Future<void> Function(ProxyMode mode) onProxyModeChanged;
@@ -91,6 +96,12 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
   bool _sortByLatency = false;
   bool _actionBusy = false;
   bool _closeRequested = false;
+  void _updateSelectionState(VoidCallback action) => setState(action);
+
+  bool _testingAction = false;
+  bool _stopRequested = false;
+  bool _selectingTests = false;
+  final Set<String> _testSelection = {};
 
   @override
   void initState() {
@@ -174,55 +185,6 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
     return nodes.where((node) => node.group.trim() == subscription).toList();
   }
 
-  List<ProxyNode> _latencySortedNodes(List<ProxyNode> nodes) {
-    final indexed = nodes.indexed
-        .map((entry) => (entry.$1, entry.$2, widget.latencyOf(entry.$2)))
-        .toList(growable: false);
-    indexed.sort((left, right) {
-      final leftLatency = left.$3;
-      final rightLatency = right.$3;
-      final leftMeasured = leftLatency != null &&
-          leftLatency > 0 &&
-          leftLatency < NodeDisplayPolicy.timeoutLatencyMs;
-      final rightMeasured = rightLatency != null &&
-          rightLatency > 0 &&
-          rightLatency < NodeDisplayPolicy.timeoutLatencyMs;
-      if (leftMeasured != rightMeasured) return leftMeasured ? -1 : 1;
-      if (leftMeasured) {
-        final latencyOrder = leftLatency.compareTo(rightLatency!);
-        if (latencyOrder != 0) return latencyOrder;
-      }
-      return left.$1.compareTo(right.$1);
-    });
-    return indexed.map((entry) => entry.$2).toList(growable: false);
-  }
-
-  Widget _nodeCard(
-    ProxyNode node, {
-    required bool selectionBusy,
-    required bool testingBusy,
-  }) {
-    return _NodeSelectionCard(
-      node: node,
-      countryCode: widget.countryCodeOf(node),
-      latency: widget.latencyOf(node),
-      selected: node.name == _selectedNodeName,
-      testing: node.name == widget.testingNodeNameOf(),
-      selectionBusy:
-          selectionBusy || !(widget.canSelectNode?.call(node) ?? true),
-      editBusy: selectionBusy,
-      testingBusy: testingBusy,
-      onSelect: () => _runAction(() => widget.onSelectNode(node)),
-      onTest: () => _runAction(() => widget.onTestLatency(node)),
-      onSecondaryTapDown: widget.onSecondaryTapDown == null
-          ? null
-          : (details) => widget.onSecondaryTapDown!(node, details),
-      onLongPress: widget.onLongPressNode == null
-          ? null
-          : () => widget.onLongPressNode!(node),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final nodes = widget.nodesOf();
@@ -248,7 +210,11 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
           orElse: () => null,
         );
     final selectionBusy = _actionBusy || widget.isConnectingOf();
-    final testingBusy = selectionBusy || widget.isBatchTestingOf();
+    final batchRunning = _testingAction || widget.isBatchTestingOf();
+    final testingBusy = selectionBusy || batchRunning;
+    final nodesToTest = _selectingTests
+        ? nodes.where((node) => _testSelection.contains(node.name)).toList()
+        : filteredNodes;
     final controls = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -284,6 +250,32 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
             setState(() => _sortByLatency = !_sortByLatency);
           },
         ),
+        if (widget.onTestNodes != null) ...[
+          Wrap(
+              spacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                TextButton(
+                  onPressed: testingBusy
+                      ? null
+                      : () => setState(() {
+                            _selectingTests = !_selectingTests;
+                            _testSelection.clear();
+                          }),
+                  child: Text(_selectingTests ? '退出多选' : '选择测速节点'),
+                ),
+                Text(_selectingTests
+                    ? '已选 ${nodesToTest.length} 个节点'
+                    : '测速范围：当前分组 ${nodesToTest.length} 个节点'),
+                if (batchRunning && widget.onCancelTest != null)
+                  TextButton.icon(
+                    onPressed: _stopRequested ? null : _stopTests,
+                    icon: const Icon(Icons.stop_rounded),
+                    label: Text(_stopRequested ? '正在结束当前检测…' : '停止测速'),
+                  ),
+              ]),
+          const Text('测速仅检测连接延迟，不代表下载速度或长期稳定性。'),
+        ],
         const SizedBox(height: 12),
       ],
     );
@@ -314,7 +306,8 @@ class _SsrvpnNodeSelectionPageState extends State<SsrvpnNodeSelectionPage> {
                         busy: testingBusy,
                         onClose: _requestClose,
                         onRefresh: () => _runAction(widget.onRefresh),
-                        onTestAll: () => _runAction(widget.onTestAll),
+                        testLabel: _selectingTests ? '测试所选节点延迟' : '测试当前分组延迟',
+                        onTestAll: () => _testNodes(nodesToTest),
                       ),
                       Expanded(
                         child: Padding(

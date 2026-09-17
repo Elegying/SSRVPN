@@ -109,6 +109,7 @@ class CoreLivenessMonitorTest {
                     portProbes++
                     false // 端口不可达 → 核心已死
                 },
+                apiFailureGraceMillis = 0,
                 sleep = {}
             ).unexpectedExit
         )
@@ -132,6 +133,7 @@ class CoreLivenessMonitorTest {
                     false
                 },
                 isApiPortReachable = { true }, // 僵尸端口仍可达
+                apiFailureGraceMillis = 0,
                 sleep = {}
             ).unexpectedExit
         )
@@ -153,6 +155,7 @@ class CoreLivenessMonitorTest {
                 isProtectMonitorRunning = { true },
                 isApiHealthy = { apiResults.removeFirst() },
                 isApiPortReachable = { true },
+                apiFailureGraceMillis = 0,
                 sleep = {}
             ).unexpectedExit
         )
@@ -204,4 +207,52 @@ class CoreLivenessMonitorTest {
         )
         assertEquals(3, localApiChecks)
     }
+    @Test
+    fun `temporary API stall recovers without restarting the native session`() {
+        var now = 0L
+        var running = true
+        var checks = 0
+        val result = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7, currentGeneration = { 7 }, isRunning = { running },
+            isBridgeRunning = { true },
+            isApiHealthy = { ++checks >= 6 },
+            isApiPortReachable = { error("must keep the live session during grace") },
+            monotonicMillis = { now },
+            sleep = { now += it; if (checks == 7) running = false }
+        )
+        assertFalse(result.unexpectedExit)
+        assertEquals(7, checks)
+    }
+
+    @Test
+    fun `persistent unresponsive API recovers after bounded grace`() {
+        var now = 0L
+        val result = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7, currentGeneration = { 7 }, isRunning = { true },
+            isBridgeRunning = { true }, isApiHealthy = { false },
+            isApiPortReachable = { true }, monotonicMillis = { now },
+            sleep = { now += it }
+        )
+        assertTrue(result.unexpectedExit)
+        assertEquals(30_000L, now)
+    }
+
+    @Test
+    fun `suspend does not spend the remaining API grace window`() {
+        var now = 0L
+        var running = true
+        var checks = 0
+        val result = CoreLivenessMonitor.waitForUnexpectedExit(
+            startToken = 7, currentGeneration = { 7 }, isRunning = { running },
+            isBridgeRunning = { true }, isApiHealthy = { checks++; false },
+            isApiPortReachable = { error("must restart observation after suspend") },
+            monotonicMillis = { now },
+            sleep = {
+                now += if (checks == 3) 120_000L else it
+                if (checks == 6) running = false
+            }
+        )
+        assertFalse(result.unexpectedExit)
+    }
+
 }

@@ -19,10 +19,13 @@ internal object CoreLivenessMonitor {
         isApiHealthy: () -> Boolean = { true },
         isApiPortReachable: () -> Boolean = { true },
         monotonicMillis: () -> Long = { System.nanoTime() / 1_000_000L },
+        apiFailureGraceMillis: Long = 30_000L,
         sleep: (Long) -> Unit = Thread::sleep
     ): CoreLivenessOutcome {
         val recoveryBudget = CoreRecoveryBudget(recoveryAttempt)
         var consecutiveApiFailures = 0
+        var firstApiFailure: Long? = null
+        var lastObservation: Long? = null
         while (startToken == currentGeneration() && isRunning()) {
             val bridgeRunning = isBridgeRunning()
             if (startToken != currentGeneration()) {
@@ -35,6 +38,13 @@ internal object CoreLivenessMonitor {
                 return CoreLivenessOutcome(false, recoveryBudget.attempt)
             }
 
+            val now = monotonicMillis()
+            val previous = lastObservation
+            if (previous != null && (now < previous || now - previous > 30_000L)) {
+                consecutiveApiFailures = 0
+                firstApiFailure = null
+            }
+            lastObservation = now
             val apiHealthy = isApiHealthy()
             recoveryBudget.observeHealth(
                 bridgeRunning == true && protectMonitorRunning && apiHealthy,
@@ -42,14 +52,15 @@ internal object CoreLivenessMonitor {
             )
             if (apiHealthy) {
                 consecutiveApiFailures = 0
+                firstApiFailure = null
             } else {
+                if (firstApiFailure == null) firstApiFailure = now
                 consecutiveApiFailures++
-                // API 健康检查连续失败后，用 TCP 端口探测做二次确认：
-                // 端口也不可达 → 核心已死亡，立即退出；
-                // 端口可达但 API 不通 → 僵尸 socket，同样退出。
-                if (consecutiveApiFailures >= MAX_CONSECUTIVE_API_FAILURES) {
+                // Only local API evidence is considered here, never public
+                // website reachability. A live bridge gets a bounded grace window.
+                if (consecutiveApiFailures >= MAX_CONSECUTIVE_API_FAILURES &&
+                    now - firstApiFailure!! >= apiFailureGraceMillis) {
                     if (!isApiPortReachable()) break
-                    // 端口可达但 API 无响应，视为核心僵死
                     if (consecutiveApiFailures >= MAX_CONSECUTIVE_API_FAILURES + 1) break
                 }
             }

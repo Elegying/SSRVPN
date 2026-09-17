@@ -84,7 +84,7 @@ class DesktopSubscriptionFetcher {
       }
     }
 
-    Exception? lastException;
+    Object? lastException;
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       control?.throwIfStopped();
       try {
@@ -115,13 +115,13 @@ class DesktopSubscriptionFetcher {
         if (!e.isRetryable) rethrow;
         lastException = e;
       } on SocketException catch (e) {
-        lastException = Exception('网络连接失败: ${e.message}');
+        lastException = e;
       } on TimeoutException catch (e) {
-        lastException = Exception('连接超时: ${e.duration}');
+        lastException = e;
       } on HttpException catch (e) {
-        lastException = Exception('HTTP错误: ${e.message}');
+        lastException = e;
       } catch (e) {
-        lastException = Exception('获取订阅失败: $e');
+        lastException = e;
       }
 
       if (attempt < maxRetries) {
@@ -227,6 +227,7 @@ class DesktopSubscriptionFetcher {
           if (isCompatibilityAttempt) {
             throw SubscriptionCompatibilityException(
               '${identity.label} 兼容请求失败: $error',
+              cause: error,
             );
           }
           rethrow;
@@ -273,6 +274,7 @@ class DesktopSubscriptionFetcher {
           if (isCompatibilityAttempt) {
             throw SubscriptionCompatibilityException(
               '${identity.label} 兼容请求失败: $error',
+              cause: error,
             );
           }
           rethrow;
@@ -286,6 +288,7 @@ class DesktopSubscriptionFetcher {
           if (isCompatibilityAttempt) {
             throw SubscriptionCompatibilityException(
               '${identity.label} 兼容响应解码失败: $error',
+              cause: error,
             );
           }
           rethrow;

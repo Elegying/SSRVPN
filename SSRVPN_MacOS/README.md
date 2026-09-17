@@ -39,7 +39,8 @@ flutter test
 bash tool/package_macos.sh --dart-define-from-file=../config/ssrvpn-usage-defines.json
 ```
 
-本地验收应用也必须带上同一账户查询配置：
+从仓库根目录可运行 `scripts/build-macos-local.sh`，自动携带账户查询配置。
+手动构建本地验收应用时也必须带上同一配置：
 
 ```bash
 flutter build macos --release --dart-define-from-file=../config/ssrvpn-usage-defines.json --dart-define=SSRVPN_FRAME_DIAGNOSTICS=true

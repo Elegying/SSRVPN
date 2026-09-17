@@ -378,6 +378,8 @@ void main() {
       'stops delivering a stale batch before starting another chunk',
       () async {
         final service = _ControlledLatencyClashService();
+        addTearDown(service.dispose);
+        service.setRunning(true);
         var current = true;
         final delivered = <String>[];
         final nodes = List.generate(
@@ -397,6 +399,9 @@ void main() {
 
         expect(service.testCalls, 10);
         expect(delivered, ['Node 0']);
+        expect(service.isRunning, isTrue,
+            reason: 'cancelling latency must not disconnect the VPN');
+        expect(service.recentLogs, isNot(contains('[latency_result]')));
       },
     );
   });
@@ -2769,7 +2774,7 @@ proxies:
 
       expect(runtime.title, '运行状态');
       expect(runtime.errorCode, AppErrorCode.localProxyUnavailable);
-      expect(runtime.summary, contains('本地监听尚未就绪'));
+      expect(runtime.summary, contains('本地连接服务尚未准备好'));
       expect(runtime.summary, isNot(contains('核心 API 无法访问')));
     });
 
@@ -2787,9 +2792,9 @@ proxies:
       );
 
       expect(runtime.errorCode, AppErrorCode.systemProxyChanged);
-      expect(runtime.summary, contains('与 SSRVPN 本次连接不一致'));
-      expect(runtime.summary, contains('可能已被手动或其他程序修改'));
-      expect(runtime.summary, contains('关闭其他代理或 VPN'));
+      expect(runtime.summary, contains('系统连接设置已被修改'));
+      expect(runtime.summary, contains('请确认是否正在使用其他代理软件'));
+      expect(runtime.summary.split('\n'), hasLength(1));
       expect(runtime.summary, isNot(contains('未分类')));
     });
 

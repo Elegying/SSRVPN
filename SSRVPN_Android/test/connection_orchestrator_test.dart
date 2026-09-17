@@ -307,8 +307,8 @@ void main() {
       result: result.message,
       runtimeNotice: null,
     );
-    expect(feedback.errorMessage, startsWith('本地控制服务认证失败\n'));
-    expect(feedback.errorMessage, contains('退出并重新打开 SSRVPN'));
+    expect(feedback.errorMessage, startsWith('客户端与连接服务的信息不一致'));
+    expect(feedback.errorMessage, contains('退出并重新打开客户端'));
     expect(feedback.errorMessage, isNot(contains('端口')));
     expect(feedback.connectionNotice, isNull);
     expect(clashService.startCalls, 1);
@@ -502,8 +502,8 @@ void main() {
       'Mihomo: parse password secret-value at /data/user/0/private.yaml',
     );
 
-    expect(message, startsWith('操作未完成\n暂时无法确定具体原因。\n'));
-    expect(message, contains('运行诊断'));
+    expect(message, startsWith('操作未完成，暂时无法确定具体原因'));
+    expect(message, contains('诊断报告'));
     expect(message, isNot(contains('secret-value')));
     expect(message, isNot(contains('/data/user')));
   });
@@ -511,29 +511,29 @@ void main() {
   test('stable unknown native code keeps the generic safe UI copy', () {
     expect(
       userFriendlyAndroidConnectionError(androidUnknownCoreStartFailure),
-      startsWith('操作未完成\n暂时无法确定具体原因。\n'),
+      startsWith('操作未完成，暂时无法确定具体原因'),
     );
   });
 
   test('stable native startup stages have actionable friendly messages', () {
     const stages = <String, (String, String)>{
-      'Missing required arguments': ('配置不可用', '刷新订阅'),
-      'VPN establish failed': ('系统 VPN 接口未能就绪', '确认已允许 VPN'),
-      'Bridge.start timed out': ('核心启动超时', '重启应用'),
-      'Health check timeout': ('核心连接中断', '运行诊断'),
-      'CORE_START_PORT_CONFLICT': ('本地端口被占用', '关闭占用端口的程序'),
-      'CORE_START_API_AUTH': ('本地控制服务认证失败', '退出并重新打开 SSRVPN'),
-      'CORE_START_BUSY': ('上一项连接操作尚未结束', '等待几秒'),
-      'CORE_START_COMPONENT': ('核心文件不可用', '重新安装官方安装包'),
-      'VPN_PERMISSION_DENIED': ('尚未允许 VPN 连接', '选择允许或确定'),
+      'Missing required arguments': ('配置无法使用', '检查节点'),
+      'VPN establish failed': ('系统连接服务未准备好', '确认授权'),
+      'Bridge.start timed out': ('连接服务启动时间过长', '重新连接'),
+      'Health check timeout': ('暂时无法与连接服务正常通信', '运行诊断'),
+      'CORE_START_PORT_CONFLICT': ('连接所需的本地端口被占用', '更改代理端口'),
+      'CORE_START_API_AUTH': ('客户端与连接服务的信息不一致', '重新打开客户端'),
+      'CORE_START_BUSY': ('上一项连接操作还未结束', '稍候再试'),
+      'CORE_START_COMPONENT': ('连接服务文件不完整', '重新安装官方客户端'),
+      'VPN_PERMISSION_DENIED': ('尚未获得系统连接许可', '选择允许'),
     };
     for (final entry in stages.entries) {
       final message = userFriendlyAndroidConnectionError(
         '${entry.key}; token=private-secret',
       );
-      expect(message, startsWith('${entry.value.$1}\n'), reason: entry.key);
+      expect(message, startsWith(entry.value.$1), reason: entry.key);
       expect(message, contains(entry.value.$2), reason: entry.key);
-      expect(message.split('\n'), hasLength(3), reason: entry.key);
+      expect(message.split('\n'), hasLength(1), reason: entry.key);
       expect(message, isNot(contains('private-secret')), reason: entry.key);
     }
     expect(

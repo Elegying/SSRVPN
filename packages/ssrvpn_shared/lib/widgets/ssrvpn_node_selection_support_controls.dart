@@ -8,6 +8,7 @@ class _NodeSelectionHeader extends StatelessWidget {
     required this.onClose,
     required this.onRefresh,
     required this.onTestAll,
+    required this.testLabel,
   });
 
   final ProxyNode? selectedNode;
@@ -16,6 +17,7 @@ class _NodeSelectionHeader extends StatelessWidget {
   final VoidCallback onClose;
   final VoidCallback onRefresh;
   final VoidCallback onTestAll;
+  final String testLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +73,7 @@ class _NodeSelectionHeader extends StatelessWidget {
             icon: const Icon(Icons.refresh_rounded, size: 28),
           ),
           IconButton(
-            tooltip: '测试全部节点延迟',
+            tooltip: testLabel,
             onPressed: busy ? null : onTestAll,
             icon: const Icon(Icons.bolt_rounded, size: 28),
           ),

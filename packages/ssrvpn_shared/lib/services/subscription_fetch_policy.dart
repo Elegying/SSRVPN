@@ -169,6 +169,7 @@ class SubscriptionFetchPolicy {
         throw SubscriptionCompatibilityException(
           '使用 ${result.identity.label} 兼容模式仍被服务器拒绝 '
           '(HTTP ${result.statusCode}，已尝试 ${result.attemptCount} 种客户端标识)',
+          statusCode: result.statusCode,
         );
       }
       throw statusError;
@@ -234,7 +235,7 @@ class SubscriptionFetchPolicy {
   ) {
     final resolved = addresses.toList(growable: false);
     if (resolved.isEmpty) {
-      throw SubscriptionAddressException('DNS 未返回 ${uri.host} 的地址');
+      throw const SubscriptionDnsException('服务器地址查询没有返回结果');
     }
 
     final literal = InternetAddress.tryParse(uri.host);
@@ -420,7 +421,11 @@ class SubscriptionContentException implements Exception {
 }
 
 class SubscriptionCompatibilityException implements Exception {
-  const SubscriptionCompatibilityException(this.message);
+  const SubscriptionCompatibilityException(this.message,
+      {this.statusCode, this.cause});
+
+  final int? statusCode;
+  final Object? cause;
 
   final String message;
 

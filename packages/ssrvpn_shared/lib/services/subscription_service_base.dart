@@ -4,8 +4,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
-import 'package:yaml/yaml.dart' show YamlException;
-import '../utils/log_redactor.dart';
 import '../models/subscription.dart';
 import '../models/proxy_node.dart';
 import '../models/proxy_group.dart';
@@ -14,6 +12,7 @@ import '../services/clash_config_generator.dart';
 import '../services/subscription_header_name_parser.dart';
 import '../services/subscription_node_codec.dart';
 import 'subscription_node_editor.dart';
+import 'subscription_failure_diagnosis.dart';
 import '../services/subscription_parser.dart';
 import '../services/subscription_processing.dart';
 import '../services/subscription_refresh_control.dart';
@@ -254,6 +253,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
 
   /// 刷新所有订阅并返回可区分成功、部分成功和空订阅的结构化结果。
   Future<SubscriptionBatchRefreshResult> refreshAllSubscriptionsDetailed({
+    String? onlyId,
     SubscriptionRefreshCancellation? cancellation,
     Duration timeout = defaultBatchRefreshTimeout,
   }) {
@@ -261,7 +261,7 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       timeout: timeout,
       cancellation: cancellation,
     );
-    return _queueRefresh(control);
+    return _queueRefresh(control, onlyId: onlyId);
   }
 
   Future<SubscriptionBatchRefreshResult> refreshSubscription(String id) =>
@@ -324,12 +324,13 @@ abstract class SubscriptionServiceBase extends ChangeNotifier
       } on SubscriptionRefreshDeadlineExceeded {
         rethrow;
       } catch (error) {
+        final diagnosis = SubscriptionFailureDiagnosis.fromError(error);
+        AppLogger.warning(
+            'Subscription', '${diagnosis.summary} [${diagnosis.code}]');
         failures.add(SubscriptionRefreshFailure(
           subscriptionName: sub.name,
-          message: error is FormatException || error is YamlException
-              ? '订阅内容解析失败或没有可用节点，请联系订阅提供方'
-              : LogRedactor.sanitizeForDisplay(error)
-                  .replaceFirst('Exception: ', ''),
+          message: diagnosis.summary,
+          diagnosticCode: diagnosis.code,
         ));
       }
     }

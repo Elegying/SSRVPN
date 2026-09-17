@@ -389,6 +389,12 @@ class _ReadableLogTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 5),
                     Text(entry.message, style: theme.textTheme.bodySmall),
+                    if (entry.technicalDetail != null)
+                      ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        title: const Text('技术详情'),
+                        children: [SelectableText(entry.technicalDetail!)],
+                      ),
                   ],
                 ),
               ),
@@ -459,16 +465,12 @@ class _DiagnosticCheckTile extends StatelessWidget {
                     Text(check.title, style: theme.textTheme.titleSmall),
                     const SizedBox(height: 3),
                     Text(check.summary, style: theme.textTheme.bodySmall),
-                    if (code != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        code,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          fontFamily: 'monospace',
-                          color: color,
-                        ),
+                    if (code != null)
+                      ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        title: const Text('技术详情'),
+                        children: [SelectableText('错误编号：$code')],
                       ),
-                    ],
                     if (onRepair != null) ...[
                       const SizedBox(height: 8),
                       FilledButton.tonalIcon(

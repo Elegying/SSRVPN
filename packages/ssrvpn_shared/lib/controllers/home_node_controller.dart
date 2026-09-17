@@ -1,3 +1,5 @@
+import 'dart:convert';
+import '../services/subscription_node_codec.dart';
 import '../models/proxy_node.dart';
 import '../utils/node_display_policy.dart';
 import '../utils/proxy_node_usage_policy.dart';
@@ -45,6 +47,51 @@ class HomeNodeController {
       isFirstSync: isFirstSync,
       hasNodes: nodes.isNotEmpty,
     );
+  }
+
+  /// Includes chain dependencies; ignores only fields never sent to the core.
+  /// This value can contain credentials and must never be logged.
+  static String? connectionSignature(Iterable<ProxyNode> nodes, String? name) {
+    if (name == null) return null;
+    final byName = {for (final node in nodes) node.name: node};
+    final visited = <String>{};
+    final chain = <Map<String, dynamic>>[];
+    var current = name;
+    while (true) {
+      if (!visited.add(current)) return null;
+      final node = byName[current];
+      if (node == null) return null;
+      final config = <String, dynamic>{
+        ...node.extra,
+        'name': node.name,
+        'type': node.type,
+        'server': node.server,
+        'port': node.port
+      };
+      for (final key in [
+        'group',
+        'latency',
+        'lastLatencyTest',
+        'isOnline',
+        'extra'
+      ]) {
+        config.remove(key);
+      }
+      chain.add(config);
+      final dependency = config['dialer-proxy'];
+      if (dependency == null || dependency == '' || dependency == 'DIRECT') {
+        break;
+      }
+      if (dependency is! String) return null;
+      current = dependency;
+    }
+    return jsonEncode(SubscriptionNodeCodec.canonicalJsonValue(chain));
+  }
+
+  static bool connectionUnchanged(
+      Iterable<ProxyNode> previous, Iterable<ProxyNode> next, String? name) {
+    final old = connectionSignature(previous, name);
+    return old != null && old == connectionSignature(next, name);
   }
 
   static ProxyNode? resolveDefaultNodeFrom(

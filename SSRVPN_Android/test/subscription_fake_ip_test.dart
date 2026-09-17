@@ -136,7 +136,7 @@ void main() {
     };
     final result =
         await SubscriptionScreenController.fromService(service).refreshAll();
-    expect(result.failureDetails.single, contains('订阅内容仍无法识别'));
+    expect(result.failureDetails.single, contains('未提供客户端可用的内容'));
     expect(result.failureDetails.single, isNot(contains('private-body')));
   });
 
@@ -219,7 +219,9 @@ void main() {
     expect(result.status, SubscriptionRefreshStatus.partialSuccess);
     expect(
         service.allNodes.map((n) => n.name), containsAll(['Old', 'Updated']));
-    expect(result.failureDetails.single, contains('HTTP 401'));
+    expect(result.failureDetails.single, contains('暂不允许更新'));
+    expect(result.failureDetails.single, isNot(contains('HTTP')));
+    expect(result.diagnosticDetails.single, contains('SUB_HTTP_401'));
     expect(result.failureDetails.single, isNot(contains('synthetic-private')));
   });
   test('all failed retains nodes and returns structured failure details',
@@ -234,7 +236,9 @@ void main() {
     final result =
         await SubscriptionScreenController.fromService(service).refreshAll();
     expect(result.status, SubscriptionRefreshStatus.failure);
-    expect(result.failureDetails.single, contains('HTTP 404'));
+    expect(result.failureDetails.single, contains('获取最新链接'));
+    expect(result.failureDetails.single, isNot(contains('HTTP')));
+    expect(result.diagnosticDetails.single, contains('SUB_HTTP_404'));
     expect(service.allNodes.single.name, 'Synthetic');
   });
 }

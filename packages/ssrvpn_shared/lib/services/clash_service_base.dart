@@ -18,6 +18,8 @@ import '../models/vpn_traffic_sample.dart';
 import '../runtime_notice.dart';
 import 'clash_config_generator.dart';
 import '../utils/log_redactor.dart';
+import '../utils/health_failure_window.dart';
+import '../utils/node_display_policy.dart';
 import '../utils/private_node_latency_policy.dart';
 import '../utils/connection_intent_tracker.dart';
 import '../utils/connection_transition_queue.dart';
@@ -62,7 +64,8 @@ abstract class ClashServiceBase
   // ── 状态 ──
   bool _isRunning = false;
   int _trafficSessionGeneration = 0;
-  int _consecutiveHealthCheckFailures = 0;
+  final _healthFailures = HealthFailureWindow();
+  final _healthClock = Stopwatch()..start();
   String? _lastHealthCheckError;
   String? _lastStartError;
   String? _lastRuntimePortAdjustmentMessage;
@@ -107,6 +110,9 @@ abstract class ClashServiceBase
 
   @protected
   int get maxConsecutiveHealthCheckFailures => 3;
+
+  @protected
+  Duration get healthFailureGrace => statusMonitorInterval * 6;
 
   @protected
   bool get enablePeriodicHealthMonitor => true;
@@ -674,7 +680,7 @@ abstract class ClashServiceBase
 
   void setRunning(bool running) {
     if (_isRunning != running) {
-      _consecutiveHealthCheckFailures = 0;
+      _healthFailures.reset();
       _trafficSessionGeneration++;
       _invalidateHealthMonitorSession();
       _resetDataPlaneObservationSession();
@@ -699,7 +705,7 @@ abstract class ClashServiceBase
   }
 
   void resetHealthCheckFailures() {
-    _consecutiveHealthCheckFailures = 0;
+    _healthFailures.reset();
   }
 
   void addStatusListener(void Function() listener) {

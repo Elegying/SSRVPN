@@ -347,10 +347,10 @@ void main() {
           requestTimeout: const Duration(milliseconds: 80),
         ),
         throwsA(
-          isA<Exception>().having(
-            (error) => error.toString(),
-            'message',
-            contains('连接超时'),
+          isA<TimeoutException>().having(
+            (error) => error.duration,
+            'deadline',
+            const Duration(milliseconds: 80),
           ),
         ),
       );

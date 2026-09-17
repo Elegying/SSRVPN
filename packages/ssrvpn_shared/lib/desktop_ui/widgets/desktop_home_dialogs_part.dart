@@ -107,3 +107,33 @@ void _showDesktopHomeLogsDialog(BuildContext context) {
     },
   );
 }
+
+extension _DesktopHomeNodeMenu on _HomeScreenState {
+  Future<void> _showNodeContextMenu(
+    ProxyNode node,
+    TapDownDetails details,
+  ) async {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final overlayRect = Offset.zero & overlay.size;
+    final selected = await showSsrvpnLiquidMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+          details.globalPosition & const Size(1, 1), overlayRect),
+      items: [
+        SsrvpnLiquidMenuItem<String>(
+          value: 'edit',
+          child: const Row(children: [
+            Icon(Icons.edit_outlined, size: 18),
+            SizedBox(width: 10),
+            Text('编辑'),
+          ]),
+        ),
+      ],
+    );
+    if (selected != 'edit' || !mounted) return;
+    await Navigator.of(
+      context,
+    ).push<bool>(
+        SsrvpnGlassPageRoute(builder: (_) => NodeEditScreen(node: node)));
+  }
+}

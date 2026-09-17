@@ -38,6 +38,15 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
       _nodes = HomeNodeController.runnableNodesFrom(subService.allNodes);
       return true;
     }
+    final observedRevision = subService.revision;
+    final runtimeNodes = _retainedRuntimeNodes ?? _nodes;
+    final keepConnection = _isConnected &&
+        !_isConnecting &&
+        HomeNodeController.connectionUnchanged(
+            runtimeNodes, controller.nodes, _selectedNode?.name);
+    if (keepConnection) {
+      _retainedRuntimeNodes ??= List<ProxyNode>.from(_nodes);
+    }
     _lastDisplayRevision = subService.displayRevision;
     _cancelSingleLatencyTest();
     _cancelLatencyBatch();
@@ -45,11 +54,11 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
     _nodes = controller.nodes;
     if (sync.shouldPromptForImport) return true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _disposed) return;
-      if (!sync.isFirstSync && _isConnected) {
+      if (!mounted || _disposed || subService.revision != observedRevision) {
+        return;
+      }
+      if (!sync.isFirstSync && _isConnected && !keepConnection) {
         unawaited(_reloadConfig());
-      } else {
-        unawaited(_autoTestAllNodes());
       }
     });
     return true;
@@ -118,15 +127,6 @@ extension _AndroidHomeLifecycleActions on HomeScreenState {
             runtimeSelectedNodeName,
           );
         }
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted ||
-            _disposed ||
-            !identical(_subscriptionService, subService) ||
-            subService.revision != revision) {
-          return;
-        }
-        unawaited(_autoTestAllNodes());
       });
     }
     if (statusIsCurrent && running) {

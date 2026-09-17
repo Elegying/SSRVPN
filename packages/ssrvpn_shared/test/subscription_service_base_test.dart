@@ -398,6 +398,35 @@ proxies:
       expect(service.allNodes.first.latency, 37);
     });
 
+    test(
+        'targeted refresh fetches only selected source and retains other nodes',
+        () async {
+      final backup = await service.addSubscription(
+          'Backup', 'https://backup.example.com/sub');
+      service.responses = {
+        'https://feed.example.com/sub': _yamlFor('Primary Old'),
+        'https://backup.example.com/sub': _yamlFor('Backup Old'),
+      };
+      await service.refreshAllSubscriptionsDetailed();
+      final calls = service.fetchCalls;
+      service.responses = {
+        'https://feed.example.com/sub': Exception('must not be fetched'),
+        'https://backup.example.com/sub': _yamlFor('Backup New'),
+      };
+      await service.refreshAllSubscriptionsDetailed(onlyId: backup.id);
+      expect(service.fetchCalls, calls + 1);
+      expect(service.allNodes.map((node) => node.name),
+          containsAll(['Primary Old', 'Backup New']));
+      expect(service.allNodes.map((node) => node.name),
+          isNot(contains('Backup Old')));
+      final cancellation = SubscriptionRefreshCancellation()..cancel();
+      await expectLater(
+          service.refreshAllSubscriptionsDetailed(
+              onlyId: backup.id, cancellation: cancellation),
+          throwsA(isA<SubscriptionRefreshCancelled>()));
+      expect(service.fetchCalls, calls + 1);
+    });
+
     test('partial fetch commits fresh sources while preserving failed sources',
         () async {
       await service.addSubscription(
@@ -417,7 +446,8 @@ proxies:
       expect(result.successfulSubscriptionNames, ['Primary']);
       expect(result.failures, hasLength(1));
       expect(result.failures.single.subscriptionName, 'Backup');
-      expect(result.failures.single.message, contains('temporary timeout'));
+      expect(result.failures.single.message, contains('暂时无法确定原因'));
+      expect(result.failures.single.diagnosticCode, 'SUB_UNKNOWN');
       expect(service.allNodes.map((node) => node.name), ['New Primary']);
       expect(service.cachedYaml, result.yaml);
     });

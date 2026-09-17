@@ -2,7 +2,7 @@ part of desktop_home_screen;
 
 extension _DesktopHomeRuntimeActions on _HomeScreenState {
   // Null means a newer user action superseded this reload.
-  Future<bool?> _reloadConfig() async {
+  Future<bool?> _reloadConfig({String? preferredNodeName}) async {
     final subService = context.read<SubscriptionService>();
     final clashService = context.read<ClashService>();
     final settingsService = context.read<SettingsService>();
@@ -31,7 +31,9 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       }
       final preferredNode = HomeNodeController.resolveDefaultNodeFrom(
         nodes,
-        _selectedNode?.name ?? settingsService.settings.lastSelectedNodeName,
+        preferredNodeName ??
+            _selectedNode?.name ??
+            settingsService.settings.lastSelectedNodeName,
       );
       ProxyNode? runtimeSelectedNode;
       clashService.interruptPendingStart();
@@ -116,6 +118,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
         }
       }
       if (success) {
+        _retainedRuntimeNodes = null;
         clashService.rememberDesktopConnectionRecoveryPlan(
           preferredSettings: settingsService.settings,
           generateConfig: (runtimeSettings, preferredNodeName) =>
@@ -252,6 +255,12 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
       );
       return;
     }
+    if (_retainedRuntimeNodes != null &&
+        !HomeNodeController.connectionUnchanged(
+            _retainedRuntimeNodes!, _nodes, node.name)) {
+      await _reloadConfig(preferredNodeName: node.name);
+      return;
+    }
     if (!_latencyController.canSelect(node)) return;
     final core = context.read<ClashService>();
     final generation = core.captureAutomaticRestartIntent();
@@ -304,34 +313,6 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     );
   }
 
-  Future<void> _showNodeContextMenu(
-    ProxyNode node,
-    TapDownDetails details,
-  ) async {
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    final overlayRect = Offset.zero & overlay.size;
-    final selected = await showSsrvpnLiquidMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(
-          details.globalPosition & const Size(1, 1), overlayRect),
-      items: [
-        SsrvpnLiquidMenuItem<String>(
-          value: 'edit',
-          child: const Row(children: [
-            Icon(Icons.edit_outlined, size: 18),
-            SizedBox(width: 10),
-            Text('编辑'),
-          ]),
-        ),
-      ],
-    );
-    if (selected != 'edit' || !mounted) return;
-    await Navigator.of(
-      context,
-    ).push<bool>(
-        SsrvpnGlassPageRoute(builder: (_) => NodeEditScreen(node: node)));
-  }
-
   Future<ProxyNode?> _resolveRuntimeSelectedNode(
     ClashService clashService,
     List<ProxyNode> nodes,
@@ -343,12 +324,13 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     );
   }
 
-  Future<void> _runBatchLatencyTest() async {
+  Future<void> _runBatchLatencyTest([List<ProxyNode>? requestedNodes]) async {
     if (_nodes.isEmpty) return;
     final clashService = context.read<ClashService>();
     final subscriptionService = context.read<SubscriptionService>();
     final timeout = context.read<SettingsService>().settings.latencyTestTimeout;
-    final nodesUnderTest = List<ProxyNode>.from(_nodes);
+    final nodesUnderTest = List<ProxyNode>.from(requestedNodes ?? _nodes);
+    if (nodesUnderTest.isEmpty) return;
     final subscriptionRevision = subscriptionService.revision;
     _cancelLatencyBatch();
     final generation = _latencyController.beginBatch();
@@ -376,7 +358,7 @@ extension _DesktopHomeRuntimeActions on _HomeScreenState {
     } catch (error) {
       AppLogger.warning('Latency', '批量延迟测试失败: $error');
     }
-    _latencyBatchTimer?.cancel();
+    if (_latencyBatchGeneration == generation) _latencyBatchTimer?.cancel();
     if (!isCurrent()) {
       if (_canUpdateUi && _latencyBatchGeneration == generation) {
         setState(_cancelLatencyBatch);

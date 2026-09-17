@@ -1,4 +1,5 @@
 import '../utils/log_redactor.dart';
+import '../services/subscription_failure_diagnosis.dart';
 
 enum AppErrorCode {
   coreMissing('CORE_MISSING'),
@@ -54,8 +55,13 @@ String safeUserFacingFailureMessage(Object? error) {
 String safeUserFacingFailureWithAction(Object? error, String action) =>
     '${safeUserFacingFailureMessage(error)}\n${action.trim()}';
 
-String safeSubscriptionFailureMessage(Object? error) =>
-    safeUserFacingFailureMessage(error);
+String safeSubscriptionFailureMessage(Object? error) {
+  final diagnosis =
+      SubscriptionFailureDiagnosis.fromError(error ?? StateError('missing'));
+  return diagnosis.code == 'SUB_UNKNOWN'
+      ? safeUserFacingFailureMessage(error)
+      : diagnosis.summary;
+}
 
 class AppFailure {
   const AppFailure({
@@ -63,14 +69,43 @@ class AppFailure {
     required this.title,
     required this.message,
     required this.recommendedAction,
+    this.summary,
   });
 
   final AppErrorCode code;
   final String title;
   final String message;
   final String recommendedAction;
+  final String? summary;
 
-  String get userMessage => '$title\n$message\n$recommendedAction';
+  String get userMessage =>
+      summary ??
+      switch (code) {
+        AppErrorCode.coreMissing => '连接服务文件不完整，请重新安装官方客户端。',
+        AppErrorCode.coreStartTimeout => '连接服务启动时间过长，请稍后重新连接。',
+        AppErrorCode.coreUnavailable => '暂时无法与连接服务正常通信，请运行诊断确认状态。',
+        AppErrorCode.localProxyUnavailable => '本地连接服务尚未准备好，请稍后重新连接。',
+        AppErrorCode.dataPlaneDegraded => '暂未确认能否正常上网，请打开网页检查实际使用情况。',
+        AppErrorCode.networkTimeout => '服务器未能及时响应，请检查网络或稍后重试。',
+        AppErrorCode.networkUnavailable => '暂时无法联系目标服务器，请检查网络或稍后重试。',
+        AppErrorCode.secureConnectionFailed => '无法建立可信的加密连接，请检查设备时间或联系服务提供方。',
+        AppErrorCode.portOccupied => '连接所需的本地端口被占用，请关闭冲突程序或更改代理端口。',
+        AppErrorCode.configInvalid => '配置无法使用，请检查节点名称、服务器、端口和认证信息。',
+        AppErrorCode.subscriptionFailed => '订阅刷新失败，请确认链接或稍后重试。',
+        AppErrorCode.unknown => '操作未完成，暂时无法确定具体原因，请重试或复制诊断报告。',
+        AppErrorCode.updateFailed => '更新失败，当前版本仍可使用，请稍后重试。',
+        AppErrorCode.proxyRecoveryPending => '系统代理待恢复，请保持断开并点击修复系统代理。',
+        AppErrorCode.appLocationRequired => '请先把客户端移到“应用程序”文件夹，再打开并连接。',
+        AppErrorCode.networkConflict => '网络连接存在冲突，请关闭其他 VPN 并确认网络稳定后重试。',
+        AppErrorCode.systemProxyApplyFailed => '系统未能应用连接设置，请检查其他代理软件后重试。',
+        AppErrorCode.systemProxyChanged => '系统连接设置已被修改，请确认是否正在使用其他代理软件。',
+        AppErrorCode.systemProxyOwnershipUnavailable =>
+          '暂时无法读取系统连接设置，请运行诊断确认状态。',
+        AppErrorCode.tunRecoveryPending => '上次连接的网络设置尚未恢复，请保持断开并再次尝试连接。',
+        AppErrorCode.permissionRequired => recommendedAction,
+        AppErrorCode.subscriptionPartial => '部分订阅未能更新，原有可用数据已保留，请查看失败详情。',
+        AppErrorCode.subscriptionChanged => '订阅已发生变化，请重新连接以使用最新节点。',
+      };
 
   static AppFailure fromMessage(Object? error) {
     final text = error?.toString().trim().toLowerCase() ?? '';
@@ -78,6 +113,7 @@ class AppFailure {
       return const AppFailure(
         code: AppErrorCode.configInvalid,
         title: '分流规则未就绪',
+        summary: '本次连接的分流规则未能加载，请重新连接或复制诊断报告。',
         message: '本次连接所需的分流规则文件未能完整加载。',
         recommendedAction: '请重新连接；若仍然失败，请导出运行日志以定位缺失的规则文件。',
       );
@@ -87,6 +123,7 @@ class AppFailure {
       return const AppFailure(
         code: AppErrorCode.permissionRequired,
         title: '尚未允许 VPN 连接',
+        summary: '尚未获得系统连接许可，请重新连接并在弹窗中选择允许。',
         message: '系统 VPN 授权未通过，本次连接没有建立。',
         recommendedAction: '请再次点击连接，在系统“网络连接请求”中选择允许或确定。',
       );
@@ -95,6 +132,7 @@ class AppFailure {
       return const AppFailure(
         code: AppErrorCode.permissionRequired,
         title: '已取消 TUN 授权',
+        summary: '连接已取消，重新连接时请在系统弹窗中完成授权。',
         message: '管理员验证未完成，本次 TUN 连接没有启动。',
         recommendedAction: '需要使用 TUN 时，请再次连接并在系统窗口完成管理员验证。',
       );
@@ -103,6 +141,7 @@ class AppFailure {
       return const AppFailure(
         code: AppErrorCode.coreUnavailable,
         title: '本地控制服务认证失败',
+        summary: '客户端与连接服务的信息不一致，请退出并重新打开客户端。',
         message: '应用与本地 VPN 服务的连接信息不一致。',
         recommendedAction: '请退出并重新打开 SSRVPN 后重试；仍失败请查看诊断中的核心状态。',
       );
@@ -111,6 +150,7 @@ class AppFailure {
       return const AppFailure(
         code: AppErrorCode.coreUnavailable,
         title: '系统 VPN 接口未能就绪',
+        summary: '系统连接服务未准备好，请确认授权并关闭其他 VPN 后重试。',
         message: 'VPN 接口或网络保护组件未能完成初始化。',
         recommendedAction: '请确认已允许 VPN，断开其他 VPN 后重新连接；仍失败请重启应用。',
       );
@@ -119,6 +159,7 @@ class AppFailure {
       return const AppFailure(
         code: AppErrorCode.coreUnavailable,
         title: '上一项连接操作尚未结束',
+        summary: '上一项连接操作还未结束，请稍候再试。',
         message: 'VPN 服务仍在启动或清理上一条连接。',
         recommendedAction: '请等待几秒后再次连接；若一直无法完成，请查看诊断中的核心状态。',
       );
@@ -127,6 +168,7 @@ class AppFailure {
       return const AppFailure(
         code: AppErrorCode.systemProxyApplyFailed,
         title: '系统代理尚未确认生效',
+        summary: '系统尚未确认连接设置生效，请等待网络稳定后重新连接。',
         message: '代理设置已提交，但 macOS 当前网络未能及时确认使用该设置。',
         recommendedAction: '请确认当前网络稳定后重新连接；若反复发生，请检查其他代理软件并运行诊断。',
       );
@@ -186,6 +228,12 @@ class AppFailure {
         ),
       AppErrorCode.networkUnavailable => AppFailure(
           code: AppErrorCode.networkUnavailable,
+          summary: text.contains('failed host lookup') ||
+                  text.contains('地址解析失败')
+              ? '暂时找不到服务器地址，请检查网络或稍后重试。'
+              : text.contains('connection refused') || text.contains('目标服务拒绝')
+                  ? '目标服务器拒绝了本次连接，请稍后重试或联系服务提供方。'
+                  : null,
           title: text.contains('connection refused') || text.contains('目标服务拒绝')
               ? '目标服务拒绝连接'
               : text.contains('failed host lookup') || text.contains('地址解析失败')
@@ -576,12 +624,14 @@ class AppDiagnosticLogEntry {
     required this.level,
     required this.category,
     required this.message,
+    this.technicalDetail,
   });
 
   final String timeLabel;
   final AppDiagnosticLogLevel level;
   final String category;
   final String message;
+  final String? technicalDetail;
 
   String get levelLabel => switch (level) {
         AppDiagnosticLogLevel.information => '信息',
@@ -609,7 +659,8 @@ List<AppDiagnosticLogEntry> readableDiagnosticLogs(
     if (line.isEmpty) continue;
     final match = pattern.firstMatch(line);
     final rawMessage = match?.group(4) ?? line;
-    final message = _readableDiagnosticMessage(rawMessage);
+    final message = _plainRuntimeSummary(match?.group(3), rawMessage) ??
+        _readableDiagnosticMessage(rawMessage);
     if (message == null || message.isEmpty) continue;
     final level = switch (match?.group(2)?.toUpperCase()) {
       'WARNING' || 'WARN' => AppDiagnosticLogLevel.warning,
@@ -617,7 +668,9 @@ List<AppDiagnosticLogEntry> readableDiagnosticLogs(
       _ => AppDiagnosticLogLevel.information,
     };
     final category = _readableDiagnosticCategory(match?.group(3));
-    final deduplicationKey = '${level.name}|$category|$message';
+    // Different evidence can share a plain-language summary. Only collapse
+    // genuinely repeated observations, not distinct causes or endpoints.
+    final deduplicationKey = '${level.name}|$category|$message|$rawMessage';
     if (!seen.add(deduplicationKey)) continue;
     entries.add(
       AppDiagnosticLogEntry(
@@ -625,6 +678,7 @@ List<AppDiagnosticLogEntry> readableDiagnosticLogs(
         level: level,
         category: category,
         message: message,
+        technicalDetail: message == rawMessage ? null : rawMessage,
       ),
     );
     if (entries.length == maxEntries) break;
@@ -632,13 +686,57 @@ List<AppDiagnosticLogEntry> readableDiagnosticLogs(
   return List.unmodifiable(entries);
 }
 
+// Match owned event categories and explicit observations, never guess a cause
+// from arbitrary core output. Raw evidence remains available in the report.
+String? _plainRuntimeSummary(String? event, String text) {
+  if (event == 'runtime' &&
+      RegExp(r'\b(?:CORE_START_[A-Z_]+|CORE_API_UNAVAILABLE|TUN_RULE_FILES|VPN_PERMISSION_DENIED)\b')
+          .hasMatch(text)) {
+    return AppFailure.fromMessage(text).userMessage;
+  }
+  if (event == 'subscription_refresh') {
+    return text.replaceFirst(RegExp(r' \[SUB_[A-Z0-9_]+\]$'), '');
+  }
+  if (event == 'health_check') {
+    return '暂时无法确认连接状态，正在复查。';
+  }
+  if (event == 'health_recovery_wait') {
+    return '连接状态暂时未通过检查，先保留连接并等待恢复。';
+  }
+  if (event == 'health_recovered') {
+    return '连接状态已恢复正常，本次没有重启连接。';
+  }
+  if (event == 'health_recovery') {
+    if (text.contains('连接运行状态已自动恢复')) return '连接已自动恢复。';
+    if (text.contains('运行状态持续异常')) return '连接状态持续异常，正在尝试恢复。';
+    if (text.contains('恢复失败')) return '自动恢复未完成，请运行诊断确认连接状态。';
+  }
+  if (event == 'data_plane_probe') {
+    if (text.contains('未通过')) return '暂未确认能否正常上网，当前连接仍保持。';
+    if (text.contains('已恢复')) return '已重新确认可以访问外部网络。';
+  }
+  if (event == 'rule_provider_refresh' && text.contains('失败')) {
+    return '本次规则更新未完成，继续使用原有规则。';
+  }
+  if (event == 'latency_probe_failed') {
+    return '这次未能测出节点延迟，暂时无法判断节点是否可用。';
+  }
+  return null;
+}
+
 String _readableDiagnosticCategory(String? event) => switch (event) {
       'rule_provider_baseline' || 'rule_provider_refresh' => '智能规则',
       'data_plane_probe' => '网络检查',
-      'health_check' || 'health_recovery' => '连接恢复',
+      'health_check' ||
+      'health_recovery' ||
+      'health_recovery_wait' ||
+      'health_recovered' =>
+        '连接恢复',
+      'latency_probe_failed' || 'latency_result' => '节点测速',
       'system_proxy_health' => '系统代理',
       'proxy_switch' => '节点切换',
       'connection_cleanup' => '断开连接',
+      'subscription_refresh' => '订阅更新',
       'runtime' => '连接',
       _ => '运行记录',
     };
@@ -784,6 +882,9 @@ class AppDiagnosticReport {
           '- ${entry.timeLabel}｜${entry.levelLabel}｜${entry.category}：'
           '${entry.message}',
         );
+        if (entry.technicalDetail != null) {
+          buffer.writeln('  技术详情：${_safeField(entry.technicalDetail!)}');
+        }
       }
     }
     final text = buffer.toString();

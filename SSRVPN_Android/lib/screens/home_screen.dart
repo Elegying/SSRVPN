@@ -59,6 +59,7 @@ class HomeScreenState extends State<HomeScreen>
   bool _nativeRecoveryInProgress = false;
   String? _connectionNotice;
   bool _isBatchTesting = false;
+  List<ProxyNode>? _retainedRuntimeNodes;
   String? _errorMessage;
   String? _testingNodeName;
   int _singleLatencyGeneration = 0;
@@ -305,7 +306,12 @@ class HomeScreenState extends State<HomeScreen>
               !_isConnected || _latencyController.canSelect(node),
           onClose: () => Navigator.of(routeContext).pop(),
           onRefresh: _loadInitialData,
-          onTestAll: _handleTestAllLatency,
+          onTestAll: _runBatchLatencyTest,
+          onTestNodes: _runBatchLatencyTest,
+          onCancelTest: () {
+            _flushPendingLatencies(_latencyBatchGeneration ?? -1);
+            _updateHomeState(_cancelLatencyBatch);
+          },
           onTestLatency: (node) =>
               _handleTestLatency(node.name, node.server, node.port),
           onSelectNode: _handleSelectNode,

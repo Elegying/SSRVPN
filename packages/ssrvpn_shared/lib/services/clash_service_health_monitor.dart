@@ -206,20 +206,32 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
         return;
       }
       onPeriodicHealthCheckResult(healthy);
+      final previousFailures = _healthFailures.failures;
+      final shouldRecover = _healthFailures.observe(
+        healthy: healthy,
+        now: _healthClock.elapsed,
+        grace: healthFailureGrace,
+        suspensionGap: healthCheckTimeout + statusMonitorInterval * 3,
+        threshold: maxConsecutiveHealthCheckFailures,
+      );
       if (healthy) {
-        _consecutiveHealthCheckFailures = 0;
+        if (previousFailures > 0) {
+          this.log('连接状态已恢复正常，本次没有重启连接。', event: 'health_recovered');
+        }
         scheduleDataPlaneObservation();
       } else if (_isRunning) {
-        _consecutiveHealthCheckFailures++;
         this.log(
-          '运行状态检查失败 ($_consecutiveHealthCheckFailures/'
+          '运行状态检查失败 (${_healthFailures.failures}/'
           '$maxConsecutiveHealthCheckFailures): $_lastHealthCheckError '
           '[connection=${monitorIntent ?? 0}, API=$runtimeApiPort]',
           level: RuntimeLogLevel.warning,
           event: 'health_check',
         );
-        if (_consecutiveHealthCheckFailures >=
-            maxConsecutiveHealthCheckFailures) {
+        if (_healthFailures.failures == 1) {
+          this.log('连接状态暂时未通过检查，先保留连接并等待恢复。',
+              level: RuntimeLogLevel.warning, event: 'health_recovery_wait');
+        }
+        if (shouldRecover) {
           final recoveryGeneration = captureAutomaticRestartIntent();
           stopStatusMonitor();
           final recoveryMonitorEpoch = _healthMonitorEpoch;
@@ -289,7 +301,7 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
           // this continuation runs. Do not publish old failure/status into it.
           if (recoverySuperseded || !intentCurrent) return;
           if (recovered && _isRunning) {
-            _consecutiveHealthCheckFailures = 0;
+            _healthFailures.reset();
             this.log(
               '连接运行状态已自动恢复',
               event: 'health_recovery',
@@ -325,6 +337,7 @@ extension ClashServiceHealthMonitor on ClashServiceBase {
   }
 
   void stopStatusMonitor() {
+    _healthFailures.reset();
     _invalidateHealthMonitorSession();
     _statusTimer?.cancel();
     _statusTimer = null;
