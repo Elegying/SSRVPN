@@ -102,7 +102,7 @@ class AppConstants {
 
   // ── 版本信息 ──
   static const String appName = 'SSRVPN';
-  static const String appVersion = '5.0.8';
+  static const String appVersion = '5.0.9';
   static const String appUserAgent = '$appName/$appVersion';
   static const String appDescription = 'Cross-platform VPN client';
 
@@ -116,8 +116,7 @@ class AppConstants {
 
   // ── Fake IP 配置 ──
   static const String fakeIpRange = '198.18.0.1/16';
-  // TUN keeps an IPv6 address only to capture and reject literal IPv6 traffic,
-  // preventing it from bypassing the IPv4-only runtime policy.
+  // TUN captures IPv6 so it follows the same direct/proxy rules as IPv4.
   static const String tunInet6Address = 'fdfe:dcba:9876::1/126';
   static const List<String> fakeIpFilter = [
     '*.lan',
@@ -187,6 +186,9 @@ class AppConstants {
     'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve',
     'IP-CIDR,100.64.0.0/10,DIRECT,no-resolve',
     'IP-CIDR,169.254.0.0/16,DIRECT,no-resolve',
+    'IP-CIDR6,::1/128,DIRECT,no-resolve',
+    'IP-CIDR6,fc00::/7,DIRECT,no-resolve',
+    'IP-CIDR6,fe80::/10,DIRECT,no-resolve',
   ];
   // High-traffic domestic suffixes stay local so apps such as Douyin remain
   // direct even when an externally refreshed CN domain set misses one.
@@ -226,6 +228,7 @@ class AppConstants {
 
   // All three clients install the verified geoip.metadb beside the Mihomo
   // runtime config, so this rule works offline without another provider.
+  // Legacy runtime recovery compatibility; new configurations do not emit this.
   static const String rejectIpv6Rule = 'IP-CIDR6,::/0,REJECT,no-resolve';
   static const String defaultGeoIpDirectRule = 'GEOIP,CN,DIRECT';
   // Unknown public traffic falls back to the selected node. This spends more

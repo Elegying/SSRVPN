@@ -291,14 +291,14 @@ void main() {
       expect(tunConfig, contains('  enhanced-mode: fake-ip'));
       expect(tunConfig, isNot(contains('  listen: 127.0.0.1:53')));
       expect(tunConfig, isNot(contains('    - tcp://any:53')));
-      expect(tunConfig, isNot(contains('  inet6-address:')));
+      expect(tunConfig, contains('  inet6-address:'));
       expect(tunConfig, isNot(contains('  route-exclude-address:')));
       expect(tunConfig, isNot(contains('  route-address-set:')));
-      expect(tunConfig, contains('ipv6: false'));
+      expect(tunConfig, contains('ipv6: true'));
       expect(tunConfig, isNot(contains('fake-ip-range6:')));
       expect(
         tunConfig,
-        contains('"IP-CIDR6,::/0,REJECT,no-resolve"'),
+        isNot(contains('"IP-CIDR6,::/0,REJECT,no-resolve"')),
       );
 
       for (final config in [systemProxyConfig, tunConfig]) {
@@ -355,7 +355,7 @@ void main() {
       expect(config, isNot(contains('"MATCH,DIRECT"')));
     });
 
-    test('内置 Mihomo 核心接受 IPv4-only TUN 配置', () async {
+    test('内置 Mihomo 核心接受双栈 TUN 配置', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'ssrvpn_macos_ipv6_config_',
       );

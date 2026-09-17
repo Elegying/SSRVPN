@@ -87,6 +87,8 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
 
   Future<bool> healthCheck();
 
+  Future<bool> diagnosticRecentIPv6Failure() async => false;
+
   @protected
   @override
   Future<bool> diagnosticCoreAvailable();
@@ -287,6 +289,18 @@ mixin _ClashDiagnosticsSupport implements ClashPlatformDiagnosticCapability {
           summary: '当前没有检测到数据通道降级',
         ),
       );
+    }
+
+    if (isRunning &&
+        await _runDiagnosticCheck(
+                'ipv6_targets', diagnosticRecentIPv6Failure) ==
+            true) {
+      checks.add(const AppDiagnosticCheck(
+        id: 'ipv6_targets',
+        title: 'IPv6 目标访问',
+        status: AppDiagnosticStatus.warning,
+        summary: '最近一分钟曾有 IPv6 目标连接失败，当前网络或节点可能无法到达该地址；可换节点重试，这不代表其他网站无法使用。',
+      ));
     }
 
     final startError = lastStartError?.trim();

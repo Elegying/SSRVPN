@@ -34,6 +34,40 @@ proxies:
 ''';
 
 void main() {
+  for (final direct in [false, true]) {
+    testWidgets('manual IPv6 rule saves through desktop UI direct=$direct',
+        (tester) async {
+      final fixture =
+          (await tester.runAsync(() => _HomeFixture.create(withNodes: true)))!;
+      addTearDown(fixture.dispose);
+      await tester.pumpWidget(fixture.build());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ssrvpn-current-node-card')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(direct ? '强制直连网站' : '强制代理网站'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byType(TextField).first, 'https://[2001:db8::123]/path');
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        for (var i = 0; i < 100; i++) {
+          final sites = direct
+              ? fixture.settings.settings.forceDirectSites
+              : fixture.settings.settings.forceProxySites;
+          if (sites.contains('https://[2001:db8::123]/path')) return;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+      final sites = direct
+          ? fixture.settings.settings.forceDirectSites
+          : fixture.settings.settings.forceProxySites;
+      expect(sites, contains('https://[2001:db8::123]/path'));
+      expect(find.text('网址 1'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   tearDown(SubscriptionService.resetInstanceForTesting);

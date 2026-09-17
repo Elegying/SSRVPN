@@ -101,6 +101,9 @@ abstract class ClashServiceBase
   @override
   http.Client? get apiClient => _apiClient;
 
+  @override
+  Future<bool> diagnosticRecentIPv6Failure() => _readRecentIPv6TargetFailure();
+
   @protected
   Duration get ruleProviderStartupRefreshDelay =>
       AppConstants.ruleProviderStartupRefreshDelay;

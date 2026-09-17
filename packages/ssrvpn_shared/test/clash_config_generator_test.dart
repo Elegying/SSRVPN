@@ -181,10 +181,10 @@ proxies:
       final parsed = loadYaml(config) as YamlMap;
       final dns = parsed['dns'] as YamlMap;
       final rules = (parsed['rules'] as YamlList).cast<String>();
-      expect(parsed['ipv6'], isFalse);
-      expect(dns['ipv6'], isFalse);
+      expect(parsed['ipv6'], isTrue);
+      expect(dns['ipv6'], isTrue);
       expect(dns.containsKey('fake-ip-range6'), isFalse);
-      expect(rules.first, 'IP-CIDR6,::/0,REJECT,no-resolve');
+      expect(rules, isNot(contains('IP-CIDR6,::/0,REJECT,no-resolve')));
       expect(rules.last, 'MATCH,PROXY');
       expect(rules, isNot(contains('MATCH,DIRECT')));
       expect(config, contains('proxies:'));
@@ -193,7 +193,9 @@ proxies:
       expect(config, contains('Test Node'));
     });
 
-    test('IPv4-only runtime rejects IPv6 before normal routing', () {
+    test(
+        'dual-stack runtime routes IPv6 through normal user and automatic rules',
+        () {
       const yaml = '''
 proxies:
   - name: "Test Node"
@@ -212,12 +214,12 @@ proxies:
       ) as YamlMap;
       final rules = (parsed['rules'] as YamlList).cast<String>();
 
-      expect(parsed['ipv6'], isFalse);
+      expect(parsed['ipv6'], isTrue);
       expect(parsed['tcp-concurrent'], isTrue);
-      expect(rules.first, 'IP-CIDR6,::/0,REJECT,no-resolve');
+      expect(rules, isNot(contains('IP-CIDR6,::/0,REJECT,no-resolve')));
       final forcedIpv6Index =
           rules.indexOf('IP-CIDR6,2001:db8::1/128,PROXY,no-resolve');
-      expect(forcedIpv6Index, greaterThan(0));
+      expect(forcedIpv6Index, 0);
       expect(
         rules.indexOf('IP-CIDR,192.168.0.0/16,DIRECT,no-resolve'),
         greaterThan(forcedIpv6Index),
@@ -514,10 +516,10 @@ proxies:
           (tun['route-exclude-address'] as YamlList).cast<String>();
 
       expect(tun['inet6-address'], isNotEmpty);
-      expect(dns['ipv6'], isFalse);
+      expect(dns['ipv6'], isTrue);
       expect(dns.containsKey('fake-ip-range6'), isFalse);
       expect(excludedRoutes, isNot(anyElement(contains(':'))));
-      expect(rules.first, 'IP-CIDR6,::/0,REJECT,no-resolve');
+      expect(rules, isNot(contains('IP-CIDR6,::/0,REJECT,no-resolve')));
       expect((parsed['proxies'] as YamlList).single['server'], '2001:db8::10');
     });
 
@@ -544,7 +546,7 @@ proxies:
               as YamlMap;
       final rules = (parsed['rules'] as YamlList).cast<String>();
 
-      expect(rules[0], 'IP-CIDR6,::/0,REJECT,no-resolve');
+      expect(rules, isNot(contains('IP-CIDR6,::/0,REJECT,no-resolve')));
       final privateDirectIndex =
           rules.indexOf('IP-CIDR,192.168.0.0/16,DIRECT,no-resolve');
       final forcedDomainIndex =
@@ -576,7 +578,7 @@ proxies:
               AppSettings(forceDirectSites: const ['ipify.org', 'ip.sb'])))
           as YamlMap;
       final rules = (config['rules'] as YamlList).cast<String>();
-      expect(rules.first, 'IP-CIDR6,::/0,REJECT,no-resolve');
+      expect(rules, isNot(contains('IP-CIDR6,::/0,REJECT,no-resolve')));
       expect(rules.indexOf('DOMAIN,api4.ipify.org,PROXY'), greaterThan(0));
       expect(rules.indexOf('DOMAIN,api4.ipify.org,PROXY'),
           greaterThan(rules.indexOf('DOMAIN-SUFFIX,ipify.org,DIRECT')));

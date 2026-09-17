@@ -83,9 +83,6 @@ class _ForceProxySitesDialogState extends State<ForceProxySitesDialog> {
     if (host == null) {
       return '请输入有效的网址或域名';
     }
-    if (host.contains(':')) {
-      return '当前仅支持域名或 IPv4 地址';
-    }
     return null;
   }
 

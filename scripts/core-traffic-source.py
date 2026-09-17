@@ -11,8 +11,11 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = ROOT / 'native/proxy_traffic'
 RUNTIME_FILES = ('sources.json', 'proxy_traffic.go', 'route.go',
-                 'android.patch', 'macos.patch', 'windows.patch')
+                 'android.patch', 'macos.patch', 'windows.patch', 'target_address.go')
 COPIES = {
+    'ipv6_capture_test.go': 'config/ssrvpn_ipv6_capture_test.go',
+    'target_address.go': 'tunnel/ssrvpn_target_address.go',
+    'target_address_test.go': 'tunnel/ssrvpn_target_address_test.go',
     'dns_buffer_test.go': 'component/resolver/ssrvpn_dns_buffer_test.go',
     'proxy_traffic.go': 'tunnel/statistic/ssrvpn_proxy_traffic.go',
     'proxy_traffic_test.go': 'tunnel/statistic/ssrvpn_proxy_traffic_test.go',
@@ -36,8 +39,6 @@ def apply(platform, directory):
         if actual != expected:
             raise SystemExit(f'{platform} core source identity mismatch: {ref}')
     copies = dict(COPIES)
-    if platform == 'windows':
-        copies['ipv6_capture_test.go'] = 'config/ssrvpn_ipv6_capture_test.go'
     patch = BUNDLE / (platform + '.patch')
     subprocess.run(['git', 'apply', '--check', str(patch)], cwd=directory, check=True)
     # Check every destination before modifying the checkout.

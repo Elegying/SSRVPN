@@ -131,8 +131,8 @@ proxies:
         (enabled['tun']['dns-hijack'] as YamlList).cast<String>(),
         ['any:53', 'tcp://any:53'],
       );
-      expect(enabled['ipv6'], isFalse);
-      expect(enabled['dns']['ipv6'], isFalse);
+      expect(enabled['ipv6'], isTrue);
+      expect(enabled['dns']['ipv6'], isTrue);
       expect(enabled['dns'].containsKey('fake-ip-range6'), isFalse);
       expect(enabled['tun']['inet6-address'], isNotEmpty);
       expect(
@@ -140,8 +140,8 @@ proxies:
         isNot(anyElement(contains(':'))),
       );
       expect(
-        (enabled['rules'] as YamlList).first,
-        'IP-CIDR6,::/0,REJECT,no-resolve',
+        (enabled['rules'] as YamlList),
+        isNot(contains('IP-CIDR6,::/0,REJECT,no-resolve')),
       );
       for (final config in [disabled, enabled]) {
         final rules = (config['rules'] as YamlList).cast<String>();
@@ -180,7 +180,7 @@ proxies:
 
       final parsed = loadYaml(config) as YamlMap;
       final rules = (parsed['rules'] as YamlList).cast<String>();
-      expect(rules[0], 'IP-CIDR6,::/0,REJECT,no-resolve');
+      expect(rules, isNot(contains('IP-CIDR6,::/0,REJECT,no-resolve')));
       final blocked = rules.indexOf('DOMAIN-SUFFIX,blocked.example,PROXY');
       final youtube = rules.indexOf('DOMAIN-SUFFIX,youtube.com,PROXY');
       final builtIn = rules.indexOf('DOMAIN-SUFFIX,openai.com,PROXY');

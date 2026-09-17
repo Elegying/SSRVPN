@@ -6,77 +6,82 @@ import 'package:ssrvpn_android/utils/responsive.dart';
 import 'package:ssrvpn_android/widgets/force_proxy_sites_dialog.dart';
 
 void main() {
-  testWidgets('dialog validates one host per field and returns trimmed input',
-      (tester) async {
-    await tester.binding.setSurfaceSize(const Size(800, 1000));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    List<String>? result;
+  for (final direct in [false, true]) {
+    testWidgets(
+        'dialog validates one host per field and returns IPv6 input direct=$direct',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      List<String>? result;
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.lightTheme,
-        home: Builder(
-          builder: (context) {
-            Responsive.init(context);
-            return Scaffold(
-              body: Center(
-                child: ElevatedButton(
-                  onPressed: () async {
-                    result = await ForceProxySitesDialog.show(
-                      context,
-                      savedSites: const [],
-                    );
-                  },
-                  child: const Text('打开设置'),
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          home: Builder(
+            builder: (context) {
+              Responsive.init(context);
+              return Scaffold(
+                body: Center(
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      result = await ForceProxySitesDialog.show(
+                        context,
+                        savedSites: const [],
+                        forceDirect: direct,
+                      );
+                    },
+                    child: const Text('打开设置'),
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
-      ),
-    );
+      );
 
-    await tester.tap(find.text('打开设置'));
-    await tester.pumpAndSettle();
-    expect(find.text('添加强制代理网站'), findsOneWidget);
-    expect(find.textContaining('默认规则已涵盖绝大部分网站'), findsOneWidget);
-    expect(
-        find.byType(TextField), findsNWidgets(AppSettings.forceProxySiteLimit));
+      await tester.tap(find.text('打开设置'));
+      await tester.pumpAndSettle();
+      expect(find.text(direct ? '添加强制直连网站' : '添加强制代理网站'), findsOneWidget);
+      expect(find.textContaining('应用名单优先于这里的设置'), findsOneWidget);
+      expect(find.byType(TextField),
+          findsNWidgets(AppSettings.forceProxySiteLimit));
 
-    await tester.enterText(find.byType(TextField).first, 'one.com two.com');
-    await tester.tap(find.widgetWithText(ElevatedButton, '确定'));
-    await tester.pump();
-    expect(find.text('第 1 个输入框：一个输入框只能填写一个网址'), findsOneWidget);
-    expect(result, isNull);
+      await tester.enterText(find.byType(TextField).first, 'one.com two.com');
+      await tester.tap(find.widgetWithText(ElevatedButton, '确定'));
+      await tester.pump();
+      expect(find.text('第 1 个输入框：一个输入框只能填写一个网址'), findsOneWidget);
+      expect(result, isNull);
 
-    await tester.enterText(find.byType(TextField).first, 'bad_domain.example');
-    await tester.tap(find.widgetWithText(ElevatedButton, '确定'));
-    await tester.pump();
-    expect(find.text('第 1 个输入框：请输入有效的网址或域名'), findsOneWidget);
+      await tester.enterText(
+          find.byType(TextField).first, 'bad_domain.example');
+      await tester.tap(find.widgetWithText(ElevatedButton, '确定'));
+      await tester.pump();
+      expect(find.text('第 1 个输入框：请输入有效的网址或域名'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField).first, '2001:db8::1');
-    await tester.tap(find.widgetWithText(ElevatedButton, '确定'));
-    await tester.pump();
-    expect(find.text('第 1 个输入框：当前仅支持域名或 IPv4 地址'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).first, '2001:::db8');
+      await tester.tap(find.widgetWithText(ElevatedButton, '确定'));
+      await tester.pump();
+      expect(find.text('第 1 个输入框：请输入有效的网址或域名'), findsOneWidget);
 
-    await tester.enterText(
-      find.byType(TextField).first,
-      '  https://Blocked.Example/path  ',
-    );
-    if (AppSettings.forceProxySiteLimit > 1) {
-      await tester.enterText(find.byType(TextField).at(1), 'youtube.com');
-    }
-    await tester.tap(find.widgetWithText(ElevatedButton, '确定'));
-    await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byType(TextField).first,
+        '  https://Blocked.Example/path  ',
+      );
+      if (AppSettings.forceProxySiteLimit > 1) {
+        await tester.enterText(find.byType(TextField).at(1), '2001:db8::1');
+      }
+      await tester.tap(find.widgetWithText(ElevatedButton, '确定'));
+      await tester.pumpAndSettle();
 
-    expect(result, isNotNull);
-    expect(result, hasLength(AppSettings.forceProxySiteLimit));
-    expect(result!.first, 'https://Blocked.Example/path');
-    if (AppSettings.forceProxySiteLimit > 1) {
-      expect(result![1], 'youtube.com');
-    }
-    expect(find.text('添加强制代理网站'), findsNothing);
-  });
+      expect(result, isNotNull);
+      expect(result, hasLength(AppSettings.forceProxySiteLimit));
+      expect(result!.first, 'https://Blocked.Example/path');
+      if (AppSettings.forceProxySiteLimit > 1) {
+        expect(result![1], '2001:db8::1');
+      }
+      expect(find.text(direct ? '添加强制直连网站' : '添加强制代理网站'), findsNothing);
+    });
+  }
 
   testWidgets('cancel closes the dialog without changing settings',
       (tester) async {

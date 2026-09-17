@@ -21,6 +21,44 @@ void main() {
   ]) =>
       (status: status, interfaces: interfaces);
 
+  test('active TUN protection does not warn or clear recovery state', () {
+    final gate = WindowsTunTeardownGate()..markPending(const [identity7]);
+    AppDiagnosticCheck check(bool active) =>
+        buildWindowsPlatformDiagnosticChecks(
+          activeTunSession: active,
+          recoveryPending: false,
+          ownershipWarning: null,
+          tunRecovery: gate,
+        ).singleWhere((check) => check.id == 'tun_recovery');
+    expect(check(true).status, AppDiagnosticStatus.passed);
+    expect(check(true).summary, contains('当前 TUN 连接'));
+    expect(check(true).errorCode, isNull);
+    expect(gate.pending, isTrue);
+    expect(gate.interfaces, contains(identity7));
+    expect(gate.shouldProbeBeforeStart(enableTun: false), isTrue);
+    expect(check(false).status, AppDiagnosticStatus.warning);
+    expect(check(false).errorCode, AppErrorCode.tunRecoveryPending);
+    for (final status in WindowsTunResidualStatus.values) {
+      gate.observe(residual(status));
+      expect(check(false).status, AppDiagnosticStatus.warning);
+    }
+    gate.accept(residual(WindowsTunResidualStatus.gone));
+    expect(check(false).status, AppDiagnosticStatus.passed);
+    expect(check(false).errorCode, isNull);
+  });
+
+  test('active session cannot hide incomplete recovery ownership', () {
+    final checks = buildWindowsPlatformDiagnosticChecks(
+      activeTunSession: true,
+      recoveryPending: false,
+      ownershipWarning: null,
+      tunRecovery: WindowsTunTeardownGate()..markPending(),
+    );
+    final check = checks.singleWhere((check) => check.id == 'tun_recovery');
+    expect(check.status, AppDiagnosticStatus.warning);
+    expect(check.summary, contains('记录不完整'));
+  });
+
   test('diagnostics distinguish unknown checks from confirmed residuals', () {
     final gate = WindowsTunTeardownGate()..markPending(const [identity7]);
     expect(gate.diagnosticSummary, contains('恢复记录'));

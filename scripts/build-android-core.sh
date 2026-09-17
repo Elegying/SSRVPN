@@ -108,7 +108,7 @@ cd "$SOURCE_DIR"
 "$GO_BIN" get -tool "golang.org/x/mobile/cmd/gobind@$MOBILE_VERSION"
 "$GO_BIN" mod download all
 GOFLAGS=-trimpath "$GO_BIN" test -p 2 -tags=with_gvisor,cmfa ./bridge ./tunnel/statistic ./adapter/outbound ./hub/route
-GOFLAGS=-trimpath "$GO_BIN" test -p 2 -tags=with_gvisor,cmfa -run TestSSRVPN ./component/resolver
+GOFLAGS=-trimpath "$GO_BIN" test -p 2 -tags=with_gvisor,cmfa -run TestSSRVPN ./component/resolver ./config ./tunnel
 GOFLAGS=-trimpath gomobile bind \
   -target=android/arm64 \
   -androidapi=24 \

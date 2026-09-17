@@ -1,13 +1,81 @@
 import 'package:ssrvpn_shared/models/subscription.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_subscription_edit_dialog.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssrvpn_shared/models/app_diagnostics.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_diagnostics_dialog.dart';
 import 'package:ssrvpn_shared/services/update_service.dart';
 import 'package:ssrvpn_shared/widgets/ssrvpn_glass_dialog_route.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' as glass;
+import 'package:ssrvpn_shared/widgets/ssrvpn_glass_capture.dart';
 
 void main() {
+  testWidgets('dialog shares wallpaper frames across resize and nested popups',
+      (tester) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    tester.view.physicalSize = const Size(800, 900);
+    ValueListenable<SsrvpnGlassFrame?>? source;
+    ValueListenable<SsrvpnGlassFrame?>? popup;
+    ValueListenable<SsrvpnGlassFrame?>? nested;
+    await tester.pumpWidget(MaterialApp(
+      home: glass.LiquidGlassScope(
+        child: SsrvpnGlassCapture(
+          captureSupported: true,
+          child: Stack(fit: StackFit.expand, children: [
+            const SsrvpnGlassBackgroundSource(
+                child: ColoredBox(color: Colors.blue)),
+            Builder(builder: (context) {
+              source = SsrvpnGlassFrame.listenableOf(context);
+              return ColoredBox(
+                color: Colors.red,
+                child: TextButton(
+                  onPressed: () => showSsrvpnGlassDialog<void>(
+                    context: context,
+                    builder: (dialogContext) {
+                      popup = SsrvpnGlassFrame.listenableOf(dialogContext);
+                      return Dialog(
+                          child: TextButton(
+                        child: const Text('nested'),
+                        onPressed: () => showSsrvpnGlassDialog<void>(
+                          context: dialogContext,
+                          builder: (nestedContext) {
+                            nested =
+                                SsrvpnGlassFrame.listenableOf(nestedContext);
+                            return const Dialog(child: Text('details'));
+                          },
+                        ),
+                      ));
+                    },
+                  ),
+                  child: const Text('open'),
+                ),
+              );
+            }),
+          ]),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(source!.value, isNotNull);
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(popup, same(source));
+    final oldImage = source!.value!.image;
+    tester.view.physicalSize = const Size(500, 900);
+    await tester.pumpAndSettle();
+    expect(popup!.value!.image, isNot(same(oldImage)));
+    final pixels =
+        await tester.runAsync(() => popup!.value!.image.toByteData());
+    // The red foreground must never enter the shared wallpaper texture.
+    expect(pixels!.getUint8(0), (Colors.blue.toARGB32() >> 16) & 0xff);
+    expect(pixels.getUint8(2), Colors.blue.toARGB32() & 0xff);
+    await tester.tap(find.text('nested'));
+    await tester.pumpAndSettle();
+    expect(nested, same(source));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('repeated subscription edit cancel preserves the underlying page',
       (tester) async {
     await tester.pumpWidget(MaterialApp(

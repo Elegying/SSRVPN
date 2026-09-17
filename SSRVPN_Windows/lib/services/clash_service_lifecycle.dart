@@ -254,21 +254,10 @@ mixin _WindowsCoreLifecycle on ClashServiceBase {
   bool get diagnosticConfigRequired => true;
 
   @override
-  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() async {
-    return [
-      await _buildWindowsCoreSessionDiagnostic(
-        process: _coreProcess,
-        starting: _startOperation != null,
-        stopping: _stopOperation != null,
-        tun: _coreUsesTun,
-      ),
-      ..._buildWindowsPlatformDiagnosticChecks(
-        recoveryPending: _proxyService.recoveryPending,
+  Future<List<AppDiagnosticCheck>> platformDiagnosticChecks() =>
+      _windowsPlatformDiagnosticChecks(
         ownershipWarning: connectivityOwnershipWarning,
-        tunRecovery: _tunTeardownGate,
-      ),
-    ];
-  }
+      );
 
   @override
   Future<AppRepairResult> repairDiagnosticIssue(AppRepairAction action) async {

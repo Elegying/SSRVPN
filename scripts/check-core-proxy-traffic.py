@@ -150,7 +150,7 @@ rules:
             status, body = request(api, '/ssrvpn/traffic')
             assert status == 200
             value = json.loads(body)
-            assert set(value) == {'upload', 'download', 'sessionGeneration', 'sampledAtMillis'}
+            assert set(value) == {'upload', 'download', 'sessionGeneration', 'sampledAtMillis', 'ipv6TargetFailures', 'ipv6LastFailureAgoMillis'}
             return value
 
         def transfer(port, count):

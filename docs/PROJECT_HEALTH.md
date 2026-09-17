@@ -2,9 +2,18 @@
 
 最近更新：2026-09-17
 
-当前应用版本：`v5.0.8`
+当前应用版本：`v5.0.9`
 
 最新正式版本：[GitHub Releases 当前正式版](https://github.com/Elegying/SSRVPN/releases/latest)
+
+## v5.0.9 发布候选
+
+源码版本为 `5.0.9+5009`，包含三端双栈分流、代理目标 IPv4 优先、Windows TUN 恢复保护诊断修正和弹窗玻璃裁剪修复。
+本地完整检查、Mac/安卓构建及已安装候选一致性核验见
+[发布准备复核](uat/SSRVPN_发布准备复核_20260917.md)。升版前的 5.0.8 本地候选承载本轮实机证据，
+最终公开产物仍需以远端构建结果为准。Windows 本轮按维护者决定不做实机验收。
+当前节点不具备 IPv6 出口，IPv6-only 目标的限制和测试站证书问题见
+[macOS IPv6-only 归因](diagnostics/macos-ipv6-only-investigation-20260917.md)。
 
 ## v5.0.8 发布候选
 

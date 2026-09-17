@@ -123,9 +123,9 @@ class ClashConfigGenerator {
     result.writeln('mode: rule');
     result.writeln('log-level: info');
     result.writeln("external-controller: '127.0.0.1:${settings.apiPort}'");
-    result.writeln('# SSRVPN IPv4-only runtime');
-    result.writeln('ipv6: false');
-    // Keep racing multiple IPv4 answers to reduce single-address failures.
+    result.writeln('# SSRVPN dual-stack runtime');
+    result.writeln('ipv6: true');
+    // Keep concurrent dialing to reduce single-address failures.
     result.writeln('tcp-concurrent: true');
     result.writeln('etag-support: true');
     final apiSecret = RuntimeConfigNamePolicy.canonicalApiSecret(
@@ -167,7 +167,7 @@ class ClashConfigGenerator {
       if (dnsListen != null && dnsListen.isNotEmpty) {
         result.writeln('  listen: $dnsListen');
       }
-      result.writeln('  ipv6: false');
+      result.writeln('  ipv6: true');
       result.writeln('  enhanced-mode: fake-ip');
       result.writeln('  respect-rules: true');
       result.writeln('  fake-ip-range: ${AppConstants.fakeIpRange}');
@@ -342,9 +342,9 @@ class ClashConfigGenerator {
         result.writeln('    payload: ${jsonEncode(payload)}');
       }
     }
-    // 按首次出现顺序去重：IPv6 边界、应用规则、用户规则、私网、
+    // 按首次出现顺序去重：应用规则、用户规则、私网、
     // 自动代理/GFW、国内域名/IP，最后未知流量代理。
-    final orderedRules = <String>{AppConstants.rejectIpv6Rule};
+    final orderedRules = <String>{};
     final extraRules = extraRulesBeforeDirect
         .map((rule) => rule.trim())
         .where((rule) => rule.isNotEmpty)

@@ -292,12 +292,13 @@ proxies:
     expect(await run(() async => ++starts == 2), isTrue);
     final rules = (loadYaml(await File(configPath).readAsString())
         as Map)['rules'] as List;
-    expect(rules.first, AppConstants.rejectIpv6Rule);
-    expect(rules[1], startsWith('PROCESS-NAME,'));
+    expect(rules, isNot(contains(AppConstants.rejectIpv6Rule)));
+    expect(rules.first, startsWith('PROCESS-NAME,'));
     expect(rules, contains('PROCESS-NAME,com.foreign.v1,PROXY'));
   });
 
-  test('restoring apps into a config without apps retains IPv6 precedence',
+  test(
+      'restoring apps into a config without apps retains application precedence',
       () async {
     await confirmOld();
     await install('2.0.0');
@@ -308,9 +309,49 @@ proxies:
         .removeWhere((rule) => (rule as String).startsWith('PROCESS-NAME,'));
     final source = await recovery.rewriteConfig(jsonEncode(document), '1.0.0');
     final rules = (loadYaml(source) as Map)['rules'] as List;
-    expect(rules.first, AppConstants.rejectIpv6Rule);
-    expect(rules[1], startsWith('PROCESS-NAME,'));
+    expect(rules, isNot(contains(AppConstants.rejectIpv6Rule)));
+    expect(rules.first, startsWith('PROCESS-NAME,'));
   });
+
+  for (final dualStack in [false, true]) {
+    test(
+        'rule rollback preserves ${dualStack ? 'dual-stack' : 'legacy'} routing',
+        () async {
+      await confirmOld();
+      await install('2.0.0');
+      final document = jsonDecode(
+          jsonEncode(loadYaml(await File(configPath).readAsString()))) as Map;
+      document['ipv6'] = dualStack;
+      (document['dns'] as Map)['ipv6'] = dualStack;
+      document['tun'] = {
+        'enable': true,
+        'inet4-address': ['198.18.0.1/30'],
+        if (dualStack) 'inet6-address': ['fdfe:dcba:9876::1/126'],
+      };
+      final rules = document['rules'] as List;
+      rules.insertAll(0, [
+        if (!dualStack) AppConstants.rejectIpv6Rule,
+        'IP-CIDR6,2001:db8::1/128,DIRECT,no-resolve',
+        'IP-CIDR6,2001:db8::2/128,PROXY,no-resolve',
+      ]);
+      await File(configPath).writeAsString(jsonEncode(document));
+      error = 'CORE_START_RULES: missing';
+      var starts = 0;
+      expect(await run(() async => ++starts == 2), isTrue);
+      final restored = loadYaml(await File(configPath).readAsString()) as Map;
+      for (final key in ['ipv6', 'dns', 'tun', 'proxies']) {
+        expect(restored[key], document[key], reason: key);
+      }
+      expect(
+          (restored['rules'] as List)
+              .where((rule) => !(rule as String).startsWith('PROCESS-NAME,')),
+          rules.where((rule) => !(rule as String).startsWith('PROCESS-NAME,')));
+      expect(
+          SmartRuleRecovery.configVersion(
+              await File(configPath).readAsString()),
+          '1.0.0');
+    });
+  }
 
   test('cancellation during cleanup never retries or changes config', () async {
     await confirmOld();
