@@ -60,8 +60,9 @@ void main() {
         providers: usageProviders(),
         onDiagnostic: logs.add,
         fetch: (_) async {
-          if (fail)
+          if (fail) {
             throw const UsageQueryFailure.reason(UsageFailureKind.timeout);
+          }
           return AccountUsage.parse(usageJson());
         });
     addTearDown(controller.dispose);
